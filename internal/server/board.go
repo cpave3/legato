@@ -57,6 +57,11 @@ func (s *Server) boardHandler() http.HandlerFunc {
 					IssueType:      c.IssueType,
 					Status:         c.Status,
 					Provider:       c.Provider,
+					RemoteID:       c.RemoteID,
+					SourceURL:      c.URL,
+					BlockedBy:      c.BlockedBy,
+					Milestone:      c.Milestone,
+					Labels:         c.Labels,
 					HasWarning:     c.HasWarning,
 					HasWorktree:    c.HasWorktree,
 					WorkspaceID:    c.WorkspaceID,
@@ -86,15 +91,31 @@ func (s *Server) boardHandler() http.HandlerFunc {
 		}
 
 		// agent states
+		var agents []service.AgentSession
 		if s.agents != nil && len(allTaskIDs) > 0 {
-			agents, _ := s.agents.ListAgents(ctx)
+			agents, _ = s.agents.ListAgents(ctx)
 			for id, summary := range service.SummarizeRelatedAgents(agents) {
 				if r, ok := cardRefs[id]; ok {
+					// The main agent's own state: a named slot that waits
+					// says so in needs_you.
+					state := summary.State
+					if summary.Count > 0 {
+						state = summary.MainState
+					}
 					resp.Columns[r.col].Cards[r.card].AgentActive = summary.Active
-					resp.Columns[r.col].Cards[r.card].AgentState = summary.State
+					resp.Columns[r.col].Cards[r.card].AgentState = state
 					resp.Columns[r.col].Cards[r.card].AgentKind = summary.Kind
 					resp.Columns[r.col].Cards[r.card].AgentEngram = summary.Engram
 					resp.Columns[r.col].Cards[r.card].SlotAgents = summary.Slots
+				}
+			}
+		}
+
+		// What waits on the operator, by task.
+		if len(allTaskIDs) > 0 {
+			for id, needs := range s.needsYouByTask(ctx, agents) {
+				if r, ok := cardRefs[id]; ok {
+					resp.Columns[r.col].Cards[r.card].NeedsYou = needs
 				}
 			}
 		}
@@ -174,7 +195,7 @@ func prMetaResponse(pr service.PRMetaView) PRMetaResponse {
 	return PRMetaResponse{
 		Repo: pr.Repo, Branch: pr.Branch, PRNumber: pr.PRNumber, PRURL: pr.PRURL, State: pr.State,
 		IsDraft: pr.IsDraft, ReviewDecision: pr.ReviewDecision, CheckStatus: pr.CheckStatus,
-		CommentCount: pr.CommentCount, Pinned: pr.Pinned, MatchMethod: pr.MatchMethod,
+		CommentCount: pr.CommentCount, Base: pr.Base, Pinned: pr.Pinned, MatchMethod: pr.MatchMethod,
 		SyncOutcome: pr.SyncOutcome, SyncError: pr.SyncError,
 	}
 }
@@ -957,4 +978,21 @@ func (s *Server) taskActivityHandler() http.HandlerFunc {
 		}
 		s.writeJSON(w, http.StatusOK, activity)
 	}
+}
+
+// needsYouByTask is what waits on the operator for each task, from
+// Attention's open items, the pending approvals, the agents and the
+// interrupted agents; each source left out when its service is missing.
+func (s *Server) needsYouByTask(ctx context.Context, agents []service.AgentSession) map[string]*service.CardNeedsYou {
+	src := service.NeedsYouSources{Agents: agents}
+	if s.attention != nil {
+		src.Attention, _ = s.attention.List(ctx, service.AttentionFilter{})
+	}
+	if s.approvals != nil {
+		src.Approvals, _ = s.approvals.List(ctx, store.ApprovalFilter{Status: store.ApprovalPending})
+	}
+	if interrupted, ok := s.agents.(service.InterruptedAgents); ok {
+		src.Interrupted, _ = interrupted.ListInterruptedAgents(ctx)
+	}
+	return service.NeedsYouByTask(src)
 }

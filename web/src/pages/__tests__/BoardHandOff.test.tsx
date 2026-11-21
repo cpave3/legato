@@ -75,7 +75,8 @@ describe("Handing off from the board", () => {
     expect(screen.getByRole("button", { name: "Doing, 0 cards" })).toBeTruthy()
     const lane = screen.getByRole("region", { name: "Away" })
     const vm1 = within(lane).getByRole("group", { name: "vm-1" })
-    expect(within(vm1).getByRole("button", { name: /Find the leak/ }).textContent).toContain("from Doing")
+    const card = within(vm1).getByText("Find the leak").closest("[data-card]") as HTMLElement
+    expect(within(card).getByTestId("away-strip").textContent).toContain("from Doing")
   })
 
   it("opens the Hand off form from a card's right-click menu", async () => {
@@ -96,7 +97,7 @@ describe("Handing off from the board", () => {
 
   it("shows a selected away task's panel read-only", async () => {
     renderBoard()
-    fireEvent.click(screen.getByRole("button", { name: /Find the leak/ }))
+    fireEvent.click(within(screen.getByRole("region", { name: "Away" })).getByText("Find the leak"))
     const panel = await screen.findByRole("complementary", { name: "Selected task" })
     await waitFor(() => expect(within(panel).getByText(/read-only while away/i)).toBeTruthy())
     expect(within(panel).queryByRole("button", { name: "Move" })).toBeNull()
@@ -109,6 +110,14 @@ describe("Handing off from the board", () => {
     await waitFor(() => expect((within(dialog).getByRole("combobox", { name: "Worker" }) as HTMLSelectElement).value).toBe("srv-1"))
     const calls = mockFetch.mock.calls.map(([input, init]) => `${init?.method ?? "GET"} ${String(input)}`)
     expect(calls.filter((call) => !call.startsWith("GET "))).toEqual([])
+  })
+
+  it("recalls an away task from its card's menu, after asking", async () => {
+    renderBoard()
+    const card = within(screen.getByRole("region", { name: "Away" })).getByText("Find the leak").closest("[data-card]")!
+    fireEvent.contextMenu(card, { clientX: 10, clientY: 10 })
+    fireEvent.click(screen.getByRole("menuitem", { name: "Recall…" }))
+    expect(await screen.findByRole("dialog", { name: /Recall T-2/ })).toBeTruthy()
   })
 
   it("does not hand off again a task already away", async () => {
@@ -130,7 +139,8 @@ describe("Handing off from the board", () => {
     renderBoard()
     const phone = screen.getByRole("region", { name: "Away on workers" })
     fireEvent.click(within(phone).getByRole("button", { name: "vm-1 · 1 away" }))
-    expect(within(phone).getByRole("button", { name: /Find the leak/ }).textContent).toContain("from Doing")
+    const card = within(phone).getByText("Find the leak").closest("[data-card]") as HTMLElement
+    expect(within(card).getByTestId("away-strip").textContent).toContain("from Doing")
     expect(within(screen.getByRole("tablist", { name: "Columns" })).queryByRole("tab", { name: /^Away/ })).toBeNull()
   })
 })

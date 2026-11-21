@@ -38,20 +38,29 @@ type ColumnResponse struct {
 
 // CardResponse represents a card summary in the board response.
 type CardResponse struct {
-	ID             string `json:"id"`
-	Title          string `json:"title"`
-	Priority       string `json:"priority"`
-	IssueType      string `json:"issue_type"`
-	Status         string `json:"status"`
-	Provider       string `json:"provider"`
-	HasWarning     bool   `json:"has_warning"`
-	HasWorktree    bool   `json:"has_worktree"`
-	WorkspaceID    *int   `json:"workspace_id"`
-	WorkspaceName  string `json:"workspace_name"`
-	WorkspaceColor string `json:"workspace_color"`
-	AgentActive    bool   `json:"agent_active"`
-	AgentState     string `json:"agent_state"`
-	AgentKind      string `json:"agent_kind,omitempty"`
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Priority  string `json:"priority"`
+	IssueType string `json:"issue_type"`
+	Status    string `json:"status"`
+	Provider  string `json:"provider"`
+	// RemoteID is the ticket's key at its provider; SourceURL opens it
+	// there. Both are absent for a local task.
+	RemoteID  string `json:"remote_id,omitempty"`
+	SourceURL string `json:"source_url,omitempty"`
+	// BlockedBy, Milestone and Labels are a Burnlite task's open blockers,
+	// its milestone's key and its labels; absent otherwise.
+	BlockedBy      []string `json:"blocked_by,omitempty"`
+	Milestone      string   `json:"milestone,omitempty"`
+	Labels         []string `json:"labels,omitempty"`
+	HasWarning     bool     `json:"has_warning"`
+	HasWorktree    bool     `json:"has_worktree"`
+	WorkspaceID    *int     `json:"workspace_id"`
+	WorkspaceName  string   `json:"workspace_name"`
+	WorkspaceColor string   `json:"workspace_color"`
+	AgentActive    bool     `json:"agent_active"`
+	AgentState     string   `json:"agent_state"`
+	AgentKind      string   `json:"agent_kind,omitempty"`
 	// AgentEngram is the engram the card's agents run as; absent for none.
 	AgentEngram string `json:"agent_engram,omitempty"`
 	// SlotAgents are the task's running named slots (a reviewer), each
@@ -72,6 +81,9 @@ type CardResponse struct {
 	HandoffFrom *HandoffFromResponse `json:"handoff_from,omitempty"`
 	// Away is set on a main for a task away on a worker.
 	Away *AwayResponse `json:"away,omitempty"`
+	// NeedsYou is what waits on the operator for the task: operator items,
+	// approvals, plans; absent when nothing is open.
+	NeedsYou *service.CardNeedsYou `json:"needs_you,omitempty"`
 }
 
 // HandoffFromResponse is the main instance a handed-off card came from.
@@ -219,10 +231,12 @@ type PRMetaResponse struct {
 	ReviewDecision string `json:"review_decision,omitempty"`
 	CheckStatus    string `json:"check_status,omitempty"`
 	CommentCount   int    `json:"comment_count"`
-	Pinned         bool   `json:"pinned"`
-	MatchMethod    string `json:"match_method,omitempty"`
-	SyncOutcome    string `json:"sync_outcome,omitempty"`
-	SyncError      string `json:"sync_error,omitempty"`
+	// Base is the branch the PR merges into; absent before it was fetched.
+	Base        string `json:"base,omitempty"`
+	Pinned      bool   `json:"pinned"`
+	MatchMethod string `json:"match_method,omitempty"`
+	SyncOutcome string `json:"sync_outcome,omitempty"`
+	SyncError   string `json:"sync_error,omitempty"`
 }
 
 // TrackedBranchResponse is one branch a task tracks. Source is

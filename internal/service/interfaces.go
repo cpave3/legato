@@ -30,10 +30,12 @@ type PRMetaView struct {
 	ReviewDecision string
 	CheckStatus    string
 	CommentCount   int
-	Pinned         bool
-	MatchMethod    string
-	SyncOutcome    string
-	SyncError      string
+	// Base is the branch the PR merges into; "" before it was fetched.
+	Base        string
+	Pinned      bool
+	MatchMethod string
+	SyncOutcome string
+	SyncError   string
 	// Head is the PR's head commit as last fetched; "" before.
 	Head string
 }
@@ -63,12 +65,21 @@ type Column struct {
 
 // Card represents a task summary for list views.
 type Card struct {
-	ID             string
-	Title          string
-	Priority       string
-	IssueType      string
-	Status         string
-	Provider       string // "jira", "github", or "" for local
+	ID        string
+	Title     string
+	Priority  string
+	IssueType string
+	Status    string
+	Provider  string // "jira", "github", or "" for local
+	// RemoteID is the ticket's key at its provider ("LEG-386"); URL opens
+	// the ticket there. Both are empty for a local task.
+	RemoteID string
+	URL      string
+	// BlockedBy, Milestone and Labels are a Burnlite task's open blockers,
+	// its milestone's key and its labels; empty for any other provider.
+	BlockedBy      []string
+	Milestone      string
+	Labels         []string
 	SortOrder      int
 	HasWarning     bool
 	HasWorktree    bool

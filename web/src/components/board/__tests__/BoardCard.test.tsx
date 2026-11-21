@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
 import { BoardCard } from "../BoardCard"
 import type { BoardCard as BoardCardType, PRMetaView } from "../../../lib/board-types"
+import { getRailStateForTests as railState } from "../../../lib/railState"
+import { leg386, pr as stackPR } from "../../../lib/__tests__/fixtures/prStacks"
 
 function pr(number: number, overrides: Partial<PRMetaView> = {}): PRMetaView {
   return {
@@ -48,16 +50,39 @@ describe("BoardCard", () => {
   beforeEach(() => localStorage.clear())
   afterEach(cleanup)
 
-  it("names where the task comes from and its key", () => {
-    renderCard(makeCard())
-    expect(screen.getByText("jira · T-1")).toBeTruthy()
-    renderCard(makeCard({ id: "abc123", provider: "" }))
-    expect(screen.getByText("local · abc123")).toBeTruthy()
+  it.each([
+    [{ provider: "", id: "f41p6uf0" }, "local · f41p6uf0"],
+    [{ provider: "jira", id: "k3x9", remote_id: "AG-7467" }, "Jira · AG-7467"],
+    [{ provider: "burnlite", id: "k3x9q2ma", remote_id: "LEG-386" }, "Burnlite · LEG-386"],
+    [{ provider: "burnlite-copy", id: "w-1", remote_id: "LEG-374", handoff_from: { main: "erebus", main_task_id: "K7Q2M9XA" } }, "Burnlite · LEG-374 ← erebus"],
+  ])("names the source and the ticket's key: %j", (overrides, text) => {
+    renderCard(makeCard(overrides as Partial<BoardCardType>))
+    expect(within(screen.getByTestId("card-source")).getByText(text)).toBeTruthy()
   })
 
-  it("says which main instance handed a card to this worker", () => {
-    renderCard(makeCard({ handoff_from: { main: "workstation", main_task_id: "K7Q2M9XA" } }))
-    expect(screen.getByText("from workstation · K7Q2M9XA")).toBeTruthy()
+  it("leaves out a worker's workspace named after its main", () => {
+    renderCard(makeCard({ provider: "burnlite-copy", remote_id: "LEG-374", workspace_name: "erebus", handoff_from: { main: "erebus", main_task_id: "K7Q2M9XA" } }), { showWorkspace: true })
+    expect(within(screen.getByTestId("card-meta")).queryByText("erebus")).toBeNull()
+  })
+
+  it("tags a Burnlite Milestone in the header, not the meta line", () => {
+    renderCard(makeCard({ provider: "burnlite", remote_id: "LEG-386", issue_type: "Milestone", priority: "" }))
+    expect(within(screen.getByTestId("card-source")).getByText("Milestone")).toBeTruthy()
+    expect(screen.queryByTestId("card-meta")).toBeNull()
+  })
+
+  it("says what blocks a Burnlite task, its milestone and its labels", () => {
+    renderCard(makeCard({ provider: "burnlite", remote_id: "LEG-406", priority: "", issue_type: "Work", blocked_by: ["LEG-405"], milestone: "LEG-404", labels: ["ui", "enhancement"] }))
+    const meta = screen.getByTestId("card-meta")
+    expect(meta.textContent).toBe("Work·Blocked by LEG-405·LEG-404·ui·enhancement")
+    expect(within(meta).getByText("Blocked by LEG-405").className).toContain("text-lw-error")
+  })
+
+  it("lets a long title wrap anywhere, and stops it at three lines on a phone", () => {
+    renderCard(makeCard({ title: "a-very-long-branch-name-without-any-spaces-at-all" }))
+    const title = screen.getByRole("button", { name: /a-very-long/ })
+    expect(title.className).toContain("[overflow-wrap:anywhere]")
+    expect(title.className).toContain("max-md:line-clamp-3")
   })
 
   it("shows a running agent's tool and how long it has worked", () => {
@@ -71,12 +96,78 @@ describe("BoardCard", () => {
     ["error", "Error", ""],
     ["background", "Background", ""],
     ["mixed", "Agents disagree", ""],
-    ["", "Idle", ""],
+    ["", "Idle · Claude Code", "1h 3m"],
   ])("says what an agent in state %j is doing", (state, label, time) => {
     renderCard(makeCard({ agent_state: state }))
     expect(within(strip()).getByText(label)).toBeTruthy()
     expect(within(strip()).queryByText(/Running/)).toBeNull()
     if (time) expect(within(strip()).getByText(time)).toBeTruthy()
+  })
+
+  it("says why a card needs you: the agent's open items, with the way to them", () => {
+    renderCard(makeCard({ agent_state: "", needs_you: { items: { question: 1, action: 1 } } }))
+    const needs = screen.getByTestId("needs-you-strip")
+    expect(within(needs).getByText("Needs you · 1 question, 1 action")).toBeTruthy()
+    expect(within(needs).getByRole("link", { name: "Open" }).getAttribute("href")).toBe("/agents?task=T-1")
+    expect(screen.queryByTestId("agent-strip")).toBeNull()
+  })
+
+  it("says an approval waits, and answers it in the rail", () => {
+    renderCard(makeCard({ agent_state: "waiting", needs_you: { approvals: { count: 1, id: "ap-1", label: "permission to run a command" }, items: { question: 2 } } }))
+    const needs = screen.getByTestId("needs-you-strip")
+    expect(within(needs).getByText("Needs you · permission to run a command")).toBeTruthy()
+    fireEvent.click(within(needs).getByRole("button", { name: "Answer" }))
+    expect(railState().wanted).toBe("ap-1")
+    expect(screen.queryByTestId("agent-strip")).toBeNull()
+  })
+
+  it("says a plan waits for approval, with a link to it", () => {
+    renderCard(makeCard({ agent_state: "", needs_you: { plans: { count: 1, plan_id: "plan-9" } } }))
+    const needs = screen.getByTestId("needs-you-strip")
+    expect(within(needs).getByText("Plan to approve")).toBeTruthy()
+    expect(within(needs).getByRole("link", { name: "Review plan" }).getAttribute("href")).toBe("/plans/plan-9")
+  })
+
+  it("says a reviewer needs you above the main agent's own running strip", () => {
+    const { container } = renderCard(makeCard({ agent_state: "working", agent_engram: "hestia", slot_agents: [{ slot: "reviewer", state: "waiting" }], needs_you: { slots: [{ slot: "reviewer", label: "question", approval_id: "ap-r" }] } }))
+    const strips = Array.from(container.querySelectorAll("[data-testid$='-strip']"))
+    expect(strips.map(strip => strip.getAttribute("data-testid"))).toEqual(["needs-you-strip", "agent-strip"])
+    expect(within(strips[0] as HTMLElement).getByText("Reviewer needs you · question")).toBeTruthy()
+    fireEvent.click(within(strips[0] as HTMLElement).getByRole("button", { name: "Answer" }))
+    expect(railState().wanted).toBe("ap-r")
+    expect(within(strip()).getByText("Running · Claude Code · hestia")).toBeTruthy()
+    expect(within(strip()).getByText("1h 1m")).toBeTruthy()
+    expect(within(strip()).queryByText(/reviewer/)).toBeNull()
+  })
+
+  it("says one of two agents needs you above the one that runs", () => {
+    renderCard(makeCard({ agent_state: "mixed", agent_kind: "codex", needs_you: { agents: 2, waiting_agents: 1, working_agents: 1 } }))
+    const needs = screen.getByTestId("needs-you-strip")
+    expect(within(needs).getByText("1 of 2 agents needs you")).toBeTruthy()
+    expect(within(needs).getByRole("link", { name: "Open" }).getAttribute("href")).toBe("/agents?task=T-1")
+    expect(within(strip()).getByText("1 running · Codex")).toBeTruthy()
+    expect(screen.queryByText("Agents disagree")).toBeNull()
+  })
+
+  it("offers to resume an interrupted agent", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ task_id: "T-1", resumed: true })))
+    vi.stubGlobal("fetch", fetch)
+    renderCard(makeCard({ agent_active: false, agent_state: "", needs_you: { interrupted: { agent_kind: "claude-code", resumable: true } } }))
+    const needs = screen.getByTestId("needs-you-strip")
+    expect(within(needs).getByText("Interrupted · Claude Code")).toBeTruthy()
+    fireEvent.click(within(needs).getByRole("button", { name: "Resume" }))
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled())
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
+    expect(String(url)).toContain("/api/agents/T-1/resume")
+    expect(init.method).toBe("POST")
+    vi.unstubAllGlobals()
+  })
+
+  it("draws what waits on you above what runs", () => {
+    const { container } = renderCard(makeCard({ needs_you: { items: { question: 1 } }, review_ready: true, review_unreviewed: 4, review_tour_id: "tour-1" }))
+    const strips = Array.from(container.querySelectorAll("[data-testid$='-strip']")).map(strip => strip.getAttribute("data-testid"))
+    expect(strips).toEqual(["needs-you-strip", "review-strip", "agent-strip"])
+    expect(within(screen.getByTestId("review-strip")).getByRole("link", { name: "Review" }).getAttribute("href")).toBe("/review/tour-1")
   })
 
   it("has no agent strip without a running agent, and shows the time agents spent instead", () => {
@@ -89,7 +180,7 @@ describe("BoardCard", () => {
     renderCard(makeCard({ agent_active: false, review_ready: true, review_unreviewed: 5, review_tour_id: "tour-9" }))
     const review = screen.getByTestId("review-strip")
     expect(within(review).getByText("5 changes to review")).toBeTruthy()
-    expect(within(review).getByRole("link", { name: /Review/ }).getAttribute("href")).toBe("/review/tour-9")
+    expect(within(review).getByRole("link", { name: "Review" }).getAttribute("href")).toBe("/review/tour-9")
   })
 
   it("says a ready tour with nothing left is reviewed", () => {
@@ -98,44 +189,109 @@ describe("BoardCard", () => {
     expect(screen.getByText("Reviewed")).toBeTruthy()
   })
 
-  it("describes the pull request in one line", () => {
-    renderCard(makeCard({ pull_requests: [pr(42, { is_draft: true, check_status: "fail", review_decision: "CHANGES_REQUESTED", comment_count: 12 })] }))
-    const line = screen.getByLabelText("Pull request #42")
-    for (const text of ["#42", "draft", "CI failed", "changes requested", "12 comments"]) {
-      expect(within(line).getByText(text)).toBeTruthy()
-    }
+  it("describes the pull request in one line: its linked number, one word for its state and a detail", () => {
+    renderCard(makeCard({ pull_requests: [pr(191, { review_decision: "", comment_count: 0 })] }))
+    const line = screen.getByLabelText("Pull request #191")
+    expect(line.textContent).toBe("#191Awaiting review·CI passed")
+    expect(within(line).getByRole("link", { name: "#191" }).getAttribute("href")).toBe("https://github.com/acme/app/pull/191")
   })
 
   it.each([
-    ["pass", "APPROVED", ["CI passed", "approved", "ready to merge"]],
-    ["pending", "", ["CI pending", "review pending"]],
-    ["", "REVIEW_REQUIRED", ["no checks", "review pending"]],
-  ])("words CI %j and review %j", (checks, review, texts) => {
-    renderCard(makeCard({ pull_requests: [pr(42, { check_status: checks, review_decision: review, comment_count: 0 })] }))
+    [{ state: "MERGED", check_status: "fail" }, "Merged"],
+    [{ state: "CLOSED" }, "Closed, not merged"],
+    [{ is_draft: true }, "Draft"],
+    [{ check_status: "pending" }, "CI running"],
+    [{ comment_count: 0 }, "Ready to merge"],
+  ])("words a PR %j as %j, with no button", (overrides, word) => {
+    renderCard(makeCard({ pull_requests: [pr(42, overrides)] }))
     const line = screen.getByLabelText("Pull request #42")
-    for (const text of texts) expect(within(line).getByText(text)).toBeTruthy()
-    expect(within(line).queryByText(/comment/)).toBeNull()
+    expect(within(line).getByText(word)).toBeTruthy()
+    expect(within(line).queryByRole("button")).toBeNull()
+    expect(screen.queryByText("ready to merge")).toBeNull()
   })
 
-  it("never calls a draft ready to merge, and omits the line without a pull request", () => {
-    renderCard(makeCard({ pull_requests: [pr(42, { is_draft: true })] }))
-    expect(screen.queryByText("ready to merge")).toBeNull()
+  it("strikes through a closed PR's number", () => {
+    renderCard(makeCard({ pull_requests: [pr(42, { state: "CLOSED" })] }))
+    expect(screen.getByRole("link", { name: "#42" }).className).toContain("line-through")
+  })
+
+  it("puts a PR that needs the operator in a box on its wash", () => {
+    renderCard(makeCard({ pull_requests: [pr(200, { check_status: "fail", comment_count: 6 })] }))
+    const line = screen.getByLabelText("Pull request #200")
+    expect(line.getAttribute("data-needs-you")).toBe("error")
+    expect(line.textContent).toContain("CI failing · 6 comments")
+  })
+
+  it("folds a stack: its counts, a bar bottom first, the layer that needs you and the run that can merge", () => {
+    renderCard(makeCard({ pull_requests: leg386() }))
+    const stack = screen.getByTestId("pr-stack")
+    expect(within(stack).getByText("Stack of 13 PRs")).toBeTruthy()
+    expect(within(stack).getByText("2 merged")).toBeTruthy()
+    const bar = within(stack).getByRole("img")
+    expect(bar.getAttribute("aria-label")).toBe("2 merged, 4 ready to merge, 1 failing, 1 with CI running, 5 waiting on a layer below")
+    expect(Array.from(bar.children).map(seg => seg.getAttribute("data-segment"))).toEqual(["merged", "merged", "ready", "ready", "ready", "ready", "failing", "held", "held", "running", "held", "held", "held"])
+    const needs = within(stack).getByTestId("stack-needs-you")
+    expect(needs.textContent).toContain("#200CI failing · 6 comments")
+    expect(needs.textContent).toContain("Holds back 6 above it")
+    expect(stack.textContent).toContain("#196–#199 ready to merge, bottom first")
+    expect(screen.queryAllByLabelText(/^Pull request #/)).toEqual([])
+  })
+
+  it("opens a stack bottom first on a rail, dashed above the failing layer, and remembers it", () => {
+    renderCard(makeCard({ id: "T-open", pull_requests: leg386() }))
+    fireEvent.click(screen.getByRole("button", { name: "Show all 13" }))
+    const rows = screen.getAllByRole("listitem")
+    expect(rows.map(row => row.getAttribute("aria-label"))).toEqual(leg386().map(pr => `Pull request #${pr.pr_number}`))
+    expect(within(rows[0]).getByText("Merged")).toBeTruthy()
+    expect(within(rows[6]).getByText("CI failing")).toBeTruthy()
+    expect(within(rows[7]).getByText("Approved")).toBeTruthy()
+    expect(rows.slice(7).every(row => row.hasAttribute("data-held"))).toBe(true)
+    expect(rows.slice(0, 7).some(row => row.hasAttribute("data-held"))).toBe(false)
+    expect(within(rows[2]).getByRole("link", { name: "#196" }).getAttribute("href")).toContain("/pull/196")
+    expect(screen.getByText("cpave3/legato · main")).toBeTruthy()
+    expect(screen.getByTestId("stack-needs-you").textContent).toContain("#200 holds back 6")
     cleanup()
+    renderCard(makeCard({ id: "T-open", pull_requests: leg386() }))
+    expect(screen.getByRole("button", { name: "Show less" }).getAttribute("aria-expanded")).toBe("true")
+    fireEvent.click(screen.getByRole("button", { name: "Show less" }))
+    expect(screen.getByRole("button", { name: "Show all 13" })).toBeTruthy()
+  })
+
+  it("groups a stack by repo, indents a fork and strikes through a closed layer", () => {
+    renderCard(makeCard({ id: "T-fork", pull_requests: [
+      stackPR(10, "merged", "main", { repo: "acme/api" }),
+      stackPR(11, "closed", "main", { repo: "acme/api" }),
+      stackPR(12, "approved", "b10", { repo: "acme/api" }),
+      stackPR(13, "run", "b10", { repo: "acme/api" }),
+      stackPR(4, "draft", "main", { repo: "acme/web" }),
+    ] }))
+    expect(screen.getByText("5 PRs in 2 repos")).toBeTruthy()
+    expect(screen.getByText("1 merged · 1 closed")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Show all 5" }))
+    expect(screen.getAllByRole("list").map(list => list.getAttribute("aria-label"))).toEqual(["acme/api pull requests", "acme/web pull requests"])
+    expect(screen.getByText("acme/web · main")).toBeTruthy()
+    const rows = screen.getAllByRole("listitem")
+    expect(rows.filter(row => row.hasAttribute("data-fork")).map(row => row.getAttribute("aria-label"))).toEqual(["Pull request #12", "Pull request #13"])
+    expect(within(rows[1]).getByRole("link", { name: "#11" }).className).toContain("line-through")
+    expect(within(rows[1]).getByText("Closed, not merged")).toBeTruthy()
+  })
+
+  it("says a fully merged stack in one line", () => {
+    renderCard(makeCard({ pull_requests: [stackPR(1, "merged", "main"), stackPR(2, "merged", "main"), stackPR(3, "merged", "main")] }))
+    expect(screen.getByTestId("pr-stack").textContent).toBe("✓Stack of 3 PRs, all merged")
+    expect(screen.queryByRole("button", { name: /Show all/ })).toBeNull()
+  })
+
+  it("says a stack of drafts is drafts, with no layer that needs you", () => {
+    renderCard(makeCard({ pull_requests: [stackPR(1, "draft", "main"), stackPR(2, "draft", "b1"), stackPR(3, "draft", "b2")] }))
+    expect(screen.getByText("3 drafts")).toBeTruthy()
+    expect(screen.getByText("Drafts. CI passing on all 3.")).toBeTruthy()
+    expect(screen.queryByTestId("stack-needs-you")).toBeNull()
+  })
+
+  it("omits the pull request lines without one", () => {
     renderCard(makeCard({ pull_requests: undefined }))
     expect(screen.queryByLabelText(/Pull request/)).toBeNull()
-  })
-
-  it("lists every pull request of a stack in order, each with its own state", () => {
-    renderCard(makeCard({ pull_requests: [
-      pr(11, { check_status: "fail", review_decision: "", comment_count: 0 }),
-      pr(12, { is_draft: true, comment_count: 0 }),
-      pr(13, { comment_count: 0 }),
-    ] }))
-    const lines = screen.getAllByLabelText(/^Pull request #/)
-    expect(lines.map(line => line.getAttribute("aria-label"))).toEqual(["Pull request #11", "Pull request #12", "Pull request #13"])
-    expect(within(lines[0]).getByText("CI failed")).toBeTruthy()
-    expect(within(lines[1]).getByText("draft")).toBeTruthy()
-    expect(within(lines[2]).getByText("ready to merge")).toBeTruthy()
   })
 
   it("lists priority, type, workspace and swarm progress under the title", () => {
@@ -154,36 +310,50 @@ describe("BoardCard", () => {
     expect(screen.getByText("sync failed")).toBeTruthy()
   })
 
-  it("marks the selected card, and gives an imported card a cyan highlight it scrolls to", () => {
+  it("marks the selected card, and gives an imported card a highlight ring it scrolls to", () => {
     const scrollIntoView = vi.fn()
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView })
     renderCard(makeCard(), { selected: true, highlighted: true })
     const root = screen.getByText("Test title").closest("[data-card]") as HTMLElement
     expect(root.dataset.selected).toBe("true")
     expect(root.dataset.highlightedTask).toBe("true")
-    expect(root.className).toContain("ring-cyan-400")
+    expect(root.className).toContain("lw-highlight")
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center", inline: "nearest" })
   })
 
-  it("dims a card in the Done column", () => {
+  it("steps a Done card's title down to secondary ink without fading the card", () => {
     renderCard(makeCard(), { column: "Done" })
-    expect((screen.getByText("Test title").closest("[data-card]") as HTMLElement).className).toContain("opacity-60")
+    const root = screen.getByText("Test title").closest("[data-card]") as HTMLElement
+    expect(root.className).not.toContain("opacity")
+    expect(screen.getByRole("button", { name: "Test title" }).className).toContain("text-lw-text-2")
   })
 
-  it("traces the edge of a card with a live agent, faster while it works, unless animation is off", () => {
+  it("traces the edge only while an agent works, unless animation is off", () => {
     renderCard(makeCard({ agent_state: "working" }))
     const working = screen.getByText("Test title").closest("[data-card]") as HTMLElement
     expect(working.className).toContain("lw-trace-working")
     cleanup()
-    renderCard(makeCard({ agent_state: "" }))
-    expect((screen.getByText("Test title").closest("[data-card]") as HTMLElement).className).toContain("lw-trace-idle")
-    cleanup()
-    renderCard(makeCard({ agent_active: false, agent_state: "" }))
-    expect((screen.getByText("Test title").closest("[data-card]") as HTMLElement).className).not.toContain("lw-trace")
-    cleanup()
+    for (const state of ["", "waiting", "error", "background", "mixed"]) {
+      renderCard(makeCard({ agent_state: state }))
+      expect((screen.getByText("Test title").closest("[data-card]") as HTMLElement).className).not.toContain("lw-trace")
+      cleanup()
+    }
     localStorage.setItem("legato:animated-agent-activity", "false")
     renderCard(makeCard())
     expect((screen.getByText("Test title").closest("[data-card]") as HTMLElement).className).not.toContain("lw-trace")
+  })
+
+  it.each([
+    [{ agent_state: "waiting" }, "needs", "border-lw-needs"],
+    [{ agent_state: "", needs_you: { plans: { count: 1, plan_id: "p" } } }, "needs", "border-lw-needs"],
+    [{ agent_active: false, agent_state: "", needs_you: { interrupted: { resumable: true } } }, "needs", "border-lw-needs"],
+    [{ agent_state: "error" }, "error", "border-lw-error"],
+    [{ agent_state: "working" }, undefined, "border-lw-line"],
+  ])("gives a card %j a steady edge for what it needs", (overrides, edge, border) => {
+    renderCard(makeCard(overrides as Partial<BoardCardType>))
+    const root = screen.getByText("Test title").closest("[data-card]") as HTMLElement
+    expect(root.dataset.edge).toBe(edge)
+    expect(root.className).toContain(border)
   })
 
   it("opens the action menu from its button and from a right click", () => {

@@ -65,7 +65,7 @@ export interface AwayLook {
 export function awayLook(away: AwayOn): AwayLook {
   const review = away.review
   if (review && away.view !== "unreachable" && away.view !== "lost" && away.view !== "not_accepted") {
-    if (review.phase === "stuck") return { glyph: "?", label: `Review stuck: ${review.reason ?? ""}`.trim(), tone: "text-lw-needs", tint: "bg-lw-needs-soft" }
+    if (review.phase === "stuck") return { glyph: "◆", label: `Review stuck: ${review.reason ?? ""}`.trim(), tone: "text-lw-needs", tint: "bg-lw-needs-soft" }
     if (away.view === "in_review" || away.view === "done") {
       const label = reviewLabel(review)
       const approved = review.phase === "clean" && !review.checks_pending
@@ -76,9 +76,9 @@ export function awayLook(away: AwayOn): AwayLook {
     case "starting":
       return { glyph: "◌", label: "Starting", tone: "text-lw-text-2", tint: "bg-lw-idle-soft" }
     case "working":
-      return { glyph: "●", label: "Working", tone: "text-lw-live", tint: "bg-lw-live-soft" }
+      return { glyph: "●", label: "Running", tone: "text-lw-live", tint: "bg-lw-live-soft" }
     case "needs_you":
-      return { glyph: "?", label: "Needs you", tone: "text-lw-needs", tint: "bg-lw-needs-soft" }
+      return { glyph: "◆", label: "Needs you", tone: "text-lw-needs", tint: "bg-lw-needs-soft" }
     case "idle":
       return { glyph: "○", label: "Idle", tone: "text-lw-text-2", tint: "bg-lw-idle-soft" }
     case "ended":
@@ -102,7 +102,7 @@ export function awayLook(away: AwayOn): AwayLook {
     case "pending":
       return { glyph: "◌", label: "Starting", tone: "text-lw-text-2", tint: "bg-lw-idle-soft" }
     case "in_progress":
-      return { glyph: "●", label: "Working", tone: "text-lw-live", tint: "bg-lw-live-soft" }
+      return { glyph: "●", label: "Running", tone: "text-lw-live", tint: "bg-lw-live-soft" }
     case "done":
       return { glyph: "✓", label: "Done", tone: "text-lw-done", tint: "bg-lw-done-soft" }
     case "failed":
@@ -114,32 +114,101 @@ export function awayLook(away: AwayOn): AwayLook {
   }
 }
 
+export interface AwayStrip {
+  glyph: string
+  text: string
+  // On the right: the review's open counts, else when it was handed off.
+  detail?: string
+  tone: string
+  tint: string
+  // The card's steady edge: needs the operator, or cannot go on.
+  edge: "needs" | "error" | ""
+}
+
+// The phrase for what a review pass is doing, after "Review pass N".
+function reviewPhrase(review: AwayReview): string {
+  switch (review.waiting_on) {
+    case "author_working": return "author fixing"
+    case "author_waiting": return "author waits for an answer"
+    case "author_push": return "waiting for a push"
+    case "github": return "waiting for GitHub"
+    case "start": return "starting the next pass"
+    case "reviewer_slot": return "waiting for a reviewer"
+  }
+  switch (review.phase) {
+    case "reviewing": return "reviewing"
+    case "waiting_for_reviewer": return "waiting for a reviewer"
+    case "waiting_for_author": return "author fixing"
+  }
+  return ""
+}
+
+// The open counts of a review: "3 blocking · 1 comment · 1 check".
+export function reviewCounts(review: AwayReview): string {
+  const parts: string[] = []
+  if (review.blocking_open) parts.push(`${review.blocking_open} blocking`)
+  if (review.comments_open) parts.push(`${review.comments_open} ${review.comments_open === 1 ? "comment" : "comments"}`)
+  if (review.checks_open) parts.push(`${review.checks_open} ${review.checks_open === 1 ? "check" : "checks"}`)
+  return parts.join(" · ")
+}
+
+// awayStrip is the strip at the foot of an away task's card: the review
+// while one runs, else the away state, in the card's words and glyphs.
+export function awayStrip(away: AwayOn): AwayStrip {
+  const review = away.review
+  const handed = `from ${away.left_column} · ${awayTime(away.handed_off_at)}`
+  switch (away.view) {
+    case "unreachable":
+      return { glyph: "⚠", text: away.worker_unreachable_since ? `${away.worker} unreachable since ${awayTime(away.worker_unreachable_since)}` : `${away.worker} unreachable`, tone: "text-lw-error", tint: "bg-lw-error-soft", edge: "error" }
+    case "lost":
+      return { glyph: "✕", text: away.lost ? `Lost on ${away.worker}: ${away.lost}` : `Lost on ${away.worker}`, tone: "text-lw-error", tint: "bg-lw-error-soft", edge: "error" }
+    case "not_accepted":
+      return { glyph: "⚠", text: `${away.worker} no longer accepts this main`, tone: "text-lw-error", tint: "bg-lw-error-soft", edge: "error" }
+  }
+  if (review) {
+    if (review.phase === "stuck" && away.view === "needs_you") {
+      return { glyph: "◆", text: `Review stuck after pass ${review.pass}${review.reason ? `: ${review.reason}` : ""}`, tone: "text-lw-needs", tint: "bg-lw-needs-soft", edge: "needs" }
+    }
+    if (away.view === "in_review" || away.view === "done") {
+      if (review.phase === "clean") {
+        if (review.checks_pending) return { glyph: "◐", text: `Review approved · waiting for ${review.checks_pending} ${review.checks_pending === 1 ? "check" : "checks"}`, tone: "text-lw-live", tint: "bg-lw-live-soft", edge: "" }
+        return { glyph: "✓", text: "Review done · approved", tone: "text-lw-done", tint: "bg-lw-done-soft", edge: "" }
+      }
+      const phrase = reviewPhrase(review)
+      if (phrase) {
+        const pass = review.phase === "waiting_for_reviewer" || review.waiting_on === "start" ? review.pass + 1 : review.pass
+        return { glyph: "◐", text: `Review pass ${pass} · ${phrase}`, detail: reviewCounts(review) || undefined, tone: "text-lw-live", tint: "bg-lw-live-soft", edge: "" }
+      }
+    }
+  }
+  const look = awayLook(away)
+  const edge = away.view === "needs_you" || away.view === "interrupted" ? "needs" : away.view === "failed" || (!away.view && away.state === "failed") ? "error" : ""
+  return { glyph: look.glyph, text: look.label, detail: handed, tone: look.tone, tint: look.tint, edge }
+}
+
 // What a review block says in a few words, as the worker's summary does.
 export function reviewLabel(review: AwayReview): string {
-  switch (review.waiting_on) {
-    case "author_working":
-      return "Waiting for the author · working"
-    case "author_waiting":
-      return "Waiting for the author · it waits for an answer"
-    case "author_push":
-      return "Waiting for the author to push"
-    case "github":
-      return "Waiting for GitHub"
-    case "start":
-      return "Starting the next pass"
-  }
+  const parts: string[] = []
+  if (review.blocking_open) parts.push(`${review.blocking_open} blocking`)
+  if (review.comments_open) parts.push(`${review.comments_open} ${review.comments_open === 1 ? "comment" : "comments"}`)
+  if (review.checks_open) parts.push(`${review.checks_open} ${review.checks_open === 1 ? "check" : "checks"}`)
+  const counts = parts.join(", ")
+  // What the loop waits on, with what is still open beside it.
+  const waiting = {
+    author_working: "Waiting for the author · working",
+    author_waiting: "Waiting for the author · it waits for an answer",
+    author_push: "Waiting for the author to push",
+    github: "Waiting for GitHub",
+    start: "Starting the next pass",
+  }[review.waiting_on ?? ""]
+  if (waiting) return counts ? `${waiting} · ${counts}` : waiting
   switch (review.phase) {
     case "reviewing":
       return `Reviewing · pass ${review.pass}`
     case "waiting_for_reviewer":
       return `Waiting for a reviewer · pass ${review.pass + 1}`
-    case "waiting_for_author": {
-      const parts: string[] = []
-      if (review.blocking_open) parts.push(`${review.blocking_open} blocking`)
-      if (review.comments_open) parts.push(`${review.comments_open} ${review.comments_open === 1 ? "comment" : "comments"}`)
-      if (review.checks_open) parts.push(`${review.checks_open} ${review.checks_open === 1 ? "check" : "checks"}`)
-      return parts.length ? `Author fixing · ${parts.join(", ")}` : "Author fixing"
-    }
+    case "waiting_for_author":
+      return counts ? `Author fixing · ${counts}` : "Author fixing"
     case "clean": {
       let label = review.checks_pending ? `Approved · waiting for ${review.checks_pending} ${review.checks_pending === 1 ? "check" : "checks"}` : "Done · approved"
       if (review.checks_replied) label += ` · ${review.checks_replied} ${review.checks_replied === 1 ? "check" : "checks"} answered by reply`
@@ -153,6 +222,8 @@ export function reviewLabel(review: AwayReview): string {
 // was lost, since when its worker is unreachable, that the worker no longer
 // accepts this main.
 export function awayDetail(away: AwayOn): string | undefined {
+  // A stuck review's reason can be long: the pill cuts it short.
+  if (away.review?.phase === "stuck" && away.review.reason && away.view === "needs_you") return `Review stuck: ${away.review.reason}`
   switch (away.view) {
     case "lost":
       return away.lost

@@ -58,10 +58,18 @@ export function Layout() {
   // ?approval= or a notification opens the sheet on a phone, as the rail
   // opens on it from md up.
   const phone = useMediaQuery("(max-width: 767px)")
-  const { wanted } = useRailState()
+  const { wanted, opens } = useRailState()
   useEffect(() => {
     if (wanted && phone) { setMoreOpen(false); setNeedsYouOpen(true) }
   }, [wanted, phone])
+  // Each request to show the rail's content (a card's Answer or Open) opens
+  // the sheet on a phone, even for the approval it showed before.
+  const handledOpens = useRef(opens)
+  useEffect(() => {
+    if (opens === handledOpens.current) return
+    handledOpens.current = opens
+    if (phone) { setMoreOpen(false); setNeedsYouOpen(true) }
+  }, [opens, phone])
 
   return (
     <ReeveNameContext.Provider value={settings?.reeve_name ?? ""}>

@@ -20,7 +20,9 @@ type Notice = (text: string, error: boolean) => void
 
 const actionButton = "rounded-md border border-lw-line px-2 py-1 text-xs font-medium text-lw-text hover:bg-lw-raised disabled:opacity-50"
 
-export function AwayRowActions({ baseUrl, card, onNotice }: { baseUrl: string; card: BoardCard; onNotice?: Notice }) {
+// recall false leaves Recall out: a card offers it in its menu
+// (RecallDialog), the task panel on its own row.
+export function AwayRowActions({ baseUrl, card, onNotice, recall = true }: { baseUrl: string; card: BoardCard; onNotice?: Notice; recall?: boolean }) {
   const [busy, setBusy] = useState(false)
   const [confirming, setConfirming] = useState<"recall" | "take-back" | "message" | null>(null)
   const [error, setError] = useState("")
@@ -29,7 +31,8 @@ export function AwayRowActions({ baseUrl, card, onNotice }: { baseUrl: string; c
   if (!away) return null
   const stuck = reviewStuck(away)
   const actions = awayActions(away)
-  if (!actions.return && !actions.recall && !actions.takeBack) return null
+  if (!recall) actions.recall = false
+  if (!actions.return && !actions.recall && !actions.takeBack && !stuck) return null
 
   const bring = async (how: "return" | "recall" | "take-back") => {
     setBusy(true)
@@ -117,6 +120,44 @@ export function AwayRowActions({ baseUrl, card, onNotice }: { baseUrl: string; c
         </DialogPanel>
       </Dialog>
     </div>
+  )
+}
+
+// RecallDialog asks before an away task is recalled from its card's menu,
+// then recalls it.
+export function RecallDialog({ baseUrl, card, onClose, onNotice }: { baseUrl: string; card: BoardCard; onClose: () => void; onNotice?: Notice }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const recall = async () => {
+    setBusy(true)
+    setError("")
+    try {
+      const back = await recallTask(baseUrl, card.id)
+      onNotice?.(`${card.id} is back in ${back.column}`, false)
+      onClose()
+    } catch (e) {
+      const text = e instanceof Error ? e.message : String(e)
+      setError(text)
+      onNotice?.(text, true)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog open onClose={onClose} dismissible={!busy}>
+      <DialogPanel className="max-w-sm">
+        <DialogHeader><DialogTitle>Recall {card.id}?</DialogTitle><DialogClose disabled={busy} /></DialogHeader>
+        <DialogBody className="space-y-2">
+          <p className="text-xs text-zinc-400">{card.title}</p>
+          <p className="text-sm text-zinc-300">Its agent on {card.away?.worker} may still be working. Recalling stops it and brings back what there is so far: its notes, branches and edits.</p>
+          {error && <p role="alert" className="text-xs text-lw-error">{error}</p>}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={onClose}>Cancel</Button>
+          <Button variant="warning" size="sm" disabled={busy} onClick={() => void recall()}>Recall now</Button>
+        </DialogFooter>
+      </DialogPanel>
+    </Dialog>
   )
 }
 

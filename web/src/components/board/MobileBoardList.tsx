@@ -102,6 +102,7 @@ export function MobileBoardList({
           onRowClick={(row) => onCardClick(awayIndex, row)}
           baseUrl={baseUrl}
           onNotice={onAwayNotice}
+          onCardContextMenu={onCardContextMenu}
         />
       )}
       <div role="tablist" aria-label="Columns" className="flex shrink-0 gap-1.5 overflow-x-auto px-4 pb-2.5" style={{ scrollbarWidth: "none" }}>

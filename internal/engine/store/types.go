@@ -56,13 +56,16 @@ type PRMeta struct {
 	ReviewDecision string `json:"review_decision,omitempty"` // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or ""
 	CheckStatus    string `json:"check_status,omitempty"`    // pass, fail, pending, or ""
 	CommentCount   int    `json:"comment_count,omitempty"`
-	UpdatedAt      string `json:"updated_at,omitempty"` // RFC3339
-	HeadSHA        string `json:"head_sha,omitempty"`   // commit SHA recorded at link time — anchors PR discovery
-	LinkedAt       string `json:"linked_at,omitempty"`  // RFC3339 time the link was created — PRs created before this are rejected during discovery
-	Pinned         bool   `json:"pinned,omitempty"`     // explicit/legacy numbered links are refreshed but not rediscovered
-	MatchMethod    string `json:"match_method,omitempty"`
-	SyncOutcome    string `json:"sync_outcome,omitempty"`
-	SyncError      string `json:"sync_error,omitempty"`
+	// Base is the branch the PR merges into: main, or the head of the PR
+	// below it in a stack; "" for a PR fetched before it was kept.
+	Base        string `json:"base,omitempty"`
+	UpdatedAt   string `json:"updated_at,omitempty"` // RFC3339
+	HeadSHA     string `json:"head_sha,omitempty"`   // commit SHA recorded at link time — anchors PR discovery
+	LinkedAt    string `json:"linked_at,omitempty"`  // RFC3339 time the link was created — PRs created before this are rejected during discovery
+	Pinned      bool   `json:"pinned,omitempty"`     // explicit/legacy numbered links are refreshed but not rediscovered
+	MatchMethod string `json:"match_method,omitempty"`
+	SyncOutcome string `json:"sync_outcome,omitempty"`
+	SyncError   string `json:"sync_error,omitempty"`
 	// Head is the PR's head commit as last fetched (HeadSHA stays the one
 	// recorded at link time): a push changes it.
 	Head string `json:"head,omitempty"`

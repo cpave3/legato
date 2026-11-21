@@ -83,3 +83,13 @@ func TestSummarizeRelatedAgentsNamesTheEngramOnlyWhenTheAgentsShareOne(t *testin
 		t.Fatalf("two engrams: %+v", two["t"])
 	}
 }
+
+func TestSummarizeRelatedAgentsKeepsTheMainAgentsOwnStateBesideAWaitingSlot(t *testing.T) {
+	summaries := SummarizeRelatedAgents([]AgentSession{
+		{TaskID: "t1", Status: "running", Activity: "working"},
+		{TaskID: "t1_reviewer", CardTaskID: "t1", Slot: SlotReviewer, Status: "running", Activity: "waiting"},
+	})
+	if got := summaries["t1"]; got.State != "waiting" || got.MainState != "working" {
+		t.Fatalf("summary = %+v", got)
+	}
+}

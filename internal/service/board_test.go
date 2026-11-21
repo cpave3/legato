@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -939,5 +940,62 @@ func TestUpdateTaskTitle_EmptyRejected(t *testing.T) {
 	err := svc.UpdateTaskTitle(context.Background(), "T-1", "")
 	if err == nil {
 		t.Fatal("expected error for empty title")
+	}
+}
+
+func TestListCards_CarriesTheTicketKeyAndAddress(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	ctx := context.Background()
+	seedColumns(t, s)
+	provider, key, meta := "burnlite", "LEG-386", `{"url":"https://burnlite.dev/LEG-386"}`
+	if err := s.CreateTask(ctx, store.Task{ID: "k3x9q2ma", Title: "Forms", Status: "Backlog", Provider: &provider, RemoteID: &key, RemoteMeta: &meta}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask(ctx, store.Task{ID: "local1", Title: "Local", Status: "Backlog"}); err != nil {
+		t.Fatal(err)
+	}
+	cards, err := svc.ListCards(ctx, "Backlog")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]Card{}
+	for _, c := range cards {
+		byID[c.ID] = c
+	}
+	if got := byID["k3x9q2ma"]; got.RemoteID != "LEG-386" || got.URL != "https://burnlite.dev/LEG-386" {
+		t.Fatalf("burnlite card = %+v", got)
+	}
+	if got := byID["local1"]; got.RemoteID != "" || got.URL != "" {
+		t.Fatalf("local card = %+v", got)
+	}
+}
+
+func TestListCards_CarriesBurnlitesBlockersMilestoneAndLabels(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	ctx := context.Background()
+	seedColumns(t, s)
+	burnlite, jira := "burnlite", "jira"
+	key, jiraKey := "LEG-386", "AG-7"
+	meta := `{"url":"https://burnlite.dev/LEG-386","blocked_by":"LEG-370,LEG-371","epic_key":"LEG-380","epic_name":"Settings","labels":"ui,enhancement"}`
+	if err := s.CreateTask(ctx, store.Task{ID: "b1", Title: "Burnlite", Status: "Backlog", Provider: &burnlite, RemoteID: &key, RemoteMeta: &meta}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask(ctx, store.Task{ID: "j1", Title: "Jira", Status: "Backlog", Provider: &jira, RemoteID: &jiraKey, RemoteMeta: &meta}); err != nil {
+		t.Fatal(err)
+	}
+	cards, err := svc.ListCards(ctx, "Backlog")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]Card{}
+	for _, c := range cards {
+		byID[c.ID] = c
+	}
+	b := byID["b1"]
+	if !reflect.DeepEqual(b.BlockedBy, []string{"LEG-370", "LEG-371"}) || b.Milestone != "LEG-380" || !reflect.DeepEqual(b.Labels, []string{"ui", "enhancement"}) {
+		t.Fatalf("burnlite card = %+v", b)
+	}
+	if j := byID["j1"]; j.BlockedBy != nil || j.Milestone != "" || j.Labels != nil {
+		t.Fatalf("a Jira card has Burnlite's fields: %+v", j)
 	}
 }

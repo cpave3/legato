@@ -5,12 +5,13 @@ import { awayGroups, awayLaneName } from "../../lib/away"
 import { doneOnWorker } from "../../lib/awayReturn"
 import type { BoardCard, BoardWorker } from "../../lib/board-types"
 import { AwayRowActions, ReturnAllDoneButton } from "./AwayActions"
-import { AwayRow, WorkerReach } from "./AwayLane"
+import { WorkerReach } from "./AwayLane"
+import { BoardCard as BoardCardView } from "./BoardCard"
 
 // The Away section at the top of the phone's board: the tasks away on
 // workers, one line per worker that holds some ("vm-1 · 6 away · 2 done")
-// with its Return all done. Tapping a line shows its rows, each with the
-// actions its state allows, as in the Away lane. See docs/ai/web-ui.md
+// with its Return all done. Tapping a line shows its tasks, each the board's
+// own card with the actions its state allows, as in the Away lane. See docs/ai/web-ui.md
 // § The Away lane.
 
 interface MobileAwaySectionProps {
@@ -24,6 +25,8 @@ interface MobileAwaySectionProps {
   // section offers none.
   baseUrl?: string
   onNotice?: (text: string, error: boolean) => void
+  // A card's menu, from a long press or its ⋯.
+  onCardContextMenu?: (card: BoardCard, position: { x: number; y: number }) => void
 }
 
 // The line that stands for a worker while folded.
@@ -36,7 +39,7 @@ function workerOf(cards: BoardCard[], taskId?: string | null): string | undefine
   return taskId ? cards.find((card) => card.id === taskId)?.away?.worker_instance_id : undefined
 }
 
-export function MobileAwaySection({ workers, cards, highlightedTaskId, onRowClick, baseUrl, onNotice }: MobileAwaySectionProps) {
+export function MobileAwaySection({ workers, cards, highlightedTaskId, onRowClick, baseUrl, onNotice, onCardContextMenu }: MobileAwaySectionProps) {
   const [open, setOpen] = useState<Set<string>>(() => new Set(workerOf(cards, highlightedTaskId) ?? []))
   const highlightedWorker = workerOf(cards, highlightedTaskId)
   useEffect(() => {
@@ -74,14 +77,19 @@ export function MobileAwaySection({ workers, cards, highlightedTaskId, onRowClic
               <div role="group" aria-label={worker.name} className="border-t border-lw-line">
                 <div className="px-3 pt-1.5"><WorkerReach worker={worker} /></div>
                 {groupCards.map((card) => (
-                  <AwayRow
-                    key={card.id}
-                    card={card}
-                    selected={false}
-                    highlighted={card.id === highlightedTaskId}
-                    onClick={() => onRowClick(cards.indexOf(card))}
-                    actions={baseUrl === undefined ? undefined : <AwayRowActions baseUrl={baseUrl} card={card} onNotice={onNotice} />}
-                  />
+                  <div key={card.id} className="p-1.5">
+                    <BoardCardView
+                      card={card}
+                      selected={false}
+                      highlighted={card.id === highlightedTaskId}
+                      column="Away"
+                      showWorkspace={false}
+                      onClick={() => onRowClick(cards.indexOf(card))}
+                      onContextMenu={onCardContextMenu && ((position) => onCardContextMenu(card, position))}
+                      onActionMenu={onCardContextMenu && ((position) => onCardContextMenu(card, position))}
+                      actions={baseUrl === undefined ? undefined : <AwayRowActions baseUrl={baseUrl} card={card} onNotice={onNotice} recall={false} />}
+                    />
+                  </div>
                 ))}
               </div>
             )}

@@ -5,7 +5,7 @@ sidebar:
   order: 20
 ---
 
-An agent is an AI coding tool, such as Claude Code, Codex or Chimera, that Legato starts in its own tmux session. You start one on a task, and its state shows on the task's card. You can watch every agent at once, attach to one, send it a message or a macro, reload it, or stop it.
+An agent is an AI coding tool, such as Claude Code, Codex or Chimera, that Legato starts in its own tmux session. You start one on a task, and its state shows on the task's card. On the web board, a card whose agent waits for you says why, such as **Needs you · permission to run a command**, with a way to answer. You can watch every agent at once, attach to one, send it a message or a macro, reload it, or stop it.
 
 Each tool has its own page under Agent tools: [Claude Code](/legato/agent-tools/claude-code/), [Codex](/legato/agent-tools/codex/) and [Chimera](/legato/agent-tools/chimera/). Agents need tmux.
 
@@ -170,7 +170,7 @@ Press `X` in the agents view, or choose **Kill agent** in the web UI's **More ac
 
 ## Macros
 
-A macro is a saved message for an agent, such as "run the tests and fix what fails". Run on a task, it starts the task's agent with the macro as its first message, or becomes the running agent's next message.
+A macro is a saved message for an agent, such as "run the tests and fix what fails". Run on a task, it starts the task's agent with the macro as its first message, or becomes the running agent's next message. An agent a macro starts resumes the task's saved conversation in its own folder when there is one. Otherwise it starts in the task's worktree, else in the task's job clone of the pull request's repository (the task's own repository for a task macro), else in the folder the task last worked in, and only with none of these in Legato's default folder.
 
 Manage them on the **Macros** page of the web UI (in the side rail after **Flows**; on a phone, under **More**). Four are built in: **Plan** and **Implement** for a task, **Review** and **Address feedback** for a pull request. Edit one to make it yours, for example to point Review at your favourite review skill; **Reset** puts it back as shipped. A built-in can't be deleted or renamed. Your own macros can be renamed and deleted; a workflow that names a macro by its old name fails until you change it. A macro set in `config.yaml` is locked on the page.
 
@@ -180,7 +180,7 @@ Each macro has:
 | --- | --- | --- | --- |
 | **Name** | Required | What menus, `legato macro run` and a workflow's `with.macro` call it. | none |
 | **Message** | Required | The text the agent gets, as written. Run on a task or a pull request, it comes below the task's key and title (and the pull request's link). | none |
-| **Offer it on** | Optional | Which menus list it. Tasks: a card's menu and the spawn dialog. Pull requests: a card's pull request lines. The Agents page and the TUI picker list every macro. | Tasks and pull requests |
+| **Offer it on** | Optional | Which menus list it. Tasks: a card's menu and the spawn dialog. Pull requests: a card's menu, under each pull request, and the button of a pull request that needs you. The Agents page and the TUI picker list every macro. | Tasks and pull requests |
 | **Agent to start** | Optional | The agent (Claude Code, Codex or Chimera) started when the task has no agent running. Ignored when one is running. | Your default agent |
 | **Model tier** | Optional | One of that agent's [tiers](/legato/reference/configuration/#adapters), usually choosing its model. Used only when the macro starts the agent. Offered only for an agent that has tiers. | None |
 
@@ -201,7 +201,7 @@ Legato sends the message exactly as written: it does not expand environment vari
 
 Where to run one:
 
-- On the board: a card's menu, and the macro button on a card's pull request line. See [Board](/legato/using/board/).
+- On the board: a card's menu (the task's macros, then each open pull request's), and the button on a pull request that needs you. See [Board](/legato/using/board/).
 - In the spawn dialog, under **Start with macro**: it fills the first message, and the agent and model tier when the macro sets them.
 - On the Agents page, press `M`, then `1` to `9` for the first nine macros. Click a later macro to send it. The keys do nothing while you type in a field.
 - In the TUI, press `m` in the agents view, or `c` on a card and choose **Macros ›**.

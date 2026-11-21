@@ -45,9 +45,17 @@ A column with no cards collapses to a narrow rail with its count and its name wr
 
 A card shows, from the top:
 
-- The priority mark (`▲` high, `▼` low, `·` none), the task's key, and where the task comes from: `local`, or a ticket provider such as `◈ jira`.
-- The title.
-- The ticket type, the workspace (in the All view), the swarm's progress, the review mark, and the state of the pull request: CI, review and comments, such as `✓ CI · ✓ review · 2 comments`. A task built as a stack of branches has several pull requests; the card names each with its state, from the bottom of the stack: `#11 ✗ CI · #12 draft PR`.
+- In the TUI, the priority mark (`▲` high, `▼` low, `·` none), the task's key, and where the task comes from: `local`, or a ticket provider such as `◈ jira`. On the web board, the source by name and the ticket's key, such as **Burnlite · LEG-386** or **Jira · AG-7467**; a task a main instance handed to this worker adds the main, **Burnlite · LEG-374 ← erebus**. A task made from a Burnlite milestone has a **Milestone** tag.
+- The title. On a phone it stops at three lines.
+- The ticket type, the workspace (in the All view), the swarm's progress and the review mark. For a Burnlite task, also what blocks it (**Blocked by LEG-370**, in red), its milestone and its labels.
+- On the web board, a line for each pull request, from the bottom of the stack: its number, which opens it on GitHub, one word for its state and a detail, such as `#191 Awaiting review · CI passed`. The words are **Merged**, **Closed, not merged** (the number struck through), **Draft**, **CI failing**, **Changes requested**, **CI running**, **Your review** (someone else's pull request waiting for your review), **Awaiting review**, **Ready to merge**, and **Approved** (approved, but a layer below it is not ready yet). A stack of two or more pull requests folds to a few lines:
+  - a head, such as **Stack of 13 PRs** with **2 merged** (or **5 PRs in 2 repos**);
+  - a bar with a segment for each pull request, from the bottom: blue for merged, green for ready to merge, a green outline for approved but waiting on a layer below, red for failing, amber stripes for CI running, a dashed outline for a draft;
+  - the lowest pull request that needs you, such as **#200 CI failing · 6 comments**, with how many above it it holds back and its button;
+  - the pull requests you can merge now, from the bottom: **#196–#199 ready to merge, bottom first**;
+  - **Show all 13**, which lists the stack from the bottom under its repository and base branch, on a rail that is dashed above a failing layer. A pull request that shares its base with another (a fork) is indented under it, and each repository is a group of its own. The card remembers that it is open until you reload the page.
+
+  A stack that is all merged is one line: **Stack of 10 PRs, all merged**. In the TUI the card names each with its state: `#11 ✗ CI · #12 draft PR`.
 - A warning when Legato could not send a change to the ticket provider (`⚠ sync failed` in the web UI).
 - An agent strip at the foot, when an agent works on the task.
 
@@ -62,7 +70,21 @@ The agent strip shows the agent's state and how long it has been in it:
 | error | The agent stopped on an error. |
 | mixed (TUI), Agents disagree (web) | The task's agents are in different states. |
 
-`ready for review` replaces `idle` when the agent marked its review tour ready. When Legato runs a second agent on the task, such as a reviewer, the strip adds a chip for it, `reviewer · running`, and says `needs you` when either agent waits for you. A card with no live agent shows the time agents spent on it. The web UI also names the agent tool in the strip, and draws a moving light round the edge of a card whose agent is live. You can turn that light off in **Settings › Appearance**.
+`ready for review` replaces `idle` when the agent marked its review tour ready. When Legato runs a second agent on the task, such as a reviewer, the strip adds a chip for it, `reviewer · running`. In the TUI the strip says `needs you` when either agent waits for you; on the web board a waiting reviewer has a strip of its own above the main agent's. A card with no live agent shows the time agents spent on it. The web UI also names the agent tool in the strip, and draws a moving light round the edge of a card while its agent works. You can turn that light off in **Settings › Appearance**. A card that needs you has a steady amber edge instead, and one whose agent stopped on an error a red one. A card a link points you to has a ring in the theme's focus colour, in every theme and on a phone. Cards in Done are not faded: their title is in a quieter ink.
+
+On the web board, a card that needs you says why, in a strip of its own above the agent's, with the way there:
+
+| Strip | Its action |
+| --- | --- |
+| **Needs you · 1 question, 1 action**: things the agent [posted for you](/legato/using/attention/#operator-items) | **Open** goes to the agent, with the Needs you rail open; on a phone it opens the Needs you sheet |
+| **Needs you · permission to run a command**, or the agent's question | **Answer** opens the approval in the Needs you rail (on a phone, the tray) |
+| **Plan to approve** | **Review plan** opens the plan |
+| **4 changes to review** | **Review** opens the review tour |
+| **Reviewer needs you · question**: a second agent, such as a reviewer, waits | **Answer** opens what it asks, or **Open** goes to it; the main agent's own strip stays below |
+| **1 of 2 agents needs you** | **Open** goes to the agents; the strip below says how many run |
+| **Interrupted · Claude Code**: the agent stopped when Legato or the machine did | **Resume** starts it again where its conversation was |
+
+What waits on you is drawn above what runs. While the agent itself only waits or idles, the needs-you strip takes the place of its own; a running agent keeps its strip below. The agent strip has its time on the right, and an idle agent's strip names its tool and the time agents spent on the task. The card changes as soon as an item is posted or cleared, even while the agent idles.
 
 To link a pull request to a task, press `p`. Legato also finds pull requests by itself; see [GitHub](/legato/integrations/github/).
 
@@ -99,13 +121,17 @@ Press `d` on the board, or `D` in the detail view, to delete a task. You confirm
 
 The same menu lists your [macros](/legato/using/agents/#macros) for a task, such as **Plan** and **Implement**, each with the agent and model tier it starts when it sets them. Choose one to put the task's agent to work with it: when no agent is running, Legato starts one with the macro's agent and model tier (or your default agent) and the macro as its first message; when one is running, the macro becomes its next message, after its current turn. The message starts with the task's key and title. **Manage macros** opens the Macros page.
 
+Below the task's macros, the menu has a **Macros for #N** item for each open pull request of the card, bottom of the stack first. Choose one to list the macros for that pull request, the suggested one first, and pick one to start it on that pull request. On a phone, long-press the card for the same menu.
+
+A task from a ticket tracker also has **Open in Burnlite** or **Open in Jira** in the menu, which opens the ticket there.
+
 In the TUI, press `c` on a card and choose **Macros ›**: the task's macros come first, then each open pull request's, labelled with its number.
 
-Each pull request line on a card has a macro button too. A press starts the suggested macro on that pull request: **Address feedback** on your own pull request (one Legato found from the task's branch), **Review** on someone else's (one you linked by its number). The arrow beside it lists the other macros for a pull request. The message adds the pull request's `owner/repo#number` and its link.
+A pull request that needs you has one button on the card, in a box on the colour of its state. A press starts the suggested macro on that pull request: **Address feedback** on your own pull request (one Legato found from the task's branch) when CI fails or a reviewer asked for changes, **Review** on someone else's (one you linked by its number) while it waits for your review. A pull request that needs nothing from you, such as a green one, a draft or a merged one, has no button; its macros are in the card's menu. The message adds the pull request's `owner/repo#number` and its link.
 
 A card with an open pull request offers **Review passes · #N**, one for each pull request: in the web board's `⋯` or right-click menu, and in the TUI under `c` › Workflows. It starts a [review loop](/legato/using/review-passes/#an-agent-as-the-author) on that pull request with the card's own agent as the author, so the agent fixes what the reviewer finds. When the card has several open pull requests in one repository (a stack, in the order the card tracks them), the first item is **Review passes · stack #137–#141**: one loop over every open pull request of the stack, started on the bottom one; each **Review passes · #N** below it then reviews that pull request alone. It needs the `review-pr-passes` workflow (`legato workflow add review-pr-passes`). When a loop is already running on the pull request, the web board opens it instead, and Legato refuses a second one, naming the first.
 
-On a main instance paired with a [worker instance](/legato/running/instances/), the web board can send a task to the worker, which starts an agent on it. Drag the card onto the **Away** lane (a narrow rail while nothing is away), or choose **Hand off…** in the card's `⋯` or right-click menu, or in the panel beside the board. The task then leaves its column for the **Away** lane at the end of the web board, grouped by worker (on a phone, an **Away** section above the columns), and stays read-only on your main until you bring it back with **Return** or **Recall** on its row or in its panel, or **Return all done** on its worker's group. When its worker cannot be reached, lost the task or no longer accepts your main, **Take back** brings it back without its results. See [Hand off tasks to a worker](/legato/using/handoff/#bring-a-task-home).
+On a main instance paired with a [worker instance](/legato/running/instances/), the web board can send a task to the worker, which starts an agent on it. Drag the card onto the **Away** lane (a narrow rail while nothing is away), or choose **Hand off…** in the card's `⋯` or right-click menu, or in the panel beside the board. The task then leaves its column for the **Away** lane at the end of the web board, grouped by worker (on a phone, an **Away** section above the columns), and stays read-only on your main until you bring it back with **Return** on its card, **Recall…** in its menu, either in its panel, or **Return all done** on its worker's group. When its worker cannot be reached, lost the task or no longer accepts your main, **Take back** brings it back without its results. In the Away lane and the phone's Away section an away task is drawn as the same card as at home, with the worker in its header (**Burnlite · LEG-390 → vm-1**) and a strip that says the review or the state on the worker: **Review pass 2 · author fixing** with what is still open, **Review stuck after pass 3:** and why, with **Run another pass**, **Message the author** and **Return as is**, **vm-1 unreachable since 21:40** with only **Take back**, or **Review done · approved** with **Return**. **Recall…** is in the card's `⋯` menu. See [Hand off tasks to a worker](/legato/using/handoff/#bring-a-task-home).
 
 The TUI has no handoff actions, but it shows an away task in the column it left, with "away on" and the worker's name at the foot of the card, and the handoff's state at its end. The detail view names the worker and the state too. Editing, moving, deleting, linking a pull request, starting an agent or a workflow on an away task is refused with a message in the status bar: return or recall the task from the web UI. On a worker, deleting a card a main handed to it is refused the same way, naming the main.
 

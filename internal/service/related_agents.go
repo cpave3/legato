@@ -14,6 +14,10 @@ type RelatedAgentSummary struct {
 	// when they run as different ones.
 	Engram string
 	Count  int
+	// MainState is the main-slot agents' own state, which a named slot
+	// waiting does not change ("" when only named slots run). The web card
+	// says the slot's wait in a strip of its own.
+	MainState string
 	// Slots are the task's running named slots (a reviewer), each a chip
 	// beside the main slot's state. State is "waiting" when one of them
 	// needs the person.
@@ -75,6 +79,7 @@ func SummarizeRelatedAgents(agents []AgentSession) map[string]RelatedAgentSummar
 		summaries[taskID] = summary
 	}
 	for taskID, summary := range summaries {
+		summary.MainState = summary.State
 		for _, slot := range summary.Slots {
 			if slot.State == store.ActivityWaiting {
 				summary.State = store.ActivityWaiting

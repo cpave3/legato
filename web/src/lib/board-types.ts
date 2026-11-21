@@ -33,6 +33,14 @@ export interface BoardCard {
   issue_type: string
   status: string
   provider: string
+  // The ticket's key at its provider, and its address there; absent for a
+  // local task.
+  remote_id?: string
+  source_url?: string
+  // A Burnlite task's open blockers, its milestone's key and its labels.
+  blocked_by?: string[]
+  milestone?: string
+  labels?: string[]
   has_warning: boolean
   has_worktree?: boolean
   agent_active: boolean
@@ -59,6 +67,25 @@ export interface BoardCard {
   handoff_from?: HandoffFrom
   // On a main: the worker this task is away on.
   away?: AwayOn
+  // What waits on the operator for the task; absent when nothing is open.
+  needs_you?: CardNeedsYou
+}
+
+// What waits on the operator for a task: the agent's open operator items
+// by kind, pending approvals (the first one's ID and short label), plans
+// waiting for a decision.
+export interface CardNeedsYou {
+  items?: Partial<Record<"question" | "action" | "done" | "other", number>>
+  approvals?: { count: number; id: string; label: string }
+  plans?: { count: number; plan_id: string }
+  // Named slots (a reviewer) whose agent waits, with what it asks.
+  slots?: { slot: string; label?: string; approval_id?: string }[]
+  // Of several main agents, how many wait and how many work.
+  waiting_agents?: number
+  working_agents?: number
+  agents?: number
+  // An agent a crash interrupted that can be resumed.
+  interrupted?: { agent_kind?: string; resumable: boolean }
 }
 
 export interface SlotAgent {
@@ -222,6 +249,9 @@ export interface PRMetaView {
   review_decision: string
   check_status: string
   comment_count: number
+  // The branch the PR merges into: main, or the head of the PR below it in
+  // a stack; absent before the server fetched it.
+  base?: string
   pinned: boolean
   match_method: string
   sync_outcome: string

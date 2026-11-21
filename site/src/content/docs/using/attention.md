@@ -91,6 +91,8 @@ Legato raises approvals for agents it talks to natively: Claude Code and Codex t
 
 ### Answering in the web UI
 
+A task's board card says what of this waits on it: its agent's open items (**Needs you · 1 question, 1 action**), an approval (**Needs you · permission to run a command**, with **Answer**) or a plan to approve. See [Board](/legato/using/board/#cards).
+
 While approvals wait, they come first in the **Needs you** rail on the right of every page, as cards. Each says which agent asks, what it would do, and its options. **Deny** takes a note for the agent. A question shows its options, and you can type an answer of your own. A new approval opens the rail if you had folded it. On a phone the rail is the **Needs you** sheet above the tab bar.
 
 The rail also lists the [Reeve](/legato/using/reeve/)'s change sets that wait on instances this one is paired with, marked with the instance. They are decided there, with a device enrolled there: **◈ Approve on legato-1** opens that instance's page on the change set, and **Open legato-1 ↗** opens its page.

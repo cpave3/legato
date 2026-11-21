@@ -66,7 +66,8 @@ export function BoardGrid({ columns, cursorCol, cursorRow, showWorkspace, showEm
             {baseUrl !== undefined && <ReturnAllDoneButton baseUrl={baseUrl} worker={worker} cards={groupCards} onNotice={onAwayNotice} />}
             {baseUrl !== undefined && <WorkerGroupMenu baseUrl={baseUrl} worker={worker} cards={groupCards} onNotice={onAwayNotice} />}
           </>}
-          rowActions={baseUrl === undefined ? undefined : (card) => <AwayRowActions baseUrl={baseUrl} card={card} onNotice={onAwayNotice} />}
+          rowActions={baseUrl === undefined ? undefined : (card) => <AwayRowActions baseUrl={baseUrl} card={card} onNotice={onAwayNotice} recall={false} />}
+          onCardContextMenu={onCardContextMenu}
           onCardDrop={onCardHandOff}
         />
       ) : (

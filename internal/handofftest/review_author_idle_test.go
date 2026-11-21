@@ -92,6 +92,9 @@ func TestTheSummaryOfAReadyLoopIsNotReviewing(t *testing.T) {
 		{service.ReviewLoopBlock{Phase: service.ReviewPhaseReviewing, Pass: 2, WaitingOn: service.ReviewWaitingOnStart}, "Starting the next pass"},
 		{service.ReviewLoopBlock{Phase: service.ReviewPhaseWaitingForReviewer, Pass: 1, WaitingOn: service.ReviewWaitingOnReviewerSlot}, "Waiting for a reviewer · pass 2"},
 		{service.ReviewLoopBlock{Phase: service.ReviewPhaseReviewing, Pass: 1}, "Reviewing · pass 1"},
+		// The counts stay beside what the loop waits on.
+		{service.ReviewLoopBlock{Phase: service.ReviewPhaseWaitingForAuthor, Pass: 2, WaitingOn: service.ReviewWaitingOnAuthorWorking, BlockingOpen: 3, CommentsOpen: 1, ChecksOpen: 1}, "Waiting for the author · working · 3 blocking, 1 comment, 1 check"},
+		{service.ReviewLoopBlock{Phase: service.ReviewPhaseWaitingForAuthor, Pass: 2, WaitingOn: service.ReviewWaitingOnAuthorPush, BlockingOpen: 2}, "Waiting for the author to push · 2 blocking"},
 	} {
 		if got := c.block.Summary(); got != c.want {
 			t.Errorf("%+v: %q, want %q", c.block, got, c.want)
