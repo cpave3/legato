@@ -16,6 +16,7 @@ vi.mock("../PlanApprovalModal", () => ({ PlanApprovalModal: () => null }))
 vi.mock("../OfflineDialog", () => ({ OfflineDialog: () => null }))
 vi.mock("../ApprovalTray", () => ({ ApprovalTray: () => null, ApprovalFocus: () => null, useApprovalLink: () => {} }))
 vi.mock("../../hooks/useAgentSelection", () => ({ AgentSelectionProvider: ({ children }: { children: React.ReactNode }) => children }))
+vi.mock("../../hooks/useSheetAutoOpen", () => ({ NeedsYouAutoOpen: () => null }))
 
 function card(needs: BoardCardType["needs_you"]): BoardCardType {
   return {
