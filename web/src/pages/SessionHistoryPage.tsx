@@ -204,6 +204,7 @@ function SessionDetailPanel({ id, onClose }: { id: number; onClose: () => void }
           <dt className="text-lw-faint">State</dt><dd className="m-0">{sessionStateLabel(entry)}</dd>
           <dt className="text-lw-faint">Task</dt><dd className="m-0 break-all">{entry.task_id}{!entry.task_exists && " (deleted)"}{entry.task_archived && " (archived)"}</dd>
           <dt className="text-lw-faint">Folder</dt><dd className="m-0 break-all font-lw-mono">{entry.cwd || "unknown"}</dd>
+          {entry.transcript_path && <><dt className="text-lw-faint">Transcript</dt><dd className="m-0 break-all font-lw-mono">{entry.transcript_path}</dd></>}
           {entry.repo && <><dt className="text-lw-faint">Repository</dt><dd className="m-0 break-all">{where(entry)}</dd></>}
           <dt className="text-lw-faint">Last active</dt><dd className="m-0">{when(entry.last_seen_at)}</dd>
           {entry.source === "recovered" && <><dt className="text-lw-faint">Source</dt><dd className="m-0">found by folder and time</dd></>}
@@ -216,6 +217,16 @@ function SessionDetailPanel({ id, onClose }: { id: number; onClose: () => void }
           <h3 className="m-0 mb-1 text-[11px] font-semibold uppercase tracking-wide text-lw-faint">Last message</h3>
           <p className="m-0 whitespace-pre-wrap break-words text-sm">{entry.last_message}</p>
         </section>}
+        {entry.preview && entry.preview.length > 0 && <section aria-label="Recent messages">
+          <h3 className="m-0 mb-1 text-[11px] font-semibold uppercase tracking-wide text-lw-faint">Recent messages</h3>
+          <ol className="m-0 flex list-none flex-col gap-1.5 p-0">
+            {entry.preview.map((message, i) => <li key={i} className="text-xs">
+              <span className="font-medium text-lw-faint">{message.role === "user" ? "Prompt" : "Agent"}</span>
+              <p className="m-0 line-clamp-4 whitespace-pre-wrap break-words">{message.text}</p>
+            </li>)}
+          </ol>
+        </section>}
+        {entry.transcript_state === "missing" && <p className="m-0 text-xs text-lw-text-2">Its transcript is gone from {agentKindLabel(entry.agent_kind)}'s folder.</p>}
         <section aria-label="Runs">
           <h3 className="m-0 mb-1 text-[11px] font-semibold uppercase tracking-wide text-lw-faint">Runs · {entry.runs.length}</h3>
           <ol className="m-0 flex list-none flex-col gap-1 p-0 text-xs">

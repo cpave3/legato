@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/engine/transcript"
 )
 
 // SessionHistoryOptions configures the session history.
@@ -32,6 +33,9 @@ type SessionHistoryOptions struct {
 	// ReeveResume resumes a Reeve session by its task, as
 	// ReeveService.Resume does; Reeve restores are refused without.
 	ReeveResume func(ctx context.Context, taskID string) error
+	// Transcripts finds and reads the agent tools' transcripts; without
+	// it their state stays unknown.
+	Transcripts *transcript.Reader
 	// NewTask makes the task a conversation is restored into, and returns
 	// it with a function that removes it again; restores into a new task
 	// are refused without. BoardNewTask is the board's.
@@ -185,7 +189,72 @@ type SessionRun struct {
 // SessionDetail is an entry with its runs, the oldest first.
 type SessionDetail struct {
 	SessionEntry
-	Runs []SessionRun `json:"runs"`
+	TranscriptPath string       `json:"transcript_path,omitempty"`
+	Runs           []SessionRun `json:"runs"`
+	// Preview is the newest messages of its transcript, when it is there.
+	Preview []transcript.Message `json:"preview,omitempty"`
+}
+
+// transcriptCheckEvery is how long a look for a transcript stands.
+const transcriptCheckEvery = time.Hour
+
+// sessionPreview is how many of a transcript's newest messages a detail shows.
+const sessionPreview = 10
+
+// checkTranscript looks for an entry's transcript when it has not been
+// looked for within the hour, and fills the messages the entry lacks from
+// it. A running conversation's is not looked for: its tool may not have
+// written it yet.
+func (h *SessionHistoryService) checkTranscript(ctx context.Context, row *store.AgentConversationRow) {
+	if h.opts.Transcripts == nil || row.Live || (row.AgentKind != transcript.ClaudeCode && row.AgentKind != transcript.Codex) {
+		return
+	}
+	now := h.opts.Now()
+	if row.TranscriptCheckedAt != nil && now.Sub(*row.TranscriptCheckedAt) < transcriptCheckEvery {
+		return
+	}
+	path, err := h.opts.Transcripts.Find(row.AgentKind, row.StorageDir, row.CWD, row.ProviderSessionID)
+	state := store.TranscriptPresent
+	var first, last string
+	var lastAt *time.Time
+	switch {
+	case errors.Is(err, transcript.ErrNotFound):
+		state, path = store.TranscriptMissing, ""
+	case err != nil:
+		return
+	case row.FirstMessage == "" || row.LastMessage == "":
+		if t, err := transcript.Read(row.AgentKind, path, 0); err == nil {
+			first = firstOperatorText(t.FirstUser)
+			last = cleanConversationText(t.LastAssistant)
+			if last != "" && !t.EndedAt.IsZero() {
+				lastAt = &t.EndedAt
+			}
+		}
+	}
+	if err := h.store.RecordTranscriptCheck(ctx, row.ID, path, state, now, first, last, lastAt); err != nil {
+		return
+	}
+	row.TranscriptPath, row.TranscriptState, row.TranscriptCheckedAt = path, state, &now
+	if row.FirstMessage == "" {
+		row.FirstMessage = first
+	}
+	if row.LastMessage == "" {
+		row.LastMessage, row.LastMessageAt = last, lastAt
+	}
+}
+
+// firstOperatorText is the first of some user messages that is the
+// operator's own, else the first, cleaned.
+func firstOperatorText(messages []string) string {
+	for _, text := range messages {
+		if IsOperatorText(text) {
+			return cleanConversationText(text)
+		}
+	}
+	if len(messages) > 0 {
+		return cleanConversationText(messages[0])
+	}
+	return ""
 }
 
 // List returns a page of the history: the best matches for Q first, or
@@ -227,6 +296,7 @@ func (h *SessionHistoryService) List(ctx context.Context, q SessionQuery) (Sessi
 		page.NextCursor = encodeSessionCursor(offset + limit)
 	}
 	for _, row := range rows {
+		h.checkTranscript(ctx, &row)
 		entry := h.entry(ctx, row)
 		// An away task is the main's to tell: the worker holds its agent.
 		if q.State == "away" && entry.State != "away" || q.State != "" && q.State != "away" && entry.State == "away" {
@@ -250,7 +320,16 @@ func (h *SessionHistoryService) Get(ctx context.Context, id int64) (*SessionDeta
 	if err != nil {
 		return nil, err
 	}
-	detail := &SessionDetail{SessionEntry: h.entry(ctx, *row), Runs: make([]SessionRun, len(runs))}
+	h.checkTranscript(ctx, row)
+	detail := &SessionDetail{SessionEntry: h.entry(ctx, *row), TranscriptPath: row.TranscriptPath, Runs: make([]SessionRun, len(runs))}
+	if row.TranscriptState == store.TranscriptPresent && row.TranscriptPath != "" {
+		if t, err := transcript.Read(row.AgentKind, row.TranscriptPath, sessionPreview); err == nil {
+			for i := range t.Recent {
+				t.Recent[i].Text = cleanConversationText(t.Recent[i].Text)
+			}
+			detail.Preview = t.Recent
+		}
+	}
 	for i, run := range runs {
 		out := SessionRun{ExecutionID: run.ExecutionID, StartedAt: run.StartedAt, EndedAt: run.EndedAt, Sandboxed: run.Sandboxed}
 		if run.EndReason != nil {

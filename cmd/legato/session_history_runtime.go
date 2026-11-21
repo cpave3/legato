@@ -7,6 +7,7 @@ import (
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/engine/transcript"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -23,6 +24,9 @@ func sessionHistoryOptions(cfg *config.Config, db *store.Store, agents service.A
 	}
 	opts := service.SessionHistoryOptions{
 		Keep: keep,
+		// Sandboxed agents share the host's ~/.claude and ~/.codex at the
+		// same paths, so every transcript is read from the host.
+		Transcripts: &transcript.Reader{},
 		// On a main, a task handed to a worker is the worker's to restore.
 		Away: func(ctx context.Context, taskID string) bool {
 			away, err := db.OpenAwayTask(ctx, taskID)

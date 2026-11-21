@@ -47,6 +47,9 @@ export interface SessionRun {
 
 export interface SessionDetail extends SessionEntry {
   runs: SessionRun[]
+  transcript_path?: string
+  // The newest messages of its transcript, when that is there.
+  preview?: Array<{ role: string; text: string; at: string }>
 }
 
 export interface SessionPage {

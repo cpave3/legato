@@ -132,3 +132,16 @@ it("never offers a new task for a Reeve session", async () => {
   expect(await within(panel).findByRole("button", { name: "Restore" })).toBeTruthy()
   expect(within(panel).queryByRole("button", { name: "Restore into a new task" })).toBeNull()
 })
+
+it("shows the newest messages of the transcript, as text", async () => {
+  const withPreview = { ...detail, transcript_state: "present", transcript_path: "/home/me/.claude/projects/x/conv-1.jsonl", preview: [
+    { role: "user", text: "<script>alert(1)</script>", at: "2026-11-20T10:00:00Z" },
+    { role: "assistant", text: "Done.", at: "2026-11-20T10:01:00Z" },
+  ] }
+  vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => /\/api\/sessions\/\d+$/.test(String(input)) ? json(withPreview) : json({ sessions: [ended] }))
+  page("/agents/history?session=7")
+  const recent = await screen.findByRole("region", { name: "Recent messages" })
+  expect(within(recent).getByText("<script>alert(1)</script>")).toBeTruthy()
+  expect(within(recent).getByText("Done.")).toBeTruthy()
+  expect(screen.getByText(withPreview.transcript_path)).toBeTruthy()
+})

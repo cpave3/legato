@@ -326,3 +326,31 @@ func (s *Store) MoveAgentConversation(ctx context.Context, id int64, taskID, slo
 	}
 	return tx.Commit()
 }
+
+// RecordTranscriptCheck keeps what a look for a conversation's transcript
+// found: its path and state (TranscriptPresent or TranscriptMissing) at a
+// time, and, from the transcript, the first and last messages the entry
+// still lacks, with their search row.
+func (s *Store) RecordTranscriptCheck(ctx context.Context, id int64, path, state string, at time.Time, first, last string, lastAt *time.Time) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var lastStamp any
+	if lastAt != nil {
+		lastStamp = formatExecutionTime(*lastAt)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_conversations SET
+		transcript_path = ?, transcript_state = ?, transcript_checked_at = ?,
+		first_message = CASE WHEN first_message = '' THEN ? ELSE first_message END,
+		last_message_at = CASE WHEN last_message = '' AND ? != '' THEN ? ELSE last_message_at END,
+		last_message = CASE WHEN last_message = '' THEN ? ELSE last_message END
+		WHERE id = ?`, path, state, formatExecutionTime(at), first, last, lastStamp, last, id); err != nil {
+		return err
+	}
+	if err := writeConversationFTS(ctx, tx, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
