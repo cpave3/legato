@@ -160,6 +160,8 @@ func TestTheSchemaRefusesInvalidFiles(t *testing.T) {
 	step := "steps:\n  - id: a\n    title: A\n"
 	for name, text := range map[string]string{
 		"no steps":            base + "steps: []\n",
+		"no schema_version":   strings.Replace(base, "schema_version: 1\n", "", 1) + step + "    type: agent.run\n    with: {prompt: hi}\n",
+		"agent.run, no with":  base + step + "    type: agent.run\n",
 		"wrong version":       strings.Replace(base, "1", "2", 1) + step + "    type: agent.run\n    with: {prompt: hi}\n",
 		"unknown top key":     base + "colour: blue\n" + step + "    type: agent.run\n    with: {prompt: hi}\n",
 		"unknown step type":   base + step + "    type: agent.nope\n",
@@ -178,6 +180,23 @@ func TestTheSchemaRefusesInvalidFiles(t *testing.T) {
 	} {
 		if err := schema.Validate(asJSON(t, []byte(text))); err == nil {
 			t.Errorf("%s: the schema accepts it", name)
+		}
+	}
+}
+
+// Files the engine accepts that the schema must too, beside the test files'.
+func TestTheSchemaAcceptsWhatTheEngineDoes(t *testing.T) {
+	schema := resolvedSchema(t)
+	for name, text := range map[string]string{
+		"a task from an earlier step": "schema_version: 1\nname: s\ntitle: S\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}, outputs: {task: {type: json}}}\n  - {id: b, title: B, type: task.metadata.set, with: {task: \"${{ steps.a.outputs.task }}\", values: {x: 1}}}\n",
+		"an empty step trigger":       "schema_version: 1\nname: s\ntitle: S\nsteps:\n  - {id: a, title: A, type: agent.run, trigger: '', with: {prompt: hi}}\n",
+		"a step with no with":         "schema_version: 1\nname: s\ntitle: S\nsteps:\n  - {id: a, title: A, type: task.note}\n",
+	} {
+		if _, err := workflow.Parse("s.yaml", []byte(text)); err != nil {
+			t.Fatalf("%s: the engine refuses it: %v", name, err)
+		}
+		if err := schema.Validate(asJSON(t, []byte(text))); err != nil {
+			t.Errorf("%s: the schema refuses it: %v", name, err)
 		}
 	}
 }

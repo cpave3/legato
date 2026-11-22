@@ -48,9 +48,15 @@ func buildSchema() schemaObject {
 		}
 		name := "with." + spec.Type
 		definitions[name] = withSchema(spec)
+		then := schemaObject{"properties": schemaObject{"with": schemaObject{"$ref": "#/definitions/" + name}}}
+		if needsWith(spec) {
+			// The file does not load without with when its type requires a
+			// field or checks a group.
+			then["required"] = []string{"with"}
+		}
 		cases = append(cases, schemaObject{
 			"if":   schemaObject{"properties": schemaObject{"type": schemaObject{"const": spec.Type}}, "required": []string{"type"}},
-			"then": schemaObject{"properties": schemaObject{"with": schemaObject{"$ref": "#/definitions/" + name}}},
+			"then": then,
 		})
 		executors = append(executors, schemaObject{"type": spec.Type, "title": spec.Title, "description": spec.Description, "internal": spec.Internal})
 	}
@@ -73,6 +79,21 @@ func buildSchema() schemaObject {
 		"repository_fields": RepositoryFields,
 	}
 	return root
+}
+
+// needsWith reports whether a step of the type must have with to load.
+func needsWith(spec ExecutorSpec) bool {
+	for _, field := range spec.With {
+		if field.Required {
+			return true
+		}
+	}
+	for _, constraint := range spec.Constraints {
+		if constraint.Checked && constraint.Kind != Excludes {
+			return true
+		}
+	}
+	return false
 }
 
 // withSchema is a step type's with: its fields, its checked constraints,
@@ -138,7 +159,12 @@ func fieldSchema(field Field) schemaObject {
 	case KindJSON:
 		value = schemaObject{}
 	case KindTask:
-		value = schemaObject{"type": "string", "pattern": `^\$\{\{\s*workflow\.(task|inputs\.[^.}\s]+)\s*\}\}$`}
+		value = schemaObject{"type": "string"}
+		if field.Checked {
+			// Only where the engine checks it at load is a task a whole
+			// reference; elsewhere an earlier step's task output is one too.
+			value["pattern"] = `^\$\{\{\s*workflow\.(task|inputs\.[^.}\s]+)\s*\}\}$`
+		}
 	case KindMacro:
 		value = schemaObject{"type": "string", "minLength": 1}
 	default:
@@ -185,7 +211,7 @@ var schemaNames = map[reflect.Type]string{
 // its enum, default, required and the expressions it takes. Every field
 // of the definition's structs is here; a test fails when one is missing.
 var fieldSchemas = map[string]schemaObject{
-	"Definition.schema_version": {"description": "The workflow schema version", "const": SchemaVersion},
+	"Definition.schema_version": {"description": "The workflow schema version", "const": SchemaVersion, "required": true},
 	"Definition.name":           {"description": "The workflow's name: unique, and how runs, switches and the CLI know it", "required": true, "pattern": `\S`},
 	"Definition.title":          {"description": "The workflow's title", "required": true, "pattern": `\S`},
 	"Definition.run_title":      {"description": "Each run's title; may read the inputs", "context": "run_title"},
@@ -205,7 +231,7 @@ var fieldSchemas = map[string]schemaObject{
 	"Step.id":      {"description": "The step's ID: unique, and how later steps read its outputs", "required": true, "pattern": `\S`},
 	"Step.title":   {"description": "The step's title"},
 	"Step.type":    {"description": "The executor that runs the step", "required": true},
-	"Step.trigger": {"description": "How the step starts: by itself (automatic), when the operator starts it (manual), or when the workflow task's agent ends (agent_ended)", "enum": []string{"automatic", "manual", TriggerAgentEnded}, "default": "automatic"},
+	"Step.trigger": {"description": "How the step starts: by itself (automatic), when the operator starts it (manual), or when the workflow task's agent ends (agent_ended)", "enum": []string{"", "automatic", "manual", TriggerAgentEnded}, "default": "automatic"},
 	"Step.with":    {"description": "The executor's settings"},
 	"Step.outputs": {"description": "The outputs the step gives later steps, by name"},
 

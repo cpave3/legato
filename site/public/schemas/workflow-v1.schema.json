@@ -143,7 +143,10 @@
               "with": {
                 "$ref": "#/definitions/with.agent.run"
               }
-            }
+            },
+            "required": [
+              "with"
+            ]
           }
         },
         {
@@ -162,7 +165,10 @@
               "with": {
                 "$ref": "#/definitions/with.agent.dispatch"
               }
-            }
+            },
+            "required": [
+              "with"
+            ]
           }
         },
         {
@@ -181,7 +187,10 @@
               "with": {
                 "$ref": "#/definitions/with.agent.stop"
               }
-            }
+            },
+            "required": [
+              "with"
+            ]
           }
         },
         {
@@ -219,7 +228,10 @@
               "with": {
                 "$ref": "#/definitions/with.task.context"
               }
-            }
+            },
+            "required": [
+              "with"
+            ]
           }
         },
         {
@@ -238,7 +250,10 @@
               "with": {
                 "$ref": "#/definitions/with.task.working_dir.resolve"
               }
-            }
+            },
+            "required": [
+              "with"
+            ]
           }
         },
         {
@@ -295,7 +310,10 @@
               "with": {
                 "$ref": "#/definitions/with.task.move"
               }
-            }
+            },
+            "required": [
+              "with"
+            ]
           }
         },
         {
@@ -333,7 +351,10 @@
               "with": {
                 "$ref": "#/definitions/with.github.pr.review_passes"
               }
-            }
+            },
+            "required": [
+              "with"
+            ]
           }
         },
         {
@@ -390,7 +411,10 @@
               "with": {
                 "$ref": "#/definitions/with.chimera.session.remove"
               }
-            }
+            },
+            "required": [
+              "with"
+            ]
           }
         },
         {
@@ -428,7 +452,10 @@
               "with": {
                 "$ref": "#/definitions/with.learning.packet.prepare"
               }
-            }
+            },
+            "required": [
+              "with"
+            ]
           }
         },
         {
@@ -447,7 +474,10 @@
               "with": {
                 "$ref": "#/definitions/with.learning.proposals.submit"
               }
-            }
+            },
+            "required": [
+              "with"
+            ]
           }
         }
       ],
@@ -472,6 +502,7 @@
           "default": "automatic",
           "description": "How the step starts: by itself (automatic), when the operator starts it (manual), or when the workflow task's agent ends (agent_ended)",
           "enum": [
+            "",
             "automatic",
             "manual",
             "agent_ended"
@@ -1612,7 +1643,6 @@
       "properties": {
         "task": {
           "description": "The task: ${{ workflow.task }} or a task input",
-          "pattern": "^\\$\\{\\{\\s*workflow\\.(task|inputs\\.[^.}\\s]+)\\s*\\}\\}$",
           "type": "string",
           "x-legato": {
             "context": "with",
@@ -1933,6 +1963,7 @@
   },
   "required": [
     "name",
+    "schema_version",
     "steps",
     "title"
   ],
