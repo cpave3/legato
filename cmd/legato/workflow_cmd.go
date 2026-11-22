@@ -179,7 +179,10 @@ func runWorkflowValidate(positional []string, jsonMode bool) int {
 		return encodeWorkflowOutput(definition, true)
 	}
 	definition, diagnostics := workflowengine.Check(name, data)
-	if len(diagnostics) == 0 {
+	if definition != nil {
+		for _, d := range diagnostics {
+			fmt.Fprintf(os.Stderr, "%s:%d:%d: %s: %s\n", name, d.Line, d.Column, d.Severity, d.Message)
+		}
 		return encodeWorkflowOutput(definition, true)
 	}
 	if jsonMode {

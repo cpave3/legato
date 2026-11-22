@@ -84,3 +84,23 @@ func TestWorkflowValidatePrintsAValidDefinition(t *testing.T) {
 		t.Fatalf("code = %d, stdout = %q", code, stdout)
 	}
 }
+
+// A warning (an unknown with key) is printed, and the file is valid.
+func TestWorkflowValidateWarnsAndSucceeds(t *testing.T) {
+	path := writeWorkflowFile(t, "schema_version: 1\nname: check\ntitle: Check\nsteps:\n  - id: a\n    title: A\n    type: agent.run\n    with: {prompt: hi, promt: hi}\n")
+	var code int
+	var stdout string
+	stderr, _ := captureStderrWithCode(t, func() int {
+		stdout = captureStdout(t, func() int {
+			code = runCLI([]string{"workflow", "validate", path})
+			return code
+		})
+		return code
+	})
+	if code != 0 || !strings.Contains(stdout, `"name":"check"`) {
+		t.Fatalf("code = %d, stdout = %q", code, stdout)
+	}
+	if !strings.Contains(stderr, path+":8:") || !strings.Contains(stderr, "warning: ") || !strings.Contains(stderr, `"promt"`) {
+		t.Fatalf("stderr = %q", stderr)
+	}
+}
