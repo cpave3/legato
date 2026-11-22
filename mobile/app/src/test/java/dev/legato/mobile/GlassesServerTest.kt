@@ -157,4 +157,30 @@ class GlassesServerTest {
             assertTrue(failure is IOException)
         }
     }
+
+    @Test
+    fun `answers nothing that is still arriving when it stops`() {
+        val server = server()
+        val body = "{\"content\":\"Hi\"}".toByteArray()
+        Socket(InetAddress.getLoopbackAddress(), server.boundPort).use { socket ->
+            socket.soTimeout = 3_000
+            val out = socket.getOutputStream()
+            out.write("POST /v1/x HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: ${body.size}\r\n\r\n".toByteArray())
+            out.write(body, 0, 5)
+            out.flush()
+            Thread.sleep(100)
+
+            server.stop()
+            runCatching {
+                out.write(body, 5, body.size - 5)
+                out.flush()
+            }
+            val answer = runCatching { socket.getInputStream().readBytes().toString(Charsets.ISO_8859_1) }.getOrDefault("")
+
+            Thread.sleep(200)
+            assertEquals(emptyList<GlassesRequest>(), seen)
+            assertTrue(answer, answer.isEmpty())
+        }
+    }
 }
+

@@ -86,6 +86,8 @@ class GlassesLinkService : Service() {
         val store = connectionStore(this)
         val link = GlassesServer(
             handler = { request ->
+                // Switched off but not yet stopped: nothing more goes to Legato.
+                if (!settings.enabled) return@GlassesServer GlassesHttp.error(502, "The glasses link is off in the Legato app")
                 GlassesHttp.answer(request, settings.code(), store.load()) { connection, timeoutMs ->
                     store.token(connection.id)?.let { AndroidServerHttp(connection.baseUrl, it, connection.caCertificate, timeoutMs) }
                 }

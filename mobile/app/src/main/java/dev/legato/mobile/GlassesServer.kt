@@ -7,6 +7,7 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Semaphore
@@ -37,8 +38,12 @@ class GlassesServer(
     }
 
     @Volatile private var socket: ServerSocket? = null
+    @Volatile private var stopped = false
     private var pool: ExecutorService? = null
     private val slots = Semaphore(MAX_CONNECTIONS)
+    // The connections being served, closed on stop: closing the listening
+    // socket and the threads' interrupts do not end a blocked read.
+    private val clients = ConcurrentHashMap.newKeySet<Socket>()
 
     // The address and port it listens on, once started.
     val address: InetAddress? get() = socket?.inetAddress
@@ -63,10 +68,15 @@ class GlassesServer(
         workers.execute { accept(listening, workers) }
     }
 
+    // Stops listening and drops every connection, so nothing still arriving
+    // reaches the handler afterwards.
     @Synchronized
     fun stop() {
+        stopped = true
         socket?.close()
         socket = null
+        clients.forEach { runCatching { it.close() } }
+        clients.clear()
         pool?.shutdownNow()
         pool = null
     }
@@ -100,9 +110,13 @@ class GlassesServer(
     private class Refused(val status: Int, message: String) : Exception(message)
 
     private fun serve(client: Socket) {
-        client.use {
+        clients += client
+        try {
+            if (stopped) return
             val answer = try {
-                handler(read(client))
+                val request = read(client)
+                if (stopped) return
+                handler(request)
             } catch (cause: Refused) {
                 refusal(cause.status, cause.message ?: "")
             } catch (cause: SocketTimeoutException) {
@@ -113,6 +127,9 @@ class GlassesServer(
                 refusal(500, "the link failed to answer")
             }
             runCatching { write(client, answer) }
+        } finally {
+            clients -= client
+            runCatching { client.close() }
         }
     }
 
