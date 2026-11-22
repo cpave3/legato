@@ -54,7 +54,7 @@ func TestLearningWorkflowAgentsUseTheirTasksCloneAcrossHomeSpellings(t *testing.
 					}
 					// Separate the two agent lifetimes: automatic advancement before
 					// cleanup of a live curator is outside this sandbox regression.
-					definitions[0].Steps[3].Trigger = "manual"
+					definitions[0].Steps[3].Start = "manual"
 					learning := NewLearningService(db, nil)
 					interview := &fakeWorkflowExecutor{typeName: "agent.interview", result: WorkflowExecutionResult{Status: "waiting_agent"}}
 					workflows := NewWorkflowService(db, []WorkflowExecutor{interview, NewLearningPacketPrepareExecutor(learning), NewAgentRunExecutor(NewWorkflowAgentRunner(agents, db)), NewLearningProposalsSubmitExecutor(learning)})

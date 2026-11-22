@@ -158,7 +158,7 @@ func TestCheckAcceptsAValidFile(t *testing.T) {
 	if definition == nil || len(diagnostics) != 0 {
 		t.Fatalf("Check = %v, %+v", definition, diagnostics)
 	}
-	if definition.Source != "check.yaml" || definition.Steps[0].Trigger != "automatic" {
+	if definition.Source != "check.yaml" || definition.Steps[0].Start != "automatic" {
 		t.Fatalf("definition = %+v", definition)
 	}
 }

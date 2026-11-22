@@ -63,7 +63,7 @@ func (f relatedFixture) runLoop(t *testing.T, runTask string, run reviewRun, pas
 	}
 	if err := f.store.CreateWorkflowRun(ctx, store.WorkflowRun{ID: run.RunID, WorkflowName: "review-pr-passes", WorkflowTitle: "Review loop",
 		DefinitionJSON: "{}", InputsJSON: "{}", Status: "running", CurrentStepID: "review", TaskID: runTask},
-		[]store.WorkflowStepRun{{RunID: run.RunID, StepID: "review", Title: "Review", ExecutorType: ReviewPassesStepType, DefinitionJSON: "{}", Status: "pending"}}); err != nil {
+		[]store.WorkflowStep{{RunID: run.RunID, StepID: "review", Title: "Review", ExecutorType: ReviewPassesStepType, DefinitionJSON: "{}", Status: "pending"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.store.StartWorkflowStepAttempt(ctx, store.WorkflowStepAttempt{ID: run.AttemptID, RunID: run.RunID, StepID: "review", AttemptNumber: 1,

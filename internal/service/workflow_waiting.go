@@ -73,7 +73,7 @@ func (s *WorkflowService) FailWaiting(ctx context.Context, runID, stepID, attemp
 
 func hasWaitingAttempt(view *store.WorkflowRunView, stepID, attemptID string) bool {
 	for _, attempt := range view.Attempts {
-		if attempt.ID == attemptID && attempt.StepID == stepID && attempt.Status == WorkflowStepWaiting {
+		if attempt.ID == attemptID && attempt.Path == stepID && attempt.Status == WorkflowStepWaiting {
 			return true
 		}
 	}
@@ -90,8 +90,8 @@ type WorkflowStepDetailer interface {
 func (s *WorkflowService) addDetails(ctx context.Context, view *store.WorkflowRunView) {
 	latest := map[string]store.WorkflowStepAttempt{}
 	for _, attempt := range view.Attempts {
-		if previous, ok := latest[attempt.StepID]; !ok || attempt.AttemptNumber >= previous.AttemptNumber {
-			latest[attempt.StepID] = attempt
+		if previous, ok := latest[attempt.Path]; !ok || attempt.AttemptNumber >= previous.AttemptNumber {
+			latest[attempt.Path] = attempt
 		}
 	}
 	for stepID, attempt := range latest {
@@ -146,7 +146,7 @@ func (s *WorkflowService) StepAction(ctx context.Context, runID, stepID, action,
 		return nil, err
 	}
 	for _, attempt := range view.Attempts {
-		if attempt.StepID != stepID || attempt.Status != WorkflowStepWaiting {
+		if attempt.Path != stepID || attempt.Status != WorkflowStepWaiting {
 			continue
 		}
 		actor, ok := s.executors[attempt.ExecutorType].(WorkflowStepActor)

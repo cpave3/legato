@@ -14,7 +14,7 @@ func TestListWorkflowRunsSummarisesStepsAndTheRelatedTask(t *testing.T) {
 	if err := s.CreateTask(ctx, Task{ID: "gpri1ycr", Title: "Board search ignores workspace filter", Status: "Backlog"}); err != nil {
 		t.Fatal(err)
 	}
-	steps := []WorkflowStepRun{
+	steps := []WorkflowStep{
 		{RunID: "triage", StepID: "context", StepOrder: 0, Title: "Read the task", ExecutorType: "task.context", DefinitionJSON: `{"trigger":"automatic"}`, Status: "succeeded"},
 		{RunID: "triage", StepID: "approve", StepOrder: 1, Title: "Move to Ready", ExecutorType: "task.move", DefinitionJSON: `{"trigger":"manual"}`, Status: "waiting_manual"},
 	}
@@ -57,7 +57,7 @@ func TestListWorkflowRunsSummarisesStepsAndTheRelatedTask(t *testing.T) {
 func TestListWorkflowRunsLeavesOutStepsUnlessAsked(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	steps := []WorkflowStepRun{{RunID: "r", StepID: "a", Title: "A", ExecutorType: "task.note", DefinitionJSON: `{}`, Status: "pending"}}
+	steps := []WorkflowStep{{RunID: "r", StepID: "a", Title: "A", ExecutorType: "task.note", DefinitionJSON: `{}`, Status: "pending"}}
 	if err := s.CreateWorkflowRun(ctx, WorkflowRun{ID: "r", WorkflowName: "w", WorkflowTitle: "W", DefinitionSource: "test", DefinitionDigest: "1", DefinitionJSON: `{}`, InputsJSON: `{}`, Status: "running", CurrentStepID: "a"}, steps); err != nil {
 		t.Fatal(err)
 	}

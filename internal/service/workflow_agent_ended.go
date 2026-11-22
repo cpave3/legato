@@ -81,7 +81,7 @@ func waitsForAgentToEnd(run store.WorkflowRun) bool {
 	}
 	for _, step := range definition.Steps {
 		if step.ID == run.CurrentStepID {
-			return step.Trigger == workflowengine.TriggerAgentEnded
+			return step.Start == workflowengine.StartAgentEnded
 		}
 	}
 	return false

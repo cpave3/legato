@@ -21,7 +21,15 @@ var workflowServiceFactory = func(db *store.Store, cfg *config.Config) (*service
 	bus := events.New()
 	board := service.NewBoardService(db, bus)
 	syncService := newTicketSync(cfg, db, bus, nil)
-	return buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: board, Sync: syncService, WorkDir: wd})
+	svc, err := buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: board, Sync: syncService, WorkDir: wd})
+	if err != nil {
+		return nil, err
+	}
+	// The CLI is not a host: `workflow step complete` runs in the agent's
+	// own pane, so it records the step and serve or the TUI advances the
+	// run (docs/ai/workflows.md § Agent completion).
+	svc.SetRecordOnly()
+	return svc, nil
 }
 
 func workflowDirs() (string, string) {

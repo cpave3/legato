@@ -17,7 +17,7 @@ func TestWorkflowAttentionCountIncludesRunsBeyondListPage(t *testing.T) {
 	for i := 0; i < 101; i++ {
 		runID := fmt.Sprintf("run-%03d", i)
 		run := store.WorkflowRun{ID: runID, WorkflowName: "manual", WorkflowTitle: "Manual", DefinitionSource: "test", DefinitionDigest: "sha", DefinitionJSON: `{}`, InputsJSON: `{}`, Status: "waiting", CurrentStepID: "approve"}
-		steps := []store.WorkflowStepRun{{RunID: runID, StepID: "approve", StepOrder: 0, Title: "Approve", ExecutorType: "manual", DefinitionJSON: `{}`, Status: "waiting_manual"}}
+		steps := []store.WorkflowStep{{RunID: runID, StepID: "approve", StepOrder: 0, Title: "Approve", ExecutorType: "manual", DefinitionJSON: `{}`, Status: "waiting_manual"}}
 		if err := db.CreateWorkflowRun(ctx, run, steps); err != nil {
 			t.Fatal(err)
 		}

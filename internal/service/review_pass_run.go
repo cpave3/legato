@@ -618,7 +618,7 @@ func (c *ReviewRunCaller) AnotherPass(ctx context.Context, runID, stepID string)
 		return err
 	}
 	for _, attempt := range attempts {
-		if attempt.RunID == runID && attempt.StepID == stepID {
+		if attempt.RunID == runID && attempt.Path == stepID {
 			return c.anotherPass(ctx, attempt.TaskID)
 		}
 	}

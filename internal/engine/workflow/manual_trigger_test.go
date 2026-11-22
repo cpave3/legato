@@ -28,8 +28,8 @@ steps:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if definition.Steps[0].Trigger != "automatic" || definition.Steps[1].Trigger != "manual" {
-		t.Fatalf("triggers = %q, %q", definition.Steps[0].Trigger, definition.Steps[1].Trigger)
+	if definition.Steps[0].Start != "automatic" || definition.Steps[1].Start != "manual" {
+		t.Fatalf("triggers = %q, %q", definition.Steps[0].Start, definition.Steps[1].Start)
 	}
 }
 
@@ -65,7 +65,7 @@ steps:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := definition.Steps[1].Trigger; got != "agent_ended" {
+	if got := definition.Steps[1].Start; got != "agent_ended" {
 		t.Fatalf("trigger = %q, want agent_ended", got)
 	}
 	if !definition.Steps[1].WaitsForPerson() || definition.Steps[0].WaitsForPerson() {

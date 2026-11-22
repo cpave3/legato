@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom"
 import { Play, RefreshCw } from "lucide-react"
 import { useWorkflows, useWorkflowRuns } from "../hooks/useWorkflow"
 import { useNow } from "../hooks/useNow"
-import type { WorkflowDefinition, WorkflowRun } from "../lib/workflow"
+import { stepStart, type WorkflowDefinition, type WorkflowRun } from "../lib/workflow"
 import { ago, inputsLabel, runState, runSubject, runSummary, sourceLabel, stepPosition, stepSegments, triggerText } from "../lib/workflowView"
 import { RunWorkflowDialog } from "../components/RunWorkflowDialog"
 import { AddWorkflowTemplateDialog } from "../components/AddWorkflowTemplateDialog"
@@ -113,7 +113,7 @@ function StepTitles({ definition }: { definition: WorkflowDefinition }) {
     {definition.steps.map((step, index) => <span key={step.id}>
       {index > 0 && <span aria-hidden="true" className="px-1.5 text-lw-faint">→</span>}
       {step.title}
-      {(step.trigger === "manual" || step.trigger === "agent_ended") && <span role="img" aria-label="waits for you" className="ml-1">✋</span>}
+      {stepStart(step) !== "automatic" && <span role="img" aria-label="waits for you" className="ml-1">✋</span>}
     </span>)}
   </p>
 }

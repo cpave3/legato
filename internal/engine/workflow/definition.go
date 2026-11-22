@@ -13,7 +13,23 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// SchemaVersion is the version of the published JSON Schema, and of the
+// files Legato writes until schema version 2 has its own (LEG-484).
 const SchemaVersion = 1
+
+// SchemaVersion2 is the version that nests steps and names how each starts
+// with start:. Parse reads a version 1 file into the same model.
+const SchemaVersion2 = 2
+
+// How a step starts (Step.Start).
+const (
+	StartAutomatic = "automatic"
+	StartManual    = "manual"
+	// StartAgentEnded is internal: only a version 1 file's trigger:
+	// agent_ended reads as it. The step waits as a manual one does, and
+	// starts by itself when the workflow task's agent ends.
+	StartAgentEnded = "agent_ended"
+)
 
 var expressionPattern = regexp.MustCompile(`\$\{\{\s*([^}]+?)\s*\}\}`)
 
@@ -28,6 +44,9 @@ type Definition struct {
 	On            Triggers         `yaml:"on,omitempty" json:"on,omitempty"`
 	Steps         []Step           `yaml:"steps" json:"steps"`
 	Source        string           `yaml:"-" json:"source"`
+	// fromFile is set while a file just decoded is checked: only then is
+	// start in a version 1 file the file's own key, and refused.
+	fromFile bool
 }
 
 type Input struct {
@@ -40,12 +59,82 @@ type Input struct {
 }
 
 type Step struct {
-	ID      string            `yaml:"id" json:"id"`
-	Title   string            `yaml:"title" json:"title"`
-	Type    string            `yaml:"type" json:"type"`
-	Trigger string            `yaml:"trigger,omitempty" json:"trigger"`
+	ID    string `yaml:"id" json:"id"`
+	Title string `yaml:"title" json:"title"`
+	Type  string `yaml:"type" json:"type"`
+	// Trigger is a version 1 file's key only: Parse reads it into Start and
+	// clears it, and a version 1 definition is marshalled with it again.
+	Trigger string `yaml:"trigger,omitempty" json:"-"`
+	// Start is how the step starts: StartAutomatic, StartManual or, from a
+	// version 1 file, StartAgentEnded. Parse fills it.
+	Start   string            `yaml:"start,omitempty" json:"start" legato:"v2"`
 	With    map[string]any    `yaml:"with" json:"with"`
 	Outputs map[string]Output `yaml:"outputs,omitempty" json:"outputs,omitempty"`
+}
+
+// UnmarshalJSON reads a step as a run keeps it. A run started before schema
+// version 2 kept trigger, which reads as start.
+func (s *Step) UnmarshalJSON(data []byte) error {
+	type plain Step
+	var decoded struct {
+		plain
+		LegacyTrigger string `json:"trigger"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*s = Step(decoded.plain)
+	if s.Start == "" {
+		s.Start = decoded.LegacyTrigger
+	}
+	if s.Start == "" {
+		s.Start = StartAutomatic
+	}
+	return nil
+}
+
+// MarshalYAML writes the definition as a file of its own schema version: a
+// version 1 file says how a step starts with trigger, a version 2 file with
+// start, and neither writes automatic.
+func (d Definition) MarshalYAML() (any, error) {
+	type plain Definition
+	out := plain(d)
+	out.Steps = make([]Step, len(d.Steps))
+	for i, step := range d.Steps {
+		start := step.Start
+		if start == "" {
+			start = step.Trigger
+		}
+		if start == StartAutomatic {
+			start = ""
+		}
+		step.Trigger, step.Start = "", ""
+		if d.SchemaVersion == SchemaVersion {
+			step.Trigger = start
+		} else {
+			step.Start = start
+		}
+		out.Steps[i] = step
+	}
+	return out, nil
+}
+
+// StepPath is the path of the step id in the scope at parent ("" for the
+// run's own steps): a top-level step's path is its ID, a nested one's is
+// its scope's path, a slash and its ID.
+func StepPath(parent, id string) string {
+	if parent == "" {
+		return id
+	}
+	return parent + "/" + id
+}
+
+// SplitStepPath is StepPath undone: the scope's path and the step's ID.
+func SplitStepPath(path string) (parent, id string) {
+	if i := strings.LastIndex(path, "/"); i >= 0 {
+		return path[:i], path[i+1:]
+	}
+	return "", path
 }
 
 type Output struct {
@@ -71,7 +160,10 @@ func Parse(source string, data []byte) (*Definition, error) {
 		return nil, fmt.Errorf("parse workflow %s: %w", source, err)
 	}
 	definition.Source = source
-	if err := definition.Validate(); err != nil {
+	definition.fromFile = true
+	err := definition.Validate()
+	definition.fromFile = false
+	if err != nil {
 		return nil, fmt.Errorf("validate workflow %s: %w", source, err)
 	}
 	return &definition, nil
@@ -92,8 +184,8 @@ func (d *Definition) Validate() error {
 func (d *Definition) problems() []*PathError {
 	var problems []*PathError
 	add := func(path string, err error) { problems = append(problems, within(path, err)) }
-	if d.SchemaVersion != SchemaVersion {
-		add("schema_version", fmt.Errorf("schema_version must be %d", SchemaVersion))
+	if d.SchemaVersion != SchemaVersion && d.SchemaVersion != SchemaVersion2 {
+		add("schema_version", fmt.Errorf("schema_version must be %d or %d", SchemaVersion, SchemaVersion2))
 	}
 	if strings.TrimSpace(d.Name) == "" || strings.TrimSpace(d.Title) == "" {
 		path := "name"
@@ -156,31 +248,24 @@ func (d *Definition) problems() []*PathError {
 	availableOutputs := make(map[string]map[string]bool, len(d.Steps))
 	for i := range d.Steps {
 		step := &d.Steps[i]
-		if err := validateStep(step, i, seen, d.Inputs, availableOutputs); err != nil {
+		if err := validateStep(step, i, d.SchemaVersion, d.fromFile, seen, d.Inputs, availableOutputs); err != nil {
 			problems = append(problems, err)
 		}
 		seen[step.ID] = true
-		declared := make(map[string]bool, len(step.Outputs))
-		for key := range step.Outputs {
-			declared[key] = true
-		}
-		availableOutputs[step.ID] = declared
+		availableOutputs[step.ID] = readableOutputs(*step)
 	}
 	return problems
 }
 
 // validateStep checks one step against the steps before it: its first
 // problem, or nil.
-func validateStep(step *Step, index int, seen map[string]bool, inputs map[string]Input, availableOutputs map[string]map[string]bool) *PathError {
+func validateStep(step *Step, index, version int, fromFile bool, seen map[string]bool, inputs map[string]Input, availableOutputs map[string]map[string]bool) *PathError {
 	at := fmt.Sprintf("steps[%d]", index)
 	if step.ID == "" || seen[step.ID] {
 		return within(at+".id", fmt.Errorf("step IDs must be non-empty and unique"))
 	}
-	if step.Trigger == "" {
-		step.Trigger = "automatic"
-	}
-	if step.Trigger != "automatic" && step.Trigger != "manual" && step.Trigger != TriggerAgentEnded {
-		return within(at+".trigger", fmt.Errorf("step %q has unsupported trigger %q", step.ID, step.Trigger))
+	if err := normalizeStart(step, version, fromFile); err != nil {
+		return within(at+"."+err.key, err.err)
 	}
 	if _, known := catalogByType[step.Type]; !known {
 		return within(at+".type", fmt.Errorf("step %q has unsupported type %q", step.ID, step.Type))
@@ -574,12 +659,66 @@ func resolveExpression(expr string, current map[string]Output, inputs, workflowT
 	return nil, fmt.Errorf("unsupported expression %q", expr)
 }
 
-// TriggerAgentEnded makes a step wait as a manual one does, and start by
-// itself when the agent of the workflow task ends.
-const TriggerAgentEnded = "agent_ended"
+// TriggerAgentEnded is a version 1 file's trigger: agent_ended, read as
+// StartAgentEnded.
+const TriggerAgentEnded = StartAgentEnded
 
 // WaitsForPerson reports whether the run pauses before this step until it is
-// triggered: by hand, or for an agent_ended step also by its agent ending.
+// started: by hand, or for an agent_ended step also by its agent ending.
 func (s Step) WaitsForPerson() bool {
-	return s.Trigger == "manual" || s.Trigger == TriggerAgentEnded
+	return s.Start == StartManual || s.Start == StartAgentEnded
+}
+
+type startProblem struct {
+	key string
+	err error
+}
+
+// normalizeStart reads how the step starts from its file's key (trigger in
+// version 1, start in version 2) into Start, and refuses the other key. A
+// definition checked again after Parse has Start filled already.
+func normalizeStart(step *Step, version int, fromFile bool) *startProblem {
+	if version == SchemaVersion {
+		if fromFile && step.Start != "" {
+			return &startProblem{"start", fmt.Errorf("step %q: start is a schema_version 2 key; a version 1 file says trigger", step.ID)}
+		}
+		start := step.Trigger
+		if start == "" {
+			start = step.Start
+		}
+		if start == "" {
+			start = StartAutomatic
+		}
+		if start != StartAutomatic && start != StartManual && start != StartAgentEnded {
+			return &startProblem{"trigger", fmt.Errorf("step %q has unsupported trigger %q", step.ID, start)}
+		}
+		step.Start, step.Trigger = start, ""
+		return nil
+	}
+	if step.Trigger != "" {
+		return &startProblem{"trigger", fmt.Errorf("step %q: trigger is a schema_version 1 key; say start: automatic or manual", step.ID)}
+	}
+	if step.Start == "" {
+		step.Start = StartAutomatic
+	}
+	if step.Start != StartAutomatic && step.Start != StartManual {
+		return &startProblem{"start", fmt.Errorf("step %q has unsupported start %q: automatic or manual", step.ID, step.Start)}
+	}
+	return nil
+}
+
+// readableOutputs are the outputs later steps may read of a step: those it
+// declares and its executor's catalog outputs, which count as declared
+// without repeating them.
+func readableOutputs(step Step) map[string]bool {
+	readable := make(map[string]bool, len(step.Outputs))
+	for key := range step.Outputs {
+		readable[key] = true
+	}
+	if spec, ok := catalogByType[step.Type]; ok {
+		for _, output := range spec.Outputs {
+			readable[output.Name] = true
+		}
+	}
+	return readable
 }

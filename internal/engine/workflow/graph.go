@@ -159,7 +159,7 @@ func BuildGraph(d *Definition) *Graph {
 		triggers = append(triggers, id)
 	}
 	for i, step := range d.Steps {
-		trigger := step.Trigger
+		trigger := step.Start
 		if trigger == "" {
 			trigger = "automatic"
 		}

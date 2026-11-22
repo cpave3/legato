@@ -20,6 +20,7 @@ import (
 const maxWorkflowOutputBytes = 10 << 20
 
 type WorkflowOutputRequest struct {
+	// StepID is the step instance's path.
 	RunID, StepID, AttemptID, TaskID, WorkingDir string
 	Declared                                     map[string]workflowengine.Output
 	Values, Artifacts                            map[string]string
@@ -239,7 +240,8 @@ func (c *WorkflowOutputCollector) collectFile(ctx context.Context, req WorkflowO
 		return nil, err
 	}
 	mediaType := workflowArtifactMediaType(spec.MediaType, relative)
-	artifact := &store.WorkflowArtifact{ID: artifactID, RunID: req.RunID, StepID: req.StepID, AttemptID: req.AttemptID, TaskID: req.TaskID, OutputKey: key, ManagedPath: destination, OriginalPath: relative, MediaType: mediaType, SizeBytes: info.Size(), Digest: digestText}
+	_, stepID := workflowengine.SplitStepPath(req.StepID)
+	artifact := &store.WorkflowArtifact{ID: artifactID, RunID: req.RunID, Path: req.StepID, StepID: stepID, AttemptID: req.AttemptID, TaskID: req.TaskID, OutputKey: key, ManagedPath: destination, OriginalPath: relative, MediaType: mediaType, SizeBytes: info.Size(), Digest: digestText}
 	if err := c.store.InsertWorkflowArtifact(ctx, *artifact); err != nil {
 		_ = os.Remove(destination)
 		return nil, err

@@ -475,6 +475,17 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 			return "", nil
 		}
 	}
+	if name == "135_workflow_steps.sql" {
+		// A legacy database built in part may have no workflow tables to
+		// move.
+		var tables int
+		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('workflow_runs', 'workflow_step_runs', 'workflow_step_attempts', 'workflow_artifacts')`); err != nil {
+			return "", err
+		}
+		if tables != 4 {
+			return "", nil
+		}
+	}
 	if name == "065_document_images.sql" {
 		// One statement for each table, and a database from before plans or
 		// reviews has none of them to change.

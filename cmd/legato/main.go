@@ -1066,6 +1066,7 @@ func runServeCmd(args []string) int {
 		srv.SetWorkflowTriggerCoordinator(triggerCoordinator)
 		defer triggerCoordinator.StartEventLoop(context.Background(), bus)()
 		defer workflowSvc.StartAgentEndedLoop(context.Background(), bus)()
+		defer workflowSvc.StartAdvanceLoop(context.Background(), bus)()
 	} else {
 		log.Printf("workflows: %v", workflowErr)
 	}
@@ -1413,6 +1414,7 @@ func runTUI() int {
 		triggerCoordinator = buildWorkflowTriggerCoordinator(db, tuiWorkflowSvc, cfg, bus)
 		defer triggerCoordinator.StartEventLoop(context.Background(), bus)()
 		defer tuiWorkflowSvc.StartAgentEndedLoop(context.Background(), bus)()
+		defer tuiWorkflowSvc.StartAdvanceLoop(context.Background(), bus)()
 	} else {
 		log.Printf("workflows: %v", workflowErr)
 	}

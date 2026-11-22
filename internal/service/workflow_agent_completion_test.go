@@ -100,7 +100,9 @@ func TestWorkflowCompleteStopsAgentBeforeNextSharedTaskStep(t *testing.T) {
 	if len(executor.finished) != 1 || len(executor.starts) != 2 {
 		t.Fatalf("finished=%d starts=%d", len(executor.finished), len(executor.starts))
 	}
-	if executor.cancelObservedStepStatus != "succeeded" || executor.cancelObservedStarts != 2 {
+	// The step is recorded before its agent is finished, and the agent is
+	// finished before the next step starts (LEG-452).
+	if executor.cancelObservedStepStatus != "succeeded" || executor.cancelObservedStarts != 1 {
 		t.Fatalf("cancel observed status=%q starts=%d", executor.cancelObservedStepStatus, executor.cancelObservedStarts)
 	}
 }

@@ -118,7 +118,7 @@ func seedWorkflowOutputAttempt(t *testing.T, db *store.Store) {
 		t.Fatal(err)
 	}
 	run := store.WorkflowRun{ID: "wr", WorkflowName: "test", WorkflowTitle: "Test", DefinitionSource: "test", DefinitionDigest: "x", DefinitionJSON: `{}`, InputsJSON: `{}`, Status: "running", CurrentStepID: "review", TaskID: "task"}
-	steps := []store.WorkflowStepRun{{RunID: "wr", StepID: "review", Title: "Review", ExecutorType: "agent.run", DefinitionJSON: `{}`, Status: "pending"}}
+	steps := []store.WorkflowStep{{RunID: "wr", StepID: "review", Title: "Review", ExecutorType: "agent.run", DefinitionJSON: `{}`, Status: "pending"}}
 	if err := db.CreateWorkflowRun(ctx, run, steps); err != nil {
 		t.Fatal(err)
 	}

@@ -657,7 +657,7 @@ func TestDeleteTask_WorkflowAssociatedTask(t *testing.T) {
 		InputsJSON: `{}`, Status: "running", CurrentStepID: "record",
 		RelatedTaskID: task.ID, TriggerRequestID: request.ID,
 	}
-	if err := s.CreateWorkflowRun(ctx, run, []store.WorkflowStepRun{{
+	if err := s.CreateWorkflowRun(ctx, run, []store.WorkflowStep{{
 		RunID: run.ID, StepID: "record", StepOrder: 0, Title: "Record",
 		ExecutorType: "agent.run", DefinitionJSON: `{}`, Status: "pending",
 	}}); err != nil {

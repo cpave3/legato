@@ -14,7 +14,7 @@ func TestCreateWorkflowRunPersistsOrderedSteps(t *testing.T) {
 		DefinitionSource: "/workflows/review.yaml", DefinitionDigest: "sha256:test",
 		DefinitionJSON: `{}`, InputsJSON: `{"pr_number":42}`, Status: "running", CurrentStepID: "prepare", TaskID: "wf-task",
 	}
-	steps := []WorkflowStepRun{
+	steps := []WorkflowStep{
 		{RunID: run.ID, StepID: "prepare", StepOrder: 0, Title: "Prepare", ExecutorType: "github.pr.prepare", DefinitionJSON: `{}`, Status: "pending"},
 		{RunID: run.ID, StepID: "review", StepOrder: 1, Title: "Review", ExecutorType: "agent.run", DefinitionJSON: `{}`, Status: "pending"},
 	}
