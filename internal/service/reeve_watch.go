@@ -147,6 +147,10 @@ type watchSeen struct {
 	// the first look.
 	Stage      string    `json:"stage,omitempty"`
 	StageSince time.Time `json:"stage_since,omitempty"`
+	// StageExecution is the execution of a workflow agent whose place the
+	// stage was read at, "" for the task's main slot. It is kept because
+	// a finished step's session is gone by the next look.
+	StageExecution string `json:"stage_execution,omitempty"`
 }
 
 // WatchEvent is one thing a watched agent did, queued for the Reeve.
@@ -316,13 +320,24 @@ func (w *ReeveWatcher) look(ctx context.Context, taskID string) watchSeen {
 	if state, ok := w.agentState(ctx, taskID); ok {
 		seen.State = state
 	}
-	if stage, err := w.opts.Store.GetWorkStage(ctx, TaskPlace(taskID, "")); err == nil && stage != nil {
+	place := w.stagePlace(ctx, taskID)
+	seen.StageExecution = place.PlaceExecutionID
+	if stage, err := w.opts.Store.GetWorkStage(ctx, place); err == nil && stage != nil {
 		seen.Stage = stage.Stage
 		if since := parseStageTime(stage.Since); since != nil {
 			seen.StageSince = *since
 		}
 	}
 	return seen
+}
+
+// stagePlace is where the stage of a task's watched agent is kept: its
+// execution's place for a workflow agent, else the task's main slot.
+func (w *ReeveWatcher) stagePlace(ctx context.Context, taskID string) WorkStagePlace {
+	if a, err := w.opts.Store.LatestAgentSessionForTask(ctx, taskID); err == nil && a != nil && a.ExecutionKind == store.ExecutionWorkflowAgent {
+		return SessionPlace(*a)
+	}
+	return TaskPlace(taskID, "")
 }
 
 // agentState is the state of a task's running agent; false when none runs.
@@ -493,10 +508,14 @@ func (w *ReeveWatcher) news(ctx context.Context, taskID string, before watchSeen
 	}
 
 	// Its stage: told when it moved since the last look.
-	if stage, err := w.opts.Store.GetWorkStage(ctx, TaskPlace(taskID, "")); err == nil && stage != nil && before.Stage != "" && stage.Stage != before.Stage {
+	// Read where it was seen last: a workflow step's place outlives its
+	// session.
+	seenAt := TaskPlace(taskID, "")
+	seenAt.PlaceExecutionID = before.StageExecution
+	if stage, err := w.opts.Store.GetWorkStage(ctx, seenAt); err == nil && stage != nil && before.Stage != "" && stage.Stage != before.Stage {
 		e := WatchEvent{TaskID: taskID, Kind: WatchStage, At: at, From: before.Stage, To: stage.Stage, Detail: clipRunes(oneLine(stage.Reason), reeveWatchLastMessage)}
-		if !before.StageSince.IsZero() && now.StageSince.After(before.StageSince) {
-			e.For = now.StageSince.Sub(before.StageSince)
+		if since := parseStageTime(stage.Since); since != nil && !before.StageSince.IsZero() && since.After(before.StageSince) {
+			e.For = since.Sub(before.StageSince)
 		}
 		events = append(events, e)
 	}

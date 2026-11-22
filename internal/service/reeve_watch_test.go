@@ -762,3 +762,36 @@ func TestAWatchHearsOfStageChanges(t *testing.T) {
 	f.setStage(t, f.task, store.WorkStageImplementing, "edited main.go")
 	mustContain(t, strings.Join(f.settle(t), ""), "exploring → implementing", "edited main.go")
 }
+
+// A workflow agent's stage is its execution's: the watcher reads that
+// place, and still sees the step finish after the step's session is gone.
+func TestAWatchedWorkflowAgentReachingFinishedIsReported(t *testing.T) {
+	f := newWatchFixture(t)
+	ctx := context.Background()
+	if err := f.db.CreateTask(ctx, store.Task{ID: "WF-1", Title: "A run", Status: "Doing"}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := f.db.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: "WF-1", TmuxSession: "legato-WF-1", Command: "claude", AgentKind: "claude-code", Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.CreateExecution(ctx, store.Execution{ID: "ex-wf", Kind: store.ExecutionWorkflowAgent, Status: store.ExecutionRunning, TaskID: "WF-1", AgentSessionID: &id, StartedAt: f.now.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	f.activity(t, "WF-1", store.ActivityWorking)
+	place := store.WorkStagePlace{TaskID: "WF-1", Slot: store.SlotMain, PlaceExecutionID: "ex-wf"}
+	setAt := func(stage, reason string) {
+		if _, err := f.db.SetWorkStage(ctx, store.WorkStage{WorkStagePlace: place, Stage: stage, Reason: reason, Source: store.WorkStageSourceMilestone}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setAt(store.WorkStageReviewing, "")
+	f.watchAll(t, "WF-1", "exited")
+	f.after(t, ReeveWatchCheckEvery)
+
+	setAt(store.WorkStageFinished, "step one done")
+	if err := f.db.DeleteAgentSession(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, strings.Join(f.settle(t), ""), "reviewing → finished", "step one done")
+}
