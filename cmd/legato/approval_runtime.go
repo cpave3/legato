@@ -143,6 +143,9 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 			return ""
 		},
 	})
+	// An edit a native agent makes in its working folder is evidence of
+	// its stage (Implementing).
+	rt.watcher.AddListener(workStagesFor(db, bus).ObserveNativeEvent)
 	stops = append(stops, rt.watcher.Start(ctx, bus))
 	return rt
 }

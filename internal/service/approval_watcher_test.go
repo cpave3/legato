@@ -256,7 +256,7 @@ func TestAnAgentEndingExpiresItsApprovals(t *testing.T) {
 func TestListenersSeeEveryEvent(t *testing.T) {
 	f := newWatcherFixture(t)
 	seen := make(chan string, 4)
-	f.watcher.AddListener(func(taskID string, event chimera.EventEnvelope) { seen <- taskID + ":" + event.Type })
+	f.watcher.AddListener(func(agent WatchedAgent, event chimera.EventEnvelope) { seen <- agent.AgentID() + ":" + event.Type })
 	f.start(t)
 
 	f.stream.emit("usage_updated", map[string]any{"usedContextTokens": 10, "contextWindow": 100})
@@ -268,4 +268,94 @@ func TestListenersSeeEveryEvent(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("listener saw nothing")
 	}
+}
+
+// endpointStreams are several agent endpoints, one fake stream each.
+type endpointStreams map[string]*fakeNativeStream
+
+func (e endpointStreams) Snapshot(ctx context.Context, endpoint, session string) (*chimera.SessionSnapshot, error) {
+	return e[endpoint].Snapshot(ctx, endpoint, session)
+}
+
+func (e endpointStreams) Subscribe(ctx context.Context, endpoint, session, since string, onEvent func(chimera.EventEnvelope)) error {
+	return e[endpoint].Subscribe(ctx, endpoint, session, since, onEvent)
+}
+
+// S5: a reviewer slot and the main slot of one task are two agents, each
+// followed on its own stream, and listeners are told which one spoke. A
+// reviewer's request is answered in the reviewer's slot.
+func TestTheSlotsOfOneTaskAreFollowedApart(t *testing.T) {
+	approvals, _, _ := newApprovalFixture(t)
+	main, reviewer := newFakeNativeStream(), newFakeNativeStream()
+	streams := endpointStreams{"http://main": main, "http://reviewer": reviewer}
+	interaction := &slotRecordingInteraction{}
+	mainEndpoint, reviewerEndpoint, mainSession, reviewerSession := "http://main", "http://reviewer", "s-main", "s-reviewer"
+	watcher := NewApprovalWatcher(approvals, interaction, ApprovalWatcherOptions{
+		Sessions: func(context.Context) ([]store.AgentSession, error) {
+			return []store.AgentSession{
+				{TaskID: "LEG-1", Slot: store.SlotMain, ExecutionID: "ex-main", WorkingDir: "/w", Status: "running", ChimeraEndpoint: &mainEndpoint, ChimeraSessionID: &mainSession},
+				{TaskID: "LEG-1", Slot: SlotReviewer, ExecutionID: "ex-reviewer", WorkingDir: "/w", Status: "running", ChimeraEndpoint: &reviewerEndpoint, ChimeraSessionID: &reviewerSession},
+			}, nil
+		},
+		Stream:     streams,
+		RetryDelay: time.Millisecond,
+	})
+	t.Cleanup(watcher.Stop)
+	seen := make(chan WatchedAgent, 4)
+	watcher.AddListener(func(agent WatchedAgent, event chimera.EventEnvelope) { seen <- agent })
+	watcher.Reconcile(context.Background())
+	for _, stream := range []*fakeNativeStream{main, reviewer} {
+		select {
+		case <-stream.opened:
+		case <-time.After(time.Second):
+			t.Fatal("a slot's stream was not opened")
+		}
+	}
+
+	reviewer.emit("usage_updated", map[string]any{})
+	main.emit("usage_updated", map[string]any{})
+	got := map[string]WatchedAgent{}
+	for i := 0; i < 2; i++ {
+		select {
+		case agent := <-seen:
+			got[agent.AgentID()] = agent
+		case <-time.After(time.Second):
+			t.Fatalf("listeners saw %v, want both slots", got)
+		}
+	}
+	if got["LEG-1"].ExecutionID != "ex-main" || got["LEG-1_reviewer"].ExecutionID != "ex-reviewer" || got["LEG-1_reviewer"].WorkingDir != "/w" {
+		t.Fatalf("listeners saw %+v", got)
+	}
+
+	reviewer.emit("permission_request", map[string]any{"requestId": "r1", "tool": "Bash", "command": "ls"})
+	deadline := time.Now().Add(2 * time.Second)
+	var pending []Approval
+	for len(pending) == 0 && time.Now().Before(deadline) {
+		pending, _ = approvals.List(context.Background(), store.ApprovalFilter{Status: store.ApprovalPending})
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(pending) != 1 {
+		t.Fatal("the reviewer's request was not raised")
+	}
+	if _, err := approvals.Decide(context.Background(), pending[0].ID, ApprovalDecision{Decision: ApprovalAllow, By: "web"}); err != nil {
+		t.Fatal(err)
+	}
+	if interaction.slot != SlotReviewer {
+		t.Fatalf("the request was answered in slot %q, want the reviewer's", interaction.slot)
+	}
+}
+
+// slotRecordingInteraction records the slot a request was answered in.
+type slotRecordingInteraction struct {
+	slot string
+}
+
+func (r *slotRecordingInteraction) ResolvePermission(ctx context.Context, _ string, _ string, _ PermissionAction) error {
+	r.slot = AgentSlotFrom(ctx)
+	return nil
+}
+
+func (r *slotRecordingInteraction) AnswerQuestion(ctx context.Context, _ string, _ string, _ QuestionAnswer) error {
+	r.slot = AgentSlotFrom(ctx)
+	return nil
 }

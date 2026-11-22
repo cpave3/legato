@@ -510,10 +510,16 @@ func (s *session) applySubagentRow(event modEvent) []nativeEvent {
 			}
 		case "tool_use":
 			_, _, summary := nativeToolCall(block.Name, block.Input)
-			out = append(out, wrap(nativeEvent{
+			start := nativeEvent{
 				"type": "tool_call_start", "callId": block.ID, "name": block.Name,
 				"display": map[string]any{"summary": summary},
-			}))
+			}
+			// An edit names its file, and nothing of what it wrote, so
+			// Legato can count it as evidence of work in the folder.
+			if path := editedFile(block.Name, block.Input); path != "" {
+				start["args"] = map[string]any{"path": path}
+			}
+			out = append(out, wrap(start))
 		case "tool_result":
 			if block.IsError {
 				out = append(out, wrap(nativeEvent{"type": "tool_call_error", "callId": block.ToolUseID, "error": truncate(firstLine(block.resultText()), 200)}))

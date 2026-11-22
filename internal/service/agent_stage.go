@@ -267,13 +267,29 @@ func (s *WorkStageService) Milestone(ctx context.Context, place WorkStagePlace, 
 // (a reviewer slot, or readOnly set by the caller for a read-only
 // execution).
 func (s *WorkStageService) Evidence(ctx context.Context, place WorkStagePlace, executionID, reason string, readOnly bool) (bool, error) {
+	return s.EvidenceAt(ctx, place, executionID, reason, readOnly, time.Time{})
+}
+
+// EvidenceAt is Evidence of an edit made at a time (zero for now): an edit
+// from before the place reached its stage is ignored, so a replayed stream
+// never counts its old events against a later stage.
+func (s *WorkStageService) EvidenceAt(ctx context.Context, place WorkStagePlace, executionID, reason string, readOnly bool, at time.Time) (bool, error) {
 	if readOnly || place.Slot == SlotReviewer {
 		return false, nil
 	}
 	return s.apply(ctx, place, store.WorkStage{
 		Stage: store.WorkStageImplementing, Reason: strings.TrimSpace(reason), Source: store.WorkStageSourceEvidence, ExecutionID: executionID,
 	}, func(current *store.WorkStage) bool {
-		return current == nil || current.Stage != store.WorkStageImplementing
+		if current == nil {
+			return true
+		}
+		if current.Stage == store.WorkStageImplementing {
+			return false
+		}
+		if since := parseStageTime(current.Since); since != nil && !at.IsZero() && at.Before(*since) {
+			return false
+		}
+		return true
 	})
 }
 

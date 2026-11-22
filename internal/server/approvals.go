@@ -22,12 +22,17 @@ func (s *Server) SetApprovalService(approvals *service.ApprovalService) {
 // stream per agent, so the server opens no stream of its own to read how
 // full each agent's context is, or to log a message an agent's session would
 // not take.
+//
+// Events are keyed by agent ID (<task>_<slot> for a named slot), as the
+// agents list names agents, so a reviewer's context meter is its own.
 func (s *Server) UseAgentEvents(watcher interface {
-	AddListener(func(taskID string, event chimera.EventEnvelope))
+	AddListener(func(agent service.WatchedAgent, event chimera.EventEnvelope))
 }) {
 	s.agentContexts.UseExternalEvents()
-	watcher.AddListener(s.agentContexts.Observe)
-	watcher.AddListener(logDeliveryFailure)
+	watcher.AddListener(func(agent service.WatchedAgent, event chimera.EventEnvelope) {
+		s.agentContexts.Observe(agent.AgentID(), event)
+		logDeliveryFailure(agent.AgentID(), event)
+	})
 }
 
 func (s *Server) requireApprovalService(w http.ResponseWriter) bool {

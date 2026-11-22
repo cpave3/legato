@@ -724,3 +724,68 @@ func TestClaudeHook_TheEndOfTheTurnEndsSubagentsNoLongerRunning(t *testing.T) {
 		t.Fatalf("open after the session ended = %v, want none", got)
 	}
 }
+
+// A Claude Code session without the bridge reports its edits through its
+// PostToolUse hooks: only the tool's kind and path travel, and an edit
+// inside the session's working folder makes it Implementing.
+func TestClaudeHook_AnEditInTheWorkingFolderIsEvidence(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "abc123", "Doing")
+	ctx := context.Background()
+	if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: "abc123", TmuxSession: "legato-abc123", AgentKind: "claude-code", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	session, _ := s.GetAgentSessionByTaskID(ctx, "abc123")
+	if err := s.CreateExecution(ctx, store.Execution{ID: "exec-1", Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: "abc123", ExecutionTaskID: "abc123", TaskTitle: "T", AgentSessionID: &session.ID, StartedAt: time.Now().UTC(), WorkingDir: "/work"}); err != nil {
+		t.Fatal(err)
+	}
+	place := store.WorkStagePlace{TaskID: "abc123", Slot: store.SlotMain}
+	stage := func() string {
+		got, err := s.GetWorkStage(ctx, place)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got == nil {
+			return ""
+		}
+		return got.Stage + " " + got.Reason
+	}
+	send := func(payload string) {
+		t.Helper()
+		hook, err := cli.ParseClaudeHook([]byte(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cli.ApplyClaudeHook(s, cli.ClaudeHookReport{TaskID: "abc123", ExecutionID: "exec-1", Hook: hook}, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	send(`{"hook_event_name":"PostToolUse","tool_name":"Read","tool_input":{"file_path":"/work/main.go"},"tool_response":{}}`)
+	send(`{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/home/me/.claude/plans/p.md","content":"x"},"tool_response":{}}`)
+	if got := stage(); got != "" {
+		t.Fatalf("after a read and a write elsewhere the stage is %q", got)
+	}
+
+	send(`{"hook_event_name":"PostToolUse","agent_id":"a1","tool_name":"MultiEdit","tool_input":{"file_path":"/work/internal/x.go","edits":[]},"tool_response":{}}`)
+	if got := stage(); got != "implementing edited internal/x.go" {
+		t.Fatalf("after a subagent's edit the stage is %q, want implementing", got)
+	}
+}
+
+// Only the kind and the path of an edit travel to the host, never what was
+// written.
+func TestClaudeHook_AnEditCarriesItsPathOnly(t *testing.T) {
+	hook, err := cli.ParseClaudeHook([]byte(`{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/work/a.go","content":"secret"},"tool_response":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(hook)
+	if hook.Edited != "/work/a.go" || strings.Contains(string(data), "secret") {
+		t.Fatalf("hook = %s", data)
+	}
+	if hook, _ := cli.ParseClaudeHook([]byte(`{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`)); hook.Edited != "" {
+		t.Fatalf("a Bash call edited %q", hook.Edited)
+	}
+}

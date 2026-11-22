@@ -250,3 +250,28 @@ func TestContextWatcherReadsTheEventsItIsGivenInsteadOfItsOwnStream(t *testing.T
 		t.Fatal("the agent is no longer watched")
 	}
 }
+
+// A reviewer slot's events fill the reviewer's context meter, which the
+// agents list names LEG-1_reviewer, and not its task's main agent's.
+func TestAReviewerSlotsContextIsItsOwn(t *testing.T) {
+	h := newContextHarness(t)
+	s := New(nil, nil, nil, "")
+	s.agentContexts = h.watcher
+	events := &fakeAgentEvents{}
+	s.UseAgentEvents(events)
+	h.watcher.Reconcile([]string{"LEG-1", "LEG-1_reviewer"})
+	h.waitFor(func() bool { return h.watcher.watching("LEG-1_reviewer") })
+
+	data, _ := json.Marshal(map[string]any{"type": "usage_updated", "usedContextTokens": 900, "contextWindow": 200_000})
+	for _, listener := range events.listeners {
+		listener(service.WatchedAgent{TaskID: "LEG-1", Slot: service.SlotReviewer, ExecutionID: "ex-r"}, chimera.EventEnvelope{Type: "usage_updated", Data: data})
+	}
+
+	h.waitFor(func() bool { return len(h.contextMessages()) == 1 })
+	if got := h.contextMessages()[0]; got.AgentID != "LEG-1_reviewer" || got.ContextUsed != 900 {
+		t.Fatalf("message = %+v, want the reviewer's", got)
+	}
+	if _, ok := h.watcher.Context("LEG-1"); ok {
+		t.Fatal("the main agent got the reviewer's reading")
+	}
+}

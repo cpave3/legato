@@ -68,6 +68,18 @@ func nativeToolCall(tool string, input map[string]any) (name string, args map[st
 	return tool, input, toolSummary(tool, input)
 }
 
+// editedFile is the file a Claude Code tool call changes, "" for a call
+// that changes none.
+func editedFile(tool string, input map[string]any) string {
+	switch tool {
+	case "Edit", "Write", "MultiEdit":
+		return stringArg(input, "file_path")
+	case "NotebookEdit":
+		return stringArg(input, "notebook_path")
+	}
+	return ""
+}
+
 // summaryKeys are the arguments that best say what a call is about, in the
 // order tried.
 var summaryKeys = []string{"description", "pattern", "query", "url", "file_path", "path", "command", "skill", "prompt", "subject", "name", "text"}
