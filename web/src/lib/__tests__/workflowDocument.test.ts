@@ -114,6 +114,35 @@ describe("setField", () => {
   })
 })
 
+describe("edge cases the review found", () => {
+  const last = "schema_version: 1\nname: e\ntitle: E\nsteps:\n  - id: a\n    title: A\n    type: agent.run\n    with: {prompt: hi}"
+  it("edits the last value of a file with no final newline", () => {
+    expect(parseWorkflow(setField(last, ["steps", 0, "with", "prompt"], "changed").text).values.steps?.[0].with).toEqual({ prompt: "changed" })
+    const block = "schema_version: 1\nname: e\ntitle: E\nsteps:\n  - id: a\n    title: A\n    type: agent.run\n    with:\n      prompt: |\n        old"
+    expect(parseWorkflow(setField(block, ["steps", 0, "with", "prompt"], "changed").text).values.steps?.[0].with).toEqual({ prompt: "changed" })
+    expect(parseWorkflow(setField(block, ["steps", 0, "with"], { macro: "m" }).text).values.steps?.[0].with).toEqual({ macro: "m" })
+  })
+
+  it("moves a step last before the fields after the steps", () => {
+    const text = "schema_version: 1\nname: e\ntitle: E\nsteps:\n  - id: a\n    title: A\n    type: agent.run\n    with: {prompt: a}\n  - id: b\n    title: B\n    type: agent.run\n    with: {prompt: b}\ndescription: After the steps.\n"
+    const after = moveStep(text, "a", 1).text
+    const parsed = parseWorkflow(after)
+    expect(parsed.errors).toEqual([])
+    expect(stepsOf(parsed.values).map(s => s.id)).toEqual(["b", "a"])
+    expect(parsed.values.description).toBe("After the steps.")
+  })
+
+  it("keeps the comments of a value it rewrites", () => {
+    const flow = setField(commented.replace("  task: {type: task, required: true}", "  task: {type: task, required: true} # the task"), ["inputs", "task", "required"], false).text
+    expect(flow).toContain("  task: # the task\n    type: task\n    required: false\n")
+    const header = "schema_version: 1\nname: e\ntitle: E\nsteps:\n  - id: a\n    title: A\n    type: agent.run\n    with:\n      prompt: |- # rationale\n        old\n"
+    expect(setField(header, ["steps", 0, "with", "prompt"], "new").text).toContain("      prompt: new # rationale\n")
+    expect(setField(header, ["steps", 0, "with", "prompt"], "two\nlines").text).toContain("      prompt: |- # rationale\n        two\n        lines\n")
+    const keyLine = "schema_version: 1\nname: e\ntitle: E\nsteps:\n  - id: a\n    title: A\n    type: agent.run\n    with: # what to ask\n      prompt: x\n"
+    expect(setField(keyLine, ["steps", 0, "with"], { macro: "m" }).text).toContain("    with: # what to ask\n      macro: m\n")
+  })
+})
+
 describe("steps", () => {
   it("inserts a step in the builder's style, comments elsewhere kept", () => {
     const after = insertStep(commented, 1, { id: "middle", title: "Middle", type: "task.context", with: { task: "${{ workflow.inputs.task }}" } }).text

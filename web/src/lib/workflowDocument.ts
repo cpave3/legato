@@ -214,7 +214,7 @@ function rewrite(text: string, doc: Document, path: YamlPath, value: unknown): s
   if (typeof last === "number") {
     const [start] = range(found.node)
     const indent = columnOf(text, start)
-    const end = isScalar(found.node) ? range(found.node)[1] : contentEnd(text, found.node!) - 1
+    const end = isScalar(found.node) && !(found.node.type === "BLOCK_LITERAL" || found.node.type === "BLOCK_FOLDED") ? range(found.node)[1] : blockEnd(text, found.node!)
     return splice(text, start, end, render(value, indent))
   }
   const key = found.pair!.key as YamlNode
@@ -222,24 +222,43 @@ function rewrite(text: string, doc: Document, path: YamlPath, value: unknown): s
   const indent = columnOf(text, keyStart) + 2
   const colon = text.indexOf(":", keyEnd)
   const node = found.node
-  const oneLine = isScalar(node) && !(node.type === "BLOCK_LITERAL" || node.type === "BLOCK_FOLDED")
-  const end = node && !(isScalar(node) && node.value === null && range(node)[0] === range(node)[1])
-    ? (oneLine ? range(node)[1] : contentEnd(text, node) - 1)
-    : colon + 1
+  const lineOf = (pos: number) => lineEnd(text, pos)
+  const eolOf = (pos: number) => { const e = lineOf(pos); return text[e - 1] === "\n" ? e - 1 : e }
   let written = valueText(value, indent)
-  let to = Math.max(colon + 1, end)
-  if (written.includes("\n")) {
-    // An inline comment after a one-line value goes on the line of its key,
-    // not into the block written in its place.
-    const eol = lineEnd(text, to) - (text[lineEnd(text, to) - 1] === "\n" ? 1 : 0)
-    const comment = /^([ \t]+#.*)$/.exec(text.slice(to, eol))?.[1]
-    if (comment) {
-      const lineBreak = written.indexOf("\n")
-      written = written.slice(0, lineBreak) + comment + written.slice(lineBreak)
-      to = eol
+  let to: number
+  // A comment on the value being replaced: put back after the new value.
+  let comment: string | undefined
+  if (!node || (isScalar(node) && node.value === null && range(node)[0] === range(node)[1])) {
+    to = colon + 1
+  } else if (isScalar(node) && (node.type === "BLOCK_LITERAL" || node.type === "BLOCK_FOLDED")) {
+    // The header's comment: key: |- # why
+    comment = /^[ \t]*[|>][-+0-9]*([ \t]+#.*)$/.exec(text.slice(colon + 1, eolOf(colon)))?.[1]
+    to = blockEnd(text, node)
+  } else if (lineStart(text, range(node)[0]) === lineStart(text, colon) && lineStart(text, Math.max(range(node)[0], range(node)[1] - 1)) === lineStart(text, colon)) {
+    // A one-line value (a scalar or a flow collection) on the key's line.
+    to = range(node)[1]
+    if (written.includes("\n")) {
+      comment = /^([ \t]+#.*)$/.exec(text.slice(to, eolOf(to)))?.[1]
+      if (comment) to = eolOf(to)
     }
+  } else {
+    // A block under the key: a comment on the key's line.
+    comment = /^([ \t]*#.*)$/.exec(text.slice(colon + 1, eolOf(colon)))?.[1]
+    to = blockEnd(text, node)
   }
-  return splice(text, colon + 1, to, written)
+  if (comment) {
+    const spaced = /^[ \t]/.test(comment) ? comment : " " + comment
+    const lineBreak = written.indexOf("\n")
+    written = lineBreak < 0 ? written + spaced : written.slice(0, lineBreak) + spaced + written.slice(lineBreak)
+  }
+  return splice(text, colon + 1, Math.max(colon + 1, to), written)
+}
+
+// blockEnd is where a node's text ends: the end of its last line, before
+// that line's break when it has one.
+function blockEnd(text: string, node: YamlNode): number {
+  const end = contentEnd(text, node)
+  return text[end - 1] === "\n" ? end - 1 : end
 }
 
 function setIn(target: unknown, path: YamlPath, value: unknown) {
@@ -414,8 +433,15 @@ export function moveStep(text: string, id: string, to: number): WorkflowEdit {
   const moved = withNewline(working.slice(span.start, span.end))
   const rest = splice(working, span.start, span.end, "")
   const restSpans = stepSpans(rest, stepsSeq(parse(rest))!)
-  const insertAt = target < restSpans.length ? restSpans[target].start : withNewline(rest).length
-  const base = target < restSpans.length ? rest : withNewline(rest)
+  let base = rest
+  let insertAt: number
+  if (target < restSpans.length) {
+    insertAt = restSpans[target].start
+  } else {
+    // After the last step, not at the end of the file: fields may follow.
+    insertAt = restSpans[restSpans.length - 1].end
+    if (base[insertAt - 1] !== "\n") { base = splice(base, insertAt, insertAt, "\n"); insertAt += 1 }
+  }
   return edit(`Move step ${id}`, text, splice(base, insertAt, insertAt, moved))
 }
 
