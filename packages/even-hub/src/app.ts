@@ -252,6 +252,10 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
   // opened as the only one (so it exits).
   let instances: Instance[] | undefined
   let instancesRead = false
+  // Whether a list has been read yet: the only Legato is opened straight
+  // away on the first list read, not on the first read attempted (which
+  // fails until the glasses are paired).
+  let listed = false
   let instancesAt: Date | undefined
   // Why the list of Legatos may be stale (a failed read), and why the app
   // left the Legato it had open, which stays until another is opened.
@@ -352,16 +356,17 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
   }
 
   async function readInstances(): Promise<void> {
-    const listed = await legato.instances()
+    const answer = await legato.instances()
     if (view.kind !== "picker") return
-    const first = !instancesRead
     instancesRead = true
-    if (!listed.ok) {
-      pickerProblem = listed.problem
+    if (!answer.ok) {
+      pickerProblem = answer.problem
       return
     }
+    const first = !listed
+    listed = true
     pickerProblem = undefined
-    instances = listed.instances
+    instances = answer.instances
     instancesAt = new Date()
     if (first && instances.length === 1) {
       openInstance(instances[0], false)

@@ -700,4 +700,21 @@ describe("startGlance with several Legatos", () => {
 
     expect(legato.calls.at).toEqual(["desk"])
   })
+
+  it("still opens the only Legato straight away when the first read failed, as before pairing", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    legato.list({ ok: false, problem: "Not paired with the Legato app" })
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    expect(bridge.legatos()).toEqual(["No Legatos to show."])
+
+    legato.list({ ok: true, instances: [desk] })
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+
+    expect(bridge.items()?.[0]).toBe("● needs you  ASK-1 Approve")
+    bridge.send(doubleClick)
+    await settle()
+    expect(bridge.exits).toEqual([1])
+  })
 })
+
