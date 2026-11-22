@@ -91,7 +91,11 @@ loaded from the server at runtime.
 Gradle and the helper require stable `vMAJOR.MINOR.PATCH` tags without leading
 zeros: `versionName = MAJOR.MINOR.PATCH`,
 `versionCode = (major + 1) * 1_000_000 + minor * 1_000 + patch`.
-Bounds are major <= 2098, minor/patch <= 999. Preflight scans all eligible
+Bounds are major <= 2098, minor/patch <= 999. A local build (no
+`LEGATO_ANDROID_RELEASE_TAG`) takes the latest stable tag from `git describe`:
+`versionName = MAJOR.MINOR.PATCH-dev.N+<commit>[.dirty]`, `versionCode` that
+tag's, so it installs over the release and the next release over it
+(`0.0.0-dev` and 2 without a tag). Preflight scans all eligible
 Android releases and rejects a lower version code than one already published.
 
 The operator owns the `android-release` environment: secrets

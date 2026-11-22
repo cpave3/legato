@@ -8,8 +8,10 @@
   "permissions": [
     {
       "name": "network",
-      "desc": "Reads your agents and their conversations from your own Legato server, and sends the messages you dictate to them.",
-      "whitelist": []
+      "desc": "Reads your agents and their conversations from the Legato app on this phone, and sends the messages you dictate to them through it.",
+      "whitelist": [
+        "http://127.0.0.1:8792"
+      ]
     },
     {
       "name": "g2-microphone",

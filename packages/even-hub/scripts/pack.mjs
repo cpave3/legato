@@ -1,29 +1,26 @@
-// Builds the app and packs it as dist/legato.ehpk for one Legato: the
-// manifest's network whitelist gets that Legato's origin, which must be known
-// when the package is made. Usage: LEGATO_URL=https://… node scripts/pack.mjs
+// Builds the app and packs it as dist/legato.ehpk. The app reads Legato only
+// through the Legato Android app's glasses link at http://127.0.0.1:8792,
+// which is the one address in app.json's network whitelist; nothing about
+// any Legato, and no secret, is built in. Fails if a dev-only part of the app
+// reached the bundle. Usage: node scripts/pack.mjs
 import { execFileSync } from "node:child_process"
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 const root = fileURLToPath(new URL("..", import.meta.url))
-const raw = process.env.LEGATO_URL?.trim()
-if (!raw) {
-  console.error("Set LEGATO_URL to the Legato the glasses will read, e.g. https://erebus.example.ts.net")
-  process.exit(1)
-}
-const origin = new URL(raw).origin
+const run = (cmd, args) => execFileSync(cmd, args, { cwd: root, stdio: "inherit" })
 
-const manifest = JSON.parse(readFileSync(`${root}app.json`, "utf8"))
-for (const permission of manifest.permissions) {
-  if (permission.name === "network") permission.whitelist = [origin]
+run("pnpm", ["exec", "vite", "build"])
+
+// The dev log relay (src/dev-log.ts) is for dev builds only.
+const assets = `${root}dist/assets`
+for (const file of readdirSync(assets).filter((f) => f.endsWith(".js"))) {
+  if (readFileSync(`${assets}/${file}`, "utf8").includes("/__log")) {
+    console.error(`dist/assets/${file} has the dev log relay in it: it must be left out of a build`)
+    process.exit(1)
+  }
 }
-mkdirSync(`${root}.pack`, { recursive: true })
-writeFileSync(`${root}.pack/app.json`, `${JSON.stringify(manifest, null, 2)}\n`)
 
 const sdk = JSON.parse(readFileSync(`${root}node_modules/@evenrealities/even_hub_sdk/package.json`, "utf8")).version
-const run = (cmd, args) => execFileSync(cmd, args, { cwd: root, stdio: "inherit" })
-// The origin, never the token, is built in: the app reads it when nothing is
-// saved on the phone (src/main.ts).
-execFileSync("pnpm", ["exec", "vite", "build"], { cwd: root, stdio: "inherit", env: { ...process.env, VITE_LEGATO_URL: origin } })
-run("pnpm", ["exec", "evenhub", "pack", ".pack/app.json", "dist", "-o", "dist/legato.ehpk", "--sdk-ver", sdk])
-console.log(`Packed dist/legato.ehpk for ${origin}`)
+run("pnpm", ["exec", "evenhub", "pack", "app.json", "dist", "-o", "dist/legato.ehpk", "--sdk-ver", sdk])
+console.log("Packed dist/legato.ehpk")

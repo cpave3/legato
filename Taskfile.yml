@@ -232,7 +232,7 @@ tasks:
       - pnpm run check
 
   even-hub:dev:
-    desc: Serve the Even G2 glasses app at http://127.0.0.1:5173 (the fixture, or LEGATO_URL with LEGATO_TOKEN)
+    desc: Serve the Even G2 glasses app at http://127.0.0.1:5173, reading a fake phone on the fixtures
     dir: packages/even-hub
     deps: [packages:install]
     cmds:
@@ -260,14 +260,9 @@ tasks:
       - pnpm run screenshots {{.CLI_ARGS}}
 
   even-hub:pack:
-    desc: Build the glasses app as an .ehpk for the Legato at LEGATO_URL
+    desc: Build the glasses app as an .ehpk that reads Legato through the Legato Android app
     dir: packages/even-hub
     deps: [packages:install]
-    requires:
-      vars: [LEGATO_URL]
-    # Given as `task even-hub:pack LEGATO_URL=…` too, which Task does not export.
-    env:
-      LEGATO_URL: "{{.LEGATO_URL}}"
     cmds:
       - pnpm run pack
 

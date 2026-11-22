@@ -14,6 +14,29 @@ val releaseVersion = releaseTag?.let { tag ->
     tag.removePrefix("v") to ((major + 1) * 1_000_000 + minor * 1_000 + patch)
 }
 
+// A local build is the latest stable release tag with a dev suffix, such as
+// 0.26.1-dev.3+d7fc7ed (".dirty" with uncommitted changes), so it reads as a
+// local build in Android's settings. It takes that release's versionCode, so
+// it installs over the release (adb install -r) and the next release installs
+// over it. Without git or a tag, 0.0.0-dev and versionCode 2.
+val devVersion: Pair<String, Int> = run {
+    val described = providers.exec {
+        commandLine(
+            "git", "-C", rootDir.path, "describe", "--tags", "--long", "--dirty", "--abbrev=7",
+            "--match", "v[0-9]*.[0-9]*.[0-9]*", "--exclude", "*-*",
+        )
+        isIgnoreExitValue = true
+    }.standardOutput.asText.get().trim()
+    val match = Regex("v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)-([0-9]+)-g([0-9a-f]+)(-dirty)?").matchEntire(described)
+    if (match == null) {
+        "0.0.0-dev" to 2
+    } else {
+        val (major, minor, patch, ahead, commit, dirty) = match.destructured
+        val name = "$major.$minor.$patch-dev.$ahead+$commit" + if (dirty.isNotEmpty()) ".dirty" else ""
+        name to ((major.toInt() + 1) * 1_000_000 + minor.toInt() * 1_000 + patch.toInt())
+    }
+}
+
 // Official releases never consult local signing properties or use the debug key.
 val releaseSigning: Properties? = if (releaseTag != null) {
     Properties().apply {
@@ -84,8 +107,8 @@ android {
         applicationId = "dev.legato.mobile"
         minSdk = 29
         targetSdk = 36
-        versionCode = releaseVersion?.second ?: 2
-        versionName = releaseVersion?.first ?: "2.0.0"
+        versionCode = releaseVersion?.second ?: devVersion.second
+        versionName = releaseVersion?.first ?: devVersion.first
     }
 
     signingConfigs {

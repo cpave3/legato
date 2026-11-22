@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { OsEventTypeList, StartUpPageCreateResult, type EvenHubEvent } from "@evenrealities/even_hub_sdk"
 import { startGlance, type GlassesBridge, type LegatoClient, POLL_MS } from "./app"
-import type { Agent, AgentsResult, Conversation } from "./legato"
+import type { Agent, AgentsResult, Conversation, Instance, InstancesResult } from "./legato"
 
 const agent = (task_id: string, activity: string, title = ""): Agent => ({
   task_id,
@@ -79,12 +79,25 @@ function fakeBridge() {
     feed() {
       return shown.get("feed") as string[] | undefined
     },
+    legatos() {
+      return shown.get("legatos") as string[] | undefined
+    },
   }
   return bridge
 }
 
+const only: Instance = { id: "only", name: "Desk" }
+
 function fakeLegato(...answers: AgentsResult[]) {
-  const calls = { agents: 0, conversation: [] as string[], transcribe: [] as number[][], send: [] as [string, string][] }
+  const calls = {
+    instances: 0,
+    agents: 0,
+    at: [] as string[],
+    conversation: [] as string[],
+    transcribe: [] as number[][],
+    send: [] as [string, string][],
+  }
+  let listed: InstancesResult = { ok: true, instances: [only] }
   const conversation: Conversation = {
     task_id: "",
     status: "running",
@@ -95,21 +108,35 @@ function fakeLegato(...answers: AgentsResult[]) {
     context_window: 0,
   }
   const client: LegatoClient = {
-    agents: async () => answers[Math.min(calls.agents++, answers.length - 1)],
-    conversation: async (taskId) => {
+    instances: async () => {
+      calls.instances++
+      return listed
+    },
+    agents: async (instance) => {
+      calls.at.push(instance)
+      return answers[Math.min(calls.agents++, answers.length - 1)]
+    },
+    conversation: async (_instance, taskId) => {
       calls.conversation.push(taskId)
       return { ok: true, conversation }
     },
-    transcribe: async (pcm) => {
+    transcribe: async (_instance, pcm) => {
       calls.transcribe.push([...pcm])
       return { ok: true, text: "Run the tests again." }
     },
-    send: async (taskId, text) => {
+    send: async (_instance, taskId, text) => {
       calls.send.push([taskId, text])
       return { ok: true }
     },
   }
-  return { client, calls, conversation }
+  return {
+    client,
+    calls,
+    conversation,
+    list(next: InstancesResult) {
+      listed = next
+    },
+  }
 }
 
 const click = { sysEvent: {} } as EvenHubEvent
@@ -287,7 +314,7 @@ describe("startGlance", () => {
     const bridge = fakeBridge()
     const legato = fakeLegato(someAgents)
     const answers = [{ ok: false as const, problem: "The agent is busy. Try again when it stops." }, { ok: true as const }]
-    legato.client.send = async (taskId, text) => {
+    legato.client.send = async (_instance, taskId, text) => {
       legato.calls.send.push([taskId, text])
       return answers.shift()!
     }
@@ -529,3 +556,165 @@ describe("startGlance", () => {
     expect(bridge.items()).toEqual(["● needs you  RUN-1 Build"])
   })
 })
+
+describe("startGlance with several Legatos", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 10, 13, 9, 5))
+  })
+  afterEach(() => vi.useRealTimers())
+
+  const desk: Instance = { id: "desk", name: "Desk" }
+  const laptop: Instance = { id: "laptop", name: "Laptop" }
+  const pickFrom = (index: number, name: string): EvenHubEvent =>
+    ({ listEvent: { containerID: 5, containerName: "legatos", currentSelectItemIndex: index, currentSelectItemName: name } }) as EvenHubEvent
+
+  async function started(...instances: Instance[]) {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    legato.list({ ok: true, instances })
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    return { bridge, legato }
+  }
+
+  it("opens the only Legato straight away, and exits from its active tab", async () => {
+    const { bridge, legato } = await started(desk)
+
+    expect(bridge.items()?.[0]).toBe("● needs you  ASK-1 Approve")
+    expect(legato.calls.at).toEqual(["desk"])
+
+    bridge.send(doubleClick)
+    await settle()
+    expect(bridge.exits).toEqual([1])
+  })
+
+  it("lists several to pick from, reading none of their agents yet", async () => {
+    const { bridge, legato } = await started(desk, laptop)
+
+    expect(bridge.legatos()).toEqual(["Desk", "Laptop"])
+    expect(bridge.text("title")).toBe("Legato")
+    expect(legato.calls.at).toEqual([])
+  })
+
+  it("opens the Legato tapped, and reads that one from then on", async () => {
+    const { bridge, legato } = await started(desk, laptop)
+
+    bridge.send(pickFrom(1, "Laptop"))
+    await settle()
+    expect(bridge.items()?.[0]).toBe("● needs you  ASK-1 Approve")
+    expect(legato.calls.at).toEqual(["laptop"])
+
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(legato.calls.at).toEqual(["laptop", "laptop"])
+  })
+
+  it("tells two Legatos of the same name apart by where they were in the list", async () => {
+    const { bridge, legato } = await started({ id: "a", name: "Legato" }, { id: "b", name: "Legato" })
+
+    bridge.send(pickFrom(1, "Legato"))
+    await settle()
+
+    expect(legato.calls.at).toEqual(["b"])
+  })
+
+  it("goes back to the picker on a double tap from the active tab, and exits from the picker", async () => {
+    const { bridge } = await started(desk, laptop)
+    bridge.send(pickFrom(0, "Desk"))
+    await settle()
+
+    bridge.send(doubleClick)
+    await settle()
+    expect(bridge.legatos()).toEqual(["Desk", "Laptop"])
+    expect(bridge.exits).toEqual([])
+
+    bridge.send(doubleClick)
+    await settle()
+    expect(bridge.exits).toEqual([1])
+  })
+
+  it("reads the list again while the picker is in front", async () => {
+    const { bridge, legato } = await started(desk, laptop)
+    legato.list({ ok: true, instances: [desk, laptop, { id: "studio", name: "Studio" }] })
+
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+
+    expect(bridge.legatos()).toEqual(["Desk", "Laptop", "Studio"])
+  })
+
+  it("says to add a Legato in the Legato app when it has none", async () => {
+    const { bridge } = await started()
+
+    expect(bridge.legatos()).toEqual(["Add a Legato in the Legato app."])
+  })
+
+  it("shows the Legato app's problem in the picker's header", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    legato.list({ ok: false, problem: "Not paired with the Legato app" })
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+
+    expect(bridge.text("status")).toBe("Not paired with the Legato app")
+    expect(bridge.legatos()).toEqual(["No Legatos to show."])
+  })
+
+  it("goes back to the picker, saying why, when the open Legato is removed from the app", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents, { ok: false, problem: "That Legato is no longer in the app", gone: true })
+    legato.list({ ok: true, instances: [desk, laptop] })
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(pickFrom(0, "Desk"))
+    await settle()
+    legato.list({ ok: true, instances: [laptop] })
+
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+
+    expect(bridge.legatos()).toEqual(["Laptop"])
+    expect(bridge.text("status")).toBe("That Legato is no longer in the app")
+  })
+
+  it("goes back to the picker when the open Legato is removed while an agent is open", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    legato.list({ ok: true, instances: [desk, laptop] })
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(pickFrom(0, "Desk"))
+    await settle()
+    bridge.send(select(1, "▶ running  RUN-1 Build"))
+    await settle()
+    legato.client.agents = async () => ({ ok: false, problem: "That Legato is no longer in the app", gone: true })
+
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+
+    expect(bridge.legatos()).toEqual(["Desk", "Laptop"])
+    expect(bridge.text("status")).toBe("That Legato is no longer in the app")
+  })
+
+  it("opens the Legato tapped by its name when the list has moved under it", async () => {
+    const { bridge, legato } = await started(desk, laptop)
+    legato.list({ ok: true, instances: [laptop, desk] })
+    const tap = pickFrom(0, "Desk")
+
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    bridge.send(tap)
+    await settle()
+
+    expect(legato.calls.at).toEqual(["desk"])
+  })
+
+  it("still opens the only Legato straight away when the first read failed, as before pairing", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    legato.list({ ok: false, problem: "Not paired with the Legato app" })
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    expect(bridge.legatos()).toEqual(["No Legatos to show."])
+
+    legato.list({ ok: true, instances: [desk] })
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+
+    expect(bridge.items()?.[0]).toBe("● needs you  ASK-1 Approve")
+    bridge.send(doubleClick)
+    await settle()
+    expect(bridge.exits).toEqual([1])
+  })
+})
+

@@ -16,12 +16,10 @@
   </head>
   <body>
     <h1>Legato on your glasses</h1>
-    <p id="source">Connecting to the glasses…</p>
+    <p id="status">Connecting to the glasses…</p>
     <form id="settings">
-      <label for="url">Legato address</label>
-      <input id="url" name="url" type="url" placeholder="https://erebus.example.ts.net" autocomplete="off" />
-      <label for="token">Web token</label>
-      <input id="token" name="token" type="password" autocomplete="off" />
+      <label for="code">Pairing code from the Legato app</label>
+      <input id="code" name="code" type="password" autocomplete="off" autocapitalize="characters" spellcheck="false" />
       <button type="submit">Save</button>
     </form>
     <script type="module" src="/src/main.ts"></script>

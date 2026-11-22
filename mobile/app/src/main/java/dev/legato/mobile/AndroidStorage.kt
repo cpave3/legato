@@ -113,3 +113,16 @@ class SecureStoreVault(context: Context) : TokenVault {
         const val LEGACY_KEY_ALIAS = "$CIPHER:$KEYCHAIN"
     }
 }
+
+// The glasses link's switch, in its own preferences file, and its code in the
+// same vault as the servers' tokens.
+fun glassesSettings(context: Context): GlassesSettings {
+    val prefs = context.getSharedPreferences("legato.glasses", Context.MODE_PRIVATE)
+    val switch = object : ConnectionStore.Text {
+        override fun read(): String? = prefs.getString("link", null)
+        override fun write(value: String) {
+            prefs.edit().putString("link", value).commit()
+        }
+    }
+    return GlassesSettings(switch, SecureStoreVault(context))
+}
