@@ -190,7 +190,7 @@ The editor has two sides, **Visual** and **YAML**, and you can switch between th
   - A change touches only what it changes: the rest of the file, comments included, stays as you wrote it.
   - Problems Legato finds show on their fields.
   - A file whose YAML doesn't parse, or that uses YAML anchors, aliases or merge keys, opens in YAML only.
-- **Undo** and **Redo** go back and forth through your changes on both sides.
+- **Undo** and **Redo** go back and forth through your changes on both sides. In YAML, Ctrl+Z (⌘Z on a Mac) and Ctrl+Shift+Z (⌘⇧Z) do the same, so they also undo a change made in Visual. A pause in typing starts a new step. A change made in Visual leaves your place in the YAML where it was.
 - The side you used last is remembered on this device.
 
 The YAML side knows the workflow format, from the same schema Legato checks files with:

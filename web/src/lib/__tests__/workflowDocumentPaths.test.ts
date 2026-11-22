@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { itemKey, itemsOf, pathAt, problemsByItem, rangeOf, stepYamlPath, type ItemRef } from "../workflowDocument"
+import { itemKey, itemsOf, itemText, pathAt, problemsByItem, rangeOf, setItemText, stepYamlPath, type ItemRef } from "../workflowDocument"
 import type { WorkflowDiagnostic } from "../workflowFiles"
 
 // The parts of a file the outline shows (LEG-503): where each is in the
@@ -249,5 +249,27 @@ describe("problemsByItem", () => {
     const line = v2.split("\n").findIndex(l => l.includes("Review it")) + 1
     const byItem = problemsByItem(v2, [d("steps[1].steps[0].with.prompt"), d(undefined, line, 20)])
     expect(byItem.get("step:each/review")?.length).toBe(2)
+  })
+})
+
+describe("an item's own YAML", () => {
+  it("is the item's text, out of its place, and writes back to that place alone", () => {
+    expect(itemText(v1, { kind: "step", path: "second" })).toBe("id: second\ntitle: Second\ntrigger: manual\ntype: task.note\nwith:\n  task: ${{ workflow.inputs.task }}\n  body: |\n    Line one\n    Line two")
+    expect(itemText(v1, { kind: "input", name: "note" })).toBe("note:\n  type: string # free text")
+    const edited = setItemText(v1, { kind: "step", path: "second" }, "id: second\ntitle: Renamed\ntype: task.note\nwith:\n  body: one line")
+    const range = rangeOf(v1, { kind: "step", path: "second" })!
+    expect(edited.text.slice(0, range.from)).toBe(v1.slice(0, range.from))
+    expect(edited.text.slice(range.from)).toBe("- id: second\n    title: Renamed\n    type: task.note\n    with:\n      body: one line\n")
+    expect(edited.undo.label).toBe("Edit step second as YAML")
+  })
+
+  it("leaves the file as it was when written back unchanged", () => {
+    for (const item of itemsOf(v2).items.map(i => i.item)) expect(setItemText(v2, item, itemText(v2, item)!).text, itemKey(item)).toBe(v2)
+    for (const item of itemsOf(v1).items.map(i => i.item)) expect(setItemText(v1, item, itemText(v1, item)!).text, itemKey(item)).toBe(v1)
+  })
+
+  it("edits a nested step at its depth, the steps around it byte for byte", () => {
+    const edited = setItemText(v2, { kind: "step", path: "each/review" }, "id: review\ntitle: Look\ntype: agent.run")
+    expect(edited.text).toBe(v2.replace("      - id: review\n        title: Review\n        type: agent.run\n        with:\n          prompt: Review it\n", "      - id: review\n        title: Look\n        type: agent.run\n"))
   })
 })

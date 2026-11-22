@@ -12,8 +12,10 @@ vi.mock("../../hooks/useWorkflow", () => ({
 }))
 // The editor is CodeMirror in its own chunk; here it is a text box.
 vi.mock("../../components/workflow-editor/LazyWorkflowYamlEditor", () => ({
-  LazyWorkflowYamlEditor: ({ value, onChange, readOnly }: { value: string; onChange: (v: string) => void; readOnly?: boolean }) =>
-    <textarea aria-label="Workflow YAML" value={value} readOnly={readOnly} onChange={event => onChange(event.target.value)} />,
+  // Like CodeMirror's keymap, Ctrl+Z and Ctrl+Shift+Z go to the page.
+  LazyWorkflowYamlEditor: ({ value, onChange, readOnly, onUndo, onRedo }: { value: string; onChange: (v: string) => void; readOnly?: boolean; onUndo?: () => void; onRedo?: () => void }) =>
+    <textarea aria-label="Workflow YAML" value={value} readOnly={readOnly} onChange={event => onChange(event.target.value)}
+      onKeyDown={event => { if (event.ctrlKey && event.key.toLowerCase() === "z") (event.shiftKey ? onRedo : onUndo)?.() }} />,
 }))
 vi.mock("../../components/workflow-graph/LazyWorkflowGraph", () => ({ LazyWorkflowGraph: () => <div>graph</div> }))
 
@@ -165,4 +167,29 @@ it("keeps a new workflow's draft while offering it, until a choice is made", asy
   const offer = await screen.findByRole("alertdialog", { name: "Unsaved changes" })
   fireEvent.click(within(offer).getByRole("button", { name: "Restore them" }))
   expect(editor().value).toContain("title: Kept")
+})
+
+it("undoes typing with the keyboard in the one history, a pause making a new step", async () => {
+  let now = 1_000_000
+  const clock = vi.spyOn(Date, "now").mockImplementation(() => now)
+  try {
+    renderAt("/workflows/review/edit")
+    await waitFor(() => expect(editor().value).toBe(fileText))
+    const one = fileText.replace("title: Review", "title: R")
+    const two = fileText.replace("title: Review", "title: Re")
+    type(one)
+    now += 100
+    type(two)
+    now += 5_000
+    const three = two.replace("prompt: hi", "prompt: hello")
+    type(three)
+    fireEvent.keyDown(editor(), { key: "z", ctrlKey: true })
+    expect(editor().value).toBe(two)
+    fireEvent.keyDown(editor(), { key: "z", ctrlKey: true })
+    expect(editor().value).toBe(fileText)
+    fireEvent.keyDown(editor(), { key: "Z", ctrlKey: true, shiftKey: true })
+    expect(editor().value).toBe(two)
+  } finally {
+    clock.mockRestore()
+  }
 })

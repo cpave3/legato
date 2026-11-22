@@ -86,11 +86,14 @@ function useBuilderOptions(baseUrl: string) {
   return query.data
 }
 
-type Entry = { text: string; label: string; typing: boolean }
+type Entry = { text: string; label: string; typing: boolean; at?: number }
+
+const TYPING_PAUSE = 1000
 
 // useHistory is the text's undo history, across the YAML and Visual modes:
 // each builder change is a step; typing in YAML is one step until the
-// next change of another kind.
+// next change of another kind, or a pause of TYPING_PAUSE. The YAML editor
+// keeps no history of its own: its Undo and Redo keys come here.
 function useHistory(initial: string | null) {
   // sealed: after Undo or Redo, typing starts a new step rather than
   // changing the one returned to.
@@ -106,11 +109,12 @@ function useHistory(initial: string | null) {
     push: (text: string, label: string, typing = false) => setState(previous => {
       const here = previous.entries[previous.index]
       if (here && here.text === text) return previous
-      if (typing && here?.typing && !previous.sealed) {
-        const entries = [...previous.entries.slice(0, previous.index), { ...here, text }]
+      const now = Date.now()
+      if (typing && here?.typing && !previous.sealed && now - (here.at ?? now) < TYPING_PAUSE) {
+        const entries = [...previous.entries.slice(0, previous.index), { ...here, text, at: now }]
         return { entries, index: previous.index }
       }
-      const entries = [...previous.entries.slice(0, previous.index + 1), { text, label, typing }]
+      const entries = [...previous.entries.slice(0, previous.index + 1), { text, label, typing, at: now }]
       return { entries, index: entries.length - 1 }
     }),
     undo: () => setState(previous => ({ ...previous, index: Math.max(0, previous.index - 1), sealed: true })),
@@ -357,7 +361,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
         </div>
         {editorMode === "yaml" || !editable
           ? <section aria-label="YAML" className={narrow ? "h-[28rem] overflow-hidden rounded-xl border border-lw-line" : "h-[36rem] overflow-hidden rounded-xl border border-lw-line"}>
-            <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} readOnly={!editable} />
+            <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} readOnly={!editable} onUndo={editable ? history.undo : undefined} onRedo={editable ? history.redo : undefined} />
           </section>
           : <section aria-label="Visual">
             <LazyWorkflowBuilder text={text} onEdit={change => history.push(change.text, change.undo.label)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={() => switchMode("yaml")} options={options} schedule={checked?.schedule} onPending={setPendingEdits} />

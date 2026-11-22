@@ -892,3 +892,51 @@ export function problemsByItem(text: string, diagnostics: WorkflowDiagnostic[]):
   }
   return out
 }
+
+// --- An item's own YAML (LEG-504) ---------------------------------------------
+//
+// The inspector's YAML tab edits one item's text, out of its place: a step
+// as a mapping (without its dash), an input or trigger as its key and
+// value, each unindented. Writing it back changes that item's range alone,
+// so the rest of the file stays byte for byte.
+
+function itemLabel(item: ItemRef): string {
+  switch (item.kind) {
+    case "about": return item.key
+    case "input": return `input ${item.name}`
+    case "trigger": return `the ${item.name} trigger`
+    case "step": return `step ${item.path.split("/").pop()}`
+  }
+}
+
+// itemIndent is the column an item's text is unindented by: past a step's
+// dash, or at a pair's key.
+function itemIndent(text: string, item: ItemRef, range: TextRange): { column: number; dash: boolean } {
+  const column = columnOf(text, range.from)
+  return item.kind === "step" && text[range.from] === "-" ? { column: column + 2, dash: true } : { column, dash: false }
+}
+
+/** itemText is an item's YAML, unindented; null when there is none. */
+export function itemText(text: string, item: ItemRef): string | null {
+  const range = rangeOf(text, item)
+  if (!range) return null
+  const { column, dash } = itemIndent(text, item, range)
+  const body = text.slice(range.from, range.to)
+  const [first, ...rest] = body.split("\n")
+  const head = dash ? first.replace(/^-[ \t]?/, "") : first
+  return [head, ...rest.map(line => line.slice(Math.min(column, line.length - line.trimStart().length)))].join("\n")
+}
+
+/** setItemText writes an item's YAML, as itemText gives it, back in its
+ * place, at its indent. */
+export function setItemText(text: string, item: ItemRef, edited: string): WorkflowEdit {
+  const range = rangeOf(text, item)
+  if (!range) throw new WorkflowDocumentError(`no ${itemLabel(item)}`)
+  const body = edited.replace(/\n+$/, "")
+  if (body.trim() === "") throw new WorkflowDocumentError(`${itemLabel(item)} would be empty: remove it instead`)
+  const { column, dash } = itemIndent(text, item, range)
+  const pad = " ".repeat(column)
+  const [first, ...rest] = body.split("\n")
+  const written = [(dash ? "- " : "") + first, ...rest.map(line => (line.trim() === "" ? "" : pad + line))].join("\n")
+  return edit(`Edit ${itemLabel(item)} as YAML`, text, splice(text, range.from, range.to, written))
+}
