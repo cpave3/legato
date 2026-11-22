@@ -33,6 +33,35 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
   https://server:3080/api/workflows/legato-job/runs
 ```
 
+### Workflow files
+
+`internal/engine/workflow/files.go` and `internal/server/workflow_files.go`. `Folders(legacy, global, repositories, project)` lists the folders in increasing precedence, with IDs `legacy`, `global`, `repo:<preset name>` and `project`. A folder named twice is kept once, at its later place. `DiscoverFolders` reads them, and `DiscoveryResult.Shadows` names, for each workflow, the files that a later file of the same name replaced. Every discovery uses it: the server (`discoverWorkflowsIn`, presets from `s.repositories`), `workflowDiscoveryProvider(cfg, db)` for triggers, the task launcher and the Reeve (the configuration's and the web UI's presets), `legato workflow list`, `run` and `validate <name>`, `doctor` and the setup checklist. `FileFor(definition, folders)` gives `{path, folder, editable, reason}`. A built-in has no file. A file in no folder, or one that is not a regular file whose links resolve inside its folder, is read-only, so the API never writes through a link to somewhere else. The legacy folder's files are editable, but nothing is created there.
+
+Writes go through `CreateFile` and `ReplaceFile`. `CreateFile` writes a temp file in the folder, then `os.Link`s it to `<name>.workflow.yaml`, so it never overwrites (`ErrWorkflowNameTaken`); `AddTemplate` and `SaveDraft` use it too. `ReplaceFile` compares `FileDigest` (`sha256:<hex>` of the bytes) with the digest the client read (`ErrStaleFile` otherwise), then writes a temp file and renames it over the original, keeping its mode. `RemoveFile` checks the digest the same way. The bytes are written as sent, comments and all.
+
+Routes. Refusals are `{error, code}` with:
+
+- `not_found` (404)
+- `not_editable` (403)
+- `invalid` (422, with `diagnostics`)
+- `rename` (422)
+- `name_taken` (409)
+- `stale` (409, with the file's current `yaml` and `digest`)
+- `confirm_triggers` (409, with `triggers`)
+- `folder` (400)
+- `not_builtin` (400)
+
+The routes:
+
+- `GET /api/workflows/{name}/file`: `{name, yaml, path, folder, digest, editable, reason}`. A built-in's `yaml` is its definition marshalled, and its `digest` is empty.
+- `PUT /api/workflows/{name}/file {yaml, digest, confirm_triggers}`: validation (`Check`) comes first. The `name` can't change (LEG-460), and the save has to confirm triggers. Answers `{name, path, folder, digest, diagnostics}` (the warnings).
+- `DELETE /api/workflows/{name}/file {digest}`: when no file of that name remains (a file it shadowed would keep the name alive), this Legato's trigger switches for the name go too (`WorkflowTriggerCoordinator.ForgetTriggers`). Runs are kept.
+- `POST /api/workflow-files {yaml, folder, confirm_triggers}`: `folder` is a `writableFolders` ID, `global` by default. A name that any workflow has, a built-in's included, is `name_taken` (LEG-460), and the name must pass `ValidName`.
+- `POST /api/workflow-files/check {yaml}`: `{definition, graph, diagnostics}`, writing nothing.
+- `POST /api/workflows/{name}/copy {folder}`: a built-in marshalled to a file of its name, with a comment at the top. The file then replaces the built-in (LEG-458).
+
+Every write broadcasts `workflow_changed`. The trigger rule (LEG-459): a create or save is refused with `confirm_triggers` when the new definition has a trigger that would start runs here and the old one did not (`newlyActiveTriggers`: this Legato's switch if it has one, else the file's `enabled`). The client then repeats the request with `confirm_triggers: true`. A trigger that is paused here by a switch never asks. `GET /api/workflows` adds `folder`, `editable`, `read_only_reason`, `shadows` and `warnings` (the file's `Check` warnings) to each definition, plus `folders`, the folders a workflow can be created in. A run keeps its own `definition_json`, so a save changes no run that has started; its page says `definition_changed`.
+
 `GET /api/workflow-runs` returns each run with `related_task_title` (also on `GET /api/workflow-runs/{id}`) and `steps`, a summary of its steps in order (`step_id`, `title`, `status`, `trigger`), which the web UI's runs list draws its step bar and sentence from (the handler sets `WorkflowRunFilter.WithSteps`; the service's own scans of runs, such as the attention count, leave it off). It takes optional `status`, `workflow_name`, `limit` (1–100) and `input.<name>=<value>` parameters. Multiple input filters are ANDed and compare normalized scalar JSON values, so numeric and boolean inputs can be given as query text. Results are newest first. Input names that cannot be represented safely as a direct JSON object key, repeated singleton or input values, empty input values and out-of-range limits return `400` rather than silently broadening the query.
 
 ### Workflow graph

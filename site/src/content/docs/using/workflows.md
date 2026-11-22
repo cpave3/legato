@@ -14,7 +14,8 @@ Each run keeps its inputs, the progress of every step, each attempt, the outputs
 Legato discovers YAML definitions from:
 
 1. `$XDG_CONFIG_HOME/legato/workflows` (normally `~/.config/legato/workflows`)
-2. `.legato/workflows` in the current project
+2. `.legato/workflows` in the checkout of each [repository preset](#repository-presets) that has a `primary_dir`
+3. `.legato/workflows` in the current project
 
 Legato ships example workflows; `legato workflow add` lists them, and `legato workflow add <name>` writes one to your global folder (or `.legato/workflows` with `--project`), keeping a file of that name unless you add `--force`:
 
@@ -37,7 +38,7 @@ In the web UI, **Add from template** on the **Workflows** tab (also offered when
 
 The browser extension starts `review-pr` and `discuss-pr` with the repository and number only; a workflow of yours of the same name that declares a `primary_dir` input still gets the matching repository preset's folder.
 
-Legato also reads `~/.legato/workflows` for compatibility. Precedence is legacy global, XDG global, then project-local. A later definition overrides an earlier definition with the same `name`. The selected source path is stored on every run.
+Legato also reads `~/.legato/workflows` for compatibility. Precedence is legacy global, XDG global, each repository's folder in the order the presets are listed, then project-local. A folder that is more than one of these is read once, at its highest precedence. A later definition overrides an earlier definition with the same `name`. The Workflows tab shows only the one that wins, with a note that it replaces the others. The selected source path is stored on every run.
 
 ## Repository presets
 

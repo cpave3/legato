@@ -50,8 +50,7 @@ func wireSetupChecklist(srv *server.Server, cfg *config.Config, db *store.Store,
 		Features: func(ctx context.Context) []service.SetupFeature {
 			report, _ := reports.Known()
 			workers, _ := db.ListWorkers(ctx)
-			global, project := workflowDirs()
-			workflows := workflow.DiscoverPaths(legacyWorkflowDir(), global, project).Definitions
+			workflows := workflow.DiscoverFolders(workflowFolders(workflowRepositoriesFor(cfg, db)())).Definitions
 			return setupFeatures(cfg, report, featureCounts{Workers: len(workers), Workflows: len(workflows)})
 		},
 		Values: db,

@@ -3,7 +3,6 @@ package workflow
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -30,8 +29,8 @@ func AddTemplate(template, name, dir string, taken func(name string) bool) (stri
 	if name == "" {
 		name = template
 	}
-	if !workflowNamePattern.MatchString(name) {
-		return "", fmt.Errorf("%q is not a workflow name: use lower-case letters, digits, '.', '-' and '_'", name)
+	if err := ValidName(name); err != nil {
+		return "", err
 	}
 	if taken != nil && taken(name) {
 		return "", fmt.Errorf("%w: %s", ErrWorkflowNameTaken, name)
@@ -49,19 +48,5 @@ func AddTemplate(template, name, dir string, taken func(name string) bool) (stri
 	if _, err := Parse(path, data); err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if errors.Is(err, os.ErrExist) {
-		return "", fmt.Errorf("%w: %s", ErrWorkflowNameTaken, path)
-	}
-	if err != nil {
-		return "", err
-	}
-	if _, err := file.Write(data); err != nil {
-		file.Close()
-		return "", err
-	}
-	return path, file.Close()
+	return CreateFile(dir, name, data)
 }

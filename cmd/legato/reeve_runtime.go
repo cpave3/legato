@@ -136,7 +136,7 @@ func reeveTools(cfg *config.Config, db *store.Store) *cli.MCPReeve {
 	tools := &cli.MCPReeve{
 		WorkflowNames: func(context.Context) []string {
 			var names []string
-			for _, definition := range workflowDiscoveryProvider(cfg)().Definitions {
+			for _, definition := range workflowDiscoveryProvider(cfg, db)().Definitions {
 				names = append(names, definition.Name)
 			}
 			return names

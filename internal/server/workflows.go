@@ -42,7 +42,13 @@ func (s *Server) SetBuiltInWorkflows(definitions ...*workflowengine.Definition) 
 }
 
 func (s *Server) discoverWorkflows() workflowengine.DiscoveryResult {
-	return workflowengine.WithBuiltIns(workflowengine.DiscoverPaths(legacyWorkflowDirPath(), s.workflowGlobalDir, s.workflowProjectDir), s.builtInWorkflows...)
+	return s.discoverWorkflowsIn(context.Background())
+}
+
+// discoverWorkflowsIn reads every workflow folder, repositories' included,
+// then adds the built-ins no file replaces.
+func (s *Server) discoverWorkflowsIn(ctx context.Context) workflowengine.DiscoveryResult {
+	return workflowengine.WithBuiltIns(workflowengine.DiscoverFolders(s.workflowFolderList(ctx)), s.builtInWorkflows...)
 }
 
 // definitionWithGraph is a definition as GET /api/workflows gives it: with
@@ -51,6 +57,25 @@ func (s *Server) discoverWorkflows() workflowengine.DiscoveryResult {
 type definitionWithGraph struct {
 	*workflowengine.Definition
 	Graph *workflowengine.Graph `json:"graph"`
+	// Where its file is and whether the web UI may write it, the files of
+	// the same name it replaces, and the warnings its file has (such as a
+	// with key its step's executor does not read).
+	Folder         string                      `json:"folder,omitempty"`
+	Editable       bool                        `json:"editable"`
+	ReadOnlyReason string                      `json:"read_only_reason,omitempty"`
+	Shadows        []string                    `json:"shadows,omitempty"`
+	Warnings       []workflowengine.Diagnostic `json:"warnings,omitempty"`
+}
+
+func (s *Server) definitionWithGraph(definition *workflowengine.Definition, folders []workflowengine.Folder, shadows map[string][]string) definitionWithGraph {
+	info := workflowengine.FileFor(definition, folders)
+	out := definitionWithGraph{Definition: definition, Graph: workflowengine.BuildGraph(definition), Folder: info.Folder, Editable: info.Editable, ReadOnlyReason: info.Reason, Shadows: shadows[definition.Name]}
+	if info.Path != "" {
+		if data, err := os.ReadFile(info.Path); err == nil {
+			_, out.Warnings = workflowengine.Check(info.Path, data)
+		}
+	}
+	return out
 }
 
 // runWithGraph is a run as GET /api/workflow-runs/{id} gives it: with the
@@ -98,7 +123,8 @@ func (s *Server) workflowsHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		result := s.discoverWorkflows()
+		folders := s.workflowFolderList(r.Context())
+		result := s.discoverWorkflowsIn(r.Context())
 		result.Repositories = s.repositories(r.Context())
 		var states map[string][]service.WorkflowTriggerState
 		if s.workflowTriggers != nil {
@@ -110,14 +136,16 @@ func (s *Server) workflowsHandler() http.HandlerFunc {
 		}
 		definitions := make([]definitionWithGraph, 0, len(result.Definitions))
 		for _, definition := range result.Definitions {
-			definitions = append(definitions, definitionWithGraph{definition, workflowengine.BuildGraph(definition)})
+			definitions = append(definitions, s.definitionWithGraph(definition, folders, result.Shadows))
 		}
 		s.writeJSON(w, http.StatusOK, struct {
 			workflowengine.DiscoveryResult
 			Definitions []definitionWithGraph `json:"definitions"`
 			// TriggerStates is each workflow's triggers, on or paused here.
 			TriggerStates map[string][]service.WorkflowTriggerState `json:"trigger_states,omitempty"`
-		}{result, definitions, states})
+			// Folders are where a new workflow can be made.
+			Folders []workflowengine.Folder `json:"folders"`
+		}{result, definitions, states, s.writableFolders(r.Context())})
 	}
 }
 

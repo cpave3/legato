@@ -41,3 +41,10 @@ func (s *Store) DeleteWorkflowTriggerSwitch(ctx context.Context, workflowName, t
 	_, err := s.db.ExecContext(ctx, `DELETE FROM workflow_trigger_switches WHERE workflow_name = ? AND trigger = ?`, workflowName, trigger)
 	return err
 }
+
+// DeleteWorkflowTriggerSwitches forgets every switch of a workflow, as
+// when it is deleted.
+func (s *Store) DeleteWorkflowTriggerSwitches(ctx context.Context, workflowName string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM workflow_trigger_switches WHERE workflow_name = ?`, workflowName)
+	return err
+}

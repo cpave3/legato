@@ -33,8 +33,7 @@ func loadDoctorConfig() service.DoctorConfig {
 
 // doctorConfigFor is doctorConfig with the workflows found on this machine.
 func doctorConfigFor(cfg *config.Config) service.DoctorConfig {
-	global, project := workflowDirs()
-	return doctorConfig(cfg, workflow.DiscoverPaths(legacyWorkflowDir(), global, project).Definitions)
+	return doctorConfig(cfg, workflow.DiscoverFolders(workflowFolders(workflowRepositoryPresets(cfg))).Definitions)
 }
 
 // doctorConfig is what the settings require of the machine: the default

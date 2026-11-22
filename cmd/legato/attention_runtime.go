@@ -86,7 +86,7 @@ func mustRegister(err error) {
 func newReviewPrompt(cfg *config.Config, db *store.Store, workflows *service.WorkflowService) *service.ReviewPromptAttentionAdapter {
 	var launcher *service.TaskWorkflowLauncher
 	if workflows != nil {
-		launcher = service.NewTaskWorkflowLauncher(db, workflows, workflowDiscoveryProvider(cfg))
+		launcher = service.NewTaskWorkflowLauncher(db, workflows, workflowDiscoveryProvider(cfg, db))
 	}
 	return service.NewReviewPromptAttentionAdapter(db, launcher)
 }

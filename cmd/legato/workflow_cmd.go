@@ -68,14 +68,14 @@ func runWorkflowCmd(args []string) int {
 		return renderCommandError("workflow."+args[0], workflowCommandError(err), flags["json"] != "")
 	}
 	ctx := context.Background()
-	global, project := workflowDirs()
+	repositories := workflowRepositoriesFor(cfg, db)()
 	verb := args[0]
 	fail := func(err error) int {
 		return renderCommandError("workflow."+verb, workflowCommandError(err), flags["json"] != "")
 	}
 	switch verb {
 	case "list":
-		return encodeWorkflowOutput(cli.WorkflowDefinitions(global, project), flags["json"] != "")
+		return encodeWorkflowOutput(cli.WorkflowDefinitions(workflowFolders(repositories)), flags["json"] != "")
 	case "runs":
 		limit, _ := strconv.Atoi(flags["limit"])
 		if err := cli.WorkflowRuns(ctx, svc, flags["status"], limit, os.Stdout); err != nil {
@@ -92,7 +92,7 @@ func runWorkflowCmd(args []string) int {
 		if len(positional) != 1 {
 			return fail(fmt.Errorf("usage: legato workflow run <name> --input key=value"))
 		}
-		definition, err := resolveWorkflowDefinition(positional[0], global, project)
+		definition, err := resolveWorkflowDefinition(positional[0], repositories)
 		if err != nil {
 			return fail(err)
 		}
@@ -171,8 +171,11 @@ func runWorkflowValidate(positional []string, jsonMode bool) int {
 	name := positional[0]
 	data, err := os.ReadFile(name)
 	if err != nil {
-		global, project := workflowDirs()
-		definition, err := resolveWorkflowDefinition(name, global, project)
+		var repositories []workflowengine.RepositoryPreset
+		if cfg, err := config.Load(); err == nil {
+			repositories = workflowRepositoryPresets(cfg)
+		}
+		definition, err := resolveWorkflowDefinition(name, repositories)
 		if err != nil {
 			return fail(workflowCommandError(err))
 		}
@@ -197,11 +200,11 @@ func runWorkflowValidate(positional []string, jsonMode bool) int {
 	return exitUsage
 }
 
-func resolveWorkflowDefinition(name, global, project string) (*workflowengine.Definition, error) {
+func resolveWorkflowDefinition(name string, repositories []workflowengine.RepositoryPreset) (*workflowengine.Definition, error) {
 	if data, err := os.ReadFile(name); err == nil {
 		return workflowengine.Parse(name, data)
 	}
-	result := workflowengine.WithBuiltIns(workflowengine.DiscoverPaths(legacyWorkflowDir(), global, project), service.BuiltInJobWorkflow())
+	result := workflowengine.WithBuiltIns(workflowengine.DiscoverFolders(workflowFolders(repositories)), service.BuiltInJobWorkflow())
 	for _, definition := range result.Definitions {
 		if definition.Name == name {
 			return definition, nil
