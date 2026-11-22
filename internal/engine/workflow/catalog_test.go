@@ -187,3 +187,40 @@ steps:
 		t.Fatalf("Parse: %v", err)
 	}
 }
+
+// The inspector shows a step's essential fields first, under plain labels
+// in the catalog's order, and a step row is summed up by one of its fields.
+func TestOfferedStepTypesSayWhatTheInspectorAndTheirRowShow(t *testing.T) {
+	for _, spec := range workflow.Catalog() {
+		if spec.Internal {
+			continue
+		}
+		essential := 0
+		orders := map[int]string{}
+		for _, field := range spec.With {
+			if field.Essential {
+				essential++
+			}
+			if strings.TrimSpace(field.Label) == "" {
+				t.Errorf("%s.%s: needs a label", spec.Type, field.Name)
+			}
+			if field.Order <= 0 {
+				t.Errorf("%s.%s: needs an order", spec.Type, field.Name)
+			} else if other, taken := orders[field.Order]; taken {
+				t.Errorf("%s.%s: order %d is %s's too", spec.Type, field.Name, field.Order, other)
+			}
+			orders[field.Order] = field.Name
+		}
+		if len(spec.With) > 0 && essential == 0 {
+			t.Errorf("%s: no essential field", spec.Type)
+		}
+		if len(spec.Summary) == 0 {
+			t.Errorf("%s: no summary field", spec.Type)
+		}
+		for _, name := range spec.Summary {
+			if _, ok := spec.Field(name); !ok {
+				t.Errorf("%s: summary names %q, which is not a field", spec.Type, name)
+			}
+		}
+	}
+}

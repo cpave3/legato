@@ -197,7 +197,7 @@ function WithField({ spec, stepId, value, onChange, refs, taskRefs, options, age
   // A div, not a label: a label would pass a click on the picker's menu on
   // to its first button and open it again. The controls name themselves.
   return <div className={labelClass}>
-    <span className="flex items-center justify-between gap-2"><span><span className="font-lw-mono">{spec.name}</span>{spec.required || spec.requiredAtRun ? " (required)" : ""}</span>{picker}</span>
+    <span className="flex items-center justify-between gap-2"><span>{spec.label}{spec.required || spec.requiredAtRun ? " (required)" : ""}{spec.label !== spec.name && <span className="ml-1.5 font-lw-mono text-[11px] text-lw-faint">{spec.name}</span>}</span>{picker}</span>
     {control}
     {suggestions.length > 0 && <datalist id={listId}>{suggestions.map(s => <option key={s} value={s} />)}</datalist>}
     <span className="text-[11px] text-lw-faint">{spec.description}</span>

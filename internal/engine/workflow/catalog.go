@@ -48,6 +48,23 @@ type Field struct {
 	// runs.
 	Checked bool
 	Invalid string
+	// Essential fields are the ones the inspector shows first; the rest go
+	// under More options.
+	Essential bool
+	// Label is the field's name in plain words, such as "What it should do".
+	Label string
+	// Order is where the inspector shows the field, from 1.
+	Order int
+}
+
+// at is the field placed in a step type's form: its order, whether it is
+// essential, and its label there when not its own.
+func (f Field) at(order int, essential bool, label ...string) Field {
+	f.Order, f.Essential = order, essential
+	if len(label) > 0 {
+		f.Label = label[0]
+	}
+	return f
 }
 
 // ConstraintKind says how the fields of a Constraint combine.
@@ -90,6 +107,9 @@ type ExecutorSpec struct {
 	// DeclaredOutputs executors produce whatever outputs the step declares:
 	// an agent completes the step with them.
 	DeclaredOutputs bool
+	// Summary names the fields a step row is summed up by: the first of
+	// them with a value, such as the macro or else the prompt.
+	Summary []string
 }
 
 // Field is the spec's with field of that name.
@@ -140,6 +160,7 @@ func (s ExecutorSpec) clone() ExecutorSpec {
 		s.Constraints[i].Fields = append([]string(nil), s.Constraints[i].Fields...)
 	}
 	s.Outputs = append([]OutputSpec(nil), s.Outputs...)
+	s.Summary = append([]string(nil), s.Summary...)
 	return s
 }
 
@@ -234,17 +255,17 @@ var catalogByType = func() map[string]ExecutorSpec {
 
 // Fields several executors share.
 var (
-	promptField = Field{Name: "prompt", Kind: KindText, Description: "What the agent is asked to do"}
-	macroField  = Field{Name: "macro", Kind: KindMacro, Description: "A macro to send in place of a prompt, by name; resolved when the step runs, so an edited macro applies to the next run",
+	promptField = Field{Name: "prompt", Kind: KindText, Label: "What it should do", Description: "What the agent is asked to do"}
+	macroField  = Field{Name: "macro", Kind: KindMacro, Label: "Macro", Description: "A macro to send in place of a prompt, by name; resolved when the step runs, so an edited macro applies to the next run",
 		Checked: true, Invalid: "must be the name of a macro"}
-	agentField   = Field{Name: "agent", Kind: KindAgent, Description: "Agent tool, such as claude-code, codex or chimera; the macro's, else the default, when empty"}
-	tierField    = Field{Name: "tier", Kind: KindTier, Description: "The agent tool's tier; the macro's when empty"}
-	prRepoField  = Field{Name: "repo", Kind: KindRepository, Description: "With macro: the GitHub repository (owner/name) of the pull request the macro is started on"}
-	prNumberFld  = Field{Name: "pr_number", Kind: KindInteger, Description: "With macro and repo: the number of the pull request the macro is started on"}
+	agentField   = Field{Name: "agent", Kind: KindAgent, Label: "Agent tool", Description: "Agent tool, such as claude-code, codex or chimera; the macro's, else the default, when empty"}
+	tierField    = Field{Name: "tier", Kind: KindTier, Label: "Tier", Description: "The agent tool's tier; the macro's when empty"}
+	prRepoField  = Field{Name: "repo", Kind: KindRepository, Label: "Pull request's repository", Description: "With macro: the GitHub repository (owner/name) of the pull request the macro is started on"}
+	prNumberFld  = Field{Name: "pr_number", Kind: KindInteger, Label: "Pull request number", Description: "With macro and repo: the number of the pull request the macro is started on"}
 	promptMacro  = Constraint{Kind: ExactlyOne, Fields: []string{"prompt", "macro"}, Checked: true}
-	wholeTask    = Field{Name: "task", Kind: KindTask, Description: "The task: ${{ workflow.task }} or a task input", Required: true, Checked: true, Invalid: "must be a whole task reference"}
-	literalFalse = func(name, description string) Field {
-		return Field{Name: name, Kind: KindBoolean, Description: description, Default: false, Literal: true, Checked: true, Invalid: "must be true or false"}
+	wholeTask    = Field{Name: "task", Kind: KindTask, Label: "Task", Description: "The task: ${{ workflow.task }} or a task input", Required: true, Checked: true, Invalid: "must be a whole task reference"}
+	literalFalse = func(name, label, description string) Field {
+		return Field{Name: name, Kind: KindBoolean, Label: label, Description: description, Default: false, Literal: true, Checked: true, Invalid: "must be true or false"}
 	}
 )
 
@@ -253,28 +274,30 @@ var catalog = []ExecutorSpec{
 		Type: "agent.run", Title: "Run an agent",
 		Description: "Start an agent of the workflow on a prompt or a macro, and wait for it to complete the step with the outputs the step declares.",
 		With: []Field{
-			promptField, macroField, agentField, tierField,
-			{Name: "name", Kind: KindString, Description: "The agent's name, shown beside it"},
-			{Name: "working_dir", Kind: KindPath, Description: "Directory the agent works in"},
-			{Name: "repo", Kind: KindRepository, Description: "GitHub repository (owner/name) the agent works in a fresh clone of; with macro, also the pull request's repository"},
-			{Name: "ref", Kind: KindString, Description: "With repo: the branch, tag or commit the clone starts from"},
-			{Name: "branch", Kind: KindString, Description: "With repo: the branch the agent works on"},
-			{Name: "engram", Kind: KindString, Description: "An engram for the agent to be; the step fails when engram does not list it", Checked: true, Invalid: "must be the name of an engram"},
-			literalFalse("keep_agent", "Leave the agent running once its outputs are in, so the operator can go on talking to it"),
-			prNumberFld,
+			promptField.at(1, true), macroField.at(2, true), agentField.at(5, false), tierField.at(6, false),
+			{Name: "name", Kind: KindString, Label: "Agent's name", Description: "The agent's name, shown beside it", Order: 7},
+			{Name: "working_dir", Kind: KindPath, Label: "Works in", Description: "Directory the agent works in", Essential: true, Order: 3},
+			{Name: "repo", Kind: KindRepository, Label: "Or a clone of", Description: "GitHub repository (owner/name) the agent works in a fresh clone of; with macro, also the pull request's repository", Essential: true, Order: 4},
+			{Name: "ref", Kind: KindString, Label: "Clone starts from", Description: "With repo: the branch, tag or commit the clone starts from", Order: 8},
+			{Name: "branch", Kind: KindString, Label: "Branch to work on", Description: "With repo: the branch the agent works on", Order: 9},
+			{Name: "engram", Kind: KindString, Label: "Engram", Description: "An engram for the agent to be; the step fails when engram does not list it", Checked: true, Invalid: "must be the name of an engram", Order: 10},
+			literalFalse("keep_agent", "Keep the agent running", "Leave the agent running once its outputs are in, so the operator can go on talking to it").at(11, false),
+			prNumberFld.at(12, false),
 		},
 		Constraints:     []Constraint{promptMacro},
 		DeclaredOutputs: true,
+		Summary:         []string{"macro", "prompt"},
 	},
 	{
 		Type: "agent.dispatch", Title: "Send to the task's agent",
 		Description: "Send a prompt or a macro to a task's agent, starting one when the task has none. The step does not wait for the agent.",
 		With: []Field{
-			wholeTask, promptField, macroField, agentField, tierField,
-			{Name: "working_dir", Kind: KindPath, Description: "Where a new agent starts; a running agent is messaged wherever it is"},
-			prRepoField, prNumberFld,
+			wholeTask.at(1, true), promptField.at(2, true), macroField.at(3, true), agentField.at(4, false), tierField.at(5, false),
+			{Name: "working_dir", Kind: KindPath, Label: "A new agent starts in", Description: "Where a new agent starts; a running agent is messaged wherever it is", Order: 6},
+			prRepoField.at(7, false), prNumberFld.at(8, false),
 		},
 		Constraints: []Constraint{promptMacro},
+		Summary:     []string{"macro", "prompt"},
 		Outputs: []OutputSpec{
 			{Name: "agent_session_id", Type: "integer", Description: "The agent's session"},
 			{Name: "created", Type: "boolean", Description: "Whether the step started the agent"},
@@ -285,19 +308,21 @@ var catalog = []ExecutorSpec{
 		Type: "agent.stop", Title: "Stop the task's agent",
 		Description: "Stop a task's agent.",
 		With: []Field{
-			{Name: "task", Kind: KindTaskOrID, Description: "The task, or a task ID", Required: true},
+			{Name: "task", Kind: KindTaskOrID, Label: "Task", Description: "The task, or a task ID", Required: true, Essential: true, Order: 1},
 		},
+		Summary: []string{"task"},
 	},
 	{
 		Type: "repo.ensure", Title: "Prepare a checkout",
 		Description: "Make Legato's copy of a GitHub repository ready for an agent to be cloned from, or pass a directory through when no repository is given.",
 		With: []Field{
-			{Name: "repo", Kind: KindRepository, Description: "GitHub repository (owner/name); empty to use working_dir"},
-			{Name: "ref", Kind: KindString, Description: "Branch, tag or commit to start from; the default branch when empty"},
-			{Name: "branch", Kind: KindString, Description: "Branch to work on"},
-			{Name: "working_dir", Kind: KindPath, Description: "Directory to work in when no repository is given"},
+			{Name: "repo", Kind: KindRepository, Label: "Repository", Description: "GitHub repository (owner/name); empty to use working_dir", Essential: true, Order: 1},
+			{Name: "ref", Kind: KindString, Label: "Starts from", Description: "Branch, tag or commit to start from; the default branch when empty", Order: 3},
+			{Name: "branch", Kind: KindString, Label: "Branch to work on", Description: "Branch to work on", Order: 4},
+			{Name: "working_dir", Kind: KindPath, Label: "Or a directory", Description: "Directory to work in when no repository is given", Essential: true, Order: 2},
 		},
 		Constraints: []Constraint{{Kind: Excludes, Fields: []string{"repo", "working_dir"}}},
+		Summary:     []string{"repo", "working_dir"},
 		Outputs: []OutputSpec{
 			{Name: "working_dir", Type: "string", Description: "The directory given, when no repository is"},
 			{Name: "repo", Type: "string"}, {Name: "ref", Type: "string"}, {Name: "branch", Type: "string"},
@@ -306,16 +331,18 @@ var catalog = []ExecutorSpec{
 	{
 		Type: "task.context", Title: "Read a task's context",
 		Description: "Export a task's full context (title, description, notes, pull requests) as text.",
-		With:        []Field{wholeTask},
+		With:        []Field{wholeTask.at(1, true)},
 		Outputs:     []OutputSpec{{Name: "content", Type: "string", Description: "The task's context"}},
+		Summary:     []string{"task"},
 	},
 	{
 		Type: "task.working_dir.resolve", Title: "Find a task's directory",
 		Description: "The task's worktree when it has one, else the fallback.",
 		With: []Field{
-			wholeTask,
-			{Name: "fallback", Kind: KindPath, Description: "Directory to use when the task has no worktree", Required: true},
+			wholeTask.at(1, true),
+			{Name: "fallback", Kind: KindPath, Label: "Otherwise use", Description: "Directory to use when the task has no worktree", Required: true, Essential: true, Order: 2},
 		},
+		Summary: []string{"task"},
 		Outputs: []OutputSpec{
 			{Name: "path", Type: "string"},
 			{Name: "source", Type: "string", Description: "worktree or repository"},
@@ -325,12 +352,13 @@ var catalog = []ExecutorSpec{
 		Type: "task.note", Title: "Add a note to a task",
 		Description: "Add a durable note to a task.",
 		With: []Field{
-			{Name: "task", Kind: KindTaskOrID, Description: "The task, or a task ID such as a step's linked_task output", RequiredAtRun: true},
-			{Name: "body", Kind: KindText, Description: "The note"},
-			{Name: "body_path", Kind: KindPath, Description: "A file to take the note from, such as a step's file output; wins over body"},
-			literalFalse("optional", "Skip the step, rather than fail, when there is no task"),
+			{Name: "task", Kind: KindTaskOrID, Label: "Task", Description: "The task, or a task ID such as a step's linked_task output", RequiredAtRun: true, Essential: true, Order: 1},
+			{Name: "body", Kind: KindText, Label: "Note", Description: "The note", Essential: true, Order: 2},
+			{Name: "body_path", Kind: KindPath, Label: "Or take it from a file", Description: "A file to take the note from, such as a step's file output; wins over body", Order: 3},
+			literalFalse("optional", "Skip when there is no task", "Skip the step, rather than fail, when there is no task").at(4, false),
 		},
 		Constraints: []Constraint{{Kind: AtLeastOne, Fields: []string{"body", "body_path"}}},
+		Summary:     []string{"body", "body_path"},
 		Outputs: []OutputSpec{
 			{Name: "note_id", Type: "string"}, {Name: "task_id", Type: "string"},
 			{Name: "skipped", Type: "boolean", Description: "true when optional and there was no task"},
@@ -342,27 +370,30 @@ var catalog = []ExecutorSpec{
 		Type: "task.metadata.set", Title: "Set task metadata",
 		Description: "Set values in a task's metadata.",
 		With: []Field{
-			{Name: "task", Kind: KindTask, Description: "The task: ${{ workflow.task }} or a task input", RequiredAtRun: true},
-			{Name: "values", Kind: KindJSON, Description: "A non-empty object of metadata paths and their values", RequiredAtRun: true},
+			{Name: "task", Kind: KindTask, Label: "Task", Description: "The task: ${{ workflow.task }} or a task input", RequiredAtRun: true, Essential: true, Order: 1},
+			{Name: "values", Kind: KindJSON, Label: "Values", Description: "A non-empty object of metadata paths and their values", RequiredAtRun: true, Essential: true, Order: 2},
 		},
+		Summary: []string{"values"},
 	},
 	{
 		Type: "task.move", Title: "Move a task",
 		Description: "Move a task to a column of the board, and its ticket with it.",
 		With: []Field{
-			wholeTask,
-			{Name: "column", Kind: KindColumn, Description: "The column's name", Required: true, Checked: true, Invalid: "must be a non-empty string"},
+			wholeTask.at(1, true),
+			{Name: "column", Kind: KindColumn, Label: "To column", Description: "The column's name", Required: true, Checked: true, Invalid: "must be a non-empty string", Essential: true, Order: 2},
 		},
+		Summary: []string{"column"},
 	},
 	{
 		Type: "github.pr.prepare", Title: "Check out a pull request",
 		Description: "Fetch a pull request's exact head into a new worktree, and link the workflow task to it. Needs Yggdrasil worktrees.",
 		With: []Field{
-			{Name: "repo", Kind: KindRepository, Description: "GitHub repository (owner/name)", RequiredAtRun: true},
-			{Name: "number", Kind: KindInteger, Description: "The pull request's number", RequiredAtRun: true},
-			{Name: "primary_dir", Kind: KindPath, Description: "The repository's checkout to make the worktree from", RequiredAtRun: true},
-			{Name: "base_branch", Kind: KindString, Description: "The branch the pull request merges into", Default: "main"},
+			{Name: "repo", Kind: KindRepository, Label: "Repository", Description: "GitHub repository (owner/name)", RequiredAtRun: true, Essential: true, Order: 1},
+			{Name: "number", Kind: KindInteger, Label: "Pull request number", Description: "The pull request's number", RequiredAtRun: true, Essential: true, Order: 2},
+			{Name: "primary_dir", Kind: KindPath, Label: "Make the worktree from", Description: "The repository's checkout to make the worktree from", RequiredAtRun: true, Essential: true, Order: 3},
+			{Name: "base_branch", Kind: KindString, Label: "Merges into", Description: "The branch the pull request merges into", Default: "main", Order: 4},
 		},
+		Summary: []string{"repo"},
 		Outputs: []OutputSpec{
 			{Name: "worktree_path", Type: "string"}, {Name: "branch", Type: "string"},
 			{Name: "base_branch", Type: "string"}, {Name: "head_sha", Type: "string"},
@@ -373,13 +404,14 @@ var catalog = []ExecutorSpec{
 		Type: "github.pr.review_passes", Title: "Review a pull request in passes",
 		Description: "Review an open pull request (or its stack) in passes posted as GitHub reviews from Legato's reviewer App, until a clean pass approves it. Needs review passes turned on.",
 		With: []Field{
-			{Name: "repo", Kind: KindRepository, Description: "GitHub repository (owner/name)", Required: true},
-			{Name: "pr_number", Kind: KindInteger, Description: "The pull request's number", Required: true},
-			{Name: "agent_author", Kind: KindBoolean, Description: "Have the agent of the board task the pull request belongs to fix and answer the findings", Default: false, Checked: true, Invalid: "must be true or false"},
-			{Name: "max_passes", Kind: KindInteger, Description: "Most passes before the loop goes stuck; 0 for this Legato's setting", Default: 0},
-			{Name: "reviewer", Kind: KindAgent, Description: "Agent tool that reviews, or tool:tier; this Legato's setting when empty"},
-			{Name: "scope", Kind: KindString, Description: "stack: every open pull request of its stack; pr: this pull request only", Default: "stack", Enum: []string{"stack", "pr"}},
+			{Name: "repo", Kind: KindRepository, Label: "Repository", Description: "GitHub repository (owner/name)", Required: true, Essential: true, Order: 1},
+			{Name: "pr_number", Kind: KindInteger, Label: "Pull request number", Description: "The pull request's number", Required: true, Essential: true, Order: 2},
+			{Name: "agent_author", Kind: KindBoolean, Label: "The author's agent fixes findings", Description: "Have the agent of the board task the pull request belongs to fix and answer the findings", Default: false, Checked: true, Invalid: "must be true or false", Essential: true, Order: 3},
+			{Name: "max_passes", Kind: KindInteger, Label: "Most passes", Description: "Most passes before the loop goes stuck; 0 for this Legato's setting", Default: 0, Order: 5},
+			{Name: "reviewer", Kind: KindAgent, Label: "Reviewer", Description: "Agent tool that reviews, or tool:tier; this Legato's setting when empty", Order: 6},
+			{Name: "scope", Kind: KindString, Label: "Reviews", Description: "stack: every open pull request of its stack; pr: this pull request only", Default: "stack", Enum: []string{"stack", "pr"}, Order: 4},
 		},
+		Summary: []string{"repo"},
 		Outputs: []OutputSpec{
 			{Name: "outcome", Type: "string", Description: "approved, stuck, closed or cancelled"},
 			{Name: "passes", Type: "integer"}, {Name: "findings", Type: "integer"},
@@ -392,9 +424,10 @@ var catalog = []ExecutorSpec{
 		Type: "worktree.remove", Title: "Remove the worktree",
 		Description: "Remove the workflow task's Yggdrasil worktree, when it is at the path expected.",
 		With: []Field{
-			{Name: "expected_path", Kind: KindPath, Description: "Where the worktree must be", RequiredAtRun: true},
-			{Name: "force", Kind: KindBoolean, Description: "Remove it with changes in it; a manual step triggered with force sets this", Default: false},
+			{Name: "expected_path", Kind: KindPath, Label: "The worktree at", Description: "Where the worktree must be", RequiredAtRun: true, Essential: true, Order: 1},
+			{Name: "force", Kind: KindBoolean, Label: "Even with changes in it", Description: "Remove it with changes in it; a manual step triggered with force sets this", Default: false, Order: 2},
 		},
+		Summary: []string{"expected_path"},
 		Outputs: []OutputSpec{
 			{Name: "removed", Type: "boolean"}, {Name: "removed_path", Type: "string"}, {Name: "removed_branch", Type: "string"},
 		},
@@ -403,16 +436,18 @@ var catalog = []ExecutorSpec{
 		Type: "file.remove", Title: "Remove a file",
 		Description: "Remove one regular file inside a directory; a file that is not there is not an error.",
 		With: []Field{
-			{Name: "working_dir", Kind: KindPath, Description: "The directory", RequiredAtRun: true},
-			{Name: "path", Kind: KindPath, Description: "The file, relative to working_dir", RequiredAtRun: true},
+			{Name: "working_dir", Kind: KindPath, Label: "In directory", Description: "The directory", RequiredAtRun: true, Essential: true, Order: 2},
+			{Name: "path", Kind: KindPath, Label: "File", Description: "The file, relative to working_dir", RequiredAtRun: true, Essential: true, Order: 1},
 		},
+		Summary: []string{"path"},
 		Outputs: []OutputSpec{{Name: "removed", Type: "boolean"}},
 	},
 	{
 		Type: "chimera.session.remove", Title: "Remove the Chimera session",
 		Description: "Remove the saved Chimera session of a task's agent.",
-		With:        []Field{wholeTask},
+		With:        []Field{wholeTask.at(1, true)},
 		Outputs:     []OutputSpec{{Name: "removed", Type: "boolean"}, {Name: "metadata_cleared", Type: "boolean"}},
+		Summary:     []string{"task"},
 	},
 	{
 		Type: "agent.interview", Title: "Ask the agent to reflect", Internal: true,
