@@ -207,6 +207,8 @@ All of it is in `app/src/main/java/dev/legato/mobile/`.
 | `AndroidApprovalKeys.kt` | The approval keys in the Keystore, the fingerprint prompt, calls to a server's API |
 | `ApprovalSheet.kt`, `ApprovalsScreen.kt` | The approval sheet with its seal, and the open approvals of every server |
 | `AndroidStorage.kt`, `AndroidMicrophone.kt` | Keystore, SQLite, `MediaRecorder`, `AudioRecord` and audio focus |
+| `GlassesHttp.kt` | The glasses link's answers: the code, the routes, rebuilt bodies, its own refusals; making a pairing code |
+| `GlassesServer.kt` | The glasses link's loopback HTTP server on `127.0.0.1:8792` |
 | `MainActivity.kt`, `Screens.kt` | The activity and its Compose screens |
 
 The logic is in plain Kotlin classes that tests drive with fakes
@@ -598,3 +600,64 @@ asks the person itself. It is the contract the desktop app shares (see
 A file input in the page opens Android's file picker. A link to another site
 opens in the browser; a link that opens a new window opens in the page, where
 the same rule applies.
+
+## The glasses link
+
+The Even G2 glasses app (`packages/even-hub/`) reads Legato only through this
+app, on the same phone. The glasses hold no Legato address or token: they name
+one of the servers saved here, and this app makes the call with that server's
+own token and pinned certificate, so every saved server works on the glasses
+once they are paired. The protocol is Burnlite milestone LEG-474's; the
+glasses' side is in `docs/ai/even-hub.md` § The phone link.
+
+**Where it listens.** `http://127.0.0.1:8792` (`GlassesServer`), on loopback
+only. The port is fixed because the glasses' packed network whitelist is fixed
+when packed; Psi's glasses link uses 8791, so both can run. Any app on the
+phone can reach loopback, so the pairing code is what keeps them out.
+
+**The code.** 24 base32 characters from `SecureRandom` (`newGlassesCode`).
+Every request but a preflight must carry `Authorization: Bearer <code>`,
+compared in constant time (`MessageDigest.isEqual`). With no code saved,
+nothing is let in.
+
+**Routes** (`GlassesHttp.answer`). Anything else is `404`, before any server is
+asked.
+
+| Request | What the app does |
+| --- | --- |
+| `OPTIONS *` | `204` with `Access-Control-Allow-Headers: Authorization, Content-Type`, `-Allow-Methods: GET, POST`, `-Allow-Private-Network: true`; no code needed |
+| `GET /v1/instances` | `[{"id", "name"}]`: the saved servers (`Connection.id`, a UUID, and `Connection.name`), in the list's order |
+| `GET /v1/instances/{id}/api/agents?view=compact&status=running` | passed on |
+| `GET /v1/instances/{id}/api/agents/{task}/conversation?limit=N` | passed on, `N` from 1 to 50 |
+| `POST /v1/instances/{id}/api/voice/transcribe` | body rebuilt as `{"transcription_only": true, "pcm": <string>}` |
+| `POST /v1/instances/{id}/api/agents/{task}/chimera/send` | body rebuilt as `{"content": <string>}` |
+
+- `{task}` is one path segment, decoded and encoded again; a slash or a step up
+  in it is `404`. The query must be exactly the one shown.
+- Each body is rebuilt from the one field the call needs, never forwarded as
+  sent: Go's `encoding/json` matches keys without regard to case and keeps the
+  last, so a second `TRANSCRIPTION_ONLY: false` could otherwise have Legato
+  type the text into an agent's pane. A POST that is not `application/json` is
+  `415`; a body that is not a JSON object, or lacks its field as a string, is
+  `400`.
+- Calls go through the server's own `AndroidServerHttp(baseUrl, token, pin)`,
+  with 10 seconds to answer, or 30 for a transcription.
+
+**Answers.** Legato's status and body come back as they came, so the glasses'
+own handling of Legato's answers still applies. The app's own refusals are
+apart: `401` (the code is wrong or missing), `404 {"error":"unknown instance"}`
+(the server is no longer saved), and `502 {"error": "…"}` (the server could
+not be reached, took too long, or refused the app's token, or the app has no
+token for it). Legato's own `401` becomes a `502`, so it never reads as a
+wrong code. Every answer carries `Access-Control-Allow-Origin: *`,
+`Cache-Control: no-store` and `Connection: close`.
+
+**The server.** One request per connection, one answer, then the connection
+closes. It reads a head of at most 8 KiB (`431` past it), then exactly
+`Content-Length` bytes, across as many reads as it takes: a POST without a
+length is `411` (chunked bodies are not read), a length over 8 MB is `413`
+before any of the body is read. Each read waits at most 10 seconds and the
+whole request 20, so a client that stops or trickles is dropped (`408`). It
+serves 16 connections at once and closes any more unanswered. It knows nothing
+of Legato: it is given the function that answers.
+
