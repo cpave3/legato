@@ -5,19 +5,19 @@ import type { AgentContext } from "../hooks/useAgentContexts"
 import { useAgentGlance } from "../hooks/useAgentGlance"
 import {
   backgroundSummary,
-  ensembleSection,
   glanceItems,
   orderForEnsemble,
   plainText,
   type AgentConversation,
-  type EnsembleSection,
   type GlanceItem,
   type ToolState,
 } from "../lib/agentGlance"
 import { agentToolLabel } from "../lib/agentKind"
 import { formatAgentTime, stateSeconds } from "../lib/agentList"
+import { glanceSection, stageLabel, workStages, type GlanceSection, type WorkStage } from "../lib/agentStage"
 import { cn } from "../lib/utils"
 import { ActivityBar, ContextMeter } from "./AgentMeters"
+import { StagePie } from "./StagePie"
 
 interface AgentEnsembleProps {
   // The running agents, in any order.
@@ -31,12 +31,27 @@ interface AgentEnsembleProps {
   onSend?: (taskId: string, content: string) => void
 }
 
-const sections: Array<{ section: EnsembleSection; count: (n: number) => string; glyph: string; tone: string }> = [
+// The header's counts, by glance group. The Reeve is left out of every
+// count.
+const counts: Array<{ section: GlanceSection; count: (n: number) => string; glyph: string; tone: string }> = [
   { section: "needs-you", count: (n) => `${n} ${n === 1 ? "needs" : "need"} you`, glyph: "◆", tone: "text-lw-needs" },
-  { section: "running", count: (n) => `${n} running`, glyph: "●", tone: "text-lw-live" },
-  { section: "background", count: (n) => `${n} in background`, glyph: "◌", tone: "text-lw-done" },
-  { section: "idle", count: (n) => `${n} idle`, glyph: "○", tone: "text-lw-text-2" },
+  { section: "your-turn", count: (n) => `${n} your turn`, glyph: "◇", tone: "text-lw-needs opacity-85" },
+  { section: "working", count: (n) => `${n} working`, glyph: "●", tone: "text-lw-live" },
+  { section: "finished", count: (n) => `${n} finished`, glyph: "✓", tone: "text-lw-done" },
 ]
+
+// Where the viewer's choice of layout is kept on this device.
+export const ENSEMBLE_LAYOUT_KEY = "legato.ensemble.layout"
+
+type EnsembleLayout = "tiles" | "stage"
+
+function rememberedLayout(): EnsembleLayout {
+  try {
+    return localStorage.getItem(ENSEMBLE_LAYOUT_KEY) === "stage" ? "stage" : "tiles"
+  } catch {
+    return "tiles"
+  }
+}
 
 // How an agent's state is written on its tile, and the colors that go with it.
 function stateOf(agent: AgentInfo): { label: string; glyph: string; chip: string; frame: string; ground: string } {
@@ -60,6 +75,13 @@ function stateOf(agent: AgentInfo): { label: string; glyph: string; chip: string
 // it is at, the agents that need the person first.
 export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowList, onSend }: AgentEnsembleProps) {
   const ordered = orderForEnsemble(agents)
+  const counted = agents.filter((agent) => !agent.reeve)
+  const [layout, setLayoutState] = useState<EnsembleLayout>(rememberedLayout)
+  const setLayout = (next: EnsembleLayout) => {
+    setLayoutState(next)
+    try { localStorage.setItem(ENSEMBLE_LAYOUT_KEY, next) } catch { /* not remembered */ }
+  }
+  const segment = (on: boolean) => cn("h-[26px] rounded px-2.5 text-xs", on ? "bg-lw-selected text-lw-text" : "text-lw-text-2 hover:text-lw-text")
 
   return (
     <section aria-label="Ensemble" className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-lw-ground font-lw text-[13px] leading-5 text-lw-text">
@@ -67,16 +89,17 @@ export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowLi
         <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
           <h1 className="m-0 text-lg font-semibold leading-6">Ensemble</h1>
           <ul aria-label="Agents by state" className="m-0 flex list-none flex-wrap items-center gap-x-3 gap-y-1 p-0">
-            {sections.map(({ section, count, glyph, tone }) => {
-              const total = agents.filter((agent) => ensembleSection(agent) === section).length
+            {counts.map(({ section, count, glyph, tone }) => {
+              const total = counted.filter((agent) => glanceSection(agent) === section).length
               return total > 0 && <li key={section} className={tone}><span aria-hidden="true">{glyph}</span> {count(total)}</li>
             })}
           </ul>
         </div>
         <div className="flex items-center gap-2">
           <div role="group" aria-label="Layout" className="flex rounded-md border border-lw-line bg-lw-surface p-0.5">
-            <button type="button" aria-pressed="true" className="h-[26px] rounded bg-lw-selected px-2.5 text-xs text-lw-text">Tiles</button>
-            <button type="button" aria-pressed="false" onClick={onShowList} className="h-[26px] rounded px-2.5 text-xs text-lw-text-2 hover:text-lw-text">List</button>
+            <button type="button" aria-pressed={layout === "tiles"} onClick={() => setLayout("tiles")} className={segment(layout === "tiles")}>Tiles</button>
+            <button type="button" aria-pressed={layout === "stage"} onClick={() => setLayout("stage")} className={segment(layout === "stage")}>By stage</button>
+            <button type="button" aria-pressed="false" onClick={onShowList} className={segment(false)}>List</button>
           </div>
           <button
             type="button"
@@ -92,6 +115,14 @@ export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowLi
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-4">
         {ordered.length === 0
           ? <p className="py-12 text-center text-lw-faint">No agents are running.</p>
+          : layout === "stage"
+          ? (
+            <div data-ensemble-lanes className="flex flex-col gap-3 lg:grid lg:min-h-full lg:grid-cols-5">
+              {workStages.map((stage) => (
+                <StageLane key={stage} stage={stage} agents={ordered.filter((agent) => agent.stage === stage)} contexts={contexts} onOpen={onOpen} onSend={onSend} />
+              ))}
+            </div>
+          )
           : (
             // The rows share the height of the window, down to the least a
             // tile needs; only then does the ensemble scroll.
@@ -101,6 +132,45 @@ export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowLi
               ))}
             </div>
           )}
+      </div>
+    </section>
+  )
+}
+
+// StageLane is the agents at one stage, those that need the operator first.
+// Side by side on a wide screen; on a phone the lanes stack, and a lane
+// opens by itself when it holds an agent that needs the operator.
+function StageLane({ stage, agents, contexts, onOpen, onSend }: {
+  stage: WorkStage
+  agents: AgentInfo[]
+  contexts: Record<string, AgentContext>
+  onOpen: (taskId: string) => void
+  onSend?: (taskId: string, content: string) => void
+}) {
+  const needs = agents.filter((agent) => glanceSection(agent) === "needs-you").length
+  const turn = agents.filter((agent) => glanceSection(agent) === "your-turn").length
+  const [open, setOpen] = useState(needs > 0)
+  const label = stageLabel(stage)
+  const marks = [needs > 0 && `◆ ${needs}`, turn > 0 && `◇ ${turn}`].filter(Boolean).join(" · ")
+  return (
+    <section aria-label={label} className="flex min-w-0 flex-col gap-2.5 rounded-xl border border-lw-line bg-[var(--theme-surface,#141417)] p-2.5">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex min-h-11 items-center gap-2 px-1 text-left text-[13px] font-semibold lg:pointer-events-none lg:min-h-0"
+      >
+        <StagePie stage={stage} label="" />
+        {label}
+        <span className="font-lw-mono text-xs font-normal text-lw-text-2">{agents.length}</span>
+        {marks && <span className="ml-auto text-xs font-medium text-lw-needs">{marks}</span>}
+      </button>
+      <div className={cn("flex-col gap-2.5", open ? "flex" : "hidden lg:flex")}>
+        {agents.length === 0
+          ? <p className="m-0 px-1 py-2 text-xs text-lw-text-2">Nothing here.</p>
+          : agents.map((agent) => (
+            <div key={agent.task_id} className="h-60"><AgentTile agent={agent} context={contexts[agent.task_id]} onOpen={onOpen} onSend={onSend} /></div>
+          ))}
       </div>
     </section>
   )
@@ -147,7 +217,12 @@ function AgentTile({ agent, context, onOpen, onSend }: {
           <span className={cn("rounded px-2 font-lw-mono text-[11px] uppercase", state.chip)}>
             <span aria-hidden="true">{state.glyph}</span> {state.label}{time && ` ${time}`}
           </span>
-          <span className="truncate font-lw-mono text-xs text-lw-faint">{agent.task_id}</span>
+          {stageLabel(agent.stage) && (
+            <span className={cn("flex shrink-0 items-center gap-1 text-[11px]", agent.stage === "finished" ? "text-lw-done" : "text-lw-text-2")}>
+              <StagePie stage={agent.stage} size={11} />{stageLabel(agent.stage)}
+            </span>
+          )}
+          <span className="ml-auto truncate font-lw-mono text-xs text-lw-faint">{agent.task_id}</span>
         </div>
         <span className="truncate text-[15px] font-semibold">{agent.task_title || agent.task_id}</span>
         <span className="truncate text-xs text-lw-text-2">{meta}</span>

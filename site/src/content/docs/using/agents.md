@@ -126,7 +126,7 @@ A tile shows the agent's state, its task, and what it is doing. For a native age
 
 From 120 columns of width, a panel lists what changed among the agents, newest first.
 
-The web UI has the same ensemble at **Ensemble** in the navigation, or `e` on the Agents page. Each web tile has a message box and **Open**.
+The web UI has the same ensemble at **Ensemble** in the navigation, or `e` on the Agents page. Each web tile has a message box and **Open**, and names the agent's stage beside its state. Its header counts the agents that need you, whose turn it is, that are working and that are finished. **By stage** lays the agents out in five lanes, Exploring to Finished, so you see the whole pipeline at once; on a phone the lanes stack, and a lane holding an agent that needs you opens by itself. The web UI remembers the layout you chose on each device.
 
 ## When an agent exits
 

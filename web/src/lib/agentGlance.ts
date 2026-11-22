@@ -127,13 +127,6 @@ export type EnsembleSection = "needs-you" | "running" | "background" | "idle"
 
 const sectionOrder: EnsembleSection[] = ["needs-you", "running", "background", "idle"]
 
-export const ensembleLabels: Record<EnsembleSection, string> = {
-  "needs-you": "Needs you",
-  running: "Running",
-  background: "Background",
-  idle: "Idle",
-}
-
 // An agent that failed needs the person as much as one that asks, and so
 // does one with an open question or a plan waiting, whatever it is doing:
 // the server's glance says so (a done note does not). The rest follow what
