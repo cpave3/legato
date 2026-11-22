@@ -1,3 +1,4 @@
+import { stageLabel } from "./agentStage"
 import type { BoardCard } from "./board-types"
 import { agentToolLabel } from "./agentKind"
 import { providerLabel } from "./providers"
@@ -47,7 +48,9 @@ export function agentStripLook(card: BoardCard): StripLook {
 }
 
 // What a named slot's chip says of its agent: "reviewer · running".
-export function slotChipLabel(slot: string, state: string): string {
+export function slotChipLabel(slot: string, state: string, stage?: string): string {
+  const named = stageLabel(stage)
+  if (named) return `${slot} · ${named}`
   const text = state === "working" ? "running" : state === "waiting" ? "needs you" : state === "" ? "idle" : state
   return `${slot} · ${text}`
 }

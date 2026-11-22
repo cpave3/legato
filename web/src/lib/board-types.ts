@@ -51,6 +51,10 @@ export interface BoardCard {
   // The task's running named slots (a reviewer), shown as chips beside the
   // main slot's state; absent when none.
   slot_agents?: SlotAgent[]
+  // The main slot's agent's stage and why; absent for none. A stage never
+  // moves the card.
+  stage?: string
+  stage_reason?: string
   working_seconds: number
   waiting_seconds: number
   error_seconds: number
@@ -91,6 +95,8 @@ export interface CardNeedsYou {
 export interface SlotAgent {
   slot: string
   state: string
+  // The slot's agent's stage; absent for none.
+  stage?: string
 }
 
 // A handoff's review passes on its worker, as the worker last said.
@@ -142,6 +148,10 @@ export interface AwayOn {
   failure?: string
   state_at?: string
   url?: string
+  // The worker agent's stage as last heard; absent from a worker that
+  // sends none.
+  stage?: string
+  stage_reason?: string
   // What the worker's live connection says: its agent's activity
   // (working, waiting, idle, ended), the card's column and title there, the
   // branches pushed in stack order.

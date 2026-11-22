@@ -12,6 +12,21 @@ import { useToast } from "../../hooks/useToast"
 import { animatedAgentActivityEnabled } from "../../lib/appearancePreferences"
 import { Mark } from "../PullRequestMarks"
 import { CardPullRequests } from "./PullRequests"
+import { StagePie } from "../StagePie"
+import { stageLabel } from "../../lib/agentStage"
+
+// CardStage is an agent's stage on a card's strip: the pie and the word.
+function CardStage({ stage }: { stage?: string }) {
+  const label = stageLabel(stage)
+  if (!label) return null
+  return (
+    <span className={cn("flex shrink-0 items-center gap-1", stage === "finished" ? "text-lw-done" : "text-lw-text-2")}>
+      <span aria-hidden="true" className="text-lw-faint">·</span>
+      <StagePie stage={stage} size={11} />
+      <span>{label}</span>
+    </span>
+  )
+}
 
 interface BoardCardProps {
   card: BoardCardType
@@ -39,7 +54,8 @@ function AgentStrip({ card }: { card: BoardCardType }) {
   return (
     <div data-testid="agent-strip" className={cn(stripRow, look.tint)}>
       <span className={cn("flex min-w-0 items-center gap-1.5", look.tone)}><span aria-hidden="true">{look.glyph}</span><span className="truncate">{look.label}</span>
-        {card.slot_agents?.filter(slot => !card.needs_you?.slots?.some(waiting => waiting.slot === slot.slot)).map((slot) => <span key={slot.slot} className="shrink-0 rounded border border-lw-line px-1 text-lw-text-2">{slotChipLabel(slot.slot, slot.state)}</span>)}
+        <CardStage stage={card.stage} />
+        {card.slot_agents?.filter(slot => !card.needs_you?.slots?.some(waiting => waiting.slot === slot.slot)).map((slot) => <span key={slot.slot} className="shrink-0 rounded border border-lw-line px-1 text-lw-text-2">{slotChipLabel(slot.slot, slot.state, slot.stage)}</span>)}
       </span>
       {look.time > 0 && <span className="shrink-0 font-lw-mono text-lw-text-2">{formatDuration(look.time)}</span>}
     </div>
@@ -87,10 +103,10 @@ function ResumeButton({ taskId, label }: { taskId: string; label: string }) {
 }
 
 // An away task's strip: its review while one runs, else its away state.
-function AwayStripRow({ strip }: { strip: AwayStripLook }) {
+function AwayStripRow({ strip, stage }: { strip: AwayStripLook; stage?: string }) {
   return (
     <div data-testid="away-strip" className={cn(stripRow, "flex-wrap", strip.tint)}>
-      <span className={cn("flex min-w-[55%] flex-1 items-start gap-1.5", strip.tone)}><span aria-hidden="true">{strip.glyph}</span><span className="min-w-0 [overflow-wrap:anywhere]">{strip.text}</span></span>
+      <span className={cn("flex min-w-[55%] flex-1 items-start gap-1.5", strip.tone)}><span aria-hidden="true">{strip.glyph}</span><span className="min-w-0 [overflow-wrap:anywhere]">{strip.text}</span><CardStage stage={stage} /></span>
       {strip.detail && <span className="ml-auto text-right text-lw-text-2">{strip.detail}</span>}
     </div>
   )
@@ -214,7 +230,7 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
       {needs.map(strip => <NeedsYouStripRow key={strip.text} strip={strip} />)}
       {Boolean(card.review_unreviewed) && <ReviewStrip card={card} />}
       {!away && card.agent_active && !(main && quietAgent) && <AgentStrip card={card} />}
-      {away && <AwayStripRow strip={away} />}
+      {away && <AwayStripRow strip={away} stage={card.away?.stage} />}
       {actions && <div onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()} className="flex flex-wrap items-center gap-1 border-t border-lw-line px-3 py-2 empty:hidden">{actions}</div>}
     </div>
   )

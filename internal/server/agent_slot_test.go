@@ -106,3 +106,36 @@ func TestABoardCardShowsItsMainAgentAndAChipForItsReviewer(t *testing.T) {
 		t.Fatalf("agents = %+v", agents)
 	}
 }
+
+// stagedSlotAgents lists an author and its reviewer, each with a stage.
+type stagedSlotAgents struct{ promptAgentService }
+
+func (stagedSlotAgents) ListAgents(context.Context) ([]service.AgentSession, error) {
+	return []service.AgentSession{
+		{TaskID: "T-1", CardTaskID: "T-1", AttributionTaskID: "T-1", Slot: "main", Status: "running", Activity: "working", Stage: "implementing", StageReason: "fixing review feedback · pass 2"},
+		{TaskID: "T-1_reviewer", CardTaskID: "T-1", AttributionTaskID: "T-1", Slot: "reviewer", Status: "running", Activity: "working", Stage: "reviewing", StageReason: "pass 2"},
+	}, nil
+}
+
+// A card names its main agent's stage and its reviewer's; a stage never
+// moves the card.
+func TestABoardCardNamesItsAgentsStages(t *testing.T) {
+	board := &mockBoardService{columns: []service.Column{{Name: "Doing"}}, cards: map[string][]service.Card{"Doing": {{ID: "T-1", Title: "Fix it"}}}}
+	srv := New(board, &stagedSlotAgents{}, nil, "")
+	rec := httptest.NewRecorder()
+	srv.boardHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/board", nil))
+	var resp BoardResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	card := resp.Columns[0].Cards[0]
+	if card.Stage != "implementing" || card.StageReason != "fixing review feedback · pass 2" {
+		t.Fatalf("card stage = %q %q", card.Stage, card.StageReason)
+	}
+	if len(card.SlotAgents) != 1 || card.SlotAgents[0].Stage != "reviewing" {
+		t.Fatalf("slot chips = %+v", card.SlotAgents)
+	}
+	if resp.Columns[0].Name != "Doing" {
+		t.Fatalf("columns = %+v", resp.Columns)
+	}
+}
