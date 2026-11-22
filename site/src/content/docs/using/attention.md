@@ -51,7 +51,14 @@ An agent that posts the same title again updates its item, which comes back if y
 
 In the web UI, the column on the right of every page shows Attention as you choose: Settings › Attention › **Needs-you rail** has a switch for each kind of item, under **From agents** (actions, questions, finished work, anything else) and **From Legato** (approvals, agents, workflows, plans, ready for review, merge blockers, Legato's own). Ready for review and merge blockers are off at first. The settings are kept by Legato, so every browser shows the same rail. The same section holds how you are notified: in this browser, on this computer's desktop, and on your phone by ntfy, and **What notifies** (approvals, handoffs). See [Web UI](/legato/using/web-ui/#getting-around).
 
-On a phone, the rail is the **Needs you** sheet above the tab bar. When something waits, the sheet opens by itself. When you close it, it stays closed for 30 minutes on that device, also after a reload. The **Needs you** tab opens it at any time. A new approval, question, plan or workflow gate opens it again sooner. A new waiting agent or finished work does not. The sheet does not open by itself while you type in a text box, in focus mode, on the Attention page, or over another sheet. It also does not open for the agent whose page you have open. Change the 30 minutes in Settings › Attention › Needs-you rail › **On a phone** (`web.rail.snooze`).
+On a phone, the rail is the **Needs you** sheet above the tab bar. When something waits, the sheet opens by itself. When you close it, it stays closed for 30 minutes on that device, also after a reload. The **Needs you** tab opens it at any time. A new approval, question, plan or workflow gate opens it again sooner. A new waiting agent or finished work does not. The sheet does not open by itself while you type in a text box, in focus mode, on the Attention page, or over another sheet. For the agent whose page you have open, only an approval, question, plan or gate opens it; the agent's page still shows its own card for the request, and answering in either place clears both. Change the 30 minutes in Settings › Attention › Needs-you rail › **On a phone** (`web.rail.snooze`).
+
+Two more switches there apply to this device only; each phone or browser keeps its own, and both are on by default:
+
+- **For the agent in view**: an approval, question, plan or gate from the agent whose page you have open opens the sheet. Turn it off to leave that agent to its page.
+- **For items that don't hold work**: a waiting agent, finished work and the like open the sheet. Turn it off and only approvals, questions, plans and gates do.
+
+If the browser will not store them, they stay on.
 
 ### Acting on an item
 

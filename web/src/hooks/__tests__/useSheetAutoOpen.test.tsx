@@ -19,6 +19,7 @@ vi.mock("../useAgentSelection", () => ({ useAgentSelection: () => ({ selectedAge
 
 import { useSheetAutoOpen } from "../useSheetAutoOpen"
 import { resetSnoozeMemory } from "../../lib/railSnooze"
+import { resetAutoOpenMemory, writeAutoOpen } from "../../lib/railAutoOpen"
 import { setFocusMode } from "../../lib/focusMode"
 
 function item(id: string, signal_kind: string, task = "task-1"): AttentionItem {
@@ -75,6 +76,7 @@ describe("useSheetAutoOpen", () => {
   beforeEach(() => {
     window.localStorage.clear()
     resetSnoozeMemory()
+    resetAutoOpenMemory()
     railView.current = { items: [], hidden: 0, hiddenNames: [], snoozeSeconds: undefined }
     peers.current = []
     selection.current = null
@@ -231,13 +233,41 @@ describe("useSheetAutoOpen", () => {
     expect(sheet()).toBeNull()
   })
 
-  it("does not open for items about the agent whose page is open", async () => {
+  it("opens for an item that holds work about the agent whose page is open", async () => {
+    selection.current = "task-1"
+    railView.current.items = [item("q1", "operator_question", "task-1")]
+    page({ path: "/agents" })
+    await waitFor(() => expect(sheet()).toBeTruthy())
+  })
+
+  it("does not open for the agent whose page is open when this device says not to", async () => {
+    writeAutoOpen("http://legato", { agentInView: false, everything: true })
     selection.current = "task-1"
     railView.current.items = [item("q1", "operator_question", "task-1")]
     page({ path: "/agents" })
     await settle()
     expect(sheet()).toBeNull()
     await arrive(item("q1", "operator_question", "task-1"), item("q2", "operator_question", "task-2"))
+    await waitFor(() => expect(sheet()).toBeTruthy())
+  })
+
+  it("opens only for items that hold work when this device says so", async () => {
+    writeAutoOpen("http://legato", { agentInView: true, everything: false })
+    railView.current.items = [item("w1", "agent_waiting")]
+    page()
+    await settle()
+    expect(sheet()).toBeNull()
+    await arrive(item("w1", "agent_waiting"), item("q1", "operator_question"))
+    await waitFor(() => expect(sheet()).toBeTruthy())
+  })
+
+  it("does not open for other items about the agent whose page is open", async () => {
+    selection.current = "task-1"
+    railView.current.items = [item("w1", "agent_waiting", "task-1")]
+    page({ path: "/agents" })
+    await settle()
+    expect(sheet()).toBeNull()
+    await arrive(item("w1", "agent_waiting", "task-1"), item("w2", "agent_waiting", "task-2"))
     await waitFor(() => expect(sheet()).toBeTruthy())
   })
 

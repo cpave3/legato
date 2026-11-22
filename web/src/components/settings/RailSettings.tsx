@@ -1,10 +1,11 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { Bot, CheckCircle, CircleHelp, GitMerge, GitPullRequest, Hand, ListChecks, MessageSquare, Settings2, ShieldCheck, Workflow, type LucideIcon } from "lucide-react"
+import { Bot, CheckCircle, Eye, BellRing, CircleHelp, GitMerge, GitPullRequest, Hand, ListChecks, MessageSquare, Settings2, ShieldCheck, Workflow, type LucideIcon } from "lucide-react"
 import { setConfigSetting, type ConfigSetting } from "../../lib/configSettings"
 import { queryKeys } from "../../lib/query"
 import { SettingsRow, SettingsRows, Toggle } from "./SettingsUI"
 import { RegistrySettingRow, SourceChip } from "./RegistrySettings"
+import { useAutoOpen, writeAutoOpen, type AutoOpen } from "../../lib/railAutoOpen"
 
 type RailSwitch = { group: string; title: string; description: string; icon: LucideIcon }
 
@@ -32,6 +33,9 @@ export function RailSettings({ baseUrl, settings }: { baseUrl: string; settings:
   const queryClient = useQueryClient()
   const [error, setError] = useState("")
   const [busy, setBusy] = useState("")
+  // When the phone's sheet opens by itself: kept in this browser.
+  const autoOpen = useAutoOpen(baseUrl)
+  const flipDevice = (key: keyof AutoOpen) => writeAutoOpen(baseUrl, { ...autoOpen, [key]: !autoOpen[key] })
   const setting = (group: string) => settings.find((s) => s.key === `web.rail.${group}`)
   const flip = async (key: string, on: boolean) => {
     setBusy(key)
@@ -74,13 +78,20 @@ export function RailSettings({ baseUrl, settings }: { baseUrl: string; settings:
         {switches("From agents", fromAgents)}
         {switches("From Legato", fromLegato)}
       </div>
-      {snooze && (
-        <section role="group" aria-label="On a phone" className="flex flex-col gap-2">
-          <h4 className="font-lw-mono text-[10.5px] uppercase tracking-wider text-lw-text-2">On a phone</h4>
-          <p className="text-[13px] text-lw-text-2">The rail is a sheet that opens by itself when something waits.</p>
-          <SettingsRows><RegistrySettingRow setting={snooze} baseUrl={baseUrl} /></SettingsRows>
-        </section>
-      )}
+      <section role="group" aria-label="On a phone" className="flex flex-col gap-2">
+        <h4 className="font-lw-mono text-[10.5px] uppercase tracking-wider text-lw-text-2">On a phone</h4>
+        <p className="text-[13px] text-lw-text-2">The rail is a sheet that opens by itself when something waits. It never opens while you type, in focus mode or on the Attention page.</p>
+        {snooze && <SettingsRows><RegistrySettingRow setting={snooze} baseUrl={baseUrl} /></SettingsRows>}
+        <p className="text-[13px] text-lw-text-2">These two apply to this device only, and each phone or browser keeps its own:</p>
+        <SettingsRows>
+          <SettingsRow icon={Eye} title="For the agent in view" browser
+            description="An approval, question, plan or gate from the agent whose page you have open opens the sheet too."
+            control={<Toggle label="For the agent in view" on={autoOpen.agentInView} onChange={() => flipDevice("agentInView")} />} />
+          <SettingsRow icon={BellRing} title="For items that don't hold work" browser
+            description="A waiting agent, finished work and the like open the sheet. Off, only approvals, questions, plans and gates do."
+            control={<Toggle label="For items that don't hold work" on={autoOpen.everything} onChange={() => flipDevice("everything")} />} />
+        </SettingsRows>
+      </section>
       {error && <p role="alert" className="text-xs text-lw-error">{error}</p>}
     </div>
   )
