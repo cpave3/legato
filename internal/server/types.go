@@ -65,10 +65,14 @@ type CardResponse struct {
 	AgentEngram string `json:"agent_engram,omitempty"`
 	// SlotAgents are the task's running named slots (a reviewer), each
 	// shown as a chip beside the main slot's state.
-	SlotAgents     []service.SlotAgentSummary `json:"slot_agents,omitempty"`
-	WorkingSeconds float64                    `json:"working_seconds"`
-	WaitingSeconds float64                    `json:"waiting_seconds"`
-	ErrorSeconds   float64                    `json:"error_seconds"`
+	SlotAgents []service.SlotAgentSummary `json:"slot_agents,omitempty"`
+	// Stage and StageReason are the main slot's agent's stage (see
+	// docs/ai/agent-states.md § Stages); a stage never moves the card.
+	Stage          string  `json:"stage,omitempty"`
+	StageReason    string  `json:"stage_reason,omitempty"`
+	WorkingSeconds float64 `json:"working_seconds"`
+	WaitingSeconds float64 `json:"waiting_seconds"`
+	ErrorSeconds   float64 `json:"error_seconds"`
 	// PullRequests are the task's PRs in stack order, bottom first.
 	PullRequests     []PRMetaResponse    `json:"pull_requests,omitempty"`
 	SwarmStats       *SwarmStatsResponse `json:"swarm_stats,omitempty"`
@@ -127,6 +131,9 @@ type AwayResponse struct {
 	View                   string   `json:"view,omitempty"`
 	// Review is the handoff's review passes on the worker, as last heard.
 	Review *service.HandoffReviewBlock `json:"review,omitempty"`
+	// Stage and StageReason are the worker agent's stage, as last heard.
+	Stage       string `json:"stage,omitempty"`
+	StageReason string `json:"stage_reason,omitempty"`
 }
 
 // BoardWorkerResponse is a worker this main is paired with, for the board's

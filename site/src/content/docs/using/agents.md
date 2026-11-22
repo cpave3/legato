@@ -79,15 +79,41 @@ The [Reeve](/legato/using/reeve/), the agent of your Legato itself, is pinned fi
 
 In the TUI the Reeve is on the first row of the agents view, above the groups, with a violet wash. Press `R` in any view to open it: Legato goes to its session, resuming or starting one. In the agents view `R` still reloads the selected agent; there, `a` asks the Reeve about the selected agent instead, with a brief of what it is and what it is doing.
 
+## Stages
+
+Each agent has a **stage**: where its work stands, apart from what it is doing right now.
+
+| Stage | Means |
+|---|---|
+| Exploring | Reading, searching, answering. Nothing changed yet. A new conversation starts here. |
+| Planning | A plan waits on you. |
+| Implementing | Changing the code. |
+| Reviewing | The work is up for review. A reviewer agent is always here. |
+| Finished | The work is done. |
+
+Legato works the stage out for itself. An edit in the agent's working folder or a push makes it Implementing. A plan submitted makes it Planning, and approved makes it Implementing. A pull request opened, a review tour marked ready or a review pass started makes it Reviewing. Review feedback delivered to it makes it Implementing again, and every pull request merged makes it Finished. Agents also report their own stage, and a done note means Finished. You can set it yourself from the agent's **⋯** menu › **Set stage**, which shows "set by you" until something later moves it. The [Reeve](/legato/using/reeve/) has no stage.
+
+In the web UI's Agents list, agents are grouped so you see at a glance which need you:
+
+- **Needs you**: waiting for your answer, stopped on an error, with something it posted for you, or with a plan waiting for your approval. The row says which.
+- **Your turn**, under it and quieter: idle, with its work not finished. It stopped mid-work and waits for your reply.
+- **Working**: working, or waiting on work it started.
+- **Finished**: its stage is Finished. A done note it left marks it unread, with a blue edge.
+
+Each row has a stage line: a small circle that fills a quarter more at each stage, full and blue when finished, with the stage's name and why. The chips under the header filter the list by stage. Your choice is kept in this browser and in the address (`?stage=reviewing`), so a link opens the same filter. While a filter is on, a notice says how many agents need you outside it, so a filter never hides urgent work. The chat header shows the stage too; click it for the agent's stage history. On a phone, the agent picker at the top reads the agent's group, stage and time, such as `Needs you · Implementing · 42m`, and its list has the same groups and stage chips.
+
 ## The agents view
 
-Press `A` on the board to open the agents view. Agents are listed under what they are doing, the ones that need you first:
+Press `A` on the board to open the agents view. Agents are listed in the same groups as the web UI (see [Stages](#stages)), the ones that need you first:
 
-- **Needs you**: waiting for you, stopped on an error, or with something it [posted for you](/legato/using/attention/#operator-items) still open, even when it is idle.
-- **Running**: working.
-- **Background**: the turn ended, but something it started still runs and will wake it: a shell, a Monitor, a subagent or a scheduled prompt. The line over the terminal says what: `background · 2 jobs`, or the one job by name.
-- **Idle**: alive, and nothing will wake it but a message.
+- **Needs you**: waiting for you, stopped on an error, with something it [posted for you](/legato/using/attention/#operator-items) still open (a done note aside), or with a plan waiting for you, even when it is idle.
+- **Your turn**: idle with its work not finished: it waits for your reply.
+- **Interrupted**: a crash stopped it (see below).
+- **Working**: working, or in the background: the turn ended, but something it started still runs and will wake it (a shell, a Monitor, a subagent or a scheduled prompt). The line over the terminal says what: `background · 2 jobs`, or the one job by name.
+- **Finished**: its stage is Finished.
 - **Ended**: the session is over.
+
+Each entry has a line with its stage, such as `◑ implementing · 6 files changed` (○ exploring, ◔ planning, ◑ implementing, ◕ reviewing, ● finished). Press `f` to filter the list by stage, and again for the next stage; the list then says how many agents need you outside the filter. In the ensemble, each tile names its stage, and the panel of what changed lists stage changes too, such as `LEG-405 finished · PR #212 merged`.
 
 Chimera sessions using Legato's mod report their state directly: permission prompts and questions show **Needs you** until the last open request is answered. A normal turn ending with background shells or background subagents still running shows **Background**, with those jobs listed. Errors show **Needs you**; an interrupted, timed-out or otherwise cancelled turn shows **Idle**, even if jobs remain. Old hook scripts and terminal prompt detection cannot override a session after its first mod report. These mappings follow Chimera's event spec; recorded fixtures are not available yet.
 
@@ -103,7 +129,7 @@ A tile shows the agent's state, its task, and what it is doing. For a native age
 
 From 120 columns of width, a panel lists what changed among the agents, newest first.
 
-The web UI has the same ensemble at **Ensemble** in the navigation, or `e` on the Agents page. Each web tile has a message box and **Open**.
+The web UI has the same ensemble at **Ensemble** in the navigation, or `e` on the Agents page. Each web tile has a message box and **Open**, and names the agent's stage beside its state. Its header counts the agents that need you, whose turn it is, that are working and that are finished. **By stage** lays the agents out in five lanes, Exploring to Finished, so you see the whole pipeline at once; on a phone the lanes stack, and a lane holding an agent that needs you opens by itself. The web UI remembers the layout you chose on each device.
 
 ## When an agent exits
 

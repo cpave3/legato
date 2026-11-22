@@ -28,6 +28,7 @@ type AgentBranch struct {
 // loop or an Attention item finds a pull request without waiting for the
 // next poll: a pushed legato/ branch is added to the task's tracked
 // branches (source agent), and its pull request looked for when it is new;
+// a pushed branch already tracked is looked for again while it has none;
 // a pull request opened from any branch adds the branch and is always looked
 // for. Discovery runs off the caller's goroutine, one at a time per task,
 // as away tasks' does. See docs/ai/pr-tracking.md § Agents' branches.
@@ -61,9 +62,25 @@ func (a *AgentBranches) Track(b AgentBranch) {
 		}
 		return
 	}
-	if a.prs != nil && (b.Opened || len(added) > 0) {
+	if a.prs != nil && (b.Opened || len(added) > 0 || a.lacksPR(ctx, b)) {
 		a.run.discover(b.TaskID, a.prs)
 	}
+}
+
+// lacksPR says whether the pushed branch is tracked with no pull request
+// found yet: a push looks again at once, so a stack whose pull requests
+// opened after a first look is found whole.
+func (a *AgentBranches) lacksPR(ctx context.Context, b AgentBranch) bool {
+	rows, err := a.db.ListTaskBranches(ctx, b.TaskID)
+	if err != nil {
+		return false
+	}
+	for _, row := range rows {
+		if row.Repo == b.Repo && row.Branch == b.Branch {
+			return row.PR == nil || row.PR.PRNumber == 0
+		}
+	}
+	return false
 }
 
 // trackContextBranch tracks the task's code context branch before an

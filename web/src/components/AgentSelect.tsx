@@ -1,23 +1,15 @@
 import { useState, useRef, useEffect, type ReactNode } from "react"
 import type { AgentInfo } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
-import { ChevronDown, ChevronRight, Play, Pause, AlertTriangle, LayoutGrid, Plus } from "lucide-react"
+import { ChevronDown, ChevronRight, LayoutGrid, Plus } from "lucide-react"
 import { AgentKindBadge, HostNetworkBadge, UnsandboxedBadge } from "./AgentKindBadge"
 import { agentToolLabel, isAgentToolInForeground } from "../lib/agentKind"
-import { ensembleSection } from "../lib/agentGlance"
-import { formatAgentTime, sectionLabels, stateSeconds } from "../lib/agentList"
+import { agentSections, formatAgentTime, stateSeconds } from "../lib/agentList"
+import { filterByStage, glanceLabels, glanceSection, needsYouOutside, stageCounts, stageLabel, workStages, type GlanceSection, type WorkStage } from "../lib/agentStage"
+import { NeedsYouLine, StageLine, StagePie } from "./StagePie"
 import { reeveWash } from "./ReeveEntry"
 import { agentGroupLayout } from "../lib/agentGroups"
 import type { AgentGrouping } from "../hooks/useAgentGroups"
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return "<1m"
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  const remainingMinutes = minutes % 60
-  return `${hours}h ${remainingMinutes}m`
-}
 
 function ActivityDot({ activity }: { activity: string }) {
   switch (activity) {
@@ -35,35 +27,20 @@ function ActivityDot({ activity }: { activity: string }) {
   }
 }
 
-function ActivityLabel({ activity }: { activity: string }) {
-  switch (activity) {
-    case "working":
-      return <span className="text-[10px] font-medium uppercase text-lw-live">Working</span>
-    case "waiting":
-      return <span className="text-[10px] font-medium uppercase text-lw-needs">Waiting</span>
-    case "background":
-      return <span className="text-[10px] font-medium uppercase text-lw-done">Background</span>
-    case "error":
-      return <span className="text-[10px] font-medium uppercase text-lw-error">Error</span>
-    default:
-      return <span className="text-[10px] font-medium uppercase text-lw-text-2">Idle</span>
-  }
-}
-
-const stateTone = {
+const groupTone: Record<GlanceSection, string> = {
   "needs-you": "text-lw-needs",
-  running: "text-lw-live",
-  background: "text-lw-done",
-  idle: "text-lw-text-2",
+  "your-turn": "text-lw-needs",
+  working: "text-lw-live",
+  finished: "text-lw-done",
+  ended: "text-lw-text-2",
 }
 
-// What an agent is doing, with its time, as the line under its title says it:
-// "Running 4h 4m".
-function pickerState(agent: AgentInfo): { text: string; tone: string } {
-  const time = formatAgentTime(stateSeconds(agent))
-  const section = ensembleSection(agent)
-  const [label, tone] = agent.activity === "error" ? ["Error", "text-lw-error"] : [sectionLabels[section], stateTone[section]]
-  return { text: time ? `${label} ${time}` : label, tone }
+// The agent's group, its stage and its time, as the trigger's second line
+// reads them: "◆ Needs you · Implementing · 42m".
+function pickerState(agent: AgentInfo): { group: string; tone: string; stage: string; time: string } {
+  const section = glanceSection(agent)
+  const [group, tone] = agent.activity === "error" ? ["Error", "text-lw-error"] : [glanceLabels[section], groupTone[section]]
+  return { group, tone, stage: stageLabel(agent.stage), time: formatAgentTime(stateSeconds(agent)) }
 }
 
 interface AgentSelectProps {
@@ -74,11 +51,22 @@ interface AgentSelectProps {
   reeve?: ReactNode
   // Lists the agents by group (useAgentGroups) when its mode is group.
   grouping?: AgentGrouping
+  // The stage the list is filtered to (null for all) and how it changes;
+  // without onStageFilter the list has no stage chips.
+  stageFilter?: WorkStage | null
+  onStageFilter?: (stage: WorkStage | null) => void
 }
 
-export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping }: AgentSelectProps) {
-  // The Reeve leads the list; with its own entry it is not listed again.
-  const agents = reeve ? all.filter((a) => !a.reeve) : [...all.filter((a) => a.reeve), ...all.filter((a) => !a.reeve)]
+export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping, stageFilter = null, onStageFilter }: AgentSelectProps) {
+  // The Reeve leads the list; with its own entry it is not listed again. It
+  // has no stage, so a filter leaves it out.
+  const others = all.filter((a) => !a.reeve)
+  const filter = onStageFilter ? stageFilter : null
+  const outside = needsYouOutside(others, filter)
+  const shown = filterByStage(others, filter)
+  const agents = shown
+  // Without an entry of its own, the Reeve's agent leads the list.
+  const reeveAgent = reeve || filter ? undefined : all.find((a) => a.reeve)
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const selectedAgent = all.find((a) => a.task_id === selectedId)
@@ -133,8 +121,10 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping
                 </div>
 
                 {agent.task_title && (
-                  <span className="truncate pl-4 text-xs text-[var(--theme-text,#c9c8d0)]">{agent.task_title}</span>
+                  <span className="truncate pl-4 text-sm text-lw-text">{agent.task_title}</span>
                 )}
+                <StageLine agent={agent} className="pl-4" />
+                <NeedsYouLine agent={agent} className="pl-4" />
                 <span className="flex min-w-0 items-center gap-1.5 pl-4">
                   <AgentKindBadge kind={agent.agent_kind} engram={agent.engram} isNative={!!agent.has_chimera_endpoint} />
                   {agent.unsandboxed && <UnsandboxedBadge />}
@@ -142,32 +132,8 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping
                   {!isAgentToolInForeground(agent.agent_kind, agent.command) && (
                     <span className="min-w-0 truncate font-mono text-xs text-lw-text-2">{agent.command}</span>
                   )}
+                  {formatAgentTime(stateSeconds(agent)) && <span className="ml-auto shrink-0 font-lw-mono text-xs text-lw-text-2">{formatAgentTime(stateSeconds(agent))}</span>}
                 </span>
-
-                <div className="flex items-center gap-2 pl-4">
-                  <ActivityLabel activity={agent.activity} />
-                  {(agent.working_seconds >= 60 || agent.waiting_seconds >= 60 || agent.error_seconds >= 60) && (
-                    <span className="text-[10px] text-lw-text-2">·</span>
-                  )}
-                  {agent.working_seconds >= 60 && (
-                    <span className="flex items-center gap-0.5 text-[10px] text-emerald-600">
-                      <Play size={8} />
-                      {formatDuration(agent.working_seconds)}
-                    </span>
-                  )}
-                  {agent.waiting_seconds >= 60 && (
-                    <span className="flex items-center gap-0.5 text-[10px] text-yellow-700">
-                      <Pause size={8} />
-                      {formatDuration(agent.waiting_seconds)}
-                    </span>
-                  )}
-                  {agent.error_seconds >= 60 && (
-                    <span className="flex items-center gap-0.5 text-[10px] text-red-600">
-                      <AlertTriangle size={8} />
-                      {formatDuration(agent.error_seconds)}
-                    </span>
-                  )}
-                </div>
               </button>
             )
   }
@@ -179,7 +145,7 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        aria-label={selectedAgent ? `Agent: ${title}, ${state!.text.toLowerCase()}` : "Choose an agent"}
+        aria-label={selectedAgent ? `Agent: ${title}, ${[state!.group, state!.stage, state!.time].filter(Boolean).join(", ").toLowerCase()}` : "Choose an agent"}
         aria-expanded={open}
         className={cn(
           "flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border bg-lw-surface py-1.5 pl-3 pr-2 text-left font-lw transition-colors",
@@ -194,7 +160,20 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping
                 go: a fragment of either says nothing. */}
             <span className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-xs leading-4 text-lw-text-2">
               <ActivityDot activity={selectedAgent.activity} />
-              <span className={cn("shrink-0", state!.tone)}>{state!.text}</span>
+              <span className={cn("shrink-0", state!.tone)}>{state!.group}</span>
+              {state!.stage && (
+                <span className="flex shrink-0 items-center gap-1">
+                  <span aria-hidden="true" className="text-lw-faint">·</span>
+                  <StagePie stage={selectedAgent.stage} size={10} label="" />
+                  <span>{state!.stage}</span>
+                </span>
+              )}
+              {state!.time && (
+                <span className="shrink-0">
+                  <span aria-hidden="true" className="text-lw-faint">· </span>
+                  <span>{state!.time}</span>
+                </span>
+              )}
               <span className="hidden shrink-0 @min-[12.5rem]:inline">
                 <span aria-hidden="true" className="text-lw-faint">· </span>
                 <span className="font-lw-mono">{selectedAgent.task_id}</span>
@@ -214,9 +193,36 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping
       {open && (
         <div role="group" aria-label="Running agents" className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[60vh] overflow-y-auto rounded-lg border border-lw-line-strong bg-lw-surface font-lw shadow-xl">
           {reeve && <div className="border-b border-lw-line p-1" onClick={() => setOpen(false)}>{reeve}</div>}
-          {agents.length === 0 && !reeve && (
+          {onStageFilter && others.length > 0 && (
+            <div role="group" aria-label="Filter by stage" className="flex gap-2 overflow-x-auto border-b border-lw-line px-3 py-2">
+              {[null, ...workStages].map((stage) => {
+                const on = filter === stage
+                const count = stage ? stageCounts(others)[stage] : others.length
+                return (
+                  <button
+                    key={stage ?? "all"}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => onStageFilter(stage)}
+                    className={cn("flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium", on ? "border-lw-accent bg-lw-selected text-lw-text" : "border-lw-line bg-lw-raised text-lw-text")}
+                  >
+                    {stage && <StagePie stage={stage} label="" />}
+                    {stage ? stageLabel(stage) : "All"}
+                    <span className="font-lw-mono font-normal text-lw-text-2">{count}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          {outside > 0 && (
+            <div role="status" className="mx-3 my-2 flex items-center justify-between gap-2 rounded-lg border border-lw-line bg-lw-raised px-3 py-2 text-[13px] text-lw-needs">
+              <span>◆ {outside} need{outside === 1 ? "s" : ""} you outside this filter</span>
+              <button type="button" onClick={() => onStageFilter?.(null)} className="min-h-8 shrink-0 font-medium text-lw-link">Show</button>
+            </div>
+          )}
+          {agents.length === 0 && !reeve && !reeveAgent && (
             <div className="px-3 py-4 text-center text-sm text-lw-text-2">
-              No active agents
+              {filter ? <>No agents are {stageLabel(filter).toLowerCase()}. <button type="button" onClick={() => onStageFilter?.(null)} className="text-lw-link">Show all</button></> : "No active agents"}
             </div>
           )}
           {grouping?.mode === "group"
@@ -243,7 +249,14 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping
                 </div>
               )
             })
-            : agents.map(renderAgent)}
+            : [...(reeveAgent ? [renderAgent(reeveAgent)] : []), ...agentSections(agents).map(({ section, agents: members }) => (
+              <section key={section} aria-label={glanceLabels[section]}>
+                <h3 className={cn("m-0 px-3 pb-1 pt-2.5 text-[11px] font-semibold uppercase tracking-[1px]", groupTone[section], section === "your-turn" && "pl-6 opacity-80")}>
+                  {glanceLabels[section]} · {members.length}
+                </h3>
+                {members.map(renderAgent)}
+              </section>
+            ))]}
         </div>
       )}
     </div>

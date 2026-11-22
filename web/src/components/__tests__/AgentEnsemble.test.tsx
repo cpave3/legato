@@ -78,7 +78,7 @@ describe("AgentEnsemble", () => {
     expect(within(tile("busy-1")).getByText("busy-1 title")).toBeTruthy()
   })
 
-  it("counts the agents by what they are doing", () => {
+  it("counts the agents by glance group", () => {
     show([
       agent({ task_id: "idle-1" }),
       agent({ task_id: "idle-2" }),
@@ -87,7 +87,7 @@ describe("AgentEnsemble", () => {
     ])
 
     const counts = screen.getByRole("list", { name: "Agents by state" })
-    expect(within(counts).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["◆ 1 needs you", "● 1 running", "○ 2 idle"])
+    expect(within(counts).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["◆ 1 needs you", "◇ 2 your turn", "● 1 working"])
   })
 
   it("shows what a native agent said and did, read from its conversation", async () => {

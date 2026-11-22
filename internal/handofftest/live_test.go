@@ -106,7 +106,7 @@ func TestPullListsEachUnfinishedHandoffOfTheCallingMain(t *testing.T) {
 	row := pull.Handoffs[0]
 	want := service.HandoffSummary{HandoffID: away.HandoffID, WorkerTaskID: away.WorkerTaskID, State: store.HandoffInProgress,
 		Activity: service.HandoffActivityWaiting, Column: "Doing", Branches: []string{branch}, Title: "Fix the flaky login test",
-		URL: "/board?highlight_task=" + away.WorkerTaskID}
+		URL: "/board?highlight_task=" + away.WorkerTaskID, Stage: store.WorkStageExploring}
 	if !reflect.DeepEqual(row, want) {
 		t.Fatalf("row\n got %+v\nwant %+v", row, want)
 	}

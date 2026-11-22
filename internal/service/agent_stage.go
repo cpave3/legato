@@ -267,13 +267,29 @@ func (s *WorkStageService) Milestone(ctx context.Context, place WorkStagePlace, 
 // (a reviewer slot, or readOnly set by the caller for a read-only
 // execution).
 func (s *WorkStageService) Evidence(ctx context.Context, place WorkStagePlace, executionID, reason string, readOnly bool) (bool, error) {
+	return s.EvidenceAt(ctx, place, executionID, reason, readOnly, time.Time{})
+}
+
+// EvidenceAt is Evidence of an edit made at a time (zero for now): an edit
+// from before the place reached its stage is ignored, so a replayed stream
+// never counts its old events against a later stage.
+func (s *WorkStageService) EvidenceAt(ctx context.Context, place WorkStagePlace, executionID, reason string, readOnly bool, at time.Time) (bool, error) {
 	if readOnly || place.Slot == SlotReviewer {
 		return false, nil
 	}
 	return s.apply(ctx, place, store.WorkStage{
 		Stage: store.WorkStageImplementing, Reason: strings.TrimSpace(reason), Source: store.WorkStageSourceEvidence, ExecutionID: executionID,
 	}, func(current *store.WorkStage) bool {
-		return current == nil || current.Stage != store.WorkStageImplementing
+		if current == nil {
+			return true
+		}
+		if current.Stage == store.WorkStageImplementing {
+			return false
+		}
+		if since := parseStageTime(current.Since); since != nil && !at.IsZero() && at.Before(*since) {
+			return false
+		}
+		return true
 	})
 }
 
@@ -340,6 +356,22 @@ func SessionPlace(s store.AgentSession) WorkStagePlace {
 func ReportWorkStage(ctx context.Context, db *store.Store, session store.AgentSession, stage, note string) (bool, error) {
 	place := SessionPlace(session)
 	changed, err := NewWorkStageService(db, nil).Report(ctx, place, session.ExecutionID, stage, note)
+	if err != nil || !changed {
+		return changed, err
+	}
+	current, err := db.GetWorkStage(ctx, place)
+	if err != nil || current == nil {
+		return changed, err
+	}
+	ipc.Broadcast(StageIPCMessage(*current))
+	return true, nil
+}
+
+// RecordWorkMilestone applies a milestone to a place from any process (a
+// swarm or workflow command in an agent's session, or the host): it writes
+// the stage and tells running Legatos over IPC, as ReportWorkStage does.
+func RecordWorkMilestone(ctx context.Context, db *store.Store, place WorkStagePlace, m WorkMilestone) (bool, error) {
+	changed, err := NewWorkStageService(db, nil).Milestone(ctx, place, m)
 	if err != nil || !changed {
 		return changed, err
 	}

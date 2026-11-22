@@ -78,6 +78,11 @@ type AwayTask struct {
 	Branches     []string `json:"branches,omitempty"`
 	// Review is the handoff's review passes as last heard, nil without.
 	Review *HandoffReviewBlock `json:"review,omitempty"`
+	// Stage and StageReason are the worker agent's stage as last heard
+	// (see docs/ai/agent-states.md § Stages); empty from a worker that
+	// sends none.
+	Stage       string `json:"stage,omitempty"`
+	StageReason string `json:"stage_reason,omitempty"`
 	// Lost says why the worker no longer has the task, since LostAt; empty
 	// while it has it.
 	Lost   string `json:"lost,omitempty"`
@@ -115,6 +120,11 @@ type HandoffSummary struct {
 	Branches []string `json:"branches,omitempty"`
 	// Review is the handoff's review passes, on a worker that runs them.
 	Review *HandoffReviewBlock `json:"review,omitempty"`
+	// Stage and StageReason are the main slot agent's stage on the worker,
+	// empty for none. Optional both ways: an older main ignores them, and
+	// an older worker sends none.
+	Stage       string `json:"stage,omitempty"`
+	StageReason string `json:"stage_reason,omitempty"`
 }
 
 func awayTaskFromRow(a store.AwayTask) AwayTask {
@@ -126,6 +136,7 @@ func awayTaskFromRow(a store.AwayTask) AwayTask {
 		away.State, away.Failure, away.WorkerURL = summary.State, summary.Failure, summary.URL
 		away.Activity, away.WorkerColumn, away.WorkerTitle, away.Branches = summary.Activity, summary.Column, summary.Title, summary.Branches
 		away.Review = summary.Review
+		away.Stage, away.StageReason = summary.Stage, summary.StageReason
 		if a.LastSummaryAt != nil {
 			away.StateAt = *a.LastSummaryAt
 		}

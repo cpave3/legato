@@ -123,3 +123,19 @@ func TestTheOperatorSetsAnAgentsStage(t *testing.T) {
 		t.Fatalf("history: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// An agent says why it needs the operator and whether it has a done note
+// unread: a proposed plan (plan_pending) and its open done items.
+func TestAgentsSayWhyTheyNeedTheOperatorAndWhatIsUnread(t *testing.T) {
+	srv := New(nil, &stagedAgents{}, nil, "")
+	var full []AgentResponse
+	getStagedAgents(t, srv, "", &full)
+	if full[1].OpenDoneItems != 1 || full[1].PlanPending || !full[2].PlanPending || full[0].OpenDoneItems != 0 {
+		t.Fatalf("fields = %+v / %+v / %+v", full[0].AgentStageFields, full[1].AgentStageFields, full[2].AgentStageFields)
+	}
+	var compact []AgentCompact
+	getStagedAgents(t, srv, "?view=compact", &compact)
+	if compact[1].OpenDoneItems != 1 || !compact[2].PlanPending {
+		t.Fatalf("compact = %+v", compact)
+	}
+}

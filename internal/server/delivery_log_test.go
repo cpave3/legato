@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/chimera"
+	"github.com/cpave3/legato/internal/service"
 )
 
 // lockedBuffer is a log destination tests can read while the server writes.
@@ -62,16 +63,19 @@ func TestAgentMessageThatFailsIsLogged(t *testing.T) {
 // fakeAgentEvents stands for the approval watcher, which follows every
 // running native agent whether or not a page does.
 type fakeAgentEvents struct {
-	listeners []func(taskID string, event chimera.EventEnvelope)
+	listeners []func(agent service.WatchedAgent, event chimera.EventEnvelope)
 }
 
-func (f *fakeAgentEvents) AddListener(fn func(taskID string, event chimera.EventEnvelope)) {
+func (f *fakeAgentEvents) AddListener(fn func(agent service.WatchedAgent, event chimera.EventEnvelope)) {
 	f.listeners = append(f.listeners, fn)
 }
 
-func (f *fakeAgentEvents) emit(taskID string, event chimera.EventEnvelope) {
+// emit sends event from the agent with agentID (<task>_<slot> for a named
+// slot).
+func (f *fakeAgentEvents) emit(agentID string, event chimera.EventEnvelope) {
+	taskID, slot := service.SplitAgentID(agentID)
 	for _, listener := range f.listeners {
-		listener(taskID, event)
+		listener(service.WatchedAgent{TaskID: taskID, Slot: slot}, event)
 	}
 }
 

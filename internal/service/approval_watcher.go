@@ -62,13 +62,26 @@ type ApprovalWatcher struct {
 
 	mu        sync.Mutex
 	watches   map[string]*approvalWatch
-	listeners []func(taskID string, event chimera.EventEnvelope)
+	listeners []func(agent WatchedAgent, event chimera.EventEnvelope)
 	stop      context.CancelFunc
 }
 
+// approvalWatch follows one agent's stream. Watches are keyed by
+// execution, so the slots of one task (its main agent and its reviewer)
+// are followed apart.
 type approvalWatch struct {
-	taskID, executionID, endpoint, sessionID, agentKind string
-	cancel                                              context.CancelFunc
+	WatchedAgent
+	endpoint, sessionID string
+	cancel              context.CancelFunc
+}
+
+// watchKey is the key of a session's watch: its execution, else its slot
+// of its task.
+func watchKey(session store.AgentSession) string {
+	if session.ExecutionID != "" {
+		return session.ExecutionID
+	}
+	return "slot:" + AgentSlotKey(session.TaskID, session.Slot)
 }
 
 func NewApprovalWatcher(approvals *ApprovalService, agents AgentRequestResolver, opts ApprovalWatcherOptions) *ApprovalWatcher {
@@ -88,9 +101,10 @@ func NewApprovalWatcher(approvals *ApprovalService, agents AgentRequestResolver,
 	return w
 }
 
-// AddListener passes every event of every watched agent to fn, from the
-// goroutine that reads that agent's stream.
-func (w *ApprovalWatcher) AddListener(fn func(taskID string, event chimera.EventEnvelope)) {
+// AddListener passes every event of every watched agent to fn, with the
+// agent (its task, slot and execution), from the goroutine that reads that
+// agent's stream.
+func (w *ApprovalWatcher) AddListener(fn func(agent WatchedAgent, event chimera.EventEnvelope)) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.listeners = append(w.listeners, fn)
@@ -166,9 +180,9 @@ func (w *ApprovalWatcher) Stop() {
 	if w.stop != nil {
 		w.stop()
 	}
-	for taskID, watch := range w.watches {
+	for key, watch := range w.watches {
 		watch.cancel()
-		delete(w.watches, taskID)
+		delete(w.watches, key)
 	}
 }
 
@@ -190,27 +204,27 @@ func (w *ApprovalWatcher) Reconcile(ctx context.Context) {
 		if session.ChimeraEndpoint == nil || session.ChimeraSessionID == nil || *session.ChimeraEndpoint == "" {
 			continue
 		}
-		wanted[session.TaskID] = session
+		wanted[watchKey(session)] = session
 	}
 
 	w.mu.Lock()
-	for taskID, watch := range w.watches {
-		session, ok := wanted[taskID]
-		if !ok || watch.endpoint != *session.ChimeraEndpoint || watch.sessionID != *session.ChimeraSessionID || watch.executionID != session.ExecutionID {
+	for key, watch := range w.watches {
+		session, ok := wanted[key]
+		if !ok || watch.endpoint != *session.ChimeraEndpoint || watch.sessionID != *session.ChimeraSessionID || watch.WatchedAgent != watchedAgentOf(session) {
 			watch.cancel()
-			delete(w.watches, taskID)
+			delete(w.watches, key)
 		}
 	}
-	for taskID, session := range wanted {
-		if _, ok := w.watches[taskID]; ok {
+	for key, session := range wanted {
+		if _, ok := w.watches[key]; ok {
 			continue
 		}
 		watchCtx, cancel := context.WithCancel(context.Background())
 		watch := &approvalWatch{
-			taskID: taskID, executionID: session.ExecutionID, agentKind: session.AgentKind,
-			endpoint: *session.ChimeraEndpoint, sessionID: *session.ChimeraSessionID, cancel: cancel,
+			WatchedAgent: watchedAgentOf(session),
+			endpoint:     *session.ChimeraEndpoint, sessionID: *session.ChimeraSessionID, cancel: cancel,
 		}
-		w.watches[taskID] = watch
+		w.watches[key] = watch
 		go w.follow(watchCtx, watch)
 	}
 	w.mu.Unlock()
@@ -248,10 +262,10 @@ func (w *ApprovalWatcher) follow(ctx context.Context, watch *approvalWatch) {
 			}
 			w.handle(ctx, watch, event)
 			w.mu.Lock()
-			listeners := append([]func(string, chimera.EventEnvelope){}, w.listeners...)
+			listeners := append([]func(WatchedAgent, chimera.EventEnvelope){}, w.listeners...)
 			w.mu.Unlock()
 			for _, listener := range listeners {
-				listener(watch.taskID, event)
+				listener(watch.WatchedAgent, event)
 			}
 		})
 		if ctx.Err() != nil {
@@ -261,7 +275,7 @@ func (w *ApprovalWatcher) follow(ctx context.Context, watch *approvalWatch) {
 			failures = 0
 		} else if failures++; failures >= approvalWatchAttempts {
 			if err != nil {
-				log.Printf("approvals: following %s: %v", watch.taskID, err)
+				log.Printf("approvals: following %s: %v", watch.AgentID(), err)
 			}
 			w.forget(watch)
 			return
@@ -277,9 +291,11 @@ func (w *ApprovalWatcher) follow(ctx context.Context, watch *approvalWatch) {
 func (w *ApprovalWatcher) forget(watch *approvalWatch) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.watches[watch.taskID] == watch {
-		watch.cancel()
-		delete(w.watches, watch.taskID)
+	for key, held := range w.watches {
+		if held == watch {
+			watch.cancel()
+			delete(w.watches, key)
+		}
 	}
 }
 
@@ -297,7 +313,7 @@ func (w *ApprovalWatcher) readSnapshot(ctx context.Context, watch *approvalWatch
 			keep[w.sourceKey(watch, p.RequestID)] = true
 			w.submitPermission(ctx, watch, request)
 		}
-		_ = w.approvals.WithdrawExecution(ctx, ApprovalSourceAgentPermission, watch.executionID, keep, "settled at the agent")
+		_ = w.approvals.WithdrawExecution(ctx, ApprovalSourceAgentPermission, watch.ExecutionID, keep, "settled at the agent")
 	}
 	if len(snapshot.PendingQuestions) > 0 && string(snapshot.PendingQuestions) != "null" {
 		var questions []questionRequest
@@ -307,7 +323,7 @@ func (w *ApprovalWatcher) readSnapshot(ctx context.Context, watch *approvalWatch
 				keep[w.sourceKey(watch, q.RequestID)] = true
 				w.submitQuestion(ctx, watch, q)
 			}
-			_ = w.approvals.WithdrawExecution(ctx, ApprovalSourceAgentQuestion, watch.executionID, keep, "settled at the agent")
+			_ = w.approvals.WithdrawExecution(ctx, ApprovalSourceAgentQuestion, watch.ExecutionID, keep, "settled at the agent")
 		}
 	}
 }
@@ -346,7 +362,7 @@ func (w *ApprovalWatcher) handle(ctx context.Context, watch *approvalWatch, even
 		w.withdraw(ctx, watch, ApprovalSourceAgentQuestion, event)
 	case "run_finished":
 		for _, source := range []string{ApprovalSourceAgentPermission, ApprovalSourceAgentQuestion} {
-			_ = w.approvals.WithdrawExecution(ctx, source, watch.executionID, nil, "the agent's turn ended")
+			_ = w.approvals.WithdrawExecution(ctx, source, watch.ExecutionID, nil, "the agent's turn ended")
 		}
 	}
 }
@@ -361,12 +377,14 @@ func (w *ApprovalWatcher) withdraw(ctx context.Context, watch *approvalWatch, so
 }
 
 func (w *ApprovalWatcher) sourceKey(watch *approvalWatch, requestID string) string {
-	return watch.executionID + "/" + watch.sessionID + "/" + requestID
+	return watch.ExecutionID + "/" + watch.sessionID + "/" + requestID
 }
 
 // agentRequestDetails is what an agent approval's details hold.
 type agentRequestDetails struct {
-	RequestID string            `json:"request_id"`
+	RequestID string `json:"request_id"`
+	// Slot is the task's slot of the agent that asked, "" for main.
+	Slot      string            `json:"slot,omitempty"`
 	AgentKind string            `json:"agent_kind,omitempty"`
 	TaskTitle string            `json:"task_title,omitempty"`
 	Tool      string            `json:"tool,omitempty"`
@@ -413,16 +431,16 @@ func (w *ApprovalWatcher) submitPermission(ctx context.Context, watch *approvalW
 	}
 	_, _, err := w.approvals.Submit(ctx, ApprovalInput{
 		Source: ApprovalSourceAgentPermission, SourceKey: w.sourceKey(watch, request.RequestID),
-		TaskID: watch.taskID, ExecutionID: watch.executionID,
+		TaskID: watch.TaskID, ExecutionID: watch.ExecutionID,
 		Title: title, Summary: clip(request.Command, 500), Blocking: true,
 		Details: agentRequestDetails{
-			RequestID: request.RequestID, AgentKind: watch.agentKind, TaskTitle: w.taskTitle(ctx, watch.taskID),
+			RequestID: request.RequestID, Slot: namedSlot(watch.Slot), AgentKind: watch.AgentKind, TaskTitle: w.taskTitle(ctx, watch.TaskID),
 			Tool: request.Tool, Target: request.Target, Command: request.Command, Reason: request.Reason, CWD: request.CWD, Plan: request.Plan,
 		},
 		Options: options,
 	})
 	if err != nil {
-		log.Printf("approvals: %s request %s: %v", watch.taskID, request.RequestID, err)
+		log.Printf("approvals: %s request %s: %v", watch.TaskID, request.RequestID, err)
 	}
 }
 
@@ -442,15 +460,23 @@ func (w *ApprovalWatcher) submitQuestion(ctx context.Context, watch *approvalWat
 	}
 	_, _, err := w.approvals.Submit(ctx, ApprovalInput{
 		Source: ApprovalSourceAgentQuestion, SourceKey: w.sourceKey(watch, request.RequestID),
-		TaskID: watch.taskID, ExecutionID: watch.executionID,
+		TaskID: watch.TaskID, ExecutionID: watch.ExecutionID,
 		Title: title, Summary: summary, Blocking: true,
 		Details: agentRequestDetails{
-			RequestID: request.RequestID, AgentKind: watch.agentKind, TaskTitle: w.taskTitle(ctx, watch.taskID), Questions: request.Questions,
+			RequestID: request.RequestID, Slot: namedSlot(watch.Slot), AgentKind: watch.AgentKind, TaskTitle: w.taskTitle(ctx, watch.TaskID), Questions: request.Questions,
 		},
 	})
 	if err != nil {
-		log.Printf("approvals: %s question %s: %v", watch.taskID, request.RequestID, err)
+		log.Printf("approvals: %s question %s: %v", watch.TaskID, request.RequestID, err)
 	}
+}
+
+// namedSlot is slot when it is a named one, "" for the main slot.
+func namedSlot(slot string) string {
+	if IsNamedSlot(slot) {
+		return slot
+	}
+	return ""
 }
 
 func clip(s string, n int) string {
@@ -498,6 +524,9 @@ func (r agentApprovalResolver) Resolve(ctx context.Context, approval Approval, d
 	var details agentRequestDetails
 	if err := json.Unmarshal(approval.Details, &details); err != nil || details.RequestID == "" {
 		return fmt.Errorf("approval %s does not name the agent's request", approval.ID)
+	}
+	if IsNamedSlot(details.Slot) {
+		ctx = WithAgentSlot(ctx, details.Slot)
 	}
 	if approval.Source == ApprovalSourceAgentQuestion {
 		switch decision.Decision {

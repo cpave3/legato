@@ -585,12 +585,35 @@ func (c *CredentialChannels) PushesThroughProxy(repo string) bool {
 	return err == nil && listHas(bc.profile.Channels, ChannelHTTPProxy)
 }
 
-// SetPushListener is told the repository (owner/name) of each push that
-// went through the proxy and that GitHub accepted: the runtime fetches it
-// into the repository cache (RepositoryService.FetchPushed).
-func (c *CredentialChannels) SetPushListener(listen func(repo string)) {
+// GitPush is one push through the proxy that GitHub accepted: the session
+// that made it (its task and execution), the repository (owner/name) and
+// the refs it carried.
+type GitPush struct {
+	TaskID      string
+	ExecutionID string
+	Repo        string
+	Refs        []string
+}
+
+// Branches are the branches a push carried, without refs/heads/.
+func (p GitPush) Branches() []string {
+	var out []string
+	for _, ref := range p.Refs {
+		if branch, ok := strings.CutPrefix(ref, "refs/heads/"); ok && branch != "" {
+			out = append(out, branch)
+		}
+	}
+	return out
+}
+
+// AddPushListener is told of each push that went through the proxy and
+// that GitHub accepted: the runtime fetches it into the repository cache
+// (RepositoryService.FetchPushed) and moves its agent's stage
+// (WorkStageService.Pushed). Listeners are called in turn on the proxy's
+// goroutine, so each must return quickly.
+func (c *CredentialChannels) AddPushListener(listen func(GitPush)) {
 	c.mu.Lock()
-	c.onPush = listen
+	c.onPush = append(c.onPush, listen)
 	c.mu.Unlock()
 }
 
@@ -604,10 +627,11 @@ var _ credential.GitPushListener = (*CredentialChannels)(nil)
 // (credential.GitPushListener).
 func (c *CredentialChannels) Pushed(_ context.Context, execution credential.Execution, _, repo string, refs []string) {
 	c.mu.Lock()
-	listen, onBranch := c.onPush, c.onBranch
+	listeners, onBranch := append([]func(GitPush){}, c.onPush...), c.onBranch
 	c.mu.Unlock()
-	if listen != nil {
-		listen(repo)
+	push := GitPush{TaskID: execution.TaskID, ExecutionID: execution.ExecutionID, Repo: repo, Refs: append([]string(nil), refs...)}
+	for _, listen := range listeners {
+		listen(push)
 	}
 	if onBranch == nil {
 		return

@@ -134,12 +134,18 @@ type AgentStageFields struct {
 	StageSource string     `json:"stage_source,omitempty"`
 	StageSince  *time.Time `json:"stage_since,omitempty"`
 	Glance      string     `json:"glance"`
+	// PlanPending says its task has a plan proposed to the operator (a
+	// Legato plan, or a swarm plan pending); OpenDoneItems counts its open
+	// done notes, which a list marks unread.
+	PlanPending   bool `json:"plan_pending,omitempty"`
+	OpenDoneItems int  `json:"open_done_items,omitempty"`
 }
 
 func agentStageFields(agent service.AgentSession) AgentStageFields {
 	return AgentStageFields{
 		Stage: agent.Stage, StageReason: agent.StageReason, StageSource: agent.StageSource,
 		StageSince: agent.StageSince, Glance: agent.Glance(),
+		PlanPending: agent.PlanPending, OpenDoneItems: agent.OpenDoneItems,
 	}
 }
 
@@ -477,10 +483,9 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 
 		resp := make([]AgentResponse, len(agents))
 		var native []string
-		reeveTask := s.reeveTaskID(r.Context())
 		for i, a := range agents {
 			r := agentResponse(a)
-			r.Reeve = reeveTask != "" && a.TaskID == reeveTask
+			r.Reeve = a.Reeve
 			r.Unsandboxed = s.sandboxEnabled && !a.Sandboxed
 			if d, ok := durations[a.TaskID]; ok {
 				r.WorkingSeconds = d.Working.Seconds()

@@ -55,9 +55,11 @@ describe("AgentSidebar", () => {
       />,
     )
     const headings = screen.getAllByRole("heading").map((heading) => heading.textContent)
-    expect(headings).toEqual(["Needs you · 2", "Running · 1", "Idle · 1"])
+    // An idle agent whose work is not finished is the operator's turn, under
+    // those that need them.
+    expect(headings).toEqual(["Needs you · 2", "Your turn · 1", "Working · 1"])
     const order = screen.getAllByRole("button", { name: /-one/ }).map((button) => button.getAttribute("data-agent"))
-    expect(order).toEqual(["asks-one", "failed-one", "busy-one", "idle-one"])
+    expect(order).toEqual(["asks-one", "failed-one", "idle-one", "busy-one"])
   })
 
   it("keeps a swarm's agents together, the conductor first, inside a state", () => {
@@ -219,9 +221,9 @@ describe("AgentSidebar", () => {
         onSpawn={() => {}}
       />,
     )
-    // Neither working nor idle: a shell it started is still running.
-    expect(screen.getByRole("heading", { name: "Background · 1" })).toBeTruthy()
-    expect(screen.queryByRole("heading", { name: /Idle/ })).toBeNull()
+    // Not the operator's turn: a shell it started is still running.
+    expect(screen.getByRole("heading", { name: "Working · 1" })).toBeTruthy()
+    expect(screen.queryByRole("heading", { name: /Your turn/ })).toBeNull()
   })
 
   it("numbers the agents for switching in the order it lists them", () => {
@@ -234,7 +236,7 @@ describe("AgentSidebar", () => {
         modifierHeld
       />,
     )
-    expect(within(screen.getByRole("button", { name: /busy-one/ })).getByText("1")).toBeTruthy()
-    expect(within(screen.getByRole("button", { name: /idle-one/ })).getByText("2")).toBeTruthy()
+    expect(within(screen.getByRole("button", { name: /idle-one/ })).getByText("1")).toBeTruthy()
+    expect(within(screen.getByRole("button", { name: /busy-one/ })).getByText("2")).toBeTruthy()
   })
 })

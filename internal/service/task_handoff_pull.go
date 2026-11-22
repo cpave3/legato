@@ -138,6 +138,9 @@ func (s *HandoffWorkerService) summary(ctx context.Context, h store.Handoff) Han
 	if s.opts.Reviews != nil {
 		row.Review = s.opts.Reviews.ReviewBlock(ctx, h.TaskID)
 	}
+	if stage, err := s.db.GetWorkStage(ctx, TaskPlace(h.TaskID, "")); err == nil && stage != nil {
+		row.Stage, row.StageReason = stage.Stage, stage.Reason
+	}
 	return row
 }
 
@@ -319,7 +322,9 @@ func (s *HandoffWorkerService) handoffTriggers() (<-chan struct{}, func()) {
 		return out, func() {}
 	}
 	types := []events.EventType{events.EventHandoffChanged, events.EventAgentActivityChanged, events.EventAgentStarted,
-		events.EventAgentDied, events.EventAgentCompleted, events.EventCardMoved, events.EventCardUpdated, events.EventCardsRefreshed}
+		events.EventAgentDied, events.EventAgentCompleted, events.EventCardMoved, events.EventCardUpdated, events.EventCardsRefreshed,
+		// A stage change is sent at once: only an activity change waits.
+		events.EventAgentStageChanged}
 	subs := make([]<-chan events.Event, 0, len(types))
 	done := make(chan struct{})
 	for _, t := range types {

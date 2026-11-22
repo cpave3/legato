@@ -567,6 +567,12 @@ func (s *ReviewPassService) startPass(ctx context.Context, l ReviewLoop, loop *s
 		return err
 	}
 	l.stage(ctx, ReviewStagePass)
+	// The author's work is up for review; the reviewer reviews again, a
+	// resumed one that finished the pass before included.
+	publishMilestone(s.opts.Bus, events.WorkMilestonePayload{TaskID: l.AuthorTaskID,
+		Stage: store.WorkStageReviewing, Reason: fmt.Sprintf("review pass %d", pass)})
+	publishMilestone(s.opts.Bus, events.WorkMilestonePayload{TaskID: l.TaskID, Slot: SlotReviewer,
+		Stage: store.WorkStageReviewing, Reason: fmt.Sprintf("pass %d", pass), Back: true})
 	brief, err := s.brief(ctx, l, pass, pinned, settings)
 	if err != nil {
 		return s.unable(ctx, l, loop, record, "Legato could not write the reviewer's brief: "+err.Error())

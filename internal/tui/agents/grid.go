@@ -99,8 +99,10 @@ func previewLines(output string) []string {
 // there is not news.
 func (m *Model) observe(agents []service.AgentSession) {
 	states := make(map[string]string, len(agents))
+	stages := make(map[string]string, len(agents))
 	for _, a := range agents {
 		states[a.TaskID] = stateOf(a)
+		stages[a.TaskID] = a.Stage
 	}
 	if m.seen != nil {
 		for _, a := range agents {
@@ -110,6 +112,15 @@ func (m *Model) observe(agents []service.AgentSession) {
 				m.record(a.TaskID, state, "started")
 			case before != state:
 				m.record(a.TaskID, state, changeText(state))
+			}
+			// A stage change is news beside a state change: "finished · PR
+			// #212 merged".
+			if before, known := m.seenStages[a.TaskID]; known && a.Stage != "" && before != a.Stage {
+				text := a.Stage
+				if a.StageReason != "" {
+					text += " · " + a.StageReason
+				}
+				m.record(a.TaskID, state, text)
 			}
 		}
 		var closed []string
@@ -124,6 +135,7 @@ func (m *Model) observe(agents []service.AgentSession) {
 		}
 	}
 	m.seen = states
+	m.seenStages = stages
 }
 
 func (m *Model) record(taskID, state, text string) {
@@ -245,8 +257,11 @@ func (m Model) renderEnsemble() string {
 
 func (m Model) renderEnsembleHeader() string {
 	counts := map[section]int{}
-	for _, a := range m.agents {
-		counts[sectionOf(a)]++
+	for _, a := range m.all {
+		// The Reeve is left out of every count.
+		if !a.Reeve {
+			counts[sectionOf(a)]++
+		}
 	}
 	var facts []string
 	add := func(s section, mark, one, many string) {
@@ -255,9 +270,10 @@ func (m Model) renderEnsembleHeader() string {
 		}
 	}
 	add(sectionNeedsYou, m.icons.AgentWaiting, "needs you", "need you")
-	add(sectionRunning, theme.Spinner(m.spinner), "running", "running")
-	add(sectionBackground, m.icons.AgentBackground, "in background", "in background")
-	add(sectionIdle, m.icons.AgentIdle, "idle", "idle")
+	add(sectionYourTurn, "◇", "your turn", "your turn")
+	add(sectionInterrupted, m.icons.Warning, "interrupted", "interrupted")
+	add(sectionWorking, theme.Spinner(m.spinner), "working", "working")
+	add(sectionFinished, "✓", "finished", "finished")
 	add(sectionEnded, m.icons.CIFail, "ended", "ended")
 	if len(facts) == 0 {
 		facts = []string{colored(theme.TextSecondary, "no agents")}
@@ -356,6 +372,9 @@ func (m Model) renderTile(a service.AgentSession, selected bool, width, height i
 	}
 	if a.Title != "" {
 		parts = append(parts, a.Title)
+	}
+	if stage := stageLine(service.AgentSession{Stage: a.Stage}); stage != "" {
+		parts = append([]string{stage}, parts...)
 	}
 	task := strings.Join(parts, " · ")
 	if task == "" {

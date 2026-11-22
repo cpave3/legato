@@ -4,6 +4,7 @@ import { useRef, useState, type ReactNode } from "react"
 import { LayoutGrid, List, Mic, MoreHorizontal } from "lucide-react"
 import { cn } from "../lib/utils"
 import { AgentKindBadge } from "./AgentKindBadge"
+import { AgentStageChip, type AgentStageInfo } from "./AgentStageChip"
 
 export type AgentChatState = "needs-you" | "running" | "background" | "error" | "idle"
 
@@ -38,6 +39,9 @@ interface AgentChatHeaderProps {
   // A way to ask the Reeve about the agent, offered while it needs the person.
   ask?: ReactNode
   menu: AgentMenuEntry[]
+  // Where the agent's work stands; none for an agent with no stage (the
+  // Reeve). It adds Set stage to the menu.
+  stage?: AgentStageInfo
 }
 
 const chips: Record<AgentChatState, { glyph: string; label: string; tone: string }> = {
@@ -155,8 +159,10 @@ export function SidePanelSwitch({ open, related, artifacts, onSelect, studio }: 
 // The line an agent's chat opens with, whether Legato drives the agent
 // natively or through its terminal: what it is doing, the task, and what can
 // be done with it.
-export function AgentChatHeader({ state, time, title, taskId, agentKind, engram, native = false, notes, pullRequest, panels, subagents, onShowRequest, ask, menu }: AgentChatHeaderProps) {
+export function AgentChatHeader({ state, time, title, taskId, agentKind, engram, native = false, notes, pullRequest, panels, subagents, onShowRequest, ask, menu, stage }: AgentChatHeaderProps) {
   const chip = chips[state]
+  const [stageOpen, setStageOpen] = useState(false)
+  const entries = stage ? [{ label: "Set stage", onSelect: () => setStageOpen(true) }, ...menu] : menu
   // On a phone the agent picker above says how long; the time is left out.
   const chipText = <><span aria-hidden="true">{chip.glyph} </span>{chip.label}{time && <span className="max-sm:hidden"> {time}</span>}</>
   const chipClass = cn("shrink-0 rounded px-2 font-lw-mono text-[11px] uppercase", chip.tone)
@@ -169,6 +175,7 @@ export function AgentChatHeader({ state, time, title, taskId, agentKind, engram,
           // The picker says what the agent is doing on a phone, and the
           // switch needs the room; a request to bring into view stays.
           : <span className={cn(chipClass, "max-sm:hidden")}>{chipText}</span>}
+        {stage && <AgentStageChip info={stage} open={stageOpen} onOpenChange={setStageOpen} />}
         {/* On a phone the agent picker above names the agent, and the switch needs the room. */}
         <h2 className="m-0 min-w-0 truncate text-[15px] font-semibold max-sm:sr-only">{title}</h2>
         <span className="hidden shrink-0 font-lw-mono text-xs text-lw-faint sm:inline">{taskId}{pullRequest ? ` · PR #${pullRequest}` : ""}</span>
@@ -179,7 +186,7 @@ export function AgentChatHeader({ state, time, title, taskId, agentKind, engram,
         {state === "needs-you" && ask}
         {subagents && subagents.total > 0 && <SubagentSwitch {...subagents} />}
         {panels && <SidePanelSwitch {...panels} />}
-        <AgentMoreMenu entries={menu} />
+        <AgentMoreMenu entries={entries} />
       </div>
     </header>
   )

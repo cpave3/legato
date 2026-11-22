@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"slices"
 	"strings"
@@ -58,6 +59,9 @@ type ClaudeHook struct {
 	AgentID string `json:"agent_id,omitempty"`
 	// Started is the background job a tool call started (PostToolUse).
 	Started *store.BackgroundJob `json:"started,omitempty"`
+	// Edited is the file an edit tool call changed (PostToolUse of Edit,
+	// Write, MultiEdit or NotebookEdit): only its path, never its content.
+	Edited string `json:"edited,omitempty"`
 	// Woke are the background jobs whose end woke the session
 	// (UserPromptSubmit with task notifications).
 	Woke []string `json:"woke,omitempty"`
@@ -113,6 +117,7 @@ func ParseClaudeHook(raw []byte) (ClaudeHook, error) {
 	switch p.Event {
 	case ClaudePostToolUse:
 		hook.Started = startedJob(p.ToolName, p.ToolInput, p.ToolResponse)
+		hook.Edited = editedFile(p.ToolName, p.ToolInput)
 	case ClaudeUserPromptSubmit:
 		hook.Woke = wokenBy(p.Prompt)
 		hook.OperatorTurn = hook.Woke == nil && !strings.HasPrefix(strings.TrimSpace(p.Prompt), "<task-notification>") && service.IsOperatorText(p.Prompt)
@@ -132,6 +137,33 @@ func ParseClaudeHook(raw []byte) (ClaudeHook, error) {
 		}
 	}
 	return hook, nil
+}
+
+// maxEditedPath bounds the path an edit hook carries; a longer one is
+// dropped.
+const maxEditedPath = 4096
+
+// editedFile is the file a Claude Code tool call changed, "" when it
+// changed none.
+func editedFile(tool string, rawInput json.RawMessage) string {
+	var input struct {
+		FilePath     string `json:"file_path"`
+		NotebookPath string `json:"notebook_path"`
+	}
+	if json.Unmarshal(rawInput, &input) != nil {
+		return ""
+	}
+	path := ""
+	switch tool {
+	case "Edit", "Write", "MultiEdit":
+		path = input.FilePath
+	case "NotebookEdit":
+		path = input.NotebookPath
+	}
+	if len(path) > maxEditedPath || strings.ContainsFunc(path, unicode.IsControl) {
+		return ""
+	}
+	return path
 }
 
 // startedJob is the background job a tool call started, nil when it
@@ -227,6 +259,13 @@ func applyClaudeHookAt(s *store.Store, report ClaudeHookReport, now time.Time, p
 	if report.ExecutionID != "" {
 		if err := recordClaudeSubagents(ctx, s, report.ExecutionID, hook, now); err != nil {
 			return fmt.Errorf("recording subagent activity: %w", err)
+		}
+	}
+	if hook.Event == ClaudePostToolUse && hook.Edited != "" {
+		// An edit in the working folder, the main loop's or a subagent's,
+		// is evidence of the work's stage.
+		if _, err := service.RecordEditEvidence(ctx, s, *session, hook.Edited, report.WorkingDir); err != nil {
+			log.Printf("stage evidence for %s: %v", report.TaskID, err)
 		}
 	}
 	jobs := append(store.BackgroundJobs(nil), session.BackgroundJobs...)

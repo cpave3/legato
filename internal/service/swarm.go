@@ -795,7 +795,16 @@ func (s *swarmService) ApplyApprovedPlan(ctx context.Context, plan *swarm.Plan) 
 	}
 	s.rebuildSnapshot(ctx, plan.Swarm.ParentTaskID)
 	s.publishChanged(plan.Swarm.ParentTaskID, "", "plan_applied")
+	s.stageMilestone(ctx, plan.Swarm.ParentTaskID, store.WorkStageImplementing, "swarm plan applied")
 	return nil
+}
+
+// stageMilestone moves the stage of the swarm agent of taskID (the
+// conductor's parent task, or a worker's sub-task) as a milestone.
+func (s *swarmService) stageMilestone(ctx context.Context, taskID, stage, reason string) {
+	if _, err := RecordWorkMilestone(ctx, s.store, TaskPlace(taskID, ""), WorkMilestone{Stage: stage, Reason: reason}); err != nil {
+		log.Printf("swarm: stage of %s: %v", taskID, err)
+	}
 }
 
 // CancelSwarm terminates an entire swarm: kills the conductor and every live
@@ -1169,6 +1178,10 @@ func (s *swarmService) Close(ctx context.Context, subtaskID string) error {
 	}
 	s.bumpSnapshot(st.ParentTaskID, st.Status, newStatus)
 	s.publishChanged(st.ParentTaskID, subtaskID, newStatus)
+	if newStatus == "done" {
+		// A cancelled worker keeps the stage it reached.
+		s.stageMilestone(ctx, subtaskID, store.WorkStageFinished, "closed done")
+	}
 
 	// All-idle check after a closure.
 	s.maybeNotifyAllIdle(ctx, st.ParentTaskID)
@@ -1197,6 +1210,9 @@ func (s *swarmService) Finish(ctx context.Context, parentID, summary string) err
 				finalStatus = "cancelled"
 			}
 			_ = s.store.UpdateSubtaskStatus(ctx, st.ID, finalStatus)
+			if finalStatus == "done" {
+				s.stageMilestone(ctx, st.ID, store.WorkStageFinished, "closed done")
+			}
 		}
 	}
 
@@ -1226,6 +1242,7 @@ func (s *swarmService) Finish(ctx context.Context, parentID, summary string) err
 	s.setSnapshotEvent(parentID, "finished")
 
 	s.publishChanged(parentID, "", "finished")
+	s.stageMilestone(ctx, parentID, store.WorkStageFinished, "swarm finished")
 	return nil
 }
 
@@ -1341,6 +1358,7 @@ func (s *swarmService) Built(ctx context.Context, subtaskID string) error {
 	}
 	s.setSnapshotEvent(st.ParentTaskID, "built")
 	s.publishChanged(st.ParentTaskID, subtaskID, "reporting")
+	s.stageMilestone(ctx, subtaskID, store.WorkStageReviewing, "built")
 	s.maybeNotifyAllIdle(ctx, st.ParentTaskID)
 	return nil
 }

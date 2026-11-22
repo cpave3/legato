@@ -26,8 +26,8 @@ describe("agentGroupLayout", () => {
       [agent("idle", "", "G"), agent("busy", "working", "G"), agent("asks", "waiting", "G"), agent("failed", "error", "G")],
       [],
     )
-    expect(block.agents.map((a) => a.task_id)).toEqual(["asks", "failed", "busy", "idle"])
-    expect(block.sections.map((s) => s.section)).toEqual(["needs-you", "running", "idle"])
+    expect(block.agents.map((a) => a.task_id)).toEqual(["asks", "failed", "idle", "busy"])
+    expect(block.sections.map((s) => s.section)).toEqual(["needs-you", "your-turn", "working"])
     expect(block.needsYou).toBe(2)
   })
 

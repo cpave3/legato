@@ -9,6 +9,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -144,6 +145,8 @@ func (s *ReviewPassService) Submit(ctx context.Context, taskID, executionID stri
 	if err := s.db.UpdateHandoffReviewPass(ctx, *pass); err != nil {
 		return ReviewSubmitResult{}, err
 	}
+	publishMilestone(s.opts.Bus, events.WorkMilestonePayload{TaskID: taskID, Slot: SlotReviewer,
+		Stage: store.WorkStageFinished, Reason: fmt.Sprintf("pass %d submitted", pass.Pass)})
 	s.opts.Run(func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()

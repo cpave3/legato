@@ -1774,3 +1774,24 @@ func TestALongHeldPermissionIsAnsweredWaitAndAskedAgain(t *testing.T) {
 		t.Fatalf("second answer = %v", decided)
 	}
 }
+
+// A subagent's edit names the file it changes, and nothing of what it
+// wrote, so Legato can tell an edit in the working folder from one
+// elsewhere.
+func TestASubagentsEditNamesItsFileOnly(t *testing.T) {
+	h := newHarness(t)
+	h.mod(hello(nil), assistantRow("row-a", toolUse("toolu_agent", "Agent", map[string]any{"description": "Fix it", "prompt": "Fix it."})))
+	events := h.subscribe("")
+	h.mod(map[string]any{"type": "agent_spawn", "toolUseId": "toolu_agent", "agentId": "agent-7", "description": "Fix it"})
+	nextEvent(t, events)
+
+	child := assistantRow("row-c", toolUse("toolu_c1", "Edit", map[string]any{"file_path": "/work/a.go", "old_string": "secret", "new_string": "x"}))
+	child["agentId"] = "agent-7"
+	h.mod(child)
+	started := nextEvent(t, events)
+	inner, _ := started["event"].(map[string]any)
+	args, _ := inner["args"].(map[string]any)
+	if inner["name"] != "Edit" || args["path"] != "/work/a.go" || len(args) != 1 {
+		t.Fatalf("started inner = %v", inner)
+	}
+}

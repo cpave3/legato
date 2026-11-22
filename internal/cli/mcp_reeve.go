@@ -313,7 +313,7 @@ func (m *mcpTools) callAPI(ctx context.Context, method, path string, raw json.Ra
 
 type watchAgentInput struct {
 	TaskID string   `json:"task_id" jsonschema:"the task whose agent to watch"`
-	Events []string `json:"events,omitempty" jsonschema:"what to be told of: waiting (a question or permission prompt), idle, background (only background work runs), error, exited, note (a task note added), pr (a pull request opened or changed); all when left out"`
+	Events []string `json:"events,omitempty" jsonschema:"what to be told of: waiting (a question or permission prompt), idle, background (only background work runs), error, exited, note (a task note added), pr (a pull request opened or changed), stage (its stage moved; finished is told whatever you ask); all when left out"`
 }
 
 type unwatchAgentInput struct {

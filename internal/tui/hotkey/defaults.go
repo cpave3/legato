@@ -80,10 +80,12 @@ const (
 	ActionAgentsMacro     ActionID = "agents.macro"
 	ActionAgentsHistory   ActionID = "agents.history"
 	ActionAgentsGroup     ActionID = "agents.group"
-	ActionAgentsActions   ActionID = "agents.actions"
-	ActionAgentsDetails   ActionID = "agents.details"
-	ActionAgentsNotify    ActionID = "agents.notify"
-	ActionAgentsVoice     ActionID = "agents.voice"
+	// ActionAgentsStageFilter cycles the list's stage filter.
+	ActionAgentsStageFilter ActionID = "agents.stage-filter"
+	ActionAgentsActions     ActionID = "agents.actions"
+	ActionAgentsDetails     ActionID = "agents.details"
+	ActionAgentsNotify      ActionID = "agents.notify"
+	ActionAgentsVoice       ActionID = "agents.voice"
 	// ActionAgentsAskReeve asks the Reeve about the selected agent.
 	ActionAgentsAskReeve ActionID = "agents.ask-reeve"
 	// ActionAgentsOpenShown opens the cards and artifacts the selected agent
@@ -311,6 +313,7 @@ func addPageBindings(bindings *[]Binding, add func(ActionID, Scope, Target, []Ke
 	add(ActionAgentsAttach, agents, TargetPage, []Key{Special(tea.KeyEnter, "enter"), Special(tea.KeyTab, "tab")}, "attach", "Attach to agent session", "Agents", 50, 22, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAgentsMacro, agents, TargetPage, []Key{Rune('m')}, "macro", "Send macro", "Agents", 50, 23, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAgentsGroup, agents, TargetPage, []Key{Rune('g')}, "group", "Set task group", "Agents", 50, 24, FullHelp)
+	add(ActionAgentsStageFilter, agents, TargetPage, []Key{Rune('f')}, "stage", "Filter by stage: all, then each stage in turn", "Agents", 50, 13, FullHelp)
 	add(ActionAgentsHistory, agents, TargetPage, []Key{Rune('H')}, "history", "Open the session history: past conversations, to restore", "Agents", 50, 31, FullHelp, CapabilityHistory)
 	add(ActionAgentsActions, agents, TargetPage, []Key{Rune('M')}, "actions", "Open swarm agent actions", "Agents", 50, 25, FullHelp, CapabilitySwarm)
 	add(ActionAgentsDetails, agents, TargetPage, []Key{Rune('l')}, "details", "Toggle worker details", "Agents", 50, 26, FullHelp)

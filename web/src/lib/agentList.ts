@@ -1,19 +1,12 @@
 import type { AgentInfo } from "../hooks/useWebSocket"
-import { ensembleSection, type EnsembleSection } from "./agentGlance"
+import { glanceLabels, glanceOrder, glanceSection, type GlanceSection } from "./agentStage"
 
 export interface AgentListSection {
-  section: EnsembleSection
+  section: GlanceSection
   agents: AgentInfo[]
 }
 
-const order: EnsembleSection[] = ["needs-you", "running", "background", "idle"]
-
-export const sectionLabels: Record<EnsembleSection, string> = {
-  "needs-you": "Needs you",
-  running: "Running",
-  background: "Background",
-  idle: "Idle",
-}
+export const sectionLabels: Record<GlanceSection, string> = glanceLabels
 
 // Within one state, a swarm's agents stay together with its conductor first,
 // swarms in the order they came, then the agents that belong to no swarm.
@@ -36,11 +29,12 @@ function groupSwarms(agents: AgentInfo[]): AgentInfo[] {
   return [...grouped, ...solo]
 }
 
-// agentSections lists agents under what they are doing, as the TUI's agent
-// list does: those that need the person first. A state with no agents is left out.
+// agentSections lists agents in the server's glance groups, as the TUI's
+// agent list does: Needs you, Your turn, Working, Finished. A group with no
+// agents is left out.
 export function agentSections(agents: AgentInfo[]): AgentListSection[] {
-  return order
-    .map((section) => ({ section, agents: groupSwarms(agents.filter((agent) => ensembleSection(agent) === section)) }))
+  return glanceOrder
+    .map((section) => ({ section, agents: groupSwarms(agents.filter((agent) => glanceSection(agent) === section)) }))
     .filter((entry) => entry.agents.length > 0)
 }
 

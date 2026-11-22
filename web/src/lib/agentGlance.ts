@@ -128,15 +128,11 @@ export type EnsembleSection = "needs-you" | "running" | "background" | "idle"
 const sectionOrder: EnsembleSection[] = ["needs-you", "running", "background", "idle"]
 
 // An agent that failed needs the person as much as one that asks, and so
-// does one with an open question or a plan waiting, whatever it is doing.
-// The server's glance says so (a done note does not); an agent from a
-// server without one needs the person with any open operator item.
-export function ensembleSection(agent: Pick<AgentInfo, "activity" | "open_items" | "glance">): EnsembleSection {
-  if (agent.glance !== undefined) {
-    if (agent.glance === "needs_you") return "needs-you"
-  } else if ((agent.open_items ?? 0) > 0) {
-    return "needs-you"
-  }
+// does one with an open question or a plan waiting, whatever it is doing:
+// the server's glance says so (a done note does not). The rest follow what
+// the agent is doing.
+export function ensembleSection(agent: Pick<AgentInfo, "activity" | "glance">): EnsembleSection {
+  if (agent.glance === "needs_you") return "needs-you"
   switch (agent.activity) {
     case "waiting":
     case "error":

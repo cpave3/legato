@@ -79,6 +79,11 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           invalidate([baseUrl, "board"], false)
           invalidate([baseUrl, "task"], false)
           break
+        case "agent_stage_changed":
+          // An agent's stage moved: its card's strip and its stage history.
+          invalidate([baseUrl, "board"], false)
+          invalidate([baseUrl, "agent-stage-history"], false)
+          break
         case "agents_changed":
           invalidate(queryKeys.jobClones(baseUrl))
           invalidate(queryKeys.reeve(baseUrl))

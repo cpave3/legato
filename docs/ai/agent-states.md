@@ -107,7 +107,45 @@ An agent place's **stage** says where its work stands, apart from what the agent
 
 **Reports.** An agent reports with the MCP tool `report_stage` or `legato agent stage` (over the broker in the sandbox), and a `for_operator` item of kind `done` reports Finished. They run in the agent's `legato mcp serve` or CLI process, or on the host for the broker, so they write through `service.ReportWorkStage` and broadcast the IPC message `agent_stage_changed` (`StageIPCMessage`), which each host turns into `EventAgentStageChanged` (`cmd/legato/ipc.go`). A plain spawn's launch prompt asks the agent to report each change (`stagePrompt`: Finished for an answer that needed no change, Reviewing on opening a pull request or marking a tour ready); a named slot, a swarm agent, the Reeve (its own prompt) and an agent that launches with no prompt are not asked.
 
-The other signals come in later tickets: edit evidence (LEG-442), milestones from plans, tours, review passes and pull requests (LEG-443), pushes (LEG-444), swarms and workflows (LEG-445).
+**Edit evidence.** An edit counts only when its file is inside the execution's working folder (`InsideWorkingDir`; a relative path is read from that folder), so a plan bundle or a scratch file elsewhere does not. The reason reads `edited <path>` relative to the folder. It comes two ways:
+
+- *Native streams.* `ApprovalWatcher` follows one stream per execution (`watchKey`), so a reviewer slot's stream and the main slot's on one task are apart, and passes listeners a `WatchedAgent` (task, slot, execution, kind, working folder). `WorkStageService.ObserveNativeEvent` is one listener (`cmd/legato/approval_runtime.go`): `EditedPaths` reads a `tool_call_start` whose name is an edit tool, the main loop's mapped `edit`, `write` and `patch` (Claude Code's Edit and Write, Codex's `fileChange`, Chimera's own) or Claude Code's raw `Edit`, `Write`, `MultiEdit` and `NotebookEdit`, which a subagent's calls inside `subagent_event` keep. Paths come from `args.path`, `file_path`, `notebook_path`, `changes[].path` and `movePath`, and the file headers of an apply_patch text in `args.patch`. The Claude Code bridge gives a subagent's edit call `args: {path}` and nothing else. The web server's listener keys the context meter by agent ID (`<task>_<slot>`), so a reviewer's meter is its own, and a reviewer's permission or question is answered in its slot (`agentRequestDetails.Slot`).
+- *Claude Code hooks.* `ParseClaudeHook` keeps the path of a `PostToolUse` of Edit, Write, MultiEdit or NotebookEdit (`ClaudeHook.Edited`, never the content), the main loop's or a subagent's, and `ApplyClaudeHook` records it through `service.RecordEditEvidence`, which writes and broadcasts `agent_stage_changed` as reports do. A session with the bridge reports an edit both ways; the second changes nothing.
+
+A replayed stream (a new watch reads from the start of the bridge's ring) does not count its old events again: `EvidenceAt` ignores an edit timed before the place reached its stage, so an edit from before a Finished report leaves it Finished, and a new edit after it makes it Implementing (S9). **Gap:** Codex without its native bridge (`adapters.codex.native_bridge: false`) reports only activity through its hook scripts (`legato hooks install --tool codex`), no tool calls, so it gets no edit evidence and moves on reports and milestones only. Legato never runs git in the agent's checkout to find edits.
+
+**Milestones.** `StartWorkStageMilestones` (`agent_stage_milestones.go`, started with the approval runtime in `cmd/legato/approval_runtime.go`) applies each as an edge, once, when it happens; nothing is re-checked against the current state. Producers that have no event of their own publish `EventWorkMilestone` (`WorkMilestonePayload`: task, slot, a workflow agent's execution, stage, reason, and `Back` for one that may move the stage back, which `WorkMilestone.Feedback` applies):
+
+| Signal | Place | Stage | Reason |
+|---|---|---|---|
+| `EventPlanChanged` `submitted`, `changes_requested`, `rejected` | the plan's task, main slot | Planning | `plan submitted`, `plan sent back`, `plan rejected` |
+| `EventPlanChanged` `approved` | the plan's task, main slot | Implementing | `plan approved` |
+| `EventReviewChanged` `ready` (the task from the tour when the CLI's broadcast names none) | the tour's task, main slot | Reviewing | `review tour ready` |
+| a review pass starts (`startPass`) | the loop's author task | Reviewing | `review pass N` |
+| a review pass starts | the loop's reviewer slot (back, as a resumed reviewer may be Finished) | Reviewing | `pass N` |
+| findings delivered to the author (`deliver`, not when posting sets `waiting_for_author`) | the loop's author task (back) | Implementing | `fixing review feedback · pass N` |
+| the reviewer submits (`Submit`) | the reviewer slot | Finished | `pass N submitted` |
+| `EventPRChangesRequested` (a person's review, not Legato's Apps) | the PR's task (back) | Implementing | `changes requested on PR #N` |
+| a tracked branch's PR found open and not a draft (`setBranchPR`, refresh or discovery) | the task (back: a new PR after finished work is new work) | Reviewing | `PR #N open` |
+| a draft PR marked ready | the task | Reviewing | `PR #N ready for review` |
+| a PR merged or closed, leaving every tracked branch that has a PR merged or closed with one merged | the task | Finished | `every PR merged` |
+
+The CLI's plan broadcasts (`answer`, `completed`, `withdrawn`) name their task. A review run's author task is the loop's `AuthorTaskID` (`legato.review_loop.author_task`, or the handoff's card), not the run task; a loop a person authors has none and moves only the reviewer slot. A tour finding and a follow-up plan request are not milestones yet.
+
+**Pushes.** Each push through the credential proxy that GitHub accepted reaches `WorkStageService.Pushed` with its session's task and execution and its refs (`service.GitPush`, a push listener of `CredentialChannels`, wired in `cmd/legato/approval_runtime.go`). A push by the task's running session in that execution is evidence (`pushed <branch>`), then, when a pushed branch's tracked PR is open, the milestone Reviewing (`pushed to PR #N`). A push from another execution moves nothing. A push also looks for the pushed branch's PR at once ([PR tracking](pr-tracking.md) § Agents' branches).
+
+**Swarms and workflows.** Their commands run in the agent's own process (`legato swarm …`, `legato workflow complete`), so they write through `service.RecordWorkMilestone`, which broadcasts `agent_stage_changed` as reports do:
+
+| Signal | Place | Stage | Reason |
+|---|---|---|---|
+| `EventPlanProposed` (the conductor waits in `propose-plan`; on the host) | the parent task | Planning | `swarm plan proposed` |
+| `SwarmService.ApplyApprovedPlan` succeeded (not the verdict) | the parent task (the conductor) | Implementing | `swarm plan applied` |
+| `Built` | the worker's sub-task (`st-…`) | Reviewing | `built` |
+| `Close` of a `reporting` worker (`done`), or `Finish` closing one | the worker's sub-task | Finished | `closed done` |
+| `Finish` | the parent task | Finished | `swarm finished` |
+| `WorkflowService.Complete` of an agent step | the step's execution (a workflow agent's place) | Finished | `step <id> done` |
+
+A cancelled worker, or one whose agent died, keeps the stage it reached. While a conductor's plan is pending its glance is Needs you whatever its activity (`plan_pending`). The `workflow_changed` IPC of a completed step names that step, not the one the run moved on to. A worker's place is keyed by its sub-task ID, which is no task row; the agents list titles a worker from its sub-task.
 
 **Glance.** `service.Glance` is the one rule that groups agents, from activity, open items by kind, pending plans and the stage:
 

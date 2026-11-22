@@ -15,48 +15,77 @@ type section int
 
 const (
 	sectionNeedsYou section = iota
+	// sectionYourTurn is under Needs you: idle, its work not finished.
+	sectionYourTurn
 	sectionInterrupted
-	sectionRunning
-	sectionBackground
-	sectionIdle
+	sectionWorking
+	sectionFinished
 	sectionEnded
 )
 
 var sectionLabels = map[section]string{
 	sectionNeedsYou:    "NEEDS YOU",
+	sectionYourTurn:    "YOUR TURN",
 	sectionInterrupted: "INTERRUPTED",
-	sectionRunning:     "RUNNING",
-	sectionBackground:  "BACKGROUND",
-	sectionIdle:        "IDLE",
+	sectionWorking:     "WORKING",
+	sectionFinished:    "FINISHED",
 	sectionEnded:       "ENDED",
 }
 
 var sectionColors = map[section]lipgloss.Color{
 	sectionNeedsYou:    theme.Amber,
+	sectionYourTurn:    theme.Amber,
 	sectionInterrupted: theme.Amber,
-	sectionRunning:     theme.Green,
-	sectionBackground:  theme.Cyan,
-	sectionIdle:        theme.TextSecondary,
+	sectionWorking:     theme.Green,
+	sectionFinished:    theme.Cyan,
 	sectionEnded:       theme.TextSecondary,
 }
 
-// sectionOf places an agent in the list. An agent that failed needs the
-// person as much as one that asks.
+// sectionOf places an agent in the list, by the glance every surface
+// shares (service.Glance): an interrupted or ended agent apart.
 func sectionOf(a service.AgentSession) section {
 	switch {
 	case a.Status == statusInterrupted:
 		return sectionInterrupted
 	case a.Status == "dead":
 		return sectionEnded
-	case a.NeedsOperator():
-		return sectionNeedsYou
-	case a.Activity == "working":
-		return sectionRunning
-	case a.Activity == "background":
-		return sectionBackground
-	default:
-		return sectionIdle
 	}
+	switch a.Glance() {
+	case service.GlanceNeedsYou:
+		return sectionNeedsYou
+	case service.GlanceWorking:
+		return sectionWorking
+	case service.GlanceFinished:
+		return sectionFinished
+	case service.GlanceYourTurn:
+		return sectionYourTurn
+	default:
+		return sectionEnded
+	}
+}
+
+// stageGlyphs are the stages' signs: a circle filled a quarter more at
+// each stage.
+var stageGlyphs = map[string]string{
+	"exploring":    "○",
+	"planning":     "◔",
+	"implementing": "◑",
+	"reviewing":    "◕",
+	"finished":     "●",
+}
+
+// stageLine is an agent's stage with its glyph and why ("◑ implementing ·
+// 6 files changed"), "" for an agent with no stage.
+func stageLine(a service.AgentSession) string {
+	glyph, ok := stageGlyphs[a.Stage]
+	if !ok {
+		return ""
+	}
+	line := glyph + " " + a.Stage
+	if a.StageReason != "" {
+		line += " · " + a.StageReason
+	}
+	return line
 }
 
 // stateOf names what an agent is doing, in the theme's words.
@@ -194,7 +223,15 @@ func (m Model) renderSidebar() string {
 	inner := width - 1 // the edge
 	text := inner - 4  // two columns of margin at each side
 
-	head := []string{"", "  " + theme.Spread(theme.Brand(), colored(theme.TextSecondary, countOf(len(m.agents), "agent", "agents")), text), ""}
+	head := []string{"", "  " + theme.Spread(theme.Brand(), colored(theme.TextSecondary, countOf(len(m.agents), "agent", "agents")), text)}
+	if m.stageFilter != "" {
+		// A filter says so, and never hides what needs the operator.
+		head = append(head, "  "+colored(theme.Accent, truncateID(stageGlyphs[m.stageFilter]+" stage: "+m.stageFilter+" · f for the next", text)))
+		if n := m.needsYouOutside(); n > 0 {
+			head = append(head, "  "+colored(theme.Amber, truncateID(fmt.Sprintf("◆ %s outside this filter", countOf(n, "needs you", "need you")), text)))
+		}
+	}
+	head = append(head, "")
 	var foot []string
 	if m.usage != nil {
 		// The total, and under it the two parts it is made of.
@@ -219,7 +256,9 @@ func (m Model) renderSidebar() string {
 	}
 
 	var list []string
-	if len(m.agents) == 0 {
+	if len(m.agents) == 0 && m.stageFilter != "" {
+		list = []string{"  " + colored(theme.TextSecondary, "No agents are "+m.stageFilter), "", "  " + colored(theme.TextFaint, "Press f for the next stage")}
+	} else if len(m.agents) == 0 {
 		list = []string{
 			"  " + colored(theme.TextSecondary, "No agents"),
 			"",
@@ -293,7 +332,7 @@ func (m Model) sidebarEntries(width int) (lines []string, selectedStart, selecte
 // swarm worker and a grouped agent add where they belong.
 func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width int) []string {
 	text := width - 4 // two columns of margin at each side
-	quiet := sectionOf(a) == sectionIdle || sectionOf(a) == sectionEnded
+	quiet := sectionOf(a) == sectionYourTurn || sectionOf(a) == sectionEnded
 
 	var note string
 	switch state := stateOf(a); {
@@ -346,6 +385,13 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 	}
 	detail := colored(detailColor, truncateID(strings.Join(parts, " · "), detailWidth))
 	lines := []string{first, "  " + theme.Spread(detail, activity, text-2)}
+	if stage := stageLine(a); stage != "" {
+		stageColor := theme.TextSecondary
+		if a.Stage == "finished" {
+			stageColor = theme.Cyan
+		}
+		lines = append(lines, "  "+colored(stageColor, truncateID(stage, text-2)))
+	}
 
 	switch {
 	case a.ParentTaskID != "" && a.Role != "conductor":

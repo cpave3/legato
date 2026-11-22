@@ -105,6 +105,7 @@ In the TUI, press `?` to see these keys. The help shows only the keys that work 
 | `j` | Select next agent |
 | `k` | Select previous agent |
 | `w` | Select the next agent that needs you |
+| `f` | Filter by stage: all, then each stage in turn |
 | `s` | Spawn agent |
 | `X` | Kill agent; dismiss an interrupted one |
 | `R` | Reload agent, resuming its conversation; resume an interrupted one |

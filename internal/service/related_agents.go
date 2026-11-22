@@ -22,12 +22,17 @@ type RelatedAgentSummary struct {
 	// beside the main slot's state. State is "waiting" when one of them
 	// needs the person.
 	Slots []SlotAgentSummary
+	// Stage and StageReason are the main slot's agent's stage, "" when no
+	// main agent has one. A stage never moves the card.
+	Stage, StageReason string
 }
 
 // SlotAgentSummary is a running named slot's agent on a card.
 type SlotAgentSummary struct {
 	Slot  string `json:"slot"`
 	State string `json:"state"`
+	// Stage is the slot's agent's stage, "" for none.
+	Stage string `json:"stage,omitempty"`
 }
 
 // SummarizeRelatedAgents groups running sessions by their user-facing task.
@@ -50,7 +55,7 @@ func SummarizeRelatedAgents(agents []AgentSession) map[string]RelatedAgentSummar
 			}
 			summary := summaries[taskID]
 			summary.Active = true
-			summary.Slots = append(summary.Slots, SlotAgentSummary{Slot: agent.Slot, State: agent.ShownActivity()})
+			summary.Slots = append(summary.Slots, SlotAgentSummary{Slot: agent.Slot, State: agent.ShownActivity(), Stage: agent.Stage})
 			summaries[taskID] = summary
 			continue
 		}
@@ -58,6 +63,7 @@ func SummarizeRelatedAgents(agents []AgentSession) map[string]RelatedAgentSummar
 		if exists && summary.Count == 0 {
 			// Only named slots were seen so far.
 			summary.State, summary.Kind, summary.Engram = agent.ShownActivity(), agent.AgentKind, agent.Engram
+			summary.Stage, summary.StageReason = agent.Stage, agent.StageReason
 			summary.Count = 1
 			summaries[taskID] = summary
 			continue
@@ -74,6 +80,10 @@ func SummarizeRelatedAgents(agents []AgentSession) map[string]RelatedAgentSummar
 			if summary.Engram != agent.Engram {
 				summary.Engram = ""
 			}
+		}
+		// The card's own main agent names the stage, else the first with one.
+		if agent.Stage != "" && (summary.Stage == "" || agent.CardTaskID == taskID || agent.TaskID == taskID) {
+			summary.Stage, summary.StageReason = agent.Stage, agent.StageReason
 		}
 		summary.Count++
 		summaries[taskID] = summary
