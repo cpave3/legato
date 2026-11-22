@@ -145,7 +145,7 @@ The **Workflows** tab lists each workflow with its steps (✋ marks one that wai
 
 ### A workflow's page
 
-Select a workflow's title on the **Workflows** tab to open its page. It shows the workflow's title, description and file, and its **workflow graph**: the workflow drawn as nodes, built from its YAML. The graph is read-only; to change the workflow, edit its file.
+Select a workflow's title on the **Workflows** tab to open its page. It shows the workflow's title, description and file, and its **workflow graph**: the workflow drawn as nodes, built from its YAML. The graph is read-only: **Edit** opens the workflow's file in the editor (see [Create and edit in the web UI](#create-and-edit-in-the-web-ui)).
 
 - **Run by hand** is the node every workflow starts from when you run it yourself.
 - Each trigger the workflow declares is a node too, leading into the first step: when it fires (**Card enters Triage**, **Every weekday at 09:00**, **Changes requested on a PR**), whether it is **on here** or **paused here**, and its loop stop (**3/day**).
@@ -162,6 +162,26 @@ Select a step to see its own YAML in the panel beside the graph, with **Copy** a
 Select a trigger to see its settings in the panel beside the graph: whether it asks before each run, its loop stop, what its file says, and the trigger as its YAML declares it. Its switch turns it on or pauses it on this Legato, as on the **Workflows** tab; a schedule also lists its next due times and its missed runs.
 
 **Run** opens the form for its inputs, and **Recent runs** lists that workflow's last ten runs. A file that can't be parsed shows its error instead of a graph.
+
+### Create and edit in the web UI
+
+**New workflow** on the **Workflows** tab, beside **Add from template**, opens an editor with a small workflow that is valid as it is: one step that runs an agent on a prompt. Pick the folder it goes in (yours, a repository's checkout or the project's) and press **Create**. **Edit** on a workflow's page opens its file in the same editor, as the file says it, comments and all. **Save** writes exactly what you typed.
+
+The editor knows the workflow format, from the same schema Legato checks files with:
+
+- As you type, it offers the keys that fit where you are: the top-level fields, the trigger kinds under `on:`, the step types (with what each does), and each step type's `with` fields. It also offers the values of fields that take one of a few, such as `catch_up` or `scope`, and `true` and `false`.
+- Hover over a key to read what it is for.
+- Problems are marked on their lines and listed beside the editor, as you type and again when Legato checks the file, which also checks the `${{ }}` references and each step's rules. A `with` key that the step's type doesn't read is a warning: Legato ignores it for now and a later release will refuse it.
+- **Save** stays off while the file has an error. Beside the editor, the workflow graph shows what you are building.
+
+When you save, these rules apply:
+
+- If the file changed on disk since you opened it, the save is refused. Choose **Reload** to see the file as it is now, or **Keep my edits** to save yours over it.
+- A save that would switch on a trigger, so that it starts runs by itself, asks first: **Save and switch on** goes ahead. A trigger you paused on this Legato with its switch doesn't ask.
+- A workflow's `name` can't change once it is made. Make a new workflow to give it another name. A new workflow can't take a name another workflow has, a built-in's included.
+- Runs that have started keep the definition they started with. Their page says that the workflow has changed since.
+
+**Delete** on the editor removes the file. The workflow's runs are kept, and this Legato forgets its trigger switches. A built-in workflow, such as `legato-job`, has no file: **Copy to my workflows** on its page writes it to your workflows folder as a file of the same name, which then replaces the built-in and can be edited. A file in `~/.legato/workflows` can be edited, but new workflows are never put there. A file that is a link to somewhere outside its folder is read-only.
 
 ### Run from a board card
 

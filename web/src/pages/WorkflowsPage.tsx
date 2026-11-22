@@ -137,7 +137,7 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
   for (const run of runs.data ?? []) if (!lastRun.has(run.workflow_name)) lastRun.set(run.workflow_name, run)
   const needsYou = (runs.data ?? []).filter(run => run.needs_attention).length
   return <PageFrame tab="workflows" setTab={setTab} needsYou={needsYou} refresh={async () => { await Promise.all([definitions.refresh(), runs.refresh()]) }}>
-    <div className="mt-4 flex justify-end"><Button variant="outline" size="sm" onClick={() => setAdding(true)}>Add from template</Button></div>
+    <div className="mt-4 flex justify-end gap-2"><Link to="/workflows/new" className="inline-flex min-h-9 items-center rounded-md border border-zinc-700 px-3 text-xs font-medium text-zinc-300 hover:bg-zinc-800">New workflow</Link><Button variant="outline" size="sm" onClick={() => setAdding(true)}>Add from template</Button></div>
     {definitions.loading && <LoadingState label="Loading workflows…" size="inline" className="mt-6" />}
     {definitions.error && <LoadFailure error={definitions.error} saved={definitions.data !== null} label="workflows" refreshing={definitions.refreshing} refresh={definitions.refresh} />}
     {runs.error && <LoadFailure error={runs.error} saved={runs.data !== null} label="runs" refreshing={runs.refreshing} refresh={runs.refresh} />}
@@ -170,7 +170,7 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
     {!definitions.loading && !definitions.error && list.length === 0 && <div className="mt-6 flex flex-col items-start gap-2 text-sm text-lw-text-2">
       <p>No workflow definitions found</p>
       <p>A workflow is a YAML file of steps. <a href="https://cpave3.github.io/legato/using/workflows/" target="_blank" rel="noreferrer" className="text-lw-link hover:underline">Write your first workflow</a>, or start from a template.</p>
-      <Button size="sm" onClick={() => setAdding(true)}>Add from template</Button>
+      <div className="flex gap-2"><Button size="sm" onClick={() => setAdding(true)}>Add from template</Button><Link to="/workflows/new" className="inline-flex min-h-9 items-center rounded-md border border-zinc-700 px-3 text-xs font-medium text-zinc-300 hover:bg-zinc-800">New workflow</Link></div>
     </div>}
     {adding && <AddWorkflowTemplateDialog onClose={() => setAdding(false)} onAdded={definitions.refresh} />}
     {selected && <RunWorkflowDialog definition={selected} repositories={definitions.data?.repositories ?? []} onClose={() => setSelected(null)} />}

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import { ArrowLeft, Play } from "lucide-react"
+import { ArrowLeft, Copy, Pencil, Play } from "lucide-react"
 import { useWorkflows, useWorkflowRunsOf } from "../hooks/useWorkflow"
 import { useNow } from "../hooks/useNow"
 import { ago, fileWorkflowName, runState } from "../lib/workflowView"
@@ -16,6 +16,8 @@ import { LoadingState } from "../components/ui/LoadingState"
 import { cn } from "../lib/utils"
 import { useMediaQuery } from "../hooks/useMediaQuery"
 import { NodeSheet } from "../components/NodeSheet"
+import { useServer } from "../hooks/useServer"
+import { copyBuiltInWorkflow } from "../lib/workflowFiles"
 
 const RECENT_RUNS = 10
 
@@ -72,6 +74,21 @@ export function WorkflowPage() {
   const now = useNow(30_000)
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
+  const { baseUrl } = useServer()
+  const [copying, setCopying] = useState(false)
+  const [copyError, setCopyError] = useState("")
+  const copy = async () => {
+    setCopying(true)
+    setCopyError("")
+    try {
+      await copyBuiltInWorkflow(baseUrl, name, "global")
+      await definitions.refresh()
+    } catch (reason) {
+      setCopyError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setCopying(false)
+    }
+  }
   // At phone width the graph runs top to bottom and details open in a sheet.
   const narrow = useMediaQuery("(max-width: 767px)")
   const triggerStates = definitions.data?.trigger_states?.[name]
@@ -107,8 +124,18 @@ export function WorkflowPage() {
         {definition.description && <p className="mt-1 text-sm text-lw-text-2">{definition.description}</p>}
         <p className="mt-1 break-all font-lw-mono text-xs text-lw-faint">{definition.source}</p>
       </div>
-      <Button variant="outline" size="sm" aria-label={`Run ${definition.title}`} onClick={() => setRunning(true)}><Play size={13} />Run</Button>
+      <div className="flex flex-wrap gap-2">
+        {definition.editable && <Link to={`/workflows/${encodeURIComponent(definition.name)}/edit`} className="inline-flex min-h-9 items-center gap-2 rounded-md border border-zinc-700 px-3 text-xs font-medium text-zinc-300 hover:bg-zinc-800"><Pencil size={13} />Edit</Link>}
+        {definition.source.startsWith("builtin:") && <Button variant="outline" size="sm" disabled={copying} onClick={() => void copy()}><Copy size={13} />Copy to my workflows</Button>}
+        <Button variant="outline" size="sm" aria-label={`Run ${definition.title}`} onClick={() => setRunning(true)}><Play size={13} />Run</Button>
+      </div>
     </header>
+    {copyError && <p role="alert" className="text-sm text-lw-error">{copyError}</p>}
+    {!definition.editable && definition.read_only_reason && !definition.source.startsWith("builtin:") && <p className="text-sm text-lw-text-2">Read-only here: {definition.read_only_reason}</p>}
+    {(definition.shadows ?? []).length > 0 && <p className="text-sm text-lw-text-2">This file replaces {(definition.shadows ?? []).map(path => <code key={path} className="mx-0.5 break-all font-lw-mono text-xs">{path}</code>)}, a workflow of the same name.</p>}
+    {(definition.warnings ?? []).length > 0 && <ul aria-label="Warnings" className="flex flex-col gap-1 rounded-lg border border-lw-line bg-lw-surface p-3 text-[13px] text-lw-needs">
+      {(definition.warnings ?? []).map((warning, i) => <li key={i}><span className="font-lw-mono text-xs text-lw-faint">{warning.line}:{warning.column}</span> {warning.message}</li>)}
+    </ul>}
     <div className={cn("grid gap-4", selectedNode && !narrow && "lg:grid-cols-[minmax(0,1fr)_22rem]")}>
       <section aria-label="Workflow graph" className={cn("overflow-hidden rounded-xl border border-lw-line bg-lw-ground", narrow ? "h-[32rem]" : "h-[28rem]")}>
         {definition.graph ? <LazyWorkflowGraph graph={definition.graph} selectedId={selected} onSelect={setSelected} extras={extras} direction={narrow ? "TB" : "LR"} /> : <p className="p-4 text-sm text-lw-text-2">This Legato sent no graph for this workflow.</p>}

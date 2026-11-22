@@ -1,0 +1,115 @@
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { MemoryRouter, Route, Routes } from "react-router-dom"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { afterEach, beforeEach, expect, it, vi } from "vitest"
+import { WorkflowEditPage } from "../WorkflowEditPage"
+
+const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
+vi.mock("../../lib/api", () => ({ apiFetch }))
+vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
+vi.mock("../../hooks/useWorkflow", () => ({
+  useWorkflows: () => ({ data: { definitions: [], errors: null, folders: [{ id: "global", label: "Your workflows", path: "/g" }, { id: "project", label: "This project", path: "/p" }] }, refresh: vi.fn() }),
+}))
+// The editor is CodeMirror in its own chunk; here it is a text box.
+vi.mock("../../components/workflow-editor/LazyWorkflowYamlEditor", () => ({
+  LazyWorkflowYamlEditor: ({ value, onChange, readOnly }: { value: string; onChange: (v: string) => void; readOnly?: boolean }) =>
+    <textarea aria-label="Workflow YAML" value={value} readOnly={readOnly} onChange={event => onChange(event.target.value)} />,
+}))
+vi.mock("../../components/workflow-graph/LazyWorkflowGraph", () => ({ LazyWorkflowGraph: () => <div>graph</div> }))
+
+const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }))
+const fileText = "# kept\nschema_version: 1\nname: review\ntitle: Review\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}}\n"
+const badType = { severity: "error", message: "step \"a\" has unsupported type \"agent.nope\"", path: "steps[0].type", line: 6, column: 30, end_line: 6, end_column: 40 }
+
+let puts: { yaml: string; digest: string; confirm_triggers: boolean }[]
+let creates: { yaml: string; folder: string }[]
+let putReply: (body: { confirm_triggers: boolean }) => Promise<Response>
+
+beforeEach(() => {
+  puts = []
+  creates = []
+  putReply = () => json({ name: "review", path: "/g/review.yaml", folder: "global", digest: "sha256:new", diagnostics: [] })
+  apiFetch.mockReset()
+  apiFetch.mockImplementation((_: string, path: string, init?: RequestInit) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : {}
+    if (path === "/api/workflow-files/check") {
+      const bad = String(body.yaml).includes("agent.nope")
+      return json({ definition: bad ? null : { name: "review" }, graph: bad ? null : { nodes: [], edges: [] }, diagnostics: bad ? [badType] : [] })
+    }
+    if (path === "/api/workflows/review/file" && !init?.method) return json({ name: "review", yaml: fileText, path: "/g/review.yaml", folder: "global", digest: "sha256:old", editable: true })
+    if (path === "/api/workflows/review/file" && init?.method === "PUT") { puts.push(body); return putReply(body) }
+    if (path === "/api/workflow-files" && init?.method === "POST") { creates.push(body); return json({ name: "my-workflow", path: "/p/my-workflow.workflow.yaml", folder: body.folder, digest: "sha256:x", diagnostics: [] }, 201) }
+    return json({}, 404)
+  })
+})
+afterEach(cleanup)
+
+function renderAt(path: string) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}>
+    <Routes>
+      <Route path="/workflows/new" element={<WorkflowEditPage mode="new" />} />
+      <Route path="/workflows/:name/edit" element={<WorkflowEditPage mode="edit" />} />
+      <Route path="/workflows/:name" element={<p>workflow page</p>} />
+    </Routes>
+  </MemoryRouter></QueryClientProvider>)
+}
+
+const editor = () => screen.getByRole("textbox", { name: "Workflow YAML" }) as HTMLTextAreaElement
+const type = (text: string) => fireEvent.change(editor(), { target: { value: text } })
+
+it("creates a new workflow from the starter, in the folder chosen", async () => {
+  renderAt("/workflows/new")
+  expect(editor().value).toContain("schema_version: 1")
+  const create = screen.getByRole("button", { name: "Create" })
+  expect(create).toHaveProperty("disabled", true)
+  await waitFor(() => expect(create).toHaveProperty("disabled", false))
+  fireEvent.change(screen.getByRole("combobox", { name: "Folder" }), { target: { value: "project" } })
+  fireEvent.click(create)
+  expect(await screen.findByText("workflow page")).toBeTruthy()
+  expect(creates).toEqual([{ yaml: expect.stringContaining("name: my-workflow"), folder: "project", confirm_triggers: false }])
+})
+
+it("keeps Save off while the server finds an error, and lists it by line", async () => {
+  renderAt("/workflows/review/edit")
+  await waitFor(() => expect(editor().value).toBe(fileText))
+  type(fileText.replace("agent.run", "agent.nope"))
+  const problems = await screen.findByRole("list", { name: "Problems" })
+  expect(within(problems).getByText(/unsupported type/).textContent).toContain("6:30")
+  expect(screen.getByRole("button", { name: "Save" })).toHaveProperty("disabled", true)
+  type(fileText.replace("Review", "Review it"))
+  await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toHaveProperty("disabled", false))
+})
+
+it("saves the file's text over the version it opened, and offers a reload when it changed on disk", async () => {
+  putReply = () => json({ error: "the file changed", code: "stale", yaml: "# changed on disk\n" + fileText, digest: "sha256:disk" }, 409)
+  renderAt("/workflows/review/edit")
+  await waitFor(() => expect(editor().value).toBe(fileText))
+  const edited = fileText.replace("title: Review", "title: Review it")
+  type(edited)
+  const save = screen.getByRole("button", { name: "Save" })
+  await waitFor(() => expect(save).toHaveProperty("disabled", false))
+  fireEvent.click(save)
+  const conflict = await screen.findByRole("alertdialog", { name: "The file changed" })
+  expect(puts[0]).toEqual({ yaml: edited, digest: "sha256:old", confirm_triggers: false })
+  fireEvent.click(within(conflict).getByRole("button", { name: "Reload" }))
+  expect(editor().value).toBe("# changed on disk\n" + fileText)
+  expect(screen.queryByRole("alertdialog")).toBeNull()
+})
+
+it("asks before a save that switches a trigger on", async () => {
+  putReply = body => body.confirm_triggers
+    ? json({ name: "review", path: "/g/review.yaml", folder: "global", digest: "sha256:new", diagnostics: [] })
+    : json({ error: "this save switches on schedule", code: "confirm_triggers", triggers: ["schedule"] }, 409)
+  renderAt("/workflows/review/edit")
+  await waitFor(() => expect(editor().value).toBe(fileText))
+  type(fileText + "on:\n  schedule: {cron: \"0 9 * * *\"}\n")
+  const save = screen.getByRole("button", { name: "Save" })
+  await waitFor(() => expect(save).toHaveProperty("disabled", false))
+  fireEvent.click(save)
+  const ask = await screen.findByRole("alertdialog", { name: "Switch on triggers" })
+  expect(ask.textContent).toContain("schedule")
+  fireEvent.click(within(ask).getByRole("button", { name: "Save and switch on" }))
+  await waitFor(() => expect(puts.map(p => p.confirm_triggers)).toEqual([false, true]))
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull())
+})
