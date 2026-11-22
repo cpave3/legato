@@ -138,6 +138,12 @@ describe("edge cases the review found", () => {
     const header = "schema_version: 1\nname: e\ntitle: E\nsteps:\n  - id: a\n    title: A\n    type: agent.run\n    with:\n      prompt: |- # rationale\n        old\n"
     expect(setField(header, ["steps", 0, "with", "prompt"], "new").text).toContain("      prompt: new # rationale\n")
     expect(setField(header, ["steps", 0, "with", "prompt"], "two\nlines").text).toContain("      prompt: |- # rationale\n        two\n        lines\n")
+    const quoted = "schema_version: 1\nname: e\ntitle: E\ndescription: \"first\n  second\" # keep me\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}}\n"
+    const replaced = setField(quoted, ["description"], "new").text
+    expect(replaced).toContain("description: new # keep me\n")
+    expect(parseWorkflow(replaced).values.description).toBe("new")
+    const flowLines = "schema_version: 1\nname: e\ntitle: E\ninputs:\n  pr: {type: integer,\n    required: true} # ticket\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}}\n"
+    expect(setField(flowLines, ["inputs", "pr", "required"], false).text).toContain("  pr: # ticket\n    type: integer\n    required: false\n")
     const keyLine = "schema_version: 1\nname: e\ntitle: E\nsteps:\n  - id: a\n    title: A\n    type: agent.run\n    with: # what to ask\n      prompt: x\n"
     expect(setField(keyLine, ["steps", 0, "with"], { macro: "m" }).text).toContain("    with: # what to ask\n      macro: m\n")
   })

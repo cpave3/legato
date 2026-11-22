@@ -234,13 +234,13 @@ function rewrite(text: string, doc: Document, path: YamlPath, value: unknown): s
     // The header's comment: key: |- # why
     comment = /^[ \t]*[|>][-+0-9]*([ \t]+#.*)$/.exec(text.slice(colon + 1, eolOf(colon)))?.[1]
     to = blockEnd(text, node)
-  } else if (lineStart(text, range(node)[0]) === lineStart(text, colon) && lineStart(text, Math.max(range(node)[0], range(node)[1] - 1)) === lineStart(text, colon)) {
-    // A one-line value (a scalar or a flow collection) on the key's line.
+  } else if (isScalar(node) || ((isMap(node) || isSeq(node)) && node.flow)) {
+    // A scalar that is not a block, or a flow collection, on one line or
+    // several: it ends at its value, and a comment after that (on its last
+    // line) is its own.
     to = range(node)[1]
-    if (written.includes("\n")) {
-      comment = /^([ \t]+#.*)$/.exec(text.slice(to, eolOf(to)))?.[1]
-      if (comment) to = eolOf(to)
-    }
+    comment = /^([ \t]+#.*)$/.exec(text.slice(to, eolOf(to)))?.[1]
+    if (comment) to = eolOf(to)
   } else {
     // A block under the key: a comment on the key's line.
     comment = /^([ \t]*#.*)$/.exec(text.slice(colon + 1, eolOf(colon)))?.[1]
