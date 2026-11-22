@@ -201,7 +201,7 @@ function ConditionNode({ condition, label, onChange, onRemove }: { condition: Co
 function ConditionLeaf({ condition, label, onChange, onRemove }: { condition: Condition; label: string; onChange: (next: Condition) => void; onRemove?: () => void }) {
   const operator = operatorOf(condition)
   const value = condition[operator]
-  const sample = operator === "in" ? (Array.isArray(value) ? value[0] : undefined) : value
+  const sample = operator === "in" ? undefined : value
   // The type is the value's, or the one chosen while there is no value yet.
   const [chosen, setChosen] = useState<OperandKind>(operandKind(sample))
   const kind = sample === undefined || sample === "" ? chosen : operandKind(sample)
@@ -216,14 +216,38 @@ function ConditionLeaf({ condition, label, onChange, onRemove }: { condition: Co
       ? <select aria-label={`${label}: value`} className={fieldClass} value={String(value !== false)} onChange={event => onChange(withOperator(condition, "exists", event.target.value === "true"))}>
         <option value="true">yes</option><option value="false">no</option>
       </select>
-      : <div className="flex gap-1">
-        <CommitField aria-label={`${label}: value`} placeholder={operator === "in" ? "a, b, c" : "value"} value={operator === "in" ? (Array.isArray(value) ? value.map(scalarText).join(", ") : "") : scalarText(value)}
-          onCommit={raw => onChange(withOperator(condition, operator, operator === "in" ? raw.split(",").map(part => typed(part.trim(), kind)).filter(part => part !== "") : typed(raw, kind)))} />
-        <select aria-label={`${label}: value type`} className={`${fieldClass} w-24`} value={kind}
-          onChange={event => { const as = event.target.value as OperandKind; setChosen(as); onChange(withOperator(condition, operator, operator === "in" ? (Array.isArray(value) ? value : []).map(v => typed(scalarText(v), as)) : typed(scalarText(value), as))) }}>
-          <option value="text">text</option><option value="number">number</option><option value="boolean">true/false</option>
-        </select>
-      </div>}
+      : operator === "in"
+        ? <InList label={label} items={Array.isArray(value) ? value : []} chosen={chosen} onChoose={setChosen} onChange={items => onChange(withOperator(condition, "in", items))} />
+        : <div className="flex gap-1">
+          <CommitField aria-label={`${label}: value`} placeholder="value" value={scalarText(value)} onCommit={raw => onChange(withOperator(condition, operator, typed(raw, kind)))} />
+          <KindSelect label={`${label}: value type`} kind={kind} onChange={as => { setChosen(as); onChange(withOperator(condition, operator, typed(scalarText(value), as))) }} />
+        </div>}
     {onRemove ? <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove ${label}`} onClick={onRemove}><Trash2 size={13} /></Button> : <span />}
+  </div>
+}
+
+function KindSelect({ label, kind, onChange }: { label: string; kind: OperandKind; onChange: (kind: OperandKind) => void }) {
+  return <select aria-label={label} className={`${fieldClass} w-24`} value={kind} onChange={event => onChange(event.target.value as OperandKind)}>
+    <option value="text">text</option><option value="number">number</option><option value="boolean">true/false</option>
+  </select>
+}
+
+// InList is an in condition's values, one field each with its own type, so
+// editing one changes no other ([foo, true] stays a text and a boolean),
+// and a value with a comma in it stays one value.
+function InList({ label, items, chosen, onChoose, onChange }: { label: string; items: unknown[]; chosen: OperandKind; onChoose: (kind: OperandKind) => void; onChange: (items: unknown[]) => void }) {
+  const [adding, setAdding] = useState("")
+  const add = () => { if (adding !== "") { onChange([...items, operandOf(adding, chosen)]); setAdding("") } }
+  return <div className="flex flex-col gap-1">
+    {items.map((item, i) => <div key={i} className="flex gap-1">
+      <CommitField aria-label={`${label}: value ${i + 1}`} value={scalarText(item)} onCommit={raw => onChange(items.map((other, j) => j === i ? operandOf(raw, operandKind(item)) : other))} />
+      <KindSelect label={`${label}: value ${i + 1} type`} kind={operandKind(item)} onChange={as => onChange(items.map((other, j) => j === i ? operandOf(scalarText(item), as) : other))} />
+      <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove value ${i + 1} of ${label}`} onClick={() => onChange(items.filter((_, j) => j !== i))}><Trash2 size={13} /></Button>
+    </div>)}
+    <div className="flex gap-1">
+      <input aria-label={`${label}: new value`} className={fieldClass} value={adding} placeholder="value" onChange={event => setAdding(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); add() } }} />
+      <KindSelect label={`${label}: new value type`} kind={chosen} onChange={onChoose} />
+      <Button type="button" variant="ghost" size="sm" aria-label={`Add a value to ${label}`} disabled={adding === ""} onClick={add}><Plus size={13} /></Button>
+    </div>
   </div>
 }

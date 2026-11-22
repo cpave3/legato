@@ -106,3 +106,14 @@ it("sends conditions it can't draw to YAML", () => {
   renderBuilder("schema_version: 1\nname: s\ntitle: S\non:\n  task.entered_column:\n    column: Doing\n    conditions: {all: [3]}\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}}\n")
   expect(screen.getByRole("alert").textContent).toContain("conditions: a condition is not a mapping")
 })
+
+it("keeps each value of an in list its own type", () => {
+  const text = "schema_version: 1\nname: s\ntitle: S\non:\n  task.entered_column:\n    column: Doing\n    conditions: {all: [{field: task.metadata.flag, in: [foo, true, \"a, b\"]}]}\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}}\n"
+  renderBuilder(text)
+  commit(screen.getByRole("textbox", { name: "Conditions, 1: value 1" }), "bar")
+  expect(parse(latest).on["task.entered_column"].conditions.all[0].in).toEqual(["bar", true, "a, b"])
+  fireEvent.change(screen.getByRole("textbox", { name: "Conditions, 1: new value" }), { target: { value: "3" } })
+  fireEvent.change(screen.getByRole("combobox", { name: "Conditions, 1: new value type" }), { target: { value: "number" } })
+  fireEvent.click(screen.getByRole("button", { name: "Add a value to Conditions, 1" }))
+  expect(parse(latest).on["task.entered_column"].conditions.all[0].in).toEqual(["bar", true, "a, b", 3])
+})
