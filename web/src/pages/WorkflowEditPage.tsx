@@ -91,11 +91,15 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   const [attempt, setAttempt] = useState(0)
   const key = draftKey(baseUrl, mode === "new" ? "new" : name)
   const [draft, setDraft] = useState<Draft | null>(null)
+  // Nothing is written to the kept draft until it has been read, so
+  // opening the page never removes the draft it is about to offer.
+  const [draftRead, setDraftRead] = useState(false)
 
   useEffect(() => {
     if (mode !== "edit") {
       const kept = readDraft(key)
       if (kept && kept.text !== starterWorkflow) setDraft(kept)
+      setDraftRead(true)
       return
     }
     let current = true
@@ -109,6 +113,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
       setDigest(loaded.digest)
       const kept = readDraft(key)
       if (kept && kept.text !== loaded.yaml) setDraft(kept)
+      setDraftRead(true)
     }, reason => { if (current) setLoadError(reason instanceof Error ? reason.message : String(reason)) })
     return () => { current = false }
   }, [baseUrl, mode, name, key, attempt])
@@ -119,9 +124,9 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   // The unsaved text is kept as a draft, with the digest it was begun at,
   // until it is saved or thrown away. An offered draft is not overwritten.
   useEffect(() => {
-    if (draft || text === null) return
+    if (!draftRead || draft || text === null) return
     writeDraft(key, dirty ? { text, digest } : null)
-  }, [key, text, digest, dirty, draft])
+  }, [key, text, digest, dirty, draft, draftRead])
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (dirtyRef.current) event.preventDefault() }
     // A link to elsewhere in the app asks first: the router has no blocker.

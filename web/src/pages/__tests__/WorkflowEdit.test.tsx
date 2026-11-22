@@ -152,3 +152,16 @@ it("retries a file that could not be read", async () => {
   fireEvent.click(within(alert).getByRole("button", { name: "Retry" }))
   await waitFor(() => expect(editor().value).toBe(fileText))
 })
+
+it("keeps a new workflow's draft while offering it, until a choice is made", async () => {
+  const first = renderAt("/workflows/new")
+  type(editor().value.replace("title: My workflow", "title: Kept"))
+  first.unmount()
+  const second = renderAt("/workflows/new")
+  expect(await screen.findByRole("alertdialog", { name: "Unsaved changes" })).toBeTruthy()
+  second.unmount()
+  renderAt("/workflows/new")
+  const offer = await screen.findByRole("alertdialog", { name: "Unsaved changes" })
+  fireEvent.click(within(offer).getByRole("button", { name: "Restore them" }))
+  expect(editor().value).toContain("title: Kept")
+})
