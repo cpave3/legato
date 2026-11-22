@@ -105,6 +105,7 @@ A watched agent wakes the Reeve with a `[legato agent]` message in its conversat
 - has been idle for a while (30 seconds), or busy only with work it left running in the background;
 - stops with an error, or exits;
 - adds a note to its task, or has a pull request opened, or its checks or review change;
+- moves to another [stage](/legato/using/agents/#stages). Reaching **Finished** always wakes it, whatever you asked it to watch for, so "tell me when it's done" means the work is done, not that the agent went quiet;
 - [posts something for you](/legato/using/attention/#operator-items), such as a command only you can run. The Reeve tells you, by voice when it speaks.
 
 The Reeve posts in your rail the same way when it waits on you, so what it needs stays in view after its turn ends.

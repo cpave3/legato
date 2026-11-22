@@ -522,3 +522,28 @@ func TestAnAgentSessionKeepsWhetherItMayUseTheHostNetwork(t *testing.T) {
 		}
 	}
 }
+
+// The Reeve is left out of every count of agents: the navigation badge
+// and the status line count the operator's agents only.
+func TestGetAgentActivityCounts_LeavesTheReeveOut(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "task1")
+	reeve, err := s.CreateReeveTask(ctx, "Reeve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"task1", reeve} {
+		if err := s.InsertAgentSession(ctx, AgentSession{TaskID: id, TmuxSession: "legato-" + id, Command: "shell", Status: "running"}); err != nil {
+			t.Fatal(err)
+		}
+		_ = s.UpdateAgentActivity(ctx, id, "waiting")
+	}
+	_, waiting, _, _, err := s.GetAgentActivityCounts(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if waiting != 1 {
+		t.Errorf("waiting = %d, want 1 (the Reeve left out)", waiting)
+	}
+}

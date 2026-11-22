@@ -483,10 +483,9 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 
 		resp := make([]AgentResponse, len(agents))
 		var native []string
-		reeveTask := s.reeveTaskID(r.Context())
 		for i, a := range agents {
 			r := agentResponse(a)
-			r.Reeve = reeveTask != "" && a.TaskID == reeveTask
+			r.Reeve = a.Reeve
 			r.Unsandboxed = s.sandboxEnabled && !a.Sandboxed
 			if d, ok := durations[a.TaskID]; ok {
 				r.WorkingSeconds = d.Working.Seconds()

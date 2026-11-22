@@ -36,14 +36,13 @@ type AgentCompact struct {
 }
 
 func (s *Server) compactAgents(ctx context.Context, agents []service.AgentSession) []AgentCompact {
-	reeveTask := s.reeveTaskID(ctx)
 	out := make([]AgentCompact, 0, len(agents))
 	for _, a := range agents {
 		resp := agentResponse(a)
 		out = append(out, AgentCompact{
 			TaskID: a.TaskID, CardTaskID: resp.CardTaskID, Slot: resp.Slot, Title: a.Title, Group: a.Group,
 			Status: a.Status, Activity: a.Activity, OpenItems: a.OpenItems, Sandboxed: a.Sandboxed, DockerHostNetwork: a.DockerHostNetwork, StartedAt: a.StartedAt,
-			Reeve:            reeveTask != "" && a.TaskID == reeveTask,
+			Reeve:            a.Reeve,
 			BackgroundJobs:   a.BackgroundJobs,
 			WorkingDir:       a.WorkingDir,
 			AgentStageFields: resp.AgentStageFields,

@@ -238,11 +238,13 @@ func (s *Store) GetAgentActivityCounts(ctx context.Context, excludeTaskID string
 	var query string
 	var rows []row
 
+	// The Reeve is left out of every count.
+	const notReeve = ` AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.id = a.task_id AND t.kind = '` + TaskKindReeve + `')`
 	if excludeTaskID != "" {
-		query = `SELECT ` + needsOperatorActivity + ` AS activity, COUNT(*) AS cnt FROM agent_sessions a WHERE a.status = 'running' AND a.task_id != ? GROUP BY 1`
+		query = `SELECT ` + needsOperatorActivity + ` AS activity, COUNT(*) AS cnt FROM agent_sessions a WHERE a.status = 'running' AND a.task_id != ?` + notReeve + ` GROUP BY 1`
 		err = s.db.SelectContext(ctx, &rows, query, excludeTaskID)
 	} else {
-		query = `SELECT ` + needsOperatorActivity + ` AS activity, COUNT(*) AS cnt FROM agent_sessions a WHERE a.status = 'running' GROUP BY 1`
+		query = `SELECT ` + needsOperatorActivity + ` AS activity, COUNT(*) AS cnt FROM agent_sessions a WHERE a.status = 'running'` + notReeve + ` GROUP BY 1`
 		err = s.db.SelectContext(ctx, &rows, query)
 	}
 	if err != nil {

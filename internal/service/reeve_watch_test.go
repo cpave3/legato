@@ -722,3 +722,43 @@ func TestTheReeveIsToldOfAWatchedAgentsOperatorItems(t *testing.T) {
 		t.Errorf("told %d times, want once:\n%s", n, all)
 	}
 }
+
+// setStage records a stage for a task's main slot, as if it reached it at
+// the fixture's time.
+func (f *watchFixture) setStage(t *testing.T, taskID, stage, reason string) {
+	t.Helper()
+	if _, err := f.db.SetWorkStage(context.Background(), store.WorkStage{WorkStagePlace: store.WorkStagePlace{TaskID: taskID, Slot: store.SlotMain},
+		Stage: stage, Reason: reason, Source: store.WorkStageSourceMilestone}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// S6: "tell me when it's done" means done. A watched agent reaching
+// Finished queues one message, whatever events its watch asked for.
+func TestAWatchedAgentReachingFinishedIsReportedOnce(t *testing.T) {
+	f := newWatchFixture(t)
+	f.setStage(t, f.task, store.WorkStageReviewing, "PR #212 open")
+	f.watchAll(t, f.task, "exited")
+	f.after(t, ReeveWatchCheckEvery)
+
+	f.setStage(t, f.task, store.WorkStageFinished, "PR #212 merged")
+	got := f.settle(t)
+	if len(got) != 1 {
+		t.Fatalf("messages = %q, want one", got)
+	}
+	mustContain(t, got[0], "[legato agent]", "T-1", "reviewing → finished", "PR #212 merged")
+	if again := f.settle(t); len(again) != 0 {
+		t.Fatalf("told again: %q", again)
+	}
+}
+
+// Other stage changes reach a watch that asks for stage changes (every
+// watch does by default).
+func TestAWatchHearsOfStageChanges(t *testing.T) {
+	f := newWatchFixture(t)
+	f.setStage(t, f.task, store.WorkStageExploring, "")
+	f.watchAll(t, f.task)
+	f.after(t, ReeveWatchCheckEvery)
+	f.setStage(t, f.task, store.WorkStageImplementing, "edited main.go")
+	mustContain(t, strings.Join(f.settle(t), ""), "exploring → implementing", "edited main.go")
+}

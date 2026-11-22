@@ -72,6 +72,9 @@ const (
 	WatchExited     = "exited"
 	WatchNote       = "note"
 	WatchPR         = "pr"
+	// WatchStage is a change in the agent's stage (docs/ai/agent-states.md
+	// § Stages). Finished is told to every watch, whatever it asked for.
+	WatchStage = "stage"
 )
 
 // WatchAgentMessage is an event no watch asks for: an agent's own message
@@ -84,7 +87,7 @@ const WatchAgentMessage = "message"
 const WatchOperatorItem = "operator_item"
 
 // ReeveWatchEvents are every event, the default of a watch.
-var ReeveWatchEvents = []string{WatchWaiting, WatchIdle, WatchBackground, WatchError, WatchExited, WatchNote, WatchPR}
+var ReeveWatchEvents = []string{WatchWaiting, WatchIdle, WatchBackground, WatchError, WatchExited, WatchNote, WatchPR, WatchStage}
 
 // The states a watched agent is seen in. "running" is the activity
 // "working"; "starting" an agent not seen running yet.
@@ -140,6 +143,10 @@ type watchSeen struct {
 	LastMessage string `json:"last_message,omitempty"`
 	// Since is when the watch began, for an agent still being prepared.
 	Since time.Time `json:"since"`
+	// Stage is the agent's stage as last seen, since StageSince; "" before
+	// the first look.
+	Stage      string    `json:"stage,omitempty"`
+	StageSince time.Time `json:"stage_since,omitempty"`
 }
 
 // WatchEvent is one thing a watched agent did, queued for the Reeve.
@@ -309,6 +316,12 @@ func (w *ReeveWatcher) look(ctx context.Context, taskID string) watchSeen {
 	if state, ok := w.agentState(ctx, taskID); ok {
 		seen.State = state
 	}
+	if stage, err := w.opts.Store.GetWorkStage(ctx, TaskPlace(taskID, "")); err == nil && stage != nil {
+		seen.Stage = stage.Stage
+		if since := parseStageTime(stage.Since); since != nil {
+			seen.StageSince = *since
+		}
+	}
 	return seen
 }
 
@@ -402,7 +415,9 @@ func (w *ReeveWatcher) checkOne(ctx context.Context, watch store.ReeveWatch, set
 	}
 	title := w.title(ctx, watch.TaskID)
 	for _, e := range events {
-		if !asked[e.Kind] && e.Kind != WatchOperatorItem {
+		// An operator item and the work finishing reach every watch.
+		finished := e.Kind == WatchStage && e.To == store.WorkStageFinished
+		if !asked[e.Kind] && e.Kind != WatchOperatorItem && !finished {
 			continue
 		}
 		e.Title = title
@@ -475,6 +490,15 @@ func (w *ReeveWatcher) news(ctx context.Context, taskID string, before watchSeen
 		case old != state:
 			events = append(events, WatchEvent{TaskID: taskID, Kind: WatchPR, At: at, Detail: fmt.Sprintf("pull request #%d is now %s (was %s)", pr.PRNumber, state, old)})
 		}
+	}
+
+	// Its stage: told when it moved since the last look.
+	if stage, err := w.opts.Store.GetWorkStage(ctx, TaskPlace(taskID, "")); err == nil && stage != nil && before.Stage != "" && stage.Stage != before.Stage {
+		e := WatchEvent{TaskID: taskID, Kind: WatchStage, At: at, From: before.Stage, To: stage.Stage, Detail: clipRunes(oneLine(stage.Reason), reeveWatchLastMessage)}
+		if !before.StageSince.IsZero() && now.StageSince.After(before.StageSince) {
+			e.For = now.StageSince.Sub(before.StageSince)
+		}
+		events = append(events, e)
 	}
 
 	// Its state: carried over unless it changed.
@@ -665,6 +689,17 @@ func WatchMessage(events []WatchEvent) string {
 			continue
 		case WatchPR:
 			fmt.Fprintf(&b, "- %s %s\n", name, e.Detail)
+			continue
+		case WatchStage:
+			// "reviewing → finished after 2h 10m: PR #212 merged".
+			fmt.Fprintf(&b, "- %s: stage %s → %s", name, e.From, e.To)
+			if e.For > 0 {
+				fmt.Fprintf(&b, " after %s", e.For.Round(time.Minute))
+			}
+			if e.Detail != "" {
+				fmt.Fprintf(&b, ": %q", e.Detail)
+			}
+			b.WriteString("\n")
 			continue
 		}
 		fmt.Fprintf(&b, "- %s: %s → %s", name, e.From, e.To)
