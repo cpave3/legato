@@ -335,11 +335,14 @@ func (s *Store) ListWaitingWorkflowAttemptsByAgentSession(ctx context.Context, s
 }
 
 func (s *Store) StartWorkflowStepAttempt(ctx context.Context, attempt WorkflowStepAttempt, resolvedInputsJSON string) error {
+	if attempt.Path == "" {
+		attempt.Path = attempt.StepID
+	}
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
 		result, err := tx.ExecContext(ctx, `UPDATE workflow_steps
 			SET status = 'running', resolved_json = ?, latest_attempt = ?, started_at = COALESCE(started_at, datetime('now')), error = ''
 			WHERE run_id = ? AND path = ? AND status IN ('pending','failed','interrupted')`,
-			resolvedInputsJSON, attempt.AttemptNumber, attempt.RunID, attempt.StepID)
+			resolvedInputsJSON, attempt.AttemptNumber, attempt.RunID, attempt.Path)
 		if err != nil {
 			return err
 		}
@@ -349,9 +352,6 @@ func (s *Store) StartWorkflowStepAttempt(ctx context.Context, attempt WorkflowSt
 		}
 		if rows != 1 {
 			return ErrWorkflowStateConflict
-		}
-		if attempt.Path == "" {
-			attempt.Path = attempt.StepID
 		}
 		_, err = tx.NamedExecContext(ctx, `INSERT INTO workflow_step_attempts
 			(id, run_id, path, step_id, attempt_number, executor_type, agent_session_id, task_id, tmux_session, agent_kind, tier, working_dir, status, error)

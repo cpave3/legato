@@ -6,6 +6,7 @@ import (
 
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/ipc"
+	"github.com/cpave3/legato/internal/server"
 )
 
 type fakeNotifier struct {
@@ -15,6 +16,9 @@ type fakeNotifier struct {
 
 func (f *fakeNotifier) NotifyAgentsChanged() { f.called = true }
 func (f *fakeNotifier) NotifyWorkflowChanged(string, string) {
+	f.workflowChanged = true
+}
+func (f *fakeNotifier) NotifyWorkflowChangedKind(string, string, string) {
 	f.workflowChanged = true
 }
 
@@ -346,5 +350,20 @@ func TestIPCMessage_OperatorItemsChangedReachesTheBusInEveryProcess(t *testing.T
 		if !ok || payload.TaskID != "task1" || payload.ItemID != "op-0123456789" {
 			t.Fatalf("%s: payload = %+v", name, payload)
 		}
+	}
+}
+
+// A step an agent completes from its pane reaches serve's advance loop as a
+// completed_step workflow change: the kind is what wakes it.
+func TestServeIPCMessage_CompletedStepKeepsItsKind(t *testing.T) {
+	bus := events.New()
+	srv := server.NewWithSwarm(nil, nil, nil, "", nil, bus, "")
+	changed := bus.Subscribe(events.EventWorkflowChanged)
+
+	handleServeIPCMessage(ipc.Message{Type: "workflow_changed", WorkflowRunID: "wr-1", WorkflowStepID: "work", Kind: "completed_step"}, bus, srv)
+
+	payload, ok := drainEvent(t, changed).Payload.(events.WorkflowChangedPayload)
+	if !ok || payload.RunID != "wr-1" || payload.StepID != "work" || payload.Kind != "completed_step" {
+		t.Fatalf("payload = %+v", payload)
 	}
 }

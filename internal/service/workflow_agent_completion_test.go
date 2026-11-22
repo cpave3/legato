@@ -106,3 +106,41 @@ func TestWorkflowCompleteStopsAgentBeforeNextSharedTaskStep(t *testing.T) {
 		t.Fatalf("cancel observed status=%q starts=%d", executor.cancelObservedStepStatus, executor.cancelObservedStarts)
 	}
 }
+
+// Finishing an agent again, as a recovered advance does, never stops the
+// agent that has since started on the same task under the same tmux name.
+func TestFinishingAFinishedWorkflowAgentAgainLeavesTheNextOne(t *testing.T) {
+	agents, db, tmux := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, db, "workflow-task")
+	spawn := func(attempt string) *store.AgentSession {
+		t.Helper()
+		if err := agents.SpawnAgent(ctx, "workflow-task", 0, 0, AgentSpawnOptions{ExecutionKind: store.ExecutionWorkflowAgent, WorkflowRunID: "run-1", WorkflowAttemptID: attempt}); err != nil {
+			t.Fatal(err)
+		}
+		session, err := db.GetAgentSessionByTaskID(ctx, "workflow-task")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return session
+	}
+	runner := NewWorkflowAgentRunner(agents, db)
+	first := spawn("attempt-1")
+	firstAttempt := store.WorkflowStepAttempt{AgentSessionID: &first.ID, TmuxSession: first.TmuxSession}
+	if err := runner.FinishWorkflowAgent(ctx, firstAttempt); err != nil {
+		t.Fatal(err)
+	}
+	second := spawn("attempt-2")
+	if second.TmuxSession != first.TmuxSession {
+		t.Fatalf("the agents of one task share a tmux name: %q, %q", first.TmuxSession, second.TmuxSession)
+	}
+	if err := runner.FinishWorkflowAgent(ctx, firstAttempt); err != nil {
+		t.Fatalf("finishing the first agent again: %v", err)
+	}
+	if !tmux.sessionAlive(second.TmuxSession) {
+		t.Fatal("finishing the first agent again stopped the second")
+	}
+	if _, err := db.GetAgentSessionByID(ctx, second.ID); err != nil {
+		t.Fatalf("the second agent's session: %v", err)
+	}
+}

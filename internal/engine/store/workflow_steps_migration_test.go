@@ -135,3 +135,31 @@ func TestNestedStepInstancesAreCreatedOnceAndListedByScope(t *testing.T) {
 		t.Fatalf("the runs list shows top-level steps only: %+v, %v", runs, err)
 	}
 }
+
+// An attempt starts the step instance its path names, not a step of the
+// same ID at the top of the run.
+func TestAnAttemptStartsTheInstanceAtItsPath(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	run := WorkflowRun{ID: "wr-path", WorkflowName: "p", WorkflowTitle: "P", DefinitionSource: "p", DefinitionDigest: "d", DefinitionJSON: "{}", InputsJSON: "{}", Status: "running", CurrentStepID: "each/0/build", SchemaVersion: 2}
+	pass := 0
+	if err := s.CreateWorkflowRun(ctx, run, []WorkflowStep{
+		{RunID: "wr-path", Path: "each", StepID: "each", StepOrder: 0, Status: "running"},
+		{RunID: "wr-path", Path: "each/0/build", ParentPath: "each/0", StepID: "build", Pass: &pass, StepOrder: 0, ExecutorType: "agent.run", Status: "pending"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	attempt := WorkflowStepAttempt{ID: "wa-nested", RunID: "wr-path", Path: "each/0/build", StepID: "build", AttemptNumber: 1, ExecutorType: "agent.run", Status: "running"}
+	if err := s.StartWorkflowStepAttempt(ctx, attempt, "{}"); err != nil {
+		t.Fatalf("start the nested instance: %v", err)
+	}
+	view, err := s.GetWorkflowRun(ctx, "wr-path")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range view.Steps {
+		if step.Path == "each/0/build" && (step.Status != "running" || step.LatestAttempt != 1) {
+			t.Fatalf("nested instance = %+v", step)
+		}
+	}
+}
