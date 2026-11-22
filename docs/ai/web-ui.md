@@ -22,6 +22,22 @@ Remote web interface for monitoring and interacting with agent sessions from any
 
 Expressions: `web/src/lib/workflowExpressions.ts` builds on the schema's `x-legato.expressions` (`ExpressionContexts()` in Go) and `task_fields`/`repository_fields`. It holds no rules of its own: each root pattern's placeholders (`<input>`, `<task input>`, `<earlier step>`, `<output>`, `<file output>`, `<path>`…) are filled from the document at the location (`locationOf(path)`: `run_title`, a step's `with`, a file output's `path`, a trigger's `inputs`). `references` lists what can be read there, and `checkExpression` gives the engine's verdict. `internal/engine/workflow/testdata/expressions.json` is a table of references that Go (`TestTheSharedExpressionTable`, through `Validate`) and Vitest both run, so the editor's verdicts can't drift from the engine's. `valuePathAt` finds the value a position is in, the key of a block scalar (`prompt: |`) included. The editor completes inside an open `${{` (`expressionCompletions`), shows what an expression reads on hover (`expressionAt`), and marks refused references (`expressionDiagnostics`) with the schema's checks. The builder's expression picker will use the same module. `editorDiagnostics.ts` turns the server's lines and columns into offsets, and on a line the server marks only its diagnostics show. Tests mock the lazy editor with a textarea (`WorkflowEdit.test.tsx`).
 
+**Visual and YAML** (LEG-471). `WorkflowEditPage` switches between them with an `Editor` radio group (the last choice is in `localStorage` as `legato:workflow-editor-mode`; Visual by default) over one text. `useHistory` holds that text's undo history: each builder change is a step labelled by its `undo.label`, and typing in YAML is one step until a change of another kind. **Undo** and **Redo** work across both sides, and the save, unsaved-changes guard and graph preview are shared. Visual is `components/workflow-editor/WorkflowBuilder.tsx`, reached only through `LazyWorkflowBuilder`, so `yaml` and the document model stay out of the main bundle; the chunk test covers it.
+
+- **Details:** name (read-only when editing, LEG-460), title, description, `run_title` with `ReferencePicker` (`references` for `run_title`), `after_start`.
+- **Inputs:** add, remove, rename (`renameInput`), type, required, secret, default (parsed by type), choices, description.
+- **Steps and triggers:** placeholders that say to edit them in YAML.
+
+`CommitField` writes on blur or Enter, so a word is one undo step. Problems from the server's check show on the field whose path they are on, or under it (`problemsAt`). A file that doesn't parse, or that `parseWorkflow` marks read-only, shows why and **Edit as YAML** instead of the forms. `pages/__tests__/WorkflowBuilder.test.tsx` covers:
+
+- a title edited in Visual, seen in YAML with every comment kept;
+- a YAML edit seen in Visual;
+- an input renamed with its references;
+- an input added, whose result passes the editor's checks;
+- undo across both sides;
+- unparseable YAML, which blocks Visual;
+- problems on their fields.
+
 **Workflow document model** (`web/src/lib/workflowDocument.ts`, LEG-470, the policy LEG-462 decided) is what the builder edits through. Every operation splices the file's text at the `yaml` package's node ranges (`keepSourceTokens`), never `Document.toString()`, which reflows folded scalars. So the bytes of every node an operation does not touch, comments included, stay as they were, and a write of the value already there changes nothing.
 
 - **Reads:** `parseWorkflow` gives `{errors, readOnly, values}`; then `metadata`, `inputsOf`, `stepsOf`, `stepById` and `triggersOf`.

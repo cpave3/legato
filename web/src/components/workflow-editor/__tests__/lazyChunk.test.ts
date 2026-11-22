@@ -23,12 +23,12 @@ describe("the workflow editor chunk", () => {
   })
 
   it("is reached only through a dynamic import", () => {
-    const offenders = sources(src).filter(path => /^import\s+(?!type\b).*workflow-editor\/WorkflowYamlEditor["']/m.test(readFileSync(path, "utf8")))
+    const offenders = sources(src).filter(path => /^import\s+(?!type\b).*workflow-editor\/(WorkflowYamlEditor|WorkflowBuilder)["']/m.test(readFileSync(path, "utf8")))
     expect(offenders.map(path => relative(src, path))).toEqual([])
   })
 
   it("keeps the schema out of the pages", () => {
-    const offenders = sources(join(src, "pages")).filter(path => /^import\s+(?!type\b).*lib\/workflow(Schema|Expressions)["']/m.test(readFileSync(path, "utf8")))
+    const offenders = sources(join(src, "pages")).filter(path => /^import\s+(?!type\b).*lib\/workflow(Schema|Expressions|Document)["']/m.test(readFileSync(path, "utf8")))
     expect(offenders.map(path => relative(src, path))).toEqual([])
   })
 })

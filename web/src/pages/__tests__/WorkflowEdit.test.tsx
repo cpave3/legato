@@ -30,6 +30,7 @@ let fileReply: () => Promise<Response>
 beforeEach(() => {
   localStorage.clear()
   fileReply = () => json({ name: "review", yaml: fileText, path: "/g/review.yaml", folder: "global", digest: "sha256:old", editable: true })
+  localStorage.setItem("legato:workflow-editor-mode", "yaml")
   puts = []
   creates = []
   putReply = () => json({ name: "review", path: "/g/review.yaml", folder: "global", digest: "sha256:new", diagnostics: [] })

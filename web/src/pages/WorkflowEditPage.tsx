@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Save, Trash2 } from "lucide-react"
+import { ArrowLeft, Redo2, Save, Trash2, Undo2 } from "lucide-react"
 import { useServer } from "../hooks/useServer"
 import { useWorkflows } from "../hooks/useWorkflow"
 import { queryKeys } from "../lib/query"
 import { checkWorkflowFile, createWorkflowFile, deleteWorkflowFile, fetchWorkflowFile, saveWorkflowFile, starterWorkflow, WorkflowFileError, type WorkflowCheck, type WorkflowDiagnostic, type WorkflowFile } from "../lib/workflowFiles"
 import { LazyWorkflowYamlEditor } from "../components/workflow-editor/LazyWorkflowYamlEditor"
+import { LazyWorkflowBuilder } from "../components/workflow-editor/LazyWorkflowBuilder"
 import { LazyWorkflowGraph } from "../components/workflow-graph/LazyWorkflowGraph"
 import { Button } from "../components/ui/Button"
 import { LoadingState } from "../components/ui/LoadingState"
@@ -57,6 +58,43 @@ function writeDraft(key: string, draft: Draft | null) {
   } catch { /* kept only where storage works */ }
 }
 
+type Entry = { text: string; label: string; typing: boolean }
+
+// useHistory is the text's undo history, across the YAML and Visual modes:
+// each builder change is a step; typing in YAML is one step until the
+// next change of another kind.
+function useHistory(initial: string | null) {
+  const [state, setState] = useState<{ entries: Entry[]; index: number }>(() => ({ entries: initial === null ? [] : [{ text: initial, label: "", typing: false }], index: 0 }))
+  const current = state.entries[state.index]
+  return {
+    text: current ? current.text : null,
+    canUndo: state.index > 0,
+    canRedo: state.index < state.entries.length - 1,
+    undoLabel: current?.label ?? "",
+    redoLabel: state.entries[state.index + 1]?.label ?? "",
+    reset: (text: string) => setState({ entries: [{ text, label: "", typing: false }], index: 0 }),
+    push: (text: string, label: string, typing = false) => setState(previous => {
+      const here = previous.entries[previous.index]
+      if (here && here.text === text) return previous
+      if (typing && here?.typing) {
+        const entries = [...previous.entries.slice(0, previous.index), { ...here, text }]
+        return { entries, index: previous.index }
+      }
+      const entries = [...previous.entries.slice(0, previous.index + 1), { text, label, typing }]
+      return { entries, index: entries.length - 1 }
+    }),
+    undo: () => setState(previous => ({ ...previous, index: Math.max(0, previous.index - 1) })),
+    redo: () => setState(previous => ({ ...previous, index: Math.min(previous.entries.length - 1, previous.index + 1) })),
+  }
+}
+
+type EditorMode = "visual" | "yaml"
+const MODE_KEY = "legato:workflow-editor-mode"
+
+function storedMode(): EditorMode {
+  try { return localStorage.getItem(MODE_KEY) === "yaml" ? "yaml" : "visual" } catch { return "visual" }
+}
+
 function Problems({ diagnostics }: { diagnostics: WorkflowDiagnostic[] }) {
   if (diagnostics.length === 0) return <p className="text-sm text-lw-text-2">No problems</p>
   return <ul aria-label="Problems" className="flex flex-col gap-1 text-[13px]">
@@ -78,7 +116,13 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   const narrow = useMediaQuery("(max-width: 767px)")
   const [file, setFile] = useState<WorkflowFile | null>(null)
   const [loadError, setLoadError] = useState("")
-  const [text, setText] = useState<string | null>(mode === "new" ? starterWorkflow : null)
+  const history = useHistory(mode === "new" ? starterWorkflow : null)
+  const text = history.text
+  const [editorMode, setEditorMode] = useState<EditorMode>(storedMode)
+  const switchMode = (next: EditorMode) => {
+    setEditorMode(next)
+    try { localStorage.setItem(MODE_KEY, next) } catch { /* only remembered where storage works */ }
+  }
   const [saved, setSaved] = useState("")
   const [digest, setDigest] = useState("")
   const [folder, setFolder] = useState("global")
@@ -108,7 +152,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
       if (!current) return
       setLoadError("")
       setFile(loaded)
-      setText(loaded.yaml)
+      history.reset(loaded.yaml)
       setSaved(loaded.yaml)
       setDigest(loaded.digest)
       const kept = readDraft(key)
@@ -116,6 +160,8 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
       setDraftRead(true)
     }, reason => { if (current) setLoadError(reason instanceof Error ? reason.message : String(reason)) })
     return () => { current = false }
+    // history.reset is a fresh function each render; the file loads once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseUrl, mode, name, key, attempt])
 
   const dirty = text !== null && (mode === "new" ? text !== starterWorkflow : text !== saved)
@@ -233,7 +279,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
 
     {draft && <section role="alertdialog" aria-label="Unsaved changes" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm">
       <p className="flex-1">You left this workflow with unsaved changes. They were kept in this browser.</p>
-      <Button size="sm" variant="outline" onClick={() => { setText(draft.text); if (draft.digest) setDigest(draft.digest); setDraft(null) }}>Restore them</Button>
+      <Button size="sm" variant="outline" onClick={() => { history.push(draft.text, "Restore unsaved changes"); if (draft.digest) setDigest(draft.digest); setDraft(null) }}>Restore them</Button>
       <Button size="sm" variant="ghost" onClick={() => { writeDraft(key, null); setDraft(null) }}>Throw them away</Button>
     </section>}
         {error && <p role="alert" className="break-words rounded-lg border border-lw-danger-line bg-lw-error-soft p-3 text-sm text-lw-danger">{error}</p>}
@@ -243,7 +289,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
       <p>The file changed on disk since you opened it. Reload it to see the change, or keep your edits and save them over it.</p>
       <pre className="max-h-48 overflow-auto rounded border border-lw-line bg-lw-ground p-2 font-lw-mono text-xs">{conflict.yaml}</pre>
       <div className="flex gap-2">
-        <Button size="sm" variant="outline" onClick={() => { setText(conflict.yaml); setSaved(conflict.yaml); setDigest(conflict.digest); setConflict(null) }}>Reload</Button>
+        <Button size="sm" variant="outline" onClick={() => { history.reset(conflict.yaml); setSaved(conflict.yaml); setDigest(conflict.digest); setConflict(null) }}>Reload</Button>
         <Button size="sm" variant="ghost" onClick={() => { setDigest(conflict.digest); setConflict(null) }}>Keep my edits</Button>
       </div>
     </section>}
@@ -265,9 +311,26 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
     </section>}
 
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
-      <section aria-label="YAML" className={narrow ? "h-[28rem] overflow-hidden rounded-xl border border-lw-line" : "h-[36rem] overflow-hidden rounded-xl border border-lw-line"}>
-        <LazyWorkflowYamlEditor value={text} onChange={setText} serverDiagnostics={diagnostics} readOnly={!editable} />
-      </section>
+      <div className="flex min-w-0 flex-col gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div role="radiogroup" aria-label="Editor" className="inline-flex rounded-md border border-lw-line p-0.5">
+            {(["visual", "yaml"] as const).map(option => <button key={option} type="button" role="radio" aria-checked={editorMode === option}
+              className={`min-h-8 rounded px-3 text-xs ${editorMode === option ? "bg-lw-raised text-lw-text" : "text-lw-text-2 hover:text-lw-text"}`}
+              onClick={() => switchMode(option)}>{option === "visual" ? "Visual" : "YAML"}</button>)}
+          </div>
+          {editable && <div className="flex gap-1">
+            <Button size="sm" variant="ghost" disabled={!history.canUndo} title={history.undoLabel ? `Undo ${history.undoLabel}` : "Undo"} onClick={history.undo}><Undo2 size={13} />Undo</Button>
+            <Button size="sm" variant="ghost" disabled={!history.canRedo} title={history.redoLabel ? `Redo ${history.redoLabel}` : "Redo"} onClick={history.redo}><Redo2 size={13} />Redo</Button>
+          </div>}
+        </div>
+        {editorMode === "yaml" || !editable
+          ? <section aria-label="YAML" className={narrow ? "h-[28rem] overflow-hidden rounded-xl border border-lw-line" : "h-[36rem] overflow-hidden rounded-xl border border-lw-line"}>
+            <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} readOnly={!editable} />
+          </section>
+          : <section aria-label="Visual">
+            <LazyWorkflowBuilder text={text} onEdit={change => history.push(change.text, change.undo.label)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={() => switchMode("yaml")} />
+          </section>}
+      </div>
       <div className="flex min-w-0 flex-col gap-4">
         <section aria-label="Check" className="rounded-xl border border-lw-line bg-lw-surface p-3">
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-lw-text-2">{checked ? "Problems" : "Checking…"}</h2>
