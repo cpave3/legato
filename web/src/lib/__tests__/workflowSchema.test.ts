@@ -96,6 +96,11 @@ describe("schemaDiagnostics", () => {
     expect(schemaDiagnostics(valid.replace("title: X\n", ""))[0].message).toBe("a workflow needs title")
   })
 
+  it("needs a step's with when its type does", () => {
+    expect(schemaDiagnostics(valid.replace("    with: {prompt: hi}\n", ""))[0].message).toBe("steps[0] needs with")
+    expect(schemaDiagnostics(valid.replace("schema_version: 1\n", ""))[0].message).toBe("a workflow needs schema_version")
+  })
+
   it("accepts an expression where a number goes", () => {
     const text = head + "steps:\n  - id: a\n    title: A\n    type: github.pr.review_passes\n    with: {repo: a/b, pr_number: \"${{ workflow.inputs.n }}\"}\n"
     expect(schemaDiagnostics(text)).toEqual([])

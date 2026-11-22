@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Save, Trash2 } from "lucide-react"
@@ -36,6 +36,27 @@ function useDebouncedCheck(text: string | null) {
   return { result, error }
 }
 
+type Draft = { text: string; digest: string }
+
+// A draft is the unsaved text kept in this browser, so that leaving the
+// page by any way (another section, browser Back, a reload) loses nothing.
+const draftKey = (baseUrl: string, name: string) => `legato:workflow-draft:${baseUrl}:${name}`
+
+function readDraft(key: string): Draft | null {
+  try {
+    const raw = localStorage.getItem(key)
+    const draft = raw ? JSON.parse(raw) as Draft : null
+    return draft && typeof draft.text === "string" ? draft : null
+  } catch { return null }
+}
+
+function writeDraft(key: string, draft: Draft | null) {
+  try {
+    if (draft) localStorage.setItem(key, JSON.stringify(draft))
+    else localStorage.removeItem(key)
+  } catch { /* kept only where storage works */ }
+}
+
 function Problems({ diagnostics }: { diagnostics: WorkflowDiagnostic[] }) {
   if (diagnostics.length === 0) return <p className="text-sm text-lw-text-2">No problems</p>
   return <ul aria-label="Problems" className="flex flex-col gap-1 text-[13px]">
@@ -67,31 +88,56 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   const [triggers, setTriggers] = useState<string[] | null>(null)
   const [deleting, setDeleting] = useState(false)
   const { result, error: checkError } = useDebouncedCheck(text)
+  const [attempt, setAttempt] = useState(0)
+  const key = draftKey(baseUrl, mode === "new" ? "new" : name)
+  const [draft, setDraft] = useState<Draft | null>(null)
 
   useEffect(() => {
-    if (mode !== "edit") return
+    if (mode !== "edit") {
+      const kept = readDraft(key)
+      if (kept && kept.text !== starterWorkflow) setDraft(kept)
+      return
+    }
     let current = true
+    setLoadError("")
     fetchWorkflowFile(baseUrl, name).then(loaded => {
       if (!current) return
+      setLoadError("")
       setFile(loaded)
       setText(loaded.yaml)
       setSaved(loaded.yaml)
       setDigest(loaded.digest)
+      const kept = readDraft(key)
+      if (kept && kept.text !== loaded.yaml) setDraft(kept)
     }, reason => { if (current) setLoadError(reason instanceof Error ? reason.message : String(reason)) })
     return () => { current = false }
-  }, [baseUrl, mode, name])
+  }, [baseUrl, mode, name, key, attempt])
 
   const dirty = text !== null && (mode === "new" ? text !== starterWorkflow : text !== saved)
   const dirtyRef = useRef(dirty)
   dirtyRef.current = dirty
+  // The unsaved text is kept as a draft, with the digest it was begun at,
+  // until it is saved or thrown away. An offered draft is not overwritten.
+  useEffect(() => {
+    if (draft || text === null) return
+    writeDraft(key, dirty ? { text, digest } : null)
+  }, [key, text, digest, dirty, draft])
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (dirtyRef.current) event.preventDefault() }
+    // A link to elsewhere in the app asks first: the router has no blocker.
+    const click = (event: MouseEvent) => {
+      if (!dirtyRef.current || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return
+      const link = (event.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null
+      if (!link || link.target === "_blank") return
+      const to = new URL(link.href, window.location.href)
+      if (to.origin !== window.location.origin || to.pathname === window.location.pathname) return
+      if (!window.confirm("Leave without saving? Your changes are kept in this browser as a draft.")) { event.preventDefault(); event.stopPropagation() }
+    }
     window.addEventListener("beforeunload", warn)
-    return () => window.removeEventListener("beforeunload", warn)
+    document.addEventListener("click", click, true)
+    return () => { window.removeEventListener("beforeunload", warn); document.removeEventListener("click", click, true) }
   }, [])
-  const leave = useCallback((event: React.MouseEvent) => {
-    if (dirtyRef.current && !window.confirm("Leave without saving? Your changes will be lost.")) event.preventDefault()
-  }, [])
+  const forget = () => { dirtyRef.current = false; writeDraft(key, null) }
 
   const checked = result && result.text === text ? result.check : null
   const diagnostics = checked?.diagnostics ?? []
@@ -110,7 +156,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
     try {
       if (mode === "new") {
         const created = await createWorkflowFile(baseUrl, text, folder, confirmTriggers)
-        dirtyRef.current = false
+        forget()
         await refresh()
         navigate(`/workflows/${encodeURIComponent(created.name)}`)
         return
@@ -137,7 +183,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
     setBusy(true)
     try {
       await deleteWorkflowFile(baseUrl, name, digest)
-      dirtyRef.current = false
+      forget()
       await refresh()
       navigate("/workflows?tab=workflows")
     } catch (reason) {
@@ -151,12 +197,15 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
 
   const frame = (children: React.ReactNode) => <main className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4 font-lw text-lw-text sm:px-6 md:py-6">
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
-      <Link to={back} onClick={leave} className="inline-flex items-center gap-1.5 self-start text-sm text-lw-text-2 hover:text-lw-text"><ArrowLeft size={14} />{mode === "new" ? "Workflows" : "Back to the workflow"}</Link>
+      <Link to={back} className="inline-flex items-center gap-1.5 self-start text-sm text-lw-text-2 hover:text-lw-text"><ArrowLeft size={14} />{mode === "new" ? "Workflows" : "Back to the workflow"}</Link>
       {children}
     </div>
   </main>
 
-  if (loadError) return frame(<p role="alert" className="text-sm text-lw-error">Could not open the workflow: {loadError}</p>)
+  if (loadError) return frame(<div role="alert" className="flex flex-col items-start gap-2 text-sm text-lw-error">
+    <p>Could not open the workflow: {loadError}</p>
+    <Button size="sm" variant="outline" onClick={() => setAttempt(n => n + 1)}>Retry</Button>
+  </div>)
   if (text === null) return frame(<LoadingState label="Opening the file…" size="inline" />)
 
   return frame(<>
@@ -177,7 +226,12 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
       </div>
     </header>
 
-    {error && <p role="alert" className="break-words rounded-lg border border-lw-danger-line bg-lw-error-soft p-3 text-sm text-lw-danger">{error}</p>}
+    {draft && <section role="alertdialog" aria-label="Unsaved changes" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm">
+      <p className="flex-1">You left this workflow with unsaved changes. They were kept in this browser.</p>
+      <Button size="sm" variant="outline" onClick={() => { setText(draft.text); if (draft.digest) setDigest(draft.digest); setDraft(null) }}>Restore them</Button>
+      <Button size="sm" variant="ghost" onClick={() => { writeDraft(key, null); setDraft(null) }}>Throw them away</Button>
+    </section>}
+        {error && <p role="alert" className="break-words rounded-lg border border-lw-danger-line bg-lw-error-soft p-3 text-sm text-lw-danger">{error}</p>}
     {checkError && <p role="alert" className="text-sm text-lw-error">Could not check the file: {checkError}</p>}
 
     {conflict && <section role="alertdialog" aria-label="The file changed" className="flex flex-col gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm">

@@ -60,6 +60,16 @@ export function properties(schema: Schema | undefined, value?: unknown): Record<
   return out
 }
 
+/** requiredOf is an object schema's required keys for a value: its own,
+ * and those of each allOf branch whose if the value matches. */
+export function requiredOf(schema: Schema | undefined, value?: unknown): string[] {
+  const s = deref(schema)
+  if (!s) return []
+  const out: string[] = [...(s.required ?? [])]
+  for (const branch of s.allOf ?? []) if (branch.if && matches(branch.if, value)) out.push(...(branch.then?.required ?? []))
+  return out
+}
+
 function childSchema(schema: Schema | undefined, key: string | number, value: unknown): Schema | undefined {
   const s = deref(schema)
   if (!s) return undefined
@@ -369,7 +379,7 @@ function check(doc: Document, node: YamlNode | null, raw: Schema | undefined, pa
       else report(`${pathText(path) || "a workflow"} has no field ${key}`, keyRange)
     }
   }
-  for (const key of schema.required ?? []) if (!keys.includes(key)) report(`${pathText(path) || "a workflow"} needs ${key}`, anchor)
+  for (const key of requiredOf(schema, value)) if (!keys.includes(key)) report(`${pathText(path) || "a workflow"} needs ${key}`, anchor)
   for (const branch of schema.allOf ?? []) {
     if (Array.isArray(branch.oneOf)) {
       const names = branch.oneOf.flatMap((b: Schema) => b.required ?? [])

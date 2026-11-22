@@ -181,6 +181,8 @@ When you save, these rules apply:
 - A workflow's `name` can't change once it is made. Make a new workflow to give it another name. A new workflow can't take a name another workflow has, a built-in's included.
 - Runs that have started keep the definition they started with. Their page says that the workflow has changed since.
 
+If you leave the editor with unsaved changes, Legato asks first when it can and keeps them in this browser either way: the next time you open the workflow it offers them back.
+
 **Delete** on the editor removes the file. The workflow's runs are kept, and this Legato forgets its trigger switches. A built-in workflow, such as `legato-job`, has no file: **Copy to my workflows** on its page writes it to your workflows folder as a file of the same name, which then replaces the built-in and can be edited. A file in `~/.legato/workflows` can be edited, but new workflows are never put there. A file that is a link to somewhere outside its folder is read-only.
 
 ### Run from a board card

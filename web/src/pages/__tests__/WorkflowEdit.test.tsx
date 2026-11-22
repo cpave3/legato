@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { MemoryRouter, Route, Routes } from "react-router-dom"
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { WorkflowEditPage } from "../WorkflowEditPage"
@@ -25,7 +25,11 @@ let puts: { yaml: string; digest: string; confirm_triggers: boolean }[]
 let creates: { yaml: string; folder: string }[]
 let putReply: (body: { confirm_triggers: boolean }) => Promise<Response>
 
+let fileReply: () => Promise<Response>
+
 beforeEach(() => {
+  localStorage.clear()
+  fileReply = () => json({ name: "review", yaml: fileText, path: "/g/review.yaml", folder: "global", digest: "sha256:old", editable: true })
   puts = []
   creates = []
   putReply = () => json({ name: "review", path: "/g/review.yaml", folder: "global", digest: "sha256:new", diagnostics: [] })
@@ -36,7 +40,7 @@ beforeEach(() => {
       const bad = String(body.yaml).includes("agent.nope")
       return json({ definition: bad ? null : { name: "review" }, graph: bad ? null : { nodes: [], edges: [] }, diagnostics: bad ? [badType] : [] })
     }
-    if (path === "/api/workflows/review/file" && !init?.method) return json({ name: "review", yaml: fileText, path: "/g/review.yaml", folder: "global", digest: "sha256:old", editable: true })
+    if (path === "/api/workflows/review/file" && !init?.method) return fileReply()
     if (path === "/api/workflows/review/file" && init?.method === "PUT") { puts.push(body); return putReply(body) }
     if (path === "/api/workflow-files" && init?.method === "POST") { creates.push(body); return json({ name: "my-workflow", path: "/p/my-workflow.workflow.yaml", folder: body.folder, digest: "sha256:x", diagnostics: [] }, 201) }
     return json({}, 404)
@@ -51,7 +55,9 @@ function renderAt(path: string) {
       <Route path="/workflows/new" element={<WorkflowEditPage mode="new" />} />
       <Route path="/workflows/:name/edit" element={<WorkflowEditPage mode="edit" />} />
       <Route path="/workflows/:name" element={<p>workflow page</p>} />
+      <Route path="/board" element={<p>board page</p>} />
     </Routes>
+    <Link to="/board">Board</Link>
   </MemoryRouter></QueryClientProvider>)
 }
 
@@ -112,4 +118,37 @@ it("asks before a save that switches a trigger on", async () => {
   fireEvent.click(within(ask).getByRole("button", { name: "Save and switch on" }))
   await waitFor(() => expect(puts.map(p => p.confirm_triggers)).toEqual([false, true]))
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull())
+})
+
+it("keeps unsaved text as a draft when the page is left, and offers it back", async () => {
+  const first = renderAt("/workflows/review/edit")
+  await waitFor(() => expect(editor().value).toBe(fileText))
+  type(fileText.replace("title: Review", "title: Kept"))
+  first.unmount()
+  renderAt("/workflows/review/edit")
+  const offer = await screen.findByRole("alertdialog", { name: "Unsaved changes" })
+  fireEvent.click(within(offer).getByRole("button", { name: "Restore them" }))
+  expect(editor().value).toContain("title: Kept")
+})
+
+it("asks before a link elsewhere in the app takes the page away", async () => {
+  const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true)
+  renderAt("/workflows/review/edit")
+  await waitFor(() => expect(editor().value).toBe(fileText))
+  type(fileText.replace("title: Review", "title: Kept"))
+  fireEvent.click(screen.getByRole("link", { name: "Board" }))
+  expect(screen.queryByText("board page")).toBeNull()
+  fireEvent.click(screen.getByRole("link", { name: "Board" }))
+  expect(await screen.findByText("board page")).toBeTruthy()
+  expect(confirm).toHaveBeenCalledTimes(2)
+  confirm.mockRestore()
+})
+
+it("retries a file that could not be read", async () => {
+  fileReply = () => json({ error: "the server is restarting" }, 503)
+  renderAt("/workflows/review/edit")
+  const alert = await screen.findByRole("alert")
+  fileReply = () => json({ name: "review", yaml: fileText, path: "/g/review.yaml", folder: "global", digest: "sha256:old", editable: true })
+  fireEvent.click(within(alert).getByRole("button", { name: "Retry" }))
+  await waitFor(() => expect(editor().value).toBe(fileText))
 })
