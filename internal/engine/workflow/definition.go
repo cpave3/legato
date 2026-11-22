@@ -146,7 +146,7 @@ func (d *Definition) Validate() error {
 		if step.Trigger != "automatic" && step.Trigger != "manual" && step.Trigger != TriggerAgentEnded {
 			return fmt.Errorf("step %q has unsupported trigger %q", step.ID, step.Trigger)
 		}
-		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "agent.dispatch" && step.Type != "agent.interview" && step.Type != "agent.stop" && step.Type != "worktree.remove" && step.Type != "file.remove" && step.Type != "task.context" && step.Type != "task.working_dir.resolve" && step.Type != "task.note" && step.Type != "task.metadata.set" && step.Type != "task.move" && step.Type != "learning.packet.prepare" && step.Type != "learning.proposals.submit" && step.Type != "chimera.session.remove" && step.Type != "repo.ensure" && step.Type != "github.pr.review_passes" {
+		if _, known := catalogByType[step.Type]; !known {
 			return fmt.Errorf("step %q has unsupported type %q", step.ID, step.Type)
 		}
 		if err := validateStepContract(*step, d.Inputs); err != nil {
@@ -173,113 +173,6 @@ func (d *Definition) Validate() error {
 			declared[key] = true
 		}
 		availableOutputs[step.ID] = declared
-	}
-	return nil
-}
-
-func validateStepContract(step Step, inputs map[string]Input) error {
-	required := []string{}
-	switch step.Type {
-	case "agent.dispatch":
-		required = []string{"task"}
-		if err := validatePromptOrMacro(step); err != nil {
-			return err
-		}
-		if task, ok := step.With["task"]; ok && !wholeTaskReference(task, inputs) {
-			return fmt.Errorf("with task must be a whole task reference")
-		}
-	case "task.context":
-		required = []string{"task"}
-		if task, ok := step.With["task"]; ok && !wholeTaskReference(task, inputs) {
-			return fmt.Errorf("with task must be a whole task reference")
-		}
-	case "task.working_dir.resolve":
-		required = []string{"task", "fallback"}
-		if task, ok := step.With["task"]; ok && !wholeTaskReference(task, inputs) {
-			return fmt.Errorf("with task must be a whole task reference")
-		}
-	case "task.move":
-		required = []string{"task", "column"}
-		if task, ok := step.With["task"]; ok && !wholeTaskReference(task, inputs) {
-			return fmt.Errorf("with task must be a whole task reference")
-		}
-		if column, ok := step.With["column"]; ok {
-			if text, literal := column.(string); !literal || (len(expressionPattern.FindAllStringSubmatch(text, -1)) == 0 && strings.TrimSpace(text) == "") {
-				return fmt.Errorf("with column must be a non-empty string")
-			}
-		}
-	case "agent.run":
-		if err := validatePromptOrMacro(step); err != nil {
-			return err
-		}
-		if keep, ok := step.With["keep_agent"]; ok {
-			if _, boolean := keep.(bool); !boolean {
-				return fmt.Errorf("with keep_agent must be true or false")
-			}
-		}
-		if engram, ok := step.With["engram"]; ok {
-			if _, text := engram.(string); !text {
-				return fmt.Errorf("with engram must be the name of an engram")
-			}
-		}
-	case "github.pr.review_passes":
-		required = []string{"repo", "pr_number"}
-		for _, key := range []string{"agent_author"} {
-			if value, ok := step.With[key]; ok {
-				if text, isText := value.(string); isText && !expressionPattern.MatchString(text) {
-					return fmt.Errorf("with %s must be true or false", key)
-				} else if !isText {
-					if _, boolean := value.(bool); !boolean {
-						return fmt.Errorf("with %s must be true or false", key)
-					}
-				}
-			}
-		}
-	case "task.note":
-		if optional, ok := step.With["optional"]; ok {
-			if _, boolean := optional.(bool); !boolean {
-				return fmt.Errorf("with optional must be true or false")
-			}
-		}
-	case "agent.stop":
-		required = []string{"task"}
-	case "chimera.session.remove":
-		required = []string{"task"}
-		if task, ok := step.With["task"]; ok && !wholeTaskReference(task, inputs) {
-			return fmt.Errorf("with task must be a whole task reference")
-		}
-	case "learning.packet.prepare":
-		required = []string{"task", "limits"}
-	case "learning.proposals.submit":
-		required = []string{"operations"}
-		if _, attempt := step.With["attempt_id"]; !attempt {
-			if _, generation := step.With["generation"]; !generation {
-				return fmt.Errorf("with requires attempt_id or generation")
-			}
-		}
-	}
-	for _, field := range required {
-		if _, ok := step.With[field]; !ok {
-			return fmt.Errorf("with requires %s", field)
-		}
-	}
-	return nil
-}
-
-// validatePromptOrMacro checks that an agent step says what to ask with
-// exactly one of prompt and macro (a macro's name, resolved when it runs).
-func validatePromptOrMacro(step Step) error {
-	_, prompt := step.With["prompt"]
-	macro, hasMacro := step.With["macro"]
-	switch {
-	case prompt && hasMacro:
-		return fmt.Errorf("with takes prompt or macro, not both")
-	case !prompt && !hasMacro:
-		return fmt.Errorf("with requires prompt or macro")
-	case hasMacro:
-		if text, ok := macro.(string); !ok || strings.TrimSpace(text) == "" {
-			return fmt.Errorf("with macro must be the name of a macro")
-		}
 	}
 	return nil
 }
