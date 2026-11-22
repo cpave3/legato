@@ -230,10 +230,17 @@ var routeClassTable = []routeClassEntry{
 
 	// Workflows
 	{"GET", "/api/workflows", ClassRead, "List the workflows, each with its workflow graph"},
+	{"GET", "/api/workflow-schema", ClassRead, "Read the JSON Schema of a workflow file"},
 	{"GET", "/api/workflow-templates", ClassRead, "List the bundled workflow templates and where they can go"},
 	{"POST", "/api/workflow-templates/{template}", ClassChange, "Add a bundled workflow template to a workflows folder"},
 	{"POST", "/api/workflow-drafts", ClassChange, "Save a drafted workflow, its triggers paused, to the workflows folder"},
 	{"POST", "/api/workflows/{name}/runs", ClassChange, "Start a workflow"},
+	{"GET", "/api/workflows/{name}/file", ClassRead, "Read a workflow's file, as its bytes, with its digest and whether it can be edited"},
+	{"PUT", "/api/workflows/{name}/file", ClassChange, "Save a workflow's file over the version it was read at"},
+	{"DELETE", "/api/workflows/{name}/file", ClassChange, "Delete a workflow's file"},
+	{"POST", "/api/workflows/{name}/copy", ClassChange, "Copy a built-in workflow to a workflows folder"},
+	{"POST", "/api/workflow-files", ClassChange, "Create a workflow file in a workflows folder"},
+	{"POST", "/api/workflow-files/check", ClassRead, "Check a workflow file's text, writing nothing"},
 	{"PUT", "/api/workflows/{name}/triggers/{trigger}", ClassChange, "Switch a workflow's trigger on or off here"},
 	{"DELETE", "/api/workflows/{name}/triggers/{trigger}", ClassChange, "Leave a workflow's trigger to its file"},
 	{"GET", "/api/workflow-triggers/{request_id}", ClassRead, "Read a workflow trigger request"},

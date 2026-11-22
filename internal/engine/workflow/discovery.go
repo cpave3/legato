@@ -24,6 +24,9 @@ type DiscoveryResult struct {
 	Definitions  []*Definition      `json:"definitions"`
 	Errors       []DiscoveryError   `json:"errors"`
 	Repositories []RepositoryPreset `json:"repositories"`
+	// Shadows names, by workflow, the files a later folder's file of the
+	// same name replaced, earliest first.
+	Shadows map[string][]string `json:"shadows,omitempty"`
 }
 
 // Discover loads global then project definitions. Project definitions replace
@@ -68,6 +71,12 @@ func DiscoverPaths(dirs ...string) DiscoveryResult {
 				continue
 			}
 			seen[definition.Name] = path
+			if previous, ok := byName[definition.Name]; ok {
+				if result.Shadows == nil {
+					result.Shadows = map[string][]string{}
+				}
+				result.Shadows[definition.Name] = append(result.Shadows[definition.Name], previous.Source)
+			}
 			byName[definition.Name] = definition
 		}
 	}

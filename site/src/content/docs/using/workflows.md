@@ -14,7 +14,8 @@ Each run keeps its inputs, the progress of every step, each attempt, the outputs
 Legato discovers YAML definitions from:
 
 1. `$XDG_CONFIG_HOME/legato/workflows` (normally `~/.config/legato/workflows`)
-2. `.legato/workflows` in the current project
+2. `.legato/workflows` in the checkout of each [repository preset](#repository-presets) that has a `primary_dir`
+3. `.legato/workflows` in the current project
 
 Legato ships example workflows; `legato workflow add` lists them, and `legato workflow add <name>` writes one to your global folder (or `.legato/workflows` with `--project`), keeping a file of that name unless you add `--force`:
 
@@ -37,7 +38,7 @@ In the web UI, **Add from template** on the **Workflows** tab (also offered when
 
 The browser extension starts `review-pr` and `discuss-pr` with the repository and number only; a workflow of yours of the same name that declares a `primary_dir` input still gets the matching repository preset's folder.
 
-Legato also reads `~/.legato/workflows` for compatibility. Precedence is legacy global, XDG global, then project-local. A later definition overrides an earlier definition with the same `name`. The selected source path is stored on every run.
+Legato also reads `~/.legato/workflows` for compatibility. Precedence is legacy global, XDG global, each repository's folder in the order the presets are listed, then project-local. A folder that is more than one of these is read once, at its highest precedence. A later definition overrides an earlier definition with the same `name`. The Workflows tab shows only the one that wins, with a note that it replaces the others. The selected source path is stored on every run.
 
 ## Repository presets
 
@@ -101,6 +102,17 @@ run_title: Review PR #${{ workflow.inputs.pr_number }}
 
 Set `after_start` to control web navigation after a manual launch: `workflow` (the default) opens the run, `stay` closes the dialog without changing pages, and `agent` opens Agents focused on the selected task. `agent` requires exactly one required task input. This is presentation-only; it does not change workflow execution or automatic trigger behavior.
 
+### Writing workflows in your own editor
+
+Legato publishes a JSON Schema of version 1 workflow files at <https://cpave3.github.io/legato/schemas/workflow-v1.schema.json>. A running Legato serves the same schema at `GET /api/workflow-schema`. An editor with the YAML language server, such as VS Code with the Red Hat YAML extension, completes keys, checks values and shows each field's description when the file starts with:
+
+```yaml
+# yaml-language-server: $schema=https://cpave3.github.io/legato/schemas/workflow-v1.schema.json
+schema_version: 1
+```
+
+The schema knows each step type's `with` fields. It cannot check `${{ }}` references or the rules that depend on earlier steps, so run `legato workflow validate <file>` as well. A `with` key that a step's type doesn't read is flagged by the schema and is a warning from `legato workflow validate`. Legato ignores such keys for now, and a later release will refuse them, so remove any you find, such as a misspelt `promt:`.
+
 Workflow definitions do not support `notify_on_complete`. Successful runs remain in workflow history and do not create Attention items; Attention is reserved for manual gates, waiting agents, and failures. Remove this field from older workflow YAML because schema parsing is strict.
 
 ### Runs and workflows in the web UI
@@ -133,7 +145,7 @@ The **Workflows** tab lists each workflow with its steps (✋ marks one that wai
 
 ### A workflow's page
 
-Select a workflow's title on the **Workflows** tab to open its page. It shows the workflow's title, description and file, and its **workflow graph**: the workflow drawn as nodes, built from its YAML. The graph is read-only; to change the workflow, edit its file.
+Select a workflow's title on the **Workflows** tab to open its page. It shows the workflow's title, description and file, and its **workflow graph**: the workflow drawn as nodes, built from its YAML. The graph is read-only: **Edit** opens the workflow's file in the editor (see [Create and edit in the web UI](#create-and-edit-in-the-web-ui)).
 
 - **Run by hand** is the node every workflow starts from when you run it yourself.
 - Each trigger the workflow declares is a node too, leading into the first step: when it fires (**Card enters Triage**, **Every weekday at 09:00**, **Changes requested on a PR**), whether it is **on here** or **paused here**, and its loop stop (**3/day**).
@@ -150,6 +162,61 @@ Select a step to see its own YAML in the panel beside the graph, with **Copy** a
 Select a trigger to see its settings in the panel beside the graph: whether it asks before each run, its loop stop, what its file says, and the trigger as its YAML declares it. Its switch turns it on or pauses it on this Legato, as on the **Workflows** tab; a schedule also lists its next due times and its missed runs.
 
 **Run** opens the form for its inputs, and **Recent runs** lists that workflow's last ten runs. A file that can't be parsed shows its error instead of a graph.
+
+### Create and edit in the web UI
+
+**New workflow** on the **Workflows** tab, beside **Add from template**, opens an editor with a small workflow that is valid as it is: one step that runs an agent on a prompt. Pick the folder it goes in (yours, a repository's checkout or the project's) and press **Create**. **Edit** on a workflow's page opens its file in the same editor, as the file says it, comments and all. **Save** writes exactly what you typed.
+
+The editor has two sides, **Visual** and **YAML**, and you can switch between them at any time without losing work: both edit the same file.
+
+- **Visual** shows the workflow as forms.
+  - **Details** holds the name, title, description, the run title (**${{ }}** inserts an input), and what the web UI opens after a run starts.
+  - **Inputs** adds, removes and renames inputs, with each input's type, whether it is required or secret, its default, choices and description. Renaming an input changes every `${{ workflow.inputs.<name> }}` that reads it, and the triggers' mappings of it.
+  - **Steps** lists the steps in order.
+    - **Add step** offers every step type with what it does.
+    - Each step has its ID, title and how it starts (by itself, when you start it, or when the agent ends), then the fields of its type: text, a prompt, switches, numbers, choices, your macros, agent tools and tiers, board columns, and the workflow's task or a task input.
+    - **Prompt** or **Macro** is a choice.
+    - **${{ }}** beside a field inserts what it can read.
+    - Each step also lists the outputs it declares, with their types and, for a file, its path.
+    - Move a step with its arrows or by dragging it. A move that would make a step read the outputs of one after it is refused, with the reference named.
+    - Removing a step that others read asks first.
+    - A field the step's type doesn't know is kept, and named, for you to edit in YAML.
+  - **Triggers** shows **Run by hand**, which every workflow can, then a card for each trigger. **Add trigger** offers the kinds the workflow doesn't have yet, and a new trigger starts paused.
+    - Each card says whether the trigger starts runs by itself in the file, whether it asks you first, and its runs a day at most.
+    - Each card maps the workflow's inputs from what the trigger gives, with **${{ }}** offering that trigger's own references.
+    - A column-entry trigger takes its column, whether it also runs on handed-off cards, and conditions: all or any of a list, a **not**, or a field compared with a value.
+    - A schedule is either **Every** (day, weekday or week, at a time) or **Cron**, with its time zone and what to do about missed runs. It shows its next three runs as Legato works them out.
+    - Removing a trigger removes it and its comments, and nothing else.
+  - A change touches only what it changes: the rest of the file, comments included, stays as you wrote it.
+  - Problems Legato finds show on their fields.
+  - A file whose YAML doesn't parse, or that uses YAML anchors, aliases or merge keys, opens in YAML only.
+- **Undo** and **Redo** go back and forth through your changes on both sides.
+- The side you used last is remembered on this device.
+
+The YAML side knows the workflow format, from the same schema Legato checks files with:
+
+- As you type, it offers the keys that fit where you are: the top-level fields, the trigger kinds under `on:`, the step types (with what each does), and each step type's `with` fields. It also offers the values of fields that take one of a few, such as `catch_up` or `scope`, and `true` and `false`.
+- Hover over a key to read what it is for.
+- Inside `${{ }}` it offers what can be read at that place:
+  - in a step's `with`: the workflow's inputs, a task input's fields (`.title`, `.metadata.`…), `workflow.task`, the outputs that earlier steps declare, and the step's own file outputs;
+  - in `run_title`: the inputs alone;
+  - in a file output's `path`: the inputs, the task, and the outputs of earlier steps;
+  - in a trigger's `inputs`: what that trigger gives, such as `schedule.time`, `event.pr_number` or `task.title`.
+
+  Hover over an expression to see what it reads. One that Legato would refuse, such as a later step's output, is marked as you type.
+- Problems are marked on their lines and listed beside the editor, as you type and again when Legato checks the file, which also checks the `${{ }}` references and each step's rules. A `with` key that the step's type doesn't read is a warning: Legato ignores it for now and a later release will refuse it.
+- **Save** stays off while the file has an error. Beside the editor, the workflow graph shows what you are building.
+
+When you save, these rules apply:
+
+- If the file changed on disk since you opened it, the save is refused. Choose **Reload** to see the file as it is now, or **Keep my edits** to save yours over it.
+- A save that would switch on a trigger, so that it starts runs by itself, asks first: **Save and switch on** goes ahead. A trigger you paused on this Legato with its switch doesn't ask.
+- A workflow's `name` can't change once it is made. Make a new workflow to give it another name. A new workflow can't take a name another workflow has, a built-in's included.
+- Runs that have started keep the definition they started with. Their page says that the workflow has changed since.
+
+If you leave the editor with unsaved changes, Legato asks first when it can and keeps them in this browser either way: the next time you open the workflow it offers them back.
+
+**Delete** on the editor removes the file. The workflow's runs are kept, and this Legato forgets its trigger switches. A built-in workflow, such as `legato-job`, has no file: **Copy to my workflows** on its page writes it to your workflows folder as a file of the same name, which then replaces the built-in and can be edited. A file in `~/.legato/workflows` can be edited, but new workflows are never put there. A file that is a link to somewhere outside its folder is read-only.
 
 ### Run from a board card
 
@@ -178,6 +245,8 @@ Conditions support nested `all`, `any`, and `not`, and field comparisons using `
 
 On a [worker](/legato/running/instances/), a column trigger skips cards handed off from a main: they are the main's, and the main's own workflows run when the task comes home. Set `handed_off: true` on the trigger to run it on those cards too.
 
+In the web UI's editor, the builder's **Triggers** section edits this trigger as a form: see [Create and edit in the web UI](#create-and-edit-in-the-web-ui).
+
 ### On a schedule
 
 A `schedule` trigger runs a workflow at due times: every day, every weekday, or once a week at a time, or as a cron expression says.
@@ -198,6 +267,8 @@ Give either `every` and `at` (and `on` for `weekly`), or `cron`: five fields, mi
 
 A run's inputs may read `${{ schedule.time }}`, its due time, and `${{ schedule.previous_time }}`, the due time before it, so a run can cover "since last time". Each due time makes one run, however many Legatos (the TUI and `legato serve`, say) share the database. The **Workflows** tab shows each schedule's next three runs and what its last one did.
 
+In the web UI's editor, the builder's **Triggers** section edits this trigger as a form: see [Create and edit in the web UI](#create-and-edit-in-the-web-ui).
+
 #### Missed runs
 
 When Legato starts, the due times that passed while no Legato was running (since the last one it recorded) are recorded as **missed**, and the Workflows tab lists them with why. `catch_up` says what then happens: `once`, the default, makes one late run for all of them, whose `${{ schedule.previous_time }}` is the due time before the first missed one, so it covers them all; `skip` makes none. A restart does not record or run them again. A scheduled run that cannot start reaches [Attention](/legato/using/attention/) as a failed trigger.
@@ -216,6 +287,8 @@ on:
 ```
 
 With no inputs to map, write `pr.changes_requested: {}`. The inputs may also read `${{ event.pr_url }}` and `${{ event.reviewer }}`. The [loop stop](#the-loop-stop) counts runs by the task.
+
+In the web UI's editor, the builder's **Triggers** section edits this trigger as a form: see [Create and edit in the web UI](#create-and-edit-in-the-web-ui).
 
 ### Pausing a trigger
 

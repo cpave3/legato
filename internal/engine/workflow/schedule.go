@@ -58,25 +58,27 @@ var monthNames = map[string]int{"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5
 // time of day, a known zone and catch-up policy, and declared inputs.
 func (s *ScheduleTrigger) Validate(inputs map[string]Input) error {
 	if _, err := s.spec(); err != nil {
-		return fmt.Errorf("schedule: %w", err)
+		field := "every"
+		if s.Cron != "" {
+			field = "cron"
+		}
+		return within(field, fmt.Errorf("schedule: %w", err))
 	}
 	if s.Timezone != "" {
 		if _, err := time.LoadLocation(s.Timezone); err != nil {
-			return fmt.Errorf("schedule: unknown timezone %q", s.Timezone)
+			return within("timezone", fmt.Errorf("schedule: unknown timezone %q", s.Timezone))
 		}
 	}
 	switch s.CatchUp {
 	case "", CatchUpOnce, CatchUpSkip:
 	default:
-		return fmt.Errorf("schedule: catch_up must be once or skip, got %q", s.CatchUp)
+		return within("catch_up", fmt.Errorf("schedule: catch_up must be once or skip, got %q", s.CatchUp))
 	}
 	if err := validateMaxRunsPerDay(s.MaxRunsPerDay); err != nil {
-		return fmt.Errorf("schedule %w", err)
+		return within("max_runs_per_day", fmt.Errorf("schedule %w", err))
 	}
-	for key := range s.Inputs {
-		if _, ok := inputs[key]; !ok {
-			return fmt.Errorf("trigger input %q is not declared", key)
-		}
+	if err := validateTriggerInputs(s.Inputs, inputs); err != nil {
+		return err
 	}
 	return nil
 }

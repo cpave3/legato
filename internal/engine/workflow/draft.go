@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -87,26 +85,11 @@ func SaveDraft(data []byte, dir string, taken func(name string) bool) (string, e
 	if err != nil {
 		return "", err
 	}
-	if !workflowNamePattern.MatchString(definition.Name) {
-		return "", fmt.Errorf("%q is not a workflow name: use lower-case letters, digits, '.', '-' and '_'", definition.Name)
+	if err := ValidName(definition.Name); err != nil {
+		return "", err
 	}
 	if taken != nil && taken(definition.Name) {
 		return "", fmt.Errorf("%w: %s", ErrWorkflowNameTaken, definition.Name)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	path := filepath.Join(dir, definition.Name+".workflow.yaml")
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if errors.Is(err, os.ErrExist) {
-		return "", fmt.Errorf("%w: %s", ErrWorkflowNameTaken, path)
-	}
-	if err != nil {
-		return "", err
-	}
-	if _, err := file.Write(paused); err != nil {
-		file.Close()
-		return "", err
-	}
-	return path, file.Close()
+	return CreateFile(dir, definition.Name, paused)
 }

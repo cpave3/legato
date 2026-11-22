@@ -12,8 +12,9 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
-func WorkflowDefinitions(globalDir, projectDir string) workflowengine.DiscoveryResult {
-	return workflowengine.WithBuiltIns(workflowengine.Discover(globalDir, projectDir), service.BuiltInJobWorkflow())
+// WorkflowDefinitions is every workflow in folders, then the built-ins.
+func WorkflowDefinitions(folders []workflowengine.Folder) workflowengine.DiscoveryResult {
+	return workflowengine.WithBuiltIns(workflowengine.DiscoverFolders(folders), service.BuiltInJobWorkflow())
 }
 func WorkflowValidate(path string, data []byte) (*workflowengine.Definition, error) {
 	return workflowengine.Parse(path, data)

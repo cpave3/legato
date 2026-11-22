@@ -95,3 +95,15 @@ func (c *WorkflowTriggerCoordinator) declared(workflowName, kind string) error {
 	}
 	return fmt.Errorf("no workflow %q: %w", workflowName, ErrNoSuchTrigger)
 }
+
+// TriggerSwitch is this Legato's switch of a workflow's trigger; ok is
+// false when there is none and the file decides.
+func (c *WorkflowTriggerCoordinator) TriggerSwitch(ctx context.Context, workflowName, kind string) (enabled, ok bool, err error) {
+	return c.store.WorkflowTriggerSwitchFor(ctx, workflowName, kind)
+}
+
+// ForgetTriggers forgets this Legato's switches of a workflow's triggers,
+// as when its file is deleted.
+func (c *WorkflowTriggerCoordinator) ForgetTriggers(ctx context.Context, workflowName string) error {
+	return c.store.DeleteWorkflowTriggerSwitches(ctx, workflowName)
+}

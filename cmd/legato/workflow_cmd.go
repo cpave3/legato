@@ -51,6 +51,9 @@ func runWorkflowCmd(args []string) int {
 	if args[0] == "add" {
 		return runWorkflowAdd(positional, flags)
 	}
+	if args[0] == "validate" {
+		return runWorkflowValidate(positional, flagPresent(flags, "json"))
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return renderCommandError("workflow."+args[0], workflowCommandError(err), flags["json"] != "")
@@ -65,23 +68,14 @@ func runWorkflowCmd(args []string) int {
 		return renderCommandError("workflow."+args[0], workflowCommandError(err), flags["json"] != "")
 	}
 	ctx := context.Background()
-	global, project := workflowDirs()
+	repositories := workflowRepositoriesFor(cfg, db)()
 	verb := args[0]
 	fail := func(err error) int {
 		return renderCommandError("workflow."+verb, workflowCommandError(err), flags["json"] != "")
 	}
 	switch verb {
 	case "list":
-		return encodeWorkflowOutput(cli.WorkflowDefinitions(global, project), flags["json"] != "")
-	case "validate":
-		if len(positional) != 1 {
-			return fail(fmt.Errorf("usage: legato workflow validate <name-or-file>"))
-		}
-		definition, err := resolveWorkflowDefinition(positional[0], global, project)
-		if err != nil {
-			return fail(err)
-		}
-		return encodeWorkflowOutput(definition, true)
+		return encodeWorkflowOutput(cli.WorkflowDefinitions(workflowFolders(repositories)), flags["json"] != "")
 	case "runs":
 		limit, _ := strconv.Atoi(flags["limit"])
 		if err := cli.WorkflowRuns(ctx, svc, flags["status"], limit, os.Stdout); err != nil {
@@ -98,7 +92,7 @@ func runWorkflowCmd(args []string) int {
 		if len(positional) != 1 {
 			return fail(fmt.Errorf("usage: legato workflow run <name> --input key=value"))
 		}
-		definition, err := resolveWorkflowDefinition(positional[0], global, project)
+		definition, err := resolveWorkflowDefinition(positional[0], repositories)
 		if err != nil {
 			return fail(err)
 		}
@@ -166,11 +160,51 @@ func runWorkflowCmd(args []string) int {
 	return 0
 }
 
-func resolveWorkflowDefinition(name, global, project string) (*workflowengine.Definition, error) {
+// runWorkflowValidate checks a workflow file, or a discovered workflow by
+// name, without opening Legato's database. A file's problems are printed
+// as file:line:col: message, one a line, or as diagnostics with --json.
+func runWorkflowValidate(positional []string, jsonMode bool) int {
+	fail := func(err *commandError) int { return renderCommandError("workflow.validate", err, jsonMode) }
+	if len(positional) != 1 {
+		return fail(usageError("usage", "usage: legato workflow validate <name-or-file>"))
+	}
+	name := positional[0]
+	data, err := os.ReadFile(name)
+	if err != nil {
+		var repositories []workflowengine.RepositoryPreset
+		if cfg, err := config.Load(); err == nil {
+			repositories = workflowRepositoryPresets(cfg)
+		}
+		definition, err := resolveWorkflowDefinition(name, repositories)
+		if err != nil {
+			return fail(workflowCommandError(err))
+		}
+		return encodeWorkflowOutput(definition, true)
+	}
+	definition, diagnostics := workflowengine.Check(name, data)
+	if definition != nil {
+		for _, d := range diagnostics {
+			fmt.Fprintf(os.Stderr, "%s:%d:%d: %s: %s\n", name, d.Line, d.Column, d.Severity, d.Message)
+		}
+		return encodeWorkflowOutput(definition, true)
+	}
+	if jsonMode {
+		return fail(&commandError{
+			Code: "workflow_invalid", Message: diagnostics[0].Message, Exit: exitUsage,
+			Details: map[string]any{"diagnostics": diagnostics},
+		})
+	}
+	for _, d := range diagnostics {
+		fmt.Fprintf(os.Stderr, "%s:%s\n", name, d)
+	}
+	return exitUsage
+}
+
+func resolveWorkflowDefinition(name string, repositories []workflowengine.RepositoryPreset) (*workflowengine.Definition, error) {
 	if data, err := os.ReadFile(name); err == nil {
 		return workflowengine.Parse(name, data)
 	}
-	result := workflowengine.WithBuiltIns(workflowengine.DiscoverPaths(legacyWorkflowDir(), global, project), service.BuiltInJobWorkflow())
+	result := workflowengine.WithBuiltIns(workflowengine.DiscoverFolders(workflowFolders(repositories)), service.BuiltInJobWorkflow())
 	for _, definition := range result.Definitions {
 		if definition.Name == name {
 			return definition, nil

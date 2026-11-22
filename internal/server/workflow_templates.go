@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
@@ -17,33 +16,10 @@ type workflowTemplate struct {
 	Description string `json:"description,omitempty"`
 }
 
-// workflowFolder is a folder a template can be added to: the global
-// workflows folder, the project's, or a repository's checkout.
-type workflowFolder struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	Path  string `json:"path"`
-}
-
-func (s *Server) workflowFolders(r *http.Request) []workflowFolder {
-	folders := []workflowFolder{}
-	if s.workflowGlobalDir != "" {
-		folders = append(folders, workflowFolder{ID: "global", Label: "Your workflows", Path: s.workflowGlobalDir})
-	}
-	if s.workflowProjectDir != "" {
-		folders = append(folders, workflowFolder{ID: "project", Label: "This project", Path: s.workflowProjectDir})
-	}
-	for _, preset := range s.repositories(r.Context()) {
-		if strings.TrimSpace(preset.PrimaryDir) == "" {
-			continue
-		}
-		path := filepath.Join(preset.PrimaryDir, ".legato", "workflows")
-		if path == s.workflowProjectDir {
-			continue
-		}
-		folders = append(folders, workflowFolder{ID: "repo:" + preset.Name, Label: preset.Name, Path: path})
-	}
-	return folders
+// workflowFolders are the folders a template can be added to: the global
+// workflows folder, a repository's checkout or the project's.
+func (s *Server) workflowFolders(r *http.Request) []workflowengine.Folder {
+	return s.writableFolders(r.Context())
 }
 
 // workflowTemplatesHandler serves GET /api/workflow-templates: the bundled
