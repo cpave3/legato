@@ -1,4 +1,5 @@
-import { isMap, isScalar, isSeq, parseDocument, stringify, visit, type Document, type Node as YamlNode, type Pair, type YAMLMap, type YAMLSeq } from "yaml"
+import { isAlias, isMap, isScalar, isSeq, parseDocument, stringify, visit, type Document, type Node as YamlNode, type Pair, type YAMLMap, type YAMLSeq } from "yaml"
+import { offsetOf, type WorkflowDiagnostic } from "./workflowFiles"
 
 // A workflow file as the builder edits it (LEG-470, decided in LEG-462):
 // the file's text is the source of truth, and every operation splices the
@@ -576,4 +577,318 @@ export function renameInput(text: string, name: string, newName: string): Workfl
   }
   working = rewriteExpressions(working, new RegExp(`(\\bworkflow\\.inputs\\.)${escapeRegExp(name)}(?![A-Za-z0-9_-])`, "g"), `$1${newName}`)
   return edit(`Rename input ${name} to ${newName}`, text, working)
+}
+
+// --- Where things are (LEG-503) -----------------------------------------------
+//
+// The outline shows a file as items: its top-level fields (About), inputs,
+// triggers and steps, nested steps included. A step is known by its
+// StepPath, the engine's address (each/review), and a run's path with a
+// loop pass in it (each/2/review) finds the same step. A step's children
+// are the list under its own steps: key. Each item is checked on its own,
+// so a step the forms can't draw (an anchor, an odd shape) is one item to
+// edit as YAML while the rest stay visual: only a file that does not parse,
+// or is not a mapping, has no items.
+
+/** ItemRef names an item of the outline. */
+export type ItemRef =
+  | { kind: "about"; key: string }
+  | { kind: "input"; name: string }
+  | { kind: "trigger"; name: string }
+  | { kind: "step"; path: string }
+
+/** ItemPlace is an item and a field in it ([] for the item itself). */
+export type ItemPlace = { item: ItemRef; field: YamlPath }
+
+export type TextRange = { from: number; to: number }
+
+/** Item is one item of the file: where it is, and why the forms can't
+ * show it, or null. */
+export type Item = { item: ItemRef; range: TextRange; problem: string | null }
+
+const CONTAINERS = ["inputs", "on", "steps"]
+
+/** itemKey is an item as a string, to key maps and lists by. */
+export function itemKey(item: ItemRef): string {
+  switch (item.kind) {
+    case "about": return `about:${item.key}`
+    case "input": return `input:${item.name}`
+    case "trigger": return `trigger:${item.name}`
+    case "step": return `step:${item.path}`
+  }
+}
+
+function readable(text: string): Document | null {
+  const doc = parse(text)
+  return doc.errors.length > 0 ? null : doc
+}
+
+const keyOf = (pair: Pair) => isScalar(pair.key) ? String(pair.key.value) : ""
+const pairOf = (map: unknown, key: string) => isMap(map) ? map.items.find(p => keyOf(p) === key) : undefined
+
+// pairRange is a pair's text: its key to the end of its value, with an
+// inline comment on the value's last line, without the line break.
+function pairRange(text: string, pair: Pair): TextRange {
+  return { from: range(pair.key as YamlNode)[0], to: blockEnd(text, (pair.value ?? pair.key) as YamlNode) }
+}
+
+// itemRange is a list item's text: from its dash to its end.
+function itemRange(text: string, node: YamlNode): TextRange {
+  const start = range(node)[0]
+  const dash = text.lastIndexOf("-", start)
+  return { from: dash >= 0 && text.slice(dash + 1, start).trim() === "" ? dash : start, to: blockEnd(text, node) }
+}
+
+const inRange = (r: TextRange, offset: number) => offset >= r.from && offset <= r.to
+
+type StepNode = { path: string; yaml: YamlPath; node: YamlNode }
+
+const stepSegment = (node: unknown, index: number) => {
+  const id = isMap(node) ? node.get("id") : undefined
+  return typeof id === "string" && id !== "" ? id : `#${index}`
+}
+
+// stepNodes are the steps of a list and theirs, parents first.
+function stepNodes(seq: unknown, parent: string, yaml: YamlPath): StepNode[] {
+  if (!isSeq(seq) || seq.flow) return []
+  const out: StepNode[] = []
+  seq.items.forEach((node, i) => {
+    const path = parent === "" ? stepSegment(node, i) : `${parent}/${stepSegment(node, i)}`
+    const at = [...yaml, i]
+    out.push({ path, yaml: at, node: node as YamlNode })
+    const children = pairOf(node, "steps")?.value
+    out.push(...stepNodes(children, path, [...at, "steps"]))
+  })
+  return out
+}
+
+function findStep(doc: Document, path: string): StepNode | null {
+  const all = stepNodes(pairOf(doc.contents, "steps")?.value, "", ["steps"])
+  const exact = all.find(s => s.path === path)
+  if (exact) return exact
+  // A run's path names a loop's pass: each/2/review is each/review.
+  const segments = path.split("/")
+  const scope: string[] = []
+  for (const segment of segments) {
+    const candidate = [...scope, segment].join("/")
+    if (all.some(s => s.path === candidate)) scope.push(segment)
+    else if (!/^\d+$/.test(segment)) return null
+  }
+  return all.find(s => s.path === scope.join("/")) ?? null
+}
+
+/** stepYamlPath is where the step at a StepPath is in the file, such as
+ * ["steps", 1, "steps", 0]; null when there is none. */
+export function stepYamlPath(text: string, path: string): YamlPath | null {
+  const doc = readable(text)
+  return doc ? findStep(doc, path)?.yaml ?? null : null
+}
+
+function itemNode(doc: Document, item: ItemRef): { pair?: Pair; node: YamlNode | null; step?: StepNode } | null {
+  switch (item.kind) {
+    case "about": { const pair = pairOf(doc.contents, item.key); return pair ? { pair, node: pair.value as YamlNode } : null }
+    case "input": { const pair = pairOf(pairOf(doc.contents, "inputs")?.value, item.name); return pair ? { pair, node: pair.value as YamlNode } : null }
+    case "trigger": { const pair = pairOf(pairOf(doc.contents, "on")?.value, item.name); return pair ? { pair, node: pair.value as YamlNode } : null }
+    case "step": { const step = findStep(doc, item.path); return step ? { node: step.node, step } : null }
+  }
+}
+
+/** rangeOf is the text of an item, or of a field in it (["with",
+ * "prompt"]); null when the file has no such thing or does not parse. */
+export function rangeOf(text: string, item: ItemRef, field: YamlPath = []): TextRange | null {
+  const doc = readable(text)
+  if (!doc) return null
+  const found = itemNode(doc, item)
+  if (!found) return null
+  if (field.length === 0) {
+    if (found.pair) return pairRange(text, found.pair)
+    return found.node ? itemRange(text, found.node) : null
+  }
+  let node: unknown = found.node
+  let last: TextRange | null = null
+  for (const key of field) {
+    if (typeof key === "number") {
+      if (!isSeq(node) || key >= node.items.length) return null
+      node = node.items[key]
+      last = itemRange(text, node as YamlNode)
+    } else {
+      const pair = pairOf(node, key)
+      if (!pair) return null
+      node = pair.value
+      last = pairRange(text, pair)
+    }
+  }
+  return last
+}
+
+// fieldAt is the deepest key path under node that holds offset.
+function fieldAt(text: string, node: unknown, offset: number): YamlPath {
+  if (isMap(node) && !node.flow) {
+    for (const pair of node.items) {
+      if (!inRange(pairRange(text, pair), offset)) continue
+      return [keyOf(pair), ...fieldAt(text, pair.value, offset)]
+    }
+  } else if (isSeq(node) && !node.flow) {
+    for (const [i, item] of node.items.entries()) {
+      if (inRange(itemRange(text, item as YamlNode), offset)) return [i, ...fieldAt(text, item, offset)]
+    }
+  }
+  return []
+}
+
+/** pathAt is the innermost item and field at a position in the text; null
+ * between items, outside them, or in a file that does not parse. */
+export function pathAt(text: string, offset: number): ItemPlace | null {
+  const doc = readable(text)
+  if (!doc || !isMap(doc.contents)) return null
+  for (const pair of doc.contents.items) {
+    if (!inRange(pairRange(text, pair), offset)) continue
+    const key = keyOf(pair)
+    if (key === "inputs" || key === "on") {
+      const kind = key === "inputs" ? "input" : "trigger"
+      if (!isMap(pair.value)) return { item: { kind: "about", key }, field: [] }
+      for (const inner of pair.value.items) {
+        if (inRange(pairRange(text, inner), offset)) return { item: { kind, name: keyOf(inner) } as ItemRef, field: fieldAt(text, inner.value, offset) }
+      }
+      return null
+    }
+    if (key === "steps") {
+      if (!isSeq(pair.value) || pair.value.flow) return { item: { kind: "about", key }, field: [] }
+      // The innermost step: the last in parents-first order that holds it.
+      const holding = stepNodes(pair.value, "", ["steps"]).filter(s => inRange(itemRange(text, s.node), offset))
+      const step = holding[holding.length - 1]
+      return step ? { item: { kind: "step", path: step.path }, field: fieldAt(text, step.node, offset) } : null
+    }
+    return { item: { kind: "about", key }, field: fieldAt(text, pair.value, offset) }
+  }
+  return null
+}
+
+// yamlProblem says what in a node the forms can't edit: an anchor, an
+// alias or a merge key.
+function yamlProblem(node: unknown, skipChildSteps: boolean): string | null {
+  let problem: string | null = null
+  const check = (n: unknown) => {
+    if (problem) return
+    if (isAlias(n)) { problem = "it uses a YAML alias: edit it as YAML"; return }
+    if ((n as { anchor?: string } | null)?.anchor) { problem = "it uses a YAML anchor: edit it as YAML"; return }
+    if (isMap(n)) {
+      for (const pair of n.items) {
+        if (isScalar(pair.key) && pair.key.value === "<<") { problem = "it uses a YAML merge key: edit it as YAML"; return }
+        if (skipChildSteps && n === node && keyOf(pair) === "steps" && isSeq(pair.value)) { if ((pair.value as { anchor?: string }).anchor) problem = "it uses a YAML anchor: edit it as YAML"; continue }
+        check(pair.key); check(pair.value)
+      }
+    } else if (isSeq(n)) {
+      n.items.forEach(check)
+    }
+  }
+  check(node)
+  return problem
+}
+
+function stepShape(step: unknown): string | null {
+  if (!isObject(step)) return "the step is not a mapping"
+  if (step.with != null && !isObject(step.with)) return "its with is not a mapping"
+  if (step.outputs != null && !isObject(step.outputs)) return "its outputs are not a mapping"
+  for (const [key, output] of Object.entries(isObject(step.outputs) ? step.outputs : {})) if (output != null && !isObject(output)) return `output ${key} is not a mapping`
+  if (step.steps != null && !Array.isArray(step.steps)) return "its steps are not a list"
+  return null
+}
+
+function triggerShape(trigger: unknown): string | null {
+  if (trigger != null && !isObject(trigger)) return "the trigger is not a mapping"
+  if (isObject(trigger) && trigger.inputs != null && !isObject(trigger.inputs)) return "its inputs are not a mapping"
+  const conditions = isObject(trigger) ? trigger.conditions : undefined
+  if (conditions != null) { const problem = conditionShape(conditions); if (problem) return `its conditions: ${problem}` }
+  return null
+}
+
+const js = (node: unknown) => {
+  try { return (node as { toJSON?: () => unknown } | null)?.toJSON?.() ?? (isScalar(node) ? node.value : node ?? null) } catch { return undefined }
+}
+
+/** itemsOf lists a file's items in the file's order, nested steps after
+ * their parent, each with its range and why the forms can't show it. file
+ * says why there are no items: the YAML does not parse, or the file is not
+ * a mapping. */
+export function itemsOf(text: string): { file: string | null; items: Item[] } {
+  const doc = parse(text)
+  if (doc.errors.length > 0) return { file: `the YAML does not parse: ${doc.errors[0].message.split("\n")[0]}`, items: [] }
+  if (doc.contents == null) return { file: null, items: [] }
+  if (!isMap(doc.contents)) return { file: "the file is not a mapping of a workflow's fields", items: [] }
+  const items: Item[] = []
+  for (const pair of doc.contents.items) {
+    const key = keyOf(pair)
+    const value = pair.value
+    const container = CONTAINERS.includes(key)
+    const shaped = key === "steps" ? isSeq(value) && !value.flow : isMap(value) && !value.flow
+    if (container && value != null && !(isScalar(value) && value.value === null) && shaped && !(value as { anchor?: string }).anchor) {
+      if (key === "steps") {
+        for (const step of stepNodes(value, "", ["steps"])) {
+          items.push({ item: { kind: "step", path: step.path }, range: itemRange(text, step.node), problem: yamlProblem(step.node, true) ?? stepShape(js(step.node)) })
+        }
+      } else {
+        for (const inner of (value as YAMLMap).items) {
+          const name = keyOf(inner)
+          const shape = key === "inputs" ? (isObject(js(inner.value)) ? null : "the input is not a mapping") : triggerShape(js(inner.value))
+          items.push({ item: { kind: key === "inputs" ? "input" : "trigger", name } as ItemRef, range: pairRange(text, inner), problem: yamlProblem(inner.value, false) ?? shape })
+        }
+      }
+      continue
+    }
+    let problem = yamlProblem(value, false) ?? yamlProblem(pair.key, false)
+    if (!problem && container && value != null && !(isScalar(value) && value.value === null)) {
+      problem = key === "steps" ? (isSeq(value) ? "steps is a flow list: edit it as YAML" : "steps is not a list of steps")
+        : isMap(value) ? `${key} is a flow mapping: edit it as YAML` : `${key} is not a mapping`
+    }
+    items.push({ item: { kind: "about", key }, range: pairRange(text, pair), problem })
+  }
+  return { file: null, items }
+}
+
+// diagnosticPath reads the server's path (steps[1].with.prompt) as a
+// YamlPath.
+function diagnosticPath(path: string): YamlPath {
+  const out: YamlPath = []
+  for (const match of path.matchAll(/([^.[\]]+)|\[(\d+)\]/g)) out.push(match[2] !== undefined ? Number(match[2]) : match[1])
+  return out
+}
+
+// itemOfPath is the item a YamlPath falls in, or null for the file.
+function itemOfPath(doc: Document, path: YamlPath): ItemRef | null {
+  const [head, ...rest] = path
+  if (typeof head !== "string") return null
+  if (head === "inputs" || head === "on") {
+    const map = pairOf(doc.contents, head)?.value
+    if (!isMap(map) || rest.length === 0) return null
+    // A trigger's kind has dots in it (task.entered_column): match the
+    // file's own keys, the longest first.
+    const names = map.items.map(keyOf).sort((a, b) => b.length - a.length)
+    const joined = rest.map(String).join(".")
+    const name = names.find(n => joined === n || joined.startsWith(n + "."))
+    return name ? { kind: head === "inputs" ? "input" : "trigger", name } as ItemRef : null
+  }
+  if (head === "steps") {
+    const steps = stepNodes(pairOf(doc.contents, "steps")?.value, "", ["steps"])
+    let found: StepNode | undefined
+    for (const step of steps) if (step.yaml.length <= path.length && step.yaml.every((k, i) => k === path[i])) found = step
+    return found ? { kind: "step", path: found.path } : null
+  }
+  return pairOf(doc.contents, head) ? { kind: "about", key: head } : null
+}
+
+/** problemsByItem matches diagnostics to the items they are about, by
+ * path, or by place when they have none; those of no item are under
+ * "file". */
+export function problemsByItem(text: string, diagnostics: WorkflowDiagnostic[]): Map<string, WorkflowDiagnostic[]> {
+  const out = new Map<string, WorkflowDiagnostic[]>()
+  const doc = readable(text)
+  const add = (key: string, d: WorkflowDiagnostic) => out.set(key, [...(out.get(key) ?? []), d])
+  for (const d of diagnostics) {
+    let item: ItemRef | null = null
+    if (doc && d.path) item = itemOfPath(doc, diagnosticPath(d.path))
+    else if (doc && d.line > 0) item = pathAt(text, offsetOf(text, d.line, d.column))?.item ?? null
+    add(item ? itemKey(item) : "file", d)
+  }
+  return out
 }
