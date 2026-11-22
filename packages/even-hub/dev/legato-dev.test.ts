@@ -2,215 +2,148 @@ import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { answerLegato, crossSiteRefusal, devSettings, type DevSettings } from "./legato-dev"
+import { answerPhone, fakePhone, type FakePhone, type PhoneRequest } from "./legato-dev"
 
 const fixtures = (() => {
   const dir = mkdtempSync(join(tmpdir(), "even-hub-fixture-"))
   writeFileSync(join(dir, "agents.json"), JSON.stringify([{ task_id: "FIX-1", status: "running", activity: "waiting" }]))
+  writeFileSync(join(dir, "empty.json"), "[]")
   writeFileSync(join(dir, "conversation.json"), JSON.stringify({ task_id: "", entries: [{ kind: "user", text: "Hi" }] }))
   return dir
 })()
 
-const fixture: DevSettings = {
-  kind: "fixture",
-  file: join(fixtures, "agents.json"),
-  conversation: join(fixtures, "conversation.json"),
-}
-const proxy = (allowSend = false): DevSettings => ({ kind: "proxy", url: "https://l", token: "t0k", allowSend })
-
-type Asked = { url: string; auth: string | null; method?: string; body?: unknown }
-
-function fakeLegato(respond: () => Response = () => Response.json([])) {
-  const asked: Asked[] = []
-  const fn = (async (url: string, init?: RequestInit) => {
-    asked.push({
-      url,
-      auth: new Headers(init?.headers).get("authorization"),
-      method: init?.method,
-      body: init?.body ? JSON.parse(String(init.body)) : undefined,
-    })
-    return respond()
-  }) as unknown as typeof fetch
-  return { fn, asked }
+function phone(): FakePhone & { sent: string[] } {
+  const sent: string[] = []
+  return {
+    instances: [
+      { id: "desk", name: "Desk", agents: join(fixtures, "agents.json") },
+      { id: "laptop", name: "Laptop", agents: join(fixtures, "empty.json") },
+    ],
+    conversation: join(fixtures, "conversation.json"),
+    log: (line) => sent.push(line),
+    sent,
+  }
 }
 
-describe("devSettings", () => {
-  it("reads Legato's address and token from the environment, the fixtures when there is no address", () => {
-    expect(devSettings({ LEGATO_URL: "https://127.0.0.1:3999/", LEGATO_TOKEN: "t0k" }, "/app")).toEqual({
-      kind: "proxy",
-      url: "https://127.0.0.1:3999",
-      token: "t0k",
-      allowSend: false,
-    })
-    expect(devSettings({}, "/app")).toEqual({
-      kind: "fixture",
-      file: "/app/fixtures/agents.json",
+const get = (path: string): PhoneRequest => ({ method: "GET", path })
+const post = (path: string, body: string, contentType = "application/json"): PhoneRequest => ({
+  method: "POST",
+  path,
+  body,
+  contentType,
+})
+
+describe("fakePhone", () => {
+  it("has two instances, the first reading the chosen fixture, so the picker can be seen", () => {
+    expect(fakePhone({}, "/app")).toMatchObject({
+      instances: [
+        { id: "desk", name: "Desk", agents: "/app/fixtures/agents.json" },
+        { id: "laptop", name: "Laptop", agents: "/app/fixtures/empty.json" },
+      ],
       conversation: "/app/fixtures/conversation.json",
     })
-    expect(devSettings({ LEGATO_FIXTURE: "fixtures/empty.json" }, "/app")).toMatchObject({ file: "/app/fixtures/empty.json" })
-  })
-
-  it("passes messages on only when LEGATO_ALLOW_SEND is 1", () => {
-    const env = { LEGATO_URL: "https://l", LEGATO_TOKEN: "t" }
-    expect(devSettings({ ...env, LEGATO_ALLOW_SEND: "1" }, "/app")).toMatchObject({ allowSend: true })
-    expect(devSettings({ ...env, LEGATO_ALLOW_SEND: "yes" }, "/app")).toMatchObject({ allowSend: false })
-  })
-
-  it("refuses an address without a token rather than ask Legato unauthenticated", () => {
-    expect(() => devSettings({ LEGATO_URL: "https://127.0.0.1:3999" }, "/app")).toThrow(/LEGATO_TOKEN/)
+    expect(fakePhone({ LEGATO_FIXTURE: "fixtures/other.json" }, "/app").instances[0].agents).toBe("/app/fixtures/other.json")
   })
 })
 
-describe("answerLegato with the fixtures", () => {
-  it("serves the recorded list of agents", async () => {
-    const answer = await answerLegato("GET", "/api/agents?view=compact&status=running", undefined, fixture)
+describe("answerPhone", () => {
+  it("answers a preflight without a code, allowing the glasses' headers from any origin", async () => {
+    const answer = await answerPhone({ method: "OPTIONS", path: "/v1/instances" }, phone())
+
+    expect(answer.status).toBe(204)
+    expect(answer.headers).toMatchObject({
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Allow-Methods": "GET, POST",
+      "Access-Control-Allow-Private-Network": "true",
+    })
+  })
+
+  it("lists its instances by ID and name, in order", async () => {
+    const answer = await answerPhone(get("/v1/instances"), phone())
 
     expect(answer.status).toBe(200)
-    expect(JSON.parse(answer.body)).toEqual([{ task_id: "FIX-1", status: "running", activity: "waiting" }])
+    expect(JSON.parse(answer.body)).toEqual([
+      { id: "desk", name: "Desk" },
+      { id: "laptop", name: "Laptop" },
+    ])
+  })
+
+  it("serves each instance's recorded agents", async () => {
+    const desk = await answerPhone(get("/v1/instances/desk/api/agents?view=compact&status=running"), phone())
+    const laptop = await answerPhone(get("/v1/instances/laptop/api/agents?view=compact&status=running"), phone())
+
+    expect(JSON.parse(desk.body)).toEqual([{ task_id: "FIX-1", status: "running", activity: "waiting" }])
+    expect(JSON.parse(laptop.body)).toEqual([])
   })
 
   it("serves the recorded conversation as any agent's", async () => {
-    const answer = await answerLegato("GET", "/api/agents/LEG-7/conversation?limit=20", undefined, fixture)
+    const answer = await answerPhone(get("/v1/instances/desk/api/agents/LEG-7/conversation?limit=20"), phone())
 
     expect(JSON.parse(answer.body)).toEqual({ task_id: "LEG-7", entries: [{ kind: "user", text: "Hi" }] })
   })
 
-  it("answers a recording with a set transcript, and takes a message without sending it anywhere", async () => {
-    const heard = await answerLegato("POST", "/api/voice/transcribe", '{"transcription_only":true,"pcm":"AQ=="}', fixture)
-    const sent = await answerLegato("POST", "/api/agents/LEG-7/chimera/send", '{"content":"Hi"}', fixture)
+  it("hears one sentence in any recording, and logs a message instead of sending it", async () => {
+    const p = phone()
+
+    const heard = await answerPhone(post("/v1/instances/desk/api/voice/transcribe", '{"transcription_only":true,"pcm":"AQ=="}'), p)
+    const sent = await answerPhone(post("/v1/instances/desk/api/agents/LEG-7/chimera/send", '{"content":"Hi"}'), p)
 
     expect(JSON.parse(heard.body)).toEqual({ text: "Run the tests again, and push if they pass." })
     expect(sent.status).toBe(202)
-  })
-})
-
-describe("answerLegato passing reads on to Legato", () => {
-  it("passes the agent list on with the token, which the app never sees", async () => {
-    const legato = fakeLegato()
-
-    const answer = await answerLegato("GET", "/api/agents?view=compact&status=running", undefined, proxy(), legato.fn)
-
-    expect(legato.asked).toEqual([
-      { url: "https://l/api/agents?view=compact&status=running", auth: "Bearer t0k", method: "GET", body: undefined },
-    ])
-    expect(answer).toEqual({ status: 200, body: "[]" })
+    expect(p.sent).toEqual(['would send to LEG-7 on Desk: "Hi"'])
   })
 
-  it("passes an agent's conversation on", async () => {
-    const legato = fakeLegato()
+  it("answers an instance it doesn't have as the Legato app does", async () => {
+    const answer = await answerPhone(get("/v1/instances/gone/api/agents?view=compact&status=running"), phone())
 
-    await answerLegato("GET", "/api/agents/LEG-7/conversation?limit=20", undefined, proxy(), legato.fn)
-
-    expect(legato.asked[0].url).toBe("https://l/api/agents/LEG-7/conversation?limit=20")
+    expect(answer.status).toBe(404)
+    expect(JSON.parse(answer.body)).toEqual({ error: "unknown instance" })
   })
 
-  it("passes a recording on for transcription only, whatever the app asked", async () => {
-    const legato = fakeLegato(() => Response.json({ text: "Hi" }))
-
-    await answerLegato("POST", "/api/voice/transcribe", '{"pcm":"AQ==","agent_id":"LEG-7"}', proxy(), legato.fn)
-
-    expect(legato.asked[0]).toMatchObject({
-      url: "https://l/api/voice/transcribe",
-      method: "POST",
-      body: { pcm: "AQ==", transcription_only: true },
-    })
-  })
-
-  it("forwards only the recording, so no other key can turn transcription-only off", async () => {
-    const legato = fakeLegato(() => Response.json({ text: "Hi" }))
-    // Go's JSON decoder matches keys without case and keeps the last one.
-    const body = '{"transcription_only":false,"TRANSCRIPTION_ONLY":false,"agent_id":"LEG-7","pcm":"AQ=="}'
-
-    await answerLegato("POST", "/api/voice/transcribe", body, proxy(), legato.fn)
-
-    expect(legato.asked[0].body).toEqual({ transcription_only: true, pcm: "AQ==" })
-  })
-
-  it("forwards only a message's content", async () => {
-    const legato = fakeLegato(() => new Response(null, { status: 202 }))
-
-    await answerLegato("POST", "/api/agents/LEG-7/chimera/send", '{"content":"Hi","extra":1}', proxy(true), legato.fn)
-
-    expect(legato.asked[0].body).toEqual({ content: "Hi" })
-  })
-
-  it("refuses a recording or a message that is not a string", async () => {
-    const legato = fakeLegato()
-
-    expect((await answerLegato("POST", "/api/voice/transcribe", '{"pcm":1}', proxy(), legato.fn)).status).toBe(400)
-    expect((await answerLegato("POST", "/api/agents/A/chimera/send", '{"content":[]}', proxy(true), legato.fn)).status).toBe(400)
-    expect(legato.asked).toEqual([])
-  })
-
-  it("refuses to send a message unless sending is allowed", async () => {
-    const legato = fakeLegato()
-
-    const answer = await answerLegato("POST", "/api/agents/LEG-7/chimera/send", '{"content":"Hi"}', proxy(false), legato.fn)
-
-    expect(answer.status).toBe(403)
-    expect(legato.asked).toEqual([])
-  })
-
-  it("sends a message when sending is allowed", async () => {
-    const legato = fakeLegato(() => new Response(null, { status: 202 }))
-
-    const answer = await answerLegato("POST", "/api/agents/LEG-7/chimera/send", '{"content":"Hi"}', proxy(true), legato.fn)
-
-    expect(answer.status).toBe(202)
-    expect(legato.asked[0]).toMatchObject({ url: "https://l/api/agents/LEG-7/chimera/send", body: { content: "Hi" } })
-  })
-
-  it("passes on Legato's refusal as it is", async () => {
-    const legato = fakeLegato(() => new Response('{"error":"unauthorized"}', { status: 401 }))
-
-    expect((await answerLegato("GET", "/api/agents", undefined, proxy(), legato.fn)).status).toBe(401)
-  })
-
-  it("answers nothing else, so nothing else can reach Legato through it", async () => {
-    const legato = fakeLegato()
-    const refused = [
-      ["POST", "/api/agents/spawn"],
-      ["DELETE", "/api/agents"],
-      ["GET", "/api/tasks"],
-      ["POST", "/api/agents/LEG-7/chimera/interrupt"],
-      ["POST", "/api/agents/LEG-7/conversation"],
-      ["GET", "/api/agents/LEG-7/chimera/send"],
-      ["GET", "/api/agents/a/b/conversation"],
+  it("answers 404 to anything outside the glasses' calls", async () => {
+    const refused: PhoneRequest[] = [
+      get("/v1/instances/desk/api/agents"),
+      get("/v1/instances/desk/api/agents?view=compact"),
+      get("/v1/instances/desk/api/tasks"),
+      get("/v1/instances/desk/api/agents/LEG-7/conversation"),
+      get("/v1/instances/desk/api/agents/LEG-7/conversation?limit=0"),
+      get("/v1/instances/desk/api/agents/LEG-7/conversation?limit=51"),
+      get("/v1/instances/desk/api/agents/a/b/conversation?limit=20"),
+      get("/v1/instances/desk/api/agents/LEG-7/chimera/send"),
+      post("/v1/instances/desk/api/agents/spawn", "{}"),
+      post("/v1/instances/desk/api/agents/LEG-7/chimera/interrupt", "{}"),
+      post("/v1/instances", "{}"),
+      get("/api/agents?view=compact&status=running"),
     ]
 
-    for (const [method, path] of refused) {
-      expect((await answerLegato(method, path, "{}", proxy(true), legato.fn)).status, `${method} ${path}`).toBe(404)
+    for (const request of refused) {
+      expect((await answerPhone(request, phone())).status, `${request.method} ${request.path}`).toBe(404)
     }
-    expect(legato.asked).toEqual([])
   })
 
-  it("refuses a body that is not JSON", async () => {
-    expect((await answerLegato("POST", "/api/voice/transcribe", "pcm", proxy())).status).toBe(400)
+  it("refuses a POST that is not JSON", async () => {
+    const answer = await answerPhone(post("/v1/instances/desk/api/voice/transcribe", '{"pcm":"AQ=="}', "text/plain"), phone())
+
+    expect(answer.status).toBe(415)
   })
 
-  it("answers 502 when it can't reach Legato", async () => {
-    const fn = (async () => {
-      throw new TypeError("self-signed certificate")
-    }) as unknown as typeof fetch
+  it("refuses a body without the field the call needs", async () => {
+    const p = phone()
 
-    expect((await answerLegato("GET", "/api/agents", undefined, proxy(), fn)).status).toBe(502)
-  })
-})
-
-describe("crossSiteRefusal", () => {
-  it("lets the app's own requests through", () => {
-    expect(crossSiteRefusal({ method: "GET", fetchSite: "same-origin" })).toBeUndefined()
-    expect(crossSiteRefusal({ method: "POST", contentType: "application/json", fetchSite: "same-origin" })).toBeUndefined()
-    expect(crossSiteRefusal({ method: "POST", contentType: "application/json; charset=utf-8" })).toBeUndefined()
+    expect((await answerPhone(post("/v1/instances/desk/api/voice/transcribe", '{"pcm":1}'), p)).status).toBe(400)
+    expect((await answerPhone(post("/v1/instances/desk/api/agents/A/chimera/send", '{"content":[]}'), p)).status).toBe(400)
+    expect((await answerPhone(post("/v1/instances/desk/api/agents/A/chimera/send", "Hi"), p)).status).toBe(400)
+    expect(p.sent).toEqual([])
   })
 
-  it("refuses a POST that is not JSON, which a page elsewhere could send without asking", () => {
-    expect(crossSiteRefusal({ method: "POST", contentType: "text/plain" })).toMatch(/JSON/)
-    expect(crossSiteRefusal({ method: "POST" })).toMatch(/JSON/)
-  })
-
-  it("refuses requests the browser says come from another site", () => {
-    expect(crossSiteRefusal({ method: "GET", fetchSite: "cross-site" })).toMatch(/another site/)
-    expect(crossSiteRefusal({ method: "POST", contentType: "application/json", fetchSite: "cross-site" })).toMatch(/another site/)
+  it("marks every answer as the Legato app does", async () => {
+    for (const request of [get("/v1/instances"), get("/nowhere"), { method: "OPTIONS", path: "/v1/instances" }]) {
+      expect((await answerPhone(request, phone())).headers).toMatchObject({
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-store",
+        Connection: "close",
+      })
+    }
   })
 })

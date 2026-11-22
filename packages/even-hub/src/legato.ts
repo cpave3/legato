@@ -25,14 +25,26 @@ export type Conversation = {
   context_window: number
 }
 
-// Where the app reads Legato. `url` is the Legato web server's address, or
-// the dev server's /legato path, which adds the token itself.
-export type Source = {
+// Where the app reads Legato: the Legato Android app's glasses link on this
+// phone, which holds each paired Legato's address and token and passes the
+// app's calls on to the one it names. `code` is the pairing code the
+// operator copied from the Legato app ("" when none is saved); the dev
+// server's fake phone asks for none (`false`).
+export type Phone = {
   url: string
-  token?: string
+  code: string | false
 }
 
-export type Problem = { ok: false; problem: string }
+// Where the glasses link listens. Fixed, because the packed app's network
+// whitelist is fixed when it is made (app.json).
+export const PHONE_URL = "http://127.0.0.1:8792"
+
+// A Legato saved in the Legato app, as GET /v1/instances gives it.
+export type Instance = { id: string; name: string }
+
+// `gone` marks the Legato app's answer that it no longer has the instance.
+export type Problem = { ok: false; problem: string; gone?: true }
+export type InstancesResult = { ok: true; instances: Instance[] } | Problem
 export type AgentsResult = { ok: true; agents: Agent[] } | Problem
 export type ConversationResult = { ok: true; conversation: Conversation } | Problem
 export type TranscriptResult = { ok: true; text: string } | Problem
@@ -43,56 +55,82 @@ export const CONVERSATION_ENTRIES = 20
 
 // How long a call may take before the app gives up on it: a read or a send,
 // and a transcription, which carries up to a minute of sound. Without a limit
-// one call that never answers would hold every press behind it.
-export const CALL_TIMEOUT_MS = 10_000
-export const TRANSCRIBE_TIMEOUT_MS = 30_000
+// one call that never answers would hold every press behind it. The Legato
+// app gives Legato 10 s (30 s for a transcription) and then answers 502
+// itself, so the app waits a little longer than that to hear why.
+export const CALL_TIMEOUT_MS = 15_000
+export const TRANSCRIBE_TIMEOUT_MS = 35_000
+
+const NOT_PAIRED: Problem = { ok: false, problem: "Not paired with the Legato app" }
 
 type Answer = { response: Response } | Problem
 
-async function call(
-  source: Source,
-  path: string,
-  fetchFn: typeof fetch,
-  timeoutMs: number,
-  body?: unknown,
-): Promise<Answer> {
+async function call(phone: Phone, path: string, fetchFn: typeof fetch, timeoutMs: number, body?: unknown): Promise<Answer> {
+  if (phone.code === "") return NOT_PAIRED
   const headers: Record<string, string> = { Accept: "application/json" }
-  if (source.token) headers.Authorization = `Bearer ${source.token}`
+  if (phone.code) headers.Authorization = `Bearer ${phone.code}`
   if (body !== undefined) headers["Content-Type"] = "application/json"
+  let response: Response
   try {
-    const response = await fetchFn(`${source.url.replace(/\/+$/, "")}${path}`, {
+    response = await fetchFn(`${phone.url.replace(/\/+$/, "")}${path}`, {
       method: body === undefined ? "GET" : "POST",
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     })
-    if (response.status === 401) return { ok: false, problem: "Legato refused the token" }
-    return { response }
   } catch (err) {
-    if (err instanceof DOMException && err.name === "TimeoutError") return { ok: false, problem: "Legato took too long to answer" }
-    return { ok: false, problem: "Can't reach Legato" }
+    if (err instanceof DOMException && err.name === "TimeoutError") return { ok: false, problem: "The Legato app took too long to answer" }
+    // The Legato app isn't running, or its glasses link is off.
+    return { ok: false, problem: "Can't reach the Legato app on this phone" }
   }
+  // The Legato app's own refusals. Legato's own 401 reaches the glasses as a
+  // 502, so a 401 is always the pairing code.
+  if (response.status === 401) return { ok: false, problem: "The Legato app refused the pairing code" }
+  if (response.status === 404) {
+    const said = await errorOf(response.clone())
+    if (said === "unknown instance") return { ok: false, problem: "That Legato is no longer in the app", gone: true }
+  }
+  if (response.status === 502) return { ok: false, problem: (await errorOf(response)) || "Can't reach Legato" }
+  return { response }
+}
+
+// The {"error": "…"} of a refusal, or "".
+async function errorOf(response: Response): Promise<string> {
+  const body = (await response.json().catch(() => undefined)) as { error?: unknown } | undefined
+  return typeof body?.error === "string" ? body.error.trim() : ""
 }
 
 // A failed answer in Legato's words when it gave them as {"error": "…"}, as
-// most refusals are (browser-extension/src/legato.ts does the same); the dev
-// server's 502 means it could not reach Legato.
+// most refusals are (browser-extension/src/legato.ts does the same).
 async function failed(response: Response): Promise<Problem> {
-  if (response.status === 502) return { ok: false, problem: "Can't reach Legato" }
-  const body = (await response.json().catch(() => undefined)) as { error?: unknown } | undefined
-  const said = typeof body?.error === "string" ? body.error.trim() : ""
+  const said = await errorOf(response)
   return { ok: false, problem: said ? `Legato: ${said}` : `Legato answered ${response.status}` }
 }
 
-const agentPath = (taskId: string) => `/api/agents/${encodeURIComponent(taskId)}`
+const instancePath = (instance: string) => `/v1/instances/${encodeURIComponent(instance)}`
+const agentPath = (instance: string, taskId: string) => `${instancePath(instance)}/api/agents/${encodeURIComponent(taskId)}`
+
+// The Legato instances saved in the Legato app, in its order.
+export async function fetchInstances(phone: Phone, fetchFn: typeof fetch = fetch): Promise<InstancesResult> {
+  const answer = await call(phone, "/v1/instances", fetchFn, CALL_TIMEOUT_MS)
+  if (!("response" in answer)) return answer
+  if (!answer.response.ok) return { ok: false, problem: `The Legato app answered ${answer.response.status}` }
+  const body: unknown = await answer.response.json().catch(() => undefined)
+  const valid =
+    Array.isArray(body) &&
+    body.every((i) => typeof (i as Instance)?.id === "string" && typeof (i as Instance)?.name === "string")
+  if (!valid) return { ok: false, problem: "The Legato app's answer was not a list of instances" }
+  return { ok: true, instances: (body as Instance[]).map(({ id, name }) => ({ id, name })) }
+}
 
 // The agents running now.
 export async function fetchAgents(
-  source: Source,
+  phone: Phone,
+  instance: string,
   fetchFn: typeof fetch = fetch,
   timeoutMs = CALL_TIMEOUT_MS,
 ): Promise<AgentsResult> {
-  const answer = await call(source, "/api/agents?view=compact&status=running", fetchFn, timeoutMs)
+  const answer = await call(phone, `${instancePath(instance)}/api/agents?view=compact&status=running`, fetchFn, timeoutMs)
   if (!("response" in answer)) return answer
   if (!answer.response.ok) return await failed(answer.response)
   const body: unknown = await answer.response.json().catch(() => undefined)
@@ -102,11 +140,12 @@ export async function fetchAgents(
 
 // The newest things an agent said and did.
 export async function fetchConversation(
-  source: Source,
+  phone: Phone,
+  instance: string,
   taskId: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<ConversationResult> {
-  const answer = await call(source, `${agentPath(taskId)}/conversation?limit=${CONVERSATION_ENTRIES}`, fetchFn, CALL_TIMEOUT_MS)
+  const answer = await call(phone, `${agentPath(instance, taskId)}/conversation?limit=${CONVERSATION_ENTRIES}`, fetchFn, CALL_TIMEOUT_MS)
   if (!("response" in answer)) return answer
   const { response } = answer
   if (response.status === 409)
@@ -128,9 +167,15 @@ function base64(bytes: Uint8Array): string {
 
 // The words in a recording: 16 kHz mono signed 16-bit little-endian PCM, as
 // the glasses' microphone gives it. Transcription only: Legato does not
-// deliver the text anywhere itself.
-export async function transcribe(source: Source, pcm: Uint8Array, fetchFn: typeof fetch = fetch): Promise<TranscriptResult> {
-  const answer = await call(source, "/api/voice/transcribe", fetchFn, TRANSCRIBE_TIMEOUT_MS, {
+// deliver the text anywhere itself (and the Legato app rebuilds the body, so
+// nothing else reaches Legato).
+export async function transcribe(
+  phone: Phone,
+  instance: string,
+  pcm: Uint8Array,
+  fetchFn: typeof fetch = fetch,
+): Promise<TranscriptResult> {
+  const answer = await call(phone, `${instancePath(instance)}/api/voice/transcribe`, fetchFn, TRANSCRIBE_TIMEOUT_MS, {
     transcription_only: true,
     pcm: base64(pcm),
   })
@@ -147,18 +192,17 @@ export async function transcribe(source: Source, pcm: Uint8Array, fetchFn: typeo
 // Sends the operator's words to an agent's native session. It reaches only an
 // agent that is running natively; it never starts one.
 export async function sendMessage(
-  source: Source,
+  phone: Phone,
+  instance: string,
   taskId: string,
   text: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<SendResult> {
-  const answer = await call(source, `${agentPath(taskId)}/chimera/send`, fetchFn, CALL_TIMEOUT_MS, { content: text })
+  const answer = await call(phone, `${agentPath(instance, taskId)}/chimera/send`, fetchFn, CALL_TIMEOUT_MS, { content: text })
   if (!("response" in answer)) return answer
   const { response } = answer
   if (response.status === 409) return { ok: false, problem: "The agent is busy. Try again when it stops." }
   if (response.status === 503) return { ok: false, problem: "This agent can't take messages from the glasses." }
-  // The dev server (dev/legato-dev.ts) refuses sends unless told to pass them on.
-  if (response.status === 403) return { ok: false, problem: "Sending is off. Set LEGATO_ALLOW_SEND=1 for the dev server." }
   if (!response.ok) return await failed(response)
   return { ok: true }
 }

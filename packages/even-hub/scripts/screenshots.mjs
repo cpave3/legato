@@ -89,12 +89,13 @@ const drawn = (png) => png.length > 2000
 try {
   mkdirSync(out, { recursive: true })
 
-  // The dev server on the fixture, whatever .env.local says.
+  // The dev server's fake phone on the default fixture, whatever .env.local
+  // says.
   start("pnpm", ["exec", "vite", "--host", "127.0.0.1", "--port", String(DEV_PORT), "--strictPort"], {
-    LEGATO_URL: "",
-    LEGATO_TOKEN: "",
+    LEGATO_FIXTURE: "",
+    VITE_LEGATO_PHONE: "",
   })
-  await until("the dev server", async () => (await fetch(`http://127.0.0.1:${DEV_PORT}/legato/api/agents`)).ok)
+  await until("the dev server", async () => (await fetch(`http://127.0.0.1:${DEV_PORT}/phone/v1/instances`)).ok)
 
   // Headless, there is no sound server: the null device records silence,
   // which the fixtures "transcribe" all the same.
