@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -233,21 +234,9 @@ func validValueType(valueType string, file bool) bool {
 	return valueType == "string" || valueType == "integer" || valueType == "boolean" || valueType == "json" || (!file && (valueType == "task" || valueType == "repository")) || (file && valueType == "file")
 }
 
-func validTaskField(field string) bool {
-	switch field {
-	case "id", "title", "description", "status", "priority", "provider", "remote_id", "working_dir", "metadata":
-		return true
-	}
-	return false
-}
+func validTaskField(field string) bool { return slices.Contains(TaskFields, field) }
 
-func validRepositoryField(field string) bool {
-	switch field {
-	case "name", "repo", "primary_dir", "base_branch":
-		return true
-	}
-	return false
-}
+func validRepositoryField(field string) bool { return slices.Contains(RepositoryFields, field) }
 
 func safeRelativePath(path string) bool {
 	if path == "" || strings.HasPrefix(path, "/") || strings.Contains(path, "\\") {

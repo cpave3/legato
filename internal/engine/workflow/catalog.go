@@ -430,7 +430,7 @@ var catalog = []ExecutorSpec{
 		Type: "learning.packet.prepare", Title: "Prepare a learning packet", Internal: true,
 		Description: "Gather the evidence for a curation, for Legato Learn.",
 		With: []Field{
-			{Name: "task", Kind: KindTask, Description: "The task", Required: true},
+			{Name: "task", Kind: KindJSON, Description: "The task: a task reference, or an object with its id", Required: true},
 			{Name: "project", Kind: KindJSON, Description: "key and label of the project"},
 			{Name: "limits", Kind: KindJSON, Description: "max_items and max_bytes", Required: true},
 		},

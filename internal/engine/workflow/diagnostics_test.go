@@ -188,3 +188,21 @@ func TestParseKeepsItsFirstError(t *testing.T) {
 		t.Fatalf("ErrorPath = %q", path)
 	}
 }
+
+// An unknown with key is a warning (LEG-461): the file still loads.
+func TestCheckWarnsOfAnUnknownWithKey(t *testing.T) {
+	definition, diagnostics := workflow.Check("check.yaml", []byte(checkBase+`steps:
+  - id: a
+    title: A
+    type: agent.run
+    with:
+      prompt: hi
+      promt: hi
+`))
+	if definition == nil {
+		t.Fatal("a warning stopped the file loading")
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Severity != workflow.SeverityWarning || diagnostics[0].Path != "steps[0].with.promt" || diagnostics[0].Line != 12 {
+		t.Fatalf("diagnostics = %+v", diagnostics)
+	}
+}

@@ -91,7 +91,8 @@ func (d Diagnostic) String() string {
 // Check parses and validates a workflow file as Parse does, but reports
 // every problem it can find, each with its place in the file: a YAML or
 // decoding problem stops it, and validation gives at most one problem per
-// step. The definition is returned only when there is no error.
+// step. The definition is returned only when there is no error; warnings,
+// such as a with key the step's executor does not read, come with it.
 func Check(source string, data []byte) (*Definition, []Diagnostic) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
@@ -111,10 +112,33 @@ func Check(source string, data []byte) (*Definition, []Diagnostic) {
 	for _, problem := range definition.problems() {
 		diagnostics = append(diagnostics, diagnosticAt(&root, problem.Path, problem.Error()))
 	}
-	if len(diagnostics) > 0 {
+	failed := len(diagnostics) > 0
+	diagnostics = append(diagnostics, unknownWithKeys(&root, &definition)...)
+	if failed {
 		return nil, diagnostics
 	}
-	return &definition, nil
+	return &definition, diagnostics
+}
+
+// unknownWithKeys warns of each with key a step's executor does not read.
+// The engine ignores them for now; a later release refuses them (LEG-461).
+func unknownWithKeys(root *yaml.Node, definition *Definition) []Diagnostic {
+	var diagnostics []Diagnostic
+	for i, step := range definition.Steps {
+		spec, ok := catalogByType[step.Type]
+		if !ok {
+			continue
+		}
+		for _, key := range sortedKeys(step.With) {
+			if _, known := spec.Field(key); known {
+				continue
+			}
+			d := diagnosticAt(root, fmt.Sprintf("steps[%d].with.%s", i, key), fmt.Sprintf("step %q: %s takes no with field %q, so it is ignored; a later release will refuse it", step.ID, step.Type, key))
+			d.Severity = SeverityWarning
+			diagnostics = append(diagnostics, d)
+		}
+	}
+	return diagnostics
 }
 
 var yamlLinePattern = regexp.MustCompile(`^(?:yaml: )?line (\d+): (.*)$`)

@@ -177,7 +177,7 @@ steps:
   - id: a
     title: A
     type: repo.ensure
-    with: {repo: 7, working_dir: /tmp, misspelt: true}
+    with: {repo: owner/name, working_dir: /tmp, misspelt: true}
   - id: b
     title: B
     type: github.pr.prepare

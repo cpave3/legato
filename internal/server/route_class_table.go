@@ -230,6 +230,7 @@ var routeClassTable = []routeClassEntry{
 
 	// Workflows
 	{"GET", "/api/workflows", ClassRead, "List the workflows, each with its workflow graph"},
+	{"GET", "/api/workflow-schema", ClassRead, "Read the JSON Schema of a workflow file"},
 	{"GET", "/api/workflow-templates", ClassRead, "List the bundled workflow templates and where they can go"},
 	{"POST", "/api/workflow-templates/{template}", ClassChange, "Add a bundled workflow template to a workflows folder"},
 	{"POST", "/api/workflow-drafts", ClassChange, "Save a drafted workflow, its triggers paused, to the workflows folder"},

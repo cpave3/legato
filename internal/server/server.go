@@ -333,6 +333,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/workflows/{name}/runs", s.workflowStartHandler())
 	mux.HandleFunc("/api/workflows/{name}/triggers/{trigger}", s.workflowTriggerSwitchHandler())
 	mux.HandleFunc("/api/workflow-triggers/{request_id}", s.workflowTriggerRequestHandler())
+	mux.HandleFunc("/api/workflow-schema", s.workflowSchemaHandler())
 	mux.HandleFunc("/api/workflow-templates", s.workflowTemplatesHandler())
 	mux.HandleFunc("/api/workflow-drafts", s.workflowDraftHandler())
 	mux.HandleFunc("/api/workflow-templates/{template}", s.workflowTemplateAddHandler())

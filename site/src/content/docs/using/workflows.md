@@ -101,6 +101,17 @@ run_title: Review PR #${{ workflow.inputs.pr_number }}
 
 Set `after_start` to control web navigation after a manual launch: `workflow` (the default) opens the run, `stay` closes the dialog without changing pages, and `agent` opens Agents focused on the selected task. `agent` requires exactly one required task input. This is presentation-only; it does not change workflow execution or automatic trigger behavior.
 
+### Writing workflows in your own editor
+
+Legato publishes a JSON Schema of version 1 workflow files at <https://cpave3.github.io/legato/schemas/workflow-v1.schema.json>. A running Legato serves the same schema at `GET /api/workflow-schema`. An editor with the YAML language server, such as VS Code with the Red Hat YAML extension, completes keys, checks values and shows each field's description when the file starts with:
+
+```yaml
+# yaml-language-server: $schema=https://cpave3.github.io/legato/schemas/workflow-v1.schema.json
+schema_version: 1
+```
+
+The schema knows each step type's `with` fields. It cannot check `${{ }}` references or the rules that depend on earlier steps, so run `legato workflow validate <file>` as well. A `with` key that a step's type doesn't read is flagged by the schema and is a warning from `legato workflow validate`. Legato ignores such keys for now, and a later release will refuse them, so remove any you find, such as a misspelt `promt:`.
+
 Workflow definitions do not support `notify_on_complete`. Successful runs remain in workflow history and do not create Attention items; Attention is reserved for manual gates, waiting agents, and failures. Remove this field from older workflow YAML because schema parsing is strict.
 
 ### Runs and workflows in the web UI
