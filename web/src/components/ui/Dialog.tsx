@@ -91,7 +91,7 @@ export function DialogClose({ className, ...props }: Omit<React.ComponentProps<t
       className={className}
       {...props}
     >
-      <X aria-hidden="true" className="size-4" />
+      <X aria-hidden="true" className="size-4 text-rose-700" />
     </Button>
   )
 }
