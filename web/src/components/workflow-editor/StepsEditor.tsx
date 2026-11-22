@@ -152,6 +152,9 @@ type WithFieldProps = { spec: FieldSpec; stepId: string; value: unknown; onChang
 // that is an expression is shown as text, so it can always be edited.
 function WithField({ spec, stepId, value, onChange, refs, taskRefs, options, agent, problems }: WithFieldProps) {
   const name = `${spec.name} of step ${stepId}`
+  // A number field holding text that is neither a whole number nor an
+  // expression: the engine may only find out when the step runs.
+  const notANumber = spec.kind === "integer" && typeof value === "string" && value.trim() !== "" && !value.includes("${{") && !/^-?\d+$/.test(value.trim())
   const text = valueText(value)
   const isExpression = typeof value === "string" && value.includes("${{")
   const listId = `options-${stepId}-${spec.name}`
@@ -170,7 +173,7 @@ function WithField({ spec, stepId, value, onChange, refs, taskRefs, options, age
       break
     case "integer":
       // A whole number is written as one; anything else (an expression) as text.
-      control = <CommitField aria-label={name} inputMode="numeric" value={text} onCommit={raw => /^-?\d+$/.test(raw.trim()) ? onChange(Number(raw.trim())) : set(raw)} />
+      control = <CommitField aria-label={name} inputMode="numeric" value={text} aria-invalid={notANumber || undefined} onCommit={raw => /^-?\d+$/.test(raw.trim()) ? onChange(Number(raw.trim())) : set(raw)} />
       break
     case "json":
       control = <CommitField aria-label={name} multiline value={value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value, null, 2)} onCommit={raw => { if (raw.trim() === "") { onChange(undefined); return } try { onChange(JSON.parse(raw)) } catch { onChange(raw) } }} />
@@ -191,13 +194,16 @@ function WithField({ spec, stepId, value, onChange, refs, taskRefs, options, age
         control = <CommitField aria-label={name} value={text} onCommit={set} list={suggestions.length > 0 ? listId : undefined} />
       }
   }
-  return <label className={labelClass}>
+  // A div, not a label: a label would pass a click on the picker's menu on
+  // to its first button and open it again. The controls name themselves.
+  return <div className={labelClass}>
     <span className="flex items-center justify-between gap-2"><span><span className="font-lw-mono">{spec.name}</span>{spec.required || spec.requiredAtRun ? " (required)" : ""}</span>{picker}</span>
     {control}
     {suggestions.length > 0 && <datalist id={listId}>{suggestions.map(s => <option key={s} value={s} />)}</datalist>}
     <span className="text-[11px] text-lw-faint">{spec.description}</span>
+    {notANumber && <p className="text-xs text-lw-danger">{spec.name} must be a whole number or a {"${{ }}"} expression</p>}
     <Problems diagnostics={problems} />
-  </label>
+  </div>
 }
 
 const OUTPUT_TYPES = ["string", "integer", "boolean", "json", "file"]

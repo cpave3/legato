@@ -89,6 +89,20 @@ describe("fields by kind", () => {
     expect(parse(latest).steps[0].with.name).toBe("${{ workflow.inputs.target.title }}")
   })
 
+  it("closes the reference picker when a reference is picked", () => {
+    renderBuilder(base)
+    fireEvent.click(screen.getByRole("button", { name: "Insert a reference into name of step s" }))
+    fireEvent.click(screen.getByRole("option", { name: "workflow.task" }))
+    expect(screen.queryByRole("listbox")).toBeNull()
+  })
+
+  it("says when a number field holds something else", () => {
+    renderBuilder(base)
+    commit(screen.getByLabelText("pr_number of step s"), "abc")
+    expect(screen.getByLabelText("pr_number of step s").getAttribute("aria-invalid")).toBe("true")
+    expect(screen.getByText("pr_number must be a whole number or a ${{ }} expression")).toBeTruthy()
+  })
+
   it("keeps fields the schema doesn't know, and names them", () => {
     renderBuilder(base.replace("prompt: hi\n", "prompt: hi\n      promt: hello\n"))
     expect(screen.getByText(/Other fields \(edit in YAML\)/).textContent).toContain("with.promt")
@@ -138,6 +152,15 @@ describe("steps", () => {
     screen.getByRole("button", { name: "Remove step task-note" }).focus()
     await user.keyboard("{Enter}")
     expect(parse(latest).steps.map((s: { id: string }) => s.id)).toEqual(["first"])
+  })
+
+  it("sees references to an ID with a slash in it", () => {
+    const slash = commented.replaceAll("look", "read/pr")
+    renderBuilder(slash)
+    fireEvent.click(screen.getByRole("button", { name: "Move step note up" }))
+    expect(screen.getByRole("alert").textContent).toContain("step note reads steps.read/pr.outputs.summary")
+    fireEvent.click(screen.getByRole("button", { name: "Remove step read/pr" }))
+    expect(screen.getByRole("alertdialog", { name: "Remove step read/pr" })).toBeTruthy()
   })
 
   it("edits outputs", () => {

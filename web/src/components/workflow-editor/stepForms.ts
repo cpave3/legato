@@ -42,7 +42,12 @@ export function stepReferences(step: StepValue): { id: string; expression: strin
   const out: { id: string; expression: string }[] = []
   const walk = (value: unknown) => {
     if (typeof value === "string") {
-      for (const match of value.matchAll(/\$\{\{\s*(steps\.([A-Za-z0-9_.-]+?)\.outputs\.[A-Za-z0-9_.-]+)\s*\}\}/g)) out.push({ id: match[2], expression: match[1] })
+      // The engine's own reading: the expression split at its dots, so an
+      // ID is anything without a dot (read/pr, say).
+      for (const match of value.matchAll(/\$\{\{\s*([^}]+?)\s*\}\}/g)) {
+        const parts = match[1].split(".")
+        if ((parts.length === 4 || parts.length === 5) && parts[0] === "steps" && parts[2] === "outputs" && parts[1] !== "") out.push({ id: parts[1], expression: match[1] })
+      }
     } else if (value && typeof value === "object") {
       Object.values(value).forEach(walk)
     }
