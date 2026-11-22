@@ -26,7 +26,15 @@ Expressions: `web/src/lib/workflowExpressions.ts` builds on the schema's `x-lega
 
 - **Details:** name (read-only when editing, LEG-460), title, description, `run_title` with `ReferencePicker` (`references` for `run_title`), `after_start`.
 - **Inputs:** add, remove, rename (`renameInput`), type, required, secret, default (parsed by type), choices, description.
-- **Steps and triggers:** placeholders that say to edit them in YAML.
+- **Steps** (LEG-472, `StepsEditor.tsx`, with the pure parts in `stepForms.ts`). Each step is a card that opens and folds, with **Move up**/**Move down**/**Remove** buttons, drag and drop, and a palette of the non-internal step types (`executors`).
+  - `stepForm(type)` reads `with.<type>` from the schema: each field's `x-legato.kind`, required, required at run, enum (direct or in `anyOf`) and whether it takes expressions, plus the `exactly_one` and `at_least_one` groups. `WithField` draws each kind (`FIELD_KINDS`), and a test fails when the schema has a kind it doesn't draw. Another test renders every non-internal executor's form.
+  - An `exactly_one` group is a radio (Prompt | Macro). Switching removes the other field.
+  - Pickers are `datalist` suggestions from `BuilderOptions`: macros and tiers from `GET /api/macros`, agents from `/api/adapters`, columns from `/api/board`. The page fetches them in `useBuilderOptions`, and each stays empty when it can't be read. A whole-task field is a select of `${{ workflow.task }}` and the task inputs.
+  - `ReferencePicker` gives a step's `with` references. An integer field writes a whole number as a number.
+  - `brokenReferences(steps, order)` refuses a move that would make a step read a later one's outputs, and removing a step others read asks first (`alertdialog`).
+  - Unknown fields are listed as "other fields (edit in YAML)". Outputs can be added, typed (a file with its `path`) and removed.
+  - `StepsEditor.test.tsx` builds `review-pr` from an empty workflow and compares it to the template's parsed values, with a clean check. It also covers each field kind, moves with comments, the refusals, and keyboard-only add, move and remove.
+- **Triggers:** a placeholder that says to edit them in YAML.
 
 `CommitField` writes on blur or Enter, so a word is one undo step. It reports text it holds but hasn't written through the `PendingDrafts` context (`pendingDrafts.ts`), and the page counts that as unsaved. After Undo or Redo the history is `sealed`, so typing makes a new step instead of changing the one returned to. Choices are one field each (`Choices`), so a choice with a comma in it stays one. `shapeProblem` (in `workflowDocument.ts`) sends a file whose parts aren't of a workflow's shape (a step that is not a mapping, say) to YAML before the forms draw. A `Boundary` around the forms shows any other failure to draw, with **Edit as YAML**, and tries again when the text changes. Problems from the server's check show on the field whose path they are on, or under it (`problemsAt`). A file that doesn't parse, or that `parseWorkflow` marks read-only, shows why and **Edit as YAML** instead of the forms. `pages/__tests__/WorkflowBuilder.test.tsx` covers:
 

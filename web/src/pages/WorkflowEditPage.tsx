@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
-import { useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { fetchMacroList } from "../lib/macros"
+import { fetchAdapters } from "../lib/adapters"
+import { fetchBoard } from "../lib/board"
 import { ArrowLeft, Redo2, Save, Trash2, Undo2 } from "lucide-react"
 import { useServer } from "../hooks/useServer"
 import { useWorkflows } from "../hooks/useWorkflow"
@@ -56,6 +59,31 @@ function writeDraft(key: string, draft: Draft | null) {
     if (draft) localStorage.setItem(key, JSON.stringify(draft))
     else localStorage.removeItem(key)
   } catch { /* kept only where storage works */ }
+}
+
+// useBuilderOptions is what the builder's pickers offer: this Legato's
+// macros, agent tools with their tiers, and board columns. Each is left
+// empty when it can't be read; a value can still be typed.
+function useBuilderOptions(baseUrl: string) {
+  const quiet = async <T,>(read: () => Promise<T>, fallback: T) => { try { return await read() } catch { return fallback } }
+  const query = useQuery({
+    queryKey: [baseUrl, "workflow-builder-options"],
+    queryFn: async () => {
+      const [macros, adapters, board] = await Promise.all([
+        quiet(() => fetchMacroList(baseUrl), null),
+        quiet(() => fetchAdapters(baseUrl), { adapters: [], default: "" }),
+        quiet(() => fetchBoard(baseUrl), null),
+      ])
+      return {
+        macros: (macros?.macros ?? []).map(macro => macro.name),
+        agents: adapters.adapters,
+        tiers: Object.fromEntries(Object.entries(macros?.tiers ?? {}).map(([agent, tiers]) => [agent, tiers.map(tier => tier.name)])),
+        columns: (board?.columns ?? []).map(column => column.name),
+      }
+    },
+    staleTime: 60_000,
+  })
+  return query.data
 }
 
 type Entry = { text: string; label: string; typing: boolean }
@@ -140,6 +168,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   // Nothing is written to the kept draft until it has been read, so
   // opening the page never removes the draft it is about to offer.
   const [draftRead, setDraftRead] = useState(false)
+  const options = useBuilderOptions(baseUrl)
 
   useEffect(() => {
     if (mode !== "edit") {
@@ -331,7 +360,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
             <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} readOnly={!editable} />
           </section>
           : <section aria-label="Visual">
-            <LazyWorkflowBuilder text={text} onEdit={change => history.push(change.text, change.undo.label)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={() => switchMode("yaml")} onPending={setPendingEdits} />
+            <LazyWorkflowBuilder text={text} onEdit={change => history.push(change.text, change.undo.label)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={() => switchMode("yaml")} options={options} onPending={setPendingEdits} />
           </section>}
       </div>
       <div className="flex min-w-0 flex-col gap-4">

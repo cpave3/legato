@@ -172,7 +172,16 @@ The editor has two sides, **Visual** and **YAML**, and you can switch between th
 - **Visual** shows the workflow as forms.
   - **Details** holds the name, title, description, the run title (**${{ }}** inserts an input), and what the web UI opens after a run starts.
   - **Inputs** adds, removes and renames inputs, with each input's type, whether it is required or secret, its default, choices and description. Renaming an input changes every `${{ workflow.inputs.<name> }}` that reads it, and the triggers' mappings of it.
-  - Steps and triggers are edited in YAML for now.
+  - **Steps** lists the steps in order.
+    - **Add step** offers every step type with what it does.
+    - Each step has its ID, title and how it starts (by itself, when you start it, or when the agent ends), then the fields of its type: text, a prompt, switches, numbers, choices, your macros, agent tools and tiers, board columns, and the workflow's task or a task input.
+    - **Prompt** or **Macro** is a choice.
+    - **${{ }}** beside a field inserts what it can read.
+    - Each step also lists the outputs it declares, with their types and, for a file, its path.
+    - Move a step with its arrows or by dragging it. A move that would make a step read the outputs of one after it is refused, with the reference named.
+    - Removing a step that others read asks first.
+    - A field the step's type doesn't know is kept, and named, for you to edit in YAML.
+  - Triggers are edited in YAML for now.
   - A change touches only what it changes: the rest of the file, comments included, stays as you wrote it.
   - Problems Legato finds show on their fields.
   - A file whose YAML doesn't parse, or that uses YAML anchors, aliases or merge keys, opens in YAML only.

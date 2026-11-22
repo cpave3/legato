@@ -1,11 +1,15 @@
-import { Component, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react"
+import { Component, useCallback, useMemo, useRef, useState, type ReactNode } from "react"
 import { Plus, Trash2 } from "lucide-react"
-import { addInput, inputsOf, parseWorkflow, shapeProblem, removeInput, renameInput, setField, stepsOf, triggersOf, WorkflowDocumentError, type WorkflowEdit, type YamlPath } from "../../lib/workflowDocument"
+import { addInput, inputsOf, parseWorkflow, shapeProblem, removeInput, renameInput, setField, triggersOf, WorkflowDocumentError, type WorkflowEdit, type YamlPath } from "../../lib/workflowDocument"
 import { references } from "../../lib/workflowExpressions"
 import { pathText } from "../../lib/workflowSchema"
 import type { WorkflowDiagnostic } from "../../lib/workflowFiles"
 import { Button } from "../ui/Button"
 import { PendingDrafts } from "./pendingDrafts"
+import { CommitField, Problems, ReferencePicker } from "./builderFields"
+import { fieldClass, labelClass, problemsAt } from "./builderStyles"
+import { StepsEditor } from "./StepsEditor"
+import { noOptions, type BuilderOptions } from "./stepForms"
 
 export type WorkflowBuilderProps = {
   text: string
@@ -17,53 +21,13 @@ export type WorkflowBuilderProps = {
   onEditYaml: () => void
   /** onPending is told whether a field holds text not yet written. */
   onPending?: (pending: boolean) => void
+  /** options are what the pickers offer. */
+  options?: BuilderOptions
 }
 
-const field = "min-h-9 w-full rounded-md border border-lw-line-strong bg-lw-ground px-2 text-sm text-lw-text"
-const label = "flex flex-col gap-1 text-xs text-lw-text-2"
+const field = fieldClass
+const label = labelClass
 const INPUT_TYPES = ["string", "integer", "boolean", "json", "task", "repository"] as const
-
-// problemsAt are the diagnostics on a path or under it.
-function problemsAt(diagnostics: WorkflowDiagnostic[], path: string): WorkflowDiagnostic[] {
-  return diagnostics.filter(d => d.path === path || d.path?.startsWith(path + ".") || d.path?.startsWith(path + "["))
-}
-
-function Problems({ diagnostics, id }: { diagnostics: WorkflowDiagnostic[]; id?: string }) {
-  if (diagnostics.length === 0) return null
-  return <ul id={id} className="flex flex-col gap-0.5 text-xs">
-    {diagnostics.map((d, i) => <li key={i} className={d.severity === "error" ? "text-lw-danger" : "text-lw-needs"}>{d.message}</li>)}
-  </ul>
-}
-
-// CommitField is a text field that writes its value when it is left or
-// Enter is pressed, so a word typed is one undo step, not one a letter.
-function CommitField({ value, onCommit, multiline, ...rest }: { value: string; onCommit: (value: string) => void; multiline?: boolean } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">) {
-  const [draft, setDraft] = useState(value)
-  useEffect(() => setDraft(value), [value])
-  // Text typed and not yet written counts as unsaved on the page.
-  const report = useContext(PendingDrafts)
-  const id = useId()
-  useEffect(() => { report(id, draft !== value) }, [report, id, draft, value])
-  useEffect(() => () => report(id, false), [report, id])
-  const commit = () => { if (draft !== value) onCommit(draft) }
-  if (multiline) {
-    return <textarea aria-label={rest["aria-label"]} aria-describedby={rest["aria-describedby"]} aria-invalid={rest["aria-invalid"]} className={`${field} min-h-16 py-1.5`} value={draft} onChange={event => setDraft(event.target.value)} onBlur={commit} />
-  }
-  return <input {...rest} className={field} value={draft} onChange={event => setDraft(event.target.value)} onBlur={commit} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); commit() } }} />
-}
-
-/** ReferencePicker inserts a ${{ }} that can be read at a place. */
-function ReferencePicker({ options, onPick, name }: { options: string[]; onPick: (expression: string) => void; name: string }) {
-  const [open, setOpen] = useState(false)
-  if (options.length === 0) return null
-  return <div className="relative">
-    <Button type="button" variant="ghost" size="sm" aria-expanded={open} aria-label={`Insert a reference into ${name}`} onClick={() => setOpen(!open)}>{"${{ }}"}</Button>
-    {open && <ul role="listbox" aria-label={`References for ${name}`} className="absolute right-0 z-10 mt-1 max-h-60 w-72 overflow-auto rounded-md border border-lw-line bg-lw-surface p-1 text-xs shadow-xl">
-      {options.map(option => <li key={option} role="option" aria-selected="false" tabIndex={0} className="cursor-pointer rounded px-2 py-1 font-lw-mono hover:bg-lw-raised"
-        onClick={() => { onPick(option); setOpen(false) }} onKeyDown={event => { if (event.key === "Enter") { onPick(option); setOpen(false) } }}>{option}</li>)}
-    </ul>}
-  </div>
-}
 
 function defaultText(value: unknown): string {
   if (value === undefined || value === null) return ""
@@ -82,7 +46,7 @@ function parseDefault(type: string, text: string): unknown {
 // and inputs as forms, over the same text the YAML side edits
 // (lib/workflowDocument). Steps and triggers are edited in YAML until
 // their sections land.
-function Builder({ text, onEdit, diagnostics = [], nameFixed, onEditYaml }: WorkflowBuilderProps) {
+function Builder({ text, onEdit, diagnostics = [], nameFixed, onEditYaml, options = noOptions }: WorkflowBuilderProps) {
   const parsed = useMemo(() => parseWorkflow(text), [text])
   const [error, setError] = useState("")
   const [newInput, setNewInput] = useState("")
@@ -195,11 +159,7 @@ function Builder({ text, onEdit, diagnostics = [], nameFixed, onEditYaml }: Work
       </form>
     </section>
 
-    <section aria-label="Steps" className="flex flex-col gap-2 rounded-xl border border-lw-line bg-lw-surface p-4">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-lw-text-2">Steps</h2>
-      <ol className="list-decimal pl-5 text-lw-text-2">{stepsOf(values).map((step, i) => <li key={`${step.id}-${i}`}><span className="text-lw-text">{String(step.title ?? step.id)}</span> <span className="font-lw-mono text-xs">{String(step.type ?? "")}</span></li>)}</ol>
-      <p className="text-xs text-lw-faint">Edit steps in YAML for now. <button type="button" className="text-lw-link hover:underline" onClick={onEditYaml}>Switch to YAML</button></p>
-    </section>
+    <StepsEditor text={text} values={values} diagnostics={diagnostics} options={options} apply={apply} />
 
     <section aria-label="Triggers" className="flex flex-col gap-2 rounded-xl border border-lw-line bg-lw-surface p-4">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-lw-text-2">Triggers</h2>
