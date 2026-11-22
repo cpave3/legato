@@ -60,6 +60,24 @@ steps:
     type: agent.run
     with: {prompt: hi}
 `, "on.schedule.cron", 8, 11, "schedule: "},
+		{"a trigger whose kind has dots", checkBase + `on:
+  task.entered_column:
+    column: ''
+steps:
+  - id: a
+    title: A
+    type: agent.run
+    with: {prompt: hi}
+`, "on.task.entered_column.column", 8, 13, "task.entered_column column is required"},
+		{"a pull request trigger", checkBase + `on:
+  pr.changes_requested:
+    max_runs_per_day: -1
+steps:
+  - id: a
+    title: A
+    type: agent.run
+    with: {prompt: hi}
+`, "on.pr.changes_requested.max_runs_per_day", 8, 23, "max_runs_per_day must be 1 or more"},
 		{"duplicate step ID", checkBase + `steps:
   - id: a
     title: A

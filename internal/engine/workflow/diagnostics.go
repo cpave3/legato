@@ -191,8 +191,6 @@ func keyOnLine(root *yaml.Node, line int, name string) (*yaml.Node, string) {
 	return found, foundPath
 }
 
-var pathSegment = regexp.MustCompile(`[^.\[\]]+|\[\d+\]`)
-
 // diagnosticAt anchors a problem at path: on a one-line scalar value, the
 // value; on anything else, its key. A path that goes further than the file
 // is anchored where the file stops.
@@ -203,19 +201,25 @@ func diagnosticAt(root *yaml.Node, path, message string) Diagnostic {
 		node = node.Content[0]
 	}
 	var key, value *yaml.Node
-	for _, segment := range pathSegment.FindAllString(path, -1) {
+	// The path is matched against the file's own keys, longest first, so a
+	// key with dots in it (task.entered_column) is one key.
+	rest := path
+	for rest != "" {
 		node = resolveAlias(node)
 		var nextKey, next *yaml.Node
-		if strings.HasPrefix(segment, "[") {
-			index, _ := strconv.Atoi(strings.Trim(segment, "[]"))
-			if node.Kind == yaml.SequenceNode && index < len(node.Content) {
-				next = node.Content[index]
+		consumed := 0
+		if strings.HasPrefix(rest, "[") {
+			end := strings.Index(rest, "]")
+			index, err := strconv.Atoi(rest[1:max(end, 1)])
+			if end > 0 && err == nil && node.Kind == yaml.SequenceNode && index < len(node.Content) {
+				next, consumed = node.Content[index], end+1
 			}
 		} else if node.Kind == yaml.MappingNode {
 			for i := 0; i+1 < len(node.Content); i += 2 {
-				if node.Content[i].Value == segment {
-					nextKey, next = node.Content[i], node.Content[i+1]
-					break
+				k := node.Content[i].Value
+				fits := rest == k || strings.HasPrefix(rest, k+".") || strings.HasPrefix(rest, k+"[")
+				if fits && len(k) > consumed {
+					nextKey, next, consumed = node.Content[i], node.Content[i+1], len(k)
 				}
 			}
 		}
@@ -223,6 +227,7 @@ func diagnosticAt(root *yaml.Node, path, message string) Diagnostic {
 			break
 		}
 		key, value, node = nextKey, next, next
+		rest = strings.TrimPrefix(rest[consumed:], ".")
 	}
 	value = resolveAlias(value)
 	switch {
