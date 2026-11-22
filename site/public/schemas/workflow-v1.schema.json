@@ -2112,7 +2112,7 @@
             "description": "An output of an earlier step"
           },
           {
-            "pattern": "steps.\u003cearlier step\u003e.outputs.\u003cfile output\u003e.path",
+            "pattern": "steps.\u003cearlier step\u003e.outputs.\u003coutput\u003e.path",
             "description": "Where an earlier step's file output is"
           }
         ]
@@ -2234,7 +2234,7 @@
             "description": "An output of an earlier step"
           },
           {
-            "pattern": "steps.\u003cearlier step\u003e.outputs.\u003cfile output\u003e.path",
+            "pattern": "steps.\u003cearlier step\u003e.outputs.\u003coutput\u003e.path",
             "description": "Where an earlier step's file output is"
           },
           {

@@ -254,6 +254,32 @@ function countItems(lines: string[], i: number, dash: number): number {
   return n
 }
 
+/** valuePathAt is the path of the value the cursor is in: the key on its
+ * line, or the key of the block scalar (key: | or >) the line is part of. */
+export function valuePathAt(text: string, offset: number): YamlPath | null {
+  const lineStart = text.lastIndexOf("\n", offset - 1) + 1
+  let start = lineStart
+  let line = text.slice(lineStart, offset)
+  let keyed = /^( *(?:- +)*)([A-Za-z0-9_.-]+):[ \t]/.exec(line)
+  if (!keyed) {
+    // A line of a block scalar: find the key that opened it.
+    const indent = /^ */.exec(line)![0].length
+    let end = lineStart - 1
+    while (end > 0) {
+      const begin = text.lastIndexOf("\n", end - 1) + 1
+      const above = text.slice(begin, end)
+      const opener = /^( *(?:- +)*)([A-Za-z0-9_.-]+):[ \t]*[|>][-+0-9]*[ \t]*$/.exec(above)
+      const aboveIndent = /^ */.exec(above)![0].length
+      if (opener && aboveIndent < indent) { start = begin; line = above; keyed = opener; break }
+      if (above.trim() !== "" && aboveIndent < indent) return null
+      end = begin - 1
+    }
+    if (!keyed) return null
+  }
+  const context = contextAt(text.slice(0, start) + keyed[0].replace(/[ \t]+$/, " "), start + keyed[0].replace(/[ \t]+$/, " ").length)
+  return context && context.mode === "value" ? context.path : null
+}
+
 /** completionsAt is what the editor offers at offset. */
 export function completionsAt(text: string, offset: number): { from: number; options: Completion[] } | null {
   const context = contextAt(text, offset)

@@ -28,7 +28,7 @@ describe("the workflow editor chunk", () => {
   })
 
   it("keeps the schema out of the pages", () => {
-    const offenders = sources(join(src, "pages")).filter(path => /^import\s+(?!type\b).*lib\/workflowSchema["']/m.test(readFileSync(path, "utf8")))
+    const offenders = sources(join(src, "pages")).filter(path => /^import\s+(?!type\b).*lib\/workflow(Schema|Expressions)["']/m.test(readFileSync(path, "utf8")))
     expect(offenders.map(path => relative(src, path))).toEqual([])
   })
 })

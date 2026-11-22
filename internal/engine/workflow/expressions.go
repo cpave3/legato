@@ -41,7 +41,7 @@ var (
 	}
 	earlierRoots = []ExpressionRoot{
 		{"steps.<earlier step>.outputs.<output>", "An output of an earlier step"},
-		{"steps.<earlier step>.outputs.<file output>.path", "Where an earlier step's file output is"},
+		{"steps.<earlier step>.outputs.<output>.path", "Where an earlier step's file output is"},
 	}
 )
 

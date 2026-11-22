@@ -171,6 +171,13 @@ The editor knows the workflow format, from the same schema Legato checks files w
 
 - As you type, it offers the keys that fit where you are: the top-level fields, the trigger kinds under `on:`, the step types (with what each does), and each step type's `with` fields. It also offers the values of fields that take one of a few, such as `catch_up` or `scope`, and `true` and `false`.
 - Hover over a key to read what it is for.
+- Inside `${{ }}` it offers what can be read at that place:
+  - in a step's `with`: the workflow's inputs, a task input's fields (`.title`, `.metadata.`…), `workflow.task`, the outputs that earlier steps declare, and the step's own file outputs;
+  - in `run_title`: the inputs alone;
+  - in a file output's `path`: the inputs, the task, and the outputs of earlier steps;
+  - in a trigger's `inputs`: what that trigger gives, such as `schedule.time`, `event.pr_number` or `task.title`.
+
+  Hover over an expression to see what it reads. One that Legato would refuse, such as a later step's output, is marked as you type.
 - Problems are marked on their lines and listed beside the editor, as you type and again when Legato checks the file, which also checks the `${{ }}` references and each step's rules. A `with` key that the step's type doesn't read is a warning: Legato ignores it for now and a later release will refuse it.
 - **Save** stays off while the file has an error. Beside the editor, the workflow graph shows what you are building.
 

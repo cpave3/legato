@@ -7,6 +7,7 @@ import { autocompletion, completionKeymap, type CompletionContext, type Completi
 import { forceLinting, linter, lintGutter, type Diagnostic } from "@codemirror/lint"
 import { yaml } from "@codemirror/lang-yaml"
 import { completionsAt, contextAt, describe, lenientValues, schemaDiagnostics } from "../../lib/workflowSchema"
+import { expressionAt, expressionCompletions, expressionDiagnostics } from "../../lib/workflowExpressions"
 import type { WorkflowDiagnostic } from "../../lib/workflowFiles"
 import { mergeDiagnostics, toDiagnostics } from "./editorDiagnostics"
 
@@ -22,6 +23,15 @@ export type WorkflowYamlEditorProps = {
 
 function complete(context: CompletionContext): CompletionResult | null {
   const text = context.state.doc.toString()
+  // Inside ${{ }}: what can be read there.
+  const references = expressionCompletions(text, context.pos)
+  if (references) {
+    return {
+      from: references.from,
+      options: references.options.map(ref => ({ label: ref.expression, info: ref.description, type: "variable" })),
+      validFor: /^[A-Za-z0-9_.-]*$/,
+    }
+  }
   const result = completionsAt(text, context.pos)
   if (!result || result.options.length === 0) return null
   return {
@@ -31,8 +41,19 @@ function complete(context: CompletionContext): CompletionResult | null {
   }
 }
 
+function tooltip(text: string) {
+  return () => {
+    const dom = document.createElement("div")
+    dom.className = "max-w-xs p-2 text-xs"
+    dom.textContent = text
+    return { dom }
+  }
+}
+
 const hover = hoverTooltip((view, pos) => {
   const text = view.state.doc.toString()
+  const reference = expressionAt(text, pos)
+  if (reference) return { pos: reference.from, end: reference.to, above: true, create: tooltip(reference.description) }
   const line = view.state.doc.lineAt(pos)
   const key = /^(\s*(?:-\s+)*)([A-Za-z0-9_.-]+):/.exec(line.text)
   if (!key) return null
@@ -44,13 +65,7 @@ const hover = hoverTooltip((view, pos) => {
   const info = describe([...context.path, key[2]], lenientValues(text))
   if (!info) return null
   return {
-    pos: start, end, above: true,
-    create: () => {
-      const dom = document.createElement("div")
-      dom.className = "max-w-xs p-2 text-xs"
-      dom.textContent = info
-      return { dom }
-    },
+    pos: start, end, above: true, create: tooltip(info),
   }
 })
 
@@ -77,7 +92,7 @@ export default function WorkflowYamlEditor({ value, onChange, serverDiagnostics 
   useEffect(() => {
     const lint = linter(v => {
       const text = v.state.doc.toString()
-      const schema: Diagnostic[] = schemaDiagnostics(text).map(d => ({ from: Math.min(d.from, text.length), to: Math.min(d.to, text.length), severity: d.severity, message: d.message, source: "schema" }))
+      const schema: Diagnostic[] = [...schemaDiagnostics(text), ...expressionDiagnostics(text)].map(d => ({ from: Math.min(d.from, text.length), to: Math.min(d.to, text.length), severity: d.severity, message: d.message, source: "schema" }))
       return mergeDiagnostics(text, toDiagnostics(text, server.current), schema)
     }, { delay: 250 })
     const state = EditorState.create({
