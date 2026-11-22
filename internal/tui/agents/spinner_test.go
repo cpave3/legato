@@ -26,7 +26,7 @@ func TestTheEnsembleTurnsTheMarkOfARunningAgentToo(t *testing.T) {
 	m.SetSpinner(4)
 
 	view := m.View()
-	if !strings.Contains(view, theme.Spinner(4)+" busy-1") || !strings.Contains(view, theme.Spinner(4)+" 1 running") {
+	if !strings.Contains(view, theme.Spinner(4)+" busy-1") || !strings.Contains(view, theme.Spinner(4)+" 2 working") {
 		t.Errorf("the tile and the count should both turn: %q", view)
 	}
 }

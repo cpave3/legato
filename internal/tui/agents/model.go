@@ -90,8 +90,14 @@ type Model struct {
 	previewsAt    time.Time
 	// feed is what changed among the agents since the view first saw them,
 	// oldest first, and seen the state each agent was last seen in.
-	feed         []feedEvent
-	seen         map[string]string
+	feed []feedEvent
+	seen map[string]string
+	// seenStages is each agent's stage at the last look, for the record.
+	seenStages map[string]string
+	// all is every agent in list order; agents is what the stage filter
+	// (stageFilter, "" for all) keeps of it.
+	all          []service.AgentSession
+	stageFilter  string
 	now          func() time.Time
 	recording    bool
 	transcribing bool
@@ -175,7 +181,8 @@ func (m *Model) SetAgents(agents []service.AgentSession) {
 
 	agents = m.withInterrupted(agents)
 	m.observe(agents)
-	m.agents = orderAgents(agents)
+	m.all = orderAgents(agents)
+	m.agents = m.filtered()
 
 	// Re-locate the selection if it still exists.
 	m.selected = 0
@@ -188,6 +195,59 @@ func (m *Model) SetAgents(agents []service.AgentSession) {
 	if m.selected >= len(m.agents) {
 		m.selected = max(0, len(m.agents)-1)
 	}
+}
+
+// stageCycle is the order f steps the stage filter through, "" for all.
+var stageCycle = []string{"", "exploring", "planning", "implementing", "reviewing", "finished"}
+
+// filtered is what the stage filter keeps of every agent, in list order.
+func (m Model) filtered() []service.AgentSession {
+	if m.stageFilter == "" {
+		return m.all
+	}
+	var kept []service.AgentSession
+	for _, a := range m.all {
+		if a.Stage == m.stageFilter {
+			kept = append(kept, a)
+		}
+	}
+	return kept
+}
+
+// needsYouOutside counts the agents that need the operator and that the
+// stage filter hides: a filter never hides urgent work.
+func (m Model) needsYouOutside() int {
+	if m.stageFilter == "" {
+		return 0
+	}
+	n := 0
+	for _, a := range m.all {
+		if a.Stage != m.stageFilter && sectionOf(a) == sectionNeedsYou {
+			n++
+		}
+	}
+	return n
+}
+
+// cycleStageFilter steps the stage filter on, keeping the selected agent
+// when it is still listed.
+func (m Model) cycleStageFilter() Model {
+	selected := ""
+	if m.selected < len(m.agents) {
+		selected = m.agents[m.selected].TaskID
+	}
+	for i, stage := range stageCycle {
+		if stage == m.stageFilter {
+			m.stageFilter = stageCycle[(i+1)%len(stageCycle)]
+			break
+		}
+	}
+	m.agents = m.filtered()
+	m.selected = 0
+	if selected != "" {
+		m.SelectByTaskID(selected)
+	}
+	return m
 }
 
 // orderAgents returns agents in the order the view lists them: the Reeve
@@ -342,7 +402,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		agents := m.withInterrupted(msg.Agents)
 		m.observe(agents)
-		m.agents = orderAgents(agents)
+		m.all = orderAgents(agents)
+		m.agents = m.filtered()
 		for _, a := range m.agents {
 			m.notifyStates[a.TaskID] = a.NotifyEnabled
 		}
@@ -558,6 +619,8 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 			return m, func() tea.Msg { return msg }
 		}
 		return m, nil
+	case hotkey.ActionAgentsStageFilter:
+		return m.cycleStageFilter(), nil
 	case hotkey.ActionAgentsGroup:
 		if a := m.SelectedAgent(); a != nil {
 			return m, func() tea.Msg { return OpenGroupMsg{TaskID: a.TaskID, Group: a.Group} }

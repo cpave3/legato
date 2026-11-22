@@ -104,13 +104,16 @@ Each row has a stage line: a small circle that fills a quarter more at each stag
 
 ## The agents view
 
-Press `A` on the board to open the agents view. Agents are listed under what they are doing, the ones that need you first:
+Press `A` on the board to open the agents view. Agents are listed in the same groups as the web UI (see [Stages](#stages)), the ones that need you first:
 
-- **Needs you**: waiting for you, stopped on an error, or with something it [posted for you](/legato/using/attention/#operator-items) still open, even when it is idle.
-- **Running**: working.
-- **Background**: the turn ended, but something it started still runs and will wake it: a shell, a Monitor, a subagent or a scheduled prompt. The line over the terminal says what: `background · 2 jobs`, or the one job by name.
-- **Idle**: alive, and nothing will wake it but a message.
+- **Needs you**: waiting for you, stopped on an error, with something it [posted for you](/legato/using/attention/#operator-items) still open (a done note aside), or with a plan waiting for you, even when it is idle.
+- **Your turn**: idle with its work not finished: it waits for your reply.
+- **Interrupted**: a crash stopped it (see below).
+- **Working**: working, or in the background: the turn ended, but something it started still runs and will wake it (a shell, a Monitor, a subagent or a scheduled prompt). The line over the terminal says what: `background · 2 jobs`, or the one job by name.
+- **Finished**: its stage is Finished.
 - **Ended**: the session is over.
+
+Each entry has a line with its stage, such as `◑ implementing · 6 files changed` (○ exploring, ◔ planning, ◑ implementing, ◕ reviewing, ● finished). Press `f` to filter the list by stage, and again for the next stage; the list then says how many agents need you outside the filter. In the ensemble, each tile names its stage, and the panel of what changed lists stage changes too, such as `LEG-405 finished · PR #212 merged`.
 
 Chimera sessions using Legato's mod report their state directly: permission prompts and questions show **Needs you** until the last open request is answered. A normal turn ending with background shells or background subagents still running shows **Background**, with those jobs listed. Errors show **Needs you**; an interrupted, timed-out or otherwise cancelled turn shows **Idle**, even if jobs remain. Old hook scripts and terminal prompt detection cannot override a session after its first mod report. These mappings follow Chimera's event spec; recorded fixtures are not available yet.
 

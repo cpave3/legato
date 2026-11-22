@@ -62,10 +62,10 @@ func TestEnsembleShowsEveryAgentAsATile(t *testing.T) {
 	}
 }
 
-func TestEnsembleCountsAgentsByWhatTheyAreDoing(t *testing.T) {
+func TestEnsembleCountsAgentsByGlance(t *testing.T) {
 	header := strings.Split(ensemble(t).View(), "\n")[0]
 
-	for _, want := range []string{"♩ legato", "2 need you", "1 running", "1 in background", "1 idle", "1 ended"} {
+	for _, want := range []string{"♩ legato", "2 need you", "1 your turn", "2 working", "1 ended"} {
 		if !strings.Contains(header, want) {
 			t.Errorf("header should contain %q, got: %q", want, header)
 		}

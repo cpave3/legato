@@ -507,7 +507,7 @@ func TestSidebarActivityIndicators(t *testing.T) {
 
 	view := m.View()
 
-	for _, section := range []string{"NEEDS YOU · 1", "RUNNING · 1", "IDLE · 1", "ENDED · 1"} {
+	for _, section := range []string{"NEEDS YOU · 1", "WORKING · 1", "YOUR TURN · 1", "ENDED · 1"} {
 		if !containsStr(view, section) {
 			t.Errorf("view should list agents under %q", section)
 		}
@@ -756,11 +756,11 @@ func TestSidebarShowsAnAgentWaitingOnBackgroundWork(t *testing.T) {
 
 	view := m.View()
 
-	if !containsStr(view, "BACKGROUND") {
-		t.Error("view should say the agent is waiting on background work")
+	if !containsStr(view, "WORKING · 1") {
+		t.Error("an agent waiting on its own background work is working")
 	}
-	if containsStr(view, "IDLE") {
-		t.Error("an agent with a shell still running is not idle")
+	if containsStr(view, "YOUR TURN") {
+		t.Error("an agent with a shell still running is not waiting for the operator")
 	}
 }
 
@@ -780,7 +780,9 @@ func TestAgentsAreListedByWhatTheyAreDoingTheOnesThatNeedThePersonFirst(t *testi
 	m.SetAgents(mixedAgents())
 
 	got := taskIDs(m.Agents())
-	want := []string{"ask-1", "fail-1", "busy-1", "back-1", "idle-1", "gone-1"}
+	// Idle with its work not finished is the operator's turn, under those
+	// that need them.
+	want := []string{"ask-1", "fail-1", "idle-1", "busy-1", "back-1", "gone-1"}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("agent order = %v, want %v", got, want)
 	}
@@ -991,13 +993,13 @@ func TestAnIdleAgentWithOpenOperatorItemsIsListedAsNeedingYou(t *testing.T) {
 			agents[i].OpenItems = 1
 		}
 	}
-	// Needs you comes first, then running: idle-1 is listed before busy-1.
+	// Needs you comes first: idle-1 is listed with fail-1, ahead of it.
 	before := func(a, b string) bool {
 		got := taskIDs(m.Agents())
 		return slices.Index(got, a) < slices.Index(got, b)
 	}
 	m, _ = m.Update(AgentsRefreshedMsg{Agents: agents})
-	if !before("idle-1", "busy-1") {
+	if !before("idle-1", "fail-1") {
 		t.Fatalf("agent order = %v, want idle-1 among those that need you", taskIDs(m.Agents()))
 	}
 
@@ -1005,7 +1007,7 @@ func TestAnIdleAgentWithOpenOperatorItemsIsListedAsNeedingYou(t *testing.T) {
 		agents[i].OpenItems = 0
 	}
 	m, _ = m.Update(AgentsRefreshedMsg{Agents: agents})
-	if before("idle-1", "busy-1") {
-		t.Fatalf("agent order = %v, want idle-1 back among the idle", taskIDs(m.Agents()))
+	if before("idle-1", "fail-1") {
+		t.Fatalf("agent order = %v, want idle-1 back in your turn", taskIDs(m.Agents()))
 	}
 }
