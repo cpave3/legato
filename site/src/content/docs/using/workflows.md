@@ -181,7 +181,12 @@ The editor has two sides, **Visual** and **YAML**, and you can switch between th
     - Move a step with its arrows or by dragging it. A move that would make a step read the outputs of one after it is refused, with the reference named.
     - Removing a step that others read asks first.
     - A field the step's type doesn't know is kept, and named, for you to edit in YAML.
-  - Triggers are edited in YAML for now.
+  - **Triggers** shows **Run by hand**, which every workflow can, then a card for each trigger. **Add trigger** offers the kinds the workflow doesn't have yet, and a new trigger starts paused.
+    - Each card says whether the trigger starts runs by itself in the file, whether it asks you first, and its runs a day at most.
+    - Each card maps the workflow's inputs from what the trigger gives, with **${{ }}** offering that trigger's own references.
+    - A column-entry trigger takes its column, whether it also runs on handed-off cards, and conditions: all or any of a list, a **not**, or a field compared with a value.
+    - A schedule is either **Every** (day, weekday or week, at a time) or **Cron**, with its time zone and what to do about missed runs. It shows its next three runs as Legato works them out.
+    - Removing a trigger removes it and its comments, and nothing else.
   - A change touches only what it changes: the rest of the file, comments included, stays as you wrote it.
   - Problems Legato finds show on their fields.
   - A file whose YAML doesn't parse, or that uses YAML anchors, aliases or merge keys, opens in YAML only.
@@ -240,6 +245,8 @@ Conditions support nested `all`, `any`, and `not`, and field comparisons using `
 
 On a [worker](/legato/running/instances/), a column trigger skips cards handed off from a main: they are the main's, and the main's own workflows run when the task comes home. Set `handed_off: true` on the trigger to run it on those cards too.
 
+In the web UI's editor, the builder's **Triggers** section edits this trigger as a form: see [Create and edit in the web UI](#create-and-edit-in-the-web-ui).
+
 ### On a schedule
 
 A `schedule` trigger runs a workflow at due times: every day, every weekday, or once a week at a time, or as a cron expression says.
@@ -260,6 +267,8 @@ Give either `every` and `at` (and `on` for `weekly`), or `cron`: five fields, mi
 
 A run's inputs may read `${{ schedule.time }}`, its due time, and `${{ schedule.previous_time }}`, the due time before it, so a run can cover "since last time". Each due time makes one run, however many Legatos (the TUI and `legato serve`, say) share the database. The **Workflows** tab shows each schedule's next three runs and what its last one did.
 
+In the web UI's editor, the builder's **Triggers** section edits this trigger as a form: see [Create and edit in the web UI](#create-and-edit-in-the-web-ui).
+
 #### Missed runs
 
 When Legato starts, the due times that passed while no Legato was running (since the last one it recorded) are recorded as **missed**, and the Workflows tab lists them with why. `catch_up` says what then happens: `once`, the default, makes one late run for all of them, whose `${{ schedule.previous_time }}` is the due time before the first missed one, so it covers them all; `skip` makes none. A restart does not record or run them again. A scheduled run that cannot start reaches [Attention](/legato/using/attention/) as a failed trigger.
@@ -278,6 +287,8 @@ on:
 ```
 
 With no inputs to map, write `pr.changes_requested: {}`. The inputs may also read `${{ event.pr_url }}` and `${{ event.reviewer }}`. The [loop stop](#the-loop-stop) counts runs by the task.
+
+In the web UI's editor, the builder's **Triggers** section edits this trigger as a form: see [Create and edit in the web UI](#create-and-edit-in-the-web-ui).
 
 ### Pausing a trigger
 

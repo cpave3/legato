@@ -77,6 +77,9 @@ func buildSchema() schemaObject {
 		"expressions":       contexts,
 		"task_fields":       TaskFields,
 		"repository_fields": RepositoryFields,
+		// condition_fields are what a condition's field may be, besides
+		// task.metadata.<key>.
+		"condition_fields": ConditionFields,
 	}
 	return root
 }

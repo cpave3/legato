@@ -3,6 +3,7 @@ package workflow
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -182,9 +183,12 @@ func (c Condition) validate() error {
 	return nil
 }
 
+// ConditionFields are the fields a column-entry trigger's conditions may
+// compare, besides task.metadata.<key>.
+var ConditionFields = []string{"task.id", "task.title", "task.description", "task.status", "task.priority", "task.provider", "task.remote_id", "task.has_active_agent", "task.has_chimera_session", "event.from_column", "event.to_column"}
+
 func validConditionField(field string) bool {
-	switch field {
-	case "task.id", "task.title", "task.description", "task.status", "task.priority", "task.provider", "task.remote_id", "task.has_active_agent", "task.has_chimera_session", "event.from_column", "event.to_column":
+	if slices.Contains(ConditionFields, field) {
 		return true
 	}
 	return strings.HasPrefix(field, "task.metadata.") && len(strings.TrimPrefix(field, "task.metadata.")) > 0

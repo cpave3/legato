@@ -360,7 +360,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
             <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} readOnly={!editable} />
           </section>
           : <section aria-label="Visual">
-            <LazyWorkflowBuilder text={text} onEdit={change => history.push(change.text, change.undo.label)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={() => switchMode("yaml")} options={options} onPending={setPendingEdits} />
+            <LazyWorkflowBuilder text={text} onEdit={change => history.push(change.text, change.undo.label)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={() => switchMode("yaml")} options={options} schedule={checked?.schedule} onPending={setPendingEdits} />
           </section>}
       </div>
       <div className="flex min-w-0 flex-col gap-4">

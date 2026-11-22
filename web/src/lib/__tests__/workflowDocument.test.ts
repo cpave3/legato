@@ -232,6 +232,16 @@ describe("inputs and triggers", () => {
     expect(none).toContain("# The first step.")
   })
 
+  it("removes a trigger with the comments that are its own", () => {
+    const text = commented.replace("on:\n  schedule:", "on:\n  # Mornings.\n  schedule:") .replace("steps:\n  # The first", "  # Column entry.\n  task.entered_column:\n    column: Doing\nsteps:\n  # The first")
+    const after = setTrigger(text, "schedule", null).text
+    expect(after).not.toContain("# Mornings.")
+    expect(after).not.toContain("every morning")
+    expect(after).toContain("# Column entry.")
+    expect(after).toContain("# The first step.")
+    expect(Object.keys(parseWorkflow(after).values.on ?? {})).toEqual(["task.entered_column"])
+  })
+
   it("gives an undo entry with the text before and after", () => {
     const { text, undo } = setTrigger(commented, "schedule", null)
     expect(undo).toEqual({ label: "Remove the schedule trigger", before: commented, after: text })

@@ -349,7 +349,16 @@ function removePair(text: string, doc: Document, path: YamlPath): string {
     // The map's last pair: the map becomes empty.
     return rewrite(text, doc, path.slice(0, -1), {})
   }
-  const start = lineStart(text, range(found.pair.key as YamlNode)[0])
+  const keyStart = range(found.pair.key as YamlNode)[0]
+  let start = lineStart(text, keyStart)
+  // The comments written at the key's column just above it are its own.
+  const column = columnOf(text, keyStart)
+  while (start > 0) {
+    const above = lineStart(text, start - 1)
+    const line = text.slice(above, start - 1)
+    if (/^\s*#/.test(line) && line.indexOf("#") === column) start = above
+    else break
+  }
   const end = contentEnd(text, (found.pair.value ?? found.pair.key) as YamlNode)
   return splice(text, start, end, "")
 }

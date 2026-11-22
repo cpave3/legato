@@ -1,14 +1,15 @@
 import { Component, useCallback, useMemo, useRef, useState, type ReactNode } from "react"
 import { Plus, Trash2 } from "lucide-react"
-import { addInput, inputsOf, parseWorkflow, shapeProblem, removeInput, renameInput, setField, triggersOf, WorkflowDocumentError, type WorkflowEdit, type YamlPath } from "../../lib/workflowDocument"
+import { addInput, inputsOf, parseWorkflow, shapeProblem, removeInput, renameInput, setField, WorkflowDocumentError, type WorkflowEdit, type YamlPath } from "../../lib/workflowDocument"
 import { references } from "../../lib/workflowExpressions"
 import { pathText } from "../../lib/workflowSchema"
-import type { WorkflowDiagnostic } from "../../lib/workflowFiles"
+import type { SchedulePreview, WorkflowDiagnostic } from "../../lib/workflowFiles"
 import { Button } from "../ui/Button"
 import { PendingDrafts } from "./pendingDrafts"
 import { CommitField, Problems, ReferencePicker } from "./builderFields"
 import { fieldClass, labelClass, problemsAt } from "./builderStyles"
 import { StepsEditor } from "./StepsEditor"
+import { TriggersEditor } from "./TriggersEditor"
 import { noOptions, type BuilderOptions } from "./stepForms"
 
 export type WorkflowBuilderProps = {
@@ -23,6 +24,8 @@ export type WorkflowBuilderProps = {
   onPending?: (pending: boolean) => void
   /** options are what the pickers offer. */
   options?: BuilderOptions
+  /** schedule is the server's preview of the schedule trigger. */
+  schedule?: SchedulePreview | null
 }
 
 const field = fieldClass
@@ -46,7 +49,7 @@ function parseDefault(type: string, text: string): unknown {
 // and inputs as forms, over the same text the YAML side edits
 // (lib/workflowDocument). Steps and triggers are edited in YAML until
 // their sections land.
-function Builder({ text, onEdit, diagnostics = [], nameFixed, onEditYaml, options = noOptions }: WorkflowBuilderProps) {
+function Builder({ text, onEdit, diagnostics = [], nameFixed, onEditYaml, options = noOptions, schedule }: WorkflowBuilderProps) {
   const parsed = useMemo(() => parseWorkflow(text), [text])
   const [error, setError] = useState("")
   const [newInput, setNewInput] = useState("")
@@ -161,11 +164,7 @@ function Builder({ text, onEdit, diagnostics = [], nameFixed, onEditYaml, option
 
     <StepsEditor text={text} values={values} diagnostics={diagnostics} options={options} apply={apply} />
 
-    <section aria-label="Triggers" className="flex flex-col gap-2 rounded-xl border border-lw-line bg-lw-surface p-4">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-lw-text-2">Triggers</h2>
-      <p className="text-lw-text-2">Run by hand{Object.keys(triggersOf(values)).map(kind => `, ${kind}`).join("")}</p>
-      <p className="text-xs text-lw-faint">Edit triggers in YAML for now.</p>
-    </section>
+    <TriggersEditor text={text} values={values} diagnostics={diagnostics} options={options} apply={apply} schedule={schedule} />
   </div>
 }
 

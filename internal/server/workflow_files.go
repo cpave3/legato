@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -328,9 +329,12 @@ func (s *Server) workflowFileCheckHandler() http.HandlerFunc {
 			return
 		}
 		definition, diagnostics := checked(body.YAML)
-		out := map[string]any{"definition": nil, "graph": nil, "diagnostics": diagnostics}
+		out := map[string]any{"definition": nil, "graph": nil, "diagnostics": diagnostics, "schedule": nil}
 		if definition != nil {
 			out["definition"], out["graph"] = definition, workflowengine.BuildGraph(definition)
+			if schedule := definition.On.Schedule; schedule != nil {
+				out["schedule"] = schedulePreview(schedule, time.Now())
+			}
 		}
 		s.writeJSON(w, http.StatusOK, out)
 	}
@@ -381,4 +385,22 @@ func (s *Server) workflowCopyHandler() http.HandlerFunc {
 		}
 		s.createWorkflowFile(w, folder, name, data, diagnostics)
 	}
+}
+
+// schedulePreview is what the builder shows of a schedule: it in words,
+// its zone, and its next three due times, as ScheduleTrigger.Next gives
+// them.
+func schedulePreview(schedule *workflowengine.ScheduleTrigger, now time.Time) map[string]any {
+	loc := schedule.Location(time.Local)
+	next := []string{}
+	after := now
+	for len(next) < 3 {
+		due, ok := schedule.Next(after, time.Local)
+		if !ok {
+			break
+		}
+		next = append(next, due.In(loc).Format(time.RFC3339))
+		after = due
+	}
+	return map[string]any{"description": schedule.Describe(), "timezone": loc.String(), "next": next}
 }

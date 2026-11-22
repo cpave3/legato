@@ -1970,6 +1970,19 @@
   "title": "Legato workflow",
   "type": "object",
   "x-legato": {
+    "condition_fields": [
+      "task.id",
+      "task.title",
+      "task.description",
+      "task.status",
+      "task.priority",
+      "task.provider",
+      "task.remote_id",
+      "task.has_active_agent",
+      "task.has_chimera_session",
+      "event.from_column",
+      "event.to_column"
+    ],
     "executors": [
       {
         "description": "Start an agent of the workflow on a prompt or a macro, and wait for it to complete the step with the outputs the step declares.",

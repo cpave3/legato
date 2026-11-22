@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
@@ -320,5 +321,25 @@ func TestARunKeepsItsDefinitionWhenItsFileIsSaved(t *testing.T) {
 	body := getRun(t, s)
 	if ids := graphNodeIDs(body); len(ids) != 2 || body["definition_changed"] != true {
 		t.Fatalf("nodes = %v, changed = %v", ids, body["definition_changed"])
+	}
+}
+
+func TestCheckingAScheduleGivesItsNextTimes(t *testing.T) {
+	f := newFilesFixture(t)
+	withSchedule := strings.Replace(reviewFile, "steps:\n", "on:\n  schedule: {every: weekdays, at: \"09:00\", timezone: Europe/London}\nsteps:\n", 1)
+	code, body := f.call(t, http.MethodPost, "/api/workflow-files/check", map[string]string{"yaml": withSchedule})
+	schedule, _ := body["schedule"].(map[string]any)
+	next, _ := schedule["next"].([]any)
+	if code != http.StatusOK || schedule["description"] != "Every weekday at 09:00 (Europe/London)" || schedule["timezone"] != "Europe/London" || len(next) != 3 {
+		t.Fatalf("%d %v", code, body)
+	}
+	for _, value := range next {
+		at, err := time.Parse(time.RFC3339, value.(string))
+		if err != nil || !at.After(time.Now()) || at.Weekday() == time.Saturday || at.Weekday() == time.Sunday {
+			t.Fatalf("next = %v", next)
+		}
+	}
+	if _, body := f.call(t, http.MethodPost, "/api/workflow-files/check", map[string]string{"yaml": reviewFile}); body["schedule"] != nil {
+		t.Fatalf("a workflow with no schedule: %v", body["schedule"])
 	}
 }

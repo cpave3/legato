@@ -10,7 +10,9 @@ export type WorkflowDiagnostic = { severity: "error" | "warning"; message: strin
 
 export type WorkflowFile = { name: string; yaml: string; path: string; folder: string; digest: string; editable: boolean; reason?: string }
 
-export type WorkflowCheck = { definition: WorkflowDefinition | null; graph: WorkflowGraphModel | null; diagnostics: WorkflowDiagnostic[] }
+export type SchedulePreview = { description: string; timezone: string; next: string[] }
+
+export type WorkflowCheck = { definition: WorkflowDefinition | null; graph: WorkflowGraphModel | null; diagnostics: WorkflowDiagnostic[]; schedule?: SchedulePreview | null }
 
 export type WorkflowSaved = { name: string; path: string; folder: string; digest: string; diagnostics: WorkflowDiagnostic[] }
 
