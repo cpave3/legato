@@ -836,6 +836,8 @@ export function AgentsPage() {
           selectedId={selectedId}
           onSelect={handleSelect}
           grouping={agentGroups.grouping}
+          stageFilter={stageFilter.stage}
+          onStageFilter={stageFilter.setStage}
           reeve={<ReeveEntry baseUrl={baseUrl} compact agent={runningAgents.find((a) => a.reeve)} selected={Boolean(selectedAgent?.reeve)} onSelect={handleSelect} />}
           onEnsemble={() => showEnsemble(true)}
           onSpawn={handleSpawn}

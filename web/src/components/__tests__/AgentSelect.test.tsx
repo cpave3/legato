@@ -18,9 +18,11 @@ describe("AgentSelect", () => {
   it("renders an error dot and label", () => {
     render(<AgentSelect agents={[errorAgent]} selectedId="task-error" onSelect={() => {}} />)
     expect(screen.getByTitle("Error").className).toContain("bg-lw-error")
-    fireEvent.click(screen.getByRole("button", { name: /^Agent:/ }))
+    const trigger = screen.getByRole("button", { name: /^Agent:/ })
+    expect(within(trigger).getByText("Error").className).toContain("text-lw-error")
+    fireEvent.click(trigger)
     const list = screen.getByRole("group", { name: "Running agents" })
-    expect(within(list).getByText("Error").className).toContain("text-lw-error")
+    expect(within(list).getByRole("heading").textContent).toBe("Needs you · 1")
   })
 
   it("tells an agent waiting on background work from an idle one", () => {
@@ -29,7 +31,8 @@ describe("AgentSelect", () => {
     expect(view.getByTitle("Background work running").className).toContain("bg-lw-done")
     fireEvent.click(view.getByRole("button", { name: /^Agent:/ }))
     const list = view.getByRole("group", { name: "Running agents" })
-    expect(within(list).getByText("Background").className).toContain("text-lw-done")
+    // Not idle: it is working on what it started.
+    expect(within(list).getByRole("heading").textContent).toBe("Working · 1")
   })
 })
 
@@ -51,9 +54,10 @@ describe("AgentPickerBar", () => {
     render(<AgentPickerBar agents={[longAgent]} selectedId="9oacf5cf" onSelect={() => {}} onEnsemble={() => {}} onSpawn={() => {}} />)
 
     const picker = screen.getByRole("button", { name: /^Agent: Record a walk-through/ })
-    expect(picker.getAttribute("aria-label")).toBe(`Agent: ${longAgent.task_title}, running 4h 4m`)
+    expect(picker.getAttribute("aria-label")).toBe(`Agent: ${longAgent.task_title}, working, 4h 4m`)
     expect(picker.getAttribute("aria-expanded")).toBe("false")
-    expect(within(picker).getByText("Running 4h 4m")).toBeTruthy()
+    expect(within(picker).getByText("Working")).toBeTruthy()
+    expect(within(picker).getByText("4h 4m")).toBeTruthy()
     expect(within(picker).getByText("9oacf5cf")).toBeTruthy()
     expect(within(picker).getByText("Claude Code").parentElement!.getAttribute("title")).toBe("Claude Code, native session")
   })
@@ -63,7 +67,7 @@ describe("AgentPickerBar", () => {
 
     const picker = screen.getByRole("button", { name: /^Agent:/ })
     const classes = (text: string) => within(picker).getByText(text).className.split(" ")
-    expect(classes("Running 4h 4m")).toContain("shrink-0")
+    expect(classes("Working")).toContain("shrink-0")
     // Each goes with the dot before it, so nothing is left hanging; the
     // widths are of the line, which is a container.
     expect(within(picker).getByText("9oacf5cf").parentElement!.className.split(" ")).toEqual(expect.arrayContaining(["hidden", "@min-[12.5rem]:inline"]))
