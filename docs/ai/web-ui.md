@@ -28,7 +28,7 @@ Expressions: `web/src/lib/workflowExpressions.ts` builds on the schema's `x-lega
 - **Inputs:** add, remove, rename (`renameInput`), type, required, secret, default (parsed by type), choices, description.
 - **Steps and triggers:** placeholders that say to edit them in YAML.
 
-`CommitField` writes on blur or Enter, so a word is one undo step. Problems from the server's check show on the field whose path they are on, or under it (`problemsAt`). A file that doesn't parse, or that `parseWorkflow` marks read-only, shows why and **Edit as YAML** instead of the forms. `pages/__tests__/WorkflowBuilder.test.tsx` covers:
+`CommitField` writes on blur or Enter, so a word is one undo step. It reports text it holds but hasn't written through the `PendingDrafts` context (`pendingDrafts.ts`), and the page counts that as unsaved. After Undo or Redo the history is `sealed`, so typing makes a new step instead of changing the one returned to. Choices are one field each (`Choices`), so a choice with a comma in it stays one. `shapeProblem` (in `workflowDocument.ts`) sends a file whose parts aren't of a workflow's shape (a step that is not a mapping, say) to YAML before the forms draw. A `Boundary` around the forms shows any other failure to draw, with **Edit as YAML**, and tries again when the text changes. Problems from the server's check show on the field whose path they are on, or under it (`problemsAt`). A file that doesn't parse, or that `parseWorkflow` marks read-only, shows why and **Edit as YAML** instead of the forms. `pages/__tests__/WorkflowBuilder.test.tsx` covers:
 
 - a title edited in Visual, seen in YAML with every comment kept;
 - a YAML edit seen in Visual;

@@ -61,6 +61,35 @@ export function parseWorkflow(text: string): ParsedWorkflow {
   return { text, errors, readOnly, values: values && typeof values === "object" ? values : {} }
 }
 
+const isObject = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value)
+
+/** shapeProblem says what of a parsed file is not of the shape a
+ * workflow's parts have (a step that is not a mapping, say), so the
+ * builder sends the operator to YAML rather than drawing it; null when the
+ * shapes are right. Values the schema refuses are the check's business. */
+export function shapeProblem(values: unknown): string | null {
+  if (!isObject(values)) return "the file is not a mapping of a workflow's fields"
+  const { inputs, steps, on } = values as WorkflowValues
+  if (inputs != null) {
+    if (!isObject(inputs)) return "inputs is not a mapping of inputs"
+    for (const [name, input] of Object.entries(inputs)) if (!isObject(input)) return `input ${name} is not a mapping`
+  }
+  if (steps != null) {
+    if (!Array.isArray(steps)) return "steps is not a list of steps"
+    for (const [i, step] of steps.entries()) {
+      if (!isObject(step)) return `step ${i + 1} is not a mapping`
+      if (step.with != null && !isObject(step.with)) return `the with of step ${i + 1} is not a mapping`
+      if (step.outputs != null && !isObject(step.outputs)) return `the outputs of step ${i + 1} are not a mapping`
+      for (const [key, output] of Object.entries(isObject(step.outputs) ? step.outputs : {})) if (output != null && !isObject(output)) return `output ${key} of step ${i + 1} is not a mapping`
+    }
+  }
+  if (on != null) {
+    if (!isObject(on)) return "on is not a mapping of triggers"
+    for (const [kind, trigger] of Object.entries(on)) if (trigger != null && !isObject(trigger)) return `the ${kind} trigger is not a mapping`
+  }
+  return null
+}
+
 // --- Reads ----------------------------------------------------------------
 
 export function metadata(values: WorkflowValues) {

@@ -131,3 +131,52 @@ it("shows the server's problems on their fields", async () => {
   await waitFor(() => expect(field.getAttribute("aria-invalid")).toBe("true"))
   expect(within(screen.getByRole("region", { name: "Visual" })).getByText("run_title: input \"nope\" is not declared")).toBeTruthy()
 })
+
+it("sends a file with a step that is not a mapping to YAML, rather than failing", async () => {
+  localStorage.setItem("legato:workflow-editor-mode", "yaml")
+  renderEdit()
+  await waitFor(() => expect(yaml()).toBe(fileText))
+  fireEvent.change(screen.getByRole("textbox", { name: "Workflow YAML" }), { target: { value: fileText.replace(/steps:\n[\s\S]*$/, "steps:\n  -\n") } })
+  toVisual()
+  const alert = await screen.findByRole("alert")
+  expect(alert.textContent).toContain("step 1 is not a mapping")
+  expect(within(alert).getByRole("button", { name: "Edit as YAML" })).toBeTruthy()
+})
+
+it("keeps a choice with a comma in it when another is added", async () => {
+  const withChoices = fileText.replace("  pr: {type: integer, required: true} # the number\n", "  pr: {type: integer, required: true} # the number\n  city: {type: string, choices: [\"Washington, DC\", London]}\n")
+  apiFetch.mockImplementation((_: string, path: string) => path === "/api/workflows/review/file"
+    ? json({ name: "review", yaml: withChoices, path: "/g/review.yaml", folder: "global", digest: "sha256:old", editable: true })
+    : json({ definition: null, graph: null, diagnostics: [] }))
+  renderEdit()
+  fireEvent.change(await screen.findByRole("textbox", { name: "New choice of input city" }), { target: { value: "Paris" } })
+  fireEvent.click(screen.getByRole("button", { name: "Add a choice to input city" }))
+  toYaml()
+  expect(yaml()).toContain("choices:\n      - Washington, DC\n      - London\n      - Paris\n")
+})
+
+it("keeps the step Undo returned to when typing follows", async () => {
+  localStorage.setItem("legato:workflow-editor-mode", "yaml")
+  renderEdit()
+  await waitFor(() => expect(yaml()).toBe(fileText))
+  const typeYaml = (value: string) => fireEvent.change(screen.getByRole("textbox", { name: "Workflow YAML" }), { target: { value } })
+  const a = fileText.replace("title: Review #", "title: A #")
+  typeYaml(a)
+  toVisual()
+  commit(await screen.findByRole("textbox", { name: "Title" }), "B")
+  fireEvent.click(screen.getByRole("button", { name: "Undo" }))
+  toYaml()
+  expect(yaml()).toBe(a)
+  typeYaml(a.replace("title: A #", "title: C #"))
+  fireEvent.click(screen.getByRole("button", { name: "Undo" }))
+  expect(yaml()).toBe(a)
+})
+
+it("counts text typed in a field and not yet written as unsaved", async () => {
+  renderEdit()
+  const title = await screen.findByRole("textbox", { name: "Title" })
+  const unload = () => { const event = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented }
+  expect(unload()).toBe(false)
+  fireEvent.change(title, { target: { value: "Typed, not left" } })
+  await waitFor(() => expect(unload()).toBe(true))
+})

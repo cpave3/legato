@@ -64,7 +64,9 @@ type Entry = { text: string; label: string; typing: boolean }
 // each builder change is a step; typing in YAML is one step until the
 // next change of another kind.
 function useHistory(initial: string | null) {
-  const [state, setState] = useState<{ entries: Entry[]; index: number }>(() => ({ entries: initial === null ? [] : [{ text: initial, label: "", typing: false }], index: 0 }))
+  // sealed: after Undo or Redo, typing starts a new step rather than
+  // changing the one returned to.
+  const [state, setState] = useState<{ entries: Entry[]; index: number; sealed?: boolean }>(() => ({ entries: initial === null ? [] : [{ text: initial, label: "", typing: false }], index: 0 }))
   const current = state.entries[state.index]
   return {
     text: current ? current.text : null,
@@ -76,15 +78,15 @@ function useHistory(initial: string | null) {
     push: (text: string, label: string, typing = false) => setState(previous => {
       const here = previous.entries[previous.index]
       if (here && here.text === text) return previous
-      if (typing && here?.typing) {
+      if (typing && here?.typing && !previous.sealed) {
         const entries = [...previous.entries.slice(0, previous.index), { ...here, text }]
         return { entries, index: previous.index }
       }
       const entries = [...previous.entries.slice(0, previous.index + 1), { text, label, typing }]
       return { entries, index: entries.length - 1 }
     }),
-    undo: () => setState(previous => ({ ...previous, index: Math.max(0, previous.index - 1) })),
-    redo: () => setState(previous => ({ ...previous, index: Math.min(previous.entries.length - 1, previous.index + 1) })),
+    undo: () => setState(previous => ({ ...previous, index: Math.max(0, previous.index - 1), sealed: true })),
+    redo: () => setState(previous => ({ ...previous, index: Math.min(previous.entries.length - 1, previous.index + 1), sealed: true })),
   }
 }
 
@@ -164,7 +166,8 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseUrl, mode, name, key, attempt])
 
-  const dirty = text !== null && (mode === "new" ? text !== starterWorkflow : text !== saved)
+  const [pendingEdits, setPendingEdits] = useState(false)
+  const dirty = pendingEdits || (text !== null && (mode === "new" ? text !== starterWorkflow : text !== saved))
   const dirtyRef = useRef(dirty)
   dirtyRef.current = dirty
   // The unsaved text is kept as a draft, with the digest it was begun at,
@@ -328,7 +331,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
             <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} readOnly={!editable} />
           </section>
           : <section aria-label="Visual">
-            <LazyWorkflowBuilder text={text} onEdit={change => history.push(change.text, change.undo.label)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={() => switchMode("yaml")} />
+            <LazyWorkflowBuilder text={text} onEdit={change => history.push(change.text, change.undo.label)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={() => switchMode("yaml")} onPending={setPendingEdits} />
           </section>}
       </div>
       <div className="flex min-w-0 flex-col gap-4">

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react"
+import { Component, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react"
 import { Plus, Trash2 } from "lucide-react"
-import { addInput, inputsOf, parseWorkflow, removeInput, renameInput, setField, stepsOf, triggersOf, WorkflowDocumentError, type WorkflowEdit, type YamlPath } from "../../lib/workflowDocument"
+import { addInput, inputsOf, parseWorkflow, shapeProblem, removeInput, renameInput, setField, stepsOf, triggersOf, WorkflowDocumentError, type WorkflowEdit, type YamlPath } from "../../lib/workflowDocument"
 import { references } from "../../lib/workflowExpressions"
 import { pathText } from "../../lib/workflowSchema"
 import type { WorkflowDiagnostic } from "../../lib/workflowFiles"
 import { Button } from "../ui/Button"
+import { PendingDrafts } from "./pendingDrafts"
 
 export type WorkflowBuilderProps = {
   text: string
@@ -14,6 +15,8 @@ export type WorkflowBuilderProps = {
   /** nameFixed: an existing workflow's name can't change (LEG-460). */
   nameFixed?: boolean
   onEditYaml: () => void
+  /** onPending is told whether a field holds text not yet written. */
+  onPending?: (pending: boolean) => void
 }
 
 const field = "min-h-9 w-full rounded-md border border-lw-line-strong bg-lw-ground px-2 text-sm text-lw-text"
@@ -37,6 +40,11 @@ function Problems({ diagnostics, id }: { diagnostics: WorkflowDiagnostic[]; id?:
 function CommitField({ value, onCommit, multiline, ...rest }: { value: string; onCommit: (value: string) => void; multiline?: boolean } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">) {
   const [draft, setDraft] = useState(value)
   useEffect(() => setDraft(value), [value])
+  // Text typed and not yet written counts as unsaved on the page.
+  const report = useContext(PendingDrafts)
+  const id = useId()
+  useEffect(() => { report(id, draft !== value) }, [report, id, draft, value])
+  useEffect(() => () => report(id, false), [report, id])
   const commit = () => { if (draft !== value) onCommit(draft) }
   if (multiline) {
     return <textarea aria-label={rest["aria-label"]} aria-describedby={rest["aria-describedby"]} aria-invalid={rest["aria-invalid"]} className={`${field} min-h-16 py-1.5`} value={draft} onChange={event => setDraft(event.target.value)} onBlur={commit} />
@@ -74,13 +82,20 @@ function parseDefault(type: string, text: string): unknown {
 // and inputs as forms, over the same text the YAML side edits
 // (lib/workflowDocument). Steps and triggers are edited in YAML until
 // their sections land.
-export default function WorkflowBuilder({ text, onEdit, diagnostics = [], nameFixed, onEditYaml }: WorkflowBuilderProps) {
+function Builder({ text, onEdit, diagnostics = [], nameFixed, onEditYaml }: WorkflowBuilderProps) {
   const parsed = useMemo(() => parseWorkflow(text), [text])
   const [error, setError] = useState("")
   const [newInput, setNewInput] = useState("")
   if (parsed.errors.length > 0) {
     return <div role="alert" className="flex flex-col items-start gap-2 rounded-xl border border-lw-danger-line bg-lw-error-soft p-4 text-sm text-lw-danger">
       <p>The YAML doesn't parse, so it can't be shown here: {parsed.errors[0]}</p>
+      <Button size="sm" variant="outline" onClick={onEditYaml}>Edit as YAML</Button>
+    </div>
+  }
+  const shape = shapeProblem(parsed.values)
+  if (shape) {
+    return <div role="alert" className="flex flex-col items-start gap-2 rounded-xl border border-lw-line bg-lw-surface p-4 text-sm">
+      <p>This file can't be shown as forms yet: {shape}.</p>
       <Button size="sm" variant="outline" onClick={onEditYaml}>Edit as YAML</Button>
     </div>
   }
@@ -163,9 +178,7 @@ export default function WorkflowBuilder({ text, onEdit, diagnostics = [], nameFi
               <label className={label}>Default
                 <CommitField aria-label={`Default of input ${name}`} value={defaultText(input?.default)} onCommit={value => set([...path, "default"], parseDefault(type, value))} />
               </label>
-              <label className={label}>Choices, separated by commas
-                <CommitField aria-label={`Choices of input ${name}`} value={Array.isArray(input?.choices) ? input.choices.join(", ") : ""} onCommit={value => set([...path, "choices"], value.trim() === "" ? undefined : value.split(",").map(choice => parseDefault(type, choice.trim())))} />
-              </label>
+              <Choices name={name} type={type} choices={Array.isArray(input?.choices) ? input.choices : []} onChange={choices => set([...path, "choices"], choices.length === 0 ? undefined : choices)} />
             </div>
             <label className={label}>Description
               <CommitField aria-label={`Description of input ${name}`} value={defaultText(input?.description)} onCommit={value => set([...path, "description"], value)} />
@@ -194,4 +207,55 @@ export default function WorkflowBuilder({ text, onEdit, diagnostics = [], nameFi
       <p className="text-xs text-lw-faint">Edit triggers in YAML for now.</p>
     </section>
   </div>
+}
+
+// Choices is an input's choices, one field each, so a choice with a comma
+// in it stays one choice.
+function Choices({ name, type, choices, onChange }: { name: string; type: string; choices: unknown[]; onChange: (choices: unknown[]) => void }) {
+  const [adding, setAdding] = useState("")
+  return <fieldset className="flex flex-col gap-1 text-xs text-lw-text-2">
+    <legend>Choices</legend>
+    {choices.map((choice, i) => <div key={i} className="flex items-center gap-1">
+      <CommitField aria-label={`Choice ${i + 1} of input ${name}`} value={defaultText(choice)} onCommit={value => onChange(choices.map((c, j) => j === i ? parseDefault(type, value) : c))} />
+      <Button type="button" variant="ghost" size="sm" aria-label={`Remove choice ${i + 1} of input ${name}`} onClick={() => onChange(choices.filter((_, j) => j !== i))}><Trash2 size={13} /></Button>
+    </div>)}
+    <div className="flex items-center gap-1">
+      <input aria-label={`New choice of input ${name}`} className={field} value={adding} onChange={event => setAdding(event.target.value)}
+        onKeyDown={event => { if (event.key === "Enter" && adding !== "") { event.preventDefault(); onChange([...choices, parseDefault(type, adding)]); setAdding("") } }} />
+      <Button type="button" variant="ghost" size="sm" aria-label={`Add a choice to input ${name}`} disabled={adding === ""} onClick={() => { onChange([...choices, parseDefault(type, adding)]); setAdding("") }}><Plus size={13} />Add choice</Button>
+    </div>
+  </fieldset>
+}
+
+type BoundaryProps = { text: string; onEditYaml: () => void; children: ReactNode }
+
+// Boundary keeps a form that fails to draw from taking the editor down: it
+// says so and offers YAML, and tries again when the text changes.
+class Boundary extends Component<BoundaryProps, { failed: string | null; text: string }> {
+  state = { failed: null as string | null, text: this.props.text }
+  static getDerivedStateFromError(error: unknown) { return { failed: error instanceof Error ? error.message : String(error) } }
+  static getDerivedStateFromProps(props: BoundaryProps, state: { failed: string | null; text: string }) {
+    return props.text !== state.text ? { failed: null, text: props.text } : null
+  }
+  render() {
+    if (!this.state.failed) return this.props.children
+    return <div role="alert" className="flex flex-col items-start gap-2 rounded-xl border border-lw-danger-line bg-lw-error-soft p-4 text-sm text-lw-danger">
+      <p>The forms can't show this file: {this.state.failed}</p>
+      <Button size="sm" variant="outline" onClick={this.props.onEditYaml}>Edit as YAML</Button>
+    </div>
+  }
+}
+
+export default function WorkflowBuilder(props: WorkflowBuilderProps) {
+  const { onPending } = props
+  const pending = useRef(new Set<string>())
+  const report = useCallback((id: string, isPending: boolean) => {
+    const had = pending.current.size > 0
+    if (isPending) pending.current.add(id)
+    else pending.current.delete(id)
+    if (had !== pending.current.size > 0) onPending?.(pending.current.size > 0)
+  }, [onPending])
+  return <PendingDrafts.Provider value={report}>
+    <Boundary text={props.text} onEditYaml={props.onEditYaml}><Builder {...props} /></Boundary>
+  </PendingDrafts.Provider>
 }
