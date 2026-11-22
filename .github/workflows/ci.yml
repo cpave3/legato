@@ -1,8 +1,9 @@
 # Runs the test suite on every pull request and on every push to main (a
 # merge): a check that no two paths differ only in case, a check that new
-# migrations sort last, the Go tests, as the
-# release workflow runs them, the web UI's unit tests, and the lint, types and
-# tests of the apps under packages/. The docs site has its own workflow
+# migrations sort last, the Go tests, as the release workflow runs them, a Go
+# build for each release platform, the web UI's build (as `task release:dist`
+# runs it) and unit tests, and the lint, types and tests of the apps under
+# packages/. The docs site has its own workflow
 # (docs.yml), and the desktop app is tested when a release builds it.
 name: ci
 
@@ -80,6 +81,12 @@ jobs:
       - name: Test
         run: go test -short -timeout 20m ./...
 
+      # -short skips these: a build without C, and one for each platform
+      # `task release:dist` lists, so code that compiles only on Linux fails
+      # here and not in the release (LEG-494).
+      - name: Build for every release platform
+        run: go test -count=1 -run '^TestLegatoBuilds' ./cmd/legato
+
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -99,6 +106,13 @@ jobs:
       - name: Dependencies
         working-directory: web
         run: pnpm install --frozen-lockfile
+
+      # The release's web:build: the theme-utilities.css check, tsc -b and
+      # vite build. Before LEG-494 they ran only at release time, which failed
+      # twice on a stale theme-utilities.css.
+      - name: Build
+        working-directory: web
+        run: pnpm run build
 
       - name: Test
         working-directory: web
