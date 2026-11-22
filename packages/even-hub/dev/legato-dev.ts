@@ -167,12 +167,17 @@ export function logLine(body: string): string {
   return `[glasses ${level}] ${String(entry.text ?? "").slice(0, 2000)}`
 }
 
-// The Vite plugin that serves DEV_PATH and LOG_PATH.
-export function legatoDev(phone: FakePhone): Plugin {
+// The Vite plugin that serves DEV_PATH and LOG_PATH. `real` says the app
+// reads the real phone (VITE_LEGATO_PHONE=real), not the fake one.
+export function legatoDev(phone: FakePhone, real = false): Plugin {
   return {
     name: "legato-dev",
     configureServer(server) {
-      server.config.logger.info(`  Fake phone: ${phone.instances.map((i) => `${i.name} (${i.agents})`).join(", ")}`)
+      server.config.logger.info(
+        real
+          ? "  The app reads the Legato app on the phone at http://127.0.0.1:8792 (VITE_LEGATO_PHONE=real)"
+          : `  Fake phone: ${phone.instances.map((i) => `${i.name} (${i.agents})`).join(", ")}`,
+      )
       server.middlewares.use(LOG_PATH, (req, res) => {
         readBody(req, MAX_LOG_BODY).then(
           (body) => {
