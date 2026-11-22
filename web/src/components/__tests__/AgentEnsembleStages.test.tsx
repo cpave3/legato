@@ -78,4 +78,14 @@ describe("the ensemble's stages", () => {
     fireEvent.click(toggle("Exploring"))
     expect(toggle("Exploring").getAttribute("aria-expanded")).toBe("true")
   })
+
+  it("opens a stage by itself when one of its agents comes to need you", () => {
+    localStorage.setItem(ENSEMBLE_LAYOUT_KEY, "stage")
+    const working = [agent("LEG-406", "exploring", "working", { activity: "working" })]
+    const { rerender } = render(<AgentEnsemble agents={working} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    const toggle = () => within(screen.getByRole("region", { name: "Exploring" })).getByRole("button", { name: /^Exploring/ })
+    expect(toggle().getAttribute("aria-expanded")).toBe("false")
+    rerender(<AgentEnsemble agents={[{ ...working[0], activity: "waiting", glance: "needs_you" }]} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    expect(toggle().getAttribute("aria-expanded")).toBe("true")
+  })
 })

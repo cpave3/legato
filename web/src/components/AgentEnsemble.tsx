@@ -150,6 +150,13 @@ function StageLane({ stage, agents, contexts, onOpen, onSend }: {
   const needs = agents.filter((agent) => glanceSection(agent) === "needs-you").length
   const turn = agents.filter((agent) => glanceSection(agent) === "your-turn").length
   const [open, setOpen] = useState(needs > 0)
+  // An agent coming to need the operator opens its lane, as it would have
+  // at the start; the operator may close it again.
+  const [needed, setNeeded] = useState(needs > 0)
+  if ((needs > 0) !== needed) {
+    setNeeded(needs > 0)
+    if (needs > 0) setOpen(true)
+  }
   const label = stageLabel(stage)
   const marks = [needs > 0 && `◆ ${needs}`, turn > 0 && `◇ ${turn}`].filter(Boolean).join(" · ")
   return (
