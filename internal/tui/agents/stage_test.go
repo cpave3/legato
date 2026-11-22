@@ -125,3 +125,19 @@ func TestTheEnsembleRecordsStageChanges(t *testing.T) {
 	}
 }
 
+
+// A refresh of the interrupted agents while filtered keeps every agent,
+// so changing the filter shows them again.
+func TestAnInterruptedRefreshKeepsTheAgentsAFilterHides(t *testing.T) {
+	m := stagedModel()
+	f := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}}
+	m, _ = m.Update(f) // exploring: none
+	m, _ = m.Update(AgentsRefreshedMsg{Agents: stagedAgents()})
+	m, _ = m.Update(InterruptedRefreshedMsg{})
+	for range 5 {
+		m, _ = m.Update(f)
+	}
+	if m.stageFilter != "" || len(m.agents) != 6 {
+		t.Fatalf("filter %q lists %d agents, want all 6", m.stageFilter, len(m.agents))
+	}
+}

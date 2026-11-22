@@ -421,7 +421,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case InterruptedRefreshedMsg:
 		m.interrupted = msg.Agents
 		var running []service.AgentSession
-		for _, a := range m.agents {
+		for _, a := range m.all {
 			if a.Status != statusInterrupted {
 				running = append(running, a)
 			}
