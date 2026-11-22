@@ -14,7 +14,7 @@ func TestShowSaysWhichTriggerStartedARun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	step := []store.WorkflowStepRun{{RunID: "", StepID: "s", Title: "S", ExecutorType: "task.note", DefinitionJSON: `{}`, Status: "pending"}}
+	step := []store.WorkflowStep{{RunID: "", StepID: "s", Title: "S", ExecutorType: "task.note", DefinitionJSON: `{}`, Status: "pending"}}
 	for _, run := range []store.WorkflowRun{
 		{ID: "wr-scheduled", WorkflowName: "nightly", WorkflowTitle: "Nightly", DefinitionSource: "test", DefinitionDigest: "d", DefinitionJSON: `{}`, InputsJSON: `{}`, Status: "running", CurrentStepID: "s", TriggerRequestID: request.ID},
 		{ID: "wr-manual", WorkflowName: "nightly", WorkflowTitle: "Nightly", DefinitionSource: "test", DefinitionDigest: "d", DefinitionJSON: `{}`, InputsJSON: `{}`, Status: "running", CurrentStepID: "s"},

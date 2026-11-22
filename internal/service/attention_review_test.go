@@ -26,8 +26,8 @@ func TestWorkflowAttentionSnapshotReportsManualStep(t *testing.T) {
 		},
 		view: &store.WorkflowRunView{
 			Run: store.WorkflowRun{ID: "wr-1", Status: "waiting", CurrentStepID: "approve"},
-			Steps: []store.WorkflowStepRun{
-				{RunID: "wr-1", StepID: "approve", Status: "waiting_manual", Title: "Approve"},
+			Steps: []store.WorkflowStep{
+				{RunID: "wr-1", Path: "approve", StepID: "approve", Status: "waiting_manual", Title: "Approve"},
 			},
 		},
 	}
@@ -50,7 +50,7 @@ func TestWorkflowAttentionSnapshotClassifiesFailureAsHighUrgency(t *testing.T) {
 		runs: []store.WorkflowRun{{ID: "wr-1", WorkflowTitle: "Deploy", Status: "failed"}},
 		view: &store.WorkflowRunView{
 			Run:   store.WorkflowRun{ID: "wr-1", Status: "failed"},
-			Steps: []store.WorkflowStepRun{{RunID: "wr-1", StepID: "deploy", Status: "failed", Title: "Deploy"}},
+			Steps: []store.WorkflowStep{{RunID: "wr-1", Path: "deploy", StepID: "deploy", Status: "failed", Title: "Deploy"}},
 		},
 	}
 	items, err := NewWorkflowAttentionAdapter(fake).Snapshot(context.Background())

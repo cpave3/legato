@@ -818,7 +818,7 @@ func (s *Server) NotifyAgentChanged(taskID string) {
 		return
 	}
 	for _, attempt := range attempts {
-		s.NotifyWorkflowChanged(attempt.RunID, attempt.StepID)
+		s.NotifyWorkflowChanged(attempt.RunID, attempt.Path)
 	}
 }
 

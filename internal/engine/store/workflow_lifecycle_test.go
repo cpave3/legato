@@ -34,7 +34,7 @@ func TestWorkflowStepAttemptAndCompletionAreCompareAndSet(t *testing.T) {
 func createWorkflowFixture(t *testing.T, s *Store) {
 	t.Helper()
 	run := WorkflowRun{ID: "wr-1", WorkflowName: "review-pr", WorkflowTitle: "Review PR", DefinitionSource: "test", DefinitionDigest: "sha", DefinitionJSON: `{}`, InputsJSON: `{}`, Status: "running", CurrentStepID: "prepare", TaskID: "wf-task"}
-	steps := []WorkflowStepRun{
+	steps := []WorkflowStep{
 		{RunID: run.ID, StepID: "prepare", StepOrder: 0, Title: "Prepare", ExecutorType: "github.pr.prepare", DefinitionJSON: `{}`, Status: "pending"},
 		{RunID: run.ID, StepID: "review", StepOrder: 1, Title: "Review", ExecutorType: "agent.run", DefinitionJSON: `{}`, Status: "pending"},
 	}

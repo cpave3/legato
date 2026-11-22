@@ -109,7 +109,10 @@ func Check(source string, data []byte) (*Definition, []Diagnostic) {
 	}
 	definition.Source = source
 	var diagnostics []Diagnostic
-	for _, problem := range definition.problems() {
+	definition.fromFile = true
+	problems := definition.problems()
+	definition.fromFile = false
+	for _, problem := range problems {
 		diagnostics = append(diagnostics, diagnosticAt(&root, problem.Path, problem.Error()))
 	}
 	failed := len(diagnostics) > 0

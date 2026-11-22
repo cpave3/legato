@@ -290,6 +290,11 @@ func (r schemaReflector) object(t reflect.Type) schemaObject {
 		if name == "" || name == "-" || !field.IsExported() {
 			continue
 		}
+		if field.Tag.Get("legato") == "v2" {
+			// A schema_version 2 key: the published schema is version 1's
+			// until version 2 has its own (LEG-484).
+			continue
+		}
 		key := t.Name() + "." + name
 		extra, ok := fieldSchemas[key]
 		if !ok {

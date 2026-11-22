@@ -3,7 +3,11 @@ import type { WorkflowGraphModel } from "./workflowGraph"
 
 export type WorkflowInput = { type: "string"|"integer"|"boolean"|"json"|"task"|"repository"; required?: boolean; default?: unknown; description?: string; secret?: boolean; choices?: unknown[] }
 export type WorkflowOutput = { type: string; path?: string; media_type?: string; description?: string }
-export type WorkflowStepDefinition = { id:string; title:string; type:string; trigger?:"automatic"|"manual"|"agent_ended"; with:Record<string,unknown>; outputs?:Record<string,WorkflowOutput> }
+export type WorkflowStepStart = "automatic"|"manual"|"agent_ended"
+// start is how a step starts; trigger is a schema version 1 file's key, which
+// the server reads into start but a file being edited may still say.
+export type WorkflowStepDefinition = { id:string; title:string; type:string; start?:WorkflowStepStart; trigger?:WorkflowStepStart; with:Record<string,unknown>; outputs?:Record<string,WorkflowOutput> }
+export const stepStart=(step:Pick<WorkflowStepDefinition,"start"|"trigger">):WorkflowStepStart=>step.start??step.trigger??"automatic"
 export type WorkflowDefinition = { schema_version:number; name:string; title:string; run_title?:string; description?:string; after_start?:"workflow"|"agent"|"stay"; inputs?:Record<string,WorkflowInput>; on?:Record<string,unknown>; steps:WorkflowStepDefinition[]; source:string; graph?:WorkflowGraphModel | null; folder?:string; editable?:boolean; read_only_reason?:string; shadows?:string[] | null; warnings?:{severity:string;message:string;path?:string;line:number;column:number}[] | null }
 export type WorkflowRepositoryPreset = { name:string; repo:string; primary_dir:string; base_branch?:string }
 // A trigger as this Legato runs it: on or paused here (enabled), what its

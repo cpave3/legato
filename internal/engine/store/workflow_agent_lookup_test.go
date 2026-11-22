@@ -10,7 +10,7 @@ func TestListActiveWorkflowAgentAttemptsByTaskTargetsWaitingAgentAttempts(t *tes
 	ctx := context.Background()
 	createTestTask(t, s, "workflow-task")
 	run := WorkflowRun{ID: "wr-1", WorkflowName: "test", WorkflowTitle: "Test", DefinitionSource: "test", DefinitionDigest: "sha", DefinitionJSON: `{}`, InputsJSON: `{}`, Status: "running", CurrentStepID: "agent", TaskID: "workflow-task"}
-	steps := []WorkflowStepRun{{RunID: run.ID, StepID: "agent", StepOrder: 0, Title: "Agent", ExecutorType: "agent.run", DefinitionJSON: `{}`, Status: "pending"}}
+	steps := []WorkflowStep{{RunID: run.ID, StepID: "agent", StepOrder: 0, Title: "Agent", ExecutorType: "agent.run", DefinitionJSON: `{}`, Status: "pending"}}
 	if err := s.CreateWorkflowRun(ctx, run, steps); err != nil {
 		t.Fatal(err)
 	}

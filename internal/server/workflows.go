@@ -441,8 +441,14 @@ func (s *Server) workflowArtifactHandler() http.HandlerFunc {
 }
 
 func (s *Server) NotifyWorkflowChanged(runID, stepID string) {
+	s.NotifyWorkflowChangedKind(runID, stepID, "")
+}
+
+// NotifyWorkflowChangedKind is NotifyWorkflowChanged with what changed, such
+// as completed_step from a CLI process, which the advance loop acts on.
+func (s *Server) NotifyWorkflowChangedKind(runID, stepID, kind string) {
 	s.hub.Broadcast(WSMessage{Type: MsgWorkflowChanged, WorkflowRunID: runID, WorkflowStepID: stepID})
 	if s.bus != nil {
-		s.bus.Publish(events.Event{Type: events.EventWorkflowChanged, Payload: events.WorkflowChangedPayload{RunID: runID, StepID: stepID}})
+		s.bus.Publish(events.Event{Type: events.EventWorkflowChanged, Payload: events.WorkflowChangedPayload{RunID: runID, StepID: stepID, Kind: kind}})
 	}
 }

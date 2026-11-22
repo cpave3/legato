@@ -56,7 +56,7 @@ func (f *forceWorkflowService) Artifact(context.Context, string) (*store.Workflo
 
 func TestNotifyAgentChangedEmitsTargetedWorkflowEvent(t *testing.T) {
 	bus := events.New()
-	workflows := &forceWorkflowService{attempts: []store.WorkflowStepAttempt{{RunID: "wr-1", StepID: "agent"}}}
+	workflows := &forceWorkflowService{attempts: []store.WorkflowStepAttempt{{RunID: "wr-1", Path: "agent", StepID: "agent"}}}
 	s := NewWithSwarm(nil, nil, nil, "", nil, bus, "")
 	s.SetWorkflowService(workflows, "", "")
 	changed := bus.Subscribe(events.EventWorkflowChanged)

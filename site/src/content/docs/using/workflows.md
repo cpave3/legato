@@ -60,7 +60,7 @@ The web dialogs for spawning an agent, or opening an agent for an existing task,
 
 ## Schema version 1
 
-Version 1 executes steps in declaration order and supports these executors:
+Version 1 executes steps in declaration order and supports these executors. Legato also reads files with `schema_version: 2`, which say how a step starts with `start:` instead of `trigger:` (see [Schema version 2](#schema-version-2)):
 
 - `github.pr.prepare`: deterministically fetch an exact GitHub PR head, create a Yggdrasil worktree, and link the workflow task to the PR.
 - `agent.run`: launch a workflow-owned Legato agent with an explicit assignment and completion contract. Set `with.name` to customize the agent's visible name; workflow input references are supported. The agent is removed after completing its step, unless `with.keep_agent: true`: then its outputs are collected and the run moves on as usual, but the agent keeps running on the workflow task, for you to go on talking to. Follow it with a step with `trigger: agent_ended` to end the run (and remove a worktree) when that agent ends. Set `with.engram` to start the agent as one of your [engrams](/legato/agent-tools/engrams/), such as `engram: mneme` or `engram: ${{ workflow.inputs.engram }}`; without it the agent has none. A step whose engram engram does not know fails before the agent starts. Workflows do not use or change the engrams bound to a repository.
@@ -547,6 +547,15 @@ Fixed steps run one after another until a step hands work to an agent. The run m
 
 A few steps wait on Legato itself rather than on an agent or on you: their status is **waiting** until the part of Legato that owns them finishes them, with their outputs, or fails them. Such a step is tied to no agent, so no agent exiting fails it, and it is still waiting after Legato restarts. Cancelling the run stops it.
 
+## Schema version 2
+
+Schema version 2 is arriving in parts. Today a version 2 file is a version 1 file with two differences:
+
+- A step says how it starts with `start: automatic` (the default) or `start: manual`. `trigger:` is a version 1 key, and a version 2 file refuses it. A version 2 file has no `agent_ended`.
+- A later step can read any output its executor's catalog lists, such as `${{ steps.prep.outputs.branch }}` after `repo.ensure`, without the step declaring it. This also holds in version 1 files.
+
+Legato reads a version 1 file into the same model: `trigger: manual` is `start: manual`, and `trigger: agent_ended` still waits for the workflow task's agent to end. The editor, the builder, the published schema and the bundled templates still write version 1.
+
 ## Agent completion
 
 Workflow agents receive these environment variables:
@@ -575,7 +584,7 @@ Report an unrecoverable failure:
 legato workflow step fail "review tool unavailable" --json
 ```
 
-An agent that exits, including one whose pane is back at a shell, fails its unfinished step with **agent exited before step completion**. Use **Retry step** to try again. Exit has not succeeded: only `legato workflow step complete` completes a step. Missing or invalid outputs leave the step incomplete or failed. Learn's interview follows the same rule through `legato learn reflection submit`; see [Legato Learn](/legato/using/learn/). Legato saves the outputs and moves the run on before it removes the agent. If a completion is interrupted and the agent runs the command again, a file that has not changed is accepted again, and a file that changed is refused.
+An agent that exits, including one whose pane is back at a shell, fails its unfinished step with **agent exited before step completion**. Use **Retry step** to try again. Exit has not succeeded: only `legato workflow step complete` completes a step. Missing or invalid outputs leave the step incomplete or failed. Learn's interview follows the same rule through `legato learn reflection submit`; see [Legato Learn](/legato/using/learn/). The command only saves the outputs. The Legato that runs the board or the web UI then removes the step's agent (unless `keep_agent` is set) and only then starts the next step, so two `agent.run` steps in a row work. That happens at once, or within 30 seconds if Legato missed the message. A step completed while no Legato ran moves on when one starts. If a completion is interrupted and the agent runs the command again, a file that has not changed is accepted again, and a file that changed is refused.
 
 ## Artifacts and security
 

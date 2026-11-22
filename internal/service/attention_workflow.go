@@ -88,8 +88,8 @@ func (a *WorkflowAttentionAdapter) collectRunStates(run store.WorkflowRun, view 
 	for _, step := range view.Steps {
 		if step.Status == "waiting_manual" {
 			states = append(states, workflowAttentionState{
-				runID: run.ID, stepID: step.StepID, kind: "manual",
-				revision: fmt.Sprintf("manual:%s:%s", step.StepID, step.Status),
+				runID: run.ID, stepID: step.Path, kind: "manual",
+				revision: fmt.Sprintf("manual:%s:%s", step.Path, step.Status),
 				runTitle: run.WorkflowTitle, taskID: run.TaskID,
 				reason: "Manual action required: " + step.Title,
 				action: AttentionAction{ID: "trigger", Label: "Trigger", Kind: "execute", RequiresConfirm: true},
@@ -97,8 +97,8 @@ func (a *WorkflowAttentionAdapter) collectRunStates(run store.WorkflowRun, view 
 		}
 		if step.Status == "failed" {
 			states = append(states, workflowAttentionState{
-				runID: run.ID, stepID: step.StepID, kind: "failed",
-				revision: fmt.Sprintf("failed:%s:%s", step.StepID, step.Status),
+				runID: run.ID, stepID: step.Path, kind: "failed",
+				revision: fmt.Sprintf("failed:%s:%s", step.Path, step.Status),
 				runTitle: run.WorkflowTitle, taskID: run.TaskID,
 				reason: "Step failed: " + step.Title,
 				action: AttentionAction{ID: "retry", Label: "Retry", Kind: "execute", RequiresConfirm: true},
@@ -117,8 +117,8 @@ func (a *WorkflowAttentionAdapter) collectRunStates(run store.WorkflowRun, view 
 				}
 			}
 			states = append(states, workflowAttentionState{
-				runID: run.ID, stepID: attempt.StepID, kind: "waiting",
-				revision: fmt.Sprintf("waiting:%s:%d:%s", attempt.StepID, attempt.AttemptNumber, attempt.AttentionReason),
+				runID: run.ID, stepID: attempt.Path, kind: "waiting",
+				revision: fmt.Sprintf("waiting:%s:%d:%s", attempt.Path, attempt.AttemptNumber, attempt.AttentionReason),
 				runTitle: run.WorkflowTitle, taskID: run.TaskID,
 				reason: attempt.AttentionReason,
 				action: AttentionAction{ID: "another_pass", Label: "Run another pass", Kind: "execute"},
@@ -130,8 +130,8 @@ func (a *WorkflowAttentionAdapter) collectRunStates(run store.WorkflowRun, view 
 			continue
 		}
 		states = append(states, workflowAttentionState{
-			runID: run.ID, stepID: attempt.StepID, kind: "waiting_agent",
-			revision: fmt.Sprintf("agent:%s:%s:%d", attempt.StepID, attempt.Status, attempt.AttemptNumber),
+			runID: run.ID, stepID: attempt.Path, kind: "waiting_agent",
+			revision: fmt.Sprintf("agent:%s:%s:%d", attempt.Path, attempt.Status, attempt.AttemptNumber),
 			runTitle: run.WorkflowTitle, taskID: run.TaskID,
 			reason: attempt.AttentionReason,
 			action: AttentionAction{ID: "prompt", Label: "Prompt to continue", Kind: "execute"},

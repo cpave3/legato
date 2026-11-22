@@ -23,6 +23,9 @@ type serveNotifier interface {
 	webNotifier
 	workflowWebNotifier
 	NotifyAgentChanged(taskID string)
+	// NotifyWorkflowChangedKind keeps the kind, so a completed_step from
+	// an agent's pane wakes serve's advance loop.
+	NotifyWorkflowChangedKind(runID, stepID, kind string)
 }
 
 // handleServeIPCMessage is what `legato serve` does with a message from a
@@ -47,7 +50,7 @@ func handleServeIPCMessage(msg ipc.Message, bus *events.Bus, srv serveNotifier) 
 		handleIPCMessage(msg, bus, nil)
 		srv.NotifyAgentsChanged()
 	case "workflow_changed":
-		srv.NotifyWorkflowChanged(msg.WorkflowRunID, msg.WorkflowStepID)
+		srv.NotifyWorkflowChangedKind(msg.WorkflowRunID, msg.WorkflowStepID, msg.Kind)
 		if msg.Kind == "completed_step" {
 			srv.NotifyAgentsChanged()
 		}

@@ -135,7 +135,9 @@ func TestEveryValidTestDefinitionMatchesTheSchema(t *testing.T) {
 	strict, lenient := resolvedSchema(t), resolveSchema(t, true)
 	checked := 0
 	for _, text := range parsedTestDefinitions(t) {
-		if _, err := workflow.Parse("case.yaml", []byte(text)); err != nil {
+		definition, err := workflow.Parse("case.yaml", []byte(text))
+		if err != nil || definition.SchemaVersion != workflow.SchemaVersion {
+			// The published schema is version 1's (LEG-484 adds 2's).
 			continue
 		}
 		checked++

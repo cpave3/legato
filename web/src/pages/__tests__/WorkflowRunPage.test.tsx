@@ -111,6 +111,12 @@ describe("WorkflowRunPage", () => {
     await waitFor(() => expect(triggerStep).toHaveBeenCalledWith("", "wr-1", "end", false))
   })
 
+  it("reads how a step starts from start, as a step's definition now says it", () => {
+    show({ run: { ...run, status: "waiting", current_step_id: "end", task_id: "task-1" }, steps: [stepRun("agent", 0, "Run agent", "agent.run", "succeeded"), stepRun("end", 1, "Finish", "worktree.remove", "waiting_manual", { definition_json: '{"start":"agent_ended"}' })], attempts: [], artifacts: [] })
+    expect(within(now()).getByText("Finish starts when the agent ends")).toBeTruthy()
+    expect(within(now()).getByRole("button", { name: "End now" })).toBeTruthy()
+  })
+
   it("never shows the value of a secret input", () => {
     show({ run: { ...run, status: "running", current_step_id: "read", related_task_id: undefined, related_task_title: undefined, definition_json: JSON.stringify({ title: "Deploy", inputs: { token: { type: "string", secret: true } } }), inputs_json: JSON.stringify({ token: "s3cret", env: "staging" }) }, steps: [stepRun("read", 0, "Read", "task.context", "running", { resolved_inputs_json: JSON.stringify({ token: "s3cret" }) })], attempts: [], artifacts: [] })
     fireEvent.click(screen.getByRole("button", { name: /Read/ }))

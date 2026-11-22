@@ -292,5 +292,7 @@ func LearningReflectionSubmit(ctx context.Context, learn ReflectionCLIService, w
 	case err != nil:
 		return fmt.Errorf("complete reflection workflow: %w", err)
 	}
+	// A host moves the run on (docs/ai/workflows.md § Agent completion).
+	broadcastWorkflowChanged(request.WorkflowRunID, request.StepID, "completed_step")
 	return json.NewEncoder(w).Encode(result{Submission: submission, Workflow: view, Recorded: true})
 }

@@ -2159,10 +2159,10 @@ func (a *agentService) endGoneSession(ctx context.Context, s store.AgentSession,
 		return err
 	}
 	for _, attempt := range attempts {
-		if err := a.store.FailWorkflowStep(ctx, attempt.RunID, attempt.StepID, attempt.ID, "agent exited before step completion"); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
+		if err := a.store.FailWorkflowStep(ctx, attempt.RunID, attempt.Path, attempt.ID, "agent exited before step completion"); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
 			return err
 		}
-		log.Printf("workflow agent exited run=%s step=%s attempt=%s", attempt.RunID, attempt.StepID, attempt.ID)
+		log.Printf("workflow agent exited run=%s step=%s attempt=%s", attempt.RunID, attempt.Path, attempt.ID)
 		if a.bus != nil {
 			a.bus.PublishWorkflowChanged(attempt.RunID)
 		}

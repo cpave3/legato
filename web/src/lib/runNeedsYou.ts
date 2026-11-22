@@ -49,7 +49,9 @@ export function runNeedsYou(view: WorkflowRunView, attention: AttentionItem[], a
   for (const step of view.steps ?? []) {
     const node = `step:${step.step_id}`
     const latest = [...attempts].reverse().find(attempt => attempt.step_id === step.step_id)
-    const agentEnded = parse(step.definition_json).trigger === "agent_ended"
+    // A step says start; one a run kept before schema version 2 says trigger.
+    const stepDefinition = parse(step.definition_json)
+    const agentEnded = (stepDefinition.start ?? stepDefinition.trigger) === "agent_ended"
     const cleanup = step.executor_type === "worktree.remove"
     if (step.status === "waiting_manual") {
       const [action, label] = agentEnded ? ["end_now", "End now"] as const : ["start", "Start"] as const

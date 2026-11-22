@@ -35,8 +35,12 @@ function parseJSON(raw: string | undefined): unknown {
 }
 
 function stepTrigger(step: WorkflowStepRun): string | undefined {
+  // A step says start; one a run kept before schema version 2 says trigger.
   const definition = parseJSON(step.definition_json)
-  return definition && typeof definition === "object" && "trigger" in definition ? String((definition as { trigger: unknown }).trigger) : undefined
+  if (!definition || typeof definition !== "object") return undefined
+  const { start, trigger } = definition as { start?: unknown; trigger?: unknown }
+  const value = start ?? trigger
+  return value === undefined ? undefined : String(value)
 }
 
 function asStepLike(step: WorkflowStepRun): StepLike {

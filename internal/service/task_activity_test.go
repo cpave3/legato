@@ -30,7 +30,7 @@ func TestTaskActivityReturnsRelatedReviewsPlansAndWorkflowArtifacts(t *testing.T
 		t.Fatal(err)
 	}
 	run := store.WorkflowRun{ID: "wr-1", WorkflowName: "triage", WorkflowTitle: "Triage", DefinitionSource: "test", DefinitionDigest: "sha", DefinitionJSON: "{}", InputsJSON: "{}", Status: "succeeded", TaskID: "workflow-task", RelatedTaskID: "task-1"}
-	if err := db.CreateWorkflowRun(ctx, run, []store.WorkflowStepRun{{RunID: "wr-1", StepID: "triage", Title: "Triage", ExecutorType: "agent.run", DefinitionJSON: "{}", Status: "pending"}}); err != nil {
+	if err := db.CreateWorkflowRun(ctx, run, []store.WorkflowStep{{RunID: "wr-1", StepID: "triage", Title: "Triage", ExecutorType: "agent.run", DefinitionJSON: "{}", Status: "pending"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.StartWorkflowStepAttempt(ctx, store.WorkflowStepAttempt{ID: "wa-1", RunID: "wr-1", StepID: "triage", AttemptNumber: 1, ExecutorType: "agent.run", TaskID: "workflow-task", Status: "running"}, "{}"); err != nil {

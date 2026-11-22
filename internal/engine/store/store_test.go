@@ -425,7 +425,7 @@ func TestDeleteTaskDetachesWorkflowAssociationsAndPreservesHistory(t *testing.T)
 		InputsJSON: `{}`, Status: "running", CurrentStepID: "record",
 		RelatedTaskID: task.ID, TriggerRequestID: request.ID,
 	}
-	steps := []WorkflowStepRun{{
+	steps := []WorkflowStep{{
 		RunID: run.ID, StepID: "record", StepOrder: 0, Title: "Record",
 		ExecutorType: "agent.run", DefinitionJSON: `{}`, Status: "pending",
 	}}

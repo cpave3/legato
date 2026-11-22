@@ -66,7 +66,13 @@ func (r *WorkflowAgentRunner) FinishWorkflowAgent(ctx context.Context, attempt s
 		return nil
 	}
 	session, err := r.store.GetAgentSessionByID(ctx, *attempt.AgentSessionID)
-	if err != nil && err != store.ErrNotFound {
+	if err == store.ErrNotFound {
+		// Finished already: its pane was stopped before its session went.
+		// The tmux name may be the next agent's on the same task now (a
+		// recovered advance finishing again), so it is not stopped twice.
+		return nil
+	}
+	if err != nil {
 		return err
 	}
 	// The pane is stopped first: until it has, the session is still running,

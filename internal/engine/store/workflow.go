@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -18,29 +19,51 @@ const workflowRunSelect = `SELECT id, workflow_name, workflow_title, definition_
 	COALESCE(task_id, '') AS task_id, error, created_at, started_at, completed_at,
 	COALESCE(related_task_id, '') AS related_task_id,
 	COALESCE(trigger_request_id, '') AS trigger_request_id,
+	COALESCE(parent_run_id, '') AS parent_run_id, parent_step_path, outputs_json, schema_version,
 	COALESCE((SELECT title FROM tasks WHERE tasks.id = workflow_runs.related_task_id), '') AS related_task_title
 	FROM workflow_runs`
 
+// workflowStepColumns are the columns of a step as WorkflowStep reads them.
+const workflowStepColumns = `run_id, path, parent_path, step_id, pass, step_order, title, executor_type,
+	definition_json, resolved_json, outputs_json, status, latest_attempt, error, advance_due,
+	loop_state_json, wait_signals, wait_task_id, wait_slot, wait_execution_id, wait_watermark,
+	wait_session_id, deadline_at, COALESCE(child_run_id, '') AS child_run_id, started_at, completed_at`
+
+const workflowAttemptColumns = `id, run_id, path, step_id, attempt_number, executor_type, agent_session_id,
+	task_id, tmux_session, agent_kind, tier, working_dir, status, error, started_at, ended_at`
+
+const workflowArtifactColumns = `id, run_id, path, step_id, attempt_id, task_id, output_key, managed_path,
+	original_path, media_type, size_bytes, digest, created_at`
+
 type WorkflowRun struct {
-	ID               string  `db:"id" json:"id"`
-	WorkflowName     string  `db:"workflow_name" json:"workflow_name"`
-	WorkflowTitle    string  `db:"workflow_title" json:"workflow_title"`
-	DefinitionSource string  `db:"definition_source" json:"definition_source"`
-	DefinitionDigest string  `db:"definition_digest" json:"definition_digest"`
-	DefinitionJSON   string  `db:"definition_json" json:"definition_json"`
-	InputsJSON       string  `db:"inputs_json" json:"inputs_json"`
-	Status           string  `db:"status" json:"status"`
-	CurrentStepID    string  `db:"current_step_id" json:"current_step_id"`
-	TaskID           string  `db:"task_id" json:"task_id,omitempty"`
-	RelatedTaskID    string  `db:"related_task_id" json:"related_task_id,omitempty"`
-	RelatedTaskTitle string  `db:"related_task_title" json:"related_task_title,omitempty"`
-	TriggerRequestID string  `db:"trigger_request_id" json:"trigger_request_id,omitempty"`
-	Error            string  `db:"error" json:"error,omitempty"`
-	CreatedAt        string  `db:"created_at" json:"created_at"`
-	StartedAt        *string `db:"started_at" json:"started_at,omitempty"`
-	CompletedAt      *string `db:"completed_at" json:"completed_at,omitempty"`
-	NeedsAttention   bool    `db:"-" json:"needs_attention,omitempty"`
-	AttentionReason  string  `db:"-" json:"attention_reason,omitempty"`
+	ID               string `db:"id" json:"id"`
+	WorkflowName     string `db:"workflow_name" json:"workflow_name"`
+	WorkflowTitle    string `db:"workflow_title" json:"workflow_title"`
+	DefinitionSource string `db:"definition_source" json:"definition_source"`
+	DefinitionDigest string `db:"definition_digest" json:"definition_digest"`
+	DefinitionJSON   string `db:"definition_json" json:"definition_json"`
+	InputsJSON       string `db:"inputs_json" json:"inputs_json"`
+	Status           string `db:"status" json:"status"`
+	// CurrentStepID is the path of the step the run is at.
+	CurrentStepID    string `db:"current_step_id" json:"current_step_id"`
+	TaskID           string `db:"task_id" json:"task_id,omitempty"`
+	RelatedTaskID    string `db:"related_task_id" json:"related_task_id,omitempty"`
+	RelatedTaskTitle string `db:"related_task_title" json:"related_task_title,omitempty"`
+	TriggerRequestID string `db:"trigger_request_id" json:"trigger_request_id,omitempty"`
+	// ParentRunID and ParentStepPath name the workflow.run step that
+	// started this run as its child (LEG-489); empty for any other run.
+	ParentRunID    string `db:"parent_run_id" json:"parent_run_id,omitempty"`
+	ParentStepPath string `db:"parent_step_path" json:"parent_step_path,omitempty"`
+	// OutputsJSON is the run's own outputs, computed when it succeeds.
+	OutputsJSON string `db:"outputs_json" json:"outputs_json,omitempty"`
+	// SchemaVersion is the schema version of the definition the run runs.
+	SchemaVersion   int     `db:"schema_version" json:"schema_version"`
+	Error           string  `db:"error" json:"error,omitempty"`
+	CreatedAt       string  `db:"created_at" json:"created_at"`
+	StartedAt       *string `db:"started_at" json:"started_at,omitempty"`
+	CompletedAt     *string `db:"completed_at" json:"completed_at,omitempty"`
+	NeedsAttention  bool    `db:"-" json:"needs_attention,omitempty"`
+	AttentionReason string  `db:"-" json:"attention_reason,omitempty"`
 	// Steps is filled by ListWorkflowRuns with WithSteps only (the runs list
 	// of the API): each step's place and state, so a list of runs can say how
 	// far each one is.
@@ -55,25 +78,44 @@ type WorkflowStepSummary struct {
 	Trigger string `db:"step_trigger" json:"trigger,omitempty"`
 }
 
-type WorkflowStepRun struct {
-	RunID              string  `db:"run_id" json:"run_id"`
-	StepID             string  `db:"step_id" json:"step_id"`
+// WorkflowStep is one step instance of a run, created when the run reaches
+// it. Path keys it within the run: a top-level step's ID, or its scope's
+// path, a slash and its ID.
+type WorkflowStep struct {
+	RunID      string `db:"run_id" json:"run_id"`
+	Path       string `db:"path" json:"path"`
+	ParentPath string `db:"parent_path" json:"parent_path,omitempty"`
+	StepID     string `db:"step_id" json:"step_id"`
+	// Pass is the loop pass whose scope the step is in; nil outside loops.
+	Pass               *int    `db:"pass" json:"pass,omitempty"`
 	StepOrder          int     `db:"step_order" json:"step_order"`
 	Title              string  `db:"title" json:"title"`
 	ExecutorType       string  `db:"executor_type" json:"executor_type"`
 	DefinitionJSON     string  `db:"definition_json" json:"definition_json"`
-	ResolvedInputsJSON string  `db:"resolved_inputs_json" json:"resolved_inputs_json"`
+	ResolvedInputsJSON string  `db:"resolved_json" json:"resolved_inputs_json"`
 	OutputsJSON        string  `db:"outputs_json" json:"outputs_json"`
 	Status             string  `db:"status" json:"status"`
 	LatestAttempt      int     `db:"latest_attempt" json:"latest_attempt"`
 	Error              string  `db:"error" json:"error,omitempty"`
+	AdvanceDue         bool    `db:"advance_due" json:"advance_due,omitempty"`
+	LoopStateJSON      string  `db:"loop_state_json" json:"-"`
+	WaitSignals        string  `db:"wait_signals" json:"-"`
+	WaitTaskID         string  `db:"wait_task_id" json:"-"`
+	WaitSlot           string  `db:"wait_slot" json:"-"`
+	WaitExecutionID    string  `db:"wait_execution_id" json:"-"`
+	WaitWatermark      int64   `db:"wait_watermark" json:"-"`
+	WaitSessionID      *int    `db:"wait_session_id" json:"-"`
+	DeadlineAt         *string `db:"deadline_at" json:"deadline_at,omitempty"`
+	ChildRunID         string  `db:"child_run_id" json:"child_run_id,omitempty"`
 	StartedAt          *string `db:"started_at" json:"started_at,omitempty"`
 	CompletedAt        *string `db:"completed_at" json:"completed_at,omitempty"`
 }
 
 type WorkflowStepAttempt struct {
-	ID              string  `db:"id" json:"id"`
-	RunID           string  `db:"run_id" json:"run_id"`
+	ID    string `db:"id" json:"id"`
+	RunID string `db:"run_id" json:"run_id"`
+	// Path is the step instance's; StepID its ID alone.
+	Path            string  `db:"path" json:"path"`
 	StepID          string  `db:"step_id" json:"step_id"`
 	AttemptNumber   int     `db:"attempt_number" json:"attempt_number"`
 	ExecutorType    string  `db:"executor_type" json:"executor_type"`
@@ -99,6 +141,7 @@ type WorkflowStepAttempt struct {
 type WorkflowArtifact struct {
 	ID           string `db:"id" json:"id"`
 	RunID        string `db:"run_id" json:"run_id"`
+	Path         string `db:"path" json:"path"`
 	StepID       string `db:"step_id" json:"step_id"`
 	AttemptID    string `db:"attempt_id" json:"attempt_id"`
 	TaskID       string `db:"task_id" json:"task_id,omitempty"`
@@ -113,10 +156,10 @@ type WorkflowArtifact struct {
 
 type WorkflowRunView struct {
 	Run       WorkflowRun           `json:"run"`
-	Steps     []WorkflowStepRun     `json:"steps"`
+	Steps     []WorkflowStep        `json:"steps"`
 	Attempts  []WorkflowStepAttempt `json:"attempts"`
 	Artifacts []WorkflowArtifact    `json:"artifacts"`
-	// Details are what a step's executor says of it, by step ID, such as
+	// Details are what a step's executor says of it, by step path, such as
 	// where a review loop stands; the service fills them.
 	Details map[string]any `json:"details,omitempty"`
 	// TriggerKind is the kind of trigger that started the run, from its
@@ -137,23 +180,23 @@ func (s *Store) RetitleWorkflowRun(ctx context.Context, runID, title string) err
 	})
 }
 
-func (s *Store) CreateWorkflowRun(ctx context.Context, run WorkflowRun, steps []WorkflowStepRun) error {
+// CreateWorkflowRun records a run and the step instances it has reached
+// at its start: its top-level steps.
+func (s *Store) CreateWorkflowRun(ctx context.Context, run WorkflowRun, steps []WorkflowStep) error {
+	if run.SchemaVersion == 0 {
+		run.SchemaVersion = 1
+	}
+	if run.OutputsJSON == "" {
+		run.OutputsJSON = "{}"
+	}
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
 		if _, err := tx.NamedExecContext(ctx, `INSERT INTO workflow_runs
-			(id, workflow_name, workflow_title, definition_source, definition_digest, definition_json, inputs_json, status, current_step_id, task_id, related_task_id, trigger_request_id, error, started_at)
-			VALUES (:id, :workflow_name, :workflow_title, :definition_source, :definition_digest, :definition_json, :inputs_json, :status, :current_step_id, NULLIF(:task_id,''), NULLIF(:related_task_id,''), NULLIF(:trigger_request_id,''), :error, datetime('now'))`, run); err != nil {
+			(id, workflow_name, workflow_title, definition_source, definition_digest, definition_json, inputs_json, status, current_step_id, task_id, related_task_id, trigger_request_id, parent_run_id, parent_step_path, outputs_json, schema_version, error, started_at)
+			VALUES (:id, :workflow_name, :workflow_title, :definition_source, :definition_digest, :definition_json, :inputs_json, :status, :current_step_id, NULLIF(:task_id,''), NULLIF(:related_task_id,''), NULLIF(:trigger_request_id,''), NULLIF(:parent_run_id,''), :parent_step_path, :outputs_json, :schema_version, :error, datetime('now'))`, run); err != nil {
 			return err
 		}
 		for _, step := range steps {
-			if step.ResolvedInputsJSON == "" {
-				step.ResolvedInputsJSON = "{}"
-			}
-			if step.OutputsJSON == "" {
-				step.OutputsJSON = "{}"
-			}
-			if _, err := tx.NamedExecContext(ctx, `INSERT INTO workflow_step_runs
-				(run_id, step_id, step_order, title, executor_type, definition_json, resolved_inputs_json, outputs_json, status, latest_attempt, error)
-				VALUES (:run_id, :step_id, :step_order, :title, :executor_type, :definition_json, :resolved_inputs_json, :outputs_json, :status, :latest_attempt, :error)`, step); err != nil {
+			if err := insertWorkflowStep(ctx, tx, step); err != nil {
 				return err
 			}
 		}
@@ -161,9 +204,42 @@ func (s *Store) CreateWorkflowRun(ctx context.Context, run WorkflowRun, steps []
 	})
 }
 
+// CreateWorkflowSteps records step instances a run has reached, such as
+// a loop pass's (LEG-490). An instance that exists already is left as it is.
+func (s *Store) CreateWorkflowSteps(ctx context.Context, steps []WorkflowStep) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		for _, step := range steps {
+			if err := insertWorkflowStep(ctx, tx, step); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func insertWorkflowStep(ctx context.Context, tx *sqlx.Tx, step WorkflowStep) error {
+	if step.Path == "" {
+		step.Path = step.StepID
+	}
+	if step.ResolvedInputsJSON == "" {
+		step.ResolvedInputsJSON = "{}"
+	}
+	if step.OutputsJSON == "" {
+		step.OutputsJSON = "{}"
+	}
+	if step.DefinitionJSON == "" {
+		step.DefinitionJSON = "{}"
+	}
+	_, err := tx.NamedExecContext(ctx, `INSERT INTO workflow_steps
+		(run_id, path, parent_path, step_id, pass, step_order, title, executor_type, definition_json, resolved_json, outputs_json, status, latest_attempt, error)
+		VALUES (:run_id, :path, :parent_path, :step_id, :pass, :step_order, :title, :executor_type, :definition_json, :resolved_json, :outputs_json, :status, :latest_attempt, :error)
+		ON CONFLICT (run_id, path) DO NOTHING`, step)
+	return err
+}
+
 func (s *Store) GetWorkflowRun(ctx context.Context, id string) (*WorkflowRunView, error) {
 	view := WorkflowRunView{
-		Steps: make([]WorkflowStepRun, 0), Attempts: make([]WorkflowStepAttempt, 0), Artifacts: make([]WorkflowArtifact, 0),
+		Steps: make([]WorkflowStep, 0), Attempts: make([]WorkflowStepAttempt, 0), Artifacts: make([]WorkflowArtifact, 0),
 	}
 	if err := s.db.GetContext(ctx, &view.Run, workflowRunSelect+" WHERE id = ?", id); err != nil {
 		if err == sql.ErrNoRows {
@@ -171,21 +247,23 @@ func (s *Store) GetWorkflowRun(ctx context.Context, id string) (*WorkflowRunView
 		}
 		return nil, err
 	}
-	if err := s.db.SelectContext(ctx, &view.Steps, "SELECT * FROM workflow_step_runs WHERE run_id = ? ORDER BY step_order", id); err != nil {
+	// Steps by scope: the run's own steps first, then each nested scope's
+	// (a loop pass's), each in order.
+	if err := s.db.SelectContext(ctx, &view.Steps, "SELECT "+workflowStepColumns+" FROM workflow_steps WHERE run_id = ? ORDER BY parent_path, step_order", id); err != nil {
 		return nil, err
 	}
-	if err := s.db.SelectContext(ctx, &view.Attempts, "SELECT * FROM workflow_step_attempts WHERE run_id = ? ORDER BY step_id, attempt_number", id); err != nil {
+	if err := s.db.SelectContext(ctx, &view.Attempts, "SELECT "+workflowAttemptColumns+" FROM workflow_step_attempts WHERE run_id = ? ORDER BY path, attempt_number", id); err != nil {
 		return nil, err
 	}
-	if err := s.db.SelectContext(ctx, &view.Artifacts, "SELECT * FROM workflow_artifacts WHERE run_id = ? ORDER BY created_at, id", id); err != nil {
+	if err := s.db.SelectContext(ctx, &view.Artifacts, "SELECT "+workflowArtifactColumns+" FROM workflow_artifacts WHERE run_id = ? ORDER BY created_at, id", id); err != nil {
 		return nil, err
 	}
 	return &view, nil
 }
 
-func (s *Store) WaitWorkflowStepManual(ctx context.Context, runID, stepID, resolvedInputsJSON string) error {
+func (s *Store) WaitWorkflowStepManual(ctx context.Context, runID, path, resolvedInputsJSON string) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'waiting_manual', resolved_inputs_json = ?, error = '' WHERE run_id = ? AND step_id = ? AND status = 'pending'`, resolvedInputsJSON, runID, stepID)
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_steps SET status = 'waiting_manual', resolved_json = ?, error = '' WHERE run_id = ? AND path = ? AND status = 'pending'`, resolvedInputsJSON, runID, path)
 		if err != nil {
 			return err
 		}
@@ -196,7 +274,7 @@ func (s *Store) WaitWorkflowStepManual(ctx context.Context, runID, stepID, resol
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'waiting' WHERE id = ? AND current_step_id = ? AND status = 'running'`, runID, stepID)
+		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'waiting' WHERE id = ? AND current_step_id = ? AND status = 'running'`, runID, path)
 		if err != nil {
 			return err
 		}
@@ -211,9 +289,9 @@ func (s *Store) WaitWorkflowStepManual(ctx context.Context, runID, stepID, resol
 	})
 }
 
-func (s *Store) TriggerWorkflowStep(ctx context.Context, runID, stepID string) error {
+func (s *Store) TriggerWorkflowStep(ctx context.Context, runID, path string) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'pending', error = '' WHERE run_id = ? AND step_id = ? AND status = 'waiting_manual'`, runID, stepID)
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_steps SET status = 'pending', error = '' WHERE run_id = ? AND path = ? AND status = 'waiting_manual'`, runID, path)
 		if err != nil {
 			return err
 		}
@@ -224,7 +302,7 @@ func (s *Store) TriggerWorkflowStep(ctx context.Context, runID, stepID string) e
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'running' WHERE id = ? AND current_step_id = ? AND status = 'waiting'`, runID, stepID)
+		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'running' WHERE id = ? AND current_step_id = ? AND status = 'waiting'`, runID, path)
 		if err != nil {
 			return err
 		}
@@ -241,7 +319,7 @@ func (s *Store) TriggerWorkflowStep(ctx context.Context, runID, stepID string) e
 
 func (s *Store) ListActiveWorkflowAgentAttemptsByTask(ctx context.Context, taskID string) ([]WorkflowStepAttempt, error) {
 	attempts := []WorkflowStepAttempt{}
-	err := s.db.SelectContext(ctx, &attempts, `SELECT * FROM workflow_step_attempts
+	err := s.db.SelectContext(ctx, &attempts, "SELECT "+workflowAttemptColumns+` FROM workflow_step_attempts
 		WHERE task_id = ? AND executor_type = 'agent.run' AND status = 'waiting_agent'
 		ORDER BY started_at, id`, taskID)
 	return attempts, err
@@ -251,17 +329,20 @@ func (s *Store) ListActiveWorkflowAgentAttemptsByTask(ctx context.Context, taskI
 // sessions and borrowed agent.interview sessions, whose task IDs may differ.
 func (s *Store) ListWaitingWorkflowAttemptsByAgentSession(ctx context.Context, sessionID int) ([]WorkflowStepAttempt, error) {
 	attempts := []WorkflowStepAttempt{}
-	err := s.db.SelectContext(ctx, &attempts, `SELECT * FROM workflow_step_attempts
+	err := s.db.SelectContext(ctx, &attempts, "SELECT "+workflowAttemptColumns+` FROM workflow_step_attempts
   WHERE agent_session_id = ? AND status = 'waiting_agent' ORDER BY started_at,id`, sessionID)
 	return attempts, err
 }
 
 func (s *Store) StartWorkflowStepAttempt(ctx context.Context, attempt WorkflowStepAttempt, resolvedInputsJSON string) error {
+	if attempt.Path == "" {
+		attempt.Path = attempt.StepID
+	}
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_runs
-			SET status = 'running', resolved_inputs_json = ?, latest_attempt = ?, started_at = COALESCE(started_at, datetime('now')), error = ''
-			WHERE run_id = ? AND step_id = ? AND status IN ('pending','failed','interrupted')`,
-			resolvedInputsJSON, attempt.AttemptNumber, attempt.RunID, attempt.StepID)
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_steps
+			SET status = 'running', resolved_json = ?, latest_attempt = ?, started_at = COALESCE(started_at, datetime('now')), error = ''
+			WHERE run_id = ? AND path = ? AND status IN ('pending','failed','interrupted')`,
+			resolvedInputsJSON, attempt.AttemptNumber, attempt.RunID, attempt.Path)
 		if err != nil {
 			return err
 		}
@@ -273,16 +354,30 @@ func (s *Store) StartWorkflowStepAttempt(ctx context.Context, attempt WorkflowSt
 			return ErrWorkflowStateConflict
 		}
 		_, err = tx.NamedExecContext(ctx, `INSERT INTO workflow_step_attempts
-			(id, run_id, step_id, attempt_number, executor_type, agent_session_id, task_id, tmux_session, agent_kind, tier, working_dir, status, error)
-			VALUES (:id, :run_id, :step_id, :attempt_number, :executor_type, :agent_session_id, :task_id, :tmux_session, :agent_kind, :tier, :working_dir, :status, :error)`, attempt)
+			(id, run_id, path, step_id, attempt_number, executor_type, agent_session_id, task_id, tmux_session, agent_kind, tier, working_dir, status, error)
+			VALUES (:id, :run_id, :path, :step_id, :attempt_number, :executor_type, :agent_session_id, :task_id, :tmux_session, :agent_kind, :tier, :working_dir, :status, :error)`, attempt)
 		return err
 	})
 }
 
-func (s *Store) CompleteWorkflowStep(ctx context.Context, runID, stepID, attemptID, outputsJSON, nextStepID string) error {
+// CompleteWorkflowStep records a step's success and moves the run to the
+// step at nextPath, or ends it succeeded when nextPath is empty.
+func (s *Store) CompleteWorkflowStep(ctx context.Context, runID, path, attemptID, outputsJSON, nextPath string) error {
+	return s.completeWorkflowStep(ctx, runID, path, attemptID, outputsJSON, nextPath, false)
+}
+
+// RecordWorkflowStepCompletion is CompleteWorkflowStep for a completion an
+// agent reported from its own pane: the step is also marked advance due,
+// for a host process to finish (or keep) its agent and start the next step
+// (ClaimWorkflowAdvances).
+func (s *Store) RecordWorkflowStepCompletion(ctx context.Context, runID, path, attemptID, outputsJSON, nextPath string) error {
+	return s.completeWorkflowStep(ctx, runID, path, attemptID, outputsJSON, nextPath, true)
+}
+
+func (s *Store) completeWorkflowStep(ctx context.Context, runID, path, attemptID, outputsJSON, nextPath string, advanceDue bool) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
 		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'succeeded', ended_at = datetime('now')
-			WHERE id = ? AND run_id = ? AND step_id = ? AND status IN ('running','waiting_agent','waiting')`, attemptID, runID, stepID)
+			WHERE id = ? AND run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting')`, attemptID, runID, path)
 		if err != nil {
 			return err
 		}
@@ -293,8 +388,9 @@ func (s *Store) CompleteWorkflowStep(ctx context.Context, runID, stepID, attempt
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		result, err = tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'succeeded', outputs_json = ?, completed_at = datetime('now'), error = ''
-			WHERE run_id = ? AND step_id = ? AND status IN ('running','waiting_agent','waiting')`, outputsJSON, runID, stepID)
+		result, err = tx.ExecContext(ctx, `UPDATE workflow_steps SET status = 'succeeded', outputs_json = ?, completed_at = datetime('now'), error = '',
+			advance_due = ?, advance_claimed_at = NULL
+			WHERE run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting')`, outputsJSON, advanceDue, runID, path)
 		if err != nil {
 			return err
 		}
@@ -305,10 +401,10 @@ func (s *Store) CompleteWorkflowStep(ctx context.Context, runID, stepID, attempt
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		if nextStepID == "" {
-			result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'succeeded', current_step_id = '', completed_at = datetime('now'), error = '' WHERE id = ? AND current_step_id = ? AND status = 'running'`, runID, stepID)
+		if nextPath == "" {
+			result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'succeeded', current_step_id = '', completed_at = datetime('now'), error = '' WHERE id = ? AND current_step_id = ? AND status = 'running'`, runID, path)
 		} else {
-			result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET current_step_id = ?, error = '' WHERE id = ? AND current_step_id = ? AND status = 'running'`, nextStepID, runID, stepID)
+			result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET current_step_id = ?, error = '' WHERE id = ? AND current_step_id = ? AND status = 'running'`, nextPath, runID, path)
 		}
 		if err != nil {
 			return err
@@ -320,7 +416,7 @@ func (s *Store) CompleteWorkflowStep(ctx context.Context, runID, stepID, attempt
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		if nextStepID == "" {
+		if nextPath == "" {
 			result, err = tx.ExecContext(ctx, `UPDATE tasks SET status = 'Done', archived_at = datetime('now'), updated_at = datetime('now') WHERE id = (SELECT task_id FROM workflow_runs WHERE id = ?)`, runID)
 			if err != nil {
 				return err
@@ -337,14 +433,14 @@ func (s *Store) CompleteWorkflowStep(ctx context.Context, runID, stepID, attempt
 	})
 }
 
-func (s *Store) MarkWorkflowStepWaiting(ctx context.Context, runID, stepID, attemptID string, session *AgentSession, workingDir string) error {
+func (s *Store) MarkWorkflowStepWaiting(ctx context.Context, runID, path, attemptID string, session *AgentSession, workingDir string) error {
 	var sessionID any
 	var tmuxName, agentKind string
 	if session != nil {
 		sessionID, tmuxName, agentKind = session.ID, session.TmuxSession, session.AgentKind
 	}
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'waiting_agent', agent_session_id = ?, tmux_session = ?, agent_kind = ?, working_dir = ? WHERE id = ? AND run_id = ? AND step_id = ? AND status = 'running'`, sessionID, tmuxName, agentKind, workingDir, attemptID, runID, stepID)
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'waiting_agent', agent_session_id = ?, tmux_session = ?, agent_kind = ?, working_dir = ? WHERE id = ? AND run_id = ? AND path = ? AND status = 'running'`, sessionID, tmuxName, agentKind, workingDir, attemptID, runID, path)
 		if err != nil {
 			return err
 		}
@@ -355,7 +451,7 @@ func (s *Store) MarkWorkflowStepWaiting(ctx context.Context, runID, stepID, atte
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		result, err = tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'waiting_agent' WHERE run_id = ? AND step_id = ? AND status = 'running'`, runID, stepID)
+		result, err = tx.ExecContext(ctx, `UPDATE workflow_steps SET status = 'waiting_agent' WHERE run_id = ? AND path = ? AND status = 'running'`, runID, path)
 		if err != nil {
 			return err
 		}
@@ -374,14 +470,14 @@ func (s *Store) MarkWorkflowStepWaiting(ctx context.Context, runID, stepID, atte
 // its executor completes or fails it (CompleteWorkflowStep,
 // FailWorkflowStep). No agent session is tied to it, so no agent's exit ends
 // it, and a restart leaves it waiting.
-func (s *Store) WaitWorkflowStepOnService(ctx context.Context, runID, stepID, attemptID string) error {
+func (s *Store) WaitWorkflowStepOnService(ctx context.Context, runID, path, attemptID string) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
 		for _, update := range []struct {
 			query string
 			args  []any
 		}{
-			{`UPDATE workflow_step_attempts SET status = 'waiting' WHERE id = ? AND run_id = ? AND step_id = ? AND status = 'running'`, []any{attemptID, runID, stepID}},
-			{`UPDATE workflow_step_runs SET status = 'waiting' WHERE run_id = ? AND step_id = ? AND status = 'running'`, []any{runID, stepID}},
+			{`UPDATE workflow_step_attempts SET status = 'waiting' WHERE id = ? AND run_id = ? AND path = ? AND status = 'running'`, []any{attemptID, runID, path}},
+			{`UPDATE workflow_steps SET status = 'waiting' WHERE run_id = ? AND path = ? AND status = 'running'`, []any{runID, path}},
 		} {
 			result, err := tx.ExecContext(ctx, update.query, update.args...)
 			if err != nil {
@@ -403,14 +499,14 @@ func (s *Store) WaitWorkflowStepOnService(ctx context.Context, runID, stepID, at
 // type that wait on its service, oldest first.
 func (s *Store) ListWaitingWorkflowAttemptsByExecutor(ctx context.Context, executorType string) ([]WorkflowStepAttempt, error) {
 	attempts := []WorkflowStepAttempt{}
-	err := s.db.SelectContext(ctx, &attempts, `SELECT * FROM workflow_step_attempts
+	err := s.db.SelectContext(ctx, &attempts, "SELECT "+workflowAttemptColumns+` FROM workflow_step_attempts
 		WHERE executor_type = ? AND status = 'waiting' ORDER BY started_at, id`, executorType)
 	return attempts, err
 }
 
-func (s *Store) FailWorkflowStep(ctx context.Context, runID, stepID, attemptID, errorMessage string) error {
+func (s *Store) FailWorkflowStep(ctx context.Context, runID, path, attemptID, errorMessage string) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'failed', error = ?, ended_at = datetime('now') WHERE id = ? AND run_id = ? AND step_id = ? AND status IN ('running','waiting_agent','waiting')`, errorMessage, attemptID, runID, stepID)
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'failed', error = ?, ended_at = datetime('now') WHERE id = ? AND run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting')`, errorMessage, attemptID, runID, path)
 		if err != nil {
 			return err
 		}
@@ -421,7 +517,7 @@ func (s *Store) FailWorkflowStep(ctx context.Context, runID, stepID, attemptID, 
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		result, err = tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'failed', error = ?, completed_at = datetime('now') WHERE run_id = ? AND step_id = ? AND status IN ('running','waiting_agent','waiting')`, errorMessage, runID, stepID)
+		result, err = tx.ExecContext(ctx, `UPDATE workflow_steps SET status = 'failed', error = ?, completed_at = datetime('now') WHERE run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting')`, errorMessage, runID, path)
 		if err != nil {
 			return err
 		}
@@ -432,7 +528,7 @@ func (s *Store) FailWorkflowStep(ctx context.Context, runID, stepID, attemptID, 
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'failed', error = ? WHERE id = ? AND current_step_id = ? AND status = 'running'`, errorMessage, runID, stepID)
+		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'failed', error = ? WHERE id = ? AND current_step_id = ? AND status = 'running'`, errorMessage, runID, path)
 		if err != nil {
 			return err
 		}
@@ -447,9 +543,9 @@ func (s *Store) FailWorkflowStep(ctx context.Context, runID, stepID, attemptID, 
 	})
 }
 
-func (s *Store) ResetWorkflowStepForRetry(ctx context.Context, runID, stepID string) error {
+func (s *Store) ResetWorkflowStepForRetry(ctx context.Context, runID, path string) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'pending', error = '', completed_at = NULL WHERE run_id = ? AND step_id = ? AND status IN ('failed','interrupted')`, runID, stepID)
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_steps SET status = 'pending', error = '', completed_at = NULL WHERE run_id = ? AND path = ? AND status IN ('failed','interrupted')`, runID, path)
 		if err != nil {
 			return err
 		}
@@ -460,7 +556,7 @@ func (s *Store) ResetWorkflowStepForRetry(ctx context.Context, runID, stepID str
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'running', current_step_id = ?, error = '', completed_at = NULL WHERE id = ? AND status = 'failed'`, stepID, runID)
+		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'running', current_step_id = ?, error = '', completed_at = NULL WHERE id = ? AND status = 'failed'`, path, runID)
 		if err != nil {
 			return err
 		}
@@ -477,7 +573,7 @@ func (s *Store) ResetWorkflowStepForRetry(ctx context.Context, runID, stepID str
 
 func (s *Store) GetWorkflowArtifactByAttemptOutput(ctx context.Context, attemptID, outputKey string) (*WorkflowArtifact, error) {
 	var artifact WorkflowArtifact
-	if err := s.db.GetContext(ctx, &artifact, "SELECT * FROM workflow_artifacts WHERE attempt_id = ? AND output_key = ?", attemptID, outputKey); err != nil {
+	if err := s.db.GetContext(ctx, &artifact, "SELECT "+workflowArtifactColumns+" FROM workflow_artifacts WHERE attempt_id = ? AND output_key = ?", attemptID, outputKey); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrNotFound
 		}
@@ -488,7 +584,7 @@ func (s *Store) GetWorkflowArtifactByAttemptOutput(ctx context.Context, attemptI
 
 func (s *Store) GetWorkflowArtifact(ctx context.Context, id string) (*WorkflowArtifact, error) {
 	var artifact WorkflowArtifact
-	if err := s.db.GetContext(ctx, &artifact, "SELECT * FROM workflow_artifacts WHERE id = ?", id); err != nil {
+	if err := s.db.GetContext(ctx, &artifact, "SELECT "+workflowArtifactColumns+" FROM workflow_artifacts WHERE id = ?", id); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrNotFound
 		}
@@ -503,9 +599,12 @@ func (s *Store) DeleteWorkflowArtifactsByAttempt(ctx context.Context, attemptID 
 }
 
 func (s *Store) InsertWorkflowArtifact(ctx context.Context, artifact WorkflowArtifact) error {
+	if artifact.Path == "" {
+		artifact.Path = artifact.StepID
+	}
 	_, err := s.db.NamedExecContext(ctx, `INSERT INTO workflow_artifacts
-		(id, run_id, step_id, attempt_id, task_id, output_key, managed_path, original_path, media_type, size_bytes, digest)
-		VALUES (:id, :run_id, :step_id, :attempt_id, :task_id, :output_key, :managed_path, :original_path, :media_type, :size_bytes, :digest)`, artifact)
+		(id, run_id, path, step_id, attempt_id, task_id, output_key, managed_path, original_path, media_type, size_bytes, digest)
+		VALUES (:id, :run_id, :path, :step_id, :attempt_id, :task_id, :output_key, :managed_path, :original_path, :media_type, :size_bytes, :digest)`, artifact)
 	return err
 }
 
@@ -581,9 +680,11 @@ func (s *Store) attachStepSummaries(ctx context.Context, runs []WorkflowRun) err
 		ids[i] = run.ID
 		index[run.ID] = i
 	}
+	// The runs list shows each run's top-level steps. A step's definition
+	// says start; one kept before schema version 2 says trigger.
 	query, args, err := sqlx.In(`SELECT run_id, step_id, title, status,
-		COALESCE(json_extract(definition_json, '$.trigger'), '') AS step_trigger
-		FROM workflow_step_runs WHERE run_id IN (?) ORDER BY run_id, step_order`, ids)
+		COALESCE(json_extract(definition_json, '$.start'), json_extract(definition_json, '$.trigger'), '') AS step_trigger
+		FROM workflow_steps WHERE run_id IN (?) AND parent_path = '' ORDER BY run_id, step_order`, ids)
 	if err != nil {
 		return err
 	}
@@ -614,12 +715,66 @@ func (s *Store) CancelWorkflowRun(ctx context.Context, runID, reason string) err
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE run_id = ? AND status IN ('pending','running','waiting_agent','waiting_manual','waiting')`, reason, runID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE workflow_steps SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE run_id = ? AND status IN ('pending','running','waiting_agent','waiting_manual','waiting')`, reason, runID); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'cancelled', error = ?, ended_at = datetime('now') WHERE run_id = ? AND status IN ('running','waiting_agent','waiting')`, reason, runID)
 		return err
 	})
+}
+
+// WorkflowAdvance is a recorded step whose run a host process must move
+// on: the step, and the attempt that completed it.
+type WorkflowAdvance struct {
+	Step    WorkflowStep
+	Attempt WorkflowStepAttempt
+}
+
+// ClaimWorkflowAdvances claims the steps whose advance is due (or, with
+// runID and path, that one step only): each one no other process holds,
+// or whose claim is older than stale, which a crashed process left. A
+// claimed step stays due until FinishWorkflowAdvance, so a claim lost to
+// a crash is taken again.
+func (s *Store) ClaimWorkflowAdvances(ctx context.Context, runID, path string, stale time.Duration) ([]WorkflowAdvance, error) {
+	query := "SELECT " + workflowStepColumns + " FROM workflow_steps WHERE advance_due = 1"
+	args := []any{}
+	if runID != "" {
+		query += " AND run_id = ? AND path = ?"
+		args = append(args, runID, path)
+	}
+	var steps []WorkflowStep
+	if err := s.db.SelectContext(ctx, &steps, query+" ORDER BY completed_at, run_id, path", args...); err != nil {
+		return nil, err
+	}
+	// A fixed width, so the times compare as text.
+	const claimTime = "2006-01-02T15:04:05.000000000Z"
+	cutoff := time.Now().Add(-stale).UTC().Format(claimTime)
+	now := time.Now().UTC().Format(claimTime)
+	var claimed []WorkflowAdvance
+	for _, step := range steps {
+		result, err := s.db.ExecContext(ctx, `UPDATE workflow_steps SET advance_claimed_at = ?
+			WHERE run_id = ? AND path = ? AND advance_due = 1 AND (advance_claimed_at IS NULL OR advance_claimed_at < ?)`,
+			now, step.RunID, step.Path, cutoff)
+		if err != nil {
+			return claimed, err
+		}
+		if rows, _ := result.RowsAffected(); rows != 1 {
+			continue
+		}
+		var attempt WorkflowStepAttempt
+		if err := s.db.GetContext(ctx, &attempt, "SELECT "+workflowAttemptColumns+` FROM workflow_step_attempts
+			WHERE run_id = ? AND path = ? AND attempt_number = ?`, step.RunID, step.Path, step.LatestAttempt); err != nil {
+			return claimed, fmt.Errorf("workflow step %s/%s attempt %d: %w", step.RunID, step.Path, step.LatestAttempt, err)
+		}
+		claimed = append(claimed, WorkflowAdvance{Step: step, Attempt: attempt})
+	}
+	return claimed, nil
+}
+
+// FinishWorkflowAdvance clears a claimed step's advance: its run has moved on.
+func (s *Store) FinishWorkflowAdvance(ctx context.Context, runID, path string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE workflow_steps SET advance_due = 0, advance_claimed_at = NULL WHERE run_id = ? AND path = ?`, runID, path)
+	return err
 }
 
 func (s *Store) UpdateWorkflowAttemptStatus(ctx context.Context, attemptID, from, to, errorMessage string) error {

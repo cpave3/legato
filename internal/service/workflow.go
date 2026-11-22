@@ -23,11 +23,14 @@ type ResolvedWorkflowStep struct {
 	AttemptID     string
 	TaskID        string
 	RelatedTaskID string
-	StepID        string
-	Title         string
-	Type          string
-	With          map[string]any
-	Outputs       map[string]workflowengine.Output
+	// StepID is the step instance's path: the step's ID at the top of the
+	// run, its scope's path and its ID within a loop pass. It is how an
+	// agent names the step it completes.
+	StepID  string
+	Title   string
+	Type    string
+	With    map[string]any
+	Outputs map[string]workflowengine.Output
 }
 
 type WorkflowExecutionResult struct {
@@ -53,6 +56,10 @@ type WorkflowService struct {
 	// repositories: repositories can be added while Legato runs.
 	repositorySource func(context.Context) ([]workflowengine.RepositoryPreset, error)
 	agentKinds       []string
+	// recordOnly is set in processes that are not a host (the CLI an agent
+	// runs in its pane): a completion records its step, and a host's
+	// advance loop moves the run on (spec LEG-482 §5.4).
+	recordOnly bool
 }
 
 func NewWorkflowService(s *store.Store, executors []WorkflowExecutor) *WorkflowService {
@@ -171,12 +178,10 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 	}
 	definitionJSON, _ := json.Marshal(definition)
 	inputsJSON, _ := json.Marshal(inputs)
-	run := store.WorkflowRun{ID: runID, WorkflowName: definition.Name, WorkflowTitle: runTitle, DefinitionSource: definition.Source, DefinitionDigest: digestBytes(definitionJSON), DefinitionJSON: string(definitionJSON), InputsJSON: string(inputsJSON), Status: "running", CurrentStepID: definition.Steps[0].ID, TaskID: taskID, RelatedTaskID: relatedTaskID, TriggerRequestID: triggerRequestID}
-	steps := make([]store.WorkflowStepRun, len(definition.Steps))
-	for i, step := range definition.Steps {
-		encoded, _ := json.Marshal(step)
-		steps[i] = store.WorkflowStepRun{RunID: runID, StepID: step.ID, StepOrder: i, Title: step.Title, ExecutorType: step.Type, DefinitionJSON: string(encoded), Status: "pending"}
-	}
+	run := store.WorkflowRun{ID: runID, WorkflowName: definition.Name, WorkflowTitle: runTitle, DefinitionSource: definition.Source, DefinitionDigest: digestBytes(definitionJSON), DefinitionJSON: string(definitionJSON), InputsJSON: string(inputsJSON), Status: "running", CurrentStepID: definition.Steps[0].ID, TaskID: taskID, RelatedTaskID: relatedTaskID, TriggerRequestID: triggerRequestID, SchemaVersion: definition.SchemaVersion}
+	// The run reaches its own steps when it starts; a nested scope's steps
+	// are created when the run reaches them.
+	steps := stepInstances(runID, "", nil, definition.Steps)
 	if err := s.store.CreateWorkflowRun(ctx, run, steps); err != nil {
 		return nil, err
 	}
@@ -190,6 +195,17 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 		return view, nil
 	}
 	return s.store.GetWorkflowRun(ctx, runID)
+}
+
+// stepInstances are the pending step instances of one scope's steps: the
+// run's own (parent "") or a loop pass's.
+func stepInstances(runID, parent string, pass *int, steps []workflowengine.Step) []store.WorkflowStep {
+	instances := make([]store.WorkflowStep, len(steps))
+	for i, step := range steps {
+		encoded, _ := json.Marshal(step)
+		instances[i] = store.WorkflowStep{RunID: runID, Path: workflowengine.StepPath(parent, step.ID), ParentPath: parent, StepID: step.ID, Pass: pass, StepOrder: i, Title: step.Title, ExecutorType: step.Type, DefinitionJSON: string(encoded), Status: "pending"}
+	}
+	return instances
 }
 
 func findRepositoryPreset(presets []workflowengine.RepositoryPreset, name string) (workflowengine.RepositoryPreset, bool) {
@@ -355,7 +371,7 @@ func (s *WorkflowService) PromptStep(ctx context.Context, runID, stepID string) 
 		return nil, err
 	}
 	for _, attempt := range view.Attempts {
-		if attempt.StepID != stepID || !attempt.NeedsAttention || attempt.Status != "waiting_agent" {
+		if attempt.Path != stepID || !attempt.NeedsAttention || attempt.Status != "waiting_agent" {
 			continue
 		}
 		executor := s.executors[attempt.ExecutorType]
@@ -382,7 +398,7 @@ func (s *WorkflowService) Fail(ctx context.Context, runID, stepID, attemptID, re
 	var active *store.WorkflowStepAttempt
 	for i := range view.Attempts {
 		attempt := &view.Attempts[i]
-		if attempt.ID == attemptID && attempt.StepID == stepID && (attempt.Status == "running" || attempt.Status == "waiting_agent" || attempt.Status == WorkflowStepWaiting) {
+		if attempt.ID == attemptID && attempt.Path == stepID && (attempt.Status == "running" || attempt.Status == "waiting_agent" || attempt.Status == WorkflowStepWaiting) {
 			active = attempt
 			break
 		}
@@ -438,6 +454,10 @@ func (s *WorkflowService) Cancel(ctx context.Context, runID, reason string) (*st
 	return s.store.GetWorkflowRun(ctx, runID)
 }
 
+// Complete records an agent step's outputs. Where it runs inside the
+// agent's own pane (a recordOnly service: the CLI), that is all: a host
+// process finishes or keeps the agent, then advances the run (AdvanceDue).
+// In a host it advances the run at once, in the same way.
 func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID string, values, artifacts map[string]string) (*store.WorkflowRunView, error) {
 	view, definition, inputs, prior, index, err := s.loadExecution(ctx, runID, stepID)
 	if err != nil {
@@ -455,7 +475,7 @@ func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID
 			break
 		}
 	}
-	if attempt == nil || attempt.StepID != stepID || attempt.Status != "waiting_agent" {
+	if attempt == nil || attempt.Path != stepID || attempt.Status != "waiting_agent" {
 		return nil, store.ErrWorkflowStateConflict
 	}
 	outputs, err := s.collector.Collect(ctx, WorkflowOutputRequest{RunID: runID, StepID: stepID, AttemptID: attemptID, TaskID: view.Run.TaskID, WorkingDir: attempt.WorkingDir, Declared: resolved.Outputs, Values: values, Artifacts: artifacts})
@@ -467,33 +487,22 @@ func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID
 	if index+1 < len(definition.Steps) {
 		next = definition.Steps[index+1].ID
 	}
-	if err := s.store.CompleteWorkflowStep(ctx, runID, stepID, attemptID, string(encoded), next); err != nil {
+	if err := s.store.RecordWorkflowStepCompletion(ctx, runID, stepID, attemptID, string(encoded), next); err != nil {
 		return nil, err
 	}
+	// The stage is set where the step is recorded, while the agent's
+	// session still exists: the host's Finish removes it.
 	s.finishStepStage(ctx, *attempt)
-	prior[stepID] = outputs
-	if next != "" {
-		if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index+1, prior, "", false); err != nil {
-			return nil, &StepRecordedError{StepID: stepID, NextStepID: next, Err: err}
+	if !s.recordOnly {
+		if _, err := s.advanceRecorded(ctx, runID, stepID); err != nil {
+			completed, loadErr := s.store.GetWorkflowRun(ctx, runID)
+			if loadErr != nil {
+				return nil, err
+			}
+			return completed, err
 		}
 	}
-	completed, err := s.store.GetWorkflowRun(ctx, runID)
-	if err != nil {
-		return nil, err
-	}
-	// keep_agent leaves the step's agent running once its outputs are in, for
-	// a later step (such as one triggered by agent_ended) to end.
-	if keep, _ := resolved.With["keep_agent"].(bool); keep {
-		return completed, nil
-	}
-	if executor, ok := s.executors[attempt.ExecutorType].(interface {
-		Finish(context.Context, store.WorkflowStepAttempt) error
-	}); ok {
-		if err := executor.Finish(ctx, *attempt); err != nil {
-			return completed, fmt.Errorf("finishing workflow execution: %w", err)
-		}
-	}
-	return completed, nil
+	return s.store.GetWorkflowRun(ctx, runID)
 }
 
 // ErrWorkflowStepRecorded is matched by a completion whose step was recorded
@@ -513,6 +522,9 @@ func (e *StepRecordedError) Error() string {
 
 func (e *StepRecordedError) Unwrap() []error { return []error{ErrWorkflowStepRecorded, e.Err} }
 
+// loadExecution loads a run at one of its steps, by path: the run, its
+// definition and inputs, the outputs of the steps before it that succeeded,
+// and the step's index in its scope.
 func (s *WorkflowService) loadExecution(ctx context.Context, runID, stepID string) (*store.WorkflowRunView, *workflowengine.Definition, map[string]any, map[string]map[string]any, int, error) {
 	view, err := s.store.GetWorkflowRun(ctx, runID)
 	if err != nil {
@@ -526,16 +538,21 @@ func (s *WorkflowService) loadExecution(ctx context.Context, runID, stepID strin
 	if err := json.Unmarshal([]byte(view.Run.InputsJSON), &inputs); err != nil {
 		return nil, nil, nil, nil, 0, err
 	}
+	instances := make(map[string]store.WorkflowStep, len(view.Steps))
+	for _, instance := range view.Steps {
+		instances[instance.Path] = instance
+	}
 	prior := map[string]map[string]any{}
 	index := -1
 	for i, step := range definition.Steps {
-		if step.ID == stepID {
+		path := workflowengine.StepPath("", step.ID)
+		if path == stepID {
 			index = i
 			break
 		}
-		if i < len(view.Steps) && view.Steps[i].Status == "succeeded" {
+		if instance, ok := instances[path]; ok && instance.Status == "succeeded" {
 			var values map[string]any
-			if err := json.Unmarshal([]byte(view.Steps[i].OutputsJSON), &values); err != nil {
+			if err := json.Unmarshal([]byte(instance.OutputsJSON), &values); err != nil {
 				return nil, nil, nil, nil, 0, err
 			}
 			prior[step.ID] = values
@@ -568,10 +585,10 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 		}
 		// A step that waits for the task's agent to end has nothing to wait
 		// for when no agent is running.
-		agentGone := step.Trigger == workflowengine.TriggerAgentEnded && !s.taskHasRunningAgent(ctx, taskID)
+		agentGone := step.Start == workflowengine.StartAgentEnded && !s.taskHasRunningAgent(ctx, taskID)
 		if step.WaitsForPerson() && !isTriggered && !agentGone {
 			resolvedJSON, _ := json.Marshal(resolved.With)
-			if err := s.store.WaitWorkflowStepManual(ctx, runID, step.ID, string(resolvedJSON)); err != nil {
+			if err := s.store.WaitWorkflowStepManual(ctx, runID, workflowengine.StepPath("", step.ID), string(resolvedJSON)); err != nil {
 				return err
 			}
 			return nil
@@ -582,27 +599,28 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 		if err != nil {
 			return err
 		}
+		path := workflowengine.StepPath("", step.ID)
 		attemptNumber := 1
 		for _, persisted := range view.Steps {
-			if persisted.StepID == step.ID {
+			if persisted.Path == path {
 				attemptNumber = persisted.LatestAttempt + 1
 				break
 			}
 		}
-		attempt := store.WorkflowStepAttempt{ID: attemptID, RunID: runID, StepID: step.ID, AttemptNumber: attemptNumber, ExecutorType: step.Type, TaskID: taskID, Status: "running"}
+		attempt := store.WorkflowStepAttempt{ID: attemptID, RunID: runID, Path: path, StepID: step.ID, AttemptNumber: attemptNumber, ExecutorType: step.Type, TaskID: taskID, Status: "running"}
 		if err := s.store.StartWorkflowStepAttempt(ctx, attempt, string(resolvedJSON)); err != nil {
 			return err
 		}
-		result, execErr := s.executors[step.Type].Start(ctx, ResolvedWorkflowStep{RunID: runID, AttemptID: attemptID, TaskID: taskID, RelatedTaskID: view.Run.RelatedTaskID, StepID: step.ID, Title: step.Title, Type: step.Type, With: resolved.With, Outputs: resolved.Outputs})
+		result, execErr := s.executors[step.Type].Start(ctx, ResolvedWorkflowStep{RunID: runID, AttemptID: attemptID, TaskID: taskID, RelatedTaskID: view.Run.RelatedTaskID, StepID: path, Title: step.Title, Type: step.Type, With: resolved.With, Outputs: resolved.Outputs})
 		if execErr != nil {
-			_ = s.store.FailWorkflowStep(ctx, runID, step.ID, attemptID, execErr.Error())
+			_ = s.store.FailWorkflowStep(ctx, runID, path, attemptID, execErr.Error())
 			return execErr
 		}
 		if result.Status == "waiting_agent" {
-			return s.store.MarkWorkflowStepWaiting(ctx, runID, step.ID, attemptID, result.AgentSession, result.WorkingDir)
+			return s.store.MarkWorkflowStepWaiting(ctx, runID, path, attemptID, result.AgentSession, result.WorkingDir)
 		}
 		if result.Status == WorkflowStepWaiting {
-			return s.store.WaitWorkflowStepOnService(ctx, runID, step.ID, attemptID)
+			return s.store.WaitWorkflowStepOnService(ctx, runID, path, attemptID)
 		}
 		if result.Status != "succeeded" {
 			return fmt.Errorf("executor %q returned invalid status %q", step.Type, result.Status)
@@ -612,7 +630,7 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 		if index+1 < len(definition.Steps) {
 			next = definition.Steps[index+1].ID
 		}
-		if err := s.store.CompleteWorkflowStep(ctx, runID, step.ID, attemptID, string(outputsJSON), next); err != nil {
+		if err := s.store.CompleteWorkflowStep(ctx, runID, path, attemptID, string(outputsJSON), next); err != nil {
 			return err
 		}
 		prior[step.ID] = result.Outputs
