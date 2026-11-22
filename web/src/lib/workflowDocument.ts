@@ -227,29 +227,36 @@ function rewrite(text: string, doc: Document, path: YamlPath, value: unknown): s
   let written = valueText(value, indent)
   let to: number
   // A comment on the value being replaced: put back after the new value.
-  let comment: string | undefined
+  // The value's own comments, each put back after the new value: one on
+  // the key's line (a block's header, or above a value below the key), and
+  // one after the value's end.
+  const comments: string[] = []
+  const keyLine = text.slice(colon + 1, eolOf(colon))
   if (!node || (isScalar(node) && node.value === null && range(node)[0] === range(node)[1])) {
     to = colon + 1
   } else if (isScalar(node) && (node.type === "BLOCK_LITERAL" || node.type === "BLOCK_FOLDED")) {
-    // The header's comment: key: |- # why
-    comment = /^[ \t]*[|>][-+0-9]*([ \t]+#.*)$/.exec(text.slice(colon + 1, eolOf(colon)))?.[1]
+    // key: |- # why
+    const header = /^[ \t]*[|>][-+0-9]*([ \t]+#.*)$/.exec(keyLine)?.[1]
+    if (header) comments.push(header)
     to = blockEnd(text, node)
-  } else if (isScalar(node) || ((isMap(node) || isSeq(node)) && node.flow)) {
-    // A scalar that is not a block, or a flow collection, on one line or
-    // several: it ends at its value, and a comment after that (on its last
-    // line) is its own.
-    to = range(node)[1]
-    comment = /^([ \t]+#.*)$/.exec(text.slice(to, eolOf(to)))?.[1]
-    if (comment) to = eolOf(to)
   } else {
-    // A block under the key: a comment on the key's line.
-    comment = /^([ \t]*#.*)$/.exec(text.slice(colon + 1, eolOf(colon)))?.[1]
-    to = blockEnd(text, node)
+    const below = lineStart(text, range(node)[0]) !== lineStart(text, colon)
+    const onKeyLine = below ? /^[ \t]*(#.*)$/.exec(keyLine)?.[1] : undefined
+    if (onKeyLine) comments.push(onKeyLine)
+    if (isScalar(node) || ((isMap(node) || isSeq(node)) && node.flow)) {
+      // A scalar that is not a block, or a flow collection, on one line or
+      // several: it ends at its value; a comment after that is its own.
+      to = range(node)[1]
+      const after = /^([ \t]+#.*)$/.exec(text.slice(to, eolOf(to)))?.[1]
+      if (after) { comments.push(after); to = eolOf(to) }
+    } else {
+      to = blockEnd(text, node)
+    }
   }
-  if (comment) {
-    const spaced = /^[ \t]/.test(comment) ? comment : " " + comment
+  if (comments.length > 0) {
+    const spaced = comments.map(c => c.trim()).join(" ")
     const lineBreak = written.indexOf("\n")
-    written = lineBreak < 0 ? written + spaced : written.slice(0, lineBreak) + spaced + written.slice(lineBreak)
+    written = lineBreak < 0 ? `${written} ${spaced}` : `${written.slice(0, lineBreak)} ${spaced}${written.slice(lineBreak)}`
   }
   return splice(text, colon + 1, Math.max(colon + 1, to), written)
 }
