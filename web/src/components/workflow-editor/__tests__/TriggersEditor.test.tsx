@@ -38,6 +38,7 @@ it("builds the triage template's trigger", () => {
   fireEvent.click(within(card).getByRole("button", { name: "Add a condition" }))
   commit(screen.getByRole("combobox", { name: "Conditions, 1: field" }), "task.metadata.triaged")
   fireEvent.change(screen.getByRole("combobox", { name: "Conditions, 1: compare" }), { target: { value: "not_equals" } })
+  fireEvent.change(screen.getByRole("combobox", { name: "Conditions, 1: value type" }), { target: { value: "boolean" } })
   commit(screen.getByRole("textbox", { name: "Conditions, 1: value" }), "true")
   expect(parse(latest).on).toEqual(parse(template).on)
   expect(parse(latest)).toEqual(parse(template))
@@ -76,8 +77,32 @@ it("edits groups of conditions", () => {
   fireEvent.click(within(group).getByRole("button", { name: "Not" }))
   commit(screen.getByRole("combobox", { name: "Conditions, 2, not: field" }), "task.has_active_agent")
   fireEvent.change(screen.getByRole("combobox", { name: "Conditions, 2, not: compare" }), { target: { value: "equals" } })
+  fireEvent.change(screen.getByRole("combobox", { name: "Conditions, 2, not: value type" }), { target: { value: "boolean" } })
   commit(screen.getByRole("textbox", { name: "Conditions, 2, not: value" }), "true")
   fireEvent.change(screen.getByRole("combobox", { name: "Conditions: all or any" }), { target: { value: "any" } })
   expect(parse(latest).on["task.entered_column"].conditions).toEqual({ any: [{ field: "task.priority", equals: "high" }, { not: { field: "task.has_active_agent", equals: true } }] })
   expect(errors(latest)).toEqual([])
+})
+
+it("takes on out when a weekly schedule becomes daily", () => {
+  const text = "schema_version: 1\nname: s\ntitle: S\non:\n  schedule: {every: weekly, at: \"09:00\", on: monday}\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}}\n"
+  renderBuilder(text)
+  fireEvent.change(screen.getByRole("combobox", { name: "Every" }), { target: { value: "daily" } })
+  expect(parse(latest).on.schedule).toEqual({ every: "daily", at: "09:00" })
+  expect(errors(latest)).toEqual([])
+})
+
+it("keeps a condition value's type when it is edited", () => {
+  const text = "schema_version: 1\nname: s\ntitle: S\non:\n  task.entered_column:\n    column: Doing\n    conditions: {all: [{field: task.metadata.code, equals: \"123\"}]}\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}}\n"
+  renderBuilder(text)
+  expect((screen.getByRole("combobox", { name: "Conditions, 1: value type" }) as HTMLSelectElement).value).toBe("text")
+  commit(screen.getByRole("textbox", { name: "Conditions, 1: value" }), "124")
+  expect(parse(latest).on["task.entered_column"].conditions.all[0].equals).toBe("124")
+  fireEvent.change(screen.getByRole("combobox", { name: "Conditions, 1: value type" }), { target: { value: "number" } })
+  expect(parse(latest).on["task.entered_column"].conditions.all[0].equals).toBe(124)
+})
+
+it("sends conditions it can't draw to YAML", () => {
+  renderBuilder("schema_version: 1\nname: s\ntitle: S\non:\n  task.entered_column:\n    column: Doing\n    conditions: {all: [3]}\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}}\n")
+  expect(screen.getByRole("alert").textContent).toContain("conditions: a condition is not a mapping")
 })

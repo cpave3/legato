@@ -8,7 +8,7 @@ import { Button } from "../ui/Button"
 import { CommitField, Problems, ReferencePicker } from "./builderFields"
 import { fieldClass, labelClass, problemsAt, valueText } from "./builderStyles"
 import type { BuilderOptions } from "./stepForms"
-import { conditionFields, OPERATORS, operatorOf, scalar, scalarText, triggerKinds, withOperator, type Condition, type Operator } from "./triggerForms"
+import { conditionFields, OPERATORS, operandKind, operandOf, operatorOf, scalarText, triggerKinds, withOperator, type Condition, type OperandKind, type Operator } from "./triggerForms"
 
 type Props = {
   text: string
@@ -129,7 +129,12 @@ function ScheduleFields({ trigger, set, replace, at, preview }: { trigger: Recor
       </label>
       : <div className="grid gap-2 sm:grid-cols-3">
         <label className={labelClass}>Every
-          <select aria-label="Every" className={fieldClass} value={valueText(trigger.every)} onChange={event => set(["every"], event.target.value)}>
+          <select aria-label="Every" className={fieldClass} value={valueText(trigger.every)} onChange={event => {
+            // on is for weekly alone: leaving weekly takes it out in the same edit.
+            const next: Record<string, unknown> = { ...trigger, every: event.target.value }
+            if (event.target.value !== "weekly") delete next.on
+            replace(next)
+          }}>
             <option value="daily">Day</option><option value="weekdays">Weekday</option><option value="weekly">Week</option>
           </select>
           <Problems diagnostics={at(["every"])} />
@@ -189,8 +194,18 @@ function ConditionNode({ condition, label, onChange, onRemove }: { condition: Co
       <ConditionNode condition={condition.not} label={`${label}, not`} onChange={next => onChange({ not: next })} />
     </div>
   }
+  return <ConditionLeaf condition={condition} label={label} onChange={onChange} onRemove={onRemove} />
+}
+
+// ConditionLeaf is a field compared with a value, of a type chosen here.
+function ConditionLeaf({ condition, label, onChange, onRemove }: { condition: Condition; label: string; onChange: (next: Condition) => void; onRemove?: () => void }) {
   const operator = operatorOf(condition)
   const value = condition[operator]
+  const sample = operator === "in" ? (Array.isArray(value) ? value[0] : undefined) : value
+  // The type is the value's, or the one chosen while there is no value yet.
+  const [chosen, setChosen] = useState<OperandKind>(operandKind(sample))
+  const kind = sample === undefined || sample === "" ? chosen : operandKind(sample)
+  const typed = (raw: string, as: OperandKind) => operandOf(raw, as)
   return <div role="group" aria-label={label} className="grid items-center gap-2 sm:grid-cols-[1fr_8rem_1fr_auto]">
     <CommitField aria-label={`${label}: field`} list="condition-fields" value={condition.field ?? ""} onCommit={field => onChange({ ...condition, field })} />
     <datalist id="condition-fields">{conditionFields.map(field => <option key={field} value={field} />)}</datalist>
@@ -201,8 +216,14 @@ function ConditionNode({ condition, label, onChange, onRemove }: { condition: Co
       ? <select aria-label={`${label}: value`} className={fieldClass} value={String(value !== false)} onChange={event => onChange(withOperator(condition, "exists", event.target.value === "true"))}>
         <option value="true">yes</option><option value="false">no</option>
       </select>
-      : <CommitField aria-label={`${label}: value`} placeholder={operator === "in" ? "a, b, c" : "value"} value={operator === "in" ? (Array.isArray(value) ? value.map(scalarText).join(", ") : "") : scalarText(value)}
-        onCommit={raw => onChange(withOperator(condition, operator, operator === "in" ? raw.split(",").map(part => scalar(part)).filter(part => part !== "") : scalar(raw)))} />}
+      : <div className="flex gap-1">
+        <CommitField aria-label={`${label}: value`} placeholder={operator === "in" ? "a, b, c" : "value"} value={operator === "in" ? (Array.isArray(value) ? value.map(scalarText).join(", ") : "") : scalarText(value)}
+          onCommit={raw => onChange(withOperator(condition, operator, operator === "in" ? raw.split(",").map(part => typed(part.trim(), kind)).filter(part => part !== "") : typed(raw, kind)))} />
+        <select aria-label={`${label}: value type`} className={`${fieldClass} w-24`} value={kind}
+          onChange={event => { const as = event.target.value as OperandKind; setChosen(as); onChange(withOperator(condition, operator, operator === "in" ? (Array.isArray(value) ? value : []).map(v => typed(scalarText(v), as)) : typed(scalarText(value), as))) }}>
+          <option value="text">text</option><option value="number">number</option><option value="boolean">true/false</option>
+        </select>
+      </div>}
     {onRemove ? <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove ${label}`} onClick={onRemove}><Trash2 size={13} /></Button> : <span />}
   </div>
 }

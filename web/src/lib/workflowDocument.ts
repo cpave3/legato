@@ -63,6 +63,20 @@ export function parseWorkflow(text: string): ParsedWorkflow {
 
 const isObject = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value)
 
+// conditionShape says what of a condition tree the form can't draw.
+function conditionShape(condition: unknown): string | null {
+  if (!isObject(condition)) return "a condition is not a mapping"
+  for (const group of ["all", "any"] as const) {
+    const items = condition[group]
+    if (items == null) continue
+    if (!Array.isArray(items) || items.length === 0) return `${group} is not a list of conditions`
+    for (const item of items) { const problem = conditionShape(item); if (problem) return problem }
+  }
+  if (condition.not != null) return conditionShape(condition.not)
+  if (condition.in != null && !Array.isArray(condition.in)) return "in is not a list"
+  return null
+}
+
 /** shapeProblem says what of a parsed file is not of the shape a
  * workflow's parts have (a step that is not a mapping, say), so the
  * builder sends the operator to YAML rather than drawing it; null when the
@@ -85,7 +99,12 @@ export function shapeProblem(values: unknown): string | null {
   }
   if (on != null) {
     if (!isObject(on)) return "on is not a mapping of triggers"
-    for (const [kind, trigger] of Object.entries(on)) if (trigger != null && !isObject(trigger)) return `the ${kind} trigger is not a mapping`
+    for (const [kind, trigger] of Object.entries(on)) {
+      if (trigger != null && !isObject(trigger)) return `the ${kind} trigger is not a mapping`
+      if (isObject(trigger) && trigger.inputs != null && !isObject(trigger.inputs)) return `the inputs of the ${kind} trigger are not a mapping`
+      const conditions = isObject(trigger) ? trigger.conditions : undefined
+      if (conditions != null) { const problem = conditionShape(conditions); if (problem) return `the ${kind} trigger's conditions: ${problem}` }
+    }
   }
   return null
 }

@@ -39,3 +39,19 @@ export function withOperator(condition: Condition, operator: Operator, value: un
   else out[operator] = value ?? ""
   return out
 }
+
+/** OperandKind is the type a condition's value is written as: chosen in
+ * the form, so editing a value keeps its type ("123" stays text). */
+export type OperandKind = "text" | "number" | "boolean"
+
+export function operandKind(value: unknown): OperandKind {
+  return typeof value === "number" ? "number" : typeof value === "boolean" ? "boolean" : "text"
+}
+
+/** operandOf is typed text as a value of a kind; text that is not a
+ * number stays text, as it is not one. */
+export function operandOf(raw: string, kind: OperandKind): unknown {
+  if (kind === "number") return raw.trim() !== "" && Number.isFinite(Number(raw)) ? Number(raw) : raw
+  if (kind === "boolean") return raw.trim() === "true" ? true : raw.trim() === "false" ? false : raw
+  return raw
+}
