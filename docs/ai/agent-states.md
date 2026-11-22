@@ -132,7 +132,9 @@ A replayed stream (a new watch reads from the start of the bridge's ring) does n
 
 The CLI's plan broadcasts (`answer`, `completed`, `withdrawn`) name their task. A review run's author task is the loop's `AuthorTaskID` (`legato.review_loop.author_task`, or the handoff's card), not the run task; a loop a person authors has none and moves only the reviewer slot. A tour finding and a follow-up plan request are not milestones yet.
 
-The other signals come in later tickets: pushes (LEG-444), swarms and workflows (LEG-445).
+**Pushes.** Each push through the credential proxy that GitHub accepted reaches `WorkStageService.Pushed` with its session's task and execution and its refs (`service.GitPush`, a push listener of `CredentialChannels`, wired in `cmd/legato/approval_runtime.go`). A push by the task's running session in that execution is evidence (`pushed <branch>`), then, when a pushed branch's tracked PR is open, the milestone Reviewing (`pushed to PR #N`). A push from another execution moves nothing. A push also looks for the pushed branch's PR at once ([PR tracking](pr-tracking.md) § Agents' branches).
+
+The other signals come in a later ticket: swarms and workflows (LEG-445).
 
 **Glance.** `service.Glance` is the one rule that groups agents, from activity, open items by kind, pending plans and the stage:
 

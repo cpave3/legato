@@ -230,3 +230,51 @@ func RecordEditEvidence(ctx context.Context, db *store.Store, session store.Agen
 	ipc.Broadcast(StageIPCMessage(*current))
 	return true, nil
 }
+
+// Pushed applies a push its agent made through the proxy: evidence
+// (Implementing) for the execution's place, then, for a branch whose pull
+// request is open, the milestone Reviewing. A push the task's running
+// session did not make (another execution) moves nothing.
+func (s *WorkStageService) Pushed(ctx context.Context, push GitPush) {
+	if push.TaskID == "" || push.ExecutionID == "" {
+		return
+	}
+	session, err := s.store.GetRunningAgentSession(ctx, push.TaskID, push.ExecutionID)
+	if err != nil || session.ExecutionID != push.ExecutionID {
+		return
+	}
+	branches := push.Branches()
+	if len(branches) == 0 {
+		return
+	}
+	readOnly, _ := s.store.ExecutionReadOnly(ctx, push.ExecutionID)
+	place := SessionPlace(*session)
+	reason := "pushed " + branches[0]
+	if len(branches) > 1 {
+		reason = fmt.Sprintf("pushed %s and %d more", branches[0], len(branches)-1)
+	}
+	if _, err := s.EvidenceAt(ctx, place, push.ExecutionID, reason, readOnly, time.Now()); err != nil {
+		log.Printf("stage evidence for %s: %v", AgentSlotKey(place.TaskID, place.Slot), err)
+		return
+	}
+	if readOnly {
+		return
+	}
+	rows, err := s.store.ListTaskBranches(ctx, push.TaskID)
+	if err != nil {
+		return
+	}
+	pushed := map[string]bool{}
+	for _, branch := range branches {
+		pushed[branch] = true
+	}
+	for _, row := range rows {
+		if row.Repo == push.Repo && pushed[row.Branch] && row.PR != nil && row.PR.PRNumber > 0 && row.PR.State == "OPEN" {
+			if _, err := s.Milestone(ctx, place, WorkMilestone{Stage: store.WorkStageReviewing,
+				Reason: fmt.Sprintf("pushed to PR #%d", row.PR.PRNumber), ExecutionID: push.ExecutionID}); err != nil {
+				log.Printf("stage milestone for %s: %v", AgentSlotKey(place.TaskID, place.Slot), err)
+			}
+			return
+		}
+	}
+}

@@ -64,8 +64,8 @@ type CredentialChannels struct {
 	mu      sync.Mutex
 	publics map[string]ssh.PublicKey // public keys only; private keys are read for each signature
 	github  githubState
-	// onPush is told the repository of each push GitHub accepted.
-	onPush func(repo string)
+	// onPush are told of each push GitHub accepted.
+	onPush []func(GitPush)
 	// onBranch is told of each branch an agent's session pushed under
 	// legato/ or opened a pull request from.
 	onBranch func(AgentBranch)

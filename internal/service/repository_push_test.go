@@ -45,7 +45,7 @@ func TestTheCredentialChannelsPassPushesOn(t *testing.T) {
 	var got []string
 	c := &CredentialChannels{}
 	c.Pushed(context.Background(), credential.Execution{}, "github", "acme/widget", []string{"refs/heads/legato/x"})
-	c.SetPushListener(func(repo string) { got = append(got, repo) })
+	c.AddPushListener(func(p GitPush) { got = append(got, p.Repo) })
 	c.Pushed(context.Background(), credential.Execution{}, "github", "acme/widget", []string{"refs/heads/legato/x"})
 	if len(got) != 1 || got[0] != "acme/widget" {
 		t.Fatalf("pushes heard = %v", got)

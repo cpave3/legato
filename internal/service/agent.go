@@ -1735,6 +1735,15 @@ func (a *agentService) captureAgentCodeContext(taskID, workDir string) {
 	if err := a.store.SetCodeContext(ctx, taskID, captured); err != nil {
 		return
 	}
+	// The same checkout on the same branch (a resume, a reload) keeps what
+	// was found: only branches with no pull request are looked for. A new
+	// branch looks again from nothing.
+	if existing != nil && existing.Repo == captured.Repo && existing.Branch == captured.Branch {
+		if actions, ok := a.prSvc.(PRBranchActions); ok {
+			_ = actions.DiscoverPRs(ctx, taskID)
+		}
+		return
+	}
 	if actions, ok := a.prSvc.(PRTaskActions); ok {
 		_ = actions.RediscoverPR(ctx, taskID)
 	}

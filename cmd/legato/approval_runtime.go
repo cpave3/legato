@@ -150,6 +150,14 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 	// Plans, review tours, review passes and pull requests move stages
 	// once each, as they happen.
 	stops = append(stops, service.StartWorkStageMilestones(ctx, bus, workStagesFor(db, bus), db))
+	if rt.channels != nil {
+		// A push through the proxy is evidence of its agent's work, and in
+		// review again when it lands on an open pull request.
+		stages := workStagesFor(db, bus)
+		rt.channels.AddPushListener(func(push service.GitPush) {
+			go stages.Pushed(context.Background(), push)
+		})
+	}
 	return rt
 }
 
