@@ -5,8 +5,10 @@
 //   node scripts/screenshots.mjs             the simulator on your display
 //   node scripts/screenshots.mjs --headless  under xvfb-run, with no window
 //
-// It walks the pages: the active tab, the idle tab, an agent's feed, one
-// entry in full, and a message dictated to it (held to talk) (the fixtures transcribe any recording to one sentence).
+// It walks the pages: the picker of Legatos (the fake phone has two), the
+// first one's active tab, the idle tab, an agent's feed, one entry in full,
+// and a message dictated to it (held to talk) (the fixtures transcribe any
+// recording to one sentence).
 import { spawn } from "node:child_process"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
@@ -118,8 +120,12 @@ try {
   }
 
   await sleep(500)
-  await shot("agents.png")
+  await shot("picker.png")
   await save("webview", "phone.png")
+
+  // The first Legato, Desk, which reads fixtures/agents.json.
+  await step("click", 1200)
+  await shot("agents.png")
 
   // The idle tab is the active tab's last item.
   for (let i = 0; i < 20; i++) await step("down", 150)
@@ -145,7 +151,7 @@ try {
   const errors = (await console_()).filter((e) => e.level === "error" || /^\[(uncaught|unhandledrejection|fetch)\]/.test(e.message))
   if (errors.length) throw new Error(`the app logged errors:\n${errors.map((e) => e.message).join("\n")}`)
 
-  console.log(`Saved agents, idle, agent, entry, listening, message and phone screenshots to ${out}`)
+  console.log(`Saved picker, agents, idle, agent, entry, listening, message and phone screenshots to ${out}`)
 } catch (err) {
   console.error(String(err))
   process.exitCode = 1

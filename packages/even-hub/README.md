@@ -6,10 +6,13 @@ It is a companion to the Legato Android app ([`mobile/`](../../mobile/README.md)
 
 | | |
 | --- | --- |
+| ![The picker: the Legatos saved in the Legato app](docs/screenshots/picker.png) | |
 | ![The active tab: agents that are not idle, needs-you first, and the way to the idle ones](docs/screenshots/agents.png) | ![An agent's page: what it asks for, then its conversation, newest first](docs/screenshots/agent.png) |
 | ![One entry of the feed in full](docs/screenshots/entry.png) | ![Listening to a message for the agent, while held](docs/screenshots/listening.png) |
 
 ## What it shows
+
+**The picker.** The Legatos saved in the Legato app, one line each, with any problem reaching the Legato app at the top. Tap one to open its agents. With exactly one saved, the app opens it straight away. With none, it says to add a Legato in the Legato app. The list is read again every 5 seconds while the picker is in front. If the Legato open is removed from the Legato app, the app comes back here and says so.
 
 **The list.** Two tabs. **Active** is the default: every agent that is not idle, the ones that need you first (`● needs you`, `▲ error`), then `▶ running` and `▷ background`. It ends with "Idle agents (N) →", which opens the **Idle** tab (`○`). Each line is the agent's task ID and as much of its title as fits. At the top right is when the list was last read, and beside the tabs is any problem reaching the Legato app or Legato. The list is read every 5 seconds while the app is in front.
 
@@ -21,7 +24,8 @@ What Legato or another agent sent the agent shows as theirs (`Legato interrupted
 
 | Where | Up, down | Tap | Double tap |
 | --- | --- | --- | --- |
-| Active tab | Move through the list | Open the agent, or the Idle tab | The system's "exit?" dialog |
+| The picker | Move through the list | Open that Legato's agents | The system's "exit?" dialog |
+| Active tab | Move through the list | Open the agent, or the Idle tab | Back to the picker; the "exit?" dialog when the Legato app has only one Legato |
 | Idle tab | Move through the list | Open the agent | Back to Active |
 | An agent's feed | Move through the feed | Open the entry | Back to the list |
 | An entry | Scroll | | Back to the feed |
@@ -46,7 +50,7 @@ task even-hub:sim     # terminal 2: the Even Hub simulator window, open on it
 
 Or, from `packages/even-hub/`: `pnpm dev` and `pnpm sim`. Arrow keys and clicks in the simulator window are the touchpad, and it records from your default microphone (`evenhub-simulator --list-audio-input-devices`, `--aid <device>`). Right-click its web view and choose Inspect Element to see the app's console.
 
-`task even-hub:screenshots` runs both, walks the pages (both tabs, an agent, a dictated message) saving what the glasses and the phone show to `docs/screenshots/`, and stops them. It fails if the app does not start, logs an error or draws nothing. Add `-- --headless` to run the simulator under `xvfb-run` with no window, recording silence from ALSA's null device.
+`task even-hub:screenshots` runs both, walks the pages (the picker, both tabs, an agent, a dictated message) saving what the glasses and the phone show to `docs/screenshots/`, and stops them. It fails if the app does not start, logs an error or draws nothing. Add `-- --headless` to run the simulator under `xvfb-run` with no window, recording silence from ALSA's null device.
 
 ## How it reaches Legato
 
@@ -72,7 +76,7 @@ What the glasses say when the Legato app answers for itself:
 | `404 unknown instance` | That Legato is no longer in the app |
 | `502` | its reason, such as Legato refusing the app's token, else "Can't reach Legato" |
 
-**The fake phone (dev server).** `pnpm dev` serves the app with a fake phone at `/phone`, which answers the same protocol from `fixtures/` for two Legatos: **Desk** (`fixtures/agents.json`, or `LEGATO_FIXTURE`) and **Laptop** (no agents). It asks for no code, "transcribes" any recording to one sentence, and logs a message instead of sending it. Nothing reaches a real Legato. Until the picker (LEG-478), the app opens the first Legato.
+**The fake phone (dev server).** `pnpm dev` serves the app with a fake phone at `/phone`, which answers the same protocol from `fixtures/` for two Legatos: **Desk** (`fixtures/agents.json`, or `LEGATO_FIXTURE`) and **Laptop** (no agents). It asks for no code, "transcribes" any recording to one sentence, and logs a message instead of sending it. Nothing reaches a real Legato.
 
 ## On real glasses
 
@@ -106,10 +110,11 @@ These come from the SDK's [display docs](https://hub.evenrealities.com/docs/buil
 | File | What it is |
 | --- | --- |
 | `src/layout.ts` | The spacing scale every page uses, and centring |
+| `src/picker.ts` | The picker page for the Legatos the Legato app lists |
 | `src/glance.ts` | The list page for a list of agents: tabs, order, marks, cutting to fit |
 | `src/agent.ts` | An agent's feed, one entry in full, and the pages of a dictated message |
 | `src/legato.ts` | The calls to the Legato app's glasses link, and what their failures say |
-| `src/app.ts` | The pages on the glasses, polling, the touchpad and the microphone |
+| `src/app.ts` | The pages on the glasses (the picker, a Legato's list, an agent's), polling, the touchpad and the microphone |
 | `src/settings.ts` | The pairing code, kept on the phone |
 | `src/main.ts`, `index.html` | The entry point, and the phone-side page with the code |
 | `src/dev-log.ts` | Dev builds only: what the app logs, sent to the dev server |

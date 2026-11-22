@@ -17,7 +17,11 @@ The glasses app works with the Legato Android app on the same phone. It reads yo
 
 ## What it shows
 
-The list has two tabs. **Active**, where the app opens, holds every agent that is not idle, the ones that need you first. It ends with **Idle agents**, which opens the **Idle** tab. Each line shows an agent's state, task ID and as much of its title as fits.
+The app opens on the Legatos you paired the Legato app with. Tap one to see its agents. If the Legato app has only one, the glasses open it straight away. If you remove the Legato you have open from the Legato app, the glasses come back to this list and say so.
+
+![The picker: the Legatos saved in the Legato app](../../../assets/even-g2-picker.png)
+
+A Legato's list of agents has two tabs. **Active**, where the app opens, holds every agent that is not idle, the ones that need you first. It ends with **Idle agents**, which opens the **Idle** tab. Each line shows an agent's state, task ID and as much of its title as fits.
 
 | Mark | State |
 | --- | --- |
@@ -50,7 +54,8 @@ Legato does the transcription, so it needs `voice.enabled` and `voice.whisper_ur
 
 | Where | Up, down | Tap | Double tap |
 | --- | --- | --- | --- |
-| Active tab | Move through the list | Open the agent, or the Idle tab | Ask to leave the app |
+| The list of Legatos | Move through the list | Open that Legato's agents | Ask to leave the app |
+| Active tab | Move through the list | Open the agent, or the Idle tab | Back to the list of Legatos, or ask to leave the app when you have only one |
 | Idle tab | Move through the list | Open the agent | Back to Active |
 | An agent's feed | Move through the feed | Open the entry | Back to the list |
 | An entry | Scroll | | Back to the feed |
@@ -77,7 +82,7 @@ If the glasses say **Can't reach the Legato app on this phone**, the Legato app'
 You need Node 22.13 or later and pnpm 11. In the Legato repository:
 
 ```bash
-task even-hub:dev   # serves the app with a fake phone: two sample Legatos, sample agents and a sample conversation
+task even-hub:dev   # serves the app with a fake phone: two sample Legatos, the first with sample agents and a sample conversation
 task even-hub:sim   # opens the Even Hub simulator on it
 ```
 

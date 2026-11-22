@@ -46,29 +46,12 @@ form.addEventListener("submit", (event) => {
 })
 showPairing()
 
-// Until the glasses have a page to pick one (LEG-478), they read the first
-// instance saved in the Legato app.
-let instance: string | undefined
-async function firstInstance(): Promise<{ ok: true; id: string } | { ok: false; problem: string }> {
-  if (instance) return { ok: true, id: instance }
-  const listed = await fetchInstances(phone, fetchFn)
-  if (!listed.ok) return listed
-  if (!listed.instances.length) return { ok: false, problem: "Add a Legato in the Legato app" }
-  instance = listed.instances[0].id
-  return { ok: true, id: instance }
-}
-
 const legato: LegatoClient = {
-  agents: async () => {
-    const at = await firstInstance()
-    if (!at.ok) return at
-    const answer = await fetchAgents(phone, at.id, fetchFn)
-    if (!answer.ok && answer.gone) instance = undefined
-    return answer
-  },
-  conversation: (taskId) => fetchConversation(phone, instance ?? "", taskId, fetchFn),
-  transcribe: (pcm) => transcribe(phone, instance ?? "", pcm, fetchFn),
-  send: (taskId, text) => sendMessage(phone, instance ?? "", taskId, text, fetchFn),
+  instances: () => fetchInstances(phone, fetchFn),
+  agents: (instance) => fetchAgents(phone, instance, fetchFn),
+  conversation: (instance, taskId) => fetchConversation(phone, instance, taskId, fetchFn),
+  transcribe: (instance, pcm) => transcribe(phone, instance, pcm, fetchFn),
+  send: (instance, taskId, text) => sendMessage(phone, instance, taskId, text, fetchFn),
 }
 
 await startGlance(bridge, legato)

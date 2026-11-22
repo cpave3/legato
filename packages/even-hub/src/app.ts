@@ -32,7 +32,8 @@ import {
   TITLE_WIDTH,
   TITLE_X,
 } from "./layout"
-import type { Agent, AgentsResult, ConversationResult, SendResult, TranscriptResult } from "./legato"
+import type { Agent, AgentsResult, ConversationResult, Instance, InstancesResult, SendResult, TranscriptResult } from "./legato"
+import { picker, type PickerScreen } from "./picker"
 
 // How often the app reads Legato while it is in front.
 export const POLL_MS = 5000
@@ -51,12 +52,14 @@ export type GlassesBridge = Pick<
   | "audioControl"
 >
 
-// What the app asks of Legato.
+// What the app asks of the Legato app: the Legatos saved there, then each
+// call to the one chosen.
 export type LegatoClient = {
-  agents(): Promise<AgentsResult>
-  conversation(taskId: string): Promise<ConversationResult>
-  transcribe(pcm: Uint8Array): Promise<TranscriptResult>
-  send(taskId: string, text: string): Promise<SendResult>
+  instances(): Promise<InstancesResult>
+  agents(instance: string): Promise<AgentsResult>
+  conversation(instance: string, taskId: string): Promise<ConversationResult>
+  transcribe(instance: string, pcm: Uint8Array): Promise<TranscriptResult>
+  send(instance: string, taskId: string, text: string): Promise<SendResult>
 }
 
 // A text container on a page.
@@ -95,6 +98,15 @@ const listBoxes = {
   clock: { id: 4, name: "clock", x: CANVAS_WIDTH - MARGIN - CLOCK_WIDTH, width: CLOCK_WIDTH, brightness: 2, ...header },
 } satisfies Record<string, TextBox>
 const LIST = { id: 5, name: "agents" }
+
+// The picker: a title where the tabs are, a problem, the time, and the list
+// of Legatos, in the same places as the list page's.
+const pickerBoxes = {
+  title: { ...listBoxes["tab-active"], name: "title", border: true },
+  status: listBoxes.status,
+  clock: listBoxes.clock,
+} satisfies Record<string, TextBox>
+const PICKER_LIST = { id: 5, name: "legatos" }
 
 // An agent's pages: the state in a bordered badge, bright, and the task and
 // title beside it, dim; then the feed (a list) or one entry or a message
@@ -173,6 +185,13 @@ function listLayout(screen: Screen): Layout {
   }
 }
 
+function pickerLayout(page: PickerScreen): Layout {
+  return {
+    textObject: [textBox(pickerBoxes.title, page.title), textBox(pickerBoxes.status, page.status), textBox(pickerBoxes.clock, page.clock)],
+    listObject: [frameList(PICKER_LIST.id, PICKER_LIST.name, FRAME_HEIGHT, page.items.map((i) => i.text))],
+  }
+}
+
 function feedLayout(page: FeedPage): Layout {
   return {
     textObject: [textBox(agentBoxes.badge, page.badge), textBox(agentBoxes.title, page.title), textBox(agentBoxes.hint, page.hint)],
@@ -207,21 +226,46 @@ function press(event: EvenHubEvent): Click {
   return undefined
 }
 
-// An agent's view shows its feed, or one entry of it in full, or a message
-// being dictated.
+// The picker of Legatos; a Legato's list of agents; or an agent's view, which
+// shows its feed, or one entry of it in full, or a message being dictated.
 type View =
+  | { kind: "picker" }
   | { kind: "list" }
   | { kind: "agent"; agent: Agent; read?: ConversationResult; entry?: FeedItem; dictation?: Dictation }
 
-// Starts the app: draws the list, reads Legato now and every POLL_MS while
-// the app is in front, and answers the touchpad. Resolves once the first
-// list is shown.
+// The item a list press chose among the items shown: the one at its index
+// when that is the name pressed (two Legatos may share a name), else the
+// first of that name, else by index when the SDK gave no name.
+function chosenItem<T extends { text: string }>(items: T[], index: number | undefined, name: string | undefined): T | undefined {
+  const at = items[index ?? 0]
+  if (!name) return at
+  return at?.text === name ? at : items.find((i) => i.text === name)
+}
+
+// Starts the app: reads the Legatos saved in the Legato app, opens the only
+// one or draws the picker, reads the chosen Legato now and every POLL_MS
+// while the app is in front, and answers the touchpad. Resolves once the
+// first page is shown.
 export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): Promise<void> {
+  // The Legatos the Legato app listed, the one open, and whether it was
+  // picked (so a double tap on its active tab goes back to the picker) or
+  // opened as the only one (so it exits).
+  let instances: Instance[] | undefined
+  let instancesRead = false
+  let instancesAt: Date | undefined
+  // Why the list of Legatos may be stale (a failed read), and why the app
+  // left the Legato it had open, which stays until another is opened.
+  let pickerProblem: string | undefined
+  let leftBecause: string | undefined
+  let instance: Instance | undefined
+  let picked = false
+  let pickerScreen: PickerScreen = picker(undefined)
+
   let agents: Agent[] = []
   let updatedAt: Date | undefined
   let problem: string | undefined
   let tab: Tab = "active"
-  let view: View = { kind: "list" }
+  let view: View = { kind: "picker" }
   let screen: Screen = { ...glance([]), items: [{ text: "Reading Legato…" }] }
   // The open agent's feed, as last drawn.
   let feed: FeedItem[] = []
@@ -261,7 +305,11 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
   }
 
   async function show(first = false): Promise<void> {
-    if (view.kind === "list") {
+    if (view.kind === "picker") {
+      pickerScreen = picker(instances, { problem: pickerProblem ?? leftBecause, read: instancesRead, updatedAt: instancesAt })
+      const texts = { title: pickerScreen.title, status: pickerScreen.status, clock: pickerScreen.clock }
+      await draw(`picker ${JSON.stringify(pickerScreen.items)}`, pickerLayout(pickerScreen), texts, first)
+    } else if (view.kind === "list") {
       if (!first) screen = glance(agents, { tab, updatedAt, problem })
       const texts = { "tab-active": screen.tabs.active, "tab-idle": screen.tabs.idle, status: screen.status, clock: screen.clock }
       await draw(`list ${JSON.stringify([screen.tab, screen.items])}`, listLayout(screen), texts, first)
@@ -279,22 +327,76 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
   let timer: ReturnType<typeof setTimeout> | undefined
   let inFront = true
 
+  // Opens a Legato's list of agents, fresh.
+  function openInstance(chosen: Instance, fromPicker: boolean): void {
+    instance = chosen
+    picked = fromPicker
+    leftBecause = undefined
+    agents = []
+    updatedAt = undefined
+    problem = undefined
+    tab = "active"
+    screen = { ...glance([]), items: [{ text: "Reading Legato…" }] }
+    view = { kind: "list" }
+  }
+
+  // Back to the picker, saying why when the open Legato has gone, and reads
+  // the list again.
+  async function toPicker(why?: string): Promise<void> {
+    if (view.kind === "agent" && view.dictation?.step === "listening") await stopMicrophone()
+    instance = undefined
+    leftBecause = why
+    view = { kind: "picker" }
+    await show()
+    await readInstances()
+  }
+
+  async function readInstances(): Promise<void> {
+    const listed = await legato.instances()
+    if (view.kind !== "picker") return
+    const first = !instancesRead
+    instancesRead = true
+    if (!listed.ok) {
+      pickerProblem = listed.problem
+      return
+    }
+    pickerProblem = undefined
+    instances = listed.instances
+    instancesAt = new Date()
+    if (first && instances.length === 1) {
+      openInstance(instances[0], false)
+      await readInstance()
+    }
+  }
+
+  async function readInstance(): Promise<void> {
+    const at = instance
+    if (!at) return
+    const answer = await legato.agents(at.id)
+    if (instance !== at) return
+    if (!answer.ok && answer.gone) return toPicker(answer.problem)
+    if (answer.ok) {
+      agents = answer.agents
+      updatedAt = new Date()
+      problem = undefined
+    } else {
+      problem = answer.problem
+    }
+    if (view.kind === "agent") {
+      const open = view
+      open.agent = agents.find((a) => a.task_id === open.agent.task_id) ?? open.agent
+      if (!open.dictation) {
+        open.read = await legato.conversation(at.id, open.agent.task_id)
+        if (!open.read.ok && open.read.gone && view === open) return toPicker(open.read.problem)
+      }
+    }
+  }
+
   async function refresh(): Promise<void> {
     clearTimeout(timer)
     try {
-      const answer = await legato.agents()
-      if (answer.ok) {
-        agents = answer.agents
-        updatedAt = new Date()
-        problem = undefined
-      } else {
-        problem = answer.problem
-      }
-      if (view.kind === "agent") {
-        const open = view
-        open.agent = agents.find((a) => a.task_id === open.agent.task_id) ?? open.agent
-        if (!open.dictation) open.read = await legato.conversation(open.agent.task_id)
-      }
+      if (view.kind === "picker") await readInstances()
+      else await readInstance()
       await show()
     } finally {
       // Polling goes on whatever went wrong this time.
@@ -350,7 +452,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
     recording = []
     open.dictation = { step: "transcribing" }
     await show()
-    const heard = await legato.transcribe(pcm)
+    const heard = await legato.transcribe(instance?.id ?? "", pcm)
     if (view !== open || !open.dictation) return
     open.dictation = heard.ok ? { step: "review", text: heard.text } : { step: "problem", problem: heard.problem }
     await show()
@@ -359,7 +461,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
   async function sendDictated(open: Extract<View, { kind: "agent" }>, text: string): Promise<void> {
     open.dictation = { step: "sending", text }
     await show()
-    const sent = await legato.send(open.agent.task_id, text)
+    const sent = await legato.send(instance?.id ?? "", open.agent.task_id, text)
     if (view !== open) return
     if (!sent.ok) {
       open.dictation = { step: "problem", problem: sent.problem, text }
@@ -373,7 +475,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
           if (view !== open || open.dictation?.step !== "sent") return
           open.dictation = undefined
           open.entry = undefined
-          open.read = await legato.conversation(open.agent.task_id)
+          open.read = await legato.conversation(instance?.id ?? "", open.agent.task_id)
           await show()
         }),
       SENT_MS,
@@ -384,23 +486,51 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
   // its turn in the queue does: a tap made while "Transcribing…" showed must
   // not send the transcript that replaced it, nor a tap on a row open the
   // agent a refresh has since moved there.
-  type Seen = { view: View; step?: Dictation["step"]; entry?: FeedItem; items: Screen["items"]; feed: FeedItem[] }
+  type Seen = {
+    view: View
+    step?: Dictation["step"]
+    entry?: FeedItem
+    items: Screen["items"]
+    feed: FeedItem[]
+    legatos: PickerScreen["items"]
+  }
   const seen = (): Seen => ({
     view,
     step: view.kind === "agent" ? view.dictation?.step : undefined,
     entry: view.kind === "agent" ? view.entry : undefined,
     items: screen.items,
     feed,
+    legatos: pickerScreen.items,
   })
 
   async function onPress(kind: "click" | "double" | "hold", event: EvenHubEvent, at: Seen): Promise<void> {
     if (view !== at.view) return
     if (view.kind === "agent" && (view.dictation?.step !== at.step || view.entry !== at.entry)) return
+    if (view.kind === "picker") {
+      if (kind === "hold") return
+      if (kind === "double") {
+        await bridge.shutDownPageContainer(1)
+        return
+      }
+      const chosen = event.listEvent
+      if (!chosen) return
+      const item = chosenItem(at.legatos, chosen.currentSelectItemIndex, chosen.currentSelectItemName)
+      const open = item?.open ? instances?.find((i) => i.id === item.open) : undefined
+      if (!open) return
+      openInstance(open, true)
+      await show()
+      await readInstance()
+      return show()
+    }
     if (view.kind === "list") {
       if (kind === "hold") return
       if (kind === "double") {
         if (tab === "idle") {
           tab = "active"
+          return show()
+        }
+        if (picked) {
+          await toPicker()
           return show()
         }
         await bridge.shutDownPageContainer(1)
@@ -421,7 +551,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
       const open: View = { kind: "agent", agent }
       view = open
       await show()
-      open.read = await legato.conversation(agent.task_id)
+      open.read = await legato.conversation(instance?.id ?? "", agent.task_id)
       if (view === open) await show()
       return
     }
@@ -434,7 +564,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
       if (step === "listening") await stopMicrophone()
       if (open.dictation) {
         open.dictation = undefined
-        open.read = await legato.conversation(open.agent.task_id)
+        open.read = await legato.conversation(instance?.id ?? "", open.agent.task_id)
       } else if (open.entry) {
         open.entry = undefined
       } else {
@@ -470,12 +600,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
     }
   }
 
-  await draw(`list ${JSON.stringify([screen.tab, screen.items])}`, listLayout(screen), {
-    "tab-active": screen.tabs.active,
-    "tab-idle": screen.tabs.idle,
-    status: screen.status,
-    clock: screen.clock,
-  }, true)
+  await show(true)
 
   bridge.onEvenHubEvent((event) => {
     // Sound is kept as it comes, outside the queue.
