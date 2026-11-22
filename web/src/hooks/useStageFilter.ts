@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react"
+import { useCallback, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import { parseStageFilter, type WorkStage } from "../lib/agentStage"
 
@@ -19,8 +19,12 @@ function remembered(): WorkStage | null {
 export function useStageFilter(): { stage: WorkStage | null; setStage: (stage: WorkStage | null) => void } {
   const [params, setParams] = useSearchParams()
   const inAddress = params.get("stage")
-  const stage = useMemo(() => (inAddress !== null ? parseStageFilter(inAddress) : remembered()), [inAddress])
+  // The remembered choice is state, so clearing it shows at once even
+  // when the address names no stage.
+  const [kept, setKept] = useState<WorkStage | null>(remembered)
+  const stage = inAddress !== null ? parseStageFilter(inAddress) : kept
   const setStage = useCallback((next: WorkStage | null) => {
+    setKept(next)
     try {
       if (next) localStorage.setItem(STAGE_FILTER_KEY, next)
       else localStorage.removeItem(STAGE_FILTER_KEY)
@@ -31,6 +35,6 @@ export function useStageFilter(): { stage: WorkStage | null; setStage: (stage: W
       else updated.delete("stage")
       return updated
     }, { replace: true })
-  }, [setParams])
+  }, [setParams, setKept])
   return { stage, setStage }
 }

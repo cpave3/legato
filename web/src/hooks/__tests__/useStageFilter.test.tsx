@@ -42,6 +42,14 @@ describe("useStageFilter", () => {
     expect(localStorage.getItem(STAGE_FILTER_KEY)).toBeNull()
   })
 
+  it("clears a remembered filter when the address names none", () => {
+    localStorage.setItem(STAGE_FILTER_KEY, "finished")
+    const { result } = renderHook(useFilterAndPlace, { wrapper: at("/agents") })
+    act(() => result.current.filter.setStage(null))
+    expect(result.current.filter.stage).toBeNull()
+    expect(localStorage.getItem(STAGE_FILTER_KEY)).toBeNull()
+  })
+
   it("ignores a stage it does not know", () => {
     const { result } = renderHook(useFilterAndPlace, { wrapper: at("/agents?stage=bogus") })
     expect(result.current.filter.stage).toBeNull()
