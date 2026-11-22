@@ -2,6 +2,7 @@ package handofftest
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -27,4 +28,29 @@ func TestTheMainHearsTheWorkersAgentStage(t *testing.T) {
 		got := mainAway(t, main, taskID)
 		return got.Stage == store.WorkStageReviewing && got.StageReason == "PR #7 open"
 	})
+
+	// The main's web board carries it to the away card.
+	var board struct {
+		Columns []struct {
+			Cards []struct {
+				ID   string `json:"id"`
+				Away *struct {
+					Stage       string `json:"stage"`
+					StageReason string `json:"stage_reason"`
+				} `json:"away"`
+			} `json:"cards"`
+		} `json:"columns"`
+	}
+	newMainWeb(t, main).do(http.MethodGet, "/api/board", "", &board)
+	for _, column := range board.Columns {
+		for _, card := range column.Cards {
+			if card.ID == taskID {
+				if card.Away == nil || card.Away.Stage != store.WorkStageReviewing || card.Away.StageReason != "PR #7 open" {
+					t.Fatalf("the board's away card = %+v", card.Away)
+				}
+				return
+			}
+		}
+	}
+	t.Fatalf("no card %s on the board", taskID)
 }

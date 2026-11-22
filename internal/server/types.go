@@ -131,6 +131,9 @@ type AwayResponse struct {
 	View                   string   `json:"view,omitempty"`
 	// Review is the handoff's review passes on the worker, as last heard.
 	Review *service.HandoffReviewBlock `json:"review,omitempty"`
+	// Stage and StageReason are the worker agent's stage, as last heard.
+	Stage       string `json:"stage,omitempty"`
+	StageReason string `json:"stage_reason,omitempty"`
 }
 
 // BoardWorkerResponse is a worker this main is paired with, for the board's
