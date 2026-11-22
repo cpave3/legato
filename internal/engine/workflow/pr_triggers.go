@@ -23,14 +23,9 @@ type PRTrigger struct {
 // Validate checks the trigger's limit and that its inputs are declared.
 func (t *PRTrigger) Validate(kind string, inputs map[string]Input) error {
 	if err := validateMaxRunsPerDay(t.MaxRunsPerDay); err != nil {
-		return fmt.Errorf("%s %w", kind, err)
+		return within("max_runs_per_day", fmt.Errorf("%s %w", kind, err))
 	}
-	for key := range t.Inputs {
-		if _, ok := inputs[key]; !ok {
-			return fmt.Errorf("trigger input %q is not declared", key)
-		}
-	}
-	return nil
+	return validateTriggerInputs(t.Inputs, inputs)
 }
 
 func (t *PRTrigger) common() TriggerCommon {

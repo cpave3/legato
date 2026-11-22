@@ -76,18 +76,36 @@ func Parse(source string, data []byte) (*Definition, error) {
 	return &definition, nil
 }
 
+// Validate checks the definition and returns its first problem, a
+// *PathError naming where it is.
 func (d *Definition) Validate() error {
+	if problems := d.problems(); len(problems) > 0 {
+		return problems[0]
+	}
+	return nil
+}
+
+// problems lists every problem Validate can find, in the order it checks
+// them: the first is the error Validate returns. Each step gives at most
+// one.
+func (d *Definition) problems() []*PathError {
+	var problems []*PathError
+	add := func(path string, err error) { problems = append(problems, within(path, err)) }
 	if d.SchemaVersion != SchemaVersion {
-		return fmt.Errorf("schema_version must be %d", SchemaVersion)
+		add("schema_version", fmt.Errorf("schema_version must be %d", SchemaVersion))
 	}
 	if strings.TrimSpace(d.Name) == "" || strings.TrimSpace(d.Title) == "" {
-		return fmt.Errorf("name and title are required")
+		path := "name"
+		if strings.TrimSpace(d.Name) != "" {
+			path = "title"
+		}
+		add(path, fmt.Errorf("name and title are required"))
 	}
 	if len(d.Steps) == 0 {
-		return fmt.Errorf("at least one step is required")
+		add("steps", fmt.Errorf("at least one step is required"))
 	}
 	if d.AfterStart != "" && d.AfterStart != "workflow" && d.AfterStart != "agent" && d.AfterStart != "stay" {
-		return fmt.Errorf("after_start must be workflow, agent, or stay")
+		add("after_start", fmt.Errorf("after_start must be workflow, agent, or stay"))
 	}
 	if d.AfterStart == "agent" {
 		taskInputs, requiredTaskInputs := 0, 0
@@ -100,79 +118,93 @@ func (d *Definition) Validate() error {
 			}
 		}
 		if taskInputs != 1 || requiredTaskInputs != 1 {
-			return fmt.Errorf("after_start agent requires exactly one required task input")
+			add("after_start", fmt.Errorf("after_start agent requires exactly one required task input"))
 		}
 	}
 	if d.On.PRChangesRequested != nil {
 		if err := d.On.PRChangesRequested.Validate(TriggerPRChangesRequested, d.Inputs); err != nil {
-			return err
+			add("on."+TriggerPRChangesRequested, err)
 		}
 	}
 	if d.On.Schedule != nil {
 		if err := d.On.Schedule.Validate(d.Inputs); err != nil {
-			return err
+			add("on.schedule", err)
 		}
 	}
 	if d.On.TaskEnteredColumn != nil {
 		if err := d.On.TaskEnteredColumn.Validate(d.Inputs); err != nil {
-			return err
+			add("on.task.entered_column", err)
 		}
 	}
-	for key, input := range d.Inputs {
-		if !validValueType(input.Type, false) {
-			return fmt.Errorf("input %q has unsupported type %q", key, input.Type)
+	for _, key := range sortedKeys(d.Inputs) {
+		if input := d.Inputs[key]; !validValueType(input.Type, false) {
+			add("inputs."+key+".type", fmt.Errorf("input %q has unsupported type %q", key, input.Type))
 		}
 	}
 	for _, match := range expressionPattern.FindAllStringSubmatch(d.RunTitle, -1) {
 		expr := strings.TrimSpace(match[1])
 		if expr == "workflow.task" || strings.HasPrefix(expr, "workflow.task.") {
-			return fmt.Errorf("run_title: workflow.task is unavailable before the workflow task is created")
+			add("run_title", fmt.Errorf("run_title: workflow.task is unavailable before the workflow task is created"))
+			break
 		}
 	}
 	if err := validateReferences(d.RunTitle, d.Inputs, nil, nil); err != nil {
-		return fmt.Errorf("run_title: %w", err)
+		add("run_title", fmt.Errorf("run_title: %w", err))
 	}
 	seen := make(map[string]bool, len(d.Steps))
 	availableOutputs := make(map[string]map[string]bool, len(d.Steps))
 	for i := range d.Steps {
 		step := &d.Steps[i]
-		if step.ID == "" || seen[step.ID] {
-			return fmt.Errorf("step IDs must be non-empty and unique")
+		if err := validateStep(step, i, seen, d.Inputs, availableOutputs); err != nil {
+			problems = append(problems, err)
 		}
 		seen[step.ID] = true
-		if step.Trigger == "" {
-			step.Trigger = "automatic"
-		}
-		if step.Trigger != "automatic" && step.Trigger != "manual" && step.Trigger != TriggerAgentEnded {
-			return fmt.Errorf("step %q has unsupported trigger %q", step.ID, step.Trigger)
-		}
-		if _, known := catalogByType[step.Type]; !known {
-			return fmt.Errorf("step %q has unsupported type %q", step.ID, step.Type)
-		}
-		if err := validateStepContract(*step, d.Inputs); err != nil {
-			return fmt.Errorf("step %q: %w", step.ID, err)
-		}
-		for field, value := range step.With {
-			if err := validateReferences(value, d.Inputs, step.Outputs, availableOutputs); err != nil {
-				return fmt.Errorf("step %q field %q: %w", step.ID, field, err)
-			}
-		}
 		declared := make(map[string]bool, len(step.Outputs))
-		for key, output := range step.Outputs {
-			if !validValueType(output.Type, true) {
-				return fmt.Errorf("step %q output %q has unsupported type %q", step.ID, key, output.Type)
-			}
-			if output.Type == "file" {
-				if output.Path == "" || !safeRelativePath(output.Path) {
-					return fmt.Errorf("step %q output %q requires a safe relative path", step.ID, key)
-				}
-				if err := validateReferences(output.Path, d.Inputs, nil, availableOutputs); err != nil {
-					return fmt.Errorf("step %q output %q path: %w", step.ID, key, err)
-				}
-			}
+		for key := range step.Outputs {
 			declared[key] = true
 		}
 		availableOutputs[step.ID] = declared
+	}
+	return problems
+}
+
+// validateStep checks one step against the steps before it: its first
+// problem, or nil.
+func validateStep(step *Step, index int, seen map[string]bool, inputs map[string]Input, availableOutputs map[string]map[string]bool) *PathError {
+	at := fmt.Sprintf("steps[%d]", index)
+	if step.ID == "" || seen[step.ID] {
+		return within(at+".id", fmt.Errorf("step IDs must be non-empty and unique"))
+	}
+	if step.Trigger == "" {
+		step.Trigger = "automatic"
+	}
+	if step.Trigger != "automatic" && step.Trigger != "manual" && step.Trigger != TriggerAgentEnded {
+		return within(at+".trigger", fmt.Errorf("step %q has unsupported trigger %q", step.ID, step.Trigger))
+	}
+	if _, known := catalogByType[step.Type]; !known {
+		return within(at+".type", fmt.Errorf("step %q has unsupported type %q", step.ID, step.Type))
+	}
+	if err := validateStepContract(*step, inputs); err != nil {
+		return within(at, fmt.Errorf("step %q: %w", step.ID, err))
+	}
+	for _, field := range sortedKeys(step.With) {
+		if err := validateReferences(step.With[field], inputs, step.Outputs, availableOutputs); err != nil {
+			return within(at+".with."+field, fmt.Errorf("step %q field %q: %w", step.ID, field, err))
+		}
+	}
+	for _, key := range sortedKeys(step.Outputs) {
+		output := step.Outputs[key]
+		if !validValueType(output.Type, true) {
+			return within(at+".outputs."+key+".type", fmt.Errorf("step %q output %q has unsupported type %q", step.ID, key, output.Type))
+		}
+		if output.Type == "file" {
+			if output.Path == "" || !safeRelativePath(output.Path) {
+				return within(at+".outputs."+key+".path", fmt.Errorf("step %q output %q requires a safe relative path", step.ID, key))
+			}
+			if err := validateReferences(output.Path, inputs, nil, availableOutputs); err != nil {
+				return within(at+".outputs."+key+".path", fmt.Errorf("step %q output %q path: %w", step.ID, key, err))
+			}
+		}
 	}
 	return nil
 }

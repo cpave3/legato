@@ -156,7 +156,7 @@ func validateStepContract(step Step, inputs map[string]Input) error {
 			continue
 		}
 		if err := constraint.check(step.With); err != nil {
-			return err
+			return within("with", err)
 		}
 	}
 	for _, field := range spec.With {
@@ -165,12 +165,12 @@ func validateStepContract(step Step, inputs map[string]Input) error {
 			continue
 		}
 		if !field.accepts(value, inputs) {
-			return fmt.Errorf("with %s %s", field.Name, field.Invalid)
+			return within("with."+field.Name, fmt.Errorf("with %s %s", field.Name, field.Invalid))
 		}
 	}
 	for _, field := range spec.With {
 		if _, ok := step.With[field.Name]; field.Required && !ok {
-			return fmt.Errorf("with requires %s", field.Name)
+			return within("with", fmt.Errorf("with requires %s", field.Name))
 		}
 	}
 	return nil

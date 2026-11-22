@@ -117,18 +117,18 @@ type Condition struct {
 
 func (t *TaskEnteredColumnTrigger) Validate(inputs map[string]Input) error {
 	if strings.TrimSpace(t.Column) == "" {
-		return fmt.Errorf("task.entered_column column is required")
+		return within("column", fmt.Errorf("task.entered_column column is required"))
 	}
 	if err := validateMaxRunsPerDay(t.MaxRunsPerDay); err != nil {
-		return fmt.Errorf("task.entered_column %w", err)
+		return within("max_runs_per_day", fmt.Errorf("task.entered_column %w", err))
 	}
-	for key := range t.Inputs {
-		if _, ok := inputs[key]; !ok {
-			return fmt.Errorf("trigger input %q is not declared", key)
-		}
+	if err := validateTriggerInputs(t.Inputs, inputs); err != nil {
+		return err
 	}
 	if t.Conditions != nil {
-		return t.Conditions.validate()
+		if err := t.Conditions.validate(); err != nil {
+			return within("conditions", err)
+		}
 	}
 	return nil
 }
@@ -284,4 +284,14 @@ func lookupTaskField(task map[string]any, path string) (any, bool) {
 		}
 	}
 	return current, true
+}
+
+// validateTriggerInputs checks that a trigger names only declared inputs.
+func validateTriggerInputs(values map[string]any, inputs map[string]Input) error {
+	for _, key := range sortedKeys(values) {
+		if _, ok := inputs[key]; !ok {
+			return within("inputs."+key, fmt.Errorf("trigger input %q is not declared", key))
+		}
+	}
+	return nil
 }

@@ -254,7 +254,7 @@ See [Workflows](/legato/using/workflows/).
 
 - `legato workflow list [--json]`: list the workflows you can run.
 - `legato workflow add [<name>] [--project] [--force] [--json]`: add one of Legato's templates (`triage`, `review-pr`, `discuss-pr`, `address-feedback`, `review-pr-passes`) to your workflows folder, or the project's with `--project`. A file that is there is kept unless `--force`. With no name, list the examples.
-- `legato workflow validate <name-or-file> [--json]`: check a workflow definition.
+- `legato workflow validate <name-or-file> [--json]`: check a workflow definition, and print it when it is valid. A file's problems are printed one a line as `file:line:col: message`, every one it can find (one for each step), and the command exits with status 2; with `--json` they come as `error.details.diagnostics`, each with its `severity`, `message`, `path` (such as `steps[2].with.prompt`), `line`, `column`, `end_line` and `end_column`.
 - `legato workflow run <name> [--input <key>=<value>...] [--json]`: start a run.
 - `legato workflow runs [--status <status>] [--limit <count>] [--json]`: list runs.
 - `legato workflow show <run-id> [--json]`: print a run and its steps.
