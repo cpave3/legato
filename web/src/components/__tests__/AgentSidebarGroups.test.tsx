@@ -162,7 +162,7 @@ describe("AgentSidebar grouped by group", () => {
       <AgentSidebar agents={[agent("one", "working", "Tooling")]} selectedId={null} onSelect={() => {}} onSpawn={() => {}} grouping={grouping({ mode: "status", setMode })} />,
     )
     expect(screen.queryByRole("region", { name: "Tooling" })).toBeNull()
-    expect(screen.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Running · 1"])
+    expect(screen.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Working · 1"])
     expect(screen.getByRole("button", { name: "List by group" })).toBeTruthy()
   })
 })

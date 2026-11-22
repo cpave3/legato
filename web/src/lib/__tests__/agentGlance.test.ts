@@ -115,12 +115,12 @@ describe("the ensemble's order", () => {
     expect(ensembleSection(agent("fail-1", "error"))).toBe("needs-you")
   })
 
-  it("puts an idle agent with open operator items among those that need the person", () => {
+  it("leaves whether open operator items need the person to the server", () => {
     const asking = { ...agent("idle-1", ""), open_items: 2 }
 
-    expect(ensembleSection(asking)).toBe("needs-you")
-    expect(ensembleSection({ ...asking, activity: "working" })).toBe("needs-you")
-    expect(ensembleSection({ ...asking, open_items: 0 })).toBe("idle")
+    // Only the server knows a done note from a question.
+    expect(ensembleSection(asking)).toBe("idle")
+    expect(ensembleSection({ ...asking, glance: "needs_you", activity: "working" })).toBe("needs-you")
   })
 
   it("takes needs-you from the server's glance when it has one", () => {

@@ -26,6 +26,7 @@ import { ReadImageRow } from "./ReadImageRow"
 import { PastedImageStrip } from "./PastedImageStrip"
 import { AttachImageButton } from "./AttachImageButton"
 import { AgentChatHeader, type AgentChatState, type AgentMenuEntry, type SidePanelsProps } from "./AgentChatHeader"
+import type { AgentStageInfo } from "./AgentStageChip"
 import { ResourcesButton } from "./ResourcesButton"
 import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, SendButton, WorkingStrip, type QueuedEntry } from "./Composer"
 import { CONTEXT_NEARLY_FULL, composerToolButton, currentStep, dictating, failQueuedByWords, formatElapsed, isCommandText, queueMessage, settleQueued, unreadQueued, type QueuedMessage } from "../lib/composer"
@@ -209,6 +210,8 @@ function PermissionCard({
 
 interface NativeAgentPanelProps {
   agentId: string
+  // Where the agent's work stands, for its header; none for the Reeve.
+  stage?: AgentStageInfo
   // The agent of this Legato itself: its status bar says so.
   reeve?: boolean
   // The agent runs in Legato's sandbox: giving it a resource reloads it.
@@ -259,7 +262,7 @@ interface NativeAgentPanelProps {
   backgroundShells?: StoredBackgroundShell[]
 }
 
-export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, onMoveToGroup, onShowInfo, resyncRef, onReload, switchSandbox, switchHostNetwork, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, engram, openItems = 0, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest, backgroundShells }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, onMoveToGroup, onShowInfo, resyncRef, onReload, switchSandbox, switchHostNetwork, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, engram, openItems = 0, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest, backgroundShells, stage }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   // Out of view the panel stops following the agent and catches up from its
   // cursor on return, so a phone with its screen off does not keep receiving
@@ -1072,6 +1075,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         onShowRequest={scrollToBottom}
         ask={reeve ? undefined : <AskReeve brief={reeveBrief({ what: `the agent “${title || agentId}”, which waits for the operator`, ids: { task: agentId, "agent tool": agentKind }, error: error || undefined })} />}
         menu={menu}
+        stage={stage}
         notes={<>
           {reeve && <ReeveStatus baseUrl={baseUrl} />}
           {mode && <span className="rounded bg-lw-raised px-1.5 font-lw-mono">{mode}</span>}

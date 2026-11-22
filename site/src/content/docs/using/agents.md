@@ -79,6 +79,29 @@ The [Reeve](/legato/using/reeve/), the agent of your Legato itself, is pinned fi
 
 In the TUI the Reeve is on the first row of the agents view, above the groups, with a violet wash. Press `R` in any view to open it: Legato goes to its session, resuming or starting one. In the agents view `R` still reloads the selected agent; there, `a` asks the Reeve about the selected agent instead, with a brief of what it is and what it is doing.
 
+## Stages
+
+Each agent has a **stage**: where its work stands, apart from what it is doing right now.
+
+| Stage | Means |
+|---|---|
+| Exploring | Reading, searching, answering. Nothing changed yet. A new conversation starts here. |
+| Planning | A plan waits on you. |
+| Implementing | Changing the code. |
+| Reviewing | The work is up for review. A reviewer agent is always here. |
+| Finished | The work is done. |
+
+Legato works the stage out for itself. An edit in the agent's working folder or a push makes it Implementing. A plan submitted makes it Planning, and approved makes it Implementing. A pull request opened, a review tour marked ready or a review pass started makes it Reviewing. Review feedback delivered to it makes it Implementing again, and every pull request merged makes it Finished. Agents also report their own stage, and a done note means Finished. You can set it yourself from the agent's **⋯** menu › **Set stage**, which shows "set by you" until something later moves it. The [Reeve](/legato/using/reeve/) has no stage.
+
+In the web UI's Agents list, agents are grouped so you see at a glance which need you:
+
+- **Needs you**: waiting for your answer, stopped on an error, with something it posted for you, or with a plan waiting for your approval. The row says which.
+- **Your turn**, under it and quieter: idle, with its work not finished. It stopped mid-work and waits for your reply.
+- **Working**: working, or waiting on work it started.
+- **Finished**: its stage is Finished. A done note it left marks it unread, with a blue edge.
+
+Each row has a stage line: a small circle that fills a quarter more at each stage, full and blue when finished, with the stage's name and why. The chips under the header filter the list by stage. Your choice is kept in this browser and in the address (`?stage=reviewing`), so a link opens the same filter. While a filter is on, a notice says how many agents need you outside it, so a filter never hides urgent work. The chat header shows the stage too; click it for the agent's stage history.
+
 ## The agents view
 
 Press `A` on the board to open the agents view. Agents are listed under what they are doing, the ones that need you first:

@@ -9,7 +9,7 @@ export interface WSMessage {
     | "subscribe_agent" | "unsubscribe_agent" | "send_keys" | "resize" | "detect_prompt" | "refresh_pane"
     | "agent_message" | "agent_message_sent" | "agent_interrupt" | "agent_permission" | "agent_question"
     | "plan_proposed" | "plan_verdict" | "plan_changed" | "swarm_changed" | "cards_changed" | "review_changed" | "workflow_changed" | "attention_changed" | "approvals_changed"
-    | "agent_ui_changed" | "agent_context" | "pairing_changed" | "repository_cache" | "settings_changed" | "server_theme_changed" | "update_changed"
+    | "agent_ui_changed" | "agent_context" | "agent_stage_changed" | "pairing_changed" | "repository_cache" | "settings_changed" | "server_theme_changed" | "update_changed"
   agent_id?: string
   // How full a native agent's context window is (agent_context).
   context_used?: number
@@ -96,6 +96,10 @@ export interface AgentInfo {
   // The group the server sorts the agent into: needs_you, your_turn,
   // working, finished or ended.
   glance?: string
+  // Its task has a plan proposed to the operator (a Legato plan or a swarm
+  // plan pending), and how many of its open items are done notes.
+  plan_pending?: boolean
+  open_done_items?: number
   role?: string
   parent_task_id?: string
   subtask_id?: string

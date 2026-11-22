@@ -134,12 +134,18 @@ type AgentStageFields struct {
 	StageSource string     `json:"stage_source,omitempty"`
 	StageSince  *time.Time `json:"stage_since,omitempty"`
 	Glance      string     `json:"glance"`
+	// PlanPending says its task has a plan proposed to the operator (a
+	// Legato plan, or a swarm plan pending); OpenDoneItems counts its open
+	// done notes, which a list marks unread.
+	PlanPending   bool `json:"plan_pending,omitempty"`
+	OpenDoneItems int  `json:"open_done_items,omitempty"`
 }
 
 func agentStageFields(agent service.AgentSession) AgentStageFields {
 	return AgentStageFields{
 		Stage: agent.Stage, StageReason: agent.StageReason, StageSource: agent.StageSource,
 		StageSince: agent.StageSince, Glance: agent.Glance(),
+		PlanPending: agent.PlanPending, OpenDoneItems: agent.OpenDoneItems,
 	}
 }
 

@@ -10,7 +10,8 @@ import { ActivityBar, ContextMeter } from "./AgentMeters";
 import { isAgentToolInForeground } from "../lib/agentKind";
 import { agentSections, formatAgentTime, sectionLabels, stateSeconds, type AgentListSection } from "../lib/agentList";
 import { agentGroupLayout, type AgentGroupBlock } from "../lib/agentGroups";
-import type { EnsembleSection } from "../lib/agentGlance";
+import { filterByStage, glanceSection, needsYouOutside, stageCounts, stageLabel, unreadDone, workStages, type GlanceSection, type WorkStage } from "../lib/agentStage";
+import { NeedsYouLine, StageLine, StagePie } from "./StagePie";
 
 interface AgentSidebarProps {
   agents: AgentInfo[];
@@ -32,16 +33,22 @@ interface AgentSidebarProps {
   reeve?: ReactNode;
   // Lists the agents by group (useAgentGroups); without it, by status.
   grouping?: AgentGrouping;
+  // The stage the list is filtered to (null for all), and how it changes;
+  // without onStageFilter the list has no stage chips.
+  stageFilter?: WorkStage | null;
+  onStageFilter?: (stage: WorkStage | null) => void;
 }
 
 // The type an agent being dragged to another group carries.
 const AGENT_DRAG_TYPE = "application/x-legato-agent";
 
-const sectionTone: Record<EnsembleSection, string> = {
+const sectionTone: Record<GlanceSection, string> = {
   "needs-you": "text-lw-needs",
-  running: "text-lw-live",
-  background: "text-lw-done",
-  idle: "text-lw-text-2",
+  // Under Needs you, quieter: stopped mid-work, waiting for a reply.
+  "your-turn": "pl-4 text-lw-needs opacity-80",
+  working: "text-lw-live",
+  finished: "text-lw-done",
+  ended: "text-lw-text-2",
 };
 
 export function AgentSidebar({
@@ -58,9 +65,15 @@ export function AgentSidebar({
   preparing,
   reeve,
   grouping,
+  stageFilter = null,
+  onStageFilter,
 }: AgentSidebarProps) {
-  // The Reeve's agent is pinned on its own, above the groups.
-  const listed = reeve ? agents.filter((a) => !a.reeve) : agents;
+  // The Reeve's agent is pinned on its own, above the groups, and has no
+  // stage.
+  const all = reeve ? agents.filter((a) => !a.reeve) : agents;
+  const filter = onStageFilter ? stageFilter : null;
+  const listed = filterByStage(all, filter);
+  const outside = needsYouOutside(all, filter);
   const grouped = grouping?.mode === "group";
   // The agent being dragged to another group.
   const [dragging, setDragging] = useState<string | null>(null);
@@ -133,9 +146,25 @@ export function AgentSidebar({
         </div>
       </div>
 
+      {onStageFilter && (
+        <StageChips agents={all} filter={filter} onFilter={onStageFilter} />
+      )}
+      {outside > 0 && (
+        <div role="status" className="mx-3 mb-2 flex items-center justify-between gap-2 rounded-md border border-lw-line bg-lw-raised px-2.5 py-1.5 text-xs text-lw-needs">
+          <span>{outside} need{outside === 1 ? "s" : ""} you outside this filter</span>
+          <button type="button" onClick={() => onStageFilter?.(null)} className="shrink-0 font-medium text-lw-link hover:underline">Show</button>
+        </div>
+      )}
+
       <div className="flex flex-col gap-0.5 px-2 pb-3">
         {reeve}
         {preparing}
+        {filter && listed.length === 0 && (
+          <p className="m-0 px-2 py-4 text-xs text-lw-text-2">
+            No agents are {stageLabel(filter).toLowerCase()}.{" "}
+            <button type="button" onClick={() => onStageFilter?.(null)} className="text-lw-link hover:underline">Show all</button>
+          </p>
+        )}
         {grouped && grouping ? (
           <>
             {agentGroupLayout(listed, grouping.known, { withUngrouped: dragging !== null }).map((block) => (
@@ -166,7 +195,37 @@ export function AgentSidebar({
   );
 }
 
-// StatusSection is the agents doing one thing, under its heading.
+// StageChips filter the list by stage: All, then each stage with its count.
+function StageChips({ agents, filter, onFilter }: { agents: AgentInfo[]; filter: WorkStage | null; onFilter: (stage: WorkStage | null) => void }) {
+  const counts = stageCounts(agents);
+  const chip = (stage: WorkStage | null, count: number) => {
+    const on = filter === stage;
+    return (
+      <button
+        key={stage ?? "all"}
+        type="button"
+        aria-pressed={on}
+        onClick={() => onFilter(stage)}
+        className={cn(
+          "flex h-6 items-center gap-1 rounded-full border px-2 text-[11px] font-medium",
+          on ? "border-lw-accent bg-lw-selected text-lw-text" : "border-lw-line bg-lw-raised text-lw-text hover:border-lw-line-strong",
+        )}
+      >
+        {stage && <StagePie stage={stage} size={10} label="" />}
+        {stage ? stageLabel(stage) : "All"}
+        <span className="font-lw-mono font-normal text-lw-text-2">{count}</span>
+      </button>
+    );
+  };
+  return (
+    <div role="group" aria-label="Filter by stage" className="flex flex-wrap gap-1 px-3 pb-2.5">
+      {chip(null, agents.length)}
+      {workStages.map((stage) => chip(stage, counts[stage]))}
+    </div>
+  );
+}
+
+// StatusSection is the agents in one glance group, under its heading.
 function StatusSection({ section: { section, agents }, level, renderEntry }: {
   section: AgentListSection;
   level: 2 | 3;
@@ -174,7 +233,7 @@ function StatusSection({ section: { section, agents }, level, renderEntry }: {
 }) {
   const Heading = level === 2 ? "h2" : "h3";
   return (
-    <section className="flex flex-col gap-0.5">
+    <section aria-label={level === 2 ? sectionLabels[section] : undefined} className={cn("flex flex-col gap-0.5", section === "your-turn" && "ml-3")}>
       <Heading className={cn("m-0 px-2 pb-0.5 text-[11px] font-semibold uppercase tracking-[1px]", level === 2 ? "pt-2.5" : "pt-1.5 text-[10px]", sectionTone[section])}>
         {sectionLabels[section]} · {agents.length}
       </Heading>
@@ -336,6 +395,8 @@ function AgentEntry({
   const isSwarm = Boolean(agent.parent_task_id);
   const isWorker = isSwarm && !isConductor;
   const time = formatAgentTime(stateSeconds(agent));
+  const unread = unreadDone(agent);
+  const finished = glanceSection(agent) === "finished";
 
   return (
     <div
@@ -356,10 +417,11 @@ function AgentEntry({
         selected ? "bg-lw-selected shadow-[inset_0_0_0_1px] shadow-lw-accent-ring" : "hover:bg-lw-surface",
       )}
     >
+      {unread && <span aria-label="Unread: finished with a note for you" title="Finished with a note for you" className="absolute inset-y-1 left-0 w-[3px] rounded-r bg-lw-done" />}
       <button
         data-agent={agent.task_id}
         onClick={() => onSelect(agent.task_id)}
-        className={cn("flex min-w-0 max-w-full flex-1 flex-col gap-[3px] overflow-hidden px-2.5 py-2 text-left", selected ? "text-lw-text" : agent.activity ? "text-lw-text" : "text-[var(--theme-muted,#b4b3bd)]")}
+        className={cn("flex min-w-0 max-w-full flex-1 flex-col gap-[3px] overflow-hidden px-2.5 py-2 text-left", selected || finished ? "text-lw-text" : agent.activity ? "text-lw-text" : "text-[var(--theme-muted,#b4b3bd)]")}
       >
         <div className="flex min-w-0 items-center gap-1.5">
           {agent.notify_enabled && <Bell size={10} aria-label="Notifications on" className="shrink-0 text-lw-link" />}
@@ -384,6 +446,8 @@ function AgentEntry({
             : time && <span className="ml-auto shrink-0 text-xs text-lw-text-2">{time}</span>}
         </div>
         {agent.task_title && <span className="truncate">{agent.task_title}</span>}
+        <StageLine agent={agent} />
+        <NeedsYouLine agent={agent} />
         <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-lw-text-2">
           <span className="flex min-w-0 items-center gap-1.5">
             <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} />

@@ -45,6 +45,9 @@ import { useConfirm } from "../hooks/useConfirm"
 import { RenameAgentDialog } from "../components/RenameAgentDialog"
 import { useAgentContexts } from "../hooks/useAgentContexts"
 import { formatAgentTime, stateSeconds } from "../lib/agentList"
+import { filterByStage } from "../lib/agentStage"
+import type { AgentStageInfo } from "../components/AgentStageChip"
+import { useStageFilter } from "../hooks/useStageFilter"
 import { AgentChatHeader, type AgentChatState, type AgentMenuEntry, type SidePanel, type SidePanelsProps } from "../components/AgentChatHeader"
 import { Bell, BellOff, FolderInput, Info, Network, Pencil, RefreshCw, RotateCw, Shield, Skull, Sparkles, Terminal, Unplug } from "lucide-react"
 import { useTerminalMenu } from "../hooks/useTerminalMenu"
@@ -201,7 +204,7 @@ export function AgentsPage() {
       if (msg.type === "agent_list" && msg.agents) {
         setAgents(msg.agents)
       }
-      if (msg.type === "agents_changed") {
+      if (msg.type === "agents_changed" || msg.type === "agent_stage_changed") {
         fetchAgents()
       }
       if (msg.type === "prompt_state" && msg.agent_id === selectedId && msg.prompt) {
@@ -488,6 +491,9 @@ export function AgentsPage() {
   const listedAgents = useMemo(() => runningAgents.filter((a) => !a.reeve), [runningAgents])
   const refreshAgents = useCallback(() => { void fetchAgents() }, [fetchAgents])
   const agentGroups = useAgentGroups({ agents: listedAgents, onChanged: refreshAgents })
+  // The stage the list is filtered to; the number keys follow what it shows.
+  const stageFilter = useStageFilter()
+  const shownAgents = useMemo(() => filterByStage(listedAgents, stageFilter.stage), [listedAgents, stageFilter.stage])
   const listOrder = agentGroups.listOrder
 
   const selectedAgent = agents.find((a) => a.task_id === selectedId)
@@ -564,7 +570,7 @@ export function AgentsPage() {
         const digit = parseInt(e.key, 10)
         if (digit >= 1 && digit <= 9) {
           e.preventDefault()
-          const agent = listOrder(listedAgents)[digit - 1]
+          const agent = listOrder(shownAgents)[digit - 1]
           if (agent && agent.task_id !== selectedId) {
             handleSelect(agent.task_id)
             triggerGlitch()
@@ -587,7 +593,7 @@ export function AgentsPage() {
       window.removeEventListener("keyup", onKeyUp)
       window.removeEventListener("blur", onBlur)
     }
-  }, [listedAgents, listOrder, selectedId, handleSelect, triggerGlitch])
+  }, [shownAgents, listOrder, selectedId, handleSelect, triggerGlitch])
 
   // Mobile: use select dropdown on narrow screens
   const [isMobile, setIsMobile] = useState(false)
@@ -830,6 +836,8 @@ export function AgentsPage() {
           selectedId={selectedId}
           onSelect={handleSelect}
           grouping={agentGroups.grouping}
+          stageFilter={stageFilter.stage}
+          onStageFilter={stageFilter.setStage}
           reeve={<ReeveEntry baseUrl={baseUrl} compact agent={runningAgents.find((a) => a.reeve)} selected={Boolean(selectedAgent?.reeve)} onSelect={handleSelect} />}
           onEnsemble={() => showEnsemble(true)}
           onSpawn={handleSpawn}
@@ -869,6 +877,7 @@ export function AgentsPage() {
                 pullRequest={pullRequest}
                 panels={sidePanels}
                 menu={terminalMenu.entries}
+                stage={stageInfo(selectedAgent)}
                 ask={selectedAgent.reeve ? undefined : <AskReeve brief={reeveBrief({ what: `the agent “${selectedAgent.task_title || selectedAgent.task_id}”, which waits for the operator`, ids: { task: selectedAgent.task_id, "agent tool": selectedAgent.agent_kind } })} />}
                 notes={<>
                   {selectedAgent.reeve && <ReeveStatus baseUrl={baseUrl} />}
@@ -895,6 +904,7 @@ export function AgentsPage() {
                       key={agent.task_id}
                       agentId={agent.task_id}
                       openItems={agent.open_items}
+                      stage={stageInfo(agent)}
                       reeve={agent.reeve}
                       sandboxed={agent.sandboxed}
                       agentKind={agent.agent_kind}
@@ -922,6 +932,7 @@ export function AgentsPage() {
                   key={selectedId}
                   agentId={selectedId}
                   openItems={selectedAgent?.open_items}
+                  stage={selectedAgent ? stageInfo(selectedAgent) : undefined}
                   reeve={selectedAgent?.reeve}
                   sandboxed={selectedAgent?.sandboxed}
                   onKill={handleKill}
@@ -1077,4 +1088,11 @@ export function AgentsPage() {
       />
     </div>
   )
+}
+
+// stageInfo is what an agent's chat header shows of its stage; none for the
+// Reeve, which has no stage.
+function stageInfo(agent: AgentInfo): AgentStageInfo | undefined {
+  if (agent.reeve) return undefined
+  return { agentId: agent.task_id, stage: agent.stage, reason: agent.stage_reason, source: agent.stage_source }
 }

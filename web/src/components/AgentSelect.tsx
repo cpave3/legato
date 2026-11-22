@@ -4,8 +4,8 @@ import { cn } from "../lib/utils"
 import { ChevronDown, ChevronRight, Play, Pause, AlertTriangle, LayoutGrid, Plus } from "lucide-react"
 import { AgentKindBadge, HostNetworkBadge, UnsandboxedBadge } from "./AgentKindBadge"
 import { agentToolLabel, isAgentToolInForeground } from "../lib/agentKind"
-import { ensembleSection } from "../lib/agentGlance"
-import { formatAgentTime, sectionLabels, stateSeconds } from "../lib/agentList"
+import { ensembleLabels, ensembleSection } from "../lib/agentGlance"
+import { formatAgentTime, stateSeconds } from "../lib/agentList"
 import { reeveWash } from "./ReeveEntry"
 import { agentGroupLayout } from "../lib/agentGroups"
 import type { AgentGrouping } from "../hooks/useAgentGroups"
@@ -62,7 +62,7 @@ const stateTone = {
 function pickerState(agent: AgentInfo): { text: string; tone: string } {
   const time = formatAgentTime(stateSeconds(agent))
   const section = ensembleSection(agent)
-  const [label, tone] = agent.activity === "error" ? ["Error", "text-lw-error"] : [sectionLabels[section], stateTone[section]]
+  const [label, tone] = agent.activity === "error" ? ["Error", "text-lw-error"] : [ensembleLabels[section], stateTone[section]]
   return { text: time ? `${label} ${time}` : label, tone }
 }
 
