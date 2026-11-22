@@ -66,6 +66,7 @@ The app is a native Android shell around the web UI, for Android 10 and later. O
 - Approval links: an approval notification from ntfy opens the app on that approval. See [Notifications](/legato/integrations/notifications/).
 - Signed approvals: the phone holds a key in its secure hardware and signs a decision after your fingerprint or PIN. See [How credentials reach agents](/legato/security/credential-broker/).
 - An approvals list across all your servers.
+- A link for [Even Realities G2 glasses](/legato/integrations/even-g2/): the Legato glasses app on the same phone reads every server saved in the app through it. See below.
 - Adding a worker from another server the app knows: on a main's Settings › Connections › Workers › **Add a worker**, choose one of the app's other servers and agree in the app's own dialog. The app opens the pairing request on that server with the token it holds, so you type no address or words. See [Main and worker instances](/legato/running/instances/).
 
 :::caution
@@ -82,6 +83,19 @@ task mobile:install   # build it and install it on the connected phone
 A build from the repository is named for the latest release with `-dev` after it, such as `0.26.1-dev.3+d7fc7ed`, so Android's app settings show it is a local build. It installs over that release, keeping your servers, and the next release installs over it.
 
 See [`mobile/README.md`](https://github.com/cpave3/legato/blob/main/mobile/README.md) for signing and how pairing works.
+
+### Glasses
+
+On the server list, **Glasses** opens the link for the [Even Realities G2 glasses app](/legato/integrations/even-g2/).
+
+1. Switch on **Even G2 glasses link**. The app makes a pairing code and asks to show notifications, so you can see the link is on.
+2. Tap **Copy**, and paste the code into the Legato glasses app's page in the Even Realities app.
+
+The glasses then read every server saved in the app, through the app: they hold no address or token of their own. While the link is on, the app keeps it running in the background, with a notification that says **Glasses link on**, so it works with the phone locked. The screen says whether the link is listening, or why it is not, such as another app using its port.
+
+**New code** makes a new pairing code and stops the old one working at once. Switching the link off stops it; the code stays, so switching it on again needs no new pairing.
+
+The link answers only on the phone itself (`127.0.0.1:8792`), and only to the pairing code. It passes on only what the glasses need: the list of servers, the running agents, an agent's conversation, a transcription and a message to an agent.
 
 ### Android updates with Obtainium
 

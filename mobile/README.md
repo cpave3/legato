@@ -216,6 +216,8 @@ All of it is in `app/src/main/java/dev/legato/mobile/`.
 | `AndroidStorage.kt`, `AndroidMicrophone.kt` | Keystore, SQLite, `MediaRecorder`, `AudioRecord` and audio focus |
 | `GlassesHttp.kt` | The glasses link's answers: the code, the routes, rebuilt bodies, its own refusals; making a pairing code |
 | `GlassesServer.kt` | The glasses link's loopback HTTP server on `127.0.0.1:8792` |
+| `GlassesSettings.kt` | The glasses link's switch and pairing code |
+| `GlassesLinkService.kt`, `GlassesScreen.kt` | The foreground service that runs the link, and the Glasses screen |
 | `MainActivity.kt`, `Screens.kt` | The activity and its Compose screens |
 
 The logic is in plain Kotlin classes that tests drive with fakes
@@ -616,6 +618,28 @@ one of the servers saved here, and this app makes the call with that server's
 own token and pinned certificate, so every saved server works on the glasses
 once they are paired. The protocol is Burnlite milestone LEG-474's; the
 glasses' side is in `docs/ai/even-hub.md` § The phone link.
+
+**The Glasses screen.** On the server list, **Glasses** opens the switch,
+"Even G2 glasses link", off at first. Switched on, the app makes a code when
+there is none and starts the link; the screen shows the code (in groups of
+four) with **Copy** (marked sensitive on Android 13 and later) and **New code**,
+whether the link is listening or why it failed (the port taken, say), and what
+to do with the code. `GlassesSettings` keeps the switch in the preferences file
+`legato.glasses` and the code in `SecureStoreVault` under `glasses-link-code`.
+Switching off keeps the code; **New code** replaces it, and since the link
+reads the code on every request, the old one is refused at once.
+
+**The service.** `GlassesLinkService` runs the link while the switch is on: a
+foreground service of type `connectedDevice` (on Android 14 and later that type
+needs one of a set of permissions; the app holds `CHANGE_NETWORK_STATE`, a
+normal one granted at install), `START_STICKY`, with an ongoing notification,
+"Glasses link on". It is started when the switch is turned on and when the app
+starts with it on, and stopped when it is turned off. Switching on asks for
+`POST_NOTIFICATIONS` on Android 13 and later; the link runs without it, but the
+notification is hidden. The service builds its own `ConnectionStore`, read on
+every request, so a server paired later works at once. Should Android refuse
+to start it from the background (a sticky restart, say), the screen says to
+open the app.
 
 **Where it listens.** `http://127.0.0.1:8792` (`GlassesServer`), on loopback
 only. The port is fixed because the glasses' packed network whitelist is fixed

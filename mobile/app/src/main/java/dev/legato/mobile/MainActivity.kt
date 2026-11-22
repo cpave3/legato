@@ -2,12 +2,17 @@ package dev.legato.mobile
 
 import android.Manifest
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Looper
+import android.os.PersistableBundle
 import android.provider.Settings
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -59,6 +64,10 @@ class MainActivity : ComponentActivity() {
             state.error.value = "Legato may not use the camera. Allow it in the app's settings, or pair by phrase."
         }
     }
+    // Asked for when the glasses link is switched on; the link runs either
+    // way, but without it Android hides the notification that says so.
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private lateinit var glasses: GlassesSettings
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private val fileChooser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         fileCallback?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data))
@@ -96,6 +105,10 @@ class MainActivity : ComponentActivity() {
         applySystemBars(themeSettings.current)
         store = connectionStore(this)
         state.connections.value = store.load()
+        glasses = glassesSettings(this)
+        state.glassesOn.value = glasses.enabled
+        state.glassesCode.value = glasses.code()
+        if (glasses.enabled) GlassesLinkService.start(this)
         setContent { LegatoApp(this) }
         handlePairingLink(intent)
         // Load the WebView's engine while the person reads the list, so the
@@ -528,6 +541,42 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    fun showGlasses() {
+        state.screen.value = Screen.Glasses
+        pageVisibility()
+    }
+
+    // Switches the glasses link on (making a code when there is none) or off.
+    fun setGlassesLink(on: Boolean) {
+        if (on) {
+            state.glassesCode.value = glasses.switchOn()
+            state.glassesOn.value = true
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            GlassesLinkService.start(this)
+        } else {
+            glasses.switchOff()
+            state.glassesOn.value = false
+            GlassesLinkService.stop(this)
+        }
+    }
+
+    // A new pairing code: the glasses paired with the old one are refused at
+    // once, since the link reads the code on every request.
+    fun renewGlassesCode() {
+        state.glassesCode.value = glasses.newCode()
+    }
+
+    fun copyGlassesCode() {
+        val code = state.glassesCode.value ?: return
+        val clip = ClipData.newPlainText("Legato glasses pairing code", code)
+        if (Build.VERSION.SDK_INT >= 33) {
+            clip.description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
+        }
+        getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
+    }
+
     fun showApprovals() {
         state.screen.value = Screen.Approvals
         pageVisibility()
@@ -812,6 +861,7 @@ sealed interface Screen {
     data class Edit(val target: Connection?) : Screen
     data class Web(val connection: Connection) : Screen
     data object Approvals : Screen
+    data object Glasses : Screen
 }
 
 data class PairDraft(val name: String = "", val address: String = "", val phrase: String = "", val busy: Boolean = false)
@@ -840,6 +890,9 @@ class AppState {
     val workerConfirm = mutableStateOf<WorkerConfirm?>(null)
     // The QR scanner is open over the screen.
     val scanning = mutableStateOf(false)
+    // The glasses link's switch and pairing code.
+    val glassesOn = mutableStateOf(false)
+    val glassesCode = mutableStateOf<String?>(null)
 }
 
 class WorkerConfirm(val message: String, val answer: (Boolean) -> Unit)

@@ -7,6 +7,14 @@
     <!-- Scanning a pairing QR code, asked for when the person taps Scan. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <!-- The glasses link: a foreground service of the connectedDevice type
+         (the G2 glasses), whose Android 14 prerequisite CHANGE_NETWORK_STATE
+         satisfies (a normal permission, granted at install), and its
+         notification, asked for when the link is switched on. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="false"
@@ -44,5 +52,10 @@
                 <data android:scheme="legato" android:host="approval" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".GlassesLinkService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
     </application>
 </manifest>

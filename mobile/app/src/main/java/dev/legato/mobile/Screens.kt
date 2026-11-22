@@ -172,6 +172,7 @@ fun LegatoApp(activity: MainActivity) {
                         is Screen.Edit -> EditScreen(activity, screen.target)
                         is Screen.Web -> WebScreen(activity, screen.connection)
                         Screen.Approvals -> ApprovalsScreen(activity)
+                        Screen.Glasses -> GlassesScreen(activity)
                     }
                     state.sheet.value?.let { sheet ->
                         BackHandler { if (!(sheet is SheetState.Ready && sheet.busy)) activity.closeSheet() }
@@ -250,9 +251,13 @@ private fun ConnectionsScreen(activity: MainActivity) {
                     }
                 }
             }
-            if (connections.isNotEmpty()) item {
+            item {
                 Group(null) {
-                    LinkRow("Approvals", LucideIcons.ShieldCheck) { activity.showApprovals() }
+                    if (connections.isNotEmpty()) {
+                        LinkRow("Approvals", LucideIcons.ShieldCheck) { activity.showApprovals() }
+                        Divider()
+                    }
+                    LinkRow("Glasses", LucideIcons.Glasses) { activity.showGlasses() }
                 }
             }
             item { ThemePicker(activity) }
@@ -701,9 +706,9 @@ private fun PrimaryButton(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SecondaryButton(label: String, icon: ImageVector, onClick: () -> Unit) {
+internal fun SecondaryButton(label: String, icon: ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(12.dp)).background(Lw.surface)
+        modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(12.dp)).background(Lw.surface)
             .border(1.dp, controlOutline, RoundedCornerShape(12.dp))
             .clickable(role = Role.Button, onClick = onClick),
         horizontalArrangement = Arrangement.Center,
