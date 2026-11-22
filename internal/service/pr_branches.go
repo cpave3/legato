@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/github"
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -468,13 +469,68 @@ func (p *prTrackingService) branch(ctx context.Context, ref store.TaskBranch) (s
 // setBranchPR stores a branch's PR when it differs from what the branch
 // had, and reports whether it did.
 func (p *prTrackingService) setBranchPR(ctx context.Context, row store.TaskBranch, pr *store.PRMeta) bool {
-	if current, err := p.branch(ctx, row); err == nil && samePR(current.PR, pr) {
-		return false
+	var before *store.PRMeta
+	if current, err := p.branch(ctx, row); err == nil {
+		if samePR(current.PR, pr) {
+			return false
+		}
+		before = current.PR
 	}
 	if pr != nil {
 		pr.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
-	return p.store.SetTaskBranchPR(ctx, row.TaskID, row.Repo, row.Branch, pr) == nil
+	if p.store.SetTaskBranchPR(ctx, row.TaskID, row.Repo, row.Branch, pr) != nil {
+		return false
+	}
+	p.publishPREdge(ctx, row.TaskID, before, pr)
+	return true
+}
+
+// publishPREdge publishes the stage milestone of a branch's PR changing
+// from before to after, if it is one: opened ready for review (a new PR,
+// which may follow finished work), a draft marked ready, or merged or
+// closed leaving every PR of the task merged or closed with one merged.
+func (p *prTrackingService) publishPREdge(ctx context.Context, taskID string, before, after *store.PRMeta) {
+	if p.bus == nil || after == nil || after.PRNumber == 0 {
+		return
+	}
+	newPR := before == nil || before.PRNumber != after.PRNumber
+	switch {
+	case after.State == "OPEN" && !after.IsDraft && newPR:
+		publishMilestone(p.bus, events.WorkMilestonePayload{TaskID: taskID, Stage: store.WorkStageReviewing,
+			Reason: fmt.Sprintf("PR #%d open", after.PRNumber), Back: true})
+	case after.State == "OPEN" && !after.IsDraft && before.State == "OPEN" && before.IsDraft:
+		publishMilestone(p.bus, events.WorkMilestonePayload{TaskID: taskID, Stage: store.WorkStageReviewing,
+			Reason: fmt.Sprintf("PR #%d ready for review", after.PRNumber)})
+	case (after.State == "MERGED" || after.State == "CLOSED") && (newPR || before.State != after.State):
+		if p.everyPRMerged(ctx, taskID) {
+			publishMilestone(p.bus, events.WorkMilestonePayload{TaskID: taskID, Stage: store.WorkStageFinished, Reason: "every PR merged"})
+		}
+	}
+}
+
+// everyPRMerged says whether each of a task's branches that has a PR has
+// it merged or closed, with at least one merged; branches with no PR are
+// skipped.
+func (p *prTrackingService) everyPRMerged(ctx context.Context, taskID string) bool {
+	rows, err := p.store.ListTaskBranches(ctx, taskID)
+	if err != nil {
+		return false
+	}
+	merged := false
+	for _, row := range rows {
+		if row.PR == nil || row.PR.PRNumber == 0 {
+			continue
+		}
+		switch row.PR.State {
+		case "MERGED":
+			merged = true
+		case "CLOSED":
+		default:
+			return false
+		}
+	}
+	return merged
 }
 
 // writeSummary keeps the single PR field naming the task's first PR in

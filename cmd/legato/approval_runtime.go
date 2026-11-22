@@ -147,6 +147,9 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 	// its stage (Implementing).
 	rt.watcher.AddListener(workStagesFor(db, bus).ObserveNativeEvent)
 	stops = append(stops, rt.watcher.Start(ctx, bus))
+	// Plans, review tours, review passes and pull requests move stages
+	// once each, as they happen.
+	stops = append(stops, service.StartWorkStageMilestones(ctx, bus, workStagesFor(db, bus), db))
 	return rt
 }
 

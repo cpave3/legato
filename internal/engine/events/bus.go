@@ -74,7 +74,25 @@ const (
 	// EventAgentStageChanged: an agent place's stage changed (see
 	// docs/ai/agent-states.md § Stages). Payload: AgentStageChangedPayload.
 	EventAgentStageChanged
+	// EventWorkMilestone: something happened to a task's work that moves
+	// an agent place's stage once (a pull request opened, ready or merged,
+	// a review pass started, feedback delivered, a pass submitted).
+	// Payload: WorkMilestonePayload.
+	EventWorkMilestone
 )
+
+// WorkMilestonePayload is a stage milestone for one agent place: a task's
+// slot ("" for main), or a workflow agent's execution (ExecutionID). Back
+// says it may move the stage back (review feedback, new work); every other
+// milestone only moves it forward.
+type WorkMilestonePayload struct {
+	TaskID      string
+	Slot        string
+	ExecutionID string
+	Stage       string
+	Reason      string
+	Back        bool
+}
 
 // AgentStageChangedPayload is an agent place's new stage. TaskID is the
 // card's task; Slot "main" or a named slot; ExecutionID is set for a

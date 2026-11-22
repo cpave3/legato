@@ -30,7 +30,7 @@ func PlanAnswer(svc *service.PlanService, planID, threadID, text, imageDir strin
 	if err := svc.AnswerFrom(context.Background(), planID, threadID, text, imageDir); err != nil {
 		return err
 	}
-	broadcastPlanChanged(planID, "", "", "answer")
+	broadcastPlanChanged(planID, planTask(svc, planID), "", "answer")
 	return nil
 }
 
@@ -39,7 +39,7 @@ func PlanComplete(svc *service.PlanService, planID string, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	broadcastPlanChanged(planID, "", "", "completed")
+	broadcastPlanChanged(planID, planTask(svc, planID), "", "completed")
 	return writeJSON(w, result)
 }
 
@@ -47,7 +47,7 @@ func PlanWithdraw(svc *service.PlanService, planID string) error {
 	if err := svc.Withdraw(context.Background(), planID); err != nil {
 		return err
 	}
-	broadcastPlanChanged(planID, "", "", "withdrawn")
+	broadcastPlanChanged(planID, planTask(svc, planID), "", "withdrawn")
 	return nil
 }
 
@@ -63,6 +63,16 @@ func PlanStatus(svc *service.PlanService, planID string, w io.Writer) error {
 		"source_bundle_path":           view.Plan.SourceBundlePath,
 		"completed_at":                 view.Plan.CompletedAt,
 	})
+}
+
+// planTask is the task a plan belongs to, "" when it cannot be read: a
+// broadcast names it, so a host need not look it up.
+func planTask(svc *service.PlanService, planID string) string {
+	view, err := svc.Plan(context.Background(), planID)
+	if err != nil {
+		return ""
+	}
+	return view.Plan.TaskID
 }
 
 func broadcastPlanChanged(planID, taskID, revisionID, kind string) {

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/stackgraph"
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -328,6 +329,9 @@ func (s *ReviewPassService) deliver(ctx context.Context, l ReviewLoop, loop *sto
 		ids = append(ids, item.ID)
 	}
 	_ = s.db.MarkHandoffReviewItemsDelivered(ctx, l.TaskID, ids)
+	// Feedback reached the author: it is fixing it, whatever its stage.
+	publishMilestone(s.opts.Bus, events.WorkMilestonePayload{TaskID: l.AuthorTaskID,
+		Stage: store.WorkStageImplementing, Reason: fmt.Sprintf("fixing review feedback · pass %d", loop.Pass), Back: true})
 	loop.DeliveredPass = loop.Pass
 	return s.save(ctx, loop)
 }

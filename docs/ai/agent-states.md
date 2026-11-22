@@ -114,7 +114,25 @@ An agent place's **stage** says where its work stands, apart from what the agent
 
 A replayed stream (a new watch reads from the start of the bridge's ring) does not count its old events again: `EvidenceAt` ignores an edit timed before the place reached its stage, so an edit from before a Finished report leaves it Finished, and a new edit after it makes it Implementing (S9). **Gap:** Codex without its native bridge (`adapters.codex.native_bridge: false`) reports only activity through its hook scripts (`legato hooks install --tool codex`), no tool calls, so it gets no edit evidence and moves on reports and milestones only. Legato never runs git in the agent's checkout to find edits.
 
-The other signals come in later tickets: milestones from plans, tours, review passes and pull requests (LEG-443), pushes (LEG-444), swarms and workflows (LEG-445).
+**Milestones.** `StartWorkStageMilestones` (`agent_stage_milestones.go`, started with the approval runtime in `cmd/legato/approval_runtime.go`) applies each as an edge, once, when it happens; nothing is re-checked against the current state. Producers that have no event of their own publish `EventWorkMilestone` (`WorkMilestonePayload`: task, slot, a workflow agent's execution, stage, reason, and `Back` for one that may move the stage back, which `WorkMilestone.Feedback` applies):
+
+| Signal | Place | Stage | Reason |
+|---|---|---|---|
+| `EventPlanChanged` `submitted`, `changes_requested`, `rejected` | the plan's task, main slot | Planning | `plan submitted`, `plan sent back`, `plan rejected` |
+| `EventPlanChanged` `approved` | the plan's task, main slot | Implementing | `plan approved` |
+| `EventReviewChanged` `ready` (the task from the tour when the CLI's broadcast names none) | the tour's task, main slot | Reviewing | `review tour ready` |
+| a review pass starts (`startPass`) | the loop's author task | Reviewing | `review pass N` |
+| a review pass starts | the loop's reviewer slot (back, as a resumed reviewer may be Finished) | Reviewing | `pass N` |
+| findings delivered to the author (`deliver`, not when posting sets `waiting_for_author`) | the loop's author task (back) | Implementing | `fixing review feedback · pass N` |
+| the reviewer submits (`Submit`) | the reviewer slot | Finished | `pass N submitted` |
+| `EventPRChangesRequested` (a person's review, not Legato's Apps) | the PR's task (back) | Implementing | `changes requested on PR #N` |
+| a tracked branch's PR found open and not a draft (`setBranchPR`, refresh or discovery) | the task (back: a new PR after finished work is new work) | Reviewing | `PR #N open` |
+| a draft PR marked ready | the task | Reviewing | `PR #N ready for review` |
+| a PR merged or closed, leaving every tracked branch that has a PR merged or closed with one merged | the task | Finished | `every PR merged` |
+
+The CLI's plan broadcasts (`answer`, `completed`, `withdrawn`) name their task. A review run's author task is the loop's `AuthorTaskID` (`legato.review_loop.author_task`, or the handoff's card), not the run task; a loop a person authors has none and moves only the reviewer slot. A tour finding and a follow-up plan request are not milestones yet.
+
+The other signals come in later tickets: pushes (LEG-444), swarms and workflows (LEG-445).
 
 **Glance.** `service.Glance` is the one rule that groups agents, from activity, open items by kind, pending plans and the stage:
 
