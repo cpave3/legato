@@ -10,6 +10,7 @@ vi.mock("../../lib/configSettings", async (importOriginal) => ({
 }))
 
 import { RailSettings } from "../settings/RailSettings"
+import { readAutoOpen, resetAutoOpenMemory } from "../../lib/railAutoOpen"
 
 const groups = ["actions", "questions", "done", "other", "approvals", "agents", "workflows", "plans", "review", "merge", "legato"]
 function settings(overrides: Record<string, Partial<ConfigSetting>> = {}): ConfigSetting[] {
@@ -27,6 +28,8 @@ function wrap(node: React.ReactNode) {
 describe("RailSettings", () => {
   afterEach(() => cleanup())
   beforeEach(() => {
+    window.localStorage.clear()
+    resetAutoOpenMemory()
     mockSet.mockReset()
     mockSet.mockResolvedValue({})
   })
@@ -76,5 +79,22 @@ describe("RailSettings", () => {
     fireEvent.change(field, { target: { value: "1h" } })
     fireEvent.click(within(phone).getByRole("button", { name: "Save" }))
     await waitFor(() => expect(mockSet).toHaveBeenCalledWith("http://legato", "web.rail.snooze", "1h"))
+  })
+
+  it("keeps when the phone's sheet opens by itself in this browser, not on the server", () => {
+    wrap(<RailSettings baseUrl="http://legato" settings={settings()} />)
+
+    const phone = screen.getByRole("group", { name: "On a phone" })
+    expect(within(phone).getByText(/this device only/i)).toBeTruthy()
+    const inView = within(phone).getByRole("button", { name: "For the agent in view" })
+    const rest = within(phone).getByRole("button", { name: "For items that don't hold work" })
+    expect(inView.getAttribute("aria-pressed")).toBe("true")
+    expect(rest.getAttribute("aria-pressed")).toBe("true")
+
+    fireEvent.click(inView)
+    expect(inView.getAttribute("aria-pressed")).toBe("false")
+    fireEvent.click(rest)
+    expect(readAutoOpen("http://legato")).toEqual({ agentInView: false, everything: false })
+    expect(mockSet).not.toHaveBeenCalled()
   })
 })

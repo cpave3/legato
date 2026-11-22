@@ -9,6 +9,7 @@ import { useServer } from "./useServer"
 import { useNavigationSummary } from "./useNavigationSummary"
 import { usePeerApprovals } from "./usePeerApprovals"
 import { useAgentInView } from "./useNeedsYou"
+import { useAutoOpen } from "../lib/railAutoOpen"
 
 // The longest delay setTimeout keeps; a longer one fires at once.
 const MAX_TIMER_MS = 2 ** 31 - 1
@@ -63,10 +64,14 @@ function useModalOpen(): boolean {
 // waits, and keeps it away for the snooze once the operator closes it: any
 // close, from the sheet, the tab or a link in it. A new approval, question,
 // plan or gate ends the snooze early. It does not open while the operator
-// types, in focus mode, on the Attention page, over another sheet or
-// dialog (blocked, or any aria-modal one), or for items about the agent
-// whose page is open; it opens once that ends. Only a phone runs it (see
-// NeedsYouAutoOpen): from md up the rail is on the page.
+// types, in focus mode, on the Attention page, or over another sheet or
+// dialog (blocked, or any aria-modal one); it opens once that ends. For the
+// agent whose page is open, only an item that holds work opens it, since
+// the page shows the rest; the page's own approval card stays, and
+// answering either settles both. This device's choices (useAutoOpen) can
+// leave out the agent in view, or every item that does not hold work. Only
+// a phone runs it (see NeedsYouAutoOpen): from md up the rail is on the
+// page.
 export function useSheetAutoOpen({ open, blocked, onOpen }: {
   open: boolean
   blocked: boolean
@@ -78,6 +83,7 @@ export function useSheetAutoOpen({ open, blocked, onOpen }: {
   const peers = usePeerApprovals((summary?.peer_approvals ?? 0) > 0)
   const location = useLocation()
   const inView = useAgentInView()
+  const choice = useAutoOpen(baseUrl)
   const focusMode = useFocusMode()
   const typing = useTyping()
   const modal = useModalOpen()
@@ -91,7 +97,11 @@ export function useSheetAutoOpen({ open, blocked, onOpen }: {
   const snoozeMs = (view.data?.snoozeSeconds ?? 0) > 0 ? view.data!.snoozeSeconds! * 1000 : DEFAULT_SNOOZE_MS
   const everything = [...items.map((each) => each.id), ...peers.map((peer) => `peer:${peer.instance_id}:${peer.id}`)]
   const candidates: SheetCandidate[] = [
-    ...items.filter((each) => inView === null || itemAgent(each) !== inView).map((each) => ({ id: each.id, holdsWork: holdsWork(each) })),
+    ...items.filter((each) => {
+      const held = holdsWork(each)
+      if (!held && !choice.everything) return false
+      return inView === null || itemAgent(each) !== inView || (held && choice.agentInView)
+    }).map((each) => ({ id: each.id, holdsWork: holdsWork(each) })),
     ...shownPeers.map((peer) => ({ id: `peer:${peer.instance_id}:${peer.id}`, holdsWork: true })),
   ]
 
