@@ -367,6 +367,22 @@ func ReportWorkStage(ctx context.Context, db *store.Store, session store.AgentSe
 	return true, nil
 }
 
+// RecordWorkMilestone applies a milestone to a place from any process (a
+// swarm or workflow command in an agent's session, or the host): it writes
+// the stage and tells running Legatos over IPC, as ReportWorkStage does.
+func RecordWorkMilestone(ctx context.Context, db *store.Store, place WorkStagePlace, m WorkMilestone) (bool, error) {
+	changed, err := NewWorkStageService(db, nil).Milestone(ctx, place, m)
+	if err != nil || !changed {
+		return changed, err
+	}
+	current, err := db.GetWorkStage(ctx, place)
+	if err != nil || current == nil {
+		return changed, err
+	}
+	ipc.Broadcast(StageIPCMessage(*current))
+	return true, nil
+}
+
 // StageIPCMessage tells other Legato processes of a place's new stage:
 // task_id the card's task, status its slot, item_id a workflow agent's
 // execution, content the stage, notes the reason, kind the source.

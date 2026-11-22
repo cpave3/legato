@@ -20,15 +20,15 @@ var planMilestones = map[string]WorkMilestone{
 
 // StartWorkStageMilestones applies the milestones published on bus to the
 // stages: EventWorkMilestone (pull request edges, review passes), plan
-// changes, review tours marked ready and changes requested on a pull
-// request. Each is applied once, when it happens. It runs until ctx ends
+// changes, swarm plans proposed, review tours marked ready and changes
+// requested on a pull request. Each is applied once, when it happens. It runs until ctx ends
 // or the returned function is called.
 func StartWorkStageMilestones(ctx context.Context, bus *events.Bus, stages *WorkStageService, db *store.Store) (stop func()) {
 	if bus == nil || stages == nil {
 		return func() {}
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	types := []events.EventType{events.EventWorkMilestone, events.EventPlanChanged, events.EventReviewChanged, events.EventPRChangesRequested}
+	types := []events.EventType{events.EventWorkMilestone, events.EventPlanChanged, events.EventReviewChanged, events.EventPRChangesRequested, events.EventPlanProposed}
 	merged := make(chan events.Event, 64)
 	var subs []<-chan events.Event
 	for _, t := range types {
@@ -121,6 +121,12 @@ func milestoneOf(ctx context.Context, db *store.Store, event events.Event) (Work
 			return WorkStagePlace{}, WorkMilestone{}, false
 		}
 		return TaskPlace(taskID, ""), WorkMilestone{Stage: store.WorkStageReviewing, Reason: "review tour ready"}, true
+	case events.PlanProposedPayload:
+		// A swarm conductor waits in propose-plan for the operator's verdict.
+		if p.ParentTaskID == "" {
+			return WorkStagePlace{}, WorkMilestone{}, false
+		}
+		return TaskPlace(p.ParentTaskID, ""), WorkMilestone{Stage: store.WorkStagePlanning, Reason: "swarm plan proposed"}, true
 	case events.PRChangesRequestedPayload:
 		if p.TaskID == "" {
 			return WorkStagePlace{}, WorkMilestone{}, false

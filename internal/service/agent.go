@@ -2022,6 +2022,10 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 				result[i].Description = st.Description
 				result[i].Prompt = st.Prompt
 				result[i].Scope = globs
+				if result[i].Title == "" {
+					// A worker's task is its sub-task, which is no task row.
+					result[i].Title = st.Title
+				}
 			}
 		}
 	}

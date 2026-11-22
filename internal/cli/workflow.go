@@ -48,7 +48,8 @@ func WorkflowComplete(ctx context.Context, svc *service.WorkflowService, runID, 
 	if err != nil {
 		return err
 	}
-	broadcastWorkflowChanged(runID, view.Run.CurrentStepID, "completed_step")
+	// The step that completed, not the one the run moved on to.
+	broadcastWorkflowChanged(runID, stepID, "completed_step")
 	return json.NewEncoder(w).Encode(view)
 }
 func WorkflowFail(ctx context.Context, svc *service.WorkflowService, runID, stepID, attemptID, reason string, w io.Writer) error {

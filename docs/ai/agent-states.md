@@ -134,7 +134,18 @@ The CLI's plan broadcasts (`answer`, `completed`, `withdrawn`) name their task. 
 
 **Pushes.** Each push through the credential proxy that GitHub accepted reaches `WorkStageService.Pushed` with its session's task and execution and its refs (`service.GitPush`, a push listener of `CredentialChannels`, wired in `cmd/legato/approval_runtime.go`). A push by the task's running session in that execution is evidence (`pushed <branch>`), then, when a pushed branch's tracked PR is open, the milestone Reviewing (`pushed to PR #N`). A push from another execution moves nothing. A push also looks for the pushed branch's PR at once ([PR tracking](pr-tracking.md) § Agents' branches).
 
-The other signals come in a later ticket: swarms and workflows (LEG-445).
+**Swarms and workflows.** Their commands run in the agent's own process (`legato swarm …`, `legato workflow complete`), so they write through `service.RecordWorkMilestone`, which broadcasts `agent_stage_changed` as reports do:
+
+| Signal | Place | Stage | Reason |
+|---|---|---|---|
+| `EventPlanProposed` (the conductor waits in `propose-plan`; on the host) | the parent task | Planning | `swarm plan proposed` |
+| `SwarmService.ApplyApprovedPlan` succeeded (not the verdict) | the parent task (the conductor) | Implementing | `swarm plan applied` |
+| `Built` | the worker's sub-task (`st-…`) | Reviewing | `built` |
+| `Close` of a `reporting` worker (`done`), or `Finish` closing one | the worker's sub-task | Finished | `closed done` |
+| `Finish` | the parent task | Finished | `swarm finished` |
+| `WorkflowService.Complete` of an agent step | the step's execution (a workflow agent's place) | Finished | `step <id> done` |
+
+A cancelled worker, or one whose agent died, keeps the stage it reached. While a conductor's plan is pending its glance is Needs you whatever its activity (`plan_pending`). The `workflow_changed` IPC of a completed step names that step, not the one the run moved on to. A worker's place is keyed by its sub-task ID, which is no task row; the agents list titles a worker from its sub-task.
 
 **Glance.** `service.Glance` is the one rule that groups agents, from activity, open items by kind, pending plans and the stage:
 

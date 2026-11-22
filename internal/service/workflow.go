@@ -470,6 +470,7 @@ func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID
 	if err := s.store.CompleteWorkflowStep(ctx, runID, stepID, attemptID, string(encoded), next); err != nil {
 		return nil, err
 	}
+	s.finishStepStage(ctx, *attempt)
 	prior[stepID] = outputs
 	if next != "" {
 		if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index+1, prior, "", false); err != nil {
@@ -646,4 +647,21 @@ func (s *WorkflowService) checkAgentKind(step workflowengine.Step, inputs map[st
 		return nil
 	}
 	return fmt.Errorf("step %q: unknown agent %q; configured agents: %s", step.ID, kind, strings.Join(s.agentKinds, ", "))
+}
+
+// finishStepStage marks the agent of a step that succeeded Finished, on its
+// execution's place, whichever process completed it.
+func (s *WorkflowService) finishStepStage(ctx context.Context, attempt store.WorkflowStepAttempt) {
+	if attempt.AgentSessionID == nil {
+		return
+	}
+	session, err := s.store.GetAgentSessionByID(ctx, *attempt.AgentSessionID)
+	if err != nil || session.ExecutionID == "" {
+		return
+	}
+	if _, err := RecordWorkMilestone(ctx, s.store, SessionPlace(*session), WorkMilestone{
+		Stage: store.WorkStageFinished, Reason: "step " + attempt.StepID + " done", ExecutionID: session.ExecutionID,
+	}); err != nil {
+		log.Printf("workflow: stage of step %s: %v", attempt.StepID, err)
+	}
 }
