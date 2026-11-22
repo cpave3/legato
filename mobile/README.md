@@ -22,6 +22,13 @@ task mobile:install   # build, install over the app on the connected device, sta
 default `java` is passed over). With several devices attached, pick one with
 `ANDROID_SERIAL`.
 
+**Version.** A local build is named for the latest stable release tag with a
+dev suffix: `git describe` gives `0.26.1-dev.3+d7fc7ed` (three commits after
+`v0.26.1`; `.dirty` with uncommitted changes). Its `versionCode` is that
+release's, so it installs over the release with `adb install -r`, and the next
+release installs over it. Without git or a tag it is `0.0.0-dev`, versionCode
+2. An official release (`LEGATO_ANDROID_RELEASE_TAG`) is named for its tag.
+
 **Signing.** A release build is signed with a private key when
 `~/.config/legato/android/signing.properties` exists (or the file
 `$LEGATO_ANDROID_SIGNING` names): `storeFile`, `storePassword`, `keyAlias`

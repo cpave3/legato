@@ -79,6 +79,8 @@ task mobile:apk       # build a release APK and print its path
 task mobile:install   # build it and install it on the connected phone
 ```
 
+A build from the repository is named for the latest release with `-dev` after it, such as `0.26.1-dev.3+d7fc7ed`, so Android's app settings show it is a local build. It installs over that release, keeping your servers, and the next release installs over it.
+
 See [`mobile/README.md`](https://github.com/cpave3/legato/blob/main/mobile/README.md) for signing and how pairing works.
 
 ### Android updates with Obtainium
