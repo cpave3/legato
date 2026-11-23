@@ -95,6 +95,7 @@ var registry = []Setting{
 	{Key: "agents.sparkline_window", Title: "Activity bar covers", Help: "The stretch of time each agent's activity bar shows, in the TUI and the web UI.", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart},
 	{Key: "agents.peer_awareness", Title: "Tell agents about each other", Help: "Tells an agent when others work in the same folder. Off, no notices; agents can still message each other.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "agents.history.keep", Title: "Keep session history for", Help: "How long a past conversation stays in Session history after it was last used: a duration (36h) or days (180d); 0 keeps it until you forget it.", DefaultLabel: "180d", Kind: KindString, Class: ClassChange, Mode: ModeRestart, Check: checkAgentHistoryKeep},
+	{Key: "agents.compact.auto_percent", Title: "Compact an idle agent at % full", Help: "Compacts an idle agent once its context window is this full, in percent, with its tool's own compaction. 0 never does; each tool still compacts itself near its limit.", DefaultLabel: "0 (off)", Kind: KindInt, Class: ClassChange, Mode: ModeLive, Check: percent},
 	{Key: "agents.reviews", Title: "Review tour at the end", Help: "Asks agents for a review tour and a handoff packet when they finish. Off, they skip both unless you ask.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "agents.mcp.enabled", Title: "Legato's tools", Help: "Gives every agent Legato's own tools: cards, artifacts, task notes. Off, agents have only their tool's own.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "agents.sandbox.enabled", Title: "Sandbox agents by default", Help: "Starts every agent inside a bubblewrap sandbox unless you start it without one. Swarm and workflow agents cannot opt out.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
@@ -326,6 +327,13 @@ func notNegativeDuration(v any) error {
 		if d, _ := time.ParseDuration(s); d < 0 {
 			return errors.New("must not be negative")
 		}
+	}
+	return nil
+}
+
+func percent(v any) error {
+	if n := v.(int); n < 0 || n > 100 {
+		return errors.New("must be a percentage from 0 to 100")
 	}
 	return nil
 }

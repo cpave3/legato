@@ -275,3 +275,32 @@ func TestAReviewerSlotsContextIsItsOwn(t *testing.T) {
 		t.Fatal("the main agent got the reviewer's reading")
 	}
 }
+
+func (h *contextHarness) emit(taskID string, event map[string]any) {
+	h.t.Helper()
+	data, _ := json.Marshal(event)
+	h.mu.Lock()
+	handler := h.handlers["http://"+taskID]
+	h.mu.Unlock()
+	handler(chimera.EventEnvelope{Type: event["type"].(string), Data: data})
+}
+
+// A finished compaction says how full the context is now: Chimera's says so
+// without a usage_updated, so the meter follows it for every tool.
+func TestContextWatcherFollowsAFinishedCompaction(t *testing.T) {
+	h := newContextHarness(t)
+	h.watcher.Reconcile([]string{"task-a"})
+	h.emitUsage("task-a", 180_000, 200_000)
+
+	h.emit("task-a", map[string]any{"type": "compaction_finished", "tokensBefore": 180_000, "tokensAfter": 31_000})
+	h.emit("task-a", map[string]any{"type": "compaction_finished"})
+
+	h.waitFor(func() bool { return len(h.contextMessages()) == 2 })
+	if got := h.contextMessages()[1]; got.ContextUsed != 31_000 || got.ContextWindow != 200_000 {
+		t.Fatalf("message = %+v", got)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if got := len(h.contextMessages()); got != 2 {
+		t.Fatalf("%d messages, want none for a compaction without a size", got)
+	}
+}

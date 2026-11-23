@@ -1005,17 +1005,17 @@ describe("NativeAgentPanel", () => {
 
     render(<NativeAgentPanel agentId="task-1" />)
     const box = await screen.findByRole("textbox", { name: "Message" })
-    fireEvent.change(box, { target: { value: "/compact keep the plan" } })
+    fireEvent.change(box, { target: { value: "/review the diff" } })
     fireEvent.keyDown(box, { key: "Enter" })
     expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull()
 
     act(() => websocketHandler?.({
       type: "chimera_event",
       agent_id: "task-1",
-      content: JSON.stringify({ eventId: "failed-1", type: "message_failed", content: "/compact keep the plan", error: "the session dropped it: no" }),
+      content: JSON.stringify({ eventId: "failed-1", type: "message_failed", content: "/review the diff", error: "the session dropped it: no" }),
     }))
 
-    expect(screen.getByRole("alert").textContent).toContain("/compact keep the plan")
+    expect(screen.getByRole("alert").textContent).toContain("/review the diff")
     expect(screen.getByRole("alert").textContent).toContain("the session dropped it: no")
     expect(screen.queryByRole("status", { name: "Agent working" })).toBeNull()
   })

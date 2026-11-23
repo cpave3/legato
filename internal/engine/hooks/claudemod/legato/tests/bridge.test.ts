@@ -40,7 +40,9 @@ const world = (
   } = {},
 ) => {
   // The session the mod reads; a test swaps it to stand for a resume.
-  const session: { id: string; cwd: string; messages: Transcript; tokens: number } = {
+  // estimate is the engine's local count of the context, which a usage call
+  // asking for a breakdown gets.
+  const session: { id: string; cwd: string; messages: Transcript; tokens?: number; estimate?: number } = {
     id: 'claude-session-1',
     cwd: '/work/repo',
     messages: [],
@@ -144,8 +146,20 @@ const world = (
   on('session.cwd', () => ({ value: session.cwd }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.messages', () => ({ value: session.messages }))
-  on('session.usage', () => ({
-    value: { startedAt: 0, context: { tokens: session.tokens, window: 200_000 }, rateLimits: [] },
+  on('session.usage', ($, e) => ({
+    value: {
+      startedAt: 0,
+      context: {
+        tokens: session.tokens,
+        window: 200_000,
+        ...(e.breakdown === undefined || session.estimate === undefined ? {} : { breakdown: {
+          categories: [], totalTokens: session.estimate, maxTokens: 200_000, rawMaxTokens: 200_000,
+          autocompactSource: 'auto', percentage: 3, gridRows: [], model: 'claude-opus-5-5', memoryFiles: [],
+          mcpTools: [], agents: [], isAutoCompactEnabled: true, apiUsage: null,
+        } }),
+      },
+      rateLimits: [],
+    },
   }))
   on('turn.step', async function* ($, e) {
     requested.push({ model: e.model, effort: e.effort })
@@ -1600,3 +1614,125 @@ for (const reason of ['clear', 'resume'] as const) {
     await clock.settle()
   })
 }
+
+test('a compaction Legato asks for is the session\'s own, with the focus given, and its result reaches the bridge', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { events, say, exit } = world(on, { lines: [READY] })
+  const asked: (string | undefined)[] = []
+  on('session.compact', ($, e) => {
+    asked.push(e.instructions)
+
+    return { messages: [{ role: 'user', text: 'A summary of the conversation.', toolUses: [] }], tokensBefore: 49805, tokensAfter: 6100 }
+  })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  say({ type: 'compact', instructions: 'keep the plan' })
+  await clock.settle()
+
+  expect(asked).toEqual(['keep the plan'])
+  expect(events().filter(event => event.type.startsWith('compaction_')).map(event => event.type)).toEqual([
+    'compaction_started',
+    'compaction_finished',
+  ])
+
+  exit()
+  await clock.settle()
+})
+
+// The engine's own count after a compaction is of the conversation alone,
+// without the prompt and tools every request carries or the files it reads
+// back in, and it reads no context until the next request. The size before
+// is the last request's; after, that less what the engine's local estimate
+// (free, the one /context draws) lost across the compaction, whose fixed
+// parts cancel out.
+test('a compaction is measured as the last request less what the estimate lost', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { session, events, say, exit } = world(on, { lines: [READY] })
+  session.tokens = 49805
+  session.estimate = 40000
+  on('session.compact', () => {
+    session.tokens = undefined
+    session.estimate = 5000
+
+    return { messages: [{ role: 'user', text: 'A summary of the conversation.', toolUses: [] }], tokensBefore: 49812, tokensAfter: 3000 }
+  })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  say({ type: 'compact' })
+  await clock.settle()
+
+  expect(events().filter(event => event.type === 'compaction_finished')).toEqual([
+    expect.objectContaining({ tokensBefore: 49805, tokensAfter: 14805, context: { tokens: 14805, window: 200_000 } }),
+  ])
+
+  exit()
+  await clock.settle()
+})
+
+// Without an estimate there is no size to give: the meter keeps its last
+// reading until the next request.
+test('a compaction that cannot be measured is reported without a size', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { session, events, say, exit } = world(on, { lines: [READY] })
+  session.tokens = 49805
+  on('session.compact', () => ({ messages: [{ role: 'user', text: 'A summary.', toolUses: [] }] }))
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  say({ type: 'compact' })
+  await clock.settle()
+
+  const finished = events().filter(event => event.type === 'compaction_finished')
+  expect(finished).toEqual([expect.objectContaining({ tokensBefore: 49805 })])
+  expect(finished[0]?.tokensAfter).toBeUndefined()
+  expect(finished[0]?.context).toBeUndefined()
+
+  exit()
+  await clock.settle()
+})
+
+test('a compaction the session refuses or skips is reported as failed', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { events, say, exit } = world(on, { lines: [READY] })
+  on('session.compact', () => ({ skip: 'compaction is off' }))
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  say({ type: 'compact' })
+  await clock.settle()
+
+  expect(events().filter(event => event.type === 'compaction_failed')).toEqual([
+    expect.objectContaining({ error: 'compaction is off' }),
+  ])
+
+  exit()
+  await clock.settle()
+})
+
+test('a compaction the engine rejects is reported as failed', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { events, say, exit } = world(on, { lines: [READY] })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  // The engine compacts only between turns.
+  await $.turn.start({ text: 'fix the bug', turnId: 'turn-1' })
+  say({ type: 'compact' })
+  await clock.settle()
+
+  expect(events().filter(event => event.type.startsWith('compaction_'))).toEqual([
+    expect.objectContaining({ type: 'compaction_started' }),
+    expect.objectContaining({ type: 'compaction_failed', error: expect.any(String) }),
+  ])
+
+  await $.turn.complete(COMPLETE)
+  exit()
+  await clock.settle()
+})

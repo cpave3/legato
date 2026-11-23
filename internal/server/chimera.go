@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/chimera"
@@ -446,6 +447,11 @@ func (s *Server) chimeraSkillsHandler() http.HandlerFunc {
 		if err != nil {
 			http.Error(w, "chimera: "+err.Error(), http.StatusBadGateway)
 			return
+		}
+		// Codex and Chimera list no compact of their own: Legato offers its
+		// compact operation for every agent it can compact.
+		if session, err := s.agents.GetAgentSession(r.Context(), taskID); err == nil && session != nil && service.CanCompact(session.AgentKind) && !slices.ContainsFunc(skills, func(skill chimera.SkillInfo) bool { return skill.Name == "compact" }) {
+			skills = append(skills, chimera.SkillInfo{Name: "compact", Description: "Compact the conversation with the agent's own compaction, between turns", Source: "legato"})
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(skills)

@@ -38,6 +38,7 @@ import { insertImagePath, isImagePath } from "../lib/agentImage"
 import { rankSlashItems, type SlashItem } from "../lib/slashMenu"
 import { usePastedImages } from "../hooks/usePastedImages"
 import { nativeToolName } from "../lib/agentKind"
+import { compactAgent, compactCommand, compactionNotice, nextCompaction, type Compaction } from "../lib/compaction"
 import { mcpToolName, toolDisplayName } from "../lib/mcpToolName"
 import { legatoEventSummary, parseLegatoMessage } from "../lib/legatoMessage"
 import { plainText } from "../lib/agentGlance"
@@ -612,6 +613,8 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const [queued, setQueued] = useState<QueuedMessage[]>([])
   // Why the last message could not leave the page; it stays in the box.
   const [sendError, setSendError] = useState<string | null>(null)
+  // The agent's latest compaction, as its events tell it.
+  const [compaction, setCompaction] = useState<Compaction>()
   const unread = unreadQueued(queued, items)
   // Forget what the conversation shows, so a conversation started over (a
   // /clear) does not bring it back.
@@ -729,6 +732,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
           return
         }
         if (event.type === "session_started" || event.type === "user_message") workingUnconfirmedRef.current = false
+        setCompaction((current) => nextCompaction(current, event))
         applyEvent(event)
         if (event.type === "run_finished" || ((!agentKind || agentKind === "chimera") && event.type === "compaction_finished")) {
           if (runFinishTimerRef.current != null) window.clearTimeout(runFinishTimerRef.current)
@@ -805,6 +809,16 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       }
       return
     }
+    // /compact is the agent's own compaction, never a message to it.
+    const compact = compactCommand(trimmed)
+    if (compact) {
+      setDraft("")
+      setSendError(null)
+      compactAgent(baseUrl, agentId, compact.instructions).catch((reason) => {
+        setSendError(reason instanceof Error ? reason.message : String(reason))
+      })
+      return
+    }
     // Intercept built-in slash commands that need API calls, not message sends
     const builtinCommands = ["/model", "/mode"]
     if (builtinCommands.includes(trimmed.split(/\s+/)[0])) {
@@ -829,7 +843,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       replaceSyncState({ ...syncStateRef.current, busy: true, error: null })
     }
     scrollToBottomAfterRender()
-  }, [draft, busy, agentId, send, replaceSyncState, scrollToBottomAfterRender, executeBang, handleBuiltinSlash])
+  }, [draft, busy, agentId, baseUrl, send, replaceSyncState, scrollToBottomAfterRender, executeBang, handleBuiltinSlash])
 
   const handleInterrupt = useCallback(() => {
     send({ type: "agent_interrupt", agent_id: agentId })
@@ -1309,6 +1323,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
             <ContextNotice used={formatTokens(contextUsage.used)} window={formatTokens(contextUsage.window)} />
           )}
           {busy && <WorkingStrip elapsed={turnSeconds === null ? undefined : formatElapsed(turnSeconds)} step={step} onInterrupt={handleInterrupt} />}
+          {compaction && <p role="status" className={`px-3.5 pt-2 text-xs ${compaction.status === "failed" ? "text-lw-danger" : "text-lw-text-2"}`}>{compactionNotice(compaction)}</p>}
           {sendError && <p role="alert" className="px-3.5 pt-2 text-xs text-lw-danger">{sendError}</p>}
           <QueuedList entries={queuedEntries} />
           <PastedImageStrip pasted={pasted} />

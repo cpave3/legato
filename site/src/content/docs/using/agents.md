@@ -172,6 +172,32 @@ Legato refuses to reload an agent that a swarm or a workflow runs, and one that 
 
 Press `U` to reload an agent on the other side of the sandbox: out of it when it runs inside, and back in when it runs outside. Use it when the sandbox blocks something the agent needs.
 
+## Compacting an agent
+
+Compacting replaces an agent's conversation with a summary, which frees its context window. Legato asks the agent's tool to use its own compaction:
+
+| Tool | What Legato uses | Focus words |
+| --- | --- | --- |
+| Claude Code | its `/compact` | Yes |
+| Codex | its compaction (`thread/compact/start`) | No |
+| Chimera | its compact command | No |
+
+To compact an agent, type `/compact` in its panel's message box and press Enter, or choose **compact** in **Commands and skills**. With Claude Code you can add focus words, which say what the summary must keep, for example `/compact keep the plan and the failing tests`. Legato does not send `/compact` to the agent as a message.
+
+While the agent compacts, the panel shows **Compacting the conversation…**. When it is done, the panel shows **Compacted** with the context size before and after, for example **Compacted: 66.8k → 48.9k tokens**, and the context meter goes down. The next message to the agent clears the notice. When a tool compacts on its own because its context is nearly full, the panel shows that too.
+
+Legato refuses to compact:
+
+- An agent that is working. Compact it when its turn ends. (Codex would stop the turn to compact, so Legato waits for the turn to end with every tool.)
+- An agent that Legato shows only through its terminal. Type `/compact` in the terminal.
+- With focus words, a Codex or Chimera agent. Their tools cannot take focus words. Send `/compact` alone.
+
+The panel shows why under the message box. Scripts and the Reeve can compact an agent through the API: `POST /api/agents/{task_id}/compact`, with `{"instructions": "…"}` for focus words. See the [API reference](/legato/reference/api/).
+
+### Compacting agents automatically
+
+Each tool compacts itself when its context window is nearly full. To make Legato compact agents earlier, set **Settings › Agents › Compaction › Compact an idle agent at % full** (`agents.compact.auto_percent`), for example to `60`. When an agent in Legato's panel is idle and its context is at least that full, Legato compacts it. If the compaction fails, or leaves the context over the threshold, Legato tries again only after the context has grown. The default is `0`, which turns it off.
+
 ## After a crash: interrupted agents
 
 When the machine goes down, or tmux is killed, the agents' tmux sessions go with it. When Legato starts again, it keeps each agent that was running and whose session is gone as **Interrupted**, so you can bring it back. Stopping and starting Legato alone, as `legato restart` does, leaves agents running, so they are not marked.

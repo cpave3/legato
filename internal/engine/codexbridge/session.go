@@ -91,6 +91,12 @@ type session struct {
 	busy           bool
 	// turnID is the turn in progress, once the bridge knows it.
 	turnID string
+	// compactAsked is set when Legato asked for a compaction, until Codex
+	// starts one; compactingFrom is the context's size when it started.
+	compactAsked   bool
+	compactingFrom *int
+	// compactions are the compaction items whose start was reported.
+	compactions map[string]bool
 
 	items []item
 	byID  map[string]int
@@ -134,6 +140,8 @@ func (s *session) hold(text string) []nativeEvent {
 func (s *session) clearConversation() {
 	s.items = nil
 	s.byID = map[string]int{}
+	s.compactions = map[string]bool{}
+	s.compactAsked, s.compactingFrom = false, nil
 	s.echoes = map[string]echo{}
 	s.held, s.heldItems = nil, nil
 	s.pending = nil
@@ -183,6 +191,10 @@ func (s *session) load(thread threadInfo, now time.Time) []nativeEvent {
 			out = append(out, s.startTurn(turn.ID)...)
 		}
 		for _, entry := range turn.Items {
+			// A past compaction is no news.
+			if entry.Type == "contextCompaction" && !inProgress {
+				continue
+			}
 			// An entry of a turn that is over is over too, whatever it says.
 			out = append(out, s.applyItem(entry, !inProgress || entry.isSettled() || entry.Type == "userMessage", now)...)
 		}
@@ -236,6 +248,8 @@ func (s *session) applyItem(entry threadItem, settled bool, now time.Time) []nat
 	}
 	index, known := s.byID[entry.ID]
 	switch entry.Type {
+	case "contextCompaction":
+		return s.applyCompaction(entry.ID, settled)
 	case "userMessage":
 		text := entry.userText()
 		if known || strings.TrimSpace(text) == "" {
@@ -330,6 +344,42 @@ func (s *session) applyDelta(itemID, delta string) []nativeEvent {
 		s.add(item{kind: itemAssistant, id: itemID})
 	}
 	return []nativeEvent{{"type": "assistant_text_delta", "id": itemID, "delta": delta}}
+}
+
+// applyCompaction reports a compaction of the thread: one Legato asked for
+// (manual) or one Codex made as its context filled (threshold). It is not
+// part of the conversation the panel draws. The size after is the context's
+// last reading: Codex reports the compacted thread's size before the item
+// completes.
+func (s *session) applyCompaction(itemID string, settled bool) []nativeEvent {
+	var out []nativeEvent
+	if !s.compactions[itemID] {
+		if s.compactions == nil {
+			s.compactions = map[string]bool{}
+		}
+		s.compactions[itemID] = true
+		if !settled {
+			reason := "threshold"
+			if s.compactAsked {
+				reason = "manual"
+			}
+			s.compactAsked = false
+			s.compactingFrom = s.context.tokens
+			out = append(out, nativeEvent{"type": "compaction_started", "reason": reason})
+		}
+	}
+	if !settled {
+		return out
+	}
+	finished := nativeEvent{"type": "compaction_finished"}
+	if s.compactingFrom != nil {
+		finished["tokensBefore"] = *s.compactingFrom
+	}
+	if s.context.tokens != nil {
+		finished["tokensAfter"] = *s.context.tokens
+	}
+	s.compactingFrom = nil
+	return append(out, finished)
 }
 
 // applyReasoningDelta is a piece of the model's reasoning as it streams.

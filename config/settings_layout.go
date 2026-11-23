@@ -91,6 +91,7 @@ var settingLayout = map[string]settingPlace{
 	"agents.mcp.enabled":          {SectionAgents, "What agents get", ""},
 	"agents.mcp.resource_domains": {SectionAgents, "What agents get", ""},
 	"agents.history.keep":         {SectionAgents, "Session history", ""},
+	"agents.compact.auto_percent": {SectionAgents, "Compaction", ""},
 	"skills.dir":                  {SectionAgents, "Skills", ""},
 	"engram.":                     {SectionAgents, "Engrams", ""},
 

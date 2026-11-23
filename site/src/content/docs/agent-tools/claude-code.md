@@ -124,6 +124,12 @@ Use full model IDs, not aliases such as `sonnet`: the choice is applied to each 
 
 The terminal's status line still shows the session's configured model. The panel shows the model the requests use.
 
+## Compact the conversation
+
+Type `/compact` in the panel, with focus words if you want them: `/compact keep the plan`. Legato asks Claude Code's own compaction to run, the one its `/compact` runs, and shows its progress and the context size before and after. Claude Code compacts only between turns, so Legato refuses while the agent works. See [Compacting an agent](/legato/using/agents/#compacting-an-agent).
+
+The size after is the size before less what Claude Code's own estimate of the context lost. Claude Code's own figure for the compacted conversation leaves out the system prompt, the tools and the files it reads back in, so the next request would be much larger than it says.
+
 ## Resume a conversation
 
 Legato saves the Claude Code session ID and folder of each task's agent. When you start an agent on a task that has a saved conversation, the web dialog and the TUI offer to resume it or start a new one. Resume types `claude --resume <id>` in the saved folder, and does not send the launch prompt again.

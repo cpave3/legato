@@ -164,6 +164,18 @@
       "mode": "restart"
     },
     {
+      "key": "agents.compact.auto_percent",
+      "title": "Compact an idle agent at % full",
+      "section": "agents",
+      "group": "Compaction",
+      "help": "Compacts an idle agent once its context window is this full, in percent, with its tool's own compaction. 0 never does; each tool still compacts itself near its limit.",
+      "description": "Compacts an idle agent once its context window is this full, in percent, with its tool's own compaction. 0 never does; each tool still compacts itself near its limit.",
+      "default_label": "0 (off)",
+      "kind": "int",
+      "class": "change",
+      "mode": "live"
+    },
+    {
       "key": "agents.reviews",
       "title": "Review tour at the end",
       "section": "agents",

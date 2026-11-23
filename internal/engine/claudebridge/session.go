@@ -33,8 +33,14 @@ type modEvent struct {
 	// settings
 	Effort string `json:"effort"`
 
-	// message_failed or request_error: a delivery or provider failure.
+	// message_failed, request_error or compaction_failed: a delivery,
+	// provider or compaction failure.
 	Error string `json:"error"`
+
+	// compaction_finished: the conversation's size before and after, in
+	// tokens, when the engine recorded them; Context is the fill after.
+	TokensBefore *int `json:"tokensBefore"`
+	TokensAfter  *int `json:"tokensAfter"`
 
 	// turn_start, turn_complete, text_delta, thinking_delta
 	TurnID string `json:"turnId"`
@@ -235,6 +241,9 @@ type session struct {
 	modelOverride  string
 	effortOverride string
 	busy           bool
+	// compacting is true from the mod's compaction_started to its
+	// compaction_finished or compaction_failed.
+	compacting bool
 
 	items    []item
 	tools    map[string]*toolCall
@@ -293,6 +302,7 @@ func (s *session) apply(event modEvent, now time.Time) []nativeEvent {
 		// run_finished, which is how it picks up the replaced conversation.
 		described := s.described
 		s.applyHello(event, now)
+		s.compacting = false
 		if described {
 			return []nativeEvent{{"type": "run_finished", "reason": "reset"}}
 		}
@@ -309,6 +319,7 @@ func (s *session) apply(event modEvent, now time.Time) []nativeEvent {
 		// A /clear: the process goes on under a new Claude session with an
 		// empty conversation. The panel re-reads the snapshot on run_finished.
 		s.clearConversation()
+		s.compacting = false
 		s.claudeSessionID = event.SessionID
 		if event.CWD != "" {
 			s.cwd = event.CWD
@@ -356,6 +367,22 @@ func (s *session) apply(event modEvent, now time.Time) []nativeEvent {
 	case "turn_start":
 		s.busy = true
 		return []nativeEvent{{"type": "session_started"}}
+	case "compaction_started":
+		s.compacting = true
+		return []nativeEvent{{"type": "compaction_started", "reason": "manual"}}
+	case "compaction_finished":
+		s.compacting = false
+		finished := nativeEvent{"type": "compaction_finished"}
+		if event.TokensBefore != nil {
+			finished["tokensBefore"] = *event.TokensBefore
+		}
+		if event.TokensAfter != nil {
+			finished["tokensAfter"] = *event.TokensAfter
+		}
+		return append([]nativeEvent{finished}, s.applyContext(event.Context)...)
+	case "compaction_failed":
+		s.compacting = false
+		return []nativeEvent{{"type": "compaction_failed", "error": event.Error}}
 	case "turn_complete":
 		if event.AgentID != "" {
 			record := s.subagent(event.AgentID)

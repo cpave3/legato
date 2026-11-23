@@ -119,6 +119,10 @@ For a question, choose an option or type an answer of your own, then **Send answ
 
 If the panel did not connect, **Upgrade to native Chimera** in the terminal view's menu looks for the endpoint again. **Downgrade to tmux** in the panel's menu shows the agent through its terminal, without stopping it.
 
+## Compact the conversation
+
+Type `/compact` in the panel. Legato asks the Chimera session to compact, as Chimera's own `/compact` does, and shows its progress and the context size before and after. Chimera takes no focus words, and refuses while a run is in progress. See [Compacting an agent](/legato/using/agents/#compacting-an-agent).
+
 ## Resume a conversation
 
 The mod saves the actual Chimera session ID on every start, resume, fork or switch. When you start an agent on a task that has a saved conversation, the web dialog and the TUI offer to resume it or start a new one. Resume types `chimera --session <id>`, and does not send the launch prompt again.

@@ -17,6 +17,7 @@ type Command =
   | { type: 'queue'; text: string }
   | { type: 'append'; text: string }
   | { type: 'interrupt' }
+  | { type: 'compact'; instructions?: string }
   | { type: 'viewers'; count: number }
   | { type: 'model'; model: string | null }
   | { type: 'effort'; effort: Effort | null }
@@ -781,6 +782,60 @@ const foldNotes = ($: EngineInterface): Promise<void> => {
   return foldChain
 }
 
+// The engine's local estimate of the context: the breakdown /context
+// draws, counted without a request, so it costs nothing.
+const estimatedContext = async ($: EngineInterface): Promise<number | undefined> => {
+  try {
+    const { context } = await $.session.usage({ breakdown: 'summary' })
+
+    return context.breakdown?.totalTokens
+  } catch {
+    return undefined
+  }
+}
+
+// The session's own compaction, the one /compact makes, with the focus the
+// person gave. It runs between turns only, which the bridge sees to; what
+// comes of it is reported, as a skip or a refusal is.
+//
+// The engine's own count after a compaction is of the conversation alone:
+// not the prompt and tools every request carries, nor the files it reads
+// back in. So the size before is the last request's, and the size after is
+// that less what the engine's estimate lost across the compaction, in which
+// the parts that do not change cancel out. Without both estimates there is
+// no size after, and the meter keeps its reading until the next request.
+const compact = async ($: EngineInterface, instructions: string | undefined): Promise<void> => {
+  const before = await contextOf($)
+  const estimatedBefore = await estimatedContext($)
+  post({ type: 'compaction_started' })
+
+  try {
+    const result = await $.session.compact(instructions === undefined ? {} : { instructions })
+
+    if (result.skip !== undefined) {
+      post({ type: 'compaction_failed', error: result.skip })
+
+      return
+    }
+
+    const estimatedAfter = await estimatedContext($)
+    const tokensBefore = before?.tokens ?? result.tokensBefore
+    const tokensAfter =
+      tokensBefore !== undefined && estimatedBefore !== undefined && estimatedAfter !== undefined
+        ? Math.max(0, tokensBefore - Math.max(0, estimatedBefore - estimatedAfter))
+        : undefined
+
+    post({
+      type: 'compaction_finished',
+      tokensBefore,
+      tokensAfter,
+      context: tokensAfter === undefined || before === undefined ? undefined : { tokens: tokensAfter, window: before.window },
+    })
+  } catch (error) {
+    post({ type: 'compaction_failed', error: error instanceof Error ? error.message : String(error) })
+  }
+}
+
 const run = async ($: EngineInterface, command: Command): Promise<void> => {
   // Sent while a turn runs, as Legato knew it or as the session has it: it
   // waits to join that turn. A command waits behind the turn, as the engine
@@ -795,6 +850,8 @@ const run = async ($: EngineInterface, command: Command): Promise<void> => {
     await submit($, command.text)
   } else if (command.type === 'append') {
     await appendRow($, command.text)
+  } else if (command.type === 'compact') {
+    await compact($, command.instructions)
   }
 }
 
