@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -65,9 +68,13 @@ type ClaudeHook struct {
 	// Woke are the background jobs whose end woke the session
 	// (UserPromptSubmit with task notifications).
 	Woke []string `json:"woke,omitempty"`
-	// Running is what still runs as the turn ends (Stop): background tasks
-	// and session crons.
+	// Running is what still runs as a turn ends: the session's background
+	// tasks (Stop and SubagentStop, at every depth) and session crons (Stop).
 	Running []store.BackgroundJob `json:"running,omitempty"`
+	// Listed says the payload carried the session's background tasks, so
+	// Running is the whole truth even when empty (SubagentStop; a Stop
+	// always is).
+	Listed bool `json:"listed,omitempty"`
 	// Trigger is a compaction's: "manual" or "auto".
 	Trigger string `json:"trigger,omitempty"`
 	// Reason is a SessionEnd's, or a TurnEnded's.
@@ -81,20 +88,15 @@ type ClaudeHook struct {
 }
 
 type claudeHookPayload struct {
-	Event           string          `json:"hook_event_name"`
-	AgentID         string          `json:"agent_id"`
-	ToolName        string          `json:"tool_name"`
-	ToolInput       json.RawMessage `json:"tool_input"`
-	ToolResponse    json.RawMessage `json:"tool_response"`
-	Prompt          string          `json:"prompt"`
-	BackgroundTasks []struct {
-		ID          string `json:"id"`
-		Type        string `json:"type"`
-		Description string `json:"description"`
-		Command     string `json:"command"`
-		AgentType   string `json:"agent_type"`
-	} `json:"background_tasks"`
-	SessionCrons []struct {
+	Event           string                  `json:"hook_event_name"`
+	AgentID         string                  `json:"agent_id"`
+	ToolName        string                  `json:"tool_name"`
+	ToolInput       json.RawMessage         `json:"tool_input"`
+	ToolResponse    json.RawMessage         `json:"tool_response"`
+	Prompt          string                  `json:"prompt"`
+	TranscriptPath  string                  `json:"transcript_path"`
+	BackgroundTasks *[]claudeBackgroundTask `json:"background_tasks"`
+	SessionCrons    []struct {
 		ID       string `json:"id"`
 		Schedule string `json:"schedule"`
 		Prompt   string `json:"prompt"`
@@ -102,6 +104,16 @@ type claudeHookPayload struct {
 	Trigger string `json:"trigger"`
 	Reason  string `json:"reason"`
 	Error   string `json:"error"`
+}
+
+// claudeBackgroundTask is one entry of a payload's background_tasks: what
+// the whole session still runs, at every depth of subagent.
+type claudeBackgroundTask struct {
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	Description string `json:"description"`
+	Command     string `json:"command"`
+	AgentType   string `json:"agent_type"`
 }
 
 // ParseClaudeHook reads a Claude Code hook payload.
@@ -121,8 +133,13 @@ func ParseClaudeHook(raw []byte) (ClaudeHook, error) {
 	case ClaudeUserPromptSubmit:
 		hook.Woke = wokenBy(p.Prompt)
 		hook.OperatorTurn = hook.Woke == nil && !strings.HasPrefix(strings.TrimSpace(p.Prompt), "<task-notification>") && service.IsOperatorText(p.Prompt)
-	case ClaudeStop:
-		for _, task := range p.BackgroundTasks {
+	case ClaudeStop, ClaudeSubagentStop:
+		hook.Listed = p.BackgroundTasks != nil
+		var tasks []claudeBackgroundTask
+		if p.BackgroundTasks != nil {
+			tasks = *p.BackgroundTasks
+		}
+		for _, task := range tasks {
 			job := store.BackgroundJob{ID: task.ID, Kind: task.Type, Label: strings.TrimSpace(firstNonBlank(task.Description, task.Command))}
 			switch task.Type {
 			case "shell":
@@ -132,11 +149,56 @@ func ParseClaudeHook(raw []byte) (ClaudeHook, error) {
 			}
 			hook.Running = append(hook.Running, job)
 		}
+		subagentParents(hook.Running, p.TranscriptPath)
+		if p.Event == ClaudeSubagentStop {
+			// The main loop's crons are its own: only its Stop lists them.
+			break
+		}
 		for _, cron := range p.SessionCrons {
 			hook.Running = append(hook.Running, store.BackgroundJob{Kind: store.JobCron, ID: cron.ID, Label: cron.Prompt, Schedule: cron.Schedule})
 		}
 	}
 	return hook, nil
+}
+
+// maxSubagentMeta bounds the record of a subagent Legato reads.
+const maxSubagentMeta = 64 << 10
+
+var claudeAgentID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// subagentParents names the parent of each listed subagent, as Claude Code
+// recorded it beside the session's transcript (subagents/agent-<id>.meta.json,
+// parentAgentId): a list names none, and the start that would can reach
+// Legato after it, or never (a session older than Legato's tracking). A
+// record that is missing, too large or unreadable names none.
+func subagentParents(jobs []store.BackgroundJob, transcriptPath string) {
+	if !filepath.IsAbs(transcriptPath) || !strings.HasSuffix(transcriptPath, ".jsonl") {
+		return
+	}
+	dir := filepath.Join(strings.TrimSuffix(transcriptPath, ".jsonl"), "subagents")
+	for i, job := range jobs {
+		if i >= maxJobs {
+			return
+		}
+		if job.Kind != store.JobSubagent || !claudeAgentID.MatchString(job.ID) {
+			continue
+		}
+		file, err := os.Open(filepath.Join(dir, "agent-"+job.ID+".meta.json"))
+		if err != nil {
+			continue
+		}
+		raw, err := io.ReadAll(io.LimitReader(file, maxSubagentMeta+1))
+		file.Close()
+		if err != nil || len(raw) > maxSubagentMeta {
+			continue
+		}
+		var meta struct {
+			Parent string `json:"parentAgentId"`
+		}
+		if json.Unmarshal(raw, &meta) == nil && claudeAgentID.MatchString(meta.Parent) {
+			jobs[i].Parent = meta.Parent
+		}
+	}
 }
 
 // maxEditedPath bounds the path an edit hook carries; a longer one is
@@ -282,28 +344,47 @@ func applyClaudeHookAt(s *store.Store, report ClaudeHookReport, now time.Time, p
 	case ClaudeUserPromptSubmit:
 		set(store.ActivityWorking)
 		for _, id := range hook.Woke {
-			jobs = withoutJob(jobs, id)
+			jobs = endedJob(jobs, id)
 		}
 	case ClaudePostToolUse:
+		if hook.Started != nil {
+			// A subagent's own background work is listed under it.
+			started := *hook.Started
+			started.Parent = hook.AgentID
+			jobs = withJob(jobs, started, now)
+		}
 		// A subagent's tool calls say nothing of the main loop's turn: a
 		// background subagent makes them after that turn has ended. Only
 		// its permission prompt, once answered, is over.
 		switch {
 		case hook.AgentID == "":
 			set(store.ActivityWorking)
-			if hook.Started != nil {
-				jobs = withJob(jobs, *hook.Started, now)
-			}
 		case session.Activity == store.ActivityWaiting && hasJob(jobs, hook.AgentID):
 			set(store.ActivityBackground)
 		case session.Activity == store.ActivityWaiting:
 			set(store.ActivityWorking)
 		}
+		// Its permission prompt is over. A tool call never wakes a
+		// subagent whose turn ended: Claude Code wakes one with a
+		// SubagentStart, and a call can be reported after its stop.
+		if subagentState(jobs, hook.AgentID) == store.ActivityWaiting {
+			jobs = withSubagentState(jobs, hook.AgentID, store.ActivityWorking)
+		}
 	case ClaudePermissionRequest:
 		set(store.ActivityWaiting)
+		jobs = withSubagentState(jobs, hook.AgentID, store.ActivityWaiting)
+	case ClaudeSubagentStart:
+		// A background subagent its children woke starts again.
+		jobs = withSubagentState(jobs, hook.AgentID, store.ActivityWorking)
+	case ClaudeSubagentStop:
+		if hook.Listed {
+			jobs = listedJobs(jobs, hook.Running, hook.AgentID, now)
+		} else {
+			jobs = endedJob(jobs, hook.AgentID)
+		}
 	case ClaudeStop:
 		if hook.AgentID == "" {
-			jobs = runningJobs(jobs, hook.Running, now)
+			jobs = listedJobs(jobs, hook.Running, "", now)
 			set(settled())
 		}
 	case ClaudeStopFailure:
@@ -334,6 +415,9 @@ func applyClaudeHookAt(s *store.Store, report ClaudeHookReport, now time.Time, p
 		}
 	}
 
+	if len(jobs) > maxJobs {
+		jobs = jobs[:maxJobs]
+	}
 	jobsChanged := !sameJobs(jobs, session.BackgroundJobs)
 	// A bridge's report is not the plugin's: a Codex session's own hooks
 	// must still count after it.
@@ -372,10 +456,28 @@ func applyClaudeHookAt(s *store.Store, report ClaudeHookReport, now time.Time, p
 // not counted. The main loop's Stop lists the subagents still running in the
 // background; it ends any other, should its SubagentStop have been lost, as a
 // foreground subagent cannot outlive the turn. The session's end ends them
-// all. Claude Code does not say which subagent started another, so each is
-// recorded under the top-level agent.
+// all. A subagent's parent is the subagent whose Agent call started it, or
+// the one Claude Code recorded beside the transcript (see subagentParents);
+// "" is the top-level agent. A background subagent its children wake gets a
+// SubagentStart again and a new span.
 func recordClaudeSubagents(ctx context.Context, s *store.Store, executionID string, hook ClaudeHook, now time.Time) error {
 	id := cleanText(hook.AgentID, maxJobIDOrWhen)
+	// A subagent's parent is known once the parent's call that started it
+	// is reported, or from what Claude Code recorded of it.
+	parents := map[string]string{}
+	if hook.Started != nil && hook.Started.Kind == store.JobSubagent && id != "" {
+		parents[hook.Started.ID] = id
+	}
+	for _, job := range hook.Running {
+		if job.Kind == store.JobSubagent && job.Parent != "" {
+			parents[job.ID] = job.Parent
+		}
+	}
+	for child, parent := range parents {
+		if err := s.SetSubagentParent(ctx, executionID, child, parent); err != nil {
+			return err
+		}
+	}
 	var err error
 	switch hook.Event {
 	case ClaudeSubagentStart:
@@ -432,15 +534,55 @@ func ApplyTurnEnded(s *store.Store, taskID, executionID, reason string, pushNoti
 	return ApplyClaudeHook(s, report, pushNotifier, osNotifier)
 }
 
-// withJob adds a job the agent started, unless it is listed already.
+// withJob adds a job the agent started. One listed already (a list may
+// come before the start's own report) keeps what it has and gains the
+// parent and label it lacked.
 func withJob(jobs store.BackgroundJobs, job store.BackgroundJob, now time.Time) store.BackgroundJobs {
-	for _, j := range jobs {
-		if j.ID == job.ID {
-			return jobs
+	for i, j := range jobs {
+		if j.ID != job.ID {
+			continue
 		}
+		out := append(store.BackgroundJobs(nil), jobs...)
+		if out[i].Parent == "" {
+			out[i].Parent = job.Parent
+		}
+		if out[i].Label == "" {
+			out[i].Label = job.Label
+		}
+		return out
 	}
 	job.StartedAt = now
+	if job.Kind == store.JobSubagent {
+		job.State = store.ActivityWorking
+	}
 	return append(jobs, job)
+}
+
+// subagentState is a listed subagent's state, "" for any other id.
+func subagentState(jobs store.BackgroundJobs, id string) string {
+	for _, j := range jobs {
+		if id != "" && j.ID == id && j.Kind == store.JobSubagent {
+			return j.State
+		}
+	}
+	return ""
+}
+
+// withSubagentState moves a listed subagent to a state: a hook it fired
+// says what it does. Any other id (the main loop's, a foreground
+// subagent's) changes nothing.
+func withSubagentState(jobs store.BackgroundJobs, id, state string) store.BackgroundJobs {
+	if id == "" {
+		return jobs
+	}
+	for i, j := range jobs {
+		if j.ID == id && j.Kind == store.JobSubagent && j.State != state {
+			out := append(store.BackgroundJobs(nil), jobs...)
+			out[i].State = state
+			return out
+		}
+	}
+	return jobs
 }
 
 func hasJob(jobs store.BackgroundJobs, id string) bool {
@@ -462,9 +604,9 @@ func withoutJob(jobs store.BackgroundJobs, id string) store.BackgroundJobs {
 	return out
 }
 
-// runningJobs is what still runs at the end of a turn: the turn's own list,
-// which is the whole truth, with what Legato knew of each job before. Claude
-// Code lists a Monitor as a shell; its start said it was a Monitor.
+// runningJobs is what still runs at the end of a Chimera turn: the turn's
+// own list, which is the whole truth, with what Legato knew of each job
+// before. Chimera reports no subagent's own work, so its list is flat.
 func runningJobs(known store.BackgroundJobs, running []store.BackgroundJob, now time.Time) store.BackgroundJobs {
 	var out store.BackgroundJobs
 	for _, job := range running {
@@ -486,13 +628,147 @@ func runningJobs(known store.BackgroundJobs, running []store.BackgroundJob, now 
 	return out
 }
 
+// endedJob is the jobs once one has ended (its turn, for a subagent): it
+// leaves, unless work it started still runs, when it waits on that in the
+// background.
+func endedJob(jobs store.BackgroundJobs, id string) store.BackgroundJobs {
+	if !hasJob(jobs, id) {
+		return jobs
+	}
+	var out store.BackgroundJobs
+	for _, j := range jobs {
+		if j.ID != id {
+			out = append(out, j)
+			continue
+		}
+		if hasDescendant(jobs, id) {
+			j.State = store.ActivityBackground
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
+// listedJobs is what still runs once a turn has ended, the main loop's
+// (stopped "") or a subagent's: the session's list, which is the whole
+// truth at every depth, with what Legato knew of each job before. Claude
+// Code lists a Monitor as a shell; its start said it was a Monitor.
+//
+// The list leaves out a subagent whose turn has ended while work it started
+// runs on, so such a one stays while it has any (ActivityBackground); and
+// through the end of its last, since Claude Code wakes it then. The
+// subagent whose turn has just ended is listed too: it stays only as such a
+// parent. The main loop's crons are listed only at its own Stop.
+func listedJobs(known store.BackgroundJobs, listed []store.BackgroundJob, stopped string, now time.Time) store.BackgroundJobs {
+	byID := make(map[string]store.BackgroundJob, len(listed))
+	for _, job := range listed {
+		byID[job.ID] = job
+	}
+	keep := func(k store.BackgroundJob) bool {
+		if _, ok := byID[k.ID]; ok {
+			return true
+		}
+		switch {
+		case k.Kind == store.JobCron:
+			return stopped != ""
+		case k.Kind == store.JobSubagent:
+			return hasDescendant(known, k.ID)
+		}
+		return false
+	}
+	var out store.BackgroundJobs
+	seen := map[string]bool{}
+	for _, k := range known {
+		seen[k.ID] = true
+		if k.ID == stopped || !keep(k) {
+			continue
+		}
+		if job, ok := byID[k.ID]; ok {
+			k = mergedJob(k, job)
+		} else if k.Kind == store.JobSubagent {
+			k.State = store.ActivityBackground
+		}
+		out = append(out, k)
+	}
+	for _, job := range listed {
+		if seen[job.ID] || job.ID == stopped {
+			continue
+		}
+		seen[job.ID] = true
+		job.StartedAt = now
+		if job.Kind == store.JobSubagent {
+			job.State = store.ActivityWorking
+		}
+		out = append(out, job)
+	}
+	// The subagent whose turn ended waits on what it started, if anything.
+	for _, k := range append(append(store.BackgroundJobs(nil), known...), listed...) {
+		if k.ID != stopped || stopped == "" {
+			continue
+		}
+		if hasDescendant(out, stopped) {
+			if _, ok := byID[k.ID]; ok && !hasJob(known, k.ID) {
+				k.StartedAt = now
+			}
+			k.State = store.ActivityBackground
+			out = append(out, k)
+		}
+		break
+	}
+	return out
+}
+
+// mergedJob is a job Legato knew, as a list names it now.
+func mergedJob(known, listed store.BackgroundJob) store.BackgroundJob {
+	job := known
+	if !(known.Kind == store.JobMonitor && listed.Kind == store.JobBash) {
+		job.Kind = listed.Kind
+	}
+	if listed.Label != "" && known.Label == "" {
+		job.Label = listed.Label
+	}
+	if job.Parent == "" {
+		job.Parent = listed.Parent
+	}
+	if listed.Schedule != "" {
+		job.Schedule = listed.Schedule
+	}
+	// A listed subagent's turn runs, unless it waits on the operator.
+	if job.Kind == store.JobSubagent && job.State != store.ActivityWaiting {
+		job.State = store.ActivityWorking
+	}
+	return job
+}
+
+// hasDescendant says whether a job started, at any depth, another that is
+// listed. A parent chain that loops ends the walk.
+func hasDescendant(jobs store.BackgroundJobs, id string) bool {
+	parent := make(map[string]string, len(jobs))
+	for _, j := range jobs {
+		parent[j.ID] = j.Parent
+	}
+	for _, j := range jobs {
+		if j.ID == id {
+			continue
+		}
+		at := j.Parent
+		for depth := 0; at != "" && depth < len(jobs); depth++ {
+			if at == id {
+				return true
+			}
+			at = parent[at]
+		}
+	}
+	return false
+}
+
 func sameJobs(a, b store.BackgroundJobs) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for i := range a {
 		x, y := a[i], b[i]
-		if x.Kind != y.Kind || x.ID != y.ID || x.Label != y.Label || x.Schedule != y.Schedule || !x.StartedAt.Equal(y.StartedAt) {
+		if x.Kind != y.Kind || x.ID != y.ID || x.Label != y.Label || x.Schedule != y.Schedule || x.Parent != y.Parent || x.State != y.State || !x.StartedAt.Equal(y.StartedAt) {
 			return false
 		}
 	}
@@ -511,6 +787,7 @@ const (
 // kind ("other" for any other), each text one line without control
 // characters and clipped, and at most maxJobs of them.
 func cleanHook(hook ClaudeHook) ClaudeHook {
+	hook.AgentID = cleanText(hook.AgentID, maxJobIDOrWhen)
 	if hook.Started != nil {
 		job := cleanJob(*hook.Started)
 		hook.Started = &job
@@ -537,6 +814,9 @@ func cleanJob(job store.BackgroundJob) store.BackgroundJob {
 	job.ID = cleanText(job.ID, maxJobIDOrWhen)
 	job.Label = cleanText(job.Label, maxJobLabel)
 	job.Schedule = cleanText(job.Schedule, maxJobIDOrWhen)
+	job.Parent = cleanText(job.Parent, maxJobIDOrWhen)
+	// Legato decides a subagent's state from its hooks.
+	job.State = ""
 	return job
 }
 

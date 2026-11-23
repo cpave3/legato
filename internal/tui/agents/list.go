@@ -629,7 +629,9 @@ func firstNonEmpty(values ...string) string {
 }
 
 // backgroundSummary says what an agent in the background waits on: the one
-// job by kind and label, or how many there are; "" for none.
+// job by kind and label; else its subagents (at any depth) by what they do,
+// working or waiting on work of their own, and how many other jobs run; ""
+// for none.
 func backgroundSummary(jobs []service.BackgroundJob) string {
 	switch len(jobs) {
 	case 0:
@@ -637,5 +639,28 @@ func backgroundSummary(jobs []service.BackgroundJob) string {
 	case 1:
 		return jobs[0].Kind + ": " + jobs[0].Label
 	}
-	return fmt.Sprintf("%d jobs", len(jobs))
+	working, waiting, other := 0, 0, 0
+	for _, job := range jobs {
+		switch {
+		case job.Kind != "subagent":
+			other++
+		case job.State == "background":
+			waiting++
+		default:
+			working++
+		}
+	}
+	if working+waiting == 0 {
+		return fmt.Sprintf("%d jobs", len(jobs))
+	}
+	var parts []string
+	if working > 0 {
+		parts = append(parts, plural(working, "sub-agent")+" working")
+	} else {
+		parts = append(parts, plural(waiting, "sub-agent")+" waiting")
+	}
+	if other > 0 {
+		parts = append(parts, plural(other, "job"))
+	}
+	return strings.Join(parts, " · ")
 }

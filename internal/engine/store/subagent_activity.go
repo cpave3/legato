@@ -107,6 +107,18 @@ func (s *Store) EndSubagentsAt(ctx context.Context, executionID string, keep []s
 	return tx.Commit()
 }
 
+// SetSubagentParent names the sub-agent that started one, for spans recorded
+// before the agent tool said: only spans with no parent change. It does
+// nothing for a sub-agent with no span, or a parent that is the sub-agent.
+func (s *Store) SetSubagentParent(ctx context.Context, executionID, subagentID, parentID string) error {
+	if subagentID == "" || parentID == "" || parentID == subagentID {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE subagent_activity SET parent_subagent_id = ?
+		WHERE execution_id = ? AND subagent_id = ? AND parent_subagent_id = ''`, parentID, executionID, subagentID)
+	return err
+}
+
 // OpenSubagents lists the sub-agents of an execution with an open span.
 func (s *Store) OpenSubagents(ctx context.Context, executionID string) ([]string, error) {
 	var ids []string
