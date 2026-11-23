@@ -110,7 +110,12 @@ type ExecutorSpec struct {
 	// Summary names the fields a step row is summed up by: the first of
 	// them with a value, such as the macro or else the prompt.
 	Summary []string
+	// Group is where the step picker lists the type: one of StepGroups.
+	Group string
 }
+
+// StepGroups are the step picker's groups, in its order.
+var StepGroups = []string{"Agents", "Code", "Board", "Cleanup"}
 
 // Field is the spec's with field of that name.
 func (s ExecutorSpec) Field(name string) (Field, bool) {
@@ -271,7 +276,7 @@ var (
 
 var catalog = []ExecutorSpec{
 	{
-		Type: "agent.run", Title: "Run an agent",
+		Type: "agent.run", Group: "Agents", Title: "Run an agent",
 		Description: "Start an agent of the workflow on a prompt or a macro, and wait for it to complete the step with the outputs the step declares.",
 		With: []Field{
 			promptField.at(1, true), macroField.at(2, true), agentField.at(5, false), tierField.at(6, false),
@@ -289,7 +294,7 @@ var catalog = []ExecutorSpec{
 		Summary:         []string{"macro", "prompt"},
 	},
 	{
-		Type: "agent.dispatch", Title: "Send to the task's agent",
+		Type: "agent.dispatch", Group: "Agents", Title: "Send to the task's agent",
 		Description: "Send a prompt or a macro to a task's agent, starting one when the task has none. The step does not wait for the agent.",
 		With: []Field{
 			wholeTask.at(1, true), promptField.at(2, true), macroField.at(3, true), agentField.at(4, false), tierField.at(5, false),
@@ -305,7 +310,7 @@ var catalog = []ExecutorSpec{
 		},
 	},
 	{
-		Type: "agent.stop", Title: "Stop the task's agent",
+		Type: "agent.stop", Group: "Agents", Title: "Stop the task's agent",
 		Description: "Stop a task's agent.",
 		With: []Field{
 			{Name: "task", Kind: KindTaskOrID, Label: "Task", Description: "The task, or a task ID", Required: true, Essential: true, Order: 1},
@@ -313,7 +318,7 @@ var catalog = []ExecutorSpec{
 		Summary: []string{"task"},
 	},
 	{
-		Type: "repo.ensure", Title: "Prepare a checkout",
+		Type: "repo.ensure", Group: "Code", Title: "Prepare a checkout",
 		Description: "Make Legato's copy of a GitHub repository ready for an agent to be cloned from, or pass a directory through when no repository is given.",
 		With: []Field{
 			{Name: "repo", Kind: KindRepository, Label: "Repository", Description: "GitHub repository (owner/name); empty to use working_dir", Essential: true, Order: 1},
@@ -329,14 +334,14 @@ var catalog = []ExecutorSpec{
 		},
 	},
 	{
-		Type: "task.context", Title: "Read a task's context",
+		Type: "task.context", Group: "Board", Title: "Read a task's context",
 		Description: "Export a task's full context (title, description, notes, pull requests) as text.",
 		With:        []Field{wholeTask.at(1, true)},
 		Outputs:     []OutputSpec{{Name: "content", Type: "string", Description: "The task's context"}},
 		Summary:     []string{"task"},
 	},
 	{
-		Type: "task.working_dir.resolve", Title: "Find a task's directory",
+		Type: "task.working_dir.resolve", Group: "Board", Title: "Find a task's directory",
 		Description: "The task's worktree when it has one, else the fallback.",
 		With: []Field{
 			wholeTask.at(1, true),
@@ -349,7 +354,7 @@ var catalog = []ExecutorSpec{
 		},
 	},
 	{
-		Type: "task.note", Title: "Add a note to a task",
+		Type: "task.note", Group: "Board", Title: "Add a note to a task",
 		Description: "Add a durable note to a task.",
 		With: []Field{
 			{Name: "task", Kind: KindTaskOrID, Label: "Task", Description: "The task, or a task ID such as a step's linked_task output", RequiredAtRun: true, Essential: true, Order: 1},
@@ -367,7 +372,7 @@ var catalog = []ExecutorSpec{
 		},
 	},
 	{
-		Type: "task.metadata.set", Title: "Set task metadata",
+		Type: "task.metadata.set", Group: "Board", Title: "Set task metadata",
 		Description: "Set values in a task's metadata.",
 		With: []Field{
 			{Name: "task", Kind: KindTask, Label: "Task", Description: "The task: ${{ workflow.task }} or a task input", RequiredAtRun: true, Essential: true, Order: 1},
@@ -376,7 +381,7 @@ var catalog = []ExecutorSpec{
 		Summary: []string{"values"},
 	},
 	{
-		Type: "task.move", Title: "Move a task",
+		Type: "task.move", Group: "Board", Title: "Move a task",
 		Description: "Move a task to a column of the board, and its ticket with it.",
 		With: []Field{
 			wholeTask.at(1, true),
@@ -385,7 +390,7 @@ var catalog = []ExecutorSpec{
 		Summary: []string{"column"},
 	},
 	{
-		Type: "github.pr.prepare", Title: "Check out a pull request",
+		Type: "github.pr.prepare", Group: "Code", Title: "Check out a pull request",
 		Description: "Fetch a pull request's exact head into a new worktree, and link the workflow task to it. Needs Yggdrasil worktrees.",
 		With: []Field{
 			{Name: "repo", Kind: KindRepository, Label: "Repository", Description: "GitHub repository (owner/name)", RequiredAtRun: true, Essential: true, Order: 1},
@@ -401,7 +406,7 @@ var catalog = []ExecutorSpec{
 		},
 	},
 	{
-		Type: "github.pr.review_passes", Title: "Review a pull request in passes",
+		Type: "github.pr.review_passes", Group: "Code", Title: "Review a pull request in passes",
 		Description: "Review an open pull request (or its stack) in passes posted as GitHub reviews from Legato's reviewer App, until a clean pass approves it. Needs review passes turned on.",
 		With: []Field{
 			{Name: "repo", Kind: KindRepository, Label: "Repository", Description: "GitHub repository (owner/name)", Required: true, Essential: true, Order: 1},
@@ -421,7 +426,7 @@ var catalog = []ExecutorSpec{
 		},
 	},
 	{
-		Type: "worktree.remove", Title: "Remove the worktree",
+		Type: "worktree.remove", Group: "Cleanup", Title: "Remove the worktree",
 		Description: "Remove the workflow task's Yggdrasil worktree, when it is at the path expected.",
 		With: []Field{
 			{Name: "expected_path", Kind: KindPath, Label: "The worktree at", Description: "Where the worktree must be", RequiredAtRun: true, Essential: true, Order: 1},
@@ -433,7 +438,7 @@ var catalog = []ExecutorSpec{
 		},
 	},
 	{
-		Type: "file.remove", Title: "Remove a file",
+		Type: "file.remove", Group: "Cleanup", Title: "Remove a file",
 		Description: "Remove one regular file inside a directory; a file that is not there is not an error.",
 		With: []Field{
 			{Name: "working_dir", Kind: KindPath, Label: "In directory", Description: "The directory", RequiredAtRun: true, Essential: true, Order: 2},
@@ -443,7 +448,7 @@ var catalog = []ExecutorSpec{
 		Outputs: []OutputSpec{{Name: "removed", Type: "boolean"}},
 	},
 	{
-		Type: "chimera.session.remove", Title: "Remove the Chimera session",
+		Type: "chimera.session.remove", Group: "Cleanup", Title: "Remove the Chimera session",
 		Description: "Remove the saved Chimera session of a task's agent.",
 		With:        []Field{wholeTask.at(1, true)},
 		Outputs:     []OutputSpec{{Name: "removed", Type: "boolean"}, {Name: "metadata_cleared", Type: "boolean"}},

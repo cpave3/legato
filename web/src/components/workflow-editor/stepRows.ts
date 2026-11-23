@@ -52,7 +52,7 @@ export function connectorOf(steps: Record<string, unknown>[], index: number): Co
 
 /** idFromTitle is a step ID made from its title, not one of taken. */
 export function idFromTitle(title: string, taken: string[]): string {
-  const base = title.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "") || "step"
+  const base = title.toLowerCase().normalize("NFKD").replace(/['’]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "") || "step"
   let id = base
   for (let n = 2; taken.includes(id); n++) id = `${base}-${n}`
   return id

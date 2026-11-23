@@ -174,7 +174,7 @@ it("saves with Mod-S", async () => {
 it("adds a step and opens it", async () => {
   renderAt()
   fireEvent.click(within(await screen.findByRole("region", { name: "Then" })).getByRole("button", { name: "Add step" }))
-  fireEvent.click(within(screen.getByRole("group", { name: "Step types" })).getByRole("button", { name: /Move a task/ }))
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Add a step" })).getByRole("button", { name: /Move a task/ }))
   await waitFor(() => expect(address()).toBe("#steps/move-a-task"))
   expect((screen.getByRole("textbox", { name: "Step title" }) as HTMLInputElement).value).toBe("Move a task")
 })
@@ -329,7 +329,7 @@ it("says on the connector before each step how it starts", async () => {
 it("inserts a step where its connector is, its ID following its title until saved", async () => {
   renderAt()
   fireEvent.click(await screen.findByRole("button", { name: "Add a step before Run" }))
-  fireEvent.click(within(screen.getByRole("group", { name: "Step types" })).getByRole("button", { name: /Move a task/ }))
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Add a step" })).getByRole("button", { name: /Move a task/ }))
   await waitFor(() => expect(address()).toBe("#steps/move-a-task"))
   commit(screen.getByRole("textbox", { name: "Step title" }), "Close the card")
   await waitFor(() => expect(address()).toBe("#steps/close-the-card"))
@@ -394,4 +394,34 @@ it("duplicates the ID-less step whose row it is", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Actions for step #1" }))
   fireEvent.click(within(screen.getByRole("menu", { name: "Step #1" })).getByRole("menuitem", { name: "Duplicate" }))
   expect((await yamlOf()).match(/title: \S+/g)).toEqual(["title: Review", "title: First", "title: Second", "title: Second"])
+})
+
+// The step picker (LEG-507).
+it("finds a step type as you type, and Enter adds the first where the + was", async () => {
+  renderAt()
+  fireEvent.click(await screen.findByRole("button", { name: "Add a step before Run" }))
+  const picker = screen.getByRole("dialog", { name: "Add a step" })
+  const search = within(picker).getByRole("searchbox", { name: "Search step types" })
+  expect(document.activeElement).toBe(search)
+  expect(within(picker).getAllByRole("region").map(r => r.getAttribute("aria-label"))).toEqual(["Agents", "Code", "Board", "Cleanup"])
+  fireEvent.change(search, { target: { value: "add a note" } })
+  expect(within(picker).getAllByRole("region").map(r => r.getAttribute("aria-label"))).toEqual(["Board"])
+  fireEvent.keyDown(search, { key: "Enter" })
+  await waitFor(() => expect(address()).toBe("#steps/add-a-note-to-a-task"))
+  expect((await yamlOf()).match(/- id: \S+/g)).toEqual(["- id: prep", "- id: add-a-note-to-a-task", "- id: run"])
+})
+
+it("focuses the first essential field of the step it adds", async () => {
+  renderAt()
+  fireEvent.click(within(await screen.findByRole("region", { name: "Then" })).getByRole("button", { name: "Add step" }))
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Add a step" })).getByRole("button", { name: /Run an agent/ }))
+  await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("prompt of step run-an-agent"))
+})
+
+it("closes the picker with Escape, adding nothing", async () => {
+  renderAt()
+  fireEvent.click(await screen.findByRole("button", { name: "Add a step before Run" }))
+  fireEvent.keyDown(screen.getByRole("searchbox", { name: "Search step types" }), { key: "Escape" })
+  expect(screen.queryByRole("dialog", { name: "Add a step" })).toBeNull()
+  expect(await yamlOf()).toBe(fileText)
 })

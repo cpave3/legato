@@ -55,6 +55,7 @@ describe("step IDs", () => {
     expect(idFromTitle("Review the PR!", [])).toBe("review-the-pr")
     expect(idFromTitle("Review", ["review"])).toBe("review-2")
     expect(idFromTitle("  ", ["step"])).toBe("step-2")
+    expect(idFromTitle("Read a task's context", [])).toBe("read-a-tasks-context")
   })
 
   it("are new for a duplicate, which reads what the original read", () => {

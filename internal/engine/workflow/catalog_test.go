@@ -224,3 +224,15 @@ func TestOfferedStepTypesSayWhatTheInspectorAndTheirRowShow(t *testing.T) {
 		}
 	}
 }
+
+// The step picker groups the offered step types (LEG-507).
+func TestOfferedStepTypesAreInAPickerGroup(t *testing.T) {
+	for _, spec := range workflow.Catalog() {
+		if spec.Internal {
+			continue
+		}
+		if !slices.Contains(workflow.StepGroups, spec.Group) {
+			t.Errorf("%s: group %q is not one of %v", spec.Type, spec.Group, workflow.StepGroups)
+		}
+	}
+}

@@ -62,6 +62,9 @@ func buildSchema() schemaObject {
 		if len(spec.Summary) > 0 {
 			executor["summary"] = spec.Summary
 		}
+		if spec.Group != "" {
+			executor["group"] = spec.Group
+		}
 		executors = append(executors, executor)
 	}
 	step := definitions["step"].(schemaObject)
@@ -76,6 +79,7 @@ func buildSchema() schemaObject {
 	root["definitions"] = definitions
 	root["x-legato"] = schemaObject{
 		"schema_version":    SchemaVersion,
+		"step_groups":       StepGroups,
 		"executors":         executors,
 		"internal":          internal,
 		"expressions":       contexts,
@@ -154,6 +158,9 @@ func withSchema(spec ExecutorSpec) schemaObject {
 	}
 	if len(spec.Summary) > 0 {
 		extension["summary"] = spec.Summary
+	}
+	if spec.Group != "" {
+		extension["group"] = spec.Group
 	}
 	out["x-legato"] = extension
 	return out

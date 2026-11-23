@@ -12,6 +12,7 @@ import { DetailsForm, InputCard } from "./itemForms"
 import { brokenReferences, newStep, noOptions, stepReferences, type BuilderOptions, type StepValue } from "./stepForms"
 import { connectorOf, duplicateOf, idFromTitle, stepSummary } from "./stepRows"
 import { StepCard } from "./StepsEditor"
+import { StepPicker } from "./StepPicker"
 import { TriggerCard } from "./TriggersEditor"
 import { KIND_TITLES, newTrigger, triggerKinds } from "./triggerForms"
 import { LazyWorkflowYamlEditor } from "./LazyWorkflowYamlEditor"
@@ -146,6 +147,8 @@ function Outline(props: WorkflowOutlineProps) {
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
   const [warning, setWarning] = useState("")
   const [dragged, setDragged] = useState<string | null>(null)
+  // A step just added has its first essential field focused.
+  const [focusNew, setFocusNew] = useState<string | null>(null)
   const outline = useRef<HTMLElement>(null)
   const inspector = useRef<HTMLElement>(null)
 
@@ -223,6 +226,7 @@ function Outline(props: WorkflowOutlineProps) {
     const step = { ...made, id: idFromTitle(String(made.title ?? type), ids) }
     apply(() => insertStep(text, at, step))
     select({ kind: "step", path: step.id }, true)
+    setFocusNew(step.id)
   }
   const moveTo = (id: string, to: number) => {
     const order = ids.filter(other => other !== id)
@@ -291,13 +295,7 @@ function Outline(props: WorkflowOutlineProps) {
     return bare ? button : <li key={address}>{button}</li>
   }
 
-  const palette = adding?.kind === "step" ? <div role="group" aria-label="Step types" className="grid gap-1 px-2 py-1">
-    {executors.filter(e => !e.internal).map(e => <button key={e.type} type="button" className="flex flex-col items-start gap-0.5 rounded-lg border border-lw-line p-2 text-left hover:bg-lw-raised" onClick={() => addStep(e.type, adding.at)}>
-      <span className="text-sm font-medium">{e.title}</span>
-      <span className="text-xs text-lw-text-2">{e.description}</span>
-    </button>)}
-    <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding(null)}>Cancel</Button>
-  </div> : null
+  const palette = adding?.kind === "step" ? <StepPicker narrow={narrow} onPick={type => addStep(type, adding.at)} onClose={() => setAdding(null)} /> : null
 
   // A top-level step's row, with the connector before it that says how
   // it starts and inserts a step there. Nested steps are plain rows.
@@ -381,7 +379,7 @@ function Outline(props: WorkflowOutlineProps) {
   const inspectorView = <section ref={inspector} aria-label="Inspector" className="flex min-w-0 flex-col gap-3">
     {narrow && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={onCloseSheet}><ArrowLeft size={13} />Outline</Button>}
     {selectedRow
-      ? <Inspector key={placeOf(order, selectedRow.selection)} place={placeOf(order, selectedRow.selection)} held={heldYaml[placeOf(order, selectedRow.selection)]} onHold={hold} row={selectedRow} savedIds={savedIds} text={text} values={values} diagnostics={diagnostics} problems={problems} options={options} apply={apply} nameFixed={nameFixed} schedule={schedule} onSelect={onSelect} onUndo={onUndo} onRedo={onRedo} />
+      ? <Inspector key={placeOf(order, selectedRow.selection)} place={placeOf(order, selectedRow.selection)} held={heldYaml[placeOf(order, selectedRow.selection)]} onHold={hold} row={selectedRow} savedIds={savedIds} focusEssential={selectedRow.selection.kind === "step" && selectedRow.selection.path === focusNew} onFocused={() => setFocusNew(null)} text={text} values={values} diagnostics={diagnostics} problems={problems} options={options} apply={apply} nameFixed={nameFixed} schedule={schedule} onSelect={onSelect} onUndo={onUndo} onRedo={onRedo} />
       : <p className="text-sm text-lw-text-2">Choose a row of the outline to edit it.</p>}
   </section>
 
@@ -404,6 +402,8 @@ type InspectorProps = {
   held?: string
   onHold: (place: string, held: string | null) => void
   row: Row
+  focusEssential?: boolean
+  onFocused?: () => void
   /** savedIds are the IDs of the steps saved (null: none yet). */
   savedIds: Set<string> | null
   text: string
@@ -423,10 +423,16 @@ type Tab = "setup" | "outputs" | "yaml"
 
 // Inspector edits one row: its header, then its tabs (Setup, Outputs for a
 // step, and YAML). A row the forms can't show has YAML alone.
-function Inspector({ place, held, onHold, row, savedIds, text, values, diagnostics, problems, options, apply, nameFixed, schedule, onSelect, onUndo, onRedo }: InspectorProps) {
+function Inspector({ place, held, onHold, row, focusEssential, onFocused, savedIds, text, values, diagnostics, problems, options, apply, nameFixed, schedule, onSelect, onUndo, onRedo }: InspectorProps) {
   const selection = row.selection
   const tabs: Tab[] = row.problem ? ["yaml"] : selection.kind === "step" ? ["setup", "outputs", "yaml"] : selection.kind === "about" ? ["setup"] : ["setup", "yaml"]
   const [tab, setTab] = useState<Tab>(tabs[0])
+  const body = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!focusEssential) return
+    const control = body.current?.querySelector<HTMLElement>('[data-essential="true"] :is(input, textarea, select)')
+    if (control) { control.focus(); onFocused?.() }
+  })
   const shown = tabs.includes(tab) ? tab : tabs[0]
   // A step that is not a mapping keeps its place, and is no one's reader.
   const placed = stepsOf(values) as (StepValue | null)[]
@@ -499,7 +505,7 @@ function Inspector({ place, held, onHold, row, savedIds, text, values, diagnosti
   const ref: ItemRef | null = selection.kind === "about" ? null : selection
   const yamlTab = ref && <ItemYaml text={text} item={ref} apply={apply} onUndo={onUndo} onRedo={onRedo} held={held} onHold={next => onHold(place, next)} />
 
-  return <div className="flex flex-col gap-3">
+  return <div ref={body} className="flex flex-col gap-3">
     <header className="flex flex-col gap-1">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-lw-faint">{kind}</span>

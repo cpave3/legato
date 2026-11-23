@@ -251,6 +251,9 @@ func TestTheSchemaCarriesTheEditorsExtensions(t *testing.T) {
 	if summary, _ := run.Extension["summary"].([]any); len(summary) != 2 || summary[0] != "macro" || summary[1] != "prompt" {
 		t.Errorf("with.agent.run summary = %v", run.Extension["summary"])
 	}
+	if run.Extension["group"] != "Agents" {
+		t.Errorf("with.agent.run group = %v", run.Extension["group"])
+	}
 	interview := schema.Definitions["with.agent.interview"].Extension
 	if interview["internal"] != true {
 		t.Errorf("agent.interview x-legato = %v", interview)
