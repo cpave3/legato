@@ -283,9 +283,11 @@ function StageBand({ stage, agents, contexts, approvals, onDecide, onOpen, onSen
 // WorkingRow is a working agent on a phone, on one line: the glance, the ID,
 // the title and what it is doing now.
 function WorkingRow({ agent, onOpen }: { agent: AgentInfo; onOpen: (taskId: string) => void }) {
-  const { conversation, observe } = useAgentGlance(agent)
+  const { conversation, pane, observe } = useAgentGlance(agent)
   const glance = glanceOf(agent)
-  const now = nowLine(agent, conversation)
+  // A terminal agent's now line is the last line of its terminal.
+  const last = pane?.split("\n").map((line) => line.trimEnd()).filter(Boolean).pop()
+  const now = nowLine(agent, conversation) ?? (last ? { tool: "", text: last } : null)
   return (
     <button
       ref={observe}
@@ -417,7 +419,7 @@ function StageCard({ agent, context, approval, onDecide, onOpen, onSend, touch =
       {body}
       {!needs && (
         <div className="flex flex-col gap-2">
-          {replying && onSend && <CardMessageBox agent={agent} idle={!working} onSend={onSend} />}
+          {replying && onSend && <CardMessageBox agent={agent} idle={!working} onSend={onSend} touch={touch} />}
           <div className="flex items-center gap-2">
             {onSend && (
               <button type="button" aria-expanded={replying} onClick={() => setReplying((value) => !value)} className={cn(cardButton, touch && "min-h-11")}>
@@ -498,7 +500,7 @@ function NeedsBox({ agent, conversation, approval, onDecide, onOpen, touch }: {
 
 // A card's message box, opened in place by Reply: Enter sends what was typed
 // to the agent, which reads it at its next step when it is busy.
-function CardMessageBox({ agent, idle, onSend }: { agent: AgentInfo; idle: boolean; onSend: (taskId: string, content: string) => void }) {
+function CardMessageBox({ agent, idle, onSend, touch }: { agent: AgentInfo; idle: boolean; onSend: (taskId: string, content: string) => void; touch: boolean }) {
   const [draft, setDraft] = useState("")
   const label = idle ? `Reply to ${agent.task_id}` : `Message ${agent.task_id}`
   return (
@@ -516,7 +518,7 @@ function CardMessageBox({ agent, idle, onSend }: { agent: AgentInfo; idle: boole
         onSend(agent.task_id, content)
         setDraft("")
       }}
-      className="h-[30px] min-w-0 rounded-md border border-lw-accent bg-lw-ground px-2.5 text-xs text-lw-text outline-none placeholder:text-lw-faint"
+      className={cn("min-w-0 rounded-md border border-lw-accent bg-lw-ground px-2.5 text-xs text-lw-text outline-none placeholder:text-lw-faint", touch ? "min-h-11" : "h-[30px]")}
     />
   )
 }

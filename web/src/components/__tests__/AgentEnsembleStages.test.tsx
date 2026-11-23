@@ -326,6 +326,20 @@ describe("By stage on a phone", () => {
     expect(within(screen.getByRole("region", { name: "Reviewing" })).queryByRole("article")).toBeNull()
   })
 
+  it("gives the reply box a thumb's height too", () => {
+    render(<AgentEnsemble agents={[agent("LEG-386", "implementing", "your_turn")]} onSend={vi.fn()} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    fireEvent.click(screen.getByRole("button", { name: "Reply to LEG-386" }))
+    expect(screen.getByRole("textbox", { name: "Reply to LEG-386" }).className).toContain("min-h-11")
+  })
+
+  it("shows a terminal agent's last line on its working row", async () => {
+    apiFetch.mockImplementation(async (_baseUrl: string, path: string) => path.includes("/LEG-500/preview")
+      ? new Response(JSON.stringify({ task_id: "LEG-500", content: "$ make build\nok  ./...\n", captured_at: "now" }), { status: 200 })
+      : new Response("no", { status: 404 }))
+    render(<AgentEnsemble agents={[agent("LEG-500", "implementing", "working", { activity: "working" })]} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    expect(await screen.findByText(/^ok \.\/\.\.\.$/)).toBeTruthy()
+  })
+
   it("starts Finished collapsed with its new notes, and remembers it opened", () => {
     const finished = [agent("LEG-405", "finished", "finished"), agent("LEG-413", "finished", "finished", { open_items: 1, open_done_items: 1 })]
     render(<AgentEnsemble agents={finished} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
