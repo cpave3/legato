@@ -68,7 +68,7 @@ When the Reeve wants to change something, it proposes a **change set**: the call
 
 That report reaches the Reeve as a message from Legato, and its conversation shows it as one line, the way a tool call is shown, not as something you wrote: the set's short ID and how its calls went, such as `cs-816f… · 1 of 1 ran ✓`, `1 of 2 ran, 1 failed, 1 skipped`, `denied`, or `restart: back` when Legato returns from a restart. Click the line to read the whole report. The TUI's ensemble shows the same line. A long command output is cut to its first and last 20 lines; the whole of it is kept in a file the Reeve can read. Deny it with a note, and the Reeve gets the note and does not propose the same change again unless you ask.
 
-The approval card says where the set comes from (the Reeve and the instance), its ID, how many changes and what it needs; each change with its kind (change, risky), the call it makes, and a setting's value before and after. In the Reeve's conversation, each change set is a line with its state: waiting, or done with how many of its calls ran. A set that ran without asking (see [Running without asking](#running-without-asking)) is marked **auto**.
+The approval card says where the set comes from (the Reeve and the instance), its ID, how many changes and what it needs; each change with its kind (change, risky), the call it makes, and a setting's value before and after.
 
 Ending a session withdraws the change sets still waiting for you; a suspended session keeps them.
 
@@ -140,7 +140,7 @@ In **Settings › Reeve › Approvals**, the rules are listed in the order they 
 
 ### Running without asking
 
-At **auto**, a change set runs as soon as the Reeve proposes it, and the Reeve gets the result as the answer to its tool call, so no message about it is added to the conversation. A set still running after 30 seconds (90 seconds when it has a host command), or one that ends in a restart, is reported by message, as an approved one is. It is still recorded as an approval, decided by the level or rule that allowed it, every call is written to the audit log, it shows for a few seconds at the corner of the screen as already done, and its line in the conversation is marked **auto**. If any call of a set needs more, the whole set waits for you.
+At **auto**, a change set runs as soon as the Reeve proposes it, and the Reeve gets the result as the answer to its tool call, so no message about it is added to the conversation. A set still running after 30 seconds (90 seconds when it has a host command), or one that ends in a restart, is reported by message, as an approved one is. It is still recorded as an approval, decided by the level or rule that allowed it, every call is written to the audit log, and it shows for a few seconds at the corner of the screen as already done. If any call of a set needs more, the whole set waits for you.
 
 Use it for the changes you approve without reading: set **What a change needs** to `auto` for tasks, agents and their messages and ordinary settings, or add rules for narrow patterns while the class stays at approve, such as `POST /api/tasks*`, `PATCH /api/tasks/*` or `POST /api/tasks/*/agent`. A risky change at `auto` includes restarts, stopping agents and settings that choose what runs on this machine: choose it only on purpose. In `config.yaml`, `risky: auto` is read as `default`, which is what it meant before `auto` was a level.
 

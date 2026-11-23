@@ -1,7 +1,6 @@
 import { ReeveStatus, reeveWash } from "./ReeveEntry"
 import { AskReeve } from "./AskReeve"
 import { parseReeveMessage, reeveBrief } from "../lib/reeve"
-import { ChangeSetLines } from "./ChangeSetLines"
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useId, memo, Fragment } from "react"
 import { ArrowDown, ArrowLeftRight, Bell, BellOff, Check, FolderInput, Info, Network, Pencil, Plug, RefreshCw, RotateCw, Shield, Skull, Terminal, Unplug, Zap } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
@@ -1104,7 +1103,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
           {error && <span className="truncate text-lw-error">{error}</span>}
         </>}
       />
-      {reeve && <ChangeSetLines baseUrl={baseUrl} taskId={agentId} refresh={activity} />}
       {showTiles && !tilesBeside && (
         <TileDeck title={deckTitle} tiles={tiles} layout="strip" focused={focusedTile} onFocus={setFocusedTile} />
       )}
