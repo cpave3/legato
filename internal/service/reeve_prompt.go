@@ -227,7 +227,7 @@ func ReeveLaunchPrompt(noEngram, snapshot, brief string, voice bool) string {
 	if voice {
 		sections = append(sections, ReeveVoicePrompt)
 	}
-	sections = append(sections, snapshot)
+	sections = append(sections, ReeveGlassesPrompt, snapshot)
 	if strings.TrimSpace(brief) != "" {
 		sections = append(sections, "## The brief\n\n"+strings.TrimSpace(brief))
 	}

@@ -188,8 +188,10 @@ func (s *Server) reeveDeleteHandler() http.HandlerFunc {
 	}
 }
 
-// reeveMessageHandler serves POST /api/reeve/message {text}: into the
-// running session, resuming a suspended one, or starting one with it.
+// reeveMessageHandler serves POST /api/reeve/message {text, from?}: into the
+// running session, resuming a suspended one, or starting one with it. A
+// message `from` "glasses" was dictated on the Even G2 glasses, and is marked
+// so the Reeve keeps its reply to what they can show.
 func (s *Server) reeveMessageHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.haveReeve(w) {
@@ -197,12 +199,22 @@ func (s *Server) reeveMessageHandler() http.HandlerFunc {
 		}
 		var in struct {
 			Text string `json:"text"`
+			From string `json:"from"`
 		}
 		if json.NewDecoder(r.Body).Decode(&in) != nil || strings.TrimSpace(in.Text) == "" {
 			s.writeError(w, http.StatusBadRequest, "want {\"text\": …}")
 			return
 		}
-		if err := s.reeve.Message(r.Context(), in.Text, "web"); err != nil {
+		text, by := in.Text, "web"
+		switch in.From {
+		case "":
+		case "glasses":
+			text, by = service.GlassesMessage(strings.TrimSpace(in.Text)), "glasses"
+		default:
+			s.writeError(w, http.StatusBadRequest, "from must be \"glasses\" or left out")
+			return
+		}
+		if err := s.reeve.Message(r.Context(), text, by); err != nil {
 			s.reeveError(w, err)
 			return
 		}

@@ -257,10 +257,11 @@ func (s *ReeveService) spawn(ctx context.Context, row store.ReeveSession, brief 
 	if named := ReeveNamePrompt(defaults.Name); named != "" {
 		snapshot = named + "\n\n" + snapshot
 	}
-	// A spoken turn is the first message itself, marked at its start, and
-	// not a brief: the voice section answers only a message that starts so.
+	// A spoken turn, or one from the glasses, is the first message itself,
+	// marked at its start, and not a brief: the voice and glasses sections
+	// answer only a message that starts so.
 	brief = strings.TrimSpace(brief)
-	spoken := strings.HasPrefix(brief, VoiceMarker)
+	spoken := markedTurn(brief)
 	launchBrief := brief
 	if spoken {
 		launchBrief = ""

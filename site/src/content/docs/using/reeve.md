@@ -202,6 +202,10 @@ In the web UI, the ring beside the Reeve in the Agents list opens a voice sheet.
 
 Before it listens, an app asks the main whether a conversation will work. If not, it shows one line saying why, such as "Whisper isn't answering on tessitura", and which setting to change. When the Reeve is suspended, that question also starts resuming it, so it is ready by the time you finish speaking.
 
+## On your glasses
+
+The [Even Realities G2 glasses app](/legato/integrations/even-g2/#talk-to-the-reeve) has a chat with the Reeve: hold the touchpad, say what you want, check the transcript and tap to send. The message reaches the Reeve marked as from the glasses, and it answers in a sentence or two of plain text, the outcome first, since the glasses show only a few short lines. That lasts for one message, as voice does: a message you type gets its usual answer. A message from the glasses wakes a suspended Reeve, or starts one. It needs transcription (`voice.enabled` and `voice.whisper_url`), as dictating to an agent does.
+
 ## Where it runs
 
 The Reeve always runs in Legato's [sandbox](/legato/security/sandbox/): it cannot be started without it, and **Run without sandbox** and the switch out of the sandbox are refused for it. Its containers never get [the host network](/legato/security/sandbox/#the-host-network-for-one-agent). When the Reeve starts another agent with the host network, or reloads one to change it, that is a risky change, whatever the route's own class. It works in a folder of its own, `~/.local/state/legato/reeve` (or under `$XDG_STATE_HOME`), outside your repositories and Legato's data folder. The folder also holds its engram's store.
