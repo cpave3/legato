@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -19,6 +20,9 @@ type fakeCompactor struct {
 	mu      sync.Mutex
 	answers []error
 	asks    []compactAsk
+	// during runs inside an ask the agent takes, before the ask returns:
+	// the agent's events can arrive that early.
+	during func(taskID string)
 }
 
 type compactAsk struct{ taskID, instructions string }
@@ -27,13 +31,19 @@ func (f *fakeCompactor) CompactAgent(_ context.Context, taskID, instructions str
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.asks = append(f.asks, compactAsk{taskID, instructions})
-	if len(f.answers) == 0 {
-		return nil
+	var answer error
+	if len(f.answers) > 0 {
+		answer = f.answers[0]
 	}
-	answer := f.answers[0]
 	if len(f.answers) > 1 {
 		f.answers = f.answers[1:]
 	}
+	during := f.during
+	f.mu.Unlock()
+	if answer == nil && during != nil {
+		during(taskID)
+	}
+	f.mu.Lock()
 	return answer
 }
 
@@ -65,37 +75,55 @@ steps:
 `
 
 type compactRun struct {
+	db        *store.Store
 	workflows *WorkflowService
 	compactor *fakeCompactor
 	run       *store.WorkflowRunView
 	now       *time.Time
 }
 
-func startCompact(t *testing.T, with string, answers ...error) compactRun {
+func startCompact(t *testing.T, with string, answers ...error) *compactRun {
+	t.Helper()
+	return startCompactWith(t, with, &fakeCompactor{answers: answers})
+}
+
+func startCompactWith(t *testing.T, with string, compactor *fakeCompactor) *compactRun {
+	t.Helper()
+	run := newCompactRun(t, compactor)
+	run.start(t, with)
+	return run
+}
+
+// newCompactRun is a Legato whose agents compactor compacts.
+func newCompactRun(t *testing.T, compactor *fakeCompactor) *compactRun {
 	t.Helper()
 	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	compactor := &fakeCompactor{answers: answers}
 	now := time.Now().UTC()
 	executor := NewAgentCompactExecutor(compactor)
-	run := compactRun{compactor: compactor, now: &now}
+	run := &compactRun{db: db, compactor: compactor, now: &now}
 	executor.SetClock(func() time.Time { return *run.now })
 	run.workflows = NewWorkflowService(db, []WorkflowExecutor{executor, NewTaskContextExecutor(NewBoardService(db, nil))})
+	return run
+}
+
+// start runs the compact workflow, its step taking with.
+func (r *compactRun) start(t *testing.T, with string) {
+	t.Helper()
 	def, err := workflowengine.Parse("compact.yaml", []byte(strings.ReplaceAll(compactWorkflow, "WITH", with)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if run.run, err = run.workflows.Start(context.Background(), def, nil); err != nil {
+	if r.run, err = r.workflows.Start(context.Background(), def, nil); err != nil {
 		t.Fatal(err)
 	}
-	return run
 }
 
 // event is what the agent of the run's task said.
-func (r compactRun) event(t *testing.T, eventType, data string) {
+func (r *compactRun) event(t *testing.T, eventType, data string) {
 	t.Helper()
 	r.workflows.ObserveCompaction(context.Background(), WatchedAgent{TaskID: r.run.Run.TaskID, Slot: store.SlotMain},
 		chimera.EventEnvelope{Type: eventType, Data: []byte(data)})
@@ -152,6 +180,7 @@ func TestACompactStepWaitsForTheAgentsTurnToEndBeforeCompacting(t *testing.T) {
 	if asks := run.compactor.asked(); len(asks) != 3 {
 		t.Fatalf("asked %d times; want no ask once the agent took one", len(asks))
 	}
+	run.event(t, "compaction_started", `{"type":"compaction_started","reason":"manual"}`)
 	run.event(t, "compaction_finished", `{"type":"compaction_finished"}`)
 	status, after := stepStatus(t, run.workflows, run.run.Run.ID, "compact")
 	if status != "succeeded" || after.Run.Status != "succeeded" {
@@ -265,6 +294,7 @@ func TestTheCompactionsAnAgentsStreamReportsReachItsCompactStep(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
+	agent.stream.emit("compaction_started", map[string]any{"reason": "manual"})
 	agent.stream.emit("compaction_finished", map[string]any{"tokensBefore": 1200, "tokensAfter": 300})
 	for {
 		status, after := stepStatus(t, run.workflows, run.run.Run.ID, "compact")
@@ -278,5 +308,101 @@ func TestTheCompactionsAnAgentsStreamReportsReachItsCompactStep(t *testing.T) {
 			t.Fatalf("step = %s; want the agent's compaction_finished to complete it", status)
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestACompactionThatEndsBeforeItsAskReturnsStillEndsTheStep(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		answers []error
+	}{
+		{"asked when the step starts", nil},
+		{"asked again once the turn ends", []error{ErrAgentWorking, nil}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			compactor := &fakeCompactor{answers: tc.answers}
+			run := newCompactRun(t, compactor)
+			// The agent's hook vetoes it at once: its event comes before
+			// the ask's answer, and before the step is stored as waiting.
+			compactor.during = func(taskID string) {
+				agent := WatchedAgent{TaskID: taskID, Slot: store.SlotMain}
+				for _, event := range []string{`{"type":"compaction_started","reason":"manual"}`, `{"type":"compaction_failed","error":"a PreCompact hook vetoed it"}`} {
+					var typed struct{ Type string }
+					_ = json.Unmarshal([]byte(event), &typed)
+					run.workflows.ObserveCompaction(context.Background(), agent, chimera.EventEnvelope{Type: typed.Type, Data: []byte(event)})
+				}
+			}
+			run.start(t, `{task: "${{ workflow.task }}"}`)
+			for range 2 {
+				if err := run.workflows.CheckCompactions(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if status, _ := stepStatus(t, run.workflows, run.run.Run.ID, "compact"); status != "failed" {
+				t.Fatalf("step = %s; want the early failure to fail it", status)
+			}
+			if got := stepError(t, run.workflows, run.run.Run.ID, "compact"); got != "The compaction failed: a PreCompact hook vetoed it" {
+				t.Fatalf("error = %q", got)
+			}
+		})
+	}
+}
+
+const twoCompactsWorkflow = `
+schema_version: 1
+name: compact-twice
+title: Compact twice
+steps:
+ - id: first
+   title: Compact
+   type: agent.compact
+   with: {task: "${{ workflow.task }}"}
+ - id: second
+   title: Compact again
+   type: agent.compact
+   with: {task: "${{ workflow.task }}"}
+`
+
+func TestALateCopyOfOneCompactionsEndDoesNotEndTheNextCompactStep(t *testing.T) {
+	// serve runs the workflow; the TUI beside it follows the same agent,
+	// with its copy of the agent's stream running late.
+	run := newCompactRun(t, &fakeCompactor{})
+	serveWorkflows := NewWorkflowService(run.db, []WorkflowExecutor{NewAgentCompactExecutor(&fakeCompactor{})})
+	def, err := workflowengine.Parse("twice.yaml", []byte(twoCompactsWorkflow))
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := serveWorkflows.Start(context.Background(), def, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := WatchedAgent{TaskID: view.Run.TaskID, Slot: store.SlotMain}
+	ctx := context.Background()
+	say := func(workflows *WorkflowService, eventType string) {
+		workflows.ObserveCompaction(ctx, agent, chimera.EventEnvelope{Type: eventType, Data: []byte(`{"type":"` + eventType + `"}`)})
+	}
+	tui := NewWorkflowService(run.db, []WorkflowExecutor{NewAgentCompactExecutor(&fakeCompactor{answers: []error{ErrAgentWorking}})})
+	say(tui, "compaction_started") // the first compaction, as the TUI hears it
+	say(serveWorkflows, "compaction_started")
+	say(serveWorkflows, "compaction_finished")
+	if status, _ := stepStatus(t, serveWorkflows, view.Run.ID, "first"); status != "succeeded" {
+		t.Fatalf("first = %s", status)
+	}
+	if status, _ := stepStatus(t, serveWorkflows, view.Run.ID, "second"); status != WorkflowStepWaiting {
+		t.Fatalf("second = %s; want it waiting on its own compaction", status)
+	}
+	// The TUI's check finds the second step; then its copy of the first
+	// compaction's end arrives.
+	if err := tui.CheckCompactions(ctx); err != nil {
+		t.Fatal(err)
+	}
+	say(tui, "compaction_finished")
+	if status, _ := stepStatus(t, serveWorkflows, view.Run.ID, "second"); status != WorkflowStepWaiting {
+		t.Fatalf("second = %s; want the first compaction's end not to end it", status)
+	}
+	say(tui, "compaction_started")
+	say(tui, "compaction_finished")
+	if status, _ := stepStatus(t, serveWorkflows, view.Run.ID, "second"); status != "succeeded" {
+		t.Fatalf("second = %s; want its own compaction to end it", status)
 	}
 }
