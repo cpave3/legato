@@ -124,7 +124,7 @@ When agents ask questions, the focus button in the rail's header (on a phone, be
 
 On a phone focus mode fills the screen, with **Back** and **Next** at the bottom.
 
-Focus mode stays on until you leave it. With no question left it fades away and says it is waiting, and the next question to arrive opens it again. It is for this page only: a reload turns it off.
+Focus mode stays on until you leave it. With no question left it fades away, and a note at the top of the page says focus is on, with **Leave focus**; in the ensemble it is a small **Focus is on · Leave** pill beside the layout switch. The note never covers the page. The next question to arrive opens focus mode again. It is for this page only: a reload turns it off.
 
 When the Legato tab is not in front, the browser shows a notification for each new approval. Click it to open the rail on that request. Turn this off in **Settings › Attention › Notify me › In this browser**.
 

@@ -54,9 +54,10 @@ const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false 
 // sheet, focus mode, and the reader of ?approval=.
 function TrayHarness() {
   useApprovalLink()
-  return <QueryClientProvider client={queryClient}><NeedsYouSheet onClose={mockCloseSheet} /><ApprovalFocus /></QueryClientProvider>
+  return <QueryClientProvider client={queryClient}><FocusNoticeProvider><FocusStandby /><NeedsYouSheet onClose={mockCloseSheet} /><ApprovalFocus /></FocusNoticeProvider></QueryClientProvider>
 }
 import { setFocusMode } from "../../lib/focusMode"
+import { FocusNoticeProvider, FocusStandby } from "../FocusNotice"
 
 function permission(overrides: Partial<Approval> = {}): Approval {
   return {

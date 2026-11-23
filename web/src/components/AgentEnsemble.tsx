@@ -36,6 +36,8 @@ export interface AgentEnsembleProps {
   // in a stage band offers Allow and Deny for its agent's.
   approvals?: Approval[]
   onDecide?: (approval: Approval, decision: ApprovalDecision) => void
+  // The "Focus is on" pill, shown in the header beside the layout switch.
+  focusNotice?: ReactNode
 }
 
 // The header's counts, by glance group. The Reeve is left out of every
@@ -80,7 +82,7 @@ function stateOf(agent: AgentInfo): { label: string; glyph: string; chip: string
 
 // AgentEnsemble shows every running agent at once: a tile for each with what
 // it is at, the agents that need the person first, or by stage in bands.
-export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowList, onSend, approvals = [], onDecide }: AgentEnsembleProps) {
+export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowList, onSend, approvals = [], onDecide, focusNotice }: AgentEnsembleProps) {
   const ordered = orderForEnsemble(agents)
   // Below lg, By stage stacks its bands and leaves out empty stages.
   const phone = useMediaQuery("(max-width: 1023px)")
@@ -104,7 +106,8 @@ export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowLi
             })}
           </ul>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {focusNotice}
           <div role="group" aria-label="Layout" className="flex rounded-md border border-lw-line bg-lw-surface p-0.5">
             <button type="button" aria-pressed={layout === "tiles"} onClick={() => setLayout("tiles")} className={segment(layout === "tiles")}>Tiles</button>
             <button type="button" aria-pressed={layout === "stage"} onClick={() => setLayout("stage")} className={segment(layout === "stage")}>By stage</button>

@@ -22,6 +22,9 @@ import { SwarmEventLog } from "../components/SwarmEventLog"
 import { SwarmCommandCenter } from "../components/SwarmCommandCenter"
 import { AgentEnsemble, type AgentEnsembleProps } from "../components/AgentEnsemble"
 import { useApprovals } from "../hooks/useApprovals"
+import { FocusNotice } from "../components/FocusNotice"
+import { useClaimFocusNotice } from "../hooks/useFocusNotice"
+import { useFocusMode } from "../lib/focusMode"
 import { decideApproval } from "../lib/approvals"
 import { AgentPickerBar } from "../components/AgentSelect"
 import { ReeveEntry, ReeveStatus } from "../components/ReeveEntry"
@@ -1108,9 +1111,13 @@ function EnsembleWithApprovals(props: Omit<AgentEnsembleProps, "approvals" | "on
   const { baseUrl } = useServer()
   const { addToast } = useToast()
   const { data: approvals, refresh } = useApprovals()
+  // The "Focus is on" notice docks in the ensemble's header, not above it.
+  useClaimFocusNotice()
+  const focusMode = useFocusMode()
   return (
     <AgentEnsemble
       {...props}
+      focusNotice={focusMode && approvals.length === 0 ? <FocusNotice compact /> : undefined}
       approvals={approvals}
       onDecide={(approval, decision) => {
         decideApproval(baseUrl, approval.id, decision)
