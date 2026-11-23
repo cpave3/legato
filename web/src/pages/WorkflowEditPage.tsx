@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react"
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { fetchMacroList } from "../lib/macros"
@@ -13,6 +13,8 @@ import { checkWorkflowFile, createWorkflowFile, deleteWorkflowFile, fetchWorkflo
 import { LazyWorkflowYamlEditor } from "../components/workflow-editor/LazyWorkflowYamlEditor"
 import { LazyWorkflowOutline } from "../components/workflow-editor/LazyWorkflowOutline"
 import type { HeldYaml } from "../components/workflow-editor/WorkflowOutline"
+import { KIND_TITLES } from "../components/workflow-editor/triggerTitles"
+import { setWorkflowTrigger } from "../lib/workflow"
 
 // Drops held item YAML that no longer belongs to the text, in either mode.
 const HeldYamlReconciler = lazy(() => import("../components/workflow-editor/HeldYamlReconciler"))
@@ -176,6 +178,24 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   // Item YAML the outline holds until it reads (LEG-505): kept here so it
   // outlives a switch to the whole file's YAML, and counted as unsaved.
   const [heldYaml, setHeldYaml] = useState<HeldYaml>({})
+  // Saved · paused · Turn on (LEG-509): after a save, a trigger this
+  // Legato has paused is named, with a way to switch it on.
+  const [savedNotice, setSavedNotice] = useState(Boolean((location.state as { saved?: boolean } | null)?.saved))
+  const [turningOn, setTurningOn] = useState<"ask" | "busy" | "done" | null>(null)
+  const triggerStates = useMemo(() => workflows.data?.trigger_states?.[name] ?? [], [workflows.data, name])
+  const pausedHere = useMemo(() => Object.fromEntries(triggerStates.map(state => [state.trigger, !state.enabled])), [triggerStates])
+  const pausedTriggers = triggerStates.filter(state => !state.enabled).map(state => state.trigger)
+  const turnOn = async () => {
+    setTurningOn("busy")
+    try {
+      for (const trigger of pausedTriggers) await setWorkflowTrigger(baseUrl, name, trigger, true)
+      await workflows.refresh?.()
+      setTurningOn("done")
+    } catch (reason) {
+      setTurningOn(null)
+      setError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
   const [file, setFile] = useState<WorkflowFile | null>(null)
   const [loadError, setLoadError] = useState("")
   const history = useHistory(mode === "new" ? starterWorkflow : null)
@@ -290,13 +310,18 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
         const created = await createWorkflowFile(baseUrl, text, folder, confirmTriggers)
         forget()
         await refresh()
-        navigate(`/workflows/${encodeURIComponent(created.name)}`)
+        // A workflow saved with a paused trigger stays in the editor, which
+        // says so and offers to turn it on; any other opens its page.
+        const paused = /^\s+enabled:\s*false\b/m.test(text)
+        navigate(paused ? `/workflows/${encodeURIComponent(created.name)}/edit` : `/workflows/${encodeURIComponent(created.name)}`, { state: paused ? { saved: true } : undefined })
         return
       }
       const result = await saveWorkflowFile(baseUrl, name, text, digest, confirmTriggers)
       setDigest(result.digest)
       setSaved(text)
       setTriggers(null)
+      setSavedNotice(true)
+      setTurningOn(null)
       await refresh()
     } catch (reason) {
       if (reason instanceof WorkflowFileError && reason.code === "stale") {
@@ -381,6 +406,21 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
       <Problems diagnostics={diagnostics} />
     </section>}
 
+    {savedNotice && mode === "edit" && (pausedTriggers.length > 0 || turningOn === "done") && <section role="status" aria-label="Saved" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-line bg-lw-surface p-3 text-sm">
+      {turningOn === "done"
+        ? <p className="flex-1">Saved · on: it starts runs by itself.</p>
+        : <>
+          <p className="min-w-0 flex-1"><span className="font-medium">Saved · paused</span> <span className="text-lw-text-2">· {pausedTriggers.map(t => KIND_TITLES[t] ?? t).join(", ")} won't start runs by itself until you turn it on.</span></p>
+          {turningOn === "ask" || turningOn === "busy"
+            ? <span role="alertdialog" aria-label="Turn on" className="flex flex-wrap items-center gap-2 text-xs">
+              <span>It will start runs by itself.</span>
+              <Button size="sm" disabled={turningOn === "busy"} onClick={() => void turnOn()}>Turn on</Button>
+              <Button size="sm" variant="ghost" onClick={() => setTurningOn(null)}>Not now</Button>
+            </span>
+            : <Button size="sm" variant="outline" onClick={() => setTurningOn("ask")}>Turn on</Button>}
+        </>}
+      <Button size="sm" variant="ghost" aria-label="Dismiss" onClick={() => { setSavedNotice(false); setTurningOn(null) }}>×</Button>
+    </section>}
     {draft && <section role="alertdialog" aria-label="Unsaved changes" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm">
       <p className="flex-1">You left this workflow with unsaved changes. They were kept in this browser.</p>
       <Button size="sm" variant="outline" onClick={() => { history.push(draft.text, "Restore unsaved changes"); if (draft.digest) setDigest(draft.digest); setDraft(null) }}>Restore them</Button>
@@ -431,7 +471,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
       </div>
       : <section aria-label="Visual" className={narrow ? "pb-16" : undefined}>
         <LazyWorkflowOutline text={text} onEdit={(change, how) => history.push(change.text, change.undo.label, how?.typing)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={() => switchMode("yaml")} options={options} schedule={checked?.schedule} onPending={setPendingEdits}
-          savedText={mode === "edit" ? saved : null} selection={selection} onSelect={select} narrow={narrow} sheet={narrow && selection !== null} onCloseSheet={closeSheet} onUndo={history.undo} onRedo={history.redo} held={heldYaml} onHeld={setHeldYaml} />
+          savedText={mode === "edit" ? saved : null} pausedHere={pausedHere} selection={selection} onSelect={select} narrow={narrow} sheet={narrow && selection !== null} onCloseSheet={closeSheet} onUndo={history.undo} onRedo={history.redo} held={heldYaml} onHeld={setHeldYaml} />
       </section>}
     {text !== null && Object.keys(heldYaml).length > 0 && <Suspense fallback={null}><HeldYamlReconciler text={text} held={heldYaml} onHeld={setHeldYaml} /></Suspense>}
     {narrow && editable && <div role="toolbar" aria-label="Save" className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-between gap-2 border-t border-lw-line bg-lw-surface px-4 py-2">

@@ -98,7 +98,7 @@ it("lists the workflow as When, Asks for, Then and About", async () => {
   await screen.findByRole("navigation", { name: "Outline" })
   const sections = within(outline()).getAllByRole("region").map(section => section.getAttribute("aria-label"))
   expect(sections).toEqual(["When", "Asks for", "Then", "About"])
-  expect(within(screen.getByRole("region", { name: "When" })).getByRole("button", { name: /On a schedule.*paused/ })).toBeTruthy()
+  expect(within(screen.getByRole("region", { name: "When" })).getAllByRole("button").map(b => b.textContent)).toEqual(["Every weekday at 09:00paused", "Add trigger"])
   const then = screen.getByRole("region", { name: "Then" })
   expect([...then.querySelectorAll("[data-address]")].map(b => b.getAttribute("data-address"))).toEqual(["steps/prep", "steps/run"])
   expect(within(then).getByRole("button", { name: "Add step" })).toBeTruthy()

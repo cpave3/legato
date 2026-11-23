@@ -181,6 +181,9 @@ The editor has two sides, **Visual** and **YAML**, and you can switch between th
     - A step's **⋮** menu duplicates, moves or deletes it, and on a computer you can drag a row to move it. A move that would make a step read the outputs of one after it is refused, with the reference named. Deleting a step that others read asks first.
     - Renaming the ID of a step that others read asks whether to change their references too.
     - A field the step's type doesn't know is kept, and named, for you to edit in YAML.
+    - Each trigger in **When** reads as a sentence, such as "A card enters **Review** · priority is **high**" or "Every **weekday** at **09:00**", with **on** or **paused** beside it as this Legato runs it. You can always run a workflow by hand too.
+    - A column-entry trigger offers to add a task input filled from the card that entered the column; that input shows as "from the card" under **Asks for**.
+    - After you save a workflow whose trigger is paused, the editor says **Saved · paused** and offers **Turn on**, which asks first, as it will start runs by itself. A new workflow with a paused trigger stays open in the editor after **Create** for this.
     - A trigger maps the workflow's inputs from what it gives, says whether it starts runs by itself in the file, whether it asks you first, and its runs a day at most. A column-entry trigger also takes its column, handed-off cards and conditions; a schedule is **Every** or **Cron**, with its next three runs.
   - A part of the file the forms can't show, such as a step written with a YAML anchor, is marked **Edited as YAML** and opens in its YAML tab. The rest stays as forms. Only a file whose YAML doesn't parse opens in YAML alone.
   - A change touches only what it changes: the rest of the file, comments included, stays as you wrote it.

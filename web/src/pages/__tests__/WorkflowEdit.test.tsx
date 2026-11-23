@@ -193,3 +193,15 @@ it("undoes typing with the keyboard in the one history, a pause making a new ste
     clock.mockRestore()
   }
 })
+
+it("stays in the editor after creating a workflow with a paused trigger", async () => {
+  renderAt("/workflows/new")
+  type(editor().value + "on:\n  schedule:\n    every: daily\n    at: \"09:00\"\n    enabled: false\n")
+  const create = screen.getByRole("button", { name: "Create" })
+  await waitFor(() => expect(create).toHaveProperty("disabled", false))
+  fireEvent.click(create)
+  await waitFor(() => expect(creates.length).toBe(1))
+  // The editor's route: here it can't read the file the mock never made.
+  expect(await screen.findByText(/Could not open the workflow/)).toBeTruthy()
+  expect(screen.queryByText("workflow page")).toBeNull()
+})

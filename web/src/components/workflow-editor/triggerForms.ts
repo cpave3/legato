@@ -1,8 +1,7 @@
 import { workflowSchema } from "../../lib/workflowSchema"
 import type { BuilderOptions } from "./stepForms"
 
-/** KIND_TITLES are the trigger kinds in plain words. */
-export const KIND_TITLES: Record<string, string> = { "task.entered_column": "When a card enters a column", schedule: "On a schedule", "pr.changes_requested": "When changes are requested on a pull request" }
+export { KIND_TITLES } from "./triggerTitles"
 
 /** triggerKinds are the kinds under on:, from the schema. */
 export const triggerKinds: { kind: string; description: string }[] = Object.entries<{ description?: string }>(workflowSchema.definitions.triggers.properties)
@@ -66,3 +65,43 @@ export function newTrigger(kind: string, options: BuilderOptions): Record<string
   return kind === "task.entered_column" ? { column: options.columns[0] ?? "", enabled: false } : kind === "schedule" ? { every: "weekdays", at: "09:00", enabled: false } : { enabled: false }
 }
 
+
+export type SentencePart = { text: string; strong?: boolean }
+
+const fieldName = (field: unknown) => String(field ?? "").split(".").pop() || "a field"
+const valueOf = (value: unknown) => Array.isArray(value) ? value.map(String).join(", ") : String(value)
+
+// conditionSentence is a condition tree in words: field rows as "priority
+// is high", all as " · ", any as " or ", not as "not (…)".
+function conditionSentence(condition: Condition | undefined): SentencePart[] {
+  if (!condition || typeof condition !== "object") return []
+  const join = (items: Condition[] | undefined, between: string) => (items ?? []).map(conditionSentence).filter(p => p.length > 0).flatMap((parts, i) => i === 0 ? parts : [{ text: between }, ...parts])
+  if (condition.all) return join(condition.all, " · ")
+  if (condition.any) return join(condition.any, " or ")
+  if (condition.not) return [{ text: "not (" }, ...conditionSentence(condition.not), { text: ")" }]
+  const name = fieldName(condition.field)
+  if ("exists" in condition) return [{ text: `${name} is ${condition.exists === false ? "not set" : "set"}` }]
+  if ("not_equals" in condition) return [{ text: `${name} is not ` }, { text: valueOf(condition.not_equals), strong: true }]
+  if ("in" in condition) return [{ text: `${name} is one of ` }, { text: valueOf(condition.in), strong: true }]
+  return [{ text: `${name} is ` }, { text: valueOf(condition.equals ?? ""), strong: true }]
+}
+
+const EVERY: Record<string, string> = { daily: "day", weekdays: "weekday" }
+
+/** triggerSentence is a trigger as its When row reads: "A card enters
+ * Review · priority is high", "Every weekday at 09:00". */
+export function triggerSentence(kind: string, trigger: Record<string, unknown> | null | undefined): SentencePart[] {
+  const t = trigger ?? {}
+  if (kind === "task.entered_column") {
+    const conditions = conditionSentence(t.conditions as Condition | undefined)
+    return [{ text: "A card enters " }, { text: String(t.column || "a column"), strong: true }, ...(conditions.length > 0 ? [{ text: " · " }, ...conditions] : [])]
+  }
+  if (kind === "schedule") {
+    if (t.cron) return [{ text: "On the cron schedule " }, { text: String(t.cron), strong: true }]
+    const every = String(t.every ?? "")
+    const when = every === "weekly" ? String(t.on ?? "week") : EVERY[every] ?? every
+    return [{ text: "Every " }, { text: when, strong: true }, ...(t.at ? [{ text: " at " }, { text: String(t.at), strong: true }] : [])]
+  }
+  if (kind === "pr.changes_requested") return [{ text: "A PR gets changes requested" }]
+  return [{ text: kind, strong: true }]
+}

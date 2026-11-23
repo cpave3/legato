@@ -14,7 +14,7 @@ import { connectorOf, duplicateOf, idFromTitle, stepSummary } from "./stepRows"
 import { StepOutputs, StepSetup } from "./StepSetup"
 import { StepPicker } from "./StepPicker"
 import { TriggerCard } from "./TriggersEditor"
-import { KIND_TITLES, newTrigger, triggerKinds } from "./triggerForms"
+import { KIND_TITLES, newTrigger, triggerKinds, triggerSentence, type SentencePart } from "./triggerForms"
 import { LazyWorkflowYamlEditor } from "./LazyWorkflowYamlEditor"
 import { parseDocument } from "yaml"
 
@@ -45,6 +45,9 @@ export type WorkflowOutlineProps = {
    * outlives this outline (a switch to the whole file's YAML). */
   held?: HeldYaml
   onHeld?: React.Dispatch<React.SetStateAction<HeldYaml>>
+  /** pausedHere says, by trigger kind, whether this Legato's switch has the
+   * trigger paused (LEG-459); a kind it has no switch for reads the file. */
+  pausedHere?: Record<string, boolean>
   /** savedText is the file as last saved (null for a new workflow): a
    * step it lacks takes its ID from its title. */
   savedText?: string | null
@@ -60,7 +63,15 @@ function placeOf(order: Row[], selection: Selection): string {
   return `${selection.kind}:${same.findIndex(row => sameSelection(selection, row.selection))}`
 }
 
-type Row = { selection: Selection; label: string; detail: string; problem: string | null; problems: number; paused?: boolean; summary?: string; type?: string; depth?: number }
+type Row = { selection: Selection; label: string; detail: string; problem: string | null; problems: number; paused?: boolean; on?: boolean; sentence?: SentencePart[]; summary?: string; type?: string; depth?: number }
+
+const CARD_TASK = "${{ event.task }}"
+
+/** fromTheCard are the inputs a column trigger fills from its card. */
+function fromTheCard(values: WorkflowValues): string[] {
+  const inputs = (triggersOf(values)["task.entered_column"]?.inputs ?? {}) as Record<string, unknown>
+  return Object.entries(inputs).filter(([, value]) => typeof value === "string" && value.replace(/\s+/g, "") === CARD_TASK.replace(/\s+/g, "")).map(([name]) => name)
+}
 
 const isTyping = (target: EventTarget | null) => {
   const element = target as HTMLElement | null
@@ -68,6 +79,8 @@ const isTyping = (target: EventTarget | null) => {
 }
 
 const executorTitle = (type: unknown) => executors.find(e => e.type === type)?.title ?? String(type ?? "")
+
+const NO_SWITCHES: Record<string, boolean> = {}
 
 // iconOf is a step type's icon in its row.
 function iconOf(type: string) {
@@ -81,7 +94,8 @@ function iconOf(type: string) {
 
 // rowsOf are the outline's rows, section by section, from the file's
 // items: a trigger, input or step each, and About for the top-level fields.
-function rowsOf(items: Item[], values: WorkflowValues, problems: Map<string, WorkflowDiagnostic[]>) {
+function rowsOf(items: Item[], values: WorkflowValues, problems: Map<string, WorkflowDiagnostic[]>, pausedHere: Record<string, boolean>) {
+  const fromCard = fromTheCard(values)
   const count = (item: ItemRef) => (problems.get(itemKey(item)) ?? []).filter(d => d.severity === "error").length
   const triggers = triggersOf(values)
   const inputs = inputsOf(values)
@@ -104,9 +118,11 @@ function rowsOf(items: Item[], values: WorkflowValues, problems: Map<string, Wor
     const ref = item.item
     if (ref.kind === "trigger") {
       const trigger = triggers[ref.name]
-      when.push({ selection: ref, label: KIND_TITLES[ref.name] ?? ref.name, detail: "", problem: item.problem, problems: count(ref), paused: trigger?.enabled === false })
+      const sentence = item.problem ? undefined : triggerSentence(ref.name, trigger)
+      const paused = ref.name in pausedHere ? pausedHere[ref.name] : trigger?.enabled === false
+      when.push({ selection: ref, label: sentence ? sentence.map(p => p.text).join("") : KIND_TITLES[ref.name] ?? ref.name, sentence, detail: "", problem: item.problem, problems: count(ref), paused, on: !paused })
     } else if (ref.kind === "input") {
-      asks.push({ selection: ref, label: ref.name, detail: String(inputs[ref.name]?.type ?? ""), problem: item.problem, problems: count(ref) })
+      asks.push({ selection: ref, label: ref.name, detail: fromCard.includes(ref.name) ? "from the card" : String(inputs[ref.name]?.type ?? ""), problem: item.problem, problems: count(ref) })
     } else if (ref.kind === "step") {
       const step = steps.get(ref.path) ?? {}
       const depth = ref.path.split("/").length - 1
@@ -125,7 +141,7 @@ function rowsOf(items: Item[], values: WorkflowValues, problems: Map<string, Wor
 // of the workflow (When, Asks for, Then, About) and an inspector of the
 // row chosen, over the same text the YAML side edits.
 function Outline(props: WorkflowOutlineProps) {
-  const { text, onEdit, diagnostics = [], nameFixed, onEditYaml, options = noOptions, schedule, selection, onSelect, narrow = false, sheet = false, onCloseSheet, onUndo, onRedo, savedText = null } = props
+  const { text, onEdit, diagnostics = [], nameFixed, onEditYaml, options = noOptions, schedule, selection, onSelect, narrow = false, sheet = false, onCloseSheet, onUndo, onRedo, savedText = null, pausedHere = NO_SWITCHES } = props
   const { file, items } = useMemo(() => itemsOf(text), [text])
   const values = useMemo(() => parseWorkflow(text).values, [text])
   const problems = useMemo(() => problemsByItem(text, diagnostics), [text, diagnostics])
@@ -152,7 +168,7 @@ function Outline(props: WorkflowOutlineProps) {
   const outline = useRef<HTMLElement>(null)
   const inspector = useRef<HTMLElement>(null)
 
-  const rows = useMemo(() => rowsOf(items, values, problems), [items, values, problems])
+  const rows = useMemo(() => rowsOf(items, values, problems, pausedHere), [items, values, problems, pausedHere])
   const savedIds = useMemo(() => savedText === null ? null : new Set(stepsOf(parseWorkflow(savedText).values).map(step => String(step?.id ?? ""))), [savedText])
   const order: Row[] = useMemo(() => [...rows.when, ...rows.asks, ...rows.then, { selection: { kind: "about" }, label: "About", detail: "", problem: rows.about.problem, problems: rows.about.problems }], [rows])
 
@@ -284,11 +300,12 @@ function Outline(props: WorkflowOutlineProps) {
       {number !== undefined && <span className="w-4 shrink-0 text-right text-xs text-lw-faint">{number}</span>}
       {Icon && <Icon size={14} aria-hidden className="shrink-0 text-lw-faint" />}
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate">{row.label}</span>
+        <span className="truncate">{row.sentence ? row.sentence.map((part, i) => part.strong ? <strong key={i} className="font-semibold text-lw-text">{part.text}</strong> : <span key={i}>{part.text}</span>) : row.label}</span>
         {row.summary && <span className="truncate text-xs text-lw-faint">{row.summary}</span>}
       </span>
       {row.detail && !row.summary && <span className="truncate text-xs text-lw-faint">{row.detail}</span>}
       {row.paused && <span className="rounded border border-lw-line px-1 text-[11px] text-lw-text-2">paused</span>}
+      {row.on && <span className="rounded bg-lw-live-soft px-1 text-[11px] text-lw-live">on</span>}
       {row.problem && <span className="flex items-center gap-1 rounded border border-lw-line px-1 text-[11px] text-lw-text-2"><Code2 size={11} />Edited as YAML</span>}
       {row.problems > 0 && <span aria-label={`${row.problems} ${row.problems === 1 ? "problem" : "problems"}`} className="flex items-center gap-0.5 text-[11px] text-lw-danger"><AlertTriangle size={11} />{row.problems}</span>}
     </button>
@@ -346,18 +363,18 @@ function Outline(props: WorkflowOutlineProps) {
   const missing = triggerKinds.filter(t => !(t.kind in triggersOf(values)))
   const outlineView = <nav ref={outline} aria-label="Outline" onKeyDown={onKeyDown} className="flex min-w-0 flex-col gap-4">
     {section("When", <>
-      <p className="px-2 text-sm text-lw-text-2">By hand, from the Workflows tab, a card or the API</p>
       <ul className="flex flex-col">{rows.when.map(row => rowButton(row))}</ul>
       {container("on")}
       {missing.length > 0 && (adding?.kind === "trigger"
-        ? <div role="group" aria-label="Trigger kinds" className="flex flex-col gap-1 px-2">
-          {missing.map(t => <button key={t.kind} type="button" className="flex flex-col items-start rounded-lg border border-lw-line p-2 text-left hover:bg-lw-raised" onClick={() => addTrigger(t.kind)}>
-            <span className="text-sm font-medium">{KIND_TITLES[t.kind] ?? t.kind}</span>
+        ? <div role="dialog" aria-label="Add a trigger" className="mx-2 flex flex-col gap-1 rounded-lg border border-lw-line bg-lw-surface p-1 shadow-xl" onKeyDown={event => { if (event.key === "Escape") setAdding(null) }}>
+          {missing.map(t => <button key={t.kind} type="button" className="flex min-h-9 flex-col items-start rounded-md px-2 py-1 text-left hover:bg-lw-raised" onClick={() => addTrigger(t.kind)}>
+            <span className="text-sm">{KIND_TITLES[t.kind] ?? t.kind}</span>
             <span className="text-xs text-lw-text-2">{t.description}</span>
           </button>)}
           <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding(null)}>Cancel</Button>
         </div>
         : <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding({ kind: "trigger" })}><Plus size={13} />Add trigger</Button>)}
+      <p className="px-2 text-xs text-lw-faint">You can always run it by hand.</p>
     </>)}
     {section("Asks for", <>
       {rows.asks.length === 0 && <p className="px-2 text-sm text-lw-text-2">Nothing: it takes no inputs</p>}
@@ -457,7 +474,10 @@ function Inspector({ place, held, onHold, row, focusEssential, onFocused, savedI
   } else if (selection.kind === "trigger") {
     kind = "Trigger"
     header = <h2 className="text-base font-semibold">{KIND_TITLES[selection.name] ?? selection.name}</h2>
-    setup = <TriggerCard kind={selection.name} trigger={triggersOf(values)[selection.name] ?? {}} text={text} values={values} diagnostics={diagnostics} options={options} apply={apply} schedule={selection.name === "schedule" ? schedule : null} />
+    const card = <TriggerCard kind={selection.name} trigger={triggersOf(values)[selection.name] ?? {}} text={text} values={values} diagnostics={diagnostics} options={options} apply={apply} schedule={selection.name === "schedule" ? schedule : null} />
+    setup = selection.name === "task.entered_column" && fromTheCard(values).length === 0
+      ? <div className="flex flex-col gap-3"><CardTaskOffer text={text} values={values} apply={apply} />{card}</div>
+      : card
   } else {
     const yaml = stepYamlPath(text, selection.path)
     const top = yaml && yaml.length === 2 ? Number(yaml[1]) : -1
@@ -525,6 +545,23 @@ function Inspector({ place, held, onHold, row, focusEssential, onFocused, savedI
       {shown === "outputs" && outputs}
       {shown === "yaml" && yamlTab}
     </div>
+  </div>
+}
+
+// CardTaskOffer offers a column trigger's workflow a task input filled
+// from the card that entered the column.
+function CardTaskOffer({ text, values, apply }: { text: string; values: WorkflowValues; apply: InspectorProps["apply"] }) {
+  const taken = Object.keys(inputsOf(values))
+  let name = "task"
+  for (let n = 2; taken.includes(name); n++) name = `task-${n}`
+  const add = () => apply(() => {
+    const added = addInput(text, name, { type: "task", required: true })
+    const mapped = setField(added.text, ["on", "task.entered_column", "inputs", name], CARD_TASK)
+    return { text: mapped.text, undo: { label: `Add input ${name} from the card`, before: text, after: mapped.text } }
+  })
+  return <div role="note" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-line bg-lw-ground p-2 text-xs text-lw-text-2">
+    <span className="min-w-0 flex-1">Let the steps know which card it was: a task input, filled from the card.</span>
+    <Button type="button" size="sm" variant="outline" onClick={add}><Plus size={12} />Add a task input from the card</Button>
   </div>
 }
 
