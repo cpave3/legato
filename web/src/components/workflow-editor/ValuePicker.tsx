@@ -15,7 +15,7 @@ export function ValuePicker({ label, groups, onPick, onClose, pinned }: { label:
   useEffect(() => { first.current?.focus() }, [])
   return <div role="dialog" aria-label={`Values for ${label}`} onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); onClose() } }}
     className={narrow
-      ? "fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col gap-2 rounded-t-xl border-t border-lw-line bg-lw-surface p-3 shadow-2xl"
+      ? "fixed inset-x-0 bottom-0 z-[60] flex max-h-[80vh] flex-col gap-2 rounded-t-xl border-t border-lw-line bg-lw-surface p-3 shadow-2xl"
       : "z-30 flex max-h-80 flex-col gap-1 rounded-lg border border-lw-line bg-lw-surface p-1 shadow-xl"}>
     {narrow && pinned !== undefined && <p className="rounded-md border border-lw-line bg-lw-ground p-2 font-lw-mono text-xs text-lw-text-2">{pinned || label}</p>}
     <div className="min-h-0 overflow-y-auto">

@@ -267,18 +267,20 @@ function richControlOf({ spec, name, value, text, onChange, set, options, groups
       {useValue}
     </div>
   }
+  // A switch or a choice of agent tools can take a value from elsewhere
+  // too, as a number or a choice can.
+  const withValue = (control: React.ReactNode) => groups ? <div className="flex flex-wrap items-center gap-2">{control}{useValue}</div> : control
   if (spec.kind === "boolean") {
     const on = value === true
-    return <button type="button" role="switch" aria-checked={on} aria-label={name} className="flex min-h-9 items-center gap-2 self-start text-sm text-lw-text" onClick={() => onChange(on ? (spec.required ? false : undefined) : true)}>
+    return withValue(<button type="button" role="switch" aria-checked={on} aria-label={name} className="flex min-h-9 items-center gap-2 self-start text-sm text-lw-text" onClick={() => onChange(on ? (spec.required ? false : undefined) : true)}>
       <span aria-hidden className={`relative h-5 w-9 rounded-full transition-colors ${on ? "bg-lw-accent" : "bg-lw-line-strong"}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-lw-surface transition-all ${on ? "left-[1.125rem]" : "left-0.5"}`} /></span>
       {spec.label}
-    </button>
+    </button>)
   }
-  if (spec.kind === "boolean" && groups) return <div className="flex flex-wrap items-center gap-2">{richControlOf({ spec, name, value, text, onChange, set, options, groups: null, check })}{useValue}</div>
   if (spec.kind === "agent" && options.agents.length > 0 && (text === "" || options.agents.includes(text))) {
-    return <div role="radiogroup" aria-label={name} className="inline-flex flex-wrap self-start rounded-md border border-lw-line p-0.5">
+    return withValue(<div role="radiogroup" aria-label={name} className="inline-flex flex-wrap self-start rounded-md border border-lw-line p-0.5">
       {["", ...options.agents].map(agent => <button key={agent || "default"} type="button" role="radio" aria-checked={text === agent} className={`min-h-8 rounded px-2.5 text-xs ${text === agent ? "bg-lw-raised text-lw-text" : "text-lw-text-2"}`} onClick={() => set(agent)}>{agent || "Default"}</button>)}
-    </div>
+    </div>)
   }
   if (spec.kind === "text") return <LongText name={name} label={spec.label} value={text} onCommit={set} groups={groups} check={check} />
   return null

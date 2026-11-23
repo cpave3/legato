@@ -217,3 +217,25 @@ it("dims a value of the wrong type for a number field, with why", async () => {
   fireEvent.click(within(picker).getByTitle("workflow.inputs.pr"))
   expect((await stepWith("run")).with.pr_number).toBe("${{ workflow.inputs.pr }}")
 })
+
+it("takes an agent tool's value from elsewhere", async () => {
+  fileYaml = withValues.replace("inputs:\n  pr: {type: integer, description: The pull request}", "inputs:\n  pr: {type: integer, description: The pull request}\n  keep: {type: boolean}\n  tool: {type: string}")
+  await renderAt("#steps/run")
+  const tools = await within(inspector()).findByRole("radiogroup", { name: "agent of step run" })
+  fireEvent.click(within(tools.parentElement!).getByRole("button", { name: "Use a value from…" }))
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Values for Agent tool" })).getByTitle("workflow.inputs.tool"))
+  expect((await stepWith("run")).with.agent).toBe("${{ workflow.inputs.tool }}")
+  // keep_agent takes its value as written: no picker.
+  expect(within(within(inspector()).getByRole("switch", { name: "keep_agent of step run" }).parentElement!).queryByRole("button", { name: "Use a value from…" })).toBeNull()
+})
+
+it("takes a switch's value from elsewhere", async () => {
+  fileYaml = withValues.replace("inputs:\n  pr: {type: integer, description: The pull request}", "inputs:\n  pr: {type: integer, description: The pull request}\n  keep: {type: boolean}") + "  - id: tidy\n    title: Tidy\n    type: worktree.remove\n    with:\n      expected_path: /tmp/x\n"
+  await renderAt("#steps/tidy")
+  const more = within(inspector()).getByText(/^More options/).closest("details")!
+  more.open = true
+  const force = within(more).getByRole("switch", { name: "force of step tidy" })
+  fireEvent.click(within(force.parentElement!).getByRole("button", { name: "Use a value from…" }))
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Values for Even with changes in it" })).getByTitle("workflow.inputs.keep"))
+  expect((await stepWith("tidy")).with.force).toBe("${{ workflow.inputs.keep }}")
+})
