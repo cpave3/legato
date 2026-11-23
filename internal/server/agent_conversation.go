@@ -28,6 +28,9 @@ type conversationResponse struct {
 	Question      *conversationQuestion   `json:"question"`
 	ContextUsed   int                     `json:"context_used"`
 	ContextWindow int                     `json:"context_window"`
+	// Live is what the agent is writing now (its thought, its reply), which
+	// no entry holds yet; absent when it writes nothing.
+	Live *conversationLive `json:"live,omitempty"`
 }
 
 type conversationEntry struct {
@@ -36,6 +39,22 @@ type conversationEntry struct {
 	Tool    string `json:"tool,omitempty"`
 	Command string `json:"command,omitempty"`
 	State   string `json:"state,omitempty"`
+	// Thinking is the thought behind the entry's step, on its first entry.
+	Thinking string `json:"thinking,omitempty"`
+	// Subagent is the subagent a call started, with its newest call.
+	Subagent *conversationSubagent `json:"subagent,omitempty"`
+}
+
+type conversationSubagent struct {
+	Purpose string `json:"purpose"`
+	Status  string `json:"status"`
+	Tool    string `json:"tool,omitempty"`
+	Text    string `json:"text,omitempty"`
+}
+
+type conversationLive struct {
+	Thinking string `json:"thinking,omitempty"`
+	Reply    string `json:"reply,omitempty"`
 }
 
 type conversationPermission struct {
@@ -107,7 +126,14 @@ func (s *Server) agentConversationHandler() http.HandlerFunc {
 		for i, entry := range tail.Entries {
 			response.Entries[i] = conversationEntry{
 				Kind: string(entry.Kind), Text: entry.Text, Tool: entry.Tool, Command: entry.Command, State: entry.State,
+				Thinking: entry.Thinking,
 			}
+			if sub := entry.Subagent; sub != nil {
+				response.Entries[i].Subagent = &conversationSubagent{Purpose: sub.Purpose, Status: sub.Status, Tool: sub.Tool, Text: sub.Text}
+			}
+		}
+		if live := tail.Live; live != nil {
+			response.Live = &conversationLive{Thinking: live.Thinking, Reply: live.Reply}
 		}
 		if permission := tail.Permission; permission != nil {
 			response.Permission = &conversationPermission{

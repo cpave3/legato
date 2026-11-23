@@ -249,9 +249,10 @@ type session struct {
 	tools    map[string]*toolCall
 	seenRows map[string]bool
 	// openStreams are the text blocks streamed this turn that no stored row
-	// has settled yet, oldest first.
+	// has settled yet, oldest first, and streamText what each streamed.
 	openStreams []string
 	streamSeen  map[string]bool
+	streamText  map[string]string
 	// openThoughts are the thinking blocks streamed this turn that no stored
 	// row has settled yet, oldest first, and thoughtText what each streamed.
 	openThoughts []string
@@ -286,6 +287,7 @@ func (s *session) clearConversation() {
 	s.seenRows = map[string]bool{}
 	s.openStreams = nil
 	s.streamSeen = map[string]bool{}
+	s.streamText = map[string]string{}
 	s.openThoughts = nil
 	s.thoughtText = map[string]string{}
 	s.pending = nil
@@ -404,6 +406,7 @@ func (s *session) apply(event modEvent, now time.Time) []nativeEvent {
 		s.busy = false
 		s.openStreams = nil
 		s.streamSeen = map[string]bool{}
+		s.streamText = map[string]string{}
 		s.openThoughts = nil
 		s.thoughtText = map[string]string{}
 		// A turn that ended took its unanswered permission prompts with it.
@@ -718,6 +721,7 @@ func (s *session) applyTextDelta(event modEvent) []nativeEvent {
 		s.streamSeen[streamID] = true
 		s.openStreams = append(s.openStreams, streamID)
 	}
+	s.streamText[streamID] += event.Text
 	return []nativeEvent{{"type": "assistant_text_delta", "id": streamID, "delta": event.Text}}
 }
 
@@ -821,6 +825,7 @@ func (s *session) applyAssistantRow(event modEvent, now time.Time) []nativeEvent
 			if len(s.openStreams) > 0 {
 				streamID = s.openStreams[0]
 				s.openStreams = s.openStreams[1:]
+				delete(s.streamText, streamID)
 			}
 			s.items = append(s.items, item{kind: itemAssistant, text: block.Text})
 			out = append(out, nativeEvent{"type": "assistant_text_done", "id": streamID, "text": block.Text})
@@ -997,6 +1002,35 @@ type sessionSnapshot struct {
 	// and those that ended, with their newest output. Always present, so the
 	// panel can tell "none" from a host that does not report them.
 	BackgroundShells []snapshotShell `json:"backgroundShells"`
+	// Streaming is what is being written now, which no stored row has
+	// settled yet: thoughts, then replies, each oldest first, with what has
+	// streamed of it. The panel draws the deltas and need not read it; it is
+	// for a reader that polls the snapshot, such as the glasses. Always
+	// present, so a reader can tell "nothing" from a host that does not say.
+	Streaming []snapshotStream `json:"streaming"`
+}
+
+// snapshotStream is a block being written: "reasoning" or "text", under the
+// id its deltas carry.
+type snapshotStream struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+func (s *session) snapshotStreams() []snapshotStream {
+	out := []snapshotStream{}
+	for _, id := range s.openThoughts {
+		if text := s.thoughtText[id]; strings.TrimSpace(text) != "" {
+			out = append(out, snapshotStream{ID: id, Type: "reasoning", Text: text})
+		}
+	}
+	for _, id := range s.openStreams {
+		if text := s.streamText[id]; strings.TrimSpace(text) != "" {
+			out = append(out, snapshotStream{ID: id, Type: "text", Text: text})
+		}
+	}
+	return out
 }
 
 type snapshotQuestion struct {
@@ -1075,6 +1109,7 @@ func (s *session) snapshot(taskID string) sessionSnapshot {
 		PendingPermissions:     pending,
 		PendingQuestions:       questions,
 		BackgroundShells:       s.snapshotShells(),
+		Streaming:              s.snapshotStreams(),
 	}
 }
 

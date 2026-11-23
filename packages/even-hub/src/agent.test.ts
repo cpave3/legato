@@ -109,12 +109,98 @@ describe("agentPage", () => {
     ])
   })
 
+  it("shows what the agent is writing now first, then each step's thought under it, and a subagent's newest call over the call that started it", () => {
+    const page = agentPage(agent, {
+      ok: true,
+      conversation: conversation({
+        entries: [
+          { kind: "user", text: "Add a --json flag." },
+          {
+            kind: "tool",
+            tool: "spawn_agent",
+            text: "Find the flag parser",
+            state: "done",
+            thinking: "A subagent can look\nwhile I read.",
+            subagent: { purpose: "Find the flag parser", status: "running", tool: "Grep", text: "parseFlags" },
+          },
+          { kind: "assistant", text: "Found it.", thinking: "That was quick." },
+        ],
+        live: { thinking: "Where does it go?", reply: "Moving the flag" },
+      }),
+    })
+
+    expect(texts(page.items)).toEqual([
+      "Thinking: Where does it go?",
+      "Writing: Moving the flag",
+      "Agent: Found it.",
+      "Thought: That was quick.",
+      "└ Grep: parseFlags",
+      "▶ spawn_agent: Find the flag parser",
+      "Thought: A subagent can look while I read.",
+      "You: Add a --json flag.",
+    ])
+    expect(page.items.map((i) => i.detail)).toEqual([
+      "Thinking\n\nWhere does it go?",
+      "Agent, still writing\n\nMoving the flag",
+      "Agent\n\nFound it.",
+      "Thought\n\nThat was quick.",
+      "Subagent: Find the flag parser\n\nNow: Grep parseFlags",
+      "spawn_agent (done)\n\nFind the flag parser",
+      "Thought\n\nA subagent can look\nwhile I read.",
+      "You\n\nAdd a --json flag.",
+    ])
+  })
+
+  it("shows a finished subagent as its call alone", () => {
+    const page = agentPage(agent, {
+      ok: true,
+      conversation: conversation({
+        entries: [
+          {
+            kind: "tool",
+            tool: "spawn_agent",
+            text: "Find the flag parser",
+            state: "done",
+            subagent: { purpose: "Find the flag parser", status: "finished", tool: "Read", text: "flags.ts" },
+          },
+        ],
+      }),
+    })
+
+    expect(texts(page.items)).toEqual(["· spawn_agent: Find the flag parser"])
+  })
+
   it("says why there is nothing to list, as its only line", () => {
     expect(texts(agentPage(agent, { ok: false, problem: "The agent is no longer running." }).items)).toEqual([
       "The agent is no longer running.",
     ])
     expect(texts(agentPage(agent, undefined).items)).toEqual(["Reading the conversation…"])
     expect(texts(agentPage(agent, { ok: true, conversation: conversation({}) }).items)).toEqual(["Nothing said yet."])
+  })
+
+  it("says in its title how old the feed is, once it is a minute old, never cutting the age off", () => {
+    const read = { ok: true as const, conversation: conversation({}) }
+    const readAt = new Date(2026, 10, 13, 9, 0)
+
+    const fresh = agentPage(agent, read, { readAt, now: new Date(2026, 10, 13, 9, 0, 59) })
+    expect(fresh.title).toBe(agentPage(agent, read).title)
+
+    const old = agentPage(agent, read, { readAt, now: new Date(2026, 10, 13, 9, 3) })
+    expect(old.title.startsWith("LEG-163 POC")).toBe(true)
+    expect(old.title.endsWith("… · 3m")).toBe(true)
+    expect(getTextWidth(old.title)).toBeLessThanOrEqual(inner(TITLE_WIDTH))
+  })
+
+  it("keeps the feed when a read fails, saying why in its title in place of the agent's", () => {
+    const read = { ok: true as const, conversation: conversation({ entries: [{ kind: "assistant", text: "Done." }] }) }
+    const page = agentPage(agent, read, {
+      readAt: new Date(2026, 10, 13, 9, 0),
+      now: new Date(2026, 10, 13, 9, 2),
+      problem: "Can't reach Legato",
+    })
+
+    expect(page.title).toBe("LEG-163 ▲ Can't reach Legato · 2m")
+    expect(texts(page.items)).toEqual(["Agent: Done."])
   })
 
   it("centres what the touchpad does under the list", () => {
@@ -127,6 +213,12 @@ describe("agentPage", () => {
 })
 
 describe("entryPage", () => {
+  it("says how old the feed it came from is", () => {
+    const page = entryPage(agent, { text: "x", detail: "y" }, { readAt: new Date(2026, 10, 13, 9, 0), now: new Date(2026, 10, 13, 9, 5) })
+
+    expect(page.title.endsWith(" · 5m")).toBe(true)
+  })
+
   it("shows one entry in full under the same badge and title", () => {
     const page = entryPage(agent, { text: "Agent: The tests…", detail: "Agent\n\nThe tests fail on the tab labels." })
 

@@ -1,4 +1,4 @@
-import { dictation, flat, speaker, whole, type Dictation, type TextPage } from "./agent"
+import { dictation, flat, freshTitle, speaker, whole, type Dictation, type Freshness, type TextPage } from "./agent"
 import { fitItem, stateOf } from "./glance"
 import { CANVAS_WIDTH, FRAME_WIDTH, center, inner } from "./layout"
 import type { Agent, Conversation, ConversationResult } from "./legato"
@@ -13,7 +13,7 @@ export type ChatPage = { badge: string; title: string; asked: string; reply: str
 // How wide the operator's line may be: the frame's width less its padding.
 export const CHAT_WIDTH = inner(FRAME_WIDTH)
 
-export type ChatOptions = {
+export type ChatOptions = Freshness & {
   // The instance's name, for the title.
   instance: string
   // A message just sent, which the conversation may not have yet.
@@ -77,7 +77,7 @@ function asks(c: Conversation): string {
 export function reeveChat(reeve: Agent | undefined, read: ConversationResult | undefined, options: ChatOptions): ChatPage {
   const page = (asked: string, reply: string): ChatPage => ({
     badge: badge(reeve),
-    title: title(options.instance),
+    title: freshTitle("Reeve", title(options.instance), options),
     asked: asked ? fitItem(flat(asked), CHAT_WIDTH, Infinity) : "",
     reply: whole(reply),
     hint: center("Hold: talk · Tap: history · Double tap: back", CANVAS_WIDTH),
@@ -93,6 +93,9 @@ export function reeveChat(reeve: Agent | undefined, read: ConversationResult | u
   const { turn, after } = lastTurn(read.conversation.entries)
   const asked = turn ? `${turn.who}: ${turn.said}` : ""
   const said = after.filter((e) => e.kind === "assistant" && e.text.trim()).map((e) => plain(e.text))
+  // The reply it is writing now, which no entry holds yet.
+  const writing = read.conversation.live?.reply?.trim()
+  if (writing) said.push(`${plain(writing)}…`)
   const question = asks(read.conversation)
   if (question) return page(asked, [question, ...said].join("\n\n"))
   if (said.length) return page(asked, said.join("\n\n"))

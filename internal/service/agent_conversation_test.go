@@ -213,3 +213,113 @@ func TestASpokenLineIsItsWordsWhateverTheAgentToolSummarised(t *testing.T) {
 		t.Errorf("text = %q, want the first line of what was said", entry.Text)
 	}
 }
+
+// The thought behind a step rides on the step's first entry, as more for a
+// reader that wants it; the entries are those the snapshot's text and calls
+// give, as before.
+func TestConversationTailCarriesTheThoughtBehindEachStep(t *testing.T) {
+	reader := conversationOf(t, `{
+		"id": "TASK-1", "status": "running",
+		"messages": [
+			{"role": "user", "content": ""},
+			{"role": "user", "content": "add a --json flag"},
+			{"role": "assistant", "content": [{"type": "reasoning", "text": "Check list.ts first."}, {"type": "tool-call"}]},
+			{"role": "assistant", "content": [{"type": "reasoning", "text": "The flag fits\nthere."}, {"type": "text", "text": "Done."}]}
+		],
+		"toolCalls": [{"callId": "c1", "name": "read", "args": {"path": "src/list.ts"}, "result": {"content": "..."}}]
+	}`, "")
+
+	tail, err := reader.ConversationTail(context.Background(), "TASK-1", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []ConversationEntry{
+		{Kind: EntryUser, Text: "add a --json flag"},
+		{Kind: EntryTool, Tool: "read", Text: "list.ts", State: ToolDone, Thinking: "Check list.ts first."},
+		{Kind: EntryAssistant, Text: "Done.", Thinking: "The flag fits\nthere."},
+	}
+	if fmt.Sprint(tail.Entries) != fmt.Sprint(want) {
+		t.Fatalf("entries = %+v\nwant %+v", tail.Entries, want)
+	}
+	if tail.Live != nil {
+		t.Fatalf("live = %+v, want none: nothing is being written", tail.Live)
+	}
+}
+
+func TestConversationTailSaysWhatIsBeingWrittenNow(t *testing.T) {
+	reader := conversationOf(t, `{
+		"id": "TASK-1", "status": "running",
+		"messages": [{"role": "user", "content": ""}, {"role": "user", "content": "add a --json flag"}],
+		"toolCalls": [],
+		"streaming": [
+			{"id": "t:0:0", "type": "reasoning", "text": "The flag belongs in list.ts."},
+			{"id": "t:0:1", "type": "text", "text": "Moving it"}
+		]
+	}`, "")
+
+	tail, err := reader.ConversationTail(context.Background(), "TASK-1", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if tail.Live == nil || tail.Live.Thinking != "The flag belongs in list.ts." || tail.Live.Reply != "Moving it" {
+		t.Fatalf("live = %+v", tail.Live)
+	}
+	if len(tail.Entries) != 1 {
+		t.Fatalf("entries = %+v: what is still being written is not an entry", tail.Entries)
+	}
+}
+
+// A thought stored with nothing after it yet is what the agent thinks now:
+// the reply or the calls it leads to have not come.
+func TestConversationTailTakesAThoughtWithNothingAfterItForWhatTheAgentThinksNow(t *testing.T) {
+	reader := conversationOf(t, `{
+		"id": "TASK-1", "status": "running",
+		"messages": [
+			{"role": "user", "content": ""},
+			{"role": "user", "content": "add a --json flag"},
+			{"role": "assistant", "content": [{"type": "reasoning", "text": "Where does the flag go?"}]}
+		],
+		"toolCalls": []
+	}`, "")
+
+	tail, err := reader.ConversationTail(context.Background(), "TASK-1", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if tail.Live == nil || tail.Live.Thinking != "Where does the flag go?" || tail.Live.Reply != "" {
+		t.Fatalf("live = %+v", tail.Live)
+	}
+}
+
+func TestConversationTailSaysWhatASubagentIsDoingUnderTheCallThatStartedIt(t *testing.T) {
+	reader := conversationOf(t, `{
+		"id": "TASK-1", "status": "running",
+		"messages": [{"role": "user", "content": ""}, {"role": "assistant", "content": [{"type": "tool-call"}]}],
+		"toolCalls": [{
+			"callId": "c1", "name": "spawn_agent", "args": {"description": "Find the flag parser", "background": true},
+			"result": {"agentId": "a1"},
+			"subagent": {"subagentId": "a1", "purpose": "Find the flag parser", "status": "running", "events": [
+				{"type": "tool_call_start", "callId": "s1", "name": "Grep", "display": {"summary": "parseFlags"}},
+				{"type": "assistant_text_done", "text": "Found two."},
+				{"type": "tool_call_start", "callId": "s2", "name": "Read", "display": {"summary": "src/flags.ts"}}
+			]}
+		}]
+	}`, "")
+
+	tail, err := reader.ConversationTail(context.Background(), "TASK-1", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(tail.Entries) != 1 {
+		t.Fatalf("entries = %+v", tail.Entries)
+	}
+	got := tail.Entries[0].Subagent
+	want := &ConversationSubagent{Purpose: "Find the flag parser", Status: "running", Tool: "Read", Text: "src/flags.ts"}
+	if got == nil || *got != *want {
+		t.Fatalf("subagent = %+v, want %+v", got, want)
+	}
+}

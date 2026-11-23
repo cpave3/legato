@@ -511,6 +511,123 @@ describe("startGlance", () => {
     expect(legato.calls.agents).toBe(4)
   })
 
+  // On real glasses waking the screen sends nothing: the first sign the
+  // operator is looking again is a press, or a scroll.
+  it("takes a press after the screen was off for the operator looking again: reads at once, then every POLL_MS", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(2, "▶ running  RUN-1 Build"))
+    await settle()
+    const read = legato.calls.conversation.length
+
+    bridge.send(system(OsEventTypeList.FOREGROUND_EXIT_EVENT))
+    await vi.advanceTimersByTimeAsync(45_000)
+    expect(legato.calls.conversation.length).toBe(read + 1)
+
+    bridge.send({ listEvent: { containerID: 3, containerName: "feed", eventType: OsEventTypeList.SCROLL_BOTTOM_EVENT } } as EvenHubEvent)
+    await settle()
+    expect(legato.calls.conversation.length).toBe(read + 2)
+
+    legato.conversation.entries.push({ kind: "assistant", text: "Done." })
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(legato.calls.conversation.length).toBe(read + 3)
+    expect(bridge.feed()?.[0]).toBe("Agent: Done.")
+  })
+
+  it("takes a press for the screen being on even when screen-off reads are off", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client, { screenOffReadMs: () => undefined })
+
+    bridge.send(system(OsEventTypeList.FOREGROUND_EXIT_EVENT))
+    await vi.advanceTimersByTimeAsync(10 * 60_000)
+    expect(legato.calls.agents).toBe(1)
+
+    bridge.send(select(3, "Idle agents (1) →"))
+    await settle()
+    expect(legato.calls.agents).toBe(2)
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(legato.calls.agents).toBe(3)
+  })
+
+  it("reads the agents, the approvals and the open feed at once, so one slow call does not hold back the rest", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(2, "▶ running  RUN-1 Build"))
+    await settle()
+    const slow = <A extends unknown[], R>(f: (...a: A) => Promise<R>) => async (...a: A) => {
+      await new Promise((done) => setTimeout(done, 4000))
+      return f(...a)
+    }
+    legato.client.agents = slow(legato.client.agents)
+    legato.client.approvals = slow(legato.client.approvals)
+    legato.client.conversation = slow(legato.client.conversation)
+
+    legato.conversation.entries.push({ kind: "assistant", text: "Done." })
+    await vi.advanceTimersByTimeAsync(POLL_MS + 4000)
+    expect(bridge.feed()?.[0]).toBe("Agent: Done.")
+  })
+
+  it("keeps an agent's feed when a read fails, saying why, and how old it is once a minute old", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(2, "▶ running  RUN-1 Build"))
+    await settle()
+    legato.client.conversation = async () => ({ ok: false, problem: "Can't reach Legato" })
+
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.feed()).toEqual(["Agent: Working on it."])
+    expect(bridge.text("title")).toBe("RUN-1 ▲ Can't reach Legato")
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(bridge.text("title")).toBe("RUN-1 ▲ Can't reach Legato · 1m")
+  })
+
+  it("shows on an open entry how old the feed is, even with no read since", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client, { screenOffReadMs: () => undefined })
+    bridge.send(select(2, "▶ running  RUN-1 Build"))
+    await settle()
+    bridge.send(pick(0, "Agent: Working on it."))
+    await settle()
+
+    bridge.send(system(OsEventTypeList.FOREGROUND_EXIT_EVENT))
+    await vi.advanceTimersByTimeAsync(2 * 60_000)
+    expect(bridge.text("title")).toBe("RUN-1 Build · 2m")
+  })
+
+  it("reads the feed again on the way back from an entry", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(2, "▶ running  RUN-1 Build"))
+    await settle()
+    bridge.send(pick(0, "Agent: Working on it."))
+    await settle()
+
+    // A new answer, not the one the feed was drawn from changed under it.
+    const done: Conversation = { ...legato.conversation, entries: [...legato.conversation.entries, { kind: "assistant", text: "Done." }] }
+    legato.client.conversation = async () => ({ ok: true, conversation: done })
+    bridge.send(doubleClick)
+    await settle()
+    expect(bridge.feed()?.[0]).toBe("Agent: Done.")
+  })
+
+  it("does not read again on a press when the last read is recent", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+
+    await vi.advanceTimersByTimeAsync(POLL_MS - 1000)
+    bridge.send(select(3, "Idle agents (1) →"))
+    await settle()
+    expect(legato.calls.agents).toBe(1)
+  })
+
   it("closes the microphone and drops the message when the app goes to the background while listening", async () => {
     const bridge = fakeBridge()
     const legato = fakeLegato(someAgents)
@@ -613,6 +730,49 @@ describe("startGlance", () => {
 
     expect(bridge.text("body")).toBe("“delete the branch”")
     expect(legato.calls.send).toEqual([])
+  })
+
+  it("drops a message on a double tap while it is transcribing, at once, and never shows what comes back", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    let finish: (r: { ok: true; text: string }) => void = () => {}
+    legato.client.transcribe = () => new Promise((done) => (finish = done))
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(2, "▶ running  RUN-1 Build"))
+    await settle()
+    bridge.send(hold)
+    await settle()
+    bridge.send(audio(1))
+    bridge.send(release)
+    await settle()
+    expect(bridge.text("body")).toBe("Transcribing…")
+
+    bridge.send(doubleClick)
+    await settle()
+    expect(bridge.feed()).toEqual(["Agent: Working on it."])
+
+    finish({ ok: true, text: "delete the branch" })
+    await settle()
+    expect(bridge.feed()).toEqual(["Agent: Working on it."])
+    expect(legato.calls.send).toEqual([])
+  })
+
+  it("keeps reading while a message is transcribing", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    legato.client.transcribe = () => new Promise(() => {})
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(2, "▶ running  RUN-1 Build"))
+    await settle()
+    bridge.send(hold)
+    await settle()
+    bridge.send(audio(1))
+    bridge.send(release)
+    await settle()
+    const read = legato.calls.agents
+
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(legato.calls.agents).toBe(read + 1)
   })
 
   it("opens the agent the operator chose even when a refresh re-sorted the list meanwhile", async () => {
@@ -1044,6 +1204,35 @@ describe("approvals on the glasses", () => {
     legato.waiting([])
     await vi.advanceTimersByTimeAsync(POLL_MS)
 
+    expect(bridge.feed()).toEqual(["Nothing waits for you."])
+  })
+
+  it("goes back from a choice not yet confirmed once the approval is decided somewhere else", async () => {
+    const { bridge, legato } = await openApprovals([push])
+    bridge.send(pick(0, "● ASK-1 Bash: git push"))
+    await settle()
+    bridge.send(choose(0, "Allow once"))
+    await settle()
+    expect(bridge.text("badge")).toBe("Allow?")
+
+    legato.waiting([])
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.feed()).toEqual(["Nothing waits for you."])
+  })
+
+  it("leaves a failed decision once Legato no longer lists the approval", async () => {
+    const { bridge, legato } = await openApprovals([push])
+    legato.client.decide = async () => ({ ok: false, problem: "It was already decided somewhere else." })
+    bridge.send(pick(0, "● ASK-1 Bash: git push"))
+    await settle()
+    bridge.send(choose(0, "Allow once"))
+    await settle()
+    bridge.send(click)
+    await settle()
+    expect(bridge.text("badge")).toBe("▲ Not decided")
+
+    legato.waiting([])
+    await vi.advanceTimersByTimeAsync(POLL_MS)
     expect(bridge.feed()).toEqual(["Nothing waits for you."])
   })
 })

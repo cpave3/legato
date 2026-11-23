@@ -45,6 +45,31 @@ type ConversationEntry struct {
 	Tool    string
 	Command string
 	State   string
+	// Thinking is the thought that led to this entry's step, on the step's
+	// first entry; "" when the agent tool showed none. More for a reader
+	// that wants it: the entries are the same without it.
+	Thinking string
+	// Subagent is the subagent a tool call started, with what it does now;
+	// nil for any other call.
+	Subagent *ConversationSubagent
+}
+
+// ConversationSubagent is a subagent under the call that started it: what
+// it is for, how it stands ("running", "finished", ...) and the newest call
+// it made, by its tool and one line of what it is for.
+type ConversationSubagent struct {
+	Purpose string
+	Status  string
+	Tool    string
+	Text    string
+}
+
+// ConversationLive is what an agent is writing now, which its conversation
+// does not hold yet: the thought it is having (streaming, or stored with
+// nothing after it yet) and the reply it is writing.
+type ConversationLive struct {
+	Thinking string
+	Reply    string
 }
 
 // ConversationPermission is something an agent waits to be allowed.
@@ -78,6 +103,8 @@ type ConversationTail struct {
 	// still open; nil when there is none.
 	Permission *ConversationPermission
 	Question   *ConversationQuestion
+	// Live is what the agent is writing now; nil when nothing is.
+	Live *ConversationLive
 	// ContextUsed of ContextWindow tokens are in the model's context. The
 	// window is zero when the endpoint did not say.
 	ContextUsed   int
@@ -128,6 +155,17 @@ type snapshotToolCall struct {
 	Display struct {
 		Summary string `json:"summary"`
 	} `json:"display"`
+	Subagent *struct {
+		Purpose string `json:"purpose"`
+		Status  string `json:"status"`
+		Events  []struct {
+			Type    string `json:"type"`
+			Name    string `json:"name"`
+			Display struct {
+				Summary string `json:"summary"`
+			} `json:"display"`
+		} `json:"events"`
+	} `json:"subagent"`
 }
 
 // conversationTail reads the newest limit entries out of a snapshot. A
@@ -147,8 +185,9 @@ func conversationTail(snapshot *chimera.SessionSnapshot, limit int) *Conversatio
 	// A tool call is kept as its place in the snapshot's list. It is described
 	// only if it is among the entries kept, which is known once all are.
 	type item struct {
-		entry ConversationEntry
-		call  int
+		entry    ConversationEntry
+		call     int
+		thinking string
 	}
 	var items []item
 	var firstUser, firstUntagged string
@@ -166,7 +205,10 @@ func conversationTail(snapshot *chimera.SessionSnapshot, limit int) *Conversatio
 		}
 	}
 	nextCall := 0
+	// A thought stored with nothing after it yet, in the last message.
+	var lastThought string
 	for index, message := range messages {
+		lastThought = ""
 		// The first message of a session is its own instructions.
 		if index == 0 && message.Role == "user" {
 			continue
@@ -185,19 +227,32 @@ func conversationTail(snapshot *chimera.SessionSnapshot, limit int) *Conversatio
 			Text string `json:"text"`
 		}
 		_ = json.Unmarshal(message.Content, &parts)
-		var words strings.Builder
+		var words, thought strings.Builder
 		toolCalls := 0
 		for _, part := range parts {
 			switch part.Type {
 			case "text":
 				words.WriteString(part.Text)
+			case "reasoning":
+				if thought.Len() > 0 {
+					thought.WriteString("\n\n")
+				}
+				thought.WriteString(strings.TrimSpace(part.Text))
 			case "tool-call":
 				toolCalls++
 			}
 		}
+		first := len(items)
 		said(kind, words.String())
 		for ; toolCalls > 0 && nextCall < len(calls); toolCalls, nextCall = toolCalls-1, nextCall+1 {
 			items = append(items, item{entry: ConversationEntry{Kind: EntryTool}, call: nextCall})
+		}
+		if thought.Len() > 0 {
+			if first < len(items) {
+				items[first].thinking = cutText(thought.String())
+			} else {
+				lastThought = thought.String()
+			}
 		}
 	}
 
@@ -214,7 +269,9 @@ func conversationTail(snapshot *chimera.SessionSnapshot, limit int) *Conversatio
 		if kept.entry.Kind == EntryTool {
 			tail.Entries[i] = describeToolCall(calls[kept.call])
 		}
+		tail.Entries[i].Thinking = kept.thinking
 	}
+	tail.Live = liveOf(snapshot, lastThought)
 
 	if snapshot.PendingPermissions != nil && len(*snapshot.PendingPermissions) > 0 {
 		pending := (*snapshot.PendingPermissions)[0]
@@ -245,6 +302,36 @@ func conversationTail(snapshot *chimera.SessionSnapshot, limit int) *Conversatio
 	return tail
 }
 
+// liveOf reads what the agent is writing now: the newest thought and reply
+// streaming, and else a thought stored with nothing after it (`thought`)
+// while the agent is running.
+func liveOf(snapshot *chimera.SessionSnapshot, thought string) *ConversationLive {
+	var streams []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	_ = json.Unmarshal(snapshot.Streaming, &streams)
+	live := ConversationLive{}
+	if snapshot.Status == "running" {
+		live.Thinking = strings.TrimSpace(thought)
+	}
+	for _, stream := range streams {
+		text := strings.TrimSpace(stream.Text)
+		switch {
+		case text == "":
+		case stream.Type == "reasoning":
+			live.Thinking = text
+		case stream.Type == "text":
+			live.Reply = text
+		}
+	}
+	if live.Thinking == "" && live.Reply == "" {
+		return nil
+	}
+	live.Thinking, live.Reply = cutText(live.Thinking), cutText(live.Reply)
+	return &live
+}
+
 // describeToolCall says in one line what a tool call is for, and how it
 // stands: running while it has no result, failed when its result says so.
 func describeToolCall(call snapshotToolCall) ConversationEntry {
@@ -271,6 +358,17 @@ func describeToolCall(call snapshotToolCall) ConversationEntry {
 		entry.Text = firstLineOf(call.Display.Summary)
 	default:
 		entry.Text = entry.Command
+	}
+
+	if sub := call.Subagent; sub != nil {
+		entry.Subagent = &ConversationSubagent{Purpose: firstLineOf(sub.Purpose), Status: sub.Status}
+		for i := len(sub.Events) - 1; i >= 0; i-- {
+			if event := sub.Events[i]; event.Type == "tool_call_start" {
+				entry.Subagent.Tool = event.Name
+				entry.Subagent.Text = firstLineOf(event.Display.Summary)
+				break
+			}
+		}
 	}
 
 	if len(call.Result) == 0 || string(call.Result) == "null" {

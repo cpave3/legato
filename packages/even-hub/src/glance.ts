@@ -82,10 +82,13 @@ function age(seconds: number): string {
   return "1h+"
 }
 
+// How old something read at `at` is by `now`, once it is a minute or more.
+export const ago = (at: Date, now: Date) => age(Math.max(0, (now.getTime() - at.getTime()) / 1000))
+
 function clock(at: Date | undefined, now: Date): string {
   if (!at) return ""
   const two = (n: number) => String(n).padStart(2, "0")
-  const old = age(Math.max(0, (now.getTime() - at.getTime()) / 1000))
+  const old = ago(at, now)
   const time = `${two(at.getHours())}:${two(at.getMinutes())}`
   return old ? `${old} · ${time}` : time
 }

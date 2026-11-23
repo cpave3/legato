@@ -58,6 +58,18 @@ describe("reeveChat", () => {
     expect(page.reply).toBe("Thinking…\n\n▶ legato_api: GET /api/tasks/LEG-230")
   })
 
+  it("shows its reply as it writes it, after what it already said this turn", () => {
+    const page = reeveChat(
+      reeve("working"),
+      read([{ kind: "user", text: "[legato glasses] how many are working?" }, { kind: "assistant", text: "Checking." }], {
+        live: { thinking: "Count them.", reply: "Three: LEG-212 waits" },
+      }),
+      { instance: "Desk" },
+    )
+
+    expect(page.reply).toBe("Checking.\n\nThree: LEG-212 waits…")
+  })
+
   it("shows a message just sent, before the conversation has it", () => {
     const page = reeveChat(reeve(""), read([{ kind: "user", text: "older" }, { kind: "assistant", text: "Done." }]), {
       instance: "Desk",
@@ -119,6 +131,16 @@ describe("reeveChat", () => {
 
     expect(page.asked.endsWith("…")).toBe(true)
     expect(getTextWidth(page.asked)).toBeLessThanOrEqual(CHAT_WIDTH)
+  })
+
+  it("says in its title how old the chat is, and keeps the reply when a read fails, saying why", () => {
+    const said = read([{ kind: "user", text: "[legato glasses] hi" }, { kind: "assistant", text: "Hello." }])
+    const at = { readAt: new Date(2026, 10, 23, 9, 0), now: new Date(2026, 10, 23, 9, 4) }
+
+    expect(reeveChat(reeve(""), said, { instance: "Desk", ...at }).title).toBe("Reeve · Desk · 4m")
+    const failed = reeveChat(reeve(""), said, { instance: "Desk", ...at, problem: "Can't reach Legato" })
+    expect(failed.title).toBe("Reeve ▲ Can't reach Legato · 4m")
+    expect(failed.reply).toBe("Hello.")
   })
 
   it("says how to wake the Reeve when it is not running", () => {

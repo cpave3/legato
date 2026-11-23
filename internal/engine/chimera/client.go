@@ -74,7 +74,11 @@ type SessionSnapshot struct {
 	// BackgroundShells are the shells the session runs in the background,
 	// with their newest output, from an endpoint that reports them (Claude
 	// Code's bridge). Passed on to the panel as they came.
-	BackgroundShells       json.RawMessage `json:"backgroundShells,omitempty"`
+	BackgroundShells json.RawMessage `json:"backgroundShells,omitempty"`
+	// Streaming is what is being written now, which no stored row has
+	// settled yet (Claude Code's bridge): [{id, type: "reasoning"|"text",
+	// text}]. Passed on as it came.
+	Streaming              json.RawMessage `json:"streaming,omitempty"`
 	Usage                  json.RawMessage `json:"usage"`
 	Tasks                  json.RawMessage `json:"tasks"`
 	ContextWindow          int             `json:"contextWindow,omitempty"`

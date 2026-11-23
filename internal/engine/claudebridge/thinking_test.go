@@ -178,3 +178,47 @@ func TestAThoughtCutShortDoesNotOutliveItsTurn(t *testing.T) {
 		t.Fatalf("done = %v", done)
 	}
 }
+
+// What is being written now is in the snapshot apart from the conversation,
+// for a reader that polls rather than follows the events (the glasses): the
+// panel, which draws the deltas, need not read it.
+func TestTheSnapshotHoldsWhatIsBeingWrittenNow(t *testing.T) {
+	h := newHarness(t)
+	h.mod(hello(nil))
+	events := h.subscribe("")
+	h.mod(map[string]any{"type": "turn_start", "turnId": "turn-1"})
+	nextEvent(t, events)
+
+	h.mod(thinkingDelta(0, "The flag belongs "), thinkingDelta(0, "in list.ts."))
+	h.mod(map[string]any{"type": "text_delta", "turnId": "turn-1", "step": 0, "index": 1, "text": "Moving "})
+	h.mod(map[string]any{"type": "text_delta", "turnId": "turn-1", "step": 0, "index": 1, "text": "it now."})
+	for range 4 {
+		nextEvent(t, events)
+	}
+	type stream struct{ Type, Text string }
+	streaming := func() []stream {
+		var out []stream
+		for _, s := range h.snapshot().Streaming {
+			if s.ID == "" {
+				t.Fatalf("a stream with no id: %+v", s)
+			}
+			out = append(out, stream{s.Type, s.Text})
+		}
+		return out
+	}
+	if got, want := streaming(), []stream{{"reasoning", "The flag belongs in list.ts."}, {"text", "Moving it now."}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("streaming = %+v, want %+v", got, want)
+	}
+
+	h.mod(assistantRow("row-t", thinkingBlock("")))
+	nextEvent(t, events)
+	if got, want := streaming(), []stream{{"text", "Moving it now."}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("streaming once the thought is stored = %+v, want %+v", got, want)
+	}
+
+	h.mod(assistantRow("row-a", textBlock("Moving it now.")))
+	nextEvent(t, events)
+	if got := h.snapshot().Streaming; got == nil || len(got) != 0 {
+		t.Fatalf("streaming once all is stored = %+v, want an empty list", got)
+	}
+}

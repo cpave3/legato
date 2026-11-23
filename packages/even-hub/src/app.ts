@@ -49,9 +49,10 @@ import { heard, reeveChat, reeveDictation, type ChatPage } from "./reeve"
 // glasses show on waking fresh, and to retry a page they refused to draw.
 export const POLL_MS = 5000
 export const BACKGROUND_POLL_MS = 30_000
-// How often the list page looks at how old its list is, which it shows beside
-// the clock once that is a minute or more; the glasses are sent it only when
-// it changes, so not at all while reads succeed.
+// How often the page in front looks at how old what it shows is: the list
+// beside its clock, an agent's pages and the Reeve's chat at the end of their
+// title, once that is a minute or more. The glasses are sent it only when it
+// changes, so not at all while reads succeed.
 const AGE_TICK_MS = 30_000
 // The longest message it records, and how long "Sent" stays up. The sound
 // kept is cut at a minute's worth (16 kHz mono s16le) however fast it comes
@@ -344,11 +345,13 @@ function press(event: EvenHubEvent): Click {
 // to it (`pending`) until its conversation has it; or an agent's view, which
 // shows its feed, or one entry of it in full, or a message being dictated.
 // An agent's view opened from the Reeve's chat (its history) goes back there.
-type ReeveView = { kind: "reeve"; read?: ConversationResult; dictation?: Dictation; pending?: string }
-type AgentView = {
+// A conversation as a view keeps it: the last answer, when it was read, and
+// why the latest read failed when one before it worked (that one stays up).
+type Reading = { read?: ConversationResult; readAt?: Date; problem?: string }
+type ReeveView = Reading & { kind: "reeve"; dictation?: Dictation; pending?: string }
+type AgentView = Reading & {
   kind: "agent"
   agent: Agent
-  read?: ConversationResult
   entry?: FeedItem
   dictation?: Dictation
   back?: ReeveView
@@ -362,6 +365,23 @@ type View = { kind: "picker" } | { kind: "list" } | { kind: "background" } | Ree
 type Talking = ReeveView | AgentView
 const talking = (v: View): v is Talking => v.kind === "agent" || v.kind === "reeve"
 const listening = (v: View): v is Talking => talking(v) && v.dictation?.step === "listening"
+
+// Keeps an answer in a view, holding on to the last one that worked when
+// this one failed.
+function took(v: Reading, read: ConversationResult | undefined): void {
+  if (read?.ok) {
+    v.read = read
+    v.readAt = new Date()
+    v.problem = undefined
+  } else if (read && v.read?.ok) {
+    v.problem = read.problem
+  } else {
+    v.read = read
+    v.readAt = undefined
+    v.problem = undefined
+  }
+}
+const freshness = (v: Reading) => ({ readAt: v.readAt, problem: v.problem, now: new Date() })
 
 // The item a list press chose among the items shown: the one at its index
 // when that is the name pressed (two Legatos may share a name), else the
@@ -501,14 +521,14 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
         const page = reeveDictation(name, view.dictation)
         await draw("text reeve", textLayout(page), page)
       } else {
-        const page = reeveChat(reeveAgent(), view.read, { instance: name, pending: view.pending })
+        const page = reeveChat(reeveAgent(), view.read, { instance: name, pending: view.pending, ...freshness(view) })
         await draw("reeve", chatLayout(page), page)
       }
     } else if (view.dictation || view.entry) {
-      const page = view.dictation ? dictationPage(view.agent, view.dictation) : entryPage(view.agent, view.entry!)
+      const page = view.dictation ? dictationPage(view.agent, view.dictation) : entryPage(view.agent, view.entry!, freshness(view))
       await draw(`text ${view.agent.task_id}`, textLayout(page), page)
     } else {
-      const page = agentPage(view.agent, view.read)
+      const page = agentPage(view.agent, view.read, freshness(view))
       feed = page.items
       await draw(`feed ${view.agent.task_id} ${JSON.stringify(feed)}`, feedLayout(page), page)
     }
@@ -530,6 +550,8 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
   // Reading Legato: the list always, and the open agent's conversation.
   let timer: ReturnType<typeof setTimeout> | undefined
   let inFront = true
+  // When the last read started, to tell whether what is shown may be stale.
+  let readAt = 0
 
   // Opens a Legato's list of agents, fresh.
   function openInstance(chosen: Instance, fromPicker: boolean): void {
@@ -577,7 +599,19 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
   async function readInstance(): Promise<void> {
     const at = instance
     if (!at) return
-    const answer = await legato.agents(at.id)
+    // The agents, the approvals and the open conversation are read at once,
+    // so one slow call holds back none of the others. The Reeve's chat reads
+    // the Reeve the last list had, and reads again should this list name
+    // another.
+    const feed = view.kind === "agent" && !view.dictation ? view : undefined
+    const chat = view.kind === "reeve" && !view.dictation ? view : undefined
+    const rv = chat ? reeveAgent() : undefined
+    const [answer, waiting, read, chatRead] = await Promise.all([
+      legato.agents(at.id),
+      legato.approvals(at.id),
+      feed ? legato.conversation(at.id, feed.agent.task_id) : undefined,
+      rv ? legato.conversation(at.id, rv.task_id, REEVE_ENTRIES) : undefined,
+    ])
     if (instance !== at) return
     if (!answer.ok && answer.gone) return toPicker(answer.problem)
     if (answer.ok) {
@@ -588,42 +622,47 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
       problem = answer.problem
     }
     // The approvals waiting; the last list stays when a read fails.
-    const waiting = await legato.approvals(at.id)
-    if (instance !== at) return
     if (waiting.ok) approvals = waiting.approvals
-    // An approval decided somewhere else meanwhile is left.
-    if (view.kind === "approval" && !view.decision && !approvals.some((a) => a.id === (view as ApprovalView).approval.id)) {
+    // An approval decided somewhere else meanwhile is left, unless the
+    // glasses' own decision is under way or done.
+    const step = view.kind === "approval" ? view.decision?.step : undefined
+    if (view.kind === "approval" && step !== "deciding" && step !== "done" && !approvals.some((a) => a.id === (view as ApprovalView).approval.id)) {
       view = view.back
     }
     if (view.kind === "agent") {
       const open = view
       open.agent = agents.find((a) => a.task_id === open.agent.task_id) ?? open.agent
-      if (!open.dictation) {
-        open.read = await legato.conversation(at.id, open.agent.task_id)
-        if (!open.read.ok && open.read.gone && view === open) return toPicker(open.read.problem)
-      }
     }
-    if (view.kind === "reeve" && !view.dictation) {
-      const open = view
-      await readReeve(open)
-      if (open.read && !open.read.ok && open.read.gone && view === open) return toPicker(open.read.problem)
+    if (feed && read && view === feed) {
+      if (!read.ok && read.gone) return toPicker(read.problem)
+      took(feed, read)
+    }
+    if (chat && view === chat) {
+      const answer = reeveAgent()?.task_id === rv?.task_id ? chatRead : await reeveRead()
+      if (answer && !answer.ok && answer.gone) return toPicker(answer.problem)
+      settleReeve(chat, answer)
     }
   }
 
   // The Reeve's conversation, when it is running; the message just sent is
   // let go once the conversation has it.
   async function readReeve(open: ReeveView): Promise<void> {
+    settleReeve(open, await reeveRead())
+  }
+
+  async function reeveRead(): Promise<ConversationResult | undefined> {
     const rv = reeveAgent()
-    if (!rv) {
-      open.read = undefined
-      return
-    }
-    open.read = await legato.conversation(instance?.id ?? "", rv.task_id, REEVE_ENTRIES)
+    return rv ? await legato.conversation(instance?.id ?? "", rv.task_id, REEVE_ENTRIES) : undefined
+  }
+
+  function settleReeve(open: ReeveView, read: ConversationResult | undefined): void {
+    took(open, read)
     if (open.pending && heard(open.read, open.pending)) open.pending = undefined
   }
 
   async function refresh(): Promise<void> {
     clearTimeout(timer)
+    readAt = Date.now()
     try {
       if (view.kind === "picker") await readInstances()
       else await readInstance()
@@ -682,12 +721,19 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
       at += chunk.length
     }
     recording = []
-    open.dictation = { step: "transcribing" }
+    const asked: Dictation = { step: "transcribing" }
+    open.dictation = asked
     await show()
-    const heard = await legato.transcribe(instance?.id ?? "", pcm)
-    if (view !== open || !open.dictation) return
-    open.dictation = heard.ok ? { step: "review", text: heard.text } : { step: "problem", problem: heard.problem }
-    await show()
+    // Outside the queue, so a double tap drops the message at once and reads
+    // go on; the words come back through it, and only to the same page.
+    const failed: TranscriptResult = { ok: false, problem: "Transcription failed." }
+    void legato.transcribe(instance?.id ?? "", pcm).catch(() => failed).then((heard) =>
+      enqueue(async () => {
+        if (view !== open || open.dictation !== asked) return
+        open.dictation = heard.ok ? { step: "review", text: heard.text } : { step: "problem", problem: heard.problem }
+        await show()
+      }),
+    )
   }
 
   async function sendDictated(open: Talking, text: string): Promise<void> {
@@ -713,7 +759,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
             await readInstance()
           } else {
             open.entry = undefined
-            open.read = await legato.conversation(at, open.agent.task_id)
+            took(open, await legato.conversation(at, open.agent.task_id))
           }
           if (view === open) await show()
         }),
@@ -818,7 +864,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
       const open: View = { kind: "agent", agent }
       view = open
       await show()
-      open.read = await legato.conversation(instance?.id ?? "", agent.task_id)
+      took(open, await legato.conversation(instance?.id ?? "", agent.task_id))
       if (view === open) await show()
       return
     }
@@ -833,9 +879,13 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
       if (open.dictation) {
         open.dictation = undefined
         if (open.kind === "reeve") await readReeve(open)
-        else open.read = await legato.conversation(instance?.id ?? "", open.agent.task_id)
+        else took(open, await legato.conversation(instance?.id ?? "", open.agent.task_id))
       } else if (open.kind === "agent" && open.entry) {
+        // Back on the feed at once, then as it is now.
         open.entry = undefined
+        await show()
+        took(open, await legato.conversation(instance?.id ?? "", open.agent.task_id))
+        if (view !== open) return
       } else if (open.kind === "agent" && open.back) {
         view = open.back
         await readReeve(open.back)
@@ -866,7 +916,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
           const history: AgentView = { kind: "agent", agent: rv, back: open }
           view = history
           await show()
-          history.read = await legato.conversation(instance?.id ?? "", rv.task_id)
+          took(history, await legato.conversation(instance?.id ?? "", rv.task_id))
           if (view === history) await show()
           return
         }
@@ -990,6 +1040,15 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
         void enqueue(refresh)
         return
     }
+    // Waking the screen sends nothing, so anything else the glasses send (a
+    // press, a scroll) says the operator is looking: reading goes back to
+    // every POLL_MS, at once when the last read is older than that.
+    if (!inFront) {
+      inFront = true
+      clearTimeout(timer)
+      if (Date.now() - readAt >= POLL_MS) void enqueue(refresh)
+      else scheduleRead()
+    }
     const kind = press(event)
     if (!kind) return
     // A release ends whatever recording is going when its turn comes: the
@@ -1004,13 +1063,8 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
     void enqueue(() => onPress(kind, event, at))
   })
 
-  setInterval(
-    () =>
-      void enqueue(async () => {
-        if (view.kind === "list") await show()
-      }),
-    AGE_TICK_MS,
-  )
+  // Every page that says how old it is says it again; only what changed is sent.
+  setInterval(() => void enqueue(() => show()), AGE_TICK_MS)
   await enqueue(refresh)
   // After the first read, so the agents are not kept waiting for it.
   void enqueue(readDevice)

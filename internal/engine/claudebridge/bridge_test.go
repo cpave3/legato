@@ -129,6 +129,13 @@ func (h *harness) post(path string, body any) (int, string) {
 }
 
 type snapshot struct {
+	// Streaming is what is being written now: replies and thoughts no
+	// stored row has settled yet.
+	Streaming []struct {
+		ID   string `json:"id"`
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"streaming"`
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	CWD    string `json:"cwd"`

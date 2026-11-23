@@ -79,6 +79,38 @@ func TestAgentConversationReturnsWhatANativeAgentSaidAndDid(t *testing.T) {
 	}
 }
 
+// What more a reader may want comes in fields of their own, left out when
+// there is none: the thought behind a step, a subagent's newest call, and
+// what the agent is writing now.
+func TestAgentConversationCarriesThoughtsSubagentsAndWhatIsBeingWritten(t *testing.T) {
+	agents := &conversationAgentService{promptAgentService: &promptAgentService{}, tail: &service.ConversationTail{
+		Status: "running",
+		Entries: []service.ConversationEntry{
+			{Kind: service.EntryTool, Tool: "spawn_agent", Text: "Find the parser", State: service.ToolDone, Thinking: "Hand it off.",
+				Subagent: &service.ConversationSubagent{Purpose: "Find the parser", Status: "running", Tool: "Grep", Text: "parseFlags"}},
+		},
+		Live: &service.ConversationLive{Thinking: "Where next?", Reply: "Moving it"},
+	}}
+
+	response := getConversation(agents, "/api/agents/worker-1/conversation")
+
+	var body struct {
+		Entries []map[string]any `json:"entries"`
+		Live    map[string]any   `json:"live"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	entry, _ := json.Marshal(body.Entries[0])
+	want := `{"kind":"tool","state":"done","subagent":{"purpose":"Find the parser","status":"running","text":"parseFlags","tool":"Grep"},"text":"Find the parser","thinking":"Hand it off.","tool":"spawn_agent"}`
+	if string(entry) != want {
+		t.Fatalf("entry:\n got %s\nwant %s", entry, want)
+	}
+	if live, _ := json.Marshal(body.Live); string(live) != `{"reply":"Moving it","thinking":"Where next?"}` {
+		t.Fatalf("live = %s", live)
+	}
+}
+
 func TestAgentConversationOfASilentAgentIsAnEmptyList(t *testing.T) {
 	agents := &conversationAgentService{promptAgentService: &promptAgentService{}, tail: &service.ConversationTail{Status: "idle"}}
 

@@ -1,4 +1,5 @@
-import { LIST_ITEMS, TEXT_UPDATE_LIMIT, fitItem, stateOf } from "./glance"
+import { getTextWidth } from "@evenrealities/pretext"
+import { LIST_ITEMS, TEXT_UPDATE_LIMIT, ago, fitItem, stateOf } from "./glance"
 import { CANVAS_WIDTH, ITEM_TEXT_WIDTH, TITLE_WIDTH, center, inner } from "./layout"
 import type { Agent, Conversation, ConversationResult } from "./legato"
 
@@ -26,10 +27,24 @@ type Entry = Conversation["entries"][number]
 
 const hint = (keys: string) => center(keys, CANVAS_WIDTH)
 
-function header(agent: Agent): Header {
+// How fresh a page is: when what it shows was read, and why the latest read
+// failed, if it did (the page then keeps what it last read).
+export type Freshness = { readAt?: Date; now?: Date; problem?: string }
+
+// A header's title: `name`, or what went wrong in its place after `who`,
+// cut to the title's box, with how old the page is (once a minute or more)
+// kept whole at its end, so a stale page never passes for a fresh one.
+export function freshTitle(who: string, name: string, fresh: Freshness = {}): string {
+  const old = fresh.readAt ? ago(fresh.readAt, fresh.now ?? new Date()) : ""
+  const tail = old ? ` · ${old}` : ""
+  const text = fresh.problem ? `${who} ▲ ${flat(fresh.problem)}` : name
+  return fitItem(text, inner(TITLE_WIDTH) - getTextWidth(tail), Infinity) + tail
+}
+
+function header(agent: Agent, fresh?: Freshness): Header {
   const s = stateOf(agent)
   const name = agent.title.trim()
-  return { badge: `${s.mark} ${s.word}`, title: fitItem(`${agent.task_id}${name ? ` ${name}` : ""}`, inner(TITLE_WIDTH), Infinity) }
+  return { badge: `${s.mark} ${s.word}`, title: freshTitle(agent.task_id, `${agent.task_id}${name ? ` ${name}` : ""}`, fresh) }
 }
 
 export const flat = (text: string) => text.replace(/\s+/g, " ").trim()
@@ -72,7 +87,9 @@ function item(e: Entry): FeedItem {
       return { text: line(`${who}: ${said}`), detail: `${who}\n\n${said}` }
     }
     case "tool": {
-      const mark = e.state === "failed" ? "▲" : e.state === "running" ? "▶" : "·"
+      // A call that started a subagent runs while the subagent does.
+      const running = e.state === "running" || e.subagent?.status === "running"
+      const mark = e.state === "failed" ? "▲" : running ? "▶" : "·"
       const tool = (e.tool ?? "tool").split("__").pop()!
       const what = flat(e.text || e.command || "")
       const state = e.state ? ` (${e.state})` : ""
@@ -86,10 +103,28 @@ function item(e: Entry): FeedItem {
   }
 }
 
-// The agent's feed: what it asks for, then what it said and did, newest
-// first. `read` is undefined until the first answer.
-export function agentPage(agent: Agent, read: ConversationResult | undefined): FeedPage {
-  const page = (items: FeedItem[]) => ({ ...header(agent), items, hint: hint("Tap: expand · Hold: dictate · Double tap: back") })
+// An entry's lines, newest first: what a subagent it started does now, the
+// entry, and the thought that led to its step.
+function lines(e: Entry): FeedItem[] {
+  const out: FeedItem[] = []
+  const sub = e.subagent
+  if (sub?.status === "running" && sub.tool) {
+    const what = flat(sub.text ?? "")
+    out.push({
+      text: line(what ? `└ ${sub.tool}: ${what}` : `└ ${sub.tool}`),
+      detail: [`Subagent: ${sub.purpose.trim()}`, `Now: ${[sub.tool, sub.text?.trim()].filter(Boolean).join(" ")}`].join("\n\n"),
+    })
+  }
+  out.push(item(e))
+  if (e.thinking?.trim()) out.push({ text: line(`Thought: ${e.thinking}`), detail: `Thought\n\n${e.thinking.trim()}` })
+  return out
+}
+
+// The agent's feed: what it asks for, what it is writing now (a thought, a
+// reply), then what it said and did, newest first. `read` is undefined until the first answer; it is the last one
+// that worked when a later read failed (`fresh.problem`).
+export function agentPage(agent: Agent, read: ConversationResult | undefined, fresh?: Freshness): FeedPage {
+  const page = (items: FeedItem[]) => ({ ...header(agent, fresh), items, hint: hint("Tap: expand · Hold: dictate · Double tap: back") })
   if (!read) return page([{ text: "Reading the conversation…" }])
   if (!read.ok) return page([{ text: line(read.problem), detail: read.problem }])
 
@@ -104,13 +139,16 @@ export function agentPage(agent: Agent, read: ConversationResult | undefined): F
     const options = question.options.map((o, i) => `${i + 1}. ${o.trim()}`).join("\n")
     items.push({ text: line(`● Asks: ${question.text}`), detail: [`Asks: ${question.text.trim()}`, options].filter(Boolean).join("\n\n"), asks: true })
   }
-  items.push(...entries.slice().reverse().map(item))
+  const live = read.conversation.live
+  if (live?.thinking?.trim()) items.push({ text: line(`Thinking: ${live.thinking}`), detail: `Thinking\n\n${live.thinking.trim()}` })
+  if (live?.reply?.trim()) items.push({ text: line(`Writing: ${live.reply}`), detail: `Agent, still writing\n\n${live.reply.trim()}` })
+  items.push(...entries.slice().reverse().flatMap(lines))
   return page(items.length ? items.slice(0, LIST_ITEMS) : [{ text: "Nothing said yet." }])
 }
 
 // One entry of the feed in full.
-export function entryPage(agent: Agent, entry: FeedItem): TextPage {
-  return { ...header(agent), body: whole(entry.detail ?? entry.text), hint: hint("Hold: dictate · Double tap: back") }
+export function entryPage(agent: Agent, entry: FeedItem, fresh?: Freshness): TextPage {
+  return { ...header(agent, fresh), body: whole(entry.detail ?? entry.text), hint: hint("Hold: dictate · Double tap: back") }
 }
 
 function minutes(seconds: number): string {

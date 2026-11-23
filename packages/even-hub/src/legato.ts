@@ -18,7 +18,19 @@ export type Agent = {
 export type Conversation = {
   task_id: string
   status: string
-  entries: { kind: "user" | "assistant" | "tool" | string; text: string; tool?: string; command?: string; state?: string }[]
+  entries: {
+    kind: "user" | "assistant" | "tool" | string
+    text: string
+    tool?: string
+    command?: string
+    state?: string
+    // The thought behind the entry's step, on its first entry.
+    thinking?: string
+    // The subagent a call started, with its newest call.
+    subagent?: { purpose: string; status: string; tool?: string; text?: string }
+  }[]
+  // What the agent is writing now, which no entry holds yet.
+  live?: { thinking?: string; reply?: string }
   permission: { tool: string; command?: string; reason?: string; plan?: string } | null
   question: { text: string; options: string[] } | null
   context_used: number
@@ -170,7 +182,7 @@ export async function fetchConversation(
   if (!("response" in answer)) return answer
   const { response } = answer
   if (response.status === 409)
-    return { ok: false, problem: "This agent runs in a terminal, so Legato can't read its conversation." }
+    return { ok: false, problem: "Legato can't read this agent's conversation yet: it is starting, or it runs in a terminal." }
   if (response.status === 404) return { ok: false, problem: "The agent is no longer running." }
   if (!response.ok) return await failed(response)
   const body = (await response.json().catch(() => undefined)) as Conversation | undefined

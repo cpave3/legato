@@ -188,7 +188,7 @@ describe("fetchConversation", () => {
 
     expect(await fetchConversation(phone, "inst-1", "LEG-1", fake.fn)).toEqual({
       ok: false,
-      problem: "This agent runs in a terminal, so Legato can't read its conversation.",
+      problem: "Legato can't read this agent's conversation yet: it is starting, or it runs in a terminal.",
     })
   })
 
