@@ -443,6 +443,15 @@ type AgentsConfig struct {
 	MCP                 AgentMCPConfig        `yaml:"mcp"`
 	Sandbox             AgentSandboxConfig    `yaml:"sandbox"`
 	History             AgentHistoryConfig    `yaml:"history"`
+	Compact             AgentCompactConfig    `yaml:"compact"`
+}
+
+// AgentCompactConfig configures compaction that Legato starts on its own.
+type AgentCompactConfig struct {
+	// AutoPercent compacts an idle native agent whose context window is at
+	// least this full, in percent; 0, the default, never does. Each tool
+	// still compacts itself near its own limit.
+	AutoPercent int `yaml:"auto_percent"`
 }
 
 // AgentHistoryConfig configures the session history: the conversations

@@ -121,7 +121,7 @@ func (w *contextWatcher) UseExternalEvents() {
 
 // Observe takes one event of a watched agent's stream.
 func (w *contextWatcher) Observe(taskID string, event chimera.EventEnvelope) {
-	reading, ok := contextFromEvent(event)
+	reading, ok := w.readingFrom(taskID, event)
 	if !ok {
 		return
 	}
@@ -152,7 +152,7 @@ func (w *contextWatcher) follow(ctx context.Context, taskID string, watch *conte
 			// Without an external watcher this is the server's only stream
 			// that follows the agent whether or not a page is open on it.
 			logDeliveryFailure(taskID, event)
-			if reading, ok := contextFromEvent(event); ok {
+			if reading, ok := w.readingFrom(taskID, event); ok {
 				w.record(taskID, watch, reading)
 			}
 		})
@@ -190,6 +190,29 @@ func contextFromEvent(event chimera.EventEnvelope) (agentContextReading, bool) {
 		return agentContextReading{}, false
 	}
 	return agentContextReading{Used: *data.Used, Window: data.Window}, true
+}
+
+// readingFrom reads an agent's event for its context fill: a usage_updated,
+// or a compaction_finished that says how full the context is after it, in
+// the window of the agent's last reading. Chimera reports a compaction's
+// size that way without a usage_updated.
+func (w *contextWatcher) readingFrom(taskID string, event chimera.EventEnvelope) (agentContextReading, bool) {
+	if event.Type != "compaction_finished" {
+		return contextFromEvent(event)
+	}
+	var data struct {
+		After *int `json:"tokensAfter"`
+	}
+	if err := json.Unmarshal(event.Data, &data); err != nil || data.After == nil {
+		return agentContextReading{}, false
+	}
+	w.mu.Lock()
+	last, known := w.readings[taskID]
+	w.mu.Unlock()
+	if !known || last.Window <= 0 {
+		return agentContextReading{}, false
+	}
+	return agentContextReading{Used: *data.After, Window: last.Window}, true
 }
 
 // record keeps a reading of the watch that is still current, and tells the

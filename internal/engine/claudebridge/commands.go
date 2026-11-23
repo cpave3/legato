@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -75,6 +77,33 @@ func (b *Bridge) handleMessage(w http.ResponseWriter, r *http.Request) {
 		b.mu.Unlock()
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// handleCompact asks the session to compact its conversation, with the
+// person's focus instructions when given: the mod calls the engine's own
+// compaction, the one /compact makes. Claude Code compacts only between
+// turns, so a busy session answers 409, as a Chimera session does; so does
+// one already compacting.
+func (b *Bridge) handleCompact(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Instructions string `json:"instructions"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	b.mu.Lock()
+	busy := b.session.busy || b.session.compacting
+	b.mu.Unlock()
+	if busy {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "run already in progress"})
+		return
+	}
+	command := map[string]any{"type": "compact"}
+	if instructions := strings.TrimSpace(body.Instructions); instructions != "" {
+		command["instructions"] = instructions
+	}
+	b.sendOrFail(w, command, http.StatusAccepted)
 }
 
 func (b *Bridge) handleInterrupt(w http.ResponseWriter, r *http.Request) {

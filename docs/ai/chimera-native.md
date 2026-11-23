@@ -34,6 +34,8 @@ For Chimera only (including the panel's default unspecified kind), a non-streami
 
 `contracts/chimera-recovery/` contains actual compactor-generated output from a disposable, synthetic conversation, its generator and provenance. Native panel rendering tests cover historical string/parts snapshots, collapse/toggle, readable expansion, truncation, exact download, explicit compaction refresh, replay/reconnect and ordinary/provider isolation. `scripts/verify-chimera-recovery.mjs` exercises that same panel through the isolated `web/src/test/recovery-preview.html` fixture in Chromium; it uses no live Legato backend. See [verification](../analysis/chimera-recovery-2ghzgdju.md) for evidence and limits.
 
+Legato compacts a Chimera agent through Chimera's own `POST /v1/sessions/{id}/compact` (`chimera.Client.Compact`), and the meter follows `compaction_finished`'s `tokensAfter`. See [Compacting an agent](compaction.md).
+
 ## Launch messages and fallback
 
 A fresh session keeps `--prompt` as turn one. The adapter is a `NativeBindingAdapter` while the mod is configured: later launch messages (including a resumed reviewer's brief) wait for the native binding and go over HTTP, rather than being typed into a TUI that is still starting. Native delivery uses the actual bound conversation ID and original message, including multiline prompts; the `prompt.md` pointer is only for non-Chimera terminal delivery.

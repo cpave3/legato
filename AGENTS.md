@@ -83,6 +83,7 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 - `docs/ai/cli.md` — subcommands, host broker, JSON contract and exit codes, hook integrations (Claude Code, Codex, Chimera, Staccato), tmux status line
 - `docs/ai/web-ui.md` — web UI pages, components, API endpoints, WebSocket sync, PWA, pairing
 - `docs/ai/tui.md` — TUI theme, board, agents view, spawn overlay
+- `docs/ai/compaction.md` — compacting an agent with its tool's own compaction: the native compact route, each tool's path and sizes, the API, the panel, automatic compaction
 - `docs/ai/agent-states.md` — agent states (working, waiting, background, idle, error), what each agent tool's hooks and bridge report, background jobs, the gaps
 - `docs/ai/sync.md` — ticket providers and the Jira sync algorithm
 - `docs/ai/pr-tracking.md` — GitHub PR discovery, code context, read-only client
@@ -138,6 +139,7 @@ The documentation for people who use Legato is the Starlight site in `site/`, pu
 | `docs/ai/model-settings.md` | `agent-tools/model-settings` |
 | `docs/ai/sync.md`, `docs/ai/pr-tracking.md` | `integrations/jira`, `integrations/github` |
 | `docs/ai/claude-code-native.md`, `docs/ai/chimera-native.md`, `docs/ai/codex-native.md`, `docs/ai/agent-mcp.md`, `docs/ai/resources.md`, `docs/ai/skills.md` | `agent-tools/*` |
+| `docs/ai/compaction.md` | `using/agents`, `agent-tools/*`, `reference/configuration` |
 | `docs/ai/credentials.md`, `docs/ai/sandbox.md` | `security/*`, `running/agent-server` |
 | `docs/ai/engram.md` | `agent-tools/engrams` |
 | `docs/ai/integrations.md` | `integrations/argus` |

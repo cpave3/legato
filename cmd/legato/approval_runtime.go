@@ -113,6 +113,10 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 		changeSets.RunQueued(ctx)
 		changeSets.ReportRestarts(ctx, processStart, version.String())
 	})
+	// And so is compaction past agents.compact.auto_percent.
+	if autoCompactor := newAutoCompactor(db, agents); autoCompactor != nil {
+		go whileBrokerOwner(ctx, broker.Owner, service.AutoCompactCheckEvery, func(ctx context.Context) { autoCompactor.Check(ctx) })
+	}
 	// So are the agents the Reeve watches: it is told what they did.
 	if processWatcher != nil {
 		go whileBrokerOwner(ctx, broker.Owner, service.ReeveWatchCheckEvery, func(ctx context.Context) { processWatcher.Check(ctx) })

@@ -258,6 +258,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/resources/{id}", s.resourceHandler())
 	mux.HandleFunc("/api/agents/{task_id}/resources", s.agentResourcesHandler())
 	mux.HandleFunc("/api/agents/{task_id}/restart", s.agentRestartHandler())
+	mux.HandleFunc("/api/agents/{task_id}/compact", s.agentCompactHandler())
 	mux.HandleFunc("/api/agents/interrupted", s.interruptedAgentsHandler())
 	mux.HandleFunc("/api/agents/interrupted/resume-all", s.interruptedResumeAllHandler())
 	mux.HandleFunc("/api/agents/{task_id}/resume", s.interruptedResumeHandler())

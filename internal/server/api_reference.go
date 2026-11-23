@@ -75,6 +75,7 @@ var routeBodies = map[string]string{
 	"POST /api/workflow-files/check":               `{"yaml": "schema_version: 1\nname: …"}`,
 	"POST /api/agents/kill":                        `{"task_id": "<id>"}`,
 	"POST /api/agents/{task_id}/restart":           `{"switch_sandbox": false}`,
+	"POST /api/agents/{task_id}/compact":           `{"instructions": "…"}`,
 	"PATCH /api/agents/{task_id}/notify":           `{"enabled": true}`,
 	"PUT /api/agents/{task_id}/group":              `{"group": "…"}`,
 	"PUT /api/agents/{task_id}/stage":              `{"stage": "finished", "reason": "…"}`,

@@ -117,6 +117,10 @@ With `native_bridge: false`, Legato types plain `codex <codex arguments>`, and d
 
 In the web UI, **Downgrade to tmux** in the panel's menu shows one agent through its terminal. **Upgrade to native panel** connects it again while its bridge runs.
 
+## Compact the conversation
+
+Type `/compact` in the panel. Legato starts Codex's own compaction (`thread/compact/start`), the one its `/compact` runs, and shows its progress and the context size before and after. Codex takes no focus words, so Legato refuses `/compact` with words after it. Codex would stop a running turn to compact. Legato waits instead: it refuses while the agent works. When Codex compacts on its own because its context is nearly full, the panel shows that too. See [Compacting an agent](/legato/using/agents/#compacting-an-agent).
+
 ## Resume a conversation
 
 Legato saves the Codex conversation ID and folder of each task's agent. When you start an agent on a task that has a saved conversation, the web dialog and the TUI offer to resume it or start a new one. Resume starts `codex resume <id>` in the saved folder, and does not send the launch prompt again.

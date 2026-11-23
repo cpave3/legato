@@ -112,6 +112,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `GET` | `/api/agents/{task_id}/resources` | read | List an agent's resources |  |
 | `POST` | `/api/agents/{task_id}/resources` | risky | Give an agent resources, restarting it if needed |  |
 | `POST` | `/api/agents/{task_id}/restart` | risky | Restart an agent | `{"switch_sandbox": false}` |
+| `POST` | `/api/agents/{task_id}/compact` | change | Compact an agent's context with its tool's own compaction, between turns; Claude Code also takes focus instructions | `{"instructions": "…"}` |
 | `GET` | `/api/agents/interrupted` | read | List the agents a crash interrupted |  |
 | `POST` | `/api/agents/interrupted/resume-all` | change | Resume every interrupted agent |  |
 | `POST` | `/api/agents/{task_id}/resume` | change | Resume an interrupted agent, or start a new one in its place |  |

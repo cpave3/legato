@@ -316,6 +316,32 @@ func (c *Client) Interrupt(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+// Compact asks the session to compact its context via
+// POST /v1/sessions/:id/compact. The session answers at once and compacts
+// afterwards, reporting compaction_started, then compaction_finished or
+// compaction_failed. instructions, when set, say what the summary should
+// keep; only a session that takes them is sent any. ErrBusy while a run is
+// active.
+func (c *Client) Compact(ctx context.Context, sessionID, instructions string) error {
+	body := map[string]string{}
+	if instructions != "" {
+		body["instructions"] = instructions
+	}
+	bodyBytes, _ := json.Marshal(body)
+	resp, err := c.do(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/compact", bodyBytes)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusConflict {
+		return ErrBusy
+	}
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("compact: %s", resp.Status)
+	}
+	return nil
+}
+
 // PermissionAction is the action accepted by Chimera's permission endpoint.
 type PermissionAction struct {
 	Decision string `json:"decision"`

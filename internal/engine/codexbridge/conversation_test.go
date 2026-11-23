@@ -112,8 +112,11 @@ func TestOtherToolsKeepTheirNameAndArguments(t *testing.T) {
 		t.Fatalf("result = %v", result)
 	}
 
-	// Bookkeeping items, such as a compaction, are not part of what the panel shows.
+	// A compaction is reported, not drawn as part of the conversation.
 	h.item("completed", map[string]any{"type": "contextCompaction", "id": "c-1"})
+	if next := nextEvent(t, events); next["type"] != "compaction_finished" {
+		t.Fatalf("event = %v", next)
+	}
 	h.item("completed", agentMessage("item-a1", "done"))
 	if next := nextEvent(t, events); next["type"] != "assistant_text_done" {
 		t.Fatalf("event = %v", next)

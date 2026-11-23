@@ -177,6 +177,7 @@ func (b *Bridge) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/sessions/{id}/events", b.handleEvents)
 	mux.HandleFunc("POST /v1/sessions/{id}/messages", b.handleMessage)
 	mux.HandleFunc("POST /v1/sessions/{id}/interrupt", b.handleInterrupt)
+	mux.HandleFunc("POST /v1/sessions/{id}/compact", b.handleCompact)
 	mux.HandleFunc("POST /v1/sessions/{id}/permissions/{requestId}", b.handlePermission)
 	mux.HandleFunc("POST /v1/sessions/{id}/questions/{requestId}", b.handleQuestion)
 	b.registerDescriptionRoutes(mux)

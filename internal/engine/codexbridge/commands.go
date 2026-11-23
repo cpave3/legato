@@ -3,6 +3,8 @@ package codexbridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -151,6 +153,50 @@ func (s *session) turnOverrides() map[string]any {
 		overrides["effort"] = s.effortOverride
 	}
 	return overrides
+}
+
+// handleCompact starts Codex's own compaction of the terminal's thread
+// (thread/compact/start), the one its /compact makes. Codex would stop a
+// running turn to compact; Legato compacts between turns only, so a busy
+// thread answers 409, as a Chimera session does. Codex compacts with its own
+// prompt and takes no focus instructions, so a request with some is refused
+// rather than run without them.
+func (b *Bridge) handleCompact(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Instructions string `json:"instructions"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(body.Instructions) != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Codex compacts with its own prompt and takes no focus instructions"})
+		return
+	}
+	b.mu.Lock()
+	threadID, busy := b.session.threadID, b.session.busy || b.session.turnID != ""
+	if threadID != "" && !busy {
+		b.session.compactAsked = true
+	}
+	b.mu.Unlock()
+	if threadID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "the session has no conversation to compact yet"})
+		return
+	}
+	if busy {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "run already in progress"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	if err := b.client.call(ctx, "thread/compact/start", map[string]any{"threadId": threadID}, nil); err != nil {
+		b.mu.Lock()
+		b.session.compactAsked = false
+		b.mu.Unlock()
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func (b *Bridge) handleInterrupt(w http.ResponseWriter, r *http.Request) {
