@@ -51,3 +51,12 @@ export function center(text: string, width: number): string {
   while (spaces > 0 && getTextWidth(`${" ".repeat(spaces)}${text}`) > width) spaces--
   return `${" ".repeat(spaces)}${text}`
 }
+
+// Text pushed to the right of a box of `width` px of text, by leading
+// spaces: the firmware aligns text only to the left.
+export function right(text: string, width: number): string {
+  if (!text) return ""
+  let spaces = Math.max(0, Math.floor((width - getTextWidth(text)) / getTextWidth(" ")))
+  while (spaces > 0 && getTextWidth(`${" ".repeat(spaces)}${text}`) > width) spaces--
+  return `${" ".repeat(spaces)}${text}`
+}

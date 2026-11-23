@@ -15,6 +15,10 @@ export type FakeInstance = { id: string; name: string; agents: string }
 export type FakePhone = {
   instances: FakeInstance[]
   conversation: string
+  // The Reeve's conversation: any agent the instance's list marks `reeve`.
+  reeveConversation: string
+  // The approvals waiting on the first instance; the others have none.
+  approvals: string
   log: (line: string) => void
 }
 
@@ -26,6 +30,8 @@ export const LOG_PATH = "/__log"
 const DEFAULT_FIXTURE = "fixtures/agents.json"
 const EMPTY_FIXTURE = "fixtures/empty.json"
 const CONVERSATION_FIXTURE = "fixtures/conversation.json"
+const REEVE_FIXTURE = "fixtures/reeve.json"
+const APPROVALS_FIXTURE = "fixtures/approvals.json"
 // What the fixtures "hear" in any recording.
 const FIXTURE_TRANSCRIPT = "Run the tests again, and push if they pass."
 
@@ -38,6 +44,8 @@ export function fakePhone(env: Record<string, string | undefined>, root: string)
       { id: "laptop", name: "Laptop", agents: resolve(root, EMPTY_FIXTURE) },
     ],
     conversation: resolve(root, CONVERSATION_FIXTURE),
+    reeveConversation: resolve(root, REEVE_FIXTURE),
+    approvals: resolve(root, APPROVALS_FIXTURE),
     log: (line) => console.info(`[legato-even-hub] fake phone: ${line}`),
   }
 }
@@ -56,14 +64,21 @@ type Call =
   | { route: "conversation"; taskId: string }
   | { route: "transcribe" }
   | { route: "send"; taskId: string }
+  | { route: "reeve" }
+  | { route: "approvals" }
+  | { route: "decide"; id: string }
 
-// The four Legato calls the glasses make through an instance, by method, path
+// The Legato calls the glasses make through an instance, by method, path
 // and query. A task ID is one path segment.
 function legatoCall(method: string, rest: string, query: URLSearchParams): Call | undefined {
   const exactly = (want: Record<string, string>) =>
     [...query.keys()].length === Object.keys(want).length && Object.entries(want).every(([k, v]) => query.getAll(k).join() === v)
   if (method === "GET" && rest === "/api/agents") return exactly({ view: "compact", status: "running" }) ? { route: "agents" } : undefined
   if (method === "POST" && rest === "/api/voice/transcribe" && [...query.keys()].length === 0) return { route: "transcribe" }
+  if (method === "POST" && rest === "/api/reeve/message" && [...query.keys()].length === 0) return { route: "reeve" }
+  if (method === "GET" && rest === "/api/approvals") return exactly({ status: "pending" }) ? { route: "approvals" } : undefined
+  const decision = rest.match(/^\/api\/approvals\/([^/]+)\/decision$/)
+  if (method === "POST" && decision && [...query.keys()].length === 0) return { route: "decide", id: decodeURIComponent(decision[1]) }
   const agent = rest.match(/^\/api\/agents\/([^/]+)\/(conversation|chimera\/send)$/)
   if (!agent) return undefined
   const taskId = decodeURIComponent(agent[1])
@@ -114,22 +129,41 @@ export async function answerPhone(request: PhoneRequest, phone: FakePhone): Prom
     } catch {
       return json(400, { error: "the body is not JSON" })
     }
-    const name = call.route === "transcribe" ? "pcm" : "content"
+    const name = call.route === "transcribe" ? "pcm" : call.route === "reeve" ? "text" : call.route === "decide" ? "decision" : "content"
     const value = (sent as Record<string, unknown> | null)?.[name]
     if (typeof value !== "string") return json(400, { error: `${name} must be a string` })
     field = value
+    if (call.route === "decide" && value !== "allow" && value !== "deny") return json(400, { error: "decision must be allow or deny" })
+    if (call.route === "decide") {
+      const option = (sent as Record<string, unknown>).option
+      field = typeof option === "string" ? `${value} ${JSON.stringify(option)}` : value
+    }
   }
 
   switch (call.route) {
     case "agents":
       return { ...json(200, null), body: await readFile(instance.agents, "utf8") }
-    case "conversation":
-      return json(200, { ...JSON.parse(await readFile(phone.conversation, "utf8")), task_id: call.taskId })
+    case "conversation": {
+      const agents = JSON.parse(await readFile(instance.agents, "utf8")) as { task_id: string; reeve?: boolean }[]
+      const reeve = agents.some((a) => a.reeve && a.task_id === call.taskId)
+      return json(200, { ...JSON.parse(await readFile(reeve ? phone.reeveConversation : phone.conversation, "utf8")), task_id: call.taskId })
+    }
     case "transcribe":
       return json(200, { text: FIXTURE_TRANSCRIPT })
     case "send":
       phone.log(`would send to ${call.taskId} on ${instance.name}: ${JSON.stringify(field)}`)
       return { status: 202, headers: COMMON, body: "" }
+    case "reeve":
+      phone.log(`would send the Reeve on ${instance.name}, from the glasses: ${JSON.stringify(field)}`)
+      return json(200, { status: "sent" })
+    case "approvals":
+      if (instance !== phone.instances[0]) return json(200, { approvals: [] })
+      return { ...json(200, null), body: await readFile(phone.approvals, "utf8") }
+    case "decide": {
+      const [decision, option] = field.split(" ")
+      phone.log(`would ${decision} ${call.id} on ${instance.name}${option ? ` with ${option}` : ""}, from the glasses`)
+      return json(200, { id: call.id })
+    }
   }
 }
 

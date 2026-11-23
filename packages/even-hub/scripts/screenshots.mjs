@@ -8,7 +8,8 @@
 // It walks the pages: the picker of Legatos (the fake phone has two), the
 // first one's active tab, the idle tab, an agent's feed, one entry in full,
 // and a message dictated to it (held to talk) (the fixtures transcribe any
-// recording to one sentence).
+// recording to one sentence); then the Reeve's chat, a message sent to it
+// while it thinks, the approvals waiting, and background mode's row.
 import { spawn } from "node:child_process"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
@@ -111,9 +112,28 @@ try {
     const entries = await console_()
     return entries.find((e) => e.message.includes("[legato-even-hub] ready"))
   })
-  const step = async (action, ms = 700) => {
+  // After each input, waits until the glasses' picture has changed (unless
+  // the input changes nothing: `same`), then until it has held still for a
+  // while: the simulator's WebView can fall far behind (it logs every event,
+  // and its null microphone sends silence as fast as it can), so a fixed
+  // wait is not enough. A hold that starts recording is not waited to hold
+  // still: the clock on the page changes every second, and the recording
+  // grows while it does.
+  const glassesNow = async () => Buffer.from(await (await fetch(`${sim}/api/screenshot/glasses`)).arrayBuffer())
+  const step = async (action, { same = false, still = action !== "long_press" } = {}) => {
+    const before = await glassesNow()
     await input(action)
-    await sleep(ms)
+    await sleep(200)
+    if (!same) await until(`${action} to change the glasses`, async () => !(await glassesNow()).equals(before))
+    if (!still) return
+    let last = await glassesNow()
+    let held = 0
+    for (const deadline = Date.now() + 20_000; held < 3 && Date.now() < deadline; ) {
+      await sleep(800)
+      const now = await glassesNow()
+      held = now.equals(last) ? held + 1 : 0
+      last = now
+    }
   }
   const shot = async (name) => {
     if (!drawn(await save("glasses", name))) throw new Error(`the glasses show nothing for ${name}`)
@@ -124,34 +144,80 @@ try {
   await save("webview", "phone.png")
 
   // The first Legato, Desk, which reads fixtures/agents.json.
-  await step("click", 1200)
+  await step("click")
   await shot("agents.png")
 
+  // Background mode: a hold folds the list into a row across the top,
+  // another unfolds it.
+  await step("long_press")
+  await step("long_press_release", { same: true })
+  await shot("background.png")
+  await step("long_press")
+  await step("long_press_release", { same: true })
+
+  // The Reeve's chat, first on the list, before any recording (the null
+  // microphone's flood of silence slows the simulator for a while).
+  await step("click")
+  await shot("reeve.png")
+  await step("double_click")
+
+  // The approvals, under the Reeve: the list, one in full with its options,
+  // the confirmation an option asks for, and one that must be signed. The
+  // fake phone only logs a decision; none is made here.
+  await step("down")
+  await step("click")
+  await shot("approvals.png")
+  await step("click")
+  await shot("approval.png")
+  await step("click")
+  await shot("approval-confirm.png")
+  await step("double_click")
+  await step("double_click")
+  await step("down")
+  await step("down")
+  await step("click")
+  await shot("approval-signed.png")
+  await step("double_click")
+  await step("double_click")
+
   // The idle tab is the active tab's last item.
-  for (let i = 0; i < 20; i++) await step("down", 150)
+  for (let i = 0; i < 20; i++) await step("down", { same: true, still: false })
   await step("click")
   await shot("idle.png")
   await step("double_click")
 
-  // The second agent's feed, one entry in full, then a message to it, held
-  // to talk.
+  // The first agent's feed (the Reeve and the approvals are pinned above
+  // it), one entry in full, then a message to it, held to talk.
   await step("down")
-  await step("click", 1200)
+  await step("down")
+  await step("click")
   await shot("agent.png")
   await step("click")
   await shot("entry.png")
   await step("double_click")
-  await step("long_press", 2500)
+  // Holds are brief: the simulator's null microphone sends silence as fast
+  // as it can, so a long hold makes a recording too big to send.
+  await step("long_press")
   await shot("listening.png")
-  await step("long_press_release", 1500)
+  await step("long_press_release")
   await shot("message.png")
   await step("double_click")
   await step("double_click")
 
+  // A message sent to the Reeve: the fake phone only logs it, so the chat
+  // goes on thinking.
+  await step("click")
+  await step("long_press")
+  await step("long_press_release")
+  await step("click")
+  await shot("reeve-sent.png")
+  await step("double_click")
+
+
   const errors = (await console_()).filter((e) => e.level === "error" || /^\[(uncaught|unhandledrejection|fetch)\]/.test(e.message))
   if (errors.length) throw new Error(`the app logged errors:\n${errors.map((e) => e.message).join("\n")}`)
 
-  console.log(`Saved picker, agents, idle, agent, entry, listening, message and phone screenshots to ${out}`)
+  console.log(`Saved picker, agents, idle, agent, entry, listening, message, reeve, reeve-sent, approvals, approval, approval-confirm, approval-signed, background and phone screenshots to ${out}`)
 } catch (err) {
   console.error(String(err))
   process.exitCode = 1

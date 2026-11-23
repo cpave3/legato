@@ -12,9 +12,9 @@ export const TEXT_UPDATE_LIMIT = 2000
 
 export type Tab = "active" | "idle"
 
-// An item of the list: it opens an agent, goes to the other tab, or only
-// says something.
-export type Item = { text: string; open?: string; go?: Tab }
+// An item of the list: it opens an agent or the Reeve's chat, goes to the
+// other tab, or only says something.
+export type Item = { text: string; open?: string; go?: Tab; reeve?: true; approvals?: true }
 
 // What the list page shows.
 export type Screen = {
@@ -22,7 +22,8 @@ export type Screen = {
   tabs: { active: string; idle: string }
   // Why the list may be stale, or "".
   status: string
-  // When the list was read, as HH:MM, or "".
+  // When the list was read, as HH:MM, after how old it is once that is a
+  // minute or more ("3m · HH:MM"); or "".
   clock: string
   items: Item[]
 }
@@ -30,7 +31,11 @@ export type Screen = {
 export type GlanceOptions = {
   tab?: Tab
   updatedAt?: Date
+  // The time now, for how old the list is.
+  now?: Date
   problem?: string
+  // How many approvals wait for the operator.
+  approvals?: number
 }
 
 // The states in the order they are listed, with the TUI's words for them
@@ -70,29 +75,50 @@ function label(a: Agent, withState: boolean): string {
   return fitItem(`${head}${title ? ` ${title}` : ""}`)
 }
 
-function clock(at: Date | undefined): string {
-  if (!at) return ""
-  const two = (n: number) => String(n).padStart(2, "0")
-  return `${two(at.getHours())}:${two(at.getMinutes())}`
+// How long ago, once it is a minute or more: in minutes, then an hour or more.
+function age(seconds: number): string {
+  if (seconds < 60) return ""
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
+  return "1h+"
 }
 
-// The agents' items, then the way to the other tab, within LIST_ITEMS.
-function list(agents: Item[], nav: Item | undefined): Item[] {
-  const room = LIST_ITEMS - (nav ? 1 : 0)
+function clock(at: Date | undefined, now: Date): string {
+  if (!at) return ""
+  const two = (n: number) => String(n).padStart(2, "0")
+  const old = age(Math.max(0, (now.getTime() - at.getTime()) / 1000))
+  const time = `${two(at.getHours())}:${two(at.getMinutes())}`
+  return old ? `${old} · ${time}` : time
+}
+
+// The agents' items, then the way to the other tab, within `limit` items.
+function list(agents: Item[], nav: Item | undefined, limit = LIST_ITEMS): Item[] {
+  const room = limit - (nav ? 1 : 0)
   const shown =
     agents.length > room ? [...agents.slice(0, room - 1), { text: `+${agents.length - room + 1} more` }] : agents
   return nav ? [...shown, nav] : shown
 }
 
+// The Reeve's state in its own words: it is ready rather than idle, and
+// asleep when not running (a message wakes it).
+const reeveWords: Record<string, string> = { "": "ready", working: "working" }
+
+// The Reeve's item, pinned first on the active tab. `reeve` is its running
+// agent, if any.
+export function reeveItem(reeve: Agent | undefined): Item {
+  const word = reeve ? (reeveWords[stateOf(reeve).activity] ?? stateOf(reeve).word) : "asleep"
+  return { text: fitItem(`◆ Reeve  ${word}`), reeve: true }
+}
+
 // The list page for the agents Legato listed: those still running, on two
-// tabs. The active tab holds the ones not idle, those that need the operator
-// first, then running and background, each group oldest first; the idle tab
-// holds the rest.
+// tabs. The active tab holds the Reeve first, then the agents not idle, those
+// that need the operator first, then running and background, each group
+// oldest first; the idle tab holds the rest. The Reeve is on neither count.
 export function glance(agents: Agent[], options: GlanceOptions = {}): Screen {
   const tab = options.tab ?? "active"
   const rank = (a: Agent) => states.indexOf(stateOf(a))
+  const reeve = agents.find((a) => a.reeve && a.status === "running")
   const running = agents
-    .filter((a) => a.status === "running")
+    .filter((a) => a.status === "running" && !a.reeve)
     .sort((a, b) => rank(a) - rank(b) || a.started_at.localeCompare(b.started_at))
   const active = running.filter((a) => !isIdle(a))
   const idle = running.filter(isIdle)
@@ -101,8 +127,11 @@ export function glance(agents: Agent[], options: GlanceOptions = {}): Screen {
   if (tab === "active") {
     const nav = idle.length ? { text: `Idle agents (${idle.length}) →`, go: "idle" as const } : undefined
     const rows = active.map((a) => ({ text: label(a, true), open: a.task_id }))
-    if (rows.length) items = list(rows, nav)
-    else items = nav ? [{ text: "Nothing running." }, nav] : [{ text: "No agents running." }]
+    // The Reeve first, then the way to the approvals while any wait.
+    const pinned: Item[] = [reeveItem(reeve)]
+    if (options.approvals) pinned.push({ text: `● To approve (${options.approvals}) →`, approvals: true })
+    if (rows.length) items = [...pinned, ...list(rows, nav, LIST_ITEMS - pinned.length)]
+    else items = [...pinned, ...(nav ? [{ text: "Nothing running." }, nav] : [{ text: "No agents running." }])]
   } else {
     const rows = idle.map((a) => ({ text: label(a, false), open: a.task_id }))
     items = list(rows.length ? rows : [{ text: "No idle agents." }], {
@@ -115,7 +144,7 @@ export function glance(agents: Agent[], options: GlanceOptions = {}): Screen {
     tab,
     tabs: { active: `Active ${active.length}`, idle: `Idle ${idle.length}` },
     status: options.problem ?? "",
-    clock: clock(options.updatedAt),
+    clock: clock(options.updatedAt, options.now ?? new Date()),
     items,
   }
 }

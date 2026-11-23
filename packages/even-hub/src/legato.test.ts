@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { fetchAgents, fetchConversation, sendMessage, transcribe, type Agent, type Phone, fetchInstances } from "./legato"
+import { decideApproval, fetchAgents, fetchApprovals, fetchConversation, messageReeve, sendMessage, transcribe, type Agent, type Phone, fetchInstances } from "./legato"
 
 const running: Agent = {
   task_id: "LEG-163",
@@ -125,6 +125,15 @@ describe("the Legato app's own answers", () => {
     expect(await fetchAgents(phone, "inst-1", silent.fn)).toEqual({ ok: false, problem: "Can't reach Legato" })
   })
 
+  it("says the Legato app needs an update when it does not pass a call on", async () => {
+    const fake = fakeFetch(() => Response.json({ error: "not served to the glasses" }, { status: 404 }))
+
+    expect(await messageReeve(phone, "inst-1", "Hi", fake.fn)).toEqual({
+      ok: false,
+      problem: "Update the Legato app on this phone: it can't pass this on yet.",
+    })
+  })
+
   it("says it can't reach the Legato app when the request fails", async () => {
     const fake = fakeFetch(() => Promise.reject(new TypeError("Failed to fetch")))
 
@@ -196,6 +205,14 @@ describe("fetchConversation", () => {
 
     expect(fake.sent[0].url).toBe(`${at}/api/agents/a%2Fb%3Fc/conversation?limit=20`)
   })
+
+  it("reads more entries when asked, as for the Reeve's chat", async () => {
+    const fake = fakeFetch(() => Response.json(conversation))
+
+    await fetchConversation(phone, "inst-1", "reeve", fake.fn, 50)
+
+    expect(fake.sent[0].url).toBe(`${at}/api/agents/reeve/conversation?limit=50`)
+  })
 })
 
 describe("transcribe", () => {
@@ -262,6 +279,89 @@ describe("sendMessage", () => {
     expect(await sendMessage(phone, "inst-1", "LEG-163", "Hi", fake.fn)).toEqual({
       ok: false,
       problem: "This agent can't take messages from the glasses.",
+    })
+  })
+})
+
+describe("messageReeve", () => {
+  it("sends the operator's words to the instance's Reeve, as from the glasses", async () => {
+    const fake = fakeFetch(() => Response.json({ status: "sent" }))
+
+    const result = await messageReeve(phone, "inst-1", "Start an agent on LEG-212", fake.fn)
+
+    expect(result).toEqual({ ok: true })
+    expect(fake.sent.map(({ url, method, body }) => ({ url, method, body }))).toEqual([
+      { url: `${at}/api/reeve/message`, method: "POST", body: { text: "Start an agent on LEG-212", from: "glasses" } },
+    ])
+  })
+
+  it("says when the instance has no Reeve", async () => {
+    const fake = fakeFetch(() => Response.json({ error: "the Reeve is not available on this server" }, { status: 503 }))
+
+    expect(await messageReeve(phone, "inst-1", "Hi", fake.fn)).toEqual({ ok: false, problem: "This Legato has no Reeve." })
+  })
+
+  it("passes on why the Reeve could not start", async () => {
+    const fake = fakeFetch(() => Response.json({ error: "the Reeve runs only in the sandbox" }, { status: 409 }))
+
+    expect(await messageReeve(phone, "inst-1", "Hi", fake.fn)).toEqual({ ok: false, problem: "Legato: the Reeve runs only in the sandbox" })
+  })
+})
+
+describe("fetchApprovals", () => {
+  const approval = {
+    id: "ap-1a2b3c4d",
+    source: "agent_permission",
+    task_id: "LEG-7",
+    title: "Run git push",
+    summary: "git push origin main",
+    options: [{ id: "once", label: "Allow once", kind: "allow" }, { id: "deny", label: "Deny", kind: "deny" }],
+    details: {},
+    status: "pending",
+  }
+
+  it("reads the pending approvals", async () => {
+    const fake = fakeFetch(() => Response.json({ approvals: [approval] }))
+
+    expect(await fetchApprovals(phone, "inst-1", fake.fn)).toEqual({ ok: true, approvals: [approval] })
+    expect(fake.sent[0].url).toBe(`${at}/api/approvals?status=pending`)
+  })
+
+  it("does not take an answer without a list of approvals", async () => {
+    const fake = fakeFetch(() => Response.json({ approvals: "none" }))
+
+    expect(await fetchApprovals(phone, "inst-1", fake.fn)).toEqual({ ok: false, problem: "Legato's answer was not a list of approvals" })
+  })
+})
+
+describe("decideApproval", () => {
+  it("allows with an option, or denies", async () => {
+    const fake = fakeFetch(() => Response.json({ id: "ap-1" }))
+
+    expect(await decideApproval(phone, "inst-1", "ap-1", "allow", "once", fake.fn)).toEqual({ ok: true })
+    await decideApproval(phone, "inst-1", "a/b", "deny", undefined, fake.fn)
+
+    expect(fake.sent.map(({ url, method, body }) => ({ url, method, body }))).toEqual([
+      { url: `${at}/api/approvals/ap-1/decision`, method: "POST", body: { decision: "allow", option: "once" } },
+      { url: `${at}/api/approvals/a%2Fb/decision`, method: "POST", body: { decision: "deny" } },
+    ])
+  })
+
+  it("says when it was decided elsewhere first", async () => {
+    const fake = fakeFetch(() => Response.json({ error: "already decided" }, { status: 409 }))
+
+    expect(await decideApproval(phone, "inst-1", "ap-1", "deny", undefined, fake.fn)).toEqual({
+      ok: false,
+      problem: "It was already decided somewhere else.",
+    })
+  })
+
+  it("passes on why Legato refused it, such as a signature it needs", async () => {
+    const fake = fakeFetch(() => Response.json({ error: "this approval needs a decision signed on an enrolled device (your phone)" }, { status: 403 }))
+
+    expect(await decideApproval(phone, "inst-1", "ap-1", "allow", undefined, fake.fn)).toEqual({
+      ok: false,
+      problem: "Legato: this approval needs a decision signed on an enrolled device (your phone)",
     })
   })
 })

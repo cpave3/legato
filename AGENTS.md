@@ -51,6 +51,7 @@ task desktop:dev           # run the desktop app (desktop/)
 task packages:check        # lint, typecheck and test the apps under packages/
 task even-hub:dev          # the Even G2 glasses app (packages/even-hub/) on its fixture
 task even-hub:sim          # the Even Hub simulator, open on it
+task even-hub:beta         # the next build of it on your Even account's beta channel
 ```
 
 ## Build Plan

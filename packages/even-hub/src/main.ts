@@ -1,6 +1,6 @@
 import { waitForEvenAppBridge } from "@evenrealities/even_hub_sdk"
 import { startGlance, type LegatoClient } from "./app"
-import { fetchAgents, fetchConversation, fetchInstances, PHONE_URL, sendMessage, transcribe, type Phone } from "./legato"
+import { decideApproval, fetchAgents, fetchApprovals, fetchConversation, fetchInstances, PHONE_URL, messageReeve, sendMessage, transcribe, type Phone } from "./legato"
 import { loadCode, saveCode } from "./settings"
 
 // The app reads Legato through the Legato Android app's glasses link on this
@@ -49,9 +49,12 @@ showPairing()
 const legato: LegatoClient = {
   instances: () => fetchInstances(phone, fetchFn),
   agents: (instance) => fetchAgents(phone, instance, fetchFn),
-  conversation: (instance, taskId) => fetchConversation(phone, instance, taskId, fetchFn),
+  conversation: (instance, taskId, limit) => fetchConversation(phone, instance, taskId, fetchFn, limit),
   transcribe: (instance, pcm) => transcribe(phone, instance, pcm, fetchFn),
   send: (instance, taskId, text) => sendMessage(phone, instance, taskId, text, fetchFn),
+  reeve: (instance, text) => messageReeve(phone, instance, text, fetchFn),
+  approvals: (instance) => fetchApprovals(phone, instance, fetchFn),
+  decide: (instance, id, decision, option) => decideApproval(phone, instance, id, decision, option, fetchFn),
 }
 
 await startGlance(bridge, legato)

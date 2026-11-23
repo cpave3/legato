@@ -6,7 +6,15 @@ import { answerPhone, fakePhone, type FakePhone, type PhoneRequest } from "./leg
 
 const fixtures = (() => {
   const dir = mkdtempSync(join(tmpdir(), "even-hub-fixture-"))
-  writeFileSync(join(dir, "agents.json"), JSON.stringify([{ task_id: "FIX-1", status: "running", activity: "waiting" }]))
+  writeFileSync(
+    join(dir, "agents.json"),
+    JSON.stringify([
+      { task_id: "FIX-1", status: "running", activity: "waiting" },
+      { task_id: "rv1", status: "running", activity: "", reeve: true },
+    ]),
+  )
+  writeFileSync(join(dir, "approvals.json"), JSON.stringify({ approvals: [{ id: "ap-1", title: "Push" }] }))
+  writeFileSync(join(dir, "reeve.json"), JSON.stringify({ task_id: "", entries: [{ kind: "assistant", text: "Ready." }] }))
   writeFileSync(join(dir, "empty.json"), "[]")
   writeFileSync(join(dir, "conversation.json"), JSON.stringify({ task_id: "", entries: [{ kind: "user", text: "Hi" }] }))
   return dir
@@ -20,6 +28,8 @@ function phone(): FakePhone & { sent: string[] } {
       { id: "laptop", name: "Laptop", agents: join(fixtures, "empty.json") },
     ],
     conversation: join(fixtures, "conversation.json"),
+    reeveConversation: join(fixtures, "reeve.json"),
+    approvals: join(fixtures, "approvals.json"),
     log: (line) => sent.push(line),
     sent,
   }
@@ -41,8 +51,50 @@ describe("fakePhone", () => {
         { id: "laptop", name: "Laptop", agents: "/app/fixtures/empty.json" },
       ],
       conversation: "/app/fixtures/conversation.json",
+      reeveConversation: "/app/fixtures/reeve.json",
+      approvals: "/app/fixtures/approvals.json",
     })
     expect(fakePhone({ LEGATO_FIXTURE: "fixtures/other.json" }, "/app").instances[0].agents).toBe("/app/fixtures/other.json")
+  })
+})
+
+describe("answerPhone and approvals", () => {
+  it("lists the recorded approvals for the first instance, and none for the second", async () => {
+    const desk = await answerPhone(get("/v1/instances/desk/api/approvals?status=pending"), phone())
+    const laptop = await answerPhone(get("/v1/instances/laptop/api/approvals?status=pending"), phone())
+
+    expect(JSON.parse(desk.body)).toEqual({ approvals: [{ id: "ap-1", title: "Push" }] })
+    expect(JSON.parse(laptop.body)).toEqual({ approvals: [] })
+  })
+
+  it("logs a decision of allow or deny instead of making it", async () => {
+    const p = phone()
+    const answer = await answerPhone(post("/v1/instances/desk/api/approvals/ap-1/decision", JSON.stringify({ decision: "allow", option: "once" })), p)
+
+    expect(answer.status).toBe(200)
+    expect(p.sent).toEqual(['would allow ap-1 on Desk with "once", from the glasses'])
+    expect((await answerPhone(post("/v1/instances/desk/api/approvals/ap-1/decision", JSON.stringify({ decision: "answer" })), p)).status).toBe(400)
+  })
+})
+
+describe("answerPhone and the Reeve", () => {
+  it("answers the Reeve's conversation from its own fixture", async () => {
+    const answer = await answerPhone(get("/v1/instances/desk/api/agents/rv1/conversation?limit=50"), phone())
+
+    expect(JSON.parse(answer.body)).toEqual({ task_id: "rv1", entries: [{ kind: "assistant", text: "Ready." }] })
+  })
+
+  it("logs a message to the Reeve, from its text alone, instead of sending it", async () => {
+    const p = phone()
+    const answer = await answerPhone(post("/v1/instances/desk/api/reeve/message", JSON.stringify({ text: "Status?", from: "web" })), p)
+
+    expect(answer.status).toBe(200)
+    expect(JSON.parse(answer.body)).toEqual({ status: "sent" })
+    expect(p.sent).toEqual(['would send the Reeve on Desk, from the glasses: "Status?"'])
+  })
+
+  it("refuses a message to the Reeve without its text", async () => {
+    expect((await answerPhone(post("/v1/instances/desk/api/reeve/message", JSON.stringify({ content: "Hi" })), phone())).status).toBe(400)
   })
 })
 
@@ -73,7 +125,10 @@ describe("answerPhone", () => {
     const desk = await answerPhone(get("/v1/instances/desk/api/agents?view=compact&status=running"), phone())
     const laptop = await answerPhone(get("/v1/instances/laptop/api/agents?view=compact&status=running"), phone())
 
-    expect(JSON.parse(desk.body)).toEqual([{ task_id: "FIX-1", status: "running", activity: "waiting" }])
+    expect(JSON.parse(desk.body)).toEqual([
+      { task_id: "FIX-1", status: "running", activity: "waiting" },
+      { task_id: "rv1", status: "running", activity: "", reeve: true },
+    ])
     expect(JSON.parse(laptop.body)).toEqual([])
   })
 

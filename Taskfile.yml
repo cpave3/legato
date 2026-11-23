@@ -266,6 +266,13 @@ tasks:
     cmds:
       - pnpm run pack
 
+  even-hub:beta:
+    desc: Put a new build of the glasses app on your Even account's beta channel (-- -m "what changed"; evenhub login first)
+    dir: packages/even-hub
+    deps: [packages:install]
+    cmds:
+      - pnpm run beta {{.CLI_ARGS}}
+
   streamdeck:build:
     desc: Build the Stream Deck plugin binary
     dir: streamdeck

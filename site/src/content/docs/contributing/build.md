@@ -202,6 +202,7 @@ task packages:check        # lint, typecheck and test every app in packages/
 task even-hub:dev          # the glasses app on its recorded fixture
 task even-hub:sim          # the Even Hub simulator, open on it
 task even-hub:screenshots  # run both and save screenshots (-- --headless for xvfb-run)
+task even-hub:beta         # put the next build on your Even account's beta channel (-- -m "what changed")
 ```
 
 See [Even Realities G2 glasses](/legato/integrations/even-g2/) and [`packages/README.md`](https://github.com/cpave3/legato/blob/main/packages/README.md).

@@ -25,6 +25,20 @@ export type Conversation = {
   context_window: number
 }
 
+// An approval request, as GET /api/approvals gives it (service.Approval in
+// internal/service/approval.go). Only the fields the glasses use.
+export type Approval = {
+  id: string
+  source: string
+  task_id?: string
+  title: string
+  summary?: string
+  options: { id: string; label: string; kind: "allow" | "deny" | string; description?: string }[]
+  // Only a decision signed on an enrolled device may allow it.
+  signed?: boolean
+  details?: Record<string, unknown>
+}
+
 // Where the app reads Legato: the Legato Android app's glasses link on this
 // phone, which holds each paired Legato's address and token and passes the
 // app's calls on to the one it names. `code` is the pairing code the
@@ -49,9 +63,13 @@ export type AgentsResult = { ok: true; agents: Agent[] } | Problem
 export type ConversationResult = { ok: true; conversation: Conversation } | Problem
 export type TranscriptResult = { ok: true; text: string } | Problem
 export type SendResult = { ok: true } | Problem
+export type ApprovalsResult = { ok: true; approvals: Approval[] } | Problem
 
-// How many conversation entries the agent page asks for.
+// How many conversation entries the agent page asks for, and the Reeve's
+// chat, which looks back past a turn's tool calls to the message that
+// started it (the Legato app allows up to 50).
 export const CONVERSATION_ENTRIES = 20
+export const REEVE_ENTRIES = 50
 
 // How long a call may take before the app gives up on it: a read or a send,
 // and a transcription, which carries up to a minute of sound. Without a limit
@@ -89,6 +107,8 @@ async function call(phone: Phone, path: string, fetchFn: typeof fetch, timeoutMs
   if (response.status === 404) {
     const said = await errorOf(response.clone())
     if (said === "unknown instance") return { ok: false, problem: "That Legato is no longer in the app", gone: true }
+    // An older Legato app, which does not pass this call on yet.
+    if (said === "not served to the glasses") return { ok: false, problem: "Update the Legato app on this phone: it can't pass this on yet." }
   }
   if (response.status === 502) return { ok: false, problem: (await errorOf(response)) || "Can't reach Legato" }
   return { response }
@@ -144,8 +164,9 @@ export async function fetchConversation(
   instance: string,
   taskId: string,
   fetchFn: typeof fetch = fetch,
+  limit = CONVERSATION_ENTRIES,
 ): Promise<ConversationResult> {
-  const answer = await call(phone, `${agentPath(instance, taskId)}/conversation?limit=${CONVERSATION_ENTRIES}`, fetchFn, CALL_TIMEOUT_MS)
+  const answer = await call(phone, `${agentPath(instance, taskId)}/conversation?limit=${limit}`, fetchFn, CALL_TIMEOUT_MS)
   if (!("response" in answer)) return answer
   const { response } = answer
   if (response.status === 409)
@@ -203,6 +224,47 @@ export async function sendMessage(
   const { response } = answer
   if (response.status === 409) return { ok: false, problem: "The agent is busy. Try again when it stops." }
   if (response.status === 503) return { ok: false, problem: "This agent can't take messages from the glasses." }
+  if (!response.ok) return await failed(response)
+  return { ok: true }
+}
+
+// Sends the operator's words to the instance's Reeve, as dictated on the
+// glasses, so it keeps its reply to what they show. Legato starts or resumes
+// the Reeve for it when none is running.
+export async function messageReeve(phone: Phone, instance: string, text: string, fetchFn: typeof fetch = fetch): Promise<SendResult> {
+  const answer = await call(phone, `${instancePath(instance)}/api/reeve/message`, fetchFn, CALL_TIMEOUT_MS, { text, from: "glasses" })
+  if (!("response" in answer)) return answer
+  const { response } = answer
+  if (response.status === 503) return { ok: false, problem: "This Legato has no Reeve." }
+  if (!response.ok) return await failed(response)
+  return { ok: true }
+}
+
+// The approval requests waiting for the operator.
+export async function fetchApprovals(phone: Phone, instance: string, fetchFn: typeof fetch = fetch): Promise<ApprovalsResult> {
+  const answer = await call(phone, `${instancePath(instance)}/api/approvals?status=pending`, fetchFn, CALL_TIMEOUT_MS)
+  if (!("response" in answer)) return answer
+  if (!answer.response.ok) return await failed(answer.response)
+  const body = (await answer.response.json().catch(() => undefined)) as { approvals?: unknown } | undefined
+  if (!Array.isArray(body?.approvals)) return { ok: false, problem: "Legato's answer was not a list of approvals" }
+  return { ok: true, approvals: body.approvals as Approval[] }
+}
+
+// Allows an approval (with one of its options) or denies it. Legato refuses
+// to allow one that needs a signature; the glasses never offer to.
+export async function decideApproval(
+  phone: Phone,
+  instance: string,
+  id: string,
+  decision: "allow" | "deny",
+  option: string | undefined,
+  fetchFn: typeof fetch = fetch,
+): Promise<SendResult> {
+  const body = option ? { decision, option } : { decision }
+  const answer = await call(phone, `${instancePath(instance)}/api/approvals/${encodeURIComponent(id)}/decision`, fetchFn, CALL_TIMEOUT_MS, body)
+  if (!("response" in answer)) return answer
+  const { response } = answer
+  if (response.status === 409) return { ok: false, problem: "It was already decided somewhere else." }
   if (!response.ok) return await failed(response)
   return { ok: true }
 }

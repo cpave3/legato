@@ -10,6 +10,7 @@
     "test": "vitest run",
     "sim": "evenhub-simulator http://127.0.0.1:5173/",
     "pack": "node scripts/pack.mjs",
+    "beta": "node scripts/beta.mjs",
     "screenshots": "node scripts/screenshots.mjs"
   },
   "dependencies": {

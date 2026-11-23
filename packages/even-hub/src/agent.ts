@@ -8,7 +8,8 @@ import type { Agent, Conversation, ConversationResult } from "./legato"
 // keys centred at the foot.
 export type Header = { badge: string; title: string }
 // A line of the feed, and the entry in full for when it is opened.
-export type FeedItem = { text: string; detail?: string }
+// `asks` marks the line of what the agent asks for, which opens its approval.
+export type FeedItem = { text: string; detail?: string; asks?: true }
 export type FeedPage = Header & { items: FeedItem[]; hint: string }
 export type TextPage = Header & { body: string; hint: string }
 
@@ -31,9 +32,9 @@ function header(agent: Agent): Header {
   return { badge: `${s.mark} ${s.word}`, title: fitItem(`${agent.task_id}${name ? ` ${name}` : ""}`, inner(TITLE_WIDTH), Infinity) }
 }
 
-const flat = (text: string) => text.replace(/\s+/g, " ").trim()
+export const flat = (text: string) => text.replace(/\s+/g, " ").trim()
 const line = (text: string): FeedItem["text"] => fitItem(flat(text), ITEM_TEXT_WIDTH)
-const whole = (text: string) => (text.length > TEXT_UPDATE_LIMIT ? `${text.slice(0, TEXT_UPDATE_LIMIT - 1).trimEnd()}…` : text)
+export const whole = (text: string) => (text.length > TEXT_UPDATE_LIMIT ? `${text.slice(0, TEXT_UPDATE_LIMIT - 1).trimEnd()}…` : text)
 
 // A user turn that opens with a [legato …] or [swarm event] tag is Legato's
 // own message, or another agent's relayed by it, not the operator's
@@ -43,12 +44,19 @@ const tagPattern = /^\[(legato|swarm event)([^\]]*)\]\s*/
 const peerPattern = /^ peer(?: (\S+))?$/
 const peerFooterPattern = /\n+---\nAgent-to-agent message[^\n]*$/
 
+// The tags of the operator's own words, said through a device: on the
+// glasses, or aloud (internal/service/reeve_glasses.go, reeve_voice_lines.go).
+const ownTags = new Set([" glasses", " voice"])
+// What a resumed Reeve is given after the message that woke it.
+const resumeNote = /\n+\[legato\][\s\S]*$/
+
 // Who said a user turn, and what.
-function speaker(text: string): { who: string; said: string } {
+export function speaker(text: string): { who: string; said: string } {
   const tag = tagPattern.exec(text)
   if (!tag) return { who: "You", said: text.trim() }
   const [all, family, rest] = tag
   const body = text.slice(all.length)
+  if (family === "legato" && ownTags.has(rest)) return { who: "You", said: body.replace(resumeNote, "").trim() }
   const peer = family === "legato" ? peerPattern.exec(rest) : null
   if (peer) return { who: peer[1] ? `Agent ${peer[1]}` : "Agent", said: body.replace(peerFooterPattern, "").trim() }
   const kind = family === "legato" ? rest.trim() : family
@@ -90,11 +98,11 @@ export function agentPage(agent: Agent, read: ConversationResult | undefined): F
   if (permission) {
     const what = [permission.tool, permission.command?.trim()].filter(Boolean).join(" ")
     const detail = [`Asks to use ${permission.tool}`, permission.command?.trim(), permission.reason?.trim(), permission.plan?.trim()]
-    items.push({ text: line(`● Asks: ${what}`), detail: detail.filter(Boolean).join("\n\n") })
+    items.push({ text: line(`● Asks: ${what}`), detail: detail.filter(Boolean).join("\n\n"), asks: true })
   }
   if (question) {
     const options = question.options.map((o, i) => `${i + 1}. ${o.trim()}`).join("\n")
-    items.push({ text: line(`● Asks: ${question.text}`), detail: [`Asks: ${question.text.trim()}`, options].filter(Boolean).join("\n\n") })
+    items.push({ text: line(`● Asks: ${question.text}`), detail: [`Asks: ${question.text.trim()}`, options].filter(Boolean).join("\n\n"), asks: true })
   }
   items.push(...entries.slice().reverse().map(item))
   return page(items.length ? items.slice(0, LIST_ITEMS) : [{ text: "Nothing said yet." }])
@@ -111,11 +119,16 @@ function minutes(seconds: number): string {
 
 // The pages of a message the operator dictates to the agent.
 export function dictationPage(agent: Agent, d: Dictation): TextPage {
-  const { title } = header(agent)
+  return dictation(header(agent).title, { speak: "Speak your message to the agent.", sent: `Sent to ${agent.task_id}.` }, d)
+}
+
+// The pages of a dictated message, under `title`, with the words that say
+// whom it goes to.
+export function dictation(title: string, to: { speak: string; sent: string }, d: Dictation): TextPage {
   const page = (badge: string, body: string, keys: string) => ({ badge, title, body, hint: keys ? hint(keys) : "" })
   switch (d.step) {
     case "listening":
-      return page("● Listening", `Speak your message to the agent.\n\n${minutes(d.seconds)}`, "Release: stop · Double tap: cancel")
+      return page("● Listening", `${to.speak}\n\n${minutes(d.seconds)}`, "Release: stop · Double tap: cancel")
     case "transcribing":
       return page("Message", "Transcribing…", "Double tap: cancel")
     case "review":
@@ -123,7 +136,7 @@ export function dictationPage(agent: Agent, d: Dictation): TextPage {
     case "sending":
       return page("Sending", `“${d.text}”`, "")
     case "sent":
-      return page("Sent", `Sent to ${agent.task_id}.`, "")
+      return page("Sent", to.sent, "")
     case "problem":
       return d.text
         ? page("▲ Not sent", `${d.problem}\n\n“${d.text}”`, "Tap: send again · Double tap: drop it")
