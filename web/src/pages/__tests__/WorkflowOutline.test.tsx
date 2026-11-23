@@ -274,3 +274,22 @@ it("keeps held YAML with its own step when steps move", async () => {
   fireEvent.click(await within(inspector()).findByRole("tab", { name: "YAML" }))
   expect((await within(inspector()).findByRole("textbox", { name: "YAML of steps/run" }) as HTMLTextAreaElement).value.startsWith("id: run\n")).toBe(true)
 })
+
+it("drops held YAML once its item is changed elsewhere, so it no longer counts as unsaved", async () => {
+  renderAt("#steps/prep")
+  await screen.findByRole("textbox", { name: "Step title" })
+  fireEvent.click(within(inspector()).getByRole("tab", { name: "YAML" }))
+  const own = await within(inspector()).findByRole("textbox", { name: "YAML of steps/prep" }) as HTMLTextAreaElement
+  fireEvent.change(own, { target: { value: own.value + "\n  bad: [" } })
+  const unload = () => { const e = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented }
+  await waitFor(() => expect(unload()).toBe(true))
+  fireEvent.click(screen.getByRole("radio", { name: "YAML" }))
+  fireEvent.change(await screen.findByRole("textbox", { name: "Workflow YAML" }), { target: { value: fileText.replace("repo: a/b", "repo: c/d") } })
+  fireEvent.click(screen.getByRole("button", { name: "Undo" }))
+  fireEvent.click(screen.getByRole("button", { name: "Redo" }))
+  // Changed, but not saved: unsaved for that, not for the held text.
+  await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toHaveProperty("disabled", false))
+  fireEvent.click(screen.getByRole("button", { name: "Save" }))
+  await waitFor(() => expect(puts.length).toBe(1))
+  await waitFor(() => expect(unload()).toBe(false))
+})

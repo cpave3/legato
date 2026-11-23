@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { lazy, Suspense, useEffect, useRef, useState } from "react"
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { fetchMacroList } from "../lib/macros"
@@ -12,6 +12,9 @@ import { checkWorkflowFile, createWorkflowFile, deleteWorkflowFile, fetchWorkflo
 import { LazyWorkflowYamlEditor } from "../components/workflow-editor/LazyWorkflowYamlEditor"
 import { LazyWorkflowOutline } from "../components/workflow-editor/LazyWorkflowOutline"
 import type { HeldYaml } from "../components/workflow-editor/WorkflowOutline"
+
+// Drops held item YAML that no longer belongs to the text, in either mode.
+const HeldYamlReconciler = lazy(() => import("../components/workflow-editor/HeldYamlReconciler"))
 import { addressOf, selectionOf, type Selection } from "../lib/workflowAddress"
 import { LazyWorkflowGraph } from "../components/workflow-graph/LazyWorkflowGraph"
 import { Button } from "../components/ui/Button"
@@ -427,6 +430,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
         <LazyWorkflowOutline text={text} onEdit={(change, how) => history.push(change.text, change.undo.label, how?.typing)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={() => switchMode("yaml")} options={options} schedule={checked?.schedule} onPending={setPendingEdits}
           selection={selection} onSelect={select} narrow={narrow} sheet={narrow && selection !== null} onCloseSheet={closeSheet} onUndo={history.undo} onRedo={history.redo} held={heldYaml} onHeld={setHeldYaml} />
       </section>}
+    {text !== null && Object.keys(heldYaml).length > 0 && <Suspense fallback={null}><HeldYamlReconciler text={text} held={heldYaml} onHeld={setHeldYaml} /></Suspense>}
     {narrow && editable && <div role="toolbar" aria-label="Save" className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-between gap-2 border-t border-lw-line bg-lw-surface px-4 py-2">
       {problemsButton}
       {saveButton}
