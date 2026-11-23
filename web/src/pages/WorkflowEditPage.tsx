@@ -181,6 +181,10 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   // Saved · paused · Turn on (LEG-509): after a save, a trigger this
   // Legato has paused is named, with a way to switch it on.
   const [savedNotice, setSavedNotice] = useState(Boolean((location.state as { saved?: boolean } | null)?.saved))
+  // Create goes on to this editor on the same page, which then only sees a
+  // new location: its saved state says so.
+  const savedByNavigation = Boolean((location.state as { saved?: boolean } | null)?.saved)
+  useEffect(() => { if (savedByNavigation) setSavedNotice(true) }, [savedByNavigation, location.key])
   const [turningOn, setTurningOn] = useState<"ask" | "busy" | "done" | null>(null)
   const triggerStates = useMemo(() => workflows.data?.trigger_states?.[name] ?? [], [workflows.data, name])
   const pausedHere = useMemo(() => Object.fromEntries(triggerStates.map(state => [state.trigger, !state.enabled])), [triggerStates])

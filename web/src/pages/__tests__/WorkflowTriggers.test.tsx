@@ -130,3 +130,26 @@ it("after a save, says a trigger is paused and turns it on when asked", async ()
   ]))
   expect((await screen.findByRole("status", { name: "Saved" })).textContent).toContain("Saved · on")
 })
+
+it("says Saved · paused in the editor a new workflow with a paused trigger lands in", async () => {
+  apiFetch.mockImplementation((_: string, path: string, init?: RequestInit) => {
+    if (path === "/api/workflow-files" && init?.method === "POST") return json({ name: "triage", path: "/g/triage.yaml", folder: "global", digest: "sha256:x", diagnostics: [] }, 201)
+    if (path === "/api/workflow-files/check") return json({ definition: { name: "triage" }, graph: null, diagnostics: [] })
+    if (path === "/api/workflows/triage/file") return json({ name: "triage", yaml: fileText, path: "/g/triage.yaml", folder: "global", digest: "sha256:x", editable: true })
+    return json({}, 404)
+  })
+  localStorage.setItem("legato:workflow-editor-mode", "yaml")
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/workflows/new"]}>
+    <Routes>
+      <Route path="/workflows/new" element={<WorkflowEditPage mode="new" />} />
+      <Route path="/workflows/:name/edit" element={<WorkflowEditPage mode="edit" />} />
+    </Routes>
+  </MemoryRouter></QueryClientProvider>)
+  const editor = await screen.findByRole("textbox", { name: "Workflow YAML" })
+  fireEvent.change(editor, { target: { value: fileText } })
+  const create = screen.getByRole("button", { name: "Create" })
+  await waitFor(() => expect(create).toHaveProperty("disabled", false))
+  fireEvent.click(create)
+  expect((await screen.findByRole("status", { name: "Saved" })).textContent).toContain("Saved · paused")
+})
