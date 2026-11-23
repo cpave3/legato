@@ -68,6 +68,11 @@ func TestAnAgentRunStepWithATaskRunsAsThatTasksOwnAgent(t *testing.T) {
 	if _, err := s.GetAgentSessionByTaskID(ctx, view.Run.TaskID); err == nil {
 		t.Fatal("the run's own task has an agent too")
 	}
+	// It owns the card's conversation, so its native bridge saves the
+	// conversation and the card can resume it (LEG-539's rule).
+	if owns, err := s.OwnsTaskConversation(ctx, "LEG-7", session.ID, session.ExecutionID, session.AgentKind); err != nil || !owns {
+		t.Fatalf("owns the card's conversation = %v, %v", owns, err)
+	}
 }
 
 func TestAMacroOnATasksOwnAgentIsSentAsTheCardWouldSendIt(t *testing.T) {
