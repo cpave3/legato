@@ -214,6 +214,8 @@ Migration 111 adds private `chimera_launch_secrets`, keyed by `agent_session_id`
 
 Migration 136 adds `peer_messages` (`id`, `sender_task_id`, `recipient_task_id`, `sent_at`, RFC 3339 UTC with milliseconds so the text sorts as time): one row for each peer message an agent sent another (`SendPeerMessage` after delivery, when it has a sender; never the text), pruned past `PeerMessageKeep` (a day) as rows arrive (`RecordPeerMessage`). `PeerMessageLinksSince` counts them by sender and recipient since a time, with the last one's time. It feeds the web ensemble's graph (`service.AgentGraphService`, `GET /api/agents/graph`).
 
+Migration 137 adds `mcp_connections.loopback` (0/1): the connection may reach the loopback literal it names (`egress.Policy.Loopback`). Only the Burnlite board link sets it, for a Burnlite on the same machine, and a URL change clears it. `store.AdoptOAuthAuthorization` records an authorization obtained outside an attempt (the Burnlite board's connect, or its tokens moved over) as a connection's active one, superseding the rest in one transaction; `store.BackupTo` writes a copy of the database with `VACUUM INTO`. See [Integrations](integrations.md) § One Burnlite connection.
+
 ## Skill states
 
 Migration `116_skill_states.sql` adds `skill_states`: `name` (a skill's folder name, the key), `enabled`, `updated_at`. A skill with no row is on. `SkillStates` reads them all as a map; `SetSkillEnabled` upserts one. The skills themselves are files on disk, never rows. 114 and 115 were left free because two open branches (LEG-214, LEG-199) each add migrations with those numbers; versions are positions in the sorted list, so whichever merges later renumbers its files. See [Skills](skills.md).

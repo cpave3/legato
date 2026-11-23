@@ -199,6 +199,25 @@ describe("IntegrationsSettings › Burnlite", () => {
     expect(window.location.search).toBe("")
   })
 
+  it("says agents' MCP connection shares it, and that agents get no tools until it has rules", async () => {
+    serve({ "GET /api/settings/integrations": () => json(200, overview({ ...connected, connection: { ...connected.connection, mcp_connection: "burnlite", mcp_rules: 0 } })) })
+    render(<IntegrationsSettings baseUrl="" />)
+    const card = await burnliteCard()
+    expect(within(card).getByText(/MCP connection burnlite/)).toBeTruthy()
+    expect(within(card).getByText(/no rules, so agents get no Burnlite tools/)).toBeTruthy()
+    fireEvent.click(within(card).getByRole("button", { name: "Disconnect" }))
+    expect(within(card).getByText(/Agents lose Burnlite's tools too/)).toBeTruthy()
+  })
+
+  it("says when connecting made agents' MCP connection", async () => {
+    window.history.replaceState(null, "", "/settings?integration=burnlite&result=connected&mcp_created=burnlite#burnlite")
+    serve({ "GET /api/settings/integrations": () => json(200, overview({ ...connected, connection: { ...connected.connection, mcp_connection: "burnlite", mcp_rules: 0 } })) })
+    render(<IntegrationsSettings baseUrl="" />)
+    const card = await burnliteCard()
+    expect(within(card).getByRole("status").textContent).toMatch(/made the MCP connection burnlite/)
+    expect(window.location.search).toBe("")
+  })
+
   it("leaves the Burnlite block out for a server that does not have it", async () => {
     serve({ "GET /api/settings/integrations": () => json(200, { tokens: [], argus }) })
     render(<IntegrationsSettings baseUrl="" />)

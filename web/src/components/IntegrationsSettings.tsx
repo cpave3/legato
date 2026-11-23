@@ -20,20 +20,21 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 // The outcome of connecting to an integration, which the server's OAuth
-// callback puts in the address: ?integration=burnlite&result=connected, or
+// callback puts in the address: ?integration=burnlite&result=connected (with
+// mcp_created=<name> when it made agents' MCP connection), or
 // result=failed&error=<why>.
 function readOutcome(integration: string): ConnectOutcome | null {
   const params = new URLSearchParams(window.location.search)
   const result = params.get("result")
   if (params.get("integration") !== integration || (result !== "connected" && result !== "failed")) return null
-  return { result, error: params.get("error") ?? undefined }
+  return { result, error: params.get("error") ?? undefined, mcpCreated: params.get("mcp_created") ?? undefined }
 }
 
 // Drops the callback's outcome from the address, so a reload does not show it again.
 function forgetOutcome() {
   const params = new URLSearchParams(window.location.search)
   if (!params.has("integration")) return
-  for (const name of ["integration", "result", "error"]) params.delete(name)
+  for (const name of ["integration", "result", "error", "mcp_created"]) params.delete(name)
   const search = params.toString()
   const { pathname, hash } = window.location
   window.history.replaceState(window.history.state, "", `${pathname}${search ? `?${search}` : ""}${hash}`)

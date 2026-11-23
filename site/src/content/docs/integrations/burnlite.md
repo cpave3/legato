@@ -11,7 +11,12 @@ Legato reads Burnlite. When you move a card, the task in Burnlite does not chang
 
 ## Connect Legato to Burnlite
 
-Legato connects to Burnlite as an OAuth client. You allow it once in Burnlite. Legato asks to read your tasks and to write them (`read:tasks write:tasks`), so that a workflow can close a ticket. You can connect from the web UI or from the command line.
+Legato connects to Burnlite as an OAuth client. You allow it once in Burnlite. One connection serves two things:
+
+- **The board**, which reads your tasks and closes a ticket from a workflow.
+- **Agents**, which get Burnlite's tools through the [MCP server connection](/legato/agent-tools/mcp-tools/#tools-of-mcp-servers-you-connect) named `burnlite`.
+
+Legato asks Burnlite once for everything both of them need: `read:tasks write:tasks write:projects`. Agents get only the tools that your rules allow. You can connect from the web UI, from the command line, or from **Settings › Integrations › MCP servers**. Wherever you connect, the board and agents use the same connection.
 
 ### From the web UI
 
@@ -19,6 +24,8 @@ Legato connects to Burnlite as an OAuth client. You allow it once in Burnlite. L
 2. In the Burnlite block, type your Burnlite's address, such as `https://burnlite.example.com`.
 3. Select **Connect**. Burnlite opens and asks you to allow Legato.
 4. Allow it. Burnlite sends you back to Legato's settings, which say that Legato is connected.
+
+If there is no MCP connection to Burnlite yet, connecting makes one, named `burnlite`, and Settings says so. That connection has no rules, so agents get no Burnlite tools until you add rules to it in **Settings › Integrations › MCP servers**.
 
 ### From the command line
 
@@ -30,13 +37,25 @@ legato integration connect burnlite https://burnlite.example.com
 
 The command opens Burnlite in your browser. If your browser runs on another machine, the browser cannot reach Legato's return address. Copy the address that the browser tried to open, paste it into the command, and press Enter.
 
-`legato integration status burnlite` says whether Legato is connected. `legato integration disconnect burnlite` removes the connection.
+`legato integration status burnlite` says whether Legato is connected, and which MCP connection shares the connection. `legato integration disconnect burnlite` disconnects the board and agents both, and asks Burnlite to revoke Legato's tokens.
+
+### Disconnect
+
+**Disconnect** in **Settings › Board and tickets › Burnlite** stops the sync and takes Burnlite's tools away from agents. Legato asks Burnlite to revoke its tokens. The MCP connection and its rules stay, ready for you to connect again. **Disconnect** on the `burnlite` connection in **MCP servers** does the same thing: the board shows that it is not connected.
+
+To take Burnlite's tools away from agents and keep the sync, turn the MCP connection off in **MCP servers**. The switch applies only to agents.
+
+### A Burnlite on your own computer
+
+If you run Burnlite on the same machine as Legato, type its address with the loopback address, such as `http://127.0.0.1:3000`. Legato reaches that address only for this connection. A name such as `localhost` is refused.
 
 :::caution
 Burnlite gives Legato a new refresh token every hour. Legato saves each token in its secret store without you. If a passphrase unlocks that store, connecting fails: set `secrets.master_key` to a source that Legato can read on its own. See [Credentials setup](/legato/security/credentials-setup/).
 :::
 
 A connection made before Legato could close tickets reads only. A `burnlite.task.close` step on it fails and says to connect again: connect again as above, and allow the new access.
+
+Older versions of Legato kept two connections to Burnlite: one for the board and one for agents' MCP connection. The first time a newer Legato starts, it joins them. It keeps the connection with the wider access, or the newer one when they have the same access. It asks Burnlite to revoke the other connection's tokens, and keeps the MCP connection's rules. Before it changes anything, it saves a copy of the database beside it, named `<database>.<time>.leg-544.bak`. Its log says which connection it kept and which one it revoked.
 
 Legato needs a Burnlite whose tasks have an update time (`updatedAt`). If your Burnlite is older, the sync says to update it.
 
@@ -97,7 +116,7 @@ When a task changes state in Burnlite, its card moves to that state's column. A 
 
 Legato checks Burnlite every 60 seconds (`burnlite.sync_interval_seconds`). It gets the full text only of the tasks that changed. A task that Burnlite no longer has is marked as stale.
 
-If Burnlite stops accepting Legato's tokens, Attention says that Legato lost its connection. Connect again from **Settings › Board and tickets › Burnlite** or with `legato integration connect burnlite`.
+If Burnlite stops accepting Legato's tokens, Attention says that Legato lost its connection. The board and agents both lost it. Connect again from **Settings › Board and tickets › Burnlite**, from **MCP servers**, or with `legato integration connect burnlite`.
 
 ## Hand off a Burnlite task
 

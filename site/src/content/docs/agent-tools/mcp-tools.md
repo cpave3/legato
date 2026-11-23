@@ -146,6 +146,8 @@ The Legato app on Android cannot connect MCP servers yet.
 
 **Disconnect** stops Legato using the server and asks the server to revoke Legato's tokens; Settings says whether it did. Turning a server off keeps its authorization. Removing it forgets the authorization and its rules.
 
+**Burnlite.** A connection to Burnlite's MCP address (`<burnlite>/api/llm/mcp`) is also the board's [Burnlite connection](/legato/integrations/burnlite/#connect-legato-to-burnlite), and Settings says so. Both use one authorization: **Connect** here also connects the board, and connecting the board connects this. **Disconnect** here also stops the board's sync. Turning the connection off applies only to agents, so the board keeps syncing.
+
 #### Adding a local server
 
 Many MCP servers are programs that speak MCP on their standard input and output, such as one a repository lists in its `.mcp.json`. Legato can run such a server for your agents.

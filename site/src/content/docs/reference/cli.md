@@ -335,8 +335,8 @@ These commands connect Legato to Argus and Burnlite. They run only on the machin
 - `legato integration connect argus [<url>] [--no-browser] [--json]`: connect Legato to Argus, so agents' replies reach it. It asks for your consent in the browser. The address defaults to `integrations.argus.url`.
 - `legato integration status argus [--json]`: say whether Legato is connected and how many replies wait to be sent.
 - `legato integration disconnect argus [--json]`: forget the connection.
-- `legato integration connect burnlite [<url>] [--no-browser] [--json]`: connect Legato to Burnlite, so you can import its tasks and they stay up to date. It asks for your consent in the browser, to read your tasks only. The address defaults to `burnlite.url`. You can also connect from Settings › Integrations in the web UI.
-- `legato integration status burnlite [--json]` and `legato integration disconnect burnlite [--json]`: the same for Burnlite. Its tasks stop syncing when you disconnect.
+- `legato integration connect burnlite [<url>] [--no-browser] [--json]`: connect Legato to Burnlite once, for the board (import its tasks, keep them up to date, close them from workflows) and for agents' MCP connection to Burnlite, which shares the connection. It asks for your consent in the browser. It makes the MCP connection `burnlite`, with no rules, when there is none. The address defaults to `burnlite.url`. You can also connect from Settings › Board and tickets, or from Settings › Integrations › MCP servers.
+- `legato integration status burnlite [--json]`: whether Legato is connected, since when, and which MCP connection shares the connection. `legato integration disconnect burnlite [--json]`: disconnect the board and agents both. Their tasks stop syncing, agents lose Burnlite's tools, and Burnlite is asked to revoke Legato's tokens.
 
 ```bash
 legato integration token create argus --scope owner:read,delegate,attention
