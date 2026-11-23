@@ -71,12 +71,12 @@ func (s *OAuthFlowService) Adopt(ctx context.Context, connection string, auth Ad
 	return id, errors.Join(problems...)
 }
 
-// Authorization is the scope and time of a connection's active
+// Authorization is the scope, time and ID of a connection's active
 // authorization; ErrNotFound when it has none.
-func (s *OAuthFlowService) Authorization(ctx context.Context, connection string) (scope string, at int64, err error) {
+func (s *OAuthFlowService) Authorization(ctx context.Context, connection string) (scope string, at int64, id string, err error) {
 	a, err := s.db.ActiveOAuthAttempt(ctx, connection)
 	if err != nil {
-		return "", 0, err
+		return "", 0, "", err
 	}
 	scope = a.Scope
 	if secret, err := s.read(ctx, a.ID); err == nil {
@@ -86,7 +86,7 @@ func (s *OAuthFlowService) Authorization(ctx context.Context, connection string)
 			scope = secret.Scope
 		}
 	}
-	return scope, a.UpdatedAt, nil
+	return scope, a.UpdatedAt, a.ID, nil
 }
 
 // AuthorizationMetadata is the server metadata of a connection's active
@@ -104,16 +104,20 @@ func (s *OAuthFlowService) AuthorizationMetadata(ctx context.Context, connection
 }
 
 // RevokeAuthorization asks the server to revoke the tokens of the
-// connection's active authorization, through its egress policy, before it
+// connection's active authorization id, through its egress policy, before it
 // is superseded; it keeps the authorization. It reports revoked,
-// not_supported, failed or none.
-func (s *OAuthFlowService) RevokeAuthorization(ctx context.Context, connection string) (string, error) {
+// not_supported, failed or none, and refuses (ErrConflict) when id is no
+// longer the active one.
+func (s *OAuthFlowService) RevokeAuthorization(ctx context.Context, connection, id string) (string, error) {
 	a, err := s.db.ActiveOAuthAttempt(ctx, connection)
 	if errors.Is(err, store.ErrNotFound) {
-		return "none", nil
+		return "", store.ErrConflict
 	}
 	if err != nil {
 		return "", err
+	}
+	if a.ID != id {
+		return "", store.ErrConflict
 	}
 	client, err := s.refreshClient(ctx, connection)
 	if err != nil {

@@ -306,3 +306,73 @@ func TestMigratingTheLiveInstancesPair(t *testing.T) {
 		t.Fatalf("closed %v", tools.closed)
 	}
 }
+
+// Two processes starting at once migrate once: the second waits for the
+// first and finds nothing left to do, so it never revokes the token the
+// first kept.
+func TestMigrationsInTwoProcessesNeverRevokeTheKeptToken(t *testing.T) {
+	f := newBurnliteLinkFixture(t, nil)
+	ctx := context.Background()
+	f.clock.Add(-24 * time.Hour)
+	f.connectAgents(t, "read:tasks")
+	f.clock.Add(24 * time.Hour)
+	f.connectLegacyBoard(t)
+
+	other := NewOAuthFlowService(f.db, f.secrets, OAuthFlowOptions{Connections: f.conns, Now: f.clock.Now})
+	t.Cleanup(func() { other.Close() })
+	second := NewBurnliteConnections(f.db, f.conns, other, f.secrets, BurnliteConnectionsOptions{})
+	done := make(chan BurnliteMigration, 1)
+	run := &migrationRun{}
+	opts := run.options(t, f.db)
+	backup := opts.Backup
+	opts.Backup = func(ctx context.Context) (string, error) {
+		// While the first holds the migration, the second starts, and
+		// agents' connection becomes the newer if it read stale state.
+		f.clock.Add(time.Hour)
+		go func() {
+			got, err := second.Migrate(ctx, BurnliteMigrationOptions{Log: func(string, ...any) {}})
+			if err != nil {
+				t.Error(err)
+			}
+			done <- got
+		}()
+		select {
+		case got := <-done:
+			done <- got
+		case <-time.After(500 * time.Millisecond):
+		}
+		return backup(ctx)
+	}
+	if _, err := f.links.Migrate(ctx, opts); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-done:
+		if got.Changed {
+			t.Errorf("the second migration changed something too: %+v", got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the second migration never finished")
+	}
+	kept := f.keptRefresh(t)
+	for _, revoked := range f.revokedTokens() {
+		if revoked == kept {
+			t.Fatalf("revoked the kept refresh token %q (revoked %v)", kept, f.revokedTokens())
+		}
+	}
+	f.assertOneConnection(t)
+}
+
+// keptRefresh is the refresh token of the shared authorization.
+func (f burnliteLinkFixture) keptRefresh(t *testing.T) string {
+	t.Helper()
+	a, err := f.db.ActiveOAuthAttempt(context.Background(), "burnlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err := f.flows.read(context.Background(), a.ID)
+	if err != nil || secret.Token == nil {
+		t.Fatalf("sealed: %+v, %v", secret, err)
+	}
+	return secret.Token.RefreshToken
+}

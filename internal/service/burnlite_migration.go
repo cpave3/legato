@@ -12,6 +12,10 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
+// burnliteMigrationLease bounds how long a migration holds the others off;
+// its network calls are bounded well inside it.
+const burnliteMigrationLease = 2 * time.Minute
+
 // legacyBurnliteScope is the scope a board connection from before LEG-544
 // counts as having: it recorded none, so it counts as the narrowest it can be.
 const legacyBurnliteScope = "read:tasks"
@@ -64,6 +68,25 @@ func (b *BurnliteConnections) Migrate(ctx context.Context, opts BurnliteMigratio
 	if logf == nil {
 		logf = log.Printf
 	}
+	// One process at a time, and everything below read under the lease:
+	// another may have joined them while this one waited.
+	holder := "migrate-" + oauthRandom()[:16]
+	for {
+		now := time.Now()
+		err := b.db.ClaimBurnliteMigration(ctx, holder, now.Unix(), now.Add(burnliteMigrationLease).Unix())
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, store.ErrConflict) {
+			return BurnliteMigration{}, err
+		}
+		select {
+		case <-ctx.Done():
+			return BurnliteMigration{}, ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	defer func() { _ = b.db.ReleaseBurnliteMigration(context.WithoutCancel(ctx), holder) }()
 	var result BurnliteMigration
 	change := func() error {
 		if result.Changed {
@@ -131,8 +154,10 @@ func (b *BurnliteConnections) Migrate(ctx context.Context, opts BurnliteMigratio
 	}
 
 	keepBoard := !agents
+	agentsAuth := ""
 	if agents {
-		scope, at, err := b.flows.Authorization(ctx, c.Name)
+		scope, at, id, err := b.flows.Authorization(ctx, c.Name)
+		agentsAuth = id
 		if err != nil {
 			return result, err
 		}
@@ -156,7 +181,7 @@ func (b *BurnliteConnections) Migrate(ctx context.Context, opts BurnliteMigratio
 		return result, nil
 	}
 	if agents {
-		if result.Revoked, err = b.flows.RevokeAuthorization(ctx, c.Name); err != nil {
+		if result.Revoked, err = b.flows.RevokeAuthorization(ctx, c.Name, agentsAuth); err != nil {
 			return result, err
 		}
 		logf("burnlite: MCP connection %s's older tokens: %s at Burnlite", c.Name, result.Revoked)

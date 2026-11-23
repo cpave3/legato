@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/egress"
+	"github.com/cpave3/legato/internal/engine/oauthclient"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -232,5 +233,47 @@ func TestTurningAgentsConnectionOffKeepsTheBoard(t *testing.T) {
 	}
 	if u, _ := f.conns.Usable(ctx, "burnlite", MCPCaller{ExecutionID: "ex-1"}); u.Usable {
 		t.Fatal("agents can use a connection that is off")
+	}
+}
+
+// The loopback permission and the resource come from the address the
+// operator typed, never from what the server says: a public Burnlite that
+// names a loopback resource is refused, and nothing is made.
+func TestAServerCannotNameALoopbackResourceForAPublicAddress(t *testing.T) {
+	f := newBurnliteLinkFixture(t, nil)
+	ctx := context.Background()
+	_, err := f.links.Adopt(ctx, "https://burnlite.example.com", AdoptedAuthorization{
+		Metadata: oauthclient.Metadata{Issuer: "https://burnlite.example.com", TokenEndpoint: "https://burnlite.example.com/api/oauth/token",
+			Resource: f.provider.srv.URL + "/api/llm/mcp", RevocationEndpoint: f.provider.srv.URL + "/revoke"},
+		ClientID: "c", Token: &oauthclient.Token{RefreshToken: "r"},
+	})
+	if !errors.Is(err, ErrBurnliteInput) {
+		t.Fatalf("adopting a loopback resource for a public address: %v", err)
+	}
+	if all, _ := f.conns.List(ctx); len(all) != 0 {
+		t.Fatalf("made %+v", all)
+	}
+	if _, err := f.db.GetIntegration(ctx, BurnliteIntegration); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the board kept it: %v", err)
+	}
+}
+
+// A connection made in MCP servers that no board read has seen yet is
+// still the one a board disconnect revokes.
+func TestABoardDisconnectFindsAConnectionMadeInMCPServers(t *testing.T) {
+	f := newBurnliteLinkFixture(t, loopbackFixture)
+	ctx := context.Background()
+	f.connectAgents(t, BurnliteScope)
+	if _, err := f.links.Disconnect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if f.revoked() != 1 {
+		t.Errorf("revoked %d tokens", f.revoked())
+	}
+	if _, err := f.flows.AccessToken(ctx, "burnlite"); err == nil {
+		t.Fatal("agents kept Burnlite after the board disconnected")
+	}
+	if link, _ := f.links.Current(ctx); link.State != "none" {
+		t.Fatalf("the board came back: %+v", link)
 	}
 }

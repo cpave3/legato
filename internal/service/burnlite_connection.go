@@ -265,9 +265,11 @@ func (b *BurnliteConnections) ConnectClient(ctx context.Context, address string)
 // when there is none), and the board remembers its Burnlite.
 func (b *BurnliteConnections) Adopt(ctx context.Context, address string, auth AdoptedAuthorization) (BurnliteLink, error) {
 	address = strings.TrimRight(address, "/")
-	resource := auth.Metadata.Resource
-	if resource == "" {
-		resource = address + burnliteMCPPath
+	// The resource, and whether it may be a loopback address, come from the
+	// address the operator typed: a server cannot name another one.
+	resource := address + burnliteMCPPath
+	if named := strings.TrimRight(auth.Metadata.Resource, "/"); named != "" && named != resource {
+		return BurnliteLink{}, fmt.Errorf("%w: the Burnlite at %s names its resource %s, not %s", ErrBurnliteInput, address, named, resource)
 	}
 	in := &store.Integration{Name: BurnliteIntegration, URL: address, Issuer: auth.Metadata.Issuer, TokenEndpoint: auth.Metadata.TokenEndpoint, Resource: resource, ClientID: auth.ClientID}
 	c, ok, err := b.linked(ctx, in)
@@ -280,7 +282,7 @@ func (b *BurnliteConnections) Adopt(ctx context.Context, address string, auth Ad
 		if err != nil {
 			return BurnliteLink{}, err
 		}
-		if c, err = b.conns.Add(ctx, MCPConnectionInput{Name: name, URL: resource, Auth: "oauth", Loopback: loopbackLiteral(resource)}); err != nil {
+		if c, err = b.conns.Add(ctx, MCPConnectionInput{Name: name, URL: resource, Auth: "oauth", Loopback: loopbackLiteral(address)}); err != nil {
 			return BurnliteLink{}, fmt.Errorf("making the MCP connection for Burnlite: %w", err)
 		}
 		created = true
@@ -324,18 +326,23 @@ func (b *BurnliteConnections) forgetLegacy(ctx context.Context) {
 // and the board forgets its Burnlite. The MCP connection and its rules stay.
 func (b *BurnliteConnections) Disconnect(ctx context.Context) (OAuthDisconnect, error) {
 	result := OAuthDisconnect{Upstream: "none"}
-	if in, err := b.db.GetIntegration(ctx, BurnliteIntegration); err == nil {
-		c, ok, err := b.linked(ctx, in)
-		if err != nil {
-			return OAuthDisconnect{}, err
-		}
-		if ok {
-			if result, err = b.flows.Disconnect(ctx, c.Name); err != nil {
-				return result, err
-			}
-		}
-	} else if !errors.Is(err, store.ErrNotFound) {
+	var c MCPConnectionState
+	in, err := b.db.GetIntegration(ctx, BurnliteIntegration)
+	ok := false
+	switch {
+	case err == nil:
+		c, ok, err = b.linked(ctx, in)
+	case errors.Is(err, store.ErrNotFound):
+		// Connected in MCP servers, and no board read has recorded it yet.
+		c, ok, err = b.discover(ctx)
+	}
+	if err != nil {
 		return OAuthDisconnect{}, err
+	}
+	if ok {
+		if result, err = b.flows.Disconnect(ctx, c.Name); err != nil {
+			return result, err
+		}
 	}
 	b.forgetLegacy(ctx)
 	if err := b.db.DeleteIntegration(ctx, BurnliteIntegration); err != nil && !errors.Is(err, store.ErrNotFound) {

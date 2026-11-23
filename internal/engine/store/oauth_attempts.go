@@ -243,3 +243,19 @@ func (s *Store) BackupTo(ctx context.Context, path string) error {
 	_, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, path)
 	return err
 }
+
+// ClaimBurnliteMigration gives holder the Burnlite migration until until,
+// unless another holder's lease is live (ErrConflict).
+func (s *Store) ClaimBurnliteMigration(ctx context.Context, holder string, now, until int64) error {
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO burnlite_migration_lease(id) VALUES(1) ON CONFLICT(id) DO NOTHING`); err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE burnlite_migration_lease SET holder=?,lease_until=? WHERE id=1 AND (holder='' OR holder=? OR lease_until<=?)`, holder, until, holder, now)
+	return oauthTransitionResult(result, err)
+}
+
+// ReleaseBurnliteMigration ends holder's lease, if it still has it.
+func (s *Store) ReleaseBurnliteMigration(ctx context.Context, holder string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE burnlite_migration_lease SET holder='',lease_until=0 WHERE id=1 AND holder=?`, holder)
+	return err
+}
