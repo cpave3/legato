@@ -116,12 +116,16 @@ func (h *storeBridgeHost) OperatorTurn(ctx context.Context, text string) error {
 }
 
 // recordsIdentity reports whether the task resumes this session's
-// conversation: not a swarm worker's, nor a child agent's.
+// conversation: not a swarm worker's, nor a child agent's, nor one
+// attributed to another task. A workflow agent of a run with no related
+// card is attributed to no task, which the store refuses as an owner: the
+// refusal would end the bridge before the agent got its prompt (LEG-531).
 func recordsIdentity(session *store.AgentSession, taskID string) bool {
 	return !(session.Role == "worker" || session.ExecutionKind == store.ExecutionSwarmWorker ||
 		(session.SubtaskID != nil && *session.SubtaskID != "") ||
 		(session.ParentTaskID != nil && *session.ParentTaskID != "" && !(session.Role == "conductor" && *session.ParentTaskID == taskID)) ||
-		(session.AttributionTaskID != "" && session.AttributionTaskID != taskID))
+		(session.AttributionTaskID != "" && session.AttributionTaskID != taskID) ||
+		(session.ExecutionKind == store.ExecutionWorkflowAgent && session.AttributionTaskID == ""))
 }
 
 // brokerBridgeHost is the host as reached through the broker.

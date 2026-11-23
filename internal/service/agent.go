@@ -1625,6 +1625,9 @@ func (a *agentService) deliverLaunchMessages(ctx context.Context, executionID, t
 		log.Printf("launch messages for %s: %v", session, err)
 	}
 	native := a.awaitNativeEndpoint(ctx, taskID, adapter)
+	if !native && a.failUnboundWorkflowSteps(ctx, executionID, taskID, session, adapter) {
+		return
+	}
 	for _, kept := range messages {
 		owned, err := a.store.OwnsLaunchMessage(ctx, executionID, kept.Position, a.launchOwner)
 		if err != nil {
@@ -1671,6 +1674,49 @@ func (a *agentService) deliverLaunchMessages(ctx context.Context, executionID, t
 		}
 		log.Printf("launch message %s/%d for %s delivered (native: %t)", executionID, kept.Position, taskID, native)
 	}
+}
+
+// failUnboundWorkflowSteps fails the workflow steps waiting on an agent whose
+// native route never came up, instead of holding its prompt for a delivery
+// that will not happen while the step waits forever (LEG-531). The prompt is
+// dropped with the step: delivered later, it would start work for a step
+// that has already failed. It reports whether it failed any step; an agent
+// no step waits on keeps its prompt as before.
+func (a *agentService) failUnboundWorkflowSteps(ctx context.Context, executionID, taskID, tmuxSession string, adapter AIToolAdapter) bool {
+	binder, ok := adapter.(NativeBindingAdapter)
+	if !ok || !binder.BindsNativeEndpoint() {
+		return false
+	}
+	session, err := slotSession(ctx, a.store, taskID)
+	if err != nil || session.ExecutionID != executionID {
+		return false
+	}
+	attempts, err := a.store.ListWaitingWorkflowAttemptsByAgentSession(ctx, session.ID)
+	if err != nil || len(attempts) == 0 {
+		return false
+	}
+	reason := fmt.Sprintf("the agent never connected to Legato: its %s session did not bind its native route within %s, so its prompt was not delivered (its terminal is tmux session %s)",
+		adapter.Name(), a.nativeBindTimeout, tmuxSession)
+	failed := false
+	for _, attempt := range attempts {
+		if err := a.store.FailWorkflowStep(ctx, attempt.RunID, attempt.Path, attempt.ID, reason); err != nil {
+			if !errors.Is(err, store.ErrWorkflowStateConflict) {
+				log.Printf("failing workflow step run=%s step=%s of unbound agent %s: %v", attempt.RunID, attempt.Path, taskID, err)
+			}
+			continue
+		}
+		failed = true
+		log.Printf("workflow step failed run=%s step=%s attempt=%s: %s", attempt.RunID, attempt.Path, attempt.ID, reason)
+		if a.bus != nil {
+			a.bus.PublishWorkflowChanged(attempt.RunID)
+		}
+	}
+	if failed {
+		if err := a.store.DeleteLaunchMessages(ctx, executionID); err != nil {
+			log.Printf("dropping launch messages of %s (%s): %v", taskID, executionID, err)
+		}
+	}
+	return failed
 }
 
 // awaitNativeEndpoint waits for adapters that bind natively; other tools get

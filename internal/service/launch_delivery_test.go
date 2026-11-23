@@ -474,3 +474,53 @@ func TestChimeraLaunchFailureIsRetainedReportedAndNeverTyped(t *testing.T) {
 		})
 	}
 }
+
+// A workflow agent whose bridge never binds would hold its prompt forever
+// and leave its step waiting (LEG-531): at the deadline the step fails with
+// the reason, and the prompt is not kept for a later delivery.
+func TestWorkflowAgentWhoseBridgeNeverBindsFailsItsStep(t *testing.T) {
+	svc, s, mt := newNativeLaunchService(t, t.TempDir())
+	svc.(*agentService).nativeBindTimeout = 100 * time.Millisecond
+	ctx := context.Background()
+	createTask(t, s, "wf-task")
+	run := store.WorkflowRun{ID: "wr-1", WorkflowName: "news", WorkflowTitle: "News", DefinitionSource: "test", DefinitionDigest: "sha", DefinitionJSON: `{}`, InputsJSON: `{}`, Status: "running", CurrentStepID: "agent", TaskID: "wf-task"}
+	if err := s.CreateWorkflowRun(ctx, run, []store.WorkflowStep{{RunID: run.ID, StepID: "agent", StepOrder: 0, Title: "Agent", ExecutorType: "agent.run", DefinitionJSON: `{}`, Status: "pending"}}); err != nil {
+		t.Fatal(err)
+	}
+	attempt := store.WorkflowStepAttempt{ID: "wa-1", RunID: run.ID, StepID: "agent", AttemptNumber: 1, ExecutorType: "agent.run", TaskID: "wf-task", Status: "running"}
+	if err := s.StartWorkflowStepAttempt(ctx, attempt, `{}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SpawnAgent(ctx, "wf-task", 0, 0, AgentSpawnOptions{ExecutionKind: store.ExecutionWorkflowAgent, WorkflowRunID: run.ID, WorkflowAttemptID: attempt.ID, Brief: "write the digest"}); err != nil {
+		t.Fatal(err)
+	}
+	session, err := s.GetAgentSessionByTaskID(ctx, "wf-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkWorkflowStepWaiting(ctx, run.ID, "agent", attempt.ID, session, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	var view *store.WorkflowRunView
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		view, err = s.GetWorkflowRun(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if view.Steps[0].Status == "failed" || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if view.Steps[0].Status != "failed" || !strings.Contains(view.Steps[0].Error, "never connected to Legato") {
+		t.Fatalf("step = %s %q, want failed because the agent never connected", view.Steps[0].Status, view.Steps[0].Error)
+	}
+	if lines := mt.sentLinesFor("legato-wf-task"); len(lines) != 1 {
+		t.Fatalf("typed into the starting terminal: %v", lines)
+	}
+	if kept, err := s.ListLaunchMessages(ctx); err != nil || len(kept) != 0 {
+		t.Fatalf("prompt kept for a failed step: %v, %v", kept, err)
+	}
+}
