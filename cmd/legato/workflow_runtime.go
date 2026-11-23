@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/cpave3/legato/config"
@@ -43,6 +44,28 @@ type workflowRuntimeOptions struct {
 	Presets *service.RepositoryPresetService
 }
 
+// prWaitInterval is how often a host reads the pull request of each
+// github.pr.wait step that waits, besides after each refresh of a card's.
+const prWaitInterval = 2 * time.Minute
+
+// lazyPRStates reads pull requests with a GitHub client made on first use.
+type lazyPRStates struct {
+	cfg    *config.Config
+	once   sync.Once
+	states service.GitHubPRStates
+	err    error
+}
+
+func (l *lazyPRStates) PullRequestState(ctx context.Context, repo string, number int) (service.PRState, error) {
+	l.once.Do(func() {
+		l.states.Client, _, l.err = buildGitHubClient(l.cfg, nil)
+	})
+	if l.err != nil {
+		return service.PRState{}, l.err
+	}
+	return l.states.PullRequestState(ctx, repo, number)
+}
+
 func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRuntimeOptions) (*service.WorkflowService, error) {
 	bus := opts.Bus
 	if bus == nil {
@@ -62,6 +85,9 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 			prSvc = service.NewPRTrackingServiceWithInspector(db, bus, client, 10*time.Minute, 10*time.Minute, checkoutInspector(), githubRepositoryMappings(cfg)...)
 		}
 	}
+	// The GitHub client is made when a github.pr.wait step first reads a
+	// pull request, so a command that runs none never asks gh for a token.
+	prWait := service.NewPRWaitExecutor(&lazyPRStates{cfg: cfg})
 	learningSvc := configuredLearningService(cfg, db, bus, service.NewProjectIdentityResolver(checkoutInspector()))
 	agentSvc := opts.Agents
 	if agentSvc == nil {
@@ -106,6 +132,9 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		service.NewTaskMetadataExecutor(db),
 		service.NewTaskMoveExecutor(service.NewWorkflowTaskMover(board, moveSync)),
 		service.NewFileRemoveExecutor(),
+		prWait,
+		service.NewBurnliteCloseExecutor(db, service.ConnectedBurnlite{DB: db,
+			Tokens: service.NewOAuthTokens(db, service.SealedIntegrationSecrets{Store: configuredSecretStore(cfg, db)}, nil, service.BurnliteIntegration)}),
 		// Runs on the run caller once review passes are wired
 		// (wireReviewRuns); refuses to start before.
 		service.NewReviewPassesStep(),

@@ -1203,7 +1203,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// (Resume, Reload, the sandbox switch) keeps where it stood.
 	if opt.SessionPolicy != "resume" {
 		place := TaskPlace(taskID, slot)
-		if executionKind == store.ExecutionWorkflowAgent {
+		if executionPlace(executionKind, attributionTaskID, taskID) {
 			place.PlaceExecutionID = executionID
 		}
 		if err := a.workStages.Start(ctx, place, executionID); err != nil {

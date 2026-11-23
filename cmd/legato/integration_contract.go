@@ -184,8 +184,9 @@ func runIntegrationContract(verb string, args []string) int {
 	return renderCommandError(command, usageError("unknown_verb", "integration "+verb), jsonMode)
 }
 
-// runBurnliteIntegration connects Legato to Burnlite as a ticket provider:
-// read-only, so it asks for read:tasks alone.
+// runBurnliteIntegration connects Legato to Burnlite as a ticket provider,
+// which reads, and for a workflow's burnlite.task.close, which closes a
+// ticket: it asks for read:tasks and write:tasks (service.BurnliteScope).
 func runBurnliteIntegration(command, verb string, parsed parsedArgs, jsonMode bool) int {
 	cfg, db, code := openCommandStoreWithConfig(command, jsonMode)
 	if db == nil {

@@ -361,6 +361,50 @@
           "if": {
             "properties": {
               "type": {
+                "const": "burnlite.task.close"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.burnlite.task.close"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "github.pr.wait"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.github.pr.wait"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "worktree.remove"
               }
             },
@@ -523,6 +567,8 @@
             "task.move",
             "github.pr.prepare",
             "github.pr.review_passes",
+            "burnlite.task.close",
+            "github.pr.wait",
             "worktree.remove",
             "file.remove",
             "chimera.session.remove",
@@ -957,6 +1003,30 @@
               "repo"
             ]
           }
+        },
+        {
+          "not": {
+            "required": [
+              "task",
+              "working_dir"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "task",
+              "scratch"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "task",
+              "name"
+            ]
+          }
         }
       ],
       "description": "Start an agent of the workflow on a prompt or a macro, and wait for it to complete the step with the outputs the step declares.",
@@ -1094,6 +1164,17 @@
             "order": 13
           }
         },
+        "task": {
+          "description": "A task, or a task ID: the agent is that task's own, on its card, in a fresh clone of repo on the task's branch; a macro is sent as one started on the card is. The step fails when the task already has an agent running",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "task_or_id",
+            "label": "As the task's own agent",
+            "order": 14
+          }
+        },
         "tier": {
           "description": "The agent tool's tier; the macro's when empty",
           "type": "string",
@@ -1163,6 +1244,102 @@
           "task"
         ],
         "type": "agent.stop"
+      }
+    },
+    "with.burnlite.task.close": {
+      "additionalProperties": false,
+      "description": "Close the Burnlite ticket a task was imported from, with a reason and a summary. Needs Legato connected to Burnlite with write access.",
+      "properties": {
+        "optional": {
+          "default": false,
+          "description": "A task that is not a Burnlite ticket is skipped (skipped: true) instead of failing the step",
+          "type": "boolean",
+          "x-legato": {
+            "expressions": false,
+            "kind": "boolean",
+            "label": "Skip a task not from Burnlite",
+            "order": 4
+          }
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "completed",
+                "not_planned"
+              ],
+              "type": "string"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "default": "completed",
+          "description": "completed: the work is done; not_planned: it will not be done",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Closed as",
+            "order": 3
+          }
+        },
+        "summary": {
+          "description": "One line on how it was resolved, at most 200 characters",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Resolution summary",
+            "order": 2
+          }
+        },
+        "task": {
+          "description": "The task, or a task ID, imported from Burnlite",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "task_or_id",
+            "label": "Task",
+            "order": 1
+          }
+        }
+      },
+      "required": [
+        "task"
+      ],
+      "title": "Close the Burnlite ticket",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Board",
+        "internal": false,
+        "outputs": [
+          {
+            "description": "The ticket's key, or empty when skipped",
+            "name": "key",
+            "type": "string"
+          },
+          {
+            "description": "Whether the step closed a ticket",
+            "name": "closed",
+            "type": "boolean"
+          },
+          {
+            "description": "Whether the task was not a Burnlite ticket",
+            "name": "skipped",
+            "type": "boolean"
+          }
+        ],
+        "summary": [
+          "task"
+        ],
+        "type": "burnlite.task.close"
       }
     },
     "with.chimera.session.remove": {
@@ -1522,6 +1699,105 @@
           "repo"
         ],
         "type": "github.pr.review_passes"
+      }
+    },
+    "with.github.pr.wait": {
+      "additionalProperties": false,
+      "description": "Wait until a pull request merges, or closes. Legato reads its state from GitHub when the step starts, after each refresh of a card's pull requests, and every few minutes.",
+      "properties": {
+        "pr_number": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "description": "The pull request's number",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "integer",
+            "label": "Pull request number",
+            "order": 2
+          }
+        },
+        "repo": {
+          "description": "GitHub repository (owner/name)",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "repository",
+            "label": "Repository",
+            "order": 1
+          }
+        },
+        "until": {
+          "anyOf": [
+            {
+              "enum": [
+                "merged",
+                "closed"
+              ],
+              "type": "string"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "default": "merged",
+          "description": "merged: the step completes when the pull request merges, and fails when it closes without merging; closed: it completes when the pull request merges or closes",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Wait until it is",
+            "order": 3
+          }
+        }
+      },
+      "required": [
+        "repo",
+        "pr_number"
+      ],
+      "title": "Wait for a pull request to merge",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Code",
+        "internal": false,
+        "outputs": [
+          {
+            "description": "merged or closed",
+            "name": "state",
+            "type": "string"
+          },
+          {
+            "description": "Whether the pull request merged",
+            "name": "merged",
+            "type": "boolean"
+          },
+          {
+            "description": "When it merged (RFC 3339), or empty",
+            "name": "merged_at",
+            "type": "string"
+          },
+          {
+            "description": "The pull request's address",
+            "name": "url",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "repo"
+        ],
+        "type": "github.pr.wait"
       }
     },
     "with.learning.packet.prepare": {
@@ -2315,6 +2591,26 @@
         ],
         "title": "Review a pull request in passes",
         "type": "github.pr.review_passes"
+      },
+      {
+        "description": "Close the Burnlite ticket a task was imported from, with a reason and a summary. Needs Legato connected to Burnlite with write access.",
+        "group": "Board",
+        "internal": false,
+        "summary": [
+          "task"
+        ],
+        "title": "Close the Burnlite ticket",
+        "type": "burnlite.task.close"
+      },
+      {
+        "description": "Wait until a pull request merges, or closes. Legato reads its state from GitHub when the step starts, after each refresh of a card's pull requests, and every few minutes.",
+        "group": "Code",
+        "internal": false,
+        "summary": [
+          "repo"
+        ],
+        "title": "Wait for a pull request to merge",
+        "type": "github.pr.wait"
       },
       {
         "description": "Remove the workflow task's Yggdrasil worktree, when it is at the path expected.",

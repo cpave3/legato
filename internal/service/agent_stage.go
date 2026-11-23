@@ -116,14 +116,22 @@ func TaskPlace(taskID, slot string) WorkStagePlace {
 	return WorkStagePlace{TaskID: taskID, Slot: slot}
 }
 
-// PlaceOf is the place of an agent: its execution's for a workflow agent,
-// else its task's slot.
+// executionPlace says whether an agent keeps its stage at its execution's
+// place: a workflow agent on the run's own task, which the run's agents share.
+// A task's own agent that a workflow started (agent.run with task, LEG-540)
+// keeps it at the task's place, so the card shows it.
+func executionPlace(executionKind, attributionTaskID, taskID string) bool {
+	return executionKind == store.ExecutionWorkflowAgent && attributionTaskID != taskID
+}
+
+// PlaceOf is the place of an agent: its execution's for a workflow agent on
+// the run's task, else its task's slot.
 func PlaceOf(a AgentSession) WorkStagePlace {
 	place := TaskPlace(a.CardTaskID, a.Slot)
 	if place.TaskID == "" {
 		place.TaskID, _ = SplitAgentID(a.TaskID)
 	}
-	if a.ExecutionKind == store.ExecutionWorkflowAgent {
+	if executionPlace(a.ExecutionKind, a.AttributionTaskID, a.TaskID) {
 		place.PlaceExecutionID = a.ExecutionID
 	}
 	return place
@@ -188,7 +196,7 @@ func (s *WorkStageService) PlaceOfAgent(ctx context.Context, agentID string) (Wo
 	if err != nil {
 		return place, "", err
 	}
-	if session.ExecutionKind == store.ExecutionWorkflowAgent {
+	if executionPlace(session.ExecutionKind, session.AttributionTaskID, session.TaskID) {
 		place.PlaceExecutionID = session.ExecutionID
 	}
 	return place, session.ExecutionID, nil
@@ -339,10 +347,10 @@ func parseStageTime(s string) *time.Time {
 }
 
 // SessionPlace is the place of a stored agent session: its execution's for
-// a workflow agent, else its task's slot.
+// a workflow agent on the run's task, else its task's slot.
 func SessionPlace(s store.AgentSession) WorkStagePlace {
 	place := TaskPlace(s.TaskID, s.Slot)
-	if s.ExecutionKind == store.ExecutionWorkflowAgent {
+	if executionPlace(s.ExecutionKind, s.AttributionTaskID, s.TaskID) {
 		place.PlaceExecutionID = s.ExecutionID
 	}
 	return place

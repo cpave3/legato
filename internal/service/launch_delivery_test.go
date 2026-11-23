@@ -498,7 +498,7 @@ func TestWorkflowAgentWhoseBridgeNeverBindsFailsItsStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.MarkWorkflowStepWaiting(ctx, run.ID, "agent", attempt.ID, session, ""); err != nil {
+	if err := s.MarkWorkflowStepWaiting(ctx, run.ID, "agent", attempt.ID, session, "", ""); err != nil {
 		t.Fatal(err)
 	}
 

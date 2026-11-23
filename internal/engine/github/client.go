@@ -36,6 +36,8 @@ type PRStatus struct {
 	// branch when the PR is part of a stack.
 	BaseBranch string
 	CreatedAt  string
+	// MergedAt is when the PR merged (RFC 3339), "" when it has not.
+	MergedAt string
 	// Reviews are every review of the PR, oldest first (FetchPRByNumber
 	// only).
 	Reviews []PRReview
@@ -164,8 +166,15 @@ func statusFromAPI(pr apiPR) PRStatus {
 		HasPR: true, Number: pr.Number, Title: pr.Title, URL: pr.HTMLURL,
 		State: state, IsDraft: pr.Draft, CommentCount: pr.Comments + pr.ReviewComments,
 		HeadBranch: pr.Head.Ref, HeadSHA: pr.Head.SHA, HeadRepo: pr.Head.Repo.FullName,
-		BaseBranch: pr.Base.Ref, CreatedAt: pr.CreatedAt,
+		BaseBranch: pr.Base.Ref, CreatedAt: pr.CreatedAt, MergedAt: deref(pr.MergedAt),
 	}
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // ListRepositoryPRs returns pull requests for one repository in newest-first
@@ -203,6 +212,18 @@ func (c *Client) FetchPRStatus(branch string, repositories ...string) (*PRStatus
 		}
 	}
 	return pickBestStatus(matches), nil
+}
+
+// FetchPRState reads a PR by repository and number with one request: its
+// state (OPEN, CLOSED or MERGED), merge time and address, without the reviews
+// and checks FetchPRByNumber adds.
+func (c *Client) FetchPRState(owner, repo string, number int) (*PRStatus, error) {
+	var raw apiPR
+	if err := c.get(fmt.Sprintf("/repos/%s/%s/pulls/%d", url.PathEscape(owner), url.PathEscape(repo), number), nil, &raw); err != nil {
+		return nil, err
+	}
+	status := statusFromAPI(raw)
+	return &status, nil
 }
 
 // FetchPRByNumber fetches a single PR by repository and number.

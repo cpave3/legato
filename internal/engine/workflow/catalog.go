@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -224,6 +225,9 @@ func (c Constraint) check(with map[string]any) error {
 func (f Field) accepts(value any, inputs map[string]Input) bool {
 	text, isText := value.(string)
 	expression := isText && !f.Literal && expressionPattern.MatchString(text)
+	if len(f.Enum) > 0 && !expression {
+		return isText && slices.Contains(f.Enum, text)
+	}
 	switch f.Kind {
 	case KindTask:
 		return wholeTaskReference(value, inputs)
@@ -289,8 +293,10 @@ var catalog = []ExecutorSpec{
 			literalFalse("keep_agent", "Keep the agent running", "Leave the agent running once its outputs are in, so the operator can go on talking to it").at(11, false),
 			prNumberFld.at(12, false),
 			literalFalse("scratch", "Work in a scratch folder", "The work needs no folder of its own: the agent works in a new folder Legato removes when the step completes (kept when it fails or keeps its agent); anything to keep goes in the step's outputs").at(13, false),
+			{Name: "task", Kind: KindTaskOrID, Label: "As the task's own agent", Description: "A task, or a task ID: the agent is that task's own, on its card, in a fresh clone of repo on the task's branch; a macro is sent as one started on the card is. The step fails when the task already has an agent running", Order: 14},
 		},
-		Constraints:     []Constraint{promptMacro, {Kind: Excludes, Fields: []string{"scratch", "working_dir"}, Checked: true}, {Kind: Excludes, Fields: []string{"scratch", "repo"}, Checked: true}},
+		Constraints: []Constraint{promptMacro, {Kind: Excludes, Fields: []string{"scratch", "working_dir"}, Checked: true}, {Kind: Excludes, Fields: []string{"scratch", "repo"}, Checked: true},
+			{Kind: Excludes, Fields: []string{"task", "working_dir"}, Checked: true}, {Kind: Excludes, Fields: []string{"task", "scratch"}, Checked: true}, {Kind: Excludes, Fields: []string{"task", "name"}, Checked: true}},
 		DeclaredOutputs: true,
 		Summary:         []string{"macro", "prompt"},
 	},
@@ -424,6 +430,38 @@ var catalog = []ExecutorSpec{
 			{Name: "reviews", Type: "json", Description: "The reviews posted, with their links"},
 			{Name: "summary_path", Type: "string", Description: "A Markdown summary of the loop"},
 			{Name: "linked_task", Type: "string", Description: "The board task the pull request belongs to, or empty"},
+		},
+	},
+	{
+		Type: "burnlite.task.close", Group: "Board", Title: "Close the Burnlite ticket",
+		Description: "Close the Burnlite ticket a task was imported from, with a reason and a summary. Needs Legato connected to Burnlite with write access.",
+		With: []Field{
+			{Name: "task", Kind: KindTaskOrID, Label: "Task", Description: "The task, or a task ID, imported from Burnlite", Required: true, Essential: true, Order: 1},
+			{Name: "summary", Kind: KindString, Label: "Resolution summary", Description: "One line on how it was resolved, at most 200 characters", Essential: true, Order: 2},
+			{Name: "reason", Kind: KindString, Label: "Closed as", Description: "completed: the work is done; not_planned: it will not be done", Default: "completed", Enum: []string{"completed", "not_planned"}, Checked: true, Invalid: "must be completed or not_planned", Order: 3},
+			literalFalse("optional", "Skip a task not from Burnlite", "A task that is not a Burnlite ticket is skipped (skipped: true) instead of failing the step").at(4, false),
+		},
+		Summary: []string{"task"},
+		Outputs: []OutputSpec{
+			{Name: "key", Type: "string", Description: "The ticket's key, or empty when skipped"},
+			{Name: "closed", Type: "boolean", Description: "Whether the step closed a ticket"},
+			{Name: "skipped", Type: "boolean", Description: "Whether the task was not a Burnlite ticket"},
+		},
+	},
+	{
+		Type: "github.pr.wait", Group: "Code", Title: "Wait for a pull request to merge",
+		Description: "Wait until a pull request merges, or closes. Legato reads its state from GitHub when the step starts, after each refresh of a card's pull requests, and every few minutes.",
+		With: []Field{
+			{Name: "repo", Kind: KindRepository, Label: "Repository", Description: "GitHub repository (owner/name)", Required: true, Essential: true, Order: 1},
+			{Name: "pr_number", Kind: KindInteger, Label: "Pull request number", Description: "The pull request's number", Required: true, Essential: true, Order: 2},
+			{Name: "until", Kind: KindString, Label: "Wait until it is", Description: "merged: the step completes when the pull request merges, and fails when it closes without merging; closed: it completes when the pull request merges or closes", Default: "merged", Enum: []string{"merged", "closed"}, Checked: true, Invalid: "must be merged or closed", Order: 3},
+		},
+		Summary: []string{"repo"},
+		Outputs: []OutputSpec{
+			{Name: "state", Type: "string", Description: "merged or closed"},
+			{Name: "merged", Type: "boolean", Description: "Whether the pull request merged"},
+			{Name: "merged_at", Type: "string", Description: "When it merged (RFC 3339), or empty"},
+			{Name: "url", Type: "string", Description: "The pull request's address"},
 		},
 	},
 	{

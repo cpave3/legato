@@ -39,6 +39,9 @@ type WorkflowExecutionResult struct {
 	AgentSession *store.AgentSession
 	WorkingDir   string
 	Error        string
+	// TaskID is the task whose agent the step waits on, when it is not the
+	// run's own: an agent.run step with task (LEG-540).
+	TaskID string
 }
 
 type WorkflowExecutor interface {
@@ -619,7 +622,7 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 			return execErr
 		}
 		if result.Status == "waiting_agent" {
-			return s.store.MarkWorkflowStepWaiting(ctx, runID, path, attemptID, result.AgentSession, result.WorkingDir)
+			return s.store.MarkWorkflowStepWaiting(ctx, runID, path, attemptID, result.AgentSession, result.WorkingDir, result.TaskID)
 		}
 		if result.Status == WorkflowStepWaiting {
 			return s.store.WaitWorkflowStepOnService(ctx, runID, path, attemptID)

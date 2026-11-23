@@ -47,7 +47,7 @@ func TestConnectingBurnliteFromTheWebUI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if q := mustQuery(t, authorize); q.Get("scope") != BurnliteScope || q.Get("redirect_uri") != "https://legato.local:3080/oauth/callback" {
+	if q := mustQuery(t, authorize); q.Get("scope") != "read:tasks write:tasks" || q.Get("redirect_uri") != "https://legato.local:3080/oauth/callback" {
 		t.Errorf("authorize query = %v", q)
 	}
 	if err := settings.Callback(ctx, consent(t, authorize)); err != nil {

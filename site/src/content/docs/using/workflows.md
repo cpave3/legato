@@ -33,6 +33,7 @@ The templates Legato ships use your default agent tool and your [macros](/legato
 | `discuss-pr` | An agent in a fresh clone gets across a pull request's change set and answers your questions about it. |
 | `address-feedback` | When someone requests changes on a pull request one of your tasks owns, gives the task's agent your **Address feedback** macro, starting it if none is running. |
 | `review-pr-passes` | Reviews a pull request in passes posted to GitHub; see [Review passes](/legato/using/review-passes/). |
+| `ticket-to-merged-pr` | Takes a card (`task`) from its ticket to a merged pull request: the card's own agent works in a fresh clone of `repo` on your `macro` (**Implement** unless you give another; it must open a pull request) and stays, the pull request is reviewed in passes while that agent fixes the findings, then the run waits for the merge, closes the card's Burnlite ticket (a card not from Burnlite is skipped) and stops the agent. A paused trigger offers to start it when a card enters **Doing**. Needs review passes, GitHub access, and Burnlite connected with write access for the close. |
 
 In the web UI, **New workflow** on the **Workflows** tab (and the tab itself when you have no workflows) shows the templates: each says what starts it, what it asks for and what it does. Choose one to see its outline, then **Use this template** to open it in the editor. Nothing is written until you press **Create**, in the folder you pick (yours, the project's, or a repository's checkout). If a workflow already has the template's name, the new one gets another.
 
@@ -76,6 +77,20 @@ Version 1 executes steps in declaration order and supports these executors. Lega
     outputs:
       digest: {type: string}
   ```
+- `agent.run` with `with.task` (a task input or a task ID) runs the agent as that task's own agent instead of the workflow's: it shows on the task's card, reads that task's context, keeps its stage on the card, and its conversation can be resumed like any agent on the card. With `with.repo` it works in a fresh clone on the task's branch (`legato/<task>`), as an agent started on the card would; a live clone of the task is used again. A macro is sent as one started on the card is: the task's key and title, then the macro's text. The step still waits for the agent to complete it with its outputs, and removes the agent then unless `keep_agent` is set. A step whose task already has an agent running fails without touching it: stop that agent first, or message it with `agent.dispatch`. `task` cannot be given with `working_dir`, `scratch` or `name`.
+
+  ```yaml
+  - id: implement
+    title: Implement the ticket
+    type: agent.run
+    with:
+      task: ${{ workflow.inputs.task }}
+      macro: Implement
+      repo: acme/widget
+      keep_agent: true
+    outputs:
+      pr_number: {type: integer}
+  ```
 - `agent.dispatch`: send a prompt to the selected task's ordinary durable agent, or spawn that task-linked agent in `with.working_dir` (where agents start by default when empty) when none is active. With a macro, `with.repo` and `with.pr_number` name the pull request in the message. The workflow does not own or tear down this session. Outputs include `agent_session_id`, `created`, and `working_dir`.
 - Both `agent.run` and `agent.dispatch` take what to ask either as `with.prompt` or as `with.macro`, the name of one of your [macros](/legato/using/agents/#macros), not both. A macro is read when the step runs, so an edit applies to the next run. A step that names no `agent` or `tier` uses the macro's. `agent.dispatch` sends it as a macro started on the task would be: the task's key and title, then the macro's text.
 
@@ -98,6 +113,17 @@ Version 1 executes steps in declaration order and supports these executors. Lega
 - `task.metadata.set`: atomically set one or more dotted local metadata paths on a task. Provider sync preserves this metadata. A task that is away on a worker is read-only, so the step fails with "away on <worker>".
 - `task.move`: move the required structured `with.task` to the required non-empty, exact case-sensitive configured column named by `with.column`. A real move appends the task to the end of that column and uses normal transitions, events, and column-entry triggers; use trigger conditions to avoid authoring loops. Moving to the current column is an idempotent local no-op with no new transition or event. With a ticket provider such as Jira configured, Legato may still queue the mapped Jira transition, so a remote push that failed earlier can recover. A successful step means the move is saved locally and queued, not that Jira has accepted it.
 - `github.pr.review_passes`: run a [review loop](/legato/using/review-passes/#review-any-pull-request) on an open pull request (`with.repo`, `with.pr_number`): passes posted as GitHub reviews from the reviewer App until a clean one approves it. The step waits on the loop rather than on an agent, and outputs `outcome`, `passes`, `findings`, `reviews`, `summary_path` and `linked_task`. It is the one step that publishes to an outside service. The `review-pr-passes` example uses it. `with.max_passes` and `with.reviewer` (`tool` or `tool:tier`) override this Legato's review-pass settings for the loop; empty, the setting holds. `with.scope` is `stack` (the default: every open pull request of the stack the named one is in, in one loop) or `pr` (that pull request alone).
+- `github.pr.wait`: wait until a pull request (`with.repo`, `with.pr_number`) merges. Legato reads the pull request from GitHub when the step starts, so one that merged already goes straight on, then after each refresh of a card's pull requests and every 2 minutes while the board or `legato serve` runs. With `until: merged` (the default), a pull request closed without merging fails the step. With `until: closed`, a merge or a close completes it. Outputs: `state` (`merged` or `closed`), `merged`, `merged_at` and `url`. The step needs Legato's GitHub access (see [GitHub](/legato/integrations/github/)). A pull request that Legato cannot read when the step starts fails the step, and **Retry step** reads it again. A read that fails later, while the step waits, is tried again at the next check.
+
+  ```yaml
+  - id: merged
+    title: Wait for the merge
+    type: github.pr.wait
+    with:
+      repo: acme/widget
+      pr_number: ${{ steps.implement.outputs.pr_number }}
+  ```
+- `burnlite.task.close`: close the Burnlite ticket a task was imported from (`with.task`), as `completed` (the default) or `not_planned` (`with.reason`), with a one-line `with.summary`. With `optional: true`, a task that is not a Burnlite ticket is skipped (`skipped: true`) instead of failing the step. Outputs: `key`, `closed` and `skipped`. Legato must be connected to Burnlite with write access; see [Burnlite](/legato/integrations/burnlite/#close-a-ticket-from-a-workflow).
 - `repo.ensure`: prepare what a job works in. With an empty `with.repo` it does nothing and outputs `working_dir` as given in `with.working_dir`. With a repository (`owner/name`) it makes Legato's cache of it ready (cloning or fetching with the `github` credential, so a repository Legato cannot read fails here) and outputs `repo`, `ref` and `branch` for the agent step; giving both `repo` and `working_dir` is refused. `agent.run` with `with.repo` (and `with.ref`, `with.branch`) starts its agent in a fresh clone made for the agent's execution, on its own branch.
 - Built-in Learn definitions additionally own `agent.interview`, `learning.packet.prepare`, and `learning.proposals.submit`. They are internal orchestration contracts rather than general-purpose user workflow examples; see [Legato Learn](/legato/using/learn/).
 

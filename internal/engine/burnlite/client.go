@@ -1,6 +1,6 @@
 // Package burnlite reads Burnlite (an issue tracker and estimator) over its
 // MCP endpoint, the one API a token holder can use: Projects, their Tasks,
-// and one Task with its text. It knows nothing of Legato, and gets its
+// and one Task with its text. Its one write is closing a Task. It knows nothing of Legato, and gets its
 // bearer token from whoever made it.
 package burnlite
 
@@ -30,6 +30,10 @@ var (
 	ErrNotFound = errors.New("burnlite: not found")
 	// ErrUnauthorized: Burnlite refused Legato's token, a fresh one too.
 	ErrUnauthorized = errors.New("burnlite: authentication failed")
+	// ErrInsufficientScope: the token lacks a scope the tool needs, such as
+	// write:tasks for a connection made to read only. It is also
+	// ErrUnauthorized.
+	ErrInsufficientScope = errors.New("burnlite: the connection lacks a scope")
 )
 
 // Error is an error a Burnlite tool returned, with its code (not_found,
@@ -50,7 +54,7 @@ func (e *Error) Is(target error) bool {
 	switch target {
 	case ErrNotFound:
 		return e.Code == "not_found"
-	case ErrUnauthorized:
+	case ErrUnauthorized, ErrInsufficientScope:
 		return e.Code == "insufficient_scope"
 	}
 	return false
@@ -342,6 +346,25 @@ func (c *Client) GetTask(ctx context.Context, key string) (*Task, error) {
 		task.Checklist = append(task.Checklist, ChecklistItem{Name: item.Name, Done: item.Done})
 	}
 	return task, nil
+}
+
+// Close reasons a Task can be closed with.
+const (
+	CloseCompleted  = "completed"
+	CloseNotPlanned = "not_planned"
+)
+
+// CloseTask closes a Task (key or id) with a reason, CloseCompleted or
+// CloseNotPlanned, and a one-line summary ("" for none). Closing a closed
+// Task again with the same reason changes nothing. It needs the write:tasks
+// scope: a token without it is ErrInsufficientScope.
+func (c *Client) CloseTask(ctx context.Context, key, reason, summary string) error {
+	args := map[string]any{"taskId": key, "reason": reason}
+	if summary != "" {
+		args["summary"] = summary
+	}
+	var out map[string]any
+	return c.call(ctx, "close_task", args, &out)
 }
 
 // call runs a tool and decodes its structured result into out. A token

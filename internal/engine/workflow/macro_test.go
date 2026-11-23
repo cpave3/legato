@@ -9,6 +9,12 @@ import (
 
 func TestAgentStepsTakeAMacroOrAPromptButNotBoth(t *testing.T) {
 	for _, kind := range []string{"agent.run", "agent.dispatch"} {
+		// agent.run's task makes it the task's own agent, which takes no
+		// working_dir; dispatch's task is the agent it messages.
+		task := "      task: ${{ workflow.inputs.task }}\n"
+		if kind == "agent.run" {
+			task = ""
+		}
 		base := `
 schema_version: 1
 name: m
@@ -20,8 +26,7 @@ steps:
     title: S
     type: ` + kind + `
     with:
-      task: ${{ workflow.inputs.task }}
-      working_dir: /repo
+` + task + `      working_dir: /repo
 `
 		cases := map[string]struct {
 			with string

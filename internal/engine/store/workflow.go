@@ -439,14 +439,18 @@ func (s *Store) completeWorkflowStep(ctx context.Context, runID, path, attemptID
 	})
 }
 
-func (s *Store) MarkWorkflowStepWaiting(ctx context.Context, runID, path, attemptID string, session *AgentSession, workingDir string) error {
+// MarkWorkflowStepWaiting ties a running step to the agent it waits on.
+// taskID, when not empty, is the task the agent works on, which replaces the
+// run's task on the attempt: an agent.run step on a card's own agent
+// (LEG-540), so the attempt's agent is found on that card.
+func (s *Store) MarkWorkflowStepWaiting(ctx context.Context, runID, path, attemptID string, session *AgentSession, workingDir, taskID string) error {
 	var sessionID any
 	var tmuxName, agentKind string
 	if session != nil {
 		sessionID, tmuxName, agentKind = session.ID, session.TmuxSession, session.AgentKind
 	}
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'waiting_agent', agent_session_id = ?, tmux_session = ?, agent_kind = ?, working_dir = ? WHERE id = ? AND run_id = ? AND path = ? AND status = 'running'`, sessionID, tmuxName, agentKind, workingDir, attemptID, runID, path)
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'waiting_agent', agent_session_id = ?, tmux_session = ?, agent_kind = ?, working_dir = ?, task_id = COALESCE(NULLIF(?, ''), task_id) WHERE id = ? AND run_id = ? AND path = ? AND status = 'running'`, sessionID, tmuxName, agentKind, workingDir, taskID, attemptID, runID, path)
 		if err != nil {
 			return err
 		}

@@ -55,9 +55,11 @@ type ConnectRequest struct {
 	RedirectURI string
 }
 
-// BurnliteScope is what Legato asks Burnlite for: reading tasks, since
-// Burnlite is a read-only ticket provider.
-const BurnliteScope = "read:tasks"
+// BurnliteScope is what Legato asks Burnlite for: reading tasks, which the
+// ticket provider does, and writing them, which only a workflow's
+// burnlite.task.close step does (LEG-540). A connection made with read:tasks
+// alone reads; closing asks for it to be made again.
+const BurnliteScope = "read:tasks write:tasks"
 
 // IntegrationRefreshSecret is the name, in Legato's sealed store, of an
 // integration's refresh token.

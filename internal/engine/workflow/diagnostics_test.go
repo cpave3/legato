@@ -281,3 +281,28 @@ func TestCheckRefusesScratchWithAFolder(t *testing.T) {
 		t.Fatalf("a scratch that is not true or false loaded: %+v", diagnostics)
 	}
 }
+
+// with task makes the agent that task's own (LEG-540): it works in a clone
+// of repo on the task's branch, under the task's name, so it cannot be given
+// a folder, a scratch folder or a name of its own.
+func TestCheckRefusesATasksAgentWithAFolderOrAName(t *testing.T) {
+	step := func(with string) string {
+		return checkBase + `steps:
+  - id: implement
+    title: Implement
+    type: agent.run
+    with:
+      prompt: hi
+      task: LEG-7
+` + with + `    outputs: {pr_number: {type: integer}}
+`
+	}
+	if definition, diagnostics := workflow.Check("check.yaml", []byte(step("      repo: acme/widget\n"))); definition == nil || len(diagnostics) != 0 {
+		t.Fatalf("task with repo: %+v", diagnostics)
+	}
+	for _, with := range []string{"      working_dir: /repo\n", "      scratch: true\n", "      name: Builder\n"} {
+		if definition, diagnostics := workflow.Check("check.yaml", []byte(step(with))); definition != nil || len(diagnostics) == 0 || !strings.Contains(diagnostics[0].Message, "task") {
+			t.Fatalf("%q: %v, %+v", with, definition != nil, diagnostics)
+		}
+	}
+}
