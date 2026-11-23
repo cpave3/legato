@@ -65,16 +65,17 @@ func (h *storeBridgeHost) Session(ctx context.Context, taskID, executionID strin
 		return BridgeSession{}, fmt.Errorf("execution %s does not own the running agent for task %s", executionID, taskID)
 	}
 	h.taskID, h.session = taskID, session
-	out := BridgeSession{RecordsIdentity: recordsIdentity(session, taskID)}
+	// The store's own ownership rule decides, so a bridge never saves an
+	// identity the store would refuse: the refusal would end its panel.
+	owns, err := h.s.OwnsTaskConversation(ctx, taskID, session.ID, session.ExecutionID, session.AgentKind)
+	if err != nil {
+		return BridgeSession{}, fmt.Errorf("checking whether task %s resumes this agent's conversation: %w", taskID, err)
+	}
+	out := BridgeSession{RecordsIdentity: owns}
 	// Chimera pushes its binding instead of reattaching from this reply;
 	// its secret-bearing URL must not cross the agent's broker.
 	if session.ChimeraEndpoint != nil && session.AgentKind != "chimera" {
 		out.Endpoint = *session.ChimeraEndpoint
-	}
-	if out.RecordsIdentity {
-		if _, err := h.s.GetTask(ctx, taskID); err != nil {
-			out.RecordsIdentity = false
-		}
 	}
 	return out, nil
 }
@@ -113,19 +114,6 @@ func (h *storeBridgeHost) TurnEnded(_ context.Context, reason string) error {
 func (h *storeBridgeHost) OperatorTurn(ctx context.Context, text string) error {
 	_, err := service.CloseOperatorItemsOnTurn(ctx, h.s, h.taskID, h.session.ExecutionID, text)
 	return err
-}
-
-// recordsIdentity reports whether the task resumes this session's
-// conversation: not a swarm worker's, nor a child agent's, nor one
-// attributed to another task. A workflow agent of a run with no related
-// card is attributed to no task, which the store refuses as an owner: the
-// refusal would end the bridge before the agent got its prompt (LEG-531).
-func recordsIdentity(session *store.AgentSession, taskID string) bool {
-	return !(session.Role == "worker" || session.ExecutionKind == store.ExecutionSwarmWorker ||
-		(session.SubtaskID != nil && *session.SubtaskID != "") ||
-		(session.ParentTaskID != nil && *session.ParentTaskID != "" && !(session.Role == "conductor" && *session.ParentTaskID == taskID)) ||
-		(session.AttributionTaskID != "" && session.AttributionTaskID != taskID) ||
-		(session.ExecutionKind == store.ExecutionWorkflowAgent && session.AttributionTaskID == ""))
 }
 
 // brokerBridgeHost is the host as reached through the broker.

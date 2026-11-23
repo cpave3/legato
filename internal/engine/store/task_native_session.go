@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/jmoiron/sqlx"
 )
 
 // SlotMain is a task's main agent slot: the author's, and any session the
@@ -122,6 +124,40 @@ func slotOrMain(slot string) string {
 	return slot
 }
 
+// OwnsTaskConversation reports whether RecordTaskNativeSession would accept
+// this agent session and execution as the owner of the task's conversation
+// now. A native bridge asks it before it saves an identity, so an agent
+// whose conversation is not its task's (a child, a swarm worker, one
+// attributed to another task or to none, one with no execution) is never
+// refused for saving one, which would end its native panel (LEG-539).
+func (s *Store) OwnsTaskConversation(ctx context.Context, taskID string, agentSessionID int, executionID, agentKind string) (bool, error) {
+	return ownsTaskConversation(ctx, s.db, taskID, agentSessionID, executionID, agentKind)
+}
+
+// ownsTaskConversation is the one ownership rule of a task's conversation:
+// the newest session row of its slot (started_at, then ID), still running,
+// top level (or the conductor of its own task), with its exact running
+// execution attributed to and run for the task.
+func ownsTaskConversation(ctx context.Context, q sqlx.QueryerContext, taskID string, agentSessionID int, executionID, agentKind string) (bool, error) {
+	var owns bool
+	err := sqlx.GetContext(ctx, q, &owns, `SELECT EXISTS (
+		SELECT 1 FROM agent_sessions a
+		JOIN tasks t ON t.id = a.task_id
+		JOIN executions e ON e.agent_session_id = a.id
+		WHERE t.id = ?
+			AND a.id = ? AND a.status = 'running' AND a.agent_kind = ?
+			AND a.id = (SELECT id FROM agent_sessions WHERE task_id = t.id AND slot = a.slot ORDER BY started_at DESC, id DESC LIMIT 1)
+			AND (COALESCE(a.parent_task_id, '') = '' OR (a.role = 'conductor' AND a.parent_task_id = t.id))
+			AND COALESCE(a.subtask_id, '') = ''
+			AND a.role != 'worker'
+			AND e.id = ? AND e.status = 'running' AND e.agent_kind = a.agent_kind
+			AND e.task_id = t.id AND e.execution_task_id = t.id
+			AND e.kind != 'swarm_worker' AND e.role != 'worker'
+			AND COALESCE(e.swarm_subtask_id, '') = ''
+	)`, taskID, agentSessionID, agentKind, executionID)
+	return owns, err
+}
+
 // RecordTaskNativeSession atomically checks ownership and records a conversation.
 // The owner must be the newest session row (started_at, then ID), still running
 // with its exact running execution. A newer stopped row also invalidates it.
@@ -152,22 +188,7 @@ func (s *Store) RecordTaskNativeSession(ctx context.Context, taskID string, agen
 	if err := tx.GetContext(ctx, &slot, `SELECT slot FROM agent_sessions WHERE id = ?`, agentSessionID); err != nil && err != sql.ErrNoRows {
 		return false, err
 	}
-	var owns bool
-	err = tx.GetContext(ctx, &owns, `SELECT EXISTS (
-		SELECT 1 FROM agent_sessions a
-		JOIN tasks t ON t.id = a.task_id
-		JOIN executions e ON e.agent_session_id = a.id
-		WHERE t.id = ?
-			AND a.id = ? AND a.status = 'running' AND a.agent_kind = ?
-			AND a.id = (SELECT id FROM agent_sessions WHERE task_id = t.id AND slot = a.slot ORDER BY started_at DESC, id DESC LIMIT 1)
-			AND (COALESCE(a.parent_task_id, '') = '' OR (a.role = 'conductor' AND a.parent_task_id = t.id))
-			AND COALESCE(a.subtask_id, '') = ''
-			AND a.role != 'worker'
-			AND e.id = ? AND e.status = 'running' AND e.agent_kind = a.agent_kind
-			AND e.task_id = t.id AND e.execution_task_id = t.id
-			AND e.kind != 'swarm_worker' AND e.role != 'worker'
-			AND COALESCE(e.swarm_subtask_id, '') = ''
-	)`, taskID, agentSessionID, agentKind, executionID)
+	owns, err := ownsTaskConversation(ctx, tx, taskID, agentSessionID, executionID, agentKind)
 	if err != nil {
 		return false, err
 	}
