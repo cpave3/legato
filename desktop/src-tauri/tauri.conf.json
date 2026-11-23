@@ -40,7 +40,7 @@
     },
     "linux": {
       "appimage": {
-        "bundleMediaFramework": false,
+        "bundleMediaFramework": true,
         "files": {
           "/usr/lib/libgtk-layer-shell.so.0": "target/layer-shell/libgtk-layer-shell.so.0",
           "/usr/share/doc/libgtk-layer-shell0/copyright": "target/layer-shell/copyright"

@@ -11,7 +11,7 @@ You need Rust, Node 24 with pnpm 11, and on Linux the WebKitGTK 4.1, GTK 3, libr
 ```bash
 task desktop:test    # Rust unit tests and the TypeScript check
 task desktop:dev     # run it, the shell reloading as you edit
-task desktop:build   # an AppImage in src-tauri/target/release/bundle/appimage/
+task desktop:build   # an AppImage in src-tauri/target/release/bundle/appimage/, with GStreamer's plugins
 ```
 
 To try it without touching your own servers or saved state, run a scratch Legato (see `docs/ai/claude-code-native.md` § Trying it without touching real state) and point the app at a scratch state file:

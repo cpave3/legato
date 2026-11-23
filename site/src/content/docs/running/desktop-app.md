@@ -155,6 +155,12 @@ If a link does nothing:
 
 AppImages up to v0.25.0 gave `xdg-open` the AppImage's libraries, and on a system newer than the one the AppImage was built on, the program it starts could not load. On KDE the journal then shows lines such as `kde-open: /tmp/.mount_…/usr/lib/libcrypto.so.3: version 'OPENSSL_3.3.0' not found`. Update the app.
 
+## Videos
+
+The app plays the videos agents show in the side panel, and the audio of dictation, with the GStreamer plugins inside the AppImage.
+
+AppImages up to v0.27.0 had none, and froze for good as soon as a video opened in the side panel: the window stopped answering and had to be killed. Update the app. Until you do, a Legato server with a newer web UI does not open a player in such an app: it says it cannot play the video and offers **Download the video**.
+
 ## Updates
 
 The app keeps itself current. It checks GitHub for a newer release with a desktop build when it starts and every six hours, and when you click **Check for updates** under **This app** in **Servers & keys**. When there is one, the title bar shows **Update to vX.Y.Z**: click it, and the app downloads the new version, checks it against the release's checksums, and puts it in place of the old one, which it keeps beside it (the AppImage as `.prev`; on a Mac, a hidden `.Legato.app.prev`). Then click **Restart to update**.
