@@ -45,18 +45,20 @@ steps:
 `
 const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }))
 let puts: { yaml: string }[] = []
+let fileYaml = fileText
 
 beforeEach(() => {
   localStorage.clear()
   localStorage.setItem("legato:workflow-editor-mode", "visual")
   media.narrow = false
   puts = []
+  fileYaml = fileText
   apiFetch.mockReset()
   apiFetch.mockImplementation((_: string, path: string, init?: RequestInit) => {
     const body = init?.body ? JSON.parse(String(init.body)) : {}
     if (path === "/api/workflow-files/check") return json({ definition: { name: "review-pr" }, graph: null, diagnostics: [] })
     if (path === "/api/workflows/review-pr/file" && init?.method === "PUT") { puts.push(body); return json({ name: "review-pr", path: "/g/review-pr.yaml", folder: "global", digest: "sha256:new", diagnostics: [] }) }
-    if (path === "/api/workflows/review-pr/file") return json({ name: "review-pr", yaml: fileText, path: "/g/review-pr.yaml", folder: "global", digest: "sha256:old", editable: true })
+    if (path === "/api/workflows/review-pr/file") return json({ name: "review-pr", yaml: fileYaml, path: "/g/review-pr.yaml", folder: "global", digest: "sha256:old", editable: true })
     return json({}, 404)
   })
 })
@@ -201,4 +203,46 @@ it("on a phone, opens the sheet of an address it is reloaded at", async () => {
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
   // Not pushed by a tap, so closing it stays on the page.
   expect(screen.queryByText("workflows page")).toBeNull()
+})
+
+// Review fixes (LEG-505).
+it("edits an ordinary item when another item has a YAML anchor", async () => {
+  fileYaml = fileText.replace("title: Review a pull request", "title: Review a pull request\ndescription: &why Because")
+  renderAt("#steps/prep")
+  commit(await screen.findByRole("textbox", { name: "Step title" }), "Get ready")
+  expect(await yamlOf()).toContain("title: Get ready")
+})
+
+it("lets Enter press the outline's other buttons", async () => {
+  renderAt("#steps/prep")
+  await screen.findByRole("textbox", { name: "Step title" })
+  const add = within(outline()).getByRole("button", { name: "Add input" })
+  const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })
+  add.dispatchEvent(event)
+  expect(event.defaultPrevented).toBe(false)
+})
+
+it("keeps an item's YAML that doesn't read yet across tabs, and counts it as unsaved", async () => {
+  renderAt("#steps/run")
+  await screen.findByRole("textbox", { name: "Step title" })
+  fireEvent.click(within(inspector()).getByRole("tab", { name: "YAML" }))
+  const own = await within(inspector()).findByRole("textbox", { name: "YAML of steps/run" }) as HTMLTextAreaElement
+  const held = own.value + "\n  bad: ["
+  fireEvent.change(own, { target: { value: held } })
+  const unload = () => { const e = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented }
+  await waitFor(() => expect(unload()).toBe(true))
+  fireEvent.click(within(inspector()).getByRole("tab", { name: "Setup" }))
+  fireEvent.click(within(inspector()).getByRole("tab", { name: "YAML" }))
+  expect((await within(inspector()).findByRole("textbox", { name: "YAML of steps/run" }) as HTMLTextAreaElement).value).toBe(held)
+})
+
+it("stays on the YAML tab while a step's ID is renamed in it", async () => {
+  renderAt("#steps/run")
+  await screen.findByRole("textbox", { name: "Step title" })
+  fireEvent.click(within(inspector()).getByRole("tab", { name: "YAML" }))
+  const own = await within(inspector()).findByRole("textbox", { name: "YAML of steps/run" }) as HTMLTextAreaElement
+  fireEvent.change(own, { target: { value: own.value.replace("id: run", "id: r") } })
+  await waitFor(() => expect(address()).toBe("#steps/r"))
+  expect(within(inspector()).getByRole("tab", { name: "YAML" }).getAttribute("aria-selected")).toBe("true")
+  expect(within(inspector()).getByRole("textbox", { name: "YAML of steps/r" })).toBeTruthy()
 })

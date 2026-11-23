@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react"
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react"
 import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Code2, Plus, Trash2 } from "lucide-react"
 import { addInput, inputsOf, itemKey, itemsOf, itemText, moveStep, problemsByItem, removeStep, setField, setItemText, setTrigger, stepsOf, stepYamlPath, triggersOf, parseWorkflow, insertStep, WorkflowDocumentError, type Item, type ItemRef, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
 import { addressOf, sameSelection, type Selection } from "../../lib/workflowAddress"
@@ -39,6 +39,12 @@ export type WorkflowOutlineProps = {
   onCloseSheet?: () => void
   onUndo?: () => void
   onRedo?: () => void
+}
+
+// placeOf is a row's kind and position among the rows of its kind.
+function placeOf(order: Row[], selection: Selection): string {
+  const same = order.filter(row => row.selection.kind === selection.kind)
+  return `${selection.kind}:${same.findIndex(row => sameSelection(selection, row.selection))}`
 }
 
 type Row = { selection: Selection; label: string; detail: string; problem: string | null; problems: number; paused?: boolean }
@@ -101,6 +107,17 @@ function Outline(props: WorkflowOutlineProps) {
   const values = useMemo(() => parseWorkflow(text).values, [text])
   const problems = useMemo(() => problemsByItem(text, diagnostics), [text, diagnostics])
   const [error, setError] = useState("")
+  // An item's YAML that does not read yet, by the row's place (so a rename
+  // keeps it): kept when its tab or row is left, and counted as unsaved.
+  const [heldYaml, setHeldYaml] = useState<Record<string, string>>({})
+  const report = useContext(PendingDrafts)
+  const heldAny = Object.keys(heldYaml).length > 0
+  useEffect(() => { report("outline-held-yaml", heldAny) }, [report, heldAny])
+  useEffect(() => () => report("outline-held-yaml", false), [report])
+  const hold = useCallback((place: string, held: string | null) => setHeldYaml(previous => {
+    if (held === null) { if (!(place in previous)) return previous; const next = { ...previous }; delete next[place]; return next }
+    return previous[place] === held ? previous : { ...previous, [place]: held }
+  }), [])
   const [adding, setAdding] = useState<"step" | "trigger" | null>(null)
   const outline = useRef<HTMLElement>(null)
   const inspector = useRef<HTMLElement>(null)
@@ -110,16 +127,22 @@ function Outline(props: WorkflowOutlineProps) {
 
   // A rename moves a row's address: follow it to the row of its kind in
   // the same place.
-  const last = useRef<{ address: string; place: number } | null>(null)
+  const [last, setLast] = useState<{ address: string; place: number } | null>(null)
   const found = selection ? order.findIndex(row => sameSelection(selection, row.selection)) : -1
+  // Until the address catches up, the renamed row is still the one shown,
+  // so its inspector (and the tab it is on) stays.
+  const following = selection && found < 0 && last?.address === addressOf(selection) ? order.filter(row => row.selection.kind === selection.kind)[last.place] ?? null : null
   useEffect(() => {
-    if (!selection) { last.current = null; return }
+    if (!selection) { setLast(null); return }
     const same = order.filter(row => row.selection.kind === selection.kind)
     const address = addressOf(selection)
-    if (found >= 0) { last.current = { address, place: same.findIndex(row => sameSelection(selection, row.selection)) }; return }
-    const next = last.current?.address === address ? same[last.current.place] : undefined
-    if (next) onSelect(next.selection)
-  }, [selection, found, order, onSelect])
+    if (found >= 0) {
+      const place = same.findIndex(row => sameSelection(selection, row.selection))
+      setLast(previous => previous?.address === address && previous.place === place ? previous : { address, place })
+      return
+    }
+    if (following) onSelect(following.selection)
+  }, [selection, found, order, onSelect, following])
 
   const apply = useCallback((make: () => WorkflowEdit, how?: { typing?: boolean }) => {
     try {
@@ -171,10 +194,8 @@ function Outline(props: WorkflowOutlineProps) {
       if (!next) return
       onSelect(next.selection)
       requestAnimationFrame(() => outline.current?.querySelector<HTMLElement>(`[data-address="${CSS.escape(addressOf(next.selection))}"]`)?.focus())
-    } else if (event.key === "Enter" && at >= 0 && (event.target as HTMLElement).dataset.address === undefined) {
-      event.preventDefault()
-      onSelect(order[at].selection, { open: true })
     }
+    // Enter on a row is the row button's own click, which opens it.
   }
 
   const rowButton = (row: Row) => {
@@ -240,11 +261,11 @@ function Outline(props: WorkflowOutlineProps) {
     {section("About", <ul className="flex flex-col">{rowButton(order[order.length - 1])}</ul>)}
   </nav>
 
-  const selectedRow = found >= 0 ? order[found] : null
+  const selectedRow = found >= 0 ? order[found] : following
   const inspectorView = <section ref={inspector} aria-label="Inspector" className="flex min-w-0 flex-col gap-3">
     {narrow && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={onCloseSheet}><ArrowLeft size={13} />Outline</Button>}
     {selectedRow
-      ? <Inspector key={addressOf(selectedRow.selection)} row={selectedRow} text={text} values={values} diagnostics={diagnostics} problems={problems} options={options} apply={apply} nameFixed={nameFixed} schedule={schedule} onSelect={onSelect} onUndo={onUndo} onRedo={onRedo} />
+      ? <Inspector key={placeOf(order, selectedRow.selection)} place={placeOf(order, selectedRow.selection)} held={heldYaml[placeOf(order, selectedRow.selection)]} onHold={hold} row={selectedRow} text={text} values={values} diagnostics={diagnostics} problems={problems} options={options} apply={apply} nameFixed={nameFixed} schedule={schedule} onSelect={onSelect} onUndo={onUndo} onRedo={onRedo} />
       : <p className="text-sm text-lw-text-2">Choose a row of the outline to edit it.</p>}
   </section>
 
@@ -262,6 +283,10 @@ function Outline(props: WorkflowOutlineProps) {
 }
 
 type InspectorProps = {
+  /** place names the row by its kind and position, which a rename keeps. */
+  place: string
+  held?: string
+  onHold: (place: string, held: string | null) => void
   row: Row
   text: string
   values: WorkflowValues
@@ -280,7 +305,7 @@ type Tab = "setup" | "outputs" | "yaml"
 
 // Inspector edits one row: its header, then its tabs (Setup, Outputs for a
 // step, and YAML). A row the forms can't show has YAML alone.
-function Inspector({ row, text, values, diagnostics, problems, options, apply, nameFixed, schedule, onSelect, onUndo, onRedo }: InspectorProps) {
+function Inspector({ place, held, onHold, row, text, values, diagnostics, problems, options, apply, nameFixed, schedule, onSelect, onUndo, onRedo }: InspectorProps) {
   const selection = row.selection
   const tabs: Tab[] = row.problem ? ["yaml"] : selection.kind === "step" ? ["setup", "outputs", "yaml"] : selection.kind === "about" ? ["setup"] : ["setup", "yaml"]
   const [tab, setTab] = useState<Tab>(tabs[0])
@@ -343,7 +368,7 @@ function Inspector({ row, text, values, diagnostics, problems, options, apply, n
   }
 
   const ref: ItemRef | null = selection.kind === "about" ? null : selection
-  const yamlTab = ref && <ItemYaml key={itemKey(ref)} text={text} item={ref} apply={apply} onUndo={onUndo} onRedo={onRedo} />
+  const yamlTab = ref && <ItemYaml text={text} item={ref} apply={apply} onUndo={onUndo} onRedo={onRedo} held={held} onHold={next => onHold(place, next)} />
 
   return <div className="flex flex-col gap-3">
     <header className="flex flex-col gap-1">
@@ -382,20 +407,22 @@ function RemoveStep({ id, readers, onRemove }: { id: string; readers: string[]; 
 
 // ItemYaml is one item's YAML: what it edits writes over that item alone,
 // once it parses, so a half-typed line never breaks the rest of the file.
-function ItemYaml({ text, item, apply, onUndo, onRedo }: { text: string; item: ItemRef; apply: InspectorProps["apply"]; onUndo?: () => void; onRedo?: () => void }) {
-  const value = itemText(text, item)
-  const [held, setHeld] = useState("")
-  if (value === null) return null
+function ItemYaml({ text, item, apply, onUndo, onRedo, held, onHold }: { text: string; item: ItemRef; apply: InspectorProps["apply"]; onUndo?: () => void; onRedo?: () => void; held?: string; onHold: (held: string | null) => void }) {
+  const written = itemText(text, item)
+  if (written === null) return null
+  const problemOf = (next: string) => next.trim() === "" ? "it is empty" : parseDocument(next).errors[0]?.message.split("\n")[0]
+  const value = held ?? written
+  const problem = held !== undefined ? problemOf(held) : undefined
   const change = (next: string) => {
-    const problem = next.trim() === "" ? "it is empty" : parseDocument(next).errors[0]?.message.split("\n")[0]
-    setHeld(problem ? `Not written to the file yet: ${problem}` : "")
-    if (!problem) apply(() => setItemText(text, item, next), { typing: true })
+    const wrong = problemOf(next)
+    onHold(wrong ? next : null)
+    if (!wrong) apply(() => setItemText(text, item, next), { typing: true })
   }
   return <div className="flex flex-col gap-1">
     <div className="h-72 overflow-hidden rounded-lg border border-lw-line">
       <LazyWorkflowYamlEditor fragment label={`YAML of ${addressOf(item)}`} value={value} onChange={change} onUndo={onUndo} onRedo={onRedo} />
     </div>
-    {held && <p role="status" className="text-xs text-lw-needs">{held}</p>}
+    {problem && <p role="status" className="text-xs text-lw-needs">Not written to the file yet: {problem}</p>}
   </div>
 }
 

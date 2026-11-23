@@ -249,16 +249,19 @@ describe("inputs and triggers", () => {
 })
 
 describe("files the builder leaves alone", () => {
-  it("refuses anchors, aliases and merge keys", () => {
-    for (const text of [
-      commented.replace("inputs:\n", "inputs: &inputs\n"),
-      commented + "extra: *inputs\n",
-      "schema_version: 1\nname: m\ntitle: M\nbase: &b {prompt: hi}\nsteps:\n  - id: a\n    title: A\n    type: agent.run\n    with:\n      <<: *b\n",
-    ]) {
-      const parsed = parseWorkflow(text)
-      expect(parsed.readOnly).toBeTruthy()
-      expect(() => setField(text, ["title"], "x")).toThrow(WorkflowDocumentError)
-    }
+  it("refuses an edit of an item with an anchor, alias or merge key, and only of that item", () => {
+    const anchoredInputs = commented.replace("inputs:\n", "inputs: &inputs\n")
+    const merged = "schema_version: 1\nname: m\ntitle: M\nbase: &b {prompt: hi}\nsteps:\n  - id: a\n    title: A\n    type: agent.run\n    with:\n      <<: *b\n"
+    for (const text of [anchoredInputs, merged]) expect(parseWorkflow(text).readOnly).toBeTruthy()
+    expect(() => setField(anchoredInputs, ["inputs", "note", "type"], "integer")).toThrow(/anchor/)
+    expect(() => removeInput(anchoredInputs, "note")).toThrow(/anchor/)
+    expect(setField(anchoredInputs, ["title"], "x").text).toBe(anchoredInputs.replace("title: Commented", "title: x"))
+    expect(() => setField(merged, ["steps", 0, "title"], "B")).toThrow(/merge key/)
+    expect(() => moveStep(merged, "a", 0)).toThrow(/merge key/)
+    expect(setField(merged, ["title"], "N").text).toBe(merged.replace("title: M", "title: N"))
+    expect(() => setField(merged, ["base", "prompt"], "x")).toThrow(/anchor/)
+    // An alias to nothing does not read at all.
+    expect(() => setField(commented + "extra: *inputs\n", ["title"], "x")).toThrow(WorkflowDocumentError)
   })
 
   it("refuses YAML that does not parse", () => {

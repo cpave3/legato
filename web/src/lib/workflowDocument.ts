@@ -233,11 +233,39 @@ function edit(label: string, before: string, after: string): WorkflowEdit {
   return { text: after, undo: { label, before, after } }
 }
 
-function writable(text: string): Document {
-  const parsed = parseWorkflow(text)
-  if (parsed.errors.length > 0) throw new WorkflowDocumentError(`the YAML does not parse: ${parsed.errors[0]}`)
-  if (parsed.readOnly) throw new WorkflowDocumentError(parsed.readOnly)
-  return parse(text)
+// writable is the document an operation edits. An anchor, alias or merge
+// key refuses the edit only when it is in the item the edit touches (the
+// scope's input, trigger, top-level field or top-level step, or the flow
+// collection rewritten around it), so the rest of the file stays editable
+// (LEG-503's per-item rule).
+function writable(text: string, ...scopes: YamlPath[]): Document {
+  const doc = parse(text)
+  if (doc.errors.length > 0) throw new WorkflowDocumentError(`the YAML does not parse: ${doc.errors[0].message.split("\n")[0]}`)
+  try { doc.toJS({ maxAliasCount: 50 }) } catch (error) { throw new WorkflowDocumentError(error instanceof Error ? error.message : String(error)) }
+  for (const scope of scopes) guard(doc, scope)
+  return doc
+}
+
+// itemRoot is the item a path is in: an input, a trigger, a top-level step,
+// or a top-level field; the container itself when the path stops there.
+function itemRoot(path: YamlPath): YamlPath {
+  if ((path[0] === "inputs" || path[0] === "on" || path[0] === "steps") && path.length >= 2) return path.slice(0, 2)
+  return path.slice(0, 1)
+}
+
+function guard(doc: Document, path: YamlPath) {
+  const root = itemRoot(path)
+  const flow = flowAncestor(doc, path)
+  const scope = flow && flow.length < root.length ? flow : root
+  // An anchor on a container the edit is inside: its aliases would change.
+  for (let i = 0; i < scope.length; i++) {
+    const above = i === 0 ? doc.contents : locate(doc, scope.slice(0, i))?.node
+    if ((above as { anchor?: string } | null | undefined)?.anchor) throw new WorkflowDocumentError("it uses a YAML anchor: edit it as YAML")
+  }
+  const found = scope.length === 0 ? { node: doc.contents as YamlNode, pair: undefined } : locate(doc, scope)
+  if (!found) return
+  const problem = yamlProblem(found.node, false) ?? (found.pair ? yamlProblem(found.pair.key, false) : null)
+  if (problem) throw new WorkflowDocumentError(problem)
 }
 
 // replaceValue writes value over the node at path, which exists.
@@ -386,7 +414,7 @@ function removePair(text: string, doc: Document, path: YamlPath): string {
 /** setField sets the value at path, making the maps on the way; undefined
  * removes it. Only that value's text changes. */
 export function setField(text: string, path: YamlPath, value: unknown, label = `Set ${path.join(".")}`): WorkflowEdit {
-  const doc = writable(text)
+  const doc = writable(text, path)
   const values = doc.toJS()
   if (value === undefined) return edit(label, text, valueAt(values, path) === undefined ? text : removePair(text, doc, path))
   if (JSON.stringify(valueAt(values, path)) === JSON.stringify(value)) return edit(label, text, text)
@@ -448,6 +476,7 @@ const withNewline = (text: string) => text.endsWith("\n") ? text : text + "\n"
 /** insertStep puts a step at index at (the end when past it). */
 export function insertStep(text: string, at: number, step: Record<string, unknown>): WorkflowEdit {
   let doc = writable(text)
+  if (stepsSeq(doc)?.flow || !stepsSeq(doc)) guard(doc, ["steps"])
   let working = text
   const steps = stepsOf(doc.toJS() as WorkflowValues)
   if (steps.length === 0) {
@@ -470,6 +499,7 @@ export function insertStep(text: string, at: number, step: Record<string, unknow
 export function removeStep(text: string, id: string): WorkflowEdit {
   let doc = writable(text)
   const index = stepIndex(doc, id)
+  guard(doc, stepsSeq(doc)?.flow ? ["steps"] : ["steps", index])
   let working = text
   ;({ text: working, doc } = blockSteps(working, doc))
   const seq = stepsSeq(doc)!
@@ -489,6 +519,7 @@ export function removeStep(text: string, id: string): WorkflowEdit {
 export function moveStep(text: string, id: string, to: number): WorkflowEdit {
   let doc = writable(text)
   const from = stepIndex(doc, id)
+  guard(doc, stepsSeq(doc)?.flow ? ["steps"] : ["steps", from])
   let working = text
   ;({ text: working, doc } = blockSteps(working, doc))
   const spans = stepSpans(working, stepsSeq(doc)!)
@@ -522,6 +553,7 @@ const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\
 export function renameStep(text: string, id: string, newId: string): WorkflowEdit {
   const doc = writable(text)
   const index = stepIndex(doc, id)
+  guard(doc, ["steps", index])
   if (stepsOf(doc.toJS() as WorkflowValues).some(step => step?.id === newId)) throw new WorkflowDocumentError(`a step ${newId} exists`)
   const renamed = setField(text, ["steps", index, "id"], newId).text
   const rewritten = rewriteExpressions(renamed, new RegExp(`(\\bsteps\\.)${escapeRegExp(id)}(?=\\.outputs\\b)`, "g"), `$1${newId}`)
@@ -535,7 +567,7 @@ export function renameStep(text: string, id: string, newId: string): WorkflowEdi
 export function setTrigger(text: string, kind: string, spec: Record<string, unknown> | null): WorkflowEdit {
   const label = spec ? `Set the ${kind} trigger` : `Remove the ${kind} trigger`
   if (spec) return { ...setField(text, ["on", kind], spec), undo: { label, before: text, after: setField(text, ["on", kind], spec).text } }
-  const doc = writable(text)
+  const doc = writable(text, ["on", kind])
   const triggers = Object.keys(triggersOf(doc.toJS() as WorkflowValues))
   if (!triggers.includes(kind)) return edit(label, text, text)
   const after = triggers.length === 1 ? removePair(text, doc, ["on"]) : removePair(text, doc, ["on", kind])
@@ -549,7 +581,7 @@ export function addInput(text: string, name: string, spec: Record<string, unknow
 }
 
 export function removeInput(text: string, name: string): WorkflowEdit {
-  const doc = writable(text)
+  const doc = writable(text, ["inputs", name])
   const inputs = Object.keys(inputsOf(doc.toJS() as WorkflowValues))
   if (!inputs.includes(name)) return edit(`Remove input ${name}`, text, text)
   return edit(`Remove input ${name}`, text, inputs.length === 1 ? removePair(text, doc, ["inputs"]) : removePair(text, doc, ["inputs", name]))
@@ -566,7 +598,7 @@ function renameKey(text: string, doc: Document, path: YamlPath, key: string): st
 /** renameInput gives an input a new name, with every
  * workflow.inputs.<name> reference and the triggers' mappings of it. */
 export function renameInput(text: string, name: string, newName: string): WorkflowEdit {
-  let doc = writable(text)
+  let doc = writable(text, ["inputs", name])
   const values = doc.toJS() as WorkflowValues
   if (!inputsOf(values)[name]) throw new WorkflowDocumentError(`no input ${name}`)
   if (inputsOf(values)[newName]) throw new WorkflowDocumentError(`an input ${newName} exists`)
