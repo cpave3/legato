@@ -145,10 +145,14 @@ jobs:
         with:
           ref: ${{ needs.release.outputs.version }}
 
+      # GStreamer's plugins go into the AppImage (bundleMediaFramework):
+      # without them WebKitGTK froze for good on a page with a <video>
+      # (LEG-162). good: MP4, WebM, VP8/9; libav: H.264, AAC.
       - name: System libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libudev-dev libssl-dev patchelf file
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libudev-dev libssl-dev patchelf file \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-gl gstreamer1.0-libav
 
       - uses: pnpm/action-setup@v4
         with:
@@ -175,6 +179,7 @@ jobs:
         run: |
           pnpm exec tsc -b
           pnpm exec vite build
+          node --test "tests/*.test.ts"
           (cd src-tauri && cargo test --lib)
 
       - name: Build
@@ -182,6 +187,10 @@ jobs:
         env:
           LEGATO_DESKTOP_VERSION: ${{ needs.release.outputs.version }}
         run: pnpm tauri build --bundles appimage --config "{\"version\":\"${VERSION#v}\"}"
+
+      - name: Check the AppImage carries GStreamer's plugins
+        working-directory: desktop
+        run: sh scripts/appimage-media-check.sh src-tauri/target/release/bundle/appimage/*.AppImage
 
       - name: Name it
         run: |
