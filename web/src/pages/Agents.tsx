@@ -20,7 +20,7 @@ import { StartSwarmModal } from "../components/StartSwarmModal"
 import { SpawnEphemeralModal } from "../components/SpawnEphemeralModal"
 import { SwarmEventLog } from "../components/SwarmEventLog"
 import { SwarmCommandCenter } from "../components/SwarmCommandCenter"
-import { AgentEnsemble, type AgentEnsembleProps } from "../components/AgentEnsemble"
+import { AgentEnsemble, type AgentEnsembleProps, type EnsembleLayout } from "../components/AgentEnsemble"
 import { useApprovals } from "../hooks/useApprovals"
 import { FocusNotice } from "../components/FocusNotice"
 import { useClaimFocusNotice } from "../hooks/useFocusNotice"
@@ -121,13 +121,20 @@ export function AgentsPage() {
   const linkedTask = searchParams.get("task")
   const workflowRun = searchParams.get("workflow")
   // The ensemble shows every agent at once, in place of the list and the one
-  // agent in view. It is part of the address, so Back returns to it.
-  const ensemble = searchParams.get("view") === "ensemble"
+  // agent in view. It is part of the address, so Back returns to it; its
+  // graph has an address of its own (?view=graph), to link to.
+  const view = searchParams.get("view")
+  const ensemble = view === "ensemble" || view === "graph"
   const showEnsemble = useCallback((show: boolean) => {
     const next = new URLSearchParams(searchParams)
     if (show) next.set("view", "ensemble")
     else next.delete("view")
     setSearchParams(next)
+  }, [searchParams, setSearchParams])
+  const followLayout = useCallback((layout: EnsembleLayout) => {
+    const next = new URLSearchParams(searchParams)
+    next.set("view", layout === "graph" ? "graph" : "ensemble")
+    setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams])
   const [promptState, setPromptState] = useState<PromptState | null>(null)
   const [glitching, setGlitching] = useState(false)
@@ -814,6 +821,10 @@ export function AgentsPage() {
           }}
           onSpawn={handleSpawn}
           onShowList={() => showEnsemble(false)}
+          layout={view === "graph" ? "graph" : undefined}
+          onLayout={followLayout}
+          stageFilter={stageFilter.stage}
+          onStageFilter={stageFilter.setStage}
           contexts={contexts}
           onSend={(taskId, content) => {
             // As the agent's own message box does: a native agent at work

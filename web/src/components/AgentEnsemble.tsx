@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { Loader2 } from "lucide-react"
 import type { AgentInfo } from "../hooks/useWebSocket"
 import type { AgentContext } from "../hooks/useAgentContexts"
@@ -16,6 +16,7 @@ import {
 } from "../lib/agentGlance"
 import { agentToolLabel } from "../lib/agentKind"
 import { formatAgentTime, stateSeconds } from "../lib/agentList"
+import { AgentGraphView } from "./AgentGraphView"
 import { glanceSection, needsYouReason, stageLabel, unreadDone, workStages, type GlanceSection, type WorkStage } from "../lib/agentStage"
 import type { Approval, ApprovalDecision } from "../lib/approvals"
 import { showApproval } from "../lib/railState"
@@ -39,6 +40,13 @@ export interface AgentEnsembleProps {
   onDecide?: (approval: Approval, decision: ApprovalDecision) => void
   // The "Focus is on" pill, shown in the header beside the layout switch.
   focusNotice?: ReactNode
+  // The layout the address names (?view=graph), over the one remembered,
+  // and what is told of a layout chosen, so the address can follow.
+  layout?: EnsembleLayout
+  onLayout?: (layout: EnsembleLayout) => void
+  // The agents list's stage filter, which the graph follows.
+  stageFilter?: WorkStage | null
+  onStageFilter?: (stage: WorkStage | null) => void
 }
 
 // The header's counts, by glance group. The Reeve is left out of every
@@ -53,11 +61,12 @@ const counts: Array<{ section: GlanceSection; count: (n: number) => string; glyp
 // Where the viewer's choice of layout is kept on this device.
 export const ENSEMBLE_LAYOUT_KEY = "legato.ensemble.layout"
 
-type EnsembleLayout = "tiles" | "stage"
+export type EnsembleLayout = "tiles" | "stage" | "graph"
 
 function rememberedLayout(): EnsembleLayout {
   try {
-    return localStorage.getItem(ENSEMBLE_LAYOUT_KEY) === "stage" ? "stage" : "tiles"
+    const kept = localStorage.getItem(ENSEMBLE_LAYOUT_KEY)
+    return kept === "stage" || kept === "graph" ? kept : "tiles"
   } catch {
     return "tiles"
   }
@@ -83,15 +92,17 @@ function stateOf(agent: AgentInfo): { label: string; glyph: string; chip: string
 
 // AgentEnsemble shows every running agent at once: a tile for each with what
 // it is at, the agents that need the person first, or by stage in bands.
-export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowList, onSend, approvals = [], onDecide, focusNotice }: AgentEnsembleProps) {
+export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowList, onSend, approvals = [], onDecide, focusNotice, layout: asked, onLayout, stageFilter, onStageFilter }: AgentEnsembleProps) {
   const ordered = orderForEnsemble(agents)
   // Below lg, By stage stacks its bands and leaves out empty stages.
   const phone = useMediaQuery("(max-width: 1023px)")
   const counted = agents.filter((agent) => !agent.reeve)
-  const [layout, setLayoutState] = useState<EnsembleLayout>(rememberedLayout)
+  const [layout, setLayoutState] = useState<EnsembleLayout>(() => asked ?? rememberedLayout())
+  useEffect(() => { if (asked) setLayoutState(asked) }, [asked])
   const setLayout = (next: EnsembleLayout) => {
     setLayoutState(next)
     try { localStorage.setItem(ENSEMBLE_LAYOUT_KEY, next) } catch { /* not remembered */ }
+    onLayout?.(next)
   }
   const segment = (on: boolean) => cn("h-[26px] rounded px-2.5 text-xs", on ? "bg-lw-selected text-lw-text" : "text-lw-text-2 hover:text-lw-text")
 
@@ -112,6 +123,7 @@ export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowLi
           <div role="group" aria-label="Layout" className="flex rounded-md border border-lw-line bg-lw-surface p-0.5">
             <button type="button" aria-pressed={layout === "tiles"} onClick={() => setLayout("tiles")} className={segment(layout === "tiles")}>Tiles</button>
             <button type="button" aria-pressed={layout === "stage"} onClick={() => setLayout("stage")} className={segment(layout === "stage")}>By stage</button>
+            <button type="button" aria-pressed={layout === "graph"} onClick={() => setLayout("graph")} className={segment(layout === "graph")}>Graph</button>
             <button type="button" aria-pressed="false" onClick={onShowList} className={segment(false)}>List</button>
           </div>
           <button
@@ -125,7 +137,9 @@ export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowLi
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-4">
+      {layout === "graph" && ordered.length > 0
+        ? <AgentGraphView agents={agents} onOpen={onOpen} onSend={onSend} stageFilter={stageFilter} onStageFilter={onStageFilter} />
+        : <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-4">
         {ordered.length === 0
           ? <p className="py-12 text-center text-lw-faint">No agents are running.</p>
           : layout === "stage"
@@ -145,7 +159,7 @@ export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowLi
               ))}
             </div>
           )}
-      </div>
+      </div>}
     </section>
   )
 }
