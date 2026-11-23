@@ -120,6 +120,7 @@ func Check(source string, data []byte) (*Definition, []Diagnostic) {
 	if failed {
 		return nil, diagnostics
 	}
+	diagnostics = append(diagnostics, outputlessAgentSteps(&root, &definition)...)
 	return &definition, diagnostics
 }
 
@@ -140,6 +141,26 @@ func unknownWithKeys(root *yaml.Node, definition *Definition) []Diagnostic {
 			d.Severity = SeverityWarning
 			diagnostics = append(diagnostics, d)
 		}
+	}
+	return diagnostics
+}
+
+// outputlessAgentSteps warns of each agent.run step that declares no
+// outputs and does not keep its agent: what the agent finds is lost when the
+// step completes and Legato removes the agent (LEG-532).
+func outputlessAgentSteps(root *yaml.Node, definition *Definition) []Diagnostic {
+	var diagnostics []Diagnostic
+	for i, step := range definition.Steps {
+		if step.Type != "agent.run" || len(step.Outputs) > 0 {
+			continue
+		}
+		// keep_agent given as an expression may be true: no warning.
+		if keep, ok := step.With["keep_agent"]; ok && keep != false {
+			continue
+		}
+		d := diagnosticAt(root, fmt.Sprintf("steps[%d].type", i), fmt.Sprintf("step %q: agent.run declares no outputs, so anything its agent finds is lost when the step completes and the agent is removed; declare an output for its result, or set keep_agent: true", step.ID))
+		d.Severity = SeverityWarning
+		diagnostics = append(diagnostics, d)
 	}
 	return diagnostics
 }

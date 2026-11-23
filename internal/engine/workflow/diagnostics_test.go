@@ -154,6 +154,7 @@ func TestCheckAcceptsAValidFile(t *testing.T) {
     title: A
     type: agent.run
     with: {prompt: hi}
+    outputs: {summary: {type: string}}
 `))
 	if definition == nil || len(diagnostics) != 0 {
 		t.Fatalf("Check = %v, %+v", definition, diagnostics)
@@ -198,11 +199,59 @@ func TestCheckWarnsOfAnUnknownWithKey(t *testing.T) {
     with:
       prompt: hi
       promt: hi
+    outputs: {summary: {type: string}}
 `))
 	if definition == nil {
 		t.Fatal("a warning stopped the file loading")
 	}
 	if len(diagnostics) != 1 || diagnostics[0].Severity != workflow.SeverityWarning || diagnostics[0].Path != "steps[0].with.promt" || diagnostics[0].Line != 12 {
 		t.Fatalf("diagnostics = %+v", diagnostics)
+	}
+}
+
+// An agent.run step with no outputs loses what its agent found when the
+// step completes and the agent is removed (LEG-532): a warning, so the file
+// still loads, unless keep_agent keeps the agent.
+func TestCheckWarnsOfAnAgentRunStepWithNoOutputs(t *testing.T) {
+	cases := map[string]struct {
+		step string
+		warn bool
+	}{
+		"no outputs": {step: `
+    with:
+      prompt: hi
+`, warn: true},
+		"outputs declared": {step: `
+    with:
+      prompt: hi
+    outputs:
+      digest: {type: string}
+`},
+		"keep_agent": {step: `
+    with:
+      prompt: hi
+      keep_agent: true
+`},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			definition, diagnostics := workflow.Check("check.yaml", []byte(checkBase+`steps:
+  - id: digest
+    title: Digest
+    type: agent.run`+c.step))
+			if definition == nil {
+				t.Fatalf("the file did not load: %+v", diagnostics)
+			}
+			if !c.warn {
+				if len(diagnostics) != 0 {
+					t.Fatalf("diagnostics = %+v", diagnostics)
+				}
+				return
+			}
+			if len(diagnostics) != 1 || diagnostics[0].Severity != workflow.SeverityWarning || diagnostics[0].Path != "steps[0].type" ||
+				!strings.Contains(diagnostics[0].Message, "declares no outputs") || !strings.Contains(diagnostics[0].Message, "keep_agent") {
+				t.Fatalf("diagnostics = %+v", diagnostics)
+			}
+		})
 	}
 }

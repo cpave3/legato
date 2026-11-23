@@ -25,6 +25,7 @@ steps:
     title: Run
     type: agent.run   # the reviewer
     with: {prompt: review}
+    outputs: {verdict: {type: string}}
 `
 
 type filesFixture struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -202,18 +203,35 @@ func (e *AgentRunExecutor) Prompt(ctx context.Context, attempt store.WorkflowSte
 }
 
 func buildWorkflowAssignment(prompt string, step ResolvedWorkflowStep, binaryPath string) string {
-	var outputs []string
-	for key, output := range step.Outputs {
-		outputs = append(outputs, fmt.Sprintf("- %s (%s)", key, output.Type))
+	keys := make([]string, 0, len(step.Outputs))
+	for key := range step.Outputs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	outputs := make([]string, 0, len(keys))
+	for _, key := range keys {
+		outputs = append(outputs, fmt.Sprintf("- %s (%s)", key, step.Outputs[key].Type))
 	}
 	encoded, _ := json.Marshal(outputs)
 	command := "legato"
 	if binaryPath != "" {
 		command = shellWorkflowCommand(binaryPath)
 	}
+	// Where the result must go (LEG-532): the conversation goes with the
+	// agent, which Legato removes once the step completes.
+	keep, _ := step.With["keep_agent"].(bool)
+	var kept string
+	switch {
+	case keep:
+		kept = "This agent stays running after the step completes, so the operator can go on talking to you; still put the step's result in its declared outputs, which are what later steps and the run keep.\n"
+	case len(outputs) == 0:
+		kept = "This step declares no outputs, and nothing you write in this conversation is kept: when you complete the step, Legato removes this agent and its conversation. Do not report a result as delivered in chat. If the work has a result someone needs, it must go somewhere lasting that the prompt names; if there is none, say so with `" + command + " workflow step fail \"reason\"`.\n"
+	default:
+		kept = "What you write in this conversation is not kept: when you complete the step, Legato removes this agent and its conversation. Put the step's whole result in its declared outputs.\n"
+	}
 	return prompt + "\n\n## Workflow completion contract\n" +
 		"Workflow task ID: " + step.TaskID + "\nRun ID: " + step.RunID + "\nStep ID: " + step.StepID + "\nAttempt ID: " + step.AttemptID + "\n" +
-		"Declared outputs: " + string(encoded) + "\n" +
+		"Declared outputs: " + string(encoded) + "\n" + kept +
 		"When all outputs are ready, run `" + command + " workflow step complete` with the output/artifact flags. On unrecoverable failure run `" + command + " workflow step fail \"reason\"`."
 }
 

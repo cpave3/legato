@@ -64,6 +64,9 @@ type WorkflowRun struct {
 	CompletedAt     *string `db:"completed_at" json:"completed_at,omitempty"`
 	NeedsAttention  bool    `db:"-" json:"needs_attention,omitempty"`
 	AttentionReason string  `db:"-" json:"attention_reason,omitempty"`
+	// OutputWarning says, quietly, that an agent step of the run finished
+	// with no output (LEG-532); the service fills it.
+	OutputWarning string `db:"-" json:"output_warning,omitempty"`
 	// Steps is filled by ListWorkflowRuns with WithSteps only (the runs list
 	// of the API): each step's place and state, so a list of runs can say how
 	// far each one is.
@@ -109,6 +112,9 @@ type WorkflowStep struct {
 	ChildRunID         string  `db:"child_run_id" json:"child_run_id,omitempty"`
 	StartedAt          *string `db:"started_at" json:"started_at,omitempty"`
 	CompletedAt        *string `db:"completed_at" json:"completed_at,omitempty"`
+	// OutputWarning says that this agent step finished with no output and
+	// what became of its agent (LEG-532); the service fills it.
+	OutputWarning string `db:"-" json:"output_warning,omitempty"`
 }
 
 type WorkflowStepAttempt struct {
@@ -668,6 +674,26 @@ func (s *Store) ListWorkflowRuns(ctx context.Context, filter WorkflowRunFilter) 
 		}
 	}
 	return runs, nil
+}
+
+// ListSucceededAgentStepsWithoutArtifacts returns the agent.run and
+// agent.dispatch steps of runIDs that succeeded and kept no artifact, for
+// the caller to check their outputs (LEG-532).
+func (s *Store) ListSucceededAgentStepsWithoutArtifacts(ctx context.Context, runIDs []string) ([]WorkflowStep, error) {
+	if len(runIDs) == 0 {
+		return nil, nil
+	}
+	query, args, err := sqlx.In(`SELECT run_id, path, step_id, title, executor_type, resolved_json, outputs_json, status
+		FROM workflow_steps s
+		WHERE run_id IN (?) AND status = 'succeeded' AND executor_type IN ('agent.run', 'agent.dispatch')
+			AND NOT EXISTS (SELECT 1 FROM workflow_artifacts a WHERE a.run_id = s.run_id AND a.path = s.path)
+		ORDER BY run_id, step_order, path`, runIDs)
+	if err != nil {
+		return nil, err
+	}
+	var steps []WorkflowStep
+	err = s.db.SelectContext(ctx, &steps, s.db.Rebind(query), args...)
+	return steps, err
 }
 
 func (s *Store) attachStepSummaries(ctx context.Context, runs []WorkflowRun) error {

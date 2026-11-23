@@ -43,6 +43,16 @@ describe("WorkflowRunPage", () => {
     expect(screen.queryByRole("alert")).toBeNull()
   })
 
+  it("warns when an agent step finished with no output (LEG-532)", () => {
+    const warning = "This step finished with no output. Anything its agent wrote in chat is gone: the agent was removed."
+    show({ run: { ...run, status: "succeeded", output_warning: "“Write the digest” finished with no output" }, steps: [stepRun("digest", 0, "Write the digest", "agent.run", "succeeded", { output_warning: warning })], attempts: [], artifacts: [] })
+    expect(within(now()).getByText("No output")).toBeTruthy()
+    expect(now().textContent).toContain(warning)
+    const row = within(screen.getByRole("list", { name: "Steps" })).getByRole("button", { name: /Write the digest/ })
+    expect(row.getAttribute("aria-expanded")).toBe("true")
+    expect(screen.getAllByText(warning).length).toBe(2)
+  })
+
   it("says what the run is for, its state and the step it is on", () => {
     show({ run: { ...run, status: "running", current_step_id: "plan", inputs_json: JSON.stringify({ task: { id: "jgek1vt3", title: "Sync retries hammer Jira", metadata: {} } }) }, steps: [stepRun("read", 0, "Read the task", "task.context", "succeeded"), stepRun("plan", 1, "Write the plan", "agent.run", "waiting_agent"), stepRun("note", 2, "Attach the plan", "task.note", "pending")], attempts: [agentAttempt({ agent_activity: "working" })], artifacts: [] })
     expect(screen.getByRole("heading", { level: 1, name: "Plan jgek1vt3" })).toBeTruthy()

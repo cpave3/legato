@@ -127,6 +127,7 @@ A run's page says the same at the top, and under it what you can do now:
 - a step that waits for the agent to end: **Open agent**, and **End now** to run the step without waiting
 - a failed step: its error and **Retry step**
 - a finished run: the files it produced, with **Preview** and **Download**, and the values its agents reported
+- a finished run whose agent step finished with no output: **No output**, and what became of the agent. An agent step's conversation is not kept: when the step completes, Legato removes its agent, and anything it wrote in chat goes with it, unless `keep_agent` kept it. The run's row in **Runs** says so quietly too, after how long it took, and `legato workflow show` gives it as `output_warning` on the step and the run.
 
 Above the graph, **Needs you** gathers everything the run waits on you for, drawn as in the [needs-you rail](/legato/using/attention/), each with its action:
 
@@ -576,6 +577,8 @@ LEGATO_WORKFLOW_ATTEMPT_ID
 ```
 
 `LEGATO_TASK_ID` is the generated workflow execution task ID and is also printed in the assignment completion contract.
+
+The step's brief ends with a completion contract: the run, step and attempt, the outputs the step declares, and where its result must go. What the agent writes in its conversation is not kept once Legato removes it, so the result belongs in the declared outputs. When a step declares no outputs, the contract says that nothing it writes in the conversation is kept, so that it does not report a result as "delivered in chat". `legato workflow validate` and the editor warn of an `agent.run` step that declares no outputs and has no `keep_agent`. It is a warning, not an error: a step whose work is its side effects (a commit, a note, a moved card) needs no output.
 
 Complete a step using declared output names:
 
