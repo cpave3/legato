@@ -8,6 +8,8 @@ import type { SandboxSwitch } from "../lib/agentReload"
 import { useWebSocket, type PromptState, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
+import { useMacroPicker } from "../hooks/useMacroPicker"
+import { MacroPickerItems } from "./MacroPicker"
 import { macroMessage } from "../lib/macros"
 import { useAgentReselected } from "../hooks/useAgentSelection"
 import { apiFetch } from "../lib/api"
@@ -326,7 +328,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const [modes, setModes] = useState<ModeInfo[]>([])
   const [modesOpen, setModesOpen] = useState(false)
   const [models, setModels] = useState<ModelInfo[]>([])
-  const [macros, setMacros] = useState<{ name: string; keys: string }[]>([])
+  const [macros, setMacros] = useState<{ name: string; keys: string; favorite?: boolean }[]>([])
   const [macrosOpen, setMacrosOpen] = useState(false)
   const modesRef = useRef<HTMLDivElement>(null)
   const macrosRef = useRef<HTMLDivElement>(null)
@@ -518,7 +520,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   useEffect(() => {
     apiFetch(baseUrl, "/api/macros")
       .then((r) => r.ok ? r.json() : { macros: [] })
-      .then((data: { macros?: { name: string; keys: string }[] }) => {
+      .then((data: { macros?: { name: string; keys: string; favorite?: boolean }[] }) => {
         setMacros(Array.isArray(data.macros) ? data.macros : [])
       })
       .catch(() => setMacros([]))
@@ -1011,7 +1013,8 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
 
   const openMacros = useCallback(() => setMacrosOpen(true), [])
   const closeMacros = useCallback(() => setMacrosOpen(false), [])
-  useMacroHotkeys({ macros, open: macrosOpen, onOpen: openMacros, onClose: closeMacros, onSelect: handleMacro })
+  const macroPicker = useMacroPicker(macros, macrosOpen)
+  useMacroHotkeys({ macros: macroPicker.shown, open: macrosOpen, onOpen: openMacros, onClose: closeMacros, onSelect: handleMacro })
 
   if (loading) {
     return (
@@ -1393,25 +1396,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
               </button>
               {macrosOpen && (
                 <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[180px] max-w-[calc(100vw-2rem)] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
-                  {macros.length === 0 ? (
-                    <div className="px-3 py-1.5 text-xs text-lw-text-2">(no macros configured)</div>
-                  ) : (
-                    macros.map((macro, index) => {
-                      const shortcut = index < 9 ? String(index + 1) : undefined
-                      return (
-                        <button
-                          key={macro.name}
-                          onClick={() => handleMacro(macro.keys)}
-                          aria-keyshortcuts={shortcut}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-lw-text transition-colors hover:bg-lw-raised"
-                        >
-                          {shortcut && <kbd className="w-4 rounded border border-lw-line-strong text-center font-mono text-[10px] text-lw-text-2">{shortcut}</kbd>}
-                          <Zap size={12} />
-                          {macro.name}
-                        </button>
-                      )
-                    })
-                  )}
+                  <MacroPickerItems shown={macroPicker.shown} hidden={macroPicker.hidden} onShowAll={macroPicker.showAll} onPick={handleMacro} />
                 </div>
               )}
             </div>

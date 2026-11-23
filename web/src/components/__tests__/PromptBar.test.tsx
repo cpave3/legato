@@ -570,3 +570,49 @@ it("keeps the message in the box when it was not sent", async () => {
   expect(onSubmitMessage).toHaveBeenCalledWith("also update the docs")
   expect(box.value).toBe("also update the docs")
 })
+
+it("lists the favourite macros, numbered, and the rest behind Show all", async () => {
+  mockFetch.mockResolvedValue({
+    ok: true,
+    json: async () => ({ macros: [
+      { name: "Plan", keys: "plan it", favorite: true },
+      { name: "Ticket to PR", keys: "ship it" },
+      { name: "Tests", keys: "run the tests", favorite: true },
+    ] }),
+  })
+  const onSubmitMessage = vi.fn()
+  render(<PromptBar
+    promptState={null}
+    onSendKeys={vi.fn()}
+    onSubmitMessage={onSubmitMessage}
+    onDismissPrompt={vi.fn()}
+    onDetectPrompt={vi.fn()}
+    onDisconnect={vi.fn()}
+    onKill={vi.fn()}
+    onRefresh={vi.fn()}
+    onTogglePromptDetection={vi.fn()}
+    promptDetectionEnabled
+    agentId="agent-1"
+  />)
+  screen.getByPlaceholderText("Type a message...").blur()
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("/api/macros", expect.any(Object)))
+
+  fireEvent.keyDown(window, { key: "m" })
+  expect(screen.getByRole("button", { name: /1.*plan/i })).toBeTruthy()
+  expect(screen.getByRole("button", { name: /2.*tests/i })).toBeTruthy()
+  expect(screen.queryByRole("button", { name: /ticket to pr/i })).toBeNull()
+  fireEvent.keyDown(window, { key: "2" })
+  expect(onSubmitMessage).toHaveBeenCalledWith("run the tests")
+  onSubmitMessage.mockClear()
+
+  fireEvent.keyDown(window, { key: "m" })
+  fireEvent.click(screen.getByRole("button", { name: "Show all (1 more)" }))
+  expect(screen.queryByRole("button", { name: /show all/i })).toBeNull()
+  fireEvent.keyDown(window, { key: "3" })
+  expect(onSubmitMessage).toHaveBeenCalledWith("ship it")
+
+  // Show all lasts only while the menu is open.
+  fireEvent.keyDown(window, { key: "m" })
+  expect(screen.queryByRole("button", { name: /ticket to pr/i })).toBeNull()
+  expect(screen.getByRole("button", { name: "Show all (1 more)" })).toBeTruthy()
+})

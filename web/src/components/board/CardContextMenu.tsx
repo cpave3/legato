@@ -4,7 +4,7 @@ import { useRef, useState, useSyncExternalStore, type ReactNode, type RefObject 
 import { ChevronRight, ExternalLink, Move, Play, Repeat, Send, Trash2, Undo2, Workflow } from "lucide-react"
 import type { BoardCard, PRMetaView } from "../../lib/board-types"
 import type { CardWorkflowOption } from "../../lib/card-workflows"
-import { macroAgentLine, type Macro } from "../../lib/macros"
+import { macroAgentLine, splitFavorites, type Macro } from "../../lib/macros"
 import { agentKindLabel } from "../../lib/agentKind"
 import { LoadingState } from "../ui/LoadingState"
 import { providerLabel } from "../../lib/providers"
@@ -59,6 +59,7 @@ export function CardContextMenu({
   onMacro,
   prMacros = [],
   onPRMacro,
+  anyFavorite: starred = false,
   onManageMacros,
   onAction,
   onWorkflow,
@@ -87,6 +88,9 @@ export function CardContextMenu({
   // item each opens them, and a pick starts the macro on that PR.
   prMacros?: PRMacroChoice[]
   onPRMacro?: (pr: PRMetaView, macro: Macro) => void
+  // Whether any macro is starred: then each list shows its favourites, and
+  // the rest after Show all. With none starred every macro is listed.
+  anyFavorite?: boolean
   // Opens the Macros page.
   onManageMacros?: () => void
   onAction: (action: CardContextAction) => void
@@ -103,6 +107,14 @@ export function CardContextMenu({
   const closeFlyout = () => { setFlyout(null); flyoutTriggerRef.current?.focus() }
   const { restoreFocus } = useMenuLayer({ open: true, onClose, containerRef: menuRef, outsideRef: root, position })
   const pick = (run: () => void) => { restoreFocus(); onClose(); run() }
+  // The lists Show all was pressed in: "task", or a pull request's flyout.
+  const [shownAll, setShownAll] = useState<string[]>([])
+  const favoritesOf = (key: string, list: Macro[]) => {
+    const { favorites, rest } = splitFavorites(list, starred)
+    return shownAll.includes(key) ? { shown: [...favorites, ...rest], hidden: 0 } : { shown: favorites, hidden: rest.length }
+  }
+  const showAllItem = (key: string, hidden: number) => hidden > 0 && <button type="button" role="menuitem" onClick={() => setShownAll(keys => [...keys, key])} className="flex min-h-10 w-full items-center rounded px-3 text-left text-sm text-lw-text-2 hover:bg-zinc-800 hover:text-zinc-200 focus:bg-zinc-800 focus:outline-none">Show all ({hidden} more)</button>
+  const taskMacros = favoritesOf("task", macros)
   const flyoutTrigger = (key: string) => ({
     "aria-haspopup": "menu" as const,
     "aria-expanded": flyout === key,
@@ -112,6 +124,7 @@ export function CardContextMenu({
   })
   const prKey = (pr: PRMetaView) => `pr:${pr.repo}#${pr.pr_number}`
   const openPR = flyout?.startsWith("pr:") ? prMacros.find(choice => prKey(choice.pr) === flyout) : undefined
+  const prList = openPR && favoritesOf(prKey(openPR.pr), openPR.macros)
   // An away task can change only on its worker: it offers its details and
   // the worker. Another may be handed off once a worker is paired.
   const stack = reviewStack && reviewPasses.length > 1 && reviewPasses.every(pr => pr.repo === reviewPasses[0].repo)
@@ -141,7 +154,8 @@ export function CardContextMenu({
       {!card.away && onReviewPasses && reviewItems.map(item => <button key={`review-${item.key}`} type="button" role="menuitem" onClick={() => { restoreFocus(); onClose(); if (item.scope) onReviewPasses(item.pr, item.scope); else onReviewPasses(item.pr) }} className="flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><Repeat size={16} /><span>{item.label}</span></button>)}
       {!card.away && ((onMacro && macros.length > 0) || (onPRMacro && prMacros.length > 0)) && <>
         <p className="mt-1 border-t border-zinc-800 px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-zinc-500">Macros</p>
-        {onMacro && macros.map(macro => <MacroItem key={`macro-${macro.name}`} macro={macro} onPick={() => pick(() => onMacro(macro))} />)}
+        {onMacro && taskMacros.shown.map(macro => <MacroItem key={`macro-${macro.name}`} macro={macro} onPick={() => pick(() => onMacro(macro))} />)}
+        {onMacro && showAllItem("task", taskMacros.hidden)}
         {onPRMacro && prMacros.map(choice => <button key={prKey(choice.pr)} type="button" role="menuitem" aria-label={`Macros for #${choice.pr.pr_number}`} {...flyoutTrigger(prKey(choice.pr))} className="flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><Play size={16} className="shrink-0" /><span className="min-w-0 truncate"><span className="font-lw-mono">#{choice.pr.pr_number}</span> <span className="text-[11px] text-lw-text-2">{choice.pr.repo}</span></span><ChevronRight className="ml-auto shrink-0" size={15} /></button>)}
         {onManageMacros && <button type="button" role="menuitem" onClick={() => pick(onManageMacros)} className="flex min-h-10 w-full items-center rounded px-3 text-left text-sm text-lw-link hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none">Manage macros</button>}
       </>}
@@ -154,7 +168,8 @@ export function CardContextMenu({
       {workflowWarning && <p className="border-t border-zinc-800 px-3 py-2 text-xs text-amber-300">{workflowWarning}</p>}
     </MenuFlyout>}
     {openPR && onPRMacro && <MenuFlyout key={flyout} label={`Macros for #${openPR.pr.pr_number}`} title={`Macros · #${openPR.pr.pr_number}`} triggerRef={flyoutTriggerRef} root={root} compact={compact} position={position} onBack={closeFlyout} onCloseAll={() => { restoreFocus(); onClose() }}>
-      {openPR.macros.map(macro => <MacroItem key={macro.name} macro={macro} onPick={() => pick(() => onPRMacro(openPR.pr, macro))} />)}
+      {prList?.shown.map(macro => <MacroItem key={macro.name} macro={macro} onPick={() => pick(() => onPRMacro(openPR.pr, macro))} />)}
+      {prList && showAllItem(prKey(openPR.pr), prList.hidden)}
     </MenuFlyout>}
   </div>, document.body)
 }

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { CardContextMenu } from "../CardContextMenu"
 import { cardWorkflowOptions } from "../../../lib/card-workflows"
@@ -197,6 +197,34 @@ describe("CardContextMenu", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Macro: Review" }))
     expect(onPRMacro).toHaveBeenCalledWith(prMacros[1].pr, review)
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it("lists the favourite macros, the task's and each pull request's, and the rest behind Show all", () => {
+    const onMacro = vi.fn()
+    const onPRMacro = vi.fn()
+    const pr = { repo: "acme/app", branch: "b", pr_number: 7, pr_url: "", state: "OPEN", is_draft: false, review_decision: "", check_status: "", comment_count: 0, pinned: false, match_method: "", sync_outcome: "", sync_error: "" }
+    const plan = { name: "Plan", keys: "p", favorite: true }
+    const ticket = { name: "Ticket to PR", keys: "t" }
+    const review = { name: "Review", keys: "r", favorite: true }
+    const deep = { name: "Deep review", keys: "d" }
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} anyFavorite macros={[plan, ticket]} onMacro={onMacro} prMacros={[{ pr, macros: [review, deep] }]} onPRMacro={onPRMacro} onAction={() => {}} onClose={() => {}} />)
+    expect(screen.getByRole("menuitem", { name: "Macro: Plan" })).toBeTruthy()
+    expect(screen.queryByRole("menuitem", { name: "Macro: Ticket to PR" })).toBeNull()
+    fireEvent.click(screen.getByRole("menuitem", { name: "Show all (1 more)" }))
+    expect(screen.getByRole("menuitem", { name: "Macro: Ticket to PR" })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Macros for #7" }))
+    const flyout = screen.getByRole("menu", { name: "Macros for #7" })
+    expect(within(flyout).queryByRole("menuitem", { name: "Macro: Deep review" })).toBeNull()
+    fireEvent.click(within(flyout).getByRole("menuitem", { name: "Show all (1 more)" }))
+    fireEvent.click(within(flyout).getByRole("menuitem", { name: "Macro: Deep review" }))
+    expect(onPRMacro).toHaveBeenCalledWith(pr, deep)
+  })
+
+  it("lists every macro while none is starred", () => {
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} macros={[{ name: "Plan", keys: "p" }, { name: "Ticket to PR", keys: "t" }]} onMacro={() => {}} onAction={() => {}} onClose={() => {}} />)
+    expect(screen.getByRole("menuitem", { name: "Macro: Ticket to PR" })).toBeTruthy()
+    expect(screen.queryByRole("menuitem", { name: /show all/i })).toBeNull()
   })
 
   it("lists a pull request's macros on a phone, with a way back", () => {

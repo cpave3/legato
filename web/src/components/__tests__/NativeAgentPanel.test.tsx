@@ -669,6 +669,34 @@ describe("NativeAgentPanel", () => {
     expect(screen.queryByRole("button", { name: /third macro/i })).toBeNull()
   })
 
+  it("lists the favourite macros and the rest behind Show all", async () => {
+    const macros = [
+      { name: "Plan", keys: "plan it", favorite: true },
+      { name: "Ticket to PR", keys: "ship it" },
+    ]
+    const requests: string[] = []
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      requests.push(url)
+      if (url.includes("/snapshot")) {
+        return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      }
+      if (url.endsWith("/api/macros")) {
+        return new Response(JSON.stringify({ macros }), { status: 200 })
+      }
+      return new Response("[]", { status: 200 })
+    })
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    await screen.findByPlaceholderText("Message task-1")
+    await waitFor(() => expect(requests).toContain("/api/macros"))
+    fireEvent.click(screen.getByRole("button", { name: /macros/i }))
+    expect(screen.getByRole("button", { name: /1.*plan/i })).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /ticket to pr/i })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Show all (1 more)" }))
+    expect(screen.getByRole("button", { name: /2.*ticket to pr/i })).toBeTruthy()
+  })
+
   it("guards native macro hotkeys and closes the menu with Escape", async () => {
     const macros = [{ name: "First macro", keys: "first" }]
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {

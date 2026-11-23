@@ -73,7 +73,7 @@ it("lists the built-ins and yours, with what each is offered on and starts", asy
   const pinned = within(mine).getByRole("listitem", { name: "Commit changes" })
   expect(within(pinned).getByText("config.yaml")).toBeTruthy()
   expect(within(pinned).getByText("Edit in config.yaml")).toBeTruthy()
-  expect(within(pinned).queryByRole("button")).toBeNull()
+  expect(within(pinned).queryByRole("button", { name: /Edit|Reset|Delete/ })).toBeNull()
 })
 
 it("resets an edited built-in", async () => {
@@ -109,4 +109,24 @@ it("with none of your own, offers to make one", async () => {
   const mine = await screen.findByRole("region", { name: "Yours" })
   expect(within(mine).getByText("No macros of your own")).toBeTruthy()
   expect(within(mine).getByRole("button", { name: "New macro" })).toBeTruthy()
+})
+
+it("stars a macro and takes the star away", async () => {
+  macros = [{ ...builtins[0], favorite: true }, ...builtins.slice(1), ...yours]
+  page()
+  const builtIn = await screen.findByRole("region", { name: "Built in" })
+  const star = within(within(builtIn).getByRole("listitem", { name: "Plan" })).getByRole("button", { name: "Favourite: Plan" })
+  expect(star.getAttribute("aria-pressed")).toBe("true")
+  fireEvent.click(star)
+  await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/macros/Plan", expect.objectContaining({ method: "PUT", body: JSON.stringify({ favorite: false }) })))
+
+  const mine = screen.getByRole("region", { name: "Yours" })
+  const tests = within(within(mine).getByRole("listitem", { name: "Run tests" })).getByRole("button", { name: "Favourite: Run tests" })
+  expect(tests.getAttribute("aria-pressed")).toBe("false")
+  fireEvent.click(tests)
+  await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/macros/Run%20tests", expect.objectContaining({ method: "PUT", body: JSON.stringify({ favorite: true }) })))
+
+  const pinned = within(within(mine).getByRole("listitem", { name: "Commit changes" })).getByRole("button", { name: "Favourite: Commit changes" }) as HTMLButtonElement
+  expect(pinned.disabled).toBe(true)
+  expect(pinned.title).toMatch(/config\.yaml/)
 })
