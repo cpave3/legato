@@ -101,7 +101,7 @@ export function macrosFor(macros: Macro[], target: "task" | "pr"): Macro[] {
 }
 
 // anyFavorite says whether any macro is starred.
-export function anyFavorite(macros: Pick<Macro, "favorite">[]): boolean {
+export function anyFavorite(macros: Pick<Macro, "name" | "favorite">[]): boolean {
   return macros.some(macro => macro.favorite)
 }
 
@@ -109,7 +109,7 @@ export function anyFavorite(macros: Pick<Macro, "favorite">[]): boolean {
 // keeps behind Show all, each in the list's order. While no macro is
 // starred every macro is a favourite. starred says whether any is, when
 // list is part of a longer list (the macros for a task, say).
-export function splitFavorites<T extends Pick<Macro, "favorite">>(list: T[], starred = anyFavorite(list)): { favorites: T[]; rest: T[] } {
+export function splitFavorites<T extends Pick<Macro, "name" | "favorite">>(list: T[], starred = anyFavorite(list)): { favorites: T[]; rest: T[] } {
   if (!starred) return { favorites: list, rest: [] }
   return { favorites: list.filter(macro => macro.favorite), rest: list.filter(macro => !macro.favorite) }
 }

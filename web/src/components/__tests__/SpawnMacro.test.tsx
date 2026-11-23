@@ -51,3 +51,24 @@ it("fills the first message, agent tool and tier from a macro", async () => {
   const body = JSON.parse(apiFetch.mock.calls.find(([, path, init]) => path === "/api/agents/spawn" && init?.method === "POST")![2].body)
   expect(body).toMatchObject({ prompt: "Go deep.", agent_kind: "codex", tier: "smart" })
 })
+
+it("groups the favourite macros first, and the rest after them", async () => {
+  apiFetch.mockImplementation((_: string, path: string, init?: RequestInit) => {
+    const key = `${init?.method ?? "GET"} ${path.split("?")[0]}`
+    if (key === "GET /api/adapters") return json({ adapters: ["claude-code"], default: "claude-code" })
+    if (key === "GET /api/directories/presets") return json({ presets: [], default: { path: "/default", display: "/default" } })
+    if (key === "GET /api/directories") return json({ query: "", resolved: "", exists: false, base: "", prefix: "", total: 0, items: [] })
+    if (key === "GET /api/macros") return json({ macros: [
+      { name: "Ticket to PR", keys: "ship it" },
+      { name: "Plan", keys: "plan it", favorite: true },
+    ] })
+    return json({}, 200)
+  })
+  render(<SpawnEphemeralModal open onClose={() => {}} />)
+  await screen.findByRole("dialog", { name: "Spawn agent" })
+  await vi.waitFor(() => expect(screen.getByRole("option", { name: "Plan" })).toBeTruthy())
+  const favourites = screen.getByRole("group", { name: "Favourites" })
+  const rest = screen.getByRole("group", { name: "Other macros" })
+  expect(favourites.textContent).toBe("Plan")
+  expect(rest.textContent).toBe("Ticket to PR")
+})

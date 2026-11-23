@@ -2,7 +2,7 @@ import { useModalLayer } from "../hooks/useModalLayer"
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
 import { ChevronDown, X } from "lucide-react"
 import { accessLabel, listResources, type Resource } from "../lib/resources"
-import { macroMessage, macrosFor, useMacros } from "../lib/macros"
+import { anyFavorite, macroMessage, macrosFor, splitFavorites, useMacros } from "../lib/macros"
 import { useServer } from "../hooks/useServer"
 import { useSettings } from "../hooks/useSettings"
 import { apiFetch } from "../lib/api"
@@ -177,6 +177,8 @@ export function SpawnAgentDialog({
   // "Start with macro": the macros, the one chosen, and the tier it names.
   const macroList = useMacros(baseUrl, open ? "open" : null)
   const [macroName, setMacroName] = useState("")
+  // A select cannot hide the rest behind Show all: it groups the favourites first.
+  const spawnMacros = splitFavorites(macrosFor(macroList.macros, "task"), anyFavorite(macroList.macros))
   const [tier, setTier] = useState("")
   const chooseMacro = (name: string) => {
     setMacroName(name)
@@ -963,7 +965,12 @@ export function SpawnAgentDialog({
             <select aria-label="Start with macro" value={macroName} onChange={(event) => chooseMacro(event.target.value)}
               className={`min-h-11 rounded-[10px] border border-lw-line-strong bg-lw-ground px-3 text-base text-lw-text sm:min-h-9 sm:rounded-md sm:text-sm ${focusRing}`}>
               <option value="">None</option>
-              {macrosFor(macroList.macros, "task").map((macro) => <option key={macro.name} value={macro.name}>{macro.name}</option>)}
+              {spawnMacros.rest.length === 0
+                ? spawnMacros.favorites.map((macro) => <option key={macro.name} value={macro.name}>{macro.name}</option>)
+                : <>
+                  <optgroup label="Favourites">{spawnMacros.favorites.map((macro) => <option key={macro.name} value={macro.name}>{macro.name}</option>)}</optgroup>
+                  <optgroup label="Other macros">{spawnMacros.rest.map((macro) => <option key={macro.name} value={macro.name}>{macro.name}</option>)}</optgroup>
+                </>}
             </select>
             {tier && <span className="text-xs text-lw-text-2">Model tier: {tier}</span>}
           </label>}
