@@ -106,10 +106,15 @@ describe("the run graph", () => {
     expect(await screen.findByRole("button", { name: "Step: Investigate the task, Needs you" })).toBeTruthy()
   })
 
-  it("shows the review loop's pass, and Needs you while it waits on its author", async () => {
-    show(view({ attempts: [], steps: [stepRun("review", 2, "github.pr.review_passes", "waiting", { resolved_inputs_json: JSON.stringify({ max_passes: 5 }) })], details: { review: { phase: "waiting_for_author", pass: 2, summary: "Waiting for author", blocking_open: 3, reviews: [{ pass: 1, pr: 4, url: "https://github.com/acme/widget/pull/4#r1" }] } } }))
+  it("shows the review loop's pass, and Needs you while it waits on an author that needs the operator", async () => {
+    show(view({ attempts: [], steps: [stepRun("review", 2, "github.pr.review_passes", "waiting", { resolved_inputs_json: JSON.stringify({ max_passes: 5 }) })], details: { review: { phase: "waiting_for_author", pass: 2, summary: "Waiting for author", blocking_open: 3, needs_you: true, reviews: [{ pass: 1, pr: 4, url: "https://github.com/acme/widget/pull/4#r1" }] } } }))
     const group = await screen.findByRole("button", { name: "Step: Review in passes, Needs you" })
     expect(group.textContent).toContain("Pass 2 of 5")
+  })
+
+  it("shows a review loop whose agent author is fixing the findings as running", async () => {
+    show(view({ attempts: [], steps: [stepRun("review", 2, "github.pr.review_passes", "waiting")], details: { review: { phase: "waiting_for_author", pass: 1, summary: "Author fixing · 2 blocking", blocking_open: 2, needs_you: false, reviews: [] } } }))
+    expect(await screen.findByRole("button", { name: "Step: Review in passes, Running" })).toBeTruthy()
   })
 
   it("marks the trigger that started the run and dims the others", async () => {

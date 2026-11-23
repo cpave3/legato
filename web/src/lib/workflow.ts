@@ -21,7 +21,10 @@ export type WorkflowRun = { id:string; workflow_name:string; workflow_title:stri
 export type WorkflowStepRun = { run_id:string; step_id:string; step_order:number; title:string; executor_type:string; definition_json?:string; resolved_inputs_json:string; outputs_json:string; status:string; latest_attempt:number; error?:string; output_warning?:string; started_at?:string; completed_at?:string }
 export type WorkflowAttempt = { id:string; run_id:string; step_id:string; attempt_number:number; executor_type:string; agent_session_id?:number; task_id?:string; tmux_session?:string; agent_kind?:string; tier?:string; working_dir?:string; status:string; error?:string; agent_activity?:string; needs_attention?:boolean; attention_reason?:string; started_at:string; ended_at?:string }
 export type WorkflowArtifact = { id:string; run_id:string; step_id:string; attempt_id:string; output_key:string; original_path?:string; media_type:string; size_bytes:number; digest:string; created_at:string }
-export type ReviewRunDetails = { phase:string; pass:number; summary:string; blocking_open:number; reason?:string; reviews:{pass:number;pr:number;url:string}[] | null }
+// needs_you is the server's word on whether the loop waits on the operator:
+// stuck, or waiting for an author that will not move it alone. An agent
+// author at work is the agent's wait (LEG-543).
+export type ReviewRunDetails = { phase:string; pass:number; summary:string; blocking_open:number; reason?:string; needs_you?:boolean; reviews:{pass:number;pr:number;url:string}[] | null }
 // graph is the workflow graph of the run's own copy of its definition;
 // definition_changed and definition_missing compare that copy with the file.
 export type WorkflowRunView = { run:WorkflowRun; steps:WorkflowStepRun[] | null; attempts:WorkflowAttempt[] | null; artifacts:WorkflowArtifact[] | null; details?:Record<string,unknown> | null; trigger_kind?:string; graph?:WorkflowGraphModel | null; definition_changed?:boolean; definition_missing?:boolean }

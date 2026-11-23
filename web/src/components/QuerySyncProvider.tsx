@@ -53,6 +53,9 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           // posted or cleared while its agent idles changes it.
           invalidate([baseUrl, "board"], false)
           invalidate(queryKeys.railAttention(baseUrl))
+          // A run's review loop waits on the operator or on its agent
+          // author as the rail says (LEG-543): an open run reads it again.
+          invalidate([baseUrl, "workflow-run"], false)
           invalidate(queryKeys.navigationSummary(baseUrl))
           break
         case "approvals_changed":

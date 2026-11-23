@@ -299,6 +299,29 @@ it("reads the board again when Attention changes, so a card says what needs the 
   expect(reads).toBe(2)
 })
 
+// LEG-543: a review loop's agent author that stops or starts work changes
+// what the run waits on; the rail hears of it as attention_changed, and an
+// open run page reads the run again so the two agree.
+it("reads an open run again when Attention changes, so its Needs you agrees with the rail", async () => {
+  let reads = 0
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+    const path = requestPath(input)
+    if (path !== "/api/workflow-runs/run-a") return response({})
+    reads += 1
+    return response({ run: { id: "run-a", status: reads === 1 ? "waiting" : "running" }, steps: [], attempts: [], artifacts: [] })
+  }))
+  function RunStatus() {
+    const run = useWorkflowRun("run-a")
+    return <span>{run.data?.run.status ?? "loading"}</span>
+  }
+
+  render(<QueryClientProvider client={createQueryClient()}><QuerySyncProvider><RunStatus /></QuerySyncProvider></QueryClientProvider>)
+  await screen.findByText("waiting")
+  act(() => { websocket.handler?.({ type: "attention_changed" }) })
+  await screen.findByText("running")
+  expect(reads).toBe(2)
+})
+
 it("reads the devices again when an approval changes, as one is enrolled", async () => {
   let reads = 0
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
