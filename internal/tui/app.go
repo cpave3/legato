@@ -2822,9 +2822,15 @@ func cardMacroItems(list []service.MacroEntry, prs []service.PRMetaView) []overl
 		}
 		return append(first, rest...)
 	}
+	all := make([]macros.Macro, len(list))
+	for i, m := range list {
+		all[i] = m.Macro
+	}
+	starred := macros.AnyFavorite(all)
+	favorite := func(m service.MacroEntry) bool { return !starred || m.Favorite }
 	var items []overlay.CardContextMacro
 	for _, m := range ordered(service.MacroTarget{}) {
-		items = append(items, overlay.CardContextMacro{Label: m.Name, Name: m.Name})
+		items = append(items, overlay.CardContextMacro{Label: m.Name, Name: m.Name, Favorite: favorite(m)})
 	}
 	for _, pr := range prs {
 		if pr.Repo == "" || pr.PRNumber == 0 || strings.EqualFold(pr.State, "MERGED") || strings.EqualFold(pr.State, "CLOSED") {
@@ -2832,7 +2838,7 @@ func cardMacroItems(list []service.MacroEntry, prs []service.PRMetaView) []overl
 		}
 		target := &service.MacroPR{Repo: pr.Repo, Number: pr.PRNumber, URL: pr.PRURL}
 		for _, m := range ordered(service.MacroTarget{PR: true, Mine: !pr.Pinned}) {
-			items = append(items, overlay.CardContextMacro{Label: fmt.Sprintf("%s · #%d", m.Name, pr.PRNumber), Name: m.Name, PR: target})
+			items = append(items, overlay.CardContextMacro{Label: fmt.Sprintf("%s · #%d", m.Name, pr.PRNumber), Name: m.Name, PR: target, Favorite: favorite(m)})
 		}
 	}
 	return items

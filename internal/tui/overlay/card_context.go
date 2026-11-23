@@ -46,6 +46,8 @@ type CardContextMacro struct {
 	Label string
 	Name  string
 	PR    *service.MacroPR
+	// Favorite lists it before Show all; the rest come after.
+	Favorite bool
 }
 
 type cardContextScreen int
@@ -63,6 +65,7 @@ type CardContextOverlay struct {
 	cursor        int
 	workflows     []service.TaskWorkflowOption
 	macros        []CardContextMacro
+	hiddenMacros  []CardContextMacro
 	loading       bool
 	errorText     string
 	warningText   string
@@ -99,7 +102,14 @@ func (m CardContextOverlay) SetWorkflows(workflows []service.TaskWorkflowOption,
 // SetMacros shows the Macros menu's items, or why there are none.
 func (m CardContextOverlay) SetMacros(macros []CardContextMacro, err error) CardContextOverlay {
 	m.screen, m.cursor, m.loading = cardContextMacros, 0, false
-	m.macros, m.errorText = macros, ""
+	m.macros, m.hiddenMacros, m.errorText = nil, nil, ""
+	for _, item := range macros {
+		if item.Favorite {
+			m.macros = append(m.macros, item)
+		} else {
+			m.hiddenMacros = append(m.hiddenMacros, item)
+		}
+	}
 	if err != nil {
 		m.errorText = err.Error()
 	}
@@ -144,6 +154,9 @@ func (m CardContextOverlay) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		count = len(m.workflows)
 	case cardContextMacros:
 		count = len(m.macros)
+		if len(m.hiddenMacros) > 0 {
+			count++
+		}
 	}
 	switch msg.String() {
 	case "j", "down":
@@ -170,6 +183,11 @@ func (m CardContextOverlay) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, func() tea.Msg { return CardContextLoadMacrosMsg{TaskID: id} }
 			}
 		} else if m.screen == cardContextMacros {
+			if !m.loading && m.cursor == len(m.macros) && len(m.hiddenMacros) > 0 {
+				m.macros = append(append([]CardContextMacro(nil), m.macros...), m.hiddenMacros...)
+				m.hiddenMacros = nil
+				return m, nil
+			}
 			if !m.loading && m.cursor < len(m.macros) {
 				item, id := m.macros[m.cursor], m.taskID
 				return m, func() tea.Msg { return CardContextStartMacroMsg{TaskID: id, Name: item.Name, PR: item.PR} }
@@ -278,11 +296,14 @@ func (m CardContextOverlay) View() string {
 		switch {
 		case m.loading:
 			lines = append(lines, "Loading macros…")
-		case len(m.macros) == 0 && m.errorText == "":
+		case len(m.macros) == 0 && len(m.hiddenMacros) == 0 && m.errorText == "":
 			lines = append(lines, "No macros apply to this task.")
 		default:
 			for i, item := range m.macros {
 				lines = append(lines, contextItem(item.Label, i == m.cursor))
+			}
+			if len(m.hiddenMacros) > 0 {
+				lines = append(lines, contextItem(fmt.Sprintf("Show all (%d more)", len(m.hiddenMacros)), m.cursor == len(m.macros)))
 			}
 		}
 		if m.errorText != "" {
