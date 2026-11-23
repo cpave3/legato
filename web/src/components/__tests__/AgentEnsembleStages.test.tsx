@@ -24,6 +24,9 @@ const agents = [
   agent("REEVE", undefined, "your_turn", { reeve: true }),
 ]
 
+const bands = () => screen.getAllByRole("region").map((band) => band.getAttribute("aria-label")).filter((name) => name !== "Ensemble")
+const emptyLines = () => screen.getAllByRole("note").map((line) => line.textContent)
+
 function show() {
   render(<AgentEnsemble agents={agents} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
 }
@@ -51,12 +54,11 @@ describe("the ensemble's stages", () => {
     expect(within(tile).getByText("Implementing")).toBeTruthy()
   })
 
-  it("starts in tiles, and lays the agents out by stage when asked, remembering it", () => {
+  it("starts in tiles, and lays the agents out in stage bands when asked, remembering it", () => {
     show()
     expect(screen.queryByRole("region", { name: "Exploring" })).toBeNull()
     fireEvent.click(within(screen.getByRole("group", { name: "Layout" })).getByRole("button", { name: "By stage" }))
-    const lanes = screen.getAllByRole("region").map((lane) => lane.getAttribute("aria-label")).filter((name) => name !== "Ensemble")
-    expect(lanes).toEqual(["Exploring", "Planning", "Implementing", "Reviewing", "Finished"])
+    expect(bands()).toEqual(["Exploring", "Planning", "Implementing", "Reviewing", "Finished"])
     const implementing = screen.getByRole("region", { name: "Implementing" })
     expect(within(implementing).getAllByRole("article").map((tile) => tile.getAttribute("aria-label")?.split(",")[0])).toEqual(["LEG-409", "LEG-407"])
     expect(screen.queryByRole("article", { name: /REEVE/ })).toBeNull()
@@ -65,6 +67,48 @@ describe("the ensemble's stages", () => {
     cleanup()
     show()
     expect(screen.getByRole("region", { name: "Planning" })).toBeTruthy()
+  })
+
+  it("does not repeat a band's stage on its cards", () => {
+    localStorage.setItem(ENSEMBLE_LAYOUT_KEY, "stage")
+    show()
+    const tile = within(screen.getByRole("region", { name: "Implementing" })).getByRole("article", { name: /LEG-409/ })
+    expect(within(tile).queryByText("Implementing")).toBeNull()
+    expect(within(tile).queryByRole("img", { name: "Implementing" })).toBeNull()
+  })
+
+  it("names a band by its track, word and count, with the needs-you marks", () => {
+    localStorage.setItem(ENSEMBLE_LAYOUT_KEY, "stage")
+    show()
+    const head = (name: string) => within(screen.getByRole("region", { name })).getByRole("heading", { level: 2 })
+    expect(head("Implementing").textContent).toBe("Implementing2◆ 1")
+    expect(within(head("Implementing")).getByRole("img", { name: "Implementing" })).toBeTruthy()
+    expect(head("Exploring").textContent).toBe("Exploring2◇ 1")
+    expect(head("Reviewing").textContent).toBe("Reviewing1")
+  })
+
+  it("merges stages with nothing in them into one line that names them", () => {
+    localStorage.setItem(ENSEMBLE_LAYOUT_KEY, "stage")
+    // The screenshots' three agents.
+    const three = [
+      agent("LEG-386", "implementing", "your_turn"),
+      agent("LEG-408", "reviewing", "working", { activity: "background" }),
+      agent("LEG-405", "finished", "finished"),
+      agent("REEVE", undefined, "your_turn", { reeve: true }),
+    ]
+    render(<AgentEnsemble agents={three} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    expect(bands()).toEqual(["Implementing", "Reviewing", "Finished"])
+    expect(emptyLines()).toEqual(["Exploring · Planning · none"])
+    expect(screen.queryByText("Nothing here.")).toBeNull()
+    const counts = screen.getByRole("list", { name: "Agents by state" })
+    expect(within(counts).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["◇ 1 your turn", "● 1 working", "✓ 1 finished"])
+  })
+
+  it("draws one band when every other stage is empty", () => {
+    localStorage.setItem(ENSEMBLE_LAYOUT_KEY, "stage")
+    render(<AgentEnsemble agents={[agent("LEG-408", "reviewing", "working", { activity: "working" })]} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    expect(bands()).toEqual(["Reviewing"])
+    expect(emptyLines()).toEqual(["Exploring · Planning · Implementing · none", "Finished · none"])
   })
 
   it("opens by itself, on a phone, a stage holding an agent that needs you", () => {

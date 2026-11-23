@@ -72,7 +72,7 @@ function stateOf(agent: AgentInfo): { label: string; glyph: string; chip: string
 }
 
 // AgentEnsemble shows every running agent at once: a tile for each with what
-// it is at, the agents that need the person first.
+// it is at, the agents that need the person first, or by stage in bands.
 export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowList, onSend }: AgentEnsembleProps) {
   const ordered = orderForEnsemble(agents)
   const counted = agents.filter((agent) => !agent.reeve)
@@ -117,10 +117,10 @@ export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowLi
           ? <p className="py-12 text-center text-lw-faint">No agents are running.</p>
           : layout === "stage"
           ? (
-            <div data-ensemble-lanes className="flex flex-col gap-3 lg:grid lg:min-h-full lg:grid-cols-5">
-              {workStages.map((stage) => (
-                <StageLane key={stage} stage={stage} agents={ordered.filter((agent) => agent.stage === stage)} contexts={contexts} onOpen={onOpen} onSend={onSend} />
-              ))}
+            <div data-ensemble-bands className="flex flex-col gap-2">
+              {stageRuns(ordered).map((run) => run.agents.length === 0
+                ? <EmptyStages key={run.stages.join()} stages={run.stages} />
+                : <StageBand key={run.stages[0]} stage={run.stages[0]} agents={run.agents} contexts={contexts} onOpen={onOpen} onSend={onSend} />)}
             </div>
           )
           : (
@@ -137,10 +137,42 @@ export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowLi
   )
 }
 
-// StageLane is the agents at one stage, those that need the operator first.
-// Side by side on a wide screen; on a phone the lanes stack, and a lane
-// opens by itself when it holds an agent that needs the operator.
-function StageLane({ stage, agents, contexts, onOpen, onSend }: {
+// A run of the By stage layout: one stage with its agents, or stages in a
+// row with none, which are drawn as one line.
+interface StageRun {
+  stages: WorkStage[]
+  agents: AgentInfo[]
+}
+
+// stageRuns splits agents by stage, in stage order, merging consecutive
+// stages that hold nothing. An agent with no stage (the Reeve) is in none.
+function stageRuns(agents: AgentInfo[]): StageRun[] {
+  const runs: StageRun[] = []
+  for (const stage of workStages) {
+    const at = agents.filter((agent) => agent.stage === stage)
+    const last = runs[runs.length - 1]
+    if (at.length === 0 && last && last.agents.length === 0) last.stages.push(stage)
+    else runs.push({ stages: [stage], agents: at })
+  }
+  return runs
+}
+
+// EmptyStages is one thin line for stages with no agents, which still names
+// them: "Exploring · Planning · none".
+function EmptyStages({ stages }: { stages: WorkStage[] }) {
+  return (
+    <p role="note" className="m-0 flex items-center gap-2 rounded-lg border border-dashed border-lw-line px-3 py-1.5 text-xs text-lw-faint">
+      {[...stages.map(stageLabel), "none"].join(" · ")}
+    </p>
+  )
+}
+
+// StageBand is the agents at one stage, those that need the operator
+// first: a header (the track, the word, the count and the needs-you marks)
+// in a column on the left of a wide screen, and the agents flowing across
+// beside it. A band is as tall as its agents. On a phone the bands stack, and
+// a band opens by itself when it holds an agent that needs the operator.
+function StageBand({ stage, agents, contexts, onOpen, onSend }: {
   stage: WorkStage
   agents: AgentInfo[]
   contexts: Record<string, AgentContext>
@@ -150,7 +182,7 @@ function StageLane({ stage, agents, contexts, onOpen, onSend }: {
   const needs = agents.filter((agent) => glanceSection(agent) === "needs-you").length
   const turn = agents.filter((agent) => glanceSection(agent) === "your-turn").length
   const [open, setOpen] = useState(needs > 0)
-  // An agent coming to need the operator opens its lane, as it would have
+  // An agent coming to need the operator opens its band, as it would have
   // at the start; the operator may close it again.
   const [needed, setNeeded] = useState(needs > 0)
   if ((needs > 0) !== needed) {
@@ -160,32 +192,35 @@ function StageLane({ stage, agents, contexts, onOpen, onSend }: {
   const label = stageLabel(stage)
   const marks = [needs > 0 && `◆ ${needs}`, turn > 0 && `◇ ${turn}`].filter(Boolean).join(" · ")
   return (
-    <section aria-label={label} className="flex min-w-0 flex-col gap-2.5 rounded-xl border border-lw-line bg-[var(--theme-surface,#141417)] p-2.5">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="flex min-h-11 items-center gap-2 px-1 text-left text-[13px] font-semibold lg:pointer-events-none lg:min-h-0"
-      >
-        <StageTrack stage={stage} label="" />
-        {label}
-        <span className="font-lw-mono text-xs font-normal text-lw-text-2">{agents.length}</span>
-        {marks && <span className="ml-auto text-xs font-medium text-lw-needs">{marks}</span>}
-      </button>
-      <div className={cn("flex-col gap-2.5", open ? "flex" : "hidden lg:flex")}>
-        {agents.length === 0
-          ? <p className="m-0 px-1 py-2 text-xs text-lw-text-2">Nothing here.</p>
-          : agents.map((agent) => (
-            <div key={agent.task_id} className="h-60"><AgentTile agent={agent} context={contexts[agent.task_id]} onOpen={onOpen} onSend={onSend} /></div>
-          ))}
+    <section aria-label={label} className="flex min-w-0 flex-col gap-2.5 rounded-xl border border-lw-line bg-[var(--theme-surface,#141417)] p-2.5 lg:grid lg:grid-cols-[190px_minmax(0,1fr)] lg:gap-3">
+      <h2 className="m-0 text-[13px] font-semibold">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          className="flex min-h-11 w-full items-center gap-2 px-1 text-left lg:pointer-events-none lg:min-h-0 lg:pt-1"
+        >
+          <StageTrack stage={stage} />
+          {label}
+          <span className="font-lw-mono text-xs font-normal text-lw-text-2">{agents.length}</span>
+          {marks && <span className="ml-auto text-xs font-medium text-lw-needs lg:ml-1">{marks}</span>}
+        </button>
+      </h2>
+      <div className={cn("min-w-0 grid-cols-[repeat(auto-fill,minmax(300px,1fr))] items-start gap-2.5", open ? "grid" : "hidden lg:grid")}>
+        {agents.map((agent) => (
+          <AgentTile key={agent.task_id} agent={agent} context={contexts[agent.task_id]} onOpen={onOpen} onSend={onSend} inBand />
+        ))}
       </div>
     </section>
   )
 }
 
-function AgentTile({ agent, context, onOpen, onSend }: {
+function AgentTile({ agent, context, onOpen, onSend, inBand = false }: {
   agent: AgentInfo
   context?: AgentContext
+  // In a stage band, which names the stage: the tile does not, and is as
+  // tall as what it shows, up to a cap.
+  inBand?: boolean
   onOpen: (taskId: string) => void
   onSend?: (taskId: string, content: string) => void
 }) {
@@ -224,7 +259,7 @@ function AgentTile({ agent, context, onOpen, onSend }: {
           <span className={cn("rounded px-2 font-lw-mono text-[11px] uppercase", state.chip)}>
             <span aria-hidden="true">{state.glyph}</span> {state.label}{time && ` ${time}`}
           </span>
-          {stageLabel(agent.stage) && (
+          {!inBand && stageLabel(agent.stage) && (
             <span className={cn("flex shrink-0 items-center gap-1 text-[11px]", agent.stage === "finished" ? "text-lw-done" : "text-lw-text-2")}>
               <StageTrack stage={agent.stage} />{stageLabel(agent.stage)}
             </span>
@@ -237,7 +272,7 @@ function AgentTile({ agent, context, onOpen, onSend }: {
 
       {/* Contained in size: what the agent says never makes the tile, or its
           row, taller; the newest is kept in view and the rest cut. */}
-      <div data-tile-body className="flex min-h-0 flex-1 flex-col overflow-hidden px-3.5 py-2.5 [contain:size]">{shown}</div>
+      <div data-tile-body className={cn("flex min-h-0 flex-1 flex-col overflow-hidden px-3.5 py-2.5", inBand ? "max-h-64" : "[contain:size]")}>{shown}</div>
 
       <div className="flex flex-col gap-2.5 border-t border-[var(--theme-border,#222228)] px-3.5 py-2.5">
         <div className="flex min-h-3 items-center justify-between gap-2">
