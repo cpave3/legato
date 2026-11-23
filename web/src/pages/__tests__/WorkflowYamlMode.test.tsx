@@ -131,3 +131,14 @@ it("leaves text pasted into a field to the field", async () => {
   fireEvent.click(screen.getByRole("radio", { name: "YAML" }))
   expect(editor().value).toBe(fileText)
 })
+
+it("points pasted steps' references at the pasted steps when their IDs change", async () => {
+  renderAt("visual", "#steps/run")
+  const outline = await screen.findByRole("navigation", { name: "Outline" })
+  paste(outline, "- id: prep\n  title: Prepare again\n  type: repo.ensure\n  with: {repo: c/d}\n  outputs: {branch: {type: string}}\n- id: use\n  title: Use\n  type: task.note\n  with: {body: '${{ steps.prep.outputs.branch }} and ${{ steps.run.outputs.x }}'}\n")
+  fireEvent.click(screen.getByRole("radio", { name: "YAML" }))
+  const text = editor().value
+  expect(text.match(/- id: \S+/g)).toEqual(["- id: prep", "- id: run", "- id: prep-2", "- id: use"])
+  // The pasted producer, renamed; a step it did not paste keeps its name.
+  expect(text).toContain("${{ steps.prep-2.outputs.branch }} and ${{ steps.run.outputs.x }}")
+})

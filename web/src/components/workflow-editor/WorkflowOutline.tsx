@@ -274,14 +274,24 @@ function Outline(props: WorkflowOutlineProps) {
     apply(() => {
       let working = text
       const taken = [...ids]
-      const added: string[] = []
-      what.steps.forEach((raw, i) => {
+      // The IDs first, then the group's references to its own renamed
+      // steps follow them; a reference to a step not pasted is left alone.
+      const added = what.steps.map(raw => {
         const base = typeof raw.id === "string" && raw.id !== "" ? raw.id : idFromTitle(String(raw.title ?? raw.type ?? "step"), taken)
         let id = base
         for (let n = 2; taken.includes(id); n++) id = `${base}-${n}`
         taken.push(id)
-        added.push(id)
-        working = insertStep(working, (after <= 0 ? placed.length : after) + i, { ...raw, id }).text
+        return id
+      })
+      const renamed = new Map(what.steps.flatMap((raw, i) => typeof raw.id === "string" && raw.id !== added[i] ? [[raw.id, added[i]] as const] : []))
+      const follow = (value: unknown): unknown => {
+        if (typeof value === "string") return renamed.size === 0 ? value : value.replace(/\$\{\{[^}]*\}\}/g, expression => expression.replace(/(\bsteps\.)([^.\s}]+)(?=\.outputs\b)/g, (all, head: string, id: string) => renamed.has(id) ? head + renamed.get(id) : all))
+        if (Array.isArray(value)) return value.map(follow)
+        if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, follow(v)]))
+        return value
+      }
+      what.steps.forEach((raw, i) => {
+        working = insertStep(working, (after <= 0 ? placed.length : after) + i, { ...(follow(raw) as Record<string, unknown>), id: added[i] }).text
       })
       if (added[0]) setTimeout(() => select({ kind: "step", path: added[0] }), 0)
       return { text: working, undo: { label: `Paste ${added.length === 1 ? `step ${added[0]}` : `${added.length} steps`}`, before: text, after: working } }
