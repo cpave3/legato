@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dagre from "@dagrejs/dagre"
 import { Background, BaseEdge, MarkerType, Controls, EdgeLabelRenderer, getBezierPath, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type EdgeProps, type EdgeTypes, type NodeProps, type NodeTypes, type ReactFlowInstance, useReactFlow } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
-import { ArrowRightLeft, BookOpen, Bot, CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleStop, CircleX, SkipForward, Clock, Columns3, FileText, FileX, FolderSearch, FolderX, GitBranch, GitPullRequest, Hand, Hourglass, MessageSquareWarning, MessagesSquare, Repeat, Send, StickyNote, Tag, Trash2, Workflow, type LucideIcon } from "lucide-react"
+import { ArrowRightLeft, BookOpen, Bot, CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleStop, CircleX, SkipForward, Clock, Columns3, FileText, FileX, FolderSearch, FolderX, GitBranch, GitPullRequest, Hand, Hourglass, MessageSquareWarning, MessagesSquare, Repeat, Send, Shrink, StickyNote, Tag, Trash2, Workflow, type LucideIcon } from "lucide-react"
 import { dataEdgeName, gateLabel, keyValueText, nodeName, runStateWords, stepTypeLabel, triggerName, triggerOn, type GraphNode, type GraphNodeExtra, type NodeRunState, type WorkflowGraphModel } from "../../lib/workflowGraph"
 import { toneText } from "../../lib/workflowTones"
 import type { Tone } from "../../lib/workflowView"
@@ -31,6 +31,7 @@ const stepIcons: Record<string, LucideIcon> = {
   "agent.dispatch": Send,
   "agent.interview": MessagesSquare,
   "agent.stop": CircleStop,
+  "agent.compact": Shrink,
   "task.note": StickyNote,
   "task.move": ArrowRightLeft,
   "task.context": FileText,

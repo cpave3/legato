@@ -260,6 +260,8 @@ func stepKey(step Step) GraphKey {
 	switch step.Type {
 	case "agent.run", "agent.dispatch", "agent.interview":
 		return first("macro", "prompt")
+	case "agent.compact":
+		return first("instructions")
 	case "task.move":
 		return first("column")
 	case "github.pr.review_passes", "github.pr.prepare", "github.pr.wait":

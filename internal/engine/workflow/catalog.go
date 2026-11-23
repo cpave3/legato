@@ -325,6 +325,19 @@ var catalog = []ExecutorSpec{
 		Summary: []string{"task"},
 	},
 	{
+		Type: "agent.compact", Group: "Agents", Title: "Compact the task's agent",
+		Description: "Compact a task's running agent with its tool's own compaction, once its turn ends, and wait for the compaction to finish. The step fails when the agent's tool cannot be compacted from Legato, or the agent is still working after 15 minutes.",
+		With: []Field{
+			{Name: "task", Kind: KindTaskOrID, Label: "Task", Description: "The task whose agent to compact, or a task ID: ${{ workflow.task }} for the agent an agent.run step kept", Required: true, Essential: true, Order: 1},
+			{Name: "instructions", Kind: KindText, Label: "What the summary should keep", Description: "Focus instructions for the compaction; Claude Code only, and the step fails when another tool is given them", Essential: true, Order: 2},
+		},
+		Summary: []string{"instructions", "task"},
+		Outputs: []OutputSpec{
+			{Name: "tokens_before", Type: "integer", Description: "The conversation's size before the compaction, when the agent's tool reports it"},
+			{Name: "tokens_after", Type: "integer", Description: "The conversation's size after the compaction, when the agent's tool reports it"},
+		},
+	},
+	{
 		Type: "repo.ensure", Group: "Code", Title: "Prepare a checkout",
 		Description: "Make Legato's copy of a GitHub repository ready for an agent to be cloned from, or pass a directory through when no repository is given.",
 		With: []Field{

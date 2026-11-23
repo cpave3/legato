@@ -37,6 +37,7 @@ const stepTypeLabels: Record<string, string> = {
   "agent.dispatch": "Send to agent",
   "agent.interview": "Interview",
   "agent.stop": "Stop agent",
+  "agent.compact": "Compact agent",
   "task.note": "Note",
   "task.move": "Move card",
   "task.context": "Read card",

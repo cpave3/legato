@@ -197,6 +197,28 @@
           "if": {
             "properties": {
               "type": {
+                "const": "agent.compact"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.agent.compact"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "repo.ensure"
               }
             },
@@ -559,6 +581,7 @@
             "agent.run",
             "agent.dispatch",
             "agent.stop",
+            "agent.compact",
             "repo.ensure",
             "task.context",
             "task.working_dir.resolve",
@@ -766,6 +789,63 @@
         }
       },
       "type": "object"
+    },
+    "with.agent.compact": {
+      "additionalProperties": false,
+      "description": "Compact a task's running agent with its tool's own compaction, once its turn ends, and wait for the compaction to finish. The step fails when the agent's tool cannot be compacted from Legato, or the agent is still working after 15 minutes.",
+      "properties": {
+        "instructions": {
+          "description": "Focus instructions for the compaction; Claude Code only, and the step fails when another tool is given them",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "text",
+            "label": "What the summary should keep",
+            "order": 2
+          }
+        },
+        "task": {
+          "description": "The task whose agent to compact, or a task ID: ${{ workflow.task }} for the agent an agent.run step kept",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "task_or_id",
+            "label": "Task",
+            "order": 1
+          }
+        }
+      },
+      "required": [
+        "task"
+      ],
+      "title": "Compact the task's agent",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Agents",
+        "internal": false,
+        "outputs": [
+          {
+            "description": "The conversation's size before the compaction, when the agent's tool reports it",
+            "name": "tokens_before",
+            "type": "integer"
+          },
+          {
+            "description": "The conversation's size after the compaction, when the agent's tool reports it",
+            "name": "tokens_after",
+            "type": "integer"
+          }
+        ],
+        "summary": [
+          "instructions",
+          "task"
+        ],
+        "type": "agent.compact"
+      }
     },
     "with.agent.dispatch": {
       "additionalProperties": false,
@@ -2509,6 +2589,17 @@
         ],
         "title": "Stop the task's agent",
         "type": "agent.stop"
+      },
+      {
+        "description": "Compact a task's running agent with its tool's own compaction, once its turn ends, and wait for the compaction to finish. The step fails when the agent's tool cannot be compacted from Legato, or the agent is still working after 15 minutes.",
+        "group": "Agents",
+        "internal": false,
+        "summary": [
+          "instructions",
+          "task"
+        ],
+        "title": "Compact the task's agent",
+        "type": "agent.compact"
       },
       {
         "description": "Make Legato's copy of a GitHub repository ready for an agent to be cloned from, or pass a directory through when no repository is given.",

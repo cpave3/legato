@@ -147,6 +147,7 @@ export function stepIntent(step: { executor_type: string; resolved_inputs_json: 
     case "task.move": return task && typeof inputs.column === "string" ? `Moves ${task} to ${inputs.column}.` : null
     case "task.note": return task ? `Adds a note to ${task}.` : null
     case "agent.stop": return task ? `Stops the agent of ${task}.` : null
+    case "agent.compact": return task ? `Compacts the agent of ${task} once its turn ends.` : null
     case "chimera.session.remove": return task ? `Removes the Chimera session of ${task}.` : null
     case "worktree.remove": return typeof inputs.expected_path === "string" && inputs.expected_path ? `Removes the worktree at ${inputs.expected_path}.` : null
   }

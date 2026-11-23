@@ -1083,6 +1083,7 @@ func runServeCmd(args []string) int {
 	approvalsRT.captureConversationText(db, bus, agentSvc)
 	approvalsRT.trackAgentBranches(db, prSvc)
 	defer approvalsRT.stop()
+	defer approvalsRT.compactWaits(workflowSvc)()
 	approvalsRT.attach(srv)
 	updates := newUpdateService(db, bus, agentSvc, serveRestarter())
 	serveReviewPrompt := newReviewPrompt(cfg, db, workflowSvc)
@@ -1445,6 +1446,7 @@ func runTUI() int {
 	approvalsRT.captureConversationText(db, bus, agentSvc)
 	approvalsRT.trackAgentBranches(db, prSvc)
 	defer approvalsRT.stop()
+	defer approvalsRT.compactWaits(tuiWorkflowSvc)()
 
 	// Auto-start web server if configured and port is free.
 	stopAnnouncing := func() {}
