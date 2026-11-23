@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AgentEnsemble, ENSEMBLE_LAYOUT_KEY } from "../AgentEnsemble"
 import type { AgentInfo } from "../../hooks/useWebSocket"
+import type { Approval } from "../../lib/approvals"
+import { getRailStateForTests as railState } from "../../lib/railState"
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
@@ -189,7 +191,7 @@ describe("the cards in the stage bands", () => {
   it("puts what a waiting agent asks in a needs box, with Allow and Deny", () => {
     const onDecide = vi.fn()
     const approval = {
-      id: "ap-1", source: "native", source_key: "", task_id: "LEG-409", title: "Run go test ./...", details: { command: "go test ./..." },
+      id: "ap-1", source: "agent_permission", source_key: "", task_id: "LEG-409", title: "Run a command", summary: "go test ./...", details: { command: "go test ./..." },
       options: [{ id: "once", label: "Allow once", kind: "allow" as const }, { id: "no", label: "Deny", kind: "deny" as const }],
       blocking: true, status: "pending", revision: 1, created_at: "",
     }
@@ -197,11 +199,76 @@ describe("the cards in the stage bands", () => {
     const shown = card("LEG-409")
     expect(within(shown).getByText("◆ Needs you")).toBeTruthy()
     const box = within(shown).getByRole("group", { name: "Needs you" })
-    expect(within(box).getByText("Run go test ./...")).toBeTruthy()
+    // What will run, not only the approval's generic title.
+    expect(within(box).getByText("Run a command")).toBeTruthy()
+    expect(within(box).getByText("go test ./...")).toBeTruthy()
     fireEvent.click(within(box).getByRole("button", { name: "Allow" }))
     expect(onDecide).toHaveBeenCalledWith(approval, { decision: "allow", option: "once" })
     fireEvent.click(within(box).getByRole("button", { name: "Deny" }))
     expect(onDecide).toHaveBeenLastCalledWith(approval, { decision: "deny" })
+  })
+
+  const pending = (fields: Partial<Approval>): Approval => ({
+    id: "ap-1", source: "agent_permission", source_key: "", task_id: "LEG-409", title: "Run a command", details: {},
+    options: [{ id: "once", label: "Allow once", kind: "allow" }, { id: "no", label: "Deny", kind: "deny" }],
+    blocking: true, status: "pending", revision: 1, created_at: "", ...fields,
+  })
+
+  it("shows the plan an approval asks to approve before Allow", () => {
+    const approval = pending({ title: "Approve a plan", details: { plan: "# Plan\n\n1. Add the band" } })
+    render(<AgentEnsemble agents={[native("LEG-409", "planning", "needs_you", { activity: "waiting" })]} approvals={[approval]} onDecide={vi.fn()} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    const box = within(card("LEG-409")).getByRole("group", { name: "Needs you" })
+    expect(box.textContent).toContain("1. Add the band")
+  })
+
+  it("puts each slot's approval on its own card, by the execution that asked", () => {
+    const reviewers = pending({ id: "ap-r", execution_id: "ex-r", summary: "gh pr view 12", details: { command: "gh pr view 12", slot: "reviewer" } })
+    const authors = pending({ id: "ap-m", execution_id: "ex-m", summary: "go test ./...", details: { command: "go test ./..." } })
+    const onDecide = vi.fn()
+    render(<AgentEnsemble agents={[
+      native("LEG-409", "implementing", "needs_you", { activity: "waiting", execution_id: "ex-m" }),
+      native("LEG-409_reviewer", "implementing", "needs_you", { activity: "waiting", execution_id: "ex-r", card_task_id: "LEG-409", slot: "reviewer" }),
+    ]} approvals={[reviewers, authors]} onDecide={onDecide} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    const author = within(card("LEG-409")).getByRole("group", { name: "Needs you" })
+    expect(author.textContent).toContain("go test ./...")
+    fireEvent.click(within(author).getByRole("button", { name: "Allow" }))
+    expect(onDecide).toHaveBeenCalledWith(authors, { decision: "allow", option: "once" })
+    const reviewer = within(card("LEG-409_reviewer")).getByRole("group", { name: "Needs you" })
+    expect(reviewer.textContent).toContain("gh pr view 12")
+  })
+
+  it("matches a slot's approval by task and slot from a server without execution IDs", () => {
+    const reviewers = pending({ id: "ap-r", summary: "gh pr view 12", details: { command: "gh pr view 12", slot: "reviewer" } })
+    render(<AgentEnsemble agents={[
+      native("LEG-409", "implementing", "needs_you", { activity: "waiting" }),
+      native("LEG-409_reviewer", "implementing", "needs_you", { activity: "waiting", card_task_id: "LEG-409", slot: "reviewer" }),
+    ]} approvals={[reviewers]} onDecide={vi.fn()} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    expect(within(card("LEG-409")).queryByRole("button", { name: "Allow" })).toBeNull()
+    expect(within(card("LEG-409_reviewer")).getByRole("button", { name: "Allow" })).toBeTruthy()
+  })
+
+  it("sends a signed approval, or one that is not an agent's permission, to the approval itself", () => {
+    const onDecide = vi.fn()
+    render(<AgentEnsemble agents={[native("LEG-409", "implementing", "needs_you", { activity: "waiting" })]}
+      approvals={[pending({ source: "credential", signed: true, title: "Use the GitHub token", details: { credential: "github", operations: ["push"] } })]}
+      onDecide={onDecide} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    const box = within(card("LEG-409")).getByRole("group", { name: "Needs you" })
+    expect(within(box).queryByRole("button", { name: "Allow" })).toBeNull()
+    fireEvent.click(within(box).getByRole("button", { name: "Answer" }))
+    expect(railState().wanted).toBe("ap-1")
+    expect(onDecide).not.toHaveBeenCalled()
+  })
+
+  it("shows a terminal agent's terminal, and says when it could not be read", async () => {
+    apiFetch.mockImplementation(async (_baseUrl: string, path: string) => path.includes("/LEG-500/preview")
+      ? new Response(JSON.stringify({ task_id: "LEG-500", content: "$ make build\nok  ./...\n", captured_at: "now" }), { status: 200 })
+      : new Response("no", { status: 500 }))
+    render(<AgentEnsemble agents={[
+      agent("LEG-500", "implementing", "working", { activity: "working" }),
+      agent("LEG-501", "implementing", "your_turn"),
+    ]} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    expect((await within(card("LEG-500")).findByLabelText("Now")).textContent).toBe("ok  ./...")
+    expect(await within(card("LEG-501")).findByText("Could not read this agent's terminal.")).toBeTruthy()
   })
 
   it("offers a plan to review when that is what waits", () => {

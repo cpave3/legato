@@ -229,7 +229,7 @@ function StageBand({ stage, agents, contexts, approvals, onDecide, onOpen, onSen
                 key={agent.task_id}
                 agent={agent}
                 context={contexts[agent.task_id]}
-                approval={approvals.find((approval) => approval.task_id === agent.task_id)}
+                approval={approvalFor(agent, approvals)}
                 onDecide={onDecide}
                 onOpen={onOpen}
                 onSend={onSend}
@@ -262,6 +262,35 @@ function glanceOf(agent: AgentInfo): { glyph: string; word: string; tone: string
   }
 }
 
+// approvalFor is the pending approval of the agent a card names: by the
+// execution that asked, else by its task and slot (a named slot's agent is
+// <task>_<slot>, its approval the task's with the slot in its details).
+function approvalFor(agent: AgentInfo, approvals: Approval[]): Approval | undefined {
+  const byExecution = agent.execution_id ? approvals.find((approval) => approval.execution_id === agent.execution_id) : undefined
+  if (byExecution) return byExecution
+  const task = agent.card_task_id || agent.task_id
+  const slot = agent.slot && agent.slot !== "main" ? agent.slot : ""
+  return approvals.find((approval) => {
+    if (agent.execution_id && approval.execution_id) return false
+    const approvalSlot = typeof approval.details.slot === "string" ? approval.details.slot : ""
+    return approval.task_id === task && approvalSlot === slot
+  })
+}
+
+// What an approval asks to allow, beyond its title: a command (or target)
+// as code, and a plan or the resources and operations as text.
+function approvalContent(approval: Approval): { command: string; text: string } {
+  const d = approval.details
+  const command = d.command || d.target || (d.plan ? "" : approval.summary ?? "")
+  const scope = [d.credential, d.operations?.join(", "), d.resources?.join(", ")].filter(Boolean).join(" · ")
+  const text = d.plan ? plainText(d.plan) : scope
+  return { command: command === approval.title ? "" : command, text }
+}
+
+function couldNotRead(agent: AgentInfo): string {
+  return agent.has_chimera_endpoint ? "Could not read this agent's conversation." : "Could not read this agent's terminal."
+}
+
 const cardButton = "h-[30px] shrink-0 rounded-md border border-lw-line-strong bg-lw-raised px-3 text-xs text-lw-text hover:border-[var(--theme-border,#4a4955)]"
 
 // StageCard is an agent in a stage band, light enough to scan: the glance
@@ -277,9 +306,12 @@ function StageCard({ agent, context, approval, onDecide, onOpen, onSend }: {
   onOpen: (taskId: string) => void
   onSend?: (taskId: string, content: string) => void
 }) {
-  const { conversation, observe } = useAgentGlance(agent)
+  const { conversation, pane, failed, observe } = useAgentGlance(agent)
   const glance = glanceOf(agent)
   const section = glanceSection(agent)
+  // A terminal agent has no conversation: what its terminal shows stands in.
+  const paneLines = pane ? pane.split("\n").map((line) => line.trimEnd()).filter(Boolean) : []
+  const unread = failed && !conversation && pane === null
   const needs = section === "needs-you"
   const working = section === "working"
   const time = formatAgentTime(stateSeconds(agent))
@@ -290,17 +322,19 @@ function StageCard({ agent, context, approval, onDecide, onOpen, onSend }: {
   if (needs) {
     body = <NeedsBox agent={agent} conversation={conversation} approval={approval} onDecide={onDecide} onOpen={onOpen} />
   } else if (working) {
-    const now = nowLine(agent, conversation)
-    body = (
-      <p aria-label="Now" className="m-0 truncate font-lw-mono text-[11px] leading-4 text-lw-text-2">
-        {now ? <>{now.tool && <span className="text-lw-link">{now.tool}</span>}{now.tool && " "}{now.text}</> : "Working…"}
-      </p>
-    )
+    const now = nowLine(agent, conversation) ?? (paneLines.length > 0 ? { tool: "", text: paneLines[paneLines.length - 1] } : null)
+    body = unread && !now
+      ? <Quiet>{couldNotRead(agent)}</Quiet>
+      : (
+        <p aria-label="Now" className="m-0 truncate font-lw-mono text-[11px] leading-4 text-lw-text-2">
+          {now ? <>{now.tool && <span className="text-lw-link">{now.tool}</span>}{now.tool && " "}{now.text}</> : "Working…"}
+        </p>
+      )
   } else {
     const reply = conversation ? newestReply(conversation) : null
-    body = reply
-      ? <blockquote className="m-0 line-clamp-4 whitespace-pre-line border-l-2 border-lw-line-strong pl-2.5 text-[13px] leading-5 text-lw-text">{reply}</blockquote>
-      : <Quiet>No reply yet.</Quiet>
+    if (reply) body = <blockquote className="m-0 line-clamp-4 whitespace-pre-line border-l-2 border-lw-line-strong pl-2.5 text-[13px] leading-5 text-lw-text">{reply}</blockquote>
+    else if (paneLines.length > 0) body = <pre className="m-0 overflow-hidden whitespace-pre font-lw-mono text-[11px] leading-4 text-lw-text-2">{paneLines.slice(-4).join("\n")}</pre>
+    else body = <Quiet>{unread ? couldNotRead(agent) : "No reply yet."}</Quiet>
   }
 
   return (
@@ -364,8 +398,14 @@ function NeedsBox({ agent, conversation, approval, onDecide, onOpen }: {
     || (permission ? (permission.plan ? "Asks you to approve a plan" : `Wants to run: ${permission.command || permission.reason || permission.tool}`) : "")
     || question?.text
     || (agent.plan_pending ? "Plan to approve" : needsYouReason(agent))
-  const allow = approval?.options.find((option) => option.kind === "allow")
-  const deny = approval?.options.find((option) => option.kind === "deny")
+  // What the approval would allow, which its title does not say: the
+  // command, the plan, the target.
+  const shown = approval ? approvalContent(approval) : { command: "", text: "" }
+  // Only an agent's own permission is decided here, and never one that must
+  // be signed: the rest open the approval, where the operator sees all of it.
+  const inline = approval?.source === "agent_permission" && !approval.signed
+  const allow = inline ? approval?.options.find((option) => option.kind === "allow") : undefined
+  const deny = inline ? approval?.options.find((option) => option.kind === "deny") : undefined
   const primary = "h-[30px] shrink-0 rounded-md bg-lw-accent px-3 text-xs font-medium text-[var(--theme-canvas,#fff)] hover:brightness-110"
   let actions: ReactNode
   if (approval && onDecide && allow && deny) {
@@ -381,6 +421,8 @@ function NeedsBox({ agent, conversation, approval, onDecide, onOpen }: {
   return (
     <div role="group" aria-label="Needs you" className="flex flex-col gap-2 rounded-md border border-[var(--theme-border,#4a3a1a)] bg-lw-needs-soft/40 px-2.5 py-2">
       <p className="m-0 line-clamp-4 whitespace-pre-line text-xs leading-[18px] text-lw-text">{asked}</p>
+      {shown.command && <code className="line-clamp-3 whitespace-pre-wrap break-all rounded bg-lw-ground px-2 py-1 font-lw-mono text-[11px] text-lw-needs">{shown.command}</code>}
+      {shown.text && <p className="m-0 line-clamp-6 whitespace-pre-line text-xs leading-[18px] text-lw-text-2">{shown.text}</p>}
       <div className="flex flex-wrap items-center gap-2">
         {actions}
         <button type="button" aria-label={`Open ${agent.task_id}`} onClick={() => onOpen(agent.task_id)} className={cardButton}>Open</button>
