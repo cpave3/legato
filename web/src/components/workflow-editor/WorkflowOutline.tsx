@@ -304,7 +304,8 @@ function Outline(props: WorkflowOutlineProps) {
   const stepRow = (row: Row) => {
     if (row.selection.kind !== "step" || (row.depth ?? 0) > 0) return <li key={addressOf(row.selection)} className="pl-6">{rowButton(row, true)}</li>
     const id = row.selection.path
-    const index = placed.findIndex(step => step?.id === id || (step?.id === undefined && id.startsWith("#")))
+    // A step with no ID is #<index>, its place (stepNodes).
+    const index = /^#\d+$/.test(id) ? Number(id.slice(1)) : placed.findIndex(step => step?.id === id)
     const step = (placed[index] ?? {}) as StepValue
     const connector = connectorOf(placed.map(p => (p ?? {}) as Record<string, unknown>), index)
     const title = row.label

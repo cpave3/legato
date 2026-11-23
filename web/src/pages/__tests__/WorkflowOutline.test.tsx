@@ -387,3 +387,11 @@ it("asks before deleting a step another reads", async () => {
   fireEvent.click(within(ask).getByRole("button", { name: "Keep it" }))
   expect((await yamlOf()).match(/- id: \S+/g)).toEqual(["- id: prep", "- id: run", "- id: note", "- id: ok"])
 })
+
+it("duplicates the ID-less step whose row it is", async () => {
+  fileYaml = fileText.replace(/steps:\n[\s\S]*$/, "steps:\n  - title: First\n    type: task.note\n    with: {body: one}\n  - title: Second\n    type: task.note\n    with: {body: two}\n")
+  renderAt()
+  fireEvent.click(await screen.findByRole("button", { name: "Actions for step #1" }))
+  fireEvent.click(within(screen.getByRole("menu", { name: "Step #1" })).getByRole("menuitem", { name: "Duplicate" }))
+  expect((await yamlOf()).match(/title: \S+/g)).toEqual(["title: Review", "title: First", "title: Second", "title: Second"])
+})
