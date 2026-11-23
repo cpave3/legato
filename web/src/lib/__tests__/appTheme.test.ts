@@ -84,3 +84,11 @@ it("preserves the pre-refinement terminal palettes, neutral layers and Dracula U
     }
   }
 })
+
+it.each<AppThemeId>(["ocular-light", "ocular-dark", "dracula", "ocular-light-vivid", "ocular-dark-vivid"])("tells a stage track's lit bars from its unlit ones in %s", id => {
+  setAppTheme(id)
+  const style = document.documentElement.style
+  const off = style.getPropertyValue("--color-lw-track-off")
+  expect(off).not.toBe("")
+  expect(contrast(style.getPropertyValue("--color-lw-text"), off)).toBeGreaterThanOrEqual(3)
+})

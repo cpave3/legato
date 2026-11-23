@@ -52,7 +52,7 @@ describe("AwayLane", () => {
     [{ view: "starting" }, "Starting", undefined],
     [{ view: "working", activity: "working" }, "Running", undefined],
     [{ view: "needs_you", activity: "waiting" }, "Needs you", "needs"],
-    [{ view: "idle" }, "Idle", undefined],
+    [{ view: "idle" }, "On vm-1", undefined],
     [{ view: "ended" }, "Agent ended", undefined],
     [{ view: "interrupted" }, "Interrupted on worker", "needs"],
     [{ view: "done", state: "done" }, "Done", undefined],

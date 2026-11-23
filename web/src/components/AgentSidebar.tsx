@@ -10,8 +10,9 @@ import { ActivityBar, ContextMeter } from "./AgentMeters";
 import { isAgentToolInForeground } from "../lib/agentKind";
 import { agentSections, formatAgentTime, sectionLabels, stateSeconds, type AgentListSection } from "../lib/agentList";
 import { agentGroupLayout, type AgentGroupBlock } from "../lib/agentGroups";
-import { filterByStage, glanceSection, needsYouOutside, stageCounts, stageLabel, unreadDone, workStages, type GlanceSection, type WorkStage } from "../lib/agentStage";
-import { NeedsYouLine, StageLine, StagePie } from "./StagePie";
+import { filterByStage, glanceSection, needsYouOutside, stageLabel, unreadDone, type GlanceSection, type WorkStage } from "../lib/agentStage";
+import { FinishedReason, NeedsYouLine, StageLine } from "./StageTrack";
+import { StageMenu } from "./StageMenu";
 
 interface AgentSidebarProps {
   agents: AgentInfo[];
@@ -34,7 +35,7 @@ interface AgentSidebarProps {
   // Lists the agents by group (useAgentGroups); without it, by status.
   grouping?: AgentGrouping;
   // The stage the list is filtered to (null for all), and how it changes;
-  // without onStageFilter the list has no stage chips.
+  // without onStageFilter the list has no Stage menu.
   stageFilter?: WorkStage | null;
   onStageFilter?: (stage: WorkStage | null) => void;
 }
@@ -71,9 +72,12 @@ export function AgentSidebar({
   // The Reeve's agent is pinned on its own, above the groups, and has no
   // stage.
   const all = reeve ? agents.filter((a) => !a.reeve) : agents;
+  // Every count leaves the Reeve out, listed or not.
+  const counted = agents.filter((a) => !a.reeve);
   const filter = onStageFilter ? stageFilter : null;
   const listed = filterByStage(all, filter);
   const outside = needsYouOutside(all, filter);
+  const shownCount = filterByStage(counted, filter).length;
   const grouped = grouping?.mode === "group";
   // The agent being dragged to another group.
   const [dragging, setDragging] = useState<string | null>(null);
@@ -101,10 +105,11 @@ export function AgentSidebar({
   return (
     <div aria-label="Agent sessions" className="flex w-[264px] max-w-full shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-[var(--theme-border,#222228)] bg-[var(--theme-surface,#141417)] font-lw text-[13px] leading-5 text-lw-text">
       <div className="flex items-center justify-between px-3.5 pb-2.5 pt-3.5">
-        <span className="font-semibold">
-          Agents <span className="font-normal text-lw-faint">{agents.length}</span>
+        <span data-testid="agent-count" className="font-semibold">
+          Agents <span className="font-normal text-lw-faint">{filter ? `${shownCount} of ${counted.length}` : counted.length}</span>
         </span>
         <div className="flex items-center gap-1">
+          {onStageFilter && <StageMenu agents={counted} filter={filter} onFilter={onStageFilter} className="mr-0.5" />}
           {grouping && (
             <button
               onClick={() => grouping.setMode(grouped ? "status" : "group")}
@@ -146,12 +151,9 @@ export function AgentSidebar({
         </div>
       </div>
 
-      {onStageFilter && (
-        <StageChips agents={all} filter={filter} onFilter={onStageFilter} />
-      )}
       {outside > 0 && (
         <div role="status" className="mx-3 mb-2 flex items-center justify-between gap-2 rounded-md border border-lw-line bg-lw-raised px-2.5 py-1.5 text-xs text-lw-needs">
-          <span>{outside} need{outside === 1 ? "s" : ""} you outside this filter</span>
+          <span>◆ {outside} need{outside === 1 ? "s" : ""} you outside this filter</span>
           <button type="button" onClick={() => onStageFilter?.(null)} className="shrink-0 font-medium text-lw-link hover:underline">Show</button>
         </div>
       )}
@@ -191,36 +193,6 @@ export function AgentSidebar({
           ))
         )}
       </div>
-    </div>
-  );
-}
-
-// StageChips filter the list by stage: All, then each stage with its count.
-function StageChips({ agents, filter, onFilter }: { agents: AgentInfo[]; filter: WorkStage | null; onFilter: (stage: WorkStage | null) => void }) {
-  const counts = stageCounts(agents);
-  const chip = (stage: WorkStage | null, count: number) => {
-    const on = filter === stage;
-    return (
-      <button
-        key={stage ?? "all"}
-        type="button"
-        aria-pressed={on}
-        onClick={() => onFilter(stage)}
-        className={cn(
-          "flex h-6 items-center gap-1 rounded-full border px-2 text-[11px] font-medium",
-          on ? "border-lw-accent bg-lw-selected text-lw-text" : "border-lw-line bg-lw-raised text-lw-text hover:border-lw-line-strong",
-        )}
-      >
-        {stage && <StagePie stage={stage} size={10} label="" />}
-        {stage ? stageLabel(stage) : "All"}
-        <span className="font-lw-mono font-normal text-lw-text-2">{count}</span>
-      </button>
-    );
-  };
-  return (
-    <div role="group" aria-label="Filter by stage" className="flex flex-wrap gap-1 px-3 pb-2.5">
-      {chip(null, agents.length)}
-      {workStages.map((stage) => chip(stage, counts[stage]))}
     </div>
   );
 }
@@ -446,7 +418,8 @@ function AgentEntry({
             : time && <span className="ml-auto shrink-0 text-xs text-lw-text-2">{time}</span>}
         </div>
         {agent.task_title && <span className="truncate">{agent.task_title}</span>}
-        <StageLine agent={agent} />
+        {/* Under Finished the group names the stage: a row gives only why. */}
+        {finished ? <FinishedReason agent={agent} unread={unread} /> : <StageLine agent={agent} />}
         <NeedsYouLine agent={agent} />
         <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-lw-text-2">
           <span className="flex min-w-0 items-center gap-1.5">
@@ -476,3 +449,4 @@ function AgentEntry({
     </div>
   );
 }
+

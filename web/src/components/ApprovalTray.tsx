@@ -16,7 +16,6 @@ import type { NativeQuestion } from "../lib/nativeAgentSync"
 import { QuestionFocus } from "./QuestionFocus"
 import { approvalQuestions } from "../lib/questionDrafts"
 import { setFocusMode, useFocusMode } from "../lib/focusMode"
-import { railEdgeStyle, useRailState } from "../lib/railState"
 
 // Shows something while open, and for a moment after, so it can fade in and
 // out: mounted while it is on screen at all, visible while it is meant to be.
@@ -44,7 +43,6 @@ function useFade(open: boolean, ms = 300) {
 export function ApprovalFocus() {
   const { data: approvals, refresh } = useApprovals()
   const focusMode = useFocusMode()
-  const rail = useRailState()
   const asking = approvals.filter((approval) => approvalQuestions(approval).length > 0)
   const focusOpen = focusMode && asking.length > 0
   const fade = useFade(focusOpen)
@@ -70,18 +68,6 @@ export function ApprovalFocus() {
           className={`fixed inset-0 z-50 transition-[opacity,transform] duration-300 ease-out motion-reduce:transition-none ${fade.visible ? "scale-100 opacity-100" : "pointer-events-none scale-[0.985] opacity-0"}`}
         >
           <QuestionFocus approvals={asking.length > 0 ? asking : lastAsking} waiting={approvals.length} onLeave={leaveFocus} onDone={refresh} />
-        </div>,
-        document.body,
-      )}
-      {focusMode && !focusOpen && approvals.length === 0 && createPortal(
-        <div
-          role="status"
-          style={railEdgeStyle(rail)}
-          className="fixed inset-x-2 top-[calc(env(safe-area-inset-top)+4.25rem)] z-40 flex items-center gap-3 rounded-xl border border-lw-accent-ring bg-lw-surface py-2 pl-4 pr-2 font-lw text-sm text-lw-text shadow-2xl md:inset-x-auto md:right-[var(--lw-rail-offset)] md:max-w-md"
-        >
-          <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-lw-link" />
-          <span className="min-w-0 flex-1">Focus is on. It opens again when a question comes in.</span>
-          <button onClick={leaveFocus} className="min-h-11 shrink-0 rounded-lg border border-lw-line-strong px-3 hover:bg-lw-raised md:min-h-9">Leave focus</button>
         </div>,
         document.body,
       )}

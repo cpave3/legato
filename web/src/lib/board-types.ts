@@ -55,6 +55,10 @@ export interface BoardCard {
   // moves the card.
   stage?: string
   stage_reason?: string
+  // The main slot's agent's glance group (needs_you, your_turn, working,
+  // finished), which the strip leads with; absent with no main agent or
+  // from an older server.
+  glance?: string
   working_seconds: number
   waiting_seconds: number
   error_seconds: number

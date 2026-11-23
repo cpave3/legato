@@ -5,6 +5,7 @@ import { useServer } from "../hooks/useServer"
 import { PlanApprovalModal } from "./PlanApprovalModal"
 import { OfflineDialog } from "./OfflineDialog"
 import { ApprovalFocus } from "./ApprovalTray"
+import { FocusNoticeProvider, FocusStandby } from "./FocusNotice"
 import { useApprovalLink } from "../hooks/useApprovalLink"
 import { NeedsYouSheet } from "./needsYou/NeedsYouSheet"
 import { useRailState } from "../lib/railState"
@@ -74,6 +75,7 @@ export function Layout() {
   return (
     <ReeveNameContext.Provider value={settings?.reeve_name ?? ""}>
     <AgentSelectionProvider>
+    <FocusNoticeProvider>
       <div className="flex h-dvh w-full overflow-hidden">
       <TintBand tint={tint} />
       <NavRail sections={sections} connected={connected} servers={servers} activeServerName={activeServerName} baseUrl={baseUrl} onSwitchServer={setActiveServer} tint={tint} />
@@ -86,6 +88,7 @@ export function Layout() {
             <SetupChip baseUrl={baseUrl} summary={settings.setup} />
           </div>
         )}
+        {focusMode && <FocusStandby />}
         <MainWidthContext.Provider value={mainWidth}>
           <Outlet />
         </MainWidthContext.Provider>
@@ -116,6 +119,7 @@ export function Layout() {
       <PlanApprovalModal />
       <VoiceLauncher baseUrl={baseUrl} />
       </div>
+    </FocusNoticeProvider>
     </AgentSelectionProvider>
     </ReeveNameContext.Provider>
   )

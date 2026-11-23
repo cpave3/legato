@@ -97,7 +97,7 @@ export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, o
         {card.priority && <Property label="Priority"><span className={priorityTone(card.priority)}>{card.priority}</span></Property>}
         {card.issue_type && <Property label="Type">{card.issue_type}</Property>}
         <Property label="Workspace">{card.workspace_name || <span className="text-lw-text-2">Unassigned</span>}</Property>
-        {!card.away && <Property label="Agent">{look ? <span className={look.tone}>{look.label}</span> : <span className="text-lw-text-2">None yet</span>}</Property>}
+        {!card.away && <Property label="Agent">{look ? <span className={look.tone}>{look.tool ? `${look.label} · ${look.tool}` : look.label}</span> : <span className="text-lw-text-2">None yet</span>}</Property>}
         {!card.agent_active && spent && <Property label="Agent time"><span className="text-lw-text-2">{spent}</span></Property>}
         {!card.away && pullRequests.length > 0 && <Property label={pullRequests.length === 1 ? "Pull request" : "Pull requests"}>
           <ul aria-label="Pull requests" className="m-0 flex list-none flex-col gap-0.5 p-0">

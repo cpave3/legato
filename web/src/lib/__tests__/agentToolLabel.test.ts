@@ -10,8 +10,9 @@ describe("an agent's engram beside its tool", () => {
     expect(agentToolLabel("codex", "")).toBe("Codex")
   })
 
-  it("shows on a running card", () => {
+  it("is the tool a running card's strip names in its tooltip, not its words", () => {
     const card = { agent_state: "working", agent_kind: "claude-code", agent_engram: "hestia", working_seconds: 0 } as unknown as BoardCard
-    expect(agentStripLook(card).label).toBe("Running · Claude Code · hestia")
+    expect(agentStripLook(card).tool).toBe("Claude Code · hestia")
+    expect(agentStripLook(card).label).toBe("Working")
   })
 })

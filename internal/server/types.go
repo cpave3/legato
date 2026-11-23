@@ -68,8 +68,12 @@ type CardResponse struct {
 	SlotAgents []service.SlotAgentSummary `json:"slot_agents,omitempty"`
 	// Stage and StageReason are the main slot's agent's stage (see
 	// docs/ai/agent-states.md § Stages); a stage never moves the card.
-	Stage          string  `json:"stage,omitempty"`
-	StageReason    string  `json:"stage_reason,omitempty"`
+	Stage       string `json:"stage,omitempty"`
+	StageReason string `json:"stage_reason,omitempty"`
+	// Glance is the main slot's agent's glance group (service.Glance:
+	// needs_you, your_turn, working, finished), which the card's strip
+	// leads with; absent with no main agent.
+	Glance         string  `json:"glance,omitempty"`
 	WorkingSeconds float64 `json:"working_seconds"`
 	WaitingSeconds float64 `json:"waiting_seconds"`
 	ErrorSeconds   float64 `json:"error_seconds"`

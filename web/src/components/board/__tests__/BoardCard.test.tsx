@@ -85,22 +85,24 @@ describe("BoardCard", () => {
     expect(title.className).toContain("max-md:line-clamp-3")
   })
 
-  it("shows a running agent's tool and how long it has worked", () => {
+  it("says a running agent is working and how long it has worked, its tool only in the tooltip", () => {
     renderCard(makeCard())
-    expect(within(strip()).getByText("Running · Claude Code")).toBeTruthy()
+    expect(within(strip()).getByText("Working")).toBeTruthy()
+    expect(within(strip()).queryByText(/Claude Code/)).toBeNull()
+    expect(strip().getAttribute("title")).toBe("Claude Code")
     expect(within(strip()).getByText("1h 1m")).toBeTruthy()
   })
 
   it.each([
     ["waiting", "Needs you", "2m"],
     ["error", "Error", ""],
-    ["background", "Background", ""],
+    ["background", "Working · background", ""],
     ["mixed", "Agents disagree", ""],
-    ["", "Idle · Claude Code", "1h 3m"],
+    ["", "Your turn", "1h 3m"],
   ])("says what an agent in state %j is doing", (state, label, time) => {
     renderCard(makeCard({ agent_state: state }))
     expect(within(strip()).getByText(label)).toBeTruthy()
-    expect(within(strip()).queryByText(/Running/)).toBeNull()
+    expect(within(strip()).queryByText(/Running|Idle/)).toBeNull()
     if (time) expect(within(strip()).getByText(time)).toBeTruthy()
   })
 
@@ -135,7 +137,8 @@ describe("BoardCard", () => {
     expect(within(strips[0] as HTMLElement).getByText("Reviewer needs you · question")).toBeTruthy()
     fireEvent.click(within(strips[0] as HTMLElement).getByRole("button", { name: "Answer" }))
     expect(railState().wanted).toBe("ap-r")
-    expect(within(strip()).getByText("Running · Claude Code · hestia")).toBeTruthy()
+    expect(within(strip()).getByText("Working")).toBeTruthy()
+    expect(strip().getAttribute("title")).toBe("Claude Code · hestia")
     expect(within(strip()).getByText("1h 1m")).toBeTruthy()
     expect(within(strip()).queryByText(/reviewer/)).toBeNull()
   })
@@ -145,7 +148,8 @@ describe("BoardCard", () => {
     const needs = screen.getByTestId("needs-you-strip")
     expect(within(needs).getByText("1 of 2 agents needs you")).toBeTruthy()
     expect(within(needs).getByRole("link", { name: "Open" }).getAttribute("href")).toBe("/agents?task=T-1")
-    expect(within(strip()).getByText("1 running · Codex")).toBeTruthy()
+    expect(within(strip()).getByText("1 working")).toBeTruthy()
+    expect(strip().getAttribute("title")).toBe("Codex")
     expect(screen.queryByText("Agents disagree")).toBeNull()
   })
 
@@ -408,7 +412,7 @@ describe("BoardCard in a long column", () => {
   it("shows a chip for each running named slot beside the main agent", () => {
     renderCard(makeCard({ slot_agents: [{ slot: "reviewer", state: "working" }] }))
     const strip = screen.getByTestId("agent-strip")
-    expect(strip.textContent).toContain("Running")
-    expect(within(strip).getByText("reviewer · running")).toBeTruthy()
+    expect(strip.textContent).toContain("Working")
+    expect(within(strip).getByText("reviewer ● working")).toBeTruthy()
   })
 })

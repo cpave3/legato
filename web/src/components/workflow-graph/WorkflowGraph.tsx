@@ -124,8 +124,8 @@ function TriggerNode({ data, selected }: NodeProps<FlowNode>) {
       <span className="truncate font-medium" title={trigger.summary}>{trigger.summary || triggerName(trigger.kind)}</span>
       {data.extra?.trigger === "started" && <span className="text-[11px] font-medium text-lw-accent-text">Started this run</span>}
       {!manual && !inRun && <span className="flex items-center gap-1.5 text-[11px] text-lw-text-2">
-        <span aria-hidden="true" className={cn("h-1.5 w-1.5 rounded-full", on ? "bg-lw-done" : "bg-lw-faint")} />
-        <span className={on ? "text-lw-done" : undefined}>{on ? "on here" : "paused here"}</span>
+        <span aria-hidden="true" className={cn("h-1.5 w-1.5 rounded-full", on ? "bg-lw-live" : "bg-lw-faint")} />
+        <span className={on ? "text-lw-live" : undefined}>{on ? "on here" : "paused here"}</span>
         {trigger.max_runs_per_day ? <span title={`Loop stop: ${trigger.max_runs_per_day} runs per item per day`} className="rounded border border-lw-line px-1 font-lw-mono text-[10px]">{trigger.max_runs_per_day}/day</span> : null}
       </span>}
     </span>

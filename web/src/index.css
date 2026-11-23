@@ -21,6 +21,8 @@
   --color-lw-text: #e6e5eb;
   --color-lw-text-2: #9a99a5;
   --color-lw-faint: #9a99a5;
+  /* the unlit bars of a stage track */
+  --color-lw-track-off: #3a3a44;
 
   --color-lw-accent: #6d5ef6;
   --color-lw-accent-ring: #4f46b8;

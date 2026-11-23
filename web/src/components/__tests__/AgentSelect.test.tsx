@@ -28,7 +28,8 @@ describe("AgentSelect", () => {
   it("tells an agent waiting on background work from an idle one", () => {
     // Scoped to this render: the file's tests share one document.
     const view = within(render(<AgentSelect agents={[{ ...errorAgent, activity: "background" }]} selectedId="task-error" onSelect={() => {}} />).container)
-    expect(view.getByTitle("Background work running").className).toContain("bg-lw-done")
+    // Drawn as Working is: done blue is Finished's alone.
+    expect(view.getByTitle("Background work running").className).not.toContain("lw-done")
     fireEvent.click(view.getByRole("button", { name: /^Agent:/ }))
     const list = view.getByRole("group", { name: "Running agents" })
     // Not idle: it is working on what it started.

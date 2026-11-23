@@ -50,6 +50,8 @@ export function themeVariables(t: ThemeTokens, material: ThemeMaterial): Record<
     live: ink.success, "live-soft": m.successSurface, needs: ink.warning, "needs-soft": m.warningSurface,
     done: ink.info, "done-soft": m.infoSurface, error: ink.error, "error-soft": m.errorSurface,
     "idle-soft": m.panel, danger: ink.error, "danger-line": t.border, record: ink.error,
+    // A stage track's unlit bars: quiet against the ground, in either polarity.
+    "track-off": m.divider,
   }
   const vars = Object.fromEntries(Object.entries(roles).map(([role, value]) => [`--color-lw-${role}`, value]))
   vars["--shadow-lw-panel"] = material.panelShadow

@@ -998,7 +998,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
                     <p className="whitespace-pre-wrap text-sm leading-[23px] text-lw-text">{scene.heard || scene.says || "The take has no transcript yet."}</p>
                   )}
                   {leftTheScript(scene) && (
-                    <p className="text-xs text-lw-done">You went your own way here: the scene is changed to follow what you said.</p>
+                    <p className="text-xs text-lw-link">You went your own way here: the scene is changed to follow what you said.</p>
                   )}
                 </div>
 
@@ -1083,7 +1083,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
                       <span className="min-w-0 flex-1 truncate">{s.id}</span>
                       {marks[s.id] && <span className="shrink-0 rounded bg-lw-selected px-1.5 font-lw-mono text-[10px] font-normal uppercase text-lw-link">{marks[s.id]}</span>}
                       {openOffPlan(s).length > 0 && <span className="shrink-0 rounded bg-lw-needs-soft px-1.5 font-lw-mono text-[10px] font-normal uppercase text-lw-needs">decide</span>}
-                      {leftTheScript(s) && <span className="shrink-0 text-[11px] font-normal text-lw-done">your own way</span>}
+                      {leftTheScript(s) && <span className="shrink-0 text-[11px] font-normal text-lw-link">your own way</span>}
                       {(s.comments ?? []).length > 0 && <span className="shrink-0 text-[11px] font-normal text-lw-needs">{s.comments?.length === 1 ? "1 comment" : `${s.comments?.length} comments`}</span>}
                       <span className="shrink-0 text-xs font-normal text-lw-faint">{s.kind}</span>
                       <span className="w-10 shrink-0 text-right font-lw-mono text-xs font-normal text-lw-text-2" title={length.sure ? undefined : "A guess, from how much there is to say"}>{length.sure ? "" : "~"}{clock(length.ms)}</span>

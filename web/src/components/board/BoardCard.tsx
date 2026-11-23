@@ -12,17 +12,26 @@ import { useToast } from "../../hooks/useToast"
 import { animatedAgentActivityEnabled } from "../../lib/appearancePreferences"
 import { Mark } from "../PullRequestMarks"
 import { CardPullRequests } from "./PullRequests"
-import { StagePie } from "../StagePie"
+import { StageTrack } from "../StageTrack"
 import { stageLabel } from "../../lib/agentStage"
 
-// CardStage is an agent's stage on a card's strip: the pie and the word.
+// CardStage is an agent's stage on a card's strip: the track and the word,
+// or for a finished agent "✓ Finished", which says the same.
 function CardStage({ stage }: { stage?: string }) {
   const label = stageLabel(stage)
   if (!label) return null
+  if (stage === "finished") {
+    return (
+      <span className="flex shrink-0 items-center gap-1 text-lw-done">
+        <span aria-hidden="true" className="text-lw-faint">·</span>
+        <span aria-hidden="true">✓</span><span>{label}</span>
+      </span>
+    )
+  }
   return (
-    <span className={cn("flex shrink-0 items-center gap-1", stage === "finished" ? "text-lw-done" : "text-lw-text-2")}>
+    <span className="flex shrink-0 items-center gap-1 text-lw-text-2">
       <span aria-hidden="true" className="text-lw-faint">·</span>
-      <StagePie stage={stage} size={11} />
+      <StageTrack stage={stage} size="xs" label="" />
       <span>{label}</span>
     </span>
   )
@@ -52,9 +61,10 @@ const stripAction = "shrink-0 font-medium text-lw-text underline underline-offse
 function AgentStrip({ card }: { card: BoardCardType }) {
   const look = agentStripLook(card)
   return (
-    <div data-testid="agent-strip" className={cn(stripRow, look.tint)}>
-      <span className={cn("flex min-w-0 items-center gap-1.5", look.tone)}><span aria-hidden="true">{look.glyph}</span><span className="truncate">{look.label}</span>
-        <CardStage stage={card.stage} />
+    <div data-testid="agent-strip" title={look.tool || undefined} className={cn(stripRow, look.tint)}>
+      <span className={cn("flex min-w-0 items-center gap-1.5", look.tone)}><span aria-hidden="true">{look.glyph}</span><span className="shrink-0">{look.label}</span>
+        {look.stage && <CardStage stage={card.stage} />}
+        {look.reason && <span className="min-w-0 truncate text-lw-text-2">· {look.reason}</span>}
         {card.slot_agents?.filter(slot => !card.needs_you?.slots?.some(waiting => waiting.slot === slot.slot)).map((slot) => <span key={slot.slot} className="shrink-0 rounded border border-lw-line px-1 text-lw-text-2">{slotChipLabel(slot.slot, slot.state, slot.stage)}</span>)}
       </span>
       {look.time > 0 && <span className="shrink-0 font-lw-mono text-lw-text-2">{formatDuration(look.time)}</span>}
@@ -106,7 +116,10 @@ function ResumeButton({ taskId, label }: { taskId: string; label: string }) {
 function AwayStripRow({ strip, stage }: { strip: AwayStripLook; stage?: string }) {
   return (
     <div data-testid="away-strip" className={cn(stripRow, "flex-wrap", strip.tint)}>
-      <span className={cn("flex min-w-[55%] flex-1 items-start gap-1.5", strip.tone)}><span aria-hidden="true">{strip.glyph}</span><span className="min-w-0 [overflow-wrap:anywhere]">{strip.text}</span><CardStage stage={stage} /></span>
+      <span className={cn("flex min-w-[55%] flex-1 items-start gap-1.5", strip.tone)}><span aria-hidden="true">{strip.glyph}</span><span className="min-w-0 [overflow-wrap:anywhere]">{strip.text}</span>
+        {/* A review pass says what it does: only the track, named by the stage. */}
+        {strip.review ? <StageTrack stage={stage} size="xs" className="mt-[3px]" /> : <CardStage stage={stage} />}
+      </span>
       {strip.detail && <span className="ml-auto text-right text-lw-text-2">{strip.detail}</span>}
     </div>
   )

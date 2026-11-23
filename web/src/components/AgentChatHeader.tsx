@@ -47,7 +47,7 @@ interface AgentChatHeaderProps {
 const chips: Record<AgentChatState, { glyph: string; label: string; tone: string }> = {
   "needs-you": { glyph: "◆", label: "Needs you", tone: "bg-lw-needs-soft text-lw-needs" },
   running: { glyph: "●", label: "Running", tone: "bg-lw-live-soft text-lw-live" },
-  background: { glyph: "◌", label: "Background", tone: "bg-lw-done-soft text-lw-done" },
+  background: { glyph: "◌", label: "Background", tone: "bg-lw-live-soft text-lw-live" },
   error: { glyph: "✕", label: "Error", tone: "bg-lw-error-soft text-lw-error" },
   idle: { glyph: "○", label: "Idle", tone: "bg-lw-idle-soft text-lw-text-2" },
 }
