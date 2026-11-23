@@ -257,10 +257,14 @@ function guard(doc: Document, path: YamlPath) {
   const root = itemRoot(path)
   const flow = flowAncestor(doc, path)
   const scope = flow && flow.length < root.length ? flow : root
-  // An anchor on a container the edit is inside: its aliases would change.
-  for (let i = 0; i < scope.length; i++) {
-    const above = i === 0 ? doc.contents : locate(doc, scope.slice(0, i))?.node
-    if ((above as { anchor?: string } | null | undefined)?.anchor) throw new WorkflowDocumentError("it uses a YAML anchor: edit it as YAML")
+  // A container the edit is inside that is anchored (its aliases would
+  // change) or an alias (the edit would replace what it shares), all the
+  // way down the path as far as it exists.
+  for (let i = 0; i < path.length; i++) {
+    const above = i === 0 ? doc.contents : locate(doc, path.slice(0, i))?.node
+    if (above === undefined) break
+    if (isAlias(above)) throw new WorkflowDocumentError("it uses a YAML alias: edit it as YAML")
+    if ((above as { anchor?: string } | null)?.anchor) throw new WorkflowDocumentError("it uses a YAML anchor: edit it as YAML")
   }
   const found = scope.length === 0 ? { node: doc.contents as YamlNode, pair: undefined } : locate(doc, scope)
   if (!found) return
@@ -476,7 +480,7 @@ const withNewline = (text: string) => text.endsWith("\n") ? text : text + "\n"
 /** insertStep puts a step at index at (the end when past it). */
 export function insertStep(text: string, at: number, step: Record<string, unknown>): WorkflowEdit {
   let doc = writable(text)
-  if (stepsSeq(doc)?.flow || !stepsSeq(doc)) guard(doc, ["steps"])
+  guard(doc, stepsSeq(doc)?.flow || !stepsSeq(doc) ? ["steps"] : ["steps", stepsSeq(doc)!.items.length])
   let working = text
   const steps = stepsOf(doc.toJS() as WorkflowValues)
   if (steps.length === 0) {

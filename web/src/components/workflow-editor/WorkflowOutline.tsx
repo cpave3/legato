@@ -39,7 +39,15 @@ export type WorkflowOutlineProps = {
   onCloseSheet?: () => void
   onUndo?: () => void
   onRedo?: () => void
+  /** held and onHeld keep item YAML not written yet on the page, so it
+   * outlives this outline (a switch to the whole file's YAML). */
+  held?: HeldYaml
+  onHeld?: React.Dispatch<React.SetStateAction<HeldYaml>>
 }
+
+/** HeldYaml is item YAML not written yet, by item key, with the item's
+ * text it was begun from. */
+export type HeldYaml = Record<string, { base: string; text: string }>
 
 // placeOf is a row's kind and position among the rows of its kind.
 function placeOf(order: Row[], selection: Selection): string {
@@ -107,17 +115,18 @@ function Outline(props: WorkflowOutlineProps) {
   const values = useMemo(() => parseWorkflow(text).values, [text])
   const problems = useMemo(() => problemsByItem(text, diagnostics), [text, diagnostics])
   const [error, setError] = useState("")
-  // An item's YAML that does not read yet, by the row's place (so a rename
-  // keeps it): kept when its tab or row is left, and counted as unsaved.
-  const [heldYaml, setHeldYaml] = useState<Record<string, string>>({})
+  // An item's YAML that does not read yet: kept by the item's key with the
+  // text it was begun from, by the page (so leaving the tab, the row or
+  // Visual keeps it) or else here, and counted as unsaved. It is shown only
+  // while its item still has that text, so a row that moves or changes
+  // never takes another's.
+  const [ownHeld, setOwnHeld] = useState<HeldYaml>({})
+  const heldStore = props.held ?? ownHeld
+  const setHeldStore = props.onHeld ?? setOwnHeld
   const report = useContext(PendingDrafts)
-  const heldAny = Object.keys(heldYaml).length > 0
+  const heldAny = Object.keys(heldStore).length > 0
   useEffect(() => { report("outline-held-yaml", heldAny) }, [report, heldAny])
   useEffect(() => () => report("outline-held-yaml", false), [report])
-  const hold = useCallback((place: string, held: string | null) => setHeldYaml(previous => {
-    if (held === null) { if (!(place in previous)) return previous; const next = { ...previous }; delete next[place]; return next }
-    return previous[place] === held ? previous : { ...previous, [place]: held }
-  }), [])
   const [adding, setAdding] = useState<"step" | "trigger" | null>(null)
   const outline = useRef<HTMLElement>(null)
   const inspector = useRef<HTMLElement>(null)
@@ -143,6 +152,28 @@ function Outline(props: WorkflowOutlineProps) {
     }
     if (following) onSelect(following.selection)
   }, [selection, found, order, onSelect, following])
+
+  // heldYaml is the held text by the row's place, which the inspector is
+  // keyed by; hold keeps or drops a row's.
+  const heldYaml = useMemo(() => {
+    const out: Record<string, string> = {}
+    for (const row of order) {
+      if (row.selection.kind === "about") continue
+      const kept = heldStore[itemKey(row.selection)]
+      if (kept && itemText(text, row.selection) === kept.base) out[placeOf(order, row.selection)] = kept.text
+    }
+    return out
+  }, [order, heldStore, text])
+  const hold = useCallback((place: string, held: string | null) => {
+    const row = order.find(r => placeOf(order, r.selection) === place)
+    if (!row || row.selection.kind === "about") return
+    const key = itemKey(row.selection)
+    const base = itemText(text, row.selection) ?? ""
+    setHeldStore(previous => {
+      if (held === null) { if (!(key in previous)) return previous; const next = { ...previous }; delete next[key]; return next }
+      return { ...previous, [key]: { base: previous[key]?.base === base ? previous[key].base : base, text: held } }
+    })
+  }, [order, text, setHeldStore])
 
   const apply = useCallback((make: () => WorkflowEdit, how?: { typing?: boolean }) => {
     try {

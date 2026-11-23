@@ -11,6 +11,7 @@ import { queryKeys } from "../lib/query"
 import { checkWorkflowFile, createWorkflowFile, deleteWorkflowFile, fetchWorkflowFile, saveWorkflowFile, starterWorkflow, WorkflowFileError, type WorkflowCheck, type WorkflowDiagnostic, type WorkflowFile } from "../lib/workflowFiles"
 import { LazyWorkflowYamlEditor } from "../components/workflow-editor/LazyWorkflowYamlEditor"
 import { LazyWorkflowOutline } from "../components/workflow-editor/LazyWorkflowOutline"
+import type { HeldYaml } from "../components/workflow-editor/WorkflowOutline"
 import { addressOf, selectionOf, type Selection } from "../lib/workflowAddress"
 import { LazyWorkflowGraph } from "../components/workflow-graph/LazyWorkflowGraph"
 import { Button } from "../components/ui/Button"
@@ -166,6 +167,9 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
     else navigate({ pathname: location.pathname, search: location.search, hash: "" }, { replace: true })
   }
   const [showProblems, setShowProblems] = useState(false)
+  // Item YAML the outline holds until it reads (LEG-505): kept here so it
+  // outlives a switch to the whole file's YAML, and counted as unsaved.
+  const [heldYaml, setHeldYaml] = useState<HeldYaml>({})
   const [file, setFile] = useState<WorkflowFile | null>(null)
   const [loadError, setLoadError] = useState("")
   const history = useHistory(mode === "new" ? starterWorkflow : null)
@@ -218,7 +222,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   }, [baseUrl, mode, name, key, attempt])
 
   const [pendingEdits, setPendingEdits] = useState(false)
-  const dirty = pendingEdits || (text !== null && (mode === "new" ? text !== starterWorkflow : text !== saved))
+  const dirty = pendingEdits || Object.keys(heldYaml).length > 0 || (text !== null && (mode === "new" ? text !== starterWorkflow : text !== saved))
   const dirtyRef = useRef(dirty)
   dirtyRef.current = dirty
   // The unsaved text is kept as a draft, with the digest it was begun at,
@@ -421,7 +425,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
       </div>
       : <section aria-label="Visual" className={narrow ? "pb-16" : undefined}>
         <LazyWorkflowOutline text={text} onEdit={(change, how) => history.push(change.text, change.undo.label, how?.typing)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={() => switchMode("yaml")} options={options} schedule={checked?.schedule} onPending={setPendingEdits}
-          selection={selection} onSelect={select} narrow={narrow} sheet={narrow && selection !== null} onCloseSheet={closeSheet} onUndo={history.undo} onRedo={history.redo} />
+          selection={selection} onSelect={select} narrow={narrow} sheet={narrow && selection !== null} onCloseSheet={closeSheet} onUndo={history.undo} onRedo={history.redo} held={heldYaml} onHeld={setHeldYaml} />
       </section>}
     {narrow && editable && <div role="toolbar" aria-label="Save" className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-between gap-2 border-t border-lw-line bg-lw-surface px-4 py-2">
       {problemsButton}

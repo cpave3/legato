@@ -246,3 +246,31 @@ it("stays on the YAML tab while a step's ID is renamed in it", async () => {
   expect(within(inspector()).getByRole("tab", { name: "YAML" }).getAttribute("aria-selected")).toBe("true")
   expect(within(inspector()).getByRole("textbox", { name: "YAML of steps/r" })).toBeTruthy()
 })
+
+it("keeps an item's held YAML across a switch to the whole file's YAML and back", async () => {
+  renderAt("#steps/run")
+  await screen.findByRole("textbox", { name: "Step title" })
+  fireEvent.click(within(inspector()).getByRole("tab", { name: "YAML" }))
+  const own = await within(inspector()).findByRole("textbox", { name: "YAML of steps/run" }) as HTMLTextAreaElement
+  const held = own.value + "\n  bad: ["
+  fireEvent.change(own, { target: { value: held } })
+  fireEvent.click(screen.getByRole("radio", { name: "YAML" }))
+  await screen.findByRole("textbox", { name: "Workflow YAML" })
+  const unload = () => { const e = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented }
+  expect(unload()).toBe(true)
+  fireEvent.click(screen.getByRole("radio", { name: "Visual" }))
+  fireEvent.click(await within(await screen.findByRole("region", { name: "Inspector" })).findByRole("tab", { name: "YAML" }))
+  expect((await within(inspector()).findByRole("textbox", { name: "YAML of steps/run" }) as HTMLTextAreaElement).value).toBe(held)
+})
+
+it("keeps held YAML with its own step when steps move", async () => {
+  renderAt("#steps/prep")
+  await screen.findByRole("textbox", { name: "Step title" })
+  fireEvent.click(within(inspector()).getByRole("tab", { name: "YAML" }))
+  const own = await within(inspector()).findByRole("textbox", { name: "YAML of steps/prep" }) as HTMLTextAreaElement
+  fireEvent.change(own, { target: { value: own.value + "\n  bad: [" } })
+  fireEvent.click(within(inspector()).getByRole("button", { name: "Move step prep down" }))
+  fireEvent.click(row(/^Run/))
+  fireEvent.click(await within(inspector()).findByRole("tab", { name: "YAML" }))
+  expect((await within(inspector()).findByRole("textbox", { name: "YAML of steps/run" }) as HTMLTextAreaElement).value.startsWith("id: run\n")).toBe(true)
+})
