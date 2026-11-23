@@ -40,7 +40,8 @@ function message(reason: unknown): string {
 }
 
 // BurnliteSettings connects Legato to Burnlite, whose tasks the import dialog
-// searches and the board keeps in step; Legato only reads Burnlite. Connecting
+// searches and the board keeps in step. Legato reads Burnlite, and writes only
+// when a workflow's burnlite.task.close step closes a ticket. Connecting
 // sends the browser to Burnlite to consent, and its callback comes back to
 // Settings with the outcome, which this shows once.
 export function BurnliteSettings({ baseUrl, burnlite, outcome, onChanged, onDisconnected }: {
@@ -57,7 +58,7 @@ export function BurnliteSettings({ baseUrl, burnlite, outcome, onChanged, onDisc
       label="Burnlite"
       icon={Flame}
       title="Burnlite"
-      description="An issue tracker. Once connected, its tasks can be imported onto the board, where they follow Burnlite's state. Legato only reads Burnlite."
+      description="An issue tracker. Once connected, its tasks can be imported onto the board, where they follow Burnlite's state. Moving a card never changes Burnlite; a workflow can close a ticket."
     >
       <div className="flex flex-col gap-3">
         {outcome?.result === "connected" && <InlineNotice variant="success">Connected to Burnlite.</InlineNotice>}
@@ -94,7 +95,7 @@ function Connect({ baseUrl, burnlite }: { baseUrl: string; burnlite: BurnliteOve
       {burnlite.connection.state === "disconnected" ? (
         <p className="text-xs text-lw-danger">Burnlite refused Legato's tokens, so its tasks are not synced. Connect again to carry on.</p>
       ) : (
-        <p className="text-xs text-lw-text-2">Not connected. Connecting opens Burnlite, which asks you to let Legato read its tasks.</p>
+        <p className="text-xs text-lw-text-2">Not connected. Connecting opens Burnlite, which asks you to let Legato read its tasks and close them from workflows.</p>
       )}
       <div className="flex flex-col gap-2 sm:flex-row">
         <input

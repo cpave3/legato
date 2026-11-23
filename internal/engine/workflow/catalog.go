@@ -433,6 +433,22 @@ var catalog = []ExecutorSpec{
 		},
 	},
 	{
+		Type: "burnlite.task.close", Group: "Board", Title: "Close the Burnlite ticket",
+		Description: "Close the Burnlite ticket a task was imported from, with a reason and a summary. Needs Legato connected to Burnlite with write access.",
+		With: []Field{
+			{Name: "task", Kind: KindTaskOrID, Label: "Task", Description: "The task, or a task ID, imported from Burnlite", Required: true, Essential: true, Order: 1},
+			{Name: "summary", Kind: KindString, Label: "Resolution summary", Description: "One line on how it was resolved, at most 200 characters", Essential: true, Order: 2},
+			{Name: "reason", Kind: KindString, Label: "Closed as", Description: "completed: the work is done; not_planned: it will not be done", Default: "completed", Enum: []string{"completed", "not_planned"}, Checked: true, Invalid: "must be completed or not_planned", Order: 3},
+			literalFalse("optional", "Skip a task not from Burnlite", "A task that is not a Burnlite ticket is skipped (skipped: true) instead of failing the step").at(4, false),
+		},
+		Summary: []string{"task"},
+		Outputs: []OutputSpec{
+			{Name: "key", Type: "string", Description: "The ticket's key, or empty when skipped"},
+			{Name: "closed", Type: "boolean", Description: "Whether the step closed a ticket"},
+			{Name: "skipped", Type: "boolean", Description: "Whether the task was not a Burnlite ticket"},
+		},
+	},
+	{
 		Type: "github.pr.wait", Group: "Code", Title: "Wait for a pull request to merge",
 		Description: "Wait until a pull request merges, or closes. Legato reads its state from GitHub when the step starts, after each refresh of a card's pull requests, and every few minutes.",
 		With: []Field{

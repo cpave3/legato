@@ -7,11 +7,11 @@ sidebar:
 
 Legato can track tasks from Burnlite, an issue tracker and estimator, as cards on its board. You import the tasks you want to work on, and Legato keeps their name, description, plan, checklist and state up to date. Burnlite works next to Jira: a board can hold tasks from both.
 
-Legato only reads Burnlite. When you move a card, the task in Burnlite does not change.
+Legato reads Burnlite. When you move a card, the task in Burnlite does not change. The one thing Legato writes is a close: a workflow step, `burnlite.task.close`, closes a task's ticket, for example when its pull request merges (see [Close a ticket from a workflow](#close-a-ticket-from-a-workflow)).
 
 ## Connect Legato to Burnlite
 
-Legato connects to Burnlite as an OAuth client. You allow it once in Burnlite, and Legato asks only to read your tasks. You can connect from the web UI or from the command line.
+Legato connects to Burnlite as an OAuth client. You allow it once in Burnlite. Legato asks to read your tasks and to write them (`read:tasks write:tasks`), so that a workflow can close a ticket. You can connect from the web UI or from the command line.
 
 ### From the web UI
 
@@ -35,6 +35,8 @@ The command opens Burnlite in your browser. If your browser runs on another mach
 :::caution
 Burnlite gives Legato a new refresh token every hour. Legato saves each token in its secret store without you. If a passphrase unlocks that store, connecting fails: set `secrets.master_key` to a source that Legato can read on its own. See [Credentials setup](/legato/security/credentials-setup/).
 :::
+
+A connection made before Legato could close tickets reads only. A `burnlite.task.close` step on it fails and says to connect again: connect again as above, and allow the new access.
 
 Legato needs a Burnlite whose tasks have an update time (`updatedAt`). If your Burnlite is older, the sync says to update it.
 
@@ -112,3 +114,19 @@ A Burnlite task you [hand off to a worker](/legato/using/handoff/#hand-off-a-tas
 | `burnlite.columns.ready`, `.blocked`, `.claimed`, `.closed` | The column of each state. | `Ready`, `Backlog`, `Doing`, `Done` |
 
 See the [configuration reference](/legato/reference/configuration/) for every setting.
+
+## Close a ticket from a workflow
+
+A [workflow](/legato/using/workflows/) step closes the Burnlite ticket a card was imported from:
+
+```yaml
+- id: close-ticket
+  title: Close the ticket
+  type: burnlite.task.close
+  with:
+    task: ${{ workflow.inputs.task }}
+    summary: Merged in ${{ steps.merged.outputs.url }}
+    optional: true
+```
+
+`reason` is `completed` (the default) or `not_planned`. `summary` is one line, cut at 200 characters. With `optional: true`, a card that is not a Burnlite ticket is skipped; without it, the step fails. The card follows at the next sync.

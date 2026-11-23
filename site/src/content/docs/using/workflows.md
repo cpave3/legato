@@ -122,6 +122,7 @@ Version 1 executes steps in declaration order and supports these executors. Lega
       repo: acme/widget
       pr_number: ${{ steps.implement.outputs.pr_number }}
   ```
+- `burnlite.task.close`: close the Burnlite ticket a task was imported from (`with.task`), as `completed` (the default) or `not_planned` (`with.reason`), with a one-line `with.summary`. With `optional: true`, a task that is not a Burnlite ticket is skipped (`skipped: true`) instead of failing the step. Outputs: `key`, `closed` and `skipped`. Legato must be connected to Burnlite with write access; see [Burnlite](/legato/integrations/burnlite/#close-a-ticket-from-a-workflow).
 - `repo.ensure`: prepare what a job works in. With an empty `with.repo` it does nothing and outputs `working_dir` as given in `with.working_dir`. With a repository (`owner/name`) it makes Legato's cache of it ready (cloning or fetching with the `github` credential, so a repository Legato cannot read fails here) and outputs `repo`, `ref` and `branch` for the agent step; giving both `repo` and `working_dir` is refused. `agent.run` with `with.repo` (and `with.ref`, `with.branch`) starts its agent in a fresh clone made for the agent's execution, on its own branch.
 - Built-in Learn definitions additionally own `agent.interview`, `learning.packet.prepare`, and `learning.proposals.submit`. They are internal orchestration contracts rather than general-purpose user workflow examples; see [Legato Learn](/legato/using/learn/).
 
