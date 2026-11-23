@@ -176,6 +176,8 @@ beforeEach(() => {
   vi.stubGlobal("MediaStream", FakeTracks)
   vi.stubGlobal("AudioContext", FakeAudioContext)
   vi.stubGlobal("AudioWorkletNode", FakeSoundNode)
+  // jsdom plays no format; the browsers the tests stand for play MP4 and WebM.
+  vi.spyOn(HTMLMediaElement.prototype, "canPlayType").mockImplementation((type) => (type === "video/mp4" || type === "video/webm" ? "maybe" : ""))
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined)
   now = 1_000_000
   vi.spyOn(Date, "now").mockImplementation(() => now)
@@ -931,6 +933,23 @@ describe("AgentStudioPanel", () => {
     expect(studio.calls.some((call) => call.address === STUDIO + "/media/video?v=9")).toBe(true)
     fireEvent.click(screen.getByRole("button", { name: "Back to the scene" }))
     expect(screen.queryByLabelText("The rendered video")).toBeNull()
+  })
+
+  // A desktop app without GStreamer's plugins froze for good when a page
+  // made a player (LEG-162): such a page offers the file, and shows no camera.
+  it("offers the rendered video to download, and makes no player, when the page plays no video", async () => {
+    vi.mocked(HTMLMediaElement.prototype.canPlayType).mockReturnValue("")
+    studio.project = project(reviewed().scenes, { render: { running: false, log: [], video: "/media/video?v=9", file: "/home/me/talk/storyboard.mp4" } })
+    render(<AgentStudioPanel item={item()} fill pollMs={30} />)
+    await waitFor(() => expect((screen.getByRole("button", { name: "Preview video" }) as HTMLButtonElement).disabled).toBe(false))
+    expect(screen.queryByLabelText("Your camera")).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview video" }))
+
+    const link = await screen.findByRole("link", { name: "Download the video" }) as HTMLAnchorElement
+    expect(link.getAttribute("download")).toBe("storyboard.mp4")
+    expect(screen.getByText(/cannot play this video/)).toBeTruthy()
+    expect(document.querySelector("video")).toBeNull()
   })
 
   it("says where the rendered video is, and copies its path", async () => {

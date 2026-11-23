@@ -39,6 +39,8 @@ function at(video: HTMLVideoElement, seconds: number) {
 }
 
 beforeEach(() => {
+  // jsdom plays no format; the browsers the tests stand for play MP4.
+  vi.spyOn(HTMLMediaElement.prototype, "canPlayType").mockImplementation((type) => (type === "video/mp4" ? "maybe" : ""))
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined)
   vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {})
 })
@@ -146,6 +148,28 @@ describe("AgentVideoPlayer", () => {
   it("does not play a video from an address that is not Legato's own", () => {
     render(<AgentUIItemView item={item({ video: { url: "https://elsewhere.test/a.mp4" } })} fill />)
 
+    expect(document.querySelector("video")).toBeNull()
+  })
+
+  // A desktop app without GStreamer's plugins froze for good when a page
+  // made a player (LEG-162). The page asks first, and makes none.
+  it("offers the video to download instead of making a player when the page cannot play its format", () => {
+    vi.mocked(HTMLMediaElement.prototype.canPlayType).mockReturnValue("")
+    render(<AgentUIItemView item={item()} fill />)
+
+    expect(document.querySelector("video")).toBeNull()
+    expect(screen.getByText(/cannot play this video/)).toBeTruthy()
+    const link = screen.getByRole("link", { name: "Download the video" }) as HTMLAnchorElement
+    expect(link.href).toBe("http://legato.test:3080" + FILE)
+    expect(link.hasAttribute("download")).toBe(true)
+    expect(screen.queryByRole("button", { name: "Ask about this moment" })).toBeNull()
+  })
+
+  it("asks about the format of the video it is given", () => {
+    const webm = "/agent-ui-videos/task-1/" + "c".repeat(64) + ".webm"
+    render(<AgentUIItemView item={item({ video: { url: webm } })} fill />)
+
+    expect(HTMLMediaElement.prototype.canPlayType).toHaveBeenCalledWith("video/webm")
     expect(document.querySelector("video")).toBeNull()
   })
 })

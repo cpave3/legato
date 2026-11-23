@@ -229,7 +229,7 @@ This was tried three times, each with two agents that knew nothing of libretto a
 
 **Serving the file.** `GET /agent-ui-videos/{task_id}/{file}` gives out a copy, with byte ranges so the player can seek. It asks for no token, for a reason of its own: a `<video>` element cannot send one. As with an image, the address is the SHA-256 of the content, and the route gives out only its own copies, only content that is a video, with `nosniff` and a sandboxing content security policy.
 
-**The player** (`AgentVideoPlayer`, `web/src/lib/agentVideo.ts`). A video is drawn by Legato's own player, not in the sandboxed frame: that frame allows no media from a server (`media-src data: blob:`), and it could not put anything in the message box with the playback time. Nothing the agent wrote runs; the manifest is read as data.
+**The player** (`AgentVideoPlayer`, `web/src/lib/agentVideo.ts`). A video is drawn by Legato's own player, not in the sandboxed frame: that frame allows no media from a server (`media-src data: blob:`), and it could not put anything in the message box with the playback time. Nothing the agent wrote runs; the manifest is read as data. A page that cannot play the video's format (`canPlayVideo`, by the file's extension) gets a message and a **Download the video** link in place of a player, and makes no `<video>` at all: a desktop AppImage without GStreamer's plugins froze for good when one was made (see [Desktop](desktop.md) § Media).
 
 - The browser's own `<video controls>`, so full screen, speed and the keyboard work as people expect.
 - Before it is played the video shows its poster, when it carries one.

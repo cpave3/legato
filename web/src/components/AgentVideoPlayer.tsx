@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { MessageCircleQuestion } from "lucide-react"
 import { useServer } from "../hooks/useServer"
 import { proposeComposerText, type AgentUIItem } from "../lib/agentUi"
-import { clock, momentAt, onScreen, parseVideoManifest, posterAddress, questionAbout, videoAddress } from "../lib/agentVideo"
+import { canPlayVideo, clock, momentAt, onScreen, parseVideoManifest, posterAddress, questionAbout, videoAddress, videoFormat } from "../lib/agentVideo"
 
 interface AgentVideoPlayerProps {
   item: AgentUIItem
@@ -24,6 +24,9 @@ export function AgentVideoPlayer({ item, fill = false }: AgentVideoPlayerProps) 
   // The picture the video carries for itself: its title card. Without one
   // the browser shows the first frame.
   const poster = useMemo(() => posterAddress(baseUrl, item), [baseUrl, item])
+  // Asked before a player is made, since making one is what froze the
+  // desktop app that could not play anything.
+  const playable = useMemo(() => (address ? canPlayVideo(videoFormat(address)) : false), [address])
   const videoRef = useRef<HTMLVideoElement>(null)
   const [ms, setMs] = useState(0)
 
@@ -44,7 +47,7 @@ export function AgentVideoPlayer({ item, fill = false }: AgentVideoPlayerProps) 
     // A track cannot be removed from a video element; one that is left
     // behind is turned off.
     return () => { track.mode = "disabled" }
-  }, [manifest, address])
+  }, [manifest, address, playable])
 
   const wrapper = fill ? "min-h-0 flex-1 overflow-y-auto p-4 text-zinc-200" : "p-3 text-zinc-200"
   if (!manifest) {
@@ -52,6 +55,17 @@ export function AgentVideoPlayer({ item, fill = false }: AgentVideoPlayerProps) 
   }
   if (!address) {
     return <div className={wrapper}><p className="text-sm text-zinc-400">Legato's copy of this video is not stored any more. The agent can render it and show it again.</p></div>
+  }
+
+  if (!playable) {
+    return (
+      <div className={wrapper}>
+        <p className="text-sm text-zinc-400">Legato cannot play this video here: there is no player for its format. Download it and watch it in another app.</p>
+        <a href={address} download className="mt-3 inline-flex min-h-9 items-center rounded-md border border-zinc-700 px-3 text-sm text-zinc-100 transition-colors hover:border-zinc-500">
+          Download the video
+        </a>
+      </div>
+    )
   }
 
   const moment = momentAt(manifest, ms)
