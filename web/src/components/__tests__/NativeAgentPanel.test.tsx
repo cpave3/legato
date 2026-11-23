@@ -117,6 +117,24 @@ describe("NativeAgentPanel", () => {
     expect(screen.getByText("Recovery excerpt (not a model summary):", { exact: false })).not.toBeNull()
   })
 
+  // LEG-541: the Reeve's change sets are decided in the approval tray, so
+  // its conversation starts right under the header with no list of them.
+  it("shows no list of change sets above the Reeve's conversation", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes("/change-sets")) return new Response(JSON.stringify({ change_sets: [
+        { id: "cs-1", reason: "Restart Legato", state: "pending", calls: 1, ran: 0 },
+      ] }), { status: 200 })
+      if (url.includes("/snapshot")) return new Response(JSON.stringify({ id: "R1", status: "idle", messages: [{ role: "assistant", content: "Ready." }], toolCalls: [] }), { status: 200 })
+      return new Response("{}", { status: 200 })
+    })
+    render(<NativeAgentPanel agentId="R1" reeve />)
+    await screen.findByText("Ready.")
+    expect(screen.queryByRole("list", { name: "Change sets" })).toBeNull()
+    expect(screen.queryByText("Restart Legato")).toBeNull()
+    expect(fetchSpy.mock.calls.some(([input]) => String(input).includes("/change-sets"))).toBe(false)
+  })
+
   it("fills its host when snapshot history contains only an assistant message", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({

@@ -1,15 +1,7 @@
-import { describe, it, expect, vi, afterEach } from "vitest"
+import { describe, it, expect, afterEach } from "vitest"
 import { render, screen, cleanup } from "@testing-library/react"
 
-vi.mock("../../lib/reeve", () => ({
-  fetchChangeSetLines: () => Promise.resolve([
-    { id: "cs-1", reason: "Rename the column", state: "pending", calls: 2, ran: 0 },
-    { id: "cs-2", reason: "Tidy", state: "done", calls: 3, ran: 3 },
-  ]),
-}))
-
 import { ChangeSetCard } from "../ChangeSetCard"
-import { ChangeSetLines } from "../ChangeSetLines"
 import type { Approval } from "../../lib/approvals"
 
 const approval: Approval = {
@@ -38,18 +30,6 @@ describe("ChangeSetCard", () => {
     expect(first.textContent).toContain("Applies at restart")
     expect(screen.getByTestId("change-2").textContent).toContain("risky")
     expect(card.textContent).toContain("Legato runs exactly this, in order, stopping at the first failure.")
-  })
-})
-
-describe("ChangeSetLines", () => {
-  afterEach(() => cleanup())
-
-  it("shows each change set as a compact line with its state", async () => {
-    render(<ChangeSetLines baseUrl="" taskId="rv1" />)
-    const list = await screen.findByRole("list", { name: "Change sets" })
-    expect(list.textContent).toContain("Rename the column")
-    expect(list.textContent).toContain("waiting for your approval")
-    expect(list.textContent).toContain("done, 3 of 3 ran")
   })
 })
 
