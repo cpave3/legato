@@ -69,6 +69,9 @@ type PRMeta struct {
 	// Head is the PR's head commit as last fetched (HeadSHA stays the one
 	// recorded at link time): a push changes it.
 	Head string `json:"head,omitempty"`
+	// CreatedAt is when the PR was opened on GitHub (RFC3339), "" for one
+	// fetched before it was kept.
+	CreatedAt string `json:"created_at,omitempty"`
 }
 
 // MarshalPRMeta serializes PRMeta to a JSON string pointer for storage.

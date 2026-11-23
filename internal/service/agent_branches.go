@@ -31,7 +31,8 @@ type AgentBranch struct {
 // a pushed branch already tracked is looked for again while it has none;
 // a pull request opened from any branch adds the branch and is always looked
 // for. Discovery runs off the caller's goroutine, one at a time per task,
-// as away tasks' does. See docs/ai/pr-tracking.md § Agents' branches.
+// as away tasks' does. An ephemeral task's branches are not tracked: it
+// links no PRs. See docs/ai/pr-tracking.md § Agents' branches.
 type AgentBranches struct {
 	db  *store.Store
 	prs PRBranchActions
@@ -54,6 +55,9 @@ func (a *AgentBranches) Track(b AgentBranch) {
 		return
 	}
 	ctx := context.Background()
+	if task, err := a.db.GetTask(ctx, b.TaskID); err == nil && task.Ephemeral {
+		return // an ephemeral task links no PRs (LEG-519)
+	}
 	a.trackContextBranch(ctx, b)
 	added, err := a.db.TrackTaskBranches(ctx, b.TaskID, []store.BranchRef{{Repo: b.Repo, Branch: b.Branch}}, BranchSourceAgent)
 	if err != nil {
