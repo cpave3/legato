@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,9 @@ func captureTestBridge(t *testing.T, s *store.Store, taskID, kind string) (func(
 	var endpoint string
 	var stop func() error
 	var send func(string, string)
+	if kind == "chimera" {
+		return chimeraCaptureLink(t, s, taskID)
+	}
 	if kind == "claude-code" {
 		endpoint, stop = runningBridge(t, s, cli.ClaudeBridgeOptions{TaskID: taskID, RuntimeDir: t.TempDir()})
 		send = func(id, cwd string) {
@@ -58,6 +62,37 @@ func captureTestBridge(t *testing.T, s *store.Store, taskID, kind string) (func(
 			return resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&snapshot) == nil && snapshot.ID == taskID && snapshot.CWD == cwd
 		})
 	}, stop
+}
+
+// chimeraCaptureLink runs the Chimera link for taskID on a pipe: send
+// starts a Chimera session as its mod announces one, and waits for the link
+// to bind it; stop ends the mod's stream.
+func chimeraCaptureLink(t *testing.T, s *store.Store, taskID string) (func(string, string), func() error) {
+	t.Helper()
+	r, w := io.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		done <- cli.RunChimeraLink(context.Background(), s, cli.ChimeraLinkOptions{TaskID: taskID, Stdin: r})
+	}()
+	t.Cleanup(func() { w.Close() })
+	seq := 0
+	send := func(id, cwd string) {
+		t.Helper()
+		seq++
+		line := fmt.Sprintf(`{"seq":%d,"type":"session.start","sessionId":%q,"cwd":%q,"serverUrl":"http://127.0.0.1:4444/secret","apiVersion":1}`, seq, id, cwd)
+		if _, err := io.WriteString(w, line+"\n"); err != nil {
+			t.Fatalf("link stopped reading: %v", err)
+		}
+		waitFor(t, "Chimera binding "+id, func() bool {
+			a, err := s.GetAgentSessionByTaskID(context.Background(), taskID)
+			return err == nil && a.ChimeraSessionID != nil && *a.ChimeraSessionID == id
+		})
+	}
+	stop := func() error {
+		w.Close()
+		return <-done
+	}
+	return send, stop
 }
 
 func TestNativeIdentityCaptureStorageRootIsFrozen(t *testing.T) {
@@ -118,8 +153,8 @@ func TestNativeIdentityCaptureStorageRootIsFrozen(t *testing.T) {
 }
 
 func TestNativeIdentityCaptureExcludedOwnersKeepPanelRunning(t *testing.T) {
-	for _, kind := range []string{"claude-code", "codex"} {
-		for _, shape := range []string{"child", "subtask", "worker-role", "worker-execution", "other-attribution", "workflow-unattributed", "ephemeral-env", "ephemeral-task", "conductor"} {
+	for _, kind := range []string{"claude-code", "codex", "chimera"} {
+		for _, shape := range []string{"child", "subtask", "worker-role", "worker-execution", "other-attribution", "workflow-unattributed", "no-execution", "ephemeral-env", "ephemeral-task", "conductor"} {
 			t.Run(kind+"/"+shape, func(t *testing.T) {
 				t.Setenv("LEGATO_TASK_EPHEMERAL", "")
 				t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -165,8 +200,12 @@ func TestNativeIdentityCaptureExcludedOwnersKeepPanelRunning(t *testing.T) {
 					t.Fatal(err)
 				}
 				e.AgentSessionID = &ownerID
-				if err := s.CreateExecution(ctx, e); err != nil {
-					t.Fatal(err)
+				// An agent session with no execution (a legacy one) owns no
+				// conversation the store would record (LEG-539).
+				if shape != "no-execution" {
+					if err := s.CreateExecution(ctx, e); err != nil {
+						t.Fatal(err)
+					}
 				}
 				send, stop := captureTestBridge(t, s, taskID, kind)
 				for i := 1; i <= 2; i++ {
@@ -187,7 +226,12 @@ func TestNativeIdentityCaptureExcludedOwnersKeepPanelRunning(t *testing.T) {
 						t.Fatalf("excluded %s owner persisted identity: %+v", shape, record)
 					}
 					bound, err := s.GetAgentSessionByTaskID(ctx, taskID)
-					if err != nil || bound == nil || bound.ID != ownerID || bound.ChimeraSessionID == nil || *bound.ChimeraSessionID != taskID || bound.ChimeraEndpoint == nil || *bound.ChimeraEndpoint == "" || bound.Status != "running" {
+					// The bridges bind the task ID; Chimera binds its own session.
+					wantBound := taskID
+					if kind == "chimera" {
+						wantBound = id
+					}
+					if err != nil || bound == nil || bound.ID != ownerID || bound.ChimeraSessionID == nil || *bound.ChimeraSessionID != wantBound || bound.ChimeraEndpoint == nil || *bound.ChimeraEndpoint == "" || bound.Status != "running" {
 						t.Fatalf("panel binding after callback = %+v, %v", bound, err)
 					}
 				}
