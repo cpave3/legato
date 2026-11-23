@@ -93,6 +93,7 @@ type ReviewRunCaller struct {
 	engine    *ReviewPassService
 	opts      ReviewRunOptions
 	workflows ReviewRunWorkflows
+	stops     runAuthorStops
 }
 
 // NewReviewRunCaller registers the run caller with the engine. It is also the
@@ -457,6 +458,7 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 	if err != nil {
 		return false
 	}
+	c.noteAuthor(ctx, l.TaskID, run)
 	if run.ConfirmClean {
 		c.confirmClean(ctx, l.TaskID)
 		return false
@@ -838,14 +840,18 @@ func (s *ReviewPassesStep) Cancel(ctx context.Context, attempt store.WorkflowSte
 }
 
 // ReviewRunDetails is where a run's review loop stands, as the run page
-// shows it: its phase, the pass, a line ("Reviewing · pass 2", "Waiting for
-// author · 3 blocking", "Approved", "Stuck: …"), and every review posted.
+// shows it: its phase, the pass, a line ("Reviewing · pass 2", "Author
+// fixing · 3 blocking", "Waiting for author · 3 blocking", "Approved",
+// "Stuck: …"), and every review posted. NeedsYou says the loop waits on the
+// operator, as the step's attention does: stuck, or waiting for an author
+// that will not move it alone.
 type ReviewRunDetails struct {
 	Phase        string            `json:"phase"`
 	Pass         int               `json:"pass"`
 	Summary      string            `json:"summary"`
 	BlockingOpen int               `json:"blocking_open"`
 	Reason       string            `json:"reason,omitempty"`
+	NeedsYou     bool              `json:"needs_you"`
 	Reviews      []ReviewRunReview `json:"reviews"`
 }
 
@@ -881,13 +887,20 @@ func (c *ReviewRunCaller) Details(ctx context.Context, attempt store.WorkflowSte
 		d.Summary = fmt.Sprintf("Reviewing · pass %d", loop.Pass)
 	case ReviewPhaseWaitingForAuthor:
 		d.Summary = "Waiting for author"
+		if run, err := c.run(ctx, attempt.TaskID); err == nil {
+			state := c.authorState(ctx, run, loop)
+			d.NeedsYou = c.authorNeedsYou(attempt.TaskID, state)
+			if state == runAuthorFixing {
+				d.Summary = "Author fixing"
+			}
+		}
 		if d.BlockingOpen > 0 {
 			d.Summary += fmt.Sprintf(" · %d blocking", d.BlockingOpen)
 		}
 	case ReviewPhaseClean:
 		d.Summary = "Approved"
 	case ReviewPhaseStuck:
-		d.Summary = "Stuck: " + loop.Reason
+		d.Summary, d.NeedsYou = "Stuck: "+loop.Reason, true
 	case ReviewPhaseSkipped:
 		d.Phase, d.Summary = ReviewPhaseEnded, "Closed"
 	case ReviewPhaseEnded:
@@ -908,18 +921,38 @@ func (s *ReviewPassesStep) Details(ctx context.Context, attempt store.WorkflowSt
 // publishes; the web server forwards those to open run pages.
 const ReviewLoopChangedKind = "review_loop"
 
-// Attention is why a run's loop needs the person: it is stuck. A loop with
-// an agent author also offers message.
+// Attention is why a run's loop needs the person: it is stuck, which offers
+// end, or it waits for an author that will not move it alone (a person, or
+// an agent author waiting on the operator, stopped or ended). A loop with an
+// agent author also offers message. An agent author at work is the agent's
+// wait, not the person's.
 func (c *ReviewRunCaller) Attention(ctx context.Context, attempt store.WorkflowStepAttempt) (string, []string) {
 	loop, err := c.engine.db.GetHandoffReview(ctx, attempt.TaskID)
-	if err != nil || loop == nil || loop.Phase != ReviewPhaseStuck {
+	if err != nil || loop == nil {
+		return "", nil
+	}
+	run, err := c.run(ctx, attempt.TaskID)
+	if err != nil {
 		return "", nil
 	}
 	var actions []string
-	if run, err := c.run(ctx, attempt.TaskID); err == nil && run.AuthorTask != "" {
+	var reason string
+	switch loop.Phase {
+	case ReviewPhaseStuck:
+		reason, actions = "Review loop stuck: "+loop.Reason, []string{"end"}
+	case ReviewPhaseWaitingForAuthor:
+		state := c.authorState(ctx, run, loop)
+		if !c.authorNeedsYou(attempt.TaskID, state) {
+			return "", nil
+		}
+		reason = authorReason(state)
+	default:
+		return "", nil
+	}
+	if run.AuthorTask != "" {
 		actions = append(actions, "message")
 	}
-	return "Review loop stuck: " + loop.Reason, actions
+	return reason, actions
 }
 
 // Act takes a stuck loop's actions: another_pass reviews again (one pass

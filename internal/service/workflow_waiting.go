@@ -111,8 +111,8 @@ func (s *WorkflowService) addDetails(ctx context.Context, view *store.WorkflowRu
 // WorkflowStepAttention is an executor whose waiting step can need the
 // person: a reason, or "" when it does not.
 type WorkflowStepAttention interface {
-	// Attention is the reason, and the actions beyond another_pass and
-	// end that the step offers.
+	// Attention is the reason, and the actions beyond another_pass that
+	// the step offers: end for a stuck step, message.
 	Attention(ctx context.Context, attempt store.WorkflowStepAttempt) (string, []string)
 }
 

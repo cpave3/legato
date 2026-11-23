@@ -51,10 +51,14 @@ const (
 	AttentionSignalWorkflowTriggerLoopStop     = "workflow_trigger_loop_stop"
 	AttentionSignalWorkflowCompletion          = "workflow_completion"
 	AttentionSignalWorkflowReviewStuck         = "workflow_review_stuck"
-	AttentionSignalLearningCuratorWork         = "learning_curator_work"
-	AttentionSignalApproval                    = "approval"
-	AttentionSignalDevicesReset                = "devices_reset"
-	AttentionSignalAgentsInterrupted           = "agents_interrupted"
+	// AttentionSignalWorkflowReviewAuthor is a run's review loop waiting
+	// on an author who will not move it alone: a person, or an agent
+	// author that waits on the operator, stopped or ended (LEG-543).
+	AttentionSignalWorkflowReviewAuthor = "workflow_review_author"
+	AttentionSignalLearningCuratorWork  = "learning_curator_work"
+	AttentionSignalApproval             = "approval"
+	AttentionSignalDevicesReset         = "devices_reset"
+	AttentionSignalAgentsInterrupted    = "agents_interrupted"
 )
 
 var defaultAttentionSignals = []string{
@@ -67,6 +71,7 @@ var defaultAttentionSignals = []string{
 	AttentionSignalWorkflowWaitingAgent,
 	AttentionSignalWorkflowFailed,
 	AttentionSignalWorkflowReviewStuck,
+	AttentionSignalWorkflowReviewAuthor,
 	AttentionSignalWorkflowTriggerInput,
 	AttentionSignalWorkflowTriggerConfirmation,
 	AttentionSignalWorkflowTriggerFailed,
@@ -108,6 +113,7 @@ var knownAttentionSignals = map[string]bool{
 	AttentionSignalWorkflowWaitingAgent:        true,
 	AttentionSignalWorkflowFailed:              true,
 	AttentionSignalWorkflowReviewStuck:         true,
+	AttentionSignalWorkflowReviewAuthor:        true,
 	AttentionSignalWorkflowTriggerInput:        true,
 	AttentionSignalWorkflowTriggerConfirmation: true,
 	AttentionSignalWorkflowTriggerFailed:       true,
