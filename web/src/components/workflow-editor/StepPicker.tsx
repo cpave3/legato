@@ -16,7 +16,7 @@ export function StepPicker({ onPick, onClose, narrow = false }: { onPick: (type:
   const first = groups[0]?.entries[0]
   return <div role="dialog" aria-label="Add a step" onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); onClose() } }}
     className={narrow
-      ? "fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col gap-2 rounded-t-xl border-t border-lw-line bg-lw-surface p-3 shadow-2xl"
+      ? "fixed inset-x-0 bottom-0 z-[60] flex max-h-[80vh] flex-col gap-2 rounded-t-xl border-t border-lw-line bg-lw-surface p-3 shadow-2xl"
       : "z-30 my-1 flex max-h-[28rem] flex-col gap-2 rounded-lg border border-lw-line bg-lw-surface p-2 shadow-xl"}>
     <input ref={search} type="search" aria-label="Search step types" placeholder="Search steps" value={query}
       className="min-h-9 w-full rounded-md border border-lw-line-strong bg-lw-ground px-2 text-sm text-lw-text"
