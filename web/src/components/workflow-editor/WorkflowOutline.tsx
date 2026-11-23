@@ -16,6 +16,8 @@ import { StepPicker } from "./StepPicker"
 import { TriggerCard } from "./TriggersEditor"
 import { KIND_TITLES, newTrigger, triggerKinds, triggerSentence, type SentencePart } from "./triggerForms"
 import { LazyWorkflowYamlEditor } from "./LazyWorkflowYamlEditor"
+import { LazyWorkflowGraph } from "../workflow-graph/LazyWorkflowGraph"
+import type { WorkflowGraphModel } from "../../lib/workflowGraph"
 import { parseDocument } from "yaml"
 
 export type WorkflowOutlineProps = {
@@ -56,6 +58,9 @@ export type WorkflowOutlineProps = {
   onJump?: (range: { from: number; to: number }) => void
   /** broken: the text no longer parses, and this is the last that did. */
   broken?: { line?: number; message: string }
+  /** graph is the run graph of the last text the check could read; stale
+   * when that is not the text now (LEG-515). */
+  graph?: { model: WorkflowGraphModel; stale: boolean } | null
   /** lastGood is the last text that parsed, which the page keeps across
    * modes; onGood is told each text that parses. */
   lastGood?: string | null
@@ -93,6 +98,21 @@ const isTyping = (target: EventTarget | null) => {
 const executorTitle = (type: unknown) => executors.find(e => e.type === type)?.title ?? String(type ?? "")
 
 const NO_SWITCHES: Record<string, boolean> = {}
+
+// A row's node in the run graph, and a node's row: trigger:<kind> and
+// step:<id> (a review loop's inner nodes are their step's).
+function nodeOf(selection: Selection | null): string | null {
+  if (selection?.kind === "step") return `step:${selection.path}`
+  if (selection?.kind === "trigger") return `trigger:${selection.name}`
+  return null
+}
+function selectionOfNode(graph: WorkflowGraphModel, id: string | null): Selection | null {
+  const node = graph.nodes.find(n => n.id === id)
+  const own = node?.kind === "inner" ? graph.nodes.find(n => n.id === node.parent) : node
+  if (own?.kind === "step" && own.step) return { kind: "step", path: own.step.id }
+  if (own?.kind === "trigger" && own.trigger && own.trigger.kind !== "manual") return { kind: "trigger", name: own.trigger.kind }
+  return null
+}
 
 // iconOf is a step type's icon in its row.
 function iconOf(type: string) {
@@ -153,7 +173,7 @@ function rowsOf(items: Item[], values: WorkflowValues, problems: Map<string, Wor
 // of the workflow (When, Asks for, Then, About) and an inspector of the
 // row chosen, over the same text the YAML side edits.
 function Outline(props: WorkflowOutlineProps) {
-  const { text, onEdit, diagnostics = [], nameFixed, onEditYaml, options = noOptions, schedule, selection, onSelect, narrow = false, sheet = false, onCloseSheet, onUndo, onRedo, savedText = null, pausedHere = NO_SWITCHES, mode = "edit", cursor, onJump, broken } = props
+  const { text, onEdit, diagnostics = [], nameFixed, onEditYaml, options = noOptions, schedule, selection, onSelect, narrow = false, sheet = false, onCloseSheet, onUndo, onRedo, savedText = null, pausedHere = NO_SWITCHES, mode = "edit", cursor, onJump, broken, graph = null } = props
   const navigating = mode === "navigate"
   const editing = !navigating && !broken
   const { file, items } = useMemo(() => itemsOf(text), [text])
@@ -175,6 +195,8 @@ function Outline(props: WorkflowOutlineProps) {
   const [adding, setAdding] = useState<{ kind: "step"; at: number } | { kind: "trigger" } | null>(null)
   const [menu, setMenu] = useState<string | null>(null)
   const [pasted, setPasted] = useState<string | null>(null)
+  // List | Map: the outline, or the run graph (read-only) in its place.
+  const [view, setView] = useState<"list" | "map">("list")
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
   const [warning, setWarning] = useState("")
   const [dragged, setDragged] = useState<string | null>(null)
@@ -454,6 +476,22 @@ function Outline(props: WorkflowOutlineProps) {
     {section("About", <ul className="flex flex-col">{rowButton(order[order.length - 1])}</ul>)}
   </nav>
 
+  const listOrMap = <div role="radiogroup" aria-label="Outline view" className="inline-flex self-start rounded-md border border-lw-line p-0.5">
+    {(["list", "map"] as const).map(option => <button key={option} type="button" role="radio" aria-checked={view === option} disabled={option === "map" && !graph}
+      title={option === "map" && !graph ? "The map shows once Legato has read the file" : undefined}
+      className={`min-h-7 rounded px-2.5 text-xs disabled:opacity-40 ${view === option ? "bg-lw-raised text-lw-text" : "text-lw-text-2"}`} onClick={() => setView(option)}>{option === "list" ? "List" : "Map"}</button>)}
+  </div>
+  const mapView = graph && <section aria-label="Map" className="flex flex-col gap-1">
+    {graph.stale && <p role="status" className="text-xs text-lw-needs">The map is of the last version Legato could read.</p>}
+    <div className={narrow ? "h-[60vh] overflow-hidden rounded-lg border border-lw-line bg-lw-ground" : "h-[32rem] overflow-hidden rounded-lg border border-lw-line bg-lw-ground"}>
+      <LazyWorkflowGraph graph={graph.model} selectedId={nodeOf(shown)} direction="TB" onSelect={id => { const next = selectionOfNode(graph.model, id); if (next) select(next, true) }} />
+    </div>
+  </section>
+  const navigation = <div className="flex min-w-0 flex-col gap-2">
+    {listOrMap}
+    {view === "map" && mapView ? mapView : outlineView}
+  </div>
+
   const selectedRow = found >= 0 ? order[found] : following
   const inspectorView = <section ref={inspector} aria-label="Inspector" className="flex min-w-0 flex-col gap-3">
     {narrow && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={onCloseSheet}><ArrowLeft size={13} />Outline</Button>}
@@ -482,7 +520,7 @@ function Outline(props: WorkflowOutlineProps) {
     }
     return <div className="flex flex-col gap-2 text-sm">
       {brokenNote}
-      <div inert={Boolean(broken) || undefined} className={broken ? "opacity-50" : undefined}>{outlineView}</div>
+      <div inert={Boolean(broken) || undefined} className={broken ? "opacity-50" : undefined}>{broken ? outlineView : navigation}</div>
     </div>
   }
   if (broken) {
@@ -502,9 +540,9 @@ function Outline(props: WorkflowOutlineProps) {
     {narrow
       ? (sheet && selectedRow
         ? <div role="dialog" aria-label={selectedRow.label.trim()} className="fixed inset-0 z-40 overflow-y-auto bg-lw-ground px-4 pb-20 pt-3">{inspectorView}</div>
-        : outlineView)
+        : navigation)
       : <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] md:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
-        <div className="rounded-xl border border-lw-line bg-lw-surface p-2">{outlineView}</div>
+        <div className="rounded-xl border border-lw-line bg-lw-surface p-2">{navigation}</div>
         <div className="rounded-xl border border-lw-line bg-lw-surface p-4">{inspectorView}</div>
       </div>}
   </div>

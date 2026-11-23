@@ -15,11 +15,11 @@ import { LazyWorkflowOutline } from "../components/workflow-editor/LazyWorkflowO
 import type { HeldYaml } from "../components/workflow-editor/WorkflowOutline"
 import { KIND_TITLES } from "../components/workflow-editor/triggerTitles"
 import { setWorkflowTrigger } from "../lib/workflow"
+import type { WorkflowGraphModel } from "../lib/workflowGraph"
 
 // Drops held item YAML that no longer belongs to the text, in either mode.
 const HeldYamlReconciler = lazy(() => import("../components/workflow-editor/HeldYamlReconciler"))
 import { addressOf, selectionOf, type Selection } from "../lib/workflowAddress"
-import { LazyWorkflowGraph } from "../components/workflow-graph/LazyWorkflowGraph"
 import { Button } from "../components/ui/Button"
 import { LoadingState } from "../components/ui/LoadingState"
 import { useMediaQuery } from "../hooks/useMediaQuery"
@@ -183,6 +183,9 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   const [cursor, setCursor] = useState<number | undefined>(undefined)
   const [jump, setJump] = useState<{ from: number; to: number; seq: number } | undefined>(undefined)
   const [lastGood, setLastGood] = useState<string | null>(null)
+  // The map is the last graph the check could make: stale while the text
+  // now is not what it was made of.
+  const [lastGraph, setLastGraph] = useState<{ text: string; model: WorkflowGraphModel } | null>(null)
   const jumpTo = (range: { from: number; to: number }) => setJump(previous => ({ ...range, seq: (previous?.seq ?? 0) + 1 }))
   // Saved · paused · Turn on (LEG-509): after a save, a trigger this
   // Legato has paused is named, with a way to switch it on.
@@ -285,6 +288,8 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   const forget = () => { dirtyRef.current = false; writeDraft(key, null) }
 
   const checked = result && result.text === text ? result.check : null
+  useEffect(() => { if (result?.check.graph) setLastGraph({ text: result.text, model: result.check.graph }) }, [result])
+  const graph = lastGraph ? { model: lastGraph.model, stale: lastGraph.text !== text } : null
   const diagnostics = checked?.diagnostics ?? []
   const errors = diagnostics.filter(d => d.severity === "error")
   const editable = mode === "new" || Boolean(file?.editable)
@@ -469,25 +474,20 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
         <div className={editable && !narrow ? "grid gap-4 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]" : "flex flex-col gap-2"}>
           {editable && <section aria-label="Navigator" className={narrow ? "" : "max-h-[36rem] overflow-y-auto rounded-xl border border-lw-line bg-lw-surface p-2"}>
             <LazyWorkflowOutline mode="navigate" text={text} cursor={cursor} onJump={jumpTo} onEdit={() => {}} diagnostics={diagnostics} onEditYaml={line => { if (line) { const at = offsetOf(text, line, 1); jumpTo({ from: at, to: at }) } }}
-              options={options} selection={null} onSelect={() => {}} narrow={narrow} pausedHere={pausedHere} lastGood={lastGood} onGood={setLastGood} />
+              options={options} selection={null} onSelect={() => {}} narrow={narrow} pausedHere={pausedHere} lastGood={lastGood} onGood={setLastGood} graph={graph} />
           </section>}
           <section aria-label="YAML" className={narrow ? "h-[70vh] overflow-hidden rounded-xl border border-lw-line" : "h-[36rem] overflow-hidden rounded-xl border border-lw-line"}>
             <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} readOnly={!editable} onUndo={editable ? history.undo : undefined} onRedo={editable ? history.redo : undefined} jumpTo={jump} onCursor={setCursor} />
           </section>
         </div>
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
-          <section aria-label="Check" className="rounded-xl border border-lw-line bg-lw-surface p-3">
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-lw-text-2">{checked ? "Problems" : "Checking…"}</h2>
-            {checked && <Problems diagnostics={diagnostics} />}
-          </section>
-          <section aria-label="Preview" className="h-72 overflow-hidden rounded-xl border border-lw-line bg-lw-ground">
-            {checked?.graph ? <LazyWorkflowGraph graph={checked.graph} selectedId={null} onSelect={() => {}} direction={narrow ? "TB" : "LR"} /> : <p className="p-3 text-sm text-lw-text-2">The graph shows once the file is valid.</p>}
-          </section>
-        </div>
+        <section aria-label="Check" className="rounded-xl border border-lw-line bg-lw-surface p-3">
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-lw-text-2">{checked ? "Problems" : "Checking…"}</h2>
+          {checked && <Problems diagnostics={diagnostics} />}
+        </section>
       </div>
       : <section aria-label="Visual" className={narrow ? "pb-16" : undefined}>
         <LazyWorkflowOutline text={text} onEdit={(change, how) => history.push(change.text, change.undo.label, how?.typing)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={line => { switchMode("yaml"); if (line) { const at = offsetOf(text, line, 1); jumpTo({ from: at, to: at }) } }} options={options} schedule={checked?.schedule} onPending={setPendingEdits}
-          savedText={mode === "edit" ? saved : null} pausedHere={pausedHere} lastGood={lastGood} onGood={setLastGood} selection={selection} onSelect={select} narrow={narrow} sheet={narrow && selection !== null} onCloseSheet={closeSheet} onUndo={history.undo} onRedo={history.redo} held={heldYaml} onHeld={setHeldYaml} />
+          savedText={mode === "edit" ? saved : null} pausedHere={pausedHere} lastGood={lastGood} onGood={setLastGood} graph={graph} selection={selection} onSelect={select} narrow={narrow} sheet={narrow && selection !== null} onCloseSheet={closeSheet} onUndo={history.undo} onRedo={history.redo} held={heldYaml} onHeld={setHeldYaml} />
       </section>}
     {text !== null && Object.keys(heldYaml).length > 0 && <Suspense fallback={null}><HeldYamlReconciler text={text} held={heldYaml} onHeld={setHeldYaml} /></Suspense>}
     {narrow && editable && <div role="toolbar" aria-label="Save" className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-between gap-2 border-t border-lw-line bg-lw-surface px-4 py-2">

@@ -193,6 +193,8 @@ The editor has two sides, **Visual** and **YAML**, and you can switch between th
 - **Undo** and **Redo** go back and forth through your changes on both sides. In YAML, Ctrl+Z (⌘Z on a Mac) and Ctrl+Shift+Z (⌘⇧Z) do the same, so they also undo a change made in Visual. A pause in typing starts a new step. A change made in Visual leaves your place in the YAML where it was.
 - The side you used last is remembered on this device.
 
+**Map**, above the outline, shows the workflow as a graph instead, read-only: choosing a step or a trigger in it opens that row. While the file has an error, the map is of the last version Legato could read, and says so.
+
 In YAML, the outline stays beside the text. Choose a row to go to its part of the file; as you move through the file, the row you are in is marked. On a phone it is a **Jump to** menu.
 
 If the YAML stops parsing, Visual keeps the outline as it last was, greyed out, and says on which line Legato can't read the YAML; **Show** takes you there. The forms come back once it parses.
@@ -211,7 +213,7 @@ The YAML side knows the workflow format, from the same schema Legato checks file
 
   Hover over an expression to see what it reads. One that Legato would refuse, such as a later step's output, is marked as you type.
 - Problems are marked on their lines and listed beside the editor, as you type and again when Legato checks the file, which also checks the `${{ }}` references and each step's rules. A `with` key that the step's type doesn't read is a warning: Legato ignores it for now and a later release will refuse it.
-- **Save** stays off while the file has an error. Beside the editor, the workflow graph shows what you are building.
+- **Save** stays off while the file has an error.
 
 When you save, these rules apply:
 
