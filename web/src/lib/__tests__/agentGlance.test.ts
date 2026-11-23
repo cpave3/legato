@@ -155,4 +155,13 @@ describe("backgroundSummary", () => {
     expect(backgroundSummary([job("subagent", "Explore: find the callers")])).toBe("subagent: Explore: find the callers")
     expect(backgroundSummary([job("bash", "npm run build"), job("monitor", "watch the deploy")])).toBe("2 jobs")
   })
+
+  it("counts subagents at any depth by what they do", () => {
+    const sub = (id: string, state: string, parent?: string) => ({ ...job("subagent", id), state, parent })
+    expect(backgroundSummary([sub("a1", "background"), sub("a2", "working", "a1"), sub("a3", "working", "a1"), job("bash", "npm run build")]))
+      .toBe("2 sub-agents working · 1 job")
+    expect(backgroundSummary([sub("a1", "working"), sub("a2", "waiting", "a1")])).toBe("2 sub-agents working")
+    expect(backgroundSummary([sub("a1", "background"), sub("a2", "background", "a1"), { ...job("bash", "sleep 25"), parent: "a2" }]))
+      .toBe("2 sub-agents waiting · 1 job")
+  })
 })

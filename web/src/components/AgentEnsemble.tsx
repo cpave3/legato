@@ -4,6 +4,7 @@ import type { AgentInfo } from "../hooks/useWebSocket"
 import type { AgentContext } from "../hooks/useAgentContexts"
 import { useAgentGlance } from "../hooks/useAgentGlance"
 import { useMediaQuery } from "../hooks/useMediaQuery"
+import { SubagentsLine } from "./SubagentTree"
 import {
   backgroundSummary,
   glanceItems,
@@ -394,9 +395,12 @@ function StageCard({ agent, context, approval, onDecide, onOpen, onSend, touch =
     body = unread && !now
       ? <Quiet>{couldNotRead(agent)}</Quiet>
       : (
-        <p aria-label="Now" className="m-0 truncate font-lw-mono text-[11px] leading-4 text-lw-text-2">
-          {now ? <>{now.tool && <span className="text-lw-link">{now.tool}</span>}{now.tool && " "}{now.text}</> : "Working…"}
-        </p>
+        <>
+          <p aria-label="Now" className="m-0 truncate font-lw-mono text-[11px] leading-4 text-lw-text-2">
+            {now ? <>{now.tool && <span className="text-lw-link">{now.tool}</span>}{now.tool && " "}{now.text}</> : "Working…"}
+          </p>
+          <SubagentsLine jobs={agent.background_jobs} />
+        </>
       )
   } else {
     const reply = conversation ? newestReply(conversation) : null
@@ -597,6 +601,7 @@ function AgentTile({ agent, context, onOpen, onSend }: {
         </div>
         <span className="truncate text-[15px] font-semibold">{agent.task_title || agent.task_id}</span>
         <span className="truncate text-xs text-lw-text-2">{meta}</span>
+        <SubagentsLine jobs={agent.background_jobs} />
       </div>
 
       {/* Contained in size: what the agent says never makes the tile, or its

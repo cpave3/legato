@@ -8,6 +8,7 @@ import { agentSections, formatAgentTime, stateSeconds } from "../lib/agentList"
 import { filterByStage, glanceLabels, glanceSection, needsYouOutside, stageLabel, unreadDone, type GlanceSection, type WorkStage } from "../lib/agentStage"
 import { FinishedReason, NeedsYouLine, StageLine, StageTrack } from "./StageTrack"
 import { StageMenu } from "./StageMenu"
+import { subagentsLabel } from "../lib/agentGlance"
 import { reeveWash } from "./ReeveEntry"
 import { agentGroupLayout } from "../lib/agentGroups"
 import type { AgentGrouping } from "../hooks/useAgentGroups"
@@ -130,6 +131,10 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping
                 {/* Under Finished the group names the stage: a row gives only why. */}
                 {finished ? <FinishedReason agent={agent} unread={unread} className="pl-4" /> : <StageLine agent={agent} className="pl-4" />}
                 <NeedsYouLine agent={agent} className="pl-4" />
+                {subagentsLabel(agent.background_jobs) && (
+                  // The row is a button: the tree opens in the agent's header.
+                  <span className="truncate pl-4 text-[11px] text-lw-live">◌ {subagentsLabel(agent.background_jobs)}</span>
+                )}
                 <span className="flex min-w-0 items-center gap-1.5 pl-4">
                   <AgentKindBadge kind={agent.agent_kind} engram={agent.engram} isNative={!!agent.has_chimera_endpoint} />
                   {agent.unsandboxed && <UnsandboxedBadge />}

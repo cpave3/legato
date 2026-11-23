@@ -170,10 +170,64 @@ export async function fetchAgentConversation(baseUrl: string, taskId: string): P
   return await response.json() as AgentConversation
 }
 
-// What an agent in the background waits on: its one job by kind and label,
-// or how many there are; "" for none.
+// What an agent in the background waits on: its one job by kind and label;
+// else its subagents (at any depth) by what they do, working or waiting on
+// work of their own, and how many other jobs run; "" for none.
 export function backgroundSummary(jobs: BackgroundJob[] | undefined): string {
   if (!jobs || jobs.length === 0) return ""
   if (jobs.length === 1) return `${jobs[0].kind}: ${jobs[0].label}`
-  return `${jobs.length} jobs`
+  let working = 0, waiting = 0, other = 0
+  for (const job of jobs) {
+    if (job.kind !== "subagent") other++
+    else if (job.state === "background") waiting++
+    else working++
+  }
+  if (working + waiting === 0) return `${jobs.length} jobs`
+  const parts = [working > 0 ? `${plural(working, "sub-agent")} working` : `${plural(waiting, "sub-agent")} waiting`]
+  if (other > 0) parts.push(plural(other, "job"))
+  return parts.join(" · ")
+}
+
+function plural(n: number, noun: string): string {
+  return n === 1 ? `1 ${noun}` : `${n} ${noun}s`
+}
+
+// subagentsLabel says how many of an agent's subagents work ("2 sub-agents
+// working"), or wait on work of their own; "" for none.
+export function subagentsLabel(jobs: BackgroundJob[] | undefined): string {
+  const nodes = subagentTree(jobs)
+  if (nodes.length === 0) return ""
+  const working = nodes.filter((node) => node.job.state !== "background").length
+  return working > 0 ? `${plural(working, "sub-agent")} working` : `${plural(nodes.length, "sub-agent")} waiting`
+}
+
+// SubagentNode is one subagent in an agent's tree, at depth 1 for one the
+// agent started.
+export interface SubagentNode {
+  job: BackgroundJob
+  depth: number
+  // What it started that still runs: subagents and other jobs.
+  subagents: number
+  jobs: number
+}
+
+// subagentTree lists an agent's subagents depth first, each under the one
+// that started it; one whose parent is not listed is the agent's own.
+export function subagentTree(jobs: BackgroundJob[] | undefined): SubagentNode[] {
+  if (!jobs) return []
+  const ids = new Set(jobs.map((job) => job.id))
+  const parentOf = (job: BackgroundJob) => job.parent && ids.has(job.parent) && job.parent !== job.id ? job.parent : ""
+  const out: SubagentNode[] = []
+  const seen = new Set<string>()
+  const walk = (parent: string, depth: number) => {
+    for (const job of jobs) {
+      if (job.kind !== "subagent" || parentOf(job) !== parent || seen.has(job.id)) continue
+      seen.add(job.id)
+      const children = jobs.filter((child) => parentOf(child) === job.id)
+      out.push({ job, depth, subagents: children.filter((c) => c.kind === "subagent").length, jobs: children.filter((c) => c.kind !== "subagent").length })
+      walk(job.id, depth + 1)
+    }
+  }
+  walk("", 1)
+  return out
 }

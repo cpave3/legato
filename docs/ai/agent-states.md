@@ -18,8 +18,12 @@ The states (`store.Activity*`, `agent_sessions.activity`):
 `background_jobs` (`agent_sessions.background_jobs`, JSON; `store.BackgroundJob`)
 is what still runs: `kind` (`bash`, `monitor`, `subagent`, `cron`), `id`, `label`
 (a shell's description or command, a subagent's description and type, a cron's
-prompt), `schedule` for a cron, and `started_at` (when Legato first saw it). It
-is in `GET /api/agents` and in the Reeve's watch message. It is kept in the
+prompt), `schedule` for a cron, `started_at` (when Legato first saw it), `parent`
+(the subagent that started it; absent for the agent itself) and, for a
+subagent, `state`: `working`, `waiting` (on the operator) or `background` (its
+turn ended and work it started still runs). The list is a tree of every
+background subagent at any depth and what each started; see § Nested subagents.
+It is in `GET /api/agents` and in the Reeve's watch message. It is kept in the
 database, so it survives a restart of Legato. A resumed or reloaded agent is a
 new session with none: its background work ended with the old process.
 
@@ -280,6 +284,8 @@ where the repository's current scripts differ, it says so.
 | Foreground subagent (Task/Agent) | its tool calls with `agent_id`, inside the parent's turn | `working` | `working` |
 | A subagent's permission prompt | `PermissionRequest` (with `agent_id`), then its `PostToolUse` | `waiting`, then `working` | `waiting`, then back: `working` in a foreground subagent, `background` for one listed as a job |
 | A subagent's API error | `StopFailure` with `agent_id` | n/a (not hooked) | unchanged: the turn running it goes on |
+| A background subagent starts its own | the parent's `PostToolUse` `Agent` with its `agent_id` (`isAsync`, `agentId`) | not listed | listed under its parent; see § Nested subagents |
+| A subagent ends its turn with its own still running | `SubagentStop` (with the session's `background_tasks`); no notification to the main loop | listed as running long after | `background`; the parent `background` while the child is `working` |
 | Forks | not recorded; a fork is a session of its own, which the mod gives no task (see [Claude Code native integration](claude-code-native.md)) | — | not reported |
 | A job finishes and wakes the session | `UserPromptSubmit` with `<task-notification>` | `working` | `working`, that job removed |
 | Several jobs, one finishes | as above, then `Stop` listing the rest | `working`, then idle (stale) | `working`, then `background` with the rest |
@@ -294,6 +300,63 @@ where the repository's current scripts differ, it says so.
 | Legato restarted | none | kept (database) | kept, jobs too |
 | Sandboxed against unsandboxed | the same hooks; the report goes through the broker in both when it is reachable | the same | the same |
 | Old installed scripts beside the plugin | both report | n/a | the plugin's session ignores every `agent state` report (`agent_sessions.hook_source = 'plugin'`) |
+
+## Nested subagents
+
+Recorded on 2026-11-23 from Claude Code 2.1.330 for LEG-534 (fixtures
+`nested-woken-parent` interactive, `nested-background` and `nested-foreground`
+from `claude -p`; tests in `internal/cli/claude_hook_nested_test.go`).
+
+- `SubagentStart` and `SubagentStop` fire for a subagent at every depth, with
+  `agent_id` and `agent_type`; neither names a parent, a depth or a
+  description. A subagent's own tool calls carry its `agent_id`.
+- The parent is in the parent's own `PostToolUse` of `Agent`: its `agent_id`,
+  with the child's `tool_response.agentId` (`isAsync` for a background child;
+  a foreground child's comes only once the child has ended).
+- Every `SubagentStop`, like the main loop's `Stop`, carries `background_tasks`
+  for the whole session: subagents at every depth and shells subagents
+  started, the stopping subagent among them. A subagent whose turn has ended
+  while work it started runs is not in it.
+- Interactive: a subagent that ends its turn with a child still running does
+  not notify the main loop. When the child ends, Claude Code wakes the parent
+  with a new `SubagentStart` of the same `agent_id`, and tells the main loop
+  only once the parent stops with nothing of its own running. In `claude -p`
+  the main loop is told at once, and a nested child's end goes to the main
+  loop. Legato depends on neither.
+- `subagents/agent-<id>.meta.json`, beside the session's transcript, has
+  `parentAgentId`, `spawnDepth` and `description`. It is not yet written when
+  `SubagentStart` fires, and its `finished` is set at every stop, so it says
+  nothing of whether the subagent runs.
+
+What Legato does (`ApplyClaudeHook`):
+
+| Signal | The tree |
+| --- | --- |
+| `PostToolUse` that started a job, the main loop's or a subagent's | the job is added under the hook's `agent_id` (`parent`), a subagent `working`; one listed already gains the parent and label it lacked |
+| `SubagentStart` of a listed subagent | `working` (one its children woke) |
+| `PermissionRequest` with its `agent_id` | `waiting`; its next `PostToolUse` → `working`. A tool call never wakes one whose turn ended: it can be reported after the stop |
+| `SubagentStop` with `background_tasks` | the list applied (`listedJobs`): each listed job kept with what Legato knew of it, new ones added; the stopping subagent stays as `background` while anything it started (at any depth) is listed, else leaves |
+| A subagent the list leaves out | stays as `background` while Legato has a job under it (so through the stop of its last child, as Claude Code then wakes it), else leaves: a stale or interrupted one goes at the next list |
+| `Stop` of the main loop | as `SubagentStop`, and its crons replace the old |
+| `<task-notification>` for a job | the job leaves, unless something it started still runs |
+| `SessionEnd` | all leave |
+
+A listed subagent whose start Legato never saw has no parent. The hook
+command (`ParseClaudeHook`, `subagentParents`) then reads `parentAgentId` from
+the subagent's `meta.json`, beside the `transcript_path` the payload names
+(IDs of letters, digits, `_` and `-` only, 64 KiB at most, at most 32). Hooks
+are processes of their own and can reach Legato out of order, and this is
+what keeps the tree when a list comes before the start it lists. Only
+background subagents are in the tree: a foreground one runs inside its
+caller's work, and its parent is known only once it has ended.
+
+The agent's `activity` stays the main loop's own: `background` until the last
+job at any depth ends (the glance counts it as Working). Summaries count the
+subagents by what they do: `2 sub-agents working · 1 job`.
+
+Codex reports no subagents. Chimera's mod reports a session's own
+`agent.spawn`, but nothing from inside a subagent, so a Chimera subagent's own
+subagents are not seen (see § Sub-agent time).
 
 ## Codex (from code)
 
@@ -372,7 +435,7 @@ working and waiting time is recorded for the task's reports
 
 | Tool | What times a sub-agent | Waiting | Nesting |
 | --- | --- | --- | --- |
-| Claude Code (state plugin) | `SubagentStart` opens a `working` span (`recordClaudeSubagents`), `SubagentStop` ends it. The main loop's `Stop` ends any not listed in its `background_tasks` (a foreground subagent cannot outlive the turn); `SessionEnd` ends all. Recorded: `several-jobs-and-subagent.jsonl` | `PermissionRequest` with its `agent_id` → `waiting`; its next `PostToolUse` → `working` | Claude Code names no parent: each sub-agent is counted once under the top-level agent |
+| Claude Code (state plugin) | `SubagentStart` opens a `working` span (`recordClaudeSubagents`), `SubagentStop` ends it. The main loop's `Stop` ends any not listed in its `background_tasks` (a foreground subagent cannot outlive the turn); `SessionEnd` ends all. Recorded: `several-jobs-and-subagent.jsonl` | `PermissionRequest` with its `agent_id` → `waiting`; its next `PostToolUse` → `working` | `parent_subagent_id` from the parent's `Agent` call or the subagent's `meta.json` (`SetSubagentParent`); a woken subagent gets a new span |
 | Chimera with the mod | `agent.spawn` → `agent.finish`, foreground and background (`recordChimeraSubagents`); `session.end` ends all. Recorded: `chimera-mod/subagent.ndjson` | not seen: the mod does nothing inside a subagent | not seen, for the same reason: a subagent's own subagents are missed |
 | Chimera without the mod | none (child sessions only notify) | — | — |
 | Codex | none: no hook or app-server event carries a subagent | — | — |

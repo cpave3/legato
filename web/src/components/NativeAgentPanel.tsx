@@ -62,6 +62,7 @@ import { SubagentLink } from "./SubagentParts"
 import { saveSubagentView, savedSubagentView, subagentTiles, type SubagentView } from "../lib/subagentTiles"
 import { shellTileForCall, shellTiles } from "../lib/shellTiles"
 import { fromStored, mergeShells, type StoredBackgroundShell } from "../lib/backgroundShells"
+import type { BackgroundJob } from "../hooks/useWebSocket"
 import { useElementWidth } from "../hooks/useElementWidth"
 
 // The least width at which subagent tiles sit beside the conversation; below
@@ -260,9 +261,11 @@ interface NativeAgentPanelProps {
   // The background shells Legato recorded from the agent's mod (Chimera's,
   // without output); its endpoint's own, when it reports them, win.
   backgroundShells?: StoredBackgroundShell[]
+  // What the agent runs in the background, for its header's sub-agents.
+  backgroundJobs?: BackgroundJob[]
 }
 
-export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, onMoveToGroup, onShowInfo, resyncRef, onReload, switchSandbox, switchHostNetwork, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, engram, openItems = 0, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest, backgroundShells, stage }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, onMoveToGroup, onShowInfo, resyncRef, onReload, switchSandbox, switchHostNetwork, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, engram, openItems = 0, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest, backgroundShells, backgroundJobs, stage }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   // Out of view the panel stops following the agent and catches up from its
   // cursor on return, so a phone with its screen off does not keep receiving
@@ -1071,6 +1074,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         native
         pullRequest={pullRequest}
         panels={panels}
+        backgroundJobs={backgroundJobs}
         subagents={{ total: tiles.length, running: tiles.filter((tile) => tile.state === "running").length, view: subagentView, onView: chooseSubagentView }}
         onShowRequest={scrollToBottom}
         ask={reeve ? undefined : <AskReeve brief={reeveBrief({ what: `the agent “${title || agentId}”, which waits for the operator`, ids: { task: agentId, "agent tool": agentKind }, error: error || undefined })} />}

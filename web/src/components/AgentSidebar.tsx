@@ -12,6 +12,7 @@ import { agentSections, formatAgentTime, sectionLabels, stateSeconds, type Agent
 import { agentGroupLayout, type AgentGroupBlock } from "../lib/agentGroups";
 import { filterByStage, glanceSection, needsYouOutside, stageLabel, unreadDone, type GlanceSection, type WorkStage } from "../lib/agentStage";
 import { FinishedReason, NeedsYouLine, StageLine } from "./StageTrack";
+import { SubagentsLine } from "./SubagentTree";
 import { StageMenu } from "./StageMenu";
 
 interface AgentSidebarProps {
@@ -384,7 +385,7 @@ function AgentEntry({
         onAgentContextMenu(agent, { x: event.clientX, y: event.clientY });
       } : undefined}
       className={cn(
-        "group relative flex min-w-0 max-w-full items-start overflow-hidden rounded-md transition-colors",
+        "group relative flex min-w-0 max-w-full flex-wrap items-start overflow-hidden rounded-md transition-colors",
         isWorker && "ml-3",
         selected ? "bg-lw-selected shadow-[inset_0_0_0_1px] shadow-lw-accent-ring" : "hover:bg-lw-surface",
       )}
@@ -446,6 +447,8 @@ function AgentEntry({
           />
         </div>
       )}
+      {/* Beside the row's button, not in it: it opens a tree of its own. */}
+      <SubagentsLine jobs={agent.background_jobs} className="-mt-1 basis-full px-2.5 pb-2" />
     </div>
   );
 }
