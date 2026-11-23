@@ -133,3 +133,112 @@ describe("the ensemble's stages", () => {
     expect(toggle().getAttribute("aria-expanded")).toBe("true")
   })
 })
+
+describe("the cards in the stage bands", () => {
+  const replies: Record<string, string> = {}
+  const long = "First line of the reply.\nSecond line.\nThird line.\nFourth line.\nFifth line, past the clamp.\nSixth."
+
+  beforeEach(() => {
+    localStorage.setItem(ENSEMBLE_LAYOUT_KEY, "stage")
+    for (const key of Object.keys(replies)) delete replies[key]
+    apiFetch.mockImplementation(async (_baseUrl: string, path: string) => {
+      const [, taskId] = /^\/api\/agents\/([^/]+)\/conversation/.exec(path) ?? []
+      if (!taskId) return new Response("not available", { status: 404 })
+      const entries = [
+        { kind: "user", text: "go" },
+        ...(taskId === "LEG-407" ? [{ kind: "tool", tool: "bash", text: "go test ./internal/server", state: "running" }] : []),
+        ...(replies[taskId] ? [{ kind: "assistant", text: replies[taskId] }] : []),
+      ]
+      return new Response(JSON.stringify({ task_id: taskId, status: "idle", entries, permission: null, question: null, context_used: 0, context_window: 0 }), { status: 200 })
+    })
+  })
+
+  const native = (id: string, stage: string, glance: string, fields: Partial<AgentInfo> = {}) => agent(id, stage, glance, { has_chimera_endpoint: true, stage_reason: "6 files changed", ...fields })
+  const card = (id: string) => screen.getByRole("article", { name: new RegExp(`^${id},`) })
+
+  it("leads with the glance and the time, then the ID, the title and why · tool", () => {
+    render(<AgentEnsemble agents={[native("LEG-386", "implementing", "your_turn", { working_seconds: 360 })]} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    const shown = card("LEG-386")
+    expect(shown.getAttribute("aria-label")).toBe("LEG-386, your turn")
+    expect(within(shown).getByText("◇ Your turn · 6m")).toBeTruthy()
+    expect(within(shown).getByText("LEG-386 title")).toBeTruthy()
+    expect(within(shown).getByText("6 files changed · Claude Code")).toBeTruthy()
+  })
+
+  it("shows a long last reply whole, for the clamp to cut at four lines, never a fixed height", async () => {
+    replies["LEG-386"] = long
+    render(<AgentEnsemble agents={[native("LEG-386", "implementing", "your_turn")]} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    const quote = await within(card("LEG-386")).findByRole("blockquote")
+    expect(quote.textContent).toBe(long)
+    expect(within(card("LEG-386")).queryByText("Last reply")).toBeNull()
+  })
+
+  it("shows what a working agent is doing on one line", async () => {
+    render(<AgentEnsemble agents={[native("LEG-407", "implementing", "working", { activity: "working" })]} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    const shown = card("LEG-407")
+    expect(within(shown).getByText("● Working")).toBeTruthy()
+    expect((await within(shown).findByLabelText("Now")).textContent).toBe("bash go test ./internal/server")
+  })
+
+  it("draws background work as working, in its own words", () => {
+    render(<AgentEnsemble agents={[native("LEG-408", "reviewing", "working", { activity: "background", background_jobs: [{ kind: "bash", id: "b1", label: "npm run build", started_at: "" }] })]} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    expect(within(card("LEG-408")).getByText("◌ Working · background")).toBeTruthy()
+    expect(within(card("LEG-408")).getByLabelText("Now").textContent).toBe("bash: npm run build")
+  })
+
+  it("puts what a waiting agent asks in a needs box, with Allow and Deny", () => {
+    const onDecide = vi.fn()
+    const approval = {
+      id: "ap-1", source: "native", source_key: "", task_id: "LEG-409", title: "Run go test ./...", details: { command: "go test ./..." },
+      options: [{ id: "once", label: "Allow once", kind: "allow" as const }, { id: "no", label: "Deny", kind: "deny" as const }],
+      blocking: true, status: "pending", revision: 1, created_at: "",
+    }
+    render(<AgentEnsemble agents={[native("LEG-409", "implementing", "needs_you", { activity: "waiting" })]} approvals={[approval]} onDecide={onDecide} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    const shown = card("LEG-409")
+    expect(within(shown).getByText("◆ Needs you")).toBeTruthy()
+    const box = within(shown).getByRole("group", { name: "Needs you" })
+    expect(within(box).getByText("Run go test ./...")).toBeTruthy()
+    fireEvent.click(within(box).getByRole("button", { name: "Allow" }))
+    expect(onDecide).toHaveBeenCalledWith(approval, { decision: "allow", option: "once" })
+    fireEvent.click(within(box).getByRole("button", { name: "Deny" }))
+    expect(onDecide).toHaveBeenLastCalledWith(approval, { decision: "deny" })
+  })
+
+  it("offers a plan to review when that is what waits", () => {
+    const onOpen = vi.fn()
+    render(<AgentEnsemble agents={[native("LEG-412", "planning", "needs_you", { plan_pending: true })]} onOpen={onOpen} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    const box = within(card("LEG-412")).getByRole("group", { name: "Needs you" })
+    expect(within(box).getByText("Plan to approve")).toBeTruthy()
+    fireEvent.click(within(box).getByRole("button", { name: "Review plan" }))
+    expect(onOpen).toHaveBeenCalledWith("LEG-412")
+  })
+
+  it("opens a message box in place on Reply, and sends with Enter", () => {
+    const onSend = vi.fn()
+    render(<AgentEnsemble agents={[native("LEG-386", "implementing", "your_turn")]} onSend={onSend} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    const shown = card("LEG-386")
+    expect(within(shown).queryByRole("textbox")).toBeNull()
+    fireEvent.click(within(shown).getByRole("button", { name: "Reply to LEG-386" }))
+    const box = within(shown).getByRole("textbox", { name: "Reply to LEG-386" })
+    fireEvent.change(box, { target: { value: "carry on" } })
+    fireEvent.keyDown(box, { key: "Enter" })
+    expect(onSend).toHaveBeenCalledWith("LEG-386", "carry on")
+    expect(within(shown).getByRole("button", { name: "Open LEG-386" })).toBeTruthy()
+  })
+
+  it("lists Finished agents as one-line rows that open the agent", () => {
+    const onOpen = vi.fn()
+    render(<AgentEnsemble agents={[
+      native("LEG-405", "finished", "finished", { stage_reason: "PR #212 merged" }),
+      native("LEG-413", "finished", "finished", { stage_reason: "both bugs fixed", open_items: 1, open_done_items: 1 }),
+    ]} onOpen={onOpen} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    const band = screen.getByRole("region", { name: "Finished" })
+    expect(within(band).queryByRole("article")).toBeNull()
+    const rows = within(band).getAllByRole("button", { name: /^Open LEG-/ })
+    expect(rows.map((row) => row.textContent)).toEqual(["LEG-405LEG-405 titlePR #212 merged", "LEG-413LEG-413 titleboth bugs fixed"])
+    expect(within(rows[1]).getByLabelText("Unread: finished with a note for you")).toBeTruthy()
+    expect(within(rows[0]).queryByLabelText(/Unread/)).toBeNull()
+    fireEvent.click(rows[0])
+    expect(onOpen).toHaveBeenCalledWith("LEG-405")
+  })
+})

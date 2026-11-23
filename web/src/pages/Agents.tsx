@@ -20,7 +20,9 @@ import { StartSwarmModal } from "../components/StartSwarmModal"
 import { SpawnEphemeralModal } from "../components/SpawnEphemeralModal"
 import { SwarmEventLog } from "../components/SwarmEventLog"
 import { SwarmCommandCenter } from "../components/SwarmCommandCenter"
-import { AgentEnsemble } from "../components/AgentEnsemble"
+import { AgentEnsemble, type AgentEnsembleProps } from "../components/AgentEnsemble"
+import { useApprovals } from "../hooks/useApprovals"
+import { decideApproval } from "../lib/approvals"
 import { AgentPickerBar } from "../components/AgentSelect"
 import { ReeveEntry, ReeveStatus } from "../components/ReeveEntry"
 import { AskReeve } from "../components/AskReeve"
@@ -801,7 +803,7 @@ export function AgentsPage() {
   if (ensemble) {
     return (
       <div className="flex h-full flex-col overflow-hidden">
-        <AgentEnsemble
+        <EnsembleWithApprovals
           agents={runningAgents}
           onOpen={(taskId) => {
             handleSelect(taskId)
@@ -1097,4 +1099,24 @@ export function AgentsPage() {
 function stageInfo(agent: AgentInfo): AgentStageInfo | undefined {
   if (agent.reeve) return undefined
   return { agentId: agent.task_id, stage: agent.stage, reason: agent.stage_reason, source: agent.stage_source }
+}
+
+// EnsembleWithApprovals is the ensemble with the approvals waiting for the
+// operator, so a card in a stage band can allow or deny its agent's. It
+// reads them only while the ensemble is shown.
+function EnsembleWithApprovals(props: Omit<AgentEnsembleProps, "approvals" | "onDecide">) {
+  const { baseUrl } = useServer()
+  const { addToast } = useToast()
+  const { data: approvals, refresh } = useApprovals()
+  return (
+    <AgentEnsemble
+      {...props}
+      approvals={approvals}
+      onDecide={(approval, decision) => {
+        decideApproval(baseUrl, approval.id, decision)
+          .then(refresh)
+          .catch((error: unknown) => addToast(error instanceof Error ? error.message : "Could not answer the approval", "error"))
+      }}
+    />
+  )
 }

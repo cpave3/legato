@@ -20,6 +20,7 @@ const { mockFetch, socket, voice, selection } = vi.hoisted(() => ({
 vi.stubGlobal("fetch", mockFetch)
 vi.mock("../../hooks/useWebSocket", () => ({ useWebSocket: () => socket }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
+vi.mock("../../hooks/useApprovals", () => ({ useApprovals: () => ({ data: [], error: null, refresh: async () => {} }) }))
 vi.mock("../../hooks/useAgentSelection", () => ({
   useAgentSelection: () => {
     const [selectedAgentId, setSelectedAgentId] = useState<string | null>(selection.initial)

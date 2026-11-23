@@ -14,12 +14,14 @@ import {
 } from "../lib/agentGlance"
 import { agentToolLabel } from "../lib/agentKind"
 import { formatAgentTime, stateSeconds } from "../lib/agentList"
-import { glanceSection, stageLabel, workStages, type GlanceSection, type WorkStage } from "../lib/agentStage"
+import { glanceSection, needsYouReason, stageLabel, unreadDone, workStages, type GlanceSection, type WorkStage } from "../lib/agentStage"
+import type { Approval, ApprovalDecision } from "../lib/approvals"
+import { showApproval } from "../lib/railState"
 import { cn } from "../lib/utils"
 import { ActivityBar, ContextMeter } from "./AgentMeters"
 import { StageTrack } from "./StageTrack"
 
-interface AgentEnsembleProps {
+export interface AgentEnsembleProps {
   // The running agents, in any order.
   agents: AgentInfo[]
   // How full each native agent's context window is, by task ID.
@@ -29,6 +31,10 @@ interface AgentEnsembleProps {
   onShowList: () => void
   // Sends a message to an agent, as its own message box would.
   onSend?: (taskId: string, content: string) => void
+  // The approvals waiting for the operator, and how one is decided: a card
+  // in a stage band offers Allow and Deny for its agent's.
+  approvals?: Approval[]
+  onDecide?: (approval: Approval, decision: ApprovalDecision) => void
 }
 
 // The header's counts, by glance group. The Reeve is left out of every
@@ -73,7 +79,7 @@ function stateOf(agent: AgentInfo): { label: string; glyph: string; chip: string
 
 // AgentEnsemble shows every running agent at once: a tile for each with what
 // it is at, the agents that need the person first, or by stage in bands.
-export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowList, onSend }: AgentEnsembleProps) {
+export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowList, onSend, approvals = [], onDecide }: AgentEnsembleProps) {
   const ordered = orderForEnsemble(agents)
   const counted = agents.filter((agent) => !agent.reeve)
   const [layout, setLayoutState] = useState<EnsembleLayout>(rememberedLayout)
@@ -120,7 +126,7 @@ export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowLi
             <div data-ensemble-bands className="flex flex-col gap-2">
               {stageRuns(ordered).map((run) => run.agents.length === 0
                 ? <EmptyStages key={run.stages.join()} stages={run.stages} />
-                : <StageBand key={run.stages[0]} stage={run.stages[0]} agents={run.agents} contexts={contexts} onOpen={onOpen} onSend={onSend} />)}
+                : <StageBand key={run.stages[0]} stage={run.stages[0]} agents={run.agents} contexts={contexts} approvals={approvals} onDecide={onDecide} onOpen={onOpen} onSend={onSend} />)}
             </div>
           )
           : (
@@ -172,10 +178,12 @@ function EmptyStages({ stages }: { stages: WorkStage[] }) {
 // in a column on the left of a wide screen, and the agents flowing across
 // beside it. A band is as tall as its agents. On a phone the bands stack, and
 // a band opens by itself when it holds an agent that needs the operator.
-function StageBand({ stage, agents, contexts, onOpen, onSend }: {
+function StageBand({ stage, agents, contexts, approvals, onDecide, onOpen, onSend }: {
   stage: WorkStage
   agents: AgentInfo[]
   contexts: Record<string, AgentContext>
+  approvals: Approval[]
+  onDecide?: (approval: Approval, decision: ApprovalDecision) => void
   onOpen: (taskId: string) => void
   onSend?: (taskId: string, content: string) => void
 }) {
@@ -206,21 +214,230 @@ function StageBand({ stage, agents, contexts, onOpen, onSend }: {
           {marks && <span className="ml-auto text-xs font-medium text-lw-needs lg:ml-1">{marks}</span>}
         </button>
       </h2>
-      <div className={cn("min-w-0 grid-cols-[repeat(auto-fill,minmax(300px,1fr))] items-start gap-2.5", open ? "grid" : "hidden lg:grid")}>
-        {agents.map((agent) => (
-          <AgentTile key={agent.task_id} agent={agent} context={contexts[agent.task_id]} onOpen={onOpen} onSend={onSend} inBand />
-        ))}
-      </div>
+      {stage === "finished"
+        // Finished agents are one-line rows: there is nothing to do for them
+        // but read what they left.
+        ? (
+          <ul className={cn("m-0 min-w-0 list-none flex-col gap-0.5 p-0", open ? "flex" : "hidden lg:flex")}>
+            {agents.map((agent) => <li key={agent.task_id}><FinishedRow agent={agent} onOpen={onOpen} /></li>)}
+          </ul>
+        )
+        : (
+          <div className={cn("min-w-0 grid-cols-[repeat(auto-fill,minmax(300px,1fr))] items-start gap-2.5", open ? "grid" : "hidden lg:grid")}>
+            {agents.map((agent) => (
+              <StageCard
+                key={agent.task_id}
+                agent={agent}
+                context={contexts[agent.task_id]}
+                approval={approvals.find((approval) => approval.task_id === agent.task_id)}
+                onDecide={onDecide}
+                onOpen={onOpen}
+                onSend={onSend}
+              />
+            ))}
+          </div>
+        )}
     </section>
   )
 }
 
-function AgentTile({ agent, context, onOpen, onSend, inBand = false }: {
+// How a card in a band leads: what the agent needs from the operator, in
+// the glance's word and glyph. Background work is working, in green, with
+// its own glyph and word.
+function glanceOf(agent: AgentInfo): { glyph: string; word: string; tone: string } {
+  if (agent.activity === "error") return { glyph: "✕", word: "Error", tone: "bg-lw-error-soft text-lw-error" }
+  switch (glanceSection(agent)) {
+    case "needs-you":
+      return { glyph: "◆", word: "Needs you", tone: "bg-lw-needs-soft text-lw-needs" }
+    case "your-turn":
+      return { glyph: "◇", word: "Your turn", tone: "bg-lw-needs-soft text-lw-needs" }
+    case "working":
+      return agent.activity === "background"
+        ? { glyph: "◌", word: "Working · background", tone: "bg-lw-live-soft text-lw-live" }
+        : { glyph: "●", word: "Working", tone: "bg-lw-live-soft text-lw-live" }
+    case "finished":
+      return { glyph: "✓", word: "Finished", tone: "bg-lw-done-soft text-lw-done" }
+    default:
+      return { glyph: "■", word: "Ended", tone: "bg-lw-idle-soft text-lw-text-2" }
+  }
+}
+
+const cardButton = "h-[30px] shrink-0 rounded-md border border-lw-line-strong bg-lw-raised px-3 text-xs text-lw-text hover:border-[var(--theme-border,#4a4955)]"
+
+// StageCard is an agent in a stage band, light enough to scan: the glance
+// and its time, the ID and title, why it is at its stage and its tool, then
+// one body (what it needs from the operator, what it is doing now, or its
+// last reply) and the actions that fit. It has no fixed height: nothing it
+// shows is cut by one.
+function StageCard({ agent, context, approval, onDecide, onOpen, onSend }: {
   agent: AgentInfo
   context?: AgentContext
-  // In a stage band, which names the stage: the tile does not, and is as
-  // tall as what it shows, up to a cap.
-  inBand?: boolean
+  approval?: Approval
+  onDecide?: (approval: Approval, decision: ApprovalDecision) => void
+  onOpen: (taskId: string) => void
+  onSend?: (taskId: string, content: string) => void
+}) {
+  const { conversation, observe } = useAgentGlance(agent)
+  const glance = glanceOf(agent)
+  const section = glanceSection(agent)
+  const needs = section === "needs-you"
+  const working = section === "working"
+  const time = formatAgentTime(stateSeconds(agent))
+  const why = [agent.stage_reason, agentToolLabel(agent.agent_kind, agent.engram)].filter(Boolean).join(" · ")
+  const [replying, setReplying] = useState(false)
+
+  let body: ReactNode
+  if (needs) {
+    body = <NeedsBox agent={agent} conversation={conversation} approval={approval} onDecide={onDecide} onOpen={onOpen} />
+  } else if (working) {
+    const now = nowLine(agent, conversation)
+    body = (
+      <p aria-label="Now" className="m-0 truncate font-lw-mono text-[11px] leading-4 text-lw-text-2">
+        {now ? <>{now.tool && <span className="text-lw-link">{now.tool}</span>}{now.tool && " "}{now.text}</> : "Working…"}
+      </p>
+    )
+  } else {
+    const reply = conversation ? newestReply(conversation) : null
+    body = reply
+      ? <blockquote className="m-0 line-clamp-4 whitespace-pre-line border-l-2 border-lw-line-strong pl-2.5 text-[13px] leading-5 text-lw-text">{reply}</blockquote>
+      : <Quiet>No reply yet.</Quiet>
+  }
+
+  return (
+    <article
+      ref={observe}
+      aria-label={`${agent.task_id}, ${glance.word.split(" · ")[0].toLowerCase()}`}
+      className={cn("flex min-w-0 flex-col gap-2 rounded-[10px] border bg-lw-surface px-3 py-2.5", needs ? "border-[var(--theme-border,#4a3a1a)]" : "border-lw-line")}
+    >
+      <span className={cn("self-start rounded px-1.5 text-[11px] font-medium", glance.tone)}>
+        {`${glance.glyph} ${glance.word}${time ? ` · ${time}` : ""}`}
+      </span>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className="font-lw-mono text-[11px] text-lw-faint">{agent.task_id}</span>
+        <span className="line-clamp-2 text-[13px] font-semibold leading-5">{agent.task_title || agent.task_id}</span>
+        {why && <span className="truncate text-xs text-lw-text-2">{why}</span>}
+      </div>
+      {body}
+      {!needs && (
+        <div className="flex flex-col gap-2">
+          {replying && onSend && <CardMessageBox agent={agent} idle={!working} onSend={onSend} />}
+          <div className="flex items-center gap-2">
+            {onSend && (
+              <button type="button" aria-expanded={replying} onClick={() => setReplying((value) => !value)} className={cardButton}>
+                <span aria-hidden="true">{working ? "Message" : "Reply"}</span>
+                <span className="sr-only">{working ? `Message ${agent.task_id}` : `Reply to ${agent.task_id}`}</span>
+              </button>
+            )}
+            <button type="button" aria-label={`Open ${agent.task_id}`} onClick={() => onOpen(agent.task_id)} className={cardButton}>Open</button>
+            {context && <span className="ml-auto"><ContextMeter share={context.share} width="w-[60px]" /></span>}
+          </div>
+        </div>
+      )}
+      {needs && context && <ContextMeter share={context.share} width="w-[60px]" />}
+    </article>
+  )
+}
+
+// What a working agent is at now, in one line: the job it waits on in the
+// background, else its newest tool call.
+function nowLine(agent: AgentInfo, conversation: AgentConversation | null): { tool: string; text: string } | null {
+  const waitsOn = agent.activity === "background" ? backgroundSummary(agent.background_jobs) : ""
+  if (waitsOn) return { tool: "", text: waitsOn }
+  const items = conversation ? glanceItems(conversation.entries, agent.activity) : []
+  const call = items.findLast((item) => item.kind === "tool")
+  return call && call.kind === "tool" ? { tool: call.tool, text: call.text } : null
+}
+
+// NeedsBox is what an agent waits on the operator for, with the way to
+// answer: Allow and Deny for an approval, Answer for a question, Review plan
+// for a plan, else Open.
+function NeedsBox({ agent, conversation, approval, onDecide, onOpen }: {
+  agent: AgentInfo
+  conversation: AgentConversation | null
+  approval?: Approval
+  onDecide?: (approval: Approval, decision: ApprovalDecision) => void
+  onOpen: (taskId: string) => void
+}) {
+  const permission = conversation?.permission
+  const question = conversation?.question
+  const asked = approval?.title
+    || (permission ? (permission.plan ? "Asks you to approve a plan" : `Wants to run: ${permission.command || permission.reason || permission.tool}`) : "")
+    || question?.text
+    || (agent.plan_pending ? "Plan to approve" : needsYouReason(agent))
+  const allow = approval?.options.find((option) => option.kind === "allow")
+  const deny = approval?.options.find((option) => option.kind === "deny")
+  const primary = "h-[30px] shrink-0 rounded-md bg-lw-accent px-3 text-xs font-medium text-[var(--theme-canvas,#fff)] hover:brightness-110"
+  let actions: ReactNode
+  if (approval && onDecide && allow && deny) {
+    actions = <>
+      <button type="button" onClick={() => onDecide(approval, { decision: "allow", option: allow.id })} className={primary}>Allow</button>
+      <button type="button" onClick={() => onDecide(approval, { decision: "deny" })} className={cardButton}>Deny</button>
+    </>
+  } else if (approval) {
+    actions = <button type="button" onClick={() => showApproval(approval.id)} className={primary}>Answer</button>
+  } else if (agent.plan_pending) {
+    actions = <button type="button" onClick={() => onOpen(agent.task_id)} className={primary}>Review plan</button>
+  }
+  return (
+    <div role="group" aria-label="Needs you" className="flex flex-col gap-2 rounded-md border border-[var(--theme-border,#4a3a1a)] bg-lw-needs-soft/40 px-2.5 py-2">
+      <p className="m-0 line-clamp-4 whitespace-pre-line text-xs leading-[18px] text-lw-text">{asked}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        {actions}
+        <button type="button" aria-label={`Open ${agent.task_id}`} onClick={() => onOpen(agent.task_id)} className={cardButton}>Open</button>
+      </div>
+    </div>
+  )
+}
+
+// A card's message box, opened in place by Reply: Enter sends what was typed
+// to the agent, which reads it at its next step when it is busy.
+function CardMessageBox({ agent, idle, onSend }: { agent: AgentInfo; idle: boolean; onSend: (taskId: string, content: string) => void }) {
+  const [draft, setDraft] = useState("")
+  const label = idle ? `Reply to ${agent.task_id}` : `Message ${agent.task_id}`
+  return (
+    <input
+      aria-label={label}
+      autoFocus
+      placeholder={idle ? "Reply to continue…" : "Message…"}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return
+        event.preventDefault()
+        const content = draft.trim()
+        if (!content) return
+        onSend(agent.task_id, content)
+        setDraft("")
+      }}
+      className="h-[30px] min-w-0 rounded-md border border-lw-accent bg-lw-ground px-2.5 text-xs text-lw-text outline-none placeholder:text-lw-faint"
+    />
+  )
+}
+
+// FinishedRow is a Finished agent on one line: unread when it left a done
+// note for the operator, then its ID, title and why it finished.
+function FinishedRow({ agent, onOpen }: { agent: AgentInfo; onOpen: (taskId: string) => void }) {
+  const unread = unreadDone(agent)
+  return (
+    <button
+      type="button"
+      aria-label={`Open ${agent.task_id}`}
+      onClick={() => onOpen(agent.task_id)}
+      className="flex min-h-9 w-full min-w-0 items-center gap-2.5 rounded-md px-2 text-left text-xs hover:bg-lw-raised"
+    >
+      <span className="flex w-2 shrink-0 justify-center">
+        {unread && <span aria-label="Unread: finished with a note for you" title="Finished with a note for you" className="size-2 rounded-full bg-lw-done" />}
+      </span>
+      <span className="shrink-0 font-lw-mono text-lw-faint">{agent.task_id}</span>
+      <span className="min-w-0 truncate font-medium text-lw-text">{agent.task_title || agent.task_id}</span>
+      {agent.stage_reason && <span className="ml-auto min-w-0 shrink truncate text-lw-text-2">{agent.stage_reason}</span>}
+    </button>
+  )
+}
+
+function AgentTile({ agent, context, onOpen, onSend }: {
+  agent: AgentInfo
+  context?: AgentContext
   onOpen: (taskId: string) => void
   onSend?: (taskId: string, content: string) => void
 }) {
@@ -259,7 +476,7 @@ function AgentTile({ agent, context, onOpen, onSend, inBand = false }: {
           <span className={cn("rounded px-2 font-lw-mono text-[11px] uppercase", state.chip)}>
             <span aria-hidden="true">{state.glyph}</span> {state.label}{time && ` ${time}`}
           </span>
-          {!inBand && stageLabel(agent.stage) && (
+          {stageLabel(agent.stage) && (
             <span className={cn("flex shrink-0 items-center gap-1 text-[11px]", agent.stage === "finished" ? "text-lw-done" : "text-lw-text-2")}>
               <StageTrack stage={agent.stage} />{stageLabel(agent.stage)}
             </span>
@@ -272,7 +489,7 @@ function AgentTile({ agent, context, onOpen, onSend, inBand = false }: {
 
       {/* Contained in size: what the agent says never makes the tile, or its
           row, taller; the newest is kept in view and the rest cut. */}
-      <div data-tile-body className={cn("flex min-h-0 flex-1 flex-col overflow-hidden px-3.5 py-2.5", inBand ? "max-h-64" : "[contain:size]")}>{shown}</div>
+      <div data-tile-body className="flex min-h-0 flex-1 flex-col overflow-hidden px-3.5 py-2.5 [contain:size]">{shown}</div>
 
       <div className="flex flex-col gap-2.5 border-t border-[var(--theme-border,#222228)] px-3.5 py-2.5">
         <div className="flex min-h-3 items-center justify-between gap-2">
