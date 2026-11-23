@@ -7,7 +7,7 @@ import {
   needsYouOutside,
   parseStageFilter,
   stageCounts,
-  stageFill,
+  stageSteps,
   stageLabel,
   unreadDone,
 } from "../agentStage"
@@ -19,9 +19,9 @@ const base: AgentInfo = {
 const agent = (fields: Partial<AgentInfo>): AgentInfo => ({ ...base, ...fields })
 
 describe("agent stages", () => {
-  it("fills a stage's pie a quarter more at each stage, full when finished", () => {
-    expect(["exploring", "planning", "implementing", "reviewing", "finished"].map(stageFill)).toEqual([0, 0.25, 0.5, 0.75, 1])
-    expect(stageFill(undefined)).toBe(0)
+  it("lights one more bar of a stage's track at each stage, all five when finished", () => {
+    expect(["exploring", "planning", "implementing", "reviewing", "finished"].map(stageSteps)).toEqual([1, 2, 3, 4, 5])
+    expect(stageSteps(undefined)).toBe(0)
     expect(stageLabel("reviewing")).toBe("Reviewing")
     expect(stageLabel(undefined)).toBe("")
   })

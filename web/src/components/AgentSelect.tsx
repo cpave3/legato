@@ -6,7 +6,7 @@ import { AgentKindBadge, HostNetworkBadge, UnsandboxedBadge } from "./AgentKindB
 import { agentToolLabel, isAgentToolInForeground } from "../lib/agentKind"
 import { agentSections, formatAgentTime, stateSeconds } from "../lib/agentList"
 import { filterByStage, glanceLabels, glanceSection, needsYouOutside, stageCounts, stageLabel, workStages, type GlanceSection, type WorkStage } from "../lib/agentStage"
-import { NeedsYouLine, StageLine, StagePie } from "./StagePie"
+import { NeedsYouLine, StageLine, StageTrack } from "./StageTrack"
 import { reeveWash } from "./ReeveEntry"
 import { agentGroupLayout } from "../lib/agentGroups"
 import type { AgentGrouping } from "../hooks/useAgentGroups"
@@ -19,7 +19,7 @@ function ActivityDot({ activity }: { activity: string }) {
       return <span className="inline-flex size-2 shrink-0 rounded-full bg-lw-needs" title="Waiting" />
     case "background":
       // Its turn ended with a shell or subagent of its own still running.
-      return <span className="inline-flex size-2 shrink-0 rounded-full bg-lw-done" title="Background work running" />
+      return <span className="inline-flex size-2 shrink-0 rounded-full bg-lw-live" title="Background work running" />
     case "error":
       return <span className="inline-flex size-2 shrink-0 rounded-full bg-lw-error" title="Error" />
     default:
@@ -164,7 +164,7 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping
               {state!.stage && (
                 <span className="flex shrink-0 items-center gap-1">
                   <span aria-hidden="true" className="text-lw-faint">·</span>
-                  <StagePie stage={selectedAgent.stage} size={10} label="" />
+                  <StageTrack stage={selectedAgent.stage} size="xs" label="" />
                   <span>{state!.stage}</span>
                 </span>
               )}
@@ -206,7 +206,7 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping
                     onClick={() => onStageFilter(stage)}
                     className={cn("flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium", on ? "border-lw-accent bg-lw-selected text-lw-text" : "border-lw-line bg-lw-raised text-lw-text")}
                   >
-                    {stage && <StagePie stage={stage} label="" />}
+                    {stage && <StageTrack stage={stage} label="" />}
                     {stage ? stageLabel(stage) : "All"}
                     <span className="font-lw-mono font-normal text-lw-text-2">{count}</span>
                   </button>

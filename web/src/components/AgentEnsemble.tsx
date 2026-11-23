@@ -17,7 +17,7 @@ import { formatAgentTime, stateSeconds } from "../lib/agentList"
 import { glanceSection, stageLabel, workStages, type GlanceSection, type WorkStage } from "../lib/agentStage"
 import { cn } from "../lib/utils"
 import { ActivityBar, ContextMeter } from "./AgentMeters"
-import { StagePie } from "./StagePie"
+import { StageTrack } from "./StageTrack"
 
 interface AgentEnsembleProps {
   // The running agents, in any order.
@@ -64,7 +64,7 @@ function stateOf(agent: AgentInfo): { label: string; glyph: string; chip: string
       return { label: "running", glyph: "●", chip: "bg-lw-live-soft text-lw-live", frame: "border-[var(--theme-border,#2d3a33)]", ground: "bg-lw-surface" }
     case "background": {
       const waitsOn = backgroundSummary(agent.background_jobs)
-      return { label: waitsOn ? `background · ${waitsOn}` : "background", glyph: "◌", chip: "bg-lw-done-soft text-lw-done", frame: "border-lw-line", ground: "bg-lw-surface" }
+      return { label: waitsOn ? `background · ${waitsOn}` : "background", glyph: "◌", chip: "bg-lw-live-soft text-lw-live", frame: "border-lw-line", ground: "bg-lw-surface" }
     }
     default:
       return { label: "idle", glyph: "○", chip: "bg-lw-idle-soft text-lw-text-2", frame: "border-lw-line", ground: "bg-[var(--theme-surface,#141417)]" }
@@ -167,7 +167,7 @@ function StageLane({ stage, agents, contexts, onOpen, onSend }: {
         onClick={() => setOpen((value) => !value)}
         className="flex min-h-11 items-center gap-2 px-1 text-left text-[13px] font-semibold lg:pointer-events-none lg:min-h-0"
       >
-        <StagePie stage={stage} label="" />
+        <StageTrack stage={stage} label="" />
         {label}
         <span className="font-lw-mono text-xs font-normal text-lw-text-2">{agents.length}</span>
         {marks && <span className="ml-auto text-xs font-medium text-lw-needs">{marks}</span>}
@@ -226,7 +226,7 @@ function AgentTile({ agent, context, onOpen, onSend }: {
           </span>
           {stageLabel(agent.stage) && (
             <span className={cn("flex shrink-0 items-center gap-1 text-[11px]", agent.stage === "finished" ? "text-lw-done" : "text-lw-text-2")}>
-              <StagePie stage={agent.stage} size={11} />{stageLabel(agent.stage)}
+              <StageTrack stage={agent.stage} />{stageLabel(agent.stage)}
             </span>
           )}
           <span className="ml-auto truncate font-lw-mono text-xs text-lw-faint">{agent.task_id}</span>

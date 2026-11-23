@@ -12,17 +12,17 @@ import { useToast } from "../../hooks/useToast"
 import { animatedAgentActivityEnabled } from "../../lib/appearancePreferences"
 import { Mark } from "../PullRequestMarks"
 import { CardPullRequests } from "./PullRequests"
-import { StagePie } from "../StagePie"
+import { StageTrack } from "../StageTrack"
 import { stageLabel } from "../../lib/agentStage"
 
-// CardStage is an agent's stage on a card's strip: the pie and the word.
+// CardStage is an agent's stage on a card's strip: the track and the word.
 function CardStage({ stage }: { stage?: string }) {
   const label = stageLabel(stage)
   if (!label) return null
   return (
     <span className={cn("flex shrink-0 items-center gap-1", stage === "finished" ? "text-lw-done" : "text-lw-text-2")}>
       <span aria-hidden="true" className="text-lw-faint">·</span>
-      <StagePie stage={stage} size={11} />
+      <StageTrack stage={stage} size="xs" />
       <span>{label}</span>
     </span>
   )

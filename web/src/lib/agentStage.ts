@@ -24,10 +24,11 @@ export function stageLabel(stage: string | undefined): string {
   return isStage(stage) ? labels[stage] : ""
 }
 
-// stageFill is how much of a stage's pie is filled: a quarter more at each
-// stage, empty while exploring, full when finished.
-export function stageFill(stage: string | undefined): number {
-  return isStage(stage) ? workStages.indexOf(stage) / 4 : 0
+// stageSteps is how many of a stage's five track bars are lit: one while
+// exploring, one more at each stage, all five when finished; none for an
+// agent with no stage.
+export function stageSteps(stage: string | undefined): number {
+  return isStage(stage) ? workStages.indexOf(stage) + 1 : 0
 }
 
 // How the operator should read an agent at a glance, in the order lists

@@ -11,7 +11,7 @@ import { isAgentToolInForeground } from "../lib/agentKind";
 import { agentSections, formatAgentTime, sectionLabels, stateSeconds, type AgentListSection } from "../lib/agentList";
 import { agentGroupLayout, type AgentGroupBlock } from "../lib/agentGroups";
 import { filterByStage, glanceSection, needsYouOutside, stageCounts, stageLabel, unreadDone, workStages, type GlanceSection, type WorkStage } from "../lib/agentStage";
-import { NeedsYouLine, StageLine, StagePie } from "./StagePie";
+import { NeedsYouLine, StageLine, StageTrack } from "./StageTrack";
 
 interface AgentSidebarProps {
   agents: AgentInfo[];
@@ -211,7 +211,7 @@ function StageChips({ agents, filter, onFilter }: { agents: AgentInfo[]; filter:
           on ? "border-lw-accent bg-lw-selected text-lw-text" : "border-lw-line bg-lw-raised text-lw-text hover:border-lw-line-strong",
         )}
       >
-        {stage && <StagePie stage={stage} size={10} label="" />}
+        {stage && <StageTrack stage={stage} label="" />}
         {stage ? stageLabel(stage) : "All"}
         <span className="font-lw-mono font-normal text-lw-text-2">{count}</span>
       </button>

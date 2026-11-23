@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useServer } from "../hooks/useServer"
 import { cn } from "../lib/utils"
 import { fetchStageHistory, setAgentStage, stageLabel, stageSourceLabel, workStages, type StageEvent, type WorkStage } from "../lib/agentStage"
-import { StagePie } from "./StagePie"
+import { StageTrack } from "./StageTrack"
 
 // An agent's stage as its chat header shows it.
 export interface AgentStageInfo {
@@ -18,7 +18,7 @@ function eventTime(at: string | undefined): string {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
 }
 
-// AgentStageChip is the agent's stage beside its state: the pie, the stage
+// AgentStageChip is the agent's stage beside its state: the track, the stage
 // and why, and "set by you" when the operator set it. It opens the stage
 // panel: the stage history and the stages the operator may set.
 export function AgentStageChip({ info, open, onOpenChange }: { info: AgentStageInfo; open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -66,7 +66,7 @@ export function AgentStageChip({ info, open, onOpenChange }: { info: AgentStageI
         onClick={() => onOpenChange(!open)}
         className="flex h-6 min-w-0 max-w-[22rem] items-center gap-1.5 rounded-full bg-lw-raised px-2.5 text-xs text-lw-text hover:bg-lw-selected"
       >
-        <StagePie stage={info.stage} label="" />
+        <StageTrack stage={info.stage} label="" />
         <span className={cn("shrink-0", info.stage === "finished" && "text-lw-done")}>{label || "No stage"}</span>
         {why && <span className="min-w-0 truncate text-lw-text-2">· {why}</span>}
       </button>
@@ -81,7 +81,7 @@ export function AgentStageChip({ info, open, onOpenChange }: { info: AgentStageI
                 <li key={index} className="flex gap-2">
                   <span className="w-10 shrink-0 font-lw-mono text-lw-text-2">{eventTime(event.at)}</span>
                   <span className="flex min-w-0 flex-col">
-                    <span className="flex items-center gap-1.5"><StagePie stage={event.stage} label="" />{stageLabel(event.stage)}</span>
+                    <span className="flex items-center gap-1.5"><StageTrack stage={event.stage} label="" />{stageLabel(event.stage)}</span>
                     {(event.reason || stageSourceLabel(event.source)) && (
                       <span className="text-lw-text-2">{[event.reason, stageSourceLabel(event.source)].filter(Boolean).join(" · ")}</span>
                     )}
@@ -101,7 +101,7 @@ export function AgentStageChip({ info, open, onOpenChange }: { info: AgentStageI
                 onClick={() => choose(stage)}
                 className={cn("flex items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-lw-raised", info.stage === stage ? "text-lw-link" : "text-lw-text")}
               >
-                <StagePie stage={stage} label="" />{stageLabel(stage)}
+                <StageTrack stage={stage} label="" />{stageLabel(stage)}
               </button>
             ))}
           </div>
