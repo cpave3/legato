@@ -147,10 +147,20 @@ func macroEntries(cfg *config.Config) []MacroEntry {
 				continue
 			}
 			used[i] = true
+			pinned := cfg.PinnedEntry("macros", b.Name)
+			if m.Keys == "" {
+				// An entry with no text only stars the built-in: it keeps
+				// the shipped text and is not an edit.
+				entry.Favorite = m.Favorite
+				if pinned {
+					entry.Source, entry.Pinned = MacroFromFile, true
+				}
+				break
+			}
 			m.Name = b.Name
 			entry.Macro = m
 			entry.Overridden = true
-			if cfg.PinnedEntry("macros", m.Name) {
+			if pinned {
 				entry.Source, entry.Pinned = MacroFromFile, true
 			} else {
 				entry.Source = MacroOverride
@@ -182,6 +192,9 @@ func macroSettingEntries(cfg *config.Config, rows []store.SettingEntry) []Settin
 			if v != "" {
 				value[k] = v
 			}
+		}
+		if m.Favorite {
+			value["favorite"] = true
 		}
 		e := SettingEntryValue{Name: m.Name, Value: value, Source: m.Source, Pinned: m.Pinned, Builtin: m.Builtin, Overridden: m.Overridden}
 		if m.Source == MacroBuiltin {
@@ -228,38 +241,74 @@ func (s *MacroService) Get(ctx context.Context, name string) (MacroEntry, error)
 
 // Save keeps a macro in the database: a new one, an edit of one added
 // here, or an override of a built-in. One config.yaml gives is refused.
+// An existing macro keeps its star (SetFavorite changes it); a new one is
+// starred when m says so.
 func (s *MacroService) Save(ctx context.Context, name string, m macros.Macro, by string) error {
 	name = strings.TrimSpace(name)
 	if b, ok := builtinMacro(name); ok {
 		name = b.Name
 	}
 	m.Name = name
+	if existing, err := s.Get(ctx, name); err == nil {
+		m.Favorite = existing.Favorite
+	}
 	if strings.TrimSpace(m.Keys) == "" {
 		return fmt.Errorf("macro %q: it needs text", name)
 	}
 	if err := m.Validate(); err != nil {
 		return err
 	}
-	raw, err := json.Marshal(map[string]string{"keys": m.Keys, "applies_to": m.AppliesTo, "agent": m.Agent, "tier": m.Tier})
+	raw, err := macroValue(m)
 	if err != nil {
 		return err
 	}
-	return s.settings.SetEntry(ctx, "macros", s.storedName(ctx, name), dropEmpty(raw), by)
+	return s.settings.SetEntry(ctx, "macros", s.storedName(ctx, name), raw, by)
 }
 
-// dropEmpty leaves out the fields a macro leaves empty, as config.yaml would.
-func dropEmpty(raw json.RawMessage) json.RawMessage {
-	var m map[string]string
-	if json.Unmarshal(raw, &m) != nil {
-		return raw
+// storedMacro is a macro as the database keeps it, leaving out the fields
+// it leaves empty, as config.yaml would.
+type storedMacro struct {
+	Keys      string `json:"keys,omitempty"`
+	AppliesTo string `json:"applies_to,omitempty"`
+	Agent     string `json:"agent,omitempty"`
+	Tier      string `json:"tier,omitempty"`
+	Favorite  bool   `json:"favorite,omitempty"`
+}
+
+func macroValue(m macros.Macro) (json.RawMessage, error) {
+	return json.Marshal(storedMacro{Keys: m.Keys, AppliesTo: m.AppliesTo, Agent: m.Agent, Tier: m.Tier, Favorite: m.Favorite})
+}
+
+// SetFavorite stars a macro or takes its star away. An unedited built-in
+// is starred by an entry with no text; one config.yaml gives is refused.
+func (s *MacroService) SetFavorite(ctx context.Context, name string, favorite bool, by string) error {
+	entry, err := s.Get(ctx, name)
+	if err != nil {
+		return err
 	}
-	for k, v := range m {
-		if v == "" && k != "keys" {
-			delete(m, k)
+	if entry.Pinned {
+		return fmt.Errorf("macro %q: %w", entry.Name, config.ErrEntryPinned)
+	}
+	if entry.Favorite == favorite {
+		return nil
+	}
+	stored := s.storedName(ctx, entry.Name)
+	m := entry.Macro
+	if entry.Builtin && !entry.Overridden {
+		if !favorite {
+			if err := s.settings.DeleteEntry(ctx, "macros", stored); err != nil && !errors.Is(err, store.ErrNotFound) {
+				return err
+			}
+			return nil
 		}
+		m = macros.Macro{}
 	}
-	out, _ := json.Marshal(m)
-	return out
+	m.Favorite = favorite
+	raw, err := macroValue(m)
+	if err != nil {
+		return err
+	}
+	return s.settings.SetEntry(ctx, "macros", stored, raw, by)
 }
 
 // Delete removes a macro added here. A built-in is refused.
@@ -348,7 +397,16 @@ func (s *MacroService) Reset(ctx context.Context, name string) error {
 	if !entry.Overridden {
 		return nil
 	}
-	if err := s.settings.DeleteEntry(ctx, "macros", s.storedName(ctx, entry.Name)); err != nil && !errors.Is(err, store.ErrNotFound) {
+	stored := s.storedName(ctx, entry.Name)
+	if entry.Favorite {
+		// Keep the star: an entry with no text.
+		raw, err := macroValue(macros.Macro{Favorite: true})
+		if err != nil {
+			return err
+		}
+		return s.settings.SetEntry(ctx, "macros", stored, raw, "web")
+	}
+	if err := s.settings.DeleteEntry(ctx, "macros", stored); err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
 	return nil

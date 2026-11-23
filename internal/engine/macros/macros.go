@@ -29,6 +29,10 @@ type Macro struct {
 	Agent string `yaml:"agent,omitempty" json:"agent,omitempty"`
 	// Tier is the adapter's tier to start with; "" none.
 	Tier string `yaml:"tier,omitempty" json:"tier,omitempty"`
+	// Favorite marks a macro the operator starred. Pickers show the
+	// favourites first and the rest behind Show all; with none starred,
+	// every macro counts as one.
+	Favorite bool `yaml:"favorite,omitempty" json:"favorite,omitempty"`
 }
 
 // macroFields is Macro as it is read, with message beside keys.
@@ -39,6 +43,7 @@ type macroFields struct {
 	AppliesTo string `yaml:"applies_to" json:"applies_to"`
 	Agent     string `yaml:"agent" json:"agent"`
 	Tier      string `yaml:"tier" json:"tier"`
+	Favorite  bool   `yaml:"favorite" json:"favorite"`
 }
 
 func (f macroFields) macro() (Macro, error) {
@@ -49,7 +54,7 @@ func (f macroFields) macro() (Macro, error) {
 		}
 		keys = f.Message
 	}
-	return Macro{Name: f.Name, Keys: keys, AppliesTo: f.AppliesTo, Agent: f.Agent, Tier: f.Tier}, nil
+	return Macro{Name: f.Name, Keys: keys, AppliesTo: f.AppliesTo, Agent: f.Agent, Tier: f.Tier, Favorite: f.Favorite}, nil
 }
 
 // UnmarshalYAML reads a macro, its message as keys or message.
@@ -93,4 +98,31 @@ func (m Macro) Validate() error {
 // ListResult is the JSON shape returned by GET /api/macros.
 type ListResult struct {
 	Macros []Macro `json:"macros"`
+}
+
+// AnyFavorite says whether any macro in list is starred.
+func AnyFavorite(list []Macro) bool {
+	for _, m := range list {
+		if m.Favorite {
+			return true
+		}
+	}
+	return false
+}
+
+// SplitFavorites is list's favourites and the rest, each in list's order.
+// While no macro is starred, every macro is a favourite, so a picker shows
+// them all until the operator stars one.
+func SplitFavorites(list []Macro) (favorites, rest []Macro) {
+	if !AnyFavorite(list) {
+		return list, nil
+	}
+	for _, m := range list {
+		if m.Favorite {
+			favorites = append(favorites, m)
+		} else {
+			rest = append(rest, m)
+		}
+	}
+	return favorites, rest
 }

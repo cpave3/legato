@@ -304,11 +304,15 @@ Saved messages for agents. Manage them on the web UI's **Macros** page, where th
 | `macros[].applies_to` | `task`, `pr` | both | Which menus list it (**Offer it on**): a task's, or a pull request's. |
 | `macros[].agent` | string | the default agent tool | The agent tool to start when the task has no agent running (**Agent to start**), such as `codex`. |
 | `macros[].tier` | string | none | One of that tool's `adapters.<tool>.tiers` to start with (**Model tier**). |
+| `macros[].favorite` | bool | `false` | Stars the macro (the star on the Macros page). Every macro picker lists the starred macros first and keeps the rest behind **Show all**. While no macro is starred, every macro is listed. To star a built-in and keep its text, give only its name and `favorite: true`. |
 
 ```yaml
 macros:
   - name: run tests
     message: Run the tests and fix what fails.
+    favorite: true
+  - name: Plan        # the built-in Plan, starred, its text unchanged
+    favorite: true
 ```
 
 ## Groups

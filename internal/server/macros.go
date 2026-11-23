@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -67,10 +68,11 @@ type macroTiers interface {
 	Tiers(ctx context.Context) (map[string][]service.AgentTier, error)
 }
 
-// macroWriter changes the macros: the service's Save, Delete, Reset and
-// Rename.
+// macroWriter changes the macros: the service's Save, SetFavorite, Delete,
+// Reset and Rename.
 type macroWriter interface {
 	Save(ctx context.Context, name string, m macros.Macro, by string) error
+	SetFavorite(ctx context.Context, name string, favorite bool, by string) error
 	Delete(ctx context.Context, name string) error
 	Reset(ctx context.Context, name string) error
 	Rename(ctx context.Context, from, to, by string) error
@@ -102,7 +104,8 @@ func (s *Server) macroWritten(w http.ResponseWriter, err error) {
 }
 
 // macroEntryHandler serves PUT /api/macros/{name} (a macro's fields, its
-// message as message or keys) and DELETE /api/macros/{name}.
+// message as message or keys; {"favorite": true} alone stars it, false
+// takes the star away) and DELETE /api/macros/{name}.
 func (s *Server) macroEntryHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writer, ok := s.macroWriter(w)
@@ -112,12 +115,30 @@ func (s *Server) macroEntryHandler() http.HandlerFunc {
 		name := r.PathValue("name")
 		switch r.Method {
 		case http.MethodPut:
+			body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 			var m macros.Macro
-			if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
-				s.writeError(w, http.StatusBadRequest, "want {\"message\": \"…\", \"applies_to\": \"task\", \"agent\": \"codex\", \"tier\": \"large\"}: "+err.Error())
+			if err == nil {
+				err = json.Unmarshal(body, &m)
+			}
+			if err != nil {
+				s.writeError(w, http.StatusBadRequest, "want {\"message\": \"…\", \"applies_to\": \"task\", \"agent\": \"codex\", \"tier\": \"large\", \"favorite\": true}: "+err.Error())
 				return
 			}
-			s.macroWritten(w, writer.Save(r.Context(), name, m, "web"))
+			var given struct {
+				Keys     *string `json:"keys"`
+				Message  *string `json:"message"`
+				Favorite *bool   `json:"favorite"`
+			}
+			_ = json.Unmarshal(body, &given)
+			if given.Keys == nil && given.Message == nil && given.Favorite != nil {
+				s.macroWritten(w, writer.SetFavorite(r.Context(), name, *given.Favorite, "web"))
+				return
+			}
+			err = writer.Save(r.Context(), name, m, "web")
+			if err == nil && given.Favorite != nil {
+				err = writer.SetFavorite(r.Context(), name, *given.Favorite, "web")
+			}
+			s.macroWritten(w, err)
 		case http.MethodDelete:
 			s.macroWritten(w, writer.Delete(r.Context(), name))
 		default:
