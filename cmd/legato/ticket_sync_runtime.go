@@ -23,9 +23,8 @@ func ticketSources(cfg *config.Config, db *store.Store) []service.TicketSource {
 		sources = append(sources, service.NewJiraSourceWith(provider, service.JiraSourceOptions{JQL: cfg.Jira.JQLFilter, ProjectKeys: cfg.Jira.ProjectKeys,
 			Interval: interval, StatusSync: cfg.Jira.StatusSyncEnabled, Site: cfg.Jira.BaseURL}))
 	}
-	secrets := service.SealedIntegrationSecrets{Store: configuredSecretStore(cfg, db)}
 	b := cfg.Burnlite
-	sources = append(sources, service.NewBurnliteSource(db, service.NewOAuthTokens(db, secrets, nil, service.BurnliteIntegration), service.BurnliteSourceOptions{
+	sources = append(sources, service.NewBurnliteSource(burnliteConnections(cfg, db), service.BurnliteSourceOptions{
 		Projects: func(ctx context.Context) []string {
 			return service.BurnliteProjects(ctx, db, pinnedBurnliteProjects(cfg))
 		},

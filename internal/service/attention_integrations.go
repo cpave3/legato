@@ -83,13 +83,13 @@ func (a *IntegrationAttentionAdapter) Snapshot(ctx context.Context) ([]Attention
 			Actions:    []AttentionAction{{ID: "open", Label: "Open settings", Kind: "navigate"}},
 		})
 	}
-	burnlite, err := a.db.GetIntegration(ctx, BurnliteIntegration)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
+	burnlite, refused, err := burnliteRefused(ctx, a.db)
+	if err != nil {
 		return nil, err
 	}
-	if burnlite != nil && burnlite.State == store.IntegrationDisconnected {
+	if refused != "" {
 		items = append(items, AttentionInput{
-			SignalKind: AttentionSignalIntegrationDisconnected, SourceKey: burnlite.Name, SourceRevision: burnlite.ConnectedAt,
+			SignalKind: AttentionSignalIntegrationDisconnected, SourceKey: burnlite.Name, SourceRevision: refused,
 			Title:    "Legato lost its connection to Burnlite",
 			Reason:   "Burnlite refused Legato's tokens, so its tasks no longer sync.",
 			Detail:   "Connect again in Settings › Integrations, or run legato integration connect burnlite at the host.",
@@ -99,4 +99,38 @@ func (a *IntegrationAttentionAdapter) Snapshot(ctx context.Context) ([]Attention
 		})
 	}
 	return items, nil
+}
+
+// burnliteRefused is the board's Burnlite and, when Burnlite refused the
+// tokens it shares with agents' MCP connection (LEG-544), the ID of the
+// authorization that ended; "" while it holds, or after the operator
+// disconnected it themselves.
+func burnliteRefused(ctx context.Context, db *store.Store) (*store.Integration, string, error) {
+	in, err := db.GetIntegration(ctx, BurnliteIntegration)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	conns, err := db.ListMCPConnections(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	for _, c := range conns {
+		if !burnliteLinks(c, in) {
+			continue
+		}
+		a, err := db.CurrentOAuthAttempt(ctx, c.Name)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, "", err
+		}
+		if a.Status == "reauth_required" {
+			return in, a.ID, nil
+		}
+	}
+	return in, "", nil
 }

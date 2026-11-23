@@ -85,6 +85,7 @@ func Discover(ctx context.Context, client *http.Client, resourceURL string) (*Me
 		AuthorizationEndpoint   string   `json:"authorization_endpoint"`
 		TokenEndpoint           string   `json:"token_endpoint"`
 		RegistrationEndpoint    string   `json:"registration_endpoint"`
+		RevocationEndpoint      string   `json:"revocation_endpoint"`
 		CodeChallengeMethods    []string `json:"code_challenge_methods_supported"`
 		ResponseIssuerSupported bool     `json:"authorization_response_iss_parameter_supported"`
 	}
@@ -111,6 +112,11 @@ func Discover(ctx context.Context, client *http.Client, resourceURL string) (*Me
 			return nil, err
 		}
 	}
+	if asm.RevocationEndpoint != "" {
+		if _, err := parseSecure("revocation endpoint", asm.RevocationEndpoint); err != nil {
+			return nil, err
+		}
+	}
 	if len(asm.CodeChallengeMethods) > 0 && !slices.Contains(asm.CodeChallengeMethods, "S256") {
 		return nil, fmt.Errorf("oauth: authorization server does not support PKCE S256")
 	}
@@ -121,6 +127,7 @@ func Discover(ctx context.Context, client *http.Client, resourceURL string) (*Me
 		AuthorizationEndpoint:   asm.AuthorizationEndpoint,
 		TokenEndpoint:           asm.TokenEndpoint,
 		RegistrationEndpoint:    asm.RegistrationEndpoint,
+		RevocationEndpoint:      asm.RevocationEndpoint,
 		CodeChallengeMethods:    asm.CodeChallengeMethods,
 		ResponseIssuerSupported: asm.ResponseIssuerSupported,
 	}, nil

@@ -54,6 +54,9 @@ type MCPConnectionInput struct {
 	Args    []string          `json:"args,omitempty"`
 	Dir     string            `json:"dir,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+	// Loopback lets the connection reach the loopback literal address it
+	// names: only the Burnlite board link sets it (LEG-544), never a request.
+	Loopback bool `json:"-"`
 }
 
 // MCPRule is one credential-broker rule for a connection's tools: which
@@ -120,6 +123,10 @@ type MCPConnectionState struct {
 	// confirmation), so a reloaded page can follow it again; its status is
 	// still readable only by the operator who began it.
 	Attempt string `json:"attempt,omitempty"`
+	// SharedWith names the integration whose connection this is too:
+	// "burnlite" for the Burnlite board's (LEG-544), whose Connect and
+	// Disconnect act on both.
+	SharedWith string `json:"shared_with,omitempty"`
 	// Connection: unknown, connected, failed.
 	Connection    string      `json:"connection"`
 	LastContactAt *time.Time  `json:"last_contact_at,omitempty"`
@@ -235,11 +242,21 @@ func (s *MCPConnectionService) policy(c store.MCPConnection) (egress.Policy, err
 	if err != nil {
 		return egress.Policy{}, err
 	}
-	p := egress.Policy{Private: prefixes}
+	p := egress.Policy{Private: prefixes, Loopback: c.Loopback}
 	if s.opts.Egress != nil {
 		p = s.opts.Egress(p)
 	}
 	return p, nil
+}
+
+// PolicyFor is the egress policy a connection like c would have, before it
+// is saved.
+func (s *MCPConnectionService) PolicyFor(c store.MCPConnection) egress.Policy {
+	p, err := s.policy(c)
+	if err != nil {
+		return egress.Policy{}
+	}
+	return p
 }
 
 func (s *MCPConnectionService) checkFields(c store.MCPConnection) error {
@@ -313,7 +330,7 @@ func (s *MCPConnectionService) add(ctx context.Context, in MCPConnectionInput, a
 	}
 	c := store.MCPConnection{Name: strings.TrimSpace(in.Name), URL: strings.TrimSpace(in.URL), Issuer: strings.TrimSpace(in.Issuer), Networks: networks, Auth: in.Auth, InstanceID: instance,
 		StaticClientID: strings.TrimSpace(in.StaticClientID), StaticRedirectURI: strings.TrimSpace(in.StaticRedirectURI), StaticSecretSet: in.StaticClientSecret != "",
-		Kind: in.Kind, Command: in.Command, Dir: homeDir(strings.TrimSpace(in.Dir))}
+		Kind: in.Kind, Command: in.Command, Dir: homeDir(strings.TrimSpace(in.Dir)), Loopback: in.Loopback}
 	if c.Kind == "" {
 		c.Kind = "http"
 	}
@@ -427,6 +444,11 @@ func (s *MCPConnectionService) update(ctx context.Context, name string, ch MCPCo
 	before := c
 	if ch.URL != nil {
 		c.URL = strings.TrimSpace(*ch.URL)
+		if c.URL != before.URL {
+			// Loopback was for the address the Burnlite link typed, not
+			// for whatever the connection is pointed at later.
+			c.Loopback = false
+		}
 	}
 	if ch.Issuer != nil {
 		c.Issuer = strings.TrimSpace(*ch.Issuer)
@@ -669,6 +691,11 @@ func (s *MCPConnectionService) state(ctx context.Context, c store.MCPConnection,
 	}
 	var err error
 	if st.Authorization, st.Attempt, err = s.authorization(ctx, c); err != nil {
+		return MCPConnectionState{}, err
+	}
+	if in, err := s.db.GetIntegration(ctx, BurnliteIntegration); err == nil && burnliteLinks(c, in) {
+		st.SharedWith = BurnliteIntegration
+	} else if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return MCPConnectionState{}, err
 	}
 	switch {

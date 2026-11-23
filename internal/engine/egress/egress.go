@@ -4,8 +4,9 @@
 // checked when the connection is made (so a name that rebinds to an internal
 // address is refused), no environment proxies, verified TLS, same-origin
 // redirects for reads only, bounded responses and timeouts. Private networks
-// are reachable only through prefixes an operator named; loopback, link-local
-// and cloud metadata never are. It knows nothing of Legato.
+// are reachable only through prefixes an operator named, and loopback only as
+// a literal address with Loopback; link-local and cloud metadata never are.
+// It knows nothing of Legato.
 package egress
 
 import (
@@ -46,6 +47,11 @@ type Policy struct {
 	// HTTP to a loopback literal or HTTPS. Never set outside tests: a test in
 	// this package fails if any non-test file names it.
 	LoopbackFixture bool
+	// Loopback lets a connection reach a loopback literal (127.0.0.1, ::1)
+	// over http or https: an address the operator typed for a server run on
+	// this host, such as a local Burnlite. Names stay refused, localhost and
+	// a name that resolves to loopback included.
+	Loopback bool
 	// RootCAs, when set, replaces the system roots.
 	RootCAs *x509.CertPool
 	// Resolve looks a name up; the default is the system resolver.
@@ -149,6 +155,12 @@ func (p Policy) allowed(a netip.Addr) bool {
 	return a.IsGlobalUnicast()
 }
 
+// loopbackLiteral says whether a, given as a literal address, is reachable
+// through Loopback.
+func (p Policy) loopbackLiteral(a netip.Addr) bool {
+	return p.Loopback && a.Unmap().IsLoopback()
+}
+
 var secretQuery = []string{"token", "access_token", "id_token", "refresh_token", "api_key", "apikey", "key", "secret", "client_secret", "password", "passwd", "auth", "authorization", "sig", "signature", "code", "session", "credential", "credentials"}
 
 // CheckURL checks an address before any connection: the scheme, credentials,
@@ -186,14 +198,14 @@ func (p Policy) CheckURL(raw string) error {
 	switch u.Scheme {
 	case "https":
 	case "http":
-		if !p.LoopbackFixture || !literal || !addr.IsLoopback() {
+		if !(p.LoopbackFixture || p.Loopback) || !literal || !addr.IsLoopback() {
 			return denied("only https addresses are allowed")
 		}
 	default:
 		return denied("only https addresses are allowed")
 	}
 	if literal {
-		if !p.allowed(addr) {
+		if !p.allowed(addr) && !p.loopbackLiteral(addr) {
 			return denied("%s is not a public address", addr)
 		}
 		return nil
@@ -225,6 +237,9 @@ func (p Policy) dial(ctx context.Context, network, address string) (net.Conn, er
 	}
 	var addrs []netip.Addr
 	if a, err := netip.ParseAddr(host); err == nil {
+		if p.loopbackLiteral(a) {
+			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, net.JoinHostPort(a.Unmap().String(), port))
+		}
 		addrs = []netip.Addr{a}
 	} else if addrs, err = p.resolve(ctx, host); err != nil {
 		return nil, err

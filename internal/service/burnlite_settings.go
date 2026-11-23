@@ -38,23 +38,18 @@ type BurnliteSettingsOptions struct {
 	// SecretSource says what unlocks Legato's secret store ("passphrase",
 	// "auto", ...).
 	SecretSource func(ctx context.Context) (string, error)
+	// Connections is the connection the board shares with agents' MCP
+	// connection to Burnlite (LEG-544).
+	Connections *BurnliteConnections
 }
 
 // BurnliteOverview is what the web UI's settings show of Burnlite.
 type BurnliteOverview struct {
 	ConfiguredURL string `json:"configured_url,omitempty"`
 	// Projects are searched for import; none is every project.
-	Projects           []string           `json:"projects"`
-	ProjectsFromConfig bool               `json:"projects_from_config"`
-	Connection         BurnliteConnection `json:"connection"`
-}
-
-// BurnliteConnection is Legato's connection to Burnlite: state none,
-// connected or disconnected.
-type BurnliteConnection struct {
-	State       string `json:"state"`
-	URL         string `json:"url,omitempty"`
-	ConnectedAt string `json:"connected_at,omitempty"`
+	Projects           []string     `json:"projects"`
+	ProjectsFromConfig bool         `json:"projects_from_config"`
+	Connection         BurnliteLink `json:"connection"`
 }
 
 // BurnliteSettings connects Legato to Burnlite from the web UI, where the
@@ -86,19 +81,15 @@ func (b *BurnliteSettings) Overview(ctx context.Context) (BurnliteOverview, erro
 		ConfiguredURL:      b.opts.ConfiguredURL,
 		Projects:           BurnliteProjects(ctx, b.db, b.opts.ConfiguredProjects),
 		ProjectsFromConfig: len(b.opts.ConfiguredProjects) > 0,
-		Connection:         BurnliteConnection{State: "none"},
 	}
 	if o.Projects == nil {
 		o.Projects = []string{}
 	}
-	in, err := b.db.GetIntegration(ctx, BurnliteIntegration)
-	if errors.Is(err, store.ErrNotFound) {
-		return o, nil
-	}
+	link, err := b.opts.Connections.Current(ctx)
 	if err != nil {
 		return BurnliteOverview{}, err
 	}
-	o.Connection = BurnliteConnection{State: in.State, URL: in.URL, ConnectedAt: in.ConnectedAt}
+	o.Connection = link
 	return o, nil
 }
 
@@ -118,7 +109,11 @@ func (b *BurnliteSettings) Begin(ctx context.Context, address, redirectURI strin
 			return "", ErrSecretsNeedPassphrase
 		}
 	}
-	pending, err := b.connector.BeginWith(ctx, ConnectRequest{Name: BurnliteIntegration, URL: address, ClientName: "Legato", Scope: BurnliteScope, RedirectURI: redirectURI})
+	client, err := b.opts.Connections.ConnectClient(ctx, address)
+	if err != nil {
+		return "", err
+	}
+	pending, err := b.connector.BeginWith(ctx, ConnectRequest{Name: BurnliteIntegration, URL: address, ClientName: "Legato", Scope: BurnliteScope, RedirectURI: redirectURI, HTTP: client})
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrBurnliteInput, err)
 	}
@@ -135,11 +130,12 @@ func (b *BurnliteSettings) Begin(ctx context.Context, address, redirectURI strin
 }
 
 // Callback finishes the connection attempt that the address the browser
-// came back to names, by its state.
-func (b *BurnliteSettings) Callback(ctx context.Context, redirected string) error {
+// came back to names, by its state. Its tokens become the connection the
+// board shares with agents' MCP connection to Burnlite.
+func (b *BurnliteSettings) Callback(ctx context.Context, redirected string) (BurnliteLink, error) {
 	u, err := url.Parse(redirected)
 	if err != nil {
-		return ErrUnknownConnection
+		return BurnliteLink{}, ErrUnknownConnection
 	}
 	state := u.Query().Get("state")
 	b.mu.Lock()
@@ -147,13 +143,17 @@ func (b *BurnliteSettings) Callback(ctx context.Context, redirected string) erro
 	delete(b.pending, state)
 	b.mu.Unlock()
 	if !ok || b.now().After(p.expires) {
-		return ErrUnknownConnection
+		return BurnliteLink{}, ErrUnknownConnection
 	}
 	defer p.conn.Close()
 	if err := p.conn.Paste(redirected); err != nil {
-		return fmt.Errorf("Burnlite did not let Legato in: %w", err)
+		return BurnliteLink{}, fmt.Errorf("Burnlite did not let Legato in: %w", err)
 	}
-	return p.conn.Finish(ctx)
+	auth, err := p.conn.FinishTokens(ctx)
+	if err != nil {
+		return BurnliteLink{}, err
+	}
+	return b.opts.Connections.Adopt(ctx, p.conn.Address(), auth)
 }
 
 // SaveProjects keeps the projects searched for import.
@@ -167,7 +167,8 @@ func (b *BurnliteSettings) SaveProjects(ctx context.Context, projects []string) 
 	return b.Overview(ctx)
 }
 
-// Disconnect forgets the connection and its refresh token.
-func (b *BurnliteSettings) Disconnect(ctx context.Context) error {
-	return b.connector.Disconnect(ctx, BurnliteIntegration)
+// Disconnect disconnects the board and agents' MCP connection to Burnlite,
+// revoking the shared tokens at Burnlite where it can.
+func (b *BurnliteSettings) Disconnect(ctx context.Context) (OAuthDisconnect, error) {
+	return b.opts.Connections.Disconnect(ctx)
 }

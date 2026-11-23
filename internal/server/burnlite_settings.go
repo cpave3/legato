@@ -15,9 +15,12 @@ import (
 type BurnliteSettings interface {
 	Overview(ctx context.Context) (service.BurnliteOverview, error)
 	Begin(ctx context.Context, address, redirectURI string) (string, error)
-	Callback(ctx context.Context, redirected string) error
+	// Callback finishes a connect: the board and agents' MCP connection to
+	// Burnlite share it (LEG-544).
+	Callback(ctx context.Context, redirected string) (service.BurnliteLink, error)
 	SaveProjects(ctx context.Context, projects []string) (service.BurnliteOverview, error)
-	Disconnect(ctx context.Context) error
+	// Disconnect disconnects both, revoking the shared tokens where it can.
+	Disconnect(ctx context.Context) (service.OAuthDisconnect, error)
 }
 
 // SetBurnliteSettings serves Burnlite's settings and its connect flow.
@@ -80,20 +83,26 @@ func (s *Server) burnliteCallbackHandler() http.HandlerFunc {
 		if s.burnliteSettings == nil {
 			back.Set("result", "failed")
 			back.Set("error", "Burnlite settings are not available on this server")
-		} else if err := s.burnliteSettings.Callback(r.Context(), requestOrigin(r)+r.URL.RequestURI()); err != nil {
+		} else if link, err := s.burnliteSettings.Callback(r.Context(), requestOrigin(r)+r.URL.RequestURI()); err != nil {
 			back.Set("result", "failed")
 			back.Set("error", err.Error())
+		} else if link.Created {
+			// The page says agents' MCP connection was made, with no rules.
+			back.Set("mcp_created", link.Connection)
 		}
 		http.Redirect(w, r, "/settings?"+encodeOrdered(back)+"#burnlite", http.StatusFound)
 	}
 }
 
-// encodeOrdered writes integration, result, then error, so the address reads
-// in that order.
+// encodeOrdered writes integration, result, then error or mcp_created, so
+// the address reads in that order.
 func encodeOrdered(v url.Values) string {
 	out := "integration=" + url.QueryEscape(v.Get("integration")) + "&result=" + url.QueryEscape(v.Get("result"))
 	if e := v.Get("error"); e != "" {
 		out += "&error=" + url.QueryEscape(e)
+	}
+	if m := v.Get("mcp_created"); m != "" {
+		out += "&mcp_created=" + url.QueryEscape(m)
 	}
 	return out
 }
@@ -126,11 +135,12 @@ func (s *Server) burnliteDisconnectHandler() http.HandlerFunc {
 			writeJSONError(w, http.StatusServiceUnavailable, "Burnlite settings are not available on this server")
 			return
 		}
-		if err := s.burnliteSettings.Disconnect(r.Context()); err != nil {
+		result, err := s.burnliteSettings.Disconnect(r.Context())
+		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSONValue(w, http.StatusOK, map[string]string{"disconnected": "burnlite"})
+		writeJSONValue(w, http.StatusOK, map[string]string{"disconnected": "burnlite", "upstream": result.Upstream})
 	}
 }
 

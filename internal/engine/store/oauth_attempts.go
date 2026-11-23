@@ -190,3 +190,56 @@ func (s *Store) ListOAuthAttempts(ctx context.Context, connection string) ([]OAu
 	err := s.db.SelectContext(ctx, &attempts, `SELECT * FROM oauth_attempts WHERE connection=? ORDER BY created_at,id`, connection)
 	return attempts, err
 }
+
+// AdoptOAuthAuthorization makes a, an authorization obtained outside an
+// attempt (the Burnlite board's own connect flow, or one moved over from the
+// board's old storage, LEG-544), the connection's active authorization: in
+// one transaction it supersedes every unfinished attempt and the old
+// authorization, as ActivateOAuthAttempt does, and records a as authorized.
+// It returns the attempts it superseded, whose sealed records the caller
+// removes. With a.ConnectionRevision set it fails with ErrConflict unless that
+// revision is current and the connection is enabled for OAuth.
+func (s *Store) AdoptOAuthAuthorization(ctx context.Context, a OAuthAttempt, now int64) ([]OAuthAttempt, error) {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if a.ConnectionRevision != 0 {
+		var current int
+		err := tx.GetContext(ctx, &current, `SELECT COUNT(*) FROM mcp_connections WHERE name=? AND revision=? AND enabled=1 AND auth='oauth'`, a.Connection, a.ConnectionRevision)
+		if err != nil {
+			return nil, err
+		}
+		if current != 1 {
+			return nil, ErrConflict
+		}
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO oauth_connections(connection) VALUES(?) ON CONFLICT(connection) DO NOTHING`, a.Connection); err != nil {
+		return nil, err
+	}
+	var superseded []OAuthAttempt
+	if err = tx.SelectContext(ctx, &superseded, `SELECT * FROM oauth_attempts WHERE connection=? AND status IN ('pending','exchanging','awaiting_confirmation','authorized') ORDER BY created_at,id`, a.Connection); err != nil {
+		return nil, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE oauth_attempts SET status='superseded',updated_at=? WHERE connection=? AND status IN ('pending','exchanging','awaiting_confirmation','authorized')`, now, a.Connection); err != nil {
+		return nil, err
+	}
+	if err = tx.GetContext(ctx, &a.Generation, `UPDATE oauth_connections SET generation=generation+1,active_attempt=? WHERE connection=? RETURNING generation`, a.ID, a.Connection); err != nil {
+		return nil, err
+	}
+	a.Status, a.CreatedAt, a.UpdatedAt = "authorized", now, now
+	_, err = tx.ExecContext(ctx, `INSERT INTO oauth_attempts(id,connection,generation,owner,instance_id,state_hash,receiver_hash,status,scope,expires_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+		a.ID, a.Connection, a.Generation, a.Owner, a.InstanceID, a.StateHash, a.ReceiverHash, a.Status, a.Scope, a.ExpiresAt, now, now)
+	if err != nil {
+		return nil, err
+	}
+	return superseded, tx.Commit()
+}
+
+// BackupTo writes a consistent copy of the database to path, which must not
+// exist (SQLite's VACUUM INTO).
+func (s *Store) BackupTo(ctx context.Context, path string) error {
+	_, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, path)
+	return err
+}

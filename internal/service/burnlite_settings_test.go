@@ -15,9 +15,14 @@ import (
 func newBurnliteSettingsTest(t *testing.T, f *fakeOAuth, source string, opts BurnliteSettingsOptions) (*BurnliteSettings, *store.Store, *memorySecrets) {
 	t.Helper()
 	db := newIntegrationStore(t)
-	secrets := &memorySecrets{values: map[string]string{}}
+	secrets := flowMemorySecrets{&memorySecrets{values: map[string]string{}}}
+	conns := NewMCPConnectionService(db, MCPConnectionOptions{Secrets: secrets})
+	flows := NewOAuthFlowService(db, secrets, OAuthFlowOptions{Connections: conns})
+	conns.SetOAuth(flows)
+	t.Cleanup(func() { flows.Close() })
+	opts.Connections = NewBurnliteConnections(db, conns, flows, secrets, BurnliteConnectionsOptions{ConfiguredURL: opts.ConfiguredURL})
 	opts.SecretSource = func(context.Context) (string, error) { return source, nil }
-	return NewBurnliteSettings(db, NewIntegrationConnector(db, secrets, f.srv.Client()), opts), db, secrets
+	return NewBurnliteSettings(db, NewIntegrationConnector(db, secrets, nil), opts), db, secrets.memorySecrets
 }
 
 // consent opens the authorize address as a browser would, and gives the
@@ -47,21 +52,21 @@ func TestConnectingBurnliteFromTheWebUI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if q := mustQuery(t, authorize); q.Get("scope") != "read:tasks write:tasks" || q.Get("redirect_uri") != "https://legato.local:3080/oauth/callback" {
+	if q := mustQuery(t, authorize); q.Get("scope") != BurnliteScope || q.Get("redirect_uri") != "https://legato.local:3080/oauth/callback" {
 		t.Errorf("authorize query = %v", q)
 	}
-	if err := settings.Callback(ctx, consent(t, authorize)); err != nil {
+	if _, err := settings.Callback(ctx, consent(t, authorize)); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := settings.Overview(ctx)
 	if after.Connection.State != store.IntegrationConnected || after.Connection.URL != f.srv.URL || after.Connection.ConnectedAt == "" {
 		t.Fatalf("after = %+v", after)
 	}
-	if v, _ := secrets.Read(ctx, IntegrationRefreshSecret("burnlite")); v == "" {
-		t.Error("no refresh token kept")
+	if v, _ := secrets.Read(ctx, IntegrationRefreshSecret("burnlite")); v != "" {
+		t.Error("the board kept tokens of its own")
 	}
 
-	if err := settings.Disconnect(ctx); err != nil {
+	if _, err := settings.Disconnect(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.GetIntegration(ctx, "burnlite"); !errors.Is(err, store.ErrNotFound) {
@@ -82,17 +87,17 @@ func TestACallbackItCannotPlaceIsRefused(t *testing.T) {
 	f := newFakeOAuth(t)
 	settings, _, _ := newBurnliteSettingsTest(t, f, "auto", BurnliteSettingsOptions{})
 	ctx := context.Background()
-	if err := settings.Callback(ctx, "https://legato.local/oauth/callback?code=c&state=nobody"); !errors.Is(err, ErrUnknownConnection) {
+	if _, err := settings.Callback(ctx, "https://legato.local/oauth/callback?code=c&state=nobody"); !errors.Is(err, ErrUnknownConnection) {
 		t.Errorf("err = %v", err)
 	}
 	// A refusal in Burnlite comes back as an error, and ends the attempt.
 	authorize, _ := settings.Begin(ctx, f.srv.URL, "https://legato.local/oauth/callback")
 	state := mustQuery(t, authorize).Get("state")
-	err := settings.Callback(ctx, "https://legato.local/oauth/callback?error=access_denied&state="+state)
+	_, err := settings.Callback(ctx, "https://legato.local/oauth/callback?error=access_denied&state="+state)
 	if err == nil || !strings.Contains(err.Error(), "access_denied") {
 		t.Errorf("err = %v", err)
 	}
-	if err := settings.Callback(ctx, consent(t, authorize)); !errors.Is(err, ErrUnknownConnection) {
+	if _, err := settings.Callback(ctx, consent(t, authorize)); !errors.Is(err, ErrUnknownConnection) {
 		t.Errorf("a finished attempt was taken again: %v", err)
 	}
 }
@@ -106,7 +111,7 @@ func TestAnAttemptLeftTooLongIsForgotten(t *testing.T) {
 	authorize, _ := settings.Begin(ctx, f.srv.URL, "https://legato.local/oauth/callback")
 	back := consent(t, authorize)
 	now = now.Add(11 * time.Minute)
-	if err := settings.Callback(ctx, back); !errors.Is(err, ErrUnknownConnection) {
+	if _, err := settings.Callback(ctx, back); !errors.Is(err, ErrUnknownConnection) {
 		t.Errorf("err = %v", err)
 	}
 }

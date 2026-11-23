@@ -17,6 +17,9 @@ type MCPConnection struct {
 	URL      string `db:"url" json:"url"`
 	Issuer   string `db:"issuer" json:"issuer,omitempty"`
 	Networks string `db:"networks" json:"-"`
+	// Loopback lets the connection reach a loopback literal address: only
+	// the Burnlite board link sets it (LEG-544), for a local Burnlite.
+	Loopback bool   `db:"loopback" json:"-"`
 	Auth     string `db:"auth" json:"auth"`
 	// Kind is http (a remote server at URL) or stdio (a command Legato runs
 	// on the host). A stdio connection's Command, ArgsJSON (a JSON list),
@@ -79,8 +82,8 @@ func (s *Store) CreateMCPConnection(ctx context.Context, c MCPConnection, now in
 	}
 	c.Enabled, c.CreatedAt, c.UpdatedAt, c.LastContactAt, c.LastError = true, now, now, 0, ""
 	c.defaults()
-	_, err = tx.NamedExecContext(ctx, `INSERT INTO mcp_connections(name,url,issuer,networks,auth,kind,command,args_json,dir,env_json,static_client_id,static_redirect_uri,static_secret_set,rules_json,read_only_tools,enabled,instance_id,revision,last_contact_at,last_error,created_at,updated_at)
-		VALUES(:name,:url,:issuer,:networks,:auth,:kind,:command,:args_json,:dir,:env_json,:static_client_id,:static_redirect_uri,:static_secret_set,:rules_json,:read_only_tools,:enabled,:instance_id,:revision,:last_contact_at,:last_error,:created_at,:updated_at)`, c)
+	_, err = tx.NamedExecContext(ctx, `INSERT INTO mcp_connections(name,url,issuer,networks,loopback,auth,kind,command,args_json,dir,env_json,static_client_id,static_redirect_uri,static_secret_set,rules_json,read_only_tools,enabled,instance_id,revision,last_contact_at,last_error,created_at,updated_at)
+		VALUES(:name,:url,:issuer,:networks,:loopback,:auth,:kind,:command,:args_json,:dir,:env_json,:static_client_id,:static_redirect_uri,:static_secret_set,:rules_json,:read_only_tools,:enabled,:instance_id,:revision,:last_contact_at,:last_error,:created_at,:updated_at)`, c)
 	if err != nil {
 		return MCPConnection{}, err
 	}
@@ -149,7 +152,7 @@ func (s *Store) UpdateMCPConnection(ctx context.Context, c MCPConnection, now in
 	}
 	c.InstanceID, c.CreatedAt, c.UpdatedAt = old.InstanceID, old.CreatedAt, now
 	c.defaults()
-	_, err = tx.NamedExecContext(ctx, `UPDATE mcp_connections SET url=:url,issuer=:issuer,networks=:networks,auth=:auth,kind=:kind,command=:command,args_json=:args_json,dir=:dir,env_json=:env_json,static_client_id=:static_client_id,static_redirect_uri=:static_redirect_uri,static_secret_set=:static_secret_set,rules_json=:rules_json,read_only_tools=:read_only_tools,enabled=:enabled,revision=:revision,
+	_, err = tx.NamedExecContext(ctx, `UPDATE mcp_connections SET url=:url,issuer=:issuer,networks=:networks,loopback=:loopback,auth=:auth,kind=:kind,command=:command,args_json=:args_json,dir=:dir,env_json=:env_json,static_client_id=:static_client_id,static_redirect_uri=:static_redirect_uri,static_secret_set=:static_secret_set,rules_json=:rules_json,read_only_tools=:read_only_tools,enabled=:enabled,revision=:revision,
 		last_contact_at=:last_contact_at,last_error=:last_error,updated_at=:updated_at WHERE name=:name`, c)
 	if err != nil {
 		return MCPConnection{}, nil, err

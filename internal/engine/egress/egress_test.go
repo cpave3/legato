@@ -282,3 +282,37 @@ func TestOnlyTestsUseTheLoopbackFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Loopback is a production policy for an address the operator typed as a
+// loopback literal (a Burnlite run locally): it reaches that literal over
+// http or https, and nothing else that is otherwise refused.
+func TestLoopbackReachesOnlyLoopbackLiterals(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(ok))
+	t.Cleanup(srv.Close)
+	p := Policy{Loopback: true}
+	if err := p.CheckURL(srv.URL + "/api/llm/mcp"); err != nil {
+		t.Fatalf("loopback literal refused: %v", err)
+	}
+	resp, err := p.Client().Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	port := srv.URL[strings.LastIndex(srv.URL, ":")+1:]
+	for _, refused := range []string{"http://localhost:" + port, "http://203.0.113.9/", "http://10.0.0.5/", "http://169.254.169.254/"} {
+		if err := p.CheckURL(refused); !errors.Is(err, ErrDenied) {
+			t.Errorf("CheckURL(%s) = %v", refused, err)
+		}
+	}
+	// A name that resolves to loopback is still refused when dialled.
+	p.Resolve = func(context.Context, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
+	}
+	if _, err := p.Client().Get("https://rebind.example.test:" + port); !errors.Is(err, ErrDenied) {
+		t.Fatalf("a name resolving to loopback was dialled: %v", err)
+	}
+	// Without it, the literal is refused.
+	if err := (Policy{}).CheckURL(srv.URL); !errors.Is(err, ErrDenied) {
+		t.Fatalf("default policy: %v", err)
+	}
+}

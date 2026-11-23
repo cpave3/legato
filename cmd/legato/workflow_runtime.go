@@ -133,8 +133,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		service.NewTaskMoveExecutor(service.NewWorkflowTaskMover(board, moveSync)),
 		service.NewFileRemoveExecutor(),
 		prWait,
-		service.NewBurnliteCloseExecutor(db, service.ConnectedBurnlite{DB: db,
-			Tokens: service.NewOAuthTokens(db, service.SealedIntegrationSecrets{Store: configuredSecretStore(cfg, db)}, nil, service.BurnliteIntegration)}),
+		service.NewBurnliteCloseExecutor(db, service.ConnectedBurnlite{Connection: burnliteConnections(cfg, db)}),
 		// Runs on the run caller once review passes are wired
 		// (wireReviewRuns); refuses to start before.
 		service.NewReviewPassesStep(),

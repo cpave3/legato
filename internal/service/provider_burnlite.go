@@ -83,18 +83,38 @@ type burnliteSource struct {
 	fullListAt map[string]time.Time
 }
 
-// NewBurnliteSource is the Burnlite that Legato is connected to (the
-// integration "burnlite"), with the tokens of that connection.
-func NewBurnliteSource(db *store.Store, tokens burnlite.TokenSource, opts BurnliteSourceOptions) TicketSource {
-	return newBurnliteSource(opts, func(ctx context.Context) (burnliteReader, string, error) {
-		in, err := db.GetIntegration(ctx, BurnliteIntegration)
-		if errors.Is(err, store.ErrNotFound) || (err == nil && in.State != store.IntegrationConnected) {
-			return nil, "", fmt.Errorf("Legato is not connected to Burnlite: %w", ErrNotConnected)
-		}
-		if err != nil {
+// BurnliteConnection is the board's Burnlite as the ticket source and the
+// close step use it: the connection it shares with agents' MCP connection
+// (LEG-544), its tokens and its egress-checked client.
+type BurnliteConnection interface {
+	Current(ctx context.Context) (BurnliteLink, error)
+	Tokens() burnlite.TokenSource
+	Client(ctx context.Context) (*http.Client, error)
+}
+
+// openBurnlite is a client of the connected Burnlite and its address.
+func openBurnlite(ctx context.Context, conn BurnliteConnection, override *http.Client) (*burnlite.Client, string, error) {
+	link, err := conn.Current(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	if link.State != store.IntegrationConnected {
+		return nil, "", fmt.Errorf("Legato is not connected to Burnlite: %w", ErrNotConnected)
+	}
+	client := override
+	if client == nil {
+		if client, err = conn.Client(ctx); err != nil {
 			return nil, "", err
 		}
-		return burnlite.New(in.URL, tokens, opts.HTTP), in.URL, nil
+	}
+	return burnlite.New(link.URL, conn.Tokens(), client), link.URL, nil
+}
+
+// NewBurnliteSource is the Burnlite that Legato is connected to, with the
+// tokens of that connection.
+func NewBurnliteSource(conn BurnliteConnection, opts BurnliteSourceOptions) TicketSource {
+	return newBurnliteSource(opts, func(ctx context.Context) (burnliteReader, string, error) {
+		return openBurnlite(ctx, conn, opts.HTTP)
 	})
 }
 

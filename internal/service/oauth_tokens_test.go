@@ -49,6 +49,7 @@ type fakeOAuth struct {
 	revocation bool          // advertise and serve /revoke
 	revoked    []url.Values  // what /revoke received
 	noRefresh  bool          // issue no refresh tokens
+	grantScope string        // the scope tokens carry; read:tasks when empty
 	drop       bool          // the token endpoint drops the connection
 	tokenGate  chan struct{} // when set, a refresh waits for it
 	mcp        http.Handler  // when set, serves the MCP endpoint
@@ -204,7 +205,11 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 		}
 		f.issued++
 		f.refresh = fmt.Sprintf("refresh-%d", f.issued)
-		answer := map[string]any{"access_token": fmt.Sprintf("access-%d", f.issued), "refresh_token": f.refresh, "expires_in": 3600, "token_type": "Bearer", "scope": "read:tasks"}
+		granted := f.grantScope
+		if granted == "" {
+			granted = "read:tasks"
+		}
+		answer := map[string]any{"access_token": fmt.Sprintf("access-%d", f.issued), "refresh_token": f.refresh, "expires_in": 3600, "token_type": "Bearer", "scope": granted}
 		if f.noRefresh {
 			delete(answer, "refresh_token")
 		}
