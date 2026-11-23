@@ -25,6 +25,9 @@ export type WorkflowYamlEditorProps = {
    * own, so a form edit and typing undo in one order. */
   onUndo?: () => void
   onRedo?: () => void
+  /** fragment: the text is one part of a workflow (an inspector's YAML
+   * tab), so the whole file's completion, hover and checks don't apply. */
+  fragment?: boolean
 }
 
 // fromOutside marks a change the value prop made, which is not reported
@@ -91,7 +94,7 @@ const theme = EditorView.theme({
 
 // WorkflowYamlEditor is a workflow file's text in CodeMirror, with the
 // schema's completion, hover and checks, and the server's diagnostics.
-export default function WorkflowYamlEditor({ value, onChange, serverDiagnostics = [], readOnly = false, label = "Workflow YAML", onUndo, onRedo }: WorkflowYamlEditorProps) {
+export default function WorkflowYamlEditor({ value, onChange, serverDiagnostics = [], readOnly = false, label = "Workflow YAML", onUndo, onRedo, fragment = false }: WorkflowYamlEditorProps) {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
   const changed = useRef(onChange)
@@ -121,7 +124,7 @@ export default function WorkflowYamlEditor({ value, onChange, serverDiagnostics 
             ...defaultKeymap, ...completionKeymap, indentWithTab,
           ])
           : [history(), keymap.of([...defaultKeymap, ...historyKeymap, ...completionKeymap, indentWithTab])],
-        yaml(), autocompletion({ override: [complete], activateOnTyping: true }), hover, lint, lintGutter(), theme,
+        yaml(), fragment ? [] : [autocompletion({ override: [complete], activateOnTyping: true }), hover, lint, lintGutter()], theme,
         EditorState.tabSize.of(2), EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly),
         EditorView.contentAttributes.of({ "aria-label": label }),
         EditorView.updateListener.of(update => {
@@ -133,7 +136,7 @@ export default function WorkflowYamlEditor({ value, onChange, serverDiagnostics 
     return () => { view.current?.destroy(); view.current = null }
     // The editor is made once; value and diagnostics reach it below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readOnly, sharedHistory])
+  }, [readOnly, sharedHistory, fragment])
 
   // A value from outside (a form edit, an undo, a reload) reaches the text
   // as the small edits that make it, so the cursor, the scroll and the

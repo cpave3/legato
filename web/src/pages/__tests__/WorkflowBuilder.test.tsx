@@ -46,9 +46,10 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-function renderEdit() {
+// renderEdit opens the editor at an address: the row the inspector edits.
+function renderEdit(hash = "#about") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/workflows/review/edit"]}>
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[`/workflows/review/edit${hash}`]}>
     <Routes><Route path="/workflows/:name/edit" element={<WorkflowEditPage mode="edit" />} /></Routes>
   </MemoryRouter></QueryClientProvider>)
 }
@@ -77,7 +78,7 @@ it("shows a YAML edit in Visual", async () => {
 })
 
 it("renames an input and its references", async () => {
-  renderEdit()
+  renderEdit("#inputs/pr")
   commit(await screen.findByRole("textbox", { name: "Name of input pr" }), "number")
   toYaml()
   expect(yaml()).toContain("  number: {type: integer, required: true} # the number")
@@ -86,10 +87,11 @@ it("renames an input and its references", async () => {
 })
 
 it("adds an input, sets its fields, and the result passes the checks", async () => {
-  renderEdit()
-  fireEvent.change(await screen.findByRole("textbox", { name: "New input name" }), { target: { value: "repo" } })
-  fireEvent.click(screen.getByRole("button", { name: "Add input" }))
-  const input = await screen.findByRole("listitem", { name: "Input repo" })
+  renderEdit("")
+  fireEvent.click(await screen.findByRole("button", { name: "Add input" }))
+  commit(await screen.findByRole("textbox", { name: "Name of input input" }), "repo")
+  const input = await screen.findByRole("region", { name: "Inspector" })
+  await within(input).findByRole("combobox", { name: "Type of input repo" })
   fireEvent.change(within(input).getByRole("combobox", { name: "Type of input repo" }), { target: { value: "repository" } })
   fireEvent.click(within(input).getByRole("checkbox", { name: "Input repo is required" }))
   commit(within(input).getByRole("textbox", { name: "Description of input repo" }), "Where to look")
@@ -132,15 +134,19 @@ it("shows the server's problems on their fields", async () => {
   expect(within(screen.getByRole("region", { name: "Visual" })).getByText("run_title: input \"nope\" is not declared")).toBeTruthy()
 })
 
-it("sends a file with a step that is not a mapping to YAML, rather than failing", async () => {
+it("shows a step that is not a mapping as YAML alone, the rest as forms", async () => {
   localStorage.setItem("legato:workflow-editor-mode", "yaml")
-  renderEdit()
+  renderEdit("")
   await waitFor(() => expect(yaml()).toBe(fileText))
   fireEvent.change(screen.getByRole("textbox", { name: "Workflow YAML" }), { target: { value: fileText.replace(/steps:\n[\s\S]*$/, "steps:\n  -\n") } })
   toVisual()
-  const alert = await screen.findByRole("alert")
-  expect(alert.textContent).toContain("step 1 is not a mapping")
-  expect(within(alert).getByRole("button", { name: "Edit as YAML" })).toBeTruthy()
+  const outline = await screen.findByRole("navigation", { name: "Outline" })
+  fireEvent.click(within(outline).getByRole("button", { name: /Edited as YAML/ }))
+  const inspector = screen.getByRole("region", { name: "Inspector" })
+  expect(inspector.textContent).toContain("the step is not a mapping")
+  expect(within(inspector).queryByRole("tab", { name: "Setup" })).toBeNull()
+  fireEvent.click(within(outline).getByRole("button", { name: /^pr/ }))
+  expect(await screen.findByRole("textbox", { name: "Name of input pr" })).toBeTruthy()
 })
 
 it("keeps a choice with a comma in it when another is added", async () => {
@@ -148,7 +154,7 @@ it("keeps a choice with a comma in it when another is added", async () => {
   apiFetch.mockImplementation((_: string, path: string) => path === "/api/workflows/review/file"
     ? json({ name: "review", yaml: withChoices, path: "/g/review.yaml", folder: "global", digest: "sha256:old", editable: true })
     : json({ definition: null, graph: null, diagnostics: [] }))
-  renderEdit()
+  renderEdit("#inputs/city")
   fireEvent.change(await screen.findByRole("textbox", { name: "New choice of input city" }), { target: { value: "Paris" } })
   fireEvent.click(screen.getByRole("button", { name: "Add a choice to input city" }))
   toYaml()

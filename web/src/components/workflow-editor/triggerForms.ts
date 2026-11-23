@@ -1,4 +1,8 @@
 import { workflowSchema } from "../../lib/workflowSchema"
+import type { BuilderOptions } from "./stepForms"
+
+/** KIND_TITLES are the trigger kinds in plain words. */
+export const KIND_TITLES: Record<string, string> = { "task.entered_column": "When a card enters a column", schedule: "On a schedule", "pr.changes_requested": "When changes are requested on a pull request" }
 
 /** triggerKinds are the kinds under on:, from the schema. */
 export const triggerKinds: { kind: string; description: string }[] = Object.entries<{ description?: string }>(workflowSchema.definitions.triggers.properties)
@@ -55,3 +59,10 @@ export function operandOf(raw: string, kind: OperandKind): unknown {
   if (kind === "boolean") return raw.trim() === "true" ? true : raw.trim() === "false" ? false : raw
   return raw
 }
+
+/** newTrigger is a trigger of a kind as it is added: paused, so the
+ * operator switches it on (LEG-459). */
+export function newTrigger(kind: string, options: BuilderOptions): Record<string, unknown> {
+  return kind === "task.entered_column" ? { column: options.columns[0] ?? "", enabled: false } : kind === "schedule" ? { every: "weekdays", at: "09:00", enabled: false } : { enabled: false }
+}
+

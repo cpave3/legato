@@ -95,7 +95,10 @@ export function StepsEditor({ text, values, diagnostics, options, apply }: Props
   </section>
 }
 
-function StepCard({ step, index, text, values, diagnostics, options, apply, taken }: Omit<Props, "options"> & { options: BuilderOptions; step: StepValue; index: number; taken: string[] }) {
+/** StepCard is one step's form. parts draws its setup (ID, title, how it
+ * starts and its fields), its outputs, or both; titleInHeader leaves the
+ * title to the inspector's header. */
+export function StepCard({ step, index, text, values, diagnostics, options, apply, taken, parts = "all", titleInHeader = false }: Omit<Props, "options"> & { options: BuilderOptions; step: StepValue; index: number; taken: string[]; parts?: "all" | "setup" | "outputs"; titleInHeader?: boolean }) {
   const path: YamlPath = ["steps", index]
   const set = (sub: YamlPath, value: unknown) => apply(() => setField(text, [...path, ...sub], value === "" ? undefined : value))
   const setWith = (name: string, value: unknown) => apply(() => setField(text, [...path, "with", name], value))
@@ -107,16 +110,18 @@ function StepCard({ step, index, text, values, diagnostics, options, apply, take
   const grouped = new Set((form?.groups ?? []).filter(g => g.kind === "exactly_one").flatMap(g => g.fields))
   const others = [...Object.keys(withValues).filter(key => !form?.fields.some(f => f.name === key)).map(key => `with.${key}`), ...Object.keys(step).filter(key => !STEP_KEYS.includes(key))]
   const id = step.id ?? ""
+  const outputs = <OutputsEditor step={step} id={id} path={path} text={text} apply={apply} problems={at(["outputs"])} taken={taken} />
+  if (parts === "outputs") return <div className="flex flex-col gap-3">{outputs}</div>
 
-  return <div className="flex flex-col gap-3 border-t border-lw-line p-3">
-    <div className="grid gap-2 sm:grid-cols-3">
+  return <div className={parts === "all" ? "flex flex-col gap-3 border-t border-lw-line p-3" : "flex flex-col gap-3"}>
+    <div className={titleInHeader ? "grid gap-2 sm:grid-cols-2" : "grid gap-2 sm:grid-cols-3"}>
       <label className={labelClass}>ID
         <CommitField aria-label={`ID of step ${id}`} value={id} onCommit={value => apply(() => renameStep(text, id, value.trim()))} />
         <Problems diagnostics={at(["id"])} />
       </label>
-      <label className={labelClass}>Title
+      {!titleInHeader && <label className={labelClass}>Title
         <CommitField aria-label={`Title of step ${id}`} value={valueText(step.title)} onCommit={value => set(["title"], value)} />
-      </label>
+      </label>}
       <label className={labelClass}>Starts
         <select aria-label={`How step ${id} starts`} className={fieldClass} value={step.trigger ?? "automatic"} onChange={event => set(["trigger"], event.target.value === "automatic" ? undefined : event.target.value)}>
           <option value="automatic">By itself</option>
@@ -142,7 +147,7 @@ function StepCard({ step, index, text, values, diagnostics, options, apply, take
       {form.fields.filter(f => !grouped.has(f.name)).map(spec => <WithField key={spec.name} spec={spec} stepId={id} value={withValues[spec.name]} onChange={value => setWith(spec.name, value)} refs={refs} taskRefs={taskRefs} options={options} agent={String(withValues.agent ?? "")} problems={at(["with", spec.name])} />)}
     </div>}
     {others.length > 0 && <p className="text-xs text-lw-text-2">Other fields (edit in YAML): <span className="font-lw-mono">{others.join(", ")}</span></p>}
-    <OutputsEditor step={step} id={id} path={path} text={text} apply={apply} problems={at(["outputs"])} taken={taken} />
+    {parts === "all" && outputs}
   </div>
 }
 

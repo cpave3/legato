@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from "react"
-import { Link, useNavigate, useParams } from "react-router-dom"
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { fetchMacroList } from "../lib/macros"
 import { fetchAdapters } from "../lib/adapters"
 import { fetchBoard } from "../lib/board"
-import { ArrowLeft, Redo2, Save, Trash2, Undo2 } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Redo2, Save, Trash2, Undo2 } from "lucide-react"
 import { useServer } from "../hooks/useServer"
 import { useWorkflows } from "../hooks/useWorkflow"
 import { queryKeys } from "../lib/query"
 import { checkWorkflowFile, createWorkflowFile, deleteWorkflowFile, fetchWorkflowFile, saveWorkflowFile, starterWorkflow, WorkflowFileError, type WorkflowCheck, type WorkflowDiagnostic, type WorkflowFile } from "../lib/workflowFiles"
 import { LazyWorkflowYamlEditor } from "../components/workflow-editor/LazyWorkflowYamlEditor"
-import { LazyWorkflowBuilder } from "../components/workflow-editor/LazyWorkflowBuilder"
+import { LazyWorkflowOutline } from "../components/workflow-editor/LazyWorkflowOutline"
+import { addressOf, selectionOf, type Selection } from "../lib/workflowAddress"
 import { LazyWorkflowGraph } from "../components/workflow-graph/LazyWorkflowGraph"
 import { Button } from "../components/ui/Button"
 import { LoadingState } from "../components/ui/LoadingState"
@@ -148,6 +149,23 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   const client = useQueryClient()
   const workflows = useWorkflows()
   const narrow = useMediaQuery("(max-width: 767px)")
+  const location = useLocation()
+  // The row the inspector edits is the page's address (#steps/review), so
+  // a reload and Back keep it. On a phone it is the inspector's sheet: a
+  // row opened is a new entry, which Back closes.
+  const selection = selectionOf(location.hash)
+  const sheetPushed = Boolean((location.state as { sheet?: boolean } | null)?.sheet)
+  const select = (next: Selection | null, how?: { open?: boolean }) => {
+    const hash = next ? `#${addressOf(next)}` : ""
+    if (hash === location.hash) return
+    const push = narrow && how?.open && next !== null
+    navigate({ pathname: location.pathname, search: location.search, hash }, { replace: !push, state: push ? { sheet: true } : location.state })
+  }
+  const closeSheet = () => {
+    if (sheetPushed) navigate(-1)
+    else navigate({ pathname: location.pathname, search: location.search, hash: "" }, { replace: true })
+  }
+  const [showProblems, setShowProblems] = useState(false)
   const [file, setFile] = useState<WorkflowFile | null>(null)
   const [loadError, setLoadError] = useState("")
   const history = useHistory(mode === "new" ? starterWorkflow : null)
@@ -232,6 +250,23 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   const editable = mode === "new" || Boolean(file?.editable)
   const canSave = editable && !busy && checked !== null && errors.length === 0 && (mode === "new" || dirty)
   const folders = workflows.data?.folders ?? []
+  // y switches between Visual and YAML, Mod-s saves, outside text fields.
+  const keys = useRef({ save: () => {}, canSave: false, toggle: () => {} })
+  keys.current = { save: () => void save(), canSave, toggle: () => switchMode(editorMode === "yaml" ? "visual" : "yaml") }
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "s") {
+        event.preventDefault()
+        if (keys.current.canSave) keys.current.save()
+        return
+      }
+      const target = event.target as HTMLElement | null
+      const typing = Boolean(target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable))
+      if (!typing && !event.metaKey && !event.ctrlKey && !event.altKey && event.key === "y") { event.preventDefault(); keys.current.toggle() }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
   const back = mode === "new" ? "/workflows?tab=workflows" : `/workflows/${encodeURIComponent(name)}`
 
   const refresh = () => client.invalidateQueries({ queryKey: queryKeys.workflowDefinitions(baseUrl) })
@@ -289,6 +324,16 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
     </div>
   </main>
 
+  const parsedTitle = text !== null ? /^title:[ \t]*(.+?)[ \t]*(#.*)?$/m.exec(text)?.[1]?.replace(/^["']|["']$/g, "") : undefined
+  const headerTitle = parsedTitle || (mode === "new" ? "New workflow" : name)
+  const fileName = mode === "new" ? (text !== null ? /^name:[ \t]*(\S+)/m.exec(text)?.[1] ?? "" : "") : name
+  const folderLabel = folders.find(f => f.id === (mode === "new" ? folder : file?.folder))?.label ?? (mode === "new" ? "Your workflows" : "")
+  const problemCount = diagnostics.filter(d => d.severity === "error").length
+  const problemsButton = <Button size="sm" variant="ghost" aria-expanded={editorMode === "visual" ? showProblems : undefined} onClick={() => setShowProblems(!showProblems)} className={problemCount > 0 ? "text-lw-danger" : "text-lw-text-2"}>
+    <AlertTriangle size={13} />{checked ? (problemCount === 0 ? "No problems" : `${problemCount} ${problemCount === 1 ? "problem" : "problems"}`) : "Checking…"}
+  </Button>
+  const saveButton = <Button size="sm" disabled={!canSave} onClick={() => void save()}><Save size={13} />{mode === "new" ? "Create" : "Save"}</Button>
+
   if (loadError) return frame(<div role="alert" className="flex flex-col items-start gap-2 text-sm text-lw-error">
     <p>Could not open the workflow: {loadError}</p>
     <Button size="sm" variant="outline" onClick={() => setAttempt(n => n + 1)}>Retry</Button>
@@ -298,20 +343,33 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   return frame(<>
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">
-        <h1 className="text-xl font-semibold">{mode === "new" ? "New workflow" : `Edit ${name}`}</h1>
-        {file?.path && <p className="mt-1 break-all font-lw-mono text-xs text-lw-faint">{file.path}</p>}
+        <h1 className="text-xl font-semibold">{headerTitle}</h1>
+        <p className="mt-0.5 break-all text-xs text-lw-faint"><span className="font-lw-mono">{fileName}</span>{folderLabel ? ` · ${folderLabel}` : ""}</p>
         {mode === "edit" && file && !file.editable && <p className="mt-1 text-sm text-lw-text-2">This workflow can't be edited here: {file.reason}</p>}
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        {!narrow && problemsButton}
+        <div role="radiogroup" aria-label="Editor" className="inline-flex rounded-md border border-lw-line p-0.5">
+          {(["visual", "yaml"] as const).map(option => <button key={option} type="button" role="radio" aria-checked={editorMode === option}
+            className={`min-h-8 rounded px-3 text-xs ${editorMode === option ? "bg-lw-raised text-lw-text" : "text-lw-text-2 hover:text-lw-text"}`}
+            onClick={() => switchMode(option)}>{option === "visual" ? "Visual" : "YAML"}</button>)}
+        </div>
+        {editable && <div className="flex gap-1">
+          <Button size="sm" variant="ghost" disabled={!history.canUndo} title={history.undoLabel ? `Undo ${history.undoLabel}` : "Undo"} onClick={history.undo}><Undo2 size={13} />Undo</Button>
+          <Button size="sm" variant="ghost" disabled={!history.canRedo} title={history.redoLabel ? `Redo ${history.redoLabel}` : "Redo"} onClick={history.redo}><Redo2 size={13} />Redo</Button>
+        </div>}
         {mode === "new" && <label className="flex items-center gap-2 text-xs text-lw-text-2">Folder
           <select aria-label="Folder" className={field} value={folder} onChange={event => setFolder(event.target.value)}>
             {(folders.length > 0 ? folders : [{ id: "global", label: "Your workflows", path: "" }]).map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
           </select>
         </label>}
         {mode === "edit" && file?.editable && <Button variant="outline" size="sm" disabled={busy} onClick={() => setDeleting(true)}><Trash2 size={13} />Delete</Button>}
-        {editable && <Button size="sm" disabled={!canSave} onClick={() => void save()}><Save size={13} />{mode === "new" ? "Create" : "Save"}</Button>}
+        {editable && !narrow && saveButton}
       </div>
     </header>
+    {showProblems && editorMode === "visual" && <section aria-label="Check" className="rounded-xl border border-lw-line bg-lw-surface p-3">
+      <Problems diagnostics={diagnostics} />
+    </section>}
 
     {draft && <section role="alertdialog" aria-label="Unsaved changes" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm">
       <p className="flex-1">You left this workflow with unsaved changes. They were kept in this browser.</p>
@@ -346,36 +404,28 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
       </div>
     </section>}
 
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
-      <div className="flex min-w-0 flex-col gap-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div role="radiogroup" aria-label="Editor" className="inline-flex rounded-md border border-lw-line p-0.5">
-            {(["visual", "yaml"] as const).map(option => <button key={option} type="button" role="radio" aria-checked={editorMode === option}
-              className={`min-h-8 rounded px-3 text-xs ${editorMode === option ? "bg-lw-raised text-lw-text" : "text-lw-text-2 hover:text-lw-text"}`}
-              onClick={() => switchMode(option)}>{option === "visual" ? "Visual" : "YAML"}</button>)}
-          </div>
-          {editable && <div className="flex gap-1">
-            <Button size="sm" variant="ghost" disabled={!history.canUndo} title={history.undoLabel ? `Undo ${history.undoLabel}` : "Undo"} onClick={history.undo}><Undo2 size={13} />Undo</Button>
-            <Button size="sm" variant="ghost" disabled={!history.canRedo} title={history.redoLabel ? `Redo ${history.redoLabel}` : "Redo"} onClick={history.redo}><Redo2 size={13} />Redo</Button>
-          </div>}
-        </div>
-        {editorMode === "yaml" || !editable
-          ? <section aria-label="YAML" className={narrow ? "h-[28rem] overflow-hidden rounded-xl border border-lw-line" : "h-[36rem] overflow-hidden rounded-xl border border-lw-line"}>
-            <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} readOnly={!editable} onUndo={editable ? history.undo : undefined} onRedo={editable ? history.redo : undefined} />
+    {editorMode === "yaml" || !editable
+      ? <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
+        <section aria-label="YAML" className={narrow ? "h-[28rem] overflow-hidden rounded-xl border border-lw-line" : "h-[36rem] overflow-hidden rounded-xl border border-lw-line"}>
+          <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} readOnly={!editable} onUndo={editable ? history.undo : undefined} onRedo={editable ? history.redo : undefined} />
+        </section>
+        <div className="flex min-w-0 flex-col gap-4">
+          <section aria-label="Check" className="rounded-xl border border-lw-line bg-lw-surface p-3">
+            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-lw-text-2">{checked ? "Problems" : "Checking…"}</h2>
+            {checked && <Problems diagnostics={diagnostics} />}
           </section>
-          : <section aria-label="Visual">
-            <LazyWorkflowBuilder text={text} onEdit={change => history.push(change.text, change.undo.label)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={() => switchMode("yaml")} options={options} schedule={checked?.schedule} onPending={setPendingEdits} />
-          </section>}
+          <section aria-label="Preview" className="h-72 overflow-hidden rounded-xl border border-lw-line bg-lw-ground">
+            {checked?.graph ? <LazyWorkflowGraph graph={checked.graph} selectedId={null} onSelect={() => {}} direction={narrow ? "TB" : "LR"} /> : <p className="p-3 text-sm text-lw-text-2">The graph shows once the file is valid.</p>}
+          </section>
+        </div>
       </div>
-      <div className="flex min-w-0 flex-col gap-4">
-        <section aria-label="Check" className="rounded-xl border border-lw-line bg-lw-surface p-3">
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-lw-text-2">{checked ? "Problems" : "Checking…"}</h2>
-          {checked && <Problems diagnostics={diagnostics} />}
-        </section>
-        <section aria-label="Preview" className="h-72 overflow-hidden rounded-xl border border-lw-line bg-lw-ground">
-          {checked?.graph ? <LazyWorkflowGraph graph={checked.graph} selectedId={null} onSelect={() => {}} direction={narrow ? "TB" : "LR"} /> : <p className="p-3 text-sm text-lw-text-2">The graph shows once the file is valid.</p>}
-        </section>
-      </div>
-    </div>
+      : <section aria-label="Visual" className={narrow ? "pb-16" : undefined}>
+        <LazyWorkflowOutline text={text} onEdit={(change, how) => history.push(change.text, change.undo.label, how?.typing)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={() => switchMode("yaml")} options={options} schedule={checked?.schedule} onPending={setPendingEdits}
+          selection={selection} onSelect={select} narrow={narrow} sheet={narrow && selection !== null} onCloseSheet={closeSheet} onUndo={history.undo} onRedo={history.redo} />
+      </section>}
+    {narrow && editable && <div role="toolbar" aria-label="Save" className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-between gap-2 border-t border-lw-line bg-lw-surface px-4 py-2">
+      {problemsButton}
+      {saveButton}
+    </div>}
   </>)
 }
