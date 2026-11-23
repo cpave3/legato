@@ -40,12 +40,15 @@ object GlassesHttp {
         "Access-Control-Allow-Private-Network" to "true",
     )
 
-    // The four Legato calls the glasses may make through an instance.
+    // The Legato calls the glasses may make through an instance.
     private sealed class Call {
         object Agents : Call()
         class Conversation(val task: String, val limit: Int) : Call()
         object Transcribe : Call()
         class Send(val task: String) : Call()
+        object Reeve : Call()
+        object Approvals : Call()
+        class Decide(val approval: String) : Call()
     }
 
     // Answers one request from the glasses. `code` is the pairing code saved
@@ -81,20 +84,45 @@ object GlassesHttp {
         if (request.method == "POST") {
             val type = request.headers["content-type"]?.substringBefore(';')?.trim()?.lowercase()
             if (type != "application/json") return error(415, "the body must be JSON (Content-Type: application/json)")
-            val field = if (call is Call.Transcribe) "pcm" else "content"
+            val field = when (call) {
+                Call.Transcribe -> "pcm"
+                Call.Reeve -> "text"
+                is Call.Decide -> "decision"
+                else -> "content"
+            }
             val sent = try {
                 JSONObject(request.body.toString(Charsets.UTF_8))
             } catch (cause: Exception) {
                 return error(400, "the body is not a JSON object")
             }
             val value = sent.opt(field) as? String ?: return error(400, "$field must be a string")
-            body = if (call is Call.Transcribe) JSONObject().put("transcription_only", true).put("pcm", value) else JSONObject().put("content", value)
+            body = when (call) {
+                Call.Transcribe -> JSONObject().put("transcription_only", true).put("pcm", value)
+                // Always from the glasses, so the Reeve keeps its reply short.
+                Call.Reeve -> JSONObject().put("text", value).put("from", "glasses")
+                // Allow or deny, with one of the approval's options, and
+                // nothing else: no answers, feedback or signature. Legato
+                // refuses to allow a signed approval without a signature.
+                is Call.Decide -> {
+                    if (value != "allow" && value != "deny") return error(400, "decision must be allow or deny")
+                    val decision = JSONObject().put("decision", value)
+                    if (sent.has("option")) {
+                        val option = sent.opt("option") as? String ?: return error(400, "option must be a string")
+                        decision.put("option", option)
+                    }
+                    decision.put("by", "glasses")
+                }
+                else -> JSONObject().put("content", value)
+            }
         }
         val legatoPath = when (call) {
             Call.Agents -> "/api/agents?view=compact&status=running"
             is Call.Conversation -> "/api/agents/${encodeSegment(call.task)}/conversation?limit=${call.limit}"
             Call.Transcribe -> "/api/voice/transcribe"
             is Call.Send -> "/api/agents/${encodeSegment(call.task)}/chimera/send"
+            Call.Reeve -> "/api/reeve/message"
+            Call.Approvals -> "/api/approvals?status=pending"
+            is Call.Decide -> "/api/approvals/${encodeSegment(call.approval)}/decision"
         }
         val timeout = if (call is Call.Transcribe) TRANSCRIBE_TIMEOUT_MS else CALL_TIMEOUT_MS
         val http = upstream(instance, timeout) ?: return error(502, "The Legato app has no token for ${instance.name}: pair it again")
@@ -121,6 +149,11 @@ object GlassesHttp {
             method == "GET" && rest == listOf("api", "agents") ->
                 Call.Agents.takeIf { params != null && params.toSet() == setOf("view" to "compact", "status" to "running") && params.size == 2 }
             method == "POST" && rest == listOf("api", "voice", "transcribe") && query == null -> Call.Transcribe
+            method == "POST" && rest == listOf("api", "reeve", "message") && query == null -> Call.Reeve
+            method == "GET" && rest == listOf("api", "approvals") ->
+                Call.Approvals.takeIf { params == listOf("status" to "pending") }
+            method == "POST" && rest.size == 4 && rest[1] == "approvals" && rest[3] == "decision" && query == null ->
+                taskId(rest[2])?.let { Call.Decide(it) }
             rest.size >= 4 && rest[1] == "agents" -> {
                 val task = taskId(rest[2]) ?: return null
                 val tail = rest.drop(3)

@@ -662,8 +662,11 @@ asked.
 | `GET /v1/instances/{id}/api/agents/{task}/conversation?limit=N` | passed on, `N` from 1 to 50 |
 | `POST /v1/instances/{id}/api/voice/transcribe` | body rebuilt as `{"transcription_only": true, "pcm": <string>}` |
 | `POST /v1/instances/{id}/api/agents/{task}/chimera/send` | body rebuilt as `{"content": <string>}` |
+| `POST /v1/instances/{id}/api/reeve/message` | body rebuilt as `{"text": <string>, "from": "glasses"}`, so the Reeve keeps its reply to what the glasses show |
+| `GET /v1/instances/{id}/api/approvals?status=pending` | passed on |
+| `POST /v1/instances/{id}/api/approvals/{approval}/decision` | body rebuilt as `{"decision": "allow"\|"deny", "option"?: <string>, "by": "glasses"}`: no answers, note or signature; any other `decision` is `400`. Legato refuses to allow a signed approval without a signature |
 
-- `{task}` is one path segment, decoded and encoded again; a slash or a step up
+- `{task}` and `{approval}` are one path segment each, decoded and encoded again; a slash or a step up
   in it is `404`. The query must be exactly the one shown.
 - Each body is rebuilt from the one field the call needs, never forwarded as
   sent: Go's `encoding/json` matches keys without regard to case and keeps the

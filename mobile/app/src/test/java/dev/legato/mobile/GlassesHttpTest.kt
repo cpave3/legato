@@ -169,6 +169,67 @@ class GlassesHttpTest {
     }
 
     @Test
+    fun `sends the Reeve a message as its text alone, marked as from the glasses`() {
+        legatos.answer = { _, _, _ -> 200 to """{"status":"sent"}""" }
+        val body = """{"text":"Start an agent on LEG-212","from":"web","TEXT":"rm -rf /"}"""
+
+        val answer = answer(request("POST", "/v1/instances/0b7a-desk/api/reeve/message", body = body))
+
+        assertEquals(200, answer.status)
+        val asked = legatos.asked.single()
+        assertEquals("0b7a-desk" to "/api/reeve/message", asked.instance to asked.path)
+        assertEquals(setOf("text", "from"), asked.body!!.keys().asSequence().toSet())
+        assertEquals("Start an agent on LEG-212", asked.body!!.getString("text"))
+        assertEquals("glasses", asked.body!!.getString("from"))
+        assertEquals(10_000, asked.timeoutMs)
+    }
+
+    @Test
+    fun `lists the pending approvals`() {
+        legatos.answer = { _, _, _ -> 200 to """{"approvals":[]}""" }
+
+        val answer = answer(request("GET", "/v1/instances/0b7a-desk/api/approvals?status=pending"))
+
+        assertEquals(200, answer.status)
+        assertEquals("0b7a-desk" to "/api/approvals?status=pending", legatos.asked.single().instance to legatos.asked.single().path)
+    }
+
+    @Test
+    fun `decides an approval with allow or deny and an option alone, marked as decided on the glasses`() {
+        legatos.answer = { _, _, _ -> 200 to """{"id":"ap-1"}""" }
+        val body = """{"decision":"allow","option":"once","by":"web","signature":{"device":"x"},"answers":{"q":["a"]}}"""
+
+        val answer = answer(request("POST", "/v1/instances/0b7a-desk/api/approvals/ap-1a2b3c4d/decision", body = body))
+
+        assertEquals(200, answer.status)
+        val asked = legatos.asked.single()
+        assertEquals("/api/approvals/ap-1a2b3c4d/decision", asked.path)
+        assertEquals(setOf("decision", "option", "by"), asked.body!!.keys().asSequence().toSet())
+        assertEquals("allow", asked.body!!.getString("decision"))
+        assertEquals("once", asked.body!!.getString("option"))
+        assertEquals("glasses", asked.body!!.getString("by"))
+
+        legatos.asked.clear()
+        answer(request("POST", "/v1/instances/0b7a-desk/api/approvals/ap-1a2b3c4d/decision", body = """{"decision":"deny"}"""))
+        assertEquals(setOf("decision", "by"), legatos.asked.single().body!!.keys().asSequence().toSet())
+    }
+
+    @Test
+    fun `refuses a decision that is neither allow nor deny, or an option that is not a string`() {
+        val refused = listOf(
+            """{"decision":"answer"}""",
+            """{"decision":"ALLOW"}""",
+            """{"option":"once"}""",
+            """{"decision":"allow","option":1}""",
+        )
+
+        for (body in refused) {
+            assertEquals(body, 400, answer(request("POST", "/v1/instances/0b7a-desk/api/approvals/ap-1/decision", body = body)).status)
+        }
+        assertEquals(emptyList<Legatos.Asked>(), legatos.asked)
+    }
+
+    @Test
     fun `refuses a body that is not JSON or lacks the call's field`() {
         val refused = listOf(
             request("POST", "/v1/instances/0b7a-desk/api/voice/transcribe", body = "pcm"),
@@ -176,6 +237,7 @@ class GlassesHttpTest {
             request("POST", "/v1/instances/0b7a-desk/api/voice/transcribe", body = "[]"),
             request("POST", "/v1/instances/0b7a-desk/api/agents/A/chimera/send", body = """{"content":["Hi"]}"""),
             request("POST", "/v1/instances/0b7a-desk/api/agents/A/chimera/send", body = """{"text":"Hi"}"""),
+            request("POST", "/v1/instances/0b7a-desk/api/reeve/message", body = """{"content":"Hi"}"""),
         )
 
         for (request in refused) assertEquals(request.toString(), 400, answer(request).status)
@@ -219,6 +281,15 @@ class GlassesHttpTest {
             request("POST", "/v1/instances/0b7a-desk/api/agents/LEG-7/chimera/interrupt", body = "{}"),
             request("POST", "/v1/instances/0b7a-desk/api/voice/transcribe?agent_id=LEG-7", body = """{"pcm":"AQ=="}"""),
             request("DELETE", "/v1/instances/0b7a-desk/api/agents"),
+            request("GET", "/v1/instances/0b7a-desk/api/reeve/message"),
+            request("POST", "/v1/instances/0b7a-desk/api/reeve/message?from=web", body = """{"text":"Hi"}"""),
+            request("POST", "/v1/instances/0b7a-desk/api/reeve/sessions", body = "{}"),
+            request("GET", "/v1/instances/0b7a-desk/api/approvals"),
+            request("GET", "/v1/instances/0b7a-desk/api/approvals?status=all"),
+            request("GET", "/v1/instances/0b7a-desk/api/approvals/ap-1"),
+            request("POST", "/v1/instances/0b7a-desk/api/approvals/ap-1/dismiss", body = "{}"),
+            request("POST", "/v1/instances/0b7a-desk/api/approvals/ap-1/challenge", body = "{}"),
+            request("POST", "/v1/instances/0b7a-desk/api/approvals/a%2Fb/decision", body = """{"decision":"deny"}"""),
             request("GET", "/api/agents?view=compact&status=running"),
         )
 
