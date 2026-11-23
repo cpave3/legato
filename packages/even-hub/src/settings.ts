@@ -1,7 +1,8 @@
 import type { EvenAppBridge } from "@evenrealities/even_hub_sdk"
 
-// The phone-side setting: the pairing code of the Legato Android app's
-// glasses link, kept in the Even app's storage for this app on the phone.
+// The phone-side settings, kept in the Even app's storage for this app on
+// the phone: the pairing code of the Legato Android app's glasses link, and
+// how often to read while the glasses' screen is off.
 // The glasses hold no Legato address or token: the Legato app keeps those.
 export type Storage = Pick<EvenAppBridge, "getLocalStorage" | "setLocalStorage">
 
@@ -23,4 +24,30 @@ export async function saveCode(storage: Storage, typed: string): Promise<string>
   }
   await storage.setLocalStorage(CODE_KEY, code)
   return code
+}
+
+const SCREEN_OFF_KEY = "legato.screen-off"
+
+// How often the app reads Legato while the glasses' screen is off: every 30
+// or 60 seconds, or not at all (it reads again on a hold into or out of
+// background mode, or when the app comes back to the foreground). Waking the
+// screen sends the app no event, so off leaves what it drew last until then.
+export type ScreenOff = "30" | "60" | "off"
+export const SCREEN_OFF_CHOICES: ScreenOff[] = ["30", "60", "off"]
+const isScreenOff = (v: string): v is ScreenOff => (SCREEN_OFF_CHOICES as string[]).includes(v)
+
+export async function loadScreenOff(storage: Storage): Promise<ScreenOff> {
+  const saved = (await storage.getLocalStorage(SCREEN_OFF_KEY)).trim()
+  return isScreenOff(saved) ? saved : "30"
+}
+
+export async function saveScreenOff(storage: Storage, value: string): Promise<ScreenOff> {
+  if (!isScreenOff(value)) throw new Error(`Read every 30 or 60 seconds, or off; not ${JSON.stringify(value)}`)
+  await storage.setLocalStorage(SCREEN_OFF_KEY, value)
+  return value
+}
+
+// The choice in milliseconds, or undefined for off.
+export function screenOffMs(value: ScreenOff): number | undefined {
+  return value === "off" ? undefined : Number(value) * 1000
 }

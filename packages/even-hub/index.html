@@ -10,7 +10,8 @@
       h1 { font-size: 1.25rem; margin: 0 0 4px; }
       p { margin: 0 0 16px; opacity: 0.75; }
       label { display: block; margin: 12px 0 4px; font-weight: 600; }
-      input { box-sizing: border-box; width: 100%; padding: 8px; font: inherit; }
+      input, select { box-sizing: border-box; width: 100%; padding: 8px; font: inherit; }
+      .note { margin: 4px 0 0; font-size: 0.875rem; }
       button { margin-top: 16px; padding: 8px 16px; font: inherit; }
     </style>
   </head>
@@ -22,6 +23,13 @@
       <input id="code" name="code" type="password" autocomplete="off" autocapitalize="characters" spellcheck="false" />
       <button type="submit">Save</button>
     </form>
+    <label for="screen-off">While the glasses' screen is off, read Legato</label>
+    <select id="screen-off">
+      <option value="30">Every 30 seconds</option>
+      <option value="60">Every 60 seconds</option>
+      <option value="off">Not at all</option>
+    </select>
+    <p class="note">Waking the screen tells the app nothing, so reading on keeps what it shows fresh. The phone makes the reads; the glasses are sent only what changed. Off saves the phone those reads: hold on the glasses to read again.</p>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

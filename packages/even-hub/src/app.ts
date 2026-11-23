@@ -376,7 +376,20 @@ function chosenItem<T extends { text: string }>(items: T[], index: number | unde
 // one or draws the picker, reads the chosen Legato now and every POLL_MS
 // while the app is in front, and answers the touchpad. Resolves once the
 // first page is shown.
-export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): Promise<void> {
+export type GlanceOptions = {
+  // How often to read while the glasses' screen is off (out of the
+  // foreground), asked each time; undefined reads nothing then. The phone
+  // page sets it (settings.ts). BACKGROUND_POLL_MS when not given.
+  screenOffReadMs?: () => number | undefined
+}
+
+export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, options: GlanceOptions = {}): Promise<void> {
+  const screenOffReadMs = options.screenOffReadMs ?? (() => BACKGROUND_POLL_MS)
+  // The next read: soon while in front, as the phone page says while not.
+  const scheduleRead = () => {
+    const after = inFront ? POLL_MS : screenOffReadMs()
+    if (after !== undefined) timer = setTimeout(() => void enqueue(refresh), after)
+  }
   // The Legatos the Legato app listed, the one open, and whether it was
   // picked (so a double tap on its active tab goes back to the picker) or
   // opened as the only one (so it exits).
@@ -617,7 +630,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
       await show()
     } finally {
       // Polling goes on whatever went wrong this time.
-      timer = setTimeout(() => void enqueue(refresh), inFront ? POLL_MS : BACKGROUND_POLL_MS)
+      scheduleRead()
     }
   }
 
@@ -964,7 +977,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
       case OsEventTypeList.FOREGROUND_EXIT_EVENT:
         inFront = false
         clearTimeout(timer)
-        timer = setTimeout(() => void enqueue(refresh), BACKGROUND_POLL_MS)
+        scheduleRead()
         void enqueue(async () => {
           if (listening(view)) {
             await stopMicrophone()

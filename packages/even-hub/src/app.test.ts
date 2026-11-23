@@ -487,6 +487,30 @@ describe("startGlance", () => {
     expect(legato.calls.agents).toBe(4)
   })
 
+  it("reads while the screen is off as often as the phone page says, or not at all when it is off", async () => {
+    let every: number | undefined = 60_000
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client, { screenOffReadMs: () => every })
+
+    bridge.send(system(OsEventTypeList.FOREGROUND_EXIT_EVENT))
+    await vi.advanceTimersByTimeAsync(59_999)
+    expect(legato.calls.agents).toBe(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(legato.calls.agents).toBe(2)
+
+    // Switched off: the read already set still comes, then none.
+    every = undefined
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(legato.calls.agents).toBe(3)
+    await vi.advanceTimersByTimeAsync(10 * 60_000)
+    expect(legato.calls.agents).toBe(3)
+
+    bridge.send(system(OsEventTypeList.FOREGROUND_ENTER_EVENT))
+    await settle()
+    expect(legato.calls.agents).toBe(4)
+  })
+
   it("closes the microphone and drops the message when the app goes to the background while listening", async () => {
     const bridge = fakeBridge()
     const legato = fakeLegato(someAgents)

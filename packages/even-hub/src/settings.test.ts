@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { loadCode, saveCode } from "./settings"
+import { loadCode, loadScreenOff, saveCode, saveScreenOff, screenOffMs } from "./settings"
 
 function memoryStorage(initial: Record<string, string> = {}) {
   const data = new Map(Object.entries(initial))
@@ -51,5 +51,25 @@ describe("saveCode", () => {
 
     expect(await saveCode(storage, "A".repeat(16))).toBe("A".repeat(16))
     expect(await saveCode(storage, "2".repeat(64))).toBe("2".repeat(64))
+  })
+})
+
+describe("reading while the glasses' screen is off", () => {
+  it("is every 30 seconds unless the operator chose 60 or off", async () => {
+    const storage = memoryStorage()
+    expect(await loadScreenOff(storage)).toBe("30")
+
+    await saveScreenOff(storage, "off")
+    expect(storage.data.get("legato.screen-off")).toBe("off")
+    expect(await loadScreenOff(storage)).toBe("off")
+
+    expect(await loadScreenOff(memoryStorage({ "legato.screen-off": "5" }))).toBe("30")
+    await expect(saveScreenOff(storage, "5")).rejects.toThrow()
+  })
+
+  it("comes to milliseconds, or none when off", () => {
+    expect(screenOffMs("30")).toBe(30_000)
+    expect(screenOffMs("60")).toBe(60_000)
+    expect(screenOffMs("off")).toBeUndefined()
   })
 })

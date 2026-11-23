@@ -1,7 +1,7 @@
 import { waitForEvenAppBridge } from "@evenrealities/even_hub_sdk"
 import { startGlance, type LegatoClient } from "./app"
 import { decideApproval, fetchAgents, fetchApprovals, fetchConversation, fetchInstances, PHONE_URL, messageReeve, sendMessage, transcribe, type Phone } from "./legato"
-import { loadCode, saveCode } from "./settings"
+import { loadCode, loadScreenOff, saveCode, saveScreenOff, screenOffMs } from "./settings"
 
 // The app reads Legato through the Legato Android app's glasses link on this
 // phone. In the dev server it reads the fake phone instead (dev/legato-dev.ts),
@@ -46,6 +46,17 @@ form.addEventListener("submit", (event) => {
 })
 showPairing()
 
+// How often to read while the glasses' screen is off, taken at once.
+let screenOff = await loadScreenOff(bridge)
+const screenOffInput = document.querySelector<HTMLSelectElement>("#screen-off")!
+screenOffInput.value = screenOff
+screenOffInput.addEventListener("change", () => {
+  void saveScreenOff(bridge, screenOffInput.value).then(
+    (saved) => (screenOff = saved),
+    (err: unknown) => (status.textContent = err instanceof Error ? err.message : String(err)),
+  )
+})
+
 const legato: LegatoClient = {
   instances: () => fetchInstances(phone, fetchFn),
   agents: (instance) => fetchAgents(phone, instance, fetchFn),
@@ -57,5 +68,5 @@ const legato: LegatoClient = {
   decide: (instance, id, decision, option) => decideApproval(phone, instance, id, decision, option, fetchFn),
 }
 
-await startGlance(bridge, legato)
+await startGlance(bridge, legato, { screenOffReadMs: () => screenOffMs(screenOff) })
 console.log("[legato-even-hub] ready")

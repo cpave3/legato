@@ -109,7 +109,7 @@ The app reads every 5 seconds rather than holding a stream open:
 - The Legato app's link answers one request at a time; it does not pass on Legato's `/ws`.
 - A glance needs a list a few seconds old, not each change as it happens.
 
-While the app is out of the foreground (the glasses' screen going off sends `FOREGROUND_EXIT`) it stops recording and reads every 30 seconds instead of 5, so what the glasses show when they wake is at most that old, and a page they refused to draw is drawn again. It cannot wait for the wake instead: on real glasses waking the screen sends no event at all (`FOREGROUND_ENTER` comes when the G2 menu is opened, and reads at once). The glasses are sent only text that changed, so these reads cost Bluetooth nothing while nothing changes. A later version could hold a stream while in front and read on each `agents_changed`, with polling as the fallback.
+While the app is out of the foreground (the glasses' screen going off sends `FOREGROUND_EXIT`) it stops recording and reads every 30 seconds instead of 5 (the app's page on the phone has the choice: every 30 or 60 seconds, or not at all), so what the glasses show when they wake is at most that old, and a page they refused to draw is drawn again. It cannot wait for the wake instead: on real glasses waking the screen sends no event at all (`FOREGROUND_ENTER` comes when the G2 menu is opened, and reads at once). The glasses are sent only text that changed, so these reads cost Bluetooth nothing while nothing changes. A later version could hold a stream while in front and read on each `agents_changed`, with polling as the fallback.
 
 ## Layout and limits
 

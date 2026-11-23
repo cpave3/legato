@@ -31,7 +31,7 @@ A Legato's list of agents has two tabs. **Active**, where the app opens, starts 
 | `▷` | background: its turn ended, and something it started still runs |
 | `○` | idle |
 
-The time at the top right is when the list was last read; the app reads it every 5 seconds while it is open, and every 30 seconds while the glasses' screen is off. Once the list is a minute old or more, how old shows before the time, such as `3m · 10:49`. Switching to background mode and back reads it at once. When the Legato app or Legato can't be reached, a note beside the tabs says so, and the last list stays on screen.
+The time at the top right is when the list was last read; the app reads it every 5 seconds while it is open, and every 30 seconds while the glasses' screen is off. Waking the screen tells the app nothing, so these reads keep what it shows fresh; your phone makes them, and the glasses are sent only what changed. On the app's page in the Even Realities app, **While the glasses' screen is off, read Legato** sets them to every 30 or 60 seconds, or not at all; with them off, hold on the glasses to read again. Once the list is a minute old or more, how old shows before the time, such as `3m · 10:49`. Switching to background mode and back reads it at once. When the Legato app or Legato can't be reached, a note beside the tabs says so, and the last list stays on screen.
 
 Open an agent to see its state in a badge at the top, then its feed: what it asks you for, then what it said and did, newest first, one line each. Tap a line to read it in full. A message that Legato or another agent sent it is shown as theirs, not as yours.
 
