@@ -25,6 +25,10 @@ type RelatedAgentSummary struct {
 	// Stage and StageReason are the main slot's agent's stage, "" when no
 	// main agent has one. A stage never moves the card.
 	Stage, StageReason string
+	// Glance is the glance group (Glance) of the main slot's agent that
+	// names the stage, else of the first main agent; "" when only named
+	// slots run.
+	Glance string
 }
 
 // SlotAgentSummary is a running named slot's agent on a card.
@@ -64,12 +68,13 @@ func SummarizeRelatedAgents(agents []AgentSession) map[string]RelatedAgentSummar
 			// Only named slots were seen so far.
 			summary.State, summary.Kind, summary.Engram = agent.ShownActivity(), agent.AgentKind, agent.Engram
 			summary.Stage, summary.StageReason = agent.Stage, agent.StageReason
+			summary.Glance = agent.Glance()
 			summary.Count = 1
 			summaries[taskID] = summary
 			continue
 		}
 		if !exists {
-			summary = RelatedAgentSummary{Active: true, State: agent.ShownActivity(), Kind: agent.AgentKind, Engram: agent.Engram}
+			summary = RelatedAgentSummary{Active: true, State: agent.ShownActivity(), Kind: agent.AgentKind, Engram: agent.Engram, Glance: agent.Glance()}
 		} else {
 			if summary.State != agent.ShownActivity() {
 				summary.State = AgentActivityMixed
@@ -84,6 +89,7 @@ func SummarizeRelatedAgents(agents []AgentSession) map[string]RelatedAgentSummar
 		// The card's own main agent names the stage, else the first with one.
 		if agent.Stage != "" && (summary.Stage == "" || agent.CardTaskID == taskID || agent.TaskID == taskID) {
 			summary.Stage, summary.StageReason = agent.Stage, agent.StageReason
+			summary.Glance = agent.Glance()
 		}
 		summary.Count++
 		summaries[taskID] = summary

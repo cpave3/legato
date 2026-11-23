@@ -139,3 +139,40 @@ func TestAgentsSayWhyTheyNeedTheOperatorAndWhatIsUnread(t *testing.T) {
 		t.Fatalf("compact = %+v", compact)
 	}
 }
+
+// A board card carries its main agent's glance, so its strip can lead with
+// it; a reviewer slot does not change it.
+func TestABoardCardCarriesItsMainAgentsGlance(t *testing.T) {
+	cards := []service.Card{{ID: "T-1", Title: "One"}, {ID: "T-2", Title: "Two"}, {ID: "T-3", Title: "Three"}, {ID: "T-4", Title: "No agent"}}
+	board := &mockBoardService{columns: []service.Column{{Name: "Doing"}}, cards: map[string][]service.Card{"Doing": cards}}
+	srv := New(board, &stagedAgents{}, nil, "")
+	rec := httptest.NewRecorder()
+	srv.boardHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/board", nil))
+	var resp BoardResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, card := range resp.Columns[0].Cards {
+		got[card.ID] = card.Glance
+	}
+	want := map[string]string{"T-1": "your_turn", "T-2": "finished", "T-3": "needs_you", "T-4": ""}
+	for id, glance := range want {
+		if got[id] != glance {
+			t.Fatalf("glances = %v, want %v", got, want)
+		}
+	}
+	if strings.Contains(rec.Body.String(), `"glance":""`) {
+		t.Fatalf("a card with no agent sends an empty glance: %s", rec.Body.String())
+	}
+
+	srv = New(board, &stagedSlotAgents{}, nil, "")
+	rec = httptest.NewRecorder()
+	srv.boardHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/board", nil))
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if glance := resp.Columns[0].Cards[0].Glance; glance != "working" {
+		t.Fatalf("with a reviewer, the main agent's glance = %q", glance)
+	}
+}

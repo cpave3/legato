@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { awayDetail, awayGroups, awayLook, reviewLabel, withAwayLane, workerHistoryURL, workerReach } from "../away"
+import { awayDetail, awayGroups, awayLook, awayStrip, reviewLabel, withAwayLane, workerHistoryURL, workerReach } from "../away"
 import type { AwayOn, BoardCard, BoardColumn, BoardWorker } from "../board-types"
 
 function card(id: string, status: string, away?: Partial<AwayOn>): BoardCard {
@@ -128,5 +128,25 @@ describe("workerHistoryURL", () => {
   it("is unknown without the worker's address", () => {
     expect(workerHistoryURL({ worker_task_id: "w1" })).toBeUndefined()
     expect(workerHistoryURL({ url: "/board?highlight_task=w1", worker_task_id: "w1" })).toBeUndefined()
+  })
+})
+
+describe("awayStrip", () => {
+  const away = card("a", "Doing", { state: "in_progress" }).away!
+
+  it("marks a running review pass, which adds only the stage's track", () => {
+    const strip = awayStrip({ ...away, view: "in_review", review: { pass: 2, phase: "waiting_for_author", waiting_on: "author_working", blocking_open: 1, comments_open: 0, checks_open: 0, skipped_comments: 0 } })
+    expect(strip.text).toBe("Review pass 2 · author fixing")
+    expect(strip.review).toBe(true)
+  })
+
+  it("reads an idle task like the others: on its worker", () => {
+    const strip = awayStrip({ ...away, view: "idle" })
+    expect([strip.glyph, strip.text, strip.review]).toEqual(["⇢", "On vm-1", false])
+  })
+
+  it("keeps saying what else the task is doing", () => {
+    expect(awayStrip({ ...away, view: "working" }).text).toBe("Running")
+    expect(awayStrip({ ...away, view: "needs_you" }).text).toBe("Needs you")
   })
 })

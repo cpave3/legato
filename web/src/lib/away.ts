@@ -123,6 +123,9 @@ export interface AwayStrip {
   tint: string
   // The card's steady edge: needs the operator, or cannot go on.
   edge: "needs" | "error" | ""
+  // A review pass runs: the strip adds only the stage's track, named by
+  // its word, since the text says what the review is doing.
+  review?: boolean
 }
 
 // The phrase for what a review pass is doing, after "Review pass N".
@@ -177,13 +180,15 @@ export function awayStrip(away: AwayOn): AwayStrip {
       const phrase = reviewPhrase(review)
       if (phrase) {
         const pass = review.phase === "waiting_for_reviewer" || review.waiting_on === "start" ? review.pass + 1 : review.pass
-        return { glyph: "◐", text: `Review pass ${pass} · ${phrase}`, detail: reviewCounts(review) || undefined, tone: "text-lw-live", tint: "bg-lw-live-soft", edge: "" }
+        return { glyph: "◐", text: `Review pass ${pass} · ${phrase}`, detail: reviewCounts(review) || undefined, tone: "text-lw-live", tint: "bg-lw-live-soft", edge: "", review: true }
       }
     }
   }
+  // An idle task reads like the others: where it is, then its stage.
+  if (away.view === "idle") return { glyph: "⇢", text: `On ${away.worker}`, detail: handed, tone: "text-lw-text-2", tint: "bg-lw-idle-soft", edge: "", review: false }
   const look = awayLook(away)
   const edge = away.view === "needs_you" || away.view === "interrupted" ? "needs" : away.view === "failed" || (!away.view && away.state === "failed") ? "error" : ""
-  return { glyph: look.glyph, text: look.label, detail: handed, tone: look.tone, tint: look.tint, edge }
+  return { glyph: look.glyph, text: look.label, detail: handed, tone: look.tone, tint: look.tint, edge, review: false }
 }
 
 // What a review block says in a few words, as the worker's summary does.

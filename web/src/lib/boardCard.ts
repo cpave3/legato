@@ -1,4 +1,3 @@
-import { stageLabel } from "./agentStage"
 import type { BoardCard } from "./board-types"
 import { agentToolLabel } from "./agentKind"
 import { providerLabel } from "./providers"
@@ -16,43 +15,84 @@ export function formatDuration(seconds: number): string {
 
 export interface StripLook {
   glyph: string
+  // What the agent needs from the operator, first: Working, Your turn,
+  // Needs you, Error, Finished.
   label: string
   time: number
   tint: string
   tone: string
+  // Whether the strip names the stage (its track and word) after the label:
+  // not under Finished, which the label says.
+  stage: boolean
+  // Why the agent is at its stage, the first part of the strip to be cut.
+  reason: string
+  // The agent tool, for the strip's tooltip: the strip leaves it out.
+  tool: string
 }
 
-// What an agent in each state looks like on a card: the same vocabulary the
-// rest of the app uses (running, needs you, error, idle).
+// cardGlance is the main agent's glance group; a server that sends none is
+// read from the agent's state and stage.
+function cardGlance(card: BoardCard): string {
+  if (card.glance) return card.glance
+  if (card.agent_state === "waiting" || card.agent_state === "error") return "needs_you"
+  if (card.agent_state === "working" || card.agent_state === "background") return "working"
+  return card.stage === "finished" ? "finished" : "your_turn"
+}
+
+// What an agent in each state looks like on a card, leading with what it
+// needs from the operator (the glance), then its stage and why; the agent
+// tool is in the tooltip.
 export function agentStripLook(card: BoardCard): StripLook {
-  const kind = card.agent_kind ? agentToolLabel(card.agent_kind, card.agent_engram) : ""
+  const tool = card.agent_kind ? agentToolLabel(card.agent_kind, card.agent_engram) : ""
+  const reason = card.stage_reason ?? ""
+  const quiet = { stage: true, reason, tool }
   switch (card.agent_state) {
     case "working":
-      return { glyph: "●", label: kind ? `Running · ${kind}` : "Running", time: card.working_seconds, tint: "bg-lw-live-soft", tone: "text-lw-live" }
+      return { glyph: "●", label: "Working", time: card.working_seconds, tint: "bg-lw-live-soft", tone: "text-lw-live", ...quiet }
     case "waiting":
-      return { glyph: "◆", label: "Needs you", time: card.waiting_seconds, tint: "bg-lw-needs-soft", tone: "text-lw-needs" }
+      return { glyph: "◆", label: "Needs you", time: card.waiting_seconds, tint: "bg-lw-needs-soft", tone: "text-lw-needs", stage: true, reason: "", tool }
     case "error":
-      return { glyph: "✕", label: "Error", time: card.error_seconds, tint: "bg-lw-error-soft", tone: "text-lw-error" }
+      return { glyph: "✕", label: "Error", time: card.error_seconds, tint: "bg-lw-error-soft", tone: "text-lw-error", stage: true, reason: "", tool }
     case "background":
-      return { glyph: "◌", label: "Background", time: 0, tint: "bg-lw-idle-soft", tone: "text-lw-text-2" }
+      // Waiting on work it started: working, in green, in its own words.
+      return { glyph: "◌", label: "Working · background", time: 0, tint: "bg-lw-live-soft", tone: "text-lw-live", ...quiet }
     case "mixed": {
       // Of several agents, those that work, once the one that waits has a
       // strip of its own.
       const working = card.needs_you?.working_agents ?? 0
-      if (working > 0) return { glyph: "●", label: `${working} running${kind ? ` · ${kind}` : ""}`, time: card.working_seconds, tint: "bg-lw-live-soft", tone: "text-lw-live" }
-      return { glyph: "◐", label: "Agents disagree", time: 0, tint: "bg-lw-idle-soft", tone: "text-lw-text-2" }
+      if (working > 0) return { glyph: "●", label: `${working} working`, time: card.working_seconds, tint: "bg-lw-live-soft", tone: "text-lw-live", ...quiet }
+      return { glyph: "◐", label: "Agents disagree", time: 0, tint: "bg-lw-idle-soft", tone: "text-lw-text-2", ...quiet }
     }
+  }
+  const spent = card.working_seconds + card.waiting_seconds + card.error_seconds
+  switch (cardGlance(card)) {
+    case "finished": {
+      const note = (card.needs_you?.items?.done ?? 0) > 0 ? "a note for you" : ""
+      return { glyph: "✓", label: "Finished", time: spent, tint: "bg-lw-done-soft", tone: "text-lw-done", stage: false, reason: [reason, note].filter(Boolean).join(" · "), tool }
+    }
+    case "needs_you":
+      return { glyph: "◆", label: "Needs you", time: spent, tint: "bg-lw-needs-soft", tone: "text-lw-needs", stage: true, reason: "", tool }
     default:
-      return { glyph: "○", label: kind ? `Idle · ${kind}` : "Idle", time: card.working_seconds + card.waiting_seconds + card.error_seconds, tint: "bg-lw-idle-soft", tone: "text-lw-text-2" }
+      return { glyph: "◇", label: "Your turn", time: spent, tint: "bg-lw-idle-soft", tone: "text-lw-text", ...quiet }
   }
 }
 
-// What a named slot's chip says of its agent: "reviewer · running".
+// What a named slot's chip says of its agent: what it is doing, not its
+// stage, since a reviewer slot is Reviewing until its pass is posted:
+// "reviewer ● working", "reviewer ◆ needs you", "reviewer ✓ done".
 export function slotChipLabel(slot: string, state: string, stage?: string): string {
-  const named = stageLabel(stage)
-  if (named) return `${slot} · ${named}`
-  const text = state === "working" ? "running" : state === "waiting" ? "needs you" : state === "" ? "idle" : state
-  return `${slot} · ${text}`
+  if (stage === "finished") return `${slot} ✓ done`
+  switch (state) {
+    case "working":
+    case "background":
+      return `${slot} ● working`
+    case "waiting":
+      return `${slot} ◆ needs you`
+    case "error":
+      return `${slot} ✕ error`
+    default:
+      return `${slot} ○ idle`
+  }
 }
 
 // The color a task's priority is written in: red for high, amber for medium.
@@ -101,7 +141,10 @@ export function needsYouStrip(card: BoardCard): NeedsYouStrip | null {
     return { glyph: "◆", text: `Needs you · ${needs.approvals.label}${more}`, action: { label: "Answer", kind: "approval", approvalId: needs.approvals.id } }
   }
   const items = needs.items ?? {}
-  const words = itemWords.filter(([kind]) => (items[kind] ?? 0) > 0).map(([kind, one, many]) => {
+  // A finished agent's done note is no reason to need the operator: its
+  // strip says Finished and that it left a note.
+  const finished = card.agent_active && cardGlance(card) === "finished"
+  const words = itemWords.filter(([kind]) => (items[kind] ?? 0) > 0 && !(finished && kind === "done")).map(([kind, one, many]) => {
     const n = items[kind] ?? 0
     return `${n} ${n === 1 ? one : many}`
   })

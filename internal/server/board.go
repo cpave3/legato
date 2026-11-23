@@ -109,6 +109,7 @@ func (s *Server) boardHandler() http.HandlerFunc {
 					resp.Columns[r.col].Cards[r.card].SlotAgents = summary.Slots
 					resp.Columns[r.col].Cards[r.card].Stage = summary.Stage
 					resp.Columns[r.col].Cards[r.card].StageReason = summary.StageReason
+					resp.Columns[r.col].Cards[r.card].Glance = summary.Glance
 				}
 			}
 		}
