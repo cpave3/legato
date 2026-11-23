@@ -140,6 +140,21 @@ Select **Don't ask again** to always import into the server in front. To be aske
 
 The app tells your system that it opens `legato-desktop://` links each time it starts. An AppImage can move, so open the app once after you move it.
 
+## Links open in your browser
+
+A server's page stays on its server. A link to any other site (a Jira ticket, a pull request, a Burnlite task), a link that opens a new window, and a `mailto:` or `tel:` link go to your system's default browser or mail app. So does the sign-in page when you [connect an MCP server](/legato/agent-tools/mcp-tools/) that needs one.
+
+On Linux the app hands the link to `xdg-open`, without the AppImage's own libraries and settings, and waits a few seconds for it. When `xdg-open` cannot open it, the app asks the desktop portal instead. On a Mac it uses `open`, and on Windows the system's handler for the address.
+
+If a link does nothing:
+
+1. Read the app's log. Started from your desktop's launcher, it is in the journal: `journalctl --user -b | grep '\[links\]'`. Started from a terminal, it is printed there. Each link gives one line: `opened with xdg-open`, `opened by the desktop portal`, or `not opened:` and the reason from both.
+2. Check that your system has a default browser: `xdg-settings get default-web-browser` and `xdg-mime query default x-scheme-handler/https` should name it.
+3. Check that `xdg-open https://example.com` opens it from a terminal.
+4. Check that the desktop portal runs: `systemctl --user status xdg-desktop-portal`.
+
+AppImages up to v0.25.0 gave `xdg-open` the AppImage's libraries, and on a system newer than the one the AppImage was built on, the program it starts could not load. On KDE the journal then shows lines such as `kde-open: /tmp/.mount_…/usr/lib/libcrypto.so.3: version 'OPENSSL_3.3.0' not found`. Update the app.
+
 ## Updates
 
 The app keeps itself current. It checks GitHub for a newer release with a desktop build when it starts and every six hours, and when you click **Check for updates** under **This app** in **Servers & keys**. When there is one, the title bar shows **Update to vX.Y.Z**: click it, and the app downloads the new version, checks it against the release's checksums, and puts it in place of the old one, which it keeps beside it (the AppImage as `.prev`; on a Mac, a hidden `.Legato.app.prev`). Then click **Restart to update**.

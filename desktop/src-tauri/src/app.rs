@@ -246,7 +246,7 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
             // A link that opens a window (target=_blank, window.open) never
             // makes one: another site goes to the system's browser.
             if links::classify(&new_window_server_url, &url) == links::Link::External {
-                let _ = links::open_in_browser(&url);
+                links::open_in_background(url);
             }
             tauri::webview::NewWindowResponse::Deny
         })
@@ -255,7 +255,7 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
                 // The page never leaves its server: another site opens in the
                 // system's browser and the navigation is cancelled.
                 if links::classify(&server_url, url) == links::Link::External {
-                    let _ = links::open_in_browser(url);
+                    links::open_in_background(url.clone());
                     return false;
                 }
                 return true;
