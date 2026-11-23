@@ -1,6 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react"
 import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Bot, Code2, Copy, FileText, FolderGit2, GitPullRequest, Hourglass, ListChecks, MoreVertical, Plus, Trash2 } from "lucide-react"
-import { addInput, inputsOf, itemKey, itemsOf, itemText, moveStep, problemsByItem, removeStep, renameStep, setField, setItemText, setTrigger, stepsOf, stepYamlPath, triggersOf, parseWorkflow, insertStep, WorkflowDocumentError, type Item, type ItemRef, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
+import { addInput, inputsOf, itemKey, itemsOf, itemText, moveStep, pastedAs, pathAt, rangeOf, problemsByItem, removeStep, renameStep, setField, setItemText, setTrigger, stepsOf, stepYamlPath, triggersOf, parseWorkflow, insertStep, WorkflowDocumentError, type Item, type ItemRef, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
 import { addressOf, sameSelection, type Selection } from "../../lib/workflowAddress"
 import { executors } from "../../lib/workflowSchema"
 import type { SchedulePreview, WorkflowDiagnostic } from "../../lib/workflowFiles"
@@ -25,7 +25,8 @@ export type WorkflowOutlineProps = {
   onEdit: (edit: WorkflowEdit, how?: { typing?: boolean }) => void
   diagnostics?: WorkflowDiagnostic[]
   nameFixed?: boolean
-  onEditYaml: () => void
+  /** onEditYaml switches to YAML, at a line when given one. */
+  onEditYaml: (line?: number) => void
   onPending?: (pending: boolean) => void
   options?: BuilderOptions
   schedule?: SchedulePreview | null
@@ -48,6 +49,17 @@ export type WorkflowOutlineProps = {
   /** pausedHere says, by trigger kind, whether this Legato's switch has the
    * trigger paused (LEG-459); a kind it has no switch for reads the file. */
   pausedHere?: Record<string, boolean>
+  /** mode navigate is the outline beside the YAML (LEG-512): rows jump the
+   * editor to their text (onJump), and the row at cursor is marked. */
+  mode?: "edit" | "navigate"
+  cursor?: number
+  onJump?: (range: { from: number; to: number }) => void
+  /** broken: the text no longer parses, and this is the last that did. */
+  broken?: { line?: number; message: string }
+  /** lastGood is the last text that parsed, which the page keeps across
+   * modes; onGood is told each text that parses. */
+  lastGood?: string | null
+  onGood?: (text: string) => void
   /** savedText is the file as last saved (null for a new workflow): a
    * step it lacks takes its ID from its title. */
   savedText?: string | null
@@ -141,7 +153,9 @@ function rowsOf(items: Item[], values: WorkflowValues, problems: Map<string, Wor
 // of the workflow (When, Asks for, Then, About) and an inspector of the
 // row chosen, over the same text the YAML side edits.
 function Outline(props: WorkflowOutlineProps) {
-  const { text, onEdit, diagnostics = [], nameFixed, onEditYaml, options = noOptions, schedule, selection, onSelect, narrow = false, sheet = false, onCloseSheet, onUndo, onRedo, savedText = null, pausedHere = NO_SWITCHES } = props
+  const { text, onEdit, diagnostics = [], nameFixed, onEditYaml, options = noOptions, schedule, selection, onSelect, narrow = false, sheet = false, onCloseSheet, onUndo, onRedo, savedText = null, pausedHere = NO_SWITCHES, mode = "edit", cursor, onJump, broken } = props
+  const navigating = mode === "navigate"
+  const editing = !navigating && !broken
   const { file, items } = useMemo(() => itemsOf(text), [text])
   const values = useMemo(() => parseWorkflow(text).values, [text])
   const problems = useMemo(() => problemsByItem(text, diagnostics), [text, diagnostics])
@@ -160,6 +174,7 @@ function Outline(props: WorkflowOutlineProps) {
   useEffect(() => () => report("outline-held-yaml", false), [report])
   const [adding, setAdding] = useState<{ kind: "step"; at: number } | { kind: "trigger" } | null>(null)
   const [menu, setMenu] = useState<string | null>(null)
+  const [pasted, setPasted] = useState<string | null>(null)
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
   const [warning, setWarning] = useState("")
   const [dragged, setDragged] = useState<string | null>(null)
@@ -175,11 +190,14 @@ function Outline(props: WorkflowOutlineProps) {
   // A rename moves a row's address: follow it to the row of its kind in
   // the same place.
   const [last, setLast] = useState<{ address: string; place: number } | null>(null)
+  const atCursor = navigating && cursor !== undefined ? pathAt(text, cursor)?.item ?? null : null
+  const shown: Selection | null = navigating ? (atCursor ? (atCursor.kind === "about" ? { kind: "about" } : atCursor) : null) : selection
   const found = selection ? order.findIndex(row => sameSelection(selection, row.selection)) : -1
   // Until the address catches up, the renamed row is still the one shown,
   // so its inspector (and the tab it is on) stays.
   const following = selection && found < 0 && last?.address === addressOf(selection) ? order.filter(row => row.selection.kind === selection.kind)[last.place] ?? null : null
   useEffect(() => {
+    if (navigating || broken) return
     if (!selection) { setLast(null); return }
     const same = order.filter(row => row.selection.kind === selection.kind)
     const address = addressOf(selection)
@@ -189,7 +207,7 @@ function Outline(props: WorkflowOutlineProps) {
       return
     }
     if (following) onSelect(following.selection)
-  }, [selection, found, order, onSelect, following])
+  }, [selection, found, order, onSelect, following, navigating, broken])
 
   // heldYaml is the held text by the row's place, which the inspector is
   // keyed by; hold keeps or drops a row's.
@@ -226,7 +244,7 @@ function Outline(props: WorkflowOutlineProps) {
   if (file) {
     return <div role="alert" className="flex flex-col items-start gap-2 rounded-xl border border-lw-danger-line bg-lw-error-soft p-4 text-sm text-lw-danger">
       <p>{file.startsWith("the YAML does not parse") ? `The YAML doesn't parse, so it can't be shown here: ${file.replace(/^the YAML does not parse: /, "")}` : `This file can't be shown as forms: ${file}.`}</p>
-      <Button size="sm" variant="outline" onClick={onEditYaml}>Edit as YAML</Button>
+      <Button size="sm" variant="outline" onClick={() => onEditYaml()}>Edit as YAML</Button>
     </div>
   }
 
@@ -234,7 +252,41 @@ function Outline(props: WorkflowOutlineProps) {
   const placed = stepsOf(values) as (StepValue | null)[]
   const steps = placed.filter((step): step is StepValue => step !== null && typeof step === "object")
   const ids = steps.map(step => step.id ?? "")
-  const select = (next: Selection, open = false) => { setAdding(null); onSelect(next, { open }) }
+  const select = (next: Selection, open = false) => {
+    setAdding(null)
+    if (!navigating) { onSelect(next, { open }); return }
+    // Beside the YAML, a row moves the cursor to its text.
+    const item = next.kind === "about" ? items.find(i => i.item.kind === "about" && !["inputs", "on", "steps"].includes(i.item.key))?.item : next
+    const range = item ? rangeOf(text, item) : null
+    if (range) onJump?.(range)
+  }
+
+  // What is pasted on the forms (not into a field): a whole workflow asks
+  // to replace this one; steps go in after the step chosen.
+  const onPaste = (event: React.ClipboardEvent) => {
+    if (!editing || isTyping(event.target)) return
+    const clip = event.clipboardData.getData("text/plain")
+    const what = pastedAs(clip)
+    if (what.kind === "other") return
+    event.preventDefault()
+    if (what.kind === "workflow") { setPasted(clip); return }
+    const after = selection?.kind === "step" ? placed.findIndex(step => step?.id === selection.path.split("/")[0]) + 1 : placed.length
+    apply(() => {
+      let working = text
+      const taken = [...ids]
+      const added: string[] = []
+      what.steps.forEach((raw, i) => {
+        const base = typeof raw.id === "string" && raw.id !== "" ? raw.id : idFromTitle(String(raw.title ?? raw.type ?? "step"), taken)
+        let id = base
+        for (let n = 2; taken.includes(id); n++) id = `${base}-${n}`
+        taken.push(id)
+        added.push(id)
+        working = insertStep(working, (after <= 0 ? placed.length : after) + i, { ...raw, id }).text
+      })
+      if (added[0]) setTimeout(() => select({ kind: "step", path: added[0] }), 0)
+      return { text: working, undo: { label: `Paste ${added.length === 1 ? `step ${added[0]}` : `${added.length} steps`}`, before: text, after: working } }
+    })
+  }
 
   // A new step's ID is made from its title, and follows it until saved.
   const addStep = (type: string, at: number) => {
@@ -291,7 +343,7 @@ function Outline(props: WorkflowOutlineProps) {
   }
 
   const rowButton = (row: Row, bare = false, number?: number) => {
-    const selected = sameSelection(selection, row.selection)
+    const selected = sameSelection(shown, row.selection)
     const address = addressOf(row.selection)
     const Icon = row.type ? iconOf(row.type) : null
     const button = <button type="button" data-address={address} aria-current={selected ? "true" : undefined}
@@ -326,17 +378,17 @@ function Outline(props: WorkflowOutlineProps) {
     const title = row.label
     const readers = steps.filter(other => other.id !== id && stepReferences(other).some(ref => ref.id === id)).map(other => String(other.id))
     return <li key={addressOf(row.selection)} className="group flex min-w-0 flex-col"
-      draggable={!narrow} onDragStart={() => setDragged(id)} onDragOver={event => event.preventDefault()}
+      draggable={editing && !narrow} onDragStart={() => setDragged(id)} onDragOver={event => event.preventDefault()}
       onDrop={event => { event.preventDefault(); if (dragged && dragged !== id) moveTo(dragged, index); setDragged(null) }}>
       <div className={`flex min-h-7 items-center gap-2 pl-5 text-[11px] ${connector.kind === "manual" ? "text-lw-needs" : "text-lw-faint"}`}>
         <span aria-hidden className={`h-5 border-l ${connector.kind === "first" ? "invisible " : ""}${connector.kind === "agent_ended" ? "border-dashed border-lw-line-strong" : connector.kind === "manual" ? "border-lw-needs" : "border-lw-line"}`} />
         <span data-start={connector.kind} className="flex-1">{connector.text}</span>
-        <button type="button" aria-label={`Add a step before ${title}`} className={`rounded px-1 text-lw-text-2 hover:bg-lw-raised hover:text-lw-text ${narrow ? "" : "opacity-0 focus:opacity-100 group-hover:opacity-100"}`} onClick={() => setAdding({ kind: "step", at: index })}><Plus size={13} /></button>
+        {editing && <button type="button" aria-label={`Add a step before ${title}`} className={`rounded px-1 text-lw-text-2 hover:bg-lw-raised hover:text-lw-text ${narrow ? "" : "opacity-0 focus:opacity-100 group-hover:opacity-100"}`} onClick={() => setAdding({ kind: "step", at: index })}><Plus size={13} /></button>}
       </div>
       {adding?.kind === "step" && adding.at === index && palette}
       <div className="relative flex min-w-0 items-center">
         {rowButton(row, true, index + 1)}
-        <button type="button" aria-label={`Actions for step ${id}`} aria-expanded={menu === id} className="ml-1 rounded p-1 text-lw-text-2 hover:bg-lw-raised" onClick={() => setMenu(menu === id ? null : id)}><MoreVertical size={14} /></button>
+        {editing && <button type="button" aria-label={`Actions for step ${id}`} aria-expanded={menu === id} className="ml-1 rounded p-1 text-lw-text-2 hover:bg-lw-raised" onClick={() => setMenu(menu === id ? null : id)}><MoreVertical size={14} /></button>}
         {menu === id && <div role="menu" aria-label={`Step ${id}`} className="absolute right-0 top-full z-20 flex w-44 flex-col rounded-md border border-lw-line bg-lw-surface p-1 text-sm shadow-xl" onKeyDown={event => { if (event.key === "Escape") setMenu(null) }}>
           <button type="button" role="menuitem" className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised" onClick={() => { setMenu(null); duplicate(step, index) }}><Copy size={13} />Duplicate</button>
           <button type="button" role="menuitem" disabled={index === 0} className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised disabled:opacity-40" onClick={() => { setMenu(null); moveTo(id, index - 1) }}><ArrowUp size={13} />Move up</button>
@@ -357,7 +409,7 @@ function Outline(props: WorkflowOutlineProps) {
     {body}
   </section>
   const container = (key: string) => rows.about.containers.filter(item => item.item.kind === "about" && item.item.key === key).map(item => <p key={key} role="alert" className="mx-2 flex flex-wrap items-center gap-2 text-xs text-lw-needs">
-    {item.problem} <Button size="sm" variant="ghost" onClick={onEditYaml}>Edit as YAML</Button>
+    {item.problem} <Button size="sm" variant="ghost" onClick={() => onEditYaml()}>Edit as YAML</Button>
   </p>)
 
   const missing = triggerKinds.filter(t => !(t.kind in triggersOf(values)))
@@ -365,7 +417,7 @@ function Outline(props: WorkflowOutlineProps) {
     {section("When", <>
       <ul className="flex flex-col">{rows.when.map(row => rowButton(row))}</ul>
       {container("on")}
-      {missing.length > 0 && (adding?.kind === "trigger"
+      {editing && missing.length > 0 && (adding?.kind === "trigger"
         ? <div role="dialog" aria-label="Add a trigger" className="mx-2 flex flex-col gap-1 rounded-lg border border-lw-line bg-lw-surface p-1 shadow-xl" onKeyDown={event => { if (event.key === "Escape") setAdding(null) }}>
           {missing.map(t => <button key={t.kind} type="button" className="flex min-h-9 flex-col items-start rounded-md px-2 py-1 text-left hover:bg-lw-raised" onClick={() => addTrigger(t.kind)}>
             <span className="text-sm">{KIND_TITLES[t.kind] ?? t.kind}</span>
@@ -380,14 +432,14 @@ function Outline(props: WorkflowOutlineProps) {
       {rows.asks.length === 0 && <p className="px-2 text-sm text-lw-text-2">Nothing: it takes no inputs</p>}
       <ul className="flex flex-col">{rows.asks.map(row => rowButton(row))}</ul>
       {container("inputs")}
-      <Button type="button" size="sm" variant="ghost" className="self-start" onClick={addAnInput}><Plus size={13} />Add input</Button>
+      {editing && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={addAnInput}><Plus size={13} />Add input</Button>}
     </>)}
     {section("Then", <>
       {rows.then.length === 0 && <p className="px-2 text-sm text-lw-text-2">No steps yet: a workflow needs at least one.</p>}
       {warning && <p role="alert" className="px-2 text-xs text-lw-needs">{warning}</p>}
       <ol aria-label="Steps" className="flex flex-col">{rows.then.map(stepRow)}</ol>
       {container("steps")}
-      {adding?.kind === "step" && adding.at >= placed.length ? palette : <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding({ kind: "step", at: placed.length })}><Plus size={13} />Add step</Button>}
+      {editing && (adding?.kind === "step" && adding.at >= placed.length ? palette : <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding({ kind: "step", at: placed.length })}><Plus size={13} />Add step</Button>)}
     </>)}
     {section("About", <ul className="flex flex-col">{rowButton(order[order.length - 1])}</ul>)}
   </nav>
@@ -400,8 +452,43 @@ function Outline(props: WorkflowOutlineProps) {
       : <p className="text-sm text-lw-text-2">Choose a row of the outline to edit it.</p>}
   </section>
 
-  return <div className="flex flex-col gap-3 text-sm">
+  const brokenNote = broken && <p role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-danger-line bg-lw-error-soft px-3 py-2 text-xs text-lw-danger">
+    <span className="min-w-0 flex-1">{broken.line ? `Line ${broken.line}: ` : ""}can't read the YAML. The outline is as it last could be; the forms are off until it reads again.</span>
+    <Button size="sm" variant="outline" onClick={() => onEditYaml(broken.line)}>Show</Button>
+  </p>
+  if (navigating) {
+    if (narrow) {
+      // On a phone, the outline beside the YAML is a menu to jump with.
+      return <div className="flex flex-col gap-2 text-sm">
+        {brokenNote}
+        <label className="flex items-center gap-2 text-xs text-lw-text-2">Jump to
+          <select aria-label="Jump to" disabled={Boolean(broken)} className="min-h-9 min-w-0 flex-1 rounded-md border border-lw-line-strong bg-lw-ground px-2 text-sm text-lw-text" value={shown ? addressOf(shown) : ""}
+            onChange={event => { const row = order.find(r => addressOf(r.selection) === event.target.value); if (row) select(row.selection) }}>
+            <option value="">The outline…</option>
+            {order.map(row => <option key={addressOf(row.selection)} value={addressOf(row.selection)}>{row.label}</option>)}
+          </select>
+        </label>
+      </div>
+    }
+    return <div className="flex flex-col gap-2 text-sm">
+      {brokenNote}
+      <div inert={Boolean(broken) || undefined} className={broken ? "opacity-50" : undefined}>{outlineView}</div>
+    </div>
+  }
+  if (broken) {
+    return <div className="flex flex-col gap-3 text-sm">
+      {brokenNote}
+      <div inert className="rounded-xl border border-lw-line bg-lw-surface p-2 opacity-50">{outlineView}</div>
+    </div>
+  }
+
+  return <div className="flex flex-col gap-3 text-sm" onPaste={onPaste}>
     {error && <p role="alert" className="text-sm text-lw-danger">{error}</p>}
+    {pasted !== null && <div role="alertdialog" aria-label="Replace the workflow" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm">
+      <span className="min-w-0 flex-1">You pasted a whole workflow. Replace this one with it? Undo brings this one back.</span>
+      <Button size="sm" onClick={() => { const next = pasted; setPasted(null); onEdit({ text: next, undo: { label: "Paste a workflow", before: text, after: next } }) }}>Replace</Button>
+      <Button size="sm" variant="ghost" onClick={() => setPasted(null)}>Cancel</Button>
+    </div>}
     {narrow
       ? (sheet && selectedRow
         ? <div role="dialog" aria-label={selectedRow.label.trim()} className="fixed inset-0 z-40 overflow-y-auto bg-lw-ground px-4 pb-20 pt-3">{inspectorView}</div>
@@ -607,5 +694,15 @@ export default function WorkflowOutline(props: WorkflowOutlineProps) {
     else pending.current.delete(id)
     if (had !== pending.current.size > 0) onPending?.(pending.current.size > 0)
   }, [onPending])
-  return <PendingDrafts.Provider value={report}><Outline {...props} /></PendingDrafts.Provider>
+  // A file that stops parsing keeps the outline it last had, dimmed.
+  const parsed = useMemo(() => itemsOf(props.text), [props.text])
+  const [ownGood, setOwnGood] = useState<string | null>(parsed.file === null ? props.text : null)
+  const { onGood } = props
+  useEffect(() => { if (parsed.file === null) { setOwnGood(props.text); onGood?.(props.text) } }, [parsed.file, props.text, onGood])
+  const lastGood = props.lastGood ?? ownGood
+  const broken = parsed.file !== null && lastGood !== null && parsed.file.startsWith("the YAML does not parse")
+    ? { line: parsed.fileLine, message: parsed.file } : undefined
+  return <PendingDrafts.Provider value={report}>
+    {broken ? <Outline {...props} text={lastGood!} broken={broken} /> : <Outline {...props} />}
+  </PendingDrafts.Provider>
 }

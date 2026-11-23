@@ -193,6 +193,12 @@ The editor has two sides, **Visual** and **YAML**, and you can switch between th
 - **Undo** and **Redo** go back and forth through your changes on both sides. In YAML, Ctrl+Z (⌘Z on a Mac) and Ctrl+Shift+Z (⌘⇧Z) do the same, so they also undo a change made in Visual. A pause in typing starts a new step. A change made in Visual leaves your place in the YAML where it was.
 - The side you used last is remembered on this device.
 
+In YAML, the outline stays beside the text. Choose a row to go to its part of the file; as you move through the file, the row you are in is marked. On a phone it is a **Jump to** menu.
+
+If the YAML stops parsing, Visual keeps the outline as it last was, greyed out, and says on which line Legato can't read the YAML; **Show** takes you there. The forms come back once it parses.
+
+Pasting YAML on the forms (not into a field) does what you'd expect: a whole workflow asks whether to replace this one, and steps are added after the step you have open.
+
 The YAML side knows the workflow format, from the same schema Legato checks files with:
 
 - As you type, it offers the keys that fit where you are: the top-level fields, the trigger kinds under `on:`, the step types (with what each does), and each step type's `with` fields. It also offers the values of fields that take one of a few, such as `catch_up` or `scope`, and `true` and `false`.

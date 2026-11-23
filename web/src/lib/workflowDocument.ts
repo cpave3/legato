@@ -847,9 +847,9 @@ const js = (node: unknown) => {
  * their parent, each with its range and why the forms can't show it. file
  * says why there are no items: the YAML does not parse, or the file is not
  * a mapping. */
-export function itemsOf(text: string): { file: string | null; items: Item[] } {
+export function itemsOf(text: string): { file: string | null; fileLine?: number; items: Item[] } {
   const doc = parse(text)
-  if (doc.errors.length > 0) return { file: `the YAML does not parse: ${doc.errors[0].message.split("\n")[0]}`, items: [] }
+  if (doc.errors.length > 0) return { file: `the YAML does not parse: ${doc.errors[0].message.split("\n")[0]}`, fileLine: doc.errors[0].linePos?.[0]?.line, items: [] }
   if (doc.contents == null) return { file: null, items: [] }
   if (!isMap(doc.contents)) return { file: "the file is not a mapping of a workflow's fields", items: [] }
   const items: Item[] = []
@@ -975,4 +975,21 @@ export function setItemText(text: string, item: ItemRef, edited: string): Workfl
   const [first, ...rest] = body.split("\n")
   const written = [(dash ? "- " : "") + first, ...rest.map(line => (line === "" ? "" : pad + line))].join("\n")
   return edit(`Edit ${itemLabel(item)} as YAML`, text, splice(text, range.from, range.to, written))
+}
+
+// --- Pasted text (LEG-512) -----------------------------------------------------
+
+/** pastedAs says what pasted text is: a whole workflow (a mapping with
+ * schema_version or steps), steps (a list of mappings with an id or a
+ * type, or one such mapping), or other. */
+export function pastedAs(text: string): { kind: "workflow" } | { kind: "steps"; steps: Record<string, unknown>[] } | { kind: "other" } {
+  const doc = parse(text)
+  if (doc.errors.length > 0) return { kind: "other" }
+  let value: unknown
+  try { value = doc.toJS({ maxAliasCount: 50 }) } catch { return { kind: "other" } }
+  const isStep = (item: unknown) => isObject(item) && (typeof item.id === "string" || typeof item.type === "string")
+  if (isObject(value) && ("schema_version" in value || Array.isArray(value.steps))) return { kind: "workflow" }
+  if (Array.isArray(value) && value.length > 0 && value.every(isStep)) return { kind: "steps", steps: value as Record<string, unknown>[] }
+  if (isStep(value)) return { kind: "steps", steps: [value as Record<string, unknown>] }
+  return { kind: "other" }
 }

@@ -70,3 +70,16 @@ it("does not report a change from outside as an edit", async () => {
   rerender(<WorkflowYamlEditor value={text.replace("X", "Y")} onChange={onChange} />)
   expect(onChange).not.toHaveBeenCalled()
 })
+
+it("moves its cursor to a range it is sent to, and says where its cursor is", async () => {
+  const onCursor = vi.fn()
+  const { rerender } = render(<WorkflowYamlEditor value={text} onChange={() => {}} onCursor={onCursor} />)
+  await waitFor(() => screen.getByRole("textbox", { name: "Workflow YAML" }))
+  const view = viewOf()
+  const from = text.indexOf("- id: a")
+  rerender(<WorkflowYamlEditor value={text} onChange={() => {}} onCursor={onCursor} jumpTo={{ from, to: from + 7, seq: 1 }} />)
+  expect(view.state.selection.main.from).toBe(from)
+  expect(view.state.selection.main.to).toBe(from + 7)
+  view.dispatch({ selection: { anchor: text.indexOf("agent.nope") } })
+  expect(onCursor).toHaveBeenLastCalledWith(text.indexOf("agent.nope"))
+})

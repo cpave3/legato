@@ -114,16 +114,19 @@ it("undoes across both modes", async () => {
   expect((await screen.findByRole("textbox", { name: "Title" }) as HTMLInputElement).value).toBe("Step one")
 })
 
-it("won't show YAML that doesn't parse in Visual, and says why", async () => {
+it("keeps the last outline, dimmed and off, while the YAML doesn't parse, and says on which line", async () => {
   localStorage.setItem("legato:workflow-editor-mode", "yaml")
   renderEdit()
   await waitFor(() => expect(yaml()).toBe(fileText))
-  fireEvent.change(screen.getByRole("textbox", { name: "Workflow YAML" }), { target: { value: "name: [oops\n" } })
+  fireEvent.change(screen.getByRole("textbox", { name: "Workflow YAML" }), { target: { value: fileText.replace("title: Run", "title: [oops") } })
   toVisual()
   const alert = await screen.findByRole("alert")
-  expect(alert.textContent).toContain("doesn't parse")
-  fireEvent.click(within(alert).getByRole("button", { name: "Edit as YAML" }))
-  expect(yaml()).toBe("name: [oops\n")
+  expect(alert.textContent).toMatch(/^Line \d+: can't read the YAML/)
+  // The last outline that read, its forms off.
+  expect(within(screen.getByRole("navigation", { name: "Outline" })).getByRole("button", { name: /Run/ })).toBeTruthy()
+  expect(screen.queryByRole("region", { name: "Inspector" })).toBeNull()
+  fireEvent.click(within(alert).getByRole("button", { name: "Show" }))
+  expect(yaml()).toContain("title: [oops")
 })
 
 it("shows the server's problems on their fields", async () => {

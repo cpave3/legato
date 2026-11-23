@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { itemKey, itemsOf, itemText, pathAt, problemsByItem, rangeOf, setItemText, stepYamlPath, type ItemRef } from "../workflowDocument"
+import { itemKey, itemsOf, itemText, pastedAs, pathAt, problemsByItem, rangeOf, setItemText, stepYamlPath, type ItemRef } from "../workflowDocument"
 import type { WorkflowDiagnostic } from "../workflowFiles"
 
 // The parts of a file the outline shows (LEG-503): where each is in the
@@ -279,5 +279,22 @@ describe("an item's own YAML, review fixes", () => {
     const text = "schema_version: 1\nname: x\ntitle: X\nsteps:\n  - id: a\n    type: agent.run\n    with:\n      prompt: |\n        a\n          \n        b\n"
     const item = { kind: "step" as const, path: "a" }
     expect(setItemText(text, item, itemText(text, item)!).text).toBe(text)
+    })
+  })
+
+describe("a file that does not parse", () => {
+  it("says on which line", () => {
+    expect(itemsOf("schema_version: 1\nname: x\nsteps: [\n").fileLine).toBe(4)
+    expect(itemsOf(v1).fileLine).toBeUndefined()
+  })
+})
+
+describe("what was pasted", () => {
+  it("is a whole workflow, steps, or neither", () => {
+    expect(pastedAs(v1)).toEqual({ kind: "workflow" })
+    expect(pastedAs("- id: a\n  title: A\n  type: task.note\n- id: b\n  type: task.move\n")).toEqual({ kind: "steps", steps: [{ id: "a", title: "A", type: "task.note" }, { id: "b", type: "task.move" }] })
+    expect(pastedAs("id: a\ntype: task.note\n")).toEqual({ kind: "steps", steps: [{ id: "a", type: "task.note" }] })
+    expect(pastedAs("just some words")).toEqual({ kind: "other" })
+    expect(pastedAs("[oops")).toEqual({ kind: "other" })
   })
 })

@@ -9,7 +9,7 @@ import { AlertTriangle, ArrowLeft, Redo2, Save, Trash2, Undo2 } from "lucide-rea
 import { useServer } from "../hooks/useServer"
 import { useWorkflows } from "../hooks/useWorkflow"
 import { queryKeys } from "../lib/query"
-import { checkWorkflowFile, createWorkflowFile, deleteWorkflowFile, fetchWorkflowFile, saveWorkflowFile, starterWorkflow, WorkflowFileError, type WorkflowCheck, type WorkflowDiagnostic, type WorkflowFile } from "../lib/workflowFiles"
+import { checkWorkflowFile, createWorkflowFile, deleteWorkflowFile, fetchWorkflowFile, offsetOf, saveWorkflowFile, starterWorkflow, WorkflowFileError, type WorkflowCheck, type WorkflowDiagnostic, type WorkflowFile } from "../lib/workflowFiles"
 import { LazyWorkflowYamlEditor } from "../components/workflow-editor/LazyWorkflowYamlEditor"
 import { LazyWorkflowOutline } from "../components/workflow-editor/LazyWorkflowOutline"
 import type { HeldYaml } from "../components/workflow-editor/WorkflowOutline"
@@ -178,6 +178,12 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   // Item YAML the outline holds until it reads (LEG-505): kept here so it
   // outlives a switch to the whole file's YAML, and counted as unsaved.
   const [heldYaml, setHeldYaml] = useState<HeldYaml>({})
+  // YAML mode's outline beside the editor (LEG-512): the cursor marks a
+  // row, and a row (or Show on a broken file) moves the cursor.
+  const [cursor, setCursor] = useState<number | undefined>(undefined)
+  const [jump, setJump] = useState<{ from: number; to: number; seq: number } | undefined>(undefined)
+  const [lastGood, setLastGood] = useState<string | null>(null)
+  const jumpTo = (range: { from: number; to: number }) => setJump(previous => ({ ...range, seq: (previous?.seq ?? 0) + 1 }))
   // Saved · paused · Turn on (LEG-509): after a save, a trigger this
   // Legato has paused is named, with a way to switch it on.
   const [savedNotice, setSavedNotice] = useState(Boolean((location.state as { saved?: boolean } | null)?.saved))
@@ -459,11 +465,17 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
     </section>}
 
     {editorMode === "yaml" || !editable
-      ? <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
-        <section aria-label="YAML" className={narrow ? "h-[28rem] overflow-hidden rounded-xl border border-lw-line" : "h-[36rem] overflow-hidden rounded-xl border border-lw-line"}>
-          <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} readOnly={!editable} onUndo={editable ? history.undo : undefined} onRedo={editable ? history.redo : undefined} />
-        </section>
-        <div className="flex min-w-0 flex-col gap-4">
+      ? <div className="flex flex-col gap-4">
+        <div className={editable && !narrow ? "grid gap-4 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]" : "flex flex-col gap-2"}>
+          {editable && <section aria-label="Navigator" className={narrow ? "" : "max-h-[36rem] overflow-y-auto rounded-xl border border-lw-line bg-lw-surface p-2"}>
+            <LazyWorkflowOutline mode="navigate" text={text} cursor={cursor} onJump={jumpTo} onEdit={() => {}} diagnostics={diagnostics} onEditYaml={line => { if (line) { const at = offsetOf(text, line, 1); jumpTo({ from: at, to: at }) } }}
+              options={options} selection={null} onSelect={() => {}} narrow={narrow} pausedHere={pausedHere} lastGood={lastGood} onGood={setLastGood} />
+          </section>}
+          <section aria-label="YAML" className={narrow ? "h-[70vh] overflow-hidden rounded-xl border border-lw-line" : "h-[36rem] overflow-hidden rounded-xl border border-lw-line"}>
+            <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} readOnly={!editable} onUndo={editable ? history.undo : undefined} onRedo={editable ? history.redo : undefined} jumpTo={jump} onCursor={setCursor} />
+          </section>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
           <section aria-label="Check" className="rounded-xl border border-lw-line bg-lw-surface p-3">
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-lw-text-2">{checked ? "Problems" : "Checking…"}</h2>
             {checked && <Problems diagnostics={diagnostics} />}
@@ -474,8 +486,8 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
         </div>
       </div>
       : <section aria-label="Visual" className={narrow ? "pb-16" : undefined}>
-        <LazyWorkflowOutline text={text} onEdit={(change, how) => history.push(change.text, change.undo.label, how?.typing)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={() => switchMode("yaml")} options={options} schedule={checked?.schedule} onPending={setPendingEdits}
-          savedText={mode === "edit" ? saved : null} pausedHere={pausedHere} selection={selection} onSelect={select} narrow={narrow} sheet={narrow && selection !== null} onCloseSheet={closeSheet} onUndo={history.undo} onRedo={history.redo} held={heldYaml} onHeld={setHeldYaml} />
+        <LazyWorkflowOutline text={text} onEdit={(change, how) => history.push(change.text, change.undo.label, how?.typing)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={line => { switchMode("yaml"); if (line) { const at = offsetOf(text, line, 1); jumpTo({ from: at, to: at }) } }} options={options} schedule={checked?.schedule} onPending={setPendingEdits}
+          savedText={mode === "edit" ? saved : null} pausedHere={pausedHere} lastGood={lastGood} onGood={setLastGood} selection={selection} onSelect={select} narrow={narrow} sheet={narrow && selection !== null} onCloseSheet={closeSheet} onUndo={history.undo} onRedo={history.redo} held={heldYaml} onHeld={setHeldYaml} />
       </section>}
     {text !== null && Object.keys(heldYaml).length > 0 && <Suspense fallback={null}><HeldYamlReconciler text={text} held={heldYaml} onHeld={setHeldYaml} /></Suspense>}
     {narrow && editable && <div role="toolbar" aria-label="Save" className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-between gap-2 border-t border-lw-line bg-lw-surface px-4 py-2">

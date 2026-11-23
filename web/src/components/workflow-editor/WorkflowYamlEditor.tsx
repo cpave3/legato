@@ -28,6 +28,10 @@ export type WorkflowYamlEditorProps = {
   /** fragment: the text is one part of a workflow (an inspector's YAML
    * tab), so the whole file's completion, hover and checks don't apply. */
   fragment?: boolean
+  /** jumpTo selects a range and scrolls to it; a new seq jumps again. */
+  jumpTo?: { from: number; to: number; seq: number }
+  /** onCursor is told where the cursor is when it moves. */
+  onCursor?: (offset: number) => void
 }
 
 // fromOutside marks a change the value prop made, which is not reported
@@ -94,12 +98,14 @@ const theme = EditorView.theme({
 
 // WorkflowYamlEditor is a workflow file's text in CodeMirror, with the
 // schema's completion, hover and checks, and the server's diagnostics.
-export default function WorkflowYamlEditor({ value, onChange, serverDiagnostics = [], readOnly = false, label = "Workflow YAML", onUndo, onRedo, fragment = false }: WorkflowYamlEditorProps) {
+export default function WorkflowYamlEditor({ value, onChange, serverDiagnostics = [], readOnly = false, label = "Workflow YAML", onUndo, onRedo, fragment = false, jumpTo, onCursor }: WorkflowYamlEditorProps) {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
   const changed = useRef(onChange)
   const server = useRef(serverDiagnostics)
   const undoRedo = useRef({ onUndo, onRedo })
+  const cursorMoved = useRef(onCursor)
+  cursorMoved.current = onCursor
   changed.current = onChange
   server.current = serverDiagnostics
   undoRedo.current = { onUndo, onRedo }
@@ -129,6 +135,7 @@ export default function WorkflowYamlEditor({ value, onChange, serverDiagnostics 
         EditorView.contentAttributes.of({ "aria-label": label }),
         EditorView.updateListener.of(update => {
           if (update.docChanged && !update.transactions.some(t => t.annotation(fromOutside))) changed.current(update.state.doc.toString())
+          if (update.selectionSet) cursorMoved.current?.(update.state.selection.main.head)
         }),
       ],
     })
@@ -151,6 +158,17 @@ export default function WorkflowYamlEditor({ value, onChange, serverDiagnostics 
   useEffect(() => {
     if (view.current) forceLinting(view.current)
   }, [serverDiagnostics])
+
+  // A jump from the outline: select the block and bring it into view.
+  useEffect(() => {
+    const current = view.current
+    if (!current || !jumpTo) return
+    const length = current.state.doc.length
+    const from = Math.min(jumpTo.from, length)
+    const to = Math.min(jumpTo.to, length)
+    current.dispatch({ selection: { anchor: from, head: to }, effects: EditorView.scrollIntoView(from, { y: "start", yMargin: 24 }) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpTo?.seq])
 
   return <div ref={host} className="h-full min-h-0 overflow-hidden" />
 }
