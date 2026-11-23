@@ -885,6 +885,7 @@ export function AgentsPage() {
                 panels={sidePanels}
                 menu={terminalMenu.entries}
                 stage={stageInfo(selectedAgent)}
+                backgroundJobs={selectedAgent.background_jobs}
                 ask={selectedAgent.reeve ? undefined : <AskReeve brief={reeveBrief({ what: `the agent “${selectedAgent.task_title || selectedAgent.task_id}”, which waits for the operator`, ids: { task: selectedAgent.task_id, "agent tool": selectedAgent.agent_kind } })} />}
                 notes={<>
                   {selectedAgent.reeve && <ReeveStatus baseUrl={baseUrl} />}
@@ -926,6 +927,7 @@ export function AgentsPage() {
                       panels={agent.task_id === selectedId ? sidePanels : undefined}
                       pullRequest={agent.task_id === selectedId ? pullRequest : undefined}
                       backgroundShells={agent.background_shells}
+                      backgroundJobs={agent.background_jobs}
                     />
                   ) : (
                     <TerminalPanel agentId={agent.task_id} onGlitch={triggerGlitch} onClickTerminal={() => {
@@ -965,6 +967,7 @@ export function AgentsPage() {
                   activity={selectedAgent?.activity}
                   stateTime={selectedAgent ? formatAgentTime(stateSeconds(selectedAgent)) : undefined}
                   backgroundShells={selectedAgent?.background_shells}
+                  backgroundJobs={selectedAgent?.background_jobs}
                 />
               ) : (
                 <LiveTerminal key={`${selectedId}:${terminalAttach}`} agentId={selectedId} />

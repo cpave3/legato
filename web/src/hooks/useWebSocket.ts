@@ -145,6 +145,12 @@ export interface BackgroundJob {
   label: string
   // A cron's schedule.
   schedule?: string
+  // The subagent that started it; absent for the agent itself, and a parent
+  // that is not listed is the agent's too.
+  parent?: string
+  // A subagent's: working, waiting (on the operator), or background (its
+  // turn ended and work it started still runs).
+  state?: "working" | "waiting" | "background" | string
   started_at: string
 }
 

@@ -5,6 +5,8 @@ import { LayoutGrid, List, Mic, MoreHorizontal } from "lucide-react"
 import { cn } from "../lib/utils"
 import { AgentKindBadge } from "./AgentKindBadge"
 import { AgentStageChip, type AgentStageInfo } from "./AgentStageChip"
+import { SubagentsLine } from "./SubagentTree"
+import type { BackgroundJob } from "../hooks/useWebSocket"
 
 export type AgentChatState = "needs-you" | "running" | "background" | "error" | "idle"
 
@@ -34,6 +36,9 @@ interface AgentChatHeaderProps {
   panels?: SidePanelsProps
   // How the agent's subagents are shown, when it has any.
   subagents?: SubagentSwitchProps
+  // What the agent runs in the background: its subagents, at any depth,
+  // are counted beside the title and open as a tree.
+  backgroundJobs?: BackgroundJob[]
   // Brings what the agent waits on into view.
   onShowRequest?: () => void
   // A way to ask the Reeve about the agent, offered while it needs the person.
@@ -159,7 +164,7 @@ export function SidePanelSwitch({ open, related, artifacts, onSelect, studio }: 
 // The line an agent's chat opens with, whether Legato drives the agent
 // natively or through its terminal: what it is doing, the task, and what can
 // be done with it.
-export function AgentChatHeader({ state, time, title, taskId, agentKind, engram, native = false, notes, pullRequest, panels, subagents, onShowRequest, ask, menu, stage }: AgentChatHeaderProps) {
+export function AgentChatHeader({ state, time, title, taskId, agentKind, engram, native = false, notes, pullRequest, panels, subagents, backgroundJobs, onShowRequest, ask, menu, stage }: AgentChatHeaderProps) {
   const chip = chips[state]
   const [stageOpen, setStageOpen] = useState(false)
   const entries = stage ? [{ label: "Set stage", onSelect: () => setStageOpen(true) }, ...menu] : menu
@@ -180,6 +185,7 @@ export function AgentChatHeader({ state, time, title, taskId, agentKind, engram,
         <h2 className="m-0 min-w-0 truncate text-[15px] font-semibold max-sm:sr-only">{title}</h2>
         <span className="hidden shrink-0 font-lw-mono text-xs text-lw-faint sm:inline">{taskId}{pullRequest ? ` · PR #${pullRequest}` : ""}</span>
         {agentKind !== undefined && <AgentKindBadge kind={agentKind} engram={engram} isNative={native} className="hidden md:inline-flex" />}
+        <SubagentsLine jobs={backgroundJobs} className="shrink-0" />
         {notes && <span className="flex min-w-0 items-center gap-2 truncate text-xs text-lw-text-2">{notes}</span>}
       </div>
       <div className="flex shrink-0 items-center gap-2">

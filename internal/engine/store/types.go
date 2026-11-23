@@ -493,6 +493,14 @@ type BackgroundJob struct {
 	Label string `json:"label"`
 	// Schedule is a cron's, as the agent tool gave it.
 	Schedule string `json:"schedule,omitempty"`
+	// Parent is the subagent that started the job, "" for the top-level
+	// agent (or when the agent tool did not say). A job whose parent is not
+	// in the list is the top-level agent's to show.
+	Parent string `json:"parent,omitempty"`
+	// State is a subagent's: ActivityWorking (its turn runs),
+	// ActivityWaiting (on the operator) or ActivityBackground (its turn
+	// ended and work it started still runs). "" for other kinds.
+	State string `json:"state,omitempty"`
 	// StartedAt is when Legato first saw it.
 	StartedAt time.Time `json:"started_at"`
 }
