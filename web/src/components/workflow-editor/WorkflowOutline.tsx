@@ -484,7 +484,7 @@ function Outline(props: WorkflowOutlineProps) {
   const mapView = graph && <section aria-label="Map" className="flex flex-col gap-1">
     {graph.stale && <p role="status" className="text-xs text-lw-needs">The map is of the last version Legato could read.</p>}
     <div className={narrow ? "h-[60vh] overflow-hidden rounded-lg border border-lw-line bg-lw-ground" : "h-[32rem] overflow-hidden rounded-lg border border-lw-line bg-lw-ground"}>
-      <LazyWorkflowGraph graph={graph.model} selectedId={nodeOf(shown)} direction="TB" onSelect={id => { const next = selectionOfNode(graph.model, id); if (next) select(next, true) }} />
+      <LazyWorkflowGraph graph={graph.model} selectedId={nodeOf(shown)} direction="TB" onSelect={id => { if (broken) return; const next = selectionOfNode(graph.model, id); if (next) select(next, true) }} />
     </div>
   </section>
   const navigation = <div className="flex min-w-0 flex-col gap-2">
@@ -504,6 +504,12 @@ function Outline(props: WorkflowOutlineProps) {
     <span className="min-w-0 flex-1">{broken.line ? `Line ${broken.line}: ` : ""}can't read the YAML. The outline is as it last could be; the forms are off until it reads again.</span>
     <Button size="sm" variant="outline" onClick={() => onEditYaml(broken.line)}>Show</Button>
   </p>
+  // While the YAML doesn't read: the last map (it says it is stale), or the
+  // last outline, dimmed and off.
+  const brokenView = <div className="flex min-w-0 flex-col gap-2">
+    {listOrMap}
+    {view === "map" && mapView ? mapView : <div inert className="opacity-50">{outlineView}</div>}
+  </div>
   if (navigating) {
     if (narrow) {
       // On a phone, the outline beside the YAML is a menu to jump with.
@@ -520,13 +526,13 @@ function Outline(props: WorkflowOutlineProps) {
     }
     return <div className="flex flex-col gap-2 text-sm">
       {brokenNote}
-      <div inert={Boolean(broken) || undefined} className={broken ? "opacity-50" : undefined}>{broken ? outlineView : navigation}</div>
+      {broken ? brokenView : navigation}
     </div>
   }
   if (broken) {
     return <div className="flex flex-col gap-3 text-sm">
       {brokenNote}
-      <div inert className="rounded-xl border border-lw-line bg-lw-surface p-2 opacity-50">{outlineView}</div>
+      <div className="rounded-xl border border-lw-line bg-lw-surface p-2">{brokenView}</div>
     </div>
   }
 
