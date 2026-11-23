@@ -2,35 +2,42 @@ import { deref, executors, workflowSchema, type Schema } from "../../lib/workflo
 
 /** BuilderOptions are what the pickers offer: this Legato's macros, agent
  * tools with their tiers, and board columns. A value may still be typed. */
-export type BuilderOptions = { macros: string[]; agents: string[]; tiers: Record<string, string[]>; columns: string[] }
+export type BuilderOptions = { macros: string[]; agents: string[]; tiers: Record<string, string[]>; columns: string[]; repositories?: string[] }
 
-export const noOptions: BuilderOptions = { macros: [], agents: [], tiers: {}, columns: [] }
+export const noOptions: BuilderOptions = { macros: [], agents: [], tiers: {}, columns: [], repositories: [] }
 
 export type StepValue = Record<string, unknown> & { id?: string; title?: string; type?: string; trigger?: string; with?: Record<string, unknown> | null; outputs?: Record<string, Record<string, unknown> | null> | null }
 
-export type FieldSpec = { name: string; kind: string; description: string; required: boolean; expressions: boolean; enum?: string[]; requiredAtRun: boolean }
+/** FieldSpec is one with field of a step type's form. label, essential and
+ * order are the catalog's (internal step types have none: their label is
+ * the name, and they keep the file's order). */
+export type FieldSpec = { name: string; kind: string; description: string; required: boolean; expressions: boolean; enum?: string[]; requiredAtRun: boolean; label: string; essential: boolean; order: number }
 export type Group = { kind: "exactly_one" | "at_least_one"; fields: string[] }
 
 export const STEP_KEYS = ["id", "title", "type", "trigger", "with", "outputs"]
 const definitions: Record<string, Schema> = workflowSchema.definitions
 
 /** stepForm is what a step type's form holds, from the schema: its with
- * fields by kind and its exclusive groups. */
-export function stepForm(type: string): { fields: FieldSpec[]; groups: Group[] } | null {
+ * fields by kind, in the catalog's order, its exclusive groups, and the
+ * fields a step row is summed up by (the first with a value). */
+export function stepForm(type: string): { fields: FieldSpec[]; groups: Group[]; summary: string[] } | null {
   const schema = definitions[`with.${type}`]
   if (!schema) return null
   const fields = Object.entries<Schema>(schema.properties ?? {}).map(([name, raw]) => {
     const s = deref(raw) ?? raw
     const extension = s["x-legato"] ?? {}
     const enumValues = s.enum ?? (Array.isArray(s.anyOf) ? s.anyOf.find((b: Schema) => b.enum)?.enum : undefined)
-    return { name, kind: String(extension.kind ?? "string"), description: String(s.description ?? ""), required: (schema.required ?? []).includes(name), expressions: Boolean(extension.expressions), enum: enumValues, requiredAtRun: Boolean(extension.required_at_run) }
+    return { name, kind: String(extension.kind ?? "string"), description: String(s.description ?? ""), required: (schema.required ?? []).includes(name), expressions: Boolean(extension.expressions), enum: enumValues, requiredAtRun: Boolean(extension.required_at_run), label: String(extension.label ?? name), essential: Boolean(extension.essential), order: Number(extension.order ?? 0) }
   })
+  // A field with no order goes after those with one; sort is stable.
+  fields.sort((a, b) => (a.order || Infinity) - (b.order || Infinity))
   const groups: Group[] = []
   for (const branch of schema.allOf ?? []) {
     if (branch.oneOf) groups.push({ kind: "exactly_one", fields: branch.oneOf.flatMap((b: Schema) => b.required ?? []) })
     if (branch.anyOf) groups.push({ kind: "at_least_one", fields: branch.anyOf.flatMap((b: Schema) => b.required ?? []) })
   }
-  return { fields, groups }
+  const summary: string[] = Array.isArray(schema["x-legato"]?.summary) ? schema["x-legato"].summary : []
+  return { fields, groups, summary }
 }
 
 /** The kinds a with field may be; a test fails when the schema has one the

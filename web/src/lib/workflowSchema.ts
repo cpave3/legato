@@ -12,7 +12,7 @@ export const workflowSchema: Schema = schemaJSON as Schema
 
 export type YamlPath = (string | number)[]
 
-export type Executor = { type: string; title: string; description: string; internal: boolean }
+export type Executor = { type: string; title: string; description: string; internal: boolean; group?: string; summary?: string[] }
 
 export const executors: Executor[] = workflowSchema["x-legato"].executors
 

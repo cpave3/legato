@@ -58,7 +58,14 @@ func buildSchema() schemaObject {
 			"if":   schemaObject{"properties": schemaObject{"type": schemaObject{"const": spec.Type}}, "required": []string{"type"}},
 			"then": then,
 		})
-		executors = append(executors, schemaObject{"type": spec.Type, "title": spec.Title, "description": spec.Description, "internal": spec.Internal})
+		executor := schemaObject{"type": spec.Type, "title": spec.Title, "description": spec.Description, "internal": spec.Internal}
+		if len(spec.Summary) > 0 {
+			executor["summary"] = spec.Summary
+		}
+		if spec.Group != "" {
+			executor["group"] = spec.Group
+		}
+		executors = append(executors, executor)
 	}
 	step := definitions["step"].(schemaObject)
 	properties := step["properties"].(schemaObject)
@@ -72,6 +79,7 @@ func buildSchema() schemaObject {
 	root["definitions"] = definitions
 	root["x-legato"] = schemaObject{
 		"schema_version":    SchemaVersion,
+		"step_groups":       StepGroups,
 		"executors":         executors,
 		"internal":          internal,
 		"expressions":       contexts,
@@ -148,6 +156,12 @@ func withSchema(spec ExecutorSpec) schemaObject {
 	if len(unchecked) > 0 {
 		extension["run_constraints"] = unchecked
 	}
+	if len(spec.Summary) > 0 {
+		extension["summary"] = spec.Summary
+	}
+	if spec.Group != "" {
+		extension["group"] = spec.Group
+	}
 	out["x-legato"] = extension
 	return out
 }
@@ -187,6 +201,15 @@ func fieldSchema(field Field) schemaObject {
 	extension := schemaObject{"kind": field.Kind, "expressions": !field.Literal}
 	if field.RequiredAtRun {
 		extension["required_at_run"] = true
+	}
+	if field.Essential {
+		extension["essential"] = true
+	}
+	if field.Label != "" {
+		extension["label"] = field.Label
+	}
+	if field.Order > 0 {
+		extension["order"] = field.Order
 	}
 	if !field.Literal {
 		extension["context"] = "with"

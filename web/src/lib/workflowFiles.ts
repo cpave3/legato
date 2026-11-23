@@ -61,20 +61,6 @@ export const deleteWorkflowFile = (baseUrl: string, name: string, digest: string
 export const copyBuiltInWorkflow = (baseUrl: string, name: string, folder: string) =>
   call<WorkflowSaved>(baseUrl, `${named(name)}/copy`, json("POST", { folder }))
 
-/** starterWorkflow is what New workflow opens with: valid as it is. */
-export const starterWorkflow = `# yaml-language-server: $schema=https://cpave3.github.io/legato/schemas/workflow-v1.schema.json
-schema_version: 1
-name: my-workflow
-title: My workflow
-description: What this workflow does.
-steps:
-  - id: agent
-    title: Run an agent
-    type: agent.run
-    with:
-      prompt: Say what the agent should do.
-`
-
 /** offsetOf turns a 1-based line and column into an offset in text. */
 export function offsetOf(text: string, line: number, column: number): number {
   let offset = 0

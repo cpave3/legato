@@ -14,6 +14,8 @@ type workflowTemplate struct {
 	Name        string `json:"name"`
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
+	// YAML is the template's text, which the start page opens as a draft.
+	YAML string `json:"yaml"`
 }
 
 // workflowFolders are the folders a template can be added to: the global
@@ -32,7 +34,7 @@ func (s *Server) workflowTemplatesHandler() http.HandlerFunc {
 		}
 		templates := []workflowTemplate{}
 		for _, example := range workflowengine.Examples() {
-			t := workflowTemplate{Name: example.Name}
+			t := workflowTemplate{Name: example.Name, YAML: string(example.YAML)}
 			if definition, err := workflowengine.Parse(example.Name+".workflow.yaml", example.YAML); err == nil {
 				t.Title, t.Description = definition.Title, strings.TrimSpace(definition.Description)
 			}

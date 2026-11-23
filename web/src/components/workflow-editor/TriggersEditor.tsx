@@ -8,7 +8,7 @@ import { Button } from "../ui/Button"
 import { CommitField, Problems, ReferencePicker } from "./builderFields"
 import { fieldClass, labelClass, problemsAt, valueText } from "./builderStyles"
 import type { BuilderOptions } from "./stepForms"
-import { conditionFields, OPERATORS, operandKind, operandOf, operatorOf, scalarText, triggerKinds, withOperator, type Condition, type OperandKind, type Operator } from "./triggerForms"
+import { conditionFields, KIND_TITLES, newTrigger, OPERATORS, operandKind, operandOf, operatorOf, scalarText, triggerKinds, withOperator, type Condition, type OperandKind, type Operator } from "./triggerForms"
 
 type Props = {
   text: string
@@ -19,7 +19,6 @@ type Props = {
   schedule?: SchedulePreview | null
 }
 
-const KIND_TITLES: Record<string, string> = { "task.entered_column": "When a card enters a column", schedule: "On a schedule", "pr.changes_requested": "When changes are requested on a pull request" }
 
 // TriggersEditor is the Triggers section of the builder: running by hand,
 // which every workflow can, then a card for each trigger under on:.
@@ -29,9 +28,7 @@ export function TriggersEditor({ text, values, diagnostics, options, apply, sche
   const missing = triggerKinds.filter(t => !present.includes(t.kind))
   const [adding, setAdding] = useState(false)
   const add = (kind: string) => {
-    // A new trigger starts paused: the operator switches it on (LEG-459).
-    const spec: Record<string, unknown> = kind === "task.entered_column" ? { column: options.columns[0] ?? "", enabled: false } : kind === "schedule" ? { every: "weekdays", at: "09:00", enabled: false } : { enabled: false }
-    apply(() => setTrigger(text, kind, spec))
+    apply(() => setTrigger(text, kind, newTrigger(kind, options)))
     setAdding(false)
   }
   return <section aria-label="Triggers" className="flex flex-col gap-3 rounded-xl border border-lw-line bg-lw-surface p-4">
@@ -50,7 +47,7 @@ export function TriggersEditor({ text, values, diagnostics, options, apply, sche
   </section>
 }
 
-function TriggerCard({ kind, trigger, text, values, diagnostics, options, apply, schedule }: Omit<Props, "schedule"> & { kind: string; trigger: Record<string, unknown>; schedule?: SchedulePreview | null }) {
+export function TriggerCard({ kind, trigger, text, values, diagnostics, options, apply, schedule }: Omit<Props, "schedule"> & { kind: string; trigger: Record<string, unknown>; schedule?: SchedulePreview | null }) {
   const path: YamlPath = ["on", kind]
   const set = (sub: YamlPath, value: unknown) => apply(() => setField(text, [...path, ...sub], value === "" ? undefined : value))
   const at = (sub: YamlPath) => problemsAt(diagnostics, pathText([...path, ...sub]))

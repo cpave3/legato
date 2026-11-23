@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
 
 func templateServer(t *testing.T) (*Server, string, string) {
@@ -94,5 +96,28 @@ func TestADraftedWorkflowIsSavedPausedAndNeverOverwrites(t *testing.T) {
 	}
 	if rec := post(); rec.Code != http.StatusConflict {
 		t.Fatalf("again: %d", rec.Code)
+	}
+}
+
+// The start page (LEG-514) opens a template in the editor as a draft, so
+// the list carries each template's text.
+func TestTheTemplateListCarriesEachTemplatesText(t *testing.T) {
+	s, _, _ := templateServer(t)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/workflow-templates", nil))
+	var list struct {
+		Templates []struct{ Name, YAML string }
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, tpl := range list.Templates {
+		example, ok := workflowengine.ExampleNamed(tpl.Name)
+		if !ok || tpl.YAML != string(example.YAML) {
+			t.Errorf("template %s: yaml = %q", tpl.Name, tpl.YAML)
+		}
+	}
+	if len(list.Templates) == 0 {
+		t.Fatal("no templates")
 	}
 }

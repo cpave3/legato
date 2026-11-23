@@ -1,5 +1,6 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react"
-import { afterEach, expect, it } from "vitest"
+import { afterEach, expect, it, vi } from "vitest"
+import { EditorView, runScopeHandlers } from "@codemirror/view"
 import WorkflowYamlEditor from "../WorkflowYamlEditor"
 import { mergeDiagnostics, toDiagnostics } from "../editorDiagnostics"
 
@@ -26,4 +27,59 @@ it("draws the file's text in CodeMirror", async () => {
   render(<WorkflowYamlEditor value={text} onChange={() => {}} />)
   const content = await waitFor(() => screen.getByRole("textbox", { name: "Workflow YAML" }))
   expect(content.textContent).toContain("agent.nope")
+})
+
+const viewOf = () => EditorView.findFromDOM(screen.getByRole("textbox", { name: "Workflow YAML" }))!
+
+it("takes a change from outside as small edits, keeping the cursor and the text around it", async () => {
+  const before = "# kept\nschema_version: 1\nname: x\ntitle: X\nsteps:\n  - id: a # the step\n    type: agent.run\n"
+  const { rerender } = render(<WorkflowYamlEditor value={before} onChange={() => {}} />)
+  await waitFor(() => screen.getByRole("textbox", { name: "Workflow YAML" }))
+  const view = viewOf()
+  const cursor = before.indexOf("agent.run")
+  view.dispatch({ selection: { anchor: cursor } })
+  const after = before.replace("title: X", "title: A longer title")
+  rerender(<WorkflowYamlEditor value={after} onChange={() => {}} />)
+  expect(view.state.doc.toString()).toBe(after)
+  expect(view.state.selection.main.head).toBe(after.indexOf("agent.run"))
+})
+
+it("sends Undo and Redo to the page's history, not its own", async () => {
+  const onUndo = vi.fn()
+  const onRedo = vi.fn()
+  const onChange = vi.fn()
+  render(<WorkflowYamlEditor value={text} onChange={onChange} onUndo={onUndo} onRedo={onRedo} />)
+  await waitFor(() => screen.getByRole("textbox", { name: "Workflow YAML" }))
+  const view = viewOf()
+  view.dispatch({ changes: { from: 0, insert: "# typed\n" }, userEvent: "input.type" })
+  expect(onChange).toHaveBeenLastCalledWith("# typed\n" + text)
+  const key = (init: KeyboardEventInit) => runScopeHandlers(view, new KeyboardEvent("keydown", init), "editor")
+  expect(key({ key: "z", ctrlKey: true })).toBe(true)
+  expect(onUndo).toHaveBeenCalledTimes(1)
+  expect(key({ key: "Z", keyCode: 90, ctrlKey: true, shiftKey: true })).toBe(true)
+  expect(key({ key: "y", ctrlKey: true })).toBe(true)
+  expect(onRedo).toHaveBeenCalledTimes(2)
+  // Its own history would have taken the typing back out.
+  expect(view.state.doc.toString()).toBe("# typed\n" + text)
+})
+
+it("does not report a change from outside as an edit", async () => {
+  const onChange = vi.fn()
+  const { rerender } = render(<WorkflowYamlEditor value={text} onChange={onChange} />)
+  await waitFor(() => screen.getByRole("textbox", { name: "Workflow YAML" }))
+  rerender(<WorkflowYamlEditor value={text.replace("X", "Y")} onChange={onChange} />)
+  expect(onChange).not.toHaveBeenCalled()
+})
+
+it("moves its cursor to a range it is sent to, and says where its cursor is", async () => {
+  const onCursor = vi.fn()
+  const { rerender } = render(<WorkflowYamlEditor value={text} onChange={() => {}} onCursor={onCursor} />)
+  await waitFor(() => screen.getByRole("textbox", { name: "Workflow YAML" }))
+  const view = viewOf()
+  const from = text.indexOf("- id: a")
+  rerender(<WorkflowYamlEditor value={text} onChange={() => {}} onCursor={onCursor} jumpTo={{ from, to: from + 7, seq: 1 }} />)
+  expect(view.state.selection.main.from).toBe(from)
+  expect(view.state.selection.main.to).toBe(from + 7)
+  view.dispatch({ selection: { anchor: text.indexOf("agent.nope") } })
+  expect(onCursor).toHaveBeenLastCalledWith(text.indexOf("agent.nope"))
 })

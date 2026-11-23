@@ -12,8 +12,10 @@ vi.mock("../../hooks/useWorkflow", () => ({
 }))
 // The editor is CodeMirror in its own chunk; here it is a text box.
 vi.mock("../../components/workflow-editor/LazyWorkflowYamlEditor", () => ({
-  LazyWorkflowYamlEditor: ({ value, onChange, readOnly }: { value: string; onChange: (v: string) => void; readOnly?: boolean }) =>
-    <textarea aria-label="Workflow YAML" value={value} readOnly={readOnly} onChange={event => onChange(event.target.value)} />,
+  // Like CodeMirror's keymap, Ctrl+Z and Ctrl+Shift+Z go to the page.
+  LazyWorkflowYamlEditor: ({ value, onChange, readOnly, onUndo, onRedo }: { value: string; onChange: (v: string) => void; readOnly?: boolean; onUndo?: () => void; onRedo?: () => void }) =>
+    <textarea aria-label="Workflow YAML" value={value} readOnly={readOnly} onChange={event => onChange(event.target.value)}
+      onKeyDown={event => { if (event.ctrlKey && event.key.toLowerCase() === "z") (event.shiftKey ? onRedo : onUndo)?.() }} />,
 }))
 vi.mock("../../components/workflow-graph/LazyWorkflowGraph", () => ({ LazyWorkflowGraph: () => <div>graph</div> }))
 
@@ -64,17 +66,20 @@ function renderAt(path: string) {
 
 const editor = () => screen.getByRole("textbox", { name: "Workflow YAML" }) as HTMLTextAreaElement
 const type = (text: string) => fireEvent.change(editor(), { target: { value: text } })
+// A new workflow starts on the start page: Blank opens the editor.
+const blank = async () => { fireEvent.click(await screen.findByRole("button", { name: /^Blank/ })); await screen.findByRole("textbox", { name: "Workflow YAML" }) }
 
-it("creates a new workflow from the starter, in the folder chosen", async () => {
+it("creates a new workflow from Blank, in the folder chosen", async () => {
   renderAt("/workflows/new")
-  expect(editor().value).toContain("schema_version: 1")
+  await blank()
+  expect(editor().value).toBe("schema_version: 1\nname: new-workflow\ntitle: New workflow\nsteps: []\n")
   const create = screen.getByRole("button", { name: "Create" })
   expect(create).toHaveProperty("disabled", true)
   await waitFor(() => expect(create).toHaveProperty("disabled", false))
   fireEvent.change(screen.getByRole("combobox", { name: "Folder" }), { target: { value: "project" } })
   fireEvent.click(create)
   expect(await screen.findByText("workflow page")).toBeTruthy()
-  expect(creates).toEqual([{ yaml: expect.stringContaining("name: my-workflow"), folder: "project", confirm_triggers: false }])
+  expect(creates).toEqual([{ yaml: expect.stringContaining("name: new-workflow"), folder: "project", confirm_triggers: false }])
 })
 
 it("keeps Save off while the server finds an error, and lists it by line", async () => {
@@ -156,7 +161,8 @@ it("retries a file that could not be read", async () => {
 
 it("keeps a new workflow's draft while offering it, until a choice is made", async () => {
   const first = renderAt("/workflows/new")
-  type(editor().value.replace("title: My workflow", "title: Kept"))
+  await blank()
+  type(editor().value.replace("title: New workflow", "title: Kept"))
   first.unmount()
   const second = renderAt("/workflows/new")
   expect(await screen.findByRole("alertdialog", { name: "Unsaved changes" })).toBeTruthy()
@@ -165,4 +171,42 @@ it("keeps a new workflow's draft while offering it, until a choice is made", asy
   const offer = await screen.findByRole("alertdialog", { name: "Unsaved changes" })
   fireEvent.click(within(offer).getByRole("button", { name: "Restore them" }))
   expect(editor().value).toContain("title: Kept")
+})
+
+it("undoes typing with the keyboard in the one history, a pause making a new step", async () => {
+  let now = 1_000_000
+  const clock = vi.spyOn(Date, "now").mockImplementation(() => now)
+  try {
+    renderAt("/workflows/review/edit")
+    await waitFor(() => expect(editor().value).toBe(fileText))
+    const one = fileText.replace("title: Review", "title: R")
+    const two = fileText.replace("title: Review", "title: Re")
+    type(one)
+    now += 100
+    type(two)
+    now += 5_000
+    const three = two.replace("prompt: hi", "prompt: hello")
+    type(three)
+    fireEvent.keyDown(editor(), { key: "z", ctrlKey: true })
+    expect(editor().value).toBe(two)
+    fireEvent.keyDown(editor(), { key: "z", ctrlKey: true })
+    expect(editor().value).toBe(fileText)
+    fireEvent.keyDown(editor(), { key: "Z", ctrlKey: true, shiftKey: true })
+    expect(editor().value).toBe(two)
+  } finally {
+    clock.mockRestore()
+  }
+})
+
+it("stays in the editor after creating a workflow with a paused trigger", async () => {
+  renderAt("/workflows/new")
+  await blank()
+  type(editor().value + "on:\n  schedule:\n    every: daily\n    at: \"09:00\"\n    enabled: false\n")
+  const create = screen.getByRole("button", { name: "Create" })
+  await waitFor(() => expect(create).toHaveProperty("disabled", false))
+  fireEvent.click(create)
+  await waitFor(() => expect(creates.length).toBe(1))
+  // The editor's route: here it can't read the file the mock never made.
+  expect(await screen.findByText(/Could not open the workflow/)).toBeTruthy()
+  expect(screen.queryByText("workflow page")).toBeNull()
 })

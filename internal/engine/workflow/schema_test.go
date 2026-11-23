@@ -241,6 +241,19 @@ func TestTheSchemaCarriesTheEditorsExtensions(t *testing.T) {
 	if keep["expressions"] != false {
 		t.Errorf("keep_agent x-legato = %v", keep)
 	}
+	prompt := run.Properties["prompt"]["x-legato"].(map[string]any)
+	if prompt["essential"] != true || prompt["label"] != "What it should do" || prompt["order"] != float64(1) {
+		t.Errorf("prompt x-legato = %v", prompt)
+	}
+	if name := run.Properties["name"]["x-legato"].(map[string]any); name["essential"] != nil {
+		t.Errorf("name x-legato = %v, want no essential", name)
+	}
+	if summary, _ := run.Extension["summary"].([]any); len(summary) != 2 || summary[0] != "macro" || summary[1] != "prompt" {
+		t.Errorf("with.agent.run summary = %v", run.Extension["summary"])
+	}
+	if run.Extension["group"] != "Agents" {
+		t.Errorf("with.agent.run group = %v", run.Extension["group"])
+	}
 	interview := schema.Definitions["with.agent.interview"].Extension
 	if interview["internal"] != true {
 		t.Errorf("agent.interview x-legato = %v", interview)
