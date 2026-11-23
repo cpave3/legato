@@ -1,6 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react"
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Code2, Plus, Trash2 } from "lucide-react"
-import { addInput, inputsOf, itemKey, itemsOf, itemText, moveStep, problemsByItem, removeStep, setField, setItemText, setTrigger, stepsOf, stepYamlPath, triggersOf, parseWorkflow, insertStep, WorkflowDocumentError, type Item, type ItemRef, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Bot, Code2, Copy, FileText, FolderGit2, GitPullRequest, Hourglass, ListChecks, MoreVertical, Plus, Trash2 } from "lucide-react"
+import { addInput, inputsOf, itemKey, itemsOf, itemText, moveStep, problemsByItem, removeStep, renameStep, setField, setItemText, setTrigger, stepsOf, stepYamlPath, triggersOf, parseWorkflow, insertStep, WorkflowDocumentError, type Item, type ItemRef, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
 import { addressOf, sameSelection, type Selection } from "../../lib/workflowAddress"
 import { executors } from "../../lib/workflowSchema"
 import type { SchedulePreview, WorkflowDiagnostic } from "../../lib/workflowFiles"
@@ -10,6 +10,7 @@ import { CommitField, Problems } from "./builderFields"
 import { valueText } from "./builderStyles"
 import { DetailsForm, InputCard } from "./itemForms"
 import { brokenReferences, newStep, noOptions, stepReferences, type BuilderOptions, type StepValue } from "./stepForms"
+import { connectorOf, duplicateOf, idFromTitle, stepSummary } from "./stepRows"
 import { StepCard } from "./StepsEditor"
 import { TriggerCard } from "./TriggersEditor"
 import { KIND_TITLES, newTrigger, triggerKinds } from "./triggerForms"
@@ -43,6 +44,9 @@ export type WorkflowOutlineProps = {
    * outlives this outline (a switch to the whole file's YAML). */
   held?: HeldYaml
   onHeld?: React.Dispatch<React.SetStateAction<HeldYaml>>
+  /** savedText is the file as last saved (null for a new workflow): a
+   * step it lacks takes its ID from its title. */
+  savedText?: string | null
 }
 
 /** HeldYaml is item YAML not written yet, by item key, with the item's
@@ -55,7 +59,7 @@ function placeOf(order: Row[], selection: Selection): string {
   return `${selection.kind}:${same.findIndex(row => sameSelection(selection, row.selection))}`
 }
 
-type Row = { selection: Selection; label: string; detail: string; problem: string | null; problems: number; paused?: boolean }
+type Row = { selection: Selection; label: string; detail: string; problem: string | null; problems: number; paused?: boolean; summary?: string; type?: string; depth?: number }
 
 const isTyping = (target: EventTarget | null) => {
   const element = target as HTMLElement | null
@@ -63,6 +67,16 @@ const isTyping = (target: EventTarget | null) => {
 }
 
 const executorTitle = (type: unknown) => executors.find(e => e.type === type)?.title ?? String(type ?? "")
+
+// iconOf is a step type's icon in its row.
+function iconOf(type: string) {
+  if (type === "wait") return Hourglass
+  if (type.startsWith("agent.")) return Bot
+  if (type.startsWith("github.")) return GitPullRequest
+  if (type.startsWith("task.")) return ListChecks
+  if (type.startsWith("repo.") || type.startsWith("worktree.")) return FolderGit2
+  return FileText
+}
 
 // rowsOf are the outline's rows, section by section, from the file's
 // items: a trigger, input or step each, and About for the top-level fields.
@@ -95,7 +109,7 @@ function rowsOf(items: Item[], values: WorkflowValues, problems: Map<string, Wor
     } else if (ref.kind === "step") {
       const step = steps.get(ref.path) ?? {}
       const depth = ref.path.split("/").length - 1
-      then.push({ selection: ref, label: `${"  ".repeat(depth)}${valueText(step.title) || ref.path.split("/").pop()}`, detail: executorTitle(step.type), problem: item.problem, problems: count(ref) })
+      then.push({ selection: ref, label: valueText(step.title) || ref.path.split("/").pop() || "", detail: executorTitle(step.type), problem: item.problem, problems: count(ref), summary: item.problem ? "" : stepSummary(step as StepValue), type: String(step.type ?? ""), depth })
     } else if (["inputs", "on", "steps"].includes(ref.key)) {
       if (item.problem) about.containers.push(item)
     } else {
@@ -110,7 +124,7 @@ function rowsOf(items: Item[], values: WorkflowValues, problems: Map<string, Wor
 // of the workflow (When, Asks for, Then, About) and an inspector of the
 // row chosen, over the same text the YAML side edits.
 function Outline(props: WorkflowOutlineProps) {
-  const { text, onEdit, diagnostics = [], nameFixed, onEditYaml, options = noOptions, schedule, selection, onSelect, narrow = false, sheet = false, onCloseSheet, onUndo, onRedo } = props
+  const { text, onEdit, diagnostics = [], nameFixed, onEditYaml, options = noOptions, schedule, selection, onSelect, narrow = false, sheet = false, onCloseSheet, onUndo, onRedo, savedText = null } = props
   const { file, items } = useMemo(() => itemsOf(text), [text])
   const values = useMemo(() => parseWorkflow(text).values, [text])
   const problems = useMemo(() => problemsByItem(text, diagnostics), [text, diagnostics])
@@ -127,11 +141,16 @@ function Outline(props: WorkflowOutlineProps) {
   const heldAny = Object.keys(heldStore).length > 0
   useEffect(() => { report("outline-held-yaml", heldAny) }, [report, heldAny])
   useEffect(() => () => report("outline-held-yaml", false), [report])
-  const [adding, setAdding] = useState<"step" | "trigger" | null>(null)
+  const [adding, setAdding] = useState<{ kind: "step"; at: number } | { kind: "trigger" } | null>(null)
+  const [menu, setMenu] = useState<string | null>(null)
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
+  const [warning, setWarning] = useState("")
+  const [dragged, setDragged] = useState<string | null>(null)
   const outline = useRef<HTMLElement>(null)
   const inspector = useRef<HTMLElement>(null)
 
   const rows = useMemo(() => rowsOf(items, values, problems), [items, values, problems])
+  const savedIds = useMemo(() => savedText === null ? null : new Set(stepsOf(parseWorkflow(savedText).values).map(step => String(step?.id ?? ""))), [savedText])
   const order: Row[] = useMemo(() => [...rows.when, ...rows.asks, ...rows.then, { selection: { kind: "about" }, label: "About", detail: "", problem: rows.about.problem, problems: rows.about.problems }], [rows])
 
   // A rename moves a row's address: follow it to the row of its kind in
@@ -198,10 +217,32 @@ function Outline(props: WorkflowOutlineProps) {
   const ids = steps.map(step => step.id ?? "")
   const select = (next: Selection, open = false) => { setAdding(null); onSelect(next, { open }) }
 
-  const addStep = (type: string) => {
-    const step = newStep(type, ids)
-    apply(() => insertStep(text, placed.length, step))
-    select({ kind: "step", path: step.id! }, true)
+  // A new step's ID is made from its title, and follows it until saved.
+  const addStep = (type: string, at: number) => {
+    const made = newStep(type, ids)
+    const step = { ...made, id: idFromTitle(String(made.title ?? type), ids) }
+    apply(() => insertStep(text, at, step))
+    select({ kind: "step", path: step.id }, true)
+  }
+  const moveTo = (id: string, to: number) => {
+    const order = ids.filter(other => other !== id)
+    order.splice(to, 0, id)
+    const broken = brokenReferences(steps, order)
+    if (broken.length > 0) { setWarning(`That move would break a reference: ${broken.join("; ")}.`); return }
+    setWarning("")
+    apply(() => moveStep(text, id, to))
+  }
+  const removeIt = (id: string) => {
+    const readers = steps.filter(step => step.id !== id && stepReferences(step).some(ref => ref.id === id))
+    if (readers.length > 0 && confirmRemove !== id) { setConfirmRemove(id); return }
+    setConfirmRemove(null)
+    apply(() => removeStep(text, id))
+    if (selection?.kind === "step" && selection.path === id) onSelect(null)
+  }
+  const duplicate = (step: StepValue, index: number) => {
+    const copy = duplicateOf(step, ids)
+    apply(() => insertStep(text, index + 1, copy))
+    select({ kind: "step", path: String(copy.id) }, true)
   }
   const addTrigger = (kind: string) => {
     apply(() => setTrigger(text, kind, newTrigger(kind, options)))
@@ -229,19 +270,69 @@ function Outline(props: WorkflowOutlineProps) {
     // Enter on a row is the row button's own click, which opens it.
   }
 
-  const rowButton = (row: Row) => {
+  const rowButton = (row: Row, bare = false, number?: number) => {
     const selected = sameSelection(selection, row.selection)
     const address = addressOf(row.selection)
-    return <li key={address}>
-      <button type="button" data-address={address} aria-current={selected ? "true" : undefined}
-        className={`flex min-h-10 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${selected ? "bg-lw-raised text-lw-text" : "text-lw-text-2 hover:bg-lw-raised hover:text-lw-text"}`}
-        onClick={() => select(row.selection, true)}>
-        <span className="min-w-0 flex-1 truncate whitespace-pre">{row.label}</span>
-        {row.detail && <span className="truncate text-xs text-lw-faint">{row.detail}</span>}
-        {row.paused && <span className="rounded border border-lw-line px-1 text-[11px] text-lw-text-2">paused</span>}
-        {row.problem && <span className="flex items-center gap-1 rounded border border-lw-line px-1 text-[11px] text-lw-text-2"><Code2 size={11} />Edited as YAML</span>}
-        {row.problems > 0 && <span aria-label={`${row.problems} ${row.problems === 1 ? "problem" : "problems"}`} className="flex items-center gap-0.5 text-[11px] text-lw-danger"><AlertTriangle size={11} />{row.problems}</span>}
-      </button>
+    const Icon = row.type ? iconOf(row.type) : null
+    const button = <button type="button" data-address={address} aria-current={selected ? "true" : undefined}
+      className={`flex min-h-10 w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${selected ? "bg-lw-raised text-lw-text" : "text-lw-text-2 hover:bg-lw-raised hover:text-lw-text"}`}
+      onClick={() => select(row.selection, true)}>
+      {number !== undefined && <span className="w-4 shrink-0 text-right text-xs text-lw-faint">{number}</span>}
+      {Icon && <Icon size={14} aria-hidden className="shrink-0 text-lw-faint" />}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate">{row.label}</span>
+        {row.summary && <span className="truncate text-xs text-lw-faint">{row.summary}</span>}
+      </span>
+      {row.detail && !row.summary && <span className="truncate text-xs text-lw-faint">{row.detail}</span>}
+      {row.paused && <span className="rounded border border-lw-line px-1 text-[11px] text-lw-text-2">paused</span>}
+      {row.problem && <span className="flex items-center gap-1 rounded border border-lw-line px-1 text-[11px] text-lw-text-2"><Code2 size={11} />Edited as YAML</span>}
+      {row.problems > 0 && <span aria-label={`${row.problems} ${row.problems === 1 ? "problem" : "problems"}`} className="flex items-center gap-0.5 text-[11px] text-lw-danger"><AlertTriangle size={11} />{row.problems}</span>}
+    </button>
+    return bare ? button : <li key={address}>{button}</li>
+  }
+
+  const palette = adding?.kind === "step" ? <div role="group" aria-label="Step types" className="grid gap-1 px-2 py-1">
+    {executors.filter(e => !e.internal).map(e => <button key={e.type} type="button" className="flex flex-col items-start gap-0.5 rounded-lg border border-lw-line p-2 text-left hover:bg-lw-raised" onClick={() => addStep(e.type, adding.at)}>
+      <span className="text-sm font-medium">{e.title}</span>
+      <span className="text-xs text-lw-text-2">{e.description}</span>
+    </button>)}
+    <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding(null)}>Cancel</Button>
+  </div> : null
+
+  // A top-level step's row, with the connector before it that says how
+  // it starts and inserts a step there. Nested steps are plain rows.
+  const stepRow = (row: Row) => {
+    if (row.selection.kind !== "step" || (row.depth ?? 0) > 0) return <li key={addressOf(row.selection)} className="pl-6">{rowButton(row, true)}</li>
+    const id = row.selection.path
+    const index = placed.findIndex(step => step?.id === id || (step?.id === undefined && id.startsWith("#")))
+    const step = (placed[index] ?? {}) as StepValue
+    const connector = connectorOf(placed.map(p => (p ?? {}) as Record<string, unknown>), index)
+    const title = row.label
+    const readers = steps.filter(other => other.id !== id && stepReferences(other).some(ref => ref.id === id)).map(other => String(other.id))
+    return <li key={addressOf(row.selection)} className="group flex flex-col"
+      draggable={!narrow} onDragStart={() => setDragged(id)} onDragOver={event => event.preventDefault()}
+      onDrop={event => { event.preventDefault(); if (dragged && dragged !== id) moveTo(dragged, index); setDragged(null) }}>
+      <div className={`flex min-h-7 items-center gap-2 pl-5 text-[11px] ${connector.kind === "manual" ? "text-lw-needs" : "text-lw-faint"}`}>
+        <span aria-hidden className={`h-5 border-l ${connector.kind === "agent_ended" ? "border-dashed border-lw-line-strong" : connector.kind === "manual" ? "border-lw-needs" : "border-lw-line"}`} />
+        <span data-start={connector.kind} className="flex-1">{connector.text}</span>
+        <button type="button" aria-label={`Add a step before ${title}`} className={`rounded px-1 text-lw-text-2 hover:bg-lw-raised hover:text-lw-text ${narrow ? "" : "opacity-0 focus:opacity-100 group-hover:opacity-100"}`} onClick={() => setAdding({ kind: "step", at: index })}><Plus size={13} /></button>
+      </div>
+      {adding?.kind === "step" && adding.at === index && palette}
+      <div className="relative flex items-center">
+        {rowButton(row, false, index + 1)}
+        <button type="button" aria-label={`Actions for step ${id}`} aria-expanded={menu === id} className="ml-1 rounded p-1 text-lw-text-2 hover:bg-lw-raised" onClick={() => setMenu(menu === id ? null : id)}><MoreVertical size={14} /></button>
+        {menu === id && <div role="menu" aria-label={`Step ${id}`} className="absolute right-0 top-full z-20 flex w-44 flex-col rounded-md border border-lw-line bg-lw-surface p-1 text-sm shadow-xl" onKeyDown={event => { if (event.key === "Escape") setMenu(null) }}>
+          <button type="button" role="menuitem" className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised" onClick={() => { setMenu(null); duplicate(step, index) }}><Copy size={13} />Duplicate</button>
+          <button type="button" role="menuitem" disabled={index === 0} className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised disabled:opacity-40" onClick={() => { setMenu(null); moveTo(id, index - 1) }}><ArrowUp size={13} />Move up</button>
+          <button type="button" role="menuitem" disabled={index === placed.length - 1} className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised disabled:opacity-40" onClick={() => { setMenu(null); moveTo(id, index + 1) }}><ArrowDown size={13} />Move down</button>
+          <button type="button" role="menuitem" className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-lw-danger hover:bg-lw-raised" onClick={() => { setMenu(null); removeIt(id) }}><Trash2 size={13} />Delete</button>
+        </div>}
+      </div>
+      {confirmRemove === id && <div role="alertdialog" aria-label={`Remove step ${id}`} className="mx-2 my-1 flex flex-wrap items-center gap-2 rounded border border-lw-needs p-2 text-xs">
+        <span>{readers.join(", ")} {readers.length === 1 ? "reads" : "read"} this step's outputs.</span>
+        <Button type="button" size="sm" variant="destructive" onClick={() => removeIt(id)}>Remove anyway</Button>
+        <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmRemove(null)}>Keep it</Button>
+      </div>}
     </li>
   }
 
@@ -257,9 +348,9 @@ function Outline(props: WorkflowOutlineProps) {
   const outlineView = <nav ref={outline} aria-label="Outline" onKeyDown={onKeyDown} className="flex min-w-0 flex-col gap-4">
     {section("When", <>
       <p className="px-2 text-sm text-lw-text-2">By hand, from the Workflows tab, a card or the API</p>
-      <ul className="flex flex-col">{rows.when.map(rowButton)}</ul>
+      <ul className="flex flex-col">{rows.when.map(row => rowButton(row))}</ul>
       {container("on")}
-      {missing.length > 0 && (adding === "trigger"
+      {missing.length > 0 && (adding?.kind === "trigger"
         ? <div role="group" aria-label="Trigger kinds" className="flex flex-col gap-1 px-2">
           {missing.map(t => <button key={t.kind} type="button" className="flex flex-col items-start rounded-lg border border-lw-line p-2 text-left hover:bg-lw-raised" onClick={() => addTrigger(t.kind)}>
             <span className="text-sm font-medium">{KIND_TITLES[t.kind] ?? t.kind}</span>
@@ -267,27 +358,20 @@ function Outline(props: WorkflowOutlineProps) {
           </button>)}
           <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding(null)}>Cancel</Button>
         </div>
-        : <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding("trigger")}><Plus size={13} />Add trigger</Button>)}
+        : <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding({ kind: "trigger" })}><Plus size={13} />Add trigger</Button>)}
     </>)}
     {section("Asks for", <>
       {rows.asks.length === 0 && <p className="px-2 text-sm text-lw-text-2">Nothing: it takes no inputs</p>}
-      <ul className="flex flex-col">{rows.asks.map(rowButton)}</ul>
+      <ul className="flex flex-col">{rows.asks.map(row => rowButton(row))}</ul>
       {container("inputs")}
       <Button type="button" size="sm" variant="ghost" className="self-start" onClick={addAnInput}><Plus size={13} />Add input</Button>
     </>)}
     {section("Then", <>
       {rows.then.length === 0 && <p className="px-2 text-sm text-lw-text-2">No steps yet: a workflow needs at least one.</p>}
-      <ol className="flex flex-col">{rows.then.map(rowButton)}</ol>
+      {warning && <p role="alert" className="px-2 text-xs text-lw-needs">{warning}</p>}
+      <ol aria-label="Steps" className="flex flex-col">{rows.then.map(stepRow)}</ol>
       {container("steps")}
-      {adding === "step"
-        ? <div role="group" aria-label="Step types" className="grid gap-1 px-2">
-          {executors.filter(e => !e.internal).map(e => <button key={e.type} type="button" className="flex flex-col items-start gap-0.5 rounded-lg border border-lw-line p-2 text-left hover:bg-lw-raised" onClick={() => addStep(e.type)}>
-            <span className="text-sm font-medium">{e.title}</span>
-            <span className="text-xs text-lw-text-2">{e.description}</span>
-          </button>)}
-          <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding(null)}>Cancel</Button>
-        </div>
-        : <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding("step")}><Plus size={13} />Add step</Button>}
+      {adding?.kind === "step" && adding.at >= placed.length ? palette : <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding({ kind: "step", at: placed.length })}><Plus size={13} />Add step</Button>}
     </>)}
     {section("About", <ul className="flex flex-col">{rowButton(order[order.length - 1])}</ul>)}
   </nav>
@@ -296,7 +380,7 @@ function Outline(props: WorkflowOutlineProps) {
   const inspectorView = <section ref={inspector} aria-label="Inspector" className="flex min-w-0 flex-col gap-3">
     {narrow && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={onCloseSheet}><ArrowLeft size={13} />Outline</Button>}
     {selectedRow
-      ? <Inspector key={placeOf(order, selectedRow.selection)} place={placeOf(order, selectedRow.selection)} held={heldYaml[placeOf(order, selectedRow.selection)]} onHold={hold} row={selectedRow} text={text} values={values} diagnostics={diagnostics} problems={problems} options={options} apply={apply} nameFixed={nameFixed} schedule={schedule} onSelect={onSelect} onUndo={onUndo} onRedo={onRedo} />
+      ? <Inspector key={placeOf(order, selectedRow.selection)} place={placeOf(order, selectedRow.selection)} held={heldYaml[placeOf(order, selectedRow.selection)]} onHold={hold} row={selectedRow} savedIds={savedIds} text={text} values={values} diagnostics={diagnostics} problems={problems} options={options} apply={apply} nameFixed={nameFixed} schedule={schedule} onSelect={onSelect} onUndo={onUndo} onRedo={onRedo} />
       : <p className="text-sm text-lw-text-2">Choose a row of the outline to edit it.</p>}
   </section>
 
@@ -319,6 +403,8 @@ type InspectorProps = {
   held?: string
   onHold: (place: string, held: string | null) => void
   row: Row
+  /** savedIds are the IDs of the steps saved (null: none yet). */
+  savedIds: Set<string> | null
   text: string
   values: WorkflowValues
   diagnostics: WorkflowDiagnostic[]
@@ -336,7 +422,7 @@ type Tab = "setup" | "outputs" | "yaml"
 
 // Inspector edits one row: its header, then its tabs (Setup, Outputs for a
 // step, and YAML). A row the forms can't show has YAML alone.
-function Inspector({ place, held, onHold, row, text, values, diagnostics, problems, options, apply, nameFixed, schedule, onSelect, onUndo, onRedo }: InspectorProps) {
+function Inspector({ place, held, onHold, row, savedIds, text, values, diagnostics, problems, options, apply, nameFixed, schedule, onSelect, onUndo, onRedo }: InspectorProps) {
   const selection = row.selection
   const tabs: Tab[] = row.problem ? ["yaml"] : selection.kind === "step" ? ["setup", "outputs", "yaml"] : selection.kind === "about" ? ["setup"] : ["setup", "yaml"]
   const [tab, setTab] = useState<Tab>(tabs[0])
@@ -371,8 +457,19 @@ function Inspector({ place, held, onHold, row, text, values, diagnostics, proble
     const step = (top >= 0 ? placed[top] : null) ?? null
     const id = selection.path.split("/").pop() ?? ""
     kind = step ? executorTitle(step.type) : "Step"
+    // A step not saved yet takes its ID from its title, while the ID is
+    // still the one its title made.
+    const others = ids.filter(other => other !== id)
+    const follows = step !== null && !savedIds?.has(id) && id === idFromTitle(valueText(step.title), others)
+    const commitTitle = (value: string) => apply(() => {
+      const titled = setField(text, ["steps", top, "title"] as YamlPath, value === "" ? undefined : value)
+      const next = idFromTitle(value, others)
+      if (!follows || value.trim() === "" || next === id) return titled
+      const renamed = renameStep(titled.text, id, next).text
+      return { text: renamed, undo: { label: `Set the title of step ${id}`, before: text, after: renamed } }
+    })
     header = top >= 0 && step && !row.problem
-      ? <CommitField aria-label="Step title" value={valueText(step.title)} onCommit={value => apply(() => setField(text, ["steps", top, "title"] as YamlPath, value === "" ? undefined : value))} />
+      ? <CommitField aria-label="Step title" value={valueText(step.title)} onCommit={commitTitle} />
       : <h2 className="text-base font-semibold">{row.label.trim()}</h2>
     if (top >= 0 && step) {
       const move = (to: number) => {

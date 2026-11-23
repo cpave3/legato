@@ -110,14 +110,27 @@ export function StepCard({ step, index, text, values, diagnostics, options, appl
   const grouped = new Set((form?.groups ?? []).filter(g => g.kind === "exactly_one").flatMap(g => g.fields))
   const others = [...Object.keys(withValues).filter(key => !form?.fields.some(f => f.name === key)).map(key => `with.${key}`), ...Object.keys(step).filter(key => !STEP_KEYS.includes(key))]
   const id = step.id ?? ""
+  // Renaming the ID of a step others read offers to change their
+  // references too.
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const readers = (values.steps ?? []).filter(other => other && other.id !== id && stepReferences(other as StepValue).some(ref => ref.id === id)).map(other => String(other!.id))
+  const rename = (to: string) => { if (to === id || to === "") return; if (readers.length > 0) setRenaming(to); else apply(() => renameStep(text, id, to)) }
   const outputs = <OutputsEditor step={step} id={id} path={path} text={text} apply={apply} problems={at(["outputs"])} taken={taken} />
   if (parts === "outputs") return <div className="flex flex-col gap-3">{outputs}</div>
 
   return <div className={parts === "all" ? "flex flex-col gap-3 border-t border-lw-line p-3" : "flex flex-col gap-3"}>
     <div className={titleInHeader ? "grid gap-2 sm:grid-cols-2" : "grid gap-2 sm:grid-cols-3"}>
       <label className={labelClass}>ID
-        <CommitField aria-label={`ID of step ${id}`} value={id} onCommit={value => apply(() => renameStep(text, id, value.trim()))} />
+        <CommitField aria-label={`ID of step ${id}`} value={id} onCommit={value => rename(value.trim())} />
         <Problems diagnostics={at(["id"])} />
+        {renaming !== null && <span role="alertdialog" aria-label={`Rename step ${id}`} className="flex flex-col gap-1.5 rounded border border-lw-needs p-2 text-xs text-lw-text">
+          <span>{readers.join(", ")} {readers.length === 1 ? "reads" : "read"} this step's outputs. Change {readers.length === 1 ? "its reference" : "their references"} to {renaming} too?</span>
+          <span className="flex flex-wrap gap-1">
+            <Button type="button" size="sm" onClick={() => { apply(() => renameStep(text, id, renaming)); setRenaming(null) }}>Change them too</Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => { apply(() => setField(text, [...path, "id"], renaming)); setRenaming(null) }}>Only the ID</Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setRenaming(null)}>Cancel</Button>
+          </span>
+        </span>}
       </label>
       {!titleInHeader && <label className={labelClass}>Title
         <CommitField aria-label={`Title of step ${id}`} value={valueText(step.title)} onCommit={value => set(["title"], value)} />

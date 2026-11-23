@@ -428,7 +428,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
       </div>
       : <section aria-label="Visual" className={narrow ? "pb-16" : undefined}>
         <LazyWorkflowOutline text={text} onEdit={(change, how) => history.push(change.text, change.undo.label, how?.typing)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={() => switchMode("yaml")} options={options} schedule={checked?.schedule} onPending={setPendingEdits}
-          selection={selection} onSelect={select} narrow={narrow} sheet={narrow && selection !== null} onCloseSheet={closeSheet} onUndo={history.undo} onRedo={history.redo} held={heldYaml} onHeld={setHeldYaml} />
+          savedText={mode === "edit" ? saved : null} selection={selection} onSelect={select} narrow={narrow} sheet={narrow && selection !== null} onCloseSheet={closeSheet} onUndo={history.undo} onRedo={history.redo} held={heldYaml} onHeld={setHeldYaml} />
       </section>}
     {text !== null && Object.keys(heldYaml).length > 0 && <Suspense fallback={null}><HeldYamlReconciler text={text} held={heldYaml} onHeld={setHeldYaml} /></Suspense>}
     {narrow && editable && <div role="toolbar" aria-label="Save" className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-between gap-2 border-t border-lw-line bg-lw-surface px-4 py-2">

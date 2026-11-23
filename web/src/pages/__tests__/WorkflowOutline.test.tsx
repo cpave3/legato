@@ -99,15 +99,15 @@ it("lists the workflow as When, Asks for, Then and About", async () => {
   const sections = within(outline()).getAllByRole("region").map(section => section.getAttribute("aria-label"))
   expect(sections).toEqual(["When", "Asks for", "Then", "About"])
   expect(within(screen.getByRole("region", { name: "When" })).getByRole("button", { name: /On a schedule.*paused/ })).toBeTruthy()
-  expect(within(screen.getByRole("region", { name: "Then" })).getAllByRole("button").map(b => b.textContent)).toEqual([
-    expect.stringContaining("Prepare"), expect.stringContaining("Run"), expect.stringContaining("Add step"),
-  ])
+  const then = screen.getByRole("region", { name: "Then" })
+  expect([...then.querySelectorAll("[data-address]")].map(b => b.getAttribute("data-address"))).toEqual(["steps/prep", "steps/run"])
+  expect(within(then).getByRole("button", { name: "Add step" })).toBeTruthy()
 })
 
 it("opens the row its address names, and a row chosen is the address", async () => {
   renderAt("#steps/run")
   expect((await screen.findByRole("textbox", { name: "Step title" }) as HTMLInputElement).value).toBe("Run")
-  expect(row(/^Run/).getAttribute("aria-current")).toBe("true")
+  expect(row(/^\d+\s*Run/).getAttribute("aria-current")).toBe("true")
   fireEvent.click(row(/^pr/))
   expect(address()).toBe("#inputs/pr")
   expect(await within(inspector()).findByRole("textbox", { name: "Name of input pr" })).toBeTruthy()
@@ -147,14 +147,14 @@ it("has Setup, Outputs and YAML for a step; its YAML changes that step alone", a
 it("moves through the rows with j and k, and switches to YAML with y", async () => {
   renderAt("#steps/prep")
   await screen.findByRole("textbox", { name: "Step title" })
-  row(/^Prepare/).focus()
-  fireEvent.keyDown(row(/^Prepare/), { key: "j" })
+  row(/^\d+\s*Prepare/).focus()
+  fireEvent.keyDown(row(/^\d+\s*Prepare/), { key: "j" })
   expect(address()).toBe("#steps/run")
-  fireEvent.keyDown(row(/^Run/), { key: "j" })
+  fireEvent.keyDown(row(/^\d+\s*Run/), { key: "j" })
   expect(address()).toBe("#about")
   fireEvent.keyDown(row(/^About/), { key: "k" })
-  fireEvent.keyDown(row(/^Run/), { key: "k" })
-  fireEvent.keyDown(row(/^Prepare/), { key: "k" })
+  fireEvent.keyDown(row(/^\d+\s*Run/), { key: "k" })
+  fireEvent.keyDown(row(/^\d+\s*Prepare/), { key: "k" })
   expect(address()).toBe("#inputs/pr")
   // Not while typing in a field.
   fireEvent.keyDown(screen.getByRole("textbox", { name: "Name of input pr" }), { key: "y" })
@@ -175,7 +175,7 @@ it("adds a step and opens it", async () => {
   renderAt()
   fireEvent.click(within(await screen.findByRole("region", { name: "Then" })).getByRole("button", { name: "Add step" }))
   fireEvent.click(within(screen.getByRole("group", { name: "Step types" })).getByRole("button", { name: /Move a task/ }))
-  await waitFor(() => expect(address()).toBe("#steps/task-move"))
+  await waitFor(() => expect(address()).toBe("#steps/move-a-task"))
   expect((screen.getByRole("textbox", { name: "Step title" }) as HTMLInputElement).value).toBe("Move a task")
 })
 
@@ -185,7 +185,7 @@ it("on a phone, is the outline, opens a row as a sheet, and Back returns to the 
   await screen.findByRole("navigation", { name: "Outline" })
   expect(screen.queryByRole("region", { name: "Inspector" })).toBeNull()
   expect(within(screen.getByRole("toolbar", { name: "Save" })).getByRole("button", { name: "Save" })).toBeTruthy()
-  fireEvent.click(row(/^Run/))
+  fireEvent.click(row(/^\d+\s*Run/))
   const sheet = await screen.findByRole("dialog", { name: "Run" })
   expect(address()).toBe("#steps/run")
   expect(within(sheet).getByRole("textbox", { name: "Step title" })).toBeTruthy()
@@ -270,7 +270,7 @@ it("keeps held YAML with its own step when steps move", async () => {
   const own = await within(inspector()).findByRole("textbox", { name: "YAML of steps/prep" }) as HTMLTextAreaElement
   fireEvent.change(own, { target: { value: own.value + "\n  bad: [" } })
   fireEvent.click(within(inspector()).getByRole("button", { name: "Move step prep down" }))
-  fireEvent.click(row(/^Run/))
+  fireEvent.click(row(/^\d+\s*Run/))
   fireEvent.click(await within(inspector()).findByRole("tab", { name: "YAML" }))
   expect((await within(inspector()).findByRole("textbox", { name: "YAML of steps/run" }) as HTMLTextAreaElement).value.startsWith("id: run\n")).toBe(true)
 })
@@ -292,4 +292,98 @@ it("drops held YAML once its item is changed elsewhere, so it no longer counts a
   fireEvent.click(screen.getByRole("button", { name: "Save" }))
   await waitFor(() => expect(puts.length).toBe(1))
   await waitFor(() => expect(unload()).toBe(false))
+})
+
+// Step rows and connectors (LEG-506).
+const withStarts = fileText.replace("      summary: {type: string}\n", `      summary: {type: string}
+  - id: note
+    title: Note it
+    type: task.note
+    trigger: agent_ended
+    with:
+      body: \${{ steps.run.outputs.summary }}
+  - id: ok
+    title: Approve
+    type: task.move
+    trigger: manual
+    with:
+      task: \${{ workflow.task }}
+      column: Done
+`)
+
+it("sums each step up on its row, under its number and title", async () => {
+  renderAt()
+  await screen.findByRole("navigation", { name: "Outline" })
+  expect(row(/^1.*Prepare/).textContent).toContain("a/b")
+  expect(row(/^2.*Run/).textContent).toContain("Review ${{ workflow.inputs.pr }}")
+})
+
+it("says on the connector before each step how it starts", async () => {
+  fileYaml = withStarts
+  renderAt()
+  const steps = await screen.findByRole("list", { name: "Steps" })
+  const starts = [...steps.querySelectorAll("[data-start]")].map(el => [el.getAttribute("data-start"), el.textContent])
+  expect(starts).toEqual([["first", ""], ["automatic", "then"], ["agent_ended", "when Run's agent ends"], ["manual", "waits for you"]])
+})
+
+it("inserts a step where its connector is, its ID following its title until saved", async () => {
+  renderAt()
+  fireEvent.click(await screen.findByRole("button", { name: "Add a step before Run" }))
+  fireEvent.click(within(screen.getByRole("group", { name: "Step types" })).getByRole("button", { name: /Move a task/ }))
+  await waitFor(() => expect(address()).toBe("#steps/move-a-task"))
+  commit(screen.getByRole("textbox", { name: "Step title" }), "Close the card")
+  await waitFor(() => expect(address()).toBe("#steps/close-the-card"))
+  const ids = (await yamlOf()).match(/- id: \S+/g)
+  expect(ids).toEqual(["- id: prep", "- id: close-the-card", "- id: run"])
+})
+
+it("keeps a saved step's ID when its title changes", async () => {
+  renderAt("#steps/prep")
+  commit(await screen.findByRole("textbox", { name: "Step title" }), "Get ready")
+  expect(address()).toBe("#steps/prep")
+  expect(await yamlOf()).toContain("- id: prep\n    title: Get ready\n")
+})
+
+it("offers to change the references when a step others read is renamed", async () => {
+  fileYaml = withStarts
+  renderAt("#steps/run")
+  commit(await screen.findByRole("textbox", { name: "ID of step run" }), "review")
+  const ask = await screen.findByRole("alertdialog", { name: "Rename step run" })
+  expect(ask.textContent).toContain("note reads this step's outputs")
+  fireEvent.click(within(ask).getByRole("button", { name: "Change them too" }))
+  await waitFor(() => expect(address()).toBe("#steps/review"))
+  const text = await yamlOf()
+  expect(text).toContain("body: ${{ steps.review.outputs.summary }}")
+})
+
+it("renames only the ID when asked to", async () => {
+  fileYaml = withStarts
+  renderAt("#steps/run")
+  commit(await screen.findByRole("textbox", { name: "ID of step run" }), "review")
+  fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Rename step run" })).getByRole("button", { name: "Only the ID" }))
+  const text = await yamlOf()
+  expect(text).toContain("- id: review\n")
+  expect(text).toContain("body: ${{ steps.run.outputs.summary }}")
+})
+
+it("duplicates, moves and deletes a step from its menu", async () => {
+  renderAt()
+  fireEvent.click(await screen.findByRole("button", { name: "Actions for step prep" }))
+  fireEvent.click(within(screen.getByRole("menu", { name: "Step prep" })).getByRole("menuitem", { name: "Duplicate" }))
+  await waitFor(() => expect(address()).toBe("#steps/prep-2"))
+  fireEvent.click(screen.getByRole("button", { name: "Actions for step prep-2" }))
+  fireEvent.click(within(screen.getByRole("menu", { name: "Step prep-2" })).getByRole("menuitem", { name: "Move down" }))
+  fireEvent.click(screen.getByRole("button", { name: "Actions for step prep" }))
+  fireEvent.click(within(screen.getByRole("menu", { name: "Step prep" })).getByRole("menuitem", { name: "Delete" }))
+  expect((await yamlOf()).match(/- id: \S+/g)).toEqual(["- id: run", "- id: prep-2"])
+})
+
+it("asks before deleting a step another reads", async () => {
+  fileYaml = withStarts
+  renderAt()
+  fireEvent.click(await screen.findByRole("button", { name: "Actions for step run" }))
+  fireEvent.click(within(screen.getByRole("menu", { name: "Step run" })).getByRole("menuitem", { name: "Delete" }))
+  const ask = screen.getByRole("alertdialog", { name: "Remove step run" })
+  fireEvent.click(within(ask).getByRole("button", { name: "Keep it" }))
+  expect((await yamlOf()).match(/- id: \S+/g)).toEqual(["- id: prep", "- id: run", "- id: note", "- id: ok"])
 })
