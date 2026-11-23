@@ -134,6 +134,40 @@ func TestAnAgentAuthorThatStopsWithFindingsUnansweredNeedsTheOperatorAfterTheQui
 	}
 }
 
+// A turn shorter than a tick (the operator prompted it, say) starts the
+// quiet time again: the author worked, and is not yet the operator's.
+func TestAnAgentAuthorThatWorksBetweenTicksGetsAFreshQuietTime(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	withBoardAuthor(t, r)
+	view, _ := agentPassOne(t, r)
+	r.authorActivity(t, store.ActivityWorking)
+	r.authorActivity(t, "idle")
+	r.tick()
+	r.worker.Clock.Advance(3 * time.Minute)
+	r.tick()
+	if items := r.attention(t); len(items) != 1 {
+		t.Fatalf("stopped past the quiet time: items = %+v", items)
+	}
+
+	r.authorActivity(t, store.ActivityWorking)
+	r.authorActivity(t, "idle")
+	if items := r.attention(t); len(items) != 0 {
+		t.Fatalf("after a turn, before a tick: items = %+v", items)
+	}
+	r.tick()
+	if items := r.attention(t); len(items) != 0 {
+		t.Fatalf("after a turn, within the quiet time: items = %+v", items)
+	}
+	if d := r.details(t, view.Run.ID); d.NeedsYou {
+		t.Fatalf("details = %+v", d)
+	}
+	r.worker.Clock.Advance(3 * time.Minute)
+	r.tick()
+	if items := r.attention(t); len(items) != 1 {
+		t.Fatalf("stopped again past the quiet time: items = %+v", items)
+	}
+}
+
 func TestAnIdleAgentAuthorWithEveryFindingAnsweredDoesNotNeedTheOperator(t *testing.T) {
 	r := newReviewRun(t, ReviewPassOptions{})
 	withBoardAuthor(t, r)

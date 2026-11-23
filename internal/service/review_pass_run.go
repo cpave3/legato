@@ -889,7 +889,7 @@ func (c *ReviewRunCaller) Details(ctx context.Context, attempt store.WorkflowSte
 		d.Summary = "Waiting for author"
 		if run, err := c.run(ctx, attempt.TaskID); err == nil {
 			state := c.authorState(ctx, run, loop)
-			d.NeedsYou = c.authorNeedsYou(attempt.TaskID, state)
+			d.NeedsYou = c.authorNeedsYou(ctx, attempt.TaskID, run, state)
 			if state == runAuthorFixing {
 				d.Summary = "Author fixing"
 			}
@@ -942,7 +942,7 @@ func (c *ReviewRunCaller) Attention(ctx context.Context, attempt store.WorkflowS
 		reason, actions = "Review loop stuck: "+loop.Reason, []string{"end"}
 	case ReviewPhaseWaitingForAuthor:
 		state := c.authorState(ctx, run, loop)
-		if !c.authorNeedsYou(attempt.TaskID, state) {
+		if !c.authorNeedsYou(ctx, attempt.TaskID, run, state) {
 			return "", nil
 		}
 		reason = authorReason(state)

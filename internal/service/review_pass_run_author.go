@@ -25,13 +25,19 @@ const (
 	runAuthorSettled = "settled"
 )
 
-// runAuthorStops remembers when each loop's agent author was first seen
-// stopped, and whether the loop said so once the quiet time passed. In
-// memory: after a restart the quiet time starts again.
+// runAuthorStops remembers, for each loop, when its agent author was first
+// seen stopped, its activity mark then (a turn since moves it, and the
+// quiet time starts again), and whether the loop said so once the quiet
+// time passed. In memory: after a restart the quiet time starts again.
 type runAuthorStops struct {
 	mu    sync.Mutex
-	since map[string]time.Time
-	told  map[string]bool
+	stops map[string]runAuthorStop
+}
+
+type runAuthorStop struct {
+	since time.Time
+	mark  int64
+	told  bool
 }
 
 // authorState is what the author of a loop waiting for it is doing; "" when
@@ -70,50 +76,57 @@ func (c *ReviewRunCaller) authorState(ctx context.Context, run *reviewRun, loop 
 
 // authorNeedsYou says the loop's wait for its author is the operator's: a
 // person author, an agent author waiting on the operator, or one stopped
-// for longer than the quiet time, which covers the gap between its turns
-// and between a push and the next pass.
-func (c *ReviewRunCaller) authorNeedsYou(taskID, state string) bool {
+// for longer than the quiet time with no turn since, which covers the gap
+// between its turns and between a push and the next pass.
+func (c *ReviewRunCaller) authorNeedsYou(ctx context.Context, taskID string, run *reviewRun, state string) bool {
 	switch state {
 	case runAuthorPerson, runAuthorWaiting:
 		return true
 	case runAuthorStopped:
 		c.stops.mu.Lock()
-		defer c.stops.mu.Unlock()
-		since, ok := c.stops.since[taskID]
-		return ok && c.engine.opts.Now().Sub(since) >= c.engine.config().QuietTime
+		stop, ok := c.stops.stops[taskID]
+		c.stops.mu.Unlock()
+		if !ok || c.engine.opts.Now().Sub(stop.since) < c.engine.config().QuietTime {
+			return false
+		}
+		mark, err := c.engine.db.TaskActivityMark(ctx, run.AuthorTask)
+		return err == nil && mark == stop.mark
 	}
 	return false
 }
 
 // noteAuthor keeps when a loop's agent author was first seen stopped, and
-// says the run changed once the quiet time has passed, so its page and the
-// rail show that it needs the operator. Each tick calls it.
+// starts again when it worked since (a turn between ticks moves its
+// activity mark). Once the quiet time has passed it says the run changed,
+// so its page and the rail show that it needs the operator. Each tick
+// calls it.
 func (c *ReviewRunCaller) noteAuthor(ctx context.Context, taskID string, run *reviewRun) {
 	loop, err := c.engine.db.GetHandoffReview(ctx, taskID)
 	if err != nil {
 		return
 	}
 	stopped := c.authorState(ctx, run, loop) == runAuthorStopped
-	c.stops.mu.Lock()
-	if c.stops.since == nil {
-		c.stops.since, c.stops.told = map[string]time.Time{}, map[string]bool{}
-	}
-	if !stopped {
-		delete(c.stops.since, taskID)
-		delete(c.stops.told, taskID)
-		c.stops.mu.Unlock()
-		return
+	var mark int64
+	if stopped {
+		if mark, err = c.engine.db.TaskActivityMark(ctx, run.AuthorTask); err != nil {
+			return
+		}
 	}
 	now := c.engine.opts.Now()
-	since, ok := c.stops.since[taskID]
-	if !ok {
-		c.stops.since[taskID] = now
-		c.stops.mu.Unlock()
-		return
+	c.stops.mu.Lock()
+	if c.stops.stops == nil {
+		c.stops.stops = map[string]runAuthorStop{}
 	}
-	tell := !c.stops.told[taskID] && now.Sub(since) >= c.engine.config().QuietTime
-	if tell {
-		c.stops.told[taskID] = true
+	stop, ok := c.stops.stops[taskID]
+	tell := false
+	switch {
+	case !stopped:
+		delete(c.stops.stops, taskID)
+	case !ok || stop.mark != mark:
+		c.stops.stops[taskID] = runAuthorStop{since: now, mark: mark}
+	case !stop.told && now.Sub(stop.since) >= c.engine.config().QuietTime:
+		stop.told, tell = true, true
+		c.stops.stops[taskID] = stop
 	}
 	c.stops.mu.Unlock()
 	if tell {
