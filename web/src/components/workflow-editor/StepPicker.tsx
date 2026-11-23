@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Bot, FileText, FolderGit2, GitPullRequest, ListChecks, Trash2 } from "lucide-react"
-import { pickerGroups } from "./stepPicker"
+import { pickerGroups } from "./stepPickerGroups"
 
 const GROUP_ICONS: Record<string, typeof Bot> = { Agents: Bot, Code: GitPullRequest, Board: ListChecks, Cleanup: Trash2 }
 const iconFor = (group: string, type: string) => type.startsWith("repo.") ? FolderGit2 : GROUP_ICONS[group] ?? FileText

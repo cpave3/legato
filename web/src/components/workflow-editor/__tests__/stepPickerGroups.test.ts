@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { pickerGroups } from "../stepPicker"
+import { pickerGroups } from "../stepPickerGroups"
 import { executors } from "../../../lib/workflowSchema"
 
 describe("the step picker's list", () => {
