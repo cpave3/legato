@@ -262,7 +262,7 @@ func stepKey(step Step) GraphKey {
 		return first("macro", "prompt")
 	case "task.move":
 		return first("column")
-	case "github.pr.review_passes", "github.pr.prepare":
+	case "github.pr.review_passes", "github.pr.prepare", "github.pr.wait":
 		repo, number := keyText(step.With["repo"]), keyText(step.With["pr_number"])
 		if number == "" {
 			number = keyText(step.With["number"])

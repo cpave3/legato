@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -224,6 +225,9 @@ func (c Constraint) check(with map[string]any) error {
 func (f Field) accepts(value any, inputs map[string]Input) bool {
 	text, isText := value.(string)
 	expression := isText && !f.Literal && expressionPattern.MatchString(text)
+	if len(f.Enum) > 0 && !expression {
+		return isText && slices.Contains(f.Enum, text)
+	}
 	switch f.Kind {
 	case KindTask:
 		return wholeTaskReference(value, inputs)
@@ -426,6 +430,22 @@ var catalog = []ExecutorSpec{
 			{Name: "reviews", Type: "json", Description: "The reviews posted, with their links"},
 			{Name: "summary_path", Type: "string", Description: "A Markdown summary of the loop"},
 			{Name: "linked_task", Type: "string", Description: "The board task the pull request belongs to, or empty"},
+		},
+	},
+	{
+		Type: "github.pr.wait", Group: "Code", Title: "Wait for a pull request to merge",
+		Description: "Wait until a pull request merges, or closes. Legato reads its state from GitHub when the step starts, after each refresh of a card's pull requests, and every few minutes.",
+		With: []Field{
+			{Name: "repo", Kind: KindRepository, Label: "Repository", Description: "GitHub repository (owner/name)", Required: true, Essential: true, Order: 1},
+			{Name: "pr_number", Kind: KindInteger, Label: "Pull request number", Description: "The pull request's number", Required: true, Essential: true, Order: 2},
+			{Name: "until", Kind: KindString, Label: "Wait until it is", Description: "merged: the step completes when the pull request merges, and fails when it closes without merging; closed: it completes when the pull request merges or closes", Default: "merged", Enum: []string{"merged", "closed"}, Checked: true, Invalid: "must be merged or closed", Order: 3},
+		},
+		Summary: []string{"repo"},
+		Outputs: []OutputSpec{
+			{Name: "state", Type: "string", Description: "merged or closed"},
+			{Name: "merged", Type: "boolean", Description: "Whether the pull request merged"},
+			{Name: "merged_at", Type: "string", Description: "When it merged (RFC 3339), or empty"},
+			{Name: "url", Type: "string", Description: "The pull request's address"},
 		},
 	},
 	{
