@@ -5,8 +5,9 @@ import { ChevronDown, ChevronRight, LayoutGrid, Plus } from "lucide-react"
 import { AgentKindBadge, HostNetworkBadge, UnsandboxedBadge } from "./AgentKindBadge"
 import { agentToolLabel, isAgentToolInForeground } from "../lib/agentKind"
 import { agentSections, formatAgentTime, stateSeconds } from "../lib/agentList"
-import { filterByStage, glanceLabels, glanceSection, needsYouOutside, stageCounts, stageLabel, workStages, type GlanceSection, type WorkStage } from "../lib/agentStage"
-import { NeedsYouLine, StageLine, StageTrack } from "./StageTrack"
+import { filterByStage, glanceLabels, glanceSection, needsYouOutside, stageLabel, unreadDone, type GlanceSection, type WorkStage } from "../lib/agentStage"
+import { FinishedReason, NeedsYouLine, StageLine, StageTrack } from "./StageTrack"
+import { StageMenu } from "./StageMenu"
 import { reeveWash } from "./ReeveEntry"
 import { agentGroupLayout } from "../lib/agentGroups"
 import type { AgentGrouping } from "../hooks/useAgentGroups"
@@ -52,7 +53,7 @@ interface AgentSelectProps {
   // Lists the agents by group (useAgentGroups) when its mode is group.
   grouping?: AgentGrouping
   // The stage the list is filtered to (null for all) and how it changes;
-  // without onStageFilter the list has no stage chips.
+  // without onStageFilter the list has no Stage menu.
   stageFilter?: WorkStage | null
   onStageFilter?: (stage: WorkStage | null) => void
 }
@@ -93,6 +94,8 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping
             const isSelected = selectedId === agent.task_id
             const isConductor = agent.role === "conductor"
             const isWorker = !!agent.parent_task_id && !isConductor
+            const finished = glanceSection(agent) === "finished"
+            const unread = unreadDone(agent)
             return (
               <button
                 key={agent.task_id}
@@ -100,11 +103,12 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping
                 aria-current={isSelected ? "true" : undefined}
                 onClick={() => handleSelect(agent.task_id)}
                 className={cn(
-                  "flex w-full flex-col gap-1 border-b border-lw-line px-3 py-2.5 text-left transition-colors last:border-b-0",
+                  "relative flex w-full flex-col gap-1 border-b border-lw-line px-3 py-2.5 text-left transition-colors last:border-b-0",
                   isSelected ? "bg-lw-raised text-lw-text" : "text-lw-text-2 hover:bg-zinc-800/60 hover:text-lw-text",
                   agent.reeve && reeveWash,
                 )}
               >
+                {unread && <span aria-label="Unread: finished with a note for you" title="Finished with a note for you" className="absolute inset-y-1 left-0 w-[3px] rounded-r bg-lw-done" />}
                 <div className="flex items-center gap-2">
                   <ActivityDot activity={agent.activity} />
                   {isConductor && (
@@ -123,7 +127,8 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping
                 {agent.task_title && (
                   <span className="truncate pl-4 text-sm text-lw-text">{agent.task_title}</span>
                 )}
-                <StageLine agent={agent} className="pl-4" />
+                {/* Under Finished the group names the stage: a row gives only why. */}
+                {finished ? <FinishedReason agent={agent} unread={unread} className="pl-4" /> : <StageLine agent={agent} className="pl-4" />}
                 <NeedsYouLine agent={agent} className="pl-4" />
                 <span className="flex min-w-0 items-center gap-1.5 pl-4">
                   <AgentKindBadge kind={agent.agent_kind} engram={agent.engram} isNative={!!agent.has_chimera_endpoint} />
@@ -192,27 +197,17 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping
 
       {open && (
         <div role="group" aria-label="Running agents" className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[60vh] overflow-y-auto rounded-lg border border-lw-line-strong bg-lw-surface font-lw shadow-xl">
-          {reeve && <div className="border-b border-lw-line p-1" onClick={() => setOpen(false)}>{reeve}</div>}
-          {onStageFilter && others.length > 0 && (
-            <div role="group" aria-label="Filter by stage" className="flex gap-2 overflow-x-auto border-b border-lw-line px-3 py-2">
-              {[null, ...workStages].map((stage) => {
-                const on = filter === stage
-                const count = stage ? stageCounts(others)[stage] : others.length
-                return (
-                  <button
-                    key={stage ?? "all"}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => onStageFilter(stage)}
-                    className={cn("flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium", on ? "border-lw-accent bg-lw-selected text-lw-text" : "border-lw-line bg-lw-raised text-lw-text")}
-                  >
-                    {stage && <StageTrack stage={stage} label="" />}
-                    {stage ? stageLabel(stage) : "All"}
-                    <span className="font-lw-mono font-normal text-lw-text-2">{count}</span>
-                  </button>
-                )
-              })}
+          {(reeve || (onStageFilter && others.length > 0)) && (
+            // The top row: the Reeve, and the Stage menu beside it.
+            <div className="flex items-center gap-1.5 border-b border-lw-line p-1">
+              <div className="min-w-0 flex-1" onClick={() => setOpen(false)}>{reeve}</div>
+              {onStageFilter && others.length > 0 && <StageMenu agents={others} filter={filter} onFilter={onStageFilter} touch />}
             </div>
+          )}
+          {others.length > 0 && (
+            <p className="m-0 px-3 pt-2 text-xs text-lw-text-2">
+              {filter ? `${shown.length} of ${others.length}` : others.length} agent{others.length === 1 ? "" : "s"}
+            </p>
           )}
           {outside > 0 && (
             <div role="status" className="mx-3 my-2 flex items-center justify-between gap-2 rounded-lg border border-lw-line bg-lw-raised px-3 py-2 text-[13px] text-lw-needs">
