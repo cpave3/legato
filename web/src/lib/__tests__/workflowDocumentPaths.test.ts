@@ -273,3 +273,11 @@ describe("an item's own YAML", () => {
     expect(edited.text).toBe(v2.replace("      - id: review\n        title: Review\n        type: agent.run\n        with:\n          prompt: Review it\n", "      - id: review\n        title: Look\n        type: agent.run\n"))
   })
 })
+
+describe("an item's own YAML, review fixes", () => {
+  it("keeps a whitespace-only line inside a literal block when written back", () => {
+    const text = "schema_version: 1\nname: x\ntitle: X\nsteps:\n  - id: a\n    type: agent.run\n    with:\n      prompt: |\n        a\n          \n        b\n"
+    const item = { kind: "step" as const, path: "a" }
+    expect(setItemText(text, item, itemText(text, item)!).text).toBe(text)
+  })
+})

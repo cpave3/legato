@@ -937,6 +937,6 @@ export function setItemText(text: string, item: ItemRef, edited: string): Workfl
   const { column, dash } = itemIndent(text, item, range)
   const pad = " ".repeat(column)
   const [first, ...rest] = body.split("\n")
-  const written = [(dash ? "- " : "") + first, ...rest.map(line => (line.trim() === "" ? "" : pad + line))].join("\n")
+  const written = [(dash ? "- " : "") + first, ...rest.map(line => (line === "" ? "" : pad + line))].join("\n")
   return edit(`Edit ${itemLabel(item)} as YAML`, text, splice(text, range.from, range.to, written))
 }
