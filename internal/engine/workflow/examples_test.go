@@ -40,7 +40,7 @@ func TestAnEmptyNumberOrBooleanInputTakesItsDefault(t *testing.T) {
 }
 
 func TestTheBundledTemplatesArePausedAndNeedNoExtraTools(t *testing.T) {
-	for _, name := range []string{"triage", "review-pr", "discuss-pr", "address-feedback"} {
+	for _, name := range []string{"triage", "review-pr", "discuss-pr", "address-feedback", "ticket-to-merged-pr"} {
 		example, ok := ExampleNamed(name)
 		if !ok {
 			t.Fatalf("%s is not bundled", name)
