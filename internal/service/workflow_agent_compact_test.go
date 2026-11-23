@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -419,5 +420,28 @@ func TestACompactionWhoseStartWentUnheardStillEndsItsStep(t *testing.T) {
 	}
 	if outputs := stepOutputs(t, after, "compact"); outputs["tokens_after"] != float64(900) {
 		t.Fatalf("outputs = %v", outputs)
+	}
+}
+
+func TestAReplayedEndOfAnEarlierCompactionDoesNotEndTheStepThatAskedLater(t *testing.T) {
+	// The agent finished an earlier compaction, so it took this step's ask;
+	// then its stream, reconnecting, replays that earlier end.
+	run := startCompact(t, `{task: "${{ workflow.task }}"}`)
+	agent := WatchedAgent{TaskID: run.run.Run.TaskID, Slot: store.SlotMain}
+	endAt := func(at time.Time, after int) {
+		data := []byte(`{"type":"compaction_finished","tokensAfter":` + strconv.Itoa(after) + `}`)
+		run.workflows.ObserveCompaction(context.Background(), agent, chimera.EventEnvelope{Type: "compaction_finished", Timestamp: at.UnixMilli(), Data: data})
+	}
+	endAt(run.now.Add(-time.Minute), 111)
+	if status, _ := stepStatus(t, run.workflows, run.run.Run.ID, "compact"); status != WorkflowStepWaiting {
+		t.Fatalf("step = %s; want an end from before the ask not to end it", status)
+	}
+	endAt(run.now.Add(30*time.Second), 222)
+	status, after := stepStatus(t, run.workflows, run.run.Run.ID, "compact")
+	if status != "succeeded" {
+		t.Fatalf("step = %s; want the asked compaction's end to end it", status)
+	}
+	if outputs := stepOutputs(t, after, "compact"); outputs["tokens_after"] != float64(222) {
+		t.Fatalf("outputs = %v; want the asked compaction's sizes", outputs)
 	}
 }

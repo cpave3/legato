@@ -57,14 +57,19 @@ type AgentCompactExecutor struct {
 // compactAttempt is what this process knows of a compact step's attempt.
 type compactAttempt struct {
 	// asked is set when the agent took an ask of this process, made at
-	// askedAt; working while it refused the last one at work.
+	// askedAt (and askedWhen, by the clock); working while it refused the
+	// last one at work.
 	asked, working bool
 	askedAt        uint64
+	askedWhen      time.Time
 }
 
 // compactEnd is an agent's compaction_finished or compaction_failed.
 type compactEnd struct {
-	at            uint64
+	at uint64
+	// stamp is when the endpoint says it happened (its event's ts, in Unix
+	// milliseconds), 0 when it does not say.
+	stamp         int64
 	failed        bool
 	reason        string
 	before, after *int
@@ -126,14 +131,14 @@ func (e *AgentCompactExecutor) ask(ctx context.Context, attemptID string, target
 		e.attempts[attemptID] = attempt
 	}
 	e.seq++
-	askedAt := e.seq
+	askedAt, askedWhen := e.seq, e.now()
 	e.mu.Unlock()
 	err := e.compactor.CompactAgent(ctx, target.task, target.instructions)
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	switch {
 	case err == nil:
-		attempt.asked, attempt.working, attempt.askedAt = true, false, askedAt
+		attempt.asked, attempt.working, attempt.askedAt, attempt.askedWhen = true, false, askedAt, askedWhen
 		return nil
 	case errors.Is(err, ErrAgentWorking):
 		attempt.working = true
@@ -156,16 +161,22 @@ func (e *AgentCompactExecutor) note(taskID string, event chimera.EventEnvelope) 
 		Error  string `json:"error"`
 	}
 	_ = json.Unmarshal(event.Data, &data)
-	e.ends[taskID] = &compactEnd{at: e.seq, failed: event.Type == "compaction_failed", reason: strings.TrimSpace(data.Error), before: data.Before, after: data.After}
+	e.ends[taskID] = &compactEnd{at: e.seq, stamp: event.Timestamp, failed: event.Type == "compaction_failed", reason: strings.TrimSpace(data.Error), before: data.Before, after: data.After}
 }
 
 // outcome is the end of the compaction an attempt asked for, when this
-// process asked for it and heard it end; nil otherwise.
+// process asked for it and heard it end; nil otherwise. An end the endpoint
+// stamps before the ask is an earlier compaction's, which a stream that
+// reconnects may deliver late. Endpoints stamp their events by the clock of
+// the machine both run on; events carry no compaction ID to match instead.
 func (e *AgentCompactExecutor) outcome(attemptID, taskID string) *compactEnd {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	attempt, end := e.attempts[attemptID], e.ends[taskID]
 	if attempt == nil || !attempt.asked || end == nil || end.at < attempt.askedAt {
+		return nil
+	}
+	if end.stamp > 0 && end.stamp < attempt.askedWhen.UnixMilli() {
 		return nil
 	}
 	return end
