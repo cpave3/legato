@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import { activeReviewLoop } from "../lib/workflow"
 import { BoardMacrosContext, macroPR } from "../components/board/PRMacros"
 import { cardPRMacros } from "../lib/cardMacros"
-import { macroNotice, startMacro, suggestedFirst, useMacros, type Macro, type MacroPR } from "../lib/macros"
+import { anyFavorite, macroNotice, startMacro, suggestedFirst, useMacros, type Macro, type MacroPR } from "../lib/macros"
 import { useServer } from "../hooks/useServer"
 import { useBoard } from "../hooks/useBoard"
 import {
@@ -1156,6 +1156,7 @@ export function BoardPage() {
         macros={suggestedFirst(macros.macros, "task", macros.suggested).list}
         onMacro={macro => { void runMacro(contextMenu.card, macro) }}
         prMacros={cardPRMacros(contextMenu.card, macros)}
+        anyFavorite={anyFavorite(macros.macros)}
         onPRMacro={(pr, macro) => { void runMacro(contextMenu.card, macro, macroPR(pr)) }}
         onManageMacros={() => navigateTo("/macros")}
         onClose={() => setContextMenu(null)}

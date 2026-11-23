@@ -83,3 +83,44 @@ func TestTheCardMenuOffersMacrosOnEachPullRequest(t *testing.T) {
 		t.Fatalf("started = %+v", starter.started)
 	}
 }
+
+func TestTheCardMenuShowsFavouriteMacrosAndTheRestBehindShowAll(t *testing.T) {
+	board := &fakeBoardService{pullRequests: []service.PRMetaView{{Repo: "acme/web", PRNumber: 12, State: "OPEN"}}}
+	plan, review := macroEntry("Plan", "task"), macroEntry("Review", "pr")
+	plan.Favorite, review.Favorite = true, true
+	starter := &fakeMacroStarter{list: []service.MacroEntry{plan, macroEntry("Ticket to PR", "task"), review}, result: service.MacroStartResult{Started: true}}
+	app := openCardMacros(t, board, starter)
+	view := app.activeOverlay.View()
+	if !strings.Contains(view, "Plan") || !strings.Contains(view, "Review · #12") || !strings.Contains(view, "Show all (1 more)") {
+		t.Fatalf("want the favourites and Show all (1 more): %s", view)
+	}
+	if strings.Contains(view, "Ticket to PR") {
+		t.Fatalf("a macro that is not a favourite is listed before Show all: %s", view)
+	}
+	// Plan, Review · #12, Show all.
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyDown})
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyDown})
+	app, cmd := updateApp(app, tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatalf("Show all sent something: %T", cmd())
+	}
+	view = app.activeOverlay.View()
+	if !strings.Contains(view, "Ticket to PR") || strings.Contains(view, "Show all") {
+		t.Fatalf("after Show all, want every macro: %s", view)
+	}
+	app, cmd = updateApp(app, tea.KeyMsg{Type: tea.KeyEnter})
+	app, cmd = updateApp(app, cmd())
+	_, _ = updateApp(app, cmd())
+	if len(starter.started) != 1 || starter.started[0].Name != "Ticket to PR" {
+		t.Fatalf("started = %+v, want Ticket to PR", starter.started)
+	}
+}
+
+func TestTheCardMenuWithNoStarsListsEveryMacro(t *testing.T) {
+	starter := &fakeMacroStarter{list: []service.MacroEntry{macroEntry("Plan", "task"), macroEntry("Ticket to PR", "task")}}
+	app := openCardMacros(t, &fakeBoardService{}, starter)
+	view := app.activeOverlay.View()
+	if !strings.Contains(view, "Ticket to PR") || strings.Contains(view, "Show all") {
+		t.Fatalf("want every macro and no Show all: %s", view)
+	}
+}

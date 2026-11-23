@@ -115,3 +115,40 @@ func TestTheMacroListGivesEachAgentsTiers(t *testing.T) {
 		t.Fatalf("tiers = %+v", body.Tiers)
 	}
 }
+
+func TestAMacroIsStarredThroughTheAPI(t *testing.T) {
+	srv := macroServer(t, "macros:\n  - name: fromfile\n    keys: hello\n")
+	shipped := macroNamed(listMacros(t, srv), "Plan").Keys
+	if rec := callUpdates(srv, http.MethodPut, "/api/macros/Plan", `{"favorite":true}`); rec.Code != http.StatusOK {
+		t.Fatalf("star Plan: %d %s", rec.Code, rec.Body)
+	}
+	if plan := macroNamed(listMacros(t, srv), "Plan"); !plan.Favorite || plan.Keys != shipped || plan.Overridden {
+		t.Fatalf("starred Plan = %+v, want the shipped text, starred, not edited", plan)
+	}
+	if rec := callUpdates(srv, http.MethodPut, "/api/macros/Plan", `{"favorite":false}`); rec.Code != http.StatusOK {
+		t.Fatalf("unstar Plan: %d %s", rec.Code, rec.Body)
+	}
+	if plan := macroNamed(listMacros(t, srv), "Plan"); plan.Favorite {
+		t.Fatalf("unstarred Plan = %+v", plan)
+	}
+
+	if rec := callUpdates(srv, http.MethodPut, "/api/macros/Ship", `{"message":"ship it","favorite":true}`); rec.Code != http.StatusOK {
+		t.Fatalf("new starred macro: %d %s", rec.Code, rec.Body)
+	}
+	if ship := macroNamed(listMacros(t, srv), "Ship"); ship == nil || !ship.Favorite || ship.Keys != "ship it" {
+		t.Fatalf("Ship = %+v, want it saved and starred", ship)
+	}
+	if rec := callUpdates(srv, http.MethodPut, "/api/macros/Ship", `{"message":"ship it now"}`); rec.Code != http.StatusOK {
+		t.Fatalf("edit Ship: %d %s", rec.Code, rec.Body)
+	}
+	if ship := macroNamed(listMacros(t, srv), "Ship"); !ship.Favorite || ship.Keys != "ship it now" {
+		t.Fatalf("edited Ship = %+v, want the new text, still starred", ship)
+	}
+
+	if rec := callUpdates(srv, http.MethodPut, "/api/macros/fromfile", `{"favorite":true}`); rec.Code != http.StatusConflict {
+		t.Fatalf("star a config.yaml macro: %d %s, want 409", rec.Code, rec.Body)
+	}
+	if rec := callUpdates(srv, http.MethodPut, "/api/macros/nothing", `{"favorite":true}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("star a macro that does not exist: %d %s, want 404", rec.Code, rec.Body)
+	}
+}

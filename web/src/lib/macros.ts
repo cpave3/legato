@@ -13,6 +13,8 @@ export interface Macro {
   builtin?: boolean
   overridden?: boolean
   pinned?: boolean
+  // Starred: pickers list the favourites and keep the rest behind Show all.
+  favorite?: boolean
 }
 
 export interface MacroPR {
@@ -98,6 +100,20 @@ export function macrosFor(macros: Macro[], target: "task" | "pr"): Macro[] {
   return macros.filter(macro => !macro.applies_to || macro.applies_to === target)
 }
 
+// anyFavorite says whether any macro is starred.
+export function anyFavorite(macros: Pick<Macro, "name" | "favorite">[]): boolean {
+  return macros.some(macro => macro.favorite)
+}
+
+// splitFavorites is a picker's macros: the favourites, and the rest it
+// keeps behind Show all, each in the list's order. While no macro is
+// starred every macro is a favourite. starred says whether any is, when
+// list is part of a longer list (the macros for a task, say).
+export function splitFavorites<T extends Pick<Macro, "name" | "favorite">>(list: T[], starred = anyFavorite(list)): { favorites: T[]; rest: T[] } {
+  if (!starred) return { favorites: list, rest: [] }
+  return { favorites: list.filter(macro => macro.favorite), rest: list.filter(macro => !macro.favorite) }
+}
+
 // startMacro starts a macro on a task (and one of its pull requests): the
 // task's agent starts with it, or the running one gets it as its next message.
 export async function startMacro(baseUrl: string, taskId: string, name: string, pr?: MacroPR): Promise<MacroStartResult> {
@@ -153,6 +169,11 @@ export function saveMacro(baseUrl: string, name: string, fields: MacroFields): P
   const body: Record<string, string> = { message: fields.message }
   for (const key of ["applies_to", "agent", "tier"] as const) if (fields[key]) body[key] = fields[key] as string
   return macroWrite(baseUrl, macroPath(name), "PUT", body)
+}
+
+// setMacroFavorite stars a macro, or takes its star away.
+export function setMacroFavorite(baseUrl: string, name: string, favorite: boolean): Promise<void> {
+  return macroWrite(baseUrl, macroPath(name), "PUT", { favorite })
 }
 
 // deleteMacro deletes one of the operator's own macros.

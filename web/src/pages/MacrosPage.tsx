@@ -1,14 +1,14 @@
 import { fetchAdapters } from "../lib/adapters"
 import { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Lock, Plus, Zap } from "lucide-react"
+import { Lock, Plus, Star, Zap } from "lucide-react"
 import { MacroForm } from "../components/MacroForm"
 import { primaryButton, quietButton } from "../components/settings/SettingsUI"
 import { InlineNotice } from "../components/ui/InlineNotice"
 import { LoadingState } from "../components/ui/LoadingState"
 import { useServer } from "../hooks/useServer"
 import { agentKindLabel } from "../lib/agentKind"
-import { appliesLabel, deleteMacro, fetchMacroList, macroAgentLine, resetMacro, type Macro } from "../lib/macros"
+import { appliesLabel, deleteMacro, fetchMacroList, macroAgentLine, resetMacro, setMacroFavorite, type Macro } from "../lib/macros"
 import { queryKeys } from "../lib/query"
 
 const DOCS = "https://cpave3.github.io/legato/using/agents/#macros"
@@ -64,6 +64,17 @@ export function MacrosPage() {
       <li key={macro.name} aria-label={macro.name} className={`flex flex-wrap items-start gap-x-4 gap-y-3 border-t border-lw-line px-4 py-3.5 first:border-t-0 ${confirming ? "bg-lw-raised" : ""}`}>
         <div className="flex min-w-0 flex-[1_1_420px] flex-col gap-1.5">
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label={`Favourite: ${macro.name}`}
+              aria-pressed={Boolean(macro.favorite)}
+              title={macro.pinned ? "Star it in config.yaml (favorite: true)" : macro.favorite ? "Favourite: listed first in macro pickers" : "Star to list it first in macro pickers"}
+              disabled={busy || macro.pinned}
+              onClick={() => void act(() => setMacroFavorite(baseUrl, macro.name, !macro.favorite))}
+              className={`-my-2 -ml-2 inline-flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-lw-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lw-accent-ring disabled:hover:bg-transparent ${macro.favorite ? "text-lw-accent-text" : "text-lw-text-2"} ${macro.pinned ? "opacity-60" : ""}`}
+            >
+              <Star size={16} aria-hidden fill={macro.favorite ? "currentColor" : "none"} />
+            </button>
             <span className="text-[15px] font-medium text-lw-text">{macro.name}</span>
             {macro.overridden && !macro.pinned && <span className="rounded bg-lw-needs-soft px-1.5 py-0.5 text-[11px] text-lw-needs">Edited</span>}
             {macro.pinned && <span className="inline-flex items-center gap-1 rounded bg-lw-raised px-1.5 py-0.5 text-[11px] text-lw-text-2"><Lock size={10} aria-hidden />config.yaml</span>}

@@ -273,3 +273,104 @@ func TestAMacroEntryReadsBackWhole(t *testing.T) {
 		t.Fatalf("read back %+v, want %+v", out, in)
 	}
 }
+
+func TestStarringABuiltInKeepsItsTextAndIsNotAnEdit(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "")
+	ctx := context.Background()
+	svc := NewMacroService(settings)
+	shipped, err := svc.Get(ctx, "Plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shipped.Favorite {
+		t.Fatal("Plan is starred before anyone starred it")
+	}
+	if err := svc.SetFavorite(ctx, "plan", true, "web"); err != nil {
+		t.Fatal(err)
+	}
+	starred, err := svc.Get(ctx, "Plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !starred.Favorite || starred.Keys != shipped.Keys || starred.AppliesTo != shipped.AppliesTo {
+		t.Fatalf("starred Plan = %+v, want the shipped text with a star", starred)
+	}
+	if starred.Overridden || starred.Source != MacroBuiltin {
+		t.Fatalf("a star alone made Plan an edit: %+v", starred)
+	}
+	if err := svc.SetFavorite(ctx, "Plan", false, "web"); err != nil {
+		t.Fatal(err)
+	}
+	unstarred, _ := svc.Get(ctx, "Plan")
+	if unstarred.Favorite || unstarred.Overridden {
+		t.Fatalf("unstarred Plan = %+v", unstarred)
+	}
+}
+
+func TestAStarSurvivesEditsAndAReset(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "")
+	ctx := context.Background()
+	svc := NewMacroService(settings)
+	if err := svc.Save(ctx, "mine", macros.Macro{Keys: "do it"}, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetFavorite(ctx, "mine", true, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Save(ctx, "mine", macros.Macro{Keys: "do it now"}, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Rename(ctx, "mine", "ours", "web"); err != nil {
+		t.Fatal(err)
+	}
+	ours, err := svc.Get(ctx, "ours")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ours.Favorite || ours.Keys != "do it now" {
+		t.Fatalf("after an edit and a rename = %+v, want the new text, starred", ours)
+	}
+
+	if err := svc.SetFavorite(ctx, "Review", true, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Save(ctx, "Review", macros.Macro{Keys: "my review", AppliesTo: "pr"}, "web"); err != nil {
+		t.Fatal(err)
+	}
+	edited, _ := svc.Get(ctx, "Review")
+	if !edited.Favorite || !edited.Overridden || edited.Keys != "my review" {
+		t.Fatalf("edited Review = %+v, want my text, starred", edited)
+	}
+	if err := svc.Reset(ctx, "Review"); err != nil {
+		t.Fatal(err)
+	}
+	reset, _ := svc.Get(ctx, "Review")
+	if !reset.Favorite || reset.Overridden || reset.Keys == "my review" {
+		t.Fatalf("reset Review = %+v, want the shipped text, still starred", reset)
+	}
+	if err := svc.Save(ctx, "Review", macros.Macro{Keys: "unstar me", Favorite: false}, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetFavorite(ctx, "Review", false, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := svc.Get(ctx, "Review"); got.Favorite {
+		t.Fatalf("Review is still starred: %+v", got)
+	}
+}
+
+func TestConfigYAMLStarsAMacroAndItsStarCannotChangeHere(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "macros:\n  - name: Plan\n    favorite: true\n  - name: fromfile\n    keys: hello\n")
+	ctx := context.Background()
+	svc := NewMacroService(settings)
+	plan, err := svc.Get(ctx, "Plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.Favorite || plan.Overridden || plan.Keys == "" || !plan.Pinned {
+		t.Fatalf("Plan starred in config.yaml = %+v, want the shipped text, starred and pinned", plan)
+	}
+	if err := svc.SetFavorite(ctx, "fromfile", true, "web"); !errors.Is(err, config.ErrEntryPinned) {
+		t.Fatalf("starring a config.yaml macro: err = %v, want ErrEntryPinned", err)
+	}
+}

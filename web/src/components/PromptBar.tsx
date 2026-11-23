@@ -6,6 +6,8 @@ import { insertImagePath } from "../lib/agentImage"
 import { PastedImageStrip } from "./PastedImageStrip"
 import { AttachImageButton } from "./AttachImageButton"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
+import { useMacroPicker } from "../hooks/useMacroPicker"
+import { MacroPickerItems } from "./MacroPicker"
 import { macroMessage } from "../lib/macros"
 import { apiFetch } from "../lib/api"
 import { cn } from "../lib/utils"
@@ -167,7 +169,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
   const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
   const terminalMenu = useTerminalMenu({ agentKind, onUpgradeChimera, onShowInfo, onRefresh, onDetectPrompt, onTogglePromptDetection, promptDetectionEnabled, ntfyConfigured, notifyEnabled, onToggleNotify, onReload, switchSandbox, switchHostNetwork, onDisconnect, onKill })
   const [macrosOpen, setMacrosOpen] = useState(false)
-  const [macros, setMacros] = useState<{ name: string; keys: string }[]>([])
+  const [macros, setMacros] = useState<{ name: string; keys: string; favorite?: boolean }[]>([])
   const macrosRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const inputRef = useRef(input)
@@ -180,7 +182,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
   useEffect(() => {
     apiFetch(baseUrl, "/api/macros")
       .then((r) => r.ok ? r.json() : { macros: [] })
-      .then((data: { macros?: { name: string; keys: string }[] }) => {
+      .then((data: { macros?: { name: string; keys: string; favorite?: boolean }[] }) => {
         setMacros(Array.isArray(data.macros) ? data.macros : [])
       })
       .catch(() => setMacros([]))
@@ -273,7 +275,8 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
   }, [onSubmitMessage])
   const openMacros = useCallback(() => setMacrosOpen(true), [])
   const closeMacros = useCallback(() => setMacrosOpen(false), [])
-  useMacroHotkeys({ macros, open: macrosOpen, onOpen: openMacros, onClose: closeMacros, onSelect: handleMacro })
+  const macroPicker = useMacroPicker(macros, macrosOpen)
+  useMacroHotkeys({ macros: macroPicker.shown, open: macrosOpen, onOpen: openMacros, onClose: closeMacros, onSelect: handleMacro })
 
   const handleKeyDown = (e: KeyboardEvent) => {
     // When input is empty, pass navigation keys through to the terminal
@@ -399,25 +402,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
           </button>
           {macrosOpen && (
             <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[180px] max-w-[calc(100vw-2rem)] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
-              {macros.length === 0 ? (
-                <div className="px-3 py-1.5 text-xs text-lw-text-2">(no macros configured)</div>
-              ) : (
-                macros.map((macro, index) => {
-                  const shortcut = index < 9 ? String(index + 1) : undefined
-                  return (
-                    <button
-                      key={macro.name}
-                      onClick={() => handleMacro(macro.keys)}
-                      aria-keyshortcuts={shortcut}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-lw-text transition-colors hover:bg-lw-raised"
-                    >
-                      {shortcut && <kbd className="w-4 rounded border border-lw-line-strong text-center font-mono text-[10px] text-lw-text-2">{shortcut}</kbd>}
-                      <Zap size={12} />
-                      {macro.name}
-                    </button>
-                  )
-                })
-              )}
+              <MacroPickerItems shown={macroPicker.shown} hidden={macroPicker.hidden} onShowAll={macroPicker.showAll} onPick={handleMacro} />
             </div>
           )}
         </div>

@@ -246,6 +246,10 @@ A macro is a saved message for an agent, such as "run the tests and fix what fai
 
 Manage them on the **Macros** page of the web UI (in the side rail after **Flows**; on a phone, under **More**). Four are built in: **Plan** and **Implement** for a task, **Review** and **Address feedback** for a pull request. Edit one to make it yours, for example to point Review at your favourite review skill; **Reset** puts it back as shipped. A built-in can't be deleted or renamed. Your own macros can be renamed and deleted; a workflow that names a macro by its old name fails until you change it. A macro set in `config.yaml` is locked on the page.
 
+### Favourites
+
+Star the macros you use by hand: press the star before a macro's name on the Macros page, built-ins included. Every macro menu then lists your starred macros first and keeps the rest behind a **Show all (N more)** row at the bottom; choose it to see them all. Use this to keep macros that exist only for workflows or the Reeve out of the way. It covers the Agents page's **Macros** menu and `M` (the numbers `1` to `9` go to the starred macros), a card's menu and each of its pull requests, and the TUI's `m` picker and `c` › **Macros ›**. The spawn dialog's **Start with macro** lists the starred macros in one group and the rest in another. Until you star a macro, every menu lists every macro, as before. A star never stops a macro working: `legato macro run` and workflows still run any macro by name. In `config.yaml`, set `favorite: true` on a macro; to star a built-in without changing its text, give just its name and `favorite: true`. A macro starred or unstarred in `config.yaml` can't be changed on the page.
+
 Each macro has:
 
 | Field | Required | What it does | Default |
@@ -256,7 +260,7 @@ Each macro has:
 | **Agent to start** | Optional | The agent (Claude Code, Codex or Chimera) started when the task has no agent running. Ignored when one is running. | Your default agent |
 | **Model tier** | Optional | One of that agent's [tiers](/legato/reference/configuration/#adapters), usually choosing its model. Used only when the macro starts the agent. Offered only for an agent that has tiers. | None |
 
-In `config.yaml`, the same fields are `name`, `message` (or `keys`, its older name), `applies_to` (`task` or `pr`), `agent` and `tier`:
+In `config.yaml`, the same fields are `name`, `message` (or `keys`, its older name), `applies_to` (`task` or `pr`), `agent` and `tier`, plus `favorite` for the star:
 
 ```yaml
 macros:
@@ -275,7 +279,7 @@ Where to run one:
 
 - On the board: a card's menu (the task's macros, then each open pull request's), and the button on a pull request that needs you. See [Board](/legato/using/board/).
 - In the spawn dialog, under **Start with macro**: it fills the first message, and the agent and model tier when the macro sets them.
-- On the Agents page, press `M`, then `1` to `9` for the first nine macros. Click a later macro to send it. The keys do nothing while you type in a field.
+- On the Agents page, press `M`, then `1` to `9` for the first nine macros listed (your favourites first). Click a later macro, or **Show all**, to reach the rest. The keys do nothing while you type in a field.
 - In the TUI, press `m` in the agents view, or `c` on a card and choose **Macros ›**.
 - From a script: `legato macro run Plan <task-id>`.
 - In a workflow step, with `with.macro`. See [Workflows](/legato/using/workflows/).

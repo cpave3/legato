@@ -1,6 +1,7 @@
 package overlay
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,9 +18,12 @@ type MacroSelectedMsg struct {
 // MacroCancelledMsg is sent when the user dismisses the picker.
 type MacroCancelledMsg struct{}
 
-// MacroPickerOverlay lets the user select a macro from the config list.
+// MacroPickerOverlay lets the user select a macro: the favourites, and
+// the rest after a Show all row.
 type MacroPickerOverlay struct {
 	macros []macros.Macro
+	// hidden is the macros Show all adds; none once it has.
+	hidden []macros.Macro
 	cursor int
 	width  int
 	height int
@@ -27,7 +31,16 @@ type MacroPickerOverlay struct {
 
 // NewMacroPicker creates a macro picker overlay.
 func NewMacroPicker(macrosList []macros.Macro) MacroPickerOverlay {
-	return MacroPickerOverlay{macros: macrosList}
+	favorites, rest := macros.SplitFavorites(macrosList)
+	return MacroPickerOverlay{macros: favorites, hidden: rest}
+}
+
+// rows is how many rows the cursor moves over: the macros, and Show all.
+func (m MacroPickerOverlay) rows() int {
+	if len(m.hidden) > 0 {
+		return len(m.macros) + 1
+	}
+	return len(m.macros)
 }
 
 // Init returns no command.
@@ -48,7 +61,7 @@ func (m MacroPickerOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc", "q":
 			return m, func() tea.Msg { return MacroCancelledMsg{} }
 		case "j", "down":
-			if m.cursor < len(m.macros)-1 {
+			if m.cursor < m.rows()-1 {
 				m.cursor++
 			}
 		case "k", "up":
@@ -56,6 +69,11 @@ func (m MacroPickerOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor--
 			}
 		case "enter", "tab":
+			if m.cursor == len(m.macros) && len(m.hidden) > 0 {
+				m.macros = append(append([]macros.Macro(nil), m.macros...), m.hidden...)
+				m.hidden = nil
+				return m, nil
+			}
 			if len(m.macros) > 0 && m.cursor < len(m.macros) {
 				macro := m.macros[m.cursor]
 				return m, func() tea.Msg { return MacroSelectedMsg{Macro: macro} }
@@ -91,6 +109,16 @@ func (m MacroPickerOverlay) View() string {
 			escaped := strings.ReplaceAll(macro.Keys, "\n", "\\n")
 			keys := lipgloss.NewStyle().Foreground(theme.TextTertiary).Render("  " + escaped)
 			lines = append(lines, name+"\n"+keys)
+		}
+		if len(m.hidden) > 0 {
+			label := fmt.Sprintf("Show all (%d more)", len(m.hidden))
+			style := lipgloss.NewStyle().Foreground(theme.TextTertiary)
+			prefix := "  "
+			if m.cursor == len(m.macros) {
+				prefix = "> "
+				style = lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true)
+			}
+			lines = append(lines, style.Render(prefix+label))
 		}
 	}
 

@@ -143,7 +143,7 @@ var routeClassTable = []routeClassEntry{
 	{"POST", "/api/agents/{task_id}/resume", ClassChange, "Resume an interrupted agent, or start a new one in its place"},
 	{"POST", "/api/agents/{task_id}/dismiss", ClassChange, "Dismiss an interrupted agent"},
 	{"GET", "/api/macros", ClassRead, "List the macros"},
-	{"PUT", "/api/macros/{name}", ClassChange, "Save a macro: a new one, an edit, or an edit of a built-in"},
+	{"PUT", "/api/macros/{name}", ClassChange, "Save a macro: a new one, an edit, or an edit of a built-in; {\"favorite\": true} alone stars it"},
 	{"DELETE", "/api/macros/{name}", ClassChange, "Delete a macro added in Legato"},
 	{"POST", "/api/macros/{name}/reset", ClassChange, "Put a built-in macro back as shipped"},
 	{"POST", "/api/macros/{name}/rename", ClassChange, "Rename a macro added in Legato"},

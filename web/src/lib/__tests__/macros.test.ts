@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { fetchMacros, macrosFor, prIsMine, startMacro, suggestedFirst, type Macro } from "../macros"
+import { fetchMacros, macrosFor, prIsMine, splitFavorites, startMacro, suggestedFirst, type Macro } from "../macros"
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -57,5 +57,25 @@ describe("suggestedFirst", () => {
   it("takes a PR found from the task's branch as the operator's own, and one linked by number as not", () => {
     expect(prIsMine({ pinned: false })).toBe(true)
     expect(prIsMine({ pinned: true })).toBe(false)
+  })
+})
+
+describe("splitFavorites", () => {
+  const plan = { name: "Plan", keys: "p", favorite: true }
+  const ticket = { name: "Ticket to PR", keys: "t" }
+  const tests = { name: "Tests", keys: "x", favorite: true }
+
+  it("lists the starred macros in order and keeps the rest apart", () => {
+    const { favorites, rest } = splitFavorites([plan, ticket, tests])
+    expect(favorites.map(m => m.name)).toEqual(["Plan", "Tests"])
+    expect(rest.map(m => m.name)).toEqual(["Ticket to PR"])
+  })
+
+  it("counts every macro as a favourite while none is starred", () => {
+    expect(splitFavorites([ticket, { name: "Other", keys: "o" }])).toEqual({ favorites: [ticket, { name: "Other", keys: "o" }], rest: [] })
+  })
+
+  it("follows a star elsewhere in the full list", () => {
+    expect(splitFavorites([ticket], true)).toEqual({ favorites: [], rest: [ticket] })
   })
 })

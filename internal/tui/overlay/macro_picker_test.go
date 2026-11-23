@@ -65,3 +65,44 @@ func TestMacroPickerCancel(t *testing.T) {
 		t.Fatalf("expected MacroCancelledMsg, got %T", msg)
 	}
 }
+
+func TestMacroPickerShowsFavouritesAndTheRestBehindShowAll(t *testing.T) {
+	var m tea.Model = NewMacroPicker([]macros.Macro{
+		{Name: "Plan", Keys: "plan it", Favorite: true},
+		{Name: "Ticket to PR", Keys: "ship it"},
+		{Name: "Tests", Keys: "run the tests", Favorite: true},
+	})
+	v := m.View()
+	if !strings.Contains(v, "Plan") || !strings.Contains(v, "Tests") || !strings.Contains(v, "Show all (1 more)") {
+		t.Fatalf("want the favourites and Show all (1 more), got:\n%s", v)
+	}
+	if strings.Contains(v, "Ticket to PR") {
+		t.Fatalf("a macro that is not a favourite is listed before Show all:\n%s", v)
+	}
+
+	m, _ = m.Update(key("j"))
+	m, _ = m.Update(key("j"))
+	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatalf("Show all sent something: %T", cmd())
+	}
+	v = m.View()
+	if !strings.Contains(v, "Ticket to PR") || strings.Contains(v, "Show all") {
+		t.Fatalf("after Show all, want every macro and no Show all row, got:\n%s", v)
+	}
+	m, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter on the first of the rest sent nothing")
+	}
+	if sel, ok := cmd().(MacroSelectedMsg); !ok || sel.Macro.Name != "Ticket to PR" {
+		t.Fatalf("selected %+v, want Ticket to PR", cmd())
+	}
+}
+
+func TestMacroPickerWithNoStarsListsEveryMacro(t *testing.T) {
+	m := NewMacroPicker([]macros.Macro{{Name: "a", Keys: "1"}, {Name: "b", Keys: "2"}})
+	v := m.View()
+	if !strings.Contains(v, "a") || !strings.Contains(v, "b") || strings.Contains(v, "Show all") {
+		t.Fatalf("want every macro and no Show all, got:\n%s", v)
+	}
+}
