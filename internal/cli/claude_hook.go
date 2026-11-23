@@ -664,56 +664,40 @@ func listedJobs(known store.BackgroundJobs, listed []store.BackgroundJob, stoppe
 	for _, job := range listed {
 		byID[job.ID] = job
 	}
-	keep := func(k store.BackgroundJob) bool {
-		if _, ok := byID[k.ID]; ok {
-			return true
-		}
-		switch {
-		case k.Kind == store.JobCron:
-			return stopped != ""
-		case k.Kind == store.JobSubagent:
-			return hasDescendant(known, k.ID)
-		}
-		return false
-	}
-	var out store.BackgroundJobs
-	seen := map[string]bool{}
-	for _, k := range known {
-		seen[k.ID] = true
-		if k.ID == stopped || !keep(k) {
-			continue
-		}
-		if job, ok := byID[k.ID]; ok {
-			k = mergedJob(k, job)
-		} else if k.Kind == store.JobSubagent {
-			k.State = store.ActivityBackground
-		}
-		out = append(out, k)
-	}
+	// Every job Legato knew, then those first listed now, in that order.
+	all := append(store.BackgroundJobs(nil), known...)
 	for _, job := range listed {
-		if seen[job.ID] || job.ID == stopped {
-			continue
+		if !hasJob(all, job.ID) {
+			job.StartedAt = now
+			all = append(all, job)
 		}
-		seen[job.ID] = true
-		job.StartedAt = now
-		if job.Kind == store.JobSubagent {
-			job.State = store.ActivityWorking
+	}
+	isKnown := func(id string) bool { return hasJob(known, id) }
+	var out store.BackgroundJobs
+	stopper := -1
+	for _, job := range all {
+		listedNow, isListed := byID[job.ID]
+		switch {
+		case job.ID == stopped && stopped != "":
+			// Decided once the rest is: it stays only as a parent.
+			stopper = len(out)
+			job.State = store.ActivityBackground
+		case isListed && isKnown(job.ID):
+			job = mergedJob(job, listedNow)
+		case isListed:
+			if job.Kind == store.JobSubagent {
+				job.State = store.ActivityWorking
+			}
+		case job.Kind == store.JobCron && stopped != "":
+		case job.Kind == store.JobSubagent && hasDescendant(known, job.ID):
+			job.State = store.ActivityBackground
+		default:
+			continue
 		}
 		out = append(out, job)
 	}
-	// The subagent whose turn ended waits on what it started, if anything.
-	for _, k := range append(append(store.BackgroundJobs(nil), known...), listed...) {
-		if k.ID != stopped || stopped == "" {
-			continue
-		}
-		if hasDescendant(out, stopped) {
-			if _, ok := byID[k.ID]; ok && !hasJob(known, k.ID) {
-				k.StartedAt = now
-			}
-			k.State = store.ActivityBackground
-			out = append(out, k)
-		}
-		break
+	if stopper >= 0 && !hasDescendant(out, stopped) {
+		out = append(out[:stopper], out[stopper+1:]...)
 	}
 	return out
 }

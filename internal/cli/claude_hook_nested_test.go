@@ -68,6 +68,10 @@ func TestClaudeHook_ASubagentsOwnSubagentsAreListedUnderIt(t *testing.T) {
 			t.Errorf("after line %d (%s):\n got %q\nwant %q", c.line, steps[c.line].event, got, c.want)
 		}
 	}
+	// A parent that ends its turn keeps its place in the list.
+	if got := jobsOf(steps[11]); got != "subagent:"+l1+", subagent:"+l2 {
+		t.Errorf("order once L1 ended its turn = %q, want L1 first", got)
+	}
 	// The agent stays in the background until the last level ends.
 	for _, i := range []int{5, 8, 11, 13, 14} {
 		if steps[i].activity != store.ActivityBackground {
