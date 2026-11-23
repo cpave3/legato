@@ -46,7 +46,8 @@ export function StepSetup({ step, index, text, values, diagnostics, options, app
   const groupOf = (name: string) => exclusive.find(g => g.fields.includes(name))
   const others = [...Object.keys(withValues).filter(key => !form?.fields.some(f => f.name === key)).map(key => `with.${key}`), ...Object.keys(step).filter(key => !STEP_KEYS.includes(key) && key !== "start")]
 
-  const field = (spec: FieldSpec) => <WithField key={spec.name} rich spec={spec} stepId={id} value={withValues[spec.name]} onChange={value => setWith(spec.name, value)} refs={refs} taskRefs={taskRefs} options={options} agent={String(withValues.agent ?? "")} problems={at(["with", spec.name])} />
+  const reads = { values, location: { kind: "with" as const, step: index } }
+  const field = (spec: FieldSpec) => <WithField key={spec.name} rich reads={reads} spec={spec} stepId={id} value={withValues[spec.name]} onChange={value => setWith(spec.name, value)} refs={refs} taskRefs={taskRefs} options={options} agent={String(withValues.agent ?? "")} problems={at(["with", spec.name])} />
 
   // An exactly-one group is one segmented choice where its first field
   // would be, then the field chosen.

@@ -1,7 +1,9 @@
 import { useState } from "react"
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, GripVertical, Maximize2, Plus, Trash2 } from "lucide-react"
 import { insertStep, moveStep, removeStep, renameStep, setField, stepsOf, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
-import { references } from "../../lib/workflowExpressions"
+import { checkExpression, references, type ExpressionLocation } from "../../lib/workflowExpressions"
+import { valueGroups, type ValueGroup, type ValueSource } from "./valuePicker"
+import { ExpressionText, UseValueFrom } from "./ValuePicker"
 import { executors, pathText } from "../../lib/workflowSchema"
 import { brokenReferences, newStep, stepForm, stepReferences, STEP_KEYS, type BuilderOptions, type FieldSpec, type StepValue } from "./stepForms"
 import type { WorkflowDiagnostic } from "../../lib/workflowFiles"
@@ -171,11 +173,13 @@ export function StepIdField({ step, index, text, values, apply, diagnostics, hin
   </label>
 }
 
-type WithFieldProps = { spec: FieldSpec; stepId: string; value: unknown; onChange: (value: unknown) => void; refs: string[]; taskRefs: string[]; options: BuilderOptions; agent: string; problems: WorkflowDiagnostic[]; rich?: boolean }
+type WithFieldProps = { spec: FieldSpec; stepId: string; value: unknown; onChange: (value: unknown) => void; refs: string[]; taskRefs: string[]; options: BuilderOptions; agent: string; problems: WorkflowDiagnostic[]; rich?: boolean
+  /** reads is where the field is, for the inspector's value picker. */
+  reads?: { values: ValueSource; location: ExpressionLocation } }
 
 // WithField draws one with field by its kind. Every kind is drawn; a value
 // that is an expression is shown as text, so it can always be edited.
-export function WithField({ spec, stepId, value, onChange, refs, taskRefs, options, agent, problems, rich = false }: WithFieldProps) {
+export function WithField({ spec, stepId, value, onChange, refs, taskRefs, options, agent, problems, rich = false, reads }: WithFieldProps) {
   const name = `${spec.name} of step ${stepId}`
   // A number field holding text that is neither a whole number nor an
   // expression: the engine may only find out when the step runs.
@@ -184,13 +188,21 @@ export function WithField({ spec, stepId, value, onChange, refs, taskRefs, optio
   const isExpression = typeof value === "string" && value.includes("${{")
   const listId = `options-${stepId}-${spec.name}`
   const set = (raw: string) => onChange(raw === "" && !spec.required ? undefined : raw)
-  const picker = spec.expressions && <ReferencePicker name={name} options={refs} onPick={expression => onChange(`${text}\${{ ${expression} }}`)} />
+  const picker = spec.expressions && !rich && <ReferencePicker name={name} options={refs} onPick={expression => onChange(`${text}\${{ ${expression} }}`)} />
   let control: React.ReactNode
   const suggestions = spec.kind === "macro" ? options.macros : spec.kind === "agent" ? options.agents : spec.kind === "tier" ? (options.tiers[agent] ?? Object.values(options.tiers).flat()) : spec.kind === "column" ? options.columns : spec.kind === "repository" ? options.repositories ?? [] : []
-  const richControl = rich && !isExpression ? richControlOf({ spec, name, value, text, onChange, set, options }) : null
-  switch (richControl ? "rich" : spec.kind) {
+  const groups = reads && spec.expressions ? valueGroups(reads.values, reads.location, spec.kind) : null
+  const check = (expression: string) => reads ? checkExpression(reads.values, reads.location, expression) : null
+  // In the inspector, a text field takes values at its cursor (LEG-510).
+  const textKinds = ["string", "text", "path", "repository", "column", "macro", "tier", "agent", "task_or_id"]
+  const expressionText = rich && groups && textKinds.includes(spec.kind) && !(spec.enum && !isExpression)
+  const richControl = rich && !isExpression ? richControlOf({ spec, name, value, text, onChange, set, options, groups, check }) : null
+  switch (richControl ? "rich" : expressionText ? "expression" : spec.kind) {
     case "rich":
       control = richControl
+      break
+    case "expression":
+      control = <ExpressionText name={name} label={spec.label} value={text} multiline={spec.kind === "text"} groups={groups!} check={check} invalid={notANumber || undefined} onCommit={set} list={suggestions.length > 0 ? listId : undefined} />
       break
     case "text":
       control = <CommitField aria-label={name} multiline value={text} onCommit={set} />
@@ -238,7 +250,23 @@ export function WithField({ spec, stepId, value, onChange, refs, taskRefs, optio
 // richControlOf is the inspector's control for a field, where one suits it
 // better than a text box: a sentence switch for a boolean, the agent tools
 // as a choice, and long text with a larger editor.
-function richControlOf({ spec, name, value, text, onChange, set, options }: { spec: FieldSpec; name: string; value: unknown; text: string; onChange: (value: unknown) => void; set: (raw: string) => void; options: BuilderOptions }): React.ReactNode {
+function richControlOf({ spec, name, value, text, onChange, set, options, groups, check }: { spec: FieldSpec; name: string; value: unknown; text: string; onChange: (value: unknown) => void; set: (raw: string) => void; options: BuilderOptions; groups: ValueGroup[] | null; check: (expression: string) => string | null }): React.ReactNode {
+  const useValue = groups && <UseValueFrom label={spec.label} groups={groups} onPick={onChange} />
+  if (spec.kind === "integer" && groups) {
+    return <div className="flex flex-wrap items-center gap-2">
+      <CommitField aria-label={name} inputMode="numeric" value={text} onCommit={raw => /^-?\d+$/.test(raw.trim()) ? onChange(Number(raw.trim())) : set(raw)} />
+      {useValue}
+    </div>
+  }
+  if (spec.enum && groups) {
+    return <div className="flex flex-wrap items-center gap-2">
+      <select aria-label={name} className={fieldClass} value={text} onChange={event => set(event.target.value)}>
+        <option value="">{spec.required ? "Choose" : "The default"}</option>
+        {spec.enum.map(option => <option key={option} value={option}>{option}</option>)}
+      </select>
+      {useValue}
+    </div>
+  }
   if (spec.kind === "boolean") {
     const on = value === true
     return <button type="button" role="switch" aria-checked={on} aria-label={name} className="flex min-h-9 items-center gap-2 self-start text-sm text-lw-text" onClick={() => onChange(on ? (spec.required ? false : undefined) : true)}>
@@ -246,20 +274,21 @@ function richControlOf({ spec, name, value, text, onChange, set, options }: { sp
       {spec.label}
     </button>
   }
+  if (spec.kind === "boolean" && groups) return <div className="flex flex-wrap items-center gap-2">{richControlOf({ spec, name, value, text, onChange, set, options, groups: null, check })}{useValue}</div>
   if (spec.kind === "agent" && options.agents.length > 0 && (text === "" || options.agents.includes(text))) {
     return <div role="radiogroup" aria-label={name} className="inline-flex flex-wrap self-start rounded-md border border-lw-line p-0.5">
       {["", ...options.agents].map(agent => <button key={agent || "default"} type="button" role="radio" aria-checked={text === agent} className={`min-h-8 rounded px-2.5 text-xs ${text === agent ? "bg-lw-raised text-lw-text" : "text-lw-text-2"}`} onClick={() => set(agent)}>{agent || "Default"}</button>)}
     </div>
   }
-  if (spec.kind === "text") return <LongText name={name} label={spec.label} value={text} onCommit={set} />
+  if (spec.kind === "text") return <LongText name={name} label={spec.label} value={text} onCommit={set} groups={groups} check={check} />
   return null
 }
 
 // LongText is a multi-line field with a larger editor to write it in.
-function LongText({ name, label, value, onCommit }: { name: string; label: string; value: string; onCommit: (value: string) => void }) {
+function LongText({ name, label, value, onCommit, groups, check }: { name: string; label: string; value: string; onCommit: (value: string) => void; groups: ValueGroup[] | null; check: (expression: string) => string | null }) {
   const [focus, setFocus] = useState<string | null>(null)
   return <div className="flex flex-col gap-1">
-    <CommitField aria-label={name} multiline value={value} onCommit={onCommit} />
+    {groups ? <ExpressionText name={name} label={label} value={value} multiline groups={groups} check={check} onCommit={onCommit} /> : <CommitField aria-label={name} multiline value={value} onCommit={onCommit} />}
     <Button type="button" size="sm" variant="ghost" className="self-end" aria-label={`Write ${label} in a larger editor`} onClick={() => setFocus(value)}><Maximize2 size={12} />Larger</Button>
     {focus !== null && <div role="dialog" aria-label={label} className="fixed inset-0 z-50 flex flex-col gap-2 bg-lw-ground p-4 sm:p-8">
       <h3 className="text-sm font-semibold">{label}</h3>

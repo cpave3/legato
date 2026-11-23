@@ -150,3 +150,70 @@ it("lists what later steps can read on Outputs: the type's own, then those decla
   expect(within(gives).getByText("steps.prep.outputs.working_dir")).toBeTruthy()
   expect(within(inspector()).getByRole("textbox", { name: "New output of step prep" })).toBeTruthy()
 })
+
+// The value picker (LEG-510).
+const withValues = `schema_version: 1
+name: review-pr
+title: Review
+inputs:
+  pr: {type: integer, description: The pull request}
+steps:
+  - id: prep
+    title: Prepare
+    type: repo.ensure
+    with:
+      repo: a/b
+    outputs:
+      branch: {type: string, description: The branch made}
+  - id: run
+    title: Run
+    type: agent.run
+    with:
+      prompt: Look at it
+`
+
+it("inserts a value at the cursor, from This run or an earlier step", async () => {
+  fileYaml = withValues
+  await renderAt("#steps/run")
+  const prompt = within(inspector()).getByRole("textbox", { name: "prompt of step run" }) as HTMLTextAreaElement
+  prompt.setSelectionRange(4, 4)
+  fireEvent.mouseDown(within(inspector()).getByRole("button", { name: "Insert a value into What it should do" }))
+  fireEvent.click(within(inspector()).getByRole("button", { name: "Insert a value into What it should do" }))
+  const picker = screen.getByRole("dialog", { name: "Values for What it should do" })
+  expect(within(picker).getAllByRole("region").map(r => r.getAttribute("aria-label"))).toEqual(["This run", "Prepare"])
+  fireEvent.click(within(within(picker).getByRole("region", { name: "This run" })).getByRole("button", { name: /^pr/ }))
+  expect((await stepWith("run")).with.prompt).toBe("Look${{ workflow.inputs.pr }} at it")
+})
+
+it("opens the picker when ${{ is typed, and fills it in", async () => {
+  fileYaml = withValues
+  await renderAt("#steps/run")
+  const prompt = within(inspector()).getByRole("textbox", { name: "prompt of step run" })
+  fireEvent.change(prompt, { target: { value: "Look at ${{" } })
+  const picker = screen.getByRole("dialog", { name: "Values for What it should do" })
+  fireEvent.click(within(picker).getByTitle("steps.prep.outputs.branch"))
+  expect((await stepWith("run")).with.prompt).toBe("Look at ${{ steps.prep.outputs.branch }}")
+})
+
+it("marks an expression that can't be read here, with why", async () => {
+  fileYaml = withValues.replace("prompt: Look at it", "prompt: Look at ${{ steps.run.outputs.x }}")
+  await renderAt("#steps/run")
+  const found = within(inspector()).getByRole("list", { name: "Values in What it should do" })
+  expect(found.textContent).toContain("is not an output of an earlier step")
+  expect(within(inspector()).getByRole("textbox", { name: "prompt of step run" }).getAttribute("aria-invalid")).toBe("true")
+})
+
+it("dims a value of the wrong type for a number field, with why", async () => {
+  fileYaml = withValues
+  await renderAt("#steps/run")
+  const more = within(inspector()).getByText(/^More options/).closest("details")!
+  more.open = true
+  const number = within(more).getByRole("textbox", { name: "pr_number of step run" }).closest("[data-essential], div")!.parentElement!
+  fireEvent.click(within(number).getByRole("button", { name: "Use a value from…" }))
+  const picker = screen.getByRole("dialog", { name: "Values for Pull request number" })
+  const branch = within(picker).getByTitle("steps.prep.outputs.branch")
+  expect(branch.className).toContain("opacity-50")
+  expect(branch.textContent).toContain("Not this type: text, not a whole number")
+  fireEvent.click(within(picker).getByTitle("workflow.inputs.pr"))
+  expect((await stepWith("run")).with.pr_number).toBe("${{ workflow.inputs.pr }}")
+})
