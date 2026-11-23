@@ -941,6 +941,22 @@
               ]
             }
           ]
+        },
+        {
+          "not": {
+            "required": [
+              "scratch",
+              "working_dir"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "scratch",
+              "repo"
+            ]
+          }
         }
       ],
       "description": "Start an agent of the workflow on a prompt or a macro, and wait for it to complete the step with the outputs the step declares.",
@@ -1065,6 +1081,17 @@
             "kind": "repository",
             "label": "Or a clone of",
             "order": 4
+          }
+        },
+        "scratch": {
+          "default": false,
+          "description": "The work needs no folder of its own: the agent works in a new folder Legato removes when the step completes (kept when it fails or keeps its agent); anything to keep goes in the step's outputs",
+          "type": "boolean",
+          "x-legato": {
+            "expressions": false,
+            "kind": "boolean",
+            "label": "Work in a scratch folder",
+            "order": 13
           }
         },
         "tier": {

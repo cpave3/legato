@@ -2,7 +2,8 @@ import { useEffect, useRef } from "react"
 import { Annotation, EditorState } from "@codemirror/state"
 import { EditorView, drawSelection, highlightActiveLine, hoverTooltip, keymap, lineNumbers } from "@codemirror/view"
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands"
-import { bracketMatching, defaultHighlightStyle, indentOnInput, syntaxHighlighting } from "@codemirror/language"
+import { bracketMatching, indentOnInput, syntaxHighlighting } from "@codemirror/language"
+import { yamlHighlightStyle } from "./yamlHighlight"
 import { autocompletion, completionKeymap, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete"
 import { forceLinting, linter, lintGutter, type Diagnostic } from "@codemirror/lint"
 import { yaml } from "@codemirror/lang-yaml"
@@ -121,7 +122,7 @@ export default function WorkflowYamlEditor({ value, onChange, serverDiagnostics 
       doc: value,
       extensions: [
         lineNumbers(), drawSelection(), highlightActiveLine(), indentOnInput(), bracketMatching(),
-        syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+        syntaxHighlighting(yamlHighlightStyle),
         sharedHistory
           ? keymap.of([
             { key: "Mod-z", run: () => { undoRedo.current.onUndo?.(); return true }, preventDefault: true },

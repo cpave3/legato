@@ -107,8 +107,14 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
   const state = runState(run)
   if (run.status === "succeeded") {
     const values = producedValues(steps)
-    if (artifacts.length === 0 && values.length === 0) return null
+    // Agent steps that finished with no output (LEG-532).
+    const warned = steps.filter(step => step.output_warning)
+    const warnings = warned.length > 0 && <ul aria-label="Steps with no output" className="mt-2 space-y-1 text-lw-needs">
+      {warned.map(step => <li key={step.step_id}><span className="font-medium">{step.title}:</span> {step.output_warning}</li>)}
+    </ul>
+    if (artifacts.length === 0 && values.length === 0) return warnings ? <NowPanel tone="needs" heading="No output">{warnings}</NowPanel> : null
     return <NowPanel tone="done" heading="Produced">
+      {warnings}
       <div className="mt-2 grid gap-2 text-lw-text">
         {artifacts.map(artifact => <Artifact key={artifact.id} artifact={artifact} step={steps.find(step => step.step_id === artifact.step_id)?.title} />)}
         {values.length > 0 && <ValueList values={values.map(value => [value.key, value.value])} secrets={secrets} className="mt-1" />}
@@ -196,7 +202,7 @@ function objectEntries(raw: string): [string, unknown][] {
 }
 
 function StepRow({ step, run, attempts, artifacts, now, secrets }: { step: WorkflowStepRun; run: WorkflowRunView["run"]; attempts: WorkflowAttempt[]; artifacts: WorkflowArtifact[]; now: number; secrets: string[] }) {
-  const [open, setOpen] = useState(step.status === "failed")
+  const [open, setOpen] = useState(step.status === "failed" || !!step.output_warning)
   const mark = stepMark(asStepLike(step), run)
   const inputs = objectEntries(step.resolved_inputs_json)
   const outputs = objectEntries(step.outputs_json).filter(([key]) => !artifacts.some(artifact => artifact.output_key === key))
@@ -212,6 +218,7 @@ function StepRow({ step, run, attempts, artifacts, now, secrets }: { step: Workf
     {open && <div className="space-y-3 px-3.5 pb-3.5 pl-11 text-[13px]">
       <p className="font-lw-mono text-xs text-lw-faint sm:hidden">{step.executor_type}</p>
       {step.error && step.status !== "failed" && <p className="text-lw-error">{redact(step.error, secrets)}</p>}
+      {step.output_warning && <p className="text-lw-needs">{step.output_warning}</p>}
       {inputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Inputs</h3><ValueList values={inputs} secrets={secrets} /></div>}
       {outputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Outputs</h3><ValueList values={outputs} secrets={secrets} /></div>}
       {artifacts.length > 0 && run.status !== "succeeded" && <div className="grid gap-2">{artifacts.map(artifact => <Artifact key={artifact.id} artifact={artifact} />)}</div>}
@@ -370,6 +377,7 @@ function RunStepPanel({ view, node, runId, secrets, state }: { view: WorkflowRun
       <p className="text-[11px] font-medium uppercase tracking-wide text-lw-text-2">Step · {stepTypeLabel(graphStep.type)}{state && <> · {state}</>}</p>
       <h2 className="mt-0.5 text-[15px] font-semibold">{graphStep.title}</h2>
       {step?.error && <p className="mt-1 whitespace-pre-wrap break-words text-lw-error">{redact(step.error, secrets)}</p>}
+      {step?.output_warning && <p className="mt-1 text-lw-needs">{step.output_warning}</p>}
     </div>
     {inputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Inputs</h3><ValueList values={inputs} secrets={secrets} /></div>}
     {outputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Outputs</h3><ValueList values={outputs} secrets={secrets} /></div>}

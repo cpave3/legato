@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/cpave3/legato/config"
@@ -79,6 +80,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 	macros := service.NewMacroService(settingsFor(db))
 	agentRun := service.NewAgentRunExecutor(runner, binary)
 	agentRun.SetMacros(macros)
+	agentRun.SetScratchRoot(filepath.Join(config.ResolveDataDir(cfg), service.WorkflowScratchFolder), db.WorkflowAttemptInUse)
 	agentDispatch := service.NewAgentDispatchExecutor(agentSvc, db)
 	agentDispatch.SetMacros(macros)
 	executors := []service.WorkflowExecutor{

@@ -356,13 +356,26 @@ func inOthersScratch(in SandboxPlanInput, root, path string) bool {
 // allowedInside are mounts that may sit inside a forbidden folder: the parts
 // of Legato's runtime and data folders a session needs.
 func allowedInside(in SandboxPlanInput, path string) bool {
-	for _, ok := range []string{filepath.Dir(in.BrokerSocket), in.SSHSocket, in.CredentialWrapperDir, in.GHConfigDir, in.JobDir, in.CapabilitiesDir,
+	for _, ok := range []string{filepath.Dir(in.BrokerSocket), in.SSHSocket, in.CredentialWrapperDir, in.GHConfigDir, in.JobDir, in.CapabilitiesDir, workflowScratchDir(in),
 		filepath.Join(in.DataDir, "claude-mod"), filepath.Join(in.DataDir, "chimera-mod"), filepath.Join(in.DataDir, "repos"), filepath.Join(in.RuntimeDir, "sandbox", in.ExecutionID)} {
 		if ok != "" && ok != "." && within(path, ok) {
 			return true
 		}
 	}
 	return false
+}
+
+// workflowScratchDir is the working directory when it is a workflow step's
+// scratch folder (<data_dir>/workflow-scratch/<attempt>), else "": the
+// session sees its own, and neither the others nor the folder of them all.
+func workflowScratchDir(in SandboxPlanInput) string {
+	if in.DataDir == "" || in.WorkDir == "" {
+		return ""
+	}
+	if filepath.Dir(filepath.Clean(in.WorkDir)) != filepath.Join(in.DataDir, WorkflowScratchFolder) {
+		return ""
+	}
+	return in.WorkDir
 }
 
 func chimeraProtectedDirs(in SandboxPlanInput) []string {

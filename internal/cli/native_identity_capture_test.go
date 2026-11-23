@@ -119,7 +119,7 @@ func TestNativeIdentityCaptureStorageRootIsFrozen(t *testing.T) {
 
 func TestNativeIdentityCaptureExcludedOwnersKeepPanelRunning(t *testing.T) {
 	for _, kind := range []string{"claude-code", "codex"} {
-		for _, shape := range []string{"child", "subtask", "worker-role", "worker-execution", "other-attribution", "ephemeral-env", "ephemeral-task", "conductor"} {
+		for _, shape := range []string{"child", "subtask", "worker-role", "worker-execution", "other-attribution", "workflow-unattributed", "ephemeral-env", "ephemeral-task", "conductor"} {
 			t.Run(kind+"/"+shape, func(t *testing.T) {
 				t.Setenv("LEGATO_TASK_EPHEMERAL", "")
 				t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -151,6 +151,10 @@ func TestNativeIdentityCaptureExcludedOwnersKeepPanelRunning(t *testing.T) {
 					e.Kind = store.ExecutionSwarmWorker
 				case "other-attribution":
 					e.TaskID = parent
+				case "workflow-unattributed":
+					// A workflow agent of a run with no related card is
+					// attributed to no task (LEG-531).
+					e.Kind, e.TaskID = store.ExecutionWorkflowAgent, ""
 				case "ephemeral-env":
 					t.Setenv("LEGATO_TASK_EPHEMERAL", "1")
 				case "conductor":

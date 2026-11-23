@@ -64,6 +64,18 @@ Version 1 executes steps in declaration order and supports these executors. Lega
 
 - `github.pr.prepare`: deterministically fetch an exact GitHub PR head, create a Yggdrasil worktree, and link the workflow task to the PR.
 - `agent.run`: launch a workflow-owned Legato agent with an explicit assignment and completion contract. Set `with.name` to customize the agent's visible name; workflow input references are supported. The agent is removed after completing its step, unless `with.keep_agent: true`: then its outputs are collected and the run moves on as usual, but the agent keeps running on the workflow task, for you to go on talking to. Follow it with a step with `trigger: agent_ended` to end the run (and remove a worktree) when that agent ends. Set `with.engram` to start the agent as one of your [engrams](/legato/agent-tools/engrams/), such as `engram: mneme` or `engram: ${{ workflow.inputs.engram }}`; without it the agent has none. A step whose engram engram does not know fails before the agent starts. Workflows do not use or change the engrams bound to a repository.
+- `agent.run` works in `with.working_dir`, in a fresh clone of `with.repo`, or in a scratch folder. A folder is for persistent work: a repository or project the agent changes, which outlives the run. Work that is about no folder, such as a daily digest, a summary or a check of a dashboard, sets `with.scratch: true` instead. Each attempt then works in a new, empty folder of its own (`<data_dir>/workflow-scratch/<attempt>`), which the sandbox shows the agent, as it shows a job clone. Legato removes the folder when the step completes. A step that fails, or keeps its agent, keeps its folder for a look, and Legato removes it a week later once nothing works in it. A retry gets a new folder. Nothing left in the folder is kept, so the step's result goes in its declared outputs: an artifact output copies a file out before the folder goes, and the agent's brief says so. `scratch` cannot be given with `working_dir` or `repo`.
+
+  ```yaml
+  - id: check-news
+    title: Write the AI news digest
+    type: agent.run
+    with:
+      prompt: Write a short digest of today's AI news.
+      scratch: true
+    outputs:
+      digest: {type: string}
+  ```
 - `agent.dispatch`: send a prompt to the selected task's ordinary durable agent, or spawn that task-linked agent in `with.working_dir` (where agents start by default when empty) when none is active. With a macro, `with.repo` and `with.pr_number` name the pull request in the message. The workflow does not own or tear down this session. Outputs include `agent_session_id`, `created`, and `working_dir`.
 - Both `agent.run` and `agent.dispatch` take what to ask either as `with.prompt` or as `with.macro`, the name of one of your [macros](/legato/using/agents/#macros), not both. A macro is read when the step runs, so an edit applies to the next run. A step that names no `agent` or `tier` uses the macro's. `agent.dispatch` sends it as a macro started on the task would be: the task's key and title, then the macro's text.
 
@@ -127,6 +139,7 @@ A run's page says the same at the top, and under it what you can do now:
 - a step that waits for the agent to end: **Open agent**, and **End now** to run the step without waiting
 - a failed step: its error and **Retry step**
 - a finished run: the files it produced, with **Preview** and **Download**, and the values its agents reported
+- a finished run whose agent step finished with no output: **No output**, and what became of the agent. An agent step's conversation is not kept: when the step completes, Legato removes its agent, and anything it wrote in chat goes with it, unless `keep_agent` kept it. The run's row in **Runs** says so quietly too, after how long it took, and `legato workflow show` gives it as `output_warning` on the step and the run.
 
 Above the graph, **Needs you** gathers everything the run waits on you for, drawn as in the [needs-you rail](/legato/using/attention/), each with its action:
 
@@ -167,7 +180,7 @@ Select a trigger to see its settings in the panel beside the graph: whether it a
 
 **New workflow** on the **Workflows** tab starts from one of four places: a template, **Blank** (nothing yet: add the first step), **Paste YAML** (it says what you pasted is, such as "Starts when a card enters Review · asks for 2 inputs · 3 steps", and marks its problems), or **Copy one of yours**. Each opens the editor, unsaved. Pick the folder it goes in (yours, a repository's checkout or the project's) and press **Create**. **Edit** on a workflow's page opens its file in the same editor, as the file says it, comments and all. **Save** writes exactly what you typed.
 
-The editor has two sides, **Visual** and **YAML**, and you can switch between them at any time without losing work: both edit the same file.
+The editor has two sides, **Visual** and **YAML**, and you can switch between them at any time without losing work: both edit the same file. The YAML is coloured in your theme's own syntax colours (Settings › Appearance), so keys, strings and comments read on a dark theme as well as a light one.
 
 - **Visual** shows the workflow as an outline, with the part you choose open beside it.
   - The outline reads from top to bottom: **When** (running by hand, which every workflow can, then its triggers, a paused one marked), **Asks for** (its inputs), **Then** (its steps in order) and **About** (its name, title, description, run title, and what the web UI opens after a run starts).
@@ -577,6 +590,8 @@ LEGATO_WORKFLOW_ATTEMPT_ID
 
 `LEGATO_TASK_ID` is the generated workflow execution task ID and is also printed in the assignment completion contract.
 
+The step's brief ends with a completion contract: the run, step and attempt, the outputs the step declares, and where its result must go. What the agent writes in its conversation is not kept once Legato removes it, so the result belongs in the declared outputs. When a step declares no outputs, the contract says that nothing it writes in the conversation is kept, so that it does not report a result as "delivered in chat". `legato workflow validate` and the editor warn of an `agent.run` step that declares no outputs and has no `keep_agent`. It is a warning, not an error: a step whose work is its side effects (a commit, a note, a moved card) needs no output.
+
 Complete a step using declared output names:
 
 ```bash
@@ -592,7 +607,7 @@ Report an unrecoverable failure:
 legato workflow step fail "review tool unavailable" --json
 ```
 
-An agent that exits, including one whose pane is back at a shell, fails its unfinished step with **agent exited before step completion**. Use **Retry step** to try again. Exit has not succeeded: only `legato workflow step complete` completes a step. Missing or invalid outputs leave the step incomplete or failed. Learn's interview follows the same rule through `legato learn reflection submit`; see [Legato Learn](/legato/using/learn/). The command only saves the outputs. The Legato that runs the board or the web UI then removes the step's agent (unless `keep_agent` is set) and only then starts the next step, so two `agent.run` steps in a row work. That happens at once, or within 30 seconds if Legato missed the message. A step completed while no Legato ran moves on when one starts. If a completion is interrupted and the agent runs the command again, a file that has not changed is accepted again, and a file that changed is refused.
+An agent that exits, including one whose pane is back at a shell, fails its unfinished step with **agent exited before step completion**. Use **Retry step** to try again. An agent that never connects to Legato (its agent tool started, but the session's bridge to Legato did not come up within 30 seconds, so it could not be given its prompt) fails its step too, with **the agent never connected to Legato**, the reason and the name of its terminal, instead of waiting forever. Its prompt is dropped with the step. Exit has not succeeded: only `legato workflow step complete` completes a step. Missing or invalid outputs leave the step incomplete or failed. Learn's interview follows the same rule through `legato learn reflection submit`; see [Legato Learn](/legato/using/learn/). The command only saves the outputs. The Legato that runs the board or the web UI then removes the step's agent (unless `keep_agent` is set) and only then starts the next step, so two `agent.run` steps in a row work. That happens at once, or within 30 seconds if Legato missed the message. A step completed while no Legato ran moves on when one starts. If a completion is interrupted and the agent runs the command again, a file that has not changed is accepted again, and a file that changed is refused.
 
 ## Artifacts and security
 

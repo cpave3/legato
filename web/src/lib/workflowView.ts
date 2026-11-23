@@ -60,6 +60,7 @@ export function stepPosition(run: RunLike, steps: StepLike[]): { number: number;
 
 export interface RunSummaryInput extends RunLike {
   attention_reason?: string
+  output_warning?: string
   error?: string
   started_at?: string
   completed_at?: string
@@ -99,7 +100,9 @@ export function runSummary(run: RunSummaryInput): { text: string; tone?: Tone } 
   switch (run.status) {
     case "succeeded": {
       const took = run.started_at && run.completed_at ? elapsed(run.started_at, run.completed_at) : ""
-      return { text: took ? `Took ${took}` : "Done" }
+      const done = took ? `Took ${took}` : "Done"
+      // An agent step that finished with no output, said quietly (LEG-532).
+      return { text: run.output_warning ? `${done} · ${run.output_warning}` : done }
     }
     case "failed": {
       const failed = steps.find(step => step.status === "failed")

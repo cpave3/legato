@@ -75,6 +75,11 @@ describe("runSummary", () => {
     expect(runSummary({ status: "succeeded", started_at: "2026-11-13T04:30:31Z", completed_at: "2026-11-13T04:34:43Z", steps: [] }).text).toBe("Took 4m 12s")
     expect(runSummary({ status: "cancelled", error: "cancelled by user", steps: [] })).toEqual({ text: "cancelled by user", tone: undefined })
   })
+
+  it("says quietly when an agent step finished with no output", () => {
+    expect(runSummary({ status: "succeeded", started_at: "2026-11-13T04:30:31Z", completed_at: "2026-11-13T04:34:43Z", output_warning: "“Write the digest” finished with no output", steps: [] }))
+      .toEqual({ text: "Took 4m 12s · “Write the digest” finished with no output" })
+  })
 })
 
 describe("stepIntent", () => {
