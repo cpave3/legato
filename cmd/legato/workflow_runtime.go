@@ -113,6 +113,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		agentRun,
 		agentDispatch,
 		service.NewAgentStopExecutor(runner),
+		agentCompactExecutor(agentSvc),
 		service.NewChimeraSessionRemoveExecutor(db, chimera.NewSessionRemover("chimera")),
 	}
 	var repoCache service.RepoCache
@@ -240,4 +241,25 @@ func commandAgentService(cfg *config.Config, db *store.Store, workDir string, pr
 	giveAgentsEngrams(agentSvc, db)
 	giveAgentsWorkStages(agentSvc, db, bus)
 	return agentSvc, repos, nil
+}
+
+// agentCompactExecutor is agent.compact, compacting through the agent
+// service; without one that compacts, its steps fail with the reason.
+func agentCompactExecutor(agents service.AgentService) *service.AgentCompactExecutor {
+	compactor, _ := agents.(service.AgentCompactor)
+	return service.NewAgentCompactExecutor(compactor)
+}
+
+// compactWaits has the agent.compact steps of workflows told of their
+// agents' compactions by the approval watcher, and checked every
+// service.CompactCheckEvery. It returns a function that stops it.
+func (rt *approvalRuntime) compactWaits(workflows *service.WorkflowService) func() {
+	if workflows == nil {
+		return func() {}
+	}
+	var events service.CompactionEvents
+	if rt != nil && rt.watcher != nil {
+		events = rt.watcher
+	}
+	return workflows.StartCompactWaits(context.Background(), events, service.CompactCheckEvery)
 }

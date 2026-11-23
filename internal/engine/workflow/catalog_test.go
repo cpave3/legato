@@ -11,7 +11,7 @@ import (
 // The step types schema v1 accepts. A new executor is added to the catalog,
 // and here.
 var acceptedStepTypes = []string{
-	"agent.dispatch", "agent.interview", "agent.run", "agent.stop",
+	"agent.compact", "agent.dispatch", "agent.interview", "agent.run", "agent.stop",
 	"burnlite.task.close", "chimera.session.remove", "file.remove",
 	"github.pr.prepare", "github.pr.review_passes", "github.pr.wait",
 	"learning.packet.prepare", "learning.proposals.submit",

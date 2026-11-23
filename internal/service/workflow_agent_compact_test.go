@@ -1,0 +1,282 @@
+package service
+
+import (
+	"context"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/cpave3/legato/internal/engine/chimera"
+	"github.com/cpave3/legato/internal/engine/store"
+	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
+)
+
+// fakeCompactor is the agents' tools as the compact step reaches them: each
+// ask is answered with the next of answers, the last one repeating.
+type fakeCompactor struct {
+	mu      sync.Mutex
+	answers []error
+	asks    []compactAsk
+}
+
+type compactAsk struct{ taskID, instructions string }
+
+func (f *fakeCompactor) CompactAgent(_ context.Context, taskID, instructions string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.asks = append(f.asks, compactAsk{taskID, instructions})
+	if len(f.answers) == 0 {
+		return nil
+	}
+	answer := f.answers[0]
+	if len(f.answers) > 1 {
+		f.answers = f.answers[1:]
+	}
+	return answer
+}
+
+func (f *fakeCompactor) answer(errs ...error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.answers = errs
+}
+
+func (f *fakeCompactor) asked() []compactAsk {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]compactAsk(nil), f.asks...)
+}
+
+const compactWorkflow = `
+schema_version: 1
+name: compact
+title: Compact
+steps:
+ - id: compact
+   title: Compact the agent
+   type: agent.compact
+   with: WITH
+ - id: after
+   title: After
+   type: task.context
+   with: {task: "${{ workflow.task }}"}
+`
+
+type compactRun struct {
+	workflows *WorkflowService
+	compactor *fakeCompactor
+	run       *store.WorkflowRunView
+	now       *time.Time
+}
+
+func startCompact(t *testing.T, with string, answers ...error) compactRun {
+	t.Helper()
+	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	compactor := &fakeCompactor{answers: answers}
+	now := time.Now().UTC()
+	executor := NewAgentCompactExecutor(compactor)
+	run := compactRun{compactor: compactor, now: &now}
+	executor.SetClock(func() time.Time { return *run.now })
+	run.workflows = NewWorkflowService(db, []WorkflowExecutor{executor, NewTaskContextExecutor(NewBoardService(db, nil))})
+	def, err := workflowengine.Parse("compact.yaml", []byte(strings.ReplaceAll(compactWorkflow, "WITH", with)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.run, err = run.workflows.Start(context.Background(), def, nil); err != nil {
+		t.Fatal(err)
+	}
+	return run
+}
+
+// event is what the agent of the run's task said.
+func (r compactRun) event(t *testing.T, eventType, data string) {
+	t.Helper()
+	r.workflows.ObserveCompaction(context.Background(), WatchedAgent{TaskID: r.run.Run.TaskID, Slot: store.SlotMain},
+		chimera.EventEnvelope{Type: eventType, Data: []byte(data)})
+}
+
+func TestACompactStepCompactsTheAgentAndWaitsForTheCompactionToFinish(t *testing.T) {
+	run := startCompact(t, `{task: "${{ workflow.task }}", instructions: "Keep the API decisions"}`)
+	asks := run.compactor.asked()
+	if len(asks) != 1 || asks[0].taskID != run.run.Run.TaskID || asks[0].instructions != "Keep the API decisions" {
+		t.Fatalf("asks = %+v; want the run task's agent asked once with the focus", asks)
+	}
+	if status, _ := stepStatus(t, run.workflows, run.run.Run.ID, "compact"); status != WorkflowStepWaiting {
+		t.Fatalf("step = %s; want it waiting for the compaction to finish", status)
+	}
+	run.event(t, "compaction_started", `{"type":"compaction_started","reason":"manual"}`)
+	if status, _ := stepStatus(t, run.workflows, run.run.Run.ID, "compact"); status != WorkflowStepWaiting {
+		t.Fatalf("step = %s after compaction_started", status)
+	}
+	run.event(t, "compaction_finished", `{"type":"compaction_finished","tokensBefore":66815,"tokensAfter":48945}`)
+	status, after := stepStatus(t, run.workflows, run.run.Run.ID, "compact")
+	if status != "succeeded" || after.Run.Status != "succeeded" {
+		t.Fatalf("step = %s, run = %s; want the compaction to complete the step and the run", status, after.Run.Status)
+	}
+	outputs := stepOutputs(t, after, "compact")
+	if outputs["tokens_before"] != float64(66815) || outputs["tokens_after"] != float64(48945) {
+		t.Fatalf("outputs = %v; want the sizes the agent reported", outputs)
+	}
+}
+
+func TestACompactStepWaitsForTheAgentsTurnToEndBeforeCompacting(t *testing.T) {
+	// The agent completed the step before inside its turn, which still runs.
+	run := startCompact(t, `{task: "${{ workflow.task }}"}`, ErrAgentWorking, ErrAgentWorking, nil)
+	ctx := context.Background()
+	if status, _ := stepStatus(t, run.workflows, run.run.Run.ID, "compact"); status != WorkflowStepWaiting {
+		t.Fatalf("step = %s; want it waiting for the agent's turn to end", status)
+	}
+	// A failure of a compaction the step did not ask for is not its own.
+	run.event(t, "compaction_failed", `{"type":"compaction_failed","error":"a hook vetoed it"}`)
+	if status, _ := stepStatus(t, run.workflows, run.run.Run.ID, "compact"); status != WorkflowStepWaiting {
+		t.Fatalf("step = %s after a compaction it did not ask for failed", status)
+	}
+	for range 2 {
+		if err := run.workflows.CheckCompactions(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if asks := run.compactor.asked(); len(asks) != 3 {
+		t.Fatalf("asked %d times; want the agent asked at the start and at each check until it took it", len(asks))
+	}
+	// Asked and compacting: checks ask no more.
+	if err := run.workflows.CheckCompactions(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if asks := run.compactor.asked(); len(asks) != 3 {
+		t.Fatalf("asked %d times; want no ask once the agent took one", len(asks))
+	}
+	run.event(t, "compaction_finished", `{"type":"compaction_finished"}`)
+	status, after := stepStatus(t, run.workflows, run.run.Run.ID, "compact")
+	if status != "succeeded" || after.Run.Status != "succeeded" {
+		t.Fatalf("step = %s, run = %s", status, after.Run.Status)
+	}
+	if outputs := stepOutputs(t, after, "compact"); len(outputs) != 0 {
+		t.Fatalf("outputs = %v; want none when the tool reported no sizes", outputs)
+	}
+}
+
+// stepError is a step's recorded error.
+func stepError(t *testing.T, workflows *WorkflowService, runID, step string) string {
+	t.Helper()
+	_, view := stepStatus(t, workflows, runID, step)
+	for _, s := range view.Steps {
+		if s.StepID == step {
+			return s.Error
+		}
+	}
+	return ""
+}
+
+func TestACompactStepFailsWhenTheAgentIsStillWorkingAtTheDeadline(t *testing.T) {
+	run := startCompact(t, `{task: "${{ workflow.task }}"}`, ErrAgentWorking)
+	ctx := context.Background()
+	*run.now = run.now.Add(CompactStepLimit - time.Minute)
+	if err := run.workflows.CheckCompactions(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := stepStatus(t, run.workflows, run.run.Run.ID, "compact"); status != WorkflowStepWaiting {
+		t.Fatalf("step = %s before the deadline", status)
+	}
+	*run.now = run.now.Add(2 * time.Minute)
+	if err := run.workflows.CheckCompactions(ctx); err != nil {
+		t.Fatal(err)
+	}
+	status, after := stepStatus(t, run.workflows, run.run.Run.ID, "compact")
+	if status != "failed" || after.Run.Status != "failed" {
+		t.Fatalf("step = %s, run = %s; want both failed at the deadline", status, after.Run.Status)
+	}
+	if got := stepError(t, run.workflows, run.run.Run.ID, "compact"); got != "The agent was still working 15 minutes after the step started, so it was not compacted." {
+		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestACompactStepFailsWhenItSeesNoEndToTheCompactionByTheDeadline(t *testing.T) {
+	run := startCompact(t, `{task: "${{ workflow.task }}"}`)
+	*run.now = run.now.Add(CompactStepLimit + time.Minute)
+	if err := run.workflows.CheckCompactions(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := stepStatus(t, run.workflows, run.run.Run.ID, "compact"); status != "failed" {
+		t.Fatalf("step = %s; want it failed at the deadline", status)
+	}
+	if got := stepError(t, run.workflows, run.run.Run.ID, "compact"); got != "Legato saw no end to the compaction within 15 minutes of the step starting. Retry the step to compact the agent again." {
+		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestACompactStepFailsInTheRefusalsWordsWhenTheAgentCannotBeCompacted(t *testing.T) {
+	refusal := refuseCompact(ErrCompactFocusUnsupported, "Codex compacts with its own prompt only and takes no focus instructions. Compact without them.")
+	run := startCompact(t, `{task: "${{ workflow.task }}", instructions: "Keep the plan"}`, refusal)
+	workflows, view := run.workflows, run.run
+	if status, _ := stepStatus(t, workflows, view.Run.ID, "compact"); status != "failed" {
+		t.Fatalf("step = %s; want it failed at once", status)
+	}
+	if got := stepError(t, workflows, view.Run.ID, "compact"); got != refusal.Error() {
+		t.Fatalf("error = %q; want the refusal's words", got)
+	}
+}
+
+func TestACompactStepFailsWhenItsAgentEndsBeforeItCouldBeCompacted(t *testing.T) {
+	run := startCompact(t, `{task: "${{ workflow.task }}"}`, ErrAgentWorking, store.ErrNotFound)
+	if err := run.workflows.CheckCompactions(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := stepStatus(t, run.workflows, run.run.Run.ID, "compact"); status != "failed" {
+		t.Fatalf("step = %s; want it failed once the agent is gone", status)
+	}
+	want := "task " + run.run.Run.TaskID + " has no agent running to compact"
+	if got := stepError(t, run.workflows, run.run.Run.ID, "compact"); got != want {
+		t.Fatalf("error = %q; want %q", got, want)
+	}
+}
+
+func TestACompactStepFailsWhenTheCompactionItAskedForFails(t *testing.T) {
+	run := startCompact(t, `{task: "${{ workflow.task }}"}`)
+	run.event(t, "compaction_failed", `{"type":"compaction_failed","error":"a PreCompact hook vetoed it"}`)
+	if status, _ := stepStatus(t, run.workflows, run.run.Run.ID, "compact"); status != "failed" {
+		t.Fatalf("step = %s; want it failed", status)
+	}
+	if got := stepError(t, run.workflows, run.run.Run.ID, "compact"); got != "The compaction failed: a PreCompact hook vetoed it" {
+		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestTheCompactionsAnAgentsStreamReportsReachItsCompactStep(t *testing.T) {
+	// The watcher follows task-1's agent, as it does every native agent.
+	agent := newWatcherFixture(t)
+	agent.start(t)
+	// The agent is at its turn when the step starts, and idle after.
+	run := startCompact(t, `{task: task-1}`, ErrAgentWorking, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stop := run.workflows.StartCompactWaits(ctx, agent.watcher, time.Millisecond)
+	defer stop()
+	deadline := time.Now().Add(2 * time.Second)
+	for len(run.compactor.asked()) < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("asked %d times; want the wait loop to ask again once the turn ends", len(run.compactor.asked()))
+		}
+		time.Sleep(time.Millisecond)
+	}
+	agent.stream.emit("compaction_finished", map[string]any{"tokensBefore": 1200, "tokensAfter": 300})
+	for {
+		status, after := stepStatus(t, run.workflows, run.run.Run.ID, "compact")
+		if status == "succeeded" {
+			if outputs := stepOutputs(t, after, "compact"); outputs["tokens_after"] != float64(300) {
+				t.Fatalf("outputs = %v", outputs)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("step = %s; want the agent's compaction_finished to complete it", status)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
