@@ -18,6 +18,10 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 /** summaryLine is "Starts when a card enters Review · asks for 2 inputs ·
  * 3 steps"; empty for text that is not a workflow. */
 export function summaryLine(text: string): string {
+  try { return summaryOf(text) } catch { return "" }
+}
+
+function summaryOf(text: string): string {
   const values = readable(text)
   if (!values) return ""
   const triggers = Object.entries(triggersOf(values))
@@ -31,6 +35,10 @@ export function summaryLine(text: string): string {
 
 /** startLines are a template card's lines. */
 export function startLines(text: string): { when: string; asks: string; does: string } {
+  try { return linesOf(text) } catch { return { when: "", asks: "", does: "" } }
+}
+
+function linesOf(text: string): { when: string; asks: string; does: string } {
   const values = readable(text) ?? {}
   const triggers = Object.entries(triggersOf(values))
   const inputs = Object.keys(inputsOf(values))

@@ -146,6 +146,8 @@ it("says Saved · paused in the editor a new workflow with a paused trigger land
       <Route path="/workflows/:name/edit" element={<WorkflowEditPage mode="edit" />} />
     </Routes>
   </MemoryRouter></QueryClientProvider>)
+  // A new workflow starts on the start page: Blank opens the editor.
+  fireEvent.click(await screen.findByRole("button", { name: /^Blank/ }))
   const editor = await screen.findByRole("textbox", { name: "Workflow YAML" })
   fireEvent.change(editor, { target: { value: fileText } })
   const create = screen.getByRole("button", { name: "Create" })

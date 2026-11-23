@@ -401,7 +401,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
       <h1 className="text-xl font-semibold">New workflow</h1>
       {draft && <section role="alertdialog" aria-label="Unsaved changes" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm">
         <p className="flex-1">You left a new workflow with unsaved changes. They were kept in this browser.</p>
-        <Button size="sm" variant="outline" onClick={() => { start(draft.text); setDraft(null) }}>Restore them</Button>
+        <Button size="sm" variant="outline" onClick={() => { history.reset(draft.text); setStartText(null); setDraft(null) }}>Restore them</Button>
         <Button size="sm" variant="ghost" onClick={() => { writeDraft(key, null); setDraft(null) }}>Throw them away</Button>
       </section>}
       <LazyWorkflowStart templates={templates.data?.templates ?? (templates.isError ? [] : null)} yours={(workflows.data?.definitions ?? []).map(d => ({ name: d.name, title: d.title }))} taken={taken}

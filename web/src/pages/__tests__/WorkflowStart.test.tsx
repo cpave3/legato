@@ -143,3 +143,22 @@ it("is the empty Workflows tab, and what is chosen there opens the editor", asyn
   fireEvent.click(within(start).getByRole("button", { name: "Use this template" }))
   await waitFor(async () => expect(await editorText()).toBe(triage))
 })
+
+// Review fixes (LEG-514).
+it("keeps a restored new workflow unsaved, its draft kept", async () => {
+  localStorage.setItem("legato:workflow-draft::new", JSON.stringify({ text: triage, digest: "" }))
+  renderNew()
+  fireEvent.click(within(await screen.findByRole("alertdialog", { name: "Unsaved changes" })).getByRole("button", { name: "Restore them" }))
+  expect(await editorText()).toBe(triage)
+  await waitFor(() => expect(JSON.parse(localStorage.getItem("legato:workflow-draft::new") ?? "null")?.text).toBe(triage))
+  const unload = () => { const e = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented }
+  expect(unload()).toBe(true)
+})
+
+it("sums up pasted YAML with a malformed trigger without failing", async () => {
+  renderNew()
+  fireEvent.click(await screen.findByRole("button", { name: /^Paste YAML/ }))
+  fireEvent.change(screen.getByRole("textbox", { name: "Pasted YAML" }), { target: { value: "schema_version: 1\nname: x\ntitle: X\non:\n  task.entered_column:\n    column: Review\n    conditions:\n      all: oops\nsteps: []\n" } })
+  expect(screen.getByRole("status", { name: "What it is" }).textContent).toMatch(/card enters Review/)
+  expect(screen.getByRole("textbox", { name: "Pasted YAML" })).toBeTruthy()
+})

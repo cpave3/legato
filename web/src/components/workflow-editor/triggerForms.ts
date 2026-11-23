@@ -75,7 +75,8 @@ const valueOf = (value: unknown) => Array.isArray(value) ? value.map(String).joi
 // is high", all as " · ", any as " or ", not as "not (…)".
 function conditionSentence(condition: Condition | undefined): SentencePart[] {
   if (!condition || typeof condition !== "object") return []
-  const join = (items: Condition[] | undefined, between: string) => (items ?? []).map(conditionSentence).filter(p => p.length > 0).flatMap((parts, i) => i === 0 ? parts : [{ text: between }, ...parts])
+  // A group that is not a list is the check's to report; here it says nothing.
+  const join = (items: Condition[] | undefined, between: string) => (Array.isArray(items) ? items : []).map(conditionSentence).filter(p => p.length > 0).flatMap((parts, i) => i === 0 ? parts : [{ text: between }, ...parts])
   if (condition.all) return join(condition.all, " · ")
   if (condition.any) return join(condition.any, " or ")
   if (condition.not) return [{ text: "not (" }, ...conditionSentence(condition.not), { text: ")" }]
