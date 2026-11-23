@@ -126,9 +126,11 @@ A replayed stream (a new watch reads from the start of the bridge's ring) does n
 | findings delivered to the author (`deliver`, not when posting sets `waiting_for_author`) | the loop's author task (back) | Implementing | `fixing review feedback · pass N` |
 | the reviewer submits (`Submit`) | the reviewer slot | Finished | `pass N submitted` |
 | `EventPRChangesRequested` (a person's review, not Legato's Apps) | the PR's task (back) | Implementing | `changes requested on PR #N` |
-| a tracked branch's PR found open and not a draft (`setBranchPR`, refresh or discovery) | the task (back: a new PR after finished work is new work) | Reviewing | `PR #N open` |
+| a tracked branch's PR found open and not a draft (`setBranchPR`, refresh or discovery), opened after the task's running agent started | the task (back: a new PR after finished work is new work) | Reviewing | `PR #N open` |
 | a draft PR marked ready | the task | Reviewing | `PR #N ready for review` |
 | a PR merged or closed, leaving every tracked branch that has a PR merged or closed with one merged | the task | Finished | `every PR merged` |
+
+**A PR there when tracking begins is no edge** (LEG-519). A PR newly tracked on a branch (found by discovery, by branch, head commit or ticket key, or after a push or `gh pr create`) that GitHub says was opened (`created_at`, kept as `PRMeta.CreatedAt`) before the task's running main-slot agent started moves no stage, open or merged (`prTrackingService.openedBeforeAgent` in `publishPREdge`): an agent started in a folder whose branch already has an open PR stays Exploring, and one whose branch's PR already merged does not start Finished. Only what happens while the agent runs moves it: a PR opened after it started, a draft marked ready, or a push by its execution to a branch whose PR is open (**Pushes** below). With no running agent, or a PR fetched before `created_at` was kept, the first sighting still counts. An ephemeral task links no PRs at all ([PR tracking](pr-tracking.md) § GitHub client and synchronization), so its PRs move no stage: its agent reports Reviewing itself.
 
 The CLI's plan broadcasts (`answer`, `completed`, `withdrawn`) name their task. A review run's author task is the loop's `AuthorTaskID` (`legato.review_loop.author_task`, or the handoff's card), not the run task; a loop a person authors has none and moves only the reviewer slot. A tour finding and a follow-up plan request are not milestones yet.
 

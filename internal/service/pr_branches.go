@@ -249,8 +249,12 @@ func (p *prTrackingService) trackContextBranches(ctx context.Context, taskID str
 
 // syncTask brings a task's tracked branches and their PRs up to date, as
 // mode says, and the single PR field after them. It reports whether
-// anything a person sees changed.
+// anything a person sees changed. An ephemeral task links no PRs (LEG-519):
+// polls never refresh it, and its working folder's branch is not its work.
 func (p *prTrackingService) syncTask(ctx context.Context, task *store.Task, cc *store.CodeContext, mode syncMode, listings *prListings) (bool, error) {
+	if task.Ephemeral {
+		return false, nil
+	}
 	taskID := task.ID
 	changed := false
 	var errs []error
@@ -490,16 +494,21 @@ func (p *prTrackingService) setBranchPR(ctx context.Context, row store.TaskBranc
 // from before to after, if it is one: opened ready for review (a new PR,
 // which may follow finished work), a draft marked ready, or merged or
 // closed leaving every PR of the task merged or closed with one merged.
+// A PR newly tracked that opened before the task's running agent started
+// is no edge, open or merged (LEG-519): it was there when tracking began.
 func (p *prTrackingService) publishPREdge(ctx context.Context, taskID string, before, after *store.PRMeta) {
 	if p.bus == nil || after == nil || after.PRNumber == 0 {
 		return
 	}
 	newPR := before == nil || before.PRNumber != after.PRNumber
+	if newPR && p.openedBeforeAgent(ctx, taskID, after) {
+		return
+	}
 	switch {
 	case after.State == "OPEN" && !after.IsDraft && newPR:
 		publishMilestone(p.bus, events.WorkMilestonePayload{TaskID: taskID, Stage: store.WorkStageReviewing,
 			Reason: fmt.Sprintf("PR #%d open", after.PRNumber), Back: true})
-	case after.State == "OPEN" && !after.IsDraft && before.State == "OPEN" && before.IsDraft:
+	case after.State == "OPEN" && !after.IsDraft && !newPR && before.State == "OPEN" && before.IsDraft:
 		publishMilestone(p.bus, events.WorkMilestonePayload{TaskID: taskID, Stage: store.WorkStageReviewing,
 			Reason: fmt.Sprintf("PR #%d ready for review", after.PRNumber)})
 	case (after.State == "MERGED" || after.State == "CLOSED") && (newPR || before.State != after.State):
@@ -507,6 +516,22 @@ func (p *prTrackingService) publishPREdge(ctx context.Context, taskID string, be
 			publishMilestone(p.bus, events.WorkMilestonePayload{TaskID: taskID, Stage: store.WorkStageFinished, Reason: "every PR merged"})
 		}
 	}
+}
+
+// openedBeforeAgent says whether a PR was opened before the task's running
+// main-slot agent started. Without a running agent or a known opening time
+// it says false, so the PR counts as opened now.
+func (p *prTrackingService) openedBeforeAgent(ctx context.Context, taskID string, pr *store.PRMeta) bool {
+	created := parseAddedAt(pr.CreatedAt)
+	if created.IsZero() {
+		return false
+	}
+	session, err := p.store.GetAgentSessionInSlot(ctx, taskID, store.SlotMain)
+	if err != nil {
+		return false
+	}
+	started := parseAddedAt(session.StartedAt)
+	return !started.IsZero() && created.Before(started)
 }
 
 // everyPRMerged says whether each of a task's branches that has a PR has
@@ -664,6 +689,7 @@ func prFromStatus(status *github.PRStatus, method string, pinned bool) *store.PR
 		IsDraft: status.IsDraft, ReviewDecision: status.ReviewDecision,
 		CheckStatus: status.CheckStatus, CommentCount: status.CommentCount, Base: status.BaseBranch,
 		Pinned: pinned, MatchMethod: method, SyncOutcome: "linked", Head: status.HeadSHA,
+		CreatedAt: status.CreatedAt,
 	}
 }
 
