@@ -747,7 +747,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "agent"
+            "kind": "agent",
+            "label": "Agent tool",
+            "order": 4
           }
         },
         "macro": {
@@ -756,8 +758,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "macro"
+            "kind": "macro",
+            "label": "Macro",
+            "order": 3
           }
         },
         "pr_number": {
@@ -774,7 +779,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "integer"
+            "kind": "integer",
+            "label": "Pull request number",
+            "order": 8
           }
         },
         "prompt": {
@@ -782,8 +789,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "text"
+            "kind": "text",
+            "label": "What it should do",
+            "order": 2
           }
         },
         "repo": {
@@ -792,7 +802,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "repository"
+            "kind": "repository",
+            "label": "Pull request's repository",
+            "order": 7
           }
         },
         "task": {
@@ -801,8 +813,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "task"
+            "kind": "task",
+            "label": "Task",
+            "order": 1
           }
         },
         "tier": {
@@ -811,7 +826,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "tier"
+            "kind": "tier",
+            "label": "Tier",
+            "order": 5
           }
         },
         "working_dir": {
@@ -820,7 +837,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "path"
+            "kind": "path",
+            "label": "A new agent starts in",
+            "order": 6
           }
         }
       },
@@ -848,6 +867,10 @@
             "name": "working_dir",
             "type": "string"
           }
+        ],
+        "summary": [
+          "macro",
+          "prompt"
         ],
         "type": "agent.dispatch"
       }
@@ -927,7 +950,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "agent"
+            "kind": "agent",
+            "label": "Agent tool",
+            "order": 5
           }
         },
         "branch": {
@@ -936,7 +961,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "string"
+            "kind": "string",
+            "label": "Branch to work on",
+            "order": 9
           }
         },
         "engram": {
@@ -945,7 +972,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "string"
+            "kind": "string",
+            "label": "Engram",
+            "order": 10
           }
         },
         "keep_agent": {
@@ -954,7 +983,9 @@
           "type": "boolean",
           "x-legato": {
             "expressions": false,
-            "kind": "boolean"
+            "kind": "boolean",
+            "label": "Keep the agent running",
+            "order": 11
           }
         },
         "macro": {
@@ -963,8 +994,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "macro"
+            "kind": "macro",
+            "label": "Macro",
+            "order": 2
           }
         },
         "name": {
@@ -973,7 +1007,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "string"
+            "kind": "string",
+            "label": "Agent's name",
+            "order": 7
           }
         },
         "pr_number": {
@@ -990,7 +1026,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "integer"
+            "kind": "integer",
+            "label": "Pull request number",
+            "order": 12
           }
         },
         "prompt": {
@@ -998,8 +1036,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "text"
+            "kind": "text",
+            "label": "What it should do",
+            "order": 1
           }
         },
         "ref": {
@@ -1008,7 +1049,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "string"
+            "kind": "string",
+            "label": "Clone starts from",
+            "order": 8
           }
         },
         "repo": {
@@ -1016,8 +1059,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "repository"
+            "kind": "repository",
+            "label": "Or a clone of",
+            "order": 4
           }
         },
         "tier": {
@@ -1026,7 +1072,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "tier"
+            "kind": "tier",
+            "label": "Tier",
+            "order": 6
           }
         },
         "working_dir": {
@@ -1034,8 +1082,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "path"
+            "kind": "path",
+            "label": "Works in",
+            "order": 3
           }
         }
       },
@@ -1045,6 +1096,10 @@
         "declared_outputs": true,
         "internal": false,
         "outputs": [],
+        "summary": [
+          "macro",
+          "prompt"
+        ],
         "type": "agent.run"
       }
     },
@@ -1057,8 +1112,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "task_or_id"
+            "kind": "task_or_id",
+            "label": "Task",
+            "order": 1
           }
         }
       },
@@ -1071,6 +1129,9 @@
         "declared_outputs": false,
         "internal": false,
         "outputs": [],
+        "summary": [
+          "task"
+        ],
         "type": "agent.stop"
       }
     },
@@ -1084,8 +1145,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "task"
+            "kind": "task",
+            "label": "Task",
+            "order": 1
           }
         }
       },
@@ -1109,6 +1173,9 @@
             "type": "boolean"
           }
         ],
+        "summary": [
+          "task"
+        ],
         "type": "chimera.session.remove"
       }
     },
@@ -1121,8 +1188,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
             "kind": "path",
+            "label": "File",
+            "order": 1,
             "required_at_run": true
           }
         },
@@ -1131,8 +1201,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
             "kind": "path",
+            "label": "In directory",
+            "order": 2,
             "required_at_run": true
           }
         }
@@ -1149,6 +1222,9 @@
             "type": "boolean"
           }
         ],
+        "summary": [
+          "path"
+        ],
         "type": "file.remove"
       }
     },
@@ -1163,7 +1239,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "string"
+            "kind": "string",
+            "label": "Merges into",
+            "order": 4
           }
         },
         "number": {
@@ -1179,8 +1257,11 @@
           "description": "The pull request's number",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
             "kind": "integer",
+            "label": "Pull request number",
+            "order": 2,
             "required_at_run": true
           }
         },
@@ -1189,8 +1270,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
             "kind": "path",
+            "label": "Make the worktree from",
+            "order": 3,
             "required_at_run": true
           }
         },
@@ -1199,8 +1283,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
             "kind": "repository",
+            "label": "Repository",
+            "order": 1,
             "required_at_run": true
           }
         }
@@ -1237,6 +1324,9 @@
             "type": "json"
           }
         ],
+        "summary": [
+          "repo"
+        ],
         "type": "github.pr.prepare"
       }
     },
@@ -1258,8 +1348,11 @@
           "description": "Have the agent of the board task the pull request belongs to fix and answer the findings",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "boolean"
+            "kind": "boolean",
+            "label": "The author's agent fixes findings",
+            "order": 3
           }
         },
         "max_passes": {
@@ -1277,7 +1370,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "integer"
+            "kind": "integer",
+            "label": "Most passes",
+            "order": 5
           }
         },
         "pr_number": {
@@ -1293,8 +1388,11 @@
           "description": "The pull request's number",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "integer"
+            "kind": "integer",
+            "label": "Pull request number",
+            "order": 2
           }
         },
         "repo": {
@@ -1302,8 +1400,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "repository"
+            "kind": "repository",
+            "label": "Repository",
+            "order": 1
           }
         },
         "reviewer": {
@@ -1312,7 +1413,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "agent"
+            "kind": "agent",
+            "label": "Reviewer",
+            "order": 6
           }
         },
         "scope": {
@@ -1334,7 +1437,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "string"
+            "kind": "string",
+            "label": "Reviews",
+            "order": 4
           }
         }
       },
@@ -1378,6 +1483,9 @@
             "name": "linked_task",
             "type": "string"
           }
+        ],
+        "summary": [
+          "repo"
         ],
         "type": "github.pr.review_passes"
       }
@@ -1534,7 +1642,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "string"
+            "kind": "string",
+            "label": "Branch to work on",
+            "order": 4
           }
         },
         "ref": {
@@ -1543,7 +1653,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "string"
+            "kind": "string",
+            "label": "Starts from",
+            "order": 3
           }
         },
         "repo": {
@@ -1551,8 +1663,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "repository"
+            "kind": "repository",
+            "label": "Repository",
+            "order": 1
           }
         },
         "working_dir": {
@@ -1560,8 +1675,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "path"
+            "kind": "path",
+            "label": "Or a directory",
+            "order": 2
           }
         }
       },
@@ -1601,6 +1719,10 @@
             "kind": "excludes"
           }
         ],
+        "summary": [
+          "repo",
+          "working_dir"
+        ],
         "type": "repo.ensure"
       }
     },
@@ -1614,8 +1736,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "task"
+            "kind": "task",
+            "label": "Task",
+            "order": 1
           }
         }
       },
@@ -1634,6 +1759,9 @@
             "type": "string"
           }
         ],
+        "summary": [
+          "task"
+        ],
         "type": "task.context"
       }
     },
@@ -1646,8 +1774,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
             "kind": "task",
+            "label": "Task",
+            "order": 1,
             "required_at_run": true
           }
         },
@@ -1655,8 +1786,11 @@
           "description": "A non-empty object of metadata paths and their values",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
             "kind": "json",
+            "label": "Values",
+            "order": 2,
             "required_at_run": true
           }
         }
@@ -1667,6 +1801,9 @@
         "declared_outputs": false,
         "internal": false,
         "outputs": [],
+        "summary": [
+          "values"
+        ],
         "type": "task.metadata.set"
       }
     },
@@ -1679,8 +1816,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "column"
+            "kind": "column",
+            "label": "To column",
+            "order": 2
           }
         },
         "task": {
@@ -1689,8 +1829,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "task"
+            "kind": "task",
+            "label": "Task",
+            "order": 1
           }
         }
       },
@@ -1704,6 +1847,9 @@
         "declared_outputs": false,
         "internal": false,
         "outputs": [],
+        "summary": [
+          "column"
+        ],
         "type": "task.move"
       }
     },
@@ -1716,8 +1862,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "text"
+            "kind": "text",
+            "label": "Note",
+            "order": 2
           }
         },
         "body_path": {
@@ -1726,7 +1875,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "path"
+            "kind": "path",
+            "label": "Or take it from a file",
+            "order": 3
           }
         },
         "optional": {
@@ -1735,7 +1886,9 @@
           "type": "boolean",
           "x-legato": {
             "expressions": false,
-            "kind": "boolean"
+            "kind": "boolean",
+            "label": "Skip when there is no task",
+            "order": 4
           }
         },
         "task": {
@@ -1743,8 +1896,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
             "kind": "task_or_id",
+            "label": "Task",
+            "order": 1,
             "required_at_run": true
           }
         }
@@ -1790,6 +1946,10 @@
             "kind": "at_least_one"
           }
         ],
+        "summary": [
+          "body",
+          "body_path"
+        ],
         "type": "task.note"
       }
     },
@@ -1802,8 +1962,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "path"
+            "kind": "path",
+            "label": "Otherwise use",
+            "order": 2
           }
         },
         "task": {
@@ -1812,8 +1975,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "task"
+            "kind": "task",
+            "label": "Task",
+            "order": 1
           }
         }
       },
@@ -1838,6 +2004,9 @@
             "type": "string"
           }
         ],
+        "summary": [
+          "task"
+        ],
         "type": "task.working_dir.resolve"
       }
     },
@@ -1850,8 +2019,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
             "kind": "path",
+            "label": "The worktree at",
+            "order": 1,
             "required_at_run": true
           }
         },
@@ -1870,7 +2042,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "boolean"
+            "kind": "boolean",
+            "label": "Even with changes in it",
+            "order": 2
           }
         }
       },
@@ -1895,6 +2069,9 @@
             "name": "removed_branch",
             "type": "string"
           }
+        ],
+        "summary": [
+          "expected_path"
         ],
         "type": "worktree.remove"
       }
@@ -1987,84 +2164,130 @@
       {
         "description": "Start an agent of the workflow on a prompt or a macro, and wait for it to complete the step with the outputs the step declares.",
         "internal": false,
+        "summary": [
+          "macro",
+          "prompt"
+        ],
         "title": "Run an agent",
         "type": "agent.run"
       },
       {
         "description": "Send a prompt or a macro to a task's agent, starting one when the task has none. The step does not wait for the agent.",
         "internal": false,
+        "summary": [
+          "macro",
+          "prompt"
+        ],
         "title": "Send to the task's agent",
         "type": "agent.dispatch"
       },
       {
         "description": "Stop a task's agent.",
         "internal": false,
+        "summary": [
+          "task"
+        ],
         "title": "Stop the task's agent",
         "type": "agent.stop"
       },
       {
         "description": "Make Legato's copy of a GitHub repository ready for an agent to be cloned from, or pass a directory through when no repository is given.",
         "internal": false,
+        "summary": [
+          "repo",
+          "working_dir"
+        ],
         "title": "Prepare a checkout",
         "type": "repo.ensure"
       },
       {
         "description": "Export a task's full context (title, description, notes, pull requests) as text.",
         "internal": false,
+        "summary": [
+          "task"
+        ],
         "title": "Read a task's context",
         "type": "task.context"
       },
       {
         "description": "The task's worktree when it has one, else the fallback.",
         "internal": false,
+        "summary": [
+          "task"
+        ],
         "title": "Find a task's directory",
         "type": "task.working_dir.resolve"
       },
       {
         "description": "Add a durable note to a task.",
         "internal": false,
+        "summary": [
+          "body",
+          "body_path"
+        ],
         "title": "Add a note to a task",
         "type": "task.note"
       },
       {
         "description": "Set values in a task's metadata.",
         "internal": false,
+        "summary": [
+          "values"
+        ],
         "title": "Set task metadata",
         "type": "task.metadata.set"
       },
       {
         "description": "Move a task to a column of the board, and its ticket with it.",
         "internal": false,
+        "summary": [
+          "column"
+        ],
         "title": "Move a task",
         "type": "task.move"
       },
       {
         "description": "Fetch a pull request's exact head into a new worktree, and link the workflow task to it. Needs Yggdrasil worktrees.",
         "internal": false,
+        "summary": [
+          "repo"
+        ],
         "title": "Check out a pull request",
         "type": "github.pr.prepare"
       },
       {
         "description": "Review an open pull request (or its stack) in passes posted as GitHub reviews from Legato's reviewer App, until a clean pass approves it. Needs review passes turned on.",
         "internal": false,
+        "summary": [
+          "repo"
+        ],
         "title": "Review a pull request in passes",
         "type": "github.pr.review_passes"
       },
       {
         "description": "Remove the workflow task's Yggdrasil worktree, when it is at the path expected.",
         "internal": false,
+        "summary": [
+          "expected_path"
+        ],
         "title": "Remove the worktree",
         "type": "worktree.remove"
       },
       {
         "description": "Remove one regular file inside a directory; a file that is not there is not an error.",
         "internal": false,
+        "summary": [
+          "path"
+        ],
         "title": "Remove a file",
         "type": "file.remove"
       },
       {
         "description": "Remove the saved Chimera session of a task's agent.",
         "internal": false,
+        "summary": [
+          "task"
+        ],
         "title": "Remove the Chimera session",
         "type": "chimera.session.remove"
       },

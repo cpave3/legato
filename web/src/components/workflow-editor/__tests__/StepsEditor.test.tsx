@@ -51,6 +51,34 @@ describe("the step types", () => {
   }
 })
 
+describe("the catalog's metadata", () => {
+  it("orders a form's fields, with plain labels and the essential ones marked", () => {
+    const form = stepForm("agent.run")!
+    expect(form.fields.slice(0, 4).map(f => f.name)).toEqual(["prompt", "macro", "working_dir", "repo"])
+    expect(form.fields.map(f => f.order)).toEqual([...form.fields.map(f => f.order)].sort((a, b) => a - b))
+    expect(form.fields[0]).toMatchObject({ label: "What it should do", essential: true })
+    expect(form.fields.find(f => f.name === "name")).toMatchObject({ essential: false })
+    expect(form.summary).toEqual(["macro", "prompt"])
+  })
+
+  it("gives every offered step type a summary and an essential field", () => {
+    for (const executor of executors.filter(e => !e.internal)) {
+      const form = stepForm(executor.type)!
+      expect(form.summary.length, executor.type).toBeGreaterThan(0)
+      expect(form.fields.some(f => f.essential), executor.type).toBe(true)
+    }
+  })
+
+  it("draws the fields in that order, under their labels", () => {
+    renderBuilder(head + "steps:\n  - id: s\n    title: S\n    type: task.move\n    with:\n      column: Doing\n      task: ${{ workflow.task }}\n")
+    const card = stepCard(1)
+    const task = within(card).getByLabelText("task of step s")
+    const column = within(card).getByLabelText("column of step s")
+    expect(task.compareDocumentPosition(column) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(card).getByText(/^To column/)).toBeTruthy()
+  })
+})
+
 describe("fields by kind", () => {
   const base = head + "inputs:\n  target: {type: task, required: true}\nsteps:\n  - id: s\n    title: S\n    type: agent.run\n    with:\n      prompt: hi\n"
   it("writes text, booleans, numbers, task references and picks", () => {
