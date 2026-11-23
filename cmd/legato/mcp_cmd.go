@@ -97,7 +97,7 @@ func runMCPServe(args []string, in io.ReadCloser, out io.WriteCloser) int {
 	// the tools still work, so its absence costs those three and no more.
 	if manager, tmuxErr := newAgentContractTmux(); tmuxErr == nil {
 		workDir, _ := os.Getwd()
-		agents := service.NewAgentService(db, manager, workDir, service.AgentServiceOptions{DisablePeerAwareness: true})
+		agents := service.NewAgentService(db, manager, workDir, service.AgentServiceOptions{DisablePeerAwareness: true, PeerMessageSent: peerMessageSent})
 		opts.Agents = agents
 		// The page_pin tools act on the pool here; a takeover notice reaches
 		// the other agent through the same agent service.

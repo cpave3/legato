@@ -14,7 +14,8 @@ type fakeNotifier struct {
 	workflowChanged bool
 }
 
-func (f *fakeNotifier) NotifyAgentsChanged() { f.called = true }
+func (f *fakeNotifier) NotifyAgentsChanged()      { f.called = true }
+func (f *fakeNotifier) NotifyAgentChanged(string) {}
 func (f *fakeNotifier) NotifyWorkflowChanged(string, string) {
 	f.workflowChanged = true
 }
@@ -365,5 +366,20 @@ func TestServeIPCMessage_CompletedStepKeepsItsKind(t *testing.T) {
 	payload, ok := drainEvent(t, changed).Payload.(events.WorkflowChangedPayload)
 	if !ok || payload.RunID != "wr-1" || payload.StepID != "work" || payload.Kind != "completed_step" {
 		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+// A peer message sent from another process changes the graph of agents:
+// both the TUI's web server and serve's tell their clients to read it again.
+func TestIPCMessage_AgentLinksChangedRefreshesTheWebUI(t *testing.T) {
+	tui := &fakeNotifier{}
+	handleIPCMessage(ipc.Message{Type: agentLinksChanged}, events.New(), tui)
+	if !tui.called {
+		t.Error("the TUI's web server was not told the agents changed")
+	}
+	serve := &fakeNotifier{}
+	handleServeIPCMessage(ipc.Message{Type: agentLinksChanged}, events.New(), serve)
+	if !serve.called {
+		t.Error("serve's web server was not told the agents changed")
 	}
 }

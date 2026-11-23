@@ -411,6 +411,7 @@ type agentService struct {
 	learningMaxItems     int
 	learningMaxBytes     int
 	peerAwareness        bool
+	peerMessageSent      func()
 	// nativeBindTimeout bounds how long a launch message waits for the
 	// session's native endpoint before it is typed into the pane instead.
 	nativeBindTimeout time.Duration
@@ -596,6 +597,10 @@ type AgentServiceOptions struct {
 	// DisablePeerAwareness suppresses automatic startup notices. Explicit peer
 	// discovery and messaging remain available.
 	DisablePeerAwareness bool
+	// PeerMessageSent, when set, is called after a peer message between
+	// two agents is delivered and recorded, so the web UI's graph of agents
+	// draws the link (the runtime tells every Legato process over IPC).
+	PeerMessageSent func()
 	// RepositoryGuidance adds the guidance of the repository an agent works
 	// in to its launch prompt. Nil: none.
 	RepositoryGuidance RepositoryGuidanceSource
@@ -740,6 +745,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.learningMaxItems = opts[0].LearningPromptMaxItems
 		svc.learningMaxBytes = opts[0].LearningPromptMaxBytes
 		svc.peerAwareness = !opts[0].DisablePeerAwareness
+		svc.peerMessageSent = opts[0].PeerMessageSent
 		svc.sandbox = opts[0].Sandbox
 		svc.capabilities = opts[0].Capabilities
 		svc.capabilityFolders = opts[0].CapabilityFolders
@@ -2456,7 +2462,22 @@ func (a *agentService) SendPeerMessage(ctx context.Context, senderTaskID, recipi
 	if err != nil {
 		return err
 	}
-	return a.QueueMessage(ctx, recipientTaskID, formatPeerMessage(senderTaskID, message))
+	if err := a.QueueMessage(ctx, recipientTaskID, formatPeerMessage(senderTaskID, message)); err != nil {
+		return err
+	}
+	// Who messaged whom, never what, for the graph of agents. A message
+	// with no sender is the operator's, not coordination between agents.
+	if senderTaskID == "" {
+		return nil
+	}
+	if err := a.store.RecordPeerMessage(ctx, senderTaskID, recipientTaskID, time.Now()); err != nil {
+		log.Printf("recording peer message %s → %s: %v", senderTaskID, recipientTaskID, err)
+		return nil
+	}
+	if a.peerMessageSent != nil {
+		a.peerMessageSent()
+	}
+	return nil
 }
 
 func (a *agentService) resolveAgentAddress(ctx context.Context, address string) (string, error) {

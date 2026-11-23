@@ -131,6 +131,18 @@ From 120 columns of width, a panel lists what changed among the agents, newest f
 
 The web UI has the same ensemble at **Ensemble** in the navigation, or `e` on the Agents page. Each web tile has a message box and **Open**, and names the agent's stage beside its state. Its header counts the agents that need you, whose turn it is, that are working and that are finished. **By stage** lays the agents out in a band for each stage, Exploring to Finished, so you see the whole pipeline at once: each band is as tall as its agents, and stages with no agents shrink to one line that names them, such as `Exploring · Planning · none`. A card in a band does not repeat its stage. It leads with what the agent needs from you and for how long, then its ID, title, why it is at its stage and its tool, then one thing to read: what it asks you, with **Allow** and **Deny** or **Review plan**, what it is doing now, or the first four lines of its last reply. **Reply** opens a message box on the card. Finished agents are one line each, with a blue dot when they left you a note. On a phone the bands stack and empty stages are left out. Only agents that need you, or whose turn it is, get a card; a working agent is one line with what it is doing. **Finished** starts collapsed, showing how many new notes it holds, and opens on a tap; the phone remembers whether you left it open. Tap a band's header to close or open it; a band opens by itself when one of its agents comes to need you. The web UI remembers the layout you chose on each device.
 
+### The graph
+
+**Graph**, beside Tiles and By stage in the web ensemble, draws your whole fleet on one graph, read left to right like a tree. Its address is `/agents?view=graph`, so you can link to it.
+
+- **A box for each repository** holds the agents working in it, oldest first, and keeps them in their places as other agents start and stop. An agent outside Git is in **No repository**. Click a box's name to close it to one line, and again to open it.
+- **An agent's border is its state**, in the tiles' colours: green while it works (dashed while only its background work runs), amber when it needs you, red on an error, grey when idle. A node shows the state and for how long, the ID, the title and the stage. **from erebus** marks a task another Legato handed you, **Argus case** one Argus delegated.
+- **Sub-agents** branch off the agent that started them, nested ones off theirs. More than three under one agent fold into one **+N more** node; click it to see them all. Sub-agents show for Claude Code agents (see [Claude Code](/legato/agent-tools/claude-code/)).
+- **The Reeve** stands to the left of the boxes.
+- **Links** join agents that work together, each kind drawn its own way and named in the legend: a swarm's conductor and its workers, a task's reviewer and its author, a review run's reviewer and the agent whose pull request it reviews, the agents the Reeve watches, agents that messaged each other in the last 30 minutes (with how many times, fading as the messages age), and, faintly, agents that share a worktree and could message each other.
+
+Click an agent to select it: its links stay lit, the rest of the graph dims, and a card says what it is at and who it is linked to, with a message box and **Open**. Double-click an agent to open it. The buttons along the top are the agents that need you; click one to go to it. The graph follows the agents list's **Stage** filter, and its own **Stage ▾** menu changes it. The ⤢ button fits the whole graph in view; drag to move around and pinch or scroll to zoom. On a phone the graph reads top to bottom, each sub-agent under its agent, and the card sits at the foot of the screen.
+
 ## When an agent exits
 
 Legato checks that the agent tool is in the foreground before sending terminal
@@ -322,7 +334,7 @@ legato agent message <task-id> "Done with the parser; you can edit it now."
 legato agent broadcast "Working on internal/service/agent.go."
 ```
 
-You can run `legato agent message` yourself to message any running agent. Peer messages are hints, not locks: nothing stops an agent from editing a file another one works on. A [swarm](/legato/using/swarms/) is the way to split work with owned files.
+Legato keeps who messaged whom and when (never what was said) for a day, so the web ensemble's [graph](#the-graph) can link two agents that talk. You can run `legato agent message` yourself to message any running agent. Peer messages are hints, not locks: nothing stops an agent from editing a file another one works on. A [swarm](/legato/using/swarms/) is the way to split work with owned files.
 
 ## Other keys in the agents view
 

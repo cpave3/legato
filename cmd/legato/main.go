@@ -973,6 +973,7 @@ func runServeCmd(args []string) int {
 			LearningPromptProvider: learningPromptProvider(cfg, db, bus),
 			LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
+			PeerMessageSent:      peerMessageSent,
 			ReviewsOff:           !cfg.Agents.Reviews,
 			HasSkill:             agentHasSkill(cfg, db),
 			RepositoryGuidance:   repositoryGuidance(cfg, db),
@@ -1055,6 +1056,9 @@ func runServeCmd(args []string) int {
 	srv.SetJobCloneService(repos)
 	srv.SetTaskStackService(wireTaskStacks(db, bus, repos))
 	srv.SetRelatedAgentsService(service.NewRelatedAgentsService(db))
+	if graph := agentGraphFor(db, agentSvc); graph != nil {
+		srv.SetAgentGraphService(graph)
+	}
 	repos.SetCacheListener(srv.BroadcastRepositoryCache)
 	if built, workflowErr := buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: boardSvc, Sync: syncSvc, Agents: agentSvc, WorkDir: wd, Repos: repos, Presets: repoPresets}); workflowErr == nil {
 		workflowSvc = built
@@ -1342,6 +1346,7 @@ func runTUI() int {
 			LearningPromptProvider: learningPromptProvider(cfg, db, bus),
 			LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
+			PeerMessageSent:      peerMessageSent,
 			ReviewsOff:           !cfg.Agents.Reviews,
 			HasSkill:             agentHasSkill(cfg, db),
 			RepositoryGuidance:   repositoryGuidance(cfg, db),
@@ -1502,6 +1507,9 @@ func runTUI() int {
 			webSrv.SetJobCloneService(repos)
 			webSrv.SetTaskStackService(taskStacks)
 			webSrv.SetRelatedAgentsService(service.NewRelatedAgentsService(db))
+			if graph := agentGraphFor(db, agentSvc); graph != nil {
+				webSrv.SetAgentGraphService(graph)
+			}
 			repos.SetCacheListener(webSrv.BroadcastRepositoryCache)
 			webSrv.SetSyncService(syncSvc)
 			webSrv.SetPRTrackingService(prSvc)
@@ -2012,6 +2020,7 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		LearningPromptProvider: learningPromptProvider(cfg, db, bus),
 		LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
 		DisablePeerAwareness: !cfg.Agents.PeerAwareness,
+		PeerMessageSent:      peerMessageSent,
 		ReviewsOff:           !cfg.Agents.Reviews,
 		HasSkill:             agentHasSkill(cfg, db),
 		RepositoryGuidance:   repositoryGuidance(cfg, db),
