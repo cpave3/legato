@@ -79,6 +79,8 @@ func (s *Server) reeveWatchHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		// The graph of agents links the Reeve to what it watches.
+		s.NotifyAgentsChanged()
 		watches, _ := s.reeveWatches.List(r.Context())
 		for _, watch := range watches {
 			if watch.TaskID == in.TaskID {
@@ -102,6 +104,7 @@ func (s *Server) reeveUnwatchHandler() http.HandlerFunc {
 		case err != nil:
 			s.writeError(w, http.StatusInternalServerError, err.Error())
 		default:
+			s.NotifyAgentsChanged()
 			s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 		}
 	}

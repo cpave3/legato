@@ -49,6 +49,8 @@ func handleServeIPCMessage(msg ipc.Message, bus *events.Bus, srv serveNotifier) 
 	case "agent_stage_changed":
 		handleIPCMessage(msg, bus, nil)
 		srv.NotifyAgentsChanged()
+	case agentLinksChanged:
+		srv.NotifyAgentsChanged()
 	case "workflow_changed":
 		srv.NotifyWorkflowChangedKind(msg.WorkflowRunID, msg.WorkflowStepID, msg.Kind)
 		if msg.Kind == "completed_step" {
@@ -79,6 +81,12 @@ func handleIPCMessage(msg ipc.Message, bus *events.Bus, wn webNotifier) {
 		// A Claude Code bridge bound or unbound its agent's native endpoint
 		// from its own process; the agent list's native flag is stale.
 		bus.Publish(events.Event{Type: events.EventAgentChimeraDiscovered, At: time.Now(), Payload: events.AgentChimeraDiscoveredPayload{TaskID: msg.TaskID}})
+		if wn != nil {
+			wn.NotifyAgentsChanged()
+		}
+	case agentLinksChanged:
+		// One agent messaged another from another process: the graph of
+		// agents has a new link.
 		if wn != nil {
 			wn.NotifyAgentsChanged()
 		}

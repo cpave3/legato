@@ -274,6 +274,7 @@ var routeClassTable = []routeClassEntry{
 	{"GET", "/api/agents/{task_id}/preview", ClassRead, "Preview an agent's terminal"},
 	{"GET", "/api/agents/{task_id}/conversation", ClassRead, "Read an agent's latest conversation"},
 	{"GET", "/api/agents/{task_id}/related", ClassRead, "List the agents on the other side of an agent's review loops"},
+	{"GET", "/api/agents/graph", ClassRead, "Read the agents' graph: each running agent's repository, worktree and badges, and the links between agents (recent peer messages, review runs, the Reeve's watches)"},
 	{"GET", "/api/agents/{task_id}/image", ClassRead, "Read an image an agent read"},
 	{"POST", "/api/agents/{task_id}/image", ClassChange, "Store a pasted image for an agent"},
 	{"GET", "/api/agents/{task_id}/ui-items", ClassRead, "List what an agent showed"},

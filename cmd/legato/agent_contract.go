@@ -78,7 +78,7 @@ func loadAgentServiceForContract(command string, jsonMode bool) (service.AgentSe
 		db.Close()
 		return nil, nil, renderCommandError(command, &commandError{Code: "environment_invalid", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
 	}
-	return service.NewAgentService(db, manager, wd, service.AgentServiceOptions{DisablePeerAwareness: true}), db, exitOK
+	return service.NewAgentService(db, manager, wd, service.AgentServiceOptions{DisablePeerAwareness: true, PeerMessageSent: peerMessageSent}), db, exitOK
 }
 
 func runAgentPeersContract(args []string) int {
