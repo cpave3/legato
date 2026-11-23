@@ -73,7 +73,7 @@ The environment loses the variables secrets come from, such as `GITHUB_TOKEN`, `
 
 The sandbox shares the host's network and your user. It has its own process, IPC and hostname namespaces, and everything in it ends when the agent's pane closes.
 
-An agent may work in a job clone inside Legato's data folder when that clone belongs to its task, including a task that joined the clone for a stacked branch. Workflow agents about that task, such as learning curators, can use it too. This works whether the clone was recorded through `/home` or `/var/home`; the rest of Legato's state stays hidden. An unrelated task cannot use the clone.
+An agent may work in a job clone inside Legato's data folder when that clone belongs to its task, including a task that joined the clone for a stacked branch. Workflow agents about that task, such as learning curators, can use it too. This works whether the clone was recorded through `/home` or `/var/home`; the rest of Legato's state stays hidden. An unrelated task cannot use the clone. A workflow step with `scratch: true` works in a scratch folder of its own in the data folder too: the sandbox shows the agent that one folder, and never another step's.
 
 ## How agents still get their work done
 

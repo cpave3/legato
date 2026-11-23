@@ -64,6 +64,18 @@ Version 1 executes steps in declaration order and supports these executors. Lega
 
 - `github.pr.prepare`: deterministically fetch an exact GitHub PR head, create a Yggdrasil worktree, and link the workflow task to the PR.
 - `agent.run`: launch a workflow-owned Legato agent with an explicit assignment and completion contract. Set `with.name` to customize the agent's visible name; workflow input references are supported. The agent is removed after completing its step, unless `with.keep_agent: true`: then its outputs are collected and the run moves on as usual, but the agent keeps running on the workflow task, for you to go on talking to. Follow it with a step with `trigger: agent_ended` to end the run (and remove a worktree) when that agent ends. Set `with.engram` to start the agent as one of your [engrams](/legato/agent-tools/engrams/), such as `engram: mneme` or `engram: ${{ workflow.inputs.engram }}`; without it the agent has none. A step whose engram engram does not know fails before the agent starts. Workflows do not use or change the engrams bound to a repository.
+- `agent.run` works in `with.working_dir`, in a fresh clone of `with.repo`, or in a scratch folder. A folder is for persistent work: a repository or project the agent changes, which outlives the run. Work that is about no folder, such as a daily digest, a summary or a check of a dashboard, sets `with.scratch: true` instead. Each attempt then works in a new, empty folder of its own (`<data_dir>/workflow-scratch/<attempt>`), which the sandbox shows the agent, as it shows a job clone. Legato removes the folder when the step completes. A step that fails, or keeps its agent, keeps its folder for a look, and Legato removes it a week later once nothing works in it. A retry gets a new folder. Nothing left in the folder is kept, so the step's result goes in its declared outputs: an artifact output copies a file out before the folder goes, and the agent's brief says so. `scratch` cannot be given with `working_dir` or `repo`.
+
+  ```yaml
+  - id: check-news
+    title: Write the AI news digest
+    type: agent.run
+    with:
+      prompt: Write a short digest of today's AI news.
+      scratch: true
+    outputs:
+      digest: {type: string}
+  ```
 - `agent.dispatch`: send a prompt to the selected task's ordinary durable agent, or spawn that task-linked agent in `with.working_dir` (where agents start by default when empty) when none is active. With a macro, `with.repo` and `with.pr_number` name the pull request in the message. The workflow does not own or tear down this session. Outputs include `agent_session_id`, `created`, and `working_dir`.
 - Both `agent.run` and `agent.dispatch` take what to ask either as `with.prompt` or as `with.macro`, the name of one of your [macros](/legato/using/agents/#macros), not both. A macro is read when the step runs, so an edit applies to the next run. A step that names no `agent` or `tier` uses the macro's. `agent.dispatch` sends it as a macro started on the task would be: the task's key and title, then the macro's text.
 

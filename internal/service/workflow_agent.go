@@ -136,6 +136,7 @@ type AgentRunExecutor struct {
 	agents     workflowAgentRunner
 	binaryPath string
 	macros     workflowMacros
+	scratch    workflowScratch
 }
 
 // SetMacros lets steps name a macro (with.macro) in place of a prompt.
@@ -175,6 +176,14 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
+	if scratch, _ := step.With["scratch"].(bool); scratch {
+		if strings.TrimSpace(workingDir) != "" || strings.TrimSpace(repo) != "" {
+			return WorkflowExecutionResult{}, fmt.Errorf("with scratch takes no working_dir or repo")
+		}
+		if workingDir, err = e.makeScratch(ctx, step.AttemptID); err != nil {
+			return WorkflowExecutionResult{}, err
+		}
+	}
 	assignment := buildWorkflowAssignment(prompt, step, e.binaryPath)
 	opts := AgentSpawnOptions{
 		AgentKind: kind, Tier: tier, WorkingDir: workingDir, Repo: strings.TrimSpace(repo), Ref: strings.TrimSpace(ref), Branch: strings.TrimSpace(branch), Assignment: assignment,
@@ -196,7 +205,12 @@ func (e *AgentRunExecutor) Cancel(ctx context.Context, attempt store.WorkflowSte
 	return e.agents.KillAgent(ctx, attempt.TaskID)
 }
 func (e *AgentRunExecutor) Finish(ctx context.Context, attempt store.WorkflowStepAttempt) error {
-	return e.agents.FinishWorkflowAgent(ctx, attempt)
+	if err := e.agents.FinishWorkflowAgent(ctx, attempt); err != nil {
+		return err
+	}
+	// The step completed and its agent is gone: so is its scratch folder.
+	e.removeScratch(attempt.WorkingDir)
+	return nil
 }
 func (e *AgentRunExecutor) Prompt(ctx context.Context, attempt store.WorkflowStepAttempt, prompt string) error {
 	return e.agents.PromptAgent(ctx, attempt.TaskID, prompt)
@@ -221,13 +235,16 @@ func buildWorkflowAssignment(prompt string, step ResolvedWorkflowStep, binaryPat
 	// agent, which Legato removes once the step completes.
 	keep, _ := step.With["keep_agent"].(bool)
 	var kept string
+	if scratch, _ := step.With["scratch"].(bool); scratch {
+		kept = "Your working folder is a scratch folder made for this step alone. Legato removes it when the step completes, so nothing left in it is kept: anything to keep goes in the step's declared outputs (a file named as an artifact output is copied out first).\n"
+	}
 	switch {
 	case keep:
-		kept = "This agent stays running after the step completes, so the operator can go on talking to you; still put the step's result in its declared outputs, which are what later steps and the run keep.\n"
+		kept += "This agent stays running after the step completes, so the operator can go on talking to you; still put the step's result in its declared outputs, which are what later steps and the run keep.\n"
 	case len(outputs) == 0:
-		kept = "This step declares no outputs, and nothing you write in this conversation is kept: when you complete the step, Legato removes this agent and its conversation. Do not report a result as delivered in chat. If the work has a result someone needs, it must go somewhere lasting that the prompt names; if there is none, say so with `" + command + " workflow step fail \"reason\"`.\n"
+		kept += "This step declares no outputs, and nothing you write in this conversation is kept: when you complete the step, Legato removes this agent and its conversation. Do not report a result as delivered in chat. If the work has a result someone needs, it must go somewhere lasting that the prompt names; if there is none, say so with `" + command + " workflow step fail \"reason\"`.\n"
 	default:
-		kept = "What you write in this conversation is not kept: when you complete the step, Legato removes this agent and its conversation. Put the step's whole result in its declared outputs.\n"
+		kept += "What you write in this conversation is not kept: when you complete the step, Legato removes this agent and its conversation. Put the step's whole result in its declared outputs.\n"
 	}
 	return prompt + "\n\n## Workflow completion contract\n" +
 		"Workflow task ID: " + step.TaskID + "\nRun ID: " + step.RunID + "\nStep ID: " + step.StepID + "\nAttempt ID: " + step.AttemptID + "\n" +

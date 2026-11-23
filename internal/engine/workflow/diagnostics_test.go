@@ -255,3 +255,29 @@ func TestCheckWarnsOfAnAgentRunStepWithNoOutputs(t *testing.T) {
 		})
 	}
 }
+
+// scratch: true says the step needs no folder of its own: it cannot also
+// name one (LEG-530).
+func TestCheckRefusesScratchWithAFolder(t *testing.T) {
+	step := func(with string) string {
+		return checkBase + `steps:
+  - id: digest
+    title: Digest
+    type: agent.run
+    with:
+      prompt: hi
+` + with + `    outputs: {digest: {type: string}}
+`
+	}
+	if definition, diagnostics := workflow.Check("check.yaml", []byte(step("      scratch: true\n"))); definition == nil || len(diagnostics) != 0 {
+		t.Fatalf("scratch alone: %+v", diagnostics)
+	}
+	for _, with := range []string{"      scratch: true\n      working_dir: /repo\n", "      scratch: true\n      repo: acme/widget\n"} {
+		if definition, diagnostics := workflow.Check("check.yaml", []byte(step(with))); definition != nil || len(diagnostics) == 0 || !strings.Contains(diagnostics[0].Message, "scratch") {
+			t.Fatalf("%q: %v, %+v", with, definition != nil, diagnostics)
+		}
+	}
+	if definition, diagnostics := workflow.Check("check.yaml", []byte(step("      scratch: yes please\n"))); definition != nil {
+		t.Fatalf("a scratch that is not true or false loaded: %+v", diagnostics)
+	}
+}

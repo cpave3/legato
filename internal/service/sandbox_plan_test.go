@@ -834,3 +834,32 @@ func TestAScratchFolderAtOrInsideASharedDataMountIsPrivate(t *testing.T) {
 		}
 	}
 }
+
+// A workflow step's scratch folder is in Legato's data folder, which the
+// sandbox hides: the agent sees its own scratch folder and no other (LEG-530).
+func TestTheSandboxSeesItsOwnWorkflowScratchFolderOnly(t *testing.T) {
+	in := debianInput()
+	scratch := "/home/me/.local/share/legato/workflow-scratch/wa-1"
+	in.WorkDir, in.JobDir = scratch, ""
+	fs := debianFS()
+	fs["/home/me/.local/share/legato/workflow-scratch"] = "dir"
+	fs[scratch] = "dir"
+	fs["/home/me/.local/share/legato/workflow-scratch/wa-2"] = "dir"
+	in.FS = fs
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, ok := mounted(plan)[scratch]
+	if !ok || m.Kind != sandbox.ReadWrite {
+		t.Fatalf("scratch folder mount = %+v, %v", m, ok)
+	}
+	if _, ok := mounted(plan)["/home/me/.local/share/legato/workflow-scratch/wa-2"]; ok {
+		t.Fatal("another attempt's scratch folder is mounted")
+	}
+
+	in.WorkDir = "/home/me/.local/share/legato/workflow-scratch"
+	if _, err := BuildSandboxPlan(in); err == nil {
+		t.Fatal("the folder of every scratch folder was allowed as a working directory")
+	}
+}

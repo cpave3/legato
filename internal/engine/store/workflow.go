@@ -676,6 +676,18 @@ func (s *Store) ListWorkflowRuns(ctx context.Context, filter WorkflowRunFilter) 
 	return runs, nil
 }
 
+// WorkflowAttemptInUse reports whether an attempt still runs, or the agent
+// it started still does (a step that kept its agent): what a sweep of its
+// scratch folder must leave alone (LEG-530).
+func (s *Store) WorkflowAttemptInUse(ctx context.Context, attemptID string) (bool, error) {
+	var used bool
+	err := s.db.GetContext(ctx, &used, `SELECT EXISTS (
+		SELECT 1 FROM workflow_step_attempts a
+		LEFT JOIN agent_sessions s ON s.id = a.agent_session_id
+		WHERE a.id = ? AND (a.status IN ('running', 'waiting_agent', 'waiting') OR s.status = 'running'))`, attemptID)
+	return used, err
+}
+
 // ListSucceededAgentStepsWithoutArtifacts returns the agent.run and
 // agent.dispatch steps of runIDs that succeeded and kept no artifact, for
 // the caller to check their outputs (LEG-532).
