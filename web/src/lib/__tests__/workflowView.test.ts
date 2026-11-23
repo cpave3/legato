@@ -90,6 +90,7 @@ describe("stepIntent", () => {
     expect(stepIntent({ executor_type: "worktree.remove", resolved_inputs_json: JSON.stringify({ expected_path: "/wt/legato-412" }) })).toBe("Removes the worktree at /wt/legato-412.")
     expect(stepIntent({ executor_type: "task.note", resolved_inputs_json: JSON.stringify({ task }) })).toBe("Adds a note to gpri1ycr “Board search ignores workspace filter”.")
     expect(stepIntent({ executor_type: "agent.stop", resolved_inputs_json: JSON.stringify({ task }) })).toBe("Stops the agent of gpri1ycr “Board search ignores workspace filter”.")
+    expect(stepIntent({ executor_type: "agent.compact", resolved_inputs_json: JSON.stringify({ task }) })).toBe("Compacts the agent of gpri1ycr “Board search ignores workspace filter” once its turn ends.")
   })
 
   it("has nothing to say about a step it does not know", () => {

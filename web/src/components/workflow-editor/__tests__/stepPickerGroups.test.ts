@@ -8,7 +8,7 @@ describe("the step picker's list", () => {
     expect(groups.map(g => g.group)).toEqual(["Agents", "Code", "Board", "Cleanup"])
     const listed = groups.flatMap(g => g.entries.map(e => e.type)).sort()
     expect(listed).toEqual(executors.filter(e => !e.internal).map(e => e.type).sort())
-    expect(groups[0].entries.map(e => e.type)).toEqual(["agent.run", "agent.dispatch", "agent.stop"])
+    expect(groups[0].entries.map(e => e.type)).toEqual(["agent.run", "agent.dispatch", "agent.stop", "agent.compact"])
   })
 
   it("never offers an internal step type", () => {
