@@ -775,7 +775,7 @@ func TestAWatchedWorkflowAgentReachingFinishedIsReported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.db.CreateExecution(ctx, store.Execution{ID: "ex-wf", Kind: store.ExecutionWorkflowAgent, Status: store.ExecutionRunning, TaskID: "WF-1", AgentSessionID: &id, StartedAt: f.now.Add(-time.Hour)}); err != nil {
+	if err := f.db.CreateExecution(ctx, store.Execution{ID: "ex-wf", Kind: store.ExecutionWorkflowAgent, Status: store.ExecutionRunning, ExecutionTaskID: "WF-1", AgentSessionID: &id, StartedAt: f.now.Add(-time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	f.activity(t, "WF-1", store.ActivityWorking)

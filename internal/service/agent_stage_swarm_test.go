@@ -127,8 +127,10 @@ func (e *sessionWorkflowExecutor) Start(ctx context.Context, step ResolvedWorkfl
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
+	// As SpawnAgent records a run task's agent: attributed to the run's card,
+	// here none, never to the run task itself.
 	if err := e.db.CreateExecution(ctx, store.Execution{ID: executionID, Kind: store.ExecutionWorkflowAgent, Status: store.ExecutionRunning,
-		TaskID: step.TaskID, ExecutionTaskID: step.TaskID, TaskTitle: "T", AgentSessionID: &id, StartedAt: time.Now().UTC()}); err != nil {
+		TaskID: step.RelatedTaskID, ExecutionTaskID: step.TaskID, TaskTitle: "T", AgentSessionID: &id, StartedAt: time.Now().UTC()}); err != nil {
 		return WorkflowExecutionResult{}, err
 	}
 	session, err := e.db.GetAgentSessionByID(ctx, id)

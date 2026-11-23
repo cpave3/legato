@@ -59,6 +59,13 @@ func (r *WorkflowAgentRunner) SpawnWorkflowAgent(ctx context.Context, taskID, na
 	}
 	return r.store.GetAgentSessionByTaskID(ctx, taskID)
 }
+
+// TaskHasAgent says whether taskID's main slot has an agent running.
+func (r *WorkflowAgentRunner) TaskHasAgent(ctx context.Context, taskID string) bool {
+	_, err := r.store.GetAgentSessionByTaskID(ctx, taskID)
+	return err == nil
+}
+
 func (r *WorkflowAgentRunner) KillAgent(ctx context.Context, taskID string) error {
 	return r.agents.KillAgent(ctx, taskID)
 }
@@ -152,12 +159,24 @@ func NewAgentRunExecutor(agents workflowAgentRunner, binaryPath ...string) *Agen
 func (e *AgentRunExecutor) Type() string { return "agent.run" }
 
 func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep) (WorkflowExecutionResult, error) {
+	// With task, the agent is that task's own (LEG-540): on its card, in
+	// its slot main, reading its context.
+	agentTask, err := stepAgentTask(step.With)
+	if err != nil {
+		return WorkflowExecutionResult{}, err
+	}
 	macro, fromMacro, err := stepMacro(ctx, e.macros, step.With)
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
 	prompt := strings.TrimRight(macro.Keys, "\n")
-	if fromMacro {
+	switch {
+	case fromMacro && agentTask != "":
+		// As a macro started on the card is sent: its key and title first.
+		if prompt, err = e.macros.Message(ctx, macro.Keys, agentTask, stepPR(step.With)); err != nil {
+			return WorkflowExecutionResult{}, err
+		}
+	case fromMacro:
 		prompt = macroPRHeader(step.With) + prompt
 	}
 	if !fromMacro {
@@ -184,21 +203,54 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 			return WorkflowExecutionResult{}, err
 		}
 	}
+	spawnTask, attribution := step.TaskID, step.RelatedTaskID
+	if agentTask != "" {
+		if strings.TrimSpace(workingDir) != "" || strings.TrimSpace(name) != "" {
+			return WorkflowExecutionResult{}, fmt.Errorf("with task takes no working_dir or name")
+		}
+		if checker, ok := e.agents.(interface {
+			TaskHasAgent(ctx context.Context, taskID string) bool
+		}); ok && checker.TaskHasAgent(ctx, agentTask) {
+			return WorkflowExecutionResult{}, fmt.Errorf("task %s already has an agent running: stop it first, or use agent.dispatch to message it", agentTask)
+		}
+		spawnTask, attribution = agentTask, agentTask
+	}
 	assignment := buildWorkflowAssignment(prompt, step, e.binaryPath)
 	opts := AgentSpawnOptions{
 		AgentKind: kind, Tier: tier, WorkingDir: workingDir, Repo: strings.TrimSpace(repo), Ref: strings.TrimSpace(ref), Branch: strings.TrimSpace(branch), Assignment: assignment,
-		ExecutionKind: store.ExecutionWorkflowAgent, AttributionTaskID: step.RelatedTaskID,
+		ExecutionKind: store.ExecutionWorkflowAgent, AttributionTaskID: attribution,
 		WorkflowRunID: step.RunID, WorkflowAttemptID: step.AttemptID,
 		Engram: strings.TrimSpace(engram), EngramRequired: strings.TrimSpace(engram) != "",
 		ExtraEnv: map[string]string{
-			"LEGATO_TASK_ID": step.TaskID, "LEGATO_WORKFLOW_RUN_ID": step.RunID, "LEGATO_WORKFLOW_STEP_ID": step.StepID, "LEGATO_WORKFLOW_ATTEMPT_ID": step.AttemptID,
+			"LEGATO_TASK_ID": spawnTask, "LEGATO_WORKFLOW_RUN_ID": step.RunID, "LEGATO_WORKFLOW_STEP_ID": step.StepID, "LEGATO_WORKFLOW_ATTEMPT_ID": step.AttemptID,
 		},
 	}
-	session, err := e.agents.SpawnWorkflowAgent(ctx, step.TaskID, name, opts)
+	session, err := e.agents.SpawnWorkflowAgent(ctx, spawnTask, name, opts)
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
-	return WorkflowExecutionResult{Status: "waiting_agent", AgentSession: session, WorkingDir: workingDir}, nil
+	result := WorkflowExecutionResult{Status: "waiting_agent", AgentSession: session, WorkingDir: workingDir}
+	if agentTask != "" {
+		result.TaskID = agentTask
+	}
+	return result, nil
+}
+
+// stepAgentTask is the task an agent.run step's agent belongs to (with.task:
+// a task input or a task ID), or "" for the run's own task.
+func stepAgentTask(with map[string]any) (string, error) {
+	value, ok := with["task"]
+	if !ok || value == nil {
+		return "", nil
+	}
+	if text, isText := value.(string); isText && strings.TrimSpace(text) == "" {
+		return "", nil
+	}
+	taskID, err := interviewTaskID(value)
+	if err != nil {
+		return "", fmt.Errorf("with task: %w", err)
+	}
+	return strings.TrimSpace(taskID), nil
 }
 
 func (e *AgentRunExecutor) Cancel(ctx context.Context, attempt store.WorkflowStepAttempt) error {

@@ -76,6 +76,20 @@ Version 1 executes steps in declaration order and supports these executors. Lega
     outputs:
       digest: {type: string}
   ```
+- `agent.run` with `with.task` (a task input or a task ID) runs the agent as that task's own agent instead of the workflow's: it shows on the task's card, reads that task's context, keeps its stage on the card, and its conversation can be resumed like any agent on the card. With `with.repo` it works in a fresh clone on the task's branch (`legato/<task>`), as an agent started on the card would; a live clone of the task is used again. A macro is sent as one started on the card is: the task's key and title, then the macro's text. The step still waits for the agent to complete it with its outputs, and removes the agent then unless `keep_agent` is set. A step whose task already has an agent running fails without touching it: stop that agent first, or message it with `agent.dispatch`. `task` cannot be given with `working_dir`, `scratch` or `name`.
+
+  ```yaml
+  - id: implement
+    title: Implement the ticket
+    type: agent.run
+    with:
+      task: ${{ workflow.inputs.task }}
+      macro: Implement
+      repo: acme/widget
+      keep_agent: true
+    outputs:
+      pr_number: {type: integer}
+  ```
 - `agent.dispatch`: send a prompt to the selected task's ordinary durable agent, or spawn that task-linked agent in `with.working_dir` (where agents start by default when empty) when none is active. With a macro, `with.repo` and `with.pr_number` name the pull request in the message. The workflow does not own or tear down this session. Outputs include `agent_session_id`, `created`, and `working_dir`.
 - Both `agent.run` and `agent.dispatch` take what to ask either as `with.prompt` or as `with.macro`, the name of one of your [macros](/legato/using/agents/#macros), not both. A macro is read when the step runs, so an edit applies to the next run. A step that names no `agent` or `tier` uses the macro's. `agent.dispatch` sends it as a macro started on the task would be: the task's key and title, then the macro's text.
 

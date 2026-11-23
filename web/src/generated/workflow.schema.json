@@ -957,6 +957,30 @@
               "repo"
             ]
           }
+        },
+        {
+          "not": {
+            "required": [
+              "task",
+              "working_dir"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "task",
+              "scratch"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "task",
+              "name"
+            ]
+          }
         }
       ],
       "description": "Start an agent of the workflow on a prompt or a macro, and wait for it to complete the step with the outputs the step declares.",
@@ -1092,6 +1116,17 @@
             "kind": "boolean",
             "label": "Work in a scratch folder",
             "order": 13
+          }
+        },
+        "task": {
+          "description": "A task, or a task ID: the agent is that task's own, on its card, in a fresh clone of repo on the task's branch; a macro is sent as one started on the card is. The step fails when the task already has an agent running",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "task_or_id",
+            "label": "As the task's own agent",
+            "order": 14
           }
         },
         "tier": {

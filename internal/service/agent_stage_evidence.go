@@ -22,7 +22,9 @@ type WatchedAgent struct {
 	TaskID, Slot  string
 	ExecutionID   string
 	ExecutionKind string
-	AgentKind     string
+	// AttributionTaskID is the task the execution concerns.
+	AttributionTaskID string
+	AgentKind         string
 	// WorkingDir is the execution's working folder, "" when unknown.
 	WorkingDir string
 }
@@ -31,11 +33,11 @@ type WatchedAgent struct {
 // slot, <task>_<slot> for a named one.
 func (a WatchedAgent) AgentID() string { return AgentSlotKey(a.TaskID, a.Slot) }
 
-// Place is the agent's stage place: its execution's for a workflow agent,
-// else its task's slot.
+// Place is the agent's stage place: its execution's for a workflow agent on
+// the run's task, else its task's slot.
 func (a WatchedAgent) Place() WorkStagePlace {
 	place := TaskPlace(a.TaskID, a.Slot)
-	if a.ExecutionKind == store.ExecutionWorkflowAgent {
+	if executionPlace(a.ExecutionKind, a.AttributionTaskID, a.TaskID) {
 		place.PlaceExecutionID = a.ExecutionID
 	}
 	return place
@@ -48,7 +50,7 @@ func watchedAgentOf(s store.AgentSession) WatchedAgent {
 	}
 	return WatchedAgent{
 		TaskID: s.TaskID, Slot: slot, ExecutionID: s.ExecutionID, ExecutionKind: s.ExecutionKind,
-		AgentKind: s.AgentKind, WorkingDir: s.WorkingDir,
+		AttributionTaskID: s.AttributionTaskID, AgentKind: s.AgentKind, WorkingDir: s.WorkingDir,
 	}
 }
 

@@ -332,9 +332,10 @@ func (w *ReeveWatcher) look(ctx context.Context, taskID string) watchSeen {
 }
 
 // stagePlace is where the stage of a task's watched agent is kept: its
-// execution's place for a workflow agent, else the task's main slot.
+// execution's place for a workflow agent on the run's task, else the task's
+// main slot.
 func (w *ReeveWatcher) stagePlace(ctx context.Context, taskID string) WorkStagePlace {
-	if a, err := w.opts.Store.LatestAgentSessionForTask(ctx, taskID); err == nil && a != nil && a.ExecutionKind == store.ExecutionWorkflowAgent {
+	if a, err := w.opts.Store.LatestAgentSessionForTask(ctx, taskID); err == nil && a != nil && executionPlace(a.ExecutionKind, a.AttributionTaskID, a.TaskID) {
 		return SessionPlace(*a)
 	}
 	return TaskPlace(taskID, "")
