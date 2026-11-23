@@ -113,26 +113,11 @@ describe("the ensemble's stages", () => {
     expect(emptyLines()).toEqual(["Exploring · Planning · Implementing · none", "Finished · none"])
   })
 
-  it("opens by itself, on a phone, a stage holding an agent that needs you", () => {
+  it("has no toggles on a wide screen: every band is open", () => {
     localStorage.setItem(ENSEMBLE_LAYOUT_KEY, "stage")
     show()
-    const toggle = (name: string) => within(screen.getByRole("region", { name })).getByRole("button", { name: new RegExp(`^${name}`) })
-    expect(toggle("Planning").getAttribute("aria-expanded")).toBe("true")
-    expect(toggle("Implementing").getAttribute("aria-expanded")).toBe("true")
-    expect(toggle("Exploring").getAttribute("aria-expanded")).toBe("false")
-    expect(toggle("Finished").getAttribute("aria-expanded")).toBe("false")
-    fireEvent.click(toggle("Exploring"))
-    expect(toggle("Exploring").getAttribute("aria-expanded")).toBe("true")
-  })
-
-  it("opens a stage by itself when one of its agents comes to need you", () => {
-    localStorage.setItem(ENSEMBLE_LAYOUT_KEY, "stage")
-    const working = [agent("LEG-406", "exploring", "working", { activity: "working" })]
-    const { rerender } = render(<AgentEnsemble agents={working} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
-    const toggle = () => within(screen.getByRole("region", { name: "Exploring" })).getByRole("button", { name: /^Exploring/ })
-    expect(toggle().getAttribute("aria-expanded")).toBe("false")
-    rerender(<AgentEnsemble agents={[{ ...working[0], activity: "waiting", glance: "needs_you" }]} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
-    expect(toggle().getAttribute("aria-expanded")).toBe("true")
+    expect(within(screen.getByRole("region", { name: "Exploring" })).queryByRole("button", { name: /^Exploring/ })).toBeNull()
+    expect(within(screen.getByRole("region", { name: "Exploring" })).getAllByRole("article")).toHaveLength(2)
   })
 })
 
@@ -307,5 +292,61 @@ describe("the cards in the stage bands", () => {
     expect(within(rows[0]).queryByLabelText(/Unread/)).toBeNull()
     fireEvent.click(rows[0])
     expect(onOpen).toHaveBeenCalledWith("LEG-405")
+  })
+})
+
+describe("By stage on a phone", () => {
+  beforeEach(() => {
+    localStorage.clear()
+    localStorage.setItem(ENSEMBLE_LAYOUT_KEY, "stage")
+    apiFetch.mockReset()
+    apiFetch.mockResolvedValue(new Response("not available", { status: 404 }))
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(max-width: 1023px)", media: query, addEventListener: () => {}, removeEventListener: () => {},
+    }))
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  const toggle = (name: string) => within(screen.getByRole("region", { name })).getByRole("button", { name: new RegExp(`^${name}`) })
+
+  it("leaves out the stages with nothing in them", () => {
+    render(<AgentEnsemble agents={[agent("LEG-386", "implementing", "your_turn"), agent("LEG-405", "finished", "finished")]} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    expect(bands()).toEqual(["Implementing", "Finished"])
+    expect(screen.queryAllByRole("note")).toHaveLength(0)
+  })
+
+  it("gives cards only to what needs you, and working agents a row each", () => {
+    show()
+    const exploring = screen.getByRole("region", { name: "Exploring" })
+    expect(within(exploring).getAllByRole("article").map((card) => card.getAttribute("aria-label"))).toEqual(["LEG-438, your turn"])
+    const row = within(exploring).getByRole("button", { name: "Open LEG-406" })
+    expect(row.textContent).toContain("●")
+    expect(row.textContent).toContain("LEG-406 title")
+    expect(row.className).toContain("min-h-11")
+    expect(within(screen.getByRole("region", { name: "Reviewing" })).queryByRole("article")).toBeNull()
+  })
+
+  it("starts Finished collapsed with its new notes, and remembers it opened", () => {
+    const finished = [agent("LEG-405", "finished", "finished"), agent("LEG-413", "finished", "finished", { open_items: 1, open_done_items: 1 })]
+    render(<AgentEnsemble agents={finished} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    expect(toggle("Finished").getAttribute("aria-expanded")).toBe("false")
+    expect(toggle("Finished").textContent).toBe("Finished · 2 · 1 new note")
+    expect(screen.queryByRole("button", { name: "Open LEG-405" })).toBeNull()
+    fireEvent.click(toggle("Finished"))
+    expect(screen.getByRole("button", { name: "Open LEG-405" })).toBeTruthy()
+
+    cleanup()
+    render(<AgentEnsemble agents={finished} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    expect(toggle("Finished").getAttribute("aria-expanded")).toBe("true")
+  })
+
+  it("opens a band again by itself when one of its agents comes to need you", () => {
+    const working = [agent("LEG-406", "exploring", "working", { activity: "working" })]
+    const { rerender } = render(<AgentEnsemble agents={working} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    expect(toggle("Exploring").getAttribute("aria-expanded")).toBe("true")
+    fireEvent.click(toggle("Exploring"))
+    expect(toggle("Exploring").getAttribute("aria-expanded")).toBe("false")
+    rerender(<AgentEnsemble agents={[{ ...working[0], activity: "waiting", glance: "needs_you" }]} onOpen={vi.fn()} onSpawn={vi.fn()} onShowList={vi.fn()} />)
+    expect(toggle("Exploring").getAttribute("aria-expanded")).toBe("true")
   })
 })

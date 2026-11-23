@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react"
 import type { AgentInfo } from "../hooks/useWebSocket"
 import type { AgentContext } from "../hooks/useAgentContexts"
 import { useAgentGlance } from "../hooks/useAgentGlance"
+import { useMediaQuery } from "../hooks/useMediaQuery"
 import {
   backgroundSummary,
   glanceItems,
@@ -81,6 +82,8 @@ function stateOf(agent: AgentInfo): { label: string; glyph: string; chip: string
 // it is at, the agents that need the person first, or by stage in bands.
 export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowList, onSend, approvals = [], onDecide }: AgentEnsembleProps) {
   const ordered = orderForEnsemble(agents)
+  // Below lg, By stage stacks its bands and leaves out empty stages.
+  const phone = useMediaQuery("(max-width: 1023px)")
   const counted = agents.filter((agent) => !agent.reeve)
   const [layout, setLayoutState] = useState<EnsembleLayout>(rememberedLayout)
   const setLayout = (next: EnsembleLayout) => {
@@ -125,8 +128,8 @@ export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowLi
           ? (
             <div data-ensemble-bands className="flex flex-col gap-2">
               {stageRuns(ordered).map((run) => run.agents.length === 0
-                ? <EmptyStages key={run.stages.join()} stages={run.stages} />
-                : <StageBand key={run.stages[0]} stage={run.stages[0]} agents={run.agents} contexts={contexts} approvals={approvals} onDecide={onDecide} onOpen={onOpen} onSend={onSend} />)}
+                ? !phone && <EmptyStages key={run.stages.join()} stages={run.stages} />
+                : <StageBand key={run.stages[0]} stage={run.stages[0]} agents={run.agents} contexts={contexts} approvals={approvals} onDecide={onDecide} onOpen={onOpen} onSend={onSend} phone={phone} />)}
             </div>
           )
           : (
@@ -173,12 +176,26 @@ function EmptyStages({ stages }: { stages: WorkStage[] }) {
   )
 }
 
+// Where this device keeps whether the phone's Finished band is open.
+export const ENSEMBLE_FINISHED_KEY = "legato.ensemble.finished"
+
+function rememberedFinishedOpen(): boolean {
+  try {
+    return localStorage.getItem(ENSEMBLE_FINISHED_KEY) === "open"
+  } catch {
+    return false
+  }
+}
+
 // StageBand is the agents at one stage, those that need the operator
-// first: a header (the track, the word, the count and the needs-you marks)
-// in a column on the left of a wide screen, and the agents flowing across
-// beside it. A band is as tall as its agents. On a phone the bands stack, and
-// a band opens by itself when it holds an agent that needs the operator.
-function StageBand({ stage, agents, contexts, approvals, onDecide, onOpen, onSend }: {
+// first. On a wide screen: a header (the track, the word, the count and the
+// needs-you marks) in a column on the left, and the agents flowing across
+// beside it, every band open and as tall as its agents. On a phone the
+// bands stack, each header a 44px toggle; only what needs the operator (or
+// whose turn it is) is a card, a working agent is a row, and Finished starts
+// collapsed with its new notes, as this device last left it. A band opens by
+// itself when one of its agents comes to need the operator.
+function StageBand({ stage, agents, contexts, approvals, onDecide, onOpen, onSend, phone }: {
   stage: WorkStage
   agents: AgentInfo[]
   contexts: Record<string, AgentContext>
@@ -186,58 +203,102 @@ function StageBand({ stage, agents, contexts, approvals, onDecide, onOpen, onSen
   onDecide?: (approval: Approval, decision: ApprovalDecision) => void
   onOpen: (taskId: string) => void
   onSend?: (taskId: string, content: string) => void
+  phone: boolean
 }) {
+  const finished = stage === "finished"
   const needs = agents.filter((agent) => glanceSection(agent) === "needs-you").length
   const turn = agents.filter((agent) => glanceSection(agent) === "your-turn").length
-  const [open, setOpen] = useState(needs > 0)
-  // An agent coming to need the operator opens its band, as it would have
-  // at the start; the operator may close it again.
+  const notes = agents.filter(unreadDone).length
+  const [open, setOpenState] = useState(() => (finished ? rememberedFinishedOpen() : true) || needs > 0)
+  const setOpen = (next: boolean) => {
+    setOpenState(next)
+    if (finished) try { localStorage.setItem(ENSEMBLE_FINISHED_KEY, next ? "open" : "closed") } catch { /* not remembered */ }
+  }
+  // An agent coming to need the operator opens its band; the operator may
+  // close it again.
   const [needed, setNeeded] = useState(needs > 0)
   if ((needs > 0) !== needed) {
     setNeeded(needs > 0)
-    if (needs > 0) setOpen(true)
+    if (needs > 0) setOpenState(true)
   }
+  const shown = !phone || open
   const label = stageLabel(stage)
   const marks = [needs > 0 && `◆ ${needs}`, turn > 0 && `◇ ${turn}`].filter(Boolean).join(" · ")
+  const head = phone && finished
+    ? <>{[label, agents.length, notes > 0 && `${notes} new note${notes === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}</>
+    : <>
+      <StageTrack stage={stage} />
+      {label}
+      <span className="font-lw-mono text-xs font-normal text-lw-text-2">{agents.length}</span>
+      {marks && <span className={cn("text-xs font-medium text-lw-needs", phone ? "ml-auto" : "ml-1")}>{marks}</span>}
+    </>
+  const card = (agent: AgentInfo) => (
+    <StageCard
+      key={agent.task_id}
+      agent={agent}
+      context={contexts[agent.task_id]}
+      approval={approvalFor(agent, approvals)}
+      onDecide={onDecide}
+      onOpen={onOpen}
+      onSend={onSend}
+      touch={phone}
+    />
+  )
+  let body: ReactNode
+  if (finished) {
+    // Finished agents are one-line rows: there is nothing to do for them
+    // but read what they left.
+    body = (
+      <ul className="m-0 flex min-w-0 list-none flex-col gap-0.5 p-0">
+        {agents.map((agent) => <li key={agent.task_id}><FinishedRow agent={agent} onOpen={onOpen} touch={phone} /></li>)}
+      </ul>
+    )
+  } else if (phone) {
+    body = (
+      <div className="flex min-w-0 flex-col gap-2">
+        {agents.map((agent) => (["needs-you", "your-turn"].includes(glanceSection(agent))
+          ? card(agent)
+          : <WorkingRow key={agent.task_id} agent={agent} onOpen={onOpen} />))}
+      </div>
+    )
+  } else {
+    body = <div className="grid min-w-0 grid-cols-[repeat(auto-fill,minmax(300px,1fr))] items-start gap-2.5">{agents.map(card)}</div>
+  }
   return (
-    <section aria-label={label} className="flex min-w-0 flex-col gap-2.5 rounded-xl border border-lw-line bg-[var(--theme-surface,#141417)] p-2.5 lg:grid lg:grid-cols-[190px_minmax(0,1fr)] lg:gap-3">
+    <section aria-label={label} className={cn("flex min-w-0 flex-col gap-2.5 rounded-xl border border-lw-line bg-[var(--theme-surface,#141417)] p-2.5", !phone && "grid grid-cols-[190px_minmax(0,1fr)] gap-3")}>
       <h2 className="m-0 text-[13px] font-semibold">
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-          className="flex min-h-11 w-full items-center gap-2 px-1 text-left lg:pointer-events-none lg:min-h-0 lg:pt-1"
-        >
-          <StageTrack stage={stage} />
-          {label}
-          <span className="font-lw-mono text-xs font-normal text-lw-text-2">{agents.length}</span>
-          {marks && <span className="ml-auto text-xs font-medium text-lw-needs lg:ml-1">{marks}</span>}
-        </button>
+        {phone
+          ? (
+            <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex min-h-11 w-full items-center gap-2 px-1 text-left">
+              {head}
+            </button>
+          )
+          : <span className="flex items-center gap-2 px-1 pt-1">{head}</span>}
       </h2>
-      {stage === "finished"
-        // Finished agents are one-line rows: there is nothing to do for them
-        // but read what they left.
-        ? (
-          <ul className={cn("m-0 min-w-0 list-none flex-col gap-0.5 p-0", open ? "flex" : "hidden lg:flex")}>
-            {agents.map((agent) => <li key={agent.task_id}><FinishedRow agent={agent} onOpen={onOpen} /></li>)}
-          </ul>
-        )
-        : (
-          <div className={cn("min-w-0 grid-cols-[repeat(auto-fill,minmax(300px,1fr))] items-start gap-2.5", open ? "grid" : "hidden lg:grid")}>
-            {agents.map((agent) => (
-              <StageCard
-                key={agent.task_id}
-                agent={agent}
-                context={contexts[agent.task_id]}
-                approval={approvalFor(agent, approvals)}
-                onDecide={onDecide}
-                onOpen={onOpen}
-                onSend={onSend}
-              />
-            ))}
-          </div>
-        )}
+      {shown && body}
     </section>
+  )
+}
+
+// WorkingRow is a working agent on a phone, on one line: the glance, the ID,
+// the title and what it is doing now.
+function WorkingRow({ agent, onOpen }: { agent: AgentInfo; onOpen: (taskId: string) => void }) {
+  const { conversation, observe } = useAgentGlance(agent)
+  const glance = glanceOf(agent)
+  const now = nowLine(agent, conversation)
+  return (
+    <button
+      ref={observe}
+      type="button"
+      aria-label={`Open ${agent.task_id}`}
+      onClick={() => onOpen(agent.task_id)}
+      className="flex min-h-11 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs hover:bg-lw-raised"
+    >
+      <span aria-hidden="true" className="shrink-0 text-lw-live">{glance.glyph}</span>
+      <span className="shrink-0 font-lw-mono text-lw-faint">{agent.task_id}</span>
+      <span className="min-w-0 shrink-0 truncate font-medium text-lw-text max-w-[45%]">{agent.task_title || agent.task_id}</span>
+      {now && <span className="min-w-0 flex-1 truncate font-lw-mono text-[11px] text-lw-text-2">{now.tool ? `${now.tool} ${now.text}` : now.text}</span>}
+    </button>
   )
 }
 
@@ -291,17 +352,19 @@ function couldNotRead(agent: AgentInfo): string {
   return agent.has_chimera_endpoint ? "Could not read this agent's conversation." : "Could not read this agent's terminal."
 }
 
-const cardButton = "h-[30px] shrink-0 rounded-md border border-lw-line-strong bg-lw-raised px-3 text-xs text-lw-text hover:border-[var(--theme-border,#4a4955)]"
+const cardButton = "min-h-[30px] shrink-0 rounded-md border border-lw-line-strong bg-lw-raised px-3 text-xs text-lw-text hover:border-[var(--theme-border,#4a4955)]"
 
 // StageCard is an agent in a stage band, light enough to scan: the glance
 // and its time, the ID and title, why it is at its stage and its tool, then
 // one body (what it needs from the operator, what it is doing now, or its
 // last reply) and the actions that fit. It has no fixed height: nothing it
 // shows is cut by one.
-function StageCard({ agent, context, approval, onDecide, onOpen, onSend }: {
+function StageCard({ agent, context, approval, onDecide, onOpen, onSend, touch = false }: {
   agent: AgentInfo
   context?: AgentContext
   approval?: Approval
+  // On a phone: every action 44px high.
+  touch?: boolean
   onDecide?: (approval: Approval, decision: ApprovalDecision) => void
   onOpen: (taskId: string) => void
   onSend?: (taskId: string, content: string) => void
@@ -320,7 +383,7 @@ function StageCard({ agent, context, approval, onDecide, onOpen, onSend }: {
 
   let body: ReactNode
   if (needs) {
-    body = <NeedsBox agent={agent} conversation={conversation} approval={approval} onDecide={onDecide} onOpen={onOpen} />
+    body = <NeedsBox agent={agent} conversation={conversation} approval={approval} onDecide={onDecide} onOpen={onOpen} touch={touch} />
   } else if (working) {
     const now = nowLine(agent, conversation) ?? (paneLines.length > 0 ? { tool: "", text: paneLines[paneLines.length - 1] } : null)
     body = unread && !now
@@ -357,12 +420,12 @@ function StageCard({ agent, context, approval, onDecide, onOpen, onSend }: {
           {replying && onSend && <CardMessageBox agent={agent} idle={!working} onSend={onSend} />}
           <div className="flex items-center gap-2">
             {onSend && (
-              <button type="button" aria-expanded={replying} onClick={() => setReplying((value) => !value)} className={cardButton}>
+              <button type="button" aria-expanded={replying} onClick={() => setReplying((value) => !value)} className={cn(cardButton, touch && "min-h-11")}>
                 <span aria-hidden="true">{working ? "Message" : "Reply"}</span>
                 <span className="sr-only">{working ? `Message ${agent.task_id}` : `Reply to ${agent.task_id}`}</span>
               </button>
             )}
-            <button type="button" aria-label={`Open ${agent.task_id}`} onClick={() => onOpen(agent.task_id)} className={cardButton}>Open</button>
+            <button type="button" aria-label={`Open ${agent.task_id}`} onClick={() => onOpen(agent.task_id)} className={cn(cardButton, touch && "min-h-11")}>Open</button>
             {context && <span className="ml-auto"><ContextMeter share={context.share} width="w-[60px]" /></span>}
           </div>
         </div>
@@ -385,7 +448,8 @@ function nowLine(agent: AgentInfo, conversation: AgentConversation | null): { to
 // NeedsBox is what an agent waits on the operator for, with the way to
 // answer: Allow and Deny for an approval, Answer for a question, Review plan
 // for a plan, else Open.
-function NeedsBox({ agent, conversation, approval, onDecide, onOpen }: {
+function NeedsBox({ agent, conversation, approval, onDecide, onOpen, touch }: {
+  touch: boolean
   agent: AgentInfo
   conversation: AgentConversation | null
   approval?: Approval
@@ -406,12 +470,13 @@ function NeedsBox({ agent, conversation, approval, onDecide, onOpen }: {
   const inline = approval?.source === "agent_permission" && !approval.signed
   const allow = inline ? approval?.options.find((option) => option.kind === "allow") : undefined
   const deny = inline ? approval?.options.find((option) => option.kind === "deny") : undefined
-  const primary = "h-[30px] shrink-0 rounded-md bg-lw-accent px-3 text-xs font-medium text-[var(--theme-canvas,#fff)] hover:brightness-110"
+  const button = touch ? cn(cardButton, "min-h-11") : cardButton
+  const primary = cn(touch ? "min-h-11" : "min-h-[30px]", "shrink-0 rounded-md bg-lw-accent px-3 text-xs font-medium text-[var(--theme-canvas,#fff)] hover:brightness-110")
   let actions: ReactNode
   if (approval && onDecide && allow && deny) {
     actions = <>
       <button type="button" onClick={() => onDecide(approval, { decision: "allow", option: allow.id })} className={primary}>Allow</button>
-      <button type="button" onClick={() => onDecide(approval, { decision: "deny" })} className={cardButton}>Deny</button>
+      <button type="button" onClick={() => onDecide(approval, { decision: "deny" })} className={button}>Deny</button>
     </>
   } else if (approval) {
     actions = <button type="button" onClick={() => showApproval(approval.id)} className={primary}>Answer</button>
@@ -425,7 +490,7 @@ function NeedsBox({ agent, conversation, approval, onDecide, onOpen }: {
       {shown.text && <p className="m-0 line-clamp-6 whitespace-pre-line text-xs leading-[18px] text-lw-text-2">{shown.text}</p>}
       <div className="flex flex-wrap items-center gap-2">
         {actions}
-        <button type="button" aria-label={`Open ${agent.task_id}`} onClick={() => onOpen(agent.task_id)} className={cardButton}>Open</button>
+        <button type="button" aria-label={`Open ${agent.task_id}`} onClick={() => onOpen(agent.task_id)} className={button}>Open</button>
       </div>
     </div>
   )
@@ -458,14 +523,14 @@ function CardMessageBox({ agent, idle, onSend }: { agent: AgentInfo; idle: boole
 
 // FinishedRow is a Finished agent on one line: unread when it left a done
 // note for the operator, then its ID, title and why it finished.
-function FinishedRow({ agent, onOpen }: { agent: AgentInfo; onOpen: (taskId: string) => void }) {
+function FinishedRow({ agent, onOpen, touch }: { agent: AgentInfo; onOpen: (taskId: string) => void; touch: boolean }) {
   const unread = unreadDone(agent)
   return (
     <button
       type="button"
       aria-label={`Open ${agent.task_id}`}
       onClick={() => onOpen(agent.task_id)}
-      className="flex min-h-9 w-full min-w-0 items-center gap-2.5 rounded-md px-2 text-left text-xs hover:bg-lw-raised"
+      className={cn("flex w-full min-w-0 items-center gap-2.5 rounded-md px-2 text-left text-xs hover:bg-lw-raised", touch ? "min-h-11" : "min-h-9")}
     >
       <span className="flex w-2 shrink-0 justify-center">
         {unread && <span aria-label="Unread: finished with a note for you" title="Finished with a note for you" className="size-2 rounded-full bg-lw-done" />}
