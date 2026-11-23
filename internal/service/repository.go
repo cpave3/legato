@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"os"
@@ -44,6 +45,7 @@ type RepoGit interface {
 	DefaultBranch(ctx context.Context, dir string) (string, error)
 	HasBranch(ctx context.Context, dir, branch string) (bool, error)
 	FetchRef(ctx context.Context, dir string, token []byte, ref string) error
+	ChangedUnder(ctx context.Context, cache, scratch string, pack io.Reader, updates []gitrepo.RefUpdate, dir string) (map[string][]string, error)
 }
 
 // RepositoryServiceOptions configures the repository cache.
@@ -159,6 +161,58 @@ func (s *RepositoryService) FetchPushed(ctx context.Context, repo string) {
 	if _, err := s.Refresh(ctx, repo); err != nil {
 		log.Printf("repositories: fetching %s after a push: %v", repo, err)
 	}
+}
+
+// pushScratchFolder, under the data folder, holds pushes while Legato reads
+// them, and the scratch repositories it reads them in. Unlike repos/, a
+// sandboxed agent does not see it.
+const pushScratchFolder = "push-scratch"
+
+// PushScratchDir is where pushes are kept while they are read, made when
+// there is none.
+func (s *RepositoryService) PushScratchDir() (string, error) {
+	dir := filepath.Join(s.opts.DataDir, pushScratchFolder)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// PushChanges says, by ref, which paths under dir a push's new commits
+// change, read against the repository's cache (made or fetched first as
+// Ensure does). open gives the push's pack. When the cache cannot complete
+// the pack (GitHub has commits the cache was not fetched), it is fetched
+// and the push read once more.
+func (s *RepositoryService) PushChanges(ctx context.Context, repo string, updates []gitrepo.RefUpdate, open func() (io.ReadCloser, error), dir string) (map[string][]string, error) {
+	cache, err := s.Ensure(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+	changes, err := s.readPush(ctx, repo, cache, updates, open, dir)
+	if err == nil {
+		return changes, nil
+	}
+	if cache, ferr := s.Refresh(ctx, repo); ferr == nil {
+		return s.readPush(ctx, repo, cache, updates, open, dir)
+	}
+	return nil, err
+}
+
+func (s *RepositoryService) readPush(ctx context.Context, repo, cache string, updates []gitrepo.RefUpdate, open func() (io.ReadCloser, error), dir string) (map[string][]string, error) {
+	scratch, err := s.PushScratchDir()
+	if err != nil {
+		return nil, err
+	}
+	pack, err := open()
+	if err != nil {
+		return nil, err
+	}
+	defer pack.Close()
+	// A fetch may repack the cache: not while it is read.
+	l := s.lock(repo)
+	l.Lock()
+	defer l.Unlock()
+	return s.opts.Git.ChangedUnder(ctx, cache, scratch, pack, updates, dir)
 }
 
 // PullHead fetches a pull request's head into the repository's cache, as

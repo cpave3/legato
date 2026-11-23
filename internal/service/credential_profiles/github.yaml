@@ -1,7 +1,8 @@
 # GitHub through a GitHub App. The person creates the App (contents read and
 # write, pull requests read and write, metadata read; issues read and write
 # for gh's issue commands; actions read, and write to re-run, cancel and
-# dispatch, for gh's run, workflow and cache commands), installs it on the
+# dispatch, for gh's run, workflow and cache commands; workflows read and
+# write for pushes that change .github/workflows), installs it on the
 # repositories, and gives Legato its private key. Agents read the listed
 # repositories with short-lived read tokens from Legato's git credential
 # helper; pushes go through Legato's proxy, which reads each ref a push
@@ -29,6 +30,9 @@ jwt_exchange:
   lookup:
     url: "https://api.github.com/repos/{owner}/{repo}/installation"
     set: { installation: "$.id" }
+    # The installation's permissions: a push that changes workflows is
+    # refused before anyone is asked when the App lacks workflows: write.
+    granted: "$.permissions"
   exchange:
     method: POST
     url: "https://api.github.com/app/installations/{installation}/access_tokens"
@@ -44,6 +48,12 @@ permissions:
   git.read: { contents: read, metadata: read }
   api.read: { contents: read, metadata: read, pull_requests: read }
   git.push: { contents: write }
+  # A push whose new commits change a file under .github/workflows (Legato
+  # reads each push against its copy of the repository). GitHub refuses
+  # such a push without the workflows permission, and a workflow runs with
+  # the repository's secrets once pushed, so it is asked for apart from
+  # git.push.
+  git.push-workflows: { contents: write, workflows: write }
   # A pull request that is not a draft, from one branch: through the REST
   # API, or gh pr create without --draft (given to the gh wrapper for one
   # command and revoked after it).
@@ -77,7 +87,7 @@ routes:
 # {repositories} is each of settings.repositories; one rule each.
 policy:
   - { operation: [git.read, api.read, actions.read], resource: "github:{repositories}", approve: auto }
-  - { operation: [git.push, pr.create, pr.create-draft], resource: "github:{repositories}@refs/heads/legato/**", approve: session }
-  - { operation: [git.push, pr.create, pr.create-draft], resource: "github:{repositories}@refs/heads/**", approve: request, signed: true }
+  - { operation: [git.push, git.push-workflows, pr.create, pr.create-draft], resource: "github:{repositories}@refs/heads/legato/**", approve: session }
+  - { operation: [git.push, git.push-workflows, pr.create, pr.create-draft], resource: "github:{repositories}@refs/heads/**", approve: request, signed: true }
   - { operation: [pr.write, pr.ready, issue.write, actions.write], resource: "github:{repositories}", approve: session }
   - { operation: [git.push-default, git.push-tag, git.delete-ref], approve: deny }

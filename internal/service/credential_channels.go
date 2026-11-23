@@ -69,6 +69,8 @@ type CredentialChannels struct {
 	// onBranch is told of each branch an agent's session pushed under
 	// legato/ or opened a pull request from.
 	onBranch func(AgentBranch)
+	// pushReader reads what a push changes; nil leaves pushes unread.
+	pushReader PushReader
 }
 
 // NewCredentialChannels builds the channels of the broker's credentials.

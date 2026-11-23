@@ -83,6 +83,9 @@ type CredentialUse struct {
 	Amounts     map[string]int64
 	// Call is what the channel saw, for the audit log: "POST /v1/voices".
 	Call string
+	// Detail says more of what the use does, for the operator asked to
+	// allow it: the workflow files a push changes.
+	Detail string
 }
 
 // UseDecision says whether a use may go ahead.
@@ -1158,7 +1161,7 @@ func (b *CredentialBroker) Authorize(ctx context.Context, use CredentialUse) (Us
 		return UseDecision{Allowed: ok}, err
 	}
 	result, err := b.Request(ctx, AccessRequest{TaskID: use.TaskID, ExecutionID: use.ExecutionID, Credential: use.Credential,
-		Operations: []string{use.Operation}, Resources: nonEmpty(use.Resource), Reason: "used without asking first", Blocking: true, amounts: use.Amounts})
+		Operations: []string{use.Operation}, Resources: nonEmpty(use.Resource), Reason: unaskedReason(use), Blocking: true, amounts: use.Amounts})
 	if err != nil {
 		return UseDecision{}, err
 	}
@@ -1222,7 +1225,7 @@ func (b *CredentialBroker) CheckUse(ctx context.Context, use CredentialUse) (Use
 		return UseDecision{Allowed: true}, nil
 	}
 	result, err := b.Request(ctx, AccessRequest{TaskID: use.TaskID, ExecutionID: use.ExecutionID, Credential: use.Credential,
-		Operations: []string{use.Operation}, Resources: nonEmpty(use.Resource), Reason: "used without asking first", Blocking: true, amounts: use.Amounts, noWait: true})
+		Operations: []string{use.Operation}, Resources: nonEmpty(use.Resource), Reason: unaskedReason(use), Blocking: true, amounts: use.Amounts, noWait: true})
 	if err != nil {
 		return UseDecision{}, err
 	}
@@ -1230,6 +1233,15 @@ func (b *CredentialBroker) CheckUse(ctx context.Context, use CredentialUse) (Use
 		return UseDecision{Allowed: true, ApprovalID: result.ApprovalID}, nil
 	}
 	return UseDecision{ApprovalID: result.ApprovalID, Reason: firstNonEmpty(result.Reason, "waiting for the operator")}, nil
+}
+
+// unaskedReason is the reason a request made for a use carries: that it
+// was not asked for, and what it does when the channel said.
+func unaskedReason(use CredentialUse) string {
+	if use.Detail != "" {
+		return "used without asking first: " + use.Detail
+	}
+	return "used without asking first"
 }
 
 // useGrant spends a live grant that covers the use, if there is one.

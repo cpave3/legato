@@ -71,6 +71,7 @@ Agents read your repositories, push to `legato/…` branches, open pull requests
 | --- | --- |
 | Fetch, pull, `gh` reads, API reads, of a listed repository | no prompt |
 | Push to `legato/**`, or a pull request from such a branch | asked once a session, per branch |
+| Push to `legato/**` that changes `.github/workflows/` | asked once a session, per branch, apart from other pushes |
 | Push to any other branch, or a pull request from it | asked each time |
 | Write issues (`gh issue create`, `comment`, `close`, …) | asked once a session |
 | Read GitHub Actions (`gh run list`, `view`, `watch`, `download`, `gh workflow view`) | no prompt |
@@ -79,7 +80,7 @@ Agents read your repositories, push to `legato/…` branches, open pull requests
 
 1. **Create the App.** On GitHub: Settings › Developer settings › GitHub Apps › New GitHub App.
    - Name: anything (`Legato for <you>`). Homepage URL: anything. Webhook: untick **Active**.
-   - Repository permissions: **Contents** read and write, **Pull requests** read and write, **Metadata** read, **Issues** read and write if agents are to write issues, and **Actions** read (or read and write, to let agents re-run, cancel and dispatch workflows) if agents are to see workflow runs. If you add a permission to an App that is already installed, accept the new permission on the installation (Settings › Applications › Installed GitHub Apps), or GitHub refuses the tokens that need it.
+   - Repository permissions: **Contents** read and write, **Pull requests** read and write, **Metadata** read, **Issues** read and write if agents are to write issues, **Actions** read (or read and write, to let agents re-run, cancel and dispatch workflows) if agents are to see workflow runs, and **Workflows** read and write if agents are to push changes to `.github/workflows/` (optional: without it, Legato refuses such a push and says so). If you add a permission to an App that is already installed, accept the new permission on the installation (Settings › Applications › Installed GitHub Apps), or GitHub refuses the tokens that need it.
    - Where can this GitHub App be installed: **Only on this account**. Create it.
 2. **Note its client ID** (`Iv23…`, on the App's page).
 3. **Generate a private key** (the App's page, Private keys). Store it in Legato and delete the download:

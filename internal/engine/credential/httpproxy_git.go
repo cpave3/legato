@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -23,8 +24,24 @@ type GitBackend interface {
 	// all or nothing, so nothing is spent unless every update is allowed.
 	// A use that needs the person is pending at once; git cannot wait.
 	AuthorizePush(ctx context.Context, execution Execution, credential, repo string, uses []Classified) ([]Decision, error)
-	// PushToken makes a write token for one repository, and revokes it.
-	PushToken(ctx context.Context, execution Execution, credential, repo string) ([]byte, func(), error)
+	// PushToken makes a write token for one repository and a push's
+	// operation (git.push, or git.push-workflows for a push that changes
+	// workflows), and revokes it.
+	PushToken(ctx context.Context, execution Execution, credential, repo, operation string) ([]byte, func(), error)
+}
+
+// GitPushInspector is a GitBackend that reads what a push changes before
+// it is decided: a ref whose new commits change a workflow file is pushed
+// as git.push-workflows, and with a token for that.
+type GitPushInspector interface {
+	// InspectsPushes reports whether pushes with a credential are read,
+	// and the folder a push is kept in while it is read ("" for the
+	// system's temporary directory).
+	InspectsPushes(ctx context.Context, credential string) (spoolDir string, ok bool)
+	// WorkflowChanges says, by ref, which files under WorkflowsDir each
+	// ref's new commits change. open gives the push's pack, afresh at each
+	// call. An error leaves the push as it would be unread.
+	WorkflowChanges(ctx context.Context, credential, repo string, updates []RefUpdate, open func() (io.ReadCloser, error)) (map[string][]string, error)
 }
 
 // GitPushListener is told of each push the proxy passed to the git host
@@ -40,9 +57,10 @@ type GitPushListener interface {
 const pushTokenLife = 2 * time.Minute
 
 type pushToken struct {
-	token   []byte
-	release func()
-	timer   *time.Timer
+	operation string
+	token     []byte
+	release   func()
+	timer     *time.Timer
 }
 
 var repoPart = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
@@ -89,7 +107,7 @@ func (p *HTTPProxy) serveGit(w http.ResponseWriter, r *http.Request, c ProxyCred
 	key := execution.ExecutionID + "\x00" + repo
 
 	if advertise {
-		token, err := p.pushTokenFor(ctx, gb, execution, c.Name, repo, key, true)
+		token, err := p.pushTokenFor(ctx, gb, execution, c.Name, repo, OperationGitPush, key, true)
 		if err != nil {
 			log.Printf("credentials: proxy %s: a write token for %s: %v", c.Name, repo, err)
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "Legato could not get a token to push to " + repo})
@@ -107,6 +125,31 @@ func (p *HTTPProxy) serveGit(w http.ResponseWriter, r *http.Request, c ProxyCred
 		http.Error(w, "Legato: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	body := io.MultiReader(bytes.NewReader(head), r.Body)
+	var workflows map[string][]string
+	inspector, inspects := p.Backend.(GitPushInspector)
+	spoolDir := ""
+	if inspects {
+		spoolDir, inspects = inspector.InspectsPushes(ctx, c.Name)
+	}
+	if inspects {
+		spool, err := spoolPush(spoolDir, body)
+		if err != nil {
+			p.dropPushToken(key)
+			_, _ = io.Copy(io.Discard, r.Body)
+			log.Printf("credentials: proxy %s: keeping a push to %s: %v", c.Name, repo, err)
+			http.Error(w, "Legato could not read this push", http.StatusInternalServerError)
+			return
+		}
+		defer spool.Close()
+		workflows = p.inspectPush(ctx, inspector, c.Name, repo, pushed, spool, r.Header.Get("Content-Encoding"))
+		if _, err := spool.Seek(0, io.SeekStart); err != nil {
+			p.dropPushToken(key)
+			http.Error(w, "Legato could not read this push", http.StatusInternalServerError)
+			return
+		}
+		body = spool
+	}
 	defaultBranch, err := gb.DefaultBranch(ctx, c.Name, repo)
 	if err != nil {
 		log.Printf("credentials: proxy %s: the default branch of %s: %v", c.Name, repo, err)
@@ -115,12 +158,20 @@ func (p *HTTPProxy) serveGit(w http.ResponseWriter, r *http.Request, c ProxyCred
 	var messages []string
 	var uses []Classified
 	var useRefs []string
+	pushOperation := OperationGitPush
 	for _, cmd := range pushed.Commands {
 		use, err := ClassifyRefUpdate(repo, defaultBranch, cmd)
 		if err != nil {
 			reasons[cmd.Ref] = "not a branch or tag"
 			messages = append(messages, "Legato: "+err.Error()+"; only branches can be pushed.")
 			continue
+		}
+		if files := workflows[cmd.Ref]; len(files) > 0 && use.Operation == OperationGitPush {
+			use.Operation = OperationGitPushWorkflows
+			use.Detail = "changes " + strings.Join(files, ", ")
+		}
+		if use.Operation == OperationGitPushWorkflows {
+			pushOperation = OperationGitPushWorkflows
 		}
 		uses = append(uses, use)
 		useRefs = append(useRefs, cmd.Ref)
@@ -146,8 +197,12 @@ func (p *HTTPProxy) serveGit(w http.ResponseWriter, r *http.Request, c ProxyCred
 				continue
 			}
 			reasons[ref] = "not allowed"
-			messages = append(messages, fmt.Sprintf("Legato: %s is outside your grant (%s).", ref, firstOr(d.Reason, use.Operation+" on "+use.Resource)))
-			if use.Operation == OperationGitPush {
+			if use.Operation == OperationGitPushWorkflows {
+				messages = append(messages, fmt.Sprintf("Legato: %s %s, which needs %s: %s.", ref, use.Detail, use.Operation, firstOr(d.Reason, "not allowed")))
+			} else {
+				messages = append(messages, fmt.Sprintf("Legato: %s is outside your grant (%s).", ref, firstOr(d.Reason, use.Operation+" on "+use.Resource)))
+			}
+			if use.Operation == OperationGitPush || (use.Operation == OperationGitPushWorkflows && !d.Final) {
 				messages = append(messages, fmt.Sprintf("Legato: to push it, ask with request_access (credential %s, operation %s, resource %s), then push again.", c.Name, use.Operation, use.Resource))
 			}
 		}
@@ -162,14 +217,15 @@ func (p *HTTPProxy) serveGit(w http.ResponseWriter, r *http.Request, c ProxyCred
 		return
 	}
 
-	token, err := p.pushTokenFor(ctx, gb, execution, c.Name, repo, key, false)
+	token, err := p.pushTokenFor(ctx, gb, execution, c.Name, repo, pushOperation, key, false)
 	if err != nil {
 		_, _ = io.Copy(io.Discard, r.Body)
+		log.Printf("credentials: proxy %s: a %s token for %s: %v", c.Name, pushOperation, repo, err)
 		http.Error(w, "Legato could not get a token to push to "+repo, http.StatusBadGateway)
 		return
 	}
 	defer p.dropPushToken(key)
-	status := p.forwardGit(w, r, c, repo, tail, io.MultiReader(bytes.NewReader(head), r.Body), token)
+	status := p.forwardGit(w, r, c, repo, tail, body, token)
 	if listener, ok := p.Backend.(GitPushListener); ok && status == http.StatusOK {
 		refs := make([]string, 0, len(pushed.Commands))
 		for _, cmd := range pushed.Commands {
@@ -179,26 +235,31 @@ func (p *HTTPProxy) serveGit(w http.ResponseWriter, r *http.Request, c ProxyCred
 	}
 }
 
-// pushTokenFor makes a write token for a push, or takes the one made for
-// its advertisement. keep holds it for the push that follows.
-func (p *HTTPProxy) pushTokenFor(ctx context.Context, gb GitBackend, execution Execution, credential, repo, key string, keep bool) ([]byte, error) {
+// pushTokenFor makes a write token for a push's operation, or takes the
+// one made for its advertisement when that was made for the same
+// operation; one made for another is revoked. keep holds it for the push
+// that follows.
+func (p *HTTPProxy) pushTokenFor(ctx context.Context, gb GitBackend, execution Execution, credential, repo, operation, key string, keep bool) ([]byte, error) {
 	p.mu.Lock()
-	if held, ok := p.pushes[key]; ok {
-		p.mu.Unlock()
+	held, ok := p.pushes[key]
+	p.mu.Unlock()
+	if ok && held.operation == operation {
 		return held.token, nil
 	}
-	p.mu.Unlock()
-	token, release, err := gb.PushToken(ctx, execution, credential, repo)
+	if ok {
+		p.dropPushToken(key)
+	}
+	token, release, err := gb.PushToken(ctx, execution, credential, repo, operation)
 	if err != nil {
 		return nil, err
 	}
-	held := &pushToken{token: token, release: release}
+	held = &pushToken{operation: operation, token: token, release: release}
 	held.timer = time.AfterFunc(pushTokenLife, func() { p.dropPushToken(key) })
 	p.mu.Lock()
 	if p.pushes == nil {
 		p.pushes = map[string]*pushToken{}
 	}
-	if old, ok := p.pushes[key]; ok { // another request made one meanwhile
+	if old, ok := p.pushes[key]; ok && old.operation == operation { // another request made one meanwhile
 		p.mu.Unlock()
 		held.timer.Stop()
 		if release != nil {
@@ -209,6 +270,62 @@ func (p *HTTPProxy) pushTokenFor(ctx context.Context, gb GitBackend, execution E
 	p.pushes[key] = held
 	p.mu.Unlock()
 	return token, nil
+}
+
+// spoolPush keeps a push's body in a file, so Legato can read its pack and
+// then pass the same bytes on. The file is gone once closed.
+func spoolPush(dir string, body io.Reader) (*spooled, error) {
+	f, err := os.CreateTemp(dir, "legato-push-*")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := io.Copy(f, body); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return nil, err
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return nil, err
+	}
+	return &spooled{File: f}, nil
+}
+
+// spooled is a push kept in a file, removed when closed.
+type spooled struct{ *os.File }
+
+func (s *spooled) Close() error {
+	err := s.File.Close()
+	_ = os.Remove(s.File.Name())
+	return err
+}
+
+// inspectPush asks the backend which workflow files each ref of a push
+// changes. Nil when it cannot tell: the push then goes as git.push, with a
+// token GitHub refuses workflow changes from.
+func (p *HTTPProxy) inspectPush(ctx context.Context, inspector GitPushInspector, credential, repo string, push ReceivePack, spool *spooled, encoding string) map[string][]string {
+	open := func() (io.ReadCloser, error) {
+		f, err := os.Open(spool.Name())
+		if err != nil {
+			return nil, err
+		}
+		pack, err := PackOf(f, encoding)
+		if err != nil {
+			f.Close()
+			return nil, err
+		}
+		return struct {
+			io.Reader
+			io.Closer
+		}{pack, f}, nil
+	}
+	changes, err := inspector.WorkflowChanges(ctx, credential, repo, push.Commands, open)
+	if err != nil {
+		log.Printf("credentials: proxy %s: what a push to %s changes: %v; it goes as an ordinary push", credential, repo, err)
+		return nil
+	}
+	return changes
 }
 
 // dropPushToken revokes a push's write token.

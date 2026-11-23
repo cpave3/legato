@@ -73,6 +73,9 @@ func (rt *approvalRuntime) giveRepositories(repos *service.RepositoryService, pr
 	}
 	if rt.channels != nil {
 		repos.SetTokens(rt.channels)
+		// The proxy reads each push against the cache, so a push that
+		// changes workflows is asked for as git.push-workflows.
+		rt.channels.SetPushReader(repos)
 		// An agent's push through the proxy reaches the cache at once, so
 		// the Reeve (which sees the cache, not the job clones) has it.
 		rt.channels.AddPushListener(func(push service.GitPush) {

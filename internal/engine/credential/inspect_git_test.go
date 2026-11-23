@@ -157,3 +157,22 @@ func TestARefusalIsWrittenSoGitPrintsIt(t *testing.T) {
 		t.Errorf("without side-band: %q", plain)
 	}
 }
+
+func TestPackOfSkipsThePushsCommandsAndOptions(t *testing.T) {
+	body := pkt(oldID+" "+newID+" refs/heads/legato/x\x00report-status push-options\n") + "0000" +
+		pkt("ci.skip\n") + "0000" + "PACK\x00\x00\x00\x02rest"
+	var zipped bytes.Buffer
+	z := gzip.NewWriter(&zipped)
+	_, _ = z.Write([]byte(body))
+	_ = z.Close()
+	for encoding, raw := range map[string][]byte{"": []byte(body), "gzip": zipped.Bytes()} {
+		pack, err := PackOf(bytes.NewReader(raw), encoding)
+		if err != nil {
+			t.Fatalf("%q: %v", encoding, err)
+		}
+		got, _ := io.ReadAll(pack)
+		if string(got) != "PACK\x00\x00\x00\x02rest" {
+			t.Errorf("%q: pack = %q", encoding, got)
+		}
+	}
+}
