@@ -213,7 +213,7 @@ describe("Board layout", () => {
       renderBoard()
       fireEvent.click(screen.getAllByText("Record video")[0])
       expect(within(panel()).getByRole("heading", { name: "Record video" })).toBeTruthy()
-      expect(within(panel()).getByText("Running · Claude Code")).toBeTruthy()
+      expect(within(panel()).getByText("Working · Claude Code")).toBeTruthy()
       expect(screen.queryByRole("dialog")).toBeNull()
     })
 
