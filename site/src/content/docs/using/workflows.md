@@ -34,7 +34,7 @@ The templates Legato ships use your default agent tool and your [macros](/legato
 | `address-feedback` | When someone requests changes on a pull request one of your tasks owns, gives the task's agent your **Address feedback** macro, starting it if none is running. |
 | `review-pr-passes` | Reviews a pull request in passes posted to GitHub; see [Review passes](/legato/using/review-passes/). |
 
-In the web UI, **Add from template** on the **Workflows** tab (also offered when you have no workflows) does the same: pick a template, a name and a folder (yours, the project's, or a repository's checkout), and Legato writes the file and shows where. It changes nothing in the template but its name, and refuses a name a workflow already has, so it never overwrites one.
+In the web UI, **New workflow** on the **Workflows** tab (and the tab itself when you have no workflows) shows the templates: each says what starts it, what it asks for and what it does. Choose one to see its outline, then **Use this template** to open it in the editor. Nothing is written until you press **Create**, in the folder you pick (yours, the project's, or a repository's checkout). If a workflow already has the template's name, the new one gets another.
 
 The browser extension starts `review-pr` and `discuss-pr` with the repository and number only; a workflow of yours of the same name that declares a `primary_dir` input still gets the matching repository preset's folder.
 
@@ -165,7 +165,7 @@ Select a trigger to see its settings in the panel beside the graph: whether it a
 
 ### Create and edit in the web UI
 
-**New workflow** on the **Workflows** tab, beside **Add from template**, opens an editor with a small workflow that is valid as it is: one step that runs an agent on a prompt. Pick the folder it goes in (yours, a repository's checkout or the project's) and press **Create**. **Edit** on a workflow's page opens its file in the same editor, as the file says it, comments and all. **Save** writes exactly what you typed.
+**New workflow** on the **Workflows** tab starts from one of four places: a template, **Blank** (nothing yet: add the first step), **Paste YAML** (it says what you pasted is, such as "Starts when a card enters Review · asks for 2 inputs · 3 steps", and marks its problems), or **Copy one of yours**. Each opens the editor, unsaved. Pick the folder it goes in (yours, a repository's checkout or the project's) and press **Create**. **Edit** on a workflow's page opens its file in the same editor, as the file says it, comments and all. **Save** writes exactly what you typed.
 
 The editor has two sides, **Visual** and **YAML**, and you can switch between them at any time without losing work: both edit the same file.
 

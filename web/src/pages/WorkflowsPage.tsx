@@ -1,12 +1,13 @@
-import { useState } from "react"
-import { Link, useSearchParams } from "react-router-dom"
+import { useEffect, useState } from "react"
+import { Link, useNavigate, useSearchParams } from "react-router-dom"
+import { useServer } from "../hooks/useServer"
 import { Play, RefreshCw } from "lucide-react"
 import { useWorkflows, useWorkflowRuns } from "../hooks/useWorkflow"
 import { useNow } from "../hooks/useNow"
-import { stepStart, type WorkflowDefinition, type WorkflowRun } from "../lib/workflow"
+import { fetchWorkflowTemplates, stepStart, type WorkflowDefinition, type WorkflowRun, type WorkflowTemplate } from "../lib/workflow"
 import { ago, inputsLabel, runState, runSubject, runSummary, sourceLabel, stepPosition, stepSegments, triggerText } from "../lib/workflowView"
 import { RunWorkflowDialog } from "../components/RunWorkflowDialog"
-import { AddWorkflowTemplateDialog } from "../components/AddWorkflowTemplateDialog"
+import { LazyWorkflowStart } from "../components/workflow-editor/LazyWorkflowStart"
 import { TriggerSwitch } from "../components/WorkflowTriggerSwitch"
 import { StatePill, StepBar } from "../components/WorkflowRunStatus"
 import { toneText } from "../lib/workflowTones"
@@ -130,14 +131,13 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
   const definitions = useWorkflows()
   const runs = useWorkflowRuns()
   const [selected, setSelected] = useState<WorkflowDefinition | null>(null)
-  const [adding, setAdding] = useState(false)
   const now = useNow(30_000)
   const list = definitions.data?.definitions ?? []
   const lastRun = new Map<string, WorkflowRun>()
   for (const run of runs.data ?? []) if (!lastRun.has(run.workflow_name)) lastRun.set(run.workflow_name, run)
   const needsYou = (runs.data ?? []).filter(run => run.needs_attention).length
   return <PageFrame tab="workflows" setTab={setTab} needsYou={needsYou} refresh={async () => { await Promise.all([definitions.refresh(), runs.refresh()]) }}>
-    <div className="mt-4 flex justify-end gap-2"><Link to="/workflows/new" className="inline-flex min-h-9 items-center rounded-md border border-zinc-700 px-3 text-xs font-medium text-zinc-300 hover:bg-zinc-800">New workflow</Link><Button variant="outline" size="sm" onClick={() => setAdding(true)}>Add from template</Button></div>
+    <div className="mt-4 flex justify-end gap-2"><Link to="/workflows/new" className="inline-flex min-h-9 items-center rounded-md border border-zinc-700 px-3 text-xs font-medium text-zinc-300 hover:bg-zinc-800">New workflow</Link></div>
     {definitions.loading && <LoadingState label="Loading workflows…" size="inline" className="mt-6" />}
     {definitions.error && <LoadFailure error={definitions.error} saved={definitions.data !== null} label="workflows" refreshing={definitions.refreshing} refresh={definitions.refresh} />}
     {runs.error && <LoadFailure error={runs.error} saved={runs.data !== null} label="runs" refreshing={runs.refreshing} refresh={runs.refresh} />}
@@ -167,14 +167,28 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
         </li>
       })}
     </ul>}
-    {!definitions.loading && !definitions.error && list.length === 0 && <div className="mt-6 flex flex-col items-start gap-2 text-sm text-lw-text-2">
-      <p>No workflow definitions found</p>
-      <p>A workflow is a YAML file of steps. <a href="https://cpave3.github.io/legato/using/workflows/" target="_blank" rel="noreferrer" className="text-lw-link hover:underline">Write your first workflow</a>, or start from a template.</p>
-      <div className="flex gap-2"><Button size="sm" onClick={() => setAdding(true)}>Add from template</Button><Link to="/workflows/new" className="inline-flex min-h-9 items-center rounded-md border border-zinc-700 px-3 text-xs font-medium text-zinc-300 hover:bg-zinc-800">New workflow</Link></div>
-    </div>}
-    {adding && <AddWorkflowTemplateDialog onClose={() => setAdding(false)} onAdded={definitions.refresh} />}
+    {!definitions.loading && !definitions.error && list.length === 0 && <section aria-label="Start a workflow" className="mt-6 flex flex-col gap-3 text-sm">
+      <p className="text-lw-text-2">No workflow definitions found</p>
+      <p className="text-lw-text-2">A workflow is a YAML file of steps. <a href="https://cpave3.github.io/legato/using/workflows/" target="_blank" rel="noreferrer" className="text-lw-link hover:underline">Write your first workflow</a>, or start from one of these.</p>
+      <EmptyStart />
+    </section>}
     {selected && <RunWorkflowDialog definition={selected} repositories={definitions.data?.repositories ?? []} onClose={() => setSelected(null)} />}
   </PageFrame>
+}
+
+// EmptyStart is the start page on an empty Workflows tab (LEG-514): what
+// is chosen opens the editor on it.
+function EmptyStart() {
+  const navigate = useNavigate()
+  const { baseUrl } = useServer()
+  const [templates, setTemplates] = useState<WorkflowTemplate[] | null>(null)
+  useEffect(() => {
+    let current = true
+    fetchWorkflowTemplates(baseUrl).then(list => { if (current) setTemplates(list.templates ?? []) }, () => { if (current) setTemplates([]) })
+    return () => { current = false }
+  }, [baseUrl])
+  return <LazyWorkflowStart templates={templates} yours={[]} taken={[]} loadYours={() => Promise.reject(new Error("none"))}
+    onStart={text => navigate("/workflows/new", { state: { start: text } })} />
 }
 
 export function WorkflowsPage() {

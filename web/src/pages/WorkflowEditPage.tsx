@@ -9,12 +9,13 @@ import { AlertTriangle, ArrowLeft, Redo2, Save, Trash2, Undo2 } from "lucide-rea
 import { useServer } from "../hooks/useServer"
 import { useWorkflows } from "../hooks/useWorkflow"
 import { queryKeys } from "../lib/query"
-import { checkWorkflowFile, createWorkflowFile, deleteWorkflowFile, fetchWorkflowFile, offsetOf, saveWorkflowFile, starterWorkflow, WorkflowFileError, type WorkflowCheck, type WorkflowDiagnostic, type WorkflowFile } from "../lib/workflowFiles"
+import { checkWorkflowFile, createWorkflowFile, deleteWorkflowFile, fetchWorkflowFile, offsetOf, saveWorkflowFile, WorkflowFileError, type WorkflowCheck, type WorkflowDiagnostic, type WorkflowFile } from "../lib/workflowFiles"
 import { LazyWorkflowYamlEditor } from "../components/workflow-editor/LazyWorkflowYamlEditor"
 import { LazyWorkflowOutline } from "../components/workflow-editor/LazyWorkflowOutline"
 import type { HeldYaml } from "../components/workflow-editor/WorkflowOutline"
 import { KIND_TITLES } from "../components/workflow-editor/triggerTitles"
-import { setWorkflowTrigger } from "../lib/workflow"
+import { fetchWorkflowTemplates, setWorkflowTrigger } from "../lib/workflow"
+import { LazyWorkflowStart } from "../components/workflow-editor/LazyWorkflowStart"
 import type { WorkflowGraphModel } from "../lib/workflowGraph"
 
 // Drops held item YAML that no longer belongs to the text, in either mode.
@@ -211,7 +212,13 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   }
   const [file, setFile] = useState<WorkflowFile | null>(null)
   const [loadError, setLoadError] = useState("")
-  const history = useHistory(mode === "new" ? starterWorkflow : null)
+  // A new workflow starts on the start page (LEG-514), unless it was sent
+  // here with what to start from (the Workflows tab's start page does so).
+  const sentStart = mode === "new" ? (location.state as { start?: string } | null)?.start ?? null : null
+  const [startText, setStartText] = useState<string | null>(sentStart)
+  const history = useHistory(sentStart)
+  const templates = useQuery({ queryKey: [baseUrl, "workflow-templates"], queryFn: () => fetchWorkflowTemplates(baseUrl), enabled: mode === "new", staleTime: 60_000 })
+  const start = (text: string) => { setStartText(text); history.reset(text) }
   const text = history.text
   const [editorMode, setEditorMode] = useState<EditorMode>(storedMode)
   const switchMode = (next: EditorMode) => {
@@ -238,7 +245,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   useEffect(() => {
     if (mode !== "edit") {
       const kept = readDraft(key)
-      if (kept && kept.text !== starterWorkflow) setDraft(kept)
+      if (kept && kept.text !== startText) setDraft(kept)
       setDraftRead(true)
       return
     }
@@ -261,7 +268,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   }, [baseUrl, mode, name, key, attempt])
 
   const [pendingEdits, setPendingEdits] = useState(false)
-  const dirty = pendingEdits || Object.keys(heldYaml).length > 0 || (text !== null && (mode === "new" ? text !== starterWorkflow : text !== saved))
+  const dirty = pendingEdits || Object.keys(heldYaml).length > 0 || (text !== null && (mode === "new" ? text !== startText : text !== saved))
   const dirtyRef = useRef(dirty)
   dirtyRef.current = dirty
   // The unsaved text is kept as a draft, with the digest it was begun at,
@@ -388,6 +395,19 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
     <p>Could not open the workflow: {loadError}</p>
     <Button size="sm" variant="outline" onClick={() => setAttempt(n => n + 1)}>Retry</Button>
   </div>)
+  if (text === null && mode === "new") {
+    const taken = (workflows.data?.definitions ?? []).map(d => d.name)
+    return frame(<>
+      <h1 className="text-xl font-semibold">New workflow</h1>
+      {draft && <section role="alertdialog" aria-label="Unsaved changes" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm">
+        <p className="flex-1">You left a new workflow with unsaved changes. They were kept in this browser.</p>
+        <Button size="sm" variant="outline" onClick={() => { start(draft.text); setDraft(null) }}>Restore them</Button>
+        <Button size="sm" variant="ghost" onClick={() => { writeDraft(key, null); setDraft(null) }}>Throw them away</Button>
+      </section>}
+      <LazyWorkflowStart templates={templates.data?.templates ?? (templates.isError ? [] : null)} yours={(workflows.data?.definitions ?? []).map(d => ({ name: d.name, title: d.title }))} taken={taken}
+        loadYours={async workflow => (await fetchWorkflowFile(baseUrl, workflow)).yaml} onStart={start} narrow={narrow} />
+    </>)
+  }
   if (text === null) return frame(<LoadingState label="Opening the file…" size="inline" />)
 
   return frame(<>

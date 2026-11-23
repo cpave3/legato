@@ -23,7 +23,7 @@ describe("the workflow editor chunk", () => {
   })
 
   it("is reached only through a dynamic import", () => {
-    const offenders = sources(src).filter(path => /^import\s+(?!type\b).*workflow-editor\/(WorkflowYamlEditor|WorkflowBuilder|WorkflowOutline)["']/m.test(readFileSync(path, "utf8")))
+    const offenders = sources(src).filter(path => /^import\s+(?!type\b).*workflow-editor\/(WorkflowYamlEditor|WorkflowBuilder|WorkflowOutline|WorkflowStart)["']/m.test(readFileSync(path, "utf8")))
     expect(offenders.map(path => relative(src, path))).toEqual([])
   })
 

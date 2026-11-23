@@ -467,11 +467,13 @@ function Outline(props: WorkflowOutlineProps) {
       {editing && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={addAnInput}><Plus size={13} />Add input</Button>}
     </>)}
     {section("Then", <>
-      {rows.then.length === 0 && <p className="px-2 text-sm text-lw-text-2">No steps yet: a workflow needs at least one.</p>}
+      {rows.then.length === 0 && (editing
+        ? (adding?.kind === "step" ? null : <button type="button" className="mx-2 flex min-h-16 items-center justify-center gap-2 rounded-lg border border-dashed border-lw-line-strong text-sm text-lw-text-2 hover:bg-lw-raised hover:text-lw-text" onClick={() => setAdding({ kind: "step", at: 0 })}><Plus size={14} />Add the first step</button>)
+        : <p className="px-2 text-sm text-lw-text-2">No steps yet: a workflow needs at least one.</p>)}
       {warning && <p role="alert" className="px-2 text-xs text-lw-needs">{warning}</p>}
       <ol aria-label="Steps" className="flex flex-col">{rows.then.map(stepRow)}</ol>
       {container("steps")}
-      {editing && (adding?.kind === "step" && adding.at >= placed.length ? palette : <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding({ kind: "step", at: placed.length })}><Plus size={13} />Add step</Button>)}
+      {editing && (adding?.kind === "step" && adding.at >= placed.length ? palette : placed.length > 0 && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding({ kind: "step", at: placed.length })}><Plus size={13} />Add step</Button>)}
     </>)}
     {section("About", <ul className="flex flex-col">{rowButton(order[order.length - 1])}</ul>)}
   </nav>
