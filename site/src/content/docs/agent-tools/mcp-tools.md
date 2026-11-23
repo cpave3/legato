@@ -194,7 +194,7 @@ How Legato runs a local server:
 
 Videos and studios use [libretto](https://github.com/cpave3/libretto), a separate command that makes narrated videos. Legato runs without it. Install it only if you want these two tools.
 
-- **Videos.** An agent renders a video with libretto, then calls `show_video`. You watch it in the side panel, with chapters and captions. **Ask about this moment** pauses the video and puts a description of that moment in your message box, for a question to the agent. Legato keeps MP4 and WebM files up to 1 GiB, and the 12 videos a task showed most recently.
+- **Videos.** An agent renders a video with libretto, then calls `show_video`. You watch it in the side panel, with chapters and captions. **Ask about this moment** pauses the video and puts a description of that moment in your message box, for a question to the agent. Legato keeps MP4 and WebM files up to 1 GiB, and the 12 videos a task showed most recently. When the app or browser you use cannot play the video's format, the panel says so and offers **Download the video** in place of a player.
 - **Studios.** When you want to present something in your own voice, an agent opens a studio with `show_studio`. You and the agent plan the scenes, then you record each scene with your microphone, and your camera if you like. The agent lines the video up with what you said and renders it.
 
 You can add a comment for the agent as soon as a studio scene appears, and take it back from that scene.

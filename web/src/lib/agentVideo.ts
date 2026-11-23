@@ -116,6 +116,65 @@ export function posterAddress(baseUrl: string, item: Pick<AgentUIItem, "video">)
   }
 }
 
+// The formats of the video files Legato knows, by extension.
+const VIDEO_TYPES: Record<string, string> = {
+  mp4: "video/mp4",
+  m4v: "video/mp4",
+  webm: "video/webm",
+  ogv: "video/ogg",
+  mov: "video/quicktime",
+  mkv: "video/x-matroska",
+}
+
+// videoFormat names the format of a video file from its path or address,
+// as a page asks about it (canPlayType). It is null for a file it does not
+// know.
+export function videoFormat(path: string | undefined): string | null {
+  if (!path) return null
+  const name = path.split(/[?#]/)[0].split("/").pop() ?? ""
+  const dot = name.lastIndexOf(".")
+  if (dot < 0) return null
+  return VIDEO_TYPES[name.slice(dot + 1).toLowerCase()] ?? null
+}
+
+// A PlaybackProbe answers as HTMLMediaElement.canPlayType does: "", "maybe"
+// or "probably".
+export type PlaybackProbe = (type: string) => string
+
+let probeElement: HTMLVideoElement | null = null
+
+// pagePlaybackProbe asks this page. The element it asks is never put in the
+// page and never given a source, so no player is made for it.
+export const pagePlaybackProbe: PlaybackProbe = (type) => {
+  probeElement ??= document.createElement("video")
+  return probeElement.canPlayType(type)
+}
+
+// canPlayVideo says whether to make a player for a video of a format
+// (videoFormat; null when it is not known). A page that says it plays none
+// of it is believed: the desktop app on Linux, as released without
+// GStreamer's plugins, froze for good when a page made a player, so such a
+// page offers the file instead. A format that is not known is tried when
+// the page plays the common ones.
+export function canPlayVideo(type: string | null, probe: PlaybackProbe = pagePlaybackProbe): boolean {
+  const types = type ? [type] : ["video/mp4", "video/webm"]
+  return types.some((candidate) => probe(candidate) !== "")
+}
+
+// What a page that plays no video shows in place of one. It has no quotes,
+// so a video written inside a script's string leaves the string whole.
+const NO_VIDEO = "<p data-legato-video=unplayable>Legato cannot play this video here: there is no player for its format.</p>"
+
+// withoutVideos takes the videos out of an HTML document before a page that
+// plays no video draws it (canPlayVideo): each video element, with what it
+// holds, becomes a notice, and so does a video tag a script writes as HTML.
+// A script that makes one with createElement is not caught.
+export function withoutVideos(html: string): string {
+  return html
+    .replace(/<video(?=[\s>/])[^>]*>[\s\S]*?<\/video\s*>/gi, NO_VIDEO)
+    .replace(/<video(?=[\s>/])[^>]*>/gi, NO_VIDEO)
+}
+
 // clock writes a time as m:ss.
 export function clock(ms: number): string {
   const seconds = Math.max(0, Math.floor(ms / 1000))

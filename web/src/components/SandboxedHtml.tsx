@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { buildSandboxDocument, proposedMessageText, type ItemImage } from "../lib/agentUi"
+import { canPlayVideo, withoutVideos } from "../lib/agentVideo"
 import { appTheme, subscribeTheme } from "../lib/appTheme"
 import { cn } from "../lib/utils"
 import { ImageLightbox, type LightboxImage } from "./ImageLightbox"
@@ -80,9 +81,15 @@ export function SandboxedHtml({ html, title, resourceDomains, fill = false, maxH
   const [height, setHeight] = useState<number | null>(null)
   const [lightbox, setLightbox] = useState<{ shown: LightboxImage[]; index: number } | null>(null)
   const theme = useSyncExternalStore(subscribeTheme, () => appTheme().id)
-  // The builder reads the app theme; iframe documents cannot inherit host CSS.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const frameDocument = useMemo(() => givenDocument ?? buildSandboxDocument({ html, resourceDomains, fill, images }), [givenDocument, html, resourceDomains, fill, images, theme])
+  // A page that plays no video gets the agent's page without its videos:
+  // the desktop app as released without GStreamer's plugins froze for good
+  // when a page made a player, in a frame too.
+  const frameDocument = useMemo(() => {
+    const built = givenDocument ?? buildSandboxDocument({ html, resourceDomains, fill, images })
+    return canPlayVideo(null) ? built : withoutVideos(built)
+    // The builder reads the app theme; iframe documents cannot inherit host CSS.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [givenDocument, html, resourceDomains, fill, images, theme])
   const handlers = useRef({ onOverflow, onProposeMessage, onOpenPage })
   useEffect(() => {
     handlers.current = { onOverflow, onProposeMessage, onOpenPage }

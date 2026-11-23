@@ -159,7 +159,7 @@ See [`mobile/README.md`](https://github.com/cpave3/legato/blob/main/mobile/READM
 
 ### Desktop app
 
-A Tauri app in `desktop/`: Rust, with a React shell. It needs Rust, Node with pnpm, and on Linux the WebKitGTK 4.1, GTK 3, librsvg and libudev development packages.
+A Tauri app in `desktop/`: Rust, with a React shell. It needs Rust, Node with pnpm, and on Linux the WebKitGTK 4.1, GTK 3, librsvg and libudev development packages. The AppImage carries the GStreamer plugins of the machine that builds it, so install GStreamer's base, good, GL and libav plugins, and `patchelf`, before `task desktop:build`. On Fedora the task points the bundler at `/usr/lib64/gstreamer-1.0`; after the build it checks that the AppImage holds the plugins it needs.
 
 ```bash
 task desktop:test    # Rust unit tests and the TypeScript check

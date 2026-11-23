@@ -197,7 +197,18 @@ tasks:
     dir: desktop
     cmds:
       - pnpm install --frozen-lockfile
-      - pnpm tauri build --bundles appimage
+      # The AppImage carries GStreamer's plugins (bundleMediaFramework).
+      # Tauri's bundler looks for them where Debian and Ubuntu keep them, and
+      # stops with an error elsewhere; on Fedora they are in lib64 and libexec.
+      # Its GStreamer step also needs patchelf, and fails without saying so.
+      - |
+        command -v patchelf >/dev/null || { echo "desktop:build needs patchelf, which bundling GStreamer's plugins uses" >&2; exit 1; }
+        if [ ! -d "/usr/lib/$(uname -m)-linux-gnu/gstreamer-1.0" ] && [ -d /usr/lib64/gstreamer-1.0 ]; then
+          export GSTREAMER_PLUGINS_DIR="${GSTREAMER_PLUGINS_DIR:-/usr/lib64/gstreamer-1.0}"
+          export GSTREAMER_HELPERS_DIR="${GSTREAMER_HELPERS_DIR:-/usr/libexec/gstreamer-1.0}"
+        fi
+        pnpm tauri build --bundles appimage
+      - sh scripts/appimage-media-check.sh src-tauri/target/release/bundle/appimage/*.AppImage
 
   extension:test:
     desc: Run browser extension tests

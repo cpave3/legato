@@ -7,6 +7,7 @@ import {
   openOffPlan, planChanges, pointsHit, questionAboutScene, recordedCount, removeScene, reviewRequest, sceneSignature, startRender, studioPace, takeBackComment, talkingPoints,
   timeline, transcriptRuns, uploadTake, type StudioProject, type StudioScene,
 } from "../lib/agentStudio"
+import { canPlayVideo, videoFormat } from "../lib/agentVideo"
 import { recordingOf, samplesOf, type Heard, type TakePart, type TakeSound } from "../lib/takeSound"
 import { LoadingState } from "./ui/LoadingState"
 
@@ -624,6 +625,12 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
   const label = "text-[11px] font-semibold uppercase tracking-[1px] text-lw-faint"
   const square = "flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-lw-raised text-lw-text-2 transition-colors hover:text-lw-text disabled:cursor-not-allowed disabled:opacity-30"
   const videoFile = project.render.file
+  // A page that plays no video makes no player at all: the desktop app as
+  // released without GStreamer's plugins froze for good when one was made.
+  // It shows no camera, and offers the rendered video as a file.
+  const playsVideo = canPlayVideo(null)
+  const filmPlayable = canPlayVideo(videoFormat(videoFile))
+  const filmName = videoFile?.split("/").pop() || "video.mp4"
   // copyPath puts the video's path on the clipboard. A page that is not
   // served over a safe connection has no clipboard: the path can then be
   // selected by hand, which one click on it does.
@@ -823,7 +830,16 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
 
             <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-lw-line bg-lw-rail">
               {watching && film
-                ? <video src={film} controls autoPlay aria-label="The rendered video" className="h-full w-full bg-black" />
+                ? filmPlayable
+                  ? <video src={film} controls autoPlay aria-label="The rendered video" className="h-full w-full bg-black" />
+                  : (
+                    <div className="grid h-full w-full place-items-center bg-lw-rail p-6 text-center">
+                      <div>
+                        <p className="text-sm text-lw-text-2">Legato cannot play this video here: there is no player for its format. Download it and watch it in another app.</p>
+                        <a href={film} download={filmName} className="mt-3 inline-flex min-h-9 items-center rounded-md border border-lw-line-strong bg-lw-raised px-3 text-sm text-lw-text transition-colors hover:border-lw-faint">Download the video</a>
+                      </div>
+                    </div>
+                  )
                 : <StudioStill baseUrl={baseUrl} itemId={item.id} path={scene.still} alt={`The scene ${scene.id}`} />}
               {counting > 0 && (
                 <p role="timer" aria-label="The take starts in" className="absolute inset-0 grid place-items-center bg-black/60 text-8xl font-semibold tabular-nums text-white">{counting}</p>
@@ -835,13 +851,15 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
                 </p>
               )}
               {/* Where the face is drawn in the video: 232 of 1920 wide, 44 from the corner. */}
-              <video
-                ref={self}
-                muted
-                playsInline
-                aria-label="Your camera"
-                className={`absolute bottom-[4.07%] right-[2.29%] aspect-square w-[12.08%] -scale-x-100 rounded-full border-2 border-lw-accent bg-black object-cover ${seen ? "" : "hidden"} ${recording ? "" : "opacity-40"}`}
-              />
+              {playsVideo && (
+                <video
+                  ref={self}
+                  muted
+                  playsInline
+                  aria-label="Your camera"
+                  className={`absolute bottom-[4.07%] right-[2.29%] aspect-square w-[12.08%] -scale-x-100 rounded-full border-2 border-lw-accent bg-black object-cover ${seen ? "" : "hidden"} ${recording ? "" : "opacity-40"}`}
+                />
+              )}
               {!presenting && !watching && (
                 <div className="absolute inset-x-0 bottom-0 flex items-center gap-2.5 bg-lw-rail/95 px-3 py-2">
                   {scene.take && (

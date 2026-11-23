@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { clock, describeMoment, momentAt, onScreen, parseVideoManifest, questionAbout, videoAddress, type VideoManifest } from "../agentVideo"
+import { canPlayVideo, clock, describeMoment, momentAt, onScreen, parseVideoManifest, questionAbout, videoAddress, videoFormat, withoutVideos, type VideoManifest } from "../agentVideo"
 
 const manifest: VideoManifest = {
   version: 1,
@@ -136,5 +136,68 @@ describe("what the player says and asks", () => {
     const text = questionAbout("Tour of the change", momentAt(manifest, 15000))
     expect(text.startsWith('About the video "Tour of the change":\n\nVideo paused at 0:15')).toBe(true)
     expect(text.endsWith("\n\nMy question: ")).toBe(true)
+  })
+})
+
+describe("videoFormat", () => {
+  it("names the format of a video file by its extension, whatever its case", () => {
+    expect(videoFormat("/agent-ui-videos/task-1/abc.mp4")).toBe("video/mp4")
+    expect(videoFormat("/agent-ui-videos/task-1/abc.MP4")).toBe("video/mp4")
+    expect(videoFormat("clip.m4v")).toBe("video/mp4")
+    expect(videoFormat("/renders/tour.webm")).toBe("video/webm")
+    expect(videoFormat("old.ogv")).toBe("video/ogg")
+    expect(videoFormat("phone.mov")).toBe("video/quicktime")
+    expect(videoFormat("x.mkv")).toBe("video/x-matroska")
+  })
+
+  it("reads a full address without its query or fragment", () => {
+    expect(videoFormat("http://legato.test:3080/agent-ui-videos/t/abc.webm?v=2#t=10")).toBe("video/webm")
+  })
+
+  it("does not guess the format of a file it does not know, or one with no extension", () => {
+    expect(videoFormat("notes.txt")).toBeNull()
+    expect(videoFormat("/agent-ui-videos/task-1/abc")).toBeNull()
+    expect(videoFormat("/a.folder/abc")).toBeNull()
+    expect(videoFormat("")).toBeNull()
+    expect(videoFormat(undefined)).toBeNull()
+  })
+})
+
+describe("canPlayVideo", () => {
+  const plays = (...types: string[]) => (type: string) => (types.includes(type) ? "maybe" : "")
+
+  it("asks the page about the video's own format", () => {
+    expect(canPlayVideo("video/mp4", plays("video/mp4"))).toBe(true)
+    expect(canPlayVideo("video/webm", plays("video/mp4"))).toBe(false)
+  })
+
+  it("takes a page that plays nothing at its word, so no player is made", () => {
+    expect(canPlayVideo("video/mp4", plays())).toBe(false)
+    expect(canPlayVideo(null, plays())).toBe(false)
+  })
+
+  it("lets a video of unknown format try when the page plays the common ones", () => {
+    expect(canPlayVideo(null, plays("video/webm"))).toBe(true)
+  })
+})
+
+describe("withoutVideos", () => {
+  it("puts a notice in place of each video, with its sources", () => {
+    const out = withoutVideos('<p>a</p><VIDEO controls>\n<source src="x.mp4"></video ><p>b</p><video src="y.webm"/>')
+    expect(out).not.toMatch(/<video/i)
+    expect(out).not.toContain("x.mp4")
+    expect(out).toContain("<p>a</p>")
+    expect(out).toContain("<p>b</p>")
+    expect(out.match(/Legato cannot play this video here/g)).toHaveLength(2)
+  })
+
+  it("makes a video a script writes as HTML inert too", () => {
+    const out = withoutVideos('<script>box.innerHTML = "<video src=" + src + " autoplay>"</script>')
+    expect(out).not.toMatch(/<video/i)
+  })
+
+  it("leaves other elements and the word video alone", () => {
+    const html = "<style>img, svg, video { max-width: 100%; }</style><videos-list></videos-list><p>a video</p>"
+    expect(withoutVideos(html)).toBe(html)
   })
 })

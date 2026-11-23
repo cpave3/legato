@@ -17,6 +17,25 @@ function fromFrame(method: string, params: unknown) {
 }
 
 describe("SandboxedHtml", () => {
+  // A desktop app without GStreamer's plugins froze for good when a page
+  // made a player (LEG-162), the agent's own page in a frame included.
+  it("takes the videos out of the agent's page when this page plays no video", () => {
+    vi.spyOn(HTMLMediaElement.prototype, "canPlayType").mockReturnValue("")
+    render(<SandboxedHtml html={'<p>Demo</p><video controls src="data:video/mp4;base64,AAAA"></video>'} title="Weather in Brisbane" resourceDomains={[]} />)
+
+    const doc = frame().getAttribute("srcdoc") ?? ""
+    expect(doc).toContain("<p>Demo</p>")
+    expect(doc).not.toMatch(/<video/i)
+    expect(doc).toContain("Legato cannot play this video here")
+  })
+
+  it("leaves the videos in the agent's page when this page plays video", () => {
+    vi.spyOn(HTMLMediaElement.prototype, "canPlayType").mockReturnValue("maybe")
+    render(<SandboxedHtml html={'<video controls src="data:video/mp4;base64,AAAA"></video>'} title="Weather in Brisbane" resourceDomains={[]} />)
+
+    expect(frame().getAttribute("srcdoc")).toContain('<video controls src="data:video/mp4;base64,AAAA"></video>')
+  })
+
   it("draws the agent's HTML in a frame that may run scripts and nothing else", () => {
     render(<SandboxedHtml html="<b>27 C</b>" title="Weather in Brisbane" resourceDomains={[]} />)
 
