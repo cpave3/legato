@@ -365,7 +365,9 @@ steps:
 
 func TestALateCopyOfOneCompactionsEndDoesNotEndTheNextCompactStep(t *testing.T) {
 	// serve runs the workflow; the TUI beside it follows the same agent,
-	// with its copy of the agent's stream running late.
+	// with its copy of the agent's stream running late: here it gets the
+	// first compaction's whole story, as a reconnect replays it, only after
+	// it has found the second step.
 	run := newCompactRun(t, &fakeCompactor{})
 	serveWorkflows := NewWorkflowService(run.db, []WorkflowExecutor{NewAgentCompactExecutor(&fakeCompactor{})})
 	def, err := workflowengine.Parse("twice.yaml", []byte(twoCompactsWorkflow))
@@ -381,8 +383,8 @@ func TestALateCopyOfOneCompactionsEndDoesNotEndTheNextCompactStep(t *testing.T) 
 	say := func(workflows *WorkflowService, eventType string) {
 		workflows.ObserveCompaction(ctx, agent, chimera.EventEnvelope{Type: eventType, Data: []byte(`{"type":"` + eventType + `"}`)})
 	}
+	// The TUI asks too; the agent refuses it while serve's compactions run.
 	tui := NewWorkflowService(run.db, []WorkflowExecutor{NewAgentCompactExecutor(&fakeCompactor{answers: []error{ErrAgentWorking}})})
-	say(tui, "compaction_started") // the first compaction, as the TUI hears it
 	say(serveWorkflows, "compaction_started")
 	say(serveWorkflows, "compaction_finished")
 	if status, _ := stepStatus(t, serveWorkflows, view.Run.ID, "first"); status != "succeeded" {
@@ -391,18 +393,31 @@ func TestALateCopyOfOneCompactionsEndDoesNotEndTheNextCompactStep(t *testing.T) 
 	if status, _ := stepStatus(t, serveWorkflows, view.Run.ID, "second"); status != WorkflowStepWaiting {
 		t.Fatalf("second = %s; want it waiting on its own compaction", status)
 	}
-	// The TUI's check finds the second step; then its copy of the first
-	// compaction's end arrives.
 	if err := tui.CheckCompactions(ctx); err != nil {
 		t.Fatal(err)
 	}
+	say(tui, "compaction_started")
 	say(tui, "compaction_finished")
 	if status, _ := stepStatus(t, serveWorkflows, view.Run.ID, "second"); status != WorkflowStepWaiting {
 		t.Fatalf("second = %s; want the first compaction's end not to end it", status)
 	}
-	say(tui, "compaction_started")
-	say(tui, "compaction_finished")
+	say(serveWorkflows, "compaction_started")
+	say(serveWorkflows, "compaction_finished")
 	if status, _ := stepStatus(t, serveWorkflows, view.Run.ID, "second"); status != "succeeded" {
 		t.Fatalf("second = %s; want its own compaction to end it", status)
+	}
+}
+
+func TestACompactionWhoseStartWentUnheardStillEndsItsStep(t *testing.T) {
+	// The step asked before the agent's stream was followed: the start of
+	// its compaction came before, its end after.
+	run := startCompact(t, `{task: "${{ workflow.task }}"}`)
+	run.event(t, "compaction_finished", `{"type":"compaction_finished","tokensAfter":900}`)
+	status, after := stepStatus(t, run.workflows, run.run.Run.ID, "compact")
+	if status != "succeeded" {
+		t.Fatalf("step = %s; want the end of the compaction it asked for to end it", status)
+	}
+	if outputs := stepOutputs(t, after, "compact"); outputs["tokens_after"] != float64(900) {
+		t.Fatalf("outputs = %v", outputs)
 	}
 }

@@ -32,40 +32,34 @@ const CompactCheckEvery = 5 * time.Second
 // the agent's compaction events, which WorkflowService.ObserveCompaction is
 // told, end the step.
 //
-// Events and attempts are put in one order by a counter, in the goroutine
-// that reads the agent's stream, so an event is weighed against what this
-// process knew when the event came, not when it is handled: an end that
-// comes before the ask returns or the step is stored as waiting still ends
-// it, and a late copy of an earlier compaction's end never ends a later
-// step.
+// A step is ended only by the process whose ask the agent took, and only by
+// an end that came after that ask. The agent takes an ask only while no
+// compaction runs, so that end is the asked compaction's: another
+// process's copy of an earlier compaction's end, however late, never ends
+// a later step, and the start of the compaction need not have been heard.
+// Asks and events are put in one order by a counter, in the goroutine that
+// reads the agent's stream, so an end that comes before the ask returns or
+// the step is stored as waiting still ends it.
 type AgentCompactExecutor struct {
 	compactor AgentCompactor
 	now       func() time.Time
 
 	mu  sync.Mutex
 	seq uint64
-	// attempts are the attempts this process knows of. Another process, or
-	// this one after a restart, does not know of an attempt: it asks again,
-	// and the agent refuses while it compacts.
+	// attempts are the attempts this process asked for. Another process,
+	// or this one after a restart, does not know of an attempt: it asks
+	// again, and the agent refuses while it compacts.
 	attempts map[string]*compactAttempt
-	// streams are what each task's agent last said of its compactions.
-	streams map[string]*compactStream
+	// ends are the last compaction end each task's agent reported.
+	ends map[string]*compactEnd
 }
 
 // compactAttempt is what this process knows of a compact step's attempt.
 type compactAttempt struct {
-	// known is when this process first knew of the attempt.
-	known uint64
 	// asked is set when the agent took an ask of this process, made at
 	// askedAt; working while it refused the last one at work.
 	asked, working bool
 	askedAt        uint64
-}
-
-// compactStream is what an agent last said of its compactions.
-type compactStream struct {
-	started uint64
-	end     *compactEnd
 }
 
 // compactEnd is an agent's compaction_finished or compaction_failed.
@@ -78,7 +72,7 @@ type compactEnd struct {
 
 // NewAgentCompactExecutor compacts agents through compactor.
 func NewAgentCompactExecutor(compactor AgentCompactor) *AgentCompactExecutor {
-	return &AgentCompactExecutor{compactor: compactor, now: time.Now, attempts: map[string]*compactAttempt{}, streams: map[string]*compactStream{}}
+	return &AgentCompactExecutor{compactor: compactor, now: time.Now, attempts: map[string]*compactAttempt{}, ends: map[string]*compactEnd{}}
 }
 
 // SetClock replaces the clock the step's deadline is read by.
@@ -124,12 +118,11 @@ func (e *AgentCompactExecutor) ask(ctx context.Context, attemptID string, target
 	if e.compactor == nil {
 		return errors.New("this Legato cannot compact agents")
 	}
-	// Known before the ask, so the events it causes come after.
+	// Numbered before the ask, so the events it causes come after.
 	e.mu.Lock()
 	attempt := e.attempts[attemptID]
 	if attempt == nil {
-		e.seq++
-		attempt = &compactAttempt{known: e.seq}
+		attempt = &compactAttempt{}
 		e.attempts[attemptID] = attempt
 	}
 	e.seq++
@@ -152,52 +145,30 @@ func (e *AgentCompactExecutor) ask(ctx context.Context, attemptID string, target
 	}
 }
 
-// note records an agent's compaction event, in the order it came.
+// note records an agent's compaction end, in the order it came.
 func (e *AgentCompactExecutor) note(taskID string, event chimera.EventEnvelope) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	stream := e.streams[taskID]
-	if stream == nil {
-		stream = &compactStream{}
-		e.streams[taskID] = stream
-	}
 	e.seq++
-	if event.Type == "compaction_started" {
-		stream.started = e.seq
-		return
-	}
 	var data struct {
 		Before *int   `json:"tokensBefore"`
 		After  *int   `json:"tokensAfter"`
 		Error  string `json:"error"`
 	}
 	_ = json.Unmarshal(event.Data, &data)
-	stream.end = &compactEnd{at: e.seq, failed: event.Type == "compaction_failed", reason: strings.TrimSpace(data.Error), before: data.Before, after: data.After}
+	e.ends[taskID] = &compactEnd{at: e.seq, failed: event.Type == "compaction_failed", reason: strings.TrimSpace(data.Error), before: data.Before, after: data.After}
 }
 
-// outcome is the end of an attempt's compaction that this process heard
-// of, or nil. A finish ends it when the compaction started after this
-// process knew of the attempt; a failure, when it came after an ask of this
-// process that the agent took (another's failure leaves the step to ask for
-// its own).
+// outcome is the end of the compaction an attempt asked for, when this
+// process asked for it and heard it end; nil otherwise.
 func (e *AgentCompactExecutor) outcome(attemptID, taskID string) *compactEnd {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	attempt, stream := e.attempts[attemptID], e.streams[taskID]
-	if attempt == nil || stream == nil || stream.end == nil {
+	attempt, end := e.attempts[attemptID], e.ends[taskID]
+	if attempt == nil || !attempt.asked || end == nil || end.at < attempt.askedAt {
 		return nil
 	}
-	end := stream.end
-	if end.failed {
-		if attempt.asked && end.at > attempt.askedAt {
-			return end
-		}
-		return nil
-	}
-	if stream.started > attempt.known && stream.started < end.at {
-		return end
-	}
-	return nil
+	return end
 }
 
 func (e *AgentCompactExecutor) hasAsked(attemptID string) bool {
@@ -275,10 +246,10 @@ type compactingAttempt struct {
 }
 
 // isCompactionEvent says whether an agent's event concerns a compact step:
-// a main-slot agent's compaction_started, _finished or _failed.
+// a main-slot agent's compaction_finished or compaction_failed.
 func isCompactionEvent(agent WatchedAgent, event chimera.EventEnvelope) bool {
 	switch event.Type {
-	case "compaction_started", "compaction_finished", "compaction_failed":
+	case "compaction_finished", "compaction_failed":
 		return namedSlot(agent.Slot) == ""
 	}
 	return false
@@ -295,9 +266,9 @@ func (s *WorkflowService) noteCompaction(agent WatchedAgent, event chimera.Event
 }
 
 // ObserveCompaction is told an agent's event. A compaction's end ends the
-// waiting agent.compact steps it belongs to (AgentCompactExecutor.outcome):
-// compaction_finished completes them with its sizes, compaction_failed fails
-// them.
+// waiting agent.compact step that asked for it (AgentCompactExecutor.outcome):
+// compaction_finished completes it with its sizes, compaction_failed fails
+// it.
 func (s *WorkflowService) ObserveCompaction(ctx context.Context, agent WatchedAgent, event chimera.EventEnvelope) {
 	if s.noteCompaction(agent, event) {
 		s.settleCompactions(ctx)
