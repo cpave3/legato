@@ -180,7 +180,7 @@ Select a trigger to see its settings in the panel beside the graph: whether it a
 
 **New workflow** on the **Workflows** tab starts from one of four places: a template, **Blank** (nothing yet: add the first step), **Paste YAML** (it says what you pasted is, such as "Starts when a card enters Review · asks for 2 inputs · 3 steps", and marks its problems), or **Copy one of yours**. Each opens the editor, unsaved. Pick the folder it goes in (yours, a repository's checkout or the project's) and press **Create**. **Edit** on a workflow's page opens its file in the same editor, as the file says it, comments and all. **Save** writes exactly what you typed.
 
-The editor has two sides, **Visual** and **YAML**, and you can switch between them at any time without losing work: both edit the same file.
+The editor has two sides, **Visual** and **YAML**, and you can switch between them at any time without losing work: both edit the same file. The YAML is coloured in your theme's own syntax colours (Settings › Appearance), so keys, strings and comments read on a dark theme as well as a light one.
 
 - **Visual** shows the workflow as an outline, with the part you choose open beside it.
   - The outline reads from top to bottom: **When** (running by hand, which every workflow can, then its triggers, a paused one marked), **Asks for** (its inputs), **Then** (its steps in order) and **About** (its name, title, description, run title, and what the web UI opens after a run starts).
