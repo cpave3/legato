@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { fetchMacroList } from "../lib/macros"
 import { fetchAdapters } from "../lib/adapters"
 import { fetchBoard } from "../lib/board"
+import { listRepositories } from "../lib/repositories"
 import { AlertTriangle, ArrowLeft, Redo2, Save, Trash2, Undo2 } from "lucide-react"
 import { useServer } from "../hooks/useServer"
 import { useWorkflows } from "../hooks/useWorkflow"
@@ -74,16 +75,18 @@ function useBuilderOptions(baseUrl: string) {
   const query = useQuery({
     queryKey: [baseUrl, "workflow-builder-options"],
     queryFn: async () => {
-      const [macros, adapters, board] = await Promise.all([
+      const [macros, adapters, board, repositories] = await Promise.all([
         quiet(() => fetchMacroList(baseUrl), null),
         quiet(() => fetchAdapters(baseUrl), { adapters: [], default: "" }),
         quiet(() => fetchBoard(baseUrl), null),
+        quiet(() => listRepositories(baseUrl), []),
       ])
       return {
         macros: (macros?.macros ?? []).map(macro => macro.name),
         agents: adapters.adapters,
         tiers: Object.fromEntries(Object.entries(macros?.tiers ?? {}).map(([agent, tiers]) => [agent, tiers.map(tier => tier.name)])),
         columns: (board?.columns ?? []).map(column => column.name),
+        repositories: [...new Set(repositories.map(repository => repository.repo).filter(Boolean))],
       }
     },
     staleTime: 60_000,

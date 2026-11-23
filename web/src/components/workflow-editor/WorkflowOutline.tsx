@@ -11,7 +11,7 @@ import { valueText } from "./builderStyles"
 import { DetailsForm, InputCard } from "./itemForms"
 import { brokenReferences, newStep, noOptions, stepReferences, type BuilderOptions, type StepValue } from "./stepForms"
 import { connectorOf, duplicateOf, idFromTitle, stepSummary } from "./stepRows"
-import { StepCard } from "./StepsEditor"
+import { StepOutputs, StepSetup } from "./StepSetup"
 import { StepPicker } from "./StepPicker"
 import { TriggerCard } from "./TriggersEditor"
 import { KIND_TITLES, newTrigger, triggerKinds } from "./triggerForms"
@@ -308,17 +308,17 @@ function Outline(props: WorkflowOutlineProps) {
     const connector = connectorOf(placed.map(p => (p ?? {}) as Record<string, unknown>), index)
     const title = row.label
     const readers = steps.filter(other => other.id !== id && stepReferences(other).some(ref => ref.id === id)).map(other => String(other.id))
-    return <li key={addressOf(row.selection)} className="group flex flex-col"
+    return <li key={addressOf(row.selection)} className="group flex min-w-0 flex-col"
       draggable={!narrow} onDragStart={() => setDragged(id)} onDragOver={event => event.preventDefault()}
       onDrop={event => { event.preventDefault(); if (dragged && dragged !== id) moveTo(dragged, index); setDragged(null) }}>
       <div className={`flex min-h-7 items-center gap-2 pl-5 text-[11px] ${connector.kind === "manual" ? "text-lw-needs" : "text-lw-faint"}`}>
-        <span aria-hidden className={`h-5 border-l ${connector.kind === "agent_ended" ? "border-dashed border-lw-line-strong" : connector.kind === "manual" ? "border-lw-needs" : "border-lw-line"}`} />
+        <span aria-hidden className={`h-5 border-l ${connector.kind === "first" ? "invisible " : ""}${connector.kind === "agent_ended" ? "border-dashed border-lw-line-strong" : connector.kind === "manual" ? "border-lw-needs" : "border-lw-line"}`} />
         <span data-start={connector.kind} className="flex-1">{connector.text}</span>
         <button type="button" aria-label={`Add a step before ${title}`} className={`rounded px-1 text-lw-text-2 hover:bg-lw-raised hover:text-lw-text ${narrow ? "" : "opacity-0 focus:opacity-100 group-hover:opacity-100"}`} onClick={() => setAdding({ kind: "step", at: index })}><Plus size={13} /></button>
       </div>
       {adding?.kind === "step" && adding.at === index && palette}
-      <div className="relative flex items-center">
-        {rowButton(row, false, index + 1)}
+      <div className="relative flex min-w-0 items-center">
+        {rowButton(row, true, index + 1)}
         <button type="button" aria-label={`Actions for step ${id}`} aria-expanded={menu === id} className="ml-1 rounded p-1 text-lw-text-2 hover:bg-lw-raised" onClick={() => setMenu(menu === id ? null : id)}><MoreVertical size={14} /></button>
         {menu === id && <div role="menu" aria-label={`Step ${id}`} className="absolute right-0 top-full z-20 flex w-44 flex-col rounded-md border border-lw-line bg-lw-surface p-1 text-sm shadow-xl" onKeyDown={event => { if (event.key === "Escape") setMenu(null) }}>
           <button type="button" role="menuitem" className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised" onClick={() => { setMenu(null); duplicate(step, index) }}><Copy size={13} />Duplicate</button>
@@ -493,8 +493,8 @@ function Inspector({ place, held, onHold, row, focusEssential, onFocused, savedI
         <RemoveStep id={id} readers={readers.map(String)} onRemove={() => { apply(() => removeStep(text, id)); onSelect(null) }} />
       </div>
       if (!row.problem) {
-        setup = <StepCard step={step} index={top} text={text} values={values} diagnostics={diagnostics} options={options} apply={apply} taken={ids} parts="setup" titleInHeader />
-        outputs = <StepCard step={step} index={top} text={text} values={values} diagnostics={diagnostics} options={options} apply={apply} taken={ids} parts="outputs" />
+        setup = <StepSetup step={step} index={top} text={text} values={values} diagnostics={diagnostics} options={options} apply={apply} />
+        outputs = <StepOutputs step={step} index={top} text={text} diagnostics={diagnostics} apply={apply} />
       }
     } else if (!row.problem) {
       // A nested step: its forms come with the containers (LEG-518).

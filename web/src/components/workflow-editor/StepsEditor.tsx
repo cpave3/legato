@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, GripVertical, Plus, Trash2 } from "lucide-react"
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, GripVertical, Maximize2, Plus, Trash2 } from "lucide-react"
 import { insertStep, moveStep, removeStep, renameStep, setField, stepsOf, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
 import { references } from "../../lib/workflowExpressions"
 import { executors, pathText } from "../../lib/workflowSchema"
@@ -110,28 +110,12 @@ export function StepCard({ step, index, text, values, diagnostics, options, appl
   const grouped = new Set((form?.groups ?? []).filter(g => g.kind === "exactly_one").flatMap(g => g.fields))
   const others = [...Object.keys(withValues).filter(key => !form?.fields.some(f => f.name === key)).map(key => `with.${key}`), ...Object.keys(step).filter(key => !STEP_KEYS.includes(key))]
   const id = step.id ?? ""
-  // Renaming the ID of a step others read offers to change their
-  // references too.
-  const [renaming, setRenaming] = useState<string | null>(null)
-  const readers = (values.steps ?? []).filter(other => other && other.id !== id && stepReferences(other as StepValue).some(ref => ref.id === id)).map(other => String(other!.id))
-  const rename = (to: string) => { if (to === id || to === "") return; if (readers.length > 0) setRenaming(to); else apply(() => renameStep(text, id, to)) }
   const outputs = <OutputsEditor step={step} id={id} path={path} text={text} apply={apply} problems={at(["outputs"])} taken={taken} />
   if (parts === "outputs") return <div className="flex flex-col gap-3">{outputs}</div>
 
   return <div className={parts === "all" ? "flex flex-col gap-3 border-t border-lw-line p-3" : "flex flex-col gap-3"}>
     <div className={titleInHeader ? "grid gap-2 sm:grid-cols-2" : "grid gap-2 sm:grid-cols-3"}>
-      <label className={labelClass}>ID
-        <CommitField aria-label={`ID of step ${id}`} value={id} onCommit={value => rename(value.trim())} />
-        <Problems diagnostics={at(["id"])} />
-        {renaming !== null && <span role="alertdialog" aria-label={`Rename step ${id}`} className="flex flex-col gap-1.5 rounded border border-lw-needs p-2 text-xs text-lw-text">
-          <span>{readers.join(", ")} {readers.length === 1 ? "reads" : "read"} this step's outputs. Change {readers.length === 1 ? "its reference" : "their references"} to {renaming} too?</span>
-          <span className="flex flex-wrap gap-1">
-            <Button type="button" size="sm" onClick={() => { apply(() => renameStep(text, id, renaming)); setRenaming(null) }}>Change them too</Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => { apply(() => setField(text, [...path, "id"], renaming)); setRenaming(null) }}>Only the ID</Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => setRenaming(null)}>Cancel</Button>
-          </span>
-        </span>}
-      </label>
+      <StepIdField step={step} index={index} text={text} values={values} apply={apply} diagnostics={diagnostics} />
       {!titleInHeader && <label className={labelClass}>Title
         <CommitField aria-label={`Title of step ${id}`} value={valueText(step.title)} onCommit={value => set(["title"], value)} />
       </label>}
@@ -164,11 +148,34 @@ export function StepCard({ step, index, text, values, diagnostics, options, appl
   </div>
 }
 
-type WithFieldProps = { spec: FieldSpec; stepId: string; value: unknown; onChange: (value: unknown) => void; refs: string[]; taskRefs: string[]; options: BuilderOptions; agent: string; problems: WorkflowDiagnostic[] }
+/** StepIdField is a step's ID. Renaming the ID of a step others read
+ * offers to change their references too. */
+export function StepIdField({ step, index, text, values, apply, diagnostics, hint }: { step: StepValue; index: number; text: string; values: WorkflowValues; apply: Props["apply"]; diagnostics: WorkflowDiagnostic[]; hint?: string }) {
+  const id = step.id ?? ""
+  const path: YamlPath = ["steps", index]
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const readers = (values.steps ?? []).filter(other => other && other.id !== id && stepReferences(other as StepValue).some(ref => ref.id === id)).map(other => String(other!.id))
+  const rename = (to: string) => { if (to === id || to === "") return; if (readers.length > 0) setRenaming(to); else apply(() => renameStep(text, id, to)) }
+  return <label className={labelClass}>ID
+    <CommitField aria-label={`ID of step ${id}`} value={id} onCommit={value => rename(value.trim())} />
+    {hint && <span className="text-[11px] text-lw-faint">{hint}</span>}
+    <Problems diagnostics={problemsAt(diagnostics, pathText([...path, "id"]))} />
+    {renaming !== null && <span role="alertdialog" aria-label={`Rename step ${id}`} className="flex flex-col gap-1.5 rounded border border-lw-needs p-2 text-xs text-lw-text">
+      <span>{readers.join(", ")} {readers.length === 1 ? "reads" : "read"} this step's outputs. Change {readers.length === 1 ? "its reference" : "their references"} to {renaming} too?</span>
+      <span className="flex flex-wrap gap-1">
+        <Button type="button" size="sm" onClick={() => { apply(() => renameStep(text, id, renaming)); setRenaming(null) }}>Change them too</Button>
+        <Button type="button" size="sm" variant="outline" onClick={() => { apply(() => setField(text, [...path, "id"], renaming)); setRenaming(null) }}>Only the ID</Button>
+        <Button type="button" size="sm" variant="ghost" onClick={() => setRenaming(null)}>Cancel</Button>
+      </span>
+    </span>}
+  </label>
+}
+
+type WithFieldProps = { spec: FieldSpec; stepId: string; value: unknown; onChange: (value: unknown) => void; refs: string[]; taskRefs: string[]; options: BuilderOptions; agent: string; problems: WorkflowDiagnostic[]; rich?: boolean }
 
 // WithField draws one with field by its kind. Every kind is drawn; a value
 // that is an expression is shown as text, so it can always be edited.
-function WithField({ spec, stepId, value, onChange, refs, taskRefs, options, agent, problems }: WithFieldProps) {
+export function WithField({ spec, stepId, value, onChange, refs, taskRefs, options, agent, problems, rich = false }: WithFieldProps) {
   const name = `${spec.name} of step ${stepId}`
   // A number field holding text that is neither a whole number nor an
   // expression: the engine may only find out when the step runs.
@@ -179,8 +186,12 @@ function WithField({ spec, stepId, value, onChange, refs, taskRefs, options, age
   const set = (raw: string) => onChange(raw === "" && !spec.required ? undefined : raw)
   const picker = spec.expressions && <ReferencePicker name={name} options={refs} onPick={expression => onChange(`${text}\${{ ${expression} }}`)} />
   let control: React.ReactNode
-  const suggestions = spec.kind === "macro" ? options.macros : spec.kind === "agent" ? options.agents : spec.kind === "tier" ? (options.tiers[agent] ?? Object.values(options.tiers).flat()) : spec.kind === "column" ? options.columns : []
-  switch (spec.kind) {
+  const suggestions = spec.kind === "macro" ? options.macros : spec.kind === "agent" ? options.agents : spec.kind === "tier" ? (options.tiers[agent] ?? Object.values(options.tiers).flat()) : spec.kind === "column" ? options.columns : spec.kind === "repository" ? options.repositories ?? [] : []
+  const richControl = rich && !isExpression ? richControlOf({ spec, name, value, text, onChange, set, options }) : null
+  switch (richControl ? "rich" : spec.kind) {
+    case "rich":
+      control = richControl
+      break
     case "text":
       control = <CommitField aria-label={name} multiline value={text} onCommit={set} />
       break
@@ -224,9 +235,46 @@ function WithField({ spec, stepId, value, onChange, refs, taskRefs, options, age
   </div>
 }
 
+// richControlOf is the inspector's control for a field, where one suits it
+// better than a text box: a sentence switch for a boolean, the agent tools
+// as a choice, and long text with a larger editor.
+function richControlOf({ spec, name, value, text, onChange, set, options }: { spec: FieldSpec; name: string; value: unknown; text: string; onChange: (value: unknown) => void; set: (raw: string) => void; options: BuilderOptions }): React.ReactNode {
+  if (spec.kind === "boolean") {
+    const on = value === true
+    return <button type="button" role="switch" aria-checked={on} aria-label={name} className="flex min-h-9 items-center gap-2 self-start text-sm text-lw-text" onClick={() => onChange(on ? (spec.required ? false : undefined) : true)}>
+      <span aria-hidden className={`relative h-5 w-9 rounded-full transition-colors ${on ? "bg-lw-accent" : "bg-lw-line-strong"}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-lw-surface transition-all ${on ? "left-[1.125rem]" : "left-0.5"}`} /></span>
+      {spec.label}
+    </button>
+  }
+  if (spec.kind === "agent" && options.agents.length > 0 && (text === "" || options.agents.includes(text))) {
+    return <div role="radiogroup" aria-label={name} className="inline-flex flex-wrap self-start rounded-md border border-lw-line p-0.5">
+      {["", ...options.agents].map(agent => <button key={agent || "default"} type="button" role="radio" aria-checked={text === agent} className={`min-h-8 rounded px-2.5 text-xs ${text === agent ? "bg-lw-raised text-lw-text" : "text-lw-text-2"}`} onClick={() => set(agent)}>{agent || "Default"}</button>)}
+    </div>
+  }
+  if (spec.kind === "text") return <LongText name={name} label={spec.label} value={text} onCommit={set} />
+  return null
+}
+
+// LongText is a multi-line field with a larger editor to write it in.
+function LongText({ name, label, value, onCommit }: { name: string; label: string; value: string; onCommit: (value: string) => void }) {
+  const [focus, setFocus] = useState<string | null>(null)
+  return <div className="flex flex-col gap-1">
+    <CommitField aria-label={name} multiline value={value} onCommit={onCommit} />
+    <Button type="button" size="sm" variant="ghost" className="self-end" aria-label={`Write ${label} in a larger editor`} onClick={() => setFocus(value)}><Maximize2 size={12} />Larger</Button>
+    {focus !== null && <div role="dialog" aria-label={label} className="fixed inset-0 z-50 flex flex-col gap-2 bg-lw-ground p-4 sm:p-8">
+      <h3 className="text-sm font-semibold">{label}</h3>
+      <textarea aria-label={`${label}, larger`} autoFocus className="min-h-0 flex-1 rounded-md border border-lw-line-strong bg-lw-surface p-3 font-lw-mono text-sm text-lw-text" value={focus} onChange={event => setFocus(event.target.value)} />
+      <div className="flex justify-end gap-2">
+        <Button type="button" size="sm" variant="ghost" onClick={() => setFocus(null)}>Cancel</Button>
+        <Button type="button" size="sm" onClick={() => { if (focus !== value) onCommit(focus); setFocus(null) }}>Done</Button>
+      </div>
+    </div>}
+  </div>
+}
+
 const OUTPUT_TYPES = ["string", "integer", "boolean", "json", "file"]
 
-function OutputsEditor({ step, id, path, text, apply, problems }: { step: StepValue; id: string; path: YamlPath; text: string; apply: Props["apply"]; problems: WorkflowDiagnostic[]; taken: string[] }) {
+export function OutputsEditor({ step, id, path, text, apply, problems }: { step: StepValue; id: string; path: YamlPath; text: string; apply: Props["apply"]; problems: WorkflowDiagnostic[]; taken: string[] }) {
   const outputs = step.outputs ?? {}
   const [name, setName] = useState("")
   const set = (sub: YamlPath, value: unknown) => apply(() => setField(text, [...path, "outputs", ...sub], value === "" ? undefined : value))
