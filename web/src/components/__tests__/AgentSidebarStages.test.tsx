@@ -66,16 +66,65 @@ describe("AgentSidebar stages", () => {
     expect(screen.getByRole("region", { name: "Needs you" }).textContent).not.toContain("LEG-413")
   })
 
-  it("counts each stage on its chip and filters by one, groups kept", () => {
+  it("has no chips: one Stage menu counts each stage, empty ones dimmed but choosable", () => {
+    render(<Sidebar agents={canvas.filter((agent) => agent.stage !== "planning")} />)
+    expect(screen.queryByRole("group", { name: "Filter by stage" })).toBeNull()
+    const trigger = screen.getByRole("button", { name: "Filter by stage" })
+    expect(trigger.getAttribute("aria-expanded")).toBe("false")
+    fireEvent.click(trigger)
+    const menu = screen.getByRole("menu", { name: "Stage" })
+    const items = within(menu).getAllByRole("menuitemradio")
+    expect(items.map((item) => item.textContent)).toEqual(["All9", "Exploring2", "Planning0", "Implementing3", "Reviewing2", "Finished2"])
+    expect(items[0].getAttribute("aria-checked")).toBe("true")
+    expect(within(items[3]).getByRole("img", { name: "Implementing" })).toBeTruthy()
+    const planning = within(menu).getByRole("menuitemradio", { name: /Planning/ })
+    fireEvent.click(planning)
+    expect(screen.getByText(/No agents are planning/)).toBeTruthy()
+  })
+
+  it("filters by the stage chosen, groups kept, and the button and header say so", () => {
     render(<Sidebar />)
-    const chips = screen.getByRole("group", { name: "Filter by stage" })
-    expect(within(chips).getAllByRole("button").map((chip) => chip.textContent)).toEqual([
-      "All10", "Exploring2", "Planning1", "Implementing3", "Reviewing2", "Finished2",
-    ])
-    fireEvent.click(within(chips).getByRole("button", { name: /Reviewing/ }))
-    expect(within(chips).getByRole("button", { name: /Reviewing/ }).getAttribute("aria-pressed")).toBe("true")
+    expect(screen.getByTestId("agent-count").textContent).toBe("Agents 10")
+    fireEvent.click(screen.getByRole("button", { name: "Filter by stage" }))
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /Reviewing/ }))
+    expect(screen.queryByRole("menu")).toBeNull()
     expect(headings()).toEqual(["Working · 2"])
     expect(listed()).toEqual(["LEG-407_reviewer", "LEG-408"])
+    expect(screen.getByTestId("agent-count").textContent).toBe("Agents 2 of 10")
+    const trigger = screen.getByRole("button", { name: "Filter by stage: Reviewing" })
+    expect(trigger.textContent).toContain("Reviewing")
+    expect(within(trigger).getByRole("img", { name: "Reviewing" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Clear stage filter" }))
+    expect(listed()).toHaveLength(10)
+    expect(screen.getByTestId("agent-count").textContent).toBe("Agents 10")
+    expect(screen.queryByRole("button", { name: "Clear stage filter" })).toBeNull()
+  })
+
+  it("closes the menu on Escape without changing the filter", () => {
+    render(<Sidebar initial="finished" />)
+    fireEvent.click(screen.getByRole("button", { name: "Filter by stage: Finished" }))
+    expect(screen.getByRole("menuitemradio", { name: /Finished/ }).getAttribute("aria-checked")).toBe("true")
+    fireEvent.keyDown(document, { key: "Escape" })
+    expect(screen.queryByRole("menu")).toBeNull()
+    expect(listed()).toEqual(["LEG-405", "LEG-413"])
+  })
+
+  it("gives a Finished row only its reason, not the stage again", () => {
+    render(<Sidebar />)
+    const row = (id: string) => screen.getByRole("button", { name: new RegExp(id) })
+    expect(within(row("LEG-405")).queryByText("Finished")).toBeNull()
+    expect(within(row("LEG-405")).queryByRole("img")).toBeNull()
+    expect(within(row("LEG-405")).getByText("PR #212 merged")).toBeTruthy()
+    expect(within(row("LEG-413")).getByText("reported: both bugs fixed, PR #215 · a note for you")).toBeTruthy()
+  })
+
+  it("leaves the Reeve out of every count", () => {
+    const reeve = a("reeve-1", "Reeve", "", "", "", { reeve: true, activity: "working" })
+    render(<AgentSidebar agents={[reeve, ...canvas.slice(0, 3)]} reeve={<div>Reeve</div>} selectedId={null} onSelect={() => {}} onSpawn={() => {}} stageFilter={null} onStageFilter={() => {}} />)
+    expect(screen.getByTestId("agent-count").textContent).toBe("Agents 3")
+    fireEvent.click(screen.getByRole("button", { name: "Filter by stage" }))
+    expect(screen.getByRole("menuitemradio", { name: /All/ }).textContent).toBe("All3")
+    expect(headings()).toEqual(["Needs you · 2", "Your turn · 1"])
   })
 
   it("keeps saying how many need the operator outside the filter", () => {

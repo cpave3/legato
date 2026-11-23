@@ -67,6 +67,20 @@ describe("AgentSidebar grouped by group", () => {
     expect(tooling.getAllByRole("button").map((b) => b.getAttribute("data-agent")).filter(Boolean)).toEqual(["asks", "idle"])
   })
 
+  it("counts the agents without the pinned Reeve", () => {
+    render(
+      <AgentSidebar
+        agents={[{ ...agent("reeve-1", "working"), reeve: true }, agent("asks", "waiting", "Tooling"), agent("loose", "working")]}
+        selectedId={null}
+        onSelect={() => {}}
+        onSpawn={() => {}}
+        reeve={<div data-testid="reeve">Reeve</div>}
+        grouping={grouping()}
+      />,
+    )
+    expect(screen.getByTestId("agent-count").textContent).toBe("Agents 2")
+  })
+
   it("collapses a group to its count, and still says when one of its agents needs the person", () => {
     const toggle = vi.fn()
     render(

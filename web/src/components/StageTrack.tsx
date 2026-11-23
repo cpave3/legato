@@ -66,3 +66,11 @@ export function NeedsYouLine({ agent, className }: { agent: AgentInfo; className
   if (!reason) return null
   return <span className={cn("truncate text-xs text-lw-needs", className)}>◆ {reason}</span>
 }
+
+// FinishedReason is a Finished agent's line where its group already says
+// Finished: only why it finished, and that it left a note for the operator.
+export function FinishedReason({ agent, unread, className }: { agent: Pick<AgentInfo, "stage_reason">; unread: boolean; className?: string }) {
+  const text = [agent.stage_reason, unread && "a note for you"].filter(Boolean).join(" · ")
+  if (!text) return null
+  return <span className={cn("truncate text-xs text-lw-text-2", className)}>{text}</span>
+}
