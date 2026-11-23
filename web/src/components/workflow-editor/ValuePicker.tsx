@@ -4,7 +4,7 @@ import { useMediaQuery } from "../../hooks/useMediaQuery"
 import { Button } from "../ui/Button"
 import { fieldClass } from "./builderStyles"
 import { PendingDrafts } from "./pendingDrafts"
-import type { ValueGroup } from "./valuePicker"
+import type { ValueGroup } from "./valueGroups"
 
 // The value picker (LEG-510): the values a field can read, by where they
 // come from, inserted at the cursor as plain ${{ … }}.

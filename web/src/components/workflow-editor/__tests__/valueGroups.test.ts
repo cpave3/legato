@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { valueGroups } from "../valuePicker"
+import { valueGroups } from "../valueGroups"
 
 const values = {
   inputs: { pr: { type: "integer", description: "The pull request" }, target: { type: "task" } },
