@@ -119,3 +119,48 @@ func TestWatchEventsWaitInAQueue(t *testing.T) {
 		t.Fatalf("left = %+v", left)
 	}
 }
+
+// A task's activity mark moves each time one of its executions starts a
+// spell of activity (working, waiting, error), and not when it goes idle:
+// two equal marks mean it did not work between them (LEG-543).
+func TestATaskActivityMarkMovesWhenItWorksAgain(t *testing.T) {
+	s, err := New(filepath.Join(t.TempDir(), "mark.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	t0 := time.Date(2026, 11, 12, 3, 0, 0, 0, time.UTC)
+	mark := func() int64 {
+		t.Helper()
+		got, err := s.TaskActivityMark(ctx, "T-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := mark(); got != 0 {
+		t.Fatalf("no activity: mark = %d", got)
+	}
+	if err := s.CreateExecution(ctx, Execution{ID: "ex-1", Kind: ExecutionInteractive, Status: ExecutionRunning, TaskID: "T-1", StartedAt: t0}); err != nil {
+		t.Fatal(err)
+	}
+	record := func(state string, at time.Duration) {
+		t.Helper()
+		if err := s.RecordExecutionActivityAt(ctx, "ex-1", state, "", t0.Add(at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record(ActivityWorking, time.Minute)
+	working := mark()
+	record("", 2*time.Minute)
+	idle := mark()
+	if working == 0 || idle != working {
+		t.Fatalf("working %d, then idle %d: going idle moved the mark", working, idle)
+	}
+	record(ActivityWorking, 3*time.Minute)
+	record("", 4*time.Minute)
+	if again := mark(); again == idle {
+		t.Fatalf("a second turn left the mark at %d", again)
+	}
+}

@@ -659,7 +659,9 @@ The **Workflows** destination includes:
 
 A board task's detail also shows the runs that took it as their `task` input, with the files they produced to download.
 
-While a review step waits on its [review loop](/legato/using/review-passes/#review-any-pull-request), the run's page says where the loop stands (**Reviewing · pass 2**, **Waiting for author · 3 blocking**, **Stuck:** and why, **Approved**), links each review posted, and offers **Run another pass** while it waits for the author or is stuck. A stuck loop is in Attention with **Run another pass** and **End**.
+While a review step waits on its [review loop](/legato/using/review-passes/#review-any-pull-request), the run's page says where the loop stands (**Reviewing · pass 2**, **Author fixing · 3 blocking**, **Waiting for author · 3 blocking**, **Stuck:** and why, **Approved**), links each review posted, and offers **Run another pass** while it waits for the author or is stuck. A stuck loop is in Attention with **Run another pass** and **End**.
+
+A loop waiting for its author needs you only when the author will not move it alone. That means a person author, an agent author that waits for your answer, or an agent author that has stopped or ended with findings still unanswered for longer than `review_passes.quiet_time`. While an agent author works on the findings (**Author fixing**), the wait is the agent's: the step shows as running, and nothing is in Attention or under Needs you. When the author does need you, Attention shows **Run another pass**, plus **Message the author** for an agent author.
 
 Runs update on the page as they progress. When the agent of an unfinished `agent.run` step stops to wait for you, goes idle, the step is marked as needing attention: the Workflows item in the navigation shows a red count, the run's card says why it stalled, and the run page offers **Prompt to continue** while the agent is still running. Legato never prompts the agent by itself, so it cannot start the same work twice.
 

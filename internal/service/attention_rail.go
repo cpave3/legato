@@ -19,6 +19,7 @@ var railGroups = map[string]string{
 	AttentionSignalWorkflowWaitingAgent:        "workflows",
 	AttentionSignalWorkflowFailed:              "workflows",
 	AttentionSignalWorkflowReviewStuck:         "workflows",
+	AttentionSignalWorkflowReviewAuthor:        "workflows",
 	AttentionSignalWorkflowCompletion:          "workflows",
 	AttentionSignalWorkflowTriggerInput:        "workflows",
 	AttentionSignalWorkflowTriggerConfirmation: "workflows",

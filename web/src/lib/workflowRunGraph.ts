@@ -25,7 +25,7 @@ function stepRunState(view: WorkflowRunView, stepId: string): NodeRunState {
   if (latest?.status === "waiting_agent" && latest.needs_attention) return "needs"
   if (step.executor_type === "github.pr.review_passes") {
     const details = view.details?.[stepId] as ReviewRunDetails | undefined
-    if (details?.phase === "waiting_for_author" || details?.phase === "stuck") return "needs"
+    if (details?.needs_you && (details.phase === "waiting_for_author" || details.phase === "stuck")) return "needs"
   }
   return "running"
 }

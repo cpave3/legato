@@ -65,7 +65,9 @@ export function runNeedsYou(view: WorkflowRunView, attention: AttentionItem[], a
       rows.push({ kind: "item", node, run: { step: step.step_id }, item: runItem(view, step.step_id, "workflow_waiting_agent", "agent", `${step.title}: the agent stopped`, hide(latest.attention_reason || "The agent is waiting or idle."), actions) })
     }
     const details = view.details?.[step.step_id] as ReviewRunDetails | undefined
-    if (step.status === "waiting" && step.executor_type === "github.pr.review_passes" && (details?.phase === "waiting_for_author" || details?.phase === "stuck")) {
+    // The server says whether the loop waits on the operator; a loop whose
+    // agent author is fixing the findings does not.
+    if (step.status === "waiting" && step.executor_type === "github.pr.review_passes" && details?.needs_you && (details.phase === "waiting_for_author" || details.phase === "stuck")) {
       const stuck = details.phase === "stuck"
       rows.push({ kind: "item", node, run: { step: step.step_id }, item: runItem(view, step.step_id, stuck ? "workflow_review_stuck" : "workflow_review_author", "review",
         stuck ? `${step.title} is stuck` : `${step.title} waits on its author`,

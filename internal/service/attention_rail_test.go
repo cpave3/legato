@@ -24,6 +24,7 @@ func TestEveryKnownSignalHasARailGroup(t *testing.T) {
 		AttentionSignalApproval: "approvals", AttentionSignalReevePeer: "legato",
 		AttentionSignalAgentWaiting: "agents", AttentionSignalAgentError: "agents",
 		AttentionSignalWorkflowFailed: "workflows", AttentionSignalWorkflowTriggerLoopStop: "workflows", AttentionSignalWorkflowReviewStuck: "workflows",
+		AttentionSignalWorkflowReviewAuthor: "workflows",
 		AttentionSignalPlanDecision: "plans",
 		AttentionSignalReviewReady: "review", AttentionSignalHandoffDone: "review",
 		AttentionSignalPRMergeBlocked: "merge", AttentionSignalArgusCase: "merge", AttentionSignalArgusNeedsYou: "merge",

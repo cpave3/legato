@@ -72,11 +72,18 @@ describe("a run's Needs you list", () => {
     await waitFor(() => expect(calls.prompt).toHaveBeenCalledWith("", "wr-1", "investigate"))
   })
 
-  it("lists a review loop waiting on its author", async () => {
-    show(view([stepRun("review", "github.pr.review_passes", "waiting")], { attempts: [], details: { review: { phase: "waiting_for_author", pass: 2, summary: "Waiting for author · 3 blocking", blocking_open: 3, reviews: [] } } }))
+  it("lists a review loop waiting on an author that needs the operator", async () => {
+    show(view([stepRun("review", "github.pr.review_passes", "waiting")], { attempts: [], details: { review: { phase: "waiting_for_author", pass: 2, summary: "Waiting for author · 3 blocking", blocking_open: 3, needs_you: true, reviews: [] } } }))
     const row = await within(await screen.findByRole("region", { name: "Needs you" })).findByRole("article", { name: "Review in passes waits on its author" })
     fireEvent.click(within(row).getByRole("button", { name: "Run another pass" }))
     await waitFor(() => expect(calls.another).toHaveBeenCalledWith("", "wr-1", "review"))
+  })
+
+  // LEG-543: the wait is the agent's while its agent author fixes the findings.
+  it("does not list a review loop whose agent author is fixing the findings", async () => {
+    show(view([stepRun("review", "github.pr.review_passes", "waiting")], { attempts: [], details: { review: { phase: "waiting_for_author", pass: 1, summary: "Author fixing · 2 blocking", blocking_open: 2, needs_you: false, reviews: [] } } }))
+    expect(await screen.findByRole("button", { name: "Step: Review in passes, Running" })).toBeTruthy()
+    expect(screen.queryByRole("article", { name: "Review in passes waits on its author" })).toBeNull()
   })
 
   it("offers Retry for a failed step", async () => {

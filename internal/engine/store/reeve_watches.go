@@ -89,6 +89,18 @@ func (s *Store) TaskWorkedSince(ctx context.Context, taskID string, since time.T
 	return worked, err
 }
 
+// TaskActivityMark is the newest spell of activity (working, waiting,
+// error) of any of the task's executions, 0 for none. Going idle ends a
+// spell and leaves the mark, so two equal marks mean the task did not work
+// between them.
+func (s *Store) TaskActivityMark(ctx context.Context, taskID string) (int64, error) {
+	var mark int64
+	err := s.db.GetContext(ctx, &mark, `
+		SELECT COALESCE(MAX(a.id), 0) FROM execution_activity a JOIN executions e ON e.id = a.execution_id
+		WHERE e.task_id = ?`, taskID)
+	return mark, err
+}
+
 // HasReeveWatchEventKind reports whether any queued event, however far
 // down the queue, is of kind (the "kind" of its JSON body).
 func (s *Store) HasReeveWatchEventKind(ctx context.Context, kind string) (bool, error) {

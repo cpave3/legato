@@ -4,8 +4,17 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 )
+
+// WorkflowAttentionEvents are the events the workflows producer reconciles
+// on: a run's own changes, and its agents' (a step's agent that ends or
+// stops, a review loop's agent author that stops or starts work again).
+var WorkflowAttentionEvents = []events.EventType{
+	events.EventWorkflowChanged, events.EventAgentActivityChanged, events.EventAgentStarted,
+	events.EventAgentDied, events.EventAgentCompleted,
+}
 
 type WorkflowAttentionSource interface {
 	ListRuns(ctx context.Context, filter store.WorkflowRunFilter) ([]store.WorkflowRun, error)
@@ -29,7 +38,7 @@ func (a *WorkflowAttentionAdapter) Producer() string { return "workflows" }
 type workflowAttentionState struct {
 	runID    string
 	stepID   string
-	kind     string // manual | failed | waiting_agent | waiting
+	kind     string // manual | failed | waiting_agent | waiting | author
 	revision string
 	runTitle string
 	taskID   string
@@ -67,6 +76,8 @@ func (a *WorkflowAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInp
 			urgency = "high"
 		case "waiting":
 			signalKind = AttentionSignalWorkflowReviewStuck
+		case "author":
+			signalKind = AttentionSignalWorkflowReviewAuthor
 		}
 		items = append(items, AttentionInput{
 			SignalKind: signalKind,
@@ -108,16 +119,22 @@ func (a *WorkflowAttentionAdapter) collectRunStates(run store.WorkflowRun, view 
 	for _, attempt := range view.Attempts {
 		if attempt.NeedsAttention && attempt.Status == WorkflowStepWaiting {
 			// A step waiting on its service that needs the person: a
-			// stuck review loop.
-			more := []AttentionAction{{ID: "end", Label: "End", Kind: "execute", RequiresConfirm: true,
-				Confirmation: "End the review loop as stuck? The run goes on to its next step."}}
+			// review loop stuck (it offers end), or waiting for an
+			// author that will not move it alone.
+			kind := "author"
+			var more []AttentionAction
 			for _, id := range attempt.AttentionActions {
-				if id == "message" {
+				switch id {
+				case "end":
+					kind = "waiting"
+					more = append(more, AttentionAction{ID: "end", Label: "End", Kind: "execute", RequiresConfirm: true,
+						Confirmation: "End the review loop as stuck? The run goes on to its next step."})
+				case "message":
 					more = append(more, AttentionAction{ID: "message", Label: "Message the author", Kind: "execute", RequiresText: true})
 				}
 			}
 			states = append(states, workflowAttentionState{
-				runID: run.ID, stepID: attempt.Path, kind: "waiting",
+				runID: run.ID, stepID: attempt.Path, kind: kind,
 				revision: fmt.Sprintf("waiting:%s:%d:%s", attempt.Path, attempt.AttemptNumber, attempt.AttentionReason),
 				runTitle: run.WorkflowTitle, taskID: run.TaskID,
 				reason: attempt.AttentionReason,
