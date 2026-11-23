@@ -206,6 +206,8 @@ Legato refuses to compact:
 
 The panel shows why under the message box. Scripts and the Reeve can compact an agent through the API: `POST /api/agents/{task_id}/compact`, with `{"instructions": "…"}` for focus words. See the [API reference](/legato/reference/api/).
 
+A workflow can compact an agent with an `agent.compact` step, which waits for the agent's turn to end. See [Workflows](/legato/using/workflows/).
+
 ### Compacting agents automatically
 
 Each tool compacts itself when its context window is nearly full. To make Legato compact agents earlier, set **Settings › Agents › Compaction › Compact an idle agent at % full** (`agents.compact.auto_percent`), for example to `60`. When an agent in Legato's panel is idle and its context is at least that full, Legato compacts it. If the compaction fails, or leaves the context over the threshold, Legato tries again only after the context has grown. The default is `0`, which turns it off.

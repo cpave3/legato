@@ -41,11 +41,20 @@ Without both estimates, `tokensAfter` and `context` are left out and the meter k
 - The context watcher (`internal/server/agent_context.go`, `readingFrom`) also reads `compaction_finished`'s `tokensAfter`, in the window of the agent's last reading, so the meter follows a Chimera compaction, which sends no `usage_updated` of its own.
 - The panel (`NativeAgentPanel`, `web/src/lib/compaction.ts`): `compactCommand` reads `/compact [focus]` in the composer, which calls the route instead of sending a message; a refusal shows in the send-error line. `nextCompaction` follows the events, and `compactionNotice` is the status line: "Compacting the conversation…", "Compacted: 66.8k → 48.9k tokens", or "Compaction failed: …". The next turn's `session_started` clears a finished one.
 
+## The agent.compact step
+
+`agent.compact` (LEG-536, `internal/service/workflow_agent_compact.go`) compacts `with.task`'s main-slot agent through `CompactAgent`, with `with.instructions` as focus. It is a step that waits on its service (`WorkflowStepWaiting`; see [Workflows](workflows.md)):
+
+- `Start` asks once. `ErrAgentWorking` is not a failure: right after an `agent.run` step the agent is still in the turn from which it ran `legato workflow step complete`. Any other refusal fails the step in the refusal's words (`store.ErrNotFound` as "task X has no agent running to compact").
+- `WorkflowService.CheckCompactions` (every `CompactCheckEvery`, 5 s, from `StartCompactWaits`) asks again each waiting attempt this process has not seen take an ask, and fails each one older than `CompactStepLimit` (15 minutes from the attempt's `started_at`): "The agent was still working…" when its last ask met a working agent, else "Legato saw no end to the compaction…".
+- `WorkflowService.ObserveCompaction`, an `ApprovalWatcher` listener registered by `StartCompactWaits`, completes the waiting attempts of the agent on `compaction_finished` (outputs `tokens_before`, `tokens_after` when the event has them) and fails them on `compaction_failed` only when this process asked: another compaction's failure leaves the step to ask for its own. It runs off the stream's goroutine, as completing a step may start the next.
+- What a process asked is kept in memory (`AgentCompactExecutor.seen`). Endpoints replay only after a `since` cursor and their snapshots have no compaction state, so a Legato that restarts, or another process (the TUI beside serve), does not know an attempt: it asks again, and the agent refuses (409) while it compacts. A compaction that finished while Legato was down is then done a second time; one never seen to end fails at the deadline.
+- `cmd/legato` registers the executor (`agentCompactExecutor`, through the agent service's `AgentCompactor`) and starts the waits in serve and the TUI after the approval watcher (`approvalRuntime.compactWaits`).
+
 ## Automatic compaction
 
 `agents.compact.auto_percent` (int 0–100, default 0, live; Settings › Agents › Compaction). `service.AutoCompactor.Check` runs every `AutoCompactCheckEvery` (15 s) in the process that serves the broker (`cmd/legato/autocompact_runtime.go`, started in `startApprovals`). It compacts each running native agent that is idle (`activity` empty) with `used × 100 ≥ percent × window` (read through `ConversationTail`, only for idle agents). It remembers the size it tried at, and tries again only after the context grows past it. One that drops under the threshold is forgotten, so the next fill is compacted too. Refusals and failures are logged, not raised.
 
 ## Not done
 
-- A workflow step that compacts an agent: LEG-536.
 - The TUI has no compact key.
