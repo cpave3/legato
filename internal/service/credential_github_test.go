@@ -38,6 +38,10 @@ type githubFake struct {
 	pulls   []map[string]any
 	next    int
 	graphql []string // the mutations it was sent, with the token's permissions
+	// appPermissions are what the App's installation was granted.
+	appPermissions map[string]any
+	// pushes are the permissions of the token each push to GitHub carried.
+	pushes []map[string]any
 }
 
 func newGitHubFake(t *testing.T) *githubFake {
@@ -47,7 +51,8 @@ func newGitHubFake(t *testing.T) *githubFake {
 		t.Skip("no git")
 	}
 	root := t.TempDir()
-	g := &githubFake{tokens: map[string]map[string]any{}, bare: filepath.Join(root, "cpave3", "legato.git")}
+	g := &githubFake{tokens: map[string]map[string]any{}, bare: filepath.Join(root, "cpave3", "legato.git"),
+		appPermissions: map[string]any{"contents": "write", "metadata": "read", "pull_requests": "write", "workflows": "write"}}
 	ghGit(t, "", "init", "-q", "--bare", "-b", "main", g.bare)
 	ghGit(t, g.bare, "config", "http.receivepack", "true")
 	backend := &cgi.Handler{Path: gitPath, Args: []string{"http-backend"}, Env: []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1"}}
@@ -57,7 +62,7 @@ func newGitHubFake(t *testing.T) *githubFake {
 		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		switch {
 		case r.URL.Path == "/repos/cpave3/legato/installation":
-			_, _ = io.WriteString(w, `{"id": 7}`)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 7, "permissions": g.appPermissions})
 		case r.URL.Path == "/app/installations/7/access_tokens":
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
@@ -113,6 +118,9 @@ func newGitHubFake(t *testing.T) *githubFake {
 				w.Header().Set("WWW-Authenticate", `Basic realm="GitHub"`)
 				w.WriteHeader(401)
 				return
+			}
+			if r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/git-receive-pack") {
+				g.pushes = append(g.pushes, g.tokens[pass])
 			}
 			g.mu.Unlock()
 			backend.ServeHTTP(w, r)

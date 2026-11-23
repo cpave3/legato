@@ -52,6 +52,11 @@ type TemplateRequest struct {
 	// Set names values read from the response by JSON path ($.id), for the
 	// requests after it (lookup only).
 	Set map[string]string `yaml:"set"`
+	// Granted is where the response says what the key may be given, by
+	// JSON path ($.permissions: a GitHub installation's permissions), so a
+	// use the key can never be given is refused before anyone is asked
+	// (lookup only; optional).
+	Granted string `yaml:"granted"`
 	// Token and ExpiresAt are where the response holds them (exchange only).
 	Token     string `yaml:"token"`
 	ExpiresAt string `yaml:"expires_at"`
@@ -227,8 +232,9 @@ type JWTExchange struct {
 }
 
 type lookedUp struct {
-	values map[string]any
-	at     time.Time
+	values  map[string]any
+	granted map[string]string
+	at      time.Time
 }
 
 func (j *JWTExchange) Accepts() []string { return []string{TypeKeyPair} }
@@ -339,39 +345,83 @@ func (j *JWTExchange) Revoke(ctx context.Context, issued Issued) error {
 }
 
 func (j *JWTExchange) lookup(ctx context.Context, key *rsa.PrivateKey, values map[string]any) (map[string]any, error) {
+	found, err := j.lookUp(ctx, key, values)
+	return found.values, err
+}
+
+// lookUp runs the lookup for a repository (values owner and repo), or
+// takes what an earlier one found within lookupLife.
+func (j *JWTExchange) lookUp(ctx context.Context, key *rsa.PrivateKey, values map[string]any) (lookedUp, error) {
 	cacheKey := fmt.Sprint(values["owner"], "/", values["repo"])
 	j.mu.Lock()
 	if found, ok := j.lookups[cacheKey]; ok && j.now().Sub(found.at) < lookupLife {
 		j.mu.Unlock()
-		return found.values, nil
+		return found, nil
 	}
 	j.mu.Unlock()
 	jwt, err := j.signJWT(key, values)
 	if err != nil {
-		return nil, err
+		return lookedUp{}, err
 	}
 	resp, err := j.do(ctx, *j.Template.Lookup, values, jwt, "")
 	if err != nil {
-		return nil, fmt.Errorf("looking up %s: %w", cacheKey, err)
+		return lookedUp{}, fmt.Errorf("looking up %s: %w", cacheKey, err)
 	}
-	found := map[string]any{}
+	found := lookedUp{values: map[string]any{}, at: j.now()}
 	for name, path := range j.Template.Lookup.Set {
 		v := jsonAt(resp, path)
 		if v == nil {
-			return nil, fmt.Errorf("looking up %s: the response has no %s", cacheKey, path)
+			return lookedUp{}, fmt.Errorf("looking up %s: the response has no %s", cacheKey, path)
 		}
 		if f, ok := v.(float64); ok && f == float64(int64(f)) {
 			v = int64(f)
 		}
-		found[name] = v
+		found.values[name] = v
+	}
+	if j.Template.Lookup.Granted != "" {
+		if granted, ok := jsonAt(resp, j.Template.Lookup.Granted).(map[string]any); ok {
+			found.granted = map[string]string{}
+			for name, level := range granted {
+				if s, ok := level.(string); ok {
+					found.granted[name] = s
+				}
+			}
+		}
 	}
 	j.mu.Lock()
 	if j.lookups == nil {
 		j.lookups = map[string]lookedUp{}
 	}
-	j.lookups[cacheKey] = lookedUp{values: found, at: j.now()}
+	j.lookups[cacheKey] = found
 	j.mu.Unlock()
 	return found, nil
+}
+
+// Granted is what the lookup says the key may be given for a repository
+// (values owner and repo): a GitHub installation's permissions, by name
+// (contents: write). ok is false when the template reads none, or the
+// response held none.
+func (j *JWTExchange) Granted(ctx context.Context, secret Secret, values map[string]any) (map[string]string, bool, error) {
+	if j.Template.Lookup == nil || j.Template.Lookup.Granted == "" {
+		return nil, false, nil
+	}
+	key, err := rsaKey(secret.Value)
+	if err != nil {
+		return nil, false, err
+	}
+	found, err := j.lookUp(ctx, key, values)
+	if err != nil {
+		return nil, false, err
+	}
+	return found.granted, found.granted != nil, nil
+}
+
+// Forget drops what was looked up for a repository, so the next use looks
+// again: after a refusal the person may fix on the other side.
+func (j *JWTExchange) Forget(owner, repo string) {
+	j.mu.Lock()
+	delete(j.lookups, owner+"/"+repo)
+	j.mu.Unlock()
 }
 
 func (j *JWTExchange) value(values map[string]any) func(string) (any, bool) {

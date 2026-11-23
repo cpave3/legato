@@ -16,8 +16,14 @@ const (
 	OperationGitPush        = "git.push"
 	OperationGitPushDefault = "git.push-default"
 	OperationGitPushTag     = "git.push-tag"
-	OperationGitDeleteRef   = "git.delete-ref"
-	OperationGitRead        = "git.read"
+	// OperationGitPushWorkflows is a push to a branch whose new commits
+	// change a workflow file (under WorkflowsDir). GitHub wants a token with
+	// the workflows permission for it, and a workflow can read the
+	// repository's secrets once it runs, so it is asked for apart from
+	// git.push.
+	OperationGitPushWorkflows = "git.push-workflows"
+	OperationGitDeleteRef     = "git.delete-ref"
+	OperationGitRead          = "git.read"
 	// OperationPRWrite is gh's pull request commands: a token that can write
 	// pull requests of one repository, and read its code.
 	OperationPRWrite = "pr.write"
@@ -41,6 +47,9 @@ const (
 	// workflow, delete a cache.
 	OperationActionsWrite = "actions.write"
 )
+
+// WorkflowsDir is where GitHub keeps a repository's workflows.
+const WorkflowsDir = ".github/workflows"
 
 // RefUpdate is one command of a push: a ref, from one object to another.
 type RefUpdate struct {
@@ -88,13 +97,48 @@ func ReadReceivePack(r io.Reader, encoding string) (ReceivePack, []byte, error) 
 	default:
 		return ReceivePack{}, nil, fmt.Errorf("a push encoded as %q", encoding)
 	}
-	pkts := bufio.NewReaderSize(src, 4)
+	push, err := readCommands(bufio.NewReaderSize(src, 4))
+	if err != nil {
+		return ReceivePack{}, nil, err
+	}
+	// The reader may have taken more than it parsed; that is fine, as the
+	// caller passes on every byte read and then the rest.
+	return push, raw.Bytes(), nil
+}
+
+// PackOf reads a git-receive-pack request body (encoding as
+// ReadReceivePack takes it) up to its pack, and returns a reader of the
+// pack: what follows the commands and push options. A push that only
+// deletes has none, and the reader is empty.
+func PackOf(r io.Reader, encoding string) (io.Reader, error) {
+	src := r
+	switch encoding {
+	case "", "identity":
+	case "gzip":
+		z, err := gzip.NewReader(r)
+		if err != nil {
+			return nil, fmt.Errorf("the push is not gzip: %w", err)
+		}
+		src = z
+	default:
+		return nil, fmt.Errorf("a push encoded as %q", encoding)
+	}
+	pkts := bufio.NewReader(src)
+	if _, err := readCommands(pkts); err != nil {
+		return nil, err
+	}
+	return pkts, nil
+}
+
+// readCommands reads a push's commands and push options, leaving pkts at
+// its pack.
+func readCommands(pkts *bufio.Reader) (ReceivePack, error) {
 	var push ReceivePack
 	idLen := 0
 	for {
 		line, flush, err := readPktLine(pkts)
 		if err != nil {
-			return ReceivePack{}, nil, err
+			return ReceivePack{}, err
 		}
 		if flush {
 			break
@@ -104,7 +148,7 @@ func ReadReceivePack(r io.Reader, encoding string) (ReceivePack, []byte, error) 
 				continue
 			}
 			if strings.HasPrefix(line, "push-cert") {
-				return ReceivePack{}, nil, errors.New("signed pushes are not taken")
+				return ReceivePack{}, errors.New("signed pushes are not taken")
 			}
 			cmd, caps, _ := strings.Cut(line, "\x00")
 			line = cmd
@@ -112,23 +156,23 @@ func ReadReceivePack(r io.Reader, encoding string) (ReceivePack, []byte, error) 
 		}
 		update, err := parseRefUpdate(strings.TrimSuffix(line, "\n"))
 		if err != nil {
-			return ReceivePack{}, nil, err
+			return ReceivePack{}, err
 		}
 		if idLen == 0 {
 			idLen = len(update.Old)
 		} else if len(update.Old) != idLen {
-			return ReceivePack{}, nil, errors.New("the push mixes object ID lengths")
+			return ReceivePack{}, errors.New("the push mixes object ID lengths")
 		}
 		push.Commands = append(push.Commands, update)
 	}
 	if len(push.Commands) == 0 {
-		return ReceivePack{}, nil, errors.New("the push updates no ref")
+		return ReceivePack{}, errors.New("the push updates no ref")
 	}
 	if push.Has("push-options") {
 		for {
 			line, flush, err := readPktLine(pkts)
 			if err != nil {
-				return ReceivePack{}, nil, err
+				return ReceivePack{}, err
 			}
 			if flush {
 				break
@@ -136,9 +180,7 @@ func ReadReceivePack(r io.Reader, encoding string) (ReceivePack, []byte, error) 
 			push.Options = append(push.Options, strings.TrimSuffix(line, "\n"))
 		}
 	}
-	// The reader may have taken more than it parsed; that is fine, as the
-	// caller passes on every byte read and then the rest.
-	return push, raw.Bytes(), nil
+	return push, nil
 }
 
 // readPktLine reads one pkt-line: a payload, or a flush (0000).

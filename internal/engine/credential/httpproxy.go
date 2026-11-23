@@ -76,6 +76,9 @@ type Decision struct {
 	Pending    bool
 	ApprovalID string
 	Reason     string
+	// Final: no grant could allow it, so asking for one is no use (a GitHub
+	// App without the permission the use needs).
+	Final bool
 }
 
 // ProxyBackend is what the proxy asks of Legato: whose a placeholder is,

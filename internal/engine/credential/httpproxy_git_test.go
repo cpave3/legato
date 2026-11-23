@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/cgi"
 	"net/http/httptest"
@@ -29,6 +31,41 @@ type gitBackend struct {
 	pending  bool
 	ready    []readyCall
 	pushed   []string
+	// tokenOps is the operation each write token was made for.
+	tokenOps []string
+	// With inspects, the backend reads pushes: workflows says, by ref, what
+	// each changes, inspectErr fails the reading, and packs are the packs it
+	// was given.
+	inspects   bool
+	workflows  map[string][]string
+	inspectErr error
+	packs      [][]byte
+	// noWorkflowsPermission refuses workflows pushes for good, as for an
+	// App without the permission.
+	noWorkflowsPermission bool
+}
+
+func (g *gitBackend) InspectsPushes(_ context.Context, credential string) (string, bool) {
+	return "", g.inspects
+}
+
+func (g *gitBackend) WorkflowChanges(_ context.Context, _ string, repo string, updates []RefUpdate, open func() (io.ReadCloser, error)) (map[string][]string, error) {
+	pack, err := open()
+	if err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(pack)
+	pack.Close()
+	if err != nil {
+		return nil, err
+	}
+	g.mu.Lock()
+	g.packs = append(g.packs, data)
+	g.mu.Unlock()
+	if g.inspectErr != nil {
+		return nil, g.inspectErr
+	}
+	return g.workflows, nil
 }
 
 func (g *gitBackend) Pushed(_ context.Context, _ Execution, credential, repo string, refs []string) {
@@ -64,7 +101,9 @@ func (g *gitBackend) AuthorizePush(_ context.Context, _ Execution, _ string, rep
 	out := make([]Decision, len(uses))
 	for i, u := range uses {
 		switch {
-		case u.Operation == OperationGitPush && strings.Contains(u.Resource, "@refs/heads/legato/") && !g.pending:
+		case u.Operation == OperationGitPushWorkflows && g.noWorkflowsPermission:
+			out[i] = Decision{Final: true, Reason: "the GitHub App has no Workflows permission"}
+		case (u.Operation == OperationGitPush || u.Operation == OperationGitPushWorkflows) && strings.Contains(u.Resource, "@refs/heads/legato/") && !g.pending:
 			out[i] = Decision{Allowed: true}
 		case g.pending:
 			out[i] = Decision{Pending: true, ApprovalID: "ap-12345678"}
@@ -75,9 +114,10 @@ func (g *gitBackend) AuthorizePush(_ context.Context, _ Execution, _ string, rep
 	return out, nil
 }
 
-func (g *gitBackend) PushToken(_ context.Context, _ Execution, _ string, repo string) ([]byte, func(), error) {
+func (g *gitBackend) PushToken(_ context.Context, _ Execution, _ string, repo, operation string) ([]byte, func(), error) {
 	g.mu.Lock()
 	g.issued++
+	g.tokenOps = append(g.tokenOps, operation)
 	g.mu.Unlock()
 	return []byte("ghs_WRITE_TOKEN"), func() {
 		g.mu.Lock()
@@ -469,5 +509,151 @@ func TestAPushThatReachedGitHubIsReported(t *testing.T) {
 	got := backend.pushedSoon(t, 1)
 	if len(got) != 1 || got[0] != "github cpave3/legato refs/heads/legato/abc-fix" {
 		t.Fatalf("pushes reported = %q", got)
+	}
+}
+
+// pushWorkflowFrom makes a commit that adds a workflow file in a fresh
+// repository and pushes it through the proxy.
+func pushWorkflowFrom(t *testing.T, proxyURL string, refspecs ...string) (string, error) {
+	t.Helper()
+	work := t.TempDir()
+	run(t, work, "git", "init", "-q", "-b", "main")
+	if err := os.MkdirAll(filepath.Join(work, ".github", "workflows"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, ".github", "workflows", "x.yml"), []byte("on: push\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, work, "git", "add", ".")
+	run(t, work, "git", "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "ci")
+	args := []string{"-c", "credential.helper=", "-c", `credential.helper=!f() { echo username=x-access-token; echo password=lgk_one; }; f`,
+		"push", proxyURL + "/c/github/git/cpave3/legato.git"}
+	cmd := exec.Command("git", append(args, refspecs...)...)
+	cmd.Dir = work
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "HOME="+t.TempDir(), "GIT_TERMINAL_PROMPT=0")
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func TestAPushThatChangesWorkflowsIsItsOwnOperationWithItsOwnToken(t *testing.T) {
+	github, repo, _ := fakeGitHubGit(t)
+	backend := gitTestBackend()
+	backend.inspects = true
+	backend.workflows = map[string][]string{"refs/heads/legato/ci": {".github/workflows/x.yml"}}
+	proxy := gitProxy(t, backend, github)
+
+	out, err := pushWorkflowFrom(t, proxy.URL, "HEAD:refs/heads/legato/ci")
+	if err != nil {
+		t.Fatalf("push failed: %v\n%s", err, out)
+	}
+	// The push arrived whole after Legato read it.
+	if got := run(t, repo, "git", "ls-tree", "-r", "--name-only", "legato/ci"); !strings.Contains(got, ".github/workflows/x.yml") {
+		t.Fatalf("the branch holds %q", got)
+	}
+	if len(backend.packs) != 1 || !strings.HasPrefix(string(backend.packs[0]), "PACK") {
+		t.Fatalf("the inspector was not given the pack: %d packs", len(backend.packs))
+	}
+	use := backend.pushes[0][0]
+	if use.Operation != OperationGitPushWorkflows || use.Resource != "github:cpave3/legato@refs/heads/legato/ci" || !strings.Contains(use.Detail, ".github/workflows/x.yml") {
+		t.Fatalf("use = %+v", use)
+	}
+	// The push itself went with a token made for the workflows operation,
+	// and every token was revoked.
+	if last := backend.tokenOps[len(backend.tokenOps)-1]; last != OperationGitPushWorkflows {
+		t.Fatalf("token operations = %v", backend.tokenOps)
+	}
+	if backend.revoked != backend.issued {
+		t.Fatalf("issued %d revoked %d", backend.issued, backend.revoked)
+	}
+}
+
+func TestAPushThatChangesNoWorkflowKeepsTheContentsToken(t *testing.T) {
+	github, _, _ := fakeGitHubGit(t)
+	backend := gitTestBackend()
+	backend.inspects = true
+	proxy := gitProxy(t, backend, github)
+
+	if out, err := pushFrom(t, proxy.URL, "HEAD:refs/heads/legato/plain"); err != nil {
+		t.Fatalf("push failed: %v\n%s", err, out)
+	}
+	if backend.pushes[0][0].Operation != OperationGitPush {
+		t.Fatalf("use = %+v", backend.pushes[0][0])
+	}
+	for _, op := range backend.tokenOps {
+		if op != OperationGitPush {
+			t.Fatalf("token operations = %v", backend.tokenOps)
+		}
+	}
+}
+
+// When Legato cannot read the push, it goes as before: with a token that
+// cannot change workflows, so GitHub still refuses one that does.
+func TestAPushLegatoCannotReadGoesAsAnOrdinaryPush(t *testing.T) {
+	github, _, _ := fakeGitHubGit(t)
+	backend := gitTestBackend()
+	backend.inspects = true
+	backend.inspectErr = errors.New("no cache")
+	proxy := gitProxy(t, backend, github)
+
+	if out, err := pushWorkflowFrom(t, proxy.URL, "HEAD:refs/heads/legato/ci"); err != nil {
+		t.Fatalf("push failed: %v\n%s", err, out)
+	}
+	if backend.pushes[0][0].Operation != OperationGitPush || backend.tokenOps[len(backend.tokenOps)-1] != OperationGitPush {
+		t.Fatalf("use = %+v, token operations %v", backend.pushes[0][0], backend.tokenOps)
+	}
+}
+
+func TestARefusedWorkflowsPushSaysWhatItChangesAndHowToAsk(t *testing.T) {
+	github, _, seen := fakeGitHubGit(t)
+	backend := gitTestBackend()
+	backend.inspects = true
+	backend.workflows = map[string][]string{"refs/heads/feature": {".github/workflows/x.yml"}}
+	proxy := gitProxy(t, backend, github)
+
+	out, err := pushWorkflowFrom(t, proxy.URL, "HEAD:refs/heads/feature")
+	if err == nil {
+		t.Fatalf("the push went:\n%s", out)
+	}
+	for _, want := range []string{".github/workflows/x.yml", "request_access (credential github, operation git.push-workflows, resource github:cpave3/legato@refs/heads/feature)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("git's output does not say %q:\n%s", want, out)
+		}
+	}
+	for _, line := range *seen {
+		if strings.HasPrefix(line, "POST") {
+			t.Fatalf("a refused push reached GitHub: %s", line)
+		}
+	}
+}
+
+// A backend that does not read pushes leaves them as they were.
+func TestPushesAreNotReadWhenTheBackendDoesNotAsk(t *testing.T) {
+	github, _, _ := fakeGitHubGit(t)
+	backend := gitTestBackend()
+	backend.workflows = map[string][]string{"refs/heads/legato/ci": {".github/workflows/x.yml"}}
+	proxy := gitProxy(t, backend, github)
+
+	if out, err := pushWorkflowFrom(t, proxy.URL, "HEAD:refs/heads/legato/ci"); err != nil {
+		t.Fatalf("push failed: %v\n%s", err, out)
+	}
+	if len(backend.packs) != 0 || backend.pushes[0][0].Operation != OperationGitPush {
+		t.Fatalf("packs %d, use %+v", len(backend.packs), backend.pushes[0][0])
+	}
+}
+
+func TestAWorkflowsPushNoGrantCouldAllowDoesNotSayToAsk(t *testing.T) {
+	github, _, _ := fakeGitHubGit(t)
+	backend := gitTestBackend()
+	backend.inspects = true
+	backend.noWorkflowsPermission = true
+	backend.workflows = map[string][]string{"refs/heads/legato/ci": {".github/workflows/x.yml"}}
+	proxy := gitProxy(t, backend, github)
+
+	out, err := pushWorkflowFrom(t, proxy.URL, "HEAD:refs/heads/legato/ci")
+	if err == nil || !strings.Contains(out, "the GitHub App has no Workflows permission") || strings.Contains(out, "request_access") {
+		t.Fatalf("err %v\n%s", err, out)
+	}
+	if backend.revoked != backend.issued {
+		t.Fatalf("issued %d revoked %d", backend.issued, backend.revoked)
 	}
 }

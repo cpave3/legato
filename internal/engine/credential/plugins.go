@@ -47,6 +47,9 @@ type Classified struct {
 	Operation string
 	Resource  string
 	Amounts   map[string]int64
+	// Detail says more of what the call does, for the person asked to
+	// allow it: the workflow files a push changes.
+	Detail string
 }
 
 // Inspector says what a call does, in terms a policy reads.

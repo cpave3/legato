@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/credential"
+	"github.com/cpave3/legato/internal/engine/gitrepo"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -274,6 +275,16 @@ func (c *CredentialChannels) DefaultBranch(ctx context.Context, name, repo strin
 // for at once and the push refused: git cannot wait.
 func (c *CredentialChannels) AuthorizePush(ctx context.Context, execution credential.Execution, name, repo string, uses []credential.Classified) ([]credential.Decision, error) {
 	out := make([]credential.Decision, len(uses))
+	if i, reason := c.workflowsRefusal(ctx, name, repo, uses); reason != "" {
+		for j := range out {
+			out[j] = credential.Decision{Reason: "refused with the rest of the push"}
+		}
+		out[i] = credential.Decision{Reason: reason, Final: true}
+		use := c.pushUse(execution, name, uses[i])
+		c.broker.audit(ctx, execution.TaskID, execution.ExecutionID, store.CredentialAuditEntry{Event: "refuse", Credential: name,
+			Operation: use.Operation, Resource: use.Resource, Detail: withCall(reason, use.Call)})
+		return out, nil
+	}
 	all := true
 	for i, u := range uses {
 		d, err := c.broker.CheckUse(ctx, c.pushUse(execution, name, u))
@@ -302,8 +313,12 @@ func (c *CredentialChannels) AuthorizePush(ctx context.Context, execution creden
 }
 
 func (c *CredentialChannels) pushUse(execution credential.Execution, name string, u credential.Classified) CredentialUse {
+	call := "git push " + strings.TrimPrefix(u.Resource, "github:")
+	if u.Detail != "" {
+		call += " (" + u.Detail + ")"
+	}
 	return CredentialUse{TaskID: execution.TaskID, ExecutionID: execution.ExecutionID, Credential: name,
-		Operation: u.Operation, Resource: u.Resource, Amounts: u.Amounts, Call: "git push " + strings.TrimPrefix(u.Resource, "github:")}
+		Operation: u.Operation, Resource: u.Resource, Amounts: u.Amounts, Call: call, Detail: u.Detail}
 }
 
 func (c *CredentialChannels) decision(ctx context.Context, d UseDecision) credential.Decision {
@@ -316,13 +331,118 @@ func (c *CredentialChannels) decision(ctx context.Context, d UseDecision) creden
 	return out
 }
 
-// PushToken makes a write token for one push, revoked by its release.
-func (c *CredentialChannels) PushToken(ctx context.Context, execution credential.Execution, name, repo string) ([]byte, func(), error) {
+// workflowsRefusal refuses a push that changes workflows when the GitHub
+// App was not granted the workflows permission on the repository: no
+// grant could let it through, so nobody is asked. It returns the use's
+// index and why; "" when nothing is refused, or the App's permissions
+// cannot be read (GitHub then decides).
+func (c *CredentialChannels) workflowsRefusal(ctx context.Context, name, repo string, uses []credential.Classified) (int, string) {
+	at := -1
+	for i, u := range uses {
+		if u.Operation == credential.OperationGitPushWorkflows {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		return 0, ""
+	}
+	bc, ok := c.broker.lookup(ctx, name)
+	if !ok || bc.jwt == nil {
+		return 0, ""
+	}
+	secret, err := c.broker.readSecret(ctx, name)
+	if err != nil {
+		return 0, ""
+	}
+	owner, repoName, _ := strings.Cut(repo, "/")
+	granted, known, err := bc.jwt.Granted(ctx, secret, map[string]any{"owner": owner, "repo": repoName})
+	if err != nil || !known {
+		if err != nil {
+			log.Printf("credentials: %s: what the App may do on %s: %v", name, repo, err)
+		}
+		return 0, ""
+	}
+	if granted["workflows"] == "write" {
+		return 0, ""
+	}
+	// Looked up afresh next time, once the person has added it.
+	bc.jwt.Forget(owner, repoName)
+	return at, fmt.Sprintf("the GitHub App of %s has no Workflows permission on %s. Add Workflows: Read and write to the App "+
+		"(GitHub › Settings › Developer settings › GitHub Apps › the App › Permissions & events › Repository permissions), "+
+		"accept the new permission on its installation, then push again", name, repo)
+}
+
+// PushToken makes a write token for one push, revoked by its release:
+// contents: write for git.push, and the workflows permission too for
+// git.push-workflows. No other operation gets a push token.
+func (c *CredentialChannels) PushToken(ctx context.Context, execution credential.Execution, name, repo, operation string) ([]byte, func(), error) {
+	if operation != credential.OperationGitPush && operation != credential.OperationGitPushWorkflows {
+		return nil, nil, fmt.Errorf("%s is not a push", operation)
+	}
 	bc, ok := c.broker.lookup(ctx, name)
 	if !ok || bc.jwt == nil {
 		return nil, nil, fmt.Errorf("no GitHub credential named %q", name)
 	}
-	return c.githubToken(ctx, bc, repo, credential.OperationGitPush)
+	return c.githubToken(ctx, bc, repo, operation)
+}
+
+// PushReader reads what a push changes against Legato's copy of the
+// repository (RepositoryService).
+type PushReader interface {
+	PushChanges(ctx context.Context, repo string, updates []gitrepo.RefUpdate, open func() (io.ReadCloser, error), dir string) (map[string][]string, error)
+	PushScratchDir() (string, error)
+}
+
+// SetPushReader has pushes read before they are decided, so one that
+// changes workflows is asked for as git.push-workflows. Without one, every
+// push is git.push, and GitHub refuses workflow changes from its token.
+func (c *CredentialChannels) SetPushReader(reader PushReader) {
+	c.mu.Lock()
+	c.pushReader = reader
+	c.mu.Unlock()
+}
+
+func (c *CredentialChannels) reader() PushReader {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.pushReader
+}
+
+var _ credential.GitPushInspector = (*CredentialChannels)(nil)
+
+// InspectsPushes reports whether pushes with a credential are read: when a
+// push reader is set and the credential's profile has a token for pushes
+// that change workflows (credential.GitPushInspector).
+func (c *CredentialChannels) InspectsPushes(ctx context.Context, name string) (string, bool) {
+	reader := c.reader()
+	if reader == nil {
+		return "", false
+	}
+	bc, ok := c.broker.lookup(ctx, name)
+	if !ok || len(bc.profile.Permissions[credential.OperationGitPushWorkflows]) == 0 {
+		return "", false
+	}
+	dir, err := reader.PushScratchDir()
+	if err != nil {
+		log.Printf("credentials: %s: no folder to read pushes in: %v", name, err)
+		return "", false
+	}
+	return dir, true
+}
+
+// WorkflowChanges says, by ref, which workflow files a push's new commits
+// change (credential.GitPushInspector).
+func (c *CredentialChannels) WorkflowChanges(ctx context.Context, _ string, repo string, updates []credential.RefUpdate, open func() (io.ReadCloser, error)) (map[string][]string, error) {
+	reader := c.reader()
+	if reader == nil {
+		return nil, errors.New("no push reader")
+	}
+	refs := make([]gitrepo.RefUpdate, len(updates))
+	for i, u := range updates {
+		refs[i] = gitrepo.RefUpdate{Old: u.Old, New: u.New, Ref: u.Ref}
+	}
+	return reader.PushChanges(ctx, repo, refs, open, credential.WorkflowsDir)
 }
 
 // githubEnv is the git configuration an agent session gets for a GitHub
