@@ -169,27 +169,20 @@ Select a trigger to see its settings in the panel beside the graph: whether it a
 
 The editor has two sides, **Visual** and **YAML**, and you can switch between them at any time without losing work: both edit the same file.
 
-- **Visual** shows the workflow as forms.
-  - **Details** holds the name, title, description, the run title (**${{ }}** inserts an input), and what the web UI opens after a run starts.
-  - **Inputs** adds, removes and renames inputs, with each input's type, whether it is required or secret, its default, choices and description. Renaming an input changes every `${{ workflow.inputs.<name> }}` that reads it, and the triggers' mappings of it.
-  - **Steps** lists the steps in order.
-    - **Add step** offers every step type with what it does.
-    - Each step has its ID, title and how it starts (by itself, when you start it, or when the agent ends), then the fields of its type: text, a prompt, switches, numbers, choices, your macros, agent tools and tiers, board columns, and the workflow's task or a task input.
-    - **Prompt** or **Macro** is a choice.
-    - **${{ }}** beside a field inserts what it can read.
-    - Each step also lists the outputs it declares, with their types and, for a file, its path.
-    - Move a step with its arrows or by dragging it. A move that would make a step read the outputs of one after it is refused, with the reference named.
-    - Removing a step that others read asks first.
+- **Visual** shows the workflow as an outline, with the part you choose open beside it.
+  - The outline reads from top to bottom: **When** (running by hand, which every workflow can, then its triggers, a paused one marked), **Asks for** (its inputs), **Then** (its steps in order) and **About** (its name, title, description, run title, and what the web UI opens after a run starts).
+  - Choose a row to edit it on the right. A step has three tabs: **Setup** (its ID, how it starts, and the fields of its type), **Outputs** (the outputs it declares) and **YAML** (that step's own YAML). A trigger and an input have **Setup** and **YAML**. A change in the YAML tab changes only that part of the file, and is written once it is valid YAML.
+  - The row you have open is in the page's address (such as `#steps/review`), so a reload or Back keeps it.
+  - **Add trigger**, **Add input** and **Add step** add one and open it. A new trigger starts paused. Renaming an input changes every `${{ workflow.inputs.<name> }}` that reads it, and the triggers' mappings of it.
+    - Each step has its ID, title and how it starts (by itself, when you start it, or when the agent ends), then the fields of its type: text, a prompt, switches, numbers, choices, your macros, agent tools and tiers, board columns, and the workflow's task or a task input. **Prompt** or **Macro** is a choice, and **${{ }}** beside a field inserts what it can read.
+    - Move a step with its arrows. A move that would make a step read the outputs of one after it is refused, with the reference named. Removing a step that others read asks first.
     - A field the step's type doesn't know is kept, and named, for you to edit in YAML.
-  - **Triggers** shows **Run by hand**, which every workflow can, then a card for each trigger. **Add trigger** offers the kinds the workflow doesn't have yet, and a new trigger starts paused.
-    - Each card says whether the trigger starts runs by itself in the file, whether it asks you first, and its runs a day at most.
-    - Each card maps the workflow's inputs from what the trigger gives, with **${{ }}** offering that trigger's own references.
-    - A column-entry trigger takes its column, whether it also runs on handed-off cards, and conditions: all or any of a list, a **not**, or a field compared with a value.
-    - A schedule is either **Every** (day, weekday or week, at a time) or **Cron**, with its time zone and what to do about missed runs. It shows its next three runs as Legato works them out.
-    - Removing a trigger removes it and its comments, and nothing else.
+    - A trigger maps the workflow's inputs from what it gives, says whether it starts runs by itself in the file, whether it asks you first, and its runs a day at most. A column-entry trigger also takes its column, handed-off cards and conditions; a schedule is **Every** or **Cron**, with its next three runs.
+  - A part of the file the forms can't show, such as a step written with a YAML anchor, is marked **Edited as YAML** and opens in its YAML tab. The rest stays as forms. Only a file whose YAML doesn't parse opens in YAML alone.
   - A change touches only what it changes: the rest of the file, comments included, stays as you wrote it.
-  - Problems Legato finds show on their fields.
-  - A file whose YAML doesn't parse, or that uses YAML anchors, aliases or merge keys, opens in YAML only.
+  - Problems Legato finds show on their fields, and as a count beside each row and in the header.
+  - Keys: **j** and **k** move through the rows, **Enter** opens one, **y** switches between Visual and YAML, and Ctrl+S (⌘S on a Mac) saves.
+  - On a phone, the outline is the screen and Save is at the bottom. Tapping a row opens it full screen; Back returns to the outline.
 - **Undo** and **Redo** go back and forth through your changes on both sides. In YAML, Ctrl+Z (⌘Z on a Mac) and Ctrl+Shift+Z (⌘⇧Z) do the same, so they also undo a change made in Visual. A pause in typing starts a new step. A change made in Visual leaves your place in the YAML where it was.
 - The side you used last is remembered on this device.
 

@@ -75,7 +75,7 @@ function rowsOf(items: Item[], values: WorkflowValues, problems: Map<string, Wor
     const ref = item.item
     if (ref.kind === "trigger") {
       const trigger = triggers[ref.name]
-      when.push({ selection: ref, label: KIND_TITLES[ref.name] ?? ref.name, detail: ref.name, problem: item.problem, problems: count(ref), paused: trigger?.enabled === false })
+      when.push({ selection: ref, label: KIND_TITLES[ref.name] ?? ref.name, detail: "", problem: item.problem, problems: count(ref), paused: trigger?.enabled === false })
     } else if (ref.kind === "input") {
       asks.push({ selection: ref, label: ref.name, detail: String(inputs[ref.name]?.type ?? ""), problem: item.problem, problems: count(ref) })
     } else if (ref.kind === "step") {
@@ -252,7 +252,7 @@ function Outline(props: WorkflowOutlineProps) {
     {error && <p role="alert" className="text-sm text-lw-danger">{error}</p>}
     {narrow
       ? (sheet && selectedRow
-        ? <div role="dialog" aria-label={selectedRow.label.trim()} className="fixed inset-0 z-40 overflow-y-auto bg-lw-ground px-4 py-3">{inspectorView}</div>
+        ? <div role="dialog" aria-label={selectedRow.label.trim()} className="fixed inset-0 z-40 overflow-y-auto bg-lw-ground px-4 pb-20 pt-3">{inspectorView}</div>
         : outlineView)
       : <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] md:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
         <div className="rounded-xl border border-lw-line bg-lw-surface p-2">{outlineView}</div>
