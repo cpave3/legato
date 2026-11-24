@@ -183,7 +183,7 @@ func (s *Server) workflowTriggerSwitchHandler() http.HandlerFunc {
 		case err != nil:
 			s.writeError(w, http.StatusInternalServerError, err.Error())
 		default:
-			s.hub.Broadcast(WSMessage{Type: MsgWorkflowChanged})
+			s.notifyWorkflowDefinitionsChanged()
 			s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 		}
 	}
@@ -495,9 +495,13 @@ func (s *Server) NotifyWorkflowChanged(runID, stepID string) {
 
 // NotifyWorkflowChangedKind is NotifyWorkflowChanged with what changed, such
 // as completed_step from a CLI process, which the advance loop acts on.
+// It is published on the bus, and StartWorkflowEvents sends it to the web
+// UI from there, once; without that forwarder it is sent here.
 func (s *Server) NotifyWorkflowChangedKind(runID, stepID, kind string) {
-	s.hub.Broadcast(WSMessage{Type: MsgWorkflowChanged, WorkflowRunID: runID, WorkflowStepID: stepID})
 	if s.bus != nil {
 		s.bus.Publish(events.Event{Type: events.EventWorkflowChanged, Payload: events.WorkflowChangedPayload{RunID: runID, StepID: stepID, Kind: kind}})
+	}
+	if s.bus == nil || !s.workflowForwarding.Load() {
+		s.hub.Broadcast(WSMessage{Type: MsgWorkflowChanged, WorkflowRunID: runID, WorkflowStepID: stepID, Kind: kind})
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
@@ -134,6 +135,10 @@ type Server struct {
 	integrationOverview      IntegrationOverview
 	burnliteSettings         BurnliteSettings
 	instances                instanceDeps
+
+	// workflowForwarding is set once StartWorkflowEvents sends the bus's
+	// workflow changes to the web UI.
+	workflowForwarding atomic.Bool
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).

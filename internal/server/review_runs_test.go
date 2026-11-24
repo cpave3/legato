@@ -64,7 +64,7 @@ func TestRunAnotherPassWithoutReviewLoopsIsUnavailable(t *testing.T) {
 func TestAReviewLoopChangeReachesAnOpenRunPage(t *testing.T) {
 	bus := events.New()
 	srv := NewWithSwarm(nil, nil, nil, ":0", nil, bus, "")
-	srv.StartReviewRunEvents()
+	srv.StartWorkflowEvents()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

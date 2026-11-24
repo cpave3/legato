@@ -219,7 +219,7 @@ func (s *Server) saveWorkflowFile(w http.ResponseWriter, r *http.Request, before
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.hub.Broadcast(WSMessage{Type: MsgWorkflowChanged})
+	s.notifyWorkflowDefinitionsChanged()
 	s.writeJSON(w, http.StatusOK, map[string]any{"name": after.Name, "path": info.Path, "folder": info.Folder, "digest": workflowengine.FileDigest(data), "diagnostics": diagnostics})
 }
 
@@ -251,7 +251,7 @@ func (s *Server) deleteWorkflowFile(w http.ResponseWriter, r *http.Request, defi
 			return
 		}
 	}
-	s.hub.Broadcast(WSMessage{Type: MsgWorkflowChanged})
+	s.notifyWorkflowDefinitionsChanged()
 	s.writeJSON(w, http.StatusOK, map[string]any{"name": definition.Name, "removed": info.Path, "remains": remains})
 }
 
@@ -308,7 +308,7 @@ func (s *Server) createWorkflowFile(w http.ResponseWriter, folder workflowengine
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.hub.Broadcast(WSMessage{Type: MsgWorkflowChanged})
+	s.notifyWorkflowDefinitionsChanged()
 	s.writeJSON(w, http.StatusCreated, map[string]any{"name": name, "path": path, "folder": folder.ID, "digest": workflowengine.FileDigest(data), "diagnostics": diagnostics})
 }
 
