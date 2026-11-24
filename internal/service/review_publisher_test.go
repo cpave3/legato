@@ -85,6 +85,14 @@ type reviewGitHub struct {
 	otherReplies  []map[string]any
 	otherComments []map[string]any
 	otherReviews  []map[string]any
+	// limit answers the API requests (not the token endpoints) with a
+	// rate limit while set; apiHits counts the API requests that reached
+	// GitHub, by repository (owner/name, or graphql).
+	limit   *fakeLimit
+	apiHits map[string]int
+	// graphqlLimit, while set, answers GraphQL with a primary rate limit
+	// in a 200, as GitHub does, that resets then.
+	graphqlLimit time.Time
 }
 
 // fakeAppSlugs are the Apps of the fixture, by the client ID their JWTs
@@ -123,6 +131,15 @@ func (g *reviewGitHub) answerAfterAccept(w http.ResponseWriter, created string) 
 	_, _ = io.WriteString(w, created)
 }
 
+// fakeLimit is a rate-limit answer: status, headers and message, for one
+// owner's repositories (any when empty).
+type fakeLimit struct {
+	owner   string
+	status  int
+	headers map[string]string
+	message string
+}
+
 const reviewPatch = "@@ -1,3 +1,4 @@\n package main\n-import \"fmt\"\n+import \"os\"\n+\n func main() {\n@@ -20,2 +21,3 @@ func helper() {\n \treturn\n+\t// done\n }"
 
 func newReviewGitHub(t *testing.T) *reviewGitHub {
@@ -141,7 +158,9 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 		switch {
 		case r.URL.Path == "/repos/cpave3/legato/installation":
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 7, "app_slug": jwtApp(r)})
-		case r.URL.Path == "/app/installations/7/access_tokens":
+		case r.URL.Path == "/repos/acme/widgets/installation":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 8, "app_slug": jwtApp(r)})
+		case strings.HasPrefix(r.URL.Path, "/app/installations/") && strings.HasSuffix(r.URL.Path, "/access_tokens"):
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			if asked, _ := body["permissions"].(map[string]any); g.noAdministration && asked["administration"] != nil {
@@ -160,6 +179,16 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			w.WriteHeader(204)
 		case perms == nil:
 			w.WriteHeader(401)
+		case g.hit(r) && g.limit != nil && (g.limit.owner == "" || strings.HasPrefix(r.URL.Path, "/repos/"+g.limit.owner+"/")):
+			for k, v := range g.limit.headers {
+				w.Header().Set(k, v)
+			}
+			w.WriteHeader(g.limit.status)
+			_, _ = io.WriteString(w, `{"message":"`+g.limit.message+`"}`)
+		case r.URL.Path == "/graphql" && !g.graphqlLimit.IsZero():
+			w.Header().Set("x-ratelimit-remaining", "0")
+			w.Header().Set("x-ratelimit-reset", fmt.Sprint(g.graphqlLimit.Unix()))
+			_, _ = io.WriteString(w, `{"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded for installation ID 7."}]}`)
 		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/pulls":
 			out := []map[string]any{}
 			head, base := r.URL.Query().Get("head"), r.URL.Query().Get("base")
@@ -334,6 +363,32 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 	return g
 }
 
+// hit counts an API request, always true.
+func (g *reviewGitHub) hit(r *http.Request) bool {
+	if g.apiHits == nil {
+		g.apiHits = map[string]int{}
+	}
+	key := "graphql"
+	if parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/"); len(parts) >= 3 && parts[0] == "repos" {
+		key = parts[1] + "/" + parts[2]
+	}
+	g.apiHits[key]++
+	return true
+}
+
+// hits are the API requests that reached GitHub for key.
+func (g *reviewGitHub) hits(key string) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.apiHits[key]
+}
+
+func (g *reviewGitHub) setLimit(l *fakeLimit) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.limit = l
+}
+
 // reviewProfiles writes the shipped GitHub profiles with their addresses
 // moved to the fake.
 // edits, by file name, change a profile's text further.
@@ -360,6 +415,25 @@ type publisherFixture struct {
 	brokerFixture
 	publisher *ReviewPublisher
 	github    *reviewGitHub
+	clock     *offsetClock
+}
+
+// offsetClock is the time now, moved on by Advance.
+type offsetClock struct {
+	mu     sync.Mutex
+	offset time.Duration
+}
+
+func (c *offsetClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return time.Now().Add(c.offset)
+}
+
+func (c *offsetClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.offset += d
 }
 
 func newPublisherFixture(t *testing.T) publisherFixture {
@@ -379,15 +453,16 @@ func newPublisherFixtureWith(t *testing.T, edits map[string]func(string) string)
 	if err := db.CreateExecution(context.Background(), store.Execution{ID: "ex-1", Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: "task-1", ExecutionTaskID: "task-1", StartedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
-	author := config.CredentialSettings{ClientID: "Iv1.author", Repositories: []string{"cpave3/legato"}}
-	reviewer := config.CredentialSettings{ClientID: "Iv1.reviewer", Repositories: []string{"cpave3/legato"}}
+	author := config.CredentialSettings{ClientID: "Iv1.author", Repositories: []string{"cpave3/legato", "acme/widgets"}}
+	reviewer := config.CredentialSettings{ClientID: "Iv1.reviewer", Repositories: []string{"cpave3/legato", "acme/widgets"}}
+	clock := &offsetClock{}
 	broker, err := NewCredentialBroker(db, approvals, CredentialBrokerOptions{
 		Credentials: []config.CredentialConfig{
 			{Name: "gh", Secret: "env://GH_APP_KEY", Profile: "github", Type: "keypair", Settings: author},
 			{Name: "reviewer-app", Secret: "env://GH_APP_KEY", Profile: "github-reviewer", Type: "keypair", Settings: reviewer},
 		},
 		ProfileDirs: []string{reviewProfiles(t, g.srv.URL, edits)},
-		Messenger:   &recordingMessenger{}, WaitTimeout: 100 * time.Millisecond, HTTPClient: g.srv.Client(),
+		Messenger:   &recordingMessenger{}, WaitTimeout: 100 * time.Millisecond, HTTPClient: g.srv.Client(), Now: clock.Now,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -395,7 +470,7 @@ func newPublisherFixtureWith(t *testing.T, edits map[string]func(string) string)
 	channels := NewCredentialChannels(broker, CredentialChannelsOptions{ProxyURL: func() string { return "" }, LegatoBin: "/opt/legato"})
 	publisher := NewReviewPublisher(channels, "reviewer-app")
 	publisher.Timeout = time.Second
-	return publisherFixture{brokerFixture: brokerFixture{broker: broker, approvals: approvals, store: db}, publisher: publisher, github: g}
+	return publisherFixture{brokerFixture: brokerFixture{broker: broker, approvals: approvals, store: db}, publisher: publisher, github: g, clock: clock}
 }
 
 func cleanReview() ReviewPost {
@@ -519,11 +594,16 @@ func TestGitHubRefusalsAreReportedNotTakenForSuccess(t *testing.T) {
 			_, err := f.publisher.PostReview(context.Background(), cleanReview())
 
 			var gh *GitHubError
-			if !errors.As(err, &gh) || gh.Status != tc.status || gh.RateLimited != tc.rateLimited || !strings.Contains(err.Error(), tc.want) {
+			var limit *GitHubRateLimit
+			if !strings.Contains(fmt.Sprint(err), tc.want) {
 				t.Fatalf("err = %#v", err)
 			}
-			if tc.rateLimited && gh.RetryAt.IsZero() {
-				t.Fatal("a rate limit says when to try again")
+			if tc.rateLimited {
+				if !errors.As(err, &limit) || limit.Status != tc.status || limit.RetryAt.IsZero() || limit.Installation != "reviewer-app@cpave3" {
+					t.Fatalf("err = %#v; a rate limit says when to try again", err)
+				}
+			} else if !errors.As(err, &gh) || gh.Status != tc.status || errors.As(err, &limit) {
+				t.Fatalf("err = %#v", err)
 			}
 			if f.github.posts != 1 {
 				t.Fatalf("posts = %d; a refusal is not retried", f.github.posts)
@@ -845,8 +925,7 @@ func TestCommentsArePolledPageByPageWithETagsAndThreadsOnlyOnAChange(t *testing.
 	// Rate limited: reported, never taken for "unchanged".
 	f.github.limitLists = true
 	_, err = f.publisher.PollComments(ctx, "cpave3/legato", 12, pages)
-	var gh *GitHubError
-	if !errors.As(err, &gh) || !gh.RateLimited {
+	if !errors.As(err, new(*GitHubRateLimit)) {
 		t.Fatalf("rate limited poll: %v", err)
 	}
 }

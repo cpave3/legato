@@ -126,10 +126,12 @@ func (p *ReviewPublisher) requiredChecks(ctx context.Context, repo, base string)
 	if !ok || found.jwt == nil || found.upstream == nil {
 		return nil, fmt.Errorf("no reviewer GitHub credential named %q", p.reviewer)
 	}
+	if err := p.channels.githubBackingOff(found, repo); err != nil {
+		return nil, err
+	}
 	token, release, err := p.channels.githubToken(ctx, found, repo, opReviewProtection)
 	if err != nil {
-		var gh *GitHubError
-		if errors.As(err, &gh) && gh.RateLimited {
+		if errors.As(err, new(*GitHubRateLimit)) {
 			return nil, err
 		}
 		return nil, nil // the App may not read branch protection
@@ -137,7 +139,7 @@ func (p *ReviewPublisher) requiredChecks(ctx context.Context, repo, base string)
 	if release != nil {
 		defer release()
 	}
-	call := &githubCall{p: p, bc: found, token: token}
+	call := &githubCall{p: p, bc: found, repo: repo, token: token}
 	var protection struct {
 		Contexts []string `json:"contexts"`
 		Checks   []struct {
@@ -146,7 +148,7 @@ func (p *ReviewPublisher) requiredChecks(ctx context.Context, repo, base string)
 	}
 	err = call.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/branches/%s/protection/required_status_checks", repo, url.PathEscape(base)), nil, &protection)
 	var gh *GitHubError
-	if errors.As(err, &gh) && !gh.RateLimited && (gh.Status == http.StatusNotFound || gh.Status == http.StatusForbidden) {
+	if errors.As(err, &gh) && (gh.Status == http.StatusNotFound || gh.Status == http.StatusForbidden) {
 		return nil, nil
 	}
 	if err != nil {

@@ -110,6 +110,9 @@ func (p *ReviewPublisher) PollComments(ctx context.Context, repo string, number 
 
 // conditional is a GET with If-None-Match: its status, ETag and body.
 func (c *githubCall) conditional(ctx context.Context, path, etag string) (int, string, string, error) {
+	if err := c.p.channels.githubBackingOff(c.bc, c.repo); err != nil {
+		return 0, "", "", err
+	}
 	ctx, cancel := context.WithTimeout(ctx, c.p.Timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(c.bc.upstream.String(), "/")+path, nil)
@@ -136,7 +139,7 @@ func (c *githubCall) conditional(ctx context.Context, path, etag string) (int, s
 		return resp.StatusCode, etag, "", nil
 	}
 	if resp.StatusCode >= 300 {
-		return 0, "", "", githubError(resp, data)
+		return 0, "", "", c.refused(resp, data)
 	}
 	return resp.StatusCode, resp.Header.Get("ETag"), string(data), nil
 }
@@ -209,7 +212,7 @@ func (p *ReviewPublisher) threads(ctx context.Context, call *githubCall, repo st
 			} `json:"repository"`
 		}
 		query := `query($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { isResolved isOutdated comments(first: 1) { nodes { fullDatabaseId } } } } } } }`
-		if err := p.channels.githubGraphQL(ctx, call.bc, call.token, query, map[string]any{"owner": owner, "name": name, "number": number, "after": after}, &found); err != nil {
+		if err := call.graphQL(ctx, query, map[string]any{"owner": owner, "name": name, "number": number, "after": after}, &found); err != nil {
 			return nil, err
 		}
 		threads := found.Repository.PullRequest.ReviewThreads

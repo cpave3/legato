@@ -93,19 +93,14 @@ type PostedReview struct {
 	CommentIDs []int64
 }
 
-// GitHubError is GitHub refusing a call.
+// GitHubError is GitHub refusing a call. A rate limit is a
+// *GitHubRateLimit instead.
 type GitHubError struct {
 	Status  int
 	Message string
-	// RateLimited says GitHub limited the call; RetryAt is when to try again.
-	RateLimited bool
-	RetryAt     time.Time
 }
 
 func (e *GitHubError) Error() string {
-	if e.RateLimited {
-		return fmt.Sprintf("GitHub rate limit: %s (try again at %s)", e.Message, e.RetryAt.Format(time.RFC3339))
-	}
 	return fmt.Sprintf("GitHub answered %d: %s", e.Status, e.Message)
 }
 
@@ -135,10 +130,11 @@ func NewReviewPublisher(channels *CredentialChannels, reviewer string) *ReviewPu
 // SetLoginRecorder is told the login each review is posted as.
 func (p *ReviewPublisher) SetLoginRecorder(record func(login string)) { p.learnLogin = record }
 
-// call is one authorized request to GitHub's REST API.
+// call is one authorized request to GitHub's REST API about repo.
 type githubCall struct {
 	p     *ReviewPublisher
 	bc    brokerCredential
+	repo  string
 	token []byte
 }
 
@@ -164,6 +160,9 @@ func (p *ReviewPublisher) open(ctx context.Context, who GitHubIdentity, repo str
 		}
 		bc, operation = found, opAuthorPost
 	}
+	if err := p.channels.githubBackingOff(bc, repo); err != nil {
+		return nil, nil, err
+	}
 	token, release, err := p.channels.githubToken(ctx, bc, repo, operation)
 	if err != nil {
 		return nil, nil, err
@@ -171,7 +170,7 @@ func (p *ReviewPublisher) open(ctx context.Context, who GitHubIdentity, repo str
 	if release == nil {
 		release = func() {}
 	}
-	return &githubCall{p: p, bc: bc, token: token}, release, nil
+	return &githubCall{p: p, bc: bc, repo: repo, token: token}, release, nil
 }
 
 // login is the login the call's posts are made as on GitHub: its App's
@@ -219,8 +218,12 @@ func postedBy(author, login string) bool {
 	return login != "" && strings.EqualFold(author, login)
 }
 
-// do sends one request and decodes a 2xx answer into out.
+// do sends one request and decodes a 2xx answer into out. Nothing is sent
+// while the installation backs off from a rate limit.
 func (c *githubCall) do(ctx context.Context, method, path string, body, out any) error {
+	if err := c.p.channels.githubBackingOff(c.bc, c.repo); err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(ctx, c.p.Timeout)
 	defer cancel()
 	var reader io.Reader
@@ -249,7 +252,7 @@ func (c *githubCall) do(ctx context.Context, method, path string, body, out any)
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if resp.StatusCode >= 300 {
-		return githubError(resp, data)
+		return c.refused(resp, data)
 	}
 	if out != nil && len(data) > 0 {
 		return json.Unmarshal(data, out)
@@ -257,9 +260,21 @@ func (c *githubCall) do(ctx context.Context, method, path string, body, out any)
 	return nil
 }
 
-// githubError reads a refusal: GitHub's message and its errors, and a rate
-// limit's reset.
-func githubError(resp *http.Response, data []byte) error {
+// refused reads a refusal of the call: a *GitHubRateLimit, which the
+// installation then backs off from, or a *GitHubError.
+func (c *githubCall) refused(resp *http.Response, data []byte) error {
+	return c.p.channels.githubLimited(c.bc, c.repo, githubError(resp, data, c.p.channels.broker.now()))
+}
+
+// graphQL runs one GraphQL request as the call's credential and token.
+func (c *githubCall) graphQL(ctx context.Context, query string, vars map[string]any, out any) error {
+	return c.p.channels.githubGraphQL(ctx, c.bc, c.repo, c.token, query, vars, out)
+}
+
+// githubError reads a refusal: a rate limit (*GitHubRateLimit, its
+// installation not yet named), else GitHub's message and its errors
+// (*GitHubError).
+func githubError(resp *http.Response, data []byte, now time.Time) error {
 	var answer struct {
 		Message string `json:"message"`
 		Errors  []any  `json:"errors"`
@@ -279,17 +294,10 @@ func githubError(resp *http.Response, data []byte) error {
 	if message == "" {
 		message = resp.Status
 	}
-	out := &GitHubError{Status: resp.StatusCode, Message: message}
-	if resp.StatusCode == http.StatusTooManyRequests || (resp.StatusCode == http.StatusForbidden && (resp.Header.Get("x-ratelimit-remaining") == "0" || strings.Contains(strings.ToLower(message), "rate limit"))) {
-		out.RateLimited = true
-		out.RetryAt = time.Now().Add(time.Minute)
-		if after, err := strconv.Atoi(resp.Header.Get("retry-after")); err == nil {
-			out.RetryAt = time.Now().Add(time.Duration(after) * time.Second)
-		} else if reset, err := strconv.ParseInt(resp.Header.Get("x-ratelimit-reset"), 10, 64); err == nil {
-			out.RetryAt = time.Unix(reset, 0)
-		}
+	if limit := readRateLimit(resp, message, false, now); limit != nil {
+		return limit
 	}
-	return out
+	return &GitHubError{Status: resp.StatusCode, Message: message}
 }
 
 // reviewMarker is the hidden line that names a review among a pull
@@ -351,7 +359,7 @@ func (p *ReviewPublisher) PostReview(ctx context.Context, post ReviewPost) (Post
 		return posted, nil
 	}
 	var refused *GitHubError
-	if errors.As(err, &refused) && refused.Status < 500 {
+	if errors.As(err, &refused) && refused.Status < 500 || errors.As(err, new(*GitHubRateLimit)) {
 		return PostedReview{}, err // GitHub saw it and said no
 	}
 	// No answer, or a server error: GitHub may have taken it.
@@ -772,7 +780,7 @@ func (p *ReviewPublisher) ResolveThread(ctx context.Context, repo string, number
 			} `json:"repository"`
 		}
 		query := `query($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id comments(first: 1) { nodes { fullDatabaseId } } } } } } }`
-		if err := p.channels.githubGraphQL(ctx, call.bc, call.token, query, map[string]any{"owner": owner, "name": name, "number": number, "after": after}, &found); err != nil {
+		if err := call.graphQL(ctx, query, map[string]any{"owner": owner, "name": name, "number": number, "after": after}, &found); err != nil {
 			return err
 		}
 		threads := found.Repository.PullRequest.ReviewThreads
@@ -789,5 +797,5 @@ func (p *ReviewPublisher) ResolveThread(ctx context.Context, repo string, number
 	if threadID == "" {
 		return fmt.Errorf("no review thread of %s#%d starts with comment %d", repo, number, commentID)
 	}
-	return p.channels.githubGraphQL(ctx, call.bc, call.token, `mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }`, map[string]any{"id": threadID}, nil)
+	return call.graphQL(ctx, `mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }`, map[string]any{"id": threadID}, nil)
 }

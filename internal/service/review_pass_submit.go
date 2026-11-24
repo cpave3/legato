@@ -473,10 +473,10 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 		}
 		posted, err := s.opts.GitHub.PostReview(ctx, post)
 		if err != nil {
-			var gh *GitHubError
-			if errors.As(err, &gh) && gh.RateLimited {
+			if errors.As(err, new(*GitHubRateLimit)) {
 				return err // left submitted: the next Tick tries again
 			}
+			var gh *GitHubError
 			if errors.As(err, &gh) {
 				return s.stuck(ctx, l, loop, fmt.Sprintf("GitHub refused the review of #%d: %v", pr.Number, err))
 			}

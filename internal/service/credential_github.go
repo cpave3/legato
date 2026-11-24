@@ -35,6 +35,9 @@ type knownBranch struct {
 type githubState struct {
 	mu       sync.Mutex
 	branches map[string]knownBranch
+	// limits are the rate limits App installations wait out, by
+	// installation (githubInstallation).
+	limits map[string]GitHubRateLimit
 }
 
 // repoOf reads owner/name from a resource: github:owner/name[@ref].
@@ -152,7 +155,7 @@ func (c *CredentialChannels) SetPullRequestReady(ctx context.Context, _ credenti
 		vars["head"] = branch
 		query = `query($owner: String!, $name: String!, $head: String!) { repository(owner: $owner, name: $name) { pullRequests(headRefName: $head, states: OPEN, first: 1) { nodes { id number isDraft } } } }`
 	}
-	if err := c.githubGraphQL(ctx, bc, token, query, vars, &found); err != nil {
+	if err := c.githubGraphQL(ctx, bc, repo, token, query, vars, &found); err != nil {
 		return 0, err
 	}
 	target := found.Repository.PullRequest
@@ -172,16 +175,21 @@ func (c *CredentialChannels) SetPullRequestReady(ctx context.Context, _ credenti
 	if undo {
 		mutation = `mutation($id: ID!) { convertPullRequestToDraft(input: {pullRequestId: $id}) { pullRequest { number } } }`
 	}
-	if err := c.githubGraphQL(ctx, bc, token, mutation, map[string]any{"id": target.ID}, nil); err != nil {
+	if err := c.githubGraphQL(ctx, bc, repo, token, mutation, map[string]any{"id": target.ID}, nil); err != nil {
 		return 0, err
 	}
 	return target.Number, nil
 }
 
-// githubGraphQL runs one GraphQL request against the credential's API and
-// decodes its data into out. GitHub reports most failures as errors in a
-// 200 response.
-func (c *CredentialChannels) githubGraphQL(ctx context.Context, bc brokerCredential, token []byte, query string, vars map[string]any, out any) error {
+// githubGraphQL runs one GraphQL request about repo against the
+// credential's API and decodes its data into out. GitHub reports most
+// failures as errors in a 200 response. A rate limit is a
+// *GitHubRateLimit, and while the installation backs off nothing is sent;
+// another refusal is a *GitHubError.
+func (c *CredentialChannels) githubGraphQL(ctx context.Context, bc brokerCredential, repo string, token []byte, query string, vars map[string]any, out any) error {
+	if err := c.githubBackingOff(bc, repo); err != nil {
+		return err
+	}
 	body, _ := json.Marshal(map[string]any{"query": query, "variables": vars})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(bc.upstream.String(), "/")+"/graphql", bytes.NewReader(body))
 	if err != nil {
@@ -199,19 +207,35 @@ func (c *CredentialChannels) githubGraphQL(ctx context.Context, bc brokerCredent
 	}
 	defer resp.Body.Close()
 	var answer struct {
-		Data   json.RawMessage `json:"data"`
-		Errors []struct {
+		Data    json.RawMessage `json:"data"`
+		Message string          `json:"message"`
+		Errors  []struct {
+			Type    string `json:"type"`
 			Message string `json:"message"`
 		} `json:"errors"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&answer); err != nil {
+	decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&answer)
+	message, limited := answer.Message, false
+	for _, e := range answer.Errors {
+		limited = limited || e.Type == "RATE_LIMITED"
+	}
+	if len(answer.Errors) > 0 {
+		message = answer.Errors[0].Message
+	}
+	if message == "" {
+		message = resp.Status
+	}
+	if limit := readRateLimit(resp, message, limited, c.broker.now()); limit != nil {
+		return c.githubLimited(bc, repo, limit)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return &GitHubError{Status: resp.StatusCode, Message: message}
+	}
+	if decodeErr != nil {
 		return fmt.Errorf("GitHub answered %s", resp.Status)
 	}
 	if len(answer.Errors) > 0 {
 		return fmt.Errorf("GitHub: %s", answer.Errors[0].Message)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GitHub answered %s", resp.Status)
 	}
 	if out != nil {
 		return json.Unmarshal(answer.Data, out)

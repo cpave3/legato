@@ -80,9 +80,9 @@ func (s *ReviewPassService) readChecks(ctx context.Context, l ReviewLoop, loop *
 	for _, pr := range prs {
 		checks, err := s.opts.GitHub.Checks(ctx, l.Repo, pr.Base, pr.HeadSHA, s.config().RequiredChecks)
 		if err != nil {
-			var gh *GitHubError
-			if errors.As(err, &gh) && gh.RateLimited {
-				loop.ChecksPolledAt = gh.RetryAt.UTC().Add(-interval).Format(time.RFC3339)
+			var limit *GitHubRateLimit
+			if errors.As(err, &limit) {
+				loop.ChecksPolledAt = limit.RetryAt.UTC().Add(-interval).Format(time.RFC3339)
 			} else {
 				log.Printf("review passes: reading the checks of %s#%d: %v", l.Repo, pr.Number, err)
 			}

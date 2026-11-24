@@ -33,7 +33,11 @@ func (p storePollPages) SavePollPage(ctx context.Context, list string, page int,
 // pollComments polls a loop's pull requests for comments when it is
 // due, and turns the counted ones into items: new, edited (a new version
 // to handle again), resolved by a person (handled), outdated (marked) or
-// deleted (dropped, the author told when it had it). Call with s.mu held.
+// deleted (dropped, the author told when it had it). Only a read that
+// succeeded closes an item: a pull request whose poll failed (a 5xx, the
+// network) keeps its items as they are, and a rate limit ends the poll
+// with nothing closed and the next one after the limit. Call with s.mu
+// held.
 func (s *ReviewPassService) pollComments(ctx context.Context, l ReviewLoop) {
 	cfg := s.config()
 	loop, err := s.db.GetHandoffReview(ctx, l.TaskID)
@@ -63,18 +67,20 @@ func (s *ReviewPassService) pollComments(ctx context.Context, l ReviewLoop) {
 		byID[item.ID] = item
 	}
 	seen := map[string]bool{}
+	failed := map[string]bool{} // repo#number of the pull requests not read
 	skipped, fresh := 0, 0
 	var gone []string
 	for _, pr := range prs {
 		poll, err := s.opts.GitHub.PollComments(ctx, pr.Repo, pr.Number, storePollPages{db: s.db, taskID: l.TaskID, pr: pr.Number})
 		if err != nil {
-			var gh *GitHubError
-			if errors.As(err, &gh) && gh.RateLimited {
-				loop.PolledAt = gh.RetryAt.UTC().Add(-interval).Format(time.RFC3339)
+			var limit *GitHubRateLimit
+			if errors.As(err, &limit) {
+				loop.PolledAt = limit.RetryAt.UTC().Add(-interval).Format(time.RFC3339)
 				_ = s.save(ctx, loop)
 				return
 			}
 			log.Printf("review passes: polling %s#%d: %v", pr.Repo, pr.Number, err)
+			failed[fmt.Sprintf("%s#%d", pr.Repo, pr.Number)] = true
 			continue
 		}
 		legato := map[string]bool{}
@@ -123,7 +129,7 @@ func (s *ReviewPassService) pollComments(ctx context.Context, l ReviewLoop) {
 		}
 	}
 	for _, item := range items {
-		if item.Kind == ItemComment && !item.Closed && !seen[item.ID] {
+		if item.Kind == ItemComment && !item.Closed && !seen[item.ID] && !failed[fmt.Sprintf("%s#%d", item.Repo, item.PR)] {
 			item.Closed = true
 			_ = s.db.UpsertHandoffReviewItem(ctx, item)
 			if item.Delivered && item.Answer == "" {

@@ -38,6 +38,11 @@ type FakeReviewGitHub struct {
 	// the polls of them.
 	prComments map[int][]service.PRComment
 	polls      int
+	// pollsOf counts the polls of each repository's pull requests, and
+	// pollErrors makes every poll of a repository fail with its error
+	// (a rate limit, a 5xx) while set.
+	pollsOf    map[string]int
+	pollErrors map[string]error
 	// checks are the counted checks of each head.
 	checks map[string][]service.CheckResult
 	// closed are the pull requests closed, by number; notInstalled the
@@ -255,10 +260,40 @@ func (f *FakeReviewGitHub) Polls() int {
 	return f.polls
 }
 
-func (f *FakeReviewGitHub) PollComments(_ context.Context, _ string, number int, _ service.PollPages) (service.CommentPoll, error) {
+// FailPolls makes every poll of repo's pull requests fail with err (a
+// *service.GitHubRateLimit, a *service.GitHubError with a 5xx), until it is
+// called again with nil.
+func (f *FakeReviewGitHub) FailPolls(repo string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.pollErrors == nil {
+		f.pollErrors = map[string]error{}
+	}
+	if err == nil {
+		delete(f.pollErrors, repo)
+		return
+	}
+	f.pollErrors[repo] = err
+}
+
+// PollsOf counts the polls of repo's pull requests, failed ones included.
+func (f *FakeReviewGitHub) PollsOf(repo string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.pollsOf[repo]
+}
+
+func (f *FakeReviewGitHub) PollComments(_ context.Context, repo string, number int, _ service.PollPages) (service.CommentPoll, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.polls++
+	if f.pollsOf == nil {
+		f.pollsOf = map[string]int{}
+	}
+	f.pollsOf[repo]++
+	if err := f.pollErrors[repo]; err != nil {
+		return service.CommentPoll{}, err
+	}
 	return service.CommentPoll{Changed: true, Comments: append([]service.PRComment(nil), f.prComments[number]...)}, nil
 }
 
