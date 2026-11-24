@@ -486,11 +486,12 @@ func (p *ReviewPublisher) OpenPulls(ctx context.Context, repo string, q PullQuer
 // 100.
 func openPulls(ctx context.Context, call *githubCall, repo string, q PullQuery) ([]ReviewGitHubPR, error) {
 	var pulls []struct {
-		Number  int    `json:"number"`
-		Title   string `json:"title"`
-		Body    string `json:"body"`
-		HTMLURL string `json:"html_url"`
-		User    struct {
+		Number      int    `json:"number"`
+		Title       string `json:"title"`
+		Body        string `json:"body"`
+		HTMLURL     string `json:"html_url"`
+		Association string `json:"author_association"`
+		User        struct {
 			Login string `json:"login"`
 		} `json:"user"`
 		Head struct {
@@ -522,7 +523,7 @@ func openPulls(ctx context.Context, call *githubCall, repo string, q PullQuery) 
 			headRepo = pr.Head.Repo.FullName
 		}
 		out = append(out, ReviewGitHubPR{Number: pr.Number, Branch: pr.Head.Ref, Base: pr.Base.Ref, Title: pr.Title, Body: pr.Body,
-			URL: pr.HTMLURL, HeadSHA: pr.Head.SHA, Author: pr.User.Login, HeadRepo: headRepo})
+			URL: pr.HTMLURL, HeadSHA: pr.Head.SHA, Author: pr.User.Login, AuthorAssociation: pr.Association, HeadRepo: headRepo})
 	}
 	return out, nil
 }

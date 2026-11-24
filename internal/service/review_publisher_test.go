@@ -989,7 +989,7 @@ func TestRequiredChecksAreReadFromTheBaseBranchsProtection(t *testing.T) {
 
 func githubPull(number int, head, base, author string) map[string]any {
 	return map[string]any{"number": number, "title": fmt.Sprintf("PR %d", number), "html_url": fmt.Sprintf("https://github.com/cpave3/legato/pull/%d", number),
-		"user": map[string]any{"login": author},
+		"user": map[string]any{"login": author}, "author_association": "NONE",
 		"head": map[string]any{"ref": head, "sha": fmt.Sprintf("sha%d", number), "repo": map[string]any{"full_name": "cpave3/legato"}},
 		"base": map[string]any{"ref": base}}
 }
@@ -1035,5 +1035,44 @@ func TestAPullRequestsHeadIsReadFromGitHubAsTheReviewerApp(t *testing.T) {
 	if len(f.github.headReads) != 1 || f.github.headReads[0]["checks"] != "read" || f.github.headReads[0]["pull_requests"] != "read" ||
 		f.github.headReads[0]["contents"] != "read" {
 		t.Fatalf("read with %v", f.github.headReads)
+	}
+}
+
+// An author App's pull request reads NONE (LEG-604), and REST names the
+// App "<slug>[bot]": both are read as GitHub gives them.
+func TestAPullRequestsAuthorAndItsAssociationAreReadFromGitHub(t *testing.T) {
+	f := newPublisherFixture(t)
+	pr, _, err := f.publisher.PullRequest(context.Background(), "cpave3/legato", 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pr.Author != "legato-author[bot]" || pr.AuthorAssociation != "NONE" {
+		t.Fatalf("author %q, association %q", pr.Author, pr.AuthorAssociation)
+	}
+	f.github.pulls = []map[string]any{githubPull(137, "s1", "main", "legato-author[bot]")}
+	f.github.pulls[0]["author_association"] = "CONTRIBUTOR"
+	pulls, err := f.publisher.OpenPulls(context.Background(), "cpave3/legato", PullQuery{Base: "main"})
+	if err != nil || len(pulls) != 1 || pulls[0].AuthorAssociation != "CONTRIBUTOR" {
+		t.Fatalf("pulls %+v, %v", pulls, err)
+	}
+}
+
+func TestAPolledCommentCarriesWhenGitHubSaysItWasMade(t *testing.T) {
+	f := newPublisherFixture(t)
+	f.github.lists = map[string][]string{
+		"/repos/cpave3/legato/pulls/12/reviews":   {`[{"id":1,"user":{"login":"bob","type":"User"},"author_association":"OWNER","body":"Split this.","state":"COMMENTED","submitted_at":"2026-11-24T09:00:00Z"}]`},
+		"/repos/cpave3/legato/pulls/12/comments":  {`[{"id":501,"user":{"login":"amy","type":"User"},"author_association":"MEMBER","body":"Nil check.","path":"a.go","line":4,"created_at":"2026-11-24T10:30:00Z"}]`},
+		"/repos/cpave3/legato/issues/12/comments": {`[]`},
+	}
+	poll, err := f.publisher.PollComments(context.Background(), "cpave3/legato", 12, memoryPollPages{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := map[int64]time.Time{}
+	for _, c := range poll.Comments {
+		at[c.ID] = c.CreatedAt
+	}
+	if !at[1].Equal(time.Date(2026, 11, 24, 9, 0, 0, 0, time.UTC)) || !at[501].Equal(time.Date(2026, 11, 24, 10, 30, 0, 0, time.UTC)) {
+		t.Fatalf("times %v", at)
 	}
 }

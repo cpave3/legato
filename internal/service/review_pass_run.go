@@ -700,8 +700,13 @@ func (c *ReviewRunCaller) agentDone(ctx context.Context, l ReviewLoop, pushed bo
 }
 
 // disputed reads the pull request's threads, and takes a reply in the thread
-// of an open blocking finding, by anyone but Legato, as the author's answer
-// to it.
+// of an open blocking finding as its author's answer to it (a dispute, which
+// the next pass rules on). Only a reply that may dispute counts (D7, X2):
+// from the pull request's author, an OWNER, MEMBER or COLLABORATOR, or a
+// counted bot, never Legato's own, and made after the pass that raised the
+// finding or raised it again: after Legato's last comment in the thread
+// (the finding, or its "still open" ruling), and not before that pass
+// started by GitHub's clock.
 func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *reviewRun, open []ReviewGitHubPR) bool {
 	loop, err := c.engine.db.GetHandoffReview(ctx, l.TaskID)
 	if err != nil || loop == nil {
@@ -721,17 +726,33 @@ func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *revie
 		return false
 	}
 	var poll CommentPoll
+	authors := map[int]string{}
 	for _, pr := range open {
 		got, err := c.engine.opts.GitHub.PollComments(ctx, run.Repo, pr.Number, storePollPages{db: c.engine.db, taskID: l.TaskID, pr: pr.Number})
 		if err != nil {
 			return false
 		}
 		poll.Comments = append(poll.Comments, got.Comments...)
+		authors[pr.Number] = pr.Author
 	}
 	legato := map[string]bool{}
 	for _, comment := range poll.Comments {
 		if comment.Kind == "review" && strings.Contains(comment.Body, "<!-- legato-review-pass ") {
 			legato[strings.ToLower(comment.Author)] = true
+		}
+	}
+	isLegato := func(comment PRComment) bool {
+		return legato[strings.ToLower(comment.Author)] || strings.Contains(comment.Body, "<!-- legato-")
+	}
+	// The newest of Legato's comments in each thread: a reply before it
+	// came before the finding was last raised.
+	raised := map[int64]int64{}
+	for root := range threads {
+		raised[root] = root
+	}
+	for _, comment := range poll.Comments {
+		if _, ok := threads[comment.ThreadRoot]; ok && comment.Kind == "inline" && isLegato(comment) && comment.ID > raised[comment.ThreadRoot] {
+			raised[comment.ThreadRoot] = comment.ID
 		}
 	}
 	seen := map[int64]bool{}
@@ -741,7 +762,10 @@ func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *revie
 	answered := false
 	for _, comment := range poll.Comments {
 		item, ok := threads[comment.ThreadRoot]
-		if comment.Kind != "inline" || !ok || comment.ID == comment.ThreadRoot || seen[comment.ID] || legato[strings.ToLower(comment.Author)] {
+		if comment.Kind != "inline" || !ok || comment.ID == comment.ThreadRoot || seen[comment.ID] || isLegato(comment) {
+			continue
+		}
+		if !c.mayDispute(comment, authors[item.PR]) || comment.ID <= raised[comment.ThreadRoot] || c.beforePass(ctx, l.TaskID, item.Pass, comment) {
 			continue
 		}
 		note := strings.TrimSpace(comment.Body)
@@ -762,6 +786,31 @@ func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *revie
 		_ = c.engine.db.SetTaskMetadata(ctx, l.TaskID, reviewRunKey, run)
 	}
 	return answered
+}
+
+// mayDispute says whether a comment's author may dispute a finding on a
+// pull request whose author is prAuthor: that author (whatever its
+// association), a repository insider, or a counted bot. A stranger's reply
+// is no dispute, so an outsider cannot force passes or put text in front
+// of the reviewer.
+func (c *ReviewRunCaller) mayDispute(comment PRComment, prAuthor string) bool {
+	return sameLogin(comment.Author, prAuthor) || insideRepository(comment.Association) || c.engine.countedBot(comment.Author)
+}
+
+// beforePass says whether GitHub dates a comment before the pass that
+// raised its finding started: the guard when the ruling that raised it
+// again is not in the thread (its post failed). Unknown either way is not
+// before.
+func (c *ReviewRunCaller) beforePass(ctx context.Context, taskID string, pass int, comment PRComment) bool {
+	if comment.CreatedAt.IsZero() {
+		return false
+	}
+	p, err := c.engine.db.GetHandoffReviewPass(ctx, taskID, pass)
+	if err != nil || p == nil {
+		return false
+	}
+	started, err := time.Parse(time.RFC3339, p.StartedAt)
+	return err == nil && comment.CreatedAt.Before(started)
 }
 
 // Pushed says whether a pull request's head on GitHub moved past the head

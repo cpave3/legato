@@ -12,8 +12,26 @@ import (
 )
 
 // countedAssociations are the authors whose comments count as feedback,
-// with the bots of review_passes.counted_bots.
+// with the bots of review_passes.counted_bots. They are the repository's
+// insiders: every other association (CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR,
+// FIRST_TIMER, NONE, or none read) is outside (spec LEG-559 X2).
 var countedAssociations = map[string]bool{"OWNER": true, "MEMBER": true, "COLLABORATOR": true}
+
+// insideRepository says whether an author association is the
+// repository's own: OWNER, MEMBER or COLLABORATOR.
+func insideRepository(association string) bool {
+	return countedAssociations[strings.ToUpper(strings.TrimSpace(association))]
+}
+
+// sameLogin says whether two GitHub logins name one account. REST names an
+// App "<slug>[bot]" and GraphQL "<slug>" (LEG-604), and logins ignore case.
+func sameLogin(a, b string) bool {
+	trim := func(s string) string {
+		s = strings.ToLower(strings.TrimSpace(s))
+		return strings.TrimSuffix(s, "[bot]")
+	}
+	return a != "" && b != "" && trim(a) == trim(b)
+}
 
 // storePollPages keeps a pull request's polled pages in the store.
 type storePollPages struct {
@@ -176,7 +194,7 @@ func (s *ReviewPassService) pollTargets(ctx context.Context, l ReviewLoop, loop 
 
 func (s *ReviewPassService) countedBot(login string) bool {
 	for _, bot := range s.config().CountedBots {
-		if strings.EqualFold(bot, login) {
+		if sameLogin(bot, login) {
 			return true
 		}
 	}

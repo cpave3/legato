@@ -495,7 +495,11 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 		if pr.ReviewID != 0 || pr.Event == ReviewKept {
 			continue // posted before a retry
 		}
-		layers = append(layers, s.layerPost(l, loop, pass, settings, pr, previous, all, items))
+		layer, err := s.layerPost(ctx, l, loop, pass, settings, pr, previous, all, items)
+		if err != nil {
+			return err // left submitted: the next Tick tries again
+		}
+		layers = append(layers, layer)
 	}
 	// The first try starts the clock. A pass tried before may be on
 	// GitHub, whatever the try's answer was.
@@ -622,19 +626,31 @@ type layerPost struct {
 // layerPost is a pull request's review of a pass: APPROVE when the pass
 // leaves it clean, else COMMENT, with its findings and the rulings that
 // have no thread; kept when its approval stands.
-func (s *ReviewPassService) layerPost(l ReviewLoop, loop *store.HandoffReview, pass *store.HandoffReviewPass, settings ReviewPassSettings,
-	pr store.HandoffReviewPR, previous map[int]store.HandoffReviewPR, all []store.HandoffReviewFinding, items []store.HandoffReviewItem) layerPost {
-	event := ReviewComment
-	if prClean(pass.Pass, pr.Number, all, items, l.CountChecks) {
+func (s *ReviewPassService) layerPost(ctx context.Context, l ReviewLoop, loop *store.HandoffReview, pass *store.HandoffReviewPass, settings ReviewPassSettings,
+	pr store.HandoffReviewPR, previous map[int]store.HandoffReviewPR, all []store.HandoffReviewFinding, items []store.HandoffReviewItem) (layerPost, error) {
+	event, summary := ReviewComment, pass.Summary
+	clean := prClean(pass.Pass, pr.Number, all, items, l.CountChecks)
+	if clean {
+		outside, err := s.outsideAuthor(ctx, l, pr)
+		if err != nil {
+			return layerPost{}, err
+		}
+		if outside {
+			// An injection the reviewer obeyed must not buy an
+			// outsider an approval (X2): say it is clean, and comment.
+			clean, summary = false, ReviewOutsideAuthor+"\n\n"+pass.Summary
+		}
+	}
+	if clean {
 		event = ReviewApprove
 		// An approval that stands: the head has not moved and the pass
 		// says nothing new of it. No second approval.
 		if before, ok := previous[pr.Number]; ok && (before.Event == ReviewApprove || before.Event == ReviewKept) && before.HeadSHA == pr.HeadSHA &&
 			!saysAnything(pass.Pass, pr.Number, all) {
-			return layerPost{pr: pr, kept: true}
+			return layerPost{pr: pr, kept: true}, nil
 		}
 	}
-	layer := layerPost{pr: pr, post: ReviewPost{Repo: pr.Repo, Number: pr.Number, CommitID: pr.HeadSHA, Event: event, Summary: pass.Summary,
+	layer := layerPost{pr: pr, post: ReviewPost{Repo: pr.Repo, Number: pr.Number, CommitID: pr.HeadSHA, Event: event, Summary: summary,
 		Footer: reviewFooter(settings, pass.Pass), Marker: passReviewMarker(*pass, pr.Number)}}
 	for _, f := range all {
 		switch {
@@ -649,7 +665,7 @@ func (s *ReviewPassService) layerPost(l ReviewLoop, loop *store.HandoffReview, p
 			layer.post.Rulings = append(layer.post.Rulings, rulingLine(f, pass.Pass))
 		}
 	}
-	return layer
+	return layer, nil
 }
 
 // posted records a layer's review, posted or found by its marker: its ID,
@@ -717,6 +733,28 @@ func (s *ReviewPassService) postFailed(ctx context.Context, l ReviewLoop, loop *
 	log.Printf("review passes: %s: pass %d not confirmed on GitHub after %d tries: %v", l.TaskID, pass.Pass, pass.PostAttempts, err)
 	return s.stuck(ctx, l, loop, fmt.Sprintf("GitHub did not confirm pass %d's review of %s after %d tries over %s (%v). Another pass looks for it on GitHub and posts only what is not there",
 		pass.Pass, strings.Join(prs, ", "), pass.PostAttempts, since.Round(time.Minute), err))
+}
+
+// ReviewOutsideAuthor opens the COMMENT a clean pass posts in place of an
+// APPROVE on a person-authored loop's pull request whose author is outside
+// the repository.
+const ReviewOutsideAuthor = "clean; not approved: the author is outside the repository"
+
+// outsideAuthor says whether a pull request of a person-authored loop
+// (agent_author false) was opened by someone outside the repository: any
+// author association but OWNER, MEMBER or COLLABORATOR, read from GitHub
+// now. An agent-authored loop's pull request is the author App's, whose
+// association reads NONE (LEG-604), and is never outside. An error is
+// GitHub not answering: nothing is posted until it does.
+func (s *ReviewPassService) outsideAuthor(ctx context.Context, l ReviewLoop, pr store.HandoffReviewPR) (bool, error) {
+	if l.AuthorTaskID != "" {
+		return false, nil
+	}
+	now, _, err := s.opts.GitHub.PullRequest(ctx, pr.Repo, pr.Number)
+	if err != nil {
+		return false, fmt.Errorf("reading the author of #%d: %w", pr.Number, err)
+	}
+	return !insideRepository(now.AuthorAssociation), nil
 }
 
 // ReviewKept is a pull request's review in a pass that posted nothing on it:

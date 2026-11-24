@@ -194,7 +194,22 @@ func NewFakeReviewGitHub() *FakeReviewGitHub {
 func (f *FakeReviewGitHub) OpenPR(number int, branch, head string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.prs[branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: "main", Title: fmt.Sprintf("PR %d", number), HeadSHA: head, Author: "legato-author[bot]"}
+	f.prs[branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: "main", Title: fmt.Sprintf("PR %d", number), HeadSHA: head, Author: "legato-author[bot]",
+		AuthorAssociation: "OWNER"}
+}
+
+// SetAuthor makes login, with its association to the repository (OWNER,
+// MEMBER, COLLABORATOR, CONTRIBUTOR, NONE...), an open pull request's
+// author, as GitHub's REST reads name it.
+func (f *FakeReviewGitHub) SetAuthor(number int, login, association string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for branch, pr := range f.prs {
+		if pr.Number == number {
+			pr.Author, pr.AuthorAssociation = login, association
+			f.prs[branch] = pr
+		}
+	}
 }
 
 // Describe gives an open pull request a title and a body, as its author
@@ -215,7 +230,8 @@ func (f *FakeReviewGitHub) Describe(number int, title, body string) {
 func (f *FakeReviewGitHub) OpenStackedPR(number int, branch, base, head string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.prs[branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: base, Title: fmt.Sprintf("PR %d", number), HeadSHA: head, Author: "legato-author[bot]"}
+	f.prs[branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: base, Title: fmt.Sprintf("PR %d", number), HeadSHA: head, Author: "legato-author[bot]",
+		AuthorAssociation: "OWNER"}
 }
 
 func (f *FakeReviewGitHub) OpenPulls(_ context.Context, _ string, q service.PullQuery) ([]service.ReviewGitHubPR, error) {
@@ -726,5 +742,5 @@ func (f *FakeReviewGitHub) OpenForkPR(number int, branch, head, headRepo string)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.prs[headRepo+":"+branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: "main", Title: fmt.Sprintf("PR %d", number), HeadSHA: head,
-		Author: "someone", HeadRepo: headRepo}
+		Author: "someone", AuthorAssociation: "NONE", HeadRepo: headRepo}
 }

@@ -79,6 +79,7 @@ func TestAPushThatSettlesStartsTheNextPassOnWhatChanged(t *testing.T) {
 func TestAReplyInABlockingFindingsThreadStartsAPassWithNoPush(t *testing.T) {
 	r, view := afterPassOne(t, ReviewPassOptions{})
 	task := view.Run.TaskID
+	r.worker.ReviewGitHub.SetAuthor(12, "octocat", "CONTRIBUTOR") // the branch's owner
 	findings, _ := r.worker.Store.ListHandoffReviewFindings(context.Background(), task)
 	root := findings[0].CommentID
 	r.worker.ReviewGitHub.SetComments(12,

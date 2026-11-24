@@ -37,7 +37,9 @@ func (p *ReviewPublisher) PullRequest(ctx context.Context, repo string, number i
 		Title   string `json:"title"`
 		Body    string `json:"body"`
 		HTMLURL string `json:"html_url"`
-		User    struct {
+		// Association is the author's with the repository.
+		Association string `json:"author_association"`
+		User        struct {
 			Login string `json:"login"`
 		} `json:"user"`
 		Head struct {
@@ -63,7 +65,7 @@ func (p *ReviewPublisher) PullRequest(ctx context.Context, repo string, number i
 		headRepo = pr.Head.Repo.FullName
 	}
 	return ReviewGitHubPR{Number: pr.Number, Branch: pr.Head.Ref, Base: pr.Base.Ref, Title: pr.Title, Body: pr.Body, URL: pr.HTMLURL,
-		HeadSHA: pr.Head.SHA, Author: pr.User.Login, HeadRepo: headRepo}, state, nil
+		HeadSHA: pr.Head.SHA, Author: pr.User.Login, AuthorAssociation: pr.Association, HeadRepo: headRepo}, state, nil
 }
 
 // ReviewRunRepositories are a run's review clones: the repository cache's job

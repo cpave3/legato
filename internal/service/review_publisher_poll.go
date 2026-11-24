@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // PRComment is one comment on a pull request: a review's body, an inline
@@ -27,6 +28,9 @@ type PRComment struct {
 	State       string // a review's state
 	Outdated    bool   // an inline comment whose lines changed since
 	Resolved    bool   // an inline comment whose thread a person resolved
+	// CreatedAt is when GitHub says the comment was made (a review's:
+	// submitted); zero when it does not say.
+	CreatedAt time.Time
 }
 
 // CommentPoll is what one poll of a pull request found.
@@ -155,6 +159,8 @@ func appendComments(out *[]PRComment, kind, body string) (int, error) {
 		State       string `json:"state"`
 		Path        string `json:"path"`
 		Line        *int   `json:"line"`
+		CreatedAt   string `json:"created_at"`
+		SubmittedAt string `json:"submitted_at"`
 		User        struct {
 			Login string `json:"login"`
 			Type  string `json:"type"`
@@ -166,6 +172,13 @@ func appendComments(out *[]PRComment, kind, body string) (int, error) {
 	for _, r := range rows {
 		c := PRComment{Kind: kind, ID: r.ID, Author: r.User.Login, Bot: r.User.Type == "Bot", Association: r.Association,
 			Body: r.Body, URL: r.HTMLURL, Path: r.Path, State: r.State}
+		at := r.CreatedAt
+		if at == "" {
+			at = r.SubmittedAt // a review's
+		}
+		if t, err := time.Parse(time.RFC3339, at); err == nil {
+			c.CreatedAt = t
+		}
 		if kind == "inline" {
 			c.ThreadRoot = r.ID
 			if r.InReplyTo != 0 {
