@@ -49,6 +49,14 @@ type TmuxManager interface {
 }
 
 // AgentSession represents a running or completed agent session.
+// RunCard is a board card a workflow run is for: its ID, the key a person
+// knows it by (its ticket's, else its ID) and its title.
+type RunCard struct {
+	TaskID string `json:"task_id"`
+	Key    string `json:"key"`
+	Title  string `json:"title"`
+}
+
 type AgentSession struct {
 	ID                int
 	TaskID            string // backing task used for session controls
@@ -59,6 +67,10 @@ type AgentSession struct {
 	// WorkflowAttemptID is the step attempt that started it, with
 	// WorkflowRunID.
 	WorkflowAttemptID string
+	// RunCard is the card a workflow run is for when this agent works on
+	// the run's own task (a step's agent, the run's reviewer), nil
+	// otherwise: the run's task is named after the run, not the card.
+	RunCard *RunCard
 	// Engram is the engram the agent runs as, "" for none.
 	Engram        string
 	Title         string
@@ -183,6 +195,9 @@ type DurationData struct {
 // to inject role tags, scope-based conflict checks, a role system prompt, and
 // the per-worker initial brief that the launch command delivers.
 type AgentSpawnOptions struct {
+	// Label names this agent in lists in place of its task's title (an
+	// agent.run step's with.name); kept on its execution.
+	Label        string
 	Role         string   // free-form role label (e.g. "conductor", "backend"); "" for non-swarm
 	ParentTaskID string   // parent task ID when spawning a swarm sub-task
 	SubtaskID    string   // sub-task ID being assigned
@@ -1191,7 +1206,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		WorkflowRunID: opt.WorkflowRunID, WorkflowAttemptID: opt.WorkflowAttemptID,
 		SwarmID: opt.SwarmID, SwarmSubtaskID: opt.SubtaskID,
 		AgentKind: agentKind, Role: opt.Role, WorkingDir: workDir, StartedAt: time.Now().UTC(),
-		SubagentTelemetry: reportsSubagents(adapter),
+		SubagentTelemetry: reportsSubagents(adapter), Label: strings.TrimSpace(opt.Label),
 	}
 	if err := a.store.CreateExecution(ctx, execution); err != nil {
 		return fmt.Errorf("creating execution: %w", err)
@@ -2004,6 +2019,9 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 				group = *task.Group
 			}
 		}
+		if s.ExecutionLabel != "" {
+			title = s.ExecutionLabel // an agent.run step's name for its agent
+		}
 
 		parentID := ""
 		if s.ParentTaskID != nil {
@@ -2056,6 +2074,9 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			StageReason:       s.WorkStageReason,
 			StageSource:       s.WorkStageSource,
 			StageSince:        parseStageTime(s.WorkStageSince),
+		}
+		if s.RunCardTaskID != "" {
+			result[i].RunCard = &RunCard{TaskID: s.RunCardTaskID, Key: s.RunCardKey, Title: s.RunCardTitle}
 		}
 		if s.Status == "running" {
 			result[i].BackgroundJobs = s.BackgroundJobs

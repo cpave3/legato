@@ -67,10 +67,13 @@ type AgentResponse struct {
 	AttributionTaskID string `json:"attribution_task_id"`
 	ExecutionKind     string `json:"execution_kind,omitempty"`
 	WorkflowRunID     string `json:"workflow_run_id,omitempty"`
-	Title             string `json:"task_title"`
-	TmuxSession       string `json:"tmux_session"`
-	Command           string `json:"command"`
-	AgentKind         string `json:"agent_kind"`
+	// RunCard is the card a workflow run is for, on an agent that works on
+	// the run's own task (a step's agent, the run's reviewer).
+	RunCard     *service.RunCard `json:"run_card,omitempty"`
+	Title       string           `json:"task_title"`
+	TmuxSession string           `json:"tmux_session"`
+	Command     string           `json:"command"`
+	AgentKind   string           `json:"agent_kind"`
 	// Engram is the engram the agent runs as; absent for none.
 	Engram string `json:"engram,omitempty"`
 	// Group is the group the agent's task is in; absent for none.
@@ -160,7 +163,7 @@ func agentResponse(agent service.AgentSession) AgentResponse {
 	return AgentResponse{
 		ID: agent.ID, TaskID: agent.TaskID, ExecutionID: agent.ExecutionID,
 		AttributionTaskID: agent.AttributionTaskID, ExecutionKind: agent.ExecutionKind,
-		WorkflowRunID: agent.WorkflowRunID, Title: agent.Title, TmuxSession: agent.TmuxSession,
+		WorkflowRunID: agent.WorkflowRunID, RunCard: agent.RunCard, Title: agent.Title, TmuxSession: agent.TmuxSession,
 		Command: agent.Command, AgentKind: agent.AgentKind, Engram: agent.Engram, Group: agent.Group, Status: agent.Status,
 		Activity: agent.Activity, OpenItems: agent.OpenItems, Role: agent.Role, ParentTaskID: agent.ParentTaskID,
 		SubtaskID: agent.SubtaskID, StartedAt: agent.StartedAt, EndedAt: agent.EndedAt,

@@ -49,6 +49,9 @@ type WorkflowRun struct {
 	TaskID           string `db:"task_id" json:"task_id,omitempty"`
 	RelatedTaskID    string `db:"related_task_id" json:"related_task_id,omitempty"`
 	RelatedTaskTitle string `db:"related_task_title" json:"related_task_title,omitempty"`
+	// RelatedTaskKey is the key a person knows the related task by: its
+	// ticket's, else its ID. The service fills it (WorkflowService.ListRuns).
+	RelatedTaskKey string `db:"-" json:"related_task_key,omitempty"`
 	TriggerRequestID string `db:"trigger_request_id" json:"trigger_request_id,omitempty"`
 	// ParentRunID and ParentStepPath name the workflow.run step that
 	// started this run as its child (LEG-489); empty for any other run.

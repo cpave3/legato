@@ -419,6 +419,9 @@ function AgentEntry({
             : time && <span className="ml-auto shrink-0 text-xs text-lw-text-2">{time}</span>}
         </div>
         {agent.task_title && <span className="truncate">{agent.task_title}</span>}
+        {agent.run_card && (
+          <span title={agent.run_card.title} className="truncate text-[11px] text-lw-text-2">for {agent.run_card.key}</span>
+        )}
         {/* Under Finished the group names the stage: a row gives only why. */}
         {finished ? <FinishedReason agent={agent} unread={unread} /> : <StageLine agent={agent} />}
         <NeedsYouLine agent={agent} />

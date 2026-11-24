@@ -1175,7 +1175,7 @@
           }
         },
         "name": {
-          "description": "The agent's name, shown beside it",
+          "description": "The agent's name in lists of agents. It does not rename the run or its task",
           "type": "string",
           "x-legato": {
             "context": "with",

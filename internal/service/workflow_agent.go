@@ -44,16 +44,9 @@ func (r *WorkflowAgentRunner) SpawnWorkflowAgent(ctx context.Context, taskID, na
 	if r.binaryPath != "" {
 		opts.ExtraEnv["LEGATO_WORKFLOW_BINARY"] = r.binaryPath
 	}
-	if name != "" {
-		task, err := r.store.GetTask(ctx, taskID)
-		if err != nil {
-			return nil, err
-		}
-		task.Title = name
-		if err := r.store.UpdateTask(ctx, *task); err != nil {
-			return nil, err
-		}
-	}
+	// The name is the agent's, not the run's task's: the run keeps its
+	// run_title, and a run's later agents keep their own names.
+	opts.Label = name
 	if err := r.agents.SpawnAgent(ctx, taskID, 0, 0, opts); err != nil {
 		return nil, err
 	}

@@ -281,7 +281,7 @@ var catalog = []ExecutorSpec{
 		Description: "Start an agent of the workflow on a prompt or a macro, and wait for it to complete the step with the outputs the step declares.",
 		With: []Field{
 			promptField.at(1, true), macroField.at(2, true), agentField.at(5, false), tierField.at(6, false),
-			{Name: "name", Kind: KindString, Label: "Agent's name", Description: "The agent's name, shown beside it", Order: 7},
+			{Name: "name", Kind: KindString, Label: "Agent's name", Description: "The agent's name in lists of agents. It does not rename the run or its task", Order: 7},
 			{Name: "working_dir", Kind: KindPath, Label: "Works in", Description: "Directory the agent works in", Essential: true, Order: 3},
 			{Name: "repo", Kind: KindRepository, Label: "Or a clone of", Description: "GitHub repository (owner/name) the agent works in a fresh clone of; with macro, also the pull request's repository", Essential: true, Order: 4},
 			{Name: "ref", Kind: KindString, Label: "Clone starts from", Description: "With repo: the branch, tag or commit the clone starts from", Order: 8},

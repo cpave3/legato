@@ -364,6 +364,9 @@ type Execution struct {
 	Role              string `db:"role"`
 	WorkingDir        string `db:"working_dir"`
 	ProviderSessionID string `db:"provider_session_id"`
+	// Label is the execution's own name (an agent.run step's with.name),
+	// "" for the task's title.
+	Label string `db:"label"`
 	// SubagentTelemetry is whether the agent tool reports its sub-agents to
 	// Legato (subagent_activity), so the execution's totals cover its whole
 	// agent tree. See docs/ai/database.md § Sub-agent time.
@@ -407,6 +410,14 @@ type AgentSession struct {
 	// WorkflowAttemptID is the workflow step attempt that started its
 	// execution, "" for none.
 	WorkflowAttemptID string `db:"workflow_attempt_id"`
+	// ExecutionLabel is its execution's own name, "" for none.
+	ExecutionLabel string `db:"execution_label"`
+	// RunCard* are the card a workflow run is for when the session's task
+	// is that run's own (its step's agent, its reviewer): ID, key (its
+	// ticket's, else its ID) and title; "" otherwise.
+	RunCardTaskID string `db:"run_card_task_id"`
+	RunCardKey    string `db:"run_card_key"`
+	RunCardTitle  string `db:"run_card_title"`
 	// Engram is the engram its execution runs as, "" for none.
 	Engram string `db:"engram"`
 	// WorkingDir is the directory its execution was started in, "" for a
