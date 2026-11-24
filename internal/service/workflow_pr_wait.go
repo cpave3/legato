@@ -212,11 +212,13 @@ func (s *WorkflowService) CheckPRWaits(ctx context.Context) error {
 }
 
 // PRWaitChangedKind marks the EventWorkflowChanged of a waiting pull
-// request whose state changed what its needs-you item says.
+// request whose state changed what its needs-you item says, or ended its
+// wait (merged or closed), so Attention drops the item.
 const PRWaitChangedKind = "pr_wait"
 
 // checkPRWaits is CheckPRWaits, and the runs whose waiting pull request
-// changed what their needs-you item says.
+// changed what their needs-you item says or whose wait ended: neither
+// CompleteWaiting nor FailWaiting publishes anything itself.
 func (s *WorkflowService) checkPRWaits(ctx context.Context) ([]string, error) {
 	executor, ok := s.executors[PRWaitStepType].(*PRWaitExecutor)
 	if !ok {
@@ -255,6 +257,7 @@ func (s *WorkflowService) checkPRWaits(ctx context.Context) ([]string, error) {
 				if err == nil || errors.As(err, &recorded) {
 					executor.forget(attempt.ID)
 					s.stopResumedAgent(ctx, attempt)
+					changed = append(changed, attempt.RunID)
 				}
 				errs = append(errs, err)
 				continue
@@ -273,6 +276,7 @@ func (s *WorkflowService) checkPRWaits(ctx context.Context) ([]string, error) {
 		if failErr == nil {
 			executor.forget(attempt.ID)
 			s.stopResumedAgent(ctx, attempt)
+			changed = append(changed, attempt.RunID)
 		}
 	}
 	return changed, errors.Join(errs...)

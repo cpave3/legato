@@ -552,3 +552,55 @@ func TestAMacroOnAGoneFolderWithNoRepositoryDoesNotStart(t *testing.T) {
 		t.Fatal("the folder was made")
 	}
 }
+
+// The item goes by itself when the PR merges or closes: the loop announces
+// the run's end, and Attention reconciles on that alone, with nothing else
+// happening on the instance (review of LEG-614).
+func TestAnIdleInstanceClearsTheItemWhenThePRMergesOrCloses(t *testing.T) {
+	for _, end := range []string{PRStateMerged, PRStateClosed} {
+		t.Run(end, func(t *testing.T) {
+			f := newMergeWait(t, "")
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			bus := events.New()
+			attention := NewAttentionService(f.db, bus)
+			adapter := NewWorkflowAttentionAdapter(f.workflows)
+			if err := attention.RegisterProducerWithEvents(adapter, WorkflowAttentionEvents...); err != nil {
+				t.Fatal(err)
+			}
+			defer attention.StartEventReconciliation(ctx)()
+			if err := attention.Reconcile(ctx, "workflows"); err != nil {
+				t.Fatal(err)
+			}
+			open := func() int {
+				items, err := attention.List(ctx, AttentionFilter{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				n := 0
+				for _, item := range items {
+					if item.SignalKind == AttentionSignalWorkflowMergeWaiting && item.Status == "open" {
+						n++
+					}
+				}
+				return n
+			}
+			if open() != 1 {
+				t.Fatal("no item while the PR is open")
+			}
+			stop := f.workflows.StartPRWaitLoop(ctx, bus, time.Hour)
+			defer stop()
+			ended := openPR()
+			ended.State = end
+			f.states.set(ended)
+			bus.Publish(events.Event{Type: events.EventPRStatusUpdated, At: time.Now()})
+			deadline := time.Now().Add(5 * time.Second)
+			for open() != 0 {
+				if time.Now().After(deadline) {
+					t.Fatalf("the item is still open after the PR %s", end)
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+		})
+	}
+}
