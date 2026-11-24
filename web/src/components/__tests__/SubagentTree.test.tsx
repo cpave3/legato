@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import type { BackgroundJob } from "../../hooks/useWebSocket"
 import { SubagentsLine } from "../SubagentTree"
+import { fleetShell, subagentFleet } from "../../test/subagentFleet"
 
 const job = (id: string, label: string, values: Partial<BackgroundJob> = {}): BackgroundJob =>
   ({ kind: "subagent", id, label, started_at: "2026-11-23T04:30:00Z", ...values })
@@ -18,7 +19,7 @@ describe("SubagentsLine", () => {
   it("says how many sub-agents work, and opens their tree", () => {
     render(<SubagentsLine jobs={jobs} />)
 
-    const line = screen.getByRole("button", { name: /2 sub-agents working/ })
+    const line = screen.getByRole("button", { name: "3 sub-agents · 1 working · 1 needs you · 1 waiting" })
     expect(screen.queryByRole("tree")).toBeNull()
 
     fireEvent.click(line)
@@ -41,8 +42,26 @@ describe("SubagentsLine", () => {
   it("draws a sub-agent whose parent is not listed at the top", () => {
     render(<SubagentsLine jobs={[job("a2", "general-purpose: Implement D1", { parent: "gone", state: "working" })]} />)
 
-    fireEvent.click(screen.getByRole("button", { name: /1 sub-agent working/ }))
+    fireEvent.click(screen.getByRole("button", { name: "1 sub-agent · working" }))
 
     expect(screen.getByRole("treeitem").getAttribute("aria-level")).toBe("1")
+  })
+
+  it("shows sub-agents that wait on shells, with their shells under them", () => {
+    render(<SubagentsLine jobs={[...subagentFleet(), fleetShell("own", undefined, "npm run dev")]} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "7 sub-agents · 1 working · 6 waiting on shells" }))
+
+    const items = within(screen.getByRole("tree", { name: "Sub-agents" })).getAllByRole("treeitem")
+    const at = items.findIndex((item) => item.textContent?.startsWith("LEG-564 typed rate limits"))
+    expect(items.slice(at, at + 4).map((item) => [item.getAttribute("aria-level"), item.textContent])).toEqual([
+      ["1", "LEG-564 typed rate limitswaiting on 3 shells"],
+      ["2", "$go test ./internal/service -run LEG-564-1"],
+      ["2", "$go test ./internal/service -run LEG-564-2"],
+      ["2", "$go test ./internal/service -run LEG-564-3"],
+    ])
+    // Every subagent and each of their shells; the agent's own shell is not in the tree.
+    expect(items).toHaveLength(7 + 10)
+    expect(items.some((item) => item.textContent?.includes("npm run dev"))).toBe(false)
   })
 })

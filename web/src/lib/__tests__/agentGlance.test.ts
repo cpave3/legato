@@ -8,8 +8,12 @@ import {
   glanceItems,
   orderForEnsemble,
   plainText,
+  subagentTree,
+  subagentWaitsOn,
+  subagentsLabel,
   type ConversationEntry,
 } from "../agentGlance"
+import { fleetShell, fleetSubagent, subagentFleet } from "../../test/subagentFleet"
 
 const tool = (text: string, values: Partial<ConversationEntry> = {}): ConversationEntry =>
   ({ kind: "tool", tool: "bash", text, state: "done", ...values })
@@ -159,9 +163,66 @@ describe("backgroundSummary", () => {
   it("counts subagents at any depth by what they do", () => {
     const sub = (id: string, state: string, parent?: string) => ({ ...job("subagent", id), state, parent })
     expect(backgroundSummary([sub("a1", "background"), sub("a2", "working", "a1"), sub("a3", "working", "a1"), job("bash", "npm run build")]))
-      .toBe("2 sub-agents working · 1 job")
-    expect(backgroundSummary([sub("a1", "working"), sub("a2", "waiting", "a1")])).toBe("2 sub-agents working")
+      .toBe("3 sub-agents · 2 working · 1 waiting · 1 job")
+    expect(backgroundSummary([sub("a1", "working"), sub("a2", "waiting", "a1")])).toBe("2 sub-agents · 1 working · 1 needs you")
+    // The shell is a2's, not the agent's own job.
     expect(backgroundSummary([sub("a1", "background"), sub("a2", "background", "a1"), { ...job("bash", "sleep 25"), parent: "a2" }]))
-      .toBe("2 sub-agents waiting · 1 job")
+      .toBe("2 sub-agents · 2 waiting")
+  })
+
+  it("does not count the subagents' shells as the agent's own jobs", () => {
+    expect(backgroundSummary(subagentFleet())).toBe("7 sub-agents · 1 working · 6 waiting on shells")
+    expect(backgroundSummary([...subagentFleet(), fleetShell("own", undefined, "npm run dev")]))
+      .toBe("7 sub-agents · 1 working · 6 waiting on shells · 1 job")
+  })
+})
+
+describe("subagentsLabel", () => {
+  it("gives the total, then how many work and how many wait on shells", () => {
+    expect(subagentsLabel(subagentFleet())).toBe("7 sub-agents · 1 working · 6 waiting on shells")
+  })
+
+  it("counts subagents that wait on shells when none works", () => {
+    const fleet = subagentFleet().map((job) => job.id === "a1" ? { ...job, state: "background" } : job)
+    // a1 waits on nothing listed: it is finishing, so not every waiting one waits on shells.
+    expect(subagentsLabel(fleet)).toBe("7 sub-agents · 7 waiting")
+    expect(subagentsLabel(fleet.filter((job) => job.id !== "a1"))).toBe("6 sub-agents · 6 waiting on shells")
+  })
+
+  it("says how many need the operator", () => {
+    const fleet = subagentFleet().map((job) => job.id === "a2" ? { ...job, state: "waiting" } : job)
+    expect(subagentsLabel(fleet)).toBe("7 sub-agents · 1 working · 1 needs you · 5 waiting on shells")
+  })
+
+  it("says what one subagent does", () => {
+    expect(subagentsLabel([fleetSubagent("a1", "LEG-1", "working")])).toBe("1 sub-agent · working")
+    expect(subagentsLabel([fleetSubagent("a1", "LEG-1", "background"), fleetShell("s1", "a1"), fleetShell("s2", "a1")]))
+      .toBe("1 sub-agent · waiting on 2 shells")
+  })
+
+  it("is empty without subagents", () => {
+    expect(subagentsLabel(undefined)).toBe("")
+    expect(subagentsLabel([fleetShell("s1", undefined)])).toBe("")
+  })
+})
+
+describe("subagentTree", () => {
+  it("gives each subagent the shells it started", () => {
+    const node = subagentTree(subagentFleet()).find((each) => each.job.id === "a4")!
+    expect(node.shells.map((shell) => shell.id)).toEqual(["a4-sh1", "a4-sh2", "a4-sh3"])
+    expect(subagentWaitsOn(node)).toBe("waiting on 3 shells")
+  })
+
+  it("names shells, subagents and other jobs apart", () => {
+    const jobs = [
+      fleetSubagent("a1", "LEG-1", "background"),
+      fleetShell("s1", "a1"),
+      fleetSubagent("a2", "LEG-2", "working", { parent: "a1" }),
+      { ...fleetShell("m1", "a1", "watch the deploy"), kind: "monitor" },
+      fleetSubagent("a3", "LEG-3", "background"),
+    ]
+    const [a1, , a3] = subagentTree(jobs)
+    expect(subagentWaitsOn(a1)).toBe("waiting on 1 shell · 1 sub-agent · 1 job")
+    expect(subagentWaitsOn(a3)).toBe("finishing")
   })
 })

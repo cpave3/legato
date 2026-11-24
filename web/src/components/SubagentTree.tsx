@@ -1,18 +1,19 @@
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { ChevronDown } from "lucide-react"
 import type { BackgroundJob } from "../hooks/useWebSocket"
-import { subagentTree, subagentsLabel, type SubagentNode } from "../lib/agentGlance"
+import { subagentCounts, subagentTree, subagentWaitsOn, subagentsLabel, type SubagentNode } from "../lib/agentGlance"
 import { cn } from "../lib/utils"
 import { Dropdown } from "./ui/Dropdown"
 
-// SubagentsLine is one line on an agent's row, tile or header: how many of
-// the subagents it runs in the background (at any depth) are working. A
-// click opens their tree. Nothing is drawn without subagents.
+// SubagentsLine is one line on an agent's row, tile or header: how many
+// subagents it runs in the background (at any depth), how many of them work
+// and how many wait on shells they started. A click opens their tree.
+// Nothing is drawn without subagents.
 export function SubagentsLine({ jobs, className }: { jobs: BackgroundJob[] | undefined; className?: string }) {
   const [open, setOpen] = useState(false)
   const nodes = subagentTree(jobs)
   if (nodes.length === 0) return null
-  const working = nodes.filter((node) => node.job.state !== "background").length
+  const working = subagentCounts(nodes).working
   const label = subagentsLabel(jobs)
   return (
     <Dropdown
@@ -43,26 +44,42 @@ export function SubagentsLine({ jobs, className }: { jobs: BackgroundJob[] | und
 }
 
 // SubagentTree draws subagents indented under the one that started each,
-// with what each does.
+// with what each does, and under each the shells it started. The agent's own
+// shells are not drawn: they are not a subagent's.
 export function SubagentTree({ nodes }: { nodes: SubagentNode[] }) {
   return (
     <ul role="tree" aria-label="Sub-agents" className="max-h-72 overflow-y-auto px-2 py-1 text-xs">
       {nodes.map((node) => {
         const state = stateOf(node)
         return (
-          <li
-            key={node.job.id}
-            role="treeitem"
-            aria-level={node.depth}
-            aria-selected={false}
-            title={node.job.label}
-            className="flex min-w-0 items-center gap-2 py-1"
-            style={{ paddingLeft: `${(node.depth - 1) * 14}px` }}
-          >
-            <span aria-hidden className={cn("h-1.5 w-1.5 shrink-0 rounded-full", state.dot)} />
-            <span className="min-w-0 flex-1 truncate text-lw-text">{description(node.job.label)}</span>
-            <span className={cn("shrink-0", state.text)}>{state.label}</span>
-          </li>
+          <Fragment key={node.job.id}>
+            <li
+              role="treeitem"
+              aria-level={node.depth}
+              aria-selected={false}
+              title={node.job.label}
+              className="flex min-w-0 items-center gap-2 py-1"
+              style={{ paddingLeft: `${(node.depth - 1) * 14}px` }}
+            >
+              <span aria-hidden className={cn("h-1.5 w-1.5 shrink-0 rounded-full", state.dot)} />
+              <span className="min-w-0 flex-1 truncate text-lw-text">{description(node.job.label)}</span>
+              <span className={cn("shrink-0", state.text)}>{state.label}</span>
+            </li>
+            {node.shells.map((shell) => (
+              <li
+                key={shell.id}
+                role="treeitem"
+                aria-level={node.depth + 1}
+                aria-selected={false}
+                title={shell.label}
+                className="flex min-w-0 items-center gap-2 py-0.5 text-lw-text-2"
+                style={{ paddingLeft: `${node.depth * 14}px` }}
+              >
+                <span aria-hidden className="shrink-0 font-lw-mono text-lw-faint">$</span>
+                <span className="min-w-0 flex-1 truncate font-lw-mono">{shell.label}</span>
+              </li>
+            ))}
+          </Fragment>
         )
       })}
     </ul>
@@ -73,10 +90,8 @@ function stateOf(node: SubagentNode): { label: string; dot: string; text: string
   switch (node.job.state) {
     case "waiting":
       return { label: "needs you", dot: "bg-lw-needs", text: "text-lw-needs" }
-    case "background": {
-      const on = [node.subagents && count(node.subagents, "sub-agent"), node.jobs && count(node.jobs, "job")].filter(Boolean).join(" · ")
-      return { label: on ? `waiting on ${on}` : "finishing", dot: "border border-lw-live", text: "text-lw-text-2" }
-    }
+    case "background":
+      return { label: subagentWaitsOn(node), dot: "border border-lw-live", text: "text-lw-text-2" }
     default:
       return { label: "working", dot: "bg-lw-live", text: "text-lw-live" }
   }
@@ -87,8 +102,4 @@ function stateOf(node: SubagentNode): { label: string; dot: string; text: string
 function description(label: string): string {
   const match = /^[\w.-]+: (.+)$/.exec(label)
   return match ? match[1] : label
-}
-
-function count(n: number, noun: string): string {
-  return n === 1 ? `1 ${noun}` : `${n} ${noun}s`
 }

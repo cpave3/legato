@@ -7,6 +7,7 @@
 // an agent keeps its place while others come and go, and a change of state
 // moves nothing.
 import type { AgentInfo, BackgroundJob } from "../hooks/useWebSocket"
+import { subagentTree, subagentWaitsOn } from "./agentGlance"
 
 // AgentGraphData is GET /api/agents/graph: what the agent list does not say.
 export interface AgentGraphData {
@@ -145,6 +146,8 @@ export interface GraphNode {
   job?: BackgroundJob
   // A sub-agent's state: working, waiting, background.
   state?: string
+  // What a sub-agent in the background waits on: "waiting on 3 shells".
+  waitsOn?: string
   // A fold's count of the sub-agents it hides.
   hidden?: number
   badges?: AgentBadge[]
@@ -810,7 +813,11 @@ function count(tree: SubTree): number {
 function subNode(agent: AgentInfo, tree: SubTree, box: string, x: number, y: number, depth: number): GraphNode {
   const width = Math.min(sizes.sub.width, AGENT_X + sizes.agent.width - x)
   if (tree.fold !== undefined) return { id: tree.id, kind: "fold", agentId: agent.task_id, box, x, y, width, height: sizes.sub.height, depth, hidden: tree.fold }
-  return { id: tree.id, kind: "subagent", agentId: agent.task_id, box, x, y, width, height: sizes.sub.height, depth, job: tree.job, state: tree.job?.state }
+  const waiting = tree.job?.state === "background" ? subagentTree(agent.background_jobs).find((each) => each.job.id === tree.job?.id) : undefined
+  return {
+    id: tree.id, kind: "subagent", agentId: agent.task_id, box, x, y, width, height: sizes.sub.height, depth, job: tree.job, state: tree.job?.state,
+    ...(waiting ? { waitsOn: subagentWaitsOn(waiting) } : {}),
+  }
 }
 
 function pairKey(a: string, b: string): string {

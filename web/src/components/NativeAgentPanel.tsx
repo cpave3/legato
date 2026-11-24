@@ -42,7 +42,7 @@ import { nativeToolName } from "../lib/agentKind"
 import { compactAgent, compactCommand, compactionNotice, nextCompaction, type Compaction } from "../lib/compaction"
 import { mcpToolName, toolDisplayName } from "../lib/mcpToolName"
 import { legatoEventSummary, parseLegatoMessage } from "../lib/legatoMessage"
-import { plainText } from "../lib/agentGlance"
+import { plainText, subagentTree, type SubagentNode } from "../lib/agentGlance"
 import { modelSettingsResponse, type ModelCapabilities, type ModelSettings, type ModelSettingsState } from "../lib/modelSettings"
 import {
   createNativeSyncState,
@@ -60,8 +60,8 @@ import {
 } from "../lib/nativeAgentSync"
 import { LoadingState } from "./ui/LoadingState"
 import { TileDeck } from "./TileDeck"
-import { SubagentLink } from "./SubagentParts"
-import { saveSubagentView, savedSubagentView, subagentTiles, type SubagentView } from "../lib/subagentTiles"
+import { SubagentLink, SubagentShells } from "./SubagentParts"
+import { saveSubagentView, savedSubagentView, subagentLive, subagentTiles, type SubagentView } from "../lib/subagentTiles"
 import { shellTileForCall, shellTiles } from "../lib/shellTiles"
 import { fromStored, mergeShells, type StoredBackgroundShell } from "../lib/backgroundShells"
 import type { BackgroundJob } from "../hooks/useWebSocket"
@@ -300,7 +300,8 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const { items, busy, error, contextUsage, model } = syncState
   const blocks = useMemo(() => conversationBlocks(items), [items])
   const shells = useMemo(() => mergeShells(syncState.backgroundShells, fromStored(backgroundShells)), [syncState.backgroundShells, backgroundShells])
-  const tiles = useMemo(() => [...subagentTiles(items), ...shellTiles(shells)], [items, shells])
+  const tiles = useMemo(() => [...subagentTiles(items, backgroundJobs), ...shellTiles(shells)], [items, shells, backgroundJobs])
+  const subagentNodes = useMemo(() => subagentTree(backgroundJobs), [backgroundJobs])
   const deckTitle = shells.length > 0 ? "Sub-agents and shells" : "Sub-agents"
   const [subagentView, setSubagentView] = useState<SubagentView>(savedSubagentView)
   const [focusedTile, setFocusedTile] = useState<string | null>(null)
@@ -1231,7 +1232,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
               return <SubagentLink key={item.key} tile={tile} highlighted={highlightedTile === tile.id} onOpen={() => setFocusedTile(tile.id)} onHighlight={setHighlightedTile} />
             }
 
-            return <SubagentCard key={item.key} tool={item.tool} />
+            return <SubagentCard key={item.key} tool={item.tool} nodes={subagentNodes} />
           }
           if (item.role === "bang" && item.bang) {
             const b = item.bang
@@ -1451,7 +1452,10 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   )
 }
 
-const SubagentCard = memo(function SubagentCard({ tool }: { tool: ToolCallItem }) {
+// SubagentCard is a subagent's call in the conversation. While Legato lists
+// the subagent among the agent's background jobs it is live, whatever the
+// conversation says: waiting on its shells once its own turn has ended.
+const SubagentCard = memo(function SubagentCard({ tool, nodes }: { tool: ToolCallItem; nodes: SubagentNode[] }) {
   const [expanded, setExpanded] = useState(true)
   const args = tool.args || {}
   const result = tool.result || {}
@@ -1461,7 +1465,7 @@ const SubagentCard = memo(function SubagentCard({ tool }: { tool: ToolCallItem }
   const agent = String(args.agent || "default")
   const model = String(args.model || "inherited")
   const mode = String(args.mode || "default")
-  const status = subagentStatus(tool)
+  const { status, label, node } = subagentLive(tool, nodes)
   const steps = result.steps as number | undefined
   const toolCalls = result.tool_calls_count as number | undefined
 
@@ -1470,7 +1474,7 @@ const SubagentCard = memo(function SubagentCard({ tool }: { tool: ToolCallItem }
       <button className="flex w-full items-center gap-2 px-3 py-2 text-left" onClick={() => setExpanded(!expanded)}>
         <span className="rounded bg-[var(--theme-selection,color-mix(in_oklab,var(--color-indigo-600)_70%,transparent))] px-1.5 py-0.5 font-mono text-xs text-[var(--theme-text,white)]">subagent</span>
         <span className="truncate text-sm font-medium text-indigo-100">{purpose}</span>
-        <span className={`ml-auto text-xs ${status === "error" ? "text-red-400" : status === "finished" ? "text-green-400" : "text-indigo-300"}`}>{status}</span>
+        <span className={`ml-auto text-xs ${status === "error" ? "text-red-400" : status === "finished" ? "text-green-400" : "text-indigo-300"}`}>{label}</span>
         <span className="text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
       </button>
       {expanded && (
@@ -1491,6 +1495,7 @@ const SubagentCard = memo(function SubagentCard({ tool }: { tool: ToolCallItem }
               {status === "spawning" || status === "running" ? "Waiting for activity…" : "No live activity captured"}
             </div>
           )}
+          {node && node.shells.length > 0 && <SubagentShells shells={node.shells} />}
           {(steps !== undefined || toolCalls !== undefined) && (
             <div className="mt-2 text-[11px] text-zinc-500">
               {steps !== undefined && `${steps} step${steps === 1 ? "" : "s"}`}

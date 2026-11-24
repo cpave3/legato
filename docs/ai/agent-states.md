@@ -356,7 +356,10 @@ caller's work, and its parent is known only once it has ended.
 
 The agent's `activity` stays the main loop's own: `background` until the last
 job at any depth ends (the glance counts it as Working). Summaries count the
-subagents by what they do: `2 sub-agents working · 1 job`.
+subagents by what they do. The TUI's: `2 sub-agents working · 1 job`. The web
+UI's give the total and each group, a subagent in `background` counted as
+waiting, not working: `7 sub-agents · 1 working · 6 waiting on shells · 1 job`
+(see [Web UI](web-ui.md)).
 
 Codex reports no subagents. Chimera's mod reports a session's own
 `agent.spawn`, but nothing from inside a subagent, so a Chimera subagent's own

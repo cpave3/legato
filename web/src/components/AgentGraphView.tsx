@@ -23,6 +23,7 @@ import { RunGraphPanel } from "./agent-graph/RunGraphPanel"
 import { StatePill, StepBar } from "./WorkflowRunStatus"
 import { linkStyles } from "./agent-graph/linkStyles"
 import { agentLook, subagentLook } from "./agent-graph/look"
+import { subagentsLabel } from "../lib/agentGlance"
 import { StageMenu } from "./StageMenu"
 import { LoadingState } from "./ui/LoadingState"
 import { coalesce, isRunChange } from "../lib/querySync"
@@ -294,7 +295,7 @@ function SelectionCard({ node, layout, agents, phone, onOpen, onSend, onClose, o
   const time = formatAgentTime(stateSeconds(agent))
   const sub = node.kind === "subagent" ? node : null
   const subLook = sub ? subagentLook(sub.state) : null
-  const subagents = (agent.background_jobs ?? []).filter((job) => job.kind === "subagent").length
+  const subagents = subagentsLabel(agent.background_jobs)
   const lines = linkLines(agent.task_id, layout.edges, agents)
   const send = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return
@@ -320,7 +321,7 @@ function SelectionCard({ node, layout, agents, phone, onOpen, onSend, onClose, o
       <span className="text-[15px] font-semibold leading-5">{agent.task_title || agent.task_id}</span>
       <span className="text-xs text-lw-text-2">{[stageLabel(agent.stage), agent.stage_reason, agentToolLabel(agent.agent_kind, agent.engram)].filter(Boolean).join(" · ")}</span>
       {sub && subLook && (
-        <span className="rounded-md bg-lw-raised px-2 py-1 text-xs"><span className={subLook.text}>{subLook.glyph} {subLook.label}</span> · sub-agent {sub.job?.label}</span>
+        <span className="rounded-md bg-lw-raised px-2 py-1 text-xs"><span className={subLook.text}>{subLook.glyph} {sub.waitsOn ?? subLook.label}</span> · sub-agent {sub.job?.label}</span>
       )}
       {(node.badges?.length ?? 0) > 0 && (
         <span className="flex flex-wrap gap-1">
@@ -328,9 +329,9 @@ function SelectionCard({ node, layout, agents, phone, onOpen, onSend, onClose, o
         </span>
       )}
       {node.workflows?.map((workflow) => <WorkflowSection key={workflow.run.id} workflow={workflow} onShowRun={onShowRun} />)}
-      {(lines.length > 0 || subagents > 0) && (
+      {(lines.length > 0 || subagents) && (
         <ul aria-label="Links of this agent" className="m-0 flex list-none flex-col gap-0.5 p-0 text-xs text-lw-text-2">
-          {subagents > 0 && <li>{subagents} {subagents === 1 ? "sub-agent" : "sub-agents"} running</li>}
+          {subagents && <li>{subagents}</li>}
           {lines.map((line) => <li key={line}>{line}</li>)}
         </ul>
       )}

@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import type { BackgroundJob } from "../../hooks/useWebSocket"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import subagentFixture from "../../../../contracts/chimera-subagents.json"
 import recoveryFixture from "../../../../contracts/chimera-recovery/fixture.json"
@@ -2496,6 +2497,35 @@ describe("NativeAgentPanel sub-agent tiles", () => {
     expect(card.textContent).toContain("Depth limit exceeded")
     fireEvent.click(within(view.container).getByRole("button", { name: /^Tiles/ }))
     expect(within(view.container).getByRole("button", { name: /error.*Check.*Depth limit exceeded/ })).not.toBeNull()
+  })
+
+  it("keeps a sub-agent whose turn ended live while Legato lists it waiting on shells", async () => {
+    const finished = {
+      ...subagentSnapshot,
+      toolCalls: [{ ...subagentSnapshot.toolCalls[0], subagent: { ...subagentSnapshot.toolCalls[0].subagent, status: "finished", reason: "stop", endedAt: Date.now() } }],
+    }
+    const jobs: BackgroundJob[] = [
+      { kind: "subagent", id: "agent-7", label: "Explore: Find the loader", state: "background", started_at: "2026-11-24T10:00:00Z" },
+      { kind: "bash", id: "s1", label: "go test ./internal/service", parent: "agent-7", started_at: "2026-11-24T10:01:00Z" },
+      { kind: "bash", id: "s2", label: "go test ./config", parent: "agent-7", started_at: "2026-11-24T10:02:00Z" },
+    ]
+    serve(finished)
+    const view = render(<NativeAgentPanel agentId="agent-1" backgroundJobs={jobs} />)
+
+    const card = await within(view.container).findByTestId("subagent-card-call-1")
+    expect(within(card).getByText("waiting on 2 shells")).not.toBeNull()
+    expect(within(within(card).getByRole("list", { name: "Shells" })).getAllByRole("listitem").map((item) => item.textContent))
+      .toEqual(["$go test ./internal/service", "$go test ./config"])
+
+    fireEvent.click(within(view.container).getByRole("button", { name: /^Tiles/ }))
+    const running = within(within(view.container).getByRole("region", { name: "Sub-agents" })).getByRole("list", { name: "Running" })
+    expect(within(running).getByRole("article", { name: "Find the loader, waiting on 2 shells" })).not.toBeNull()
+
+    // Once its shells end Legato stops listing it, and it is done.
+    view.rerender(<NativeAgentPanel agentId="agent-1" backgroundJobs={[]} />)
+    expect(within(view.container).queryByRole("list", { name: "Running" })).toBeNull()
+    fireEvent.click(within(view.container).getByRole("button", { name: /^Inline/ }))
+    expect(within(view.container).getByTestId("subagent-card-call-1").textContent).toContain("finished")
   })
 
   it("offers the switch only once the session has sub-agents", async () => {

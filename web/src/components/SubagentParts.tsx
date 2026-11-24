@@ -1,3 +1,4 @@
+import type { BackgroundJob } from "../hooks/useWebSocket"
 import { toolDisplayName } from "../lib/mcpToolName"
 import type { NativeSubagentState } from "../lib/nativeAgentSync"
 import { cn } from "../lib/utils"
@@ -32,6 +33,21 @@ export function SubagentActivity({ subagent }: { subagent?: NativeSubagentState 
   )
 }
 
+// SubagentShells lists the shells a subagent started that still run, which
+// it waits on once its own turn has ended.
+export function SubagentShells({ shells }: { shells: BackgroundJob[] }) {
+  return (
+    <ul aria-label="Shells" className="m-0 mt-1.5 flex list-none flex-col gap-0.5 border-t border-lw-line p-0 pt-1.5 text-xs text-lw-text-2">
+      {shells.map((shell) => (
+        <li key={shell.id} title={`Started ${new Date(shell.started_at).toLocaleTimeString()}`} className="flex min-w-0 items-baseline gap-1.5">
+          <span aria-hidden="true" className="font-lw-mono text-[11px] text-lw-faint">$</span>
+          <span className="min-w-0 truncate font-lw-mono text-[11.5px]">{shell.label}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 // SubagentLink stands in the conversation for a subagent shown as a tile:
 // it names it and opens its tile. A background shell's call has one too.
 export function SubagentLink({ tile, highlighted, onOpen, onHighlight, kind = "subagent" }: {
@@ -41,7 +57,7 @@ export function SubagentLink({ tile, highlighted, onOpen, onHighlight, kind = "s
   onOpen: () => void
   onHighlight: (id: string | null) => void
 }) {
-  const tone = tile.state === "running" ? "bg-lw-live" : tile.state === "done" ? "bg-lw-done" : tile.state === "error" ? "bg-lw-error"
+  const tone = tile.state === "running" ? "bg-lw-live" : tile.state === "background" ? "border border-lw-live" : tile.state === "done" ? "bg-lw-done" : tile.state === "error" ? "bg-lw-error"
     : tile.state === "killed" || tile.state === "interrupted" ? "bg-lw-text-2" : "bg-lw-needs"
   return (
     <button

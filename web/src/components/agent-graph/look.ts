@@ -28,14 +28,15 @@ export function agentLook(agent: AgentInfo, reeve: ReeveName = reeveName()): Loo
   }
 }
 
-// subagentLook is a sub-agent's: working, waiting on the operator, or in
-// the background (its turn ended and work it started still runs).
+// subagentLook is a sub-agent's: working, waiting on the operator, or
+// waiting on work of its own (its turn ended and work it started, such as a
+// shell, still runs).
 export function subagentLook(state: string | undefined): Look {
   switch (state) {
     case "waiting":
       return { label: "needs you", glyph: "◆", border: "border-lw-needs", text: "text-lw-needs" }
     case "background":
-      return { label: "background", glyph: "◌", border: "border-dashed border-lw-live", text: "text-lw-live" }
+      return { label: "waiting", glyph: "◌", border: "border-dashed border-lw-live", text: "text-lw-text-2" }
     default:
       return { label: "working", glyph: "●", border: "border-lw-live", text: "text-lw-live" }
   }
