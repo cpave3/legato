@@ -515,6 +515,20 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 			return "", nil
 		}
 	}
+	if strings.HasSuffix(name, "_review_loop_conversion.sql") {
+		// A legacy database built in part may lack what the conversion
+		// reads: the record's new columns are still added, and nothing is
+		// converted.
+		var tables int
+		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('tasks', 'handoffs', 'handoff_reviews',
+			'handoff_review_passes', 'handoff_review_prs', 'handoff_review_findings', 'handoff_review_items', 'handoff_review_poll_pages',
+			'workflow_runs', 'workflow_steps')`); err != nil {
+			return "", err
+		}
+		if tables != 10 {
+			migrationSQL, _, _ = strings.Cut(migrationSQL, "-- The conversion.")
+		}
+	}
 	if name == "135_workflow_steps.sql" {
 		// A legacy database built in part may have no workflow tables to
 		// move.

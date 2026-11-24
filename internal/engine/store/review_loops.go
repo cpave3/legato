@@ -104,6 +104,9 @@ type ReviewLoop struct {
 	// The handoff binding: the handoff and its card's columns (JSON).
 	HandoffID      string `db:"handoff_id"`
 	HandoffColumns string `db:"handoff_columns"`
+	// MainInstanceID is the main instance of the handoff (handoff IDs are
+	// unique per main).
+	MainInstanceID string `db:"main_instance_id"`
 	// HostTask holds the reviewer slot and the clone: the workflow run's
 	// task, or the handoff's card.
 	HostTask string `db:"host_task"`
@@ -119,7 +122,9 @@ type ReviewLoop struct {
 	Phase       string `db:"phase"`
 	Outcome     string `db:"outcome"`
 	Reason      string `db:"reason"`
-	// The settings.
+	// The settings. PassesOff is a handoff whose main turned its review
+	// passes off.
+	PassesOff     bool   `db:"passes_off"`
 	MaxPasses     int    `db:"max_passes"`
 	MaxReentries  int    `db:"max_reentries"`
 	Ready         bool   `db:"ready"`
@@ -199,12 +204,16 @@ type ReviewLoopPR struct {
 	ReviewID   int64  `db:"review_id"`
 	ReviewURL  string `db:"review_url"`
 	ClaimedAt  string `db:"claimed_at"`
+	// LocalBranch is the branch of the reviewer's clone the layer is put
+	// on, when it is not Branch.
+	LocalBranch string `db:"local_branch"`
 }
 
 // ReviewLoopPin is one pull request of a pass, pinned at its head, and the
 // review the pass posted on it.
 type ReviewLoopPin struct {
 	Number      int    `json:"number"`
+	Repo        string `json:"repo,omitempty"`
 	Branch      string `json:"branch,omitempty"`
 	Base        string `json:"base,omitempty"`
 	Title       string `json:"title,omitempty"`
@@ -267,8 +276,11 @@ type ReviewLoopPass struct {
 	SubmissionDigest string         `db:"submission_digest"`
 	PostingStartedAt string         `db:"posting_started_at"`
 	Attempts         int            `db:"attempts"`
-	StartedAt        string         `db:"started_at"`
-	EndedAt          string         `db:"ended_at"`
+	// Attempt is how many times the pass's number was pinned before: a pass
+	// discarded because a head moved is pinned again under its number.
+	Attempt   int    `db:"attempt"`
+	StartedAt string `db:"started_at"`
+	EndedAt   string `db:"ended_at"`
 }
 
 // ReviewLoopFinding is one finding of a pass, with a later pass's ruling.
@@ -602,7 +614,7 @@ func (t *ReviewLoopTx) SavePR(pr ReviewLoopPR) error {
 	result, err := t.tx.NamedExecContext(t.ctx, `UPDATE review_loop_prs SET branch = :branch, base = :base, title = :title, url = :url,
 		head_repo = :head_repo, state = :state, draft = :draft, mergeable = :mergeable, author = :author,
 		author_association = :author_association, author_task = :author_task, pinned_head = :pinned_head,
-		clean_head = :clean_head, review_id = :review_id, review_url = :review_url
+		clean_head = :clean_head, review_id = :review_id, review_url = :review_url, local_branch = :local_branch
 		WHERE loop_id = :loop_id AND number = :number`, pr)
 	if err != nil {
 		return err
@@ -643,7 +655,7 @@ func (t *ReviewLoopTx) SavePass(p ReviewLoopPass) error {
 	result, err := t.tx.NamedExecContext(t.ctx, `UPDATE review_loop_passes SET pass_window = :pass_window, step_path = :step_path,
 		state = :state, verdict = :verdict, summary = :summary, reason = :reason, execution_id = :execution_id,
 		checkout = :checkout, head_sha = :head_sha, pins = :pins, submission_digest = :submission_digest,
-		posting_started_at = :posting_started_at, attempts = :attempts, ended_at = :ended_at
+		posting_started_at = :posting_started_at, attempts = :attempts, attempt = :attempt, ended_at = :ended_at
 		WHERE loop_id = :loop_id AND pass = :pass`, p)
 	if err != nil {
 		return err
@@ -860,18 +872,18 @@ func (s *Store) CloseReviewLoop(ctx context.Context, id, outcome, at string) (*R
 	return l, true, err
 }
 
-const reviewLoopColumns = `id, rev, owner_kind, run_id, step_path, attempt_id, handoff_id, handoff_columns, host_task, repo,
+const reviewLoopColumns = `id, rev, owner_kind, run_id, step_path, attempt_id, handoff_id, handoff_columns, main_instance_id, host_task, repo,
 	subject_pr, scope, agent_author, author_task, linked_task, state, phase, outcome, reason,
-	max_passes, max_reentries, ready, steward, reviewer, reviewer_model, reviewer_tier, skill, skill_managed,
+	passes_off, max_passes, max_reentries, ready, steward, reviewer, reviewer_model, reviewer_tier, skill, skill_managed,
 	pass, window_start, reentries, passes_since_approval, pass_deaths, not_converging, mismatches, delivered_pass,
 	last_wake, last_wake_at, held, idle_deadline, confirmed_at, clean_pass, confirm_clean,
 	nudged_at, author_busy_since_nudge, seen_head, seen_at, replies,
 	polled_at, last_new_at, skipped_comments, checks_polled_at, checks_heads, checks_pending,
 	marker_key, clone_id, clone_dir, queued_at, created_at, updated_at, closed_at`
 
-const reviewLoopValues = `:id, :rev, :owner_kind, :run_id, :step_path, :attempt_id, :handoff_id, :handoff_columns, :host_task, :repo,
+const reviewLoopValues = `:id, :rev, :owner_kind, :run_id, :step_path, :attempt_id, :handoff_id, :handoff_columns, :main_instance_id, :host_task, :repo,
 	:subject_pr, :scope, :agent_author, :author_task, :linked_task, :state, :phase, :outcome, :reason,
-	:max_passes, :max_reentries, :ready, :steward, :reviewer, :reviewer_model, :reviewer_tier, :skill, :skill_managed,
+	:passes_off, :max_passes, :max_reentries, :ready, :steward, :reviewer, :reviewer_model, :reviewer_tier, :skill, :skill_managed,
 	:pass, :window_start, :reentries, :passes_since_approval, :pass_deaths, :not_converging, :mismatches, :delivered_pass,
 	:last_wake, :last_wake_at, :held, :idle_deadline, :confirmed_at, :clean_pass, :confirm_clean,
 	:nudged_at, :author_busy_since_nudge, :seen_head, :seen_at, :replies,
@@ -881,10 +893,10 @@ const reviewLoopValues = `:id, :rev, :owner_kind, :run_id, :step_path, :attempt_
 // reviewLoopUpdates is what a transition writes: everything but the ID,
 // rev, state and the times of creation and closing.
 const reviewLoopUpdates = `owner_kind = :owner_kind, run_id = :run_id, step_path = :step_path, attempt_id = :attempt_id,
-	handoff_id = :handoff_id, handoff_columns = :handoff_columns, host_task = :host_task, repo = :repo,
+	handoff_id = :handoff_id, handoff_columns = :handoff_columns, main_instance_id = :main_instance_id, host_task = :host_task, repo = :repo,
 	subject_pr = :subject_pr, scope = :scope, agent_author = :agent_author, author_task = :author_task,
 	linked_task = :linked_task, phase = :phase, outcome = :outcome, reason = :reason,
-	max_passes = :max_passes, max_reentries = :max_reentries, ready = :ready, steward = :steward,
+	passes_off = :passes_off, max_passes = :max_passes, max_reentries = :max_reentries, ready = :ready, steward = :steward,
 	reviewer = :reviewer, reviewer_model = :reviewer_model, reviewer_tier = :reviewer_tier, skill = :skill,
 	skill_managed = :skill_managed, pass = :pass, window_start = :window_start, reentries = :reentries,
 	passes_since_approval = :passes_since_approval, pass_deaths = :pass_deaths, not_converging = :not_converging,
@@ -897,16 +909,16 @@ const reviewLoopUpdates = `owner_kind = :owner_kind, run_id = :run_id, step_path
 	queued_at = :queued_at, updated_at = :updated_at`
 
 const reviewLoopPRColumns = `loop_id, number, position, branch, base, title, url, head_repo, state, draft, mergeable,
-	author, author_association, author_task, pinned_head, clean_head, review_id, review_url, claimed_at`
+	author, author_association, author_task, pinned_head, clean_head, review_id, review_url, claimed_at, local_branch`
 
 const reviewLoopPRValues = `:loop_id, :number, :position, :branch, :base, :title, :url, :head_repo, :state, :draft, :mergeable,
-	:author, :author_association, :author_task, :pinned_head, :clean_head, :review_id, :review_url, :claimed_at`
+	:author, :author_association, :author_task, :pinned_head, :clean_head, :review_id, :review_url, :claimed_at, :local_branch`
 
 const reviewLoopPassColumns = `loop_id, pass, pass_window, step_path, state, verdict, summary, reason, execution_id, checkout,
-	head_sha, pins, submission_digest, posting_started_at, attempts, started_at, ended_at`
+	head_sha, pins, submission_digest, posting_started_at, attempts, attempt, started_at, ended_at`
 
 const reviewLoopPassValues = `:loop_id, :pass, :pass_window, :step_path, :state, :verdict, :summary, :reason, :execution_id, :checkout,
-	:head_sha, :pins, :submission_digest, :posting_started_at, :attempts, :started_at, :ended_at`
+	:head_sha, :pins, :submission_digest, :posting_started_at, :attempts, :attempt, :started_at, :ended_at`
 
 const reviewLoopFindingColumns = `loop_id, id, pass, pr, severity, critical, title, body, path, line, start_line, side,
 	comment_id, status, ruled_pass, ruling`
