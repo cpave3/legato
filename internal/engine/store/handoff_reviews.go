@@ -398,8 +398,11 @@ type HandoffReviewItem struct {
 	AnswerNote      string `db:"answer_note" json:"answer_note,omitempty"`
 	AnsweredAt      string `db:"answered_at" json:"answered_at,omitempty"`
 	Posted          bool   `db:"posted" json:"posted,omitempty"`
-	Closed          bool   `db:"closed" json:"-"`
-	CreatedAt       string `db:"created_at" json:"-"`
+	// AnswerMarker names this answer on GitHub: a new one with each answer,
+	// so an answer GitHub took is found, not posted again.
+	AnswerMarker string `db:"answer_marker" json:"-"`
+	Closed       bool   `db:"closed" json:"-"`
+	CreatedAt    string `db:"created_at" json:"-"`
 	// Delivered says the author was told of this version of the item.
 	Delivered bool `db:"delivered" json:"-"`
 }
@@ -439,9 +442,11 @@ func (s *Store) ListHandoffReviewItems(ctx context.Context, taskID string) ([]Ha
 	return out, err
 }
 
-// AnswerHandoffReviewItem records the author's answer to an item.
+// AnswerHandoffReviewItem records the author's answer to an item, with a
+// new answer marker.
 func (s *Store) AnswerHandoffReviewItem(ctx context.Context, taskID, id, answer, note, at string) error {
-	result, err := s.db.ExecContext(ctx, `UPDATE handoff_review_items SET answer = ?, answer_note = ?, answered_at = ?, posted = 0
+	result, err := s.db.ExecContext(ctx, `UPDATE handoff_review_items SET answer = ?, answer_note = ?, answered_at = ?, posted = 0,
+		answer_marker = lower(hex(randomblob(8)))
 		WHERE task_id = ? AND id = ? AND closed = 0`, answer, note, at, taskID, id)
 	if err != nil {
 		return err

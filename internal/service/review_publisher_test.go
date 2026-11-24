@@ -59,6 +59,35 @@ type reviewGitHub struct {
 	methods []string
 	// headReads are the permissions of each token that read #12 itself.
 	headReads []map[string]any
+	// bodies are the bodies of every POST, in order.
+	bodies []string
+	// replyStall records a reply or a conversation comment, then answers
+	// too late; replyFail records one, then answers with this status.
+	replyStall time.Duration
+	replyFail  int
+	// replyRefuse answers a reply or a comment with this status without
+	// recording it.
+	replyRefuse int
+	// replyPosts counts the POSTs of replies and conversation comments.
+	replyPosts int
+}
+
+// answerAfterAccept answers a reply or a comment GitHub has recorded:
+// late, with an error, or as created.
+func (g *reviewGitHub) answerAfterAccept(w http.ResponseWriter, created string) {
+	if g.replyStall > 0 {
+		stall := g.replyStall
+		g.mu.Unlock()
+		time.Sleep(stall)
+		g.mu.Lock()
+	}
+	if g.replyFail != 0 {
+		w.WriteHeader(g.replyFail)
+		_, _ = io.WriteString(w, `{"message":"Server Error"}`)
+		return
+	}
+	w.WriteHeader(201)
+	_, _ = io.WriteString(w, created)
 }
 
 const reviewPatch = "@@ -1,3 +1,4 @@\n package main\n-import \"fmt\"\n+import \"os\"\n+\n func main() {\n@@ -20,2 +21,3 @@ func helper() {\n \treturn\n+\t// done\n }"
@@ -71,6 +100,11 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		perms := g.tokens[bearer]
 		g.methods = append(g.methods, r.Method)
+		if r.Method == "POST" && r.Body != nil {
+			data, _ := io.ReadAll(r.Body)
+			g.bodies = append(g.bodies, string(data))
+			r.Body = io.NopCloser(strings.NewReader(string(data)))
+		}
 		switch {
 		case r.URL.Path == "/repos/cpave3/legato/installation":
 			_, _ = io.WriteString(w, `{"id": 7}`)
@@ -179,18 +213,52 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 				g.mu.Lock()
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 100 + len(g.reviews) - 1, "html_url": "https://github.com/r/new"})
-		case r.Method == "POST" && r.URL.Path == "/repos/cpave3/legato/pulls/12/comments/555/replies":
+		case r.Method == "POST" && (r.URL.Path == "/repos/cpave3/legato/pulls/12/comments/555/replies" || r.URL.Path == "/repos/cpave3/legato/pulls/12/comments/600/replies"):
+			g.replyPosts++
+			if g.replyRefuse != 0 {
+				w.WriteHeader(g.replyRefuse)
+				_, _ = io.WriteString(w, `{"message":"no"}`)
+				break
+			}
 			var body map[string]string
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			g.replies = append(g.replies, body["body"])
-			w.WriteHeader(201)
-			_, _ = io.WriteString(w, `{"id": 556}`)
+			g.answerAfterAccept(w, fmt.Sprintf(`{"id": %d}`, 900+len(g.replies)))
+		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/pulls/12/comments":
+			// The review comments: the threads' first comments, then the
+			// replies posted.
+			page := 1
+			fmt.Sscan(r.URL.Query().Get("page"), &page)
+			out := []map[string]any{}
+			if page == 1 {
+				out = append(out, map[string]any{"id": 555, "body": "Name the import."}, map[string]any{"id": 600, "body": "Bound the loop."})
+				for i, reply := range g.replies {
+					out = append(out, map[string]any{"id": 901 + i, "in_reply_to_id": 555, "body": reply})
+				}
+			}
+			_ = json.NewEncoder(w).Encode(out)
 		case r.Method == "POST" && r.URL.Path == "/repos/cpave3/legato/issues/12/comments":
+			g.replyPosts++
+			if g.replyRefuse != 0 {
+				w.WriteHeader(g.replyRefuse)
+				_, _ = io.WriteString(w, `{"message":"no"}`)
+				break
+			}
 			var body map[string]string
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			g.comments = append(g.comments, fmt.Sprintf("%s|%v", body["body"], perms["contents"]))
-			w.WriteHeader(201)
-			_, _ = io.WriteString(w, `{"id": 777, "html_url": "https://github.com/c/777"}`)
+			g.answerAfterAccept(w, fmt.Sprintf(`{"id": %d, "html_url": "https://github.com/c/%d"}`, 776+len(g.comments), 776+len(g.comments)))
+		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/issues/12/comments":
+			page := 1
+			fmt.Sscan(r.URL.Query().Get("page"), &page)
+			out := []map[string]any{}
+			if page == 1 {
+				for i, c := range g.comments {
+					body, _, _ := strings.Cut(c, "|")
+					out = append(out, map[string]any{"id": 777 + i, "body": body})
+				}
+			}
+			_ = json.NewEncoder(w).Encode(out)
 		case r.Method == "POST" && r.URL.Path == "/graphql":
 			var body struct {
 				Query     string         `json:"query"`
@@ -413,7 +481,7 @@ func TestGitHubRefusalsAreReportedNotTakenForSuccess(t *testing.T) {
 func TestARulingIsAThreadReplyAndAResolvedOneResolvesTheThread(t *testing.T) {
 	f := newPublisherFixture(t)
 	ctx := context.Background()
-	if err := f.publisher.Reply(ctx, AsReviewer, "cpave3/legato", 12, 555, "Resolved in pass 2: the import is named."); err != nil {
+	if err := f.publisher.Reply(ctx, AsReviewer, "cpave3/legato", 12, 555, "Resolved in pass 2: the import is named.", CommentMarker{Kind: MarkerRuling, Key: "t1/pass-2/f-1"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.publisher.ResolveThread(ctx, "cpave3/legato", 12, 555); err != nil {
@@ -433,12 +501,147 @@ func TestARulingIsAThreadReplyAndAResolvedOneResolvesTheThread(t *testing.T) {
 
 func TestTheAuthorsAnswersArePostedAsTheAuthorApp(t *testing.T) {
 	f := newPublisherFixture(t)
-	if _, err := f.publisher.PostIssueComment(context.Background(), AsAuthor, "cpave3/legato", 12, "Fixed in abc124."); err != nil {
+	if _, err := f.publisher.PostIssueComment(context.Background(), AsAuthor, "cpave3/legato", 12, "Fixed in abc124.", CommentMarker{Kind: MarkerAnswer, Key: "t1/b-1/n1"}); err != nil {
 		t.Fatal(err)
 	}
 	// The author App's token writes pull requests and reads code only.
-	if len(f.github.comments) != 1 || f.github.comments[0] != "Fixed in abc124.|read" {
+	if len(f.github.comments) != 1 || !strings.HasPrefix(f.github.comments[0], "Fixed in abc124.") || !strings.HasSuffix(f.github.comments[0], "|read") {
 		t.Fatalf("comments = %v", f.github.comments)
+	}
+}
+
+func answerKey(key string) CommentMarker { return CommentMarker{Kind: MarkerAnswer, Key: key} }
+
+// An answer GitHub took before Legato heard back (a timeout, a 5xx, or a
+// crash before the answer was marked posted) is found by its marker, not
+// posted again.
+func TestAnAnswerGitHubTookIsNotPostedAgain(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(g *reviewGitHub, p *ReviewPublisher)
+	}{
+		{"timeout", func(g *reviewGitHub, p *ReviewPublisher) {
+			g.replyStall, p.Timeout = 300*time.Millisecond, 100*time.Millisecond
+		}},
+		{"server error", func(g *reviewGitHub, _ *ReviewPublisher) { g.replyFail = 502 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newPublisherFixture(t)
+			ctx := context.Background()
+			tc.setup(f.github, f.publisher)
+
+			if err := f.publisher.Reply(ctx, AsAuthor, "cpave3/legato", 12, 555, "Fixed in abc124.", answerKey("t1/b-1/n1")); err != nil {
+				t.Fatalf("a reply GitHub took: %v", err)
+			}
+			if _, err := f.publisher.PostIssueComment(ctx, AsAuthor, "cpave3/legato", 12, "Skipped: this was optional.", answerKey("t1/n-1/n2")); err != nil {
+				t.Fatalf("a comment GitHub took: %v", err)
+			}
+
+			// Asked again, as after a restart: found, not posted.
+			f.github.replyStall, f.github.replyFail = 0, 0
+			posts := f.github.replyPosts
+			if err := f.publisher.Reply(ctx, AsAuthor, "cpave3/legato", 12, 555, "Fixed in abc124.", answerKey("t1/b-1/n1")); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.publisher.PostIssueComment(ctx, AsAuthor, "cpave3/legato", 12, "Skipped: this was optional.", answerKey("t1/n-1/n2")); err != nil {
+				t.Fatal(err)
+			}
+			if len(f.github.replies) != 1 || len(f.github.comments) != 1 || f.github.replyPosts != posts {
+				t.Fatalf("replies %v, comments %v, posts %d then %d", f.github.replies, f.github.comments, posts, f.github.replyPosts)
+			}
+			if !strings.Contains(f.github.replies[0], "<!-- legato-answer t1/b-1/n1 -->") {
+				t.Fatalf("reply %q has no hidden marker", f.github.replies[0])
+			}
+		})
+	}
+}
+
+// A server error before GitHub took the answer: it is not there, so the
+// error is returned, and the next try posts it once. A refusal (4xx) is
+// returned as it is.
+func TestAnAnswerGitHubDidNotTakeIsPostedOnceOnTheNextTry(t *testing.T) {
+	f := newPublisherFixture(t)
+	ctx := context.Background()
+	f.github.replyRefuse = 502
+	var gh *GitHubError
+	if err := f.publisher.Reply(ctx, AsAuthor, "cpave3/legato", 12, 600, "Fixed.", answerKey("t1/b-2/n1")); !errors.As(err, &gh) || gh.Status != 502 {
+		t.Fatalf("err = %v", err)
+	}
+	f.github.replyRefuse = 0
+	if err := f.publisher.Reply(ctx, AsAuthor, "cpave3/legato", 12, 600, "Fixed.", answerKey("t1/b-2/n1")); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.github.replies) != 1 || f.github.replyPosts != 2 {
+		t.Fatalf("replies %v after %d posts", f.github.replies, f.github.replyPosts)
+	}
+
+	f.github.replyRefuse = 422
+	if _, err := f.publisher.PostIssueComment(ctx, AsAuthor, "cpave3/legato", 12, "Fixed.", answerKey("t1/b-3/n1")); !errors.As(err, &gh) || gh.Status != 422 {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// The search matches an answer's marker, not its text: the same words
+// answering two findings are two answers.
+func TestIdenticalAnswersToTwoFindingsArePostedEach(t *testing.T) {
+	f := newPublisherFixture(t)
+	ctx := context.Background()
+	for _, key := range []string{"t1/b-1/n1", "t1/b-2/n2"} {
+		if err := f.publisher.Reply(ctx, AsAuthor, "cpave3/legato", 12, 555, "Fixed.", answerKey(key)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.publisher.PostIssueComment(ctx, AsAuthor, "cpave3/legato", 12, "Fixed.", answerKey(key)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(f.github.replies) != 2 || len(f.github.comments) != 2 {
+		t.Fatalf("replies %v, comments %v", f.github.replies, f.github.comments)
+	}
+	// A key that is the start of another's is not taken for it.
+	if err := f.publisher.Reply(ctx, AsAuthor, "cpave3/legato", 12, 555, "Fixed.", answerKey("t1/b-1/n")); err != nil || len(f.github.replies) != 3 {
+		t.Fatalf("replies %v, %v", f.github.replies, err)
+	}
+	// An answer and a ruling with the same key are different comments.
+	if err := f.publisher.Reply(ctx, AsReviewer, "cpave3/legato", 12, 555, "Fixed.", CommentMarker{Kind: MarkerRuling, Key: "t1/b-1/n1"}); err != nil || len(f.github.replies) != 4 {
+		t.Fatalf("replies %v, %v", f.github.replies, err)
+	}
+	// A comment needs a marker.
+	if err := f.publisher.Reply(ctx, AsAuthor, "cpave3/legato", 12, 555, "Fixed.", CommentMarker{}); err == nil {
+		t.Fatal("a reply with no marker was posted")
+	}
+}
+
+// Nothing Legato posts asks for changes: a review is APPROVE or COMMENT,
+// and answers and replies are comments.
+func TestNoAnswerReplyOrReviewUsesRequestChanges(t *testing.T) {
+	f := newPublisherFixture(t)
+	ctx := context.Background()
+	refused := cleanReview()
+	refused.Event = "REQUEST_CHANGES"
+	if _, err := f.publisher.PostReview(ctx, refused); err == nil || f.github.posts != 0 {
+		t.Fatalf("a REQUEST_CHANGES review: %v, %d posts", err, f.github.posts)
+	}
+	changes := cleanReview()
+	changes.Event, changes.Marker = ReviewComment, "pass-2/pr-12"
+	if _, err := f.publisher.PostReview(ctx, changes); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.publisher.Reply(ctx, AsReviewer, "cpave3/legato", 12, 555, "Still open in pass 2.", CommentMarker{Kind: MarkerRuling, Key: "t1/pass-2/f-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.publisher.Reply(ctx, AsAuthor, "cpave3/legato", 12, 555, "Fixed.", answerKey("t1/f-1/n1")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.publisher.PostIssueComment(ctx, AsAuthor, "cpave3/legato", 12, "Skipped.", answerKey("t1/n-1/n1")); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.github.bodies) == 0 {
+		t.Fatal("nothing was posted")
+	}
+	for _, body := range f.github.bodies {
+		if strings.Contains(body, "REQUEST_CHANGES") {
+			t.Fatalf("a post asks for changes: %s", body)
+		}
 	}
 }
 

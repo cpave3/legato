@@ -116,9 +116,11 @@ type ReviewGitHub interface {
 	// posted.
 	PullRequest(ctx context.Context, repo string, number int) (ReviewGitHubPR, string, error)
 	PostReview(ctx context.Context, post ReviewPost) (PostedReview, error)
-	PostIssueComment(ctx context.Context, who GitHubIdentity, repo string, number int, body string) (int64, error)
+	// PostIssueComment and Reply post once by marker: a comment GitHub
+	// already has with the marker is taken for it.
+	PostIssueComment(ctx context.Context, who GitHubIdentity, repo string, number int, body string, marker CommentMarker) (int64, error)
 	PollComments(ctx context.Context, repo string, number int, pages PollPages) (CommentPoll, error)
-	Reply(ctx context.Context, who GitHubIdentity, repo string, number int, commentID int64, body string) error
+	Reply(ctx context.Context, who GitHubIdentity, repo string, number int, commentID int64, body string, marker CommentMarker) error
 	ResolveThread(ctx context.Context, repo string, number int, commentID int64) error
 	// Checks are the counted checks of a pull request's head.
 	Checks(ctx context.Context, repo, base, head string, configured []string) ([]CheckResult, error)

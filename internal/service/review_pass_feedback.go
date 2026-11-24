@@ -427,10 +427,14 @@ func (s *ReviewPassService) postAnswers(ctx context.Context, l ReviewLoop) {
 				body = strings.Replace(body, "Fixed", "Fixed in "+short(tip), 1)
 			}
 		}
+		// The same marker on every try: an answer GitHub took before it
+		// was marked posted (a crash, a lost answer) is found, not posted
+		// again.
+		marker := answerMarker(l.TaskID, item)
 		if item.ThreadCommentID != 0 {
-			err = s.opts.GitHub.Reply(ctx, AsAuthor, item.Repo, item.PR, item.ThreadCommentID, body)
+			err = s.opts.GitHub.Reply(ctx, AsAuthor, item.Repo, item.PR, item.ThreadCommentID, body, marker)
 		} else {
-			_, err = s.opts.GitHub.PostIssueComment(ctx, AsAuthor, item.Repo, item.PR, quoteItem(item)+body)
+			_, err = s.opts.GitHub.PostIssueComment(ctx, AsAuthor, item.Repo, item.PR, quoteItem(item)+body, marker)
 		}
 		if err != nil {
 			log.Printf("review passes: posting the answer to %s: %v", item.ID, err)
@@ -457,6 +461,15 @@ func (s *ReviewPassService) pushedHeads(ctx context.Context, l ReviewLoop) map[i
 		heads[pr.Number] = pr.HeadSHA
 	}
 	return heads
+}
+
+// answerMarker names an answer on GitHub: the loop, the item and the
+// answer's own marker, never its text, so the same words answering two
+// items are two answers. An item's ID may hold a check's name, which
+// cannot be allowed to end the hidden comment early.
+func answerMarker(taskID string, item store.HandoffReviewItem) CommentMarker {
+	id := strings.NewReplacer("-->", "--", "\n", " ").Replace(item.ID)
+	return CommentMarker{Kind: MarkerAnswer, Key: taskID + "/" + id + "/" + item.AnswerMarker}
 }
 
 func answerText(item store.HandoffReviewItem) string {

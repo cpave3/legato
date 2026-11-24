@@ -565,29 +565,108 @@ func sideOf(place *ReviewPlace) string {
 	return "RIGHT"
 }
 
-// Reply answers in the review thread whose first comment is commentID.
-func (p *ReviewPublisher) Reply(ctx context.Context, who GitHubIdentity, repo string, number int, commentID int64, body string) error {
-	call, release, err := p.open(ctx, who, repo, true)
-	if err != nil {
-		return err
-	}
-	defer release()
-	return call.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/pulls/%d/comments/%d/replies", repo, number, commentID), map[string]string{"body": body}, nil)
+// Kinds of comment markers. Each kind is a hidden tag of its own, apart
+// from a review's (legato-review-pass), so no kind is taken for another.
+const (
+	// MarkerAnswer marks an author's answer to a finding, a comment or a
+	// check, posted as the author App.
+	MarkerAnswer = "answer"
+	// MarkerRuling marks a reviewer's ruling, replied in a finding's
+	// thread as the reviewer App.
+	MarkerRuling = "ruling"
+)
+
+// CommentMarker names one reply or conversation comment Legato posts. It
+// is hidden in the comment, and looked for before the comment is posted
+// and again after a timeout or a 5xx, so a comment GitHub took is found,
+// not posted twice. The key must be unique to the comment, never derived
+// from its text.
+type CommentMarker struct {
+	Kind string
+	Key  string
 }
 
-// PostIssueComment comments on the pull request's conversation, and returns
-// the comment's ID.
-func (p *ReviewPublisher) PostIssueComment(ctx context.Context, who GitHubIdentity, repo string, number int, body string) (int64, error) {
+// hidden is the line that names the comment on GitHub.
+func (m CommentMarker) hidden() string { return "<!-- legato-" + m.Kind + " " + m.Key + " -->" }
+
+func (m CommentMarker) valid() error {
+	if (m.Kind != MarkerAnswer && m.Kind != MarkerRuling) || m.Key == "" || strings.Contains(m.Key, "\n") || strings.Contains(m.Key, "-->") {
+		return fmt.Errorf("a comment needs a marker (%s or %s, with a key), not %+v", MarkerAnswer, MarkerRuling, m)
+	}
+	return nil
+}
+
+// Reply answers in the review thread whose first comment is commentID, once:
+// a reply with the same marker already on the pull request is taken for it.
+func (p *ReviewPublisher) Reply(ctx context.Context, who GitHubIdentity, repo string, number int, commentID int64, body string, marker CommentMarker) error {
+	_, err := p.postComment(ctx, who, repo, marker, fmt.Sprintf("/repos/%s/pulls/%d/comments", repo, number),
+		fmt.Sprintf("/repos/%s/pulls/%d/comments/%d/replies", repo, number, commentID), body)
+	return err
+}
+
+// PostIssueComment comments on the pull request's conversation once, and
+// returns the comment's ID: a comment with the same marker already there is
+// taken for it.
+func (p *ReviewPublisher) PostIssueComment(ctx context.Context, who GitHubIdentity, repo string, number int, body string, marker CommentMarker) (int64, error) {
+	list := fmt.Sprintf("/repos/%s/issues/%d/comments", repo, number)
+	return p.postComment(ctx, who, repo, marker, list, list, body)
+}
+
+// postComment posts body with its hidden marker to create, unless a comment
+// in list has the marker. After a timeout or a 5xx, GitHub may have taken
+// it: list is read again, and a comment found there is the answer.
+func (p *ReviewPublisher) postComment(ctx context.Context, who GitHubIdentity, repo string, marker CommentMarker, list, create, body string) (int64, error) {
+	if err := marker.valid(); err != nil {
+		return 0, err
+	}
 	call, release, err := p.open(ctx, who, repo, true)
 	if err != nil {
 		return 0, err
 	}
 	defer release()
+	if id, ok, err := findComment(ctx, call, list, marker); err != nil {
+		return 0, err
+	} else if ok {
+		return id, nil
+	}
 	var created struct {
 		ID int64 `json:"id"`
 	}
-	err = call.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/comments", repo, number), map[string]string{"body": body}, &created)
-	return created.ID, err
+	err = call.do(ctx, http.MethodPost, create, map[string]string{"body": body + "\n\n" + marker.hidden()}, &created)
+	if err == nil {
+		return created.ID, nil
+	}
+	var refused *GitHubError
+	if errors.As(err, &refused) && refused.Status < 500 {
+		return 0, err // GitHub saw it and said no
+	}
+	if id, ok, findErr := findComment(context.WithoutCancel(ctx), call, list, marker); findErr == nil && ok {
+		return id, nil
+	}
+	return 0, err
+}
+
+// findComment looks through a list of comments for one with the marker.
+func findComment(ctx context.Context, call *githubCall, list string, marker CommentMarker) (int64, bool, error) {
+	hidden := marker.hidden()
+	for page := 1; page <= 50; page++ {
+		var comments []struct {
+			ID   int64  `json:"id"`
+			Body string `json:"body"`
+		}
+		if err := call.do(ctx, http.MethodGet, fmt.Sprintf("%s?per_page=100&page=%d", list, page), nil, &comments); err != nil {
+			return 0, false, err
+		}
+		for _, c := range comments {
+			if strings.Contains(c.Body, hidden) {
+				return c.ID, true, nil
+			}
+		}
+		if len(comments) < 100 {
+			break
+		}
+	}
+	return 0, false, nil
 }
 
 // ResolveThread resolves the review thread holding commentID, as the

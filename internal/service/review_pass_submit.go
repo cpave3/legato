@@ -496,7 +496,8 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 			if f.RuledPass != pass.Pass || f.PR != pr.Number || f.CommentID == 0 {
 				continue
 			}
-			if err := s.opts.GitHub.Reply(ctx, AsReviewer, pr.Repo, pr.Number, f.CommentID, rulingLine(f, pass.Pass)); err != nil {
+			ruling := CommentMarker{Kind: MarkerRuling, Key: fmt.Sprintf("%s/pass-%d/%s", taskID, pass.Pass, f.ID)}
+			if err := s.opts.GitHub.Reply(ctx, AsReviewer, pr.Repo, pr.Number, f.CommentID, rulingLine(f, pass.Pass), ruling); err != nil {
 				failures = append(failures, fmt.Sprintf("replying on %s: %v", f.ID, err))
 				continue
 			}

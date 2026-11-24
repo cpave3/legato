@@ -50,6 +50,43 @@ type FakeReviewGitHub struct {
 	// GitHub's 503, once failAfter more have succeeded.
 	failReads int
 	failAfter int
+	// markers are the hidden markers of the replies and conversation
+	// comments posted; lose is how many more GitHub takes without Legato
+	// hearing back.
+	markers map[string]bool
+	lose    int
+}
+
+// LoseAnswers makes GitHub take the next n replies and conversation
+// comments, but answer each with a 502, as when Legato crashes or GitHub's
+// answer never comes back.
+func (f *FakeReviewGitHub) LoseAnswers(n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lose = n
+}
+
+// take records a comment with its marker, as the publisher does: one
+// already posted with that marker is found, not posted again. Call with
+// f.mu held.
+func (f *FakeReviewGitHub) take(marker service.CommentMarker, record func()) (found bool, err error) {
+	if marker.Key == "" || marker.Kind == "" {
+		return false, fmt.Errorf("a comment needs a marker")
+	}
+	key := marker.Kind + " " + marker.Key
+	if f.markers[key] {
+		return true, nil
+	}
+	if f.markers == nil {
+		f.markers = map[string]bool{}
+	}
+	f.markers[key] = true
+	record()
+	if f.lose > 0 {
+		f.lose--
+		return false, &service.GitHubError{Status: 502, Message: "Bad Gateway"}
+	}
+	return false, nil
 }
 
 // NewFakeReviewGitHub has no pull requests.
@@ -203,11 +240,11 @@ func (f *FakeReviewGitHub) Comments() []string {
 	return append([]string(nil), f.comments...)
 }
 
-func (f *FakeReviewGitHub) PostIssueComment(_ context.Context, who service.GitHubIdentity, _ string, _ int, body string) (int64, error) {
+func (f *FakeReviewGitHub) PostIssueComment(_ context.Context, who service.GitHubIdentity, _ string, _ int, body string, marker service.CommentMarker) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.comments = append(f.comments, identityName(who)+": "+body)
-	return int64(len(f.comments)), nil
+	_, err := f.take(marker, func() { f.comments = append(f.comments, identityName(who)+": "+body) })
+	return int64(len(f.comments)), err
 }
 
 func identityName(who service.GitHubIdentity) string {
@@ -217,11 +254,11 @@ func identityName(who service.GitHubIdentity) string {
 	return "reviewer"
 }
 
-func (f *FakeReviewGitHub) Reply(_ context.Context, who service.GitHubIdentity, _ string, _ int, commentID int64, body string) error {
+func (f *FakeReviewGitHub) Reply(_ context.Context, who service.GitHubIdentity, _ string, _ int, commentID int64, body string, marker service.CommentMarker) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.replies = append(f.replies, fmt.Sprintf("%s %d: %s", identityName(who), commentID, body))
-	return nil
+	_, err := f.take(marker, func() { f.replies = append(f.replies, fmt.Sprintf("%s %d: %s", identityName(who), commentID, body)) })
+	return err
 }
 
 func (f *FakeReviewGitHub) ResolveThread(_ context.Context, _ string, _ int, commentID int64) error {
