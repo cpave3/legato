@@ -233,17 +233,21 @@ func (f *FakeReviewGitHub) ResolveThread(_ context.Context, _ string, _ int, com
 
 // FakeCheckout is the author's checkout as review passes read it: one
 // folder, its branch tips, HEAD, whether it is clean, and its files' line
-// counts.
+// counts. SetFor gives a card a checkout of its own, in its own folder.
 type FakeCheckout struct {
 	mu       sync.Mutex
 	dir      string
 	branches []string
-	tips     map[string]string
-	head     string
-	clean    bool
-	lines    map[string]int
-	pins     map[string]string
-	changes  map[string]map[string][][2]int // commit -> file -> lines
+	// cards are the cards with a checkout of their own; heads the HEAD
+	// of each such checkout's folder.
+	cards   map[string]fakeCardCheckout
+	heads   map[string]string
+	tips    map[string]string
+	head    string
+	clean   bool
+	lines   map[string]int
+	pins    map[string]string
+	changes map[string]map[string][][2]int // commit -> file -> lines
 }
 
 // NewFakeCheckout is a clean checkout with no branches.
@@ -256,6 +260,23 @@ func (f *FakeCheckout) Set(dir, branch, tip string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.dir, f.branches, f.tips[branch], f.head = dir, []string{branch}, tip, tip
+}
+
+type fakeCardCheckout struct {
+	dir      string
+	branches []string
+}
+
+// SetFor gives the card a checkout of its own in dir, with branch at tip
+// checked out; other cards keep the one Set puts.
+func (f *FakeCheckout) SetFor(card, dir, branch, tip string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.cards == nil {
+		f.cards, f.heads = map[string]fakeCardCheckout{}, map[string]string{}
+	}
+	f.cards[card] = fakeCardCheckout{dir: dir, branches: []string{branch}}
+	f.tips[branch], f.heads[dir] = tip, tip
 }
 
 // Dirty changes the working tree, or cleans it.
@@ -314,9 +335,12 @@ func (f *FakeCheckout) Pins() map[string]string {
 	return out
 }
 
-func (f *FakeCheckout) Branches(context.Context, string, string) (string, []string, error) {
+func (f *FakeCheckout) Branches(_ context.Context, card, _ string) (string, []string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if own, ok := f.cards[card]; ok {
+		return own.dir, append([]string(nil), own.branches...), nil
+	}
 	return f.dir, append([]string(nil), f.branches...), nil
 }
 
@@ -326,9 +350,12 @@ func (f *FakeCheckout) Tip(_ context.Context, _, branch string) (string, error) 
 	return f.tips[branch], nil
 }
 
-func (f *FakeCheckout) State(context.Context, string) (string, bool, error) {
+func (f *FakeCheckout) State(_ context.Context, dir string) (string, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if head, ok := f.heads[dir]; ok {
+		return head, f.clean, nil
+	}
 	return f.head, f.clean, nil
 }
 

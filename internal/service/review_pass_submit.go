@@ -142,7 +142,7 @@ func (s *ReviewPassService) Submit(ctx context.Context, taskID, executionID stri
 		if r.Status == "open" {
 			verdict = VerdictChanges
 		}
-		if err := s.db.RuleHandoffReviewFinding(ctx, r.Finding, r.Status, pass.Pass, strings.TrimSpace(r.Reason)); err != nil {
+		if err := s.db.RuleHandoffReviewFinding(ctx, taskID, r.Finding, r.Status, pass.Pass, strings.TrimSpace(r.Reason)); err != nil {
 			return ReviewSubmitResult{}, err
 		}
 	}
@@ -487,7 +487,7 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 		}
 		for i, index := range posted.Inline {
 			if i < len(posted.CommentIDs) && index < len(mine) {
-				_ = s.db.SetHandoffReviewFindingComment(ctx, mine[index].ID, posted.CommentIDs[i])
+				_ = s.db.SetHandoffReviewFindingComment(ctx, taskID, mine[index].ID, posted.CommentIDs[i])
 			}
 		}
 		// Rulings on findings that have a thread are replies in it; a

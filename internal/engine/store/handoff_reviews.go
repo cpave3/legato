@@ -81,7 +81,8 @@ type HandoffReviewPR struct {
 	HeadRepo string `db:"head_repo"`
 }
 
-// HandoffReviewFinding is one finding of a pass, with its ruling by a later one.
+// HandoffReviewFinding is one finding of a pass, with its ruling by a later
+// one, keyed by its loop (TaskID) and ID.
 type HandoffReviewFinding struct {
 	ID        string `db:"id"`
 	TaskID    string `db:"task_id"`
@@ -319,14 +320,15 @@ func (s *Store) ListHandoffReviewFindings(ctx context.Context, taskID string) ([
 
 // SetHandoffReviewFindingComment records the inline comment that opened a
 // finding's thread.
-func (s *Store) SetHandoffReviewFindingComment(ctx context.Context, id string, commentID int64) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE handoff_review_findings SET comment_id = ? WHERE id = ?`, commentID, id)
+func (s *Store) SetHandoffReviewFindingComment(ctx context.Context, taskID, id string, commentID int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE handoff_review_findings SET comment_id = ? WHERE task_id = ? AND id = ?`, commentID, taskID, id)
 	return err
 }
 
 // RuleHandoffReviewFinding records a later pass's ruling on a finding.
-func (s *Store) RuleHandoffReviewFinding(ctx context.Context, id, status string, pass int, ruling string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE handoff_review_findings SET status = ?, ruled_pass = ?, ruling = ? WHERE id = ?`, status, pass, ruling, id)
+func (s *Store) RuleHandoffReviewFinding(ctx context.Context, taskID, id, status string, pass int, ruling string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE handoff_review_findings SET status = ?, ruled_pass = ?, ruling = ? WHERE task_id = ? AND id = ?`,
+		status, pass, ruling, taskID, id)
 	return err
 }
 
@@ -348,6 +350,7 @@ func withTxDB(ctx context.Context, s *Store, f func(exec func(string, ...any) er
 
 // HandoffReviewItem is one thing the author of a reviewed handoff must
 // handle (a finding, a counted comment, a failing check), and its answer.
+// It is keyed by its loop (TaskID) and ID.
 type HandoffReviewItem struct {
 	ID              string `db:"id" json:"id"`
 	TaskID          string `db:"task_id" json:"-"`
@@ -376,14 +379,16 @@ type HandoffReviewItem struct {
 }
 
 // UpsertHandoffReviewItem writes an item: a new one, or one raised again
-// (its answer cleared, its version moved on).
+// (its answer cleared, its version moved on). An item is its loop's: the
+// same ID in another loop (the same pull request number and check name in
+// another repository) is another item.
 func (s *Store) UpsertHandoffReviewItem(ctx context.Context, item HandoffReviewItem) error {
 	_, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO handoff_review_items (id, task_id, kind, pass, repo, pr, path, line, url, version, outdated, author, title, body,
 			thread_comment_id, source_id, answer, answer_note, answered_at, posted, closed, created_at, delivered)
 		VALUES (:id, :task_id, :kind, :pass, :repo, :pr, :path, :line, :url, :version, :outdated, :author, :title, :body,
 			:thread_comment_id, :source_id, :answer, :answer_note, :answered_at, :posted, :closed, :created_at, :delivered)
-		ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, pass = excluded.pass, path = excluded.path, line = excluded.line,
+		ON CONFLICT(task_id, id) DO UPDATE SET kind = excluded.kind, pass = excluded.pass, path = excluded.path, line = excluded.line,
 			url = excluded.url, version = excluded.version, outdated = excluded.outdated, author = excluded.author,
 			title = excluded.title, body = excluded.body, thread_comment_id = excluded.thread_comment_id,
 			answer = excluded.answer, answer_note = excluded.answer_note, answered_at = excluded.answered_at,

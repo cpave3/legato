@@ -475,6 +475,18 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 			return "", nil
 		}
 	}
+	if strings.HasSuffix(name, "_review_items_per_loop.sql") {
+		// A legacy database built in part may have no tasks or review
+		// tables: rebuilding the review tables there would fail on their
+		// foreign keys, and there is nothing to move.
+		var tables int
+		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('tasks', 'handoffs', 'handoff_reviews', 'handoff_review_passes', 'handoff_review_findings', 'handoff_review_items')`); err != nil {
+			return "", err
+		}
+		if tables != 6 {
+			return "", nil
+		}
+	}
 	if name == "135_workflow_steps.sql" {
 		// A legacy database built in part may have no workflow tables to
 		// move.
