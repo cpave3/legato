@@ -83,7 +83,10 @@ func (s *OAuthFlowService) RefreshAccessToken(ctx context.Context, connection st
 }
 
 func (s *OAuthFlowService) accessToken(ctx context.Context, connection string, force bool) (string, error) {
-	client, err := s.clientFor(ctx, connection)
+	// The connection's egress policy whether or not it is turned on: the
+	// switch is about agents (the broker refuses calls on a connection that
+	// is off), and the Burnlite board shares the authorization (LEG-544).
+	client, err := s.refreshClient(ctx, connection)
 	if err != nil {
 		return "", err
 	}
@@ -136,6 +139,19 @@ func (s *OAuthFlowService) accessToken(ctx context.Context, connection string, f
 		_ = s.db.ReleaseOAuthRefresh(context.WithoutCancel(ctx), connection, s.holder)
 		return token, err
 	}
+}
+
+// refreshClient is the HTTP client for refreshing and revoking a
+// connection's tokens: its egress policy, enabled or not.
+func (s *OAuthFlowService) refreshClient(ctx context.Context, connection string) (*http.Client, error) {
+	if s.opts.Connections == nil {
+		return nil, errors.New("OAuth connections need the MCP connection registry")
+	}
+	policy, err := s.opts.Connections.EgressPolicy(ctx, connection)
+	if err != nil {
+		return nil, err
+	}
+	return policy.Client(), nil
 }
 
 // refresh runs under the connection's refresh lease.

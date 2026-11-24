@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -49,15 +50,23 @@ func TestIntegrationProblemsReachAttention(t *testing.T) {
 }
 
 func TestALostBurnliteConnectionReachesAttention(t *testing.T) {
-	db := newIntegrationStore(t)
+	f := newBurnliteLinkFixture(t, nil)
 	ctx := context.Background()
-	_ = db.SaveIntegration(ctx, store.Integration{Name: "burnlite", URL: "https://burnlite.example.com", TokenEndpoint: "https://burnlite.example.com/api/oauth/token", ClientID: "c"})
-	items, _ := NewIntegrationAttentionAdapter(db).Snapshot(ctx)
+	f.connectBoard(t)
+	items, _ := NewIntegrationAttentionAdapter(f.db).Snapshot(ctx)
 	if len(items) != 0 {
 		t.Fatalf("a connected Burnlite raised %+v", items)
 	}
-	_ = db.SetIntegrationState(ctx, "burnlite", store.IntegrationDisconnected)
-	items, err := NewIntegrationAttentionAdapter(db).Snapshot(ctx)
+	// Burnlite refuses the shared refresh token: the board and agents both
+	// lost it, and the operator must connect again.
+	f.provider.mu.Lock()
+	f.provider.refuseAll = true
+	f.provider.mu.Unlock()
+	f.clock.Add(2 * time.Hour)
+	if _, err := f.links.Tokens().Token(ctx, false); !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("token after refusal: %v", err)
+	}
+	items, err := NewIntegrationAttentionAdapter(f.db).Snapshot(ctx)
 	if err != nil || len(items) != 1 {
 		t.Fatalf("items = %+v, %v", items, err)
 	}
@@ -65,5 +74,12 @@ func TestALostBurnliteConnectionReachesAttention(t *testing.T) {
 	if item.SignalKind != AttentionSignalIntegrationDisconnected || item.SourceKey != "burnlite" || item.Urgency != "high" ||
 		item.Navigation.Target != "integrations" || item.Title != "Legato lost its connection to Burnlite" {
 		t.Fatalf("item = %+v", item)
+	}
+	// The operator disconnecting is not news to them.
+	if _, err := f.settings.Disconnect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if items, _ := NewIntegrationAttentionAdapter(f.db).Snapshot(ctx); len(items) != 0 {
+		t.Fatalf("a disconnect raised %+v", items)
 	}
 }

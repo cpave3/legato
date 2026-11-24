@@ -23,6 +23,7 @@ type Conn = {
   attempt?: string
   connection: string
   problem?: { code: string; message: string }
+  shared_with?: string
 }
 type Attempt = { id: string; connection: string; status: string; scope?: string; error_code?: string; expires_at: number; evidence?: Record<string, unknown> }
 
@@ -301,6 +302,16 @@ describe("MCPSettings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Disconnect notion" }))
     expect(await screen.findByText("Disconnected. The server revoked Legato's tokens.")).toBeTruthy()
     expect(screen.getByRole("button", { name: "Connect notion" }).textContent).toBe("Connect")
+  })
+
+  it("says Burnlite's connection is the board's too, and that disconnecting stops both", async () => {
+    conns = [notion({ name: "burnlite", url: "https://burnlite.example/api/llm/mcp", authorization: "authorized", problem: undefined, shared_with: "burnlite" })]
+    render(<MCPSettings baseUrl="" />)
+    expect(await screen.findByText(/also the Burnlite board's connection/i)).toBeTruthy()
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }))
+    expect(screen.getByText(/Burnlite board stops syncing too/)).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect burnlite" }))
+    expect(await screen.findByText(/The Burnlite board is disconnected too/)).toBeTruthy()
   })
 
   it("removes a server after asking", async () => {

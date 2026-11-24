@@ -282,7 +282,8 @@ function Connection({ baseUrl, conn, app, pollEvery, onChanged, onReload, onRemo
   const disconnect = () => void run(async () => {
     const out = await disconnectMCPConnection(baseUrl, conn.name)
     setConfirming(null)
-    setNotice({ variant: "info", text: disconnected[out.upstream] ?? disconnected.none })
+    const said = disconnected[out.upstream] ?? disconnected.none
+    setNotice({ variant: "info", text: conn.shared_with === "burnlite" ? `${said} The Burnlite board is disconnected too.` : said })
     await refresh()
   })
 
@@ -335,6 +336,9 @@ function Connection({ baseUrl, conn, app, pollEvery, onChanged, onReload, onRemo
             <p className="mt-0.5 truncate font-lw-mono text-[11px] text-lw-faint">{conn.url}</p>
           )}
           {conn.problem && <p className="mt-0.5 text-xs text-lw-text-2">{conn.problem.message}</p>}
+          {conn.shared_with === "burnlite" && (
+            <p className="mt-0.5 text-xs text-lw-text-2">Also the Burnlite board's connection (Settings › Board and tickets): connecting or disconnecting here does both. Turning it off is only for agents.</p>
+          )}
         </div>
         <Toggle label={`Use ${conn.name}`} on={conn.enabled} disabled={busy} onChange={() => void change({ enabled: !conn.enabled })} />
       </div>
@@ -375,7 +379,10 @@ function Connection({ baseUrl, conn, app, pollEvery, onChanged, onReload, onRemo
         <div className="flex flex-wrap items-center gap-2">
           {confirming === "disconnect" ? (
             <>
-              <span className="text-xs text-lw-text-2">Stop Legato using {conn.name}, and ask the server to revoke its tokens?</span>
+              <span className="text-xs text-lw-text-2">
+                Stop Legato using {conn.name}, and ask the server to revoke its tokens?
+                {conn.shared_with === "burnlite" && " The Burnlite board stops syncing too."}
+              </span>
               <button type="button" className={dangerButton} disabled={busy} onClick={disconnect}>Disconnect {conn.name}</button>
               <button type="button" className={quietButton} disabled={busy} onClick={() => setConfirming(null)}>Keep</button>
             </>

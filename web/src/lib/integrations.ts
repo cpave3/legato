@@ -37,11 +37,15 @@ export interface BurnliteOverview {
   projects: string[]
   /** burnlite.projects is set in config.yaml, so they cannot be changed here */
   projects_from_config: boolean
-  /** Legato's OAuth connection to Burnlite */
+  /** Legato's one OAuth connection to Burnlite, which agents' MCP connection shares */
   connection: {
     state: "none" | "connected" | "disconnected" | string
     url?: string
     connected_at?: string
+    /** the MCP connection holding the shared tokens */
+    mcp_connection?: string
+    /** how many rules it has: none means agents get no Burnlite tools */
+    mcp_rules?: number
   }
 }
 
@@ -84,7 +88,7 @@ export async function saveBurnliteProjects(baseUrl: string, projects: string[]):
   return resp.json()
 }
 
-/** Forgets Legato's connection to Burnlite. */
+/** Disconnects Burnlite, for the board and agents' MCP connection both. */
 export async function disconnectBurnlite(baseUrl: string): Promise<void> {
   await ok(await apiFetch(baseUrl, "/api/settings/integrations/burnlite", { method: "DELETE" }))
 }

@@ -39,6 +39,8 @@ type PendingConnection struct {
 	// secret is set when the server made Legato a confidential client.
 	secret string
 	auth   *oauthclient.Authorization
+	scope  string
+	http   *http.Client
 }
 
 // ConnectRequest is a connection to make.
@@ -53,13 +55,17 @@ type ConnectRequest struct {
 	// listener of Legato's own (the CLI), else an address of Legato's web
 	// server, whose handler gives the connection the address (Paste).
 	RedirectURI string
+	// HTTP, when set, is the client every request of this connect goes
+	// through (Burnlite's: the shared connection's egress policy).
+	HTTP *http.Client
 }
 
-// BurnliteScope is what Legato asks Burnlite for: reading tasks, which the
-// ticket provider does, and writing them, which only a workflow's
-// burnlite.task.close step does (LEG-540). A connection made with read:tasks
-// alone reads; closing asks for it to be made again.
-const BurnliteScope = "read:tasks write:tasks"
+// BurnliteScope is what Legato asks Burnlite for, once for the board and for
+// agents' MCP tools, which share one connection (LEG-544): reading tasks (the
+// ticket provider), writing them (a workflow's burnlite.task.close, LEG-540,
+// and agents' tools) and writing projects (agents' tools). Agents get only
+// the tools the operator's rules allow.
+const BurnliteScope = "read:tasks write:tasks write:projects"
 
 // IntegrationRefreshSecret is the name, in Legato's sealed store, of an
 // integration's refresh token.
@@ -92,7 +98,11 @@ func (c *IntegrationConnector) Begin(ctx context.Context, name, integrationURL, 
 // BeginWith discovers an integration's authorization server, registers
 // Legato with it, and prepares the address the person opens to consent.
 func (c *IntegrationConnector) BeginWith(ctx context.Context, r ConnectRequest) (*PendingConnection, error) {
-	md, err := oauthclient.Discover(ctx, c.http, r.URL)
+	client := c.http
+	if r.HTTP != nil {
+		client = r.HTTP
+	}
+	md, err := oauthclient.Discover(ctx, client, r.URL)
 	if err != nil {
 		return nil, fmt.Errorf("finding %s's authorization server: %w", r.Name, err)
 	}
@@ -102,7 +112,7 @@ func (c *IntegrationConnector) BeginWith(ctx context.Context, r ConnectRequest) 
 	if registered == "" {
 		registered = argusRedirect
 	}
-	reg, err := oauthclient.Register(ctx, c.http, md, oauthclient.RegistrationRequest{ClientName: r.ClientName, RedirectURI: registered})
+	reg, err := oauthclient.Register(ctx, client, md, oauthclient.RegistrationRequest{ClientName: r.ClientName, RedirectURI: registered})
 	if err != nil {
 		return nil, fmt.Errorf("registering with %s: %w", r.Name, err)
 	}
@@ -115,7 +125,7 @@ func (c *IntegrationConnector) BeginWith(ctx context.Context, r ConnectRequest) 
 	if err != nil {
 		return nil, err
 	}
-	return &PendingConnection{c: c, name: r.Name, url: r.URL, md: md, clientID: reg.ClientID, secret: reg.ClientSecret, auth: auth}, nil
+	return &PendingConnection{c: c, name: r.Name, url: r.URL, md: md, clientID: reg.ClientID, secret: reg.ClientSecret, auth: auth, scope: r.Scope, http: client}, nil
 }
 
 // Name is the integration being connected.
@@ -138,17 +148,11 @@ func (p *PendingConnection) Close() { _ = p.auth.Close() }
 // Finish waits for consent, exchanges the code for tokens, and keeps the
 // refresh token sealed and the registration in the database.
 func (p *PendingConnection) Finish(ctx context.Context) error {
-	code, err := p.auth.Wait(ctx)
+	auth, err := p.FinishTokens(ctx)
 	if err != nil {
 		return err
 	}
-	token, err := oauthclient.Exchange(ctx, p.c.http, p.md, p.clientID, code, p.auth.Verifier(), p.auth.RedirectURI(), oauthclient.WithClientSecret(p.secret))
-	if err != nil {
-		return fmt.Errorf("getting tokens from %s: %w", p.name, err)
-	}
-	if token.RefreshToken == "" {
-		return errors.New(p.name + " gave no refresh token, so Legato could not keep the connection")
-	}
+	token := auth.Token
 	if err := p.c.secrets.Write(ctx, IntegrationRefreshSecret(p.name), token.RefreshToken); err != nil {
 		return fmt.Errorf("keeping the refresh token: %w", err)
 	}
@@ -162,6 +166,31 @@ func (p *PendingConnection) Finish(ctx context.Context) error {
 	}
 	return p.c.db.SaveIntegration(ctx, store.Integration{Name: p.name, URL: p.url, Issuer: p.md.Issuer,
 		TokenEndpoint: p.md.TokenEndpoint, Resource: p.md.Resource, ClientID: p.clientID})
+}
+
+// Address is the address the connection was begun with.
+func (p *PendingConnection) Address() string { return p.url }
+
+// FinishTokens waits for consent and exchanges the code for tokens, keeping
+// nothing: the caller decides where they live (Burnlite's go to the shared
+// MCP connection, LEG-544).
+func (p *PendingConnection) FinishTokens(ctx context.Context) (AdoptedAuthorization, error) {
+	code, err := p.auth.Wait(ctx)
+	if err != nil {
+		return AdoptedAuthorization{}, err
+	}
+	token, err := oauthclient.Exchange(ctx, p.http, p.md, p.clientID, code, p.auth.Verifier(), p.auth.RedirectURI(), oauthclient.WithClientSecret(p.secret))
+	if err != nil {
+		return AdoptedAuthorization{}, fmt.Errorf("getting tokens from %s: %w", p.name, err)
+	}
+	if token.RefreshToken == "" {
+		return AdoptedAuthorization{}, errors.New(p.name + " gave no refresh token, so Legato could not keep the connection")
+	}
+	scope := token.Scope
+	if scope == "" {
+		scope = p.scope
+	}
+	return AdoptedAuthorization{Metadata: *p.md, ClientID: p.clientID, ClientSecret: p.secret, Scope: scope, Token: token}, nil
 }
 
 // IntegrationStatus is a connection and its outbox.

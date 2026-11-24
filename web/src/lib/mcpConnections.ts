@@ -44,6 +44,8 @@ export interface MCPConnection {
   connection: string
   last_contact_at?: string
   problem?: MCPProblem
+  /** "burnlite": this is also the Burnlite board's connection, so Connect and Disconnect act on both */
+  shared_with?: string
 }
 
 export interface MCPConnectionInput {

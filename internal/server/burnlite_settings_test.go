@@ -22,24 +22,28 @@ type fakeBurnliteSettings struct {
 	callback    string
 	saved       []string
 	disconnects int
+	link        service.BurnliteLink
 }
 
 func (f *fakeBurnliteSettings) Overview(context.Context) (service.BurnliteOverview, error) {
-	return service.BurnliteOverview{Projects: []string{}, Connection: service.BurnliteConnection{State: "none"}}, nil
+	return service.BurnliteOverview{Projects: []string{}, Connection: service.BurnliteLink{State: "none"}}, nil
 }
 func (f *fakeBurnliteSettings) Begin(_ context.Context, address, redirect string) (string, error) {
 	f.address, f.redirect = address, redirect
 	return "https://burnlite.example.com/api/oauth/authorize?x=1", f.beginErr
 }
-func (f *fakeBurnliteSettings) Callback(_ context.Context, redirected string) error {
+func (f *fakeBurnliteSettings) Callback(_ context.Context, redirected string) (service.BurnliteLink, error) {
 	f.callback = redirected
-	return f.callbackErr
+	return f.link, f.callbackErr
 }
 func (f *fakeBurnliteSettings) SaveProjects(_ context.Context, projects []string) (service.BurnliteOverview, error) {
 	f.saved = projects
 	return service.BurnliteOverview{Projects: projects}, f.saveErr
 }
-func (f *fakeBurnliteSettings) Disconnect(context.Context) error { f.disconnects++; return nil }
+func (f *fakeBurnliteSettings) Disconnect(context.Context) (service.OAuthDisconnect, error) {
+	f.disconnects++
+	return service.OAuthDisconnect{Upstream: "revoked"}, nil
+}
 
 func burnliteServer(f *fakeBurnliteSettings) http.Handler {
 	srv := New(&mockBoardService{}, nil, nil, ":0")
@@ -88,6 +92,15 @@ func TestTheCallbackFinishesAndReturnsToSettings(t *testing.T) {
 		t.Errorf("callback got %q", f.callback)
 	}
 
+	// A connect that made agents' MCP connection says so: it has no rules
+	// yet, so agents get no tools until the operator adds them.
+	f.link = service.BurnliteLink{State: "connected", Connection: "burnlite", Created: true}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "http://legato.lan:3080/oauth/callback?code=c&state=s", nil))
+	if got := w.Header().Get("Location"); got != "/settings?integration=burnlite&result=connected&mcp_created=burnlite#burnlite" {
+		t.Fatalf("after making the MCP connection: to %q", got)
+	}
+
 	f.callbackErr = errors.New("Burnlite did not let Legato in: access_denied")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", "/oauth/callback?error=access_denied&state=s", nil))
@@ -119,8 +132,8 @@ func TestBurnliteProjectsAndDisconnect(t *testing.T) {
 	}
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("DELETE", "/api/settings/integrations/burnlite", nil))
-	if w.Code != http.StatusOK || f.disconnects != 1 {
-		t.Fatalf("status %d", w.Code)
+	if w.Code != http.StatusOK || f.disconnects != 1 || !strings.Contains(w.Body.String(), `"upstream":"revoked"`) {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
 }
 

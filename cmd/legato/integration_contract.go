@@ -184,9 +184,9 @@ func runIntegrationContract(verb string, args []string) int {
 	return renderCommandError(command, usageError("unknown_verb", "integration "+verb), jsonMode)
 }
 
-// runBurnliteIntegration connects Legato to Burnlite as a ticket provider,
-// which reads, and for a workflow's burnlite.task.close, which closes a
-// ticket: it asks for read:tasks and write:tasks (service.BurnliteScope).
+// runBurnliteIntegration connects Legato to Burnlite once for the board and
+// for agents' MCP connection to it, which share one connection (LEG-544):
+// it asks for service.BurnliteScope.
 func runBurnliteIntegration(command, verb string, parsed parsedArgs, jsonMode bool) int {
 	cfg, db, code := openCommandStoreWithConfig(command, jsonMode)
 	if db == nil {
@@ -196,27 +196,27 @@ func runBurnliteIntegration(command, verb string, parsed parsedArgs, jsonMode bo
 	ctx := context.Background()
 	secretStore := configuredSecretStore(cfg, db)
 	connector := service.NewIntegrationConnector(db, service.SealedIntegrationSecrets{Store: secretStore}, nil)
+	links, stop := newBurnliteConnections(cfg, db)
+	defer stop()
+	migrateBurnlite(cfg, db, links)
 
 	switch verb {
 	case "status":
-		st, err := connector.Status(ctx, "burnlite")
+		link, err := links.Current(ctx)
 		if err != nil {
 			return renderCommandError(command, &commandError{Code: "store_failed", Message: err.Error(), Exit: exitInternal}, jsonMode)
 		}
-		st.Replies = nil
-		text := "Not connected to Burnlite. Connect with: legato integration connect burnlite <url>\n"
-		if st.State != "none" {
-			text = fmt.Sprintf("Burnlite at %s: %s since %s\n", st.URL, st.State, st.ConnectedAt)
-			if st.State == "disconnected" {
-				text += "Burnlite refused Legato's tokens. Connect again with: legato integration connect burnlite\n"
-			}
-		}
-		return writeCommandSuccess(command, st, text, jsonMode)
+		return writeCommandSuccess(command, link, burnliteStatusText(link), jsonMode)
 	case "disconnect":
-		if err := connector.Disconnect(ctx, "burnlite"); err != nil {
+		result, err := links.Disconnect(ctx)
+		if err != nil {
 			return renderCommandError(command, &commandError{Code: "store_failed", Message: err.Error(), Exit: exitInternal}, jsonMode)
 		}
-		return writeCommandSuccess(command, map[string]any{"disconnected": "burnlite"}, "Legato forgot its connection to Burnlite. Its tasks stop syncing until you connect again.\n", jsonMode)
+		text := "Legato disconnected from Burnlite: its tasks stop syncing, and agents lose Burnlite's MCP tools, until you connect again.\n"
+		if result.Upstream == "revoked" {
+			text += "Burnlite revoked Legato's tokens.\n"
+		}
+		return writeCommandSuccess(command, map[string]any{"disconnected": "burnlite", "upstream": result.Upstream}, text, jsonMode)
 	case "connect":
 		url := cfg.Burnlite.URL
 		if len(parsed.Positionals) > 1 {
@@ -232,13 +232,17 @@ func runBurnliteIntegration(command, verb string, parsed parsedArgs, jsonMode bo
 			return renderCommandError(command, &commandError{Code: "secrets_passphrase", Exit: exitEnvironment,
 				Message: "Legato's secret store is unlocked by a passphrase, but Burnlite's refresh token is rewritten every hour as Legato syncs. Set secrets.master_key to a source Legato can read alone (auto, systemd-creds, secret-service, keychain or file)"}, jsonMode)
 		}
+		client, err := links.ConnectClient(ctx, url)
+		if err != nil {
+			return renderCommandError(command, &commandError{Code: "connect_failed", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+		}
 		hostname, _ := os.Hostname()
-		pending, err := connector.BeginWith(ctx, service.ConnectRequest{Name: "burnlite", URL: url, ClientName: "Legato (" + hostname + ")", Scope: service.BurnliteScope})
+		pending, err := connector.BeginWith(ctx, service.ConnectRequest{Name: "burnlite", URL: url, ClientName: "Legato (" + hostname + ")", Scope: service.BurnliteScope, HTTP: client})
 		if err != nil {
 			return renderCommandError(command, &commandError{Code: "connect_failed", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
 		}
 		defer pending.Close()
-		fmt.Fprintf(os.Stderr, "Open this address and allow Legato to read your Burnlite tasks:\n\n  %s\n\n", pending.URL())
+		fmt.Fprintf(os.Stderr, "Open this address and allow Legato to use your Burnlite, for its board and for agents' Burnlite tools:\n\n  %s\n\n", pending.URL())
 		if !parsed.Present["no-browser"] {
 			_ = clipboard.OpenURL(pending.URL())
 		}
@@ -259,10 +263,45 @@ func runBurnliteIntegration(command, verb string, parsed parsedArgs, jsonMode bo
 		}()
 		waitCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
-		if err := pending.Finish(waitCtx); err != nil {
+		auth, err := pending.FinishTokens(waitCtx)
+		if err != nil {
 			return renderCommandError(command, &commandError{Code: "connect_failed", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
 		}
-		return writeCommandSuccess(command, map[string]any{"connected": "burnlite", "url": url}, "Connected to Burnlite at "+url+". Import its tasks from the board.\n", jsonMode)
+		link, err := links.Adopt(ctx, url, auth)
+		if err != nil {
+			return renderCommandError(command, &commandError{Code: "connect_failed", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+		}
+		return writeCommandSuccess(command, link, burnliteConnectedText(link), jsonMode)
 	}
 	return renderCommandError(command, usageError("unknown_verb", "integration "+verb), jsonMode)
+}
+
+// burnliteStatusText is legato integration status burnlite for a person.
+func burnliteStatusText(link service.BurnliteLink) string {
+	switch link.State {
+	case "none":
+		return "Not connected to Burnlite. Connect with: legato integration connect burnlite <url>\n"
+	case "disconnected":
+		return fmt.Sprintf("Burnlite at %s: disconnected. Its tasks do not sync and agents have no Burnlite tools. Connect again with: legato integration connect burnlite\n", link.URL)
+	}
+	text := fmt.Sprintf("Burnlite at %s: connected since %s, for the board and for agents' MCP connection %s.\n", link.URL, link.ConnectedAt, link.Connection)
+	if link.Rules == 0 {
+		text += "That connection has no rules, so agents get no Burnlite tools until you add some in Settings › MCP servers.\n"
+	}
+	return text
+}
+
+// burnliteConnectedText says what one connect did: the board, and agents'
+// MCP connection, which it may have made.
+func burnliteConnectedText(link service.BurnliteLink) string {
+	text := "Connected to Burnlite at " + link.URL + ". Import its tasks from the board.\n"
+	if link.Created {
+		text += "Legato also made the MCP connection " + link.Connection + ", which shares this connection.\n"
+	} else {
+		text += "Agents' MCP connection " + link.Connection + " shares this connection.\n"
+	}
+	if link.Rules == 0 {
+		text += "It has no rules, so agents get no Burnlite tools until you add some in Settings › MCP servers.\n"
+	}
+	return text
 }

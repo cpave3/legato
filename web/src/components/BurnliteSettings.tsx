@@ -20,6 +20,8 @@ const dangerButton = "inline-flex min-h-10 items-center justify-center rounded-l
 export interface ConnectOutcome {
   result: "connected" | "failed"
   error?: string
+  /** the MCP connection this connect made for agents */
+  mcpCreated?: string
 }
 
 function when(iso?: string): string {
@@ -40,10 +42,12 @@ function message(reason: unknown): string {
 }
 
 // BurnliteSettings connects Legato to Burnlite, whose tasks the import dialog
-// searches and the board keeps in step. Legato reads Burnlite, and writes only
-// when a workflow's burnlite.task.close step closes a ticket. Connecting
-// sends the browser to Burnlite to consent, and its callback comes back to
-// Settings with the outcome, which this shows once.
+// searches and the board keeps in step. The board reads Burnlite, and writes
+// only when a workflow's burnlite.task.close step closes a ticket. The one
+// connection is shared with agents' MCP connection to Burnlite (LEG-544), so
+// connecting or disconnecting here does both. Connecting sends the browser to
+// Burnlite to consent, and its callback comes back to Settings with the
+// outcome, which this shows once.
 export function BurnliteSettings({ baseUrl, burnlite, outcome, onChanged, onDisconnected }: {
   baseUrl: string
   burnlite: BurnliteOverview
@@ -61,7 +65,12 @@ export function BurnliteSettings({ baseUrl, burnlite, outcome, onChanged, onDisc
       description="An issue tracker. Once connected, its tasks can be imported onto the board, where they follow Burnlite's state. Moving a card never changes Burnlite; a workflow can close a ticket."
     >
       <div className="flex flex-col gap-3">
-        {outcome?.result === "connected" && <InlineNotice variant="success">Connected to Burnlite.</InlineNotice>}
+        {outcome?.result === "connected" && (
+          <InlineNotice variant="success">
+            Connected to Burnlite.
+            {outcome.mcpCreated && <> Legato also made the MCP connection {outcome.mcpCreated} for agents, which shares this connection. It has no rules yet, so agents get no Burnlite tools until you add some in MCP servers.</>}
+          </InlineNotice>
+        )}
         {outcome?.result === "failed" && (
           <InlineNotice variant="error">Could not connect to Burnlite{outcome.error ? `: ${outcome.error}` : "."}</InlineNotice>
         )}
@@ -93,9 +102,9 @@ function Connect({ baseUrl, burnlite }: { baseUrl: string; burnlite: BurnliteOve
   return (
     <form onSubmit={(event) => void connect(event)} className="flex flex-col gap-2">
       {burnlite.connection.state === "disconnected" ? (
-        <p className="text-xs text-lw-danger">Burnlite refused Legato's tokens, so its tasks are not synced. Connect again to carry on.</p>
+        <p className="text-xs text-lw-danger">Not connected: Burnlite refused Legato's tokens, or the connection was disconnected in MCP servers. Its tasks are not synced and agents have no Burnlite tools. Connect again to carry on.</p>
       ) : (
-        <p className="text-xs text-lw-text-2">Not connected. Connecting opens Burnlite, which asks you to let Legato read its tasks and close them from workflows.</p>
+        <p className="text-xs text-lw-text-2">Not connected. Connecting opens Burnlite, which asks you once to let Legato read its tasks, close them from workflows, and give agents Burnlite's tools through MCP.</p>
       )}
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
@@ -165,6 +174,12 @@ function Connected({ baseUrl, burnlite, onChanged, onDisconnected }: {
           </Row>
         )}
         <Row label="Connection">Connected since {when(burnlite.connection.connected_at)}</Row>
+        {burnlite.connection.mcp_connection && (
+          <Row label="Agents">
+            The MCP connection {burnlite.connection.mcp_connection} shares this connection.
+            {!burnlite.connection.mcp_rules && <> It has no rules, so agents get no Burnlite tools until you add some in MCP servers.</>}
+          </Row>
+        )}
         <Row label="Projects to search">
           <form onSubmit={(event) => void save(event)} className="flex flex-col gap-1.5">
             <div className="flex flex-col gap-2 sm:flex-row">
@@ -193,7 +208,10 @@ function Connected({ baseUrl, burnlite, onChanged, onDisconnected }: {
       <div className="flex flex-wrap items-center gap-2">
         {confirming ? (
           <>
-            <span className="text-xs text-lw-text-2">Stop reading tasks from Burnlite?</span>
+            <span className="text-xs text-lw-text-2">
+              Stop reading tasks from Burnlite?
+              {burnlite.connection.mcp_connection && ` Agents lose Burnlite's tools too (MCP connection ${burnlite.connection.mcp_connection}).`}
+            </span>
             <button type="button" className={dangerButton} disabled={disconnecting} onClick={() => void disconnect()}>Disconnect from Burnlite</button>
             <button type="button" className={quietButton} disabled={disconnecting} onClick={() => setConfirming(false)}>Keep</button>
           </>

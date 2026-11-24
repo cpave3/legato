@@ -19,23 +19,19 @@ type BurnliteTaskCloser interface {
 	CloseTask(ctx context.Context, key, reason, summary string) error
 }
 
-// ConnectedBurnlite closes Tasks in the Burnlite Legato is connected to (the
-// integration "burnlite"), with that connection's tokens.
+// ConnectedBurnlite closes Tasks in the Burnlite Legato is connected to,
+// with the connection the board shares with agents (LEG-544).
 type ConnectedBurnlite struct {
-	DB     *store.Store
-	Tokens burnlite.TokenSource
-	HTTP   *http.Client
+	Connection BurnliteConnection
+	// HTTP, when set, replaces the connection's client (tests).
+	HTTP *http.Client
 }
 
 func (c ConnectedBurnlite) CloseTask(ctx context.Context, key, reason, summary string) error {
-	in, err := c.DB.GetIntegration(ctx, BurnliteIntegration)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && in.State != store.IntegrationConnected) {
-		return fmt.Errorf("Legato is not connected to Burnlite: %w", ErrNotConnected)
-	}
+	client, _, err := openBurnlite(ctx, c.Connection, c.HTTP)
 	if err != nil {
 		return err
 	}
-	client := burnlite.New(in.URL, c.Tokens, c.HTTP)
 	defer client.Close()
 	return client.CloseTask(ctx, key, reason, summary)
 }
