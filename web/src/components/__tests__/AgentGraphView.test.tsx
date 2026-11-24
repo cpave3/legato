@@ -1,16 +1,28 @@
 import "@testing-library/jest-dom/vitest"
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { QueryClientProvider } from "@tanstack/react-query"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { MemoryRouter } from "react-router-dom"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AgentEnsemble, ENSEMBLE_LAYOUT_KEY } from "../AgentEnsemble"
-import type { AgentInfo } from "../../hooks/useWebSocket"
-import type { AgentGraphData } from "../../lib/agentGraph"
+import type { AgentInfo, WSMessage } from "../../hooks/useWebSocket"
+import type { AgentGraphData, GraphRun } from "../../lib/agentGraph"
+import { createQueryClient } from "../../lib/query"
 import { mockReactFlow } from "../../test/reactFlow"
 
 mockReactFlow()
 
-const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
+const { apiFetch, fetchRun, socket } = vi.hoisted(() => ({
+  apiFetch: vi.fn(),
+  fetchRun: vi.fn(),
+  socket: { handlers: new Set<(message: WSMessage) => void>() },
+}))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 vi.mock("../../lib/api", () => ({ apiFetch }))
+vi.mock("../../lib/workflow", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/workflow")>()), fetchWorkflowRun: fetchRun }))
+vi.mock("../../hooks/useWebSocket", async importOriginal => ({
+  ...(await importOriginal<typeof import("../../hooks/useWebSocket")>()),
+  useWebSocket: () => ({ connected: true, send: vi.fn(), subscribe: (handler: (message: WSMessage) => void) => { socket.handlers.add(handler); return () => socket.handlers.delete(handler) } }),
+}))
 
 const agent = (values: Partial<AgentInfo> & Pick<AgentInfo, "task_id">): AgentInfo => ({
   id: 1, card_task_id: values.task_id, slot: "main", task_title: `${values.task_id} title`, tmux_session: `legato-${values.task_id}`,
@@ -22,7 +34,7 @@ let graph: AgentGraphData
 
 function show(agents: AgentInfo[], props: Partial<Parameters<typeof AgentEnsemble>[0]> = {}) {
   const handlers = { onOpen: vi.fn(), onSpawn: vi.fn(), onShowList: vi.fn(), onSend: vi.fn() }
-  render(<AgentEnsemble agents={agents} {...handlers} {...props} />)
+  render(<QueryClientProvider client={createQueryClient()}><MemoryRouter><AgentEnsemble agents={agents} {...handlers} {...props} /></MemoryRouter></QueryClientProvider>)
   return handlers
 }
 
@@ -97,5 +109,136 @@ describe("the ensemble's graph", () => {
     show([agent({ task_id: "LEG-1", stage: "reviewing" }), agent({ task_id: "LEG-2", stage: "planning" })], { layout: "graph", stageFilter: "reviewing", onStageFilter: vi.fn() })
     expect(await node(/^LEG-1, running/)).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /^LEG-2, running/ })).not.toBeInTheDocument()
+  })
+})
+
+// A run of three steps at its second, which LEG-1 works on; LEG-2 reviews
+// at its third.
+const graphRun = (values: Partial<GraphRun> = {}): GraphRun => ({
+  id: "wr-1", workflow_name: "one-off-task", workflow_title: "Triage LEG-1", status: "running", current_step_id: "implement", created_at: "2026-11-23 09:00:00",
+  steps: [
+    { step_id: "triage", title: "Triage the task", status: "succeeded" },
+    { step_id: "implement", title: "Implement it", status: "waiting_agent" },
+    { step_id: "review", title: "Review in passes", status: "pending" },
+  ],
+  ...values,
+})
+
+const runStep = (id: string, title: string, type: string) => ({ id: `step:${id}`, kind: "step", step: { id, title, type, trigger: "automatic", key: {}, definition: { id, title, type } } })
+const runView = () => ({
+  run: { id: "wr-1", workflow_name: "one-off-task", workflow_title: "Triage LEG-1", definition_source: "/w.yaml", definition_digest: "d", definition_json: "{}", inputs_json: "{}", status: "running", current_step_id: "implement", created_at: "2026-11-23T09:00:00Z" },
+  steps: [
+    { run_id: "wr-1", step_id: "triage", step_order: 0, title: "Triage the task", executor_type: "agent.run", definition_json: "{}", resolved_inputs_json: "{}", outputs_json: "{}", status: "succeeded", latest_attempt: 1 },
+    { run_id: "wr-1", step_id: "implement", step_order: 1, title: "Implement it", executor_type: "agent.run", definition_json: "{}", resolved_inputs_json: "{}", outputs_json: "{}", status: "waiting_agent", latest_attempt: 1 },
+    { run_id: "wr-1", step_id: "review", step_order: 2, title: "Review in passes", executor_type: "task.note", definition_json: "{}", resolved_inputs_json: "{}", outputs_json: "{}", status: "pending", latest_attempt: 0 },
+  ],
+  attempts: [], artifacts: [],
+  graph: { version: 1, nodes: [runStep("triage", "Triage the task", "agent.run"), runStep("implement", "Implement it", "agent.run"), runStep("review", "Review in passes", "task.note")], edges: [
+    { id: "order:step:triage>step:implement", kind: "order", source: "step:triage", target: "step:implement" },
+    { id: "order:step:implement>step:review", kind: "order", source: "step:implement", target: "step:review" },
+  ] },
+})
+
+describe("workflow runs on the ensemble's graph", () => {
+  beforeEach(() => {
+    localStorage.clear()
+    socket.handlers.clear()
+    graph = {
+      agents: {
+        "LEG-1": { workflows: [{ run_id: "wr-1", step_id: "implement", role: "agent" }] },
+        "LEG-2": { workflows: [{ run_id: "wr-1", step_id: "review", role: "reviewer" }] },
+      },
+      links: [], peer_window_seconds: 1800, runs: { "wr-1": graphRun() },
+    }
+    apiFetch.mockReset()
+    apiFetch.mockImplementation(async (_baseUrl: string, path: string) => {
+      if (path === "/api/agents/graph") return new Response(JSON.stringify(graph), { status: 200 })
+      return new Response("not available", { status: 404 })
+    })
+    fetchRun.mockReset()
+    fetchRun.mockResolvedValue(runView())
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("min-width"), media: query, addEventListener: () => {}, removeEventListener: () => {} }))
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  const agents = () => [agent({ task_id: "LEG-1" }), agent({ task_id: "LEG-2" }), agent({ task_id: "LEG-3" })]
+
+  it("shows an agent's run and its step at rest, and nothing of a run for an agent in none", async () => {
+    show(agents(), { layout: "graph" })
+    const leg1 = await node(/^LEG-1, running.*run Triage LEG-1, step 2 of 3: Implement it/)
+    expect(within(leg1).getByRole("img", { name: "Triage LEG-1: Running, step 2 of 3" })).toBeInTheDocument()
+    expect(await node(/^LEG-2, running.*run Triage LEG-1, step 3 of 3: Review in passes/)).toBeInTheDocument()
+    const leg3 = await node(/^LEG-3, running/)
+    expect(leg3.getAttribute("aria-label")).not.toMatch(/, run /)
+    expect(within(leg3).queryByRole("img")).not.toBeInTheDocument()
+  })
+
+  it("shows the agent's run in its card, with a link to the run page", async () => {
+    graph.runs!["wr-1"] = graphRun({ current_step_id: "review", pass: 2 })
+    show(agents(), { layout: "graph" })
+    fireEvent.click(await node(/^LEG-2, running/))
+    const card = await screen.findByRole("region", { name: "LEG-2" })
+    const section = within(card).getByRole("group", { name: "Workflow run" })
+    expect(within(section).getByRole("link", { name: "Triage LEG-1" })).toHaveAttribute("href", "/workflows/runs/wr-1")
+    expect(section).toHaveTextContent("Reviewer in “Review in passes” · pass 2")
+    expect(within(section).getByRole("button", { name: "Show run graph" })).toBeInTheDocument()
+  })
+
+  it("says where the run is when it has moved past the agent's step", async () => {
+    graph.runs!["wr-1"] = graphRun({ current_step_id: "review" })
+    show(agents(), { layout: "graph" })
+    fireEvent.click(await node(/^LEG-1, running/))
+    const section = within(await screen.findByRole("region", { name: "LEG-1" })).getByRole("group", { name: "Workflow run" })
+    expect(section).toHaveTextContent("Runs “Implement it”")
+    expect(section).toHaveTextContent("The run is at “Review in passes”")
+  })
+
+  it("opens the run's own graph beside the fleet, the agent's step selected, and Escape closes it, then the card", async () => {
+    show(agents(), { layout: "graph" })
+    fireEvent.keyDown(await node(/^LEG-1, running/), { key: "Enter" })
+    const card = await screen.findByRole("region", { name: "LEG-1" })
+    fireEvent.click(within(card).getByRole("button", { name: "Show run graph" }))
+
+    const panel = await screen.findByRole("region", { name: "Run graph: Triage LEG-1" })
+    const step = await within(panel).findByRole("button", { name: /^Step: Implement it/ })
+    expect(step.className).toContain("selected")
+    expect(within(panel).getByRole("link", { name: "Open run page" })).toHaveAttribute("href", "/workflows/runs/wr-1")
+    expect(screen.getByRole("region", { name: "LEG-1" })).toBeInTheDocument()
+
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Run graph: Triage LEG-1" })).not.toBeInTheDocument())
+    expect(screen.getByRole("region", { name: "LEG-1" })).toBeInTheDocument()
+    fireEvent.keyDown(document.body, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("region", { name: "LEG-1" })).not.toBeInTheDocument())
+  })
+
+  it("on a phone shows the run's graph as a sheet in place of the card, and Close goes back to the card", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("max-width"), media: query, addEventListener: () => {}, removeEventListener: () => {} }))
+    show(agents(), { layout: "graph" })
+    fireEvent.click(await node(/^LEG-1, running/))
+    fireEvent.click(within(await screen.findByRole("region", { name: "LEG-1" })).getByRole("button", { name: "Show run graph" }))
+    const panel = await screen.findByRole("dialog", { name: "Run graph: Triage LEG-1" })
+    expect(panel).toHaveAttribute("aria-modal", "true")
+    expect(screen.queryByRole("region", { name: "LEG-1" })).not.toBeInTheDocument()
+    // The graph behind the sheet takes no focus.
+    expect(screen.getByRole("button", { name: "Fit the graph" }).closest("[inert]")).not.toBeNull()
+    fireEvent.click(within(panel).getByRole("button", { name: "Close the run graph" }))
+    expect(await screen.findByRole("region", { name: "LEG-1" })).toBeInTheDocument()
+  })
+
+  it("reads the graph again when a workflow run moves on", async () => {
+    show(agents(), { layout: "graph" })
+    await node(/^LEG-1, running/)
+    const reads = () => apiFetch.mock.calls.filter(([, path]) => path === "/api/agents/graph").length
+    const before = reads()
+    act(() => { for (const handler of socket.handlers) handler({ type: "workflow_changed" } as WSMessage) })
+    await waitFor(() => expect(reads()).toBe(before + 1))
+  })
+
+  it("opens on an agent and its run's graph when the address names them, with a way back to the run", async () => {
+    show(agents(), { layout: "graph", graphFocus: { agentId: "LEG-1", runId: "wr-1" } })
+    expect(await screen.findByRole("region", { name: "LEG-1" })).toBeInTheDocument()
+    expect(await screen.findByRole("region", { name: "Run graph: Triage LEG-1" })).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Back to workflow" })).toHaveAttribute("href", "/workflows/runs/wr-1")
   })
 })

@@ -121,23 +121,27 @@ type WorkflowStepAttempt struct {
 	ID    string `db:"id" json:"id"`
 	RunID string `db:"run_id" json:"run_id"`
 	// Path is the step instance's; StepID its ID alone.
-	Path            string  `db:"path" json:"path"`
-	StepID          string  `db:"step_id" json:"step_id"`
-	AttemptNumber   int     `db:"attempt_number" json:"attempt_number"`
-	ExecutorType    string  `db:"executor_type" json:"executor_type"`
-	AgentSessionID  *int    `db:"agent_session_id" json:"agent_session_id,omitempty"`
-	TaskID          string  `db:"task_id" json:"task_id,omitempty"`
-	TmuxSession     string  `db:"tmux_session" json:"tmux_session,omitempty"`
-	AgentKind       string  `db:"agent_kind" json:"agent_kind,omitempty"`
-	Tier            string  `db:"tier" json:"tier,omitempty"`
-	WorkingDir      string  `db:"working_dir" json:"working_dir,omitempty"`
-	Status          string  `db:"status" json:"status"`
-	Error           string  `db:"error" json:"error,omitempty"`
-	StartedAt       string  `db:"started_at" json:"started_at"`
-	EndedAt         *string `db:"ended_at" json:"ended_at,omitempty"`
-	AgentActivity   string  `db:"-" json:"agent_activity,omitempty"`
-	NeedsAttention  bool    `db:"-" json:"needs_attention,omitempty"`
-	AttentionReason string  `db:"-" json:"attention_reason,omitempty"`
+	Path           string  `db:"path" json:"path"`
+	StepID         string  `db:"step_id" json:"step_id"`
+	AttemptNumber  int     `db:"attempt_number" json:"attempt_number"`
+	ExecutorType   string  `db:"executor_type" json:"executor_type"`
+	AgentSessionID *int    `db:"agent_session_id" json:"agent_session_id,omitempty"`
+	TaskID         string  `db:"task_id" json:"task_id,omitempty"`
+	TmuxSession    string  `db:"tmux_session" json:"tmux_session,omitempty"`
+	AgentKind      string  `db:"agent_kind" json:"agent_kind,omitempty"`
+	Tier           string  `db:"tier" json:"tier,omitempty"`
+	WorkingDir     string  `db:"working_dir" json:"working_dir,omitempty"`
+	Status         string  `db:"status" json:"status"`
+	Error          string  `db:"error" json:"error,omitempty"`
+	StartedAt      string  `db:"started_at" json:"started_at"`
+	EndedAt        *string `db:"ended_at" json:"ended_at,omitempty"`
+	AgentActivity  string  `db:"-" json:"agent_activity,omitempty"`
+	// AgentID is the agent its session is (the session's task, with a named
+	// slot's suffix): an interview's attempt keeps the run's task, not the
+	// borrowed agent's. The service fills it.
+	AgentID         string `db:"-" json:"agent_id,omitempty"`
+	NeedsAttention  bool   `db:"-" json:"needs_attention,omitempty"`
+	AttentionReason string `db:"-" json:"attention_reason,omitempty"`
 	// AttentionActions are the actions a step waiting on its service
 	// offers beyond the usual, such as message for a stuck review loop
 	// with an agent author.
@@ -503,6 +507,21 @@ func (s *Store) WaitWorkflowStepOnService(ctx context.Context, runID, path, atte
 		}
 		return nil
 	})
+}
+
+// ListWorkflowAttemptsForRuns lists every attempt of runIDs, oldest first.
+func (s *Store) ListWorkflowAttemptsForRuns(ctx context.Context, runIDs []string) ([]WorkflowStepAttempt, error) {
+	attempts := []WorkflowStepAttempt{}
+	if len(runIDs) == 0 {
+		return attempts, nil
+	}
+	query, args, err := sqlx.In("SELECT "+workflowAttemptColumns+` FROM workflow_step_attempts
+		WHERE run_id IN (?) ORDER BY started_at, id`, runIDs)
+	if err != nil {
+		return nil, err
+	}
+	err = s.db.SelectContext(ctx, &attempts, s.db.Rebind(query), args...)
+	return attempts, err
 }
 
 // ListWaitingWorkflowAttemptsByExecutor lists the attempts of one executor

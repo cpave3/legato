@@ -20,12 +20,16 @@ func peerMessageSent() {
 }
 
 // agentGraphFor is the service behind GET /api/agents/graph; nil without
-// agents.
-func agentGraphFor(db *store.Store, agents service.AgentService) *service.AgentGraphService {
+// agents. workflows, when not nil, says which runs need the operator.
+func agentGraphFor(db *store.Store, agents service.AgentService, workflows *service.WorkflowService) *service.AgentGraphService {
 	if agents == nil {
 		return nil
 	}
-	return service.NewAgentGraphService(service.AgentGraphOptions{
+	opts := service.AgentGraphOptions{
 		Store: db, Agents: agents, Related: service.NewRelatedAgentsService(db), Inspector: checkoutInspector(),
-	})
+	}
+	if workflows != nil {
+		opts.Runs = workflows
+	}
+	return service.NewAgentGraphService(opts)
 }

@@ -4,9 +4,11 @@
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import { BaseEdge, Controls, EdgeLabelRenderer, getBezierPath, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type EdgeProps, type EdgeTypes, type Node, type NodeProps, type NodeTypes } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
-import { ChevronDown, ChevronRight } from "lucide-react"
-import type { AgentGraphLayout, GraphBox, GraphEdge, GraphEdgeKind, GraphNode } from "../../lib/agentGraph"
-import { linkLabels } from "../../lib/agentGraph"
+import { ChevronDown, ChevronRight, Workflow } from "lucide-react"
+import type { AgentGraphLayout, GraphBox, GraphEdge, GraphEdgeKind, GraphNode, NodeWorkflow } from "../../lib/agentGraph"
+import { linkLabels, workflowWords } from "../../lib/agentGraph"
+import { runState, stepPosition, stepSegments } from "../../lib/workflowView"
+import { StepBar } from "../WorkflowRunStatus"
 import { formatAgentTime, stateSeconds } from "../../lib/agentList"
 import { stageLabel } from "../../lib/agentStage"
 import { cn } from "../../lib/utils"
@@ -52,8 +54,10 @@ function AgentNode({ data, selected }: NodeProps<FlowNode>) {
   const look = agentLook(agent)
   const time = formatAgentTime(stateSeconds(agent))
   const stage = stageLabel(agent.stage)
+  const workflow = node.workflows?.[0]
   return <div style={{ width: node.width, height: node.height }} className={cn(
-    "flex flex-col justify-center gap-0.5 rounded-lg border-2 bg-lw-surface px-2.5 font-lw text-lw-text shadow-sm transition-opacity",
+    "relative flex flex-col justify-center gap-0.5 rounded-lg border-2 bg-lw-surface px-2.5 font-lw text-lw-text shadow-sm transition-opacity",
+    workflow && "pb-2",
     look.border, selected && "ring-2 ring-lw-accent-ring", data.dimmed && "opacity-30",
   )}>
     <Handles />
@@ -65,8 +69,38 @@ function AgentNode({ data, selected }: NodeProps<FlowNode>) {
     <span className="flex min-w-0 items-center gap-1 text-[10px] leading-4 text-lw-text-2">
       {stage && <span className="truncate">{stage}</span>}
       {node.badges?.map((badge) => <span key={badge.kind} title={badge.detail} className="shrink-0 rounded bg-lw-accent-soft px-1 text-lw-accent-text">{badge.label}</span>)}
+      {workflow && <RunChip workflow={workflow} more={(node.workflows?.length ?? 1) - 1} />}
     </span>
+    {workflow && <RunStrip workflow={workflow} />}
   </div>
+}
+
+// RunChip names the agent's step in its run, and how far through the run
+// that step is; +N counts its other runs.
+function RunChip({ workflow, more }: { workflow: NodeWorkflow; more: number }) {
+  const words = workflowWords(workflow)
+  const { tone } = runState(workflow.run)
+  return <span title={`${workflow.run.workflow_title}: ${words.role}`} className={cn(
+    "ml-auto flex min-w-0 shrink items-center gap-0.5 rounded px-1",
+    tone === "needs" ? "bg-lw-needs-soft text-lw-needs" : tone === "error" ? "bg-lw-error-soft text-lw-error" : "bg-lw-live-soft text-lw-live",
+  )}>
+    <Workflow size={10} aria-hidden="true" className="shrink-0" />
+    <span className="truncate">{words.title}</span>
+    <span className="shrink-0 font-lw-mono">{words.number}/{words.total}</span>
+    {more > 0 && <span className="shrink-0 font-lw-mono">+{more}</span>}
+  </span>
+}
+
+// RunStrip is the run's steps along the foot of the node, as the runs list
+// draws them.
+function RunStrip({ workflow }: { workflow: NodeWorkflow }) {
+  const { run } = workflow
+  return <StepBar segments={stepSegments(run, run.steps)} label={runStripLabel(workflow)} className="absolute inset-x-2.5 bottom-1 [&>span]:h-1" />
+}
+
+function runStripLabel({ run }: NodeWorkflow): string {
+  const position = stepPosition(run, run.steps)
+  return `${run.workflow_title}: ${runState(run).label}${position ? `, step ${position.number} of ${position.total}` : ""}`
 }
 
 function SubagentNode({ data, selected }: NodeProps<FlowNode>) {
@@ -145,7 +179,9 @@ function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
     [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition })
   }
   const opacity = data?.dimmed ? 0.12 : edge.opacity
-  const label = edge.kind === "peer_message" ? `${edge.count ?? 1}×` : edge.label
+  // A run link's label is the run's title, which the nodes' chips and the
+  // card already say.
+  const label = edge.kind === "peer_message" ? `${edge.count ?? 1}×` : edge.kind === "workflow" ? undefined : edge.label
   return <>
     <BaseEdge id={id} path={path} markerEnd={style.arrow ? `url(#agent-graph-arrow-${edge.kind})` : undefined}
       style={{ stroke: style.stroke, strokeWidth: style.width, strokeDasharray: style.dash, strokeLinecap: "round", opacity }} />
@@ -227,6 +263,16 @@ function Graph({ layout, direction, selectedId, onSelect, onOpen, onToggleFold, 
   }, [layout, lit, direction])
 
   const frame = useRef<HTMLDivElement>(null)
+  // Enter or Space on a focused node selects it, as a click does.
+  const onKeyDown = useCallback((event: React.KeyboardEvent) => {
+    if (event.key !== "Enter" && event.key !== " ") return
+    const id = (event.target as HTMLElement).closest<HTMLElement>(".react-flow__node")?.dataset.id
+    const node = id ? layout.nodes.find((item) => item.id === id) : undefined
+    if (!node) return
+    event.preventDefault()
+    if (node.kind === "fold") onToggleFold(node.id.slice(0, -2))
+    else onSelect(node.id)
+  }, [layout, onSelect, onToggleFold])
   // Left to right the whole graph is fitted. Top to bottom (a phone) its
   // width is, and the view starts at its top, to be scrolled down.
   const fitAll = useCallback(() => {
@@ -254,7 +300,7 @@ function Graph({ layout, direction, selectedId, onSelect, onOpen, onToggleFold, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusOn?.n])
 
-  return <div ref={frame} className="relative h-full min-h-[18rem] w-full" style={{ "--xy-background-color": "var(--color-lw-ground)", "--xy-controls-button-background-color": "var(--color-lw-surface)", "--xy-controls-button-color": "var(--color-lw-text)", "--xy-controls-button-border-color": "var(--color-lw-line)" } as React.CSSProperties}>
+  return <div ref={frame} onKeyDown={onKeyDown} className="relative h-full min-h-[18rem] w-full" style={{ "--xy-background-color": "var(--color-lw-ground)", "--xy-controls-button-background-color": "var(--color-lw-surface)", "--xy-controls-button-color": "var(--color-lw-text)", "--xy-controls-button-border-color": "var(--color-lw-line)" } as React.CSSProperties}>
     <Arrows />
     <ReactFlow
       nodes={nodes}
@@ -293,8 +339,13 @@ function Graph({ layout, direction, selectedId, onSelect, onOpen, onToggleFold, 
 function nodeName(node: GraphNode): string {
   switch (node.kind) {
     case "agent":
-    case "reeve":
-      return `${node.agent?.task_id}, ${agentLook(node.agent!).label}${node.agent?.task_title ? `: ${node.agent.task_title}` : ""}`
+    case "reeve": {
+      const name = `${node.agent?.task_id}, ${agentLook(node.agent!).label}${node.agent?.task_title ? `: ${node.agent.task_title}` : ""}`
+      const workflow = node.workflows?.[0]
+      if (!workflow) return name
+      const words = workflowWords(workflow)
+      return `${name}, run ${workflow.run.workflow_title}, step ${words.number} of ${words.total}: ${words.title}`
+    }
     case "subagent":
       return `Sub-agent ${node.job?.label ?? node.job?.id}, ${subagentLook(node.state).label}`
     case "fold":

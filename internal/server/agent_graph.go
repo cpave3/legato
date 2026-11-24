@@ -17,16 +17,18 @@ type AgentGraphService interface {
 func (s *Server) SetAgentGraphService(svc AgentGraphService) { s.agentGraph = svc }
 
 // agentGraphHandler serves GET /api/agents/graph: each running agent's
-// repository, worktree and badges, and the links between agents that only
-// Legato's records show (recent peer messages, review runs, the Reeve's
-// watches). Without the service there are none.
+// repository, worktree, badges and places in active workflow runs, the
+// runs, and the links between agents that only Legato's records show
+// (recent peer messages, review runs, the Reeve's watches). Without the
+// service there are none.
 func (s *Server) agentGraphHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		graph := service.AgentGraph{Agents: map[string]service.AgentGraphPlace{}, Links: []service.AgentLink{}, PeerWindowSeconds: int(service.PeerMessageWindow.Seconds())}
+		graph := service.AgentGraph{Agents: map[string]service.AgentGraphPlace{}, Links: []service.AgentLink{}, PeerWindowSeconds: int(service.PeerMessageWindow.Seconds()),
+			Runs: map[string]service.AgentGraphRun{}}
 		if s.agentGraph != nil {
 			found, err := s.agentGraph.Graph(r.Context())
 			if err != nil {

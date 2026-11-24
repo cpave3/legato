@@ -125,6 +125,10 @@ export function AgentsPage() {
   // graph has an address of its own (?view=graph), to link to.
   const view = searchParams.get("view")
   const ensemble = view === "ensemble" || view === "graph"
+  // A run page's Show on agents graph names the agent and its run.
+  const graphFocus = useMemo(() => view === "graph" && (linkedTask || workflowRun)
+    ? { agentId: linkedTask ?? undefined, runId: workflowRun ?? undefined }
+    : null, [view, linkedTask, workflowRun])
   const showEnsemble = useCallback((show: boolean) => {
     const next = new URLSearchParams(searchParams)
     if (show) next.set("view", "ensemble")
@@ -823,6 +827,7 @@ export function AgentsPage() {
           onShowList={() => showEnsemble(false)}
           layout={view === "graph" ? "graph" : undefined}
           onLayout={followLayout}
+          graphFocus={graphFocus}
           stageFilter={stageFilter.stage}
           onStageFilter={stageFilter.setStage}
           contexts={contexts}

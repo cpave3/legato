@@ -12,6 +12,39 @@ export interface AgentGraphData {
   links: AgentLinkData[]
   // How long a peer message keeps its link.
   peer_window_seconds: number
+  // Each active workflow run an agent works for, by run ID.
+  runs?: Record<string, GraphRun>
+}
+
+// GraphRun is an active workflow run as the graph shows it, in the shape of
+// the runs list's runs.
+export interface GraphRun {
+  id: string
+  workflow_name: string
+  workflow_title: string
+  status: string
+  // The top-level step the run is at.
+  current_step_id: string
+  needs_attention?: boolean
+  attention_reason?: string
+  steps: { step_id: string; title: string; status: string; trigger?: string }[]
+  // The review loop's pass, while the run is at its loop.
+  pass?: number
+  created_at: string
+}
+
+// AgentWorkflowPlace is an agent's place in a run: its top-level step (node
+// "step:<step_id>" of the run's workflow graph) and its role there.
+export interface AgentWorkflowPlace {
+  run_id: string
+  step_id: string
+  role: "agent" | "interview" | "reviewer" | "author" | "awaited" | string
+}
+
+// NodeWorkflow is a place of a node's agent with its run.
+export interface NodeWorkflow {
+  place: AgentWorkflowPlace
+  run: GraphRun
 }
 
 export interface AgentPlace {
@@ -19,6 +52,8 @@ export interface AgentPlace {
   repo?: string
   worktree?: string
   badges?: AgentBadge[]
+  // The active runs it works for, the one that needs the operator first.
+  workflows?: AgentWorkflowPlace[]
 }
 
 export interface AgentBadge {
@@ -36,16 +71,17 @@ export interface AgentLinkData {
   label?: string
 }
 
-export type GraphEdgeKind = "subagent" | "swarm" | "reviewer" | "review_loop" | "reeve_watch" | "peer_message" | "worktree"
+export type GraphEdgeKind = "subagent" | "swarm" | "reviewer" | "review_loop" | "workflow" | "reeve_watch" | "peer_message" | "worktree"
 
 // Every kind of link between agents, in the order the legend names them.
-export const linkKinds: GraphEdgeKind[] = ["subagent", "swarm", "reviewer", "review_loop", "reeve_watch", "peer_message", "worktree"]
+export const linkKinds: GraphEdgeKind[] = ["subagent", "swarm", "reviewer", "review_loop", "workflow", "reeve_watch", "peer_message", "worktree"]
 
 export const linkLabels: Record<GraphEdgeKind, string> = {
   subagent: "sub-agent",
   swarm: "swarm",
   reviewer: "reviewer",
   review_loop: "review run",
+  workflow: "same run",
   reeve_watch: "Reeve watches",
   peer_message: "messaged",
   worktree: "same worktree",
@@ -96,6 +132,8 @@ export interface GraphNode {
   // A fold's count of the sub-agents it hides.
   hidden?: number
   badges?: AgentBadge[]
+  // An agent's workflow runs, the one to show first first.
+  workflows?: NodeWorkflow[]
 }
 
 export interface GraphEdge {
@@ -117,7 +155,8 @@ export interface AgentGraphLayout {
 
 // Sizes are fixed, so the layout never waits for the nodes to be measured.
 export const sizes = {
-  agent: { width: 232, height: 62 },
+  // Tall enough for a run's step strip along the foot.
+  agent: { width: 232, height: 70 },
   sub: { width: 176, height: 34 },
   reeve: { width: 132, height: 44 },
 } as const
@@ -154,6 +193,11 @@ interface SubTree {
 // the server said of them (null while it loads).
 export function layoutAgentGraph(agents: AgentInfo[], data: AgentGraphData | null, options: LayoutOptions): AgentGraphLayout {
   const places = data?.agents ?? {}
+  const runs = data?.runs ?? {}
+  const workflowsOf = (id: string): NodeWorkflow[] | undefined => {
+    const found = (places[id]?.workflows ?? []).flatMap((place) => runs[place.run_id] ? [{ place, run: runs[place.run_id] }] : [])
+    return found.length > 0 ? found : undefined
+  }
   const collapsed = options.collapsed ?? new Set<string>()
   const unfolded = options.unfolded ?? new Set<string>()
   const repoOf = (agent: AgentInfo) => places[agent.task_id]?.repo || agent.clone?.repo || ""
@@ -226,7 +270,7 @@ export function layoutAgentGraph(agents: AgentInfo[], data: AgentGraphData | nul
       shownAs.set(agent.task_id, agent.task_id)
       const tree = subTrees(agent, unfolded)
       const x = BOX_PAD
-      nodes.push({ id: agent.task_id, kind: "agent", agentId: agent.task_id, box: id, x, y, ...sizes.agent, depth: 0, agent, badges: places[agent.task_id]?.badges })
+      nodes.push({ id: agent.task_id, kind: "agent", agentId: agent.task_id, box: id, x, y, ...sizes.agent, depth: 0, agent, badges: places[agent.task_id]?.badges, workflows: workflowsOf(agent.task_id) })
       right = Math.max(right, x + sizes.agent.width)
       if (options.direction === "LR") {
         // Each leaf of the agent's tree takes a row; the agent sits at the
@@ -294,6 +338,24 @@ export function layoutAgentGraph(agents: AgentInfo[], data: AgentGraphData | nul
       link("peer_message", raw.from, raw.to, { count: raw.count, opacity: 1 - 0.75 * Math.max(0, age) / window })
     } else if (raw.kind === "review_loop" || raw.kind === "reeve_watch") {
       link(raw.kind, raw.from, raw.to, raw.label ? { label: raw.label } : {})
+    }
+  }
+  // Agents of one run are one piece of work: a chain in the order of their
+  // steps, then of when they started, between those nothing else links.
+  const members = new Map<string, { id: string; step: number; at: number }[]>()
+  ordered.forEach((agent, at) => {
+    if (agent.reeve) return
+    for (const place of places[agent.task_id]?.workflows ?? []) {
+      const run = runs[place.run_id]
+      if (!run) continue
+      const step = run.steps.findIndex((item) => item.step_id === place.step_id)
+      members.set(run.id, [...(members.get(run.id) ?? []), { id: agent.task_id, step: step < 0 ? run.steps.length : step, at }])
+    }
+  })
+  for (const [runID, list] of members) {
+    list.sort((a, b) => a.step - b.step || a.at - b.at)
+    for (let i = 1; i < list.length; i++) {
+      if (!linked.has(pairKey(list[i - 1].id, list[i].id))) link("workflow", list[i - 1].id, list[i].id, { label: runs[runID].workflow_title, opacity: 0.8 })
     }
   }
   // Agents in one worktree can message each other: a faint chain between
@@ -387,7 +449,30 @@ export function linkLines(id: string, edges: GraphEdge[], agents: AgentInfo[]): 
       case "worktree":
         out.push(`shares a worktree with ${other}`)
         break
+      case "workflow":
+        out.push(`in run “${edge.label ?? ""}” with ${other}`)
+        break
     }
   }
   return out
+}
+
+// workflowWords is what the graph says of an agent's place in a run: its
+// step's number and title, its role there in words, and where the run is
+// when that is another step.
+export function workflowWords({ place, run }: NodeWorkflow): { number: number; total: number; title: string; role: string; now: string } {
+  const index = run.steps.findIndex((step) => step.step_id === place.step_id)
+  const title = index >= 0 ? run.steps[index].title : place.step_id
+  const step = `“${title}”`
+  const pass = run.pass && place.step_id === run.current_step_id && (place.role === "reviewer" || place.role === "author") ? ` · pass ${run.pass}` : ""
+  const role = {
+    agent: `Runs ${step}`,
+    interview: `Interviewed in ${step}`,
+    reviewer: `Reviewer in ${step}`,
+    author: `Author in ${step}`,
+    awaited: `${step} starts when it ends`,
+  }[place.role] ?? `In ${step}`
+  const current = run.steps.find((item) => item.step_id === run.current_step_id)
+  const now = current && run.current_step_id !== place.step_id ? `The run is at “${current.title}”` : ""
+  return { number: index + 1, total: run.steps.length, title, role: role + pass, now }
 }

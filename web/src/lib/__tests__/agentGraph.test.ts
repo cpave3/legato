@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { AgentInfo, BackgroundJob } from "../../hooks/useWebSocket"
-import { layoutAgentGraph, type AgentGraphData, type AgentGraphLayout, type LayoutOptions } from "../agentGraph"
+import { layoutAgentGraph, linkLines, type AgentGraphData, type AgentGraphLayout, type GraphRun, type LayoutOptions } from "../agentGraph"
 
 const NOW = Date.parse("2026-11-23T10:00:00Z")
 
@@ -168,5 +168,88 @@ describe("links between agents", () => {
   it("leaves out links to agents that are not shown", () => {
     const layout = lay([agent("a")], data({ links: [{ kind: "reeve_watch", from: "reeve-1", to: "a" }] }))
     expect(layout.edges).toEqual([])
+  })
+})
+
+const run = (id: string, values: Partial<GraphRun> = {}): GraphRun => ({
+  id, workflow_name: "flow", workflow_title: `Run ${id}`, status: "running", current_step_id: "implement", created_at: "2026-11-23 09:00:00",
+  steps: [
+    { step_id: "triage", title: "Triage", status: "succeeded" },
+    { step_id: "implement", title: "Implement", status: "waiting_agent" },
+    { step_id: "review", title: "Review", status: "pending" },
+  ],
+  ...values,
+})
+
+describe("workflow runs on the graph", () => {
+  it("joins the shown agents of one run in step order, then by when they started", () => {
+    const graph = data({
+      agents: {
+        tri: { workflows: [{ run_id: "wr-1", step_id: "triage", role: "agent" }] },
+        impl: { workflows: [{ run_id: "wr-1", step_id: "implement", role: "agent" }] },
+        q: { workflows: [{ run_id: "wr-1", step_id: "implement", role: "interview" }] },
+      },
+      runs: { "wr-1": run("wr-1") },
+    })
+    const layout = lay([
+      agent("q", { started_at: "2026-11-23T08:30:00Z" }), agent("tri", { started_at: "2026-11-23T09:00:00Z" }), agent("impl", { started_at: "2026-11-23T08:00:00Z" }),
+    ], graph)
+    expect(edgeKinds(layout)).toEqual(["workflow:impl->q", "workflow:tri->impl"])
+    expect(layout.edges.find((e) => e.kind === "workflow")).toMatchObject({ label: "Run wr-1" })
+  })
+
+  it("draws no run link for an agent alone in its run, nor for one in none", () => {
+    const graph = data({ agents: { a: { workflows: [{ run_id: "wr-1", step_id: "implement", role: "agent" }] } }, runs: { "wr-1": run("wr-1") } })
+    const layout = lay([agent("a"), agent("b")], graph)
+    expect(layout.edges).toEqual([])
+    expect(node(layout, "a").workflows).toEqual([{ place: { run_id: "wr-1", step_id: "implement", role: "agent" }, run: run("wr-1") }])
+    expect(node(layout, "b").workflows).toBeUndefined()
+  })
+
+  it("puts an agent's runs on its node in the server's order, leaving out a run it does not list", () => {
+    const graph = data({
+      agents: { a: { workflows: [
+        { run_id: "wr-2", step_id: "review", role: "author" },
+        { run_id: "gone", step_id: "x", role: "agent" },
+        { run_id: "wr-1", step_id: "implement", role: "awaited" },
+      ] } },
+      runs: { "wr-1": run("wr-1"), "wr-2": run("wr-2", { current_step_id: "review" }) },
+    })
+    expect(node(lay([agent("a")], graph), "a").workflows?.map((w) => `${w.run.id}:${w.place.role}`)).toEqual(["wr-2:author", "wr-1:awaited"])
+  })
+
+  it("sends a collapsed box's run link to the box", () => {
+    const graph = data({
+      agents: {
+        a: { repo: "x/1", workflows: [{ run_id: "wr-1", step_id: "triage", role: "agent" }] },
+        b: { repo: "x/2", workflows: [{ run_id: "wr-1", step_id: "implement", role: "agent" }] },
+      },
+      runs: { "wr-1": run("wr-1") },
+    })
+    const layout = lay([agent("a"), agent("b")], graph, { collapsed: new Set(["box:x/1"]) })
+    expect(edgeKinds(layout)).toEqual(["workflow:box:x/1->b"])
+  })
+
+  it("adds no run link between agents another link joins", () => {
+    const graph = data({
+      agents: {
+        t: { workflows: [{ run_id: "wr-1", step_id: "review", role: "author" }] },
+        t_reviewer: { workflows: [{ run_id: "wr-1", step_id: "review", role: "reviewer" }] },
+      },
+      runs: { "wr-1": run("wr-1", { current_step_id: "review" }) },
+    })
+    const layout = lay([agent("t"), agent("t_reviewer", { card_task_id: "t", slot: "reviewer" })], graph)
+    expect(edgeKinds(layout)).toEqual(["reviewer:t_reviewer->t"])
+  })
+
+  it("says which run an agent shares with another", () => {
+    const graph = data({
+      agents: { a: { workflows: [{ run_id: "wr-1", step_id: "triage", role: "agent" }] }, b: { workflows: [{ run_id: "wr-1", step_id: "implement", role: "agent" }] } },
+      runs: { "wr-1": run("wr-1") },
+    })
+    const agents = [agent("a"), agent("b")]
+    const layout = lay(agents, graph)
+    expect(linkLines("a", layout.edges, agents)).toEqual(["in run “Run wr-1” with b"])
+    expect(linkLines("b", layout.edges, agents)).toEqual(["in run “Run wr-1” with a"])
   })
 })
