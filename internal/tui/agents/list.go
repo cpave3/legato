@@ -3,6 +3,7 @@ package agents
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/service"
@@ -128,7 +129,7 @@ func stateWord(state string) string {
 	case stateReeve:
 		return "waiting on the Reeve"
 	case stateReeveUnanswered:
-		return "the Reeve hasn't answered"
+		return "waiting on the Reeve"
 	default:
 		return "idle"
 	}
@@ -138,10 +139,10 @@ func stateWord(state string) string {
 // Reeve names this instance's Reeve, as the list gives it.
 func (m Model) stateWord(state string) string {
 	switch state {
-	case stateReeve:
+	case stateReeve, stateReeveUnanswered:
+		// Unanswered, it is listed under Needs you with the operator's
+		// mark; the words still say what it waits on (LEG-623).
 		return "waiting on " + m.ReeveName().Mid()
-	case stateReeveUnanswered:
-		return m.ReeveName().Mid() + " hasn't answered"
 	}
 	return stateWord(state)
 }
@@ -212,6 +213,9 @@ func unsandboxedTag() string {
 // stateDuration is the time that goes with an agent's state: how long it
 // has waited when it waits, how long it has worked otherwise.
 func (m Model) stateDuration(a service.AgentSession) string {
+	if a.WaitingOnReeve() != "" && a.ReeveWaitSince != nil {
+		return formatDuration(time.Since(*a.ReeveWaitSince))
+	}
 	if a.Activity == "waiting" {
 		return formatDuration(m.durations[a.TaskID].Waiting)
 	}

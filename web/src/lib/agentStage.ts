@@ -74,9 +74,16 @@ export function glanceSection(agent: Pick<AgentInfo, "glance" | "activity" | "st
 }
 
 // reeveUnanswered is why an agent whose question to the Reeve went
-// unanswered (no Reeve runs, or ten minutes passed) needs the operator.
-export function reeveUnanswered(reeve: ReeveName = reeveName()): string {
-  return `${reeve.start} hasn't answered`
+// unanswered (no Reeve runs, or it did not answer in time) needs the
+// operator: how long it has waited on the Reeve, from waitingSince.
+export function reeveUnanswered(waitingSince?: string, reeve: ReeveName = reeveName()): string {
+  const since = waitingSince ? Date.parse(waitingSince) : NaN
+  const minutes = Number.isNaN(since) ? 0 : Math.floor((Date.now() - since) / 60_000)
+  const label = `Waiting on ${reeve.mid}`
+  if (minutes < 1) return label
+  if (minutes < 60) return `${label} for ${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  return minutes % 60 === 0 ? `${label} for ${hours}h` : `${label} for ${hours}h ${minutes % 60}m`
 }
 
 // reeveWaitLabel is the line a list gives an agent working because it waits
@@ -91,7 +98,7 @@ export function needsYouReason(agent: AgentInfo, reeve: ReeveName = reeveName())
   if (agent.activity === "error") return "Stopped on an error"
   if (agent.activity === "waiting") return "Waiting for your answer"
   if (agent.plan_pending) return "Plan to approve"
-  if (agent.waiting_on === "reeve") return reeveUnanswered(reeve)
+  if (agent.waiting_on === "reeve") return reeveUnanswered(agent.waiting_since, reeve)
   const items = (agent.open_items ?? 0) - (agent.open_done_items ?? 0)
   if (items > 1) return `${items} items for you`
   if (items === 1) return "An item for you"

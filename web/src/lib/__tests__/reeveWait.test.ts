@@ -27,11 +27,14 @@ describe("an agent waiting on the Reeve", () => {
   it("needs you on its card once the Reeve has not answered", () => {
     const look = agentStripLook(card({ glance: "needs_you", waiting_on: "reeve", waiting_since: "2026-11-24T05:00:00Z" }))
     expect(look.label).toBe("Needs you")
-    expect(look.reason).toBe("The Reeve hasn't answered")
+    expect(look.reason).toBe("Waiting on the Reeve for 12 min")
   })
 
   it("says why it needs you, and what it waits on in the rail", () => {
-    expect(needsYouReason(agent({ glance: "needs_you", waiting_on: "reeve" }))).toBe("The Reeve hasn't answered")
+    expect(needsYouReason(agent({ glance: "needs_you", waiting_on: "reeve", waiting_since: "2026-11-24T04:56:30Z" }))).toBe("Waiting on the Reeve for 15 min")
+    expect(needsYouReason(agent({ glance: "needs_you", waiting_on: "reeve", waiting_since: "2026-11-24T03:07:00Z" }))).toBe("Waiting on the Reeve for 2h 5m")
+    // No Reeve runs to answer: needs you at once, with no time to tell.
+    expect(needsYouReason(agent({ glance: "needs_you", waiting_on: "reeve", waiting_since: "2026-11-24T05:11:50Z" }))).toBe("Waiting on the Reeve")
     expect(needsYouReason(agent({ glance: "working", waiting_on: "reeve" }))).toBe("")
     expect(reeveWaitLabel(agent({ glance: "working", waiting_on: "reeve" }))).toBe("◈ Waiting on the Reeve")
     expect(reeveWaitLabel(agent({ glance: "working" }))).toBe("")
@@ -47,8 +50,8 @@ describe("a named Reeve", () => {
   it("is named in the wait's words", () => {
     const hestia = reeveName("Hestia")
     expect(agentStripLook(card({ glance: "working", waiting_on: "reeve", waiting_since: "2026-11-24T05:00:00Z" }), hestia).label).toBe("Waiting on Hestia")
-    expect(agentStripLook(card({ glance: "needs_you", waiting_on: "reeve", waiting_since: "2026-11-24T05:00:00Z" }), hestia).reason).toBe("Hestia hasn't answered")
-    expect(needsYouReason(agent({ glance: "needs_you", waiting_on: "reeve" }), hestia)).toBe("Hestia hasn't answered")
+    expect(agentStripLook(card({ glance: "needs_you", waiting_on: "reeve", waiting_since: "2026-11-24T05:00:00Z" }), hestia).reason).toBe("Waiting on Hestia for 12 min")
+    expect(needsYouReason(agent({ glance: "needs_you", waiting_on: "reeve", waiting_since: "2026-11-24T05:00:00Z" }), hestia)).toBe("Waiting on Hestia for 12 min")
     expect(reeveWaitLabel(agent({ glance: "working", waiting_on: "reeve" }), hestia)).toBe("◈ Waiting on Hestia")
     expect(agentLook(agent({ glance: "working", waiting_on: "reeve" }), hestia).label).toBe("waiting on Hestia")
   })
