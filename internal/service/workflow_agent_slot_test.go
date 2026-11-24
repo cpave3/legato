@@ -87,7 +87,7 @@ func TestAnAgentRunStepWithASlotStartsBesideTheCardsOwnAgent(t *testing.T) {
 
 func TestASlottedStepIsRefusedWhenItsSlotIsTaken(t *testing.T) {
 	ctx := context.Background()
-	agents, s, _, workflows, first, _ := startSlotRunBesideTheCardsAgent(t, slotAgentWorkflow)
+	_, s, _, workflows, first, _ := startSlotRunBesideTheCardsAgent(t, slotAgentWorkflow)
 	triage, err := s.GetAgentSessionInSlot(ctx, "LEG-7", "triage")
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +106,6 @@ func TestASlottedStepIsRefusedWhenItsSlotIsTaken(t *testing.T) {
 	if still, err := s.GetAgentSessionInSlot(ctx, "LEG-7", "triage"); err != nil || still.ID != triage.ID || still.WorkflowRunID != first.Run.ID {
 		t.Fatalf("the first run's triage agent = %+v, %v", still, err)
 	}
-	_ = agents
 }
 
 func TestCompletingASlottedStepRemovesOnlyItsAgentUnlessItIsKept(t *testing.T) {
@@ -212,6 +211,11 @@ func TestASlottedAgentIsListedUnderTheCardWithItsStage(t *testing.T) {
 	}
 	if row := list[i]; row.CardTaskID != "LEG-7" || row.Slot != "triage" || !strings.HasSuffix(row.Title, " · triage") {
 		t.Fatalf("row = %+v", row)
+	}
+	// The card shows it as a chip of its own beside its own agent.
+	card := SummarizeRelatedAgents(list)["LEG-7"]
+	if card.Count != 1 || len(card.Slots) != 1 || card.Slots[0].Slot != "triage" || card.Slots[0].Stage == "" {
+		t.Fatalf("the card's agents = %+v", card)
 	}
 	if stage, err := s.GetWorkStage(ctx, TaskPlace("LEG-7", "triage")); err != nil || stage == nil {
 		t.Fatalf("the triage slot's stage = %+v, %v", stage, err)

@@ -50,7 +50,7 @@ const agentSessionSelect = `SELECT a.*,
 	LEFT JOIN job_clones c ON e.working_dir != '' AND c.path = e.working_dir AND c.removed_at IS NULL
 	LEFT JOIN tasks rc ON rc.id = (SELECT wr.related_task_id FROM workflow_runs wr WHERE wr.task_id = a.task_id ORDER BY wr.created_at DESC LIMIT 1)
 	LEFT JOIN agent_stages ws ON ws.task_id = a.task_id AND ws.slot = a.slot
-		AND ws.place_execution_id = CASE WHEN e.kind = 'workflow_agent' THEN e.id ELSE '' END`
+		AND ws.place_execution_id = CASE WHEN e.kind = 'workflow_agent' AND COALESCE(e.task_id, '') != a.task_id THEN e.id ELSE '' END`
 
 func (s *Store) InsertAgentSession(ctx context.Context, a AgentSession) error {
 	result, err := s.db.NamedExecContext(ctx, `
