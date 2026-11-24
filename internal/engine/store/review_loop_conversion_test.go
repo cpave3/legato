@@ -346,6 +346,51 @@ func TestConvertingTwoOpenLoopsOfOneAuthorKeepsTheNewer(t *testing.T) {
 	}
 }
 
+// AC 44: once converted, the old tables and the legato.review_loop metadata
+// key are gone; the rest of a task's metadata stays.
+func TestTheUpgradeDropsTheOldReviewTablesAndTheMetadataKey(t *testing.T) {
+	s := openBeforeReviewLoopConversion(t, reviewLoopsBeforeConversion+`
+		UPDATE tasks SET metadata = '{"legato":{"review_loop":{"run_id":"wr-c"},"kept":true},"team":"web"}' WHERE id = 'run-c';`)
+	var tables []string
+	if err := s.db.Select(&tables, `SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'handoff_review%'`); err != nil {
+		t.Fatal(err)
+	}
+	if len(tables) != 0 {
+		t.Fatalf("old review tables left: %v", tables)
+	}
+	metadata := map[string]string{}
+	rows := []struct {
+		ID       string  `db:"id"`
+		Metadata *string `db:"metadata"`
+	}{}
+	if err := s.db.Select(&rows, `SELECT id, metadata FROM tasks`); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Metadata != nil {
+			metadata[row.ID] = *row.Metadata
+		}
+	}
+	for id, raw := range metadata {
+		if strings.Contains(raw, "review_loop") {
+			t.Errorf("%s keeps the review loop metadata: %s", id, raw)
+		}
+	}
+	if metadata["run-c"] != `{"legato":{"kept":true},"team":"web"}` {
+		t.Errorf("run-c's metadata = %s; want the other keys kept", metadata["run-c"])
+	}
+	if _, ok := metadata["run-a"]; ok {
+		t.Errorf("run-a's metadata = %s; want none (it held only the review loop)", metadata["run-a"])
+	}
+	if metadata["card-h"] != `{"other":1}` {
+		t.Errorf("card-h's metadata = %s", metadata["card-h"])
+	}
+	// The converted loops are what remains of them.
+	if l := convertedLoop(t, s, "run-a"); l.RunID != "wr-a" || l.CloneDir != "/jobs/att-a1/widget" {
+		t.Fatalf("run A's loop = %+v", l)
+	}
+}
+
 // Invariant 9: a converted loop is approved only when it was: clean, not
 // waiting for a confirm of GitHub's heads, and ended by its own success.
 // Run ok succeeded after its confirm. Run cancel was cancelled after its

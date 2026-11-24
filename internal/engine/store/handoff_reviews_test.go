@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -93,9 +94,10 @@ func TestReviewFindingsWithTheSameIDBelongToTheirOwnLoop(t *testing.T) {
 	}
 }
 
-// openBeforeReviewItemsPerLoop opens a database migrated up to the
+// openBeforeReviewItemsPerLoop opens a database migrated through the
 // migration that keys review items by their loop, with seed run on it
-// first.
+// first. It stops there: the conversion later copies the old tables onto
+// the loop record and a later migration drops them.
 func openBeforeReviewItemsPerLoop(t *testing.T, seed string) *Store {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "before-items-per-loop.db")
@@ -110,10 +112,7 @@ func openBeforeReviewItemsPerLoop(t *testing.T, seed string) *Store {
 	if err := before.Close(); err != nil {
 		t.Fatal(err)
 	}
-	s, err := New(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := newStoreAtMigration(t, path, migrations[at])
 	t.Cleanup(func() { s.Close() })
 	return s
 }
@@ -126,8 +125,6 @@ func TestKeyingReviewItemsByLoopKeepsEveryRow(t *testing.T) {
 		INSERT INTO handoff_review_items (id, task_id, kind, pass, repo, pr, version, title, answer, posted, created_at, delivered)
 			VALUES ('k-7-build', 'card', 'check', 2, 'acme/widget', 7, 3, 'Check build: failure', 'fixed', 1, '2024-01-01T00:00:00Z', 1);
 	`)
-	// The old tables, as this migration left them (the conversion copies
-	// them onto the loop record later).
 	var findings []HandoffReviewFinding
 	if err := s.db.Select(&findings, `SELECT * FROM handoff_review_findings WHERE task_id = 'card'`); err != nil {
 		t.Fatal(err)
@@ -159,8 +156,6 @@ func TestKeyingReviewItemsByLoopEndsLoopsOfEndedHandoffs(t *testing.T) {
 		INSERT INTO handoff_review_passes (task_id, pass, state, started_at) VALUES
 			('recalled', 1, 'reviewing', 'now'), ('returning', 1, 'posted', 'now'), ('open', 1, 'reviewing', 'now'), ('run', 1, 'reviewing', 'now');
 	`)
-	// The old tables, as this migration left them (the conversion copies
-	// them onto the loop record later).
 	for task, want := range map[string][2]string{
 		"recalled":  {"ended", "discarded"},
 		"returning": {"ended", "posted"},
@@ -177,5 +172,63 @@ func TestKeyingReviewItemsByLoopEndsLoopsOfEndedHandoffs(t *testing.T) {
 		if phase != want[0] || state != want[1] {
 			t.Errorf("%s: loop %q, pass %q; want %q, %q", task, phase, state, want[0], want[1])
 		}
+	}
+}
+
+// handedOffCard is a card a main handed off to this worker, its handoff open.
+func handedOffCard(t *testing.T, s *Store, card string) {
+	t.Helper()
+	h := Handoff{MainInstanceID: "main-1", HandoffID: "h-" + card, MainName: "main", MainTaskID: "mt-" + card, TaskID: card,
+		Purpose: "make_change", Kind: "local", Repo: "acme/widget", Branch: "feat", AgentKind: "codex", State: HandoffInProgress,
+		RequestHash: "x", CreatedAt: "2026-11-01T09:00:00Z", UpdatedAt: "2026-11-01T09:00:00Z"}
+	if err := s.CreateHandoffCard(context.Background(), Task{ID: card, Title: card, Status: "Doing", CreatedAt: "2024-01-01", UpdatedAt: "2024-01-01"}, nil, h); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A handed-off card's loop, made on its first write, is authored by the
+// card's agent, as a loop converted from before the loop record is: so an
+// agent-authored run by the card is refused alike on a new and an upgraded
+// database.
+func TestAHandedOffCardsLoopIsAuthoredByTheCardsAgent(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	handedOffCard(t, s, "card")
+	if err := s.SaveHandoffReview(ctx, HandoffReview{TaskID: "card", Phase: "ready", UpdatedAt: loopAt}); err != nil {
+		t.Fatal(err)
+	}
+	loop, err := s.CurrentReviewLoop(ctx, "card")
+	if err != nil || loop == nil {
+		t.Fatalf("loop = %+v, %v", loop, err)
+	}
+	if !loop.AgentAuthor || loop.AuthorTask != "card" || loop.LinkedTask != "card" || loop.HandoffID != "h-card" || loop.MainInstanceID != "main-1" {
+		t.Fatalf("the card's loop = %+v; want it authored by the card's agent and owned by its handoff", loop)
+	}
+
+	run := runLoop(t, s, "run-1", "acme/widget", 12)
+	run.Loop.AgentAuthor, run.Loop.AuthorTask = true, "card"
+	_, _, err = s.OpenReviewLoop(ctx, run)
+	var conflict *ReviewLoopConflictError
+	if !errors.Is(err, ErrAuthorLoopActive) || !errors.As(err, &conflict) || conflict.LoopID != loop.ID {
+		t.Fatalf("an agent-authored run by the card: %v; want it refused naming %s", err, loop.ID)
+	}
+}
+
+// A card whose agent already authors a run's open loop still gets its
+// handoff's loop on its first write: the handoff reviews as it did before
+// the loop record, and its loop is not counted as the agent's.
+func TestAHandedOffCardsLoopIsMadeWhileItsAgentAuthorsARunsLoop(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	handedOffCard(t, s, "card")
+	run := runLoop(t, s, "run-1", "acme/widget", 12)
+	run.Loop.AgentAuthor, run.Loop.AuthorTask = true, "card"
+	mustOpen(t, s, run)
+	if err := s.SaveHandoffReview(ctx, HandoffReview{TaskID: "card", Phase: "ready", UpdatedAt: loopAt}); err != nil {
+		t.Fatal(err)
+	}
+	loop, err := s.CurrentReviewLoop(ctx, "card")
+	if err != nil || loop == nil || loop.HandoffID != "h-card" || loop.AgentAuthor {
+		t.Fatalf("loop = %+v, %v", loop, err)
 	}
 }

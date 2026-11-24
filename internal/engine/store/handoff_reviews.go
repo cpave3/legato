@@ -13,10 +13,9 @@ import (
 // The review engine's view of the loop record (review_loops.go), keyed by
 // the task that hosts each loop (host_task): a handed-off card, or a
 // workflow run's own task. A task's loop is its open one, else its newest
-// (closed ones are history). Nothing here reads or writes handoff_review*:
-// those tables are left from before the conversion (migration 148) until
-// they are dropped. See docs/ai/database.md § Loop record › The engine's
-// view.
+// (closed ones are history). The names are those of handoff_review*, the
+// tables the loop record replaced: migration 148 converted them and 149
+// dropped them. See docs/ai/database.md § Loop record › The engine's view.
 
 // HandoffReview is one task's review loop, as the engine reads and writes
 // it: the loop record's phase, counters and settings.
@@ -280,7 +279,17 @@ func newHostedReviewLoop(ctx context.Context, tx *sqlx.Tx, taskID string) (*Revi
 		MainInstanceID: h.MainInstanceID, HostTask: taskID, Repo: h.Repo, State: ReviewLoopOpenState,
 		Replies: "[]", MarkerKey: id, CreatedAt: now, UpdatedAt: now}
 	if h.HandoffID != "" {
+		// The card's agent authors it, as it does a converted handoff
+		// loop: one agent-authored loop per author holds alike on a new
+		// and an upgraded database. When the agent already authors a run's
+		// open loop, the handoff still reviews, as it did before the loop
+		// record, and its loop is not counted as the agent's.
 		l.AuthorTask, l.LinkedTask = taskID, taskID
+		var other int
+		if err := tx.GetContext(ctx, &other, `SELECT COUNT(*) FROM review_loops WHERE author_task = ? AND agent_author = 1 AND state = 'open'`, taskID); err != nil {
+			return nil, err
+		}
+		l.AgentAuthor = other == 0
 	}
 	if _, err := tx.NamedExecContext(ctx, `INSERT INTO review_loops (`+reviewLoopColumns+`) VALUES (`+reviewLoopValues+`)`, l); err != nil {
 		return nil, err
