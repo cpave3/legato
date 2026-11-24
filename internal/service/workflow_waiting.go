@@ -47,6 +47,7 @@ func (s *WorkflowService) CompleteWaiting(ctx context.Context, runID, stepID, at
 	if err := s.store.CompleteWorkflowStep(ctx, runID, stepID, attemptID, string(encoded), next); err != nil {
 		return nil, err
 	}
+	s.changed(runID, stepID, WorkflowChangeStepCompleted)
 	prior[stepID] = outputs
 	if next != "" {
 		if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index+1, prior, "", false); err != nil {
@@ -68,6 +69,7 @@ func (s *WorkflowService) FailWaiting(ctx context.Context, runID, stepID, attemp
 	if err := s.store.FailWorkflowStep(ctx, runID, stepID, attemptID, reason); err != nil {
 		return nil, err
 	}
+	s.changed(runID, stepID, WorkflowChangeStepFailed)
 	return s.store.GetWorkflowRun(ctx, runID)
 }
 

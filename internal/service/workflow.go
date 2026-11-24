@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
@@ -67,6 +68,10 @@ type WorkflowService struct {
 	// resumedAgents stops the one it started (LEG-614).
 	resumer       AgentResumer
 	resumedAgents AgentKiller
+	// bus and changeListener are told of every change to a run's state
+	// (workflow_events.go).
+	bus            *events.Bus
+	changeListener func(events.WorkflowChangedPayload)
 }
 
 func NewWorkflowService(s *store.Store, executors []WorkflowExecutor) *WorkflowService {
@@ -194,6 +199,7 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 	if err := s.store.CreateWorkflowRun(ctx, run, steps); err != nil {
 		return nil, err
 	}
+	s.changed(runID, "", WorkflowChangeRunStarted)
 	if err := s.advance(ctx, definition, inputs, runID, taskID, 0, map[string]map[string]any{}, "", false); err != nil {
 		// The run is already durable and the executor records its failure.
 		// Return that visible run instead of encouraging an accidental duplicate launch.
@@ -381,6 +387,7 @@ func (s *WorkflowService) TriggerStep(ctx context.Context, runID, stepID string,
 	if err := s.store.TriggerWorkflowStep(ctx, runID, stepID); err != nil {
 		return nil, err
 	}
+	s.changed(runID, stepID, WorkflowChangeStepTriggered)
 	if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index, prior, stepID, force); err != nil {
 		updated, loadErr := s.store.GetWorkflowRun(ctx, runID)
 		if loadErr != nil {
@@ -440,6 +447,7 @@ func (s *WorkflowService) Fail(ctx context.Context, runID, stepID, attemptID, re
 	if err := s.store.FailWorkflowStep(ctx, runID, stepID, attemptID, reason); err != nil {
 		return nil, err
 	}
+	s.changed(runID, stepID, WorkflowChangeStepFailed)
 	return s.store.GetWorkflowRun(ctx, runID)
 }
 
@@ -454,6 +462,7 @@ func (s *WorkflowService) Retry(ctx context.Context, runID, stepID string, force
 	if err := s.store.ResetWorkflowStepForRetry(ctx, runID, stepID); err != nil {
 		return nil, err
 	}
+	s.changed(runID, stepID, WorkflowChangeStepRetried)
 	if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index, prior, stepID, force); err != nil {
 		return nil, err
 	}
@@ -477,6 +486,7 @@ func (s *WorkflowService) Cancel(ctx context.Context, runID, reason string) (*st
 	if err := s.store.CancelWorkflowRun(ctx, runID, reason); err != nil {
 		return nil, err
 	}
+	s.changed(runID, "", WorkflowChangeRunCancelled)
 	return s.store.GetWorkflowRun(ctx, runID)
 }
 
@@ -516,6 +526,7 @@ func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID
 	if err := s.store.RecordWorkflowStepCompletion(ctx, runID, stepID, attemptID, string(encoded), next); err != nil {
 		return nil, err
 	}
+	s.changed(runID, stepID, WorkflowChangeStepCompleted)
 	// The stage is set where the step is recorded, while the agent's
 	// session still exists: the host's Finish removes it.
 	s.finishStepStage(ctx, *attempt)
@@ -614,9 +625,11 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 		agentGone := step.Start == workflowengine.StartAgentEnded && !s.taskHasRunningAgent(ctx, taskID)
 		if step.WaitsForPerson() && !isTriggered && !agentGone {
 			resolvedJSON, _ := json.Marshal(resolved.With)
-			if err := s.store.WaitWorkflowStepManual(ctx, runID, workflowengine.StepPath("", step.ID), string(resolvedJSON)); err != nil {
+			path := workflowengine.StepPath("", step.ID)
+			if err := s.store.WaitWorkflowStepManual(ctx, runID, path, string(resolvedJSON)); err != nil {
 				return err
 			}
+			s.changed(runID, path, WorkflowChangeStepWaiting)
 			return nil
 		}
 		attemptID := workflowID("wa-")
@@ -637,16 +650,26 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 		if err := s.store.StartWorkflowStepAttempt(ctx, attempt, string(resolvedJSON)); err != nil {
 			return err
 		}
+		s.changed(runID, path, WorkflowChangeStepStarted)
 		result, execErr := s.executors[step.Type].Start(ctx, ResolvedWorkflowStep{RunID: runID, AttemptID: attemptID, TaskID: taskID, RelatedTaskID: view.Run.RelatedTaskID, StepID: path, Title: step.Title, Type: step.Type, With: resolved.With, Outputs: resolved.Outputs})
 		if execErr != nil {
-			_ = s.store.FailWorkflowStep(ctx, runID, path, attemptID, execErr.Error())
+			if err := s.store.FailWorkflowStep(ctx, runID, path, attemptID, execErr.Error()); err == nil {
+				s.changed(runID, path, WorkflowChangeStepFailed)
+			}
 			return execErr
 		}
-		if result.Status == "waiting_agent" {
-			return s.store.MarkWorkflowStepWaiting(ctx, runID, path, attemptID, result.AgentSession, result.WorkingDir, result.TaskID)
-		}
-		if result.Status == WorkflowStepWaiting {
-			return s.store.WaitWorkflowStepOnService(ctx, runID, path, attemptID)
+		if result.Status == "waiting_agent" || result.Status == WorkflowStepWaiting {
+			var err error
+			if result.Status == "waiting_agent" {
+				err = s.store.MarkWorkflowStepWaiting(ctx, runID, path, attemptID, result.AgentSession, result.WorkingDir, result.TaskID)
+			} else {
+				err = s.store.WaitWorkflowStepOnService(ctx, runID, path, attemptID)
+			}
+			if err != nil {
+				return err
+			}
+			s.changed(runID, path, WorkflowChangeStepWaiting)
+			return nil
 		}
 		if result.Status != "succeeded" {
 			return fmt.Errorf("executor %q returned invalid status %q", step.Type, result.Status)
@@ -659,6 +682,7 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 		if err := s.store.CompleteWorkflowStep(ctx, runID, path, attemptID, string(outputsJSON), next); err != nil {
 			return err
 		}
+		s.changed(runID, path, WorkflowChangeStepCompleted)
 		prior[step.ID] = result.Outputs
 		index++
 	}
