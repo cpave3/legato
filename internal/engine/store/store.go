@@ -49,6 +49,18 @@ type SchemaStatus struct {
 	Supported int
 }
 
+// SupportedSchema is the newest schema revision this binary knows: the
+// number of its migrations (SchemaStatus's Supported).
+func SupportedSchema() int {
+	return len(migrations)
+}
+
+// Newer says whether the database is at a schema newer than this binary
+// knows: a newer Legato migrated it while this one ran.
+func (s SchemaStatus) Newer() bool {
+	return s.Current > s.Supported
+}
+
 func New(dbPath string) (*Store, error) {
 	db, err := openChecked(dbPath)
 	if err != nil {

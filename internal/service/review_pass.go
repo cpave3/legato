@@ -212,6 +212,10 @@ type ReviewPassService struct {
 	waitMu  sync.Mutex
 	waiting map[string]string
 	lastErr map[string]string
+
+	// schemaOnce logs, once, that the tick stopped on a schema newer than
+	// this binary knows.
+	schemaOnce sync.Once
 }
 
 // What a ready loop waits on before its next pass starts (ReviewLoopBlock's
@@ -340,6 +344,9 @@ func encodeJSON(v any) (string, error) {
 // as reviewers free up.
 func (s *ReviewPassService) Tick(ctx context.Context) {
 	if !s.config().Enabled {
+		return
+	}
+	if !s.schemaKnown(ctx) {
 		return
 	}
 	// Steps any process started open here first (spec LEG-559 D9). Not
