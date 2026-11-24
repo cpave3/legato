@@ -25,6 +25,11 @@ func reviewedRun(t *testing.T) *Store {
 	if err := s.WaitWorkflowStepOnService(ctx, "wr-1", "review", "wa-1"); err != nil {
 		t.Fatal(err)
 	}
+	// The step's loop, owned by its run attempt.
+	if _, _, err := s.OpenReviewLoop(ctx, ReviewLoopOpen{Loop: ReviewLoop{OwnerKind: ReviewLoopOwnerRun, RunID: "wr-1", StepPath: "review",
+		AttemptID: "wa-1", HostTask: "run-task", Repo: "acme/widget", MarkerKey: "run-task"}, PRs: []ReviewLoopPR{{Number: 7}}}); err != nil {
+		t.Fatal(err)
+	}
 	reviewing(t, s, "run-task")
 	return s
 }

@@ -126,16 +126,17 @@ func TestKeyingReviewItemsByLoopKeepsEveryRow(t *testing.T) {
 		INSERT INTO handoff_review_items (id, task_id, kind, pass, repo, pr, version, title, answer, posted, created_at, delivered)
 			VALUES ('k-7-build', 'card', 'check', 2, 'acme/widget', 7, 3, 'Check build: failure', 'fixed', 1, '2024-01-01T00:00:00Z', 1);
 	`)
-	ctx := context.Background()
-	findings, err := s.ListHandoffReviewFindings(ctx, "card")
-	if err != nil {
+	// The old tables, as this migration left them (the conversion copies
+	// them onto the loop record later).
+	var findings []HandoffReviewFinding
+	if err := s.db.Select(&findings, `SELECT * FROM handoff_review_findings WHERE task_id = 'card'`); err != nil {
 		t.Fatal(err)
 	}
 	if len(findings) != 1 || findings[0].ID != "f-1" || findings[0].CommentID != 501 || findings[0].Status != "resolved" || findings[0].Ruling != "bounded" {
 		t.Fatalf("findings = %+v", findings)
 	}
-	item, err := s.GetHandoffReviewItem(ctx, "card", "k-7-build")
-	if err != nil {
+	var item HandoffReviewItem
+	if err := s.db.Get(&item, `SELECT * FROM handoff_review_items WHERE task_id = 'card' AND id = 'k-7-build'`); err != nil {
 		t.Fatal(err)
 	}
 	if item.Version != 3 || item.Answer != "fixed" || !item.Posted || !item.Delivered || item.Repo != "acme/widget" {
@@ -158,23 +159,23 @@ func TestKeyingReviewItemsByLoopEndsLoopsOfEndedHandoffs(t *testing.T) {
 		INSERT INTO handoff_review_passes (task_id, pass, state, started_at) VALUES
 			('recalled', 1, 'reviewing', 'now'), ('returning', 1, 'posted', 'now'), ('open', 1, 'reviewing', 'now'), ('run', 1, 'reviewing', 'now');
 	`)
-	ctx := context.Background()
+	// The old tables, as this migration left them (the conversion copies
+	// them onto the loop record later).
 	for task, want := range map[string][2]string{
 		"recalled":  {"ended", "discarded"},
 		"returning": {"ended", "posted"},
 		"open":      {"reviewing", "reviewing"},
 		"run":       {"reviewing", "reviewing"},
 	} {
-		loop, err := s.GetHandoffReview(ctx, task)
-		if err != nil {
+		var phase, state string
+		if err := s.db.Get(&phase, `SELECT phase FROM handoff_reviews WHERE task_id = ?`, task); err != nil {
 			t.Fatal(err)
 		}
-		pass, err := s.GetHandoffReviewPass(ctx, task, 1)
-		if err != nil {
+		if err := s.db.Get(&state, `SELECT state FROM handoff_review_passes WHERE task_id = ? AND pass = 1`, task); err != nil {
 			t.Fatal(err)
 		}
-		if loop.Phase != want[0] || pass.State != want[1] {
-			t.Errorf("%s: loop %q, pass %q; want %q, %q", task, loop.Phase, pass.State, want[0], want[1])
+		if phase != want[0] || state != want[1] {
+			t.Errorf("%s: loop %q, pass %q; want %q, %q", task, phase, state, want[0], want[1])
 		}
 	}
 }

@@ -10,8 +10,8 @@ import (
 func crashOnLoopWrite(t *testing.T, s *Store) func() {
 	t.Helper()
 	for _, q := range []string{
-		`CREATE TRIGGER crash_loop_insert BEFORE INSERT ON handoff_reviews BEGIN SELECT RAISE(ABORT, 'crash between writes'); END`,
-		`CREATE TRIGGER crash_loop_update BEFORE UPDATE ON handoff_reviews BEGIN SELECT RAISE(ABORT, 'crash between writes'); END`,
+		`CREATE TRIGGER crash_loop_insert BEFORE INSERT ON review_loops BEGIN SELECT RAISE(ABORT, 'crash between writes'); END`,
+		`CREATE TRIGGER crash_loop_update BEFORE UPDATE ON review_loops BEGIN SELECT RAISE(ABORT, 'crash between writes'); END`,
 	} {
 		if _, err := s.db.Exec(q); err != nil {
 			t.Fatal(err)
@@ -216,7 +216,7 @@ func TestASubmissionIsWrittenWholeOrNotAtAll(t *testing.T) {
 	if err := s.StartHandoffReviewPass(ctx, HandoffReviewPass{TaskID: "widget-card", Pass: 2, State: "reviewing", StartedAt: "2024-01-02T00:00:00Z"}, nil, next); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`CREATE TRIGGER crash_pass_update BEFORE UPDATE ON handoff_review_passes BEGIN SELECT RAISE(ABORT, 'crash between writes'); END`); err != nil {
+	if _, err := s.db.Exec(`CREATE TRIGGER crash_pass_update BEFORE UPDATE ON review_loop_passes BEGIN SELECT RAISE(ABORT, 'crash between writes'); END`); err != nil {
 		t.Fatal(err)
 	}
 	err := s.SubmitHandoffReviewPass(ctx, HandoffReviewPass{TaskID: "widget-card", Pass: 2, State: "submitted", Verdict: "changes"},

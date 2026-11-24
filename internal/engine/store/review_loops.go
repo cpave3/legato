@@ -340,10 +340,15 @@ type ReviewLoopOpen struct {
 }
 
 // ReviewLoopOwner names who may write to a loop.
+// A run owner may name its step attempt (AttemptID), and a handoff owner
+// its main instance (MainInstanceID, as handoff IDs are unique per main);
+// each, when set, must match too.
 type ReviewLoopOwner struct {
-	Kind      string
-	RunID     string
-	HandoffID string
+	Kind           string
+	RunID          string
+	AttemptID      string
+	HandoffID      string
+	MainInstanceID string
 }
 
 func (o ReviewLoopOwner) owns(l *ReviewLoop) bool {
@@ -351,9 +356,9 @@ func (o ReviewLoopOwner) owns(l *ReviewLoop) bool {
 		return false
 	}
 	if o.Kind == ReviewLoopOwnerRun {
-		return o.RunID == l.RunID
+		return o.RunID == l.RunID && (o.AttemptID == "" || o.AttemptID == l.AttemptID)
 	}
-	return o.HandoffID == l.HandoffID
+	return o.HandoffID == l.HandoffID && (o.MainInstanceID == "" || o.MainInstanceID == l.MainInstanceID)
 }
 
 func reviewLoopNow() string { return time.Now().UTC().Format(time.RFC3339) }
@@ -563,30 +568,52 @@ func (s *Store) UpdateReviewLoop(ctx context.Context, id string, rev int64, chan
 	if l.Rev != rev {
 		return nil, fmt.Errorf("%w: review loop %s is at rev %d, not %d", ErrConflict, id, l.Rev, rev)
 	}
+	read := *l
 	rt := &ReviewLoopTx{Loop: l, ctx: ctx, tx: tx}
 	if err := change(rt); err != nil {
 		return nil, err
 	}
-	next := *rt.Loop
-	next.ID = id
-	next.Rev = rev + 1
-	if next.UpdatedAt == l.UpdatedAt || next.UpdatedAt == "" {
-		next.UpdatedAt = reviewLoopNow()
-	}
-	if next.Replies == "" {
-		next.Replies = "[]"
-	}
-	result, err := tx.NamedExecContext(ctx, `UPDATE review_loops SET `+reviewLoopUpdates+`, rev = :rev WHERE id = :id AND rev = `+fmt.Sprint(rev), next)
-	if err != nil {
+	if err := writeReviewLoop(ctx, tx, read, *rt.Loop); err != nil {
 		return nil, err
-	}
-	if n, _ := result.RowsAffected(); n != 1 {
-		return nil, fmt.Errorf("%w: review loop %s moved on", ErrConflict, id)
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return getReviewLoop(ctx, s.db, id)
+}
+
+// writeReviewLoop writes next over the loop read, a compare-and-swap on
+// read's rev: a loop that moved on since is ErrConflict.
+func writeReviewLoop(ctx context.Context, tx *sqlx.Tx, read, next ReviewLoop) error {
+	next.ID = read.ID
+	next.Rev = read.Rev + 1
+	if next.UpdatedAt == read.UpdatedAt || next.UpdatedAt == "" {
+		next.UpdatedAt = reviewLoopNow()
+	}
+	if next.Replies == "" {
+		next.Replies = "[]"
+	}
+	result, err := tx.NamedExecContext(ctx, `UPDATE review_loops SET `+reviewLoopUpdates+`, rev = :rev WHERE id = :id AND rev = `+fmt.Sprint(read.Rev), next)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n != 1 {
+		return fmt.Errorf("%w: review loop %s moved on", ErrConflict, read.ID)
+	}
+	return nil
+}
+
+// SetLocalBranch records the branch of the reviewer's clone a layer is put
+// on.
+func (t *ReviewLoopTx) SetLocalBranch(number int, branch string) error {
+	result, err := t.tx.ExecContext(t.ctx, `UPDATE review_loop_prs SET local_branch = ? WHERE loop_id = ? AND number = ?`, branch, t.Loop.ID, number)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // AddPR adds a layer to the loop and claims it, after the layers it has. A
@@ -854,15 +881,7 @@ func (s *Store) CloseReviewLoop(ctx context.Context, id, outcome, at string) (*R
 	if l.State != ReviewLoopOpenState {
 		return l, false, nil
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM review_loop_claims WHERE loop_id = ?`, id); err != nil {
-		return nil, false, err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE review_loop_passes SET state = 'discarded', ended_at = ?
-		WHERE loop_id = ? AND state IN `+reviewLoopInFlight, at, id); err != nil {
-		return nil, false, err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE review_loops SET state = 'closed', outcome = ?, closed_at = ?, updated_at = ?, rev = rev + 1
-		WHERE id = ?`, outcome, at, at, id); err != nil {
+	if err := closeReviewLoopTx(ctx, tx, id, outcome, at); err != nil {
 		return nil, false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -870,6 +889,21 @@ func (s *Store) CloseReviewLoop(ctx context.Context, id, outcome, at string) (*R
 	}
 	l, err = getReviewLoop(ctx, s.db, id)
 	return l, true, err
+}
+
+// closeReviewLoopTx closes an open loop in a transaction: its claims
+// released, a pass in flight discarded, it marked closed with outcome.
+func closeReviewLoopTx(ctx context.Context, tx *sqlx.Tx, id, outcome, at string) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM review_loop_claims WHERE loop_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE review_loop_passes SET state = 'discarded', ended_at = ?
+		WHERE loop_id = ? AND state IN `+reviewLoopInFlight, at, id); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE review_loops SET state = 'closed', outcome = ?, closed_at = ?, updated_at = ?, rev = rev + 1
+		WHERE id = ?`, outcome, at, at, id)
+	return err
 }
 
 const reviewLoopColumns = `id, rev, owner_kind, run_id, step_path, attempt_id, handoff_id, handoff_columns, main_instance_id, host_task, repo,
