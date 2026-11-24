@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AgentEnsemble } from "../AgentEnsemble"
+import { subagentFleet } from "../../test/subagentFleet"
 import type { AgentInfo } from "../../hooks/useWebSocket"
 import type { AgentConversation } from "../../lib/agentGlance"
 
@@ -64,6 +65,12 @@ describe("AgentEnsemble", () => {
     ])
 
     expect(within(tile("LEG-1")).getByText(/background · bash: npm run build/)).toBeTruthy()
+  })
+
+  it("counts the sub-agents of an agent in the background that wait on shells", () => {
+    show([agent({ task_id: "LEG-559", activity: "background", background_jobs: subagentFleet() })])
+
+    expect(within(tile("LEG-559")).getByText("background · 7 sub-agents · 1 working · 6 waiting on shells")).toBeTruthy()
   })
 
   it("shows every agent as a tile, the ones that need the person first", () => {

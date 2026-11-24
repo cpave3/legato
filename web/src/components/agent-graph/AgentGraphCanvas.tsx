@@ -110,7 +110,7 @@ function SubagentNode({ data, selected }: NodeProps<FlowNode>) {
   )}>
     <Handles />
     <span aria-hidden="true" className={look.text}>{look.glyph}</span>
-    <span className="truncate" title={node.job?.label}>{node.job?.label || node.job?.id}</span>
+    <span className="truncate" title={[node.job?.label, node.waitsOn].filter(Boolean).join(" · ")}>{node.job?.label || node.job?.id}</span>
   </div>
 }
 
@@ -345,7 +345,7 @@ function nodeName(node: GraphNode, reeve: ReeveName): string {
       return `${name}, run ${workflow.run.workflow_title}, step ${words.number} of ${words.total}: ${words.title}`
     }
     case "subagent":
-      return `Sub-agent ${node.job?.label ?? node.job?.id}, ${subagentLook(node.state).label}`
+      return `Sub-agent ${node.job?.label ?? node.job?.id}, ${node.waitsOn ?? subagentLook(node.state).label}`
     case "fold":
       return `${node.hidden} more sub-agents`
   }

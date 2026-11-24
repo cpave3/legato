@@ -8,6 +8,7 @@ import type { AgentInfo, WSMessage } from "../../hooks/useWebSocket"
 import type { AgentGraphData, GraphRun } from "../../lib/agentGraph"
 import { createQueryClient } from "../../lib/query"
 import { mockReactFlow } from "../../test/reactFlow"
+import { subagentFleet } from "../../test/subagentFleet"
 
 mockReactFlow()
 
@@ -82,6 +83,18 @@ describe("the ensemble's graph", () => {
     expect(handlers.onSend).toHaveBeenCalledWith("LEG-1", "Rebase first")
     fireEvent.click(within(card).getByRole("button", { name: "Open LEG-1" }))
     expect(handlers.onOpen).toHaveBeenCalledWith("LEG-1")
+  })
+
+  it("says what its sub-agents do, those waiting on shells apart from those working", async () => {
+    show([agent({ task_id: "LEG-559", activity: "background", background_jobs: subagentFleet() })], { layout: "graph" })
+
+    expect(await node(/^Sub-agent general-purpose: LEG-561 bridge, working$/)).toBeInTheDocument()
+    fireEvent.click(await node(/^Sub-agent general-purpose: LEG-562 ticket, waiting on 2 shells$/))
+
+    const card = await screen.findByRole("region", { name: "LEG-559" })
+    expect(within(card).getByText("◌ waiting on 2 shells")).toBeInTheDocument()
+    expect(within(card).getByText("7 sub-agents · 1 working · 6 waiting on shells")).toBeInTheDocument()
+    expect(within(card).queryByText(/sub-agents running/)).toBeNull()
   })
 
   it("opens an agent on a double-click", async () => {
