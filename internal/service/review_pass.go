@@ -115,6 +115,10 @@ type ReviewGitHub interface {
 	// merged): its head is read again before a pass's reviews are
 	// posted.
 	PullRequest(ctx context.Context, repo string, number int) (ReviewGitHubPR, string, error)
+	// PullDiff is the pull request's own diff at its head (GitHub's,
+	// against its base): the head's changed lines, first and last, by
+	// file. nil when GitHub could not say.
+	PullDiff(ctx context.Context, repo string, number int) (map[string][][2]int, error)
 	PostReview(ctx context.Context, post ReviewPost) (PostedReview, error)
 	// PostIssueComment and Reply post once by marker: a comment GitHub
 	// already has with the marker is taken for it.

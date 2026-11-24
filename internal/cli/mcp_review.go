@@ -30,7 +30,7 @@ type reviewFindingInput struct {
 	Place    *reviewPlaceInput `json:"place,omitempty" jsonschema:"where it is, when it is about particular lines"`
 	// FailureScenario is required on a blocking finding.
 	FailureScenario string `json:"failure_scenario,omitempty" jsonschema:"required when blocking: what happens, and what goes wrong (who or what triggers it, and the result)"`
-	Critical        string `json:"critical,omitempty" jsonschema:"on a later pass only, for a new blocking finding on code that did not change since the pass before: why it cannot wait"`
+	Critical        string `json:"critical,omitempty" jsonschema:"on a later pass only, for a new blocking finding not on lines that changed since the last posted pass and are in the pull request's own diff: why it cannot wait"`
 }
 
 type reviewRulingInput struct {

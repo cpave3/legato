@@ -31,8 +31,9 @@ type SubmittedFinding struct {
 	// FailureScenario is how a blocking finding fails: what happens, and
 	// what goes wrong. Required for blocking; posted with the finding.
 	FailureScenario string `json:"failure_scenario,omitempty"`
-	// Critical is why a new blocking finding of a later pass, on code
-	// that did not change since the pass before, cannot wait.
+	// Critical is why a new blocking finding of a later pass, not on
+	// lines both changed since the last posted pass and in the pull
+	// request's own diff, cannot wait.
 	Critical string `json:"critical,omitempty"`
 }
 
@@ -259,52 +260,81 @@ func (s *ReviewPassService) validate(ctx context.Context, pass *store.HandoffRev
 	return problems
 }
 
-// outsideChanges lists a later pass's new blocking findings that are not on
-// what changed since the pass before and are not critical. A pull request
-// the pass before did not review is new in full.
+// outsideChanges lists a later pass's new blocking findings that are not
+// critical and not on lines both changed since the last posted pass and in
+// the pull request's own diff at its head (D3): after a rebase, what
+// changed since includes the base's lines, which are not the pull
+// request's. A pull request the last posted pass did not review is new in
+// full: its own diff alone. A pass with no posted pass before it reviews
+// in full. What cannot be read (a diff, GitHub) holds no finding to it.
 func (s *ReviewPassService) outsideChanges(ctx context.Context, pass *store.HandoffReviewPass, prs []store.HandoffReviewPR, sub ReviewSubmission) []string {
-	if pass.Pass < 2 {
+	since, err := s.lastPostedPass(ctx, pass.TaskID, pass.Pass)
+	if err != nil || since == 0 {
 		return nil
 	}
-	previous, err := s.db.ListHandoffReviewPRs(ctx, pass.TaskID, pass.Pass-1)
+	previous, err := s.db.ListHandoffReviewPRs(ctx, pass.TaskID, since)
 	if err != nil {
 		return nil
 	}
-	before, heads := map[int]string{}, map[int]string{}
+	before, layers := map[int]string{}, map[int]store.HandoffReviewPR{}
 	for _, pr := range previous {
 		before[pr.Number] = pr.HeadSHA
 	}
 	for _, pr := range prs {
-		heads[pr.Number] = pr.HeadSHA
+		layers[pr.Number] = pr
 	}
-	changed := map[int]map[string][][2]int{}
+	type held struct{ changed, own map[string][][2]int }
+	read := map[int]*held{}
 	var problems []string
 	for i, f := range sub.Findings {
-		from, reviewed := before[f.PR]
-		if f.Severity != SeverityBlocking || strings.TrimSpace(f.Critical) != "" || !reviewed {
+		if _, ok := layers[f.PR]; !ok || f.Severity != SeverityBlocking || strings.TrimSpace(f.Critical) != "" {
 			continue
 		}
-		if _, ok := changed[f.PR]; !ok {
-			lines, err := s.opts.Checkout.Changed(ctx, pass.Checkout, from, heads[f.PR])
-			if err != nil {
-				log.Printf("review passes: what changed in #%d since pass %d: %v", f.PR, pass.Pass-1, err)
-				lines = nil // unknown: the finding is not held to it
+		h := read[f.PR]
+		if h == nil {
+			h = &held{}
+			layer := layers[f.PR]
+			if from, reviewed := before[f.PR]; reviewed {
+				if h.changed, err = s.opts.Checkout.Changed(ctx, pass.Checkout, from, layer.HeadSHA); err != nil {
+					log.Printf("review passes: what changed in #%d since pass %d: %v", f.PR, since, err)
+					h.changed = nil // unknown: the finding is not held to it
+				}
 			}
-			changed[f.PR] = lines
+			if h.own, err = s.opts.GitHub.PullDiff(ctx, layer.Repo, f.PR); err != nil {
+				log.Printf("review passes: the diff of #%d: %v", f.PR, err)
+				h.own = nil
+			}
+			read[f.PR] = h
 		}
-		lines := changed[f.PR]
-		if lines == nil || onChangedLines(f.Place, lines) {
+		if h.changed == nil && h.own == nil || onHeldLines(f.Place, h.changed, h.own) {
 			continue
 		}
-		problems = append(problems, fmt.Sprintf("findings[%d]: pass %d reviews what changed since pass %d, and this blocking finding is not on those changes. "+
-			"Make it a nit (a follow-up), or give critical: why it cannot wait for another change", i, pass.Pass, pass.Pass-1))
+		problems = append(problems, fmt.Sprintf("findings[%d]: pass %d reviews what changed since pass %d in the pull request's own diff, and this blocking finding is not on those lines "+
+			"(after a rebase, lines that came from the base are not the pull request's). Make it a nit (a follow-up), or give critical: why it cannot wait for another change", i, pass.Pass, since))
 	}
 	return problems
 }
 
-// onChangedLines says whether a place is on, or overlaps, changed lines of
-// the head. A finding with no place, or on a deleted line, is not.
-func onChangedLines(p *ReviewPlace, changed map[string][][2]int) bool {
+// lastPostedPass is the last pass before pass whose review was posted; 0
+// when none was. A pass the reviewer was unable to do, or one discarded,
+// moves no baseline.
+func (s *ReviewPassService) lastPostedPass(ctx context.Context, taskID string, pass int) (int, error) {
+	passes, err := s.db.ListHandoffReviewPasses(ctx, taskID)
+	if err != nil {
+		return 0, err
+	}
+	last := 0
+	for _, p := range passes {
+		if p.Pass < pass && p.State == ReviewPassPosted && p.Pass > last {
+			last = p.Pass
+		}
+	}
+	return last, nil
+}
+
+// onHeldLines says whether a place has a line in both sets of changed
+// lines; a nil set does not limit it.
+func onHeldLines(p *ReviewPlace, changed, own map[string][][2]int) bool {
 	if p == nil || p.Side == "LEFT" {
 		return false
 	}
@@ -312,8 +342,17 @@ func onChangedLines(p *ReviewPlace, changed map[string][][2]int) bool {
 	if p.StartLine > 0 {
 		first = p.StartLine
 	}
-	for _, r := range changed[p.Path] {
-		if first <= r[1] && p.Line >= r[0] {
+	for line := first; line <= p.Line; line++ {
+		if (changed == nil || inRanges(line, changed[p.Path])) && (own == nil || inRanges(line, own[p.Path])) {
+			return true
+		}
+	}
+	return false
+}
+
+func inRanges(line int, ranges [][2]int) bool {
+	for _, r := range ranges {
+		if line >= r[0] && line <= r[1] {
 			return true
 		}
 	}

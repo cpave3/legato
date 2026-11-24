@@ -63,6 +63,9 @@ type FakeReviewGitHub struct {
 	// pushAfter moves a pull request's head once a review of another is
 	// posted: posted number -> the pull request and its new head.
 	pushAfter map[int]fakePush
+	// diffs are the pull request's own diff at each head: head -> file
+	// -> the head's lines it changes.
+	diffs map[string]map[string][][2]int
 }
 
 type fakePush struct {
@@ -80,6 +83,41 @@ func (f *FakeReviewGitHub) PushAfterPost(posted, number int, head string) {
 		f.pushAfter = map[int]fakePush{}
 	}
 	f.pushAfter[posted] = fakePush{number: number, head: head}
+}
+
+// Diff records that a pull request's own diff at head (GitHub's, against
+// its base) changes lines first to last of path. A head with none
+// recorded has a diff GitHub could not give.
+func (f *FakeReviewGitHub) Diff(head, path string, first, last int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.diffs == nil {
+		f.diffs = map[string]map[string][][2]int{}
+	}
+	if f.diffs[head] == nil {
+		f.diffs[head] = map[string][][2]int{}
+	}
+	f.diffs[head][path] = append(f.diffs[head][path], [2]int{first, last})
+}
+
+func (f *FakeReviewGitHub) PullDiff(_ context.Context, _ string, number int) (map[string][][2]int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, pr := range f.prs {
+		if pr.Number != number {
+			continue
+		}
+		recorded, ok := f.diffs[pr.HeadSHA]
+		if !ok {
+			return nil, nil
+		}
+		out := map[string][][2]int{}
+		for path, ranges := range recorded {
+			out[path] = append([][2]int(nil), ranges...)
+		}
+		return out, nil
+	}
+	return nil, &service.GitHubError{Status: 404, Message: "Not Found"}
 }
 
 // LoseAnswers makes GitHub take the next n replies and conversation
@@ -349,6 +387,9 @@ type FakeCheckout struct {
 	lines   map[string]int
 	pins    map[string]string
 	changes map[string]map[string][][2]int // commit -> file -> lines
+	// since are changes from one commit to another, "from..to" -> file ->
+	// lines; they win over changes.
+	since map[string]map[string][][2]int
 }
 
 // NewFakeCheckout is a clean checkout with no branches.
@@ -412,6 +453,21 @@ func (f *FakeCheckout) Change(sha, path string, first, last int) {
 	f.changes[sha][path] = append(f.changes[sha][path], [2]int{first, last})
 }
 
+// ChangeSince records that from..to changed lines first to last of path:
+// what Changed says of that pair, in place of what Change recorded of to.
+func (f *FakeCheckout) ChangeSince(from, to, path string, first, last int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.since == nil {
+		f.since = map[string]map[string][][2]int{}
+	}
+	key := from + ".." + to
+	if f.since[key] == nil {
+		f.since[key] = map[string][][2]int{}
+	}
+	f.since[key][path] = append(f.since[key][path], [2]int{first, last})
+}
+
 func (f *FakeCheckout) Changed(_ context.Context, _, from, to string) (map[string][][2]int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -419,7 +475,11 @@ func (f *FakeCheckout) Changed(_ context.Context, _, from, to string) (map[strin
 	if from == to {
 		return out, nil
 	}
-	for path, ranges := range f.changes[to] {
+	changes := f.changes[to]
+	if since, ok := f.since[from+".."+to]; ok {
+		changes = since
+	}
+	for path, ranges := range changes {
 		out[path] = append([][2]int(nil), ranges...)
 	}
 	return out, nil

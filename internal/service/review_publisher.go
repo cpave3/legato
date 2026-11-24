@@ -496,21 +496,13 @@ type diffSides map[string]map[int]int
 // diffLines reads which lines of each file the pull request's diff shows:
 // path -> side -> line -> hunk.
 func (p *ReviewPublisher) diffLines(ctx context.Context, call *githubCall, repo string, number int) (map[string]diffSides, error) {
+	files, err := pullFiles(ctx, call, repo, number)
+	if err != nil {
+		return nil, err
+	}
 	out := map[string]diffSides{}
-	for page := 1; page <= 30; page++ {
-		var files []struct {
-			Filename string `json:"filename"`
-			Patch    string `json:"patch"`
-		}
-		if err := call.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d/files?per_page=100&page=%d", repo, number, page), nil, &files); err != nil {
-			return nil, err
-		}
-		for _, f := range files {
-			out[f.Filename] = parsePatchLines(f.Patch)
-		}
-		if len(files) < 100 {
-			break
-		}
+	for _, f := range files {
+		out[f.Filename] = parsePatchLines(f.Patch)
 	}
 	return out, nil
 }
