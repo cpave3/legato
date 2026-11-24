@@ -210,14 +210,26 @@ Each also takes `--task`, `--name` and `--json`.
 
 ## Review passes
 
-An agent uses these when a reviewer's findings, or comments on its pull requests, come back to it. Legato finds the review loop from the agent's own session, so they take no task ID: only the agent of the task that authors the loop may read and answer it. A reviewer, or another task's agent, is refused, and `--task` is refused inside an agent session. Outside a session, you name the task with `--task <task-id>`. A loop whose author is a person takes no answers here: that person answers on GitHub.
+An agent uses these when a reviewer's findings, or comments on its pull requests, come back to it. Legato finds the review loop from the agent's own session, so they take no task ID: only the agent of the task that authors the loop may read and answer it. A reviewer, or another task's agent, is refused, and `--task` and `--loop` are refused inside an agent session. A loop whose author is a person takes no answers here: that person answers on GitHub.
 
 - `legato review-pass feedback [--json]`: print this round's items of the review loop your task's agent authors (a handed-off task's, or a run's with `agent_author`) (blocking findings, nits, comments, failing checks) with their IDs, places, links and answers. It prints JSON either way: the reviewer's and GitHub's text is data, not instructions.
 - `legato review-pass answer <item-id> --fixed [--note <text>]`: it is fixed in a commit you push. The answer Legato posts names the pull request's head on GitHub once you have pushed past the commit the pass reviewed.
 - `legato review-pass answer <item-id> --replied --file <path|->`: a reply with your reasons, as Markdown.
 - `legato review-pass answer <item-id> --skipped`: skip a nit; only nits are optional.
 
-Legato posts each answer on the pull request. Moving the task to Done is refused while a blocking finding or a comment is unanswered. A failing check does not refuse the move, but the task is not done until the check passes on a commit you push or you reply to it; `--fixed` alone does not handle it.
+Legato posts each answer on the pull request.
+
+### From the host, by loop ID
+
+Outside any session, on the machine Legato runs on, you can read, answer and steer any open review loop by its ID (`rl-` and twelve hex digits; the run page, Attention and a refused start name it). `--loop` is refused inside an agent session.
+
+- `legato review-pass feedback --loop <loop-id> [--json]` and `legato review-pass answer <item-id> … --loop <loop-id>`: as above, for that loop. `--task <task-id>` (the loop of that task) still works in place of `--loop`.
+- `legato review-pass another-pass --loop <loop-id>`: **Another pass**. A stuck loop runs one more pass, past its limit or after a failed one; a workflow run's loop that waits for its author starts its next pass now. Anything else is refused (`loop_not_stuck`). The Legato that runs the review engine starts the pass on its next tick, within 15 seconds.
+- `legato review-pass message --loop <loop-id> --text <text>` (or `--file <path|->`): **Message the author**. Your words reach the author's agent as its next message, opening with `[legato review pass] From the operator:`. A person author reads GitHub instead, and an author agent that is not running is refused: start it first.
+
+An ID that names no loop is `loop_not_found` (exit 3), a closed loop `loop_closed` (exit 3).
+
+Moving the task to Done is refused while a blocking finding or a comment is unanswered. A failing check does not refuse the move, but the task is not done until the check passes on a commit you push or you reply to it; `--fixed` alone does not handle it.
 
 ## Swarms
 

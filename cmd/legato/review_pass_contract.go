@@ -11,14 +11,16 @@ import (
 
 	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/engine/broker"
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
 
 // The review-pass commands act for whoever runs them (B4, LEG-571). Inside an
 // agent session that is the session: its loop is found from the session the
 // broker token names, and only the author task's main slot may answer. --task
-// is refused there. Outside any session it is the operator on the host, who
-// names a task with --task.
+// is refused there, and so is --loop. Outside any session it is the operator
+// on the host, who names a loop by its ID with --loop (LEG-583), or a task
+// with --task as before.
 
 // reviewPassInSession reports whether the command runs for an agent session:
 // it has a broker, or a session's identity (the host sets both variables
@@ -33,17 +35,32 @@ func reviewPassInSession() bool {
 // reviewPassAnswerer is who the command acts for, or why it is refused.
 func reviewPassAnswerer(verb string, parsed parsedArgs) (service.ReviewAnswerer, *commandError) {
 	if reviewPassInSession() {
+		if parsed.Present["loop"] {
+			return service.ReviewAnswerer{}, loopInSession(verb)
+		}
 		if parsed.Present["task"] {
 			return service.ReviewAnswerer{}, &commandError{Code: "task_in_session", Exit: exitForbidden,
 				Message: "--task is refused inside an agent session: review-pass " + verb + " finds the review loop your own task authors, so give no task"}
 		}
 		return service.ReviewAnswerer{TaskID: strings.TrimSpace(os.Getenv("LEGATO_TASK_ID")), ExecutionID: strings.TrimSpace(os.Getenv("LEGATO_EXECUTION_ID"))}, nil
 	}
-	task := strings.TrimSpace(parsed.Values["task"])
-	if task == "" {
-		return service.ReviewAnswerer{}, usageError("missing_argument", "outside an agent session, review-pass "+verb+" needs --task")
+	loop, task := strings.TrimSpace(parsed.Values["loop"]), strings.TrimSpace(parsed.Values["task"])
+	switch {
+	case loop != "" && task != "":
+		return service.ReviewAnswerer{}, usageError("conflicting_input", "give --loop or --task, not both")
+	case loop != "":
+		return service.ReviewAnswerer{LoopID: loop, Operator: true}, nil
+	case task == "":
+		return service.ReviewAnswerer{}, usageError("missing_argument", "outside an agent session, review-pass "+verb+" needs --loop <loop-id> (or --task)")
 	}
 	return service.ReviewAnswerer{TaskID: task, Operator: true}, nil
+}
+
+// loopInSession refuses --loop to an agent session: a loop by its ID is the
+// operator's, on the host (B4).
+func loopInSession(verb string) *commandError {
+	return &commandError{Code: "loop_in_session", Exit: exitForbidden,
+		Message: "--loop is refused inside an agent session: it is the operator's, on the host; review-pass " + verb + " in a session acts only on the review loop your own task authors"}
 }
 
 // reviewPassHostAnswer is what asking the host's broker came to.
@@ -101,10 +118,24 @@ func reviewPassBrokerError(err error) *commandError {
 
 // reviewPassError is a store-side error in the command's terms.
 func reviewPassError(err error) *commandError {
-	if errors.Is(err, service.ErrReviewAnswerRefused) {
+	switch {
+	case errors.Is(err, service.ErrReviewAnswerRefused):
 		return &commandError{Code: "forbidden", Message: err.Error(), Exit: exitForbidden}
+	case errors.Is(err, store.ErrReviewLoopClosed):
+		return &commandError{Code: "loop_closed", Message: err.Error(), Exit: exitNotFound}
+	case errors.Is(err, service.ErrReviewNotStuck):
+		return &commandError{Code: "loop_not_stuck", Message: err.Error(), Exit: exitInternal}
 	}
 	return commandDomainError(err)
+}
+
+// reviewLoopError is reviewPassError for a command that named a loop by
+// its ID: an unknown ID is the loop's, not a task's.
+func reviewLoopError(err error, loopID string) *commandError {
+	if loopID != "" && errors.Is(err, store.ErrNotFound) {
+		return &commandError{Code: "loop_not_found", Message: err.Error(), Exit: exitNotFound}
+	}
+	return reviewPassError(err)
 }
 
 // forwardReviewPass runs the command whole on a sandboxed session's host
@@ -152,7 +183,7 @@ func runReviewPassFeedbackContract(args []string) int {
 		// when the author's agent has it.
 		view, err = service.OwnReviewFeedback(context.Background(), db, who, service.ReviewFeedbackOptions{HasSkill: agentHasSkill(cfg, db)})
 		if err != nil {
-			return renderCommandError(command, reviewPassError(err), jsonMode)
+			return renderCommandError(command, reviewLoopError(err, who.LoopID), jsonMode)
 		}
 	}
 	text, _ := json.MarshalIndent(view, "", "  ")
@@ -208,7 +239,7 @@ func runReviewPassAnswerContract(args []string) int {
 		defer db.Close()
 		loopTask, err := service.AnswerOwnReviewItem(context.Background(), db, who, id, answers[0], note, time.Now())
 		if err != nil {
-			return renderCommandError(command, reviewPassError(err), jsonMode)
+			return renderCommandError(command, reviewLoopError(err, who.LoopID), jsonMode)
 		}
 		result = cli.ReviewPassAnswerResult{TaskID: loopTask, Item: id, Answer: answers[0]}
 	}

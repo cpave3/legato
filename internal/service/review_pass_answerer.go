@@ -17,12 +17,36 @@ var ErrReviewAnswerRefused = errors.New("refused")
 // ReviewAnswerer is who a `legato review-pass` command comes from. Inside an
 // agent session it is the session, as the host resolved it (the broker
 // token's execution, never a task the agent named). The operator on the host
-// names a task instead, and has no slot to check.
+// names a loop by its ID (LoopID, --loop) or a task (--task), and has no slot
+// to check.
 type ReviewAnswerer struct {
 	TaskID      string
 	ExecutionID string
 	// Operator is the operator on the host, outside any session.
 	Operator bool
+	// LoopID is the loop the operator names (rl-…); it wins over TaskID.
+	LoopID string
+}
+
+// OperatorReviewLoop is the open loop the operator names by its ID:
+// store.ErrNotFound when there is no such loop, store.ErrReviewLoopClosed
+// when it is closed. The task-keyed readers and actions find it again on its
+// host task, which hosts one open loop at a time.
+func OperatorReviewLoop(ctx context.Context, db *store.Store, loopID string) (*store.ReviewLoop, error) {
+	l, err := db.GetReviewLoop(ctx, loopID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("no review loop %s: %w", loopID, store.ErrNotFound)
+		}
+		return nil, err
+	}
+	if l.State != store.ReviewLoopOpenState {
+		return nil, fmt.Errorf("review loop %s is closed (%s): %w", loopID, l.Outcome, store.ErrReviewLoopClosed)
+	}
+	if current, err := db.CurrentReviewLoop(ctx, l.HostTask); err != nil || current == nil || current.ID != l.ID {
+		return nil, fmt.Errorf("review loop %s is not the loop its task %s hosts now: %w", loopID, l.HostTask, store.ErrReviewLoopClosed)
+	}
+	return l, nil
 }
 
 // AnswererReviewLoop is the task whose ledger holds the review loop the
@@ -32,6 +56,13 @@ type ReviewAnswerer struct {
 // named slot (the reviewer), another task, and a loop whose author is a
 // person are refused with ErrReviewAnswerRefused.
 func AnswererReviewLoop(ctx context.Context, db *store.Store, who ReviewAnswerer) (string, error) {
+	if who.Operator && who.LoopID != "" {
+		l, err := OperatorReviewLoop(ctx, db, who.LoopID)
+		if err != nil {
+			return "", err
+		}
+		return l.HostTask, nil
+	}
 	if who.TaskID == "" {
 		return "", fmt.Errorf("%w: no session and no task to find a review loop for", ErrReviewAnswerRefused)
 	}

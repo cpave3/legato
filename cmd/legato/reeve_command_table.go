@@ -115,6 +115,8 @@ var legatoCommandClasses = map[string]legatoCommandClass{
 	"review handoff export":    {"read", "Preview a handoff as Markdown"},
 	"review-pass feedback":     {"read", "Show a review pass's feedback"},
 	"review-pass answer":       {"risky", "Answer review feedback on GitHub"},
+	"review-pass another-pass": {"change", "Run another pass of a review loop"},
+	"review-pass message":      {"change", "Message a review loop's author"},
 
 	// Workflows.
 	"workflow list":          {"read", "List the workflows"},

@@ -395,15 +395,23 @@ func commandTree() *commandDef {
 		group("reflection", "Submit typed session reflections", []string{"legato learn reflection submit --request <id> --file reflection.json"}, leaf("submit", "Submit a reflection and complete its workflow step", func(a []string) int { return runLearnCmd(append([]string{"reflection", "submit"}, a...)) }, nil, []commandFlag{valueFlag("request", "request-id", "Reflection request ID"), valueFlag("file", "path|-", "JSON file; defaults to stdin"), jsonFlag}, "legato learn reflection submit --request <id> --file reflection.json")),
 	)
 
-	reviewPass := group("review-pass", "Read and answer the feedback of the review loop your task authors", []string{"legato review-pass feedback --json"},
+	loopFlag := valueFlag("loop", "loop-id", "The operator on the host only: the review loop by its ID (rl-…); refused in a session")
+	taskFlag := valueFlag("task", "task-id", "The operator on the host: the loop of this task (the older form of --loop); refused in a session")
+	reviewPass := group("review-pass", "Read, answer and steer the feedback of a review loop: your task's in a session, any by its ID on the host", []string{"legato review-pass feedback --json", "legato review-pass another-pass --loop rl-1a2b3c4d5e6f"},
 		leaf("feedback", "Print this round's feedback items as JSON", runReviewPassFeedbackContract, nil,
-			[]commandFlag{valueFlag("task", "task-id", "Outside an agent session only; refused in one, which finds its own loop"), jsonFlag},
-			"legato review-pass feedback --json"),
+			[]commandFlag{loopFlag, taskFlag, jsonFlag},
+			"legato review-pass feedback --json", "legato review-pass feedback --loop rl-1a2b3c4d5e6f --json"),
 		leaf("answer", "Answer one feedback item; Legato posts it on GitHub", runReviewPassAnswerContract,
 			[]argumentDef{arg("item-id", "The item's ID, as feedback lists it")},
 			[]commandFlag{boolFlag("fixed", "It is fixed in a commit you push"), boolFlag("replied", "A reply with your reasons (--file -)"), boolFlag("skipped", "Skip an optional nit"),
-				valueFlag("note", "text", "A short note with --fixed"), valueFlag("file", "path|-", "The reply's Markdown, from a file or stdin"), valueFlag("task", "task-id", "Outside an agent session only; refused in one, which finds its own loop"), jsonFlag},
+				valueFlag("note", "text", "A short note with --fixed"), valueFlag("file", "path|-", "The reply's Markdown, from a file or stdin"), loopFlag, taskFlag, jsonFlag},
 			"legato review-pass answer f-1a2b3c4d --fixed --note \"bounded the retries\"", "legato review-pass answer f-1a2b3c4d --replied --file - <<'EOF'\nThe retry is bounded by the context.\nEOF"),
+		leaf("another-pass", "The operator on the host: run another pass of a stuck loop, or the next pass of a run's loop that waits for its author", runReviewLoopAnotherPassContract, nil,
+			[]commandFlag{valueFlag("loop", "loop-id", "The review loop by its ID (rl-…)"), jsonFlag},
+			"legato review-pass another-pass --loop rl-1a2b3c4d5e6f"),
+		leaf("message", "The operator on the host: send the loop's author agent a message, as its next turn", runReviewLoopMessageContract, nil,
+			[]commandFlag{valueFlag("loop", "loop-id", "The review loop by its ID (rl-…)"), valueFlag("text", "text", "The message"), valueFlag("file", "path|-", "The message, from a file or stdin"), jsonFlag},
+			"legato review-pass message --loop rl-1a2b3c4d5e6f --text \"Rebase on main first\""),
 	)
 
 	mcp := group("mcp", "Give an agent Legato's tools over the Model Context Protocol", []string{"legato mcp serve"},
