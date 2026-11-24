@@ -219,6 +219,13 @@ func (d *Definition) problems() []*PathError {
 			add("on."+TriggerPRChangesRequested, err)
 		}
 	}
+	for _, kind := range []string{TriggerChatMessage, TriggerChatMention} {
+		if chat := d.On.Chat(kind); chat != nil {
+			if err := chat.Validate(kind, d.Inputs); err != nil {
+				add("on."+kind, err)
+			}
+		}
+	}
 	if d.On.Schedule != nil {
 		if err := d.On.Schedule.Validate(d.Inputs); err != nil {
 			add("on.schedule", err)

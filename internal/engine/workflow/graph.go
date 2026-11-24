@@ -146,7 +146,7 @@ func BuildGraph(d *Definition) *Graph {
 	manual := triggerNodeID(TriggerManual)
 	graph.Nodes = append(graph.Nodes, GraphNode{ID: manual, Kind: NodeTrigger, Trigger: &GraphTrigger{Kind: TriggerManual, Summary: "Run by hand", Enabled: true}})
 	triggers := []string{manual}
-	for _, kind := range []string{TriggerTaskEnteredColumn, TriggerSchedule, TriggerPRChangesRequested} {
+	for _, kind := range TriggerKinds {
 		common, ok := d.On.Common(kind)
 		if !ok {
 			continue
@@ -279,6 +279,8 @@ func stepKey(step Step) GraphKey {
 		return first("path", "working_dir")
 	case "task.note":
 		return first("body", "body_path")
+	case "chat.message.send":
+		return first("text", "channel")
 	case "task.metadata.set":
 		if values, ok := step.With["values"].(map[string]any); ok && len(values) > 0 {
 			keys := make([]string, 0, len(values))
@@ -317,6 +319,10 @@ func triggerSummary(on Triggers, kind string) (string, any) {
 		return on.Schedule.Describe(), on.Schedule
 	case TriggerPRChangesRequested:
 		return "Changes requested on a PR", on.PRChangesRequested
+	case TriggerChatMessage:
+		return on.Chat(kind).describe(kind), on.ChatMessage
+	case TriggerChatMention:
+		return on.Chat(kind).describe(kind), on.ChatMention
 	}
 	return kind, nil
 }

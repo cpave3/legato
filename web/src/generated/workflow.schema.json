@@ -3,6 +3,21 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
   "definitions": {
+    "chat_text_match": {
+      "additionalProperties": false,
+      "properties": {
+        "contains": {
+          "description": "The text contains this, ignoring case",
+          "type": "string"
+        },
+        "regex": {
+          "description": "The text matches this Go regular expression (RE2); (?i) ignores case",
+          "maxLength": 512,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "condition": {
       "additionalProperties": false,
       "properties": {
@@ -405,6 +420,28 @@
           "if": {
             "properties": {
               "type": {
+                "const": "chat.message.send"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.chat.message.send"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "github.pr.wait"
               }
             },
@@ -591,6 +628,7 @@
             "github.pr.prepare",
             "github.pr.review_passes",
             "burnlite.task.close",
+            "chat.message.send",
             "github.pr.wait",
             "worktree.remove",
             "file.remove",
@@ -609,6 +647,132 @@
       "required": [
         "id",
         "type"
+      ],
+      "type": "object"
+    },
+    "trigger.chat.mention": {
+      "additionalProperties": false,
+      "properties": {
+        "bot": {
+          "description": "The bot, by name: slack or discord",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "type": "string"
+        },
+        "channel": {
+          "description": "Only messages in this channel, by the platform's ID",
+          "type": "string"
+        },
+        "confirm": {
+          "description": "Ask the operator before each run",
+          "type": "boolean"
+        },
+        "enabled": {
+          "description": "false makes the trigger start paused, until a Legato switches it on",
+          "type": "boolean"
+        },
+        "include_bots": {
+          "description": "Also run on messages other bots post; the bot's own never start runs",
+          "type": "boolean"
+        },
+        "inputs": {
+          "description": "The run's inputs, by name: literals, or ${{ event.* }}",
+          "type": "object",
+          "x-legato": {
+            "context": "trigger.chat.mention"
+          }
+        },
+        "loop_item": {
+          "default": "channel",
+          "description": "What the loop stop counts runs by: the channel, or each thread",
+          "enum": [
+            "channel",
+            "thread"
+          ],
+          "type": "string"
+        },
+        "max_runs_per_day": {
+          "description": "Most runs for one channel (or thread) in a day before the loop stop asks; 0 for 3",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/chat_text_match"
+            }
+          ],
+          "description": "Only messages whose text matches"
+        },
+        "user": {
+          "description": "Only messages from this user, by the platform's ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bot"
+      ],
+      "type": "object"
+    },
+    "trigger.chat.message": {
+      "additionalProperties": false,
+      "properties": {
+        "bot": {
+          "description": "The bot, by name: slack or discord",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "type": "string"
+        },
+        "channel": {
+          "description": "Only messages in this channel, by the platform's ID",
+          "type": "string"
+        },
+        "confirm": {
+          "description": "Ask the operator before each run",
+          "type": "boolean"
+        },
+        "enabled": {
+          "description": "false makes the trigger start paused, until a Legato switches it on",
+          "type": "boolean"
+        },
+        "include_bots": {
+          "description": "Also run on messages other bots post; the bot's own never start runs",
+          "type": "boolean"
+        },
+        "inputs": {
+          "description": "The run's inputs, by name: literals, or ${{ event.* }}",
+          "type": "object",
+          "x-legato": {
+            "context": "trigger.chat.message"
+          }
+        },
+        "loop_item": {
+          "default": "channel",
+          "description": "What the loop stop counts runs by: the channel, or each thread",
+          "enum": [
+            "channel",
+            "thread"
+          ],
+          "type": "string"
+        },
+        "max_runs_per_day": {
+          "description": "Most runs for one channel (or thread) in a day before the loop stop asks; 0 for 3",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/chat_text_match"
+            }
+          ],
+          "description": "Only messages whose text matches"
+        },
+        "user": {
+          "description": "Only messages from this user, by the platform's ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bot"
       ],
       "type": "object"
     },
@@ -763,6 +927,22 @@
     "triggers": {
       "additionalProperties": false,
       "properties": {
+        "chat.mention": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/trigger.chat.mention"
+            }
+          ],
+          "description": "Start a run when a message mentions a chat bot set up in Settings › Integrations, or is sent to it directly"
+        },
+        "chat.message": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/trigger.chat.message"
+            }
+          ],
+          "description": "Start a run when a chat bot set up in Settings › Integrations receives a message"
+        },
         "pr.changes_requested": {
           "allOf": [
             {
@@ -1446,6 +1626,92 @@
           "task"
         ],
         "type": "burnlite.task.close"
+      }
+    },
+    "with.chat.message.send": {
+      "additionalProperties": false,
+      "description": "Post a message as a Slack or Discord bot set up in Settings › Integrations. Fails at once when the bot is not set up or cannot send.",
+      "properties": {
+        "bot": {
+          "description": "The bot, by name: slack or discord",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "chat_bot",
+            "label": "Bot",
+            "order": 1
+          }
+        },
+        "channel": {
+          "description": "The channel's ID; the bot's default channel when empty",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Channel",
+            "order": 2,
+            "required_at_run": true
+          }
+        },
+        "text": {
+          "description": "The message: plain text or the platform's markdown",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "text",
+            "label": "Message",
+            "order": 3
+          }
+        },
+        "thread_id": {
+          "description": "A thread or message to reply to, such as ${{ event.thread_id }} of a chat trigger",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Reply to",
+            "order": 4
+          }
+        }
+      },
+      "required": [
+        "bot",
+        "text"
+      ],
+      "title": "Send a chat message",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Chat",
+        "outputs": [
+          {
+            "description": "The sent message's ID",
+            "name": "message_id",
+            "type": "string"
+          },
+          {
+            "description": "The channel it was sent to",
+            "name": "channel",
+            "type": "string"
+          },
+          {
+            "description": "What thread_id takes to reply in the same thread",
+            "name": "thread_id",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "text"
+        ],
+        "type": "chat.message.send"
       }
     },
     "with.chimera.session.remove": {
@@ -2739,6 +3005,15 @@
         "type": "burnlite.task.close"
       },
       {
+        "description": "Post a message as a Slack or Discord bot set up in Settings › Integrations. Fails at once when the bot is not set up or cannot send.",
+        "group": "Chat",
+        "summary": [
+          "text"
+        ],
+        "title": "Send a chat message",
+        "type": "chat.message.send"
+      },
+      {
         "description": "Wait until a pull request merges, or closes. Legato reads its state from GitHub when the step starts, after each refresh of a card's pull requests, and every few minutes.",
         "group": "Code",
         "summary": [
@@ -2867,6 +3142,74 @@
           }
         ]
       },
+      "trigger.chat.mention": {
+        "location": "trigger.chat.mention",
+        "description": "The inputs of a chat mention trigger",
+        "roots": [
+          {
+            "pattern": "event.bot",
+            "description": "The bot that received the message"
+          },
+          {
+            "pattern": "event.platform",
+            "description": "slack or discord"
+          },
+          {
+            "pattern": "event.channel",
+            "description": "The channel's ID"
+          },
+          {
+            "pattern": "event.user",
+            "description": "The ID of who sent the message"
+          },
+          {
+            "pattern": "event.text",
+            "description": "The message's text"
+          },
+          {
+            "pattern": "event.message_id",
+            "description": "The message's ID"
+          },
+          {
+            "pattern": "event.thread_id",
+            "description": "What chat.message.send's thread_id takes to reply to the message"
+          }
+        ]
+      },
+      "trigger.chat.message": {
+        "location": "trigger.chat.message",
+        "description": "The inputs of a chat message trigger",
+        "roots": [
+          {
+            "pattern": "event.bot",
+            "description": "The bot that received the message"
+          },
+          {
+            "pattern": "event.platform",
+            "description": "slack or discord"
+          },
+          {
+            "pattern": "event.channel",
+            "description": "The channel's ID"
+          },
+          {
+            "pattern": "event.user",
+            "description": "The ID of who sent the message"
+          },
+          {
+            "pattern": "event.text",
+            "description": "The message's text"
+          },
+          {
+            "pattern": "event.message_id",
+            "description": "The message's ID"
+          },
+          {
+            "pattern": "event.thread_id",
+            "description": "What chat.message.send's thread_id takes to reply to the message"
+          }
+        ]
+      },
       "trigger.pr.changes_requested": {
         "location": "trigger.pr.changes_requested",
         "description": "The inputs of a changes-requested trigger",
@@ -2983,6 +3326,7 @@
       "Agents",
       "Code",
       "Board",
+      "Chat",
       "Learn",
       "Cleanup"
     ],

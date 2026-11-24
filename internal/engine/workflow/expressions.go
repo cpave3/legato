@@ -45,6 +45,17 @@ var (
 	}
 )
 
+// chatEventRoots are what a chat trigger's inputs may read.
+var chatEventRoots = []ExpressionRoot{
+	{"event.bot", "The bot that received the message"},
+	{"event.platform", "slack or discord"},
+	{"event.channel", "The channel's ID"},
+	{"event.user", "The ID of who sent the message"},
+	{"event.text", "The message's text"},
+	{"event.message_id", "The message's ID"},
+	{"event.thread_id", "What chat.message.send's thread_id takes to reply to the message"},
+}
+
 // ExpressionContexts lists, for each place that takes ${{ }}, what it may
 // read. They are the rules validateReferences and the trigger runtimes
 // apply, for the editor's completion.
@@ -72,5 +83,7 @@ func ExpressionContexts() []ExpressionContext {
 			{"event.pr_url", "The pull request's address"},
 			{"event.reviewer", "Who requested the changes"},
 		}},
+		{Location: "trigger." + TriggerChatMessage, Description: "The inputs of a chat message trigger", Roots: chatEventRoots},
+		{Location: "trigger." + TriggerChatMention, Description: "The inputs of a chat mention trigger", Roots: chatEventRoots},
 	}
 }
