@@ -2,10 +2,10 @@
 // LazyAgentGraphCanvas, so React Flow stays out of every other page's
 // bundle. Places come from layoutAgentGraph; this file only draws them.
 import { useCallback, useEffect, useMemo, useRef } from "react"
-import { BaseEdge, Controls, EdgeLabelRenderer, getBezierPath, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type EdgeProps, type EdgeTypes, type Node, type NodeProps, type NodeTypes } from "@xyflow/react"
+import { BaseEdge, Controls, EdgeLabelRenderer, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type EdgeProps, type EdgeTypes, type Node, type NodeProps, type NodeTypes } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
 import { ChevronDown, ChevronRight, Workflow } from "lucide-react"
-import type { AgentGraphLayout, GraphBox, GraphEdge, GraphEdgeKind, GraphNode, NodeWorkflow } from "../../lib/agentGraph"
+import type { AgentGraphLayout, GraphBox, GraphEdge, GraphEdgeKind, GraphNode, NodeWorkflow, Point } from "../../lib/agentGraph"
 import { linkLabels, workflowWords } from "../../lib/agentGraph"
 import { runState, stepPosition, stepSegments } from "../../lib/workflowView"
 import { StepBar } from "../WorkflowRunStatus"
@@ -28,23 +28,20 @@ export type AgentGraphCanvasProps = {
   focusOn?: { id: string; n: number } | null
   // Fits the whole graph each time n changes.
   fit?: number
+  // Agents (by ID) drawn faint: those the stage filter leaves out.
+  faded?: ReadonlySet<string>
 }
 
 type NodeData = { node?: GraphNode; box?: GraphBox; dimmed: boolean; direction: "LR" | "TB"; onToggleBox: (id: string) => void }
 type FlowNode = Node<NodeData>
 
-// Every node has a handle on each side; edges pick the pair that suits
-// their kind and the direction.
+// React Flow joins edges to handles, so every node has one of each; where a
+// line runs comes from the layout's points, not from them.
 function Handles() {
   const hidden = "!h-1 !w-1 !min-w-0 !border-0 !bg-transparent"
   return <>
-    <Handle id="l" type="target" position={Position.Left} isConnectable={false} className={hidden} />
-    <Handle id="ls" type="source" position={Position.Left} isConnectable={false} className={hidden} />
-    <Handle id="r" type="source" position={Position.Right} isConnectable={false} className={hidden} />
-    <Handle id="rt" type="target" position={Position.Right} isConnectable={false} className={hidden} />
-    <Handle id="t" type="target" position={Position.Top} isConnectable={false} className={hidden} />
-    <Handle id="b" type="source" position={Position.Bottom} isConnectable={false} className={hidden} />
-    <Handle id="bl" type="source" position={Position.Bottom} isConnectable={false} className={hidden} style={{ left: 14 }} />
+    <Handle id="t" type="target" position={Position.Left} isConnectable={false} className={hidden} />
+    <Handle id="s" type="source" position={Position.Right} isConnectable={false} className={hidden} />
   </>
 }
 
@@ -155,40 +152,48 @@ function BoxNode({ data }: NodeProps<FlowNode>) {
 
 const nodeTypes: NodeTypes = { agent: AgentNode, subagent: SubagentNode, fold: FoldNode, reeve: ReeveNode, box: BoxNode }
 
-type EdgeData = { edge: GraphEdge; dimmed: boolean; loop: boolean; elbow: boolean }
+type EdgeData = { edge: GraphEdge; dimmed: boolean; lit: boolean }
 
-// LinkEdge is a link between two agents. Two agents one above the other
-// in a box are joined by a curve that bows out to their left, so the link
-// never runs through the agents between them.
-function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data }: EdgeProps & { data?: EdgeData }) {
+// The Reeve's watch lines are faint until the Reeve or the agent it watches
+// is selected (LEG-615): there are many, and they say less than the rest.
+const QUIET = 0.35
+
+// LinkEdge is a link between two agents, along the points the layout gave
+// it: straight runs, around boxes and never through them, with rounded
+// corners.
+function LinkEdge({ id, data }: EdgeProps & { data?: EdgeData }) {
   const edge = data!.edge
   const style = linkStyles[edge.kind]
-  let path: string, labelX: number, labelY: number
-  if (data?.elbow) {
-    // Top to bottom, a sub-agent hangs off its parent as in a file tree:
-    // down from the parent's left, then across to the child.
-    path = `M ${sourceX} ${sourceY} L ${sourceX} ${targetY} L ${targetX} ${targetY}`
-    labelX = sourceX
-    labelY = targetY
-  } else if (data?.loop) {
-    const bow = Math.min(90, 24 + Math.abs(targetY - sourceY) / 4)
-    path = `M ${sourceX} ${sourceY} C ${sourceX - bow} ${sourceY}, ${targetX - bow} ${targetY}, ${targetX} ${targetY}`
-    labelX = Math.min(sourceX, targetX) - bow * 0.75
-    labelY = (sourceY + targetY) / 2
-  } else {
-    [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition })
-  }
-  const opacity = data?.dimmed ? 0.12 : edge.opacity
+  const quiet = edge.kind === "reeve_watch" && !data?.lit
+  const opacity = data?.dimmed ? 0.12 : quiet ? QUIET : edge.opacity
   // A run link's label is the run's title, which the nodes' chips and the
   // card already say.
   const label = edge.kind === "peer_message" ? `${edge.count ?? 1}×` : edge.kind === "workflow" ? undefined : edge.label
   return <>
-    <BaseEdge id={id} path={path} markerEnd={style.arrow ? `url(#agent-graph-arrow-${edge.kind})` : undefined}
-      style={{ stroke: style.stroke, strokeWidth: style.width, strokeDasharray: style.dash, strokeLinecap: "round", opacity }} />
+    <BaseEdge id={id} path={roundedPath(edge.points)} markerEnd={style.arrow ? `url(#agent-graph-arrow-${edge.kind})` : undefined}
+      style={{ stroke: style.stroke, strokeWidth: quiet ? Math.min(style.width, 1.5) : style.width, strokeDasharray: style.dash, strokeLinecap: "round", strokeLinejoin: "round", fill: "none", opacity }} />
     {label && !data?.dimmed && <EdgeLabelRenderer>
-      <span style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`, opacity }} className="nodrag nopan pointer-events-none absolute rounded border border-lw-line bg-lw-ground px-1 font-lw-mono text-[11px] leading-4 text-lw-text">{label}</span>
+      <span style={{ transform: `translate(-50%, -50%) translate(${edge.labelAt.x}px, ${edge.labelAt.y}px)`, opacity }} className="nodrag nopan pointer-events-none absolute rounded border border-lw-line bg-lw-ground px-1 font-lw-mono text-[11px] leading-4 text-lw-text">{label}</span>
     </EdgeLabelRenderer>}
   </>
+}
+
+// roundedPath is an SVG path through points, each corner rounded.
+function roundedPath(points: Point[], radius = 6): string {
+  if (points.length === 0) return ""
+  let path = `M ${points[0].x} ${points[0].y}`
+  for (let i = 1; i < points.length - 1; i++) {
+    const [a, b, c] = [points[i - 1], points[i], points[i + 1]]
+    const r = Math.min(radius, Math.hypot(b.x - a.x, b.y - a.y) / 2, Math.hypot(c.x - b.x, c.y - b.y) / 2)
+    const toward = (p: Point, q: Point) => {
+      const d = Math.hypot(q.x - p.x, q.y - p.y) || 1
+      return { x: p.x + ((q.x - p.x) / d) * r, y: p.y + ((q.y - p.y) / d) * r }
+    }
+    const [enter, leave] = [toward(b, a), toward(b, c)]
+    path += ` L ${enter.x} ${enter.y} Q ${b.x} ${b.y} ${leave.x} ${leave.y}`
+  }
+  const last = points[points.length - 1]
+  return `${path} L ${last.x} ${last.y}`
 }
 
 const edgeTypes: EdgeTypes = { link: LinkEdge }
@@ -224,7 +229,7 @@ function neighbours(layout: AgentGraphLayout, selected: string | null): Set<stri
   return lit
 }
 
-function Graph({ layout, direction, selectedId, onSelect, onOpen, onToggleFold, onToggleBox, focusOn, fit }: AgentGraphCanvasProps) {
+function Graph({ layout, direction, selectedId, onSelect, onOpen, onToggleFold, onToggleBox, focusOn, fit, faded }: AgentGraphCanvasProps) {
   const flow = useReactFlow()
   const lit = useMemo(() => neighbours(layout, selectedId), [layout, selectedId])
   const nodes: FlowNode[] = useMemo(() => [
@@ -234,33 +239,24 @@ function Graph({ layout, direction, selectedId, onSelect, onOpen, onToggleFold, 
     })),
     ...layout.nodes.map((node): FlowNode => ({
       id: node.id, type: node.kind, position: { x: node.x, y: node.y }, width: node.width, height: node.height,
-      data: { node, dimmed: Boolean(lit && !lit.has(node.id)), direction, onToggleBox },
+      data: { node, dimmed: Boolean(lit && !lit.has(node.id)) || Boolean(faded?.has(node.agentId)), direction, onToggleBox },
       draggable: false, connectable: false, selected: node.id === selectedId, ariaRole: "button", ariaLabel: nodeName(node),
     })),
-  ], [layout, lit, selectedId, direction, onToggleBox])
+  ], [layout, lit, selectedId, direction, onToggleBox, faded])
   const edges: Edge[] = useMemo(() => {
-    const byID = new Map(layout.nodes.map((node) => [node.id, node]))
-    return layout.edges.map((edge) => {
-      const source = byID.get(edge.source)
-      const target = byID.get(edge.target)
-      // Agents in one column of a box, or any two top to bottom (where
-      // every agent is in one column): the link leaves and enters on the
-      // left, bowing out past the agents between. Sub-agents hang off the
-      // agent's right (or, top to bottom, its bottom). Anything else runs
-      // right to left.
-      const column = edge.kind !== "subagent" && source && target && (direction === "TB" || Math.abs(source.x - target.x) < 1)
-      const handles = edge.kind === "subagent"
-        ? direction === "LR" ? { sourceHandle: "r", targetHandle: "l" } : { sourceHandle: "bl", targetHandle: "l" }
-        : column ? { sourceHandle: "ls", targetHandle: "l" }
-          : (source?.x ?? 0) <= (target?.x ?? 0) ? { sourceHandle: "r", targetHandle: "l" } : { sourceHandle: "ls", targetHandle: "rt" }
-      return {
-        id: edge.id, source: edge.source, target: edge.target, type: "link", ...handles,
-        data: { edge, dimmed: Boolean(lit && !(lit.has(edge.source) && lit.has(edge.target))), loop: Boolean(column), elbow: edge.kind === "subagent" && direction === "TB" },
-        focusable: false, selectable: false, zIndex: edge.kind === "subagent" ? 0 : 1,
-        ariaLabel: `${linkLabels[edge.kind]}: ${edge.source} to ${edge.target}`,
-      }
-    })
-  }, [layout, lit, direction])
+    const agentOf = new Map(layout.nodes.map((node) => [node.id, node.agentId]))
+    const fadedEnd = (id: string) => Boolean(faded?.has(agentOf.get(id) ?? id))
+    return layout.edges.map((edge) => ({
+      id: edge.id, source: edge.source, target: edge.target, type: "link", sourceHandle: "s", targetHandle: "t",
+      data: {
+        edge,
+        dimmed: Boolean(lit && !(lit.has(edge.source) && lit.has(edge.target))) || fadedEnd(edge.source) || fadedEnd(edge.target),
+        lit: Boolean(lit && lit.has(edge.source) && lit.has(edge.target)),
+      },
+      focusable: false, selectable: false, zIndex: edge.kind === "subagent" ? 0 : 1,
+      ariaLabel: `${linkLabels[edge.kind]}: ${edge.source} to ${edge.target}`,
+    }))
+  }, [layout, lit, faded])
 
   const frame = useRef<HTMLDivElement>(null)
   // Enter or Space on a focused node selects it, as a click does.
