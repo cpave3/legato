@@ -66,7 +66,7 @@ Most items have a main action, such as approving a plan, allowing an agent's req
 
 In the web UI each item also has **Ask the Reeve**, which starts the [Reeve](/legato/using/reeve/) with what the item is about, so it can find out what is wrong.
 
-An action that ends in **…**, such as **Resume agent…** on a waiting merge, opens a list to pick from: your favourite macros first, and **Show all** for the rest. The pick runs the action.
+An action that ends in **…**, such as **Resume agent…** on a waiting merge, opens a list to pick from: the macros for tasks and for pull requests, your favourites first, and **Show all** for the rest. The pick runs the action.
 
 You can also dismiss an item. Dismissing hides that item as it is now. If its source changes (the pull request fails CI again, the agent asks something new), the item comes back.
 
