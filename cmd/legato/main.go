@@ -1067,6 +1067,7 @@ func runServeCmd(args []string) int {
 		srv.SetBuiltInWorkflows(service.BuiltInJobWorkflow())
 		srv.SetReflectionWorkflowService(workflowSvc)
 		triggerCoordinator = buildWorkflowTriggerCoordinator(db, workflowSvc, cfg, bus)
+		startLearningMigration(cfg, db, triggerCoordinator)
 		srv.SetWorkflowTriggerCoordinator(triggerCoordinator)
 		defer triggerCoordinator.StartEventLoop(context.Background(), bus)()
 		defer workflowSvc.StartAgentEndedLoop(context.Background(), bus)()
@@ -1419,6 +1420,7 @@ func runTUI() int {
 	if built, workflowErr := buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: boardSvc, Sync: syncSvc, Agents: agentSvc, PR: prSvc, PRErr: ghErr, WorkDir: wd, Repos: repos, Presets: repoPresets}); workflowErr == nil {
 		tuiWorkflowSvc = built
 		triggerCoordinator = buildWorkflowTriggerCoordinator(db, tuiWorkflowSvc, cfg, bus)
+		startLearningMigration(cfg, db, triggerCoordinator)
 		defer triggerCoordinator.StartEventLoop(context.Background(), bus)()
 		defer tuiWorkflowSvc.StartAgentEndedLoop(context.Background(), bus)()
 		defer tuiWorkflowSvc.StartAdvanceLoop(context.Background(), bus)()

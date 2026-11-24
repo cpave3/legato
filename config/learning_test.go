@@ -157,39 +157,33 @@ learning:
 	}
 }
 
-func TestLearningConfigValidatesConfiguredStructure(t *testing.T) {
+func TestLearningConfigRefusesARelativeCuratorFolder(t *testing.T) {
+	writeTestConfig(t, "learning:\n  curator_working_dir: relative/path\n")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "learning.curator_working_dir") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+// learning.enabled and learning.transition_columns are deprecated: the learn
+// workflow's trigger decides now, so what they say never stops a start.
+func TestTheDeprecatedLearnSettingsNeverStopAStart(t *testing.T) {
 	base := `
 board:
   columns:
     - name: Review
-adapters:
-  chimera:
-    tiers:
-      careful: {}
 learning:
   enabled: true
   transition_columns: [Review]
-  curator_adapter: chimera
-  curator_tier: careful
 `
-	cases := []struct {
-		name  string
-		yaml  string
-		field string
-	}{
-		{"missing transitions", strings.Replace(base, "  transition_columns: [Review]\n", "", 1), "learning.transition_columns"},
-		{"unknown transition", strings.Replace(base, "[Review]", "[Done]", 1), "learning.transition_columns"},
-		{"missing adapter", strings.Replace(base, "  curator_adapter: chimera\n", "", 1), "learning.curator_adapter"},
-		{"unknown adapter", strings.Replace(base, "curator_adapter: chimera", "curator_adapter: codex", 1), "learning.curator_adapter"},
-		{"unknown tier", strings.Replace(base, "curator_tier: careful", "curator_tier: ghost", 1), "learning.curator_tier"},
-		{"relative working dir", base + "  curator_working_dir: relative/path\n", "learning.curator_working_dir"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			writeTestConfig(t, tc.yaml)
-			_, err := Load()
-			if err == nil || !strings.Contains(err.Error(), tc.field) {
-				t.Fatalf("error = %v, want field %s", err, tc.field)
+	for name, yaml := range map[string]string{
+		"no columns":        strings.Replace(base, "  transition_columns: [Review]\n", "", 1),
+		"an unknown column": strings.Replace(base, "[Review]", "[Shipped]", 1),
+		"no curator tool":   base,
+	} {
+		t.Run(name, func(t *testing.T) {
+			writeTestConfig(t, yaml)
+			if _, err := Load(); err != nil {
+				t.Fatalf("Load() error = %v", err)
 			}
 		})
 	}

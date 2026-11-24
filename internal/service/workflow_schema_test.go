@@ -26,11 +26,7 @@ func TestBuiltInWorkflowsMatchTheSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	triggered, err := BuiltInTriggeredLearningWorkflows([]string{"Done"}, options)
-	if err != nil {
-		t.Fatal(err)
-	}
-	definitions := append([]*workflowengine.Definition{BuiltInJobWorkflow(), learning}, triggered...)
+	definitions := []*workflowengine.Definition{BuiltInJobWorkflow(), learning}
 	for _, scope := range []string{"user", "project"} {
 		consolidation, err := BuiltInConsolidationWorkflow(scope, "LEG", "Legato", options)
 		if err != nil {

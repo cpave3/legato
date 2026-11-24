@@ -827,7 +827,6 @@
       "x-legato": {
         "declared_outputs": false,
         "group": "Agents",
-        "internal": false,
         "outputs": [
           {
             "description": "The conversation's size before the compaction, when the agent's tool reports it",
@@ -977,7 +976,6 @@
       "x-legato": {
         "declared_outputs": false,
         "group": "Agents",
-        "internal": false,
         "outputs": [
           {
             "description": "The agent's session",
@@ -1004,7 +1002,7 @@
     },
     "with.agent.interview": {
       "additionalProperties": false,
-      "description": "Ask a task's running agent for a reflection, for Legato Learn.",
+      "description": "Ask a task's running agent what it learned, and keep its answer as evidence for Legato Learn. The agent must be running.",
       "properties": {
         "prompt": {
           "description": "The question; Legato's reflection prompt when empty",
@@ -1012,7 +1010,9 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "text"
+            "kind": "text",
+            "label": "Question",
+            "order": 2
           }
         },
         "task": {
@@ -1020,8 +1020,11 @@
           "type": "string",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
             "kind": "task_or_id",
+            "label": "Task",
+            "order": 1,
             "required_at_run": true
           }
         }
@@ -1030,7 +1033,7 @@
       "type": "object",
       "x-legato": {
         "declared_outputs": false,
-        "internal": true,
+        "group": "Learn",
         "outputs": [
           {
             "description": "",
@@ -1047,6 +1050,9 @@
             "name": "reason",
             "type": "string"
           }
+        ],
+        "summary": [
+          "task"
         ],
         "type": "agent.interview"
       }
@@ -1284,7 +1290,6 @@
       "x-legato": {
         "declared_outputs": true,
         "group": "Agents",
-        "internal": false,
         "outputs": [],
         "summary": [
           "macro",
@@ -1318,7 +1323,6 @@
       "x-legato": {
         "declared_outputs": false,
         "group": "Agents",
-        "internal": false,
         "outputs": [],
         "summary": [
           "task"
@@ -1398,7 +1402,6 @@
       "x-legato": {
         "declared_outputs": false,
         "group": "Board",
-        "internal": false,
         "outputs": [
           {
             "description": "The ticket's key, or empty when skipped",
@@ -1448,7 +1451,6 @@
       "x-legato": {
         "declared_outputs": false,
         "group": "Cleanup",
-        "internal": false,
         "outputs": [
           {
             "description": "",
@@ -1503,7 +1505,6 @@
       "x-legato": {
         "declared_outputs": false,
         "group": "Cleanup",
-        "internal": false,
         "outputs": [
           {
             "description": "",
@@ -1586,7 +1587,6 @@
       "x-legato": {
         "declared_outputs": false,
         "group": "Code",
-        "internal": false,
         "outputs": [
           {
             "description": "",
@@ -1742,7 +1742,6 @@
       "x-legato": {
         "declared_outputs": false,
         "group": "Code",
-        "internal": false,
         "outputs": [
           {
             "description": "approved, stuck, closed or cancelled",
@@ -1851,7 +1850,6 @@
       "x-legato": {
         "declared_outputs": false,
         "group": "Code",
-        "internal": false,
         "outputs": [
           {
             "description": "merged or closed",
@@ -1882,30 +1880,38 @@
     },
     "with.learning.packet.prepare": {
       "additionalProperties": false,
-      "description": "Gather the evidence for a curation, for Legato Learn.",
+      "description": "Gather a task's evidence and the learnings it may touch into a bounded packet, for a curator agent to read.",
       "properties": {
         "limits": {
           "description": "max_items and max_bytes",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "json"
+            "kind": "json",
+            "label": "Limits",
+            "order": 2
           }
         },
         "project": {
-          "description": "key and label of the project",
+          "description": "key and label of the project; found from the evidence when absent",
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "json"
+            "kind": "json",
+            "label": "Project",
+            "order": 3
           }
         },
         "task": {
           "description": "The task: a task reference, or an object with its id",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "json"
+            "kind": "json",
+            "label": "Task",
+            "order": 1
           }
         }
       },
@@ -1917,7 +1923,7 @@
       "type": "object",
       "x-legato": {
         "declared_outputs": false,
-        "internal": true,
+        "group": "Learn",
         "outputs": [
           {
             "description": "",
@@ -1934,6 +1940,9 @@
             "name": "packet",
             "type": "json"
           }
+        ],
+        "summary": [
+          "task"
         ],
         "type": "learning.packet.prepare"
       }
@@ -1956,7 +1965,7 @@
           ]
         }
       ],
-      "description": "Submit a curator's operations, for Legato Learn.",
+      "description": "Check a curator's operations against its packet and keep them as candidates on the Learning page. Nothing is accepted for you.",
       "properties": {
         "attempt_id": {
           "description": "The curator's attempt",
@@ -1964,23 +1973,31 @@
           "x-legato": {
             "context": "with",
             "expressions": true,
-            "kind": "string"
+            "kind": "string",
+            "label": "Curator's attempt",
+            "order": 3
           }
         },
         "generation": {
-          "description": "An attempt reference, in place of attempt_id",
+          "description": "The packet step's generation_id, in place of attempt_id",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "json"
+            "kind": "json",
+            "label": "Packet",
+            "order": 2
           }
         },
         "operations": {
           "description": "The curator's operations document",
           "x-legato": {
             "context": "with",
+            "essential": true,
             "expressions": true,
-            "kind": "json"
+            "kind": "json",
+            "label": "Operations",
+            "order": 1
           }
         }
       },
@@ -1991,7 +2008,7 @@
       "type": "object",
       "x-legato": {
         "declared_outputs": false,
-        "internal": true,
+        "group": "Learn",
         "outputs": [
           {
             "description": "",
@@ -2018,6 +2035,9 @@
             "name": "summary",
             "type": "json"
           }
+        ],
+        "summary": [
+          "generation"
         ],
         "type": "learning.proposals.submit"
       }
@@ -2078,7 +2098,6 @@
       "x-legato": {
         "declared_outputs": false,
         "group": "Code",
-        "internal": false,
         "outputs": [
           {
             "description": "The directory given, when no repository is",
@@ -2143,7 +2162,6 @@
       "x-legato": {
         "declared_outputs": false,
         "group": "Board",
-        "internal": false,
         "outputs": [
           {
             "description": "The task's context",
@@ -2192,7 +2210,6 @@
       "x-legato": {
         "declared_outputs": false,
         "group": "Board",
-        "internal": false,
         "outputs": [],
         "summary": [
           "values"
@@ -2239,7 +2256,6 @@
       "x-legato": {
         "declared_outputs": false,
         "group": "Board",
-        "internal": false,
         "outputs": [],
         "summary": [
           "column"
@@ -2304,7 +2320,6 @@
       "x-legato": {
         "declared_outputs": false,
         "group": "Board",
-        "internal": false,
         "outputs": [
           {
             "description": "",
@@ -2387,7 +2402,6 @@
       "x-legato": {
         "declared_outputs": false,
         "group": "Board",
-        "internal": false,
         "outputs": [
           {
             "description": "",
@@ -2449,7 +2463,6 @@
       "x-legato": {
         "declared_outputs": false,
         "group": "Cleanup",
-        "internal": false,
         "outputs": [
           {
             "description": "",
@@ -2561,7 +2574,6 @@
       {
         "description": "Start an agent of the workflow on a prompt or a macro, and wait for it to complete the step with the outputs the step declares.",
         "group": "Agents",
-        "internal": false,
         "summary": [
           "macro",
           "prompt"
@@ -2572,7 +2584,6 @@
       {
         "description": "Send a prompt or a macro to a task's agent, starting one when the task has none. The step does not wait for the agent.",
         "group": "Agents",
-        "internal": false,
         "summary": [
           "macro",
           "prompt"
@@ -2583,7 +2594,6 @@
       {
         "description": "Stop a task's agent.",
         "group": "Agents",
-        "internal": false,
         "summary": [
           "task"
         ],
@@ -2593,7 +2603,6 @@
       {
         "description": "Compact a task's running agent with its tool's own compaction, once its turn ends, and wait for the compaction to finish. The step fails when the agent's tool cannot be compacted from Legato, or the agent is still working after 15 minutes.",
         "group": "Agents",
-        "internal": false,
         "summary": [
           "instructions",
           "task"
@@ -2604,7 +2613,6 @@
       {
         "description": "Make Legato's copy of a GitHub repository ready for an agent to be cloned from, or pass a directory through when no repository is given.",
         "group": "Code",
-        "internal": false,
         "summary": [
           "repo",
           "working_dir"
@@ -2615,7 +2623,6 @@
       {
         "description": "Export a task's full context (title, description, notes, pull requests) as text.",
         "group": "Board",
-        "internal": false,
         "summary": [
           "task"
         ],
@@ -2625,7 +2632,6 @@
       {
         "description": "The task's worktree when it has one, else the fallback.",
         "group": "Board",
-        "internal": false,
         "summary": [
           "task"
         ],
@@ -2635,7 +2641,6 @@
       {
         "description": "Add a durable note to a task.",
         "group": "Board",
-        "internal": false,
         "summary": [
           "body",
           "body_path"
@@ -2646,7 +2651,6 @@
       {
         "description": "Set values in a task's metadata.",
         "group": "Board",
-        "internal": false,
         "summary": [
           "values"
         ],
@@ -2656,7 +2660,6 @@
       {
         "description": "Move a task to a column of the board, and its ticket with it.",
         "group": "Board",
-        "internal": false,
         "summary": [
           "column"
         ],
@@ -2666,7 +2669,6 @@
       {
         "description": "Fetch a pull request's exact head into a new worktree, and link the workflow task to it. Needs Yggdrasil worktrees.",
         "group": "Code",
-        "internal": false,
         "summary": [
           "repo"
         ],
@@ -2676,7 +2678,6 @@
       {
         "description": "Review an open pull request (or its stack) in passes posted as GitHub reviews from Legato's reviewer App, until a clean pass approves it. Needs review passes turned on.",
         "group": "Code",
-        "internal": false,
         "summary": [
           "repo"
         ],
@@ -2686,7 +2687,6 @@
       {
         "description": "Close the Burnlite ticket a task was imported from, with a reason and a summary. Needs Legato connected to Burnlite with write access.",
         "group": "Board",
-        "internal": false,
         "summary": [
           "task"
         ],
@@ -2696,7 +2696,6 @@
       {
         "description": "Wait until a pull request merges, or closes. Legato reads its state from GitHub when the step starts, after each refresh of a card's pull requests, and every few minutes.",
         "group": "Code",
-        "internal": false,
         "summary": [
           "repo"
         ],
@@ -2706,7 +2705,6 @@
       {
         "description": "Remove the workflow task's Yggdrasil worktree, when it is at the path expected.",
         "group": "Cleanup",
-        "internal": false,
         "summary": [
           "expected_path"
         ],
@@ -2716,7 +2714,6 @@
       {
         "description": "Remove one regular file inside a directory; a file that is not there is not an error.",
         "group": "Cleanup",
-        "internal": false,
         "summary": [
           "path"
         ],
@@ -2726,7 +2723,6 @@
       {
         "description": "Remove the saved Chimera session of a task's agent.",
         "group": "Cleanup",
-        "internal": false,
         "summary": [
           "task"
         ],
@@ -2734,20 +2730,29 @@
         "type": "chimera.session.remove"
       },
       {
-        "description": "Ask a task's running agent for a reflection, for Legato Learn.",
-        "internal": true,
+        "description": "Ask a task's running agent what it learned, and keep its answer as evidence for Legato Learn. The agent must be running.",
+        "group": "Learn",
+        "summary": [
+          "task"
+        ],
         "title": "Ask the agent to reflect",
         "type": "agent.interview"
       },
       {
-        "description": "Gather the evidence for a curation, for Legato Learn.",
-        "internal": true,
+        "description": "Gather a task's evidence and the learnings it may touch into a bounded packet, for a curator agent to read.",
+        "group": "Learn",
+        "summary": [
+          "task"
+        ],
         "title": "Prepare a learning packet",
         "type": "learning.packet.prepare"
       },
       {
-        "description": "Submit a curator's operations, for Legato Learn.",
-        "internal": true,
+        "description": "Check a curator's operations against its packet and keep them as candidates on the Learning page. Nothing is accepted for you.",
+        "group": "Learn",
+        "summary": [
+          "generation"
+        ],
         "title": "Submit learning proposals",
         "type": "learning.proposals.submit"
       }
@@ -2922,11 +2927,6 @@
         ]
       }
     },
-    "internal": [
-      "agent.interview",
-      "learning.packet.prepare",
-      "learning.proposals.submit"
-    ],
     "repository_fields": [
       "name",
       "repo",
@@ -2938,6 +2938,7 @@
       "Agents",
       "Code",
       "Board",
+      "Learn",
       "Cleanup"
     ],
     "task_fields": [

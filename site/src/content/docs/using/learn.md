@@ -20,21 +20,28 @@ A learning has a scope: `user` applies to all your work, and `project` applies t
 
 ## Setting it up
 
-You can record, search and decide learnings without any setup. The settings below turn on the automatic parts. Both are off unless you set them:
+You can record, search and decide learnings without any setup, and `legato learn curate` works at any time (see below).
 
-```yaml
-learning:
-  enabled: true              # reflect and curate when a task enters these columns
-  transition_columns: [Review]
-  curator_adapter: chimera   # optional; swarm.worker.agent otherwise
-  prompt_enabled: true       # give enabled learnings to new agents
-```
+Automatic Learn is a workflow, `learn`, which Legato ships as a template. When a card enters **Review**, it asks the card's running agent what it learned, and a curator and a critic turn the answer into candidates. To use it:
 
-- `learning.enabled` starts a reflection and a curation each time a task moves into one of `transition_columns`. Each column must exist on the board.
-- The curator and the critic run on `learning.curator_adapter`, or on `swarm.worker.agent` when that is not set. The agent tool must have an entry under `adapters`. `learning.curator_tier` picks one of its [tiers](/legato/using/swarms/#tiers).
-- `learning.prompt_enabled` lets Legato add learnings to the prompts of agents it starts. It never changes an agent that already runs.
+1. Add the workflow: `legato workflow add learn`, or **New workflow** › **Learn from a task** on the **Workflows** tab.
+2. Its trigger arrives paused. Switch it on on the Workflows tab, and off again when you want a rest. The switch is kept for this Legato only.
 
-See the [configuration reference](/legato/reference/configuration/) for the limits on curation and prompts.
+The card's agent must be running when the card enters the column; otherwise the run fails at its first step. The curator and the critic run on your default agent tool. To change that, the column, or the packet's size, edit the workflow file: add `agent:` and `tier:` to the `with:` of its `curator` and `critic` steps, change `column:` under `on:`, or change `limits:` on its `packet` step. A workflow has one trigger, so for a second column add a copy under another name.
+
+A run's own task never starts another run: the trigger skips tasks a Learn run made.
+
+To give enabled learnings to new agents, set `learning.prompt_enabled: true`. It never changes an agent that already runs.
+
+### Build your own
+
+The steps of `learn` are ordinary step types that any workflow can use (see [Learn steps](/legato/using/workflows/#learn-steps)). For example, a workflow with only an `agent.interview` step keeps a card agent's reflection as evidence and curates nothing. You can then curate it later with `legato learn curate`.
+
+### From `learning.enabled`
+
+Before the template, `learning.enabled` and `learning.transition_columns` started Learn on their own. They are deprecated and now do nothing. At its first start with the template, a Legato with `learning.enabled: true` installed a `learn` workflow for each of those columns that its board has (`learn`, then `learn-<column>`) in its workflows folder, with your curator settings in it, and switched it on (or left it paused, if you had paused the built-in). It does this once; while the old settings are still set, its log says that they do nothing. A Legato with Learn off installed nothing.
+
+`learning.curator_adapter`, `learning.curator_tier`, `learning.curator_working_dir` and the packet limits still apply to `legato learn curate` and `legato learn consolidate`. See the [configuration reference](/legato/reference/configuration/) for them and the limits on prompts.
 
 ## Curating a task by hand
 

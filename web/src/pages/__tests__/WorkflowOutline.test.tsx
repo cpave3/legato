@@ -403,7 +403,7 @@ it("finds a step type as you type, and Enter adds the first where the + was", as
   const picker = screen.getByRole("dialog", { name: "Add a step" })
   const search = within(picker).getByRole("searchbox", { name: "Search step types" })
   expect(document.activeElement).toBe(search)
-  expect(within(picker).getAllByRole("region").map(r => r.getAttribute("aria-label"))).toEqual(["Agents", "Code", "Board", "Cleanup"])
+  expect(within(picker).getAllByRole("region").map(r => r.getAttribute("aria-label"))).toEqual(["Agents", "Code", "Board", "Learn", "Cleanup"])
   fireEvent.change(search, { target: { value: "add a note" } })
   expect(within(picker).getAllByRole("region").map(r => r.getAttribute("aria-label"))).toEqual(["Board"])
   fireEvent.keyDown(search, { key: "Enter" })

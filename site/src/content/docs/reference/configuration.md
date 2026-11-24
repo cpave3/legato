@@ -610,15 +610,15 @@ How agents reach credentials without holding them. See [The credential broker](/
 
 ## Learning
 
-Legato Learn: lessons from finished work, curated by an agent and checked by you. Settings alone start nothing; `learning.enabled` turns on the automatic part. See [Learn](/legato/using/learn/).
+Legato Learn: lessons from finished work, curated by an agent and checked by you. Settings start nothing: automatic Learn is the `learn` workflow, switched on and off on the Workflows tab. The curator settings and packet limits are for `legato learn curate` and `legato learn consolidate`; the `learn` workflow names its own in its file. See [Learn](/legato/using/learn/#setting-it-up).
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `learning.enabled` | bool | `false` | Reflects on a task and curates its lessons when the task enters one of `learning.transition_columns`. The ledger and the manual commands work either way. |
+| `learning.enabled` | bool | `false` | *Deprecated: does nothing.* A Legato that had it on installed the `learn` workflow for each of `learning.transition_columns` and switched it on, once, at its first start with the template ([Learn](/legato/using/learn/#from-learningenabled)). While it is still set, the log says it does nothing. |
 | `learning.prompt_enabled` | bool | `false` | Adds accepted lessons to the prompt of agents Legato starts. |
-| `learning.transition_columns` | list of strings | none | Board columns whose entry starts learning. Required when `learning.enabled` is on; each must be a column of `board.columns`. |
-| `learning.curator_adapter` | string | `agents.default_tool`, then `swarm.worker.agent` | The tool the curator agent runs. It must have an entry under `adapters`. |
-| `learning.curator_tier` | string | none | A tier of that tool for the curator. It must exist under `adapters.<tool>.tiers`. |
+| `learning.transition_columns` | list of strings | none | *Deprecated: does nothing.* The columns the one-time install used. The `learn` workflow's trigger names its column now. |
+| `learning.curator_adapter` | string | `agents.default_tool`, then `swarm.worker.agent` | The tool the curator and the critic of `legato learn curate` and `consolidate` run. It must have an entry under `adapters`. |
+| `learning.curator_tier` | string | none | A tier of that tool for those agents, one of `adapters.<tool>.tiers`. |
 | `learning.curator_working_dir` | path | the task's checkout | An absolute folder the curator always works in. |
 | `learning.packet_max_items` | integer | `100` | The most items in what the curator is given. |
 | `learning.packet_max_bytes` | integer | `262144` (256 KiB) | The most bytes in what the curator is given. |

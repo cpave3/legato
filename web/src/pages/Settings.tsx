@@ -59,7 +59,6 @@ const featureSwitches: Record<string, string> = {
   sandbox: "agents.sandbox.enabled",
   swarms: "swarm.enabled",
   "review-passes": "review_passes.enabled",
-  learn: "learning.enabled",
 }
 
 function sectionStates(registry: ConfigSetting[], noDevice: boolean, waiting: number): Record<string, SectionState> {

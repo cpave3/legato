@@ -51,7 +51,7 @@ func wireSetupChecklist(srv *server.Server, cfg *config.Config, db *store.Store,
 			report, _ := reports.Known()
 			workers, _ := db.ListWorkers(ctx)
 			workflows := workflow.DiscoverFolders(workflowFolders(workflowRepositoriesFor(cfg, db)())).Definitions
-			return setupFeatures(cfg, report, featureCounts{Workers: len(workers), Workflows: len(workflows)})
+			return setupFeatures(cfg, report, featureCounts{Workers: len(workers), Workflows: len(workflows), LearnOn: learnWorkflowsOn(ctx, db, workflows)})
 		},
 		Values: db,
 	})

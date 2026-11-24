@@ -1,6 +1,9 @@
 package workflow
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestEveryEmbeddedExampleValidates(t *testing.T) {
 	examples := Examples()
@@ -40,7 +43,7 @@ func TestAnEmptyNumberOrBooleanInputTakesItsDefault(t *testing.T) {
 }
 
 func TestTheBundledTemplatesArePausedAndNeedNoExtraTools(t *testing.T) {
-	for _, name := range []string{"triage", "review-pr", "discuss-pr", "address-feedback", "ticket-to-merged-pr"} {
+	for _, name := range []string{"triage", "review-pr", "discuss-pr", "address-feedback", "ticket-to-merged-pr", "learn"} {
 		example, ok := ExampleNamed(name)
 		if !ok {
 			t.Fatalf("%s is not bundled", name)
@@ -68,5 +71,42 @@ func TestTheBundledTemplatesArePausedAndNeedNoExtraTools(t *testing.T) {
 		if _, ok := definition.Inputs["primary_dir"]; ok && name != "triage" {
 			t.Errorf("%s declares primary_dir; it works in a fresh clone", name)
 		}
+	}
+}
+
+func TestTheLearnTemplateReflectsCuratesAndCritiquesWhenACardEntersReview(t *testing.T) {
+	example, ok := ExampleNamed("learn")
+	if !ok {
+		t.Fatal("learn is not bundled")
+	}
+	definition, err := Parse("learn.workflow.yaml", example.YAML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var types []string
+	for _, step := range definition.Steps {
+		types = append(types, step.Type)
+	}
+	want := []string{"agent.interview", "learning.packet.prepare", "agent.run", "agent.run", "learning.proposals.submit"}
+	if strings.Join(types, ",") != strings.Join(want, ",") {
+		t.Fatalf("steps = %v, want %v", types, want)
+	}
+	trigger := definition.On.TaskEnteredColumn
+	if trigger == nil || trigger.Column != "Review" {
+		t.Fatalf("trigger = %#v", trigger)
+	}
+	if trigger.Enabled == nil || *trigger.Enabled {
+		t.Fatal("the trigger is not enabled: false")
+	}
+	if !definition.UsesLearning() {
+		t.Fatal("the learn template does not use Learn steps")
+	}
+	ownRun, err := trigger.Matches(map[string]any{"metadata": map[string]any{"legato": map[string]any{"learning_workflow": true}}})
+	if err != nil || ownRun {
+		t.Fatalf("a learning run's own task matched: %v, %v", ownRun, err)
+	}
+	card, err := trigger.Matches(map[string]any{"metadata": map[string]any{}})
+	if err != nil || !card {
+		t.Fatalf("an ordinary card did not match: %v, %v", card, err)
 	}
 }

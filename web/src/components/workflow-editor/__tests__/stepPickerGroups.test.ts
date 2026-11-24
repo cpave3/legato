@@ -3,17 +3,17 @@ import { pickerGroups } from "../stepPickerGroups"
 import { executors } from "../../../lib/workflowSchema"
 
 describe("the step picker's list", () => {
-  it("groups every offered step type as Agents, Code, Board and Cleanup", () => {
+  it("groups every step type as Agents, Code, Board, Learn and Cleanup", () => {
     const groups = pickerGroups("")
-    expect(groups.map(g => g.group)).toEqual(["Agents", "Code", "Board", "Cleanup"])
+    expect(groups.map(g => g.group)).toEqual(["Agents", "Code", "Board", "Learn", "Cleanup"])
     const listed = groups.flatMap(g => g.entries.map(e => e.type)).sort()
-    expect(listed).toEqual(executors.filter(e => !e.internal).map(e => e.type).sort())
+    expect(listed).toEqual(executors.map(e => e.type).sort())
     expect(groups[0].entries.map(e => e.type)).toEqual(["agent.run", "agent.dispatch", "agent.stop", "agent.compact"])
   })
 
-  it("never offers an internal step type", () => {
-    expect(pickerGroups("learning").flatMap(g => g.entries)).toEqual([])
-    expect(pickerGroups("interview").flatMap(g => g.entries)).toEqual([])
+  it("offers Learn's steps for any workflow", () => {
+    expect(pickerGroups("learning").map(g => g.group)).toEqual(["Learn"])
+    expect(pickerGroups("learn").find(g => g.group === "Learn")?.entries.map(e => e.type)).toEqual(["agent.interview", "learning.packet.prepare", "learning.proposals.submit"])
   })
 
   it("finds by name, type and words of the description, dropping empty groups", () => {

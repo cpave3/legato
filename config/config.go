@@ -914,45 +914,11 @@ func ValidateLearningConfig(cfg *Config) error {
 	if learning.CuratorWorkingDir != "" && !filepath.IsAbs(learning.CuratorWorkingDir) {
 		return fmt.Errorf("learning.curator_working_dir must be an absolute path")
 	}
-	if !learning.Enabled {
-		return nil
-	}
-	if len(learning.TransitionColumns) == 0 {
-		return fmt.Errorf("learning.transition_columns must contain at least one board column when learning is enabled")
-	}
-	columns := make(map[string]struct{}, len(cfg.Board.Columns))
-	for _, column := range cfg.Board.Columns {
-		columns[column.Name] = struct{}{}
-	}
-	seen := make(map[string]struct{}, len(learning.TransitionColumns))
-	for _, column := range learning.TransitionColumns {
-		if strings.TrimSpace(column) == "" {
-			return fmt.Errorf("learning.transition_columns must not contain an empty column")
-		}
-		if _, ok := columns[column]; !ok {
-			return fmt.Errorf("learning.transition_columns contains unknown board column %q", column)
-		}
-		if _, ok := seen[column]; ok {
-			return fmt.Errorf("learning.transition_columns contains duplicate board column %q", column)
-		}
-		seen[column] = struct{}{}
-	}
-	adapter := learning.CuratorAdapter
-	if adapter == "" {
-		adapter = cfg.DefaultAgentTool()
-	}
-	if adapter == "" {
-		return fmt.Errorf("learning.curator_adapter, agents.default_tool or swarm.worker.agent is required when learning is enabled")
-	}
-	adapterConfig, ok := cfg.Adapters[adapter]
-	if !ok {
-		return fmt.Errorf("learning.curator_adapter %q is not configured", adapter)
-	}
-	if tier := learning.CuratorTier; tier != "" {
-		if _, ok := adapterConfig.Tiers[tier]; !ok {
-			return fmt.Errorf("learning.curator_tier %q is not configured for adapter %q", tier, adapter)
-		}
-	}
+	// learning.enabled and learning.transition_columns are deprecated:
+	// automatic Learn is the learn workflow, and Legato read them once to
+	// install it (cmd/legato/learning_migration.go). What they say never
+	// stops a start. The curator settings are checked when a manual
+	// legato learn command builds its workflow.
 	return nil
 }
 

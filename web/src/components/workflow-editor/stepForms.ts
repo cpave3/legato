@@ -9,8 +9,8 @@ export const noOptions: BuilderOptions = { macros: [], agents: [], tiers: {}, co
 export type StepValue = Record<string, unknown> & { id?: string; title?: string; type?: string; trigger?: string; with?: Record<string, unknown> | null; outputs?: Record<string, Record<string, unknown> | null> | null }
 
 /** FieldSpec is one with field of a step type's form. label, essential and
- * order are the catalog's (internal step types have none: their label is
- * the name, and they keep the file's order). */
+ * order are the catalog's (a type without them gets the name as its label
+ * and keeps the file's order). */
 export type FieldSpec = { name: string; kind: string; description: string; required: boolean; expressions: boolean; enum?: string[]; requiredAtRun: boolean; label: string; essential: boolean; order: number }
 export type Group = { kind: "exactly_one" | "at_least_one"; fields: string[] }
 

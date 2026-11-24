@@ -214,3 +214,34 @@ func (s *Store) SetInstanceValue(ctx context.Context, key, value string) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO instance_values (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value)
 	return err
 }
+
+// ClaimInstanceValue stores a value of this Legato only when none is kept
+// under its key, and says whether this call stored it: of processes sharing
+// the database that claim one key, exactly one is told true.
+func (s *Store) ClaimInstanceValue(ctx context.Context, key, value string) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `INSERT INTO instance_values (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING`, key, value)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	return n == 1, err
+}
+
+// DeleteInstanceValue forgets a value of this Legato, so it can be claimed
+// again.
+func (s *Store) DeleteInstanceValue(ctx context.Context, key string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM instance_values WHERE key = ?`, key)
+	return err
+}
+
+// ReplaceInstanceValue changes a value of this Legato only while it is
+// still old, and says whether it did: of processes that read the same
+// value and replace it, exactly one is told true.
+func (s *Store) ReplaceInstanceValue(ctx context.Context, key, old, value string) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE instance_values SET value = ? WHERE key = ? AND value = ?`, value, key, old)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	return n == 1, err
+}

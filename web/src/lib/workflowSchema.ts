@@ -12,7 +12,7 @@ export const workflowSchema: Schema = schemaJSON as Schema
 
 export type YamlPath = (string | number)[]
 
-export type Executor = { type: string; title: string; description: string; internal: boolean; group?: string; summary?: string[] }
+export type Executor = { type: string; title: string; description: string; group?: string; summary?: string[] }
 
 export const executors: Executor[] = workflowSchema["x-legato"].executors
 
@@ -122,11 +122,11 @@ export function keyCompletions(path: YamlPath, doc: unknown): Completion[] {
 }
 
 /** valueCompletions are the values a scalar at path may take: enums
- * (step types with their titles, not the internal ones), booleans. */
+ * (step types with their titles), booleans. */
 export function valueCompletions(path: YamlPath, doc: unknown): Completion[] {
   const last = path[path.length - 1]
   if (last === "type" && path[0] === "steps" && path.length === 3) {
-    return executors.filter(e => !e.internal).map(e => ({ label: e.type, detail: e.title, info: e.description, type: "enum" as const }))
+    return executors.map(e => ({ label: e.type, detail: e.title, info: e.description, type: "enum" as const }))
   }
   const schema = schemaAt(path, doc)
   if (!schema) return []

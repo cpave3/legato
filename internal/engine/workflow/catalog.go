@@ -99,9 +99,6 @@ type ExecutorSpec struct {
 	Type        string
 	Title       string
 	Description string
-	// Internal executors are Legato's own (the learning workflows): files
-	// may use them, and the builder does not offer them.
-	Internal    bool
 	With        []Field
 	Constraints []Constraint
 	Outputs     []OutputSpec
@@ -116,7 +113,7 @@ type ExecutorSpec struct {
 }
 
 // StepGroups are the step picker's groups, in its order.
-var StepGroups = []string{"Agents", "Code", "Board", "Cleanup"}
+var StepGroups = []string{"Agents", "Code", "Board", "Learn", "Cleanup"}
 
 // Field is the spec's with field of that name.
 func (s ExecutorSpec) Field(name string) (Field, bool) {
@@ -507,37 +504,40 @@ var catalog = []ExecutorSpec{
 		Summary:     []string{"task"},
 	},
 	{
-		Type: "agent.interview", Title: "Ask the agent to reflect", Internal: true,
-		Description: "Ask a task's running agent for a reflection, for Legato Learn.",
+		Type: "agent.interview", Group: "Learn", Title: "Ask the agent to reflect",
+		Description: "Ask a task's running agent what it learned, and keep its answer as evidence for Legato Learn. The agent must be running.",
 		With: []Field{
-			{Name: "task", Kind: KindTaskOrID, Description: "The task, or a task ID", RequiredAtRun: true},
-			{Name: "prompt", Kind: KindText, Description: "The question; Legato's reflection prompt when empty"},
+			{Name: "task", Kind: KindTaskOrID, Label: "Task", Description: "The task, or a task ID", RequiredAtRun: true, Essential: true, Order: 1},
+			{Name: "prompt", Kind: KindText, Label: "Question", Description: "The question; Legato's reflection prompt when empty", Order: 2},
 		},
+		Summary: []string{"task"},
 		Outputs: []OutputSpec{
 			{Name: "available", Type: "boolean"}, {Name: "request_id", Type: "string"},
 			{Name: "reason", Type: "string", Description: "Why the agent could not be asked"},
 		},
 	},
 	{
-		Type: "learning.packet.prepare", Title: "Prepare a learning packet", Internal: true,
-		Description: "Gather the evidence for a curation, for Legato Learn.",
+		Type: "learning.packet.prepare", Group: "Learn", Title: "Prepare a learning packet",
+		Description: "Gather a task's evidence and the learnings it may touch into a bounded packet, for a curator agent to read.",
 		With: []Field{
-			{Name: "task", Kind: KindJSON, Description: "The task: a task reference, or an object with its id", Required: true},
-			{Name: "project", Kind: KindJSON, Description: "key and label of the project"},
-			{Name: "limits", Kind: KindJSON, Description: "max_items and max_bytes", Required: true},
+			{Name: "task", Kind: KindJSON, Label: "Task", Description: "The task: a task reference, or an object with its id", Required: true, Essential: true, Order: 1},
+			{Name: "limits", Kind: KindJSON, Label: "Limits", Description: "max_items and max_bytes", Required: true, Essential: true, Order: 2},
+			{Name: "project", Kind: KindJSON, Label: "Project", Description: "key and label of the project; found from the evidence when absent", Order: 3},
 		},
+		Summary: []string{"task"},
 		Outputs: []OutputSpec{
 			{Name: "generation_id", Type: "string"}, {Name: "packet_digest", Type: "string"}, {Name: "packet", Type: "json"},
 		},
 	},
 	{
-		Type: "learning.proposals.submit", Title: "Submit learning proposals", Internal: true,
-		Description: "Submit a curator's operations, for Legato Learn.",
+		Type: "learning.proposals.submit", Group: "Learn", Title: "Submit learning proposals",
+		Description: "Check a curator's operations against its packet and keep them as candidates on the Learning page. Nothing is accepted for you.",
 		With: []Field{
-			{Name: "attempt_id", Kind: KindString, Description: "The curator's attempt"},
-			{Name: "generation", Kind: KindJSON, Description: "An attempt reference, in place of attempt_id"},
-			{Name: "operations", Kind: KindJSON, Description: "The curator's operations document", Required: true},
+			{Name: "operations", Kind: KindJSON, Label: "Operations", Description: "The curator's operations document", Required: true, Essential: true, Order: 1},
+			{Name: "generation", Kind: KindJSON, Label: "Packet", Description: "The packet step's generation_id, in place of attempt_id", Essential: true, Order: 2},
+			{Name: "attempt_id", Kind: KindString, Label: "Curator's attempt", Description: "The curator's attempt", Order: 3},
 		},
+		Summary:     []string{"generation"},
 		Constraints: []Constraint{{Kind: AtLeastOne, Fields: []string{"attempt_id", "generation"}, Checked: true}},
 		Outputs: []OutputSpec{
 			{Name: "generation_id", Type: "string"}, {Name: "packet_digest", Type: "string"}, {Name: "status", Type: "string"},

@@ -15,7 +15,7 @@ export function pickerGroups(query: string): { group: string; entries: PickerEnt
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   // A word matches the start of a word of the title or description, or
   // any part of the type (github.pr).
-  const offered = executors.filter(e => !e.internal).filter(e => {
+  const offered = executors.filter(e => {
     const tokens = `${e.title} ${e.type} ${e.description}`.toLowerCase().split(/[^a-z0-9]+/)
     return words.every(word => (word.includes(".") && e.type.includes(word)) || tokens.some(token => token.startsWith(word)))
   })

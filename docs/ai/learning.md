@@ -8,7 +8,9 @@ The implementation follows Legato's normal layer boundaries:
 
 - `internal/engine/store/migrations/049_learning.sql`, `internal/engine/store/learning*.go` — SQLite schema, FTS5 indexes, optimistic revisions, prompt manifests, and transactional persistence.
 - `internal/service/learning*.go` — validation and lifecycle policy, reflection ingestion, bounded curation packets, prompt compilation, project identity, incorporation verification, and drift checking.
-- `internal/service/workflow_learning_definition.go`, `workflow_interview.go`, and `workflow_learning.go` — built-in curation/consolidation definitions and learning-specific workflow executors.
+- `internal/service/workflow_learning_definition.go`, `workflow_interview.go`, and `workflow_learning.go` — the built-in definitions of the manual `legato learn curate` and `consolidate`, and the Learn step executors, which any workflow may use.
+- `internal/engine/workflow/examples/learn.workflow.yaml` — the `learn` template: automatic Learn, a `task.entered_column` trigger on Review that arrives paused. `internal/engine/workflow/learning.go` has `LearningStepTypes`, `Definition.UsesLearning` and `LearnTemplateFor` (the template for a name and a column, with an agent, tier, folder and limits written in, its comments kept).
+- `cmd/legato/learning_migration.go` — the one-time install of `learn` workflows from the deprecated `learning.enabled` and `learning.transition_columns`.
 - `internal/cli/learning.go` and `cmd/legato/learning_cmd.go` — the public `legato learn` command family and workflow callbacks.
 - `internal/server/learning.go` — authenticated HTTP API.
 - `web/src/pages/LearningsPage.tsx` and `LearningDetailPage.tsx` — browser list/search/detail and decision UI.
@@ -70,7 +72,7 @@ Only a **verified** `prompt_profile` incorporation makes a validated/incorporate
 
 ## Collection and curation workflow
 
-`legato learn curate --task <task-id>` launches the built-in `legato-learning` workflow:
+`legato learn curate --task <task-id>` launches the built-in `legato-learning` workflow (Go, `BuiltInLearningWorkflow`), and the `learn` template runs the same steps when a card enters its column. `TestTheLearnTemplateAsksWhatTheManualLearnWorkflowAsks` pins the template's curator and critic prompts to the Go ones, so change both together:
 
 1. `agent.interview` borrows the task's existing live agent and asks for a structured reflection. It does not launch a replacement. If no active task agent exists, the workflow fails at the interview step and no packet, curator, critic, or submission step runs.
 2. The agent submits the reflection through the CLI callback described below. Valid observations become attributable evidence. An empty observation list is a successful result and creates no evidence.
@@ -110,17 +112,15 @@ The critic completes the same output contract after reviewing that draft. Only t
 
 ## Configuration and opt-in behavior
 
-Learning automation is opt-in:
+Automatic Learn is the `learn` workflow, not a setting. `legato workflow add learn` (or **New workflow** in the web UI) writes the template; its trigger arrives paused (`enabled: false`) and is switched per Legato in `workflow_trigger_switches`, like any workflow's. The trigger's condition skips a task whose metadata has `legato.learning_workflow: true`. `WorkflowService.Start` sets that mark on a run's own task whenever the definition `UsesLearning` (has an `agent.interview`, `learning.packet.prepare` or `learning.proposals.submit` step), whatever its source, so neither the template nor an operator's copy or own workflow re-triggers itself. Until LEG-603, `injectBuiltInLearningTriggers` added one Go-built definition per `learning.transition_columns` column to every discovery while `learning.enabled` was on, and the mark was set only for `builtin:legato-learning` sources.
 
 ```yaml
 learning:
-  # Automatic reflection/curation on configured task transitions.
-  enabled: true
-  # Global kill switch for composing enabled learnings into new agent prompts.
-  # Defaults false; existing sessions are never modified.
+  # Gives enabled learnings to new agents' prompts. Defaults false;
+  # existing sessions are never modified.
   prompt_enabled: false
-  transition_columns: [Review]
-  # Optional overrides. Without curator_adapter, swarm.worker.agent is used.
+  # For legato learn curate and consolidate. Without curator_adapter,
+  # agents.default_tool, then swarm.worker.agent.
   curator_adapter: chimera
   curator_tier: careful
   # Usually omit this: task curation uses that task's checkout/worktree.
@@ -135,9 +135,9 @@ learning:
   consolidation_threshold: 50
 ```
 
-`learning.enabled` defaults to `false` and gates injection of built-in task-column triggers. When enabled, every named transition column must exist. `curator_adapter` overrides `swarm.worker.agent`; one of them must name a configured adapter, and `curator_tier`, when set, must exist for that adapter. Task curation derives the curator working directory from the task's durable checkout/worktree. `curator_working_dir` is an optional global override and must be absolute when set. Triggered definitions ignore tasks marked as learning-workflow execution tasks, preventing recursion.
+`learning.enabled` and `learning.transition_columns` are deprecated. They stay in `LearningConfig` and the settings registry so that old files and database rows load, and validation no longer checks them (or the curator adapter), so stale values never stop a start. Both long-lived runtimes (serve and the TUI) call `startLearningMigration` right after building the trigger coordinator and before its event loop starts. `migrateLearningTriggers` claims `instance_values` key `learning.template_migrated` with `Store.ClaimInstanceValue` (an atomic insert-if-absent, so of a TUI and a serve starting together one migrates). The claim is `started <time>`; a later start takes over a claim older than ten minutes (`ReplaceInstanceValue`, a compare-and-swap), since the start that made it stopped part way. With `learning.enabled` on and columns set, for each column `board.columns` has (others are skipped with a log line) it writes `LearnTemplateFor` (`learn`, then `learn-<slug>`) to the global workflows folder with `CreateFile`, carrying `curator_adapter` (else the default agent tool), `curator_tier`, `curator_working_dir` and the packet limits into the steps, and switches the trigger on through the coordinator unless this Legato already has a switch for it. A switch of the built-in it replaces (`legato-learning-<slug>-<sha256 prefix>`, `legacyLearningWorkflowName`), which an operator could pause through the trigger-switch API, carries over instead of on. A workflow of that name that is a Learn workflow on that column is switched on rather than rewritten; any other is left alone with a log line. A failed write deletes the claim, so the next start tries again; otherwise the key is set to `installed`. With `learning.enabled` off it writes and switches nothing and sets the key to `nothing`, so switching the deprecated setting on later does nothing either. After the claim, each start logs once that whichever of the two settings is still set does nothing and the Workflows tab controls Learn. `legato doctor` does not report them: its checks are of the machine, not the configuration.
 
-`enabled` controls only automatic transition-triggered reflection/curation. `prompt_enabled` independently gates launch-time prompt composition. The local ledger, CLI/API, web pages, and manual `learn curate`/`consolidate` remain available regardless. Accepted learnings start prompt-disabled; enablement is an explicit, reversible decision in Learning. Manual curation still needs a valid curator adapter in practice. `reflection_timeout`, `reflection_retries`, `consolidation_automatic`, and `consolidation_threshold` are reserved settings: they are parsed and validated but currently have no operational effect. Consolidation remains manual.
+`prompt_enabled` gates launch-time prompt composition. The local ledger, CLI/API, web pages, and manual `learn curate`/`consolidate` work whether or not any Learn workflow exists. Task curation derives the curator working directory from the task's durable checkout/worktree; `curator_working_dir` is an optional global override and must be absolute when set. Accepted learnings start prompt-disabled; enablement is an explicit, reversible decision in Learning. Manual curation needs a valid curator adapter in practice. `reflection_timeout`, `reflection_retries`, `consolidation_automatic`, and `consolidation_threshold` are reserved settings: they are parsed and validated but currently have no operational effect. Consolidation remains manual. In More setup, Learn is on when a workflow with a Learn step has its column trigger on in this Legato (`learnWorkflowsOn`), and links to `/workflows`.
 
 See [configuration](config.md) for defaults and validation.
 
@@ -145,7 +145,7 @@ See [configuration](config.md) for defaults and validation.
 
 Legato Learn does **not** read Chimera JSONL, scrape tmux panes, or retain complete terminal/session transcripts. The interview asks an already-running agent to send a bounded typed reflection. Legato stores only the submitted observations and their attribution, explicit learning records, curation packet/operation audit documents, incorporation records, and prompt manifests in the local SQLite database.
 
-Treat reflections as durable local data: do not submit secrets. Agent-provided content and metadata are marked untrusted, packet data is labelled untrusted in curator prompts, and external JSON decoders reject unknown fields. `learning.enabled: false` prevents automatic transition-triggered collection but does not erase existing data or disable the manual/API surfaces. There is currently no learning-specific export, bulk-delete, retention, or redaction command; database backup/deletion is an operator-level action and affects more than Learn.
+Treat reflections as durable local data: do not submit secrets. Agent-provided content and metadata are marked untrusted, packet data is labelled untrusted in curator prompts, and external JSON decoders reject unknown fields. Pausing the `learn` workflow's trigger stops automatic collection but does not erase existing data or disable the manual/API surfaces. There is currently no learning-specific export, bulk-delete, retention, or redaction command; database backup/deletion is an operator-level action and affects more than Learn.
 
 ## Project identity and scope isolation
 
