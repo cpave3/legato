@@ -358,6 +358,7 @@ func (s *ReviewPassService) Tick(ctx context.Context) {
 	// under the lock: opening asks GitHub and makes clones, as a start
 	// did.
 	s.openWaiting(ctx)
+	s.sweepClosed(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	loops := s.loops(ctx)
@@ -524,7 +525,7 @@ func (s *ReviewPassService) ready(ctx context.Context, l ReviewLoop, loop *store
 	// reviews (a run started before a handoff's first pass, say).
 	for _, pr := range prs {
 		if active := s.activeLoopOn(ctx, l.Repo, pr.Number, l.TaskID); active != nil {
-			return s.stuck(ctx, l, loop, fmt.Sprintf("another review loop reviews #%d: %s (%s)", pr.Number, active.Name, active.Link))
+			return s.stuck(ctx, l, loop, fmt.Sprintf("another review loop reviews #%d: %s (%s)%s", pr.Number, active.Name, active.Link, loopNamed(active.LoopID)))
 		}
 	}
 	if s.running(ctx) >= s.config().MaxConcurrent {
@@ -620,6 +621,13 @@ func (s *ReviewPassService) startPass(ctx context.Context, l ReviewLoop, loop *s
 	loop.UpdatedAt = s.now()
 	if err := s.db.StartHandoffReviewPass(ctx, record, pinned, *loop); err != nil {
 		*loop = before
+		// A pull request another loop claimed since the check above: the
+		// loop is stuck, naming it (a layer added later is claimed when
+		// it is added).
+		var active *ReviewLoopActiveError
+		if errors.As(s.refusal(ctx, err), &active) {
+			return s.stuck(ctx, l, loop, fmt.Sprintf("another review loop reviews #%d: %s (%s)%s", active.PR, active.Name, active.Link, loopNamed(active.LoopID)))
+		}
 		return err
 	}
 	s.setWaiting(l.TaskID, "")

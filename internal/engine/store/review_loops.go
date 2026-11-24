@@ -336,9 +336,13 @@ type ReviewLoopItem struct {
 }
 
 // ReviewLoopOpen is a loop to open with its pull requests, bottom first.
+// YieldAuthor opens an agent-authored loop whose author already authors an
+// open loop as not the agent's (agent_author false) instead of refusing it:
+// a handed-off card's loop, which reviews whoever authors it.
 type ReviewLoopOpen struct {
-	Loop ReviewLoop
-	PRs  []ReviewLoopPR
+	Loop        ReviewLoop
+	PRs         []ReviewLoopPR
+	YieldAuthor bool
 }
 
 // ReviewLoopOwner names who may write to a loop.
@@ -378,31 +382,63 @@ func getReviewLoop(ctx context.Context, q sqlx.QueryerContext, id string) (*Revi
 }
 
 // OpenReviewLoop opens a loop and claims its pull requests in one
-// transaction. It is idempotent by (run, step path): a run's step that
-// opened a loop before gets it back, created false. A pull request another
-// loop holds, an author task whose agent authors another open loop, or a
-// run with another open loop is refused with a *ReviewLoopConflictError.
+// transaction. It is idempotent per owner: a run's step (run, step path)
+// or a handoff (main instance, handoff) that opened a loop before gets it
+// back, open or closed, with created false; another handoff of the same
+// card is another owner, with a loop of its own. A pull request another
+// loop holds, an author task whose agent authors another open loop
+// (unless YieldAuthor), or a run with another open loop is refused with a
+// *ReviewLoopConflictError.
 func (s *Store) OpenReviewLoop(ctx context.Context, open ReviewLoopOpen) (*ReviewLoop, bool, error) {
-	l := open.Loop
-	if l.OwnerKind != ReviewLoopOwnerRun && l.OwnerKind != ReviewLoopOwnerHandoff {
-		return nil, false, fmt.Errorf("review loop owner kind %q", l.OwnerKind)
-	}
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return nil, false, err
 	}
 	defer tx.Rollback()
+	loop, created, err := openReviewLoopTx(ctx, tx, open)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, false, err
+	}
+	return loop, created, nil
+}
+
+// ownedReviewLoop is the newest loop of an owner, nil when it has none.
+func ownedReviewLoop(ctx context.Context, tx *sqlx.Tx, l ReviewLoop) (*ReviewLoop, error) {
+	var existing string
+	var err error
+	switch l.OwnerKind {
+	case ReviewLoopOwnerRun:
+		err = tx.GetContext(ctx, &existing, `SELECT id FROM review_loops WHERE run_id = ? AND step_path = ? AND owner_kind = 'run'
+			ORDER BY created_at DESC, rowid DESC LIMIT 1`, l.RunID, l.StepPath)
+	default:
+		err = tx.GetContext(ctx, &existing, `SELECT id FROM review_loops WHERE main_instance_id = ? AND handoff_id = ? AND owner_kind = 'handoff'
+			AND host_task = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, l.MainInstanceID, l.HandoffID, l.HostTask)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return getReviewLoop(ctx, tx, existing)
+}
+
+func openReviewLoopTx(ctx context.Context, tx *sqlx.Tx, open ReviewLoopOpen) (*ReviewLoop, bool, error) {
+	l := open.Loop
+	if l.OwnerKind != ReviewLoopOwnerRun && l.OwnerKind != ReviewLoopOwnerHandoff {
+		return nil, false, fmt.Errorf("review loop owner kind %q", l.OwnerKind)
+	}
+	if l.OwnerKind == ReviewLoopOwnerRun || l.HandoffID != "" {
+		existing, err := ownedReviewLoop(ctx, tx, l)
+		if err != nil || existing != nil {
+			return existing, false, err
+		}
+	}
 	if l.OwnerKind == ReviewLoopOwnerRun {
 		var existing string
-		err := tx.GetContext(ctx, &existing, `SELECT id FROM review_loops WHERE run_id = ? AND step_path = ? AND owner_kind = 'run'
-			ORDER BY created_at DESC, rowid DESC LIMIT 1`, l.RunID, l.StepPath)
-		if err == nil {
-			loop, err := getReviewLoop(ctx, tx, existing)
-			return loop, false, err
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return nil, false, err
-		}
 		if err := tx.GetContext(ctx, &existing, `SELECT id FROM review_loops WHERE run_id = ? AND owner_kind = 'run' AND state = 'open'`, l.RunID); err == nil {
 			return nil, false, &ReviewLoopConflictError{Err: ErrRunLoopActive, LoopID: existing}
 		} else if !errors.Is(err, sql.ErrNoRows) {
@@ -412,10 +448,12 @@ func (s *Store) OpenReviewLoop(ctx context.Context, open ReviewLoopOpen) (*Revie
 	if l.AgentAuthor && l.AuthorTask != "" {
 		var other string
 		err := tx.GetContext(ctx, &other, `SELECT id FROM review_loops WHERE author_task = ? AND agent_author = 1 AND state = 'open'`, l.AuthorTask)
-		if err == nil {
+		switch {
+		case err == nil && open.YieldAuthor:
+			l.AgentAuthor = false
+		case err == nil:
 			return nil, false, &ReviewLoopConflictError{Err: ErrAuthorLoopActive, LoopID: other, AuthorTask: l.AuthorTask}
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
+		case !errors.Is(err, sql.ErrNoRows):
 			return nil, false, err
 		}
 	}
@@ -455,9 +493,6 @@ func (s *Store) OpenReviewLoop(ctx context.Context, open ReviewLoopOpen) (*Revie
 		if err := addReviewLoopPR(ctx, tx, l.Repo, pr); err != nil {
 			return nil, false, err
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, false, err
 	}
 	return &l, true, nil
 }
@@ -602,7 +637,21 @@ func writeReviewLoop(ctx context.Context, tx *sqlx.Tx, read, next ReviewLoop) er
 	if n, _ := result.RowsAffected(); n != 1 {
 		return fmt.Errorf("%w: review loop %s moved on", ErrConflict, read.ID)
 	}
+	if next.OwnerKind == ReviewLoopOwnerHandoff && handoffLoopLetsGo(next.Phase) {
+		// A handoff's loop that approved, had nothing to review or ended
+		// lets go of its pull requests while its card stays open; a later
+		// pass claims them again (holdReviewLoopLayer).
+		if _, err := tx.ExecContext(ctx, `DELETE FROM review_loop_claims WHERE loop_id = ?`, read.ID); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// handoffLoopLetsGo says a handoff loop's phase holds no claims: clean
+// (approved), skipped (nothing to review) or ended.
+func handoffLoopLetsGo(phase string) bool {
+	return phase == "clean" || phase == "skipped" || phase == "ended"
 }
 
 // SetLocalBranch records the branch of the reviewer's clone a layer is put
@@ -891,6 +940,56 @@ func (s *Store) CloseReviewLoop(ctx context.Context, id, outcome, at string) (*R
 	}
 	l, err = getReviewLoop(ctx, s.db, id)
 	return l, true, err
+}
+
+// EndReviewLoop is CloseReviewLoop with the loop's phase first set to phase
+// with reason, when phase is not "", in the same transaction.
+func (s *Store) EndReviewLoop(ctx context.Context, id, phase, reason, outcome, at string) (*ReviewLoop, bool, error) {
+	if at == "" {
+		at = reviewLoopNow()
+	}
+	closed := false
+	err := withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		l, err := getReviewLoop(ctx, tx, id)
+		if err != nil || l.State != ReviewLoopOpenState {
+			return err
+		}
+		if phase != "" {
+			next := *l
+			next.Phase, next.Reason, next.QueuedAt, next.UpdatedAt = phase, reason, "", at
+			if err := writeReviewLoop(ctx, tx, *l, next); err != nil {
+				return err
+			}
+		}
+		closed = true
+		return closeReviewLoopTx(ctx, tx, id, outcome, at)
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	l, err := getReviewLoop(ctx, s.db, id)
+	return l, closed, err
+}
+
+// ClosedLoopReviewer is a reviewer execution of a loop that closed: its
+// host task and the execution a pass of it ran.
+type ClosedLoopReviewer struct {
+	LoopID      string `db:"loop_id"`
+	HostTask    string `db:"host_task"`
+	ExecutionID string `db:"execution_id"`
+}
+
+// ClosedLoopReviewers are the reviewer executions of the loops closed at
+// or after since whose host task hosts no open loop: what Close's side
+// effects stop, for a sweep after a crash between the close and them.
+func (s *Store) ClosedLoopReviewers(ctx context.Context, since string) ([]ClosedLoopReviewer, error) {
+	var out []ClosedLoopReviewer
+	err := s.db.SelectContext(ctx, &out, `SELECT DISTINCT l.id AS loop_id, l.host_task, p.execution_id
+		FROM review_loops l JOIN review_loop_passes p ON p.loop_id = l.id
+		WHERE l.state = 'closed' AND l.closed_at >= ? AND p.execution_id != ''
+			AND NOT EXISTS (SELECT 1 FROM review_loops o WHERE o.host_task = l.host_task AND o.state = 'open')
+		ORDER BY l.closed_at, l.id`, since)
+	return out, err
 }
 
 // closeReviewLoopTx closes an open loop in a transaction: its claims

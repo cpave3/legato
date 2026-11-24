@@ -75,6 +75,64 @@ func handoffLoop(h *store.Handoff) ReviewLoop {
 		Owner: store.HandoffReviewOwner{MainInstanceID: h.MainInstanceID, HandoffID: h.HandoffID}}
 }
 
+// openLoop opens the loop of a card's handoff with the engine's Open: owned
+// by the handoff, hosted by the card, with no pull requests yet; each pass
+// claims those it pins. A handoff that has its loop gets it back, and
+// another handoff of the same card gets one of its own.
+func (c *HandoffReviewCaller) openLoop(ctx context.Context, h *store.Handoff) (*store.ReviewLoop, error) {
+	loop, _, err := c.Open(ctx, store.HandoffReviewLoopOpen(h.TaskID, store.HandoffOfCard{
+		MainInstanceID: h.MainInstanceID, HandoffID: h.HandoffID, Repo: h.Repo}))
+	return loop, err
+}
+
+// SetSettings opens the loop of a card's handoff (openLoop) and keeps its
+// review settings (a main's override, or the worker's defaults) on it.
+func (c *HandoffReviewCaller) SetSettings(ctx context.Context, taskID string, settings ReviewPassSettings) error {
+	if h, err := c.db.OpenHandoffForTask(ctx, taskID); err == nil {
+		if _, err := c.openLoop(ctx, h); err != nil {
+			return err
+		}
+	}
+	return c.ReviewPassService.SetSettings(ctx, taskID, settings)
+}
+
+// OpenWaiting opens the loop of each reviewed handoff whose card has none
+// of its own yet, in the holder's tick.
+func (c *HandoffReviewCaller) OpenWaiting(ctx context.Context) {
+	open, err := c.db.ListOpenHandoffs(ctx)
+	if err != nil {
+		log.Printf("review passes: %v", err)
+		return
+	}
+	for i := range open {
+		h := &open[i]
+		if !c.reviewed(h) {
+			continue
+		}
+		// A card with an open loop (its own, or one converted before its
+		// handoff was named on it) or a closed loop of this handoff has its
+		// loop.
+		l, err := c.db.CurrentReviewLoop(ctx, h.TaskID)
+		if err != nil || (l != nil && (l.State == store.ReviewLoopOpenState || (l.HandoffID == h.HandoffID && l.MainInstanceID == h.MainInstanceID))) {
+			continue
+		}
+		if _, err := c.openLoop(ctx, h); err != nil {
+			log.Printf("review passes: opening the loop of handoff %s: %v", h.HandoffID, err)
+		}
+	}
+}
+
+// waitingToOpenOn: a handoff's loop opens at once, with no pull request.
+func (c *HandoffReviewCaller) waitingToOpenOn(context.Context, string, int, string) *ReviewLoopActiveError {
+	return nil
+}
+
+// reviewed says an open handoff's loop moves on: review passes apply and
+// its agent has started.
+func (c *HandoffReviewCaller) reviewed(h *store.Handoff) bool {
+	return c.applies(h) && h.State != store.HandoffPending && h.State != store.HandoffFailed && h.State != store.HandoffReturning
+}
+
 // Loops are the open handoffs whose review passes are on and whose agent
 // has started.
 func (c *HandoffReviewCaller) Loops(ctx context.Context) ([]ReviewLoop, error) {
@@ -86,7 +144,7 @@ func (c *HandoffReviewCaller) Loops(ctx context.Context) ([]ReviewLoop, error) {
 	var out []ReviewLoop
 	for i := range open {
 		h := &open[i]
-		if !c.applies(h) || h.State == store.HandoffPending || h.State == store.HandoffFailed || h.State == store.HandoffReturning {
+		if !c.reviewed(h) {
 			continue
 		}
 		out = append(out, handoffLoop(h))

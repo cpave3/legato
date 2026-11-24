@@ -243,58 +243,73 @@ func (s *Store) reviewWrite(ctx context.Context, taskID string, create bool, wri
 	})
 }
 
-// hostedLoop is a task's loop in a transaction, made when create and it has
-// none; ErrNotFound otherwise.
+// hostedLoop is a task's loop in a transaction; with create, a task with
+// none, or whose newest loop is closed and belonged to another handoff of
+// the card than its current one, gets its handoff's loop opened
+// (newHostedReviewLoop). ErrNotFound when it has none otherwise.
 func hostedLoop(ctx context.Context, tx *sqlx.Tx, taskID string, create bool) (*ReviewLoop, error) {
 	l, err := currentReviewLoop(ctx, tx, taskID)
-	if err != nil || l != nil {
-		return l, err
+	if err != nil {
+		return nil, err
+	}
+	if l != nil && (!create || l.State == ReviewLoopOpenState) {
+		return l, nil
 	}
 	if !create {
 		return nil, ErrNotFound
 	}
-	return newHostedReviewLoop(ctx, tx, taskID)
+	h, err := cardHandoff(ctx, tx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if l != nil && (h.HandoffID == "" || (l.HandoffID == h.HandoffID && l.MainInstanceID == h.MainInstanceID)) {
+		return l, nil // its own loop, closed: history
+	}
+	return newHostedReviewLoop(ctx, tx, taskID, h)
 }
 
-// newHostedReviewLoop opens a loop on a task that has none: a handed-off
-// card's (owned by its handoff, the open one else the newest), with no
-// pull requests and no claims yet. A workflow run's loop is opened with
-// OpenReviewLoop instead. Its markers start with its own ID, as a new run
-// loop's do, so a later loop on the same card never finds this one's
-// reviews for its own (LEG-605 review).
-func newHostedReviewLoop(ctx context.Context, tx *sqlx.Tx, taskID string) (*ReviewLoop, error) {
-	var h struct {
-		MainInstanceID string `db:"main_instance_id"`
-		HandoffID      string `db:"handoff_id"`
-		Repo           string `db:"repo"`
-	}
-	err := tx.GetContext(ctx, &h, `SELECT main_instance_id, handoff_id, repo FROM handoffs WHERE task_id = ?
+// HandoffOfCard is the handoff a card's loop belongs to: its open handoff,
+// else its newest; empty for a task no handoff made.
+type HandoffOfCard struct {
+	MainInstanceID string `db:"main_instance_id"`
+	HandoffID      string `db:"handoff_id"`
+	Repo           string `db:"repo"`
+}
+
+func cardHandoff(ctx context.Context, tx sqlx.QueryerContext, taskID string) (HandoffOfCard, error) {
+	var h HandoffOfCard
+	err := sqlx.GetContext(ctx, tx, &h, `SELECT main_instance_id, handoff_id, repo FROM handoffs WHERE task_id = ?
 		ORDER BY closed_at IS NULL DESC, created_at DESC, rowid DESC LIMIT 1`, taskID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
+		return HandoffOfCard{}, err
 	}
-	now := reviewLoopNow()
-	id := NewReviewLoopID()
-	l := ReviewLoop{ID: id, Rev: 1, OwnerKind: ReviewLoopOwnerHandoff, HandoffID: h.HandoffID,
-		MainInstanceID: h.MainInstanceID, HostTask: taskID, Repo: h.Repo, State: ReviewLoopOpenState,
-		Replies: "[]", MarkerKey: id, CreatedAt: now, UpdatedAt: now}
+	return h, nil
+}
+
+// HandoffReviewLoopOpen is the loop a handed-off card's handoff opens:
+// owned by the handoff, hosted by the card, with no pull requests yet (a
+// pass claims each it pins). Its markers start with its own ID, as a new run
+// loop's do, so a later loop on the same card never finds this one's reviews
+// for its own (LEG-605 review); its pin refs keep the task ID. The card's agent authors it, as it does a
+// converted handoff loop, so one agent-authored loop per author holds alike
+// on a new and an upgraded database; when the agent already authors a run's
+// open loop, the handoff still reviews, as it did before the loop record,
+// and its loop is not counted as the agent's (YieldAuthor).
+func HandoffReviewLoopOpen(taskID string, h HandoffOfCard) ReviewLoopOpen {
+	l := ReviewLoop{OwnerKind: ReviewLoopOwnerHandoff, HandoffID: h.HandoffID, MainInstanceID: h.MainInstanceID,
+		HostTask: taskID, Repo: h.Repo}
 	if h.HandoffID != "" {
-		// The card's agent authors it, as it does a converted handoff
-		// loop: one agent-authored loop per author holds alike on a new
-		// and an upgraded database. When the agent already authors a run's
-		// open loop, the handoff still reviews, as it did before the loop
-		// record, and its loop is not counted as the agent's.
-		l.AuthorTask, l.LinkedTask = taskID, taskID
-		var other int
-		if err := tx.GetContext(ctx, &other, `SELECT COUNT(*) FROM review_loops WHERE author_task = ? AND agent_author = 1 AND state = 'open'`, taskID); err != nil {
-			return nil, err
-		}
-		l.AgentAuthor = other == 0
+		l.AgentAuthor, l.AuthorTask, l.LinkedTask = true, taskID, taskID
 	}
-	if _, err := tx.NamedExecContext(ctx, `INSERT INTO review_loops (`+reviewLoopColumns+`) VALUES (`+reviewLoopValues+`)`, l); err != nil {
-		return nil, err
-	}
-	return &l, nil
+	return ReviewLoopOpen{Loop: l, YieldAuthor: true}
+}
+
+// newHostedReviewLoop opens the loop of a card's handoff on the loop record
+// (HandoffReviewLoopOpen) in the transaction. A workflow run's loop is
+// opened with OpenReviewLoop instead.
+func newHostedReviewLoop(ctx context.Context, tx *sqlx.Tx, taskID string, h HandoffOfCard) (*ReviewLoop, error) {
+	l, _, err := openReviewLoopTx(ctx, tx, HandoffReviewLoopOpen(taskID, h))
+	return l, err
 }
 
 // reviewSettings are a loop's settings as the engine keeps them (JSON).
@@ -593,12 +608,57 @@ func insertReviewLoopPass(ctx context.Context, tx *sqlx.Tx, l *ReviewLoop, p Han
 		return err
 	}
 	for _, pr := range prs {
+		if err := holdReviewLoopLayer(ctx, tx, l, pr); err != nil {
+			return err
+		}
 		// A layer the loop holds keeps the head its last pass pinned.
 		if _, err := tx.ExecContext(ctx, `UPDATE review_loop_prs SET pinned_head = ? WHERE loop_id = ? AND number = ?`, pr.HeadSHA, l.ID, pr.Number); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// holdReviewLoopLayer makes a pinned pull request one of the loop's layers,
+// claimed: a layer added later (a handoff's stack grows as its author opens
+// pull requests) is claimed when it is added, and a layer whose claim the
+// loop let go (a handoff that went clean, then had another pass) claims it
+// again. A pull request another loop holds is a *ReviewLoopConflictError
+// naming it, and the transaction writes nothing.
+func holdReviewLoopLayer(ctx context.Context, tx *sqlx.Tx, l *ReviewLoop, pr HandoffReviewPR) error {
+	repo := l.Repo
+	if repo == "" {
+		repo = pr.Repo
+	}
+	var holder string
+	err := tx.GetContext(ctx, &holder, `SELECT loop_id FROM review_loop_claims WHERE repo = ? AND pr = ?`, repo, pr.Number)
+	switch {
+	case err == nil && holder == l.ID:
+		return nil
+	case err == nil:
+		return &ReviewLoopConflictError{Err: ErrReviewLoopActive, LoopID: holder, Repo: repo, PR: pr.Number}
+	case !errors.Is(err, sql.ErrNoRows):
+		return err
+	}
+	now := reviewLoopNow()
+	var layers int
+	if err := tx.GetContext(ctx, &layers, `SELECT COUNT(*) FROM review_loop_prs WHERE loop_id = ? AND number = ?`, l.ID, pr.Number); err != nil {
+		return err
+	}
+	if layers > 0 {
+		_, err := tx.ExecContext(ctx, `INSERT INTO review_loop_claims (repo, pr, loop_id, claimed_at) VALUES (?, ?, ?, ?)`, repo, pr.Number, l.ID, now)
+		return err
+	}
+	var next int
+	if err := tx.GetContext(ctx, &next, `SELECT COALESCE(MAX(position) + 1, 0) FROM review_loop_prs WHERE loop_id = ?`, l.ID); err != nil {
+		return err
+	}
+	author := ""
+	if l.AgentAuthor {
+		author = l.AuthorTask
+	}
+	return addReviewLoopPR(ctx, tx, repo, ReviewLoopPR{LoopID: l.ID, Number: pr.Number, Position: next, Branch: pr.Branch, Base: pr.Base,
+		Title: pr.Title, URL: pr.URL, HeadRepo: pr.HeadRepo, Author: pr.Author, AuthorTask: author, LocalBranch: pr.LocalBranch, ClaimedAt: now})
 }
 
 // AnyCurrentReviewPassIn says whether an open review loop in loopPhase has

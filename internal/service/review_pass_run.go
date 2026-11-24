@@ -227,6 +227,19 @@ func saveReviewRun(ctx context.Context, db *store.Store, taskID string, run *rev
 // transaction (OpenReviewLoop): pass 1 starts on the next tick. prs are
 // the pull requests as GitHub gave them, when read.
 func openReviewRun(ctx context.Context, db *store.Store, taskID string, run reviewRun, settings ReviewPassSettings, prs []ReviewGitHubPR) error {
+	_, created, err := db.OpenReviewLoop(ctx, reviewRunOpen(taskID, run, settings, prs))
+	if err != nil {
+		return err
+	}
+	if !created {
+		return fmt.Errorf("run %s's step %s has opened its review loop already", run.RunID, run.StepID)
+	}
+	return nil
+}
+
+// reviewRunOpen is the loop a run's step opens (ReviewPassService.Open):
+// owned by its attempt, hosted by its task, on its pull requests.
+func reviewRunOpen(taskID string, run reviewRun, settings ReviewPassSettings, prs []ReviewGitHubPR) store.ReviewLoopOpen {
 	read := map[int]ReviewGitHubPR{}
 	for _, pr := range prs {
 		read[pr.Number] = pr
@@ -243,45 +256,11 @@ func openReviewRun(ctx context.Context, db *store.Store, taskID string, run revi
 		CloneID: run.CloneID, CloneDir: run.Dir}}
 	for _, p := range run.prs() {
 		pr := read[p.Number]
+		// Each layer's author task is the engine's to derive (Open).
 		open.PRs = append(open.PRs, store.ReviewLoopPR{Number: p.Number, Branch: pr.Branch, Base: pr.Base, Title: pr.Title, URL: pr.URL,
-			HeadRepo: pr.HeadRepo, Author: pr.Author, AuthorAssociation: pr.AuthorAssociation, AuthorTask: run.AuthorTask, LocalBranch: p.Branch})
+			HeadRepo: pr.HeadRepo, Author: pr.Author, AuthorAssociation: pr.AuthorAssociation, LocalBranch: p.Branch})
 	}
-	_, created, err := db.OpenReviewLoop(ctx, open)
-	if err != nil {
-		return err
-	}
-	if !created {
-		return fmt.Errorf("run %s's step %s has opened its review loop already", run.RunID, run.StepID)
-	}
-	return nil
-}
-
-// reviewLoopConflict says what the loop record refused when it would not
-// open a loop: a pull request another loop holds, or an author whose agent
-// authors another loop.
-func reviewLoopConflict(ctx context.Context, db *store.Store, err error) error {
-	var conflict *store.ReviewLoopConflictError
-	if !errors.As(err, &conflict) {
-		return err
-	}
-	holder, getErr := db.GetReviewLoop(ctx, conflict.LoopID)
-	if getErr != nil {
-		return err
-	}
-	name, link := "review loop "+holder.ID, ""
-	switch holder.OwnerKind {
-	case store.ReviewLoopOwnerRun:
-		name, link = "run "+holder.RunID, "/workflows/runs/"+holder.RunID
-	case store.ReviewLoopOwnerHandoff:
-		name, link = "handed-off task "+holder.HostTask, "/board?highlight_task="+holder.HostTask
-	}
-	switch {
-	case errors.Is(err, store.ErrReviewLoopActive):
-		return &ReviewLoopActiveError{Repo: conflict.Repo, PR: conflict.PR, Name: name, Link: link}
-	case errors.Is(err, store.ErrAuthorLoopActive):
-		return fmt.Errorf("%s's agent already authors the review loop of %s (%s): one agent-authored loop runs per task", conflict.AuthorTask, name, link)
-	}
-	return fmt.Errorf("%w (%s, %s)", err, name, link)
+	return open
 }
 
 func (c *ReviewRunCaller) Type() string { return ReviewPassesStepType }
@@ -313,7 +292,8 @@ func (c *ReviewRunCaller) Start(ctx context.Context, step ResolvedWorkflowStep) 
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
-	if active := c.engine.ActiveLoopOn(ctx, repo, number); active != nil {
+	// Not its own run's loop, which a failed attempt keeps for a Retry.
+	if active := c.engine.activeLoopOn(ctx, repo, number, step.TaskID); active != nil {
 		return WorkflowExecutionResult{}, active
 	}
 	return WorkflowExecutionResult{Status: WorkflowStepWaiting}, nil
@@ -523,7 +503,7 @@ func (c *ReviewRunCaller) open(ctx context.Context, step ResolvedWorkflowStep) e
 	}
 	for _, p := range prs {
 		// Not its own step, which waits to open.
-		if active := c.engine.activeLoopOn(ctx, repo, p.Number, step.TaskID); active != nil {
+		if active := c.engine.heldLoopOn(ctx, repo, p.Number, step.TaskID); active != nil {
 			return active
 		}
 	}
@@ -563,8 +543,8 @@ func (c *ReviewRunCaller) open(ctx context.Context, step ResolvedWorkflowStep) e
 	if agentAuthor {
 		author = linked
 		// One loop per author: its feedback commands find one loop.
-		if other := c.authoredLoop(ctx, author); other != "" {
-			return fmt.Errorf("%s's agent already authors the review loop of run %s (/workflows/runs/%s): one agent-authored loop runs per task", author, other, other)
+		if other := c.authoredLoop(ctx, author); other != nil {
+			return other
 		}
 	}
 	for _, p := range prs {
@@ -601,11 +581,14 @@ func (c *ReviewRunCaller) open(ctx context.Context, step ResolvedWorkflowStep) e
 	// The loop and its record, which names this attempt, are written in
 	// one transaction, so a holder that exits here leaves the step to open
 	// again.
-	if err := openReviewRun(ctx, c.engine.db, step.TaskID, run, settings, prs); err != nil {
-		c.removeClone(ctx, &run)
-		return reviewLoopConflict(ctx, c.engine.db, err)
+	_, created, err := c.engine.Open(ctx, reviewRunOpen(step.TaskID, run, settings, prs))
+	if err == nil && !created {
+		err = fmt.Errorf("run %s's step %s has opened its review loop already", run.RunID, run.StepID)
 	}
-	c.engine.changed(step.TaskID)
+	if err != nil {
+		c.removeClone(ctx, &run)
+		return err
+	}
 	return nil
 }
 
@@ -632,13 +615,13 @@ func (c *ReviewRunCaller) adopt(ctx context.Context, step ResolvedWorkflowStep, 
 		return errors.New("review loops are not wired on this Legato")
 	}
 	for _, number := range run.numbers() {
-		if active := c.engine.activeLoopOn(ctx, run.Repo, number, step.TaskID); active != nil {
+		if active := c.engine.heldLoopOn(ctx, run.Repo, number, step.TaskID); active != nil {
 			return active
 		}
 	}
 	if run.AuthorTask != "" {
-		if other := c.authoredLoop(ctx, run.AuthorTask); other != "" {
-			return fmt.Errorf("%s's agent already authors the review loop of run %s (/workflows/runs/%s): one agent-authored loop runs per task", run.AuthorTask, other, other)
+		if other := c.authoredLoop(ctx, run.AuthorTask); other != nil {
+			return other
 		}
 	}
 	pr, state, err := c.opts.GitHub.PullRequest(ctx, run.Repo, run.PR)
@@ -795,6 +778,14 @@ func (c *ReviewRunCaller) linkedTask(ctx context.Context, repo string, number in
 		return ""
 	}
 	return matches[0].Task.ID
+}
+
+// loopClosed removes a closed run loop's clone (Close's side effect).
+func (c *ReviewRunCaller) loopClosed(ctx context.Context, loop *store.ReviewLoop) {
+	if loop.OwnerKind != store.ReviewLoopOwnerRun || c.opts.Clones == nil {
+		return
+	}
+	c.removeClone(ctx, &reviewRun{Repo: loop.Repo, PR: loop.SubjectPR, CloneID: loop.CloneID})
 }
 
 func (c *ReviewRunCaller) removeClone(ctx context.Context, run *reviewRun) {
@@ -1325,18 +1316,12 @@ const ReviewPhaseEnded = "ended"
 // approved one is clean already; any other ends, its reason the outcome).
 // Closing a closed loop changes nothing.
 func (s *ReviewPassService) endLoop(ctx context.Context, taskID, outcome string) error {
-	phase, reason := ReviewPhaseEnded, outcome
-	if outcome == ReviewOutcomeApproved {
-		phase, reason = "", ""
-	}
-	closed, err := s.db.CloseHostedReviewLoop(ctx, taskID, phase, reason, outcome, s.now())
-	if err != nil {
+	l, err := s.db.CurrentReviewLoop(ctx, taskID)
+	if err != nil || l == nil || l.State != store.ReviewLoopOpenState {
 		return err
 	}
-	if closed {
-		s.changed(taskID)
-	}
-	return nil
+	_, err = s.Close(ctx, l.ID, outcome)
+	return err
 }
 
 // ReviewPhaseOpening is a run's review step that waits for the review
@@ -1637,21 +1622,26 @@ func reviewLoopTask(ctx context.Context, db *store.Store, taskID string) string 
 	return taskID
 }
 
-// authoredLoop is the run whose live loop a task's agent authors, or "".
-func (c *ReviewRunCaller) authoredLoop(ctx context.Context, author string) string {
+// authoredLoop is the refusal naming the run whose live loop a task's agent
+// authors, nil when there is none.
+func (c *ReviewRunCaller) authoredLoop(ctx context.Context, author string) *AuthorLoopActiveError {
 	if c.workflows == nil {
-		return ""
+		return nil
 	}
 	attempts, err := c.workflows.WaitingAttempts(ctx, ReviewPassesStepType)
 	if err != nil {
-		return ""
+		return nil
 	}
 	for _, attempt := range attempts {
 		if run := c.opened(ctx, attempt); run != nil && run.AuthorTask == author {
-			return run.RunID
+			refusal := &AuthorLoopActiveError{AuthorTask: author, Name: "run " + run.RunID, Link: "/workflows/runs/" + run.RunID}
+			if l, err := c.engine.db.CurrentReviewLoop(ctx, attempt.TaskID); err == nil && l != nil {
+				refusal.LoopID = l.ID
+			}
+			return refusal
 		}
 	}
-	return ""
+	return nil
 }
 
 // reopen sends a loop whose clean pass reviewed a head that moved to the
