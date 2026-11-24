@@ -50,6 +50,16 @@ type SchemaStatus struct {
 }
 
 func New(dbPath string) (*Store, error) {
+	db, err := openChecked(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	return migrateOpened(db)
+}
+
+// openChecked opens a SQLite database, creating its folder and file when
+// missing, and refuses one this binary cannot migrate. It changes nothing.
+func openChecked(dbPath string) (*sqlx.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
 		return nil, fmt.Errorf("creating db directory: %w", err)
 	}
@@ -61,11 +71,17 @@ func New(dbPath string) (*Store, error) {
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(4)
 
-	s := &Store{db: db}
-	if err := s.preflight(); err != nil {
+	if err := (&Store{db: db}).preflight(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("checking schema compatibility: %w", err)
 	}
+	return db, nil
+}
+
+// migrateOpened runs the pending migrations on a database openChecked
+// opened and turns on WAL. The database is closed when it fails.
+func migrateOpened(db *sqlx.DB) (*Store, error) {
+	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("running migrations: %w", err)
