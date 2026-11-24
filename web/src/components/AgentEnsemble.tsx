@@ -16,7 +16,7 @@ import {
 } from "../lib/agentGlance"
 import { agentToolLabel } from "../lib/agentKind"
 import { formatAgentTime, stateSeconds } from "../lib/agentList"
-import { AgentGraphView } from "./AgentGraphView"
+import { AgentGraphView, type GraphFocus } from "./AgentGraphView"
 import { glanceSection, needsYouReason, stageLabel, unreadDone, workStages, type GlanceSection, type WorkStage } from "../lib/agentStage"
 import type { Approval, ApprovalDecision } from "../lib/approvals"
 import { showApproval } from "../lib/railState"
@@ -44,6 +44,9 @@ export interface AgentEnsembleProps {
   // and what is told of a layout chosen, so the address can follow.
   layout?: EnsembleLayout
   onLayout?: (layout: EnsembleLayout) => void
+  // What the address names for the graph: an agent and its run (from a run
+  // page's Show on agents graph).
+  graphFocus?: GraphFocus | null
   // The agents list's stage filter, which the graph follows.
   stageFilter?: WorkStage | null
   onStageFilter?: (stage: WorkStage | null) => void
@@ -92,7 +95,7 @@ function stateOf(agent: AgentInfo): { label: string; glyph: string; chip: string
 
 // AgentEnsemble shows every running agent at once: a tile for each with what
 // it is at, the agents that need the person first, or by stage in bands.
-export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowList, onSend, approvals = [], onDecide, focusNotice, layout: asked, onLayout, stageFilter, onStageFilter }: AgentEnsembleProps) {
+export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowList, onSend, approvals = [], onDecide, focusNotice, layout: asked, onLayout, stageFilter, onStageFilter, graphFocus }: AgentEnsembleProps) {
   const ordered = orderForEnsemble(agents)
   // Below lg, By stage stacks its bands and leaves out empty stages.
   const phone = useMediaQuery("(max-width: 1023px)")
@@ -138,7 +141,7 @@ export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowLi
       </header>
 
       {layout === "graph" && ordered.length > 0
-        ? <AgentGraphView agents={agents} onOpen={onOpen} onSend={onSend} stageFilter={stageFilter} onStageFilter={onStageFilter} />
+        ? <AgentGraphView agents={agents} onOpen={onOpen} onSend={onSend} stageFilter={stageFilter} onStageFilter={onStageFilter} focus={graphFocus} />
         : <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-4">
         {ordered.length === 0
           ? <p className="py-12 text-center text-lw-faint">No agents are running.</p>

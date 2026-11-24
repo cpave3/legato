@@ -117,6 +117,12 @@ describe("the run graph", () => {
     expect(await screen.findByRole("button", { name: "Step: Review in passes, Running" })).toBeTruthy()
   })
 
+  it("shows the working agent on the agents graph, with its run", async () => {
+    show(view())
+    const link = await screen.findByRole("link", { name: "Show on agents graph" })
+    expect(link.getAttribute("href")).toBe("/agents?view=graph&task=task-1&workflow=wr-1")
+  })
+
   it("marks the trigger that started the run and dims the others", async () => {
     show(view())
     expect(await screen.findByRole("button", { name: "Trigger: Card enters Triage, started this run" })).toBeTruthy()

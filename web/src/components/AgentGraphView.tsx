@@ -1,20 +1,26 @@
 // AgentGraphView is the ensemble's Graph layout (LEG-537): every running
 // agent on one graph, boxed by repository, its state as its border, its
 // sub-agents branching off it, and the links between agents that
-// coordinate. A click selects an agent, lights what it is linked to and
-// opens a card to open or message it; a double-click opens it.
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react"
-import { Maximize2, X } from "lucide-react"
-import type { AgentInfo } from "../hooks/useWebSocket"
+// coordinate. A click (or Enter) selects an agent, lights what it is linked
+// to and opens a card to open or message it; a double-click opens it. An
+// agent that works for a workflow run shows the run's step on its node, the
+// run in its card, and, on asking, the run's own graph (LEG-612).
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
+import { Link } from "react-router-dom"
+import { Maximize2, Workflow, X } from "lucide-react"
+import { useWebSocket, type AgentInfo, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { useMediaQuery } from "../hooks/useMediaQuery"
 import { apiFetch } from "../lib/api"
-import { layoutAgentGraph, linkKinds, linkLabels, linkLines, type AgentGraphData, type AgentGraphLayout, type GraphNode } from "../lib/agentGraph"
+import { layoutAgentGraph, linkKinds, linkLabels, linkLines, workflowWords, type AgentGraphData, type AgentGraphLayout, type GraphNode, type NodeWorkflow } from "../lib/agentGraph"
+import { runState, stepSegments } from "../lib/workflowView"
 import { glanceSection, needsYouOutside, stageLabel, type WorkStage } from "../lib/agentStage"
 import { formatAgentTime, stateSeconds } from "../lib/agentList"
 import { agentToolLabel } from "../lib/agentKind"
 import { cn } from "../lib/utils"
 import { LazyAgentGraphCanvas } from "./agent-graph/LazyAgentGraphCanvas"
+import { RunGraphPanel } from "./agent-graph/RunGraphPanel"
+import { StatePill, StepBar } from "./WorkflowRunStatus"
 import { linkStyles } from "./agent-graph/linkStyles"
 import { agentLook, subagentLook } from "./agent-graph/look"
 import { StageMenu } from "./StageMenu"
@@ -27,13 +33,28 @@ export interface AgentGraphViewProps {
   // The agents list's stage filter, which the graph follows.
   stageFilter?: WorkStage | null
   onStageFilter?: (stage: WorkStage | null) => void
+  // What the address names (from a run page): an agent to select, and the
+  // run whose graph to open and to link back to.
+  focus?: GraphFocus | null
+}
+
+export interface GraphFocus {
+  agentId?: string
+  runId?: string
+}
+
+// RunPanel is the run whose graph is open, and the agent it was opened for.
+interface RunPanel {
+  runId: string
+  agentId: string
 }
 
 // How often the graph's clock moves, so a peer message's link fades.
 const TICK_MS = 30_000
 
-export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onStageFilter }: AgentGraphViewProps) {
+export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onStageFilter, focus: linked = null }: AgentGraphViewProps) {
   const { baseUrl } = useServer()
+  const { subscribe } = useWebSocket()
   const phone = useMediaQuery("(max-width: 767px)")
   const direction = phone ? "TB" : "LR"
   const [data, setData] = useState<AgentGraphData | null>(null)
@@ -46,6 +67,16 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
   const [selected, setSelected] = useState<string | null>(null)
   const [focusOn, setFocusOn] = useState<{ id: string; n: number } | null>(null)
   const [fit, setFit] = useState(0)
+  const [runPanel, setRunPanel] = useState<RunPanel | null>(null)
+  // The button that opened the run's graph, which has focus again when it
+  // closes.
+  const opener = useRef<HTMLElement | null>(null)
+  // workflow_changed reads the graph again: a run can move on to its next
+  // step without any agent changing.
+  const [moved, setMoved] = useState(0)
+  useEffect(() => subscribe?.((message: WSMessage) => {
+    if (message.type === "workflow_changed") setMoved((n) => n + 1)
+  }), [subscribe])
 
   // The graph is read again whenever the agent list is: a new list comes
   // with every agents_changed, which a peer message sends too.
@@ -58,7 +89,7 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
       .finally(() => { if (live) setRead(true) })
     setNow(Date.now())
     return () => { live = false }
-  }, [baseUrl, agents])
+  }, [baseUrl, agents, moved])
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), TICK_MS)
     return () => clearInterval(timer)
@@ -81,10 +112,47 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
   }
   const onToggleFold = useCallback((id: string) => setUnfolded((current) => toggle(current, id)), [])
   const onToggleBox = useCallback((id: string) => setCollapsed((current) => toggle(current, id)), [])
-  const focus = (id: string) => {
+  const focus = useCallback((id: string) => {
     setSelected(id)
     setFocusOn((current) => ({ id, n: (current?.n ?? 0) + 1 }))
+  }, [])
+
+  // The run's graph belongs to the selected agent: it goes with the card.
+  const panel = runPanel && selectedNode && selectedNode.agentId === runPanel.agentId ? runPanel : null
+  const closePanel = useCallback(() => {
+    setRunPanel(null)
+    const back = opener.current
+    opener.current = null
+    if (back?.isConnected) requestAnimationFrame(() => back.focus())
+  }, [])
+  const openPanel = (runId: string, agentId: string, button: HTMLElement) => {
+    opener.current = button
+    setRunPanel({ runId, agentId })
   }
+  // Escape closes the run's graph, then the card.
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return
+      if (panel) closePanel()
+      else if (selected) setSelected(null)
+      else return
+      event.preventDefault()
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [panel, selected, closePanel])
+  // An agent the address names is selected once it is on the graph, with
+  // its run's graph open when the address names the run.
+  const applied = useRef("")
+  useEffect(() => {
+    const agentId = linked?.agentId
+    if (!agentId || applied.current === `${agentId}|${linked?.runId ?? ""}`) return
+    if (!layout.nodes.some((node) => node.id === agentId)) return
+    applied.current = `${agentId}|${linked?.runId ?? ""}`
+    focus(agentId)
+    if (linked?.runId) setRunPanel({ runId: linked.runId, agentId })
+  }, [linked, layout, focus])
+  const panelWorkflow = panel ? selectedNode?.workflows?.find((workflow) => workflow.run.id === panel.runId) : undefined
 
   const needsYou = shown.filter((agent) => !agent.reeve && glanceSection(agent) === "needs-you")
   const hiddenNeeds = needsYouOutside(counted, stageFilter)
@@ -111,6 +179,7 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
           </span>
         )}
         <div className="ml-auto flex items-center gap-3">
+          {linked?.runId && <Link to={`/workflows/runs/${encodeURIComponent(linked.runId)}`} className="text-xs text-lw-link hover:underline">Back to workflow</Link>}
           {kinds.length > 0 && (
             <ul aria-label="Links" className="m-0 hidden list-none flex-wrap items-center gap-x-3 gap-y-1 p-0 text-[11px] text-lw-text-2 sm:flex">
               {kinds.map((kind) => <li key={kind} className="flex items-center gap-1"><LinkSwatch kind={kind} />{linkLabels[kind]}</li>)}
@@ -128,8 +197,12 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
           ? <p className="py-12 text-center text-lw-faint">No agents at this stage.</p>
           : <LazyAgentGraphCanvas layout={layout} direction={direction} selectedId={selected} onSelect={setSelected} onOpen={onOpen}
               onToggleFold={onToggleFold} onToggleBox={onToggleBox} focusOn={focusOn} fit={fit} />}
-        {selectedNode && (
-          <SelectionCard node={selectedNode} layout={layout} agents={agents} phone={phone} onOpen={onOpen} onSend={onSend} onClose={() => setSelected(null)} />
+        {selectedNode && !(phone && panel) && (
+          <SelectionCard node={selectedNode} layout={layout} agents={agents} phone={phone} onOpen={onOpen} onSend={onSend} onClose={() => setSelected(null)}
+            onShowRun={(runId, button) => openPanel(runId, selectedNode.agentId, button)} />
+        )}
+        {panel && (
+          <RunGraphPanel runId={panel.runId} title={panelWorkflow?.run.workflow_title ?? panel.runId} stepId={panelWorkflow?.place.step_id} phone={phone} onClose={closePanel} />
         )}
       </div>
     </div>
@@ -145,7 +218,7 @@ function LinkSwatch({ kind }: { kind: keyof typeof linkStyles }) {
 
 // SelectionCard is the selected agent (or the agent of a selected
 // sub-agent): what it is at, who it is linked to, a message box and Open.
-function SelectionCard({ node, layout, agents, phone, onOpen, onSend, onClose }: {
+function SelectionCard({ node, layout, agents, phone, onOpen, onSend, onClose, onShowRun }: {
   node: GraphNode
   layout: AgentGraphLayout
   agents: AgentInfo[]
@@ -153,6 +226,7 @@ function SelectionCard({ node, layout, agents, phone, onOpen, onSend, onClose }:
   onOpen: (taskId: string) => void
   onSend?: (taskId: string, content: string) => void
   onClose: () => void
+  onShowRun: (runId: string, button: HTMLElement) => void
 }) {
   const agent = agents.find((candidate) => candidate.task_id === node.agentId)
   const [draft, setDraft] = useState("")
@@ -194,6 +268,7 @@ function SelectionCard({ node, layout, agents, phone, onOpen, onSend, onClose }:
           {node.badges!.map((badge) => <span key={badge.kind} className="rounded bg-lw-accent-soft px-1.5 text-xs text-lw-accent-text">{badge.label}{badge.detail && ` · ${badge.detail}`}</span>)}
         </span>
       )}
+      {node.workflows?.map((workflow) => <WorkflowSection key={workflow.run.id} workflow={workflow} onShowRun={onShowRun} />)}
       {(lines.length > 0 || subagents > 0) && (
         <ul aria-label="Links of this agent" className="m-0 flex list-none flex-col gap-0.5 p-0 text-xs text-lw-text-2">
           {subagents > 0 && <li>{subagents} {subagents === 1 ? "sub-agent" : "sub-agents"} running</li>}
@@ -216,5 +291,28 @@ function SelectionCard({ node, layout, agents, phone, onOpen, onSend, onClose }:
         </button>
       </div>
     </section>
+  )
+}
+
+// WorkflowSection is a run the selected agent works for: the run, how far
+// it is, the agent's step and role, and its graph on asking.
+function WorkflowSection({ workflow, onShowRun }: { workflow: NodeWorkflow; onShowRun: (runId: string, button: HTMLElement) => void }) {
+  const { run } = workflow
+  const words = workflowWords(workflow)
+  const state = runState(run)
+  return (
+    <div role="group" aria-label="Workflow run" className="flex flex-col gap-1.5 rounded-lg border border-lw-line bg-lw-raised p-2.5 text-xs">
+      <span className="flex min-w-0 items-center gap-1.5">
+        <Workflow size={12} aria-hidden="true" className="shrink-0 text-lw-text-2" />
+        <Link to={`/workflows/runs/${encodeURIComponent(run.id)}`} className="min-w-0 truncate font-medium text-lw-link hover:underline">{run.workflow_title || run.workflow_name}</Link>
+        <StatePill tone={state.tone} label={state.label} className="ml-auto" />
+      </span>
+      <StepBar segments={stepSegments(run, run.steps)} label={`${state.label}, step ${words.number} of ${words.total}`} />
+      <span className="text-lw-text">{words.role}</span>
+      {words.now && <span className="text-lw-text-2">{words.now}</span>}
+      <button type="button" onClick={(event) => onShowRun(run.id, event.currentTarget)} className="h-7 self-start rounded-md border border-lw-line-strong px-2.5 text-xs text-lw-text hover:border-lw-accent">
+        Show run graph
+      </button>
+    </div>
   )
 }

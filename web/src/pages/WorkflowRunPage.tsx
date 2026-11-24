@@ -1,11 +1,11 @@
-import { useMemo, useState, type ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import { Link, useParams } from "react-router-dom"
 import { ChevronDown, ChevronRight, Download, FileText } from "lucide-react"
 import { useWorkflowRun } from "../hooks/useWorkflow"
 import { useServer } from "../hooks/useServer"
 import { useNow } from "../hooks/useNow"
 import { anotherReviewPass, cancelWorkflow, retryWorkflowStep, triggerWorkflowStep, promptWorkflowStep, fetchWorkflowArtifact, type ReviewRunDetails, type WorkflowArtifact, type WorkflowAttempt, type WorkflowRunView, type WorkflowStepRun } from "../lib/workflow"
-import { ago, attentionCopy, currentStep, elapsed, inputText, runWithAttention, producedValues, runState, runSubject, secretInputNames, sourceLabel, stepIntent, stepMark, stepPosition, stepSegments, type StepLike, type Tone } from "../lib/workflowView"
+import { ago, attentionCopy, currentStep, elapsed, inputText, runWithAttention, producedValues, runState, runSubject, sourceLabel, stepIntent, stepMark, stepPosition, stepSegments, type StepLike, type Tone } from "../lib/workflowView"
 import { WorkflowMarkdownPreview } from "../components/WorkflowMarkdownPreview"
 import { ManualWorkflowStepAction } from "../components/ManualWorkflowStepAction"
 import { workflowArtifactFilename } from "../lib/workflow-artifact"
@@ -19,10 +19,9 @@ import { useMediaQuery } from "../hooks/useMediaQuery"
 import { LazyWorkflowGraph } from "../components/workflow-graph/LazyWorkflowGraph"
 import { StepYaml } from "../components/StepYaml"
 import { redactSecrets, runStateWords, stepTypeLabel, triggerName, yamlText, type GraphNode } from "../lib/workflowGraph"
-import { runNodeExtras } from "../lib/workflowRunGraph"
-import { runNeedsYou, type RunNeedsYouRow, type RunRowStep } from "../lib/runNeedsYou"
+import { type RunNeedsYouRow, type RunRowStep } from "../lib/runNeedsYou"
 import { useApprovals } from "../hooks/useApprovals"
-import { useAttention } from "../hooks/useAttention"
+import { agentLink, graphLink, secretValues, useRunGraphExtras } from "../hooks/useRunGraph"
 import { useQueryClient } from "@tanstack/react-query"
 import { queryKeys } from "../lib/query"
 import { dismissAttentionItem, executeAttentionAction, type AttentionItem } from "../lib/attention"
@@ -52,18 +51,6 @@ function definitionTitle(view: WorkflowRunView): string {
   return definition && typeof definition === "object" && "title" in definition ? String((definition as { title: unknown }).title) : ""
 }
 
-function agentLink(taskId: string, runId: string) {
-  return `/agents?task=${encodeURIComponent(taskId)}&workflow=${encodeURIComponent(runId)}`
-}
-
-// The values of a run's secret inputs, which nothing on the page shows, even
-// where a step's inputs or outputs repeat them.
-function secretValues(view: WorkflowRunView): string[] {
-  const names = secretInputNames(view.run.definition_json)
-  const inputs = parseJSON(view.run.inputs_json)
-  if (!names.size || !inputs || typeof inputs !== "object") return []
-  return [...names].map(name => (inputs as Record<string, unknown>)[name]).filter((value): value is string => typeof value === "string" && value !== "")
-}
 
 function redact(text: string, secrets: string[]): string {
   return secrets.reduce((current, secret) => current.split(secret).join("••••••"), text)
@@ -133,7 +120,10 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
   if (!current) return null
   const attempt = [...attempts].reverse().find(item => item.step_id === current.step_id && item.status === "waiting_agent")
   if (attempt) {
-    const open = attempt.agent_session_id ? <Button asChild variant="primary"><Link to={agentLink(attempt.task_id ?? "", runId)}>Open agent</Link></Button> : null
+    const open = attempt.agent_session_id ? <>
+      <Button asChild variant="primary"><Link to={agentLink(attempt.task_id ?? "", runId)}>Open agent</Link></Button>
+      <Button asChild variant="outline"><Link to={graphLink(attempt.task_id ?? "", runId)}>Show on agents graph</Link></Button>
+    </> : null
     if (attempt.needs_attention) {
       const copy = attentionCopy(attempt.attention_reason ?? "", current.title)
       return <NowPanel tone="needs" heading={copy.heading}
@@ -153,6 +143,7 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
       return <NowPanel tone="live" heading={`${current.title} starts when the agent ends`}
         actions={<>
           {run.task_id && <Button asChild variant="primary"><Link to={agentLink(run.task_id, runId)}>Open agent</Link></Button>}
+          {run.task_id && <Button asChild variant="outline"><Link to={graphLink(run.task_id, runId)}>Show on agents graph</Link></Button>}
           <ManualWorkflowStepAction step={current} label="End now" onTrigger={async force => { await triggerWorkflowStep(baseUrl, runId, current.step_id, force); await refresh() }} />
         </>} />
     }
@@ -425,17 +416,7 @@ export function WorkflowRunPage() {
   const [graphOn, setGraphOn] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
   const [centerOn, setCenterOn] = useState<{ id: string; n: number } | null>(null)
-  const graph = data?.graph ?? null
-  const approvalList = useApprovals(true).data
-  const attentionList = useAttention().data
-  const needsYou = useMemo(() => data ? runNeedsYou(data, attentionList ?? [], approvalList, taskId => agentLink(taskId, runId), secretValues(data)) : { rows: [], nodes: new Set<string>() }, [data, attentionList, approvalList, runId])
-  const extras = useMemo(() => {
-    if (!data || !graph) return undefined
-    const out = runNodeExtras(data, graph, now)
-    // An open approval or item of a step's agent makes the step Needs you.
-    for (const node of needsYou.nodes) if (out[node] && (out[node].state === "running" || out[node].state === "waiting")) out[node] = { ...out[node], state: "needs" }
-    return out
-  }, [data, graph, now, needsYou])
+  const { graph, needsYou, extras } = useRunGraphExtras(runId, data, now)
   const focusNode = (node: string | null) => {
     if (!node) return
     setSelected(node)
