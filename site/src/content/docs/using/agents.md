@@ -109,7 +109,7 @@ Press `A` on the board to open the agents view. Agents are listed in the same gr
 - **Needs you**: waiting for you, stopped on an error, with something it [posted for you](/legato/using/attention/#operator-items) still open (a done note aside), or with a plan waiting for you, even when it is idle.
 - **Your turn**: idle with its work not finished: it waits for your reply.
 - **Interrupted**: a crash stopped it (see below).
-- **Working**: working, or in the background: the turn ended, but something it started still runs and will wake it (a shell, a Monitor, a subagent or a scheduled prompt). The line over the terminal says what: `background · 2 jobs`, or the one job by name. When the agent's subagents run subagents of their own, every level is counted: `background · 3 sub-agents working`. In the web UI, click the `◌ 3 sub-agents working` line on the agent's row to see each one under the one that started it.
+- **Working**: working, or in the background: the turn ended, but something it started still runs and will wake it (a shell, a Monitor, a subagent or a scheduled prompt). The line over the terminal says what: `background · 2 jobs`, or the one job by name. When the agent's subagents run subagents of their own, every level is counted: `background · 3 sub-agents working`. In the web UI the agent's row has a line such as `◌ 7 sub-agents · 1 working · 6 waiting on shells`, a subagent that has ended its turn counted as waiting on the shells it started; click it to see each one under the one that started it, with its shells under it.
 - **Finished**: its stage is Finished.
 - **Ended**: the session is over.
 
