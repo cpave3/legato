@@ -31,11 +31,13 @@ function mergeItem(resumeLabel = "Resume agent"): AttentionItem {
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 describe("a waiting merge's row", () => {
-  it("picks a macro, favourites first, and runs Resume agent with it", async () => {
+  it("picks a macro from the task, pull request and unscoped ones, favourites first, and runs Resume agent with it", async () => {
     mockFetchMacros.mockResolvedValue({
       macros: [
+        { name: "Review", keys: "Review.\n", applies_to: "pr" },
+        { name: "Fix CI", keys: "Fix.\n", applies_to: "task", favorite: true },
         { name: "Plan", keys: "Plan it.\n" },
-        { name: "Rebase and repush", keys: "Rebase.\n", favorite: true },
+        { name: "Rebase and repush", keys: "Rebase.\n", applies_to: "task", favorite: true },
       ],
       suggested: { task: "Plan", my_pr: "Address feedback", others_pr: "Review" }, tiers: {},
     })
@@ -45,11 +47,12 @@ describe("a waiting merge's row", () => {
     expect(screen.getByRole("link", { name: /Open PR/ }).getAttribute("href")).toBe("https://github.com/acme/widget/pull/12")
     expect(screen.queryByRole("button", { name: "Resume agent" })).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: "Resume agent…" }))
-    await screen.findByRole("menuitem", { name: /Rebase and repush/ })
-    expect(screen.queryByRole("menuitem", { name: /Plan/ })).toBeNull()
+    await screen.findByRole("menuitem", { name: "Rebase and repush" })
+    const rows = () => screen.getAllByRole("menuitem").map(row => row.textContent)
+    expect(rows()).toEqual(["Fix CI", "Rebase and repush", "Show all (2 more)"])
     fireEvent.click(screen.getByRole("menuitem", { name: /Show all/ }))
-    await screen.findByRole("menuitem", { name: /Plan/ })
-    fireEvent.click(screen.getByRole("menuitem", { name: /Rebase and repush/ }))
+    expect(rows()).toEqual(["Fix CI", "Rebase and repush", "Review", "Plan"])
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rebase and repush" }))
     await waitFor(() => expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ id: "att-1" }), "resume_agent", "Rebase and repush"))
   })
 
