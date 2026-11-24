@@ -93,10 +93,22 @@ func stateOf(a service.AgentSession) string {
 	if a.Status == "dead" || a.Status == statusInterrupted {
 		return a.Status
 	}
+	switch a.WaitingOnReeve() {
+	case service.ReeveWaitOpen:
+		return stateReeve
+	case service.ReeveWaitUnanswered:
+		return stateReeveUnanswered
+	}
 	// An agent with open operator items needs the operator, whatever its
 	// agent tool says it does.
 	return a.ShownActivity()
 }
+
+// An agent's wait on the Reeve, as a state of the list (LEG-613).
+const (
+	stateReeve           = "reeve"
+	stateReeveUnanswered = "reeve_unanswered"
+)
 
 // stateWord is how a state is written out.
 func stateWord(state string) string {
@@ -113,6 +125,10 @@ func stateWord(state string) string {
 		return "ended"
 	case statusInterrupted:
 		return "interrupted"
+	case stateReeve:
+		return "waiting on Reeve"
+	case stateReeveUnanswered:
+		return "Reeve hasn't answered"
 	default:
 		return "idle"
 	}
@@ -137,6 +153,10 @@ func (m Model) stateMark(a service.AgentSession) string {
 		return m.icons.CIFail
 	case statusInterrupted:
 		return m.icons.Warning
+	case stateReeve:
+		return "◈"
+	case stateReeveUnanswered:
+		return m.icons.AgentWaiting
 	default:
 		return m.icons.AgentIdle
 	}

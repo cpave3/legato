@@ -34,6 +34,8 @@ func CloseOperatorItemsForOperatorTurn(ctx context.Context, db *store.Store, tas
 	if executionID == "" {
 		return 0, nil
 	}
+	// The operator turned to the agent: it no longer waits on the Reeve.
+	endReeveWait(ctx, db, taskID, executionID, store.ReeveWaitOperatorTurn)
 	return closeExecutionOperatorItems(ctx, db, taskID, executionID, store.OperatorItemOperatorTurn)
 }
 

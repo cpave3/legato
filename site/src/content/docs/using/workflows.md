@@ -640,6 +640,8 @@ Each run makes one task of its own, the execution task, in the **Workflows** wor
 
 The execution task is where the run's agents work, and `${{ workflow.task }}` and `LEGATO_TASK_ID` name it. When a workflow takes a `task` input, the task you chose is the run's subject, recorded beside the run; the run's agents still work on the execution task, so an agent already running on your task is not replaced. The run shows on that task's detail. An agent working on the execution task (a step's agent, or a review loop's reviewer) shows "for <card>" under its name in the agents rail, and the run's Attention items say which card they are for.
 
+A run's agent can send its questions to [the Reeve](/legato/using/reeve/) instead of you (the Ticket to PR macro does when its `ask_reeve` input is on). While it waits for the answer, it shows as **Waiting on the Reeve** on its card and in the agents list, not as your turn. If the Reeve has not answered within 10 minutes, or none is running, it moves to **Needs you** and says "The Reeve hasn't answered".
+
 Fixed steps run one after another until a step hands work to an agent. The run moves on when that agent reports that it completed or failed its step.
 
 A few steps wait on Legato itself rather than on an agent or on you: their status is **waiting** until the part of Legato that owns them finishes them, with their outputs, or fails them. Such a step is tied to no agent, so no agent exiting fails it, and it is still waiting after Legato restarts. Cancelling the run stops it.

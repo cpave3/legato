@@ -398,3 +398,43 @@ func TestAConfigEditOfAnOwnRuleNeedsASignature(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The Reeve's answer, a change set that messages the agent, ends the
+// agent's wait on it (LEG-613).
+func TestTheReevesAnswerEndsTheAgentsWait(t *testing.T) {
+	f := newChangeSetFixture(t)
+	ctx := context.Background()
+	db := f.devices.db
+	if err := db.CreateTask(ctx, store.Task{ID: "T-1", Title: "Asker", Status: "Doing"}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := db.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: "T-1", TmuxSession: "legato-T-1", Command: "claude", AgentKind: "claude-code", Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateExecution(ctx, store.Execution{ID: "ex-T-1", Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: "T-1", AgentSessionID: &id, StartedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MessageReeve(ctx, db, "T-1", "ex-T-1", "One PR or two?", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	waiting := func() bool {
+		session, err := db.GetAgentSessionByTaskID(ctx, "T-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return session.ReeveWaitSince != ""
+	}
+	if !waiting() {
+		t.Fatal("no wait recorded")
+	}
+	out, err := f.svc.Propose(ctx, f.reeve, "answer T-1", []ChangeCall{{Kind: CallLegato, Args: []string{"agent", "message", "T-1", "One PR."}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.decide(t, out.ApprovalID, ApprovalAllow, "")
+	f.svc.RunQueued(ctx)
+	if waiting() {
+		t.Fatal("the Reeve answered and the agent still waits on it")
+	}
+}

@@ -1,6 +1,10 @@
 package service
 
-import "github.com/cpave3/legato/internal/engine/store"
+import (
+	"time"
+
+	"github.com/cpave3/legato/internal/engine/store"
+)
 
 const AgentActivityMixed = "mixed"
 
@@ -29,6 +33,18 @@ type RelatedAgentSummary struct {
 	// names the stage, else of the first main agent; "" when only named
 	// slots run.
 	Glance string
+	// WaitingOn is "reeve" when that agent waits on the Reeve's answer
+	// (AgentSession.WaitingOnReeve), with WaitingSince when it asked.
+	WaitingOn    string
+	WaitingSince *time.Time
+}
+
+// waitingOn is what an agent's glance says it waits on, and since when.
+func waitingOn(agent AgentSession) (string, *time.Time) {
+	if agent.WaitingOnReeve() == "" {
+		return "", nil
+	}
+	return "reeve", agent.ReeveWaitSince
 }
 
 // SlotAgentSummary is a running named slot's agent on a card.
@@ -69,12 +85,14 @@ func SummarizeRelatedAgents(agents []AgentSession) map[string]RelatedAgentSummar
 			summary.State, summary.Kind, summary.Engram = agent.ShownActivity(), agent.AgentKind, agent.Engram
 			summary.Stage, summary.StageReason = agent.Stage, agent.StageReason
 			summary.Glance = agent.Glance()
+			summary.WaitingOn, summary.WaitingSince = waitingOn(agent)
 			summary.Count = 1
 			summaries[taskID] = summary
 			continue
 		}
 		if !exists {
 			summary = RelatedAgentSummary{Active: true, State: agent.ShownActivity(), Kind: agent.AgentKind, Engram: agent.Engram, Glance: agent.Glance()}
+			summary.WaitingOn, summary.WaitingSince = waitingOn(agent)
 		} else {
 			if summary.State != agent.ShownActivity() {
 				summary.State = AgentActivityMixed
@@ -90,6 +108,7 @@ func SummarizeRelatedAgents(agents []AgentSession) map[string]RelatedAgentSummar
 		if agent.Stage != "" && (summary.Stage == "" || agent.CardTaskID == taskID || agent.TaskID == taskID) {
 			summary.Stage, summary.StageReason = agent.Stage, agent.StageReason
 			summary.Glance = agent.Glance()
+			summary.WaitingOn, summary.WaitingSince = waitingOn(agent)
 		}
 		summary.Count++
 		summaries[taskID] = summary

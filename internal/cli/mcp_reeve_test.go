@@ -424,6 +424,17 @@ func TestEveryAgentTheReeveStartsCanMessageIt(t *testing.T) {
 	if len(queued) != 3 {
 		t.Fatalf("queued %d messages for the Reeve, want 3", len(queued))
 	}
+	// Each asker now waits on the Reeve, in the execution that asked
+	// (LEG-613): the resumed agent's new one, not its first.
+	for task := range map[string]bool{spawned: true, "work-1": true, "work-2": true} {
+		session, err := s.GetAgentSessionByTaskID(ctx, task)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if session.ReeveWaitSince == "" {
+			t.Fatalf("%s does not wait on the Reeve after asking it", task)
+		}
+	}
 
 	// The Reeve's own message_reeve is still the one for other instances.
 	listed, err := call(h, tokens[reeveTask], "mcp.list", nil)

@@ -141,6 +141,10 @@ func StateColor(activity string) lipgloss.Color {
 		return Blue
 	case "mixed":
 		return Accent
+	case "reeve":
+		return Accent // the Reeve's violet
+	case "reeve_unanswered":
+		return Amber
 	default:
 		return TextFaint
 	}

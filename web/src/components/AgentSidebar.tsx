@@ -11,7 +11,7 @@ import { isAgentToolInForeground } from "../lib/agentKind";
 import { agentSections, formatAgentTime, sectionLabels, stateSeconds, type AgentListSection } from "../lib/agentList";
 import { agentGroupLayout, type AgentGroupBlock } from "../lib/agentGroups";
 import { filterByStage, glanceSection, needsYouOutside, stageLabel, unreadDone, type GlanceSection, type WorkStage } from "../lib/agentStage";
-import { FinishedReason, NeedsYouLine, StageLine } from "./StageTrack";
+import { FinishedReason, NeedsYouLine, ReeveWaitLine, StageLine } from "./StageTrack";
 import { SubagentsLine } from "./SubagentTree";
 import { StageMenu } from "./StageMenu";
 
@@ -425,6 +425,7 @@ function AgentEntry({
         {/* Under Finished the group names the stage: a row gives only why. */}
         {finished ? <FinishedReason agent={agent} unread={unread} /> : <StageLine agent={agent} />}
         <NeedsYouLine agent={agent} />
+        <ReeveWaitLine agent={agent} />
         <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-lw-text-2">
           <span className="flex min-w-0 items-center gap-1.5">
             <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} />

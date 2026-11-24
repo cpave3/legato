@@ -73,7 +73,7 @@ func handleServeIPCMessage(msg ipc.Message, bus *events.Bus, srv serveNotifier) 
 	case "agent_stage_changed":
 		handleIPCMessage(msg, bus, nil)
 		srv.NotifyAgentsChanged()
-	case agentLinksChanged:
+	case agentLinksChanged, service.ReeveWaitChanged:
 		srv.NotifyAgentsChanged()
 	case "workflow_changed":
 		srv.NotifyWorkflowChangedKind(msg.WorkflowRunID, msg.WorkflowStepID, msg.Kind)
@@ -115,6 +115,13 @@ func handleIPCMessage(msg ipc.Message, bus *events.Bus, wn webNotifier) {
 	case agentLinksChanged:
 		// One agent messaged another from another process: the graph of
 		// agents has a new link.
+		if wn != nil {
+			wn.NotifyAgentsChanged()
+		}
+	case service.ReeveWaitChanged:
+		// An agent started or stopped waiting on the Reeve, or a wait went
+		// unanswered: its glance moved.
+		bus.Publish(events.Event{Type: events.EventCardUpdated, At: time.Now()})
 		if wn != nil {
 			wn.NotifyAgentsChanged()
 		}

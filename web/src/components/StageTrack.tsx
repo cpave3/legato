@@ -1,5 +1,7 @@
 import { cn } from "../lib/utils"
-import { needsYouReason, stageLabel, stageSteps } from "../lib/agentStage"
+import { needsYouReason, reeveWaitLabel, stageLabel, stageSteps } from "../lib/agentStage"
+import { formatAgentTime } from "../lib/agentList"
+import { useNow } from "../hooks/useNow"
 import type { AgentInfo } from "../hooks/useWebSocket"
 
 // The sizes of a track's bars: "sm" in rows and chips, "xs" on board cards
@@ -65,6 +67,17 @@ export function NeedsYouLine({ agent, className }: { agent: AgentInfo; className
   const reason = needsYouReason(agent)
   if (!reason) return null
   return <span className={cn("truncate text-xs text-lw-needs", className)}>◆ {reason}</span>
+}
+
+// ReeveWaitLine is the line of an agent working because it waits on the
+// Reeve's answer: in the Reeve's violet, with how long it has waited.
+export function ReeveWaitLine({ agent, className }: { agent: AgentInfo; className?: string }) {
+  const now = useNow(30_000)
+  const label = reeveWaitLabel(agent)
+  if (!label) return null
+  const since = agent.waiting_since ? Date.parse(agent.waiting_since) : NaN
+  const waited = Number.isNaN(since) ? "" : formatAgentTime(Math.max(0, Math.floor((now - since) / 1000)))
+  return <span className={cn("truncate text-xs text-[var(--theme-keyword,#a78bfa)]", className)}>{waited ? `${label} · ${waited}` : label}</span>
 }
 
 // FinishedReason is a Finished agent's line where its group already says

@@ -1,6 +1,8 @@
 package server
 
 import (
+	"time"
+
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -73,10 +75,14 @@ type CardResponse struct {
 	// Glance is the main slot's agent's glance group (service.Glance:
 	// needs_you, your_turn, working, finished), which the card's strip
 	// leads with; absent with no main agent.
-	Glance         string  `json:"glance,omitempty"`
-	WorkingSeconds float64 `json:"working_seconds"`
-	WaitingSeconds float64 `json:"waiting_seconds"`
-	ErrorSeconds   float64 `json:"error_seconds"`
+	Glance string `json:"glance,omitempty"`
+	// WaitingOn is "reeve" when that agent waits on the Reeve's answer,
+	// with WaitingSince when it asked (LEG-613).
+	WaitingOn      string     `json:"waiting_on,omitempty"`
+	WaitingSince   *time.Time `json:"waiting_since,omitempty"`
+	WorkingSeconds float64    `json:"working_seconds"`
+	WaitingSeconds float64    `json:"waiting_seconds"`
+	ErrorSeconds   float64    `json:"error_seconds"`
 	// PullRequests are the task's PRs in stack order, bottom first.
 	PullRequests     []PRMetaResponse    `json:"pull_requests,omitempty"`
 	SwarmStats       *SwarmStatsResponse `json:"swarm_stats,omitempty"`

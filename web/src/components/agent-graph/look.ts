@@ -15,6 +15,8 @@ export interface Look {
 export function agentLook(agent: AgentInfo): Look {
   if (agent.activity === "error") return { label: "error", glyph: "✕", border: "border-lw-error", text: "text-lw-error" }
   if (agent.activity === "waiting" || glanceSection(agent) === "needs-you") return { label: "needs you", glyph: "◆", border: "border-lw-needs", text: "text-lw-needs" }
+  // Its turn ended on a question to the Reeve: in the Reeve's violet.
+  if (agent.waiting_on === "reeve") return { label: "waiting on Reeve", glyph: "◈", border: "border-[var(--theme-keyword,#8b5cf6)]", text: "text-[var(--theme-keyword,#a78bfa)]" }
   switch (agent.activity) {
     case "working":
       return { label: "running", glyph: "●", border: "border-lw-live", text: "text-lw-live" }

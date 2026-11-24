@@ -135,6 +135,11 @@ type AgentSession struct {
 	StageReason string
 	StageSource string
 	StageSince  *time.Time
+	// ReeveWaitSince is when the agent asked the Reeve something it has not
+	// answered yet (nor the operator taken a turn), nil for no wait;
+	// ReeveWait is that wait's state (ReeveWaitOpen, ReeveWaitUnanswered).
+	ReeveWaitSince *time.Time
+	ReeveWait      string
 }
 
 // NeedsOperator says whether a running agent waits on the operator: its
@@ -1995,6 +2000,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 	liveCmds, _ := a.tmux.PaneCommands()
 
 	result := make([]AgentSession, len(sessions))
+	var reeveRuns *bool // read once, when an agent waits on the Reeve
 	for i, s := range sessions {
 		startedAt, err := time.Parse("2006-01-02 15:04:05", s.StartedAt)
 		if err != nil {
@@ -2074,6 +2080,14 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			StageReason:       s.WorkStageReason,
 			StageSource:       s.WorkStageSource,
 			StageSince:        parseStageTime(s.WorkStageSince),
+		}
+		if since, err := time.Parse(time.RFC3339, s.ReeveWaitSince); err == nil && s.ReeveWaitSince != "" {
+			if reeveRuns == nil {
+				current, _ := a.store.CurrentReeveSession(ctx)
+				runs := current != nil
+				reeveRuns = &runs
+			}
+			result[i].ReeveWaitSince, result[i].ReeveWait = &since, reeveWaitState(since, *reeveRuns, time.Now())
 		}
 		if s.RunCardTaskID != "" {
 			result[i].RunCard = &RunCard{TaskID: s.RunCardTaskID, Key: s.RunCardKey, Title: s.RunCardTitle}

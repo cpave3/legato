@@ -418,6 +418,9 @@ type AgentSession struct {
 	RunCardTaskID string `db:"run_card_task_id"`
 	RunCardKey    string `db:"run_card_key"`
 	RunCardTitle  string `db:"run_card_title"`
+	// ReeveWaitSince is when its execution's open wait on the Reeve began
+	// (RFC 3339), "" when it waits on none.
+	ReeveWaitSince string `db:"reeve_wait_since"`
 	// Engram is the engram its execution runs as, "" for none.
 	Engram string `db:"engram"`
 	// WorkingDir is the directory its execution was started in, "" for a

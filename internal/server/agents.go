@@ -142,14 +142,23 @@ type AgentStageFields struct {
 	// done notes, which a list marks unread.
 	PlanPending   bool `json:"plan_pending,omitempty"`
 	OpenDoneItems int  `json:"open_done_items,omitempty"`
+	// WaitingOn is "reeve" when the glance is the agent's wait on the
+	// Reeve's answer (working; needs_you once it has gone unanswered),
+	// with WaitingSince when it asked. See docs/ai/agent-states.md.
+	WaitingOn    string     `json:"waiting_on,omitempty"`
+	WaitingSince *time.Time `json:"waiting_since,omitempty"`
 }
 
 func agentStageFields(agent service.AgentSession) AgentStageFields {
-	return AgentStageFields{
+	fields := AgentStageFields{
 		Stage: agent.Stage, StageReason: agent.StageReason, StageSource: agent.StageSource,
 		StageSince: agent.StageSince, Glance: agent.Glance(),
 		PlanPending: agent.PlanPending, OpenDoneItems: agent.OpenDoneItems,
 	}
+	if agent.WaitingOnReeve() != "" {
+		fields.WaitingOn, fields.WaitingSince = "reeve", agent.ReeveWaitSince
+	}
+	return fields
 }
 
 // AgentClone is the job clone an agent works in: its repository (owner/name)

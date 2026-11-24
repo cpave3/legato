@@ -1,6 +1,7 @@
 import type { BoardCard } from "./board-types"
 import { agentToolLabel } from "./agentKind"
 import { providerLabel } from "./providers"
+import { reeveUnanswered } from "./agentStage"
 
 export function formatDuration(seconds: number): string {
   if (seconds <= 0) return ""
@@ -28,6 +29,16 @@ export interface StripLook {
   reason: string
   // The agent tool, for the strip's tooltip: the strip leaves it out.
   tool: string
+}
+
+// The Reeve's violet, for an agent waiting on it.
+const reeveTint = "bg-[var(--theme-keyword,#8b5cf6)]/15"
+const reeveTone = "text-[var(--theme-keyword,#a78bfa)]"
+
+// secondsSince is how long ago an RFC 3339 time was, 0 for none.
+function secondsSince(when: string | undefined): number {
+  const at = when ? Date.parse(when) : NaN
+  return Number.isNaN(at) ? 0 : Math.max(0, Math.floor((Date.now() - at) / 1000))
 }
 
 // cardGlance is the main agent's glance group; a server that sends none is
@@ -65,6 +76,17 @@ export function agentStripLook(card: BoardCard): StripLook {
     }
   }
   const spent = card.working_seconds + card.waiting_seconds + card.error_seconds
+  if (card.waiting_on === "reeve") {
+    // Its turn ended on a question to the Reeve: working on the operator's
+    // behalf, until the Reeve has not answered for too long.
+    const waited = secondsSince(card.waiting_since)
+    if (cardGlance(card) === "needs_you") {
+      return { glyph: "◆", label: "Needs you", time: waited, tint: "bg-lw-needs-soft", tone: "text-lw-needs", stage: true, reason: reeveUnanswered, tool }
+    }
+    if (cardGlance(card) === "working") {
+      return { glyph: "◈", label: "Waiting on the Reeve", time: waited, tint: reeveTint, tone: reeveTone, ...quiet }
+    }
+  }
   switch (cardGlance(card)) {
     case "finished": {
       const note = (card.needs_you?.items?.done ?? 0) > 0 ? "a note for you" : ""
