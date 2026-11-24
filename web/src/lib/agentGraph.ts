@@ -74,15 +74,16 @@ export interface AgentLinkData {
   label?: string
 }
 
-export type GraphEdgeKind = "subagent" | "swarm" | "reviewer" | "review_loop" | "workflow" | "reeve_watch" | "peer_message" | "worktree"
+export type GraphEdgeKind = "subagent" | "swarm" | "reviewer" | "slot" | "review_loop" | "workflow" | "reeve_watch" | "peer_message" | "worktree"
 
 // Every kind of link between agents, in the order the legend names them.
-export const linkKinds: GraphEdgeKind[] = ["subagent", "swarm", "reviewer", "review_loop", "workflow", "reeve_watch", "peer_message", "worktree"]
+export const linkKinds: GraphEdgeKind[] = ["subagent", "swarm", "reviewer", "slot", "review_loop", "workflow", "reeve_watch", "peer_message", "worktree"]
 
 export const linkLabels: Record<GraphEdgeKind, string> = {
   subagent: "sub-agent",
   swarm: "swarm",
   reviewer: "reviewer",
+  slot: "card slot",
   review_loop: "review run",
   workflow: "same run",
   reeve_watch: "Reeve watches",
@@ -440,9 +441,14 @@ function relationsOf(ordered: AgentInfo[], data: AgentGraphData | null, places: 
     if (agent.parent_task_id && agent.parent_task_id !== agent.task_id && byID.get(agent.parent_task_id)?.role === "conductor") {
       link("swarm", agent.parent_task_id, agent.task_id)
     }
-    // A review loop between the two says more, and is drawn instead.
+    // A named slot runs beside its card's own agent: the reviewer reviews
+    // it, any other (a workflow's triage agent) works for the card. A
+    // review loop between a reviewer and its card says more, and is drawn
+    // instead.
     const looped = (data?.links ?? []).some((raw) => raw.kind === "review_loop" && raw.from === agent.task_id && raw.to === agent.card_task_id)
-    if (agent.slot && agent.slot !== "main" && agent.card_task_id && !looped) link("reviewer", agent.task_id, agent.card_task_id)
+    if (agent.slot === "reviewer" && agent.card_task_id) {
+      if (!looped) link("reviewer", agent.task_id, agent.card_task_id)
+    } else if (agent.slot && agent.slot !== "main" && agent.card_task_id) link("slot", agent.task_id, agent.card_task_id, { label: agent.slot })
   }
   const window = (data?.peer_window_seconds ?? 1800) * 1000
   for (const raw of data?.links ?? []) {
@@ -841,6 +847,9 @@ export function linkLines(id: string, edges: GraphEdge[], agents: AgentInfo[]): 
         break
       case "reviewer":
         out.push(outgoing ? `reviews ${other}` : `reviewed by ${other}`)
+        break
+      case "slot":
+        out.push(outgoing ? `${edge.label} for ${other}` : `has ${edge.label} agent ${other}`)
         break
       case "review_loop":
         out.push(`${outgoing ? `reviews ${other}'s pull request` : `${other} reviews its pull request`}${edge.label ? ` (${edge.label})` : ""}`)
