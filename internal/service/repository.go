@@ -633,8 +633,9 @@ func (s *RepositoryService) recordCodeContext(ctx context.Context, clone store.J
 // later.
 const jobCloneGrace = 10 * time.Minute
 
-// SweepJobClones keeps clones held by undismissed interrupted agents, and
-// removes the job clones no running agent has worked in for
+// SweepJobClones keeps clones held by undismissed interrupted agents and
+// clones open review loops use, and removes the job clones no running
+// agent has worked in for
 // KeepIdle and whose branches hold nothing unpushed. A clone with unpushed commits is
 // kept for KeepFor, with a note on its task, and then removed. The cache
 // is fetched first, so commits pushed since are known to be pushed.
@@ -651,6 +652,10 @@ func (s *RepositoryService) SweepJobClones(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	loops, err := OpenReviewLoopClones(ctx, s.opts.Store)
+	if err != nil {
+		return err
+	}
 	fetched := map[string]error{}
 	now := s.opts.Now()
 	for _, clone := range clones {
@@ -663,6 +668,12 @@ func (s *RepositoryService) SweepJobClones(ctx context.Context) error {
 		// A hold is not activity: dismissal leaves the existing retention
 		// clocks in force, including an unpushed-work removal deadline.
 		if inUse(clone, holds) {
+			continue
+		}
+		// An open review loop reviews its clone again at each pass,
+		// however long it waits between them: neither keep_idle nor an
+		// unpushed-work deadline removes it while the loop is open.
+		if loops[clone.ID] {
 			continue
 		}
 		if clone.RemoveAfter != nil {

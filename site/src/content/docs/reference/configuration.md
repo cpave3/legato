@@ -477,7 +477,7 @@ Legato's own copy of each GitHub repository, which fresh clones for jobs are mad
 | --- | --- | --- | --- |
 | `repository_cache.enabled` | bool | `false` | Offers **Clone** beside **Folder** in the web UI's spawn dialogs: a fresh clone of a repository, on a branch of its own. Jobs and the API can clone without it. |
 | `repository_cache.max_age` | duration | `5m` | How long Legato trusts its copy before a job fetches it again. `0s` fetches for every job. |
-| `repository_cache.keep_idle` | duration or days | `7d` | How long a clone that no agent works in is kept, so the next agent can carry on in it. Write a duration (`36h`) or days (`7d`). `0` keeps clones until you remove them. A clone with commits the cache does not have is kept 7 days more. An undismissed interrupted agent protects its own clone and contents from automatic cleanup, even past those deadlines. Dismissal releases its hold without resetting retention; a shared clone stays protected by its other holders. Explicit removal is unchanged. |
+| `repository_cache.keep_idle` | duration or days | `7d` | How long a clone that no agent works in is kept, so the next agent can carry on in it. Write a duration (`36h`) or days (`7d`). `0` keeps clones until you remove them. A clone with commits the cache does not have is kept 7 days more. An undismissed interrupted agent protects its own clone and contents from automatic cleanup, even past those deadlines. Dismissal releases its hold without resetting retention; a shared clone stays protected by its other holders. A clone an open review loop uses is kept too, however long the loop waits, until the loop ends. Explicit removal is unchanged. |
 
 ## Worktrees
 
