@@ -72,19 +72,30 @@ func workerReviewPassOptions(cfg *config.Config, db *store.Store, opts service.R
 	return opts
 }
 
-// startReviewPasses starts the review-pass engine on an instance with
-// review_passes on: it takes submit_review through the broker and ticks
-// while this process serves the broker. It needs the credential channels,
-// which post as the reviewer App. It does nothing until a caller has a loop:
-// the handoff caller registers when handoffs are wired
-// (wireHandoffReviewCaller). Nil when review passes are off.
-func startReviewPasses(deps integrationDeps) (*service.ReviewPassService, func()) {
+// reviewEngine is this process's review-pass engine and its run caller (the
+// github.pr.review_passes step), nil fields when review passes are off.
+type reviewEngine struct {
+	reviews *service.ReviewPassService
+	runs    *service.ReviewRunCaller
+	stop    func()
+}
+
+// startReviewEngine builds the review-pass engine on an instance with
+// review_passes on, in every host process (serve, and the TUI whether or not
+// it serves the web UI): it takes submit_review through the broker, runs
+// the workflow step, and ticks only while this process serves the broker,
+// holding the engine's lock (reviewEngineRunning) meanwhile (spec LEG-559
+// D9). Any process may start a review step; the holder's tick opens it. It
+// needs the credential channels, which post as the reviewer App. Handoffs
+// register their caller when they are wired (wireHandoffReviewCaller).
+func startReviewEngine(deps integrationDeps) *reviewEngine {
+	engine := &reviewEngine{stop: func() {}}
 	if !deps.cfg.ReviewPasses.Enabled || deps.approvals == nil || deps.approvals.channels == nil {
-		return nil, func() {}
+		return engine
 	}
 	agents, ok := deps.agents.(service.ReviewAgents)
 	if !ok {
-		return nil, func() {}
+		return engine
 	}
 	opts := workerReviewPassOptions(deps.cfg, deps.db, service.ReviewPassOptions{
 		Agents: agents, Bus: deps.bus,
@@ -96,11 +107,22 @@ func startReviewPasses(deps integrationDeps) (*service.ReviewPassService, func()
 		opts.Overlay = prober.CheckoutOverlayAvailable
 	}
 	reviews := service.NewReviewPassService(deps.db, opts)
+	engine.reviews = reviews
+	engine.runs = attachReviewRuns(deps, reviews)
 	deps.approvals.setReviewPasses(reviews)
+	if deps.reviewPrompt != nil {
+		deps.reviewPrompt.SetReviews(reviews)
+		if deps.bus != nil {
+			// Attention reconciled before the engine ran: look again.
+			deps.bus.Publish(events.Event{Type: events.EventCardsRefreshed, At: time.Now()})
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	owner := deps.approvals.brokerOwner
+	lock := &reviewEngineLock{dir: config.ResolveDataDir(deps.cfg)}
 	tick := func(ctx context.Context) {
 		if owner == nil || owner() {
+			lock.hold()
 			reviews.Tick(ctx)
 		}
 	}
@@ -112,11 +134,17 @@ func startReviewPasses(deps integrationDeps) (*service.ReviewPassService, func()
 		go func() {
 			defer deps.bus.Unsubscribe(moved)
 			defer deps.bus.Unsubscribe(runs)
+			// A new holder picks up at once what waits for the engine.
+			tick(ctx)
 			reviewPassWake(ctx, moved, runs, reviewPassEvery, reviewPassRunGap, tick)
 		}()
 	}
+	engine.stop = func() {
+		cancel()
+		lock.release()
+	}
 	log.Printf("review passes: on, reviewing as %s with %s", deps.cfg.ReviewPasses.GitHubCredential, deps.cfg.ReviewPasses.Reviewer.Agent)
-	return reviews, cancel
+	return engine
 }
 
 // wireHandoffReviewCaller registers the handoff caller with the engine: a

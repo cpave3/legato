@@ -49,7 +49,7 @@ The author reads all of this as data through `legato review-pass feedback --json
 
 ## Set up a worker
 
-A handed-off task's review passes run on the worker; the main instance needs nothing. A review loop on [any pull request](#review-any-pull-request) runs on the Legato you start it on, which needs the same setup.
+A handed-off task's review passes run on the worker; the main instance needs nothing. A review loop on [any pull request](#review-any-pull-request) runs on the instance you start it on, which needs the same setup.
 
 ### 1. The reviewer App
 
@@ -130,7 +130,9 @@ To see a review run end to end before you rely on it:
 
 ## Review any pull request
 
-A review loop need not start from a handoff. The `review-pr-passes` workflow runs one on any open pull request in a repository Legato's reviewer App is installed on: yours, a coworker's, or an agent's you started on this Legato. The loop runs on the Legato you start it on, which needs review passes set up as above, with a reviewer App credential of its own.
+A review loop need not start from a handoff. The `review-pr-passes` workflow runs one on any open pull request in a repository Legato's reviewer App is installed on: yours, a coworker's, or an agent's you started on this Legato. The loop runs on the instance you start it on, which needs review passes set up as above, with a reviewer App credential of its own.
+
+When several Legato processes share one data folder (the TUI and `legato serve`, say), the review loops run in the one that serves the broker: the first one started, until it exits. You can start a loop from any of them, or from `legato workflow run`: the run's review step waits, its page saying **Waiting for the review engine**, until that process picks it up, which takes a few seconds. If the process running the loops exits, the next one to serve the broker carries on with every loop.
 
 Add the workflow with `legato workflow add review-pr-passes` (`--project` for the repository's own workflows folder), then start it from the web **Workflows** page, from the command line (`legato workflow run review-pr-passes --input repo=acme/widget --input pr_number=12`), or from the API (as the Reeve can), with the repository and the pull request's number:
 
@@ -146,7 +148,7 @@ Legato makes the reviewer a clone of its own at the pull request's head (a fork'
 
 By default the loop reviews the whole stack the pull request is in (`scope: stack`): Legato follows GitHub's chain from its branch, down base by base to the default branch and up through the open pull requests stacked on it by the same author, and reviews every one of them in one loop, each against its own base, with one GitHub review per pull request. Start it on any layer; the run is named after the stack (`acme/widget#137–#141`). A layer that merges or closes drops out, and the loop ends closed only when none is left open. A push to any layer, such as a fix at the bottom with the layers above restacked, starts the next pass once the heads stay still. Give `scope: pr` to review the named pull request alone. A run on a layer another loop already reviews is refused, naming that loop.
 
-A loop takes its settings from this Legato's `review_passes`: the reviewer, its model or tier, the skill, the maximum passes and the timings. The `review-pr-passes` inputs override two of them for one run: `max_passes`, and `reviewer` (an agent tool, or `tool:tier`, such as `codex:careful`). An input left empty uses the setting. In a workflow of your own, the `github.pr.review_passes` step's `max_passes` and `reviewer` do the same, and when they template a run input, the input wins. A reviewer this Legato does not offer is refused when the run starts, with the ones it does.
+A loop takes its settings from this Legato's `review_passes`: the reviewer, its model or tier, the skill, the maximum passes and the timings. The `review-pr-passes` inputs override two of them for one run: `max_passes`, and `reviewer` (an agent tool, or `tool:tier`, such as `codex:careful`). An input left empty uses the setting. In a workflow of your own, the `github.pr.review_passes` step's `max_passes` and `reviewer` do the same, and when they template a run input, the input wins. A reviewer this Legato does not offer is refused when the loop is picked up, with the ones it does: the run fails at its review step.
 
 ### How the author moves the loop on
 

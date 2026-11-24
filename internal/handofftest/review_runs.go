@@ -71,7 +71,8 @@ func StartReviewRuns(t *testing.T, w *Worker) *ReviewRuns {
 	return &ReviewRuns{w: w, Workflows: workflows, Caller: caller, Clones: clones, Discover: discover}
 }
 
-// Start runs review-pr-passes with inputs.
+// Start runs review-pr-passes with inputs, and opens its review step as
+// the broker holder's tick does at once (Open).
 func (r *ReviewRuns) Start(ctx context.Context, inputs map[string]string) (*store.WorkflowRunView, error) {
 	example, ok := workflowengine.ExampleNamed("review-pr-passes")
 	if !ok {
@@ -81,7 +82,19 @@ func (r *ReviewRuns) Start(ctx context.Context, inputs map[string]string) (*stor
 	if err != nil {
 		return nil, err
 	}
-	return r.Workflows.Start(ctx, definition, inputs)
+	view, err := r.Workflows.Start(ctx, definition, inputs)
+	if err != nil || view.Run.Status != "running" {
+		return view, err
+	}
+	r.Open(ctx)
+	return r.Workflows.Show(ctx, view.Run.ID)
+}
+
+// Open opens the review steps waiting to open, as the first part of the
+// engine's tick does, without moving any loop on.
+func (r *ReviewRuns) Open(ctx context.Context) {
+	r.Caller.OpenWaiting(ctx)
+	r.w.Settle()
 }
 
 // FakeRunClones are a run's review clones: the fake repository cache's job

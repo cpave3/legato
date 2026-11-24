@@ -314,11 +314,15 @@ func encodeJSON(v any) (string, error) {
 // pass, a reviewer past its time or gone is unable, and queued passes start
 // as reviewers free up.
 func (s *ReviewPassService) Tick(ctx context.Context) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if !s.config().Enabled {
 		return
 	}
+	// Steps any process started open here first (spec LEG-559 D9). Not
+	// under the lock: opening asks GitHub and makes clones, as a start
+	// did.
+	s.openWaiting(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	loops := s.loops(ctx)
 	if len(loops) == 0 {
 		return // no caller has a loop: nothing to move on

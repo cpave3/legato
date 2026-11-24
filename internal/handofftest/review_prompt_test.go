@@ -119,6 +119,11 @@ func TestALocalCardInDoneWithOpenPRsPromptsOneStackReview(t *testing.T) {
 	if err := p.adapter.Execute(context.Background(), service.AttentionActionRequest{SourceKey: p.card, ActionID: "start_review"}); err != nil {
 		t.Fatal(err)
 	}
+	// The loop it started clears the item at once, before it opens.
+	if items := p.items(t); len(items) != 0 {
+		t.Fatalf("after starting: %+v", items)
+	}
+	p.r.runs.Open(context.Background())
 	runs, err := p.r.worker.Store.ListWorkflowRuns(context.Background(), store.WorkflowRunFilter{WorkflowName: "review-pr-passes"})
 	if err != nil || len(runs) != 1 || !strings.Contains(runs[0].WorkflowTitle, "#31–#32") {
 		t.Fatalf("runs %+v, %v", runs, err)

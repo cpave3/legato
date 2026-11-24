@@ -104,6 +104,27 @@ func (s *ReviewPassService) AddCaller(caller ReviewCaller) {
 	s.callers = append(s.callers, caller)
 }
 
+// reviewOpener is a caller whose loops start as steps waiting to open, which
+// only the engine's tick opens (ReviewRunCaller).
+type reviewOpener interface {
+	OpenWaiting(ctx context.Context)
+	// waitingToOpenOn is a step waiting to open on the pull request,
+	// other than the task except's, which holds it as a loop would.
+	waitingToOpenOn(ctx context.Context, repo string, number int, except string) *ReviewLoopActiveError
+}
+
+// openWaiting opens every caller's steps waiting to open.
+func (s *ReviewPassService) openWaiting(ctx context.Context) {
+	s.mu.Lock()
+	callers := slices.Clone(s.callers)
+	s.mu.Unlock()
+	for _, caller := range callers {
+		if opener, ok := caller.(reviewOpener); ok {
+			opener.OpenWaiting(ctx)
+		}
+	}
+}
+
 // loops are every caller's loops that move on now.
 func (s *ReviewPassService) loops(ctx context.Context) []ReviewLoop {
 	var out []ReviewLoop
@@ -193,6 +214,13 @@ func (s *ReviewPassService) activeLoopOn(ctx context.Context, repo string, numbe
 		}
 		if on {
 			return &ReviewLoopActiveError{Repo: repo, PR: number, Name: l.Name, Link: l.Link}
+		}
+	}
+	for _, caller := range s.callers {
+		if opener, ok := caller.(reviewOpener); ok {
+			if active := opener.waitingToOpenOn(ctx, repo, number, except); active != nil {
+				return active
+			}
 		}
 	}
 	return nil

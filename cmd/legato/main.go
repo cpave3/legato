@@ -1176,7 +1176,10 @@ func runServeCmd(args []string) int {
 	defer wireAgentUI(srv, cfg, db, bus)()
 	wireWorkStages(srv, db, bus)
 	wireSessionHistory(srv, cfg, db, agentSvc, boardSvc, serveReeve)
-	defer wireIntegrations(srv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: workflowSvc, reviewPrompt: serveReviewPrompt, prs: prSvc})()
+	serveIntegrations := integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: workflowSvc, reviewPrompt: serveReviewPrompt, prs: prSvc}
+	serveIntegrations.engine = startReviewEngine(serveIntegrations)
+	defer serveIntegrations.engine.stop()
+	defer wireIntegrations(srv, serveIntegrations)()
 	srv.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 	srv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
 
@@ -1456,6 +1459,10 @@ func runTUI() int {
 	approvalsRT.trackAgentBranches(db, prSvc)
 	defer approvalsRT.stop()
 	defer approvalsRT.compactWaits(tuiWorkflowSvc)()
+	// The review-pass engine, whether or not this TUI serves the web UI: it
+	// ticks while the TUI serves the broker (spec LEG-559 D9).
+	tuiReviewEngine := startReviewEngine(integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: tuiWorkflowSvc, reviewPrompt: reviewPrompt, prs: prSvc})
+	defer tuiReviewEngine.stop()
 
 	// Auto-start web server if configured and port is free.
 	stopAnnouncing := func() {}
@@ -1560,7 +1567,7 @@ func runTUI() int {
 			stopAgentUI = wireAgentUI(webSrv, cfg, db, bus)
 			wireWorkStages(webSrv, db, bus)
 			wireSessionHistory(webSrv, cfg, db, agentSvc, boardSvc, webReeve)
-			stopIntegrations = wireIntegrations(webSrv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: tuiWorkflowSvc, reviewPrompt: webReviewPrompt, prs: prSvc})
+			stopIntegrations = wireIntegrations(webSrv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: tuiWorkflowSvc, reviewPrompt: webReviewPrompt, prs: prSvc, engine: tuiReviewEngine})
 			webSrv.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 			webSrv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
 			go func() {

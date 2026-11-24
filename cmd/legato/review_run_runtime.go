@@ -7,16 +7,17 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
-// wireReviewRuns registers the run caller with the review-pass engine and
+// attachReviewRuns registers the run caller with the review-pass engine and
 // attaches it to the workflow service's github.pr.review_passes step: review
 // loops on any pull request run on this instance, with its reviewer App.
-func wireReviewRuns(srv *server.Server, deps integrationDeps, reviews *service.ReviewPassService) {
+// Nil without workflows or a repository cache.
+func attachReviewRuns(deps integrationDeps, reviews *service.ReviewPassService) *service.ReviewRunCaller {
 	if reviews == nil || deps.workflows == nil || deps.repos == nil {
-		return
+		return nil
 	}
 	step, ok := deps.workflows.Executor(service.ReviewPassesStepType).(*service.ReviewPassesStep)
 	if !ok {
-		return
+		return nil
 	}
 	var discover service.ReviewRunDiscover
 	if d, ok := deps.prs.(service.ReviewRunDiscover); ok {
@@ -31,5 +32,14 @@ func wireReviewRuns(srv *server.Server, deps integrationDeps, reviews *service.R
 	})
 	caller.SetWorkflows(deps.workflows)
 	step.Attach(caller)
-	srv.SetReviewRuns(caller)
+	return caller
+}
+
+// wireReviewRuns gives a web server the run caller, for the run page's
+// review loop.
+func wireReviewRuns(srv *server.Server, engine *reviewEngine) {
+	if engine == nil || engine.runs == nil {
+		return
+	}
+	srv.SetReviewRuns(engine.runs)
 }
