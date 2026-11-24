@@ -186,8 +186,9 @@ describe("CardContextMenu", () => {
     const pr = (n: number, extra = {}) => ({ repo: "acme/app", branch: `b${n}`, pr_number: n, pr_url: `https://github.com/acme/app/pull/${n}`, state: "OPEN", is_draft: false, review_decision: "", check_status: "pass", comment_count: 0, pinned: false, match_method: "", sync_outcome: "", sync_error: "", ...extra })
     const fix = { name: "Address feedback", keys: "a", applies_to: "pr" as const }
     const review = { name: "Review", keys: "r", applies_to: "pr" as const }
-    const prMacros = [{ pr: pr(194), macros: [fix, review] }, { pr: pr(200, { pinned: true }), macros: [review, fix] }]
-    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} prMacros={prMacros} onPRMacro={onPRMacro} onAction={() => {}} onClose={onClose} />)
+    const plan = { name: "Plan", keys: "p", applies_to: "task" as const }
+    const prs = [pr(194), pr(200, { pinned: true })]
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} macros={[plan, fix, review]} suggested={{ task: "Plan", my_pr: "Address feedback", others_pr: "Review" }} macroPRs={prs} onPRMacro={onPRMacro} onAction={() => {}} onClose={onClose} />)
     const triggers = screen.getAllByRole("menuitem", { name: /^Macros for #/ })
     expect(triggers.map(item => item.getAttribute("aria-label"))).toEqual(["Macros for #194", "Macros for #200"])
     fireEvent.click(triggers[1])
@@ -195,7 +196,7 @@ describe("CardContextMenu", () => {
     const items = Array.from(flyout.querySelectorAll('[role="menuitem"]')).map(item => item.textContent)
     expect(items).toEqual(["Review", "Address feedback"])
     fireEvent.click(screen.getByRole("menuitem", { name: "Macro: Review" }))
-    expect(onPRMacro).toHaveBeenCalledWith(prMacros[1].pr, review)
+    expect(onPRMacro).toHaveBeenCalledWith(prs[1], review)
     expect(onClose).toHaveBeenCalled()
   })
 
@@ -203,11 +204,11 @@ describe("CardContextMenu", () => {
     const onMacro = vi.fn()
     const onPRMacro = vi.fn()
     const pr = { repo: "acme/app", branch: "b", pr_number: 7, pr_url: "", state: "OPEN", is_draft: false, review_decision: "", check_status: "", comment_count: 0, pinned: false, match_method: "", sync_outcome: "", sync_error: "" }
-    const plan = { name: "Plan", keys: "p", favorite: true }
-    const ticket = { name: "Ticket to PR", keys: "t" }
-    const review = { name: "Review", keys: "r", favorite: true }
-    const deep = { name: "Deep review", keys: "d" }
-    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} anyFavorite macros={[plan, ticket]} onMacro={onMacro} prMacros={[{ pr, macros: [review, deep] }]} onPRMacro={onPRMacro} onAction={() => {}} onClose={() => {}} />)
+    const plan = { name: "Plan", keys: "p", applies_to: "task" as const, favorite: true }
+    const ticket = { name: "Ticket to PR", keys: "t", applies_to: "task" as const }
+    const review = { name: "Review", keys: "r", applies_to: "pr" as const, favorite: true }
+    const deep = { name: "Deep review", keys: "d", applies_to: "pr" as const }
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} macros={[plan, review, ticket, deep]} onMacro={onMacro} macroPRs={[pr]} onPRMacro={onPRMacro} onAction={() => {}} onClose={() => {}} />)
     expect(screen.getByRole("menuitem", { name: "Macro: Plan" })).toBeTruthy()
     expect(screen.queryByRole("menuitem", { name: "Macro: Ticket to PR" })).toBeNull()
     fireEvent.click(screen.getByRole("menuitem", { name: "Show all (1 more)" }))
@@ -217,8 +218,19 @@ describe("CardContextMenu", () => {
     const flyout = screen.getByRole("menu", { name: "Macros for #7" })
     expect(within(flyout).queryByRole("menuitem", { name: "Macro: Deep review" })).toBeNull()
     fireEvent.click(within(flyout).getByRole("menuitem", { name: "Show all (1 more)" }))
+    expect(within(flyout).getAllByRole("menuitem").map(item => item.textContent)).toEqual(["Review", "Deep review"])
     fireEvent.click(within(flyout).getByRole("menuitem", { name: "Macro: Deep review" }))
     expect(onPRMacro).toHaveBeenCalledWith(pr, deep)
+  })
+
+  it("keeps the unstarred behind Show all when the only star is on a pull request's macro", () => {
+    const pr = { repo: "acme/app", branch: "b", pr_number: 7, pr_url: "", state: "OPEN", is_draft: false, review_decision: "", check_status: "", comment_count: 0, pinned: false, match_method: "", sync_outcome: "", sync_error: "" }
+    const macros = [{ name: "Plan", keys: "p", applies_to: "task" as const }, { name: "Review", keys: "r", applies_to: "pr" as const, favorite: true }]
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} macros={macros} onMacro={() => {}} macroPRs={[pr]} onPRMacro={() => {}} onAction={() => {}} onClose={() => {}} />)
+    expect(screen.queryByRole("menuitem", { name: "Macro: Plan" })).toBeNull()
+    expect(screen.queryByRole("menuitem", { name: "Macro: Review" })).toBeNull()
+    fireEvent.click(screen.getByRole("menuitem", { name: "Show all (1 more)" }))
+    expect(screen.getByRole("menuitem", { name: "Macro: Plan" })).toBeTruthy()
   })
 
   it("lists every macro while none is starred", () => {
@@ -231,7 +243,7 @@ describe("CardContextMenu", () => {
     Object.defineProperty(window, "innerWidth", { value: 390, configurable: true })
     const pr = { repo: "acme/app", branch: "b", pr_number: 7, pr_url: "", state: "OPEN", is_draft: false, review_decision: "", check_status: "", comment_count: 0, pinned: false, match_method: "", sync_outcome: "", sync_error: "" }
     const onPRMacro = vi.fn()
-    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} prMacros={[{ pr, macros: [{ name: "Address feedback", keys: "a" }] }]} onPRMacro={onPRMacro} onAction={() => {}} onClose={() => {}} />)
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} macros={[{ name: "Address feedback", keys: "a" }]} macroPRs={[pr]} onPRMacro={onPRMacro} onAction={() => {}} onClose={() => {}} />)
     fireEvent.click(screen.getByRole("menuitem", { name: "Macros for #7" }))
     expect(screen.getByRole("menuitem", { name: "Back" })).toBeTruthy()
     fireEvent.click(screen.getByRole("menuitem", { name: "Macro: Address feedback" }))

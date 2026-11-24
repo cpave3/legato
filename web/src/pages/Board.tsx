@@ -2,8 +2,8 @@ import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } fr
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { activeReviewLoop } from "../lib/workflow"
 import { BoardMacrosContext, macroPR } from "../components/board/PRMacros"
-import { cardPRMacros } from "../lib/cardMacros"
-import { anyFavorite, macroNotice, startMacro, suggestedFirst, useMacros, type Macro, type MacroPR } from "../lib/macros"
+import { cardMacroPRs } from "../lib/cardMacros"
+import { macroNotice, startMacro, useMacros, type Macro, type MacroPR } from "../lib/macros"
 import { useServer } from "../hooks/useServer"
 import { useBoard } from "../hooks/useBoard"
 import {
@@ -1153,10 +1153,10 @@ export function BoardPage() {
         reviewPasses={reviewPassesDefinition ? (contextMenu.card.pull_requests ?? []).filter(pr => pr.repo && !["MERGED", "CLOSED"].includes(pr.state.toUpperCase())) : []}
         reviewStack={Boolean(reviewPassesDefinition?.inputs?.scope)}
         onReviewPasses={(pr, scope) => { void startReviewLoop(contextMenu.card, pr, scope) }}
-        macros={suggestedFirst(macros.macros, "task", macros.suggested).list}
+        macros={macros.macros}
+        suggested={macros.suggested}
         onMacro={macro => { void runMacro(contextMenu.card, macro) }}
-        prMacros={cardPRMacros(contextMenu.card, macros)}
-        anyFavorite={anyFavorite(macros.macros)}
+        macroPRs={cardMacroPRs(contextMenu.card)}
         onPRMacro={(pr, macro) => { void runMacro(contextMenu.card, macro, macroPR(pr)) }}
         onManageMacros={() => navigateTo("/macros")}
         onClose={() => setContextMenu(null)}
