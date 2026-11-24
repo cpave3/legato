@@ -240,6 +240,14 @@ var registry = []Setting{
 	{Key: "integrations.mqtt.device_name", Title: "Device name", Help: "The device's name in Home Assistant; renaming keeps its identity.", DefaultLabel: "Legato <hostname>", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "integrations.mqtt.include_reeve", Title: "Count the Reeve", Help: "Counts the Reeve among the agents. Attention and approvals are always counted for the whole instance.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "integrations.mqtt.attention_details", Title: "Attention details", Help: "Publishes up to 20 generated labels of Attention items, never their titles. Retained data can outlive Legato.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "integrations.slack.enabled", Title: "Connect", Help: "Keeps the Slack bot connected over Socket Mode, so workflows can start on its messages and post as it.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "integrations.slack.app_token", Title: "App-level token", Help: "The name of a secret holding the app's xapp- token, with connections:write.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "integrations.slack.bot_token", Title: "Bot token", Help: "The name of a secret holding the app's xoxb- bot token.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "integrations.slack.default_channel", Title: "Default channel", Help: "The channel ID a workflow's message goes to when its step names none.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "integrations.discord.enabled", Title: "Connect", Help: "Keeps the Discord bot connected to the Gateway, so workflows can start on its messages and post as it.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "integrations.discord.token", Title: "Bot token", Help: "The name of a secret holding the bot's token.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "integrations.discord.intents", Title: "Gateway intents", Help: "Of guilds, guild_messages, direct_messages and message_content. Without message_content, a server message's text arrives only when it mentions the bot.", Kind: KindStrings, Class: ClassRisky, Mode: ModeRestart, Check: checkDiscordIntents},
+	{Key: "integrations.discord.default_channel", Title: "Default channel", Help: "The channel ID a workflow's message goes to when its step names none.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "integrations.argus.url", Title: "Address", Help: "Argus's address: https, or http to this machine. Empty, Argus is not used.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "integrations.argus.delivery", Title: "Hand cases over", Help: "auto hands each case to an agent at once; ask waits for your approval.", DefaultLabel: "auto", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "integrations.argus.agent", Title: "Agent for its briefs", Help: "The agent tool an agent started for a case runs.", DefaultLabel: "claude-code", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
@@ -334,6 +342,15 @@ func notNegativeDuration(v any) error {
 func percent(v any) error {
 	if n := v.(int); n < 0 || n > 100 {
 		return errors.New("must be a percentage from 0 to 100")
+	}
+	return nil
+}
+
+func checkDiscordIntents(v any) error {
+	for _, name := range v.([]string) {
+		if !slices.Contains(DiscordIntentNames, name) {
+			return fmt.Errorf("%q is not an intent: want %s", name, strings.Join(DiscordIntentNames, ", "))
+		}
 	}
 	return nil
 }

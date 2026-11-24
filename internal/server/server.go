@@ -134,6 +134,7 @@ type Server struct {
 	caseAttention            CaseAttention
 	integrationOverview      IntegrationOverview
 	burnliteSettings         BurnliteSettings
+	chatBots                 ChatBots
 	instances                instanceDeps
 
 	// workflowForwarding is set once StartWorkflowEvents sends the bus's
@@ -410,6 +411,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	s.registerMCPOAuthRoutes(mux)
 	s.registerInstanceRoutes(mux)
 	s.registerBurnliteRoutes(mux)
+	s.registerChatBotRoutes(mux)
 	s.registerReeveRoutes(mux)
 	s.registerReeveWatchRoutes(mux)
 	s.registerSessionHistoryRoutes(mux)

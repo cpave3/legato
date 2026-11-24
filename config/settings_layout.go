@@ -177,6 +177,8 @@ var settingLayout = map[string]settingPlace{
 	"integrations.argus.":                   {SectionIntegrations, "Argus", ""},
 	"integrations.mqtt.":                    {SectionIntegrations, "Home Assistant", ""},
 	"manticore.":                            {SectionIntegrations, "Manticore", ""},
+	"integrations.slack.":                   {SectionIntegrations, "Slack", ""},
+	"integrations.discord.":                 {SectionIntegrations, "Discord", ""},
 
 	// Security.
 	"credential_channels.": {SectionSecurity, "Credential channels", ""},

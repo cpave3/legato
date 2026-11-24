@@ -56,6 +56,9 @@ func wireIntegrations(srv *server.Server, deps integrationDeps) (stop func()) {
 			Connections: burnliteConnections(deps.cfg, deps.db)})
 	overview.SetBurnlite(burnlite)
 	srv.SetBurnliteSettings(burnlite)
+	bots := chatBotsFor(deps.cfg, deps.db)
+	overview.SetChatBots(bots)
+	srv.SetChatBots(bots)
 	srv.SetIntegrationOverview(overview)
 	ctx, cancel := context.WithCancel(context.Background())
 	// The review-pass engine runs wherever review passes are on; handoffs

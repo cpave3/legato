@@ -69,8 +69,9 @@ func (s *Server) writeWorkflowError(w http.ResponseWriter, status int, code, mes
 
 // checked is a file as the editor sends it, checked: its definition when
 // it has no errors, and its diagnostics.
-func checked(data string) (*workflowengine.Definition, []workflowengine.Diagnostic) {
+func (s *Server) checked(data string) (*workflowengine.Definition, []workflowengine.Diagnostic) {
 	definition, diagnostics := workflowengine.Check("workflow.yaml", []byte(data))
+	diagnostics = append(diagnostics, s.chatBotDiagnostics([]byte(data), definition)...)
 	if diagnostics == nil {
 		diagnostics = []workflowengine.Diagnostic{}
 	}
@@ -196,7 +197,7 @@ func (s *Server) saveWorkflowFile(w http.ResponseWriter, r *http.Request, before
 		s.writeWorkflowError(w, http.StatusForbidden, "not_editable", info.Reason, nil)
 		return
 	}
-	after, diagnostics := checked(body.YAML)
+	after, diagnostics := s.checked(body.YAML)
 	if after == nil {
 		s.writeWorkflowError(w, http.StatusUnprocessableEntity, "invalid", diagnostics[0].Message, map[string]any{"diagnostics": diagnostics})
 		return
@@ -279,7 +280,7 @@ func (s *Server) workflowFilesHandler() http.HandlerFunc {
 			s.writeWorkflowError(w, http.StatusBadRequest, "folder", "no workflows folder "+body.Folder+" to write to", nil)
 			return
 		}
-		definition, diagnostics := checked(body.YAML)
+		definition, diagnostics := s.checked(body.YAML)
 		if definition == nil {
 			s.writeWorkflowError(w, http.StatusUnprocessableEntity, "invalid", diagnostics[0].Message, map[string]any{"diagnostics": diagnostics})
 			return
@@ -328,7 +329,7 @@ func (s *Server) workflowFileCheckHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusBadRequest, `want {"yaml": "…"}`)
 			return
 		}
-		definition, diagnostics := checked(body.YAML)
+		definition, diagnostics := s.checked(body.YAML)
 		out := map[string]any{"definition": nil, "graph": nil, "diagnostics": diagnostics, "schedule": nil}
 		if definition != nil {
 			out["definition"], out["graph"] = definition, workflowengine.BuildGraph(definition)
@@ -378,7 +379,7 @@ func (s *Server) workflowCopyHandler() http.HandlerFunc {
 			return
 		}
 		data = append([]byte("# A copy of Legato's built-in "+name+" workflow, which this file replaces.\n"), data...)
-		copied, diagnostics := checked(string(data))
+		copied, diagnostics := s.checked(string(data))
 		if copied == nil {
 			s.writeWorkflowError(w, http.StatusInternalServerError, "invalid", "the built-in does not make a valid file: "+diagnostics[0].Message, nil)
 			return

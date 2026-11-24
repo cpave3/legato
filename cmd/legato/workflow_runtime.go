@@ -135,6 +135,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		service.NewFileRemoveExecutor(),
 		prWait,
 		service.NewBurnliteCloseExecutor(db, service.ConnectedBurnlite{Connection: burnliteConnections(cfg, db)}),
+		service.NewChatSendExecutor(chatBotsFor(cfg, db)),
 		// Runs on the run caller once review passes are wired
 		// (wireReviewRuns); refuses to start before.
 		service.NewReviewPassesStep(),

@@ -73,7 +73,9 @@ func (s *Server) definitionWithGraph(definition *workflowengine.Definition, fold
 	out := definitionWithGraph{Definition: definition, Graph: workflowengine.BuildGraph(definition), Folder: info.Folder, Editable: info.Editable, ReadOnlyReason: info.Reason, Shadows: shadows[definition.Name]}
 	if info.Path != "" {
 		if data, err := os.ReadFile(info.Path); err == nil {
-			_, out.Warnings = workflowengine.Check(info.Path, data)
+			var parsed *workflowengine.Definition
+			parsed, out.Warnings = workflowengine.Check(info.Path, data)
+			out.Warnings = append(out.Warnings, s.chatBotDiagnostics(data, parsed)...)
 		}
 	}
 	return out

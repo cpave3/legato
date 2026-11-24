@@ -18,6 +18,9 @@ type IntegrationsOverview struct {
 	Argus  ArgusOverview            `json:"argus"`
 	// Burnlite is there when this server offers Burnlite's settings.
 	Burnlite *BurnliteOverview `json:"burnlite,omitempty"`
+	// ChatBots are the Slack and Discord bots' status, when this server
+	// has them. Their tokens are settings, shown only as secret_status.
+	ChatBots []ChatBotStatus `json:"chat_bots,omitempty"`
 }
 
 // ArgusOverview is Argus's configuration, Legato's connection to it, the
@@ -36,7 +39,11 @@ type IntegrationOverview struct {
 	db       *store.Store
 	argus    *ArgusSettings
 	burnlite *BurnliteSettings
+	chatBots interface{ Statuses() []ChatBotStatus }
 }
+
+// SetChatBots adds the chat bots' status to the overview.
+func (o *IntegrationOverview) SetChatBots(b interface{ Statuses() []ChatBotStatus }) { o.chatBots = b }
 
 // SetBurnlite adds Burnlite's settings to the overview.
 func (o *IntegrationOverview) SetBurnlite(b *BurnliteSettings) { o.burnlite = b }
@@ -74,6 +81,9 @@ func (o *IntegrationOverview) Overview(ctx context.Context) (IntegrationsOvervie
 			return IntegrationsOverview{}, err
 		}
 		out.Burnlite = &b
+	}
+	if o.chatBots != nil {
+		out.ChatBots = o.chatBots.Statuses()
 	}
 	return out, nil
 }

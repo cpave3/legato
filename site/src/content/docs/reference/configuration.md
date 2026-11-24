@@ -691,6 +691,30 @@ integrations:
     delivery: ask
 ```
 
+### Slack and Discord
+
+Chat bots that [workflows](/legato/using/workflows/) start on and post as. Each holds one outbound connection (Slack's Socket Mode, Discord's Gateway), so Legato needs no public address. The tokens are names of secrets, never the tokens themselves. All of these apply at restart. See [Slack](/legato/integrations/slack/) and [Discord](/legato/integrations/discord/).
+
+| Setting | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `integrations.slack.enabled` | bool | `false` | Keeps the Slack bot connected. |
+| `integrations.slack.app_token` | secret | none | The name of a secret holding the app-level token (`xapp-…`), with `connections:write`. |
+| `integrations.slack.bot_token` | secret | none | The name of a secret holding the bot token (`xoxb-…`). |
+| `integrations.slack.default_channel` | string | none | The channel ID a `chat.message.send` step posts to when it names none. |
+| `integrations.discord.enabled` | bool | `false` | Keeps the Discord bot connected. |
+| `integrations.discord.token` | secret | none | The name of a secret holding the bot's token. |
+| `integrations.discord.intents` | list of strings | all four | The gateway intents: `guilds`, `guild_messages`, `direct_messages`, `message_content`. Without `message_content`, a server message's text arrives only when it mentions the bot. |
+| `integrations.discord.default_channel` | string | none | The channel ID a `chat.message.send` step posts to when it names none. |
+
+```yaml
+integrations:
+  slack:
+    enabled: true
+    app_token: legato://slack-app-token
+    bot_token: legato://slack-bot-token
+    default_channel: C0123456789
+```
+
 ### Home Assistant MQTT
 
 The publisher exposes ten aggregate entities. Independent theme control adds a discovered select for the server’s preferred theme. All nine settings apply at restart. See [Home Assistant](/legato/integrations/home-assistant/) for broker credentials, retention, and automations.
