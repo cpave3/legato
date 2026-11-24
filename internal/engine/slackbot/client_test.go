@@ -287,6 +287,7 @@ func TestRunFiltersEventsAndAcksEveryEnvelope(t *testing.T) {
 	var events []Event
 	_ = f.client().Run(ctx, func(e Event) { events = append(events, e) }, nil)
 	want := []Event{
+		{Type: "message", Subtype: "bot_message", Channel: "C1", BotID: "B9", TS: "2"},
 		{Type: "message", Subtype: "thread_broadcast", Channel: "C1", User: "U1", Text: "tb", TS: "3", ThreadTS: "0.5"},
 		{Type: "mention", Channel: "C2", User: "U1", Text: "<@UBOT> hi", TS: "4", EventTS: "4"},
 		{Type: "message", Subtype: "file_share", Channel: "C1", User: "U1", Text: "f", TS: "7"},

@@ -402,7 +402,6 @@ func (b *ChatBots) loop(ctx context.Context, bot *chatBot) {
 			func() {
 				connectedOnce.Do(func() {
 					connectedAt = b.clock()
-					attempt = 0
 					b.setStatus(bot, ChatBotConnected, "", nil)
 				})
 			})

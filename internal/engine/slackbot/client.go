@@ -368,7 +368,9 @@ func parseEvent(payload json.RawMessage) (Event, bool) {
 	switch e.Type {
 	case "message":
 		switch e.Subtype {
-		case "", "thread_broadcast", "file_share":
+		// bot_message is a post by an integration (an incoming webhook);
+		// the caller decides about bots' messages.
+		case "", "thread_broadcast", "file_share", "bot_message":
 		default:
 			return Event{}, false
 		}

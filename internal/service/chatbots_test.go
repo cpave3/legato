@@ -152,6 +152,26 @@ func TestChatBotsBackOffWithGrowingDelays(t *testing.T) {
 	}
 }
 
+// A session that connects and soon drops keeps the backoff growing: only
+// one that lasts StableAfter starts it over.
+func TestChatBotsKeepBackingOffAfterShortSessions(t *testing.T) {
+	conn := &fakeChatConnection{name: "slack", platform: "slack"}
+	for range 3 {
+		conn.runs = append(conn.runs, func(_ context.Context, _ func(ChatEvent), connected func()) error {
+			connected()
+			return errors.New("connection reset")
+		})
+	}
+	bots, delays := testChatBots(t, []ChatBotSpec{{Name: "slack", Platform: "slack", Enabled: true, Conn: conn}}, nil)
+	bots.BaseDelay, bots.MaxDelay, bots.StableAfter = time.Second, time.Minute, time.Hour
+	bots.Start(context.Background())
+	waitForChat(t, "four runs", func() bool { return conn.runCalls() >= 4 })
+	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second}
+	if len(*delays) < 3 || fmt.Sprint((*delays)[:3]) != fmt.Sprint(want) {
+		t.Fatalf("delays = %v, want %v", *delays, want)
+	}
+}
+
 func TestChatBotsJitterTheirBackoff(t *testing.T) {
 	conn := &fakeChatConnection{name: "discord", platform: "discord", runs: []func(context.Context, func(ChatEvent), func()) error{failing(errors.New("down"))}}
 	bots, delays := testChatBots(t, []ChatBotSpec{{Name: "discord", Platform: "discord", Enabled: true, Conn: conn}}, nil)
