@@ -234,6 +234,8 @@ Migration 138 adds `handoff_review_prs.local_branch` and `head_repo` (LEG-613): 
 
 Migration 143 adds `handoff_review_passes.attempt` (LEG-560): a pass whose head moved on GitHub is discarded (`DiscardHandoffReviewPass`: state `discarded`, its findings deleted, the findings it ruled on open again with no ruling) and pinned again under the same number; `InsertHandoffReviewPass` replaces a discarded row of that number, `attempt` one past it, and refuses one in any other state. The attempt keeps the new pass's review markers apart from the discarded one's (see [Integrations](integrations.md) § Review passes).
 
+Migration 147 adds `handoff_review_passes.posting_started_at` and `post_attempts` (LEG-561): when a pass's post was first tried, and how many tries ended with GitHub's answer unknown (a 5xx, a timeout). Only `SetHandoffReviewPassPosting` writes them, never `UpdateHandoffReviewPass`. At ten such tries, or an hour after the first, the loop is stuck; Another pass resets them and posts the same pass again by its markers (see [Integrations](integrations.md) § Review passes). The loop record's `review_loop_passes.posting_started_at` and `attempts` hold the same.
+
 ## Skill states
 
 Migration `116_skill_states.sql` adds `skill_states`: `name` (a skill's folder name, the key), `enabled`, `updated_at`. A skill with no row is on. `SkillStates` reads them all as a map; `SetSkillEnabled` upserts one. The skills themselves are files on disk, never rows. 114 and 115 were left free because two open branches (LEG-214, LEG-199) each add migrations with those numbers; versions are positions in the sorted list, so whichever merges later renumbers its files. See [Skills](skills.md).

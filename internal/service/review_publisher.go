@@ -308,7 +308,10 @@ func reviewMarker(marker string) string { return "<!-- legato-review-pass " + ma
 // anchors each finding against the pull request's diff, moving those it
 // cannot anchor into the body. A review already posted with the same
 // marker is returned, not posted again; after an error or a timeout the
-// pull request's reviews are read for it before the error is reported.
+// pull request's reviews are read for it before the error is reported. A
+// review found or posted comes with its inline comments (the threads of
+// its findings); when GitHub took it but they could not be read, the
+// error says so, and FindReview finds them on the next try.
 func (p *ReviewPublisher) PostReview(ctx context.Context, post ReviewPost) (PostedReview, error) {
 	if post.Event != ReviewApprove && post.Event != ReviewComment {
 		return PostedReview{}, fmt.Errorf("a review is %s or %s, not %q", ReviewApprove, ReviewComment, post.Event)
@@ -325,10 +328,8 @@ func (p *ReviewPublisher) PostReview(ctx context.Context, post ReviewPost) (Post
 	if err != nil {
 		return PostedReview{}, err
 	}
-	if found, ok, err := p.findReview(ctx, read, post, login); err != nil {
-		return PostedReview{}, err
-	} else if ok {
-		return found, nil
+	if found, ok, err := p.findPosted(ctx, read, post, login); err != nil || ok {
+		return found, err
 	}
 	diff, err := p.diffLines(ctx, read, post.Repo, post.Number)
 	if err != nil {
@@ -354,36 +355,101 @@ func (p *ReviewPublisher) PostReview(ctx context.Context, post ReviewPost) (Post
 		if p.learnLogin != nil && created.User.Login != "" {
 			p.learnLogin(created.User.Login)
 		}
-		posted := PostedReview{ID: created.ID, URL: created.HTMLURL, Inline: inline}
-		posted.CommentIDs = p.reviewComments(ctx, read, post.Repo, post.Number, created.ID)
-		return posted, nil
+		posted := PostedReview{ID: created.ID, URL: created.HTMLURL}
+		if len(inline) == 0 {
+			return posted, nil
+		}
+		return p.withThreads(ctx, read, post, posted)
 	}
 	var refused *GitHubError
 	if errors.As(err, &refused) && refused.Status < 500 || errors.As(err, new(*GitHubRateLimit)) {
 		return PostedReview{}, err // GitHub saw it and said no
 	}
 	// No answer, or a server error: GitHub may have taken it.
-	if found, ok, findErr := p.findReview(context.WithoutCancel(ctx), read, post, login); findErr == nil && ok {
-		found.Inline = inline
-		return found, nil
+	if found, ok, findErr := p.findPosted(context.WithoutCancel(ctx), read, post, login); ok || findErr != nil && found.ID != 0 {
+		return found, findErr
 	}
 	return PostedReview{}, err
 }
 
-// reviewComments are the IDs of a review's inline comments, in the order
-// they were posted; nil when GitHub does not say.
-func (p *ReviewPublisher) reviewComments(ctx context.Context, call *githubCall, repo string, number int, reviewID int64) []int64 {
+// FindReview looks on GitHub, as the reviewer App, for the review with the
+// post's marker, and returns it with its inline comments: how a post whose
+// outcome was not known is settled before it is tried again.
+func (p *ReviewPublisher) FindReview(ctx context.Context, post ReviewPost) (PostedReview, bool, error) {
+	if post.Marker == "" {
+		return PostedReview{}, false, errors.New("a review needs a marker")
+	}
+	read, release, err := p.open(ctx, AsReviewer, post.Repo, false)
+	if err != nil {
+		return PostedReview{}, false, err
+	}
+	defer release()
+	login, err := read.login(ctx, post.Repo)
+	if err != nil {
+		return PostedReview{}, false, err
+	}
+	return p.findPosted(ctx, read, post, login)
+}
+
+// findPosted is findReview with the review's inline comments. A review
+// found whose comments could not be read is returned with the error (its
+// ID set, ok false). Only a review login posted counts.
+func (p *ReviewPublisher) findPosted(ctx context.Context, call *githubCall, post ReviewPost, login string) (PostedReview, bool, error) {
+	found, ok, err := p.findReview(ctx, call, post, login)
+	if err != nil || !ok {
+		return PostedReview{}, false, err
+	}
+	placed := false
+	for _, f := range post.Findings {
+		placed = placed || f.Place != nil
+	}
+	if !placed {
+		return found, true, nil
+	}
+	found, err = p.withThreads(ctx, call, post, found)
+	return found, err == nil, err
+}
+
+// withThreads reads a review's inline comments and matches each to the
+// finding it was made of, by its text: Inline and CommentIDs, in GitHub's
+// order. When they cannot be read the review is returned with an error
+// that is not GitHub's refusal of the review (a rate limit aside): it is
+// on GitHub, and only its threads are not known yet.
+func (p *ReviewPublisher) withThreads(ctx context.Context, call *githubCall, post ReviewPost, review PostedReview) (PostedReview, error) {
 	var comments []struct {
-		ID int64 `json:"id"`
+		ID   int64  `json:"id"`
+		Body string `json:"body"`
 	}
-	if err := call.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d/reviews/%d/comments?per_page=100", repo, number, reviewID), nil, &comments); err != nil {
-		return nil
+	err := call.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d/reviews/%d/comments?per_page=100", post.Repo, post.Number, review.ID), nil, &comments)
+	if errors.As(err, new(*GitHubRateLimit)) {
+		return review, err
 	}
-	ids := make([]int64, 0, len(comments))
+	if err != nil {
+		return review, fmt.Errorf("review %d of %s#%d is on GitHub, but its inline comments could not be read: %v", review.ID, post.Repo, post.Number, err)
+	}
+	used := map[int]bool{}
 	for _, c := range comments {
-		ids = append(ids, c.ID)
+		body := normalizeText(c.Body)
+		for i, finding := range post.Findings {
+			if !used[i] && finding.Place != nil && normalizeText(inlineText(finding)) == body {
+				used[i] = true
+				review.Inline = append(review.Inline, i)
+				review.CommentIDs = append(review.CommentIDs, c.ID)
+				break
+			}
+		}
 	}
-	return ids
+	return review, nil
+}
+
+// normalizeText is text as compared with what GitHub gives back.
+func normalizeText(s string) string {
+	return strings.TrimSpace(strings.ReplaceAll(s, "\r\n", "\n"))
+}
+
+// inlineText is a finding's text as an inline comment.
+func inlineText(finding ReviewPostFinding) string {
+	return "**" + strings.TrimSpace(finding.Title) + "**\n\n" + strings.TrimSpace(finding.Body)
 }
 
 // PullRequests are the open pull requests whose heads are branches, in the
@@ -579,7 +645,7 @@ func composeReview(post ReviewPost, diff map[string]diffSides) (string, []map[st
 	var inline []int
 	var outside []string
 	for i, finding := range post.Findings {
-		text := "**" + strings.TrimSpace(finding.Title) + "**\n\n" + strings.TrimSpace(finding.Body)
+		text := inlineText(finding)
 		if anchored(finding.Place, diff) {
 			comment := map[string]any{"path": finding.Place.Path, "line": finding.Place.Line, "side": sideOf(finding.Place), "body": text}
 			if finding.Place.StartLine > 0 && finding.Place.StartLine < finding.Place.Line {

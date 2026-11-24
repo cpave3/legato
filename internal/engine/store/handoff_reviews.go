@@ -52,6 +52,12 @@ type HandoffReviewPass struct {
 	// pass discarded because a head moved is pinned again under the same
 	// number (InsertHandoffReviewPass).
 	Attempt int `db:"attempt"`
+	// PostingStartedAt is when the pass's post was first tried, and
+	// PostAttempts how many tries ended with GitHub's answer unknown (a
+	// 5xx, a timeout): the pass stays submitted and is tried again by its
+	// markers, up to a limit (LEG-561).
+	PostingStartedAt string `db:"posting_started_at"`
+	PostAttempts     int    `db:"post_attempts"`
 }
 
 // HandoffReviewPR is a pull request of a pass, pinned at its head.
@@ -282,6 +288,15 @@ func (s *Store) UpdateHandoffReviewPass(ctx context.Context, p HandoffReviewPass
 		UPDATE handoff_review_passes SET state = :state, verdict = :verdict, summary = :summary, reason = :reason,
 			execution_id = :execution_id, ended_at = :ended_at
 		WHERE task_id = :task_id AND pass = :pass`, p)
+	return err
+}
+
+// SetHandoffReviewPassPosting writes how a pass's post stands: when it was
+// first tried and how many tries ended with GitHub's answer unknown. Both
+// are written only here.
+func (s *Store) SetHandoffReviewPassPosting(ctx context.Context, taskID string, pass int, startedAt string, attempts int) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE handoff_review_passes SET posting_started_at = ?, post_attempts = ? WHERE task_id = ? AND pass = ?`,
+		startedAt, attempts, taskID, pass)
 	return err
 }
 

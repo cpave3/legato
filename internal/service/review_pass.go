@@ -120,6 +120,10 @@ type ReviewGitHub interface {
 	// file. nil when GitHub could not say.
 	PullDiff(ctx context.Context, repo string, number int) (map[string][][2]int, error)
 	PostReview(ctx context.Context, post ReviewPost) (PostedReview, error)
+	// FindReview finds the review with the post's marker, with its inline
+	// comments: a post whose outcome was not known is looked for before
+	// it is tried again.
+	FindReview(ctx context.Context, post ReviewPost) (PostedReview, bool, error)
 	// PostIssueComment and Reply post once by marker: a comment GitHub
 	// already has with the marker is taken for it.
 	PostIssueComment(ctx context.Context, who GitHubIdentity, repo string, number int, body string, marker CommentMarker) (int64, error)
@@ -717,6 +721,24 @@ func rulingMarker(pass store.HandoffReviewPass, findingID string) CommentMarker 
 		return CommentMarker{Kind: MarkerRuling, Key: fmt.Sprintf("%s/pass-%d.%d/%s", pass.TaskID, pass.Pass, pass.Attempt, findingID)}
 	}
 	return CommentMarker{Kind: MarkerRuling, Key: fmt.Sprintf("%s/pass-%d/%s", pass.TaskID, pass.Pass, findingID)}
+}
+
+// Later reviews of a pass's pull request, each with a marker of its own in
+// the legato-review-pass space, apart from the pass's review: the publisher
+// matches a marker's whole line, so one kind is never taken for another.
+const (
+	// LaterApprove is the APPROVE posted once a clean pass's failing
+	// checks settle (approveSettled).
+	LaterApprove = "checks"
+	// LaterHeldComment is the COMMENT a clean pass posts in place of an
+	// APPROVE that is held for the operator's sign-off (a later spec).
+	LaterHeldComment = "held"
+)
+
+// laterReviewMarker is the marker of a later review of a pass's pull
+// request: kind is LaterApprove or LaterHeldComment.
+func laterReviewMarker(pass store.HandoffReviewPass, number int, kind string) string {
+	return passReviewMarker(pass, number) + "/" + kind
 }
 
 // pinRef is the ref a pass's pinned head is kept under.

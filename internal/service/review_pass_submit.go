@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -469,9 +470,6 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 	if err != nil {
 		return err
 	}
-	if ok, err := s.beforePost(ctx, loop, pass, prs); !ok {
-		return err
-	}
 	all, err := s.db.ListHandoffReviewFindings(ctx, taskID)
 	if err != nil {
 		return err
@@ -492,76 +490,79 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 		}
 	}
 	var failures []string
+	var layers []layerPost
 	for _, pr := range prs {
 		if pr.ReviewID != 0 || pr.Event == ReviewKept {
 			continue // posted before a retry
 		}
-		event := ReviewComment
-		if prClean(pass.Pass, pr.Number, all, items, l.CountChecks) {
-			event = ReviewApprove
-			// An approval that stands: the head has not moved and the
-			// pass says nothing new of it. No second approval.
-			if before, ok := previous[pr.Number]; ok && (before.Event == ReviewApprove || before.Event == ReviewKept) && before.HeadSHA == pr.HeadSHA &&
-				!saysAnything(pass.Pass, pr.Number, all) {
-				if err := s.db.SetHandoffReviewPRPosted(ctx, taskID, pass.Pass, pr.Number, 0, "", ReviewKept); err != nil {
+		layers = append(layers, s.layerPost(l, loop, pass, settings, pr, previous, all, items))
+	}
+	// The first try starts the clock. A pass tried before may be on
+	// GitHub, whatever the try's answer was.
+	if pass.PostingStartedAt == "" {
+		pass.PostingStartedAt = s.now()
+		if err := s.db.SetHandoffReviewPassPosting(ctx, taskID, pass.Pass, pass.PostingStartedAt, pass.PostAttempts); err != nil {
+			return err
+		}
+	} else {
+		// An earlier try's outcome may not be known: GitHub may have
+		// taken reviews of it. Each is looked for by its marker first.
+		var waiting []layerPost
+		for _, layer := range layers {
+			if layer.kept {
+				waiting = append(waiting, layer)
+				continue
+			}
+			found, ok, err := s.opts.GitHub.FindReview(ctx, layer.post)
+			if err != nil {
+				return s.postFailed(ctx, l, loop, pass, layers, err)
+			}
+			if !ok {
+				waiting = append(waiting, layer)
+				continue
+			}
+			if err := s.posted(ctx, l, pass, layer, found, all, &failures); err != nil {
+				return err
+			}
+		}
+		layers = waiting
+	}
+	if len(layers) > 0 {
+		if ok, err := s.beforePost(ctx, loop, pass, prs); !ok {
+			if err != nil {
+				return s.postFailed(ctx, l, loop, pass, layers, err)
+			}
+			return nil
+		}
+	}
+	for i, layer := range layers {
+		if layer.kept {
+			if err := s.db.SetHandoffReviewPRPosted(ctx, taskID, pass.Pass, layer.pr.Number, 0, "", ReviewKept); err != nil {
+				return err
+			}
+			continue
+		}
+		if ok, err := s.beforePost(ctx, loop, pass, []store.HandoffReviewPR{layer.pr}); !ok {
+			if err != nil {
+				return s.postFailed(ctx, l, loop, pass, layers[i:], err)
+			}
+			return nil
+		}
+		posted, err := s.opts.GitHub.PostReview(ctx, layer.post)
+		if err != nil {
+			var gh *GitHubError
+			if errors.As(err, &gh) && gh.Status < 500 {
+				// GitHub saw it and said no: the person decides, and
+				// Another pass starts a new pass, as it always did.
+				if err := s.db.SetHandoffReviewPassPosting(ctx, taskID, pass.Pass, pass.PostingStartedAt, 0); err != nil {
 					return err
 				}
-				continue
+				return s.stuck(ctx, l, loop, fmt.Sprintf("GitHub refused the review of #%d: %v", layer.pr.Number, err))
 			}
+			return s.postFailed(ctx, l, loop, pass, layers[i:], err)
 		}
-		post := ReviewPost{Repo: pr.Repo, Number: pr.Number, CommitID: pr.HeadSHA, Event: event, Summary: pass.Summary,
-			Footer: reviewFooter(settings, pass.Pass), Marker: passReviewMarker(*pass, pr.Number)}
-		var mine []store.HandoffReviewFinding
-		for _, f := range all {
-			switch {
-			case f.Pass == pass.Pass && f.PR == pr.Number:
-				mine = append(mine, f)
-				finding := ReviewPostFinding{Title: severityTitle(f), Body: f.Body}
-				if f.Path != "" {
-					finding.Place = &ReviewPlace{Path: f.Path, Line: f.Line, StartLine: f.StartLine, Side: f.Side}
-				}
-				post.Findings = append(post.Findings, finding)
-			case f.RuledPass == pass.Pass && f.PR == pr.Number && f.CommentID == 0:
-				post.Rulings = append(post.Rulings, rulingLine(f, pass.Pass))
-			}
-		}
-		if ok, err := s.beforePost(ctx, loop, pass, []store.HandoffReviewPR{pr}); !ok {
+		if err := s.posted(ctx, l, pass, layer, posted, all, &failures); err != nil {
 			return err
-		}
-		posted, err := s.opts.GitHub.PostReview(ctx, post)
-		if err != nil {
-			if errors.As(err, new(*GitHubRateLimit)) {
-				return err // left submitted: the next Tick tries again
-			}
-			var gh *GitHubError
-			if errors.As(err, &gh) {
-				return s.stuck(ctx, l, loop, fmt.Sprintf("GitHub refused the review of #%d: %v", pr.Number, err))
-			}
-			return err
-		}
-		if err := s.db.SetHandoffReviewPRPosted(ctx, taskID, pass.Pass, pr.Number, posted.ID, posted.URL, event); err != nil {
-			return err
-		}
-		for i, index := range posted.Inline {
-			if i < len(posted.CommentIDs) && index < len(mine) {
-				_ = s.db.SetHandoffReviewFindingComment(ctx, taskID, mine[index].ID, posted.CommentIDs[i])
-			}
-		}
-		// Rulings on findings that have a thread are replies in it; a
-		// resolved one resolves the thread.
-		for _, f := range all {
-			if f.RuledPass != pass.Pass || f.PR != pr.Number || f.CommentID == 0 {
-				continue
-			}
-			if err := s.opts.GitHub.Reply(ctx, AsReviewer, pr.Repo, pr.Number, f.CommentID, rulingLine(f, pass.Pass), rulingMarker(*pass, f.ID)); err != nil {
-				failures = append(failures, fmt.Sprintf("replying on %s: %v", f.ID, err))
-				continue
-			}
-			if f.Status == "resolved" {
-				if err := s.opts.GitHub.ResolveThread(ctx, pr.Repo, pr.Number, f.CommentID); err != nil {
-					failures = append(failures, fmt.Sprintf("resolving the thread of %s (left for a person): %v", f.ID, err))
-				}
-			}
 		}
 	}
 	_ = s.opts.Agents.KillAgentInSlot(ctx, taskID, SlotReviewer)
@@ -595,6 +596,120 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 	}
 	l.stage(ctx, ReviewStageAuthor)
 	return nil
+}
+
+// Posting a pass whose outcome is unknown: tries before the loop needs the
+// operator (D12).
+const (
+	postAttemptsMax = 10
+	postRetryWindow = time.Hour
+)
+
+// layerPost is one pull request's review of a pass, as it is posted.
+type layerPost struct {
+	pr   store.HandoffReviewPR
+	post ReviewPost
+	// mine are the pass's findings on it, in the order of post.Findings.
+	mine []store.HandoffReviewFinding
+	// kept: an earlier approval stands, and nothing is posted.
+	kept bool
+}
+
+// layerPost is a pull request's review of a pass: APPROVE when the pass
+// leaves it clean, else COMMENT, with its findings and the rulings that
+// have no thread; kept when its approval stands.
+func (s *ReviewPassService) layerPost(l ReviewLoop, loop *store.HandoffReview, pass *store.HandoffReviewPass, settings ReviewPassSettings,
+	pr store.HandoffReviewPR, previous map[int]store.HandoffReviewPR, all []store.HandoffReviewFinding, items []store.HandoffReviewItem) layerPost {
+	event := ReviewComment
+	if prClean(pass.Pass, pr.Number, all, items, l.CountChecks) {
+		event = ReviewApprove
+		// An approval that stands: the head has not moved and the pass
+		// says nothing new of it. No second approval.
+		if before, ok := previous[pr.Number]; ok && (before.Event == ReviewApprove || before.Event == ReviewKept) && before.HeadSHA == pr.HeadSHA &&
+			!saysAnything(pass.Pass, pr.Number, all) {
+			return layerPost{pr: pr, kept: true}
+		}
+	}
+	layer := layerPost{pr: pr, post: ReviewPost{Repo: pr.Repo, Number: pr.Number, CommitID: pr.HeadSHA, Event: event, Summary: pass.Summary,
+		Footer: reviewFooter(settings, pass.Pass), Marker: passReviewMarker(*pass, pr.Number)}}
+	for _, f := range all {
+		switch {
+		case f.Pass == pass.Pass && f.PR == pr.Number:
+			layer.mine = append(layer.mine, f)
+			finding := ReviewPostFinding{Title: severityTitle(f), Body: f.Body}
+			if f.Path != "" {
+				finding.Place = &ReviewPlace{Path: f.Path, Line: f.Line, StartLine: f.StartLine, Side: f.Side}
+			}
+			layer.post.Findings = append(layer.post.Findings, finding)
+		case f.RuledPass == pass.Pass && f.PR == pr.Number && f.CommentID == 0:
+			layer.post.Rulings = append(layer.post.Rulings, rulingLine(f, pass.Pass))
+		}
+	}
+	return layer
+}
+
+// posted records a layer's review, posted or found by its marker: its ID,
+// its findings' threads, and the rulings replied in the threads of earlier
+// findings (a resolved one resolves its thread). A reply that fails is
+// added to failures.
+func (s *ReviewPassService) posted(ctx context.Context, l ReviewLoop, pass *store.HandoffReviewPass, layer layerPost, review PostedReview,
+	all []store.HandoffReviewFinding, failures *[]string) error {
+	pr := layer.pr
+	if err := s.db.SetHandoffReviewPRPosted(ctx, l.TaskID, pass.Pass, pr.Number, review.ID, review.URL, layer.post.Event); err != nil {
+		return err
+	}
+	for i, index := range review.Inline {
+		if i < len(review.CommentIDs) && index < len(layer.mine) {
+			_ = s.db.SetHandoffReviewFindingComment(ctx, l.TaskID, layer.mine[index].ID, review.CommentIDs[i])
+		}
+	}
+	for _, f := range all {
+		if f.RuledPass != pass.Pass || f.PR != pr.Number || f.CommentID == 0 {
+			continue
+		}
+		if err := s.opts.GitHub.Reply(ctx, AsReviewer, pr.Repo, pr.Number, f.CommentID, rulingLine(f, pass.Pass), rulingMarker(*pass, f.ID)); err != nil {
+			*failures = append(*failures, fmt.Sprintf("replying on %s: %v", f.ID, err))
+			continue
+		}
+		if f.Status == "resolved" {
+			if err := s.opts.GitHub.ResolveThread(ctx, pr.Repo, pr.Number, f.CommentID); err != nil {
+				*failures = append(*failures, fmt.Sprintf("resolving the thread of %s (left for a person): %v", f.ID, err))
+			}
+		}
+	}
+	return nil
+}
+
+// postFailed takes a try at posting a pass that ended without knowing what
+// GitHub did (a 5xx, a timeout, a read that failed): the pass stays
+// submitted, and the next tick looks for its reviews' markers before it
+// posts again. A rate limit is not counted; the installation backs off. At
+// postAttemptsMax tries, or postRetryWindow after the first, the loop is
+// stuck for the operator, naming the pull requests not yet posted; no
+// other pass starts, and Another pass tries this one again.
+func (s *ReviewPassService) postFailed(ctx context.Context, l ReviewLoop, loop *store.HandoffReview, pass *store.HandoffReviewPass, waiting []layerPost, err error) error {
+	if errors.As(err, new(*GitHubRateLimit)) {
+		return err
+	}
+	pass.PostAttempts++
+	if dbErr := s.db.SetHandoffReviewPassPosting(ctx, l.TaskID, pass.Pass, pass.PostingStartedAt, pass.PostAttempts); dbErr != nil {
+		return dbErr
+	}
+	started, _ := time.Parse(time.RFC3339, pass.PostingStartedAt)
+	since := s.opts.Now().Sub(started)
+	if pass.PostAttempts < postAttemptsMax && since < postRetryWindow {
+		return fmt.Errorf("posting pass %d (try %d, tried again on the next tick): %w", pass.Pass, pass.PostAttempts, err)
+	}
+	var prs []string
+	for _, layer := range waiting {
+		if !layer.kept {
+			prs = append(prs, fmt.Sprintf("%s#%d", layer.pr.Repo, layer.pr.Number))
+		}
+	}
+	_ = s.opts.Agents.KillAgentInSlot(ctx, l.TaskID, SlotReviewer)
+	log.Printf("review passes: %s: pass %d not confirmed on GitHub after %d tries: %v", l.TaskID, pass.Pass, pass.PostAttempts, err)
+	return s.stuck(ctx, l, loop, fmt.Sprintf("GitHub did not confirm pass %d's review of %s after %d tries over %s (%v). Another pass looks for it on GitHub and posts only what is not there",
+		pass.Pass, strings.Join(prs, ", "), pass.PostAttempts, since.Round(time.Minute), err))
 }
 
 // ReviewKept is a pull request's review in a pass that posted nothing on it:

@@ -229,6 +229,10 @@ func (s *ReviewPassService) approveSettled(ctx context.Context, l ReviewLoop, lo
 	if err != nil {
 		return err
 	}
+	pass, err := s.db.GetHandoffReviewPass(ctx, l.TaskID, loop.Pass)
+	if err != nil {
+		return err
+	}
 	settings := loopSettings(loop, s.config().Defaults)
 	for _, pr := range prs {
 		if pr.Event != ReviewComment || !prClean(loop.Pass, pr.Number, findings, items, true) {
@@ -236,7 +240,7 @@ func (s *ReviewPassService) approveSettled(ctx context.Context, l ReviewLoop, lo
 		}
 		posted, err := s.opts.GitHub.PostReview(ctx, ReviewPost{Repo: pr.Repo, Number: pr.Number, CommitID: pr.HeadSHA, Event: ReviewApprove,
 			Summary: "Its failing checks are settled.", Footer: reviewFooter(settings, loop.Pass),
-			Marker: fmt.Sprintf("%s/pass-%d/pr-%d/checks", l.TaskID, loop.Pass, pr.Number)})
+			Marker: laterReviewMarker(*pass, pr.Number, LaterApprove)})
 		if err != nil {
 			log.Printf("review passes: approving %s#%d once its checks settled, trying again: %v", pr.Repo, pr.Number, err)
 			return nil

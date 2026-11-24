@@ -39,8 +39,10 @@ type reviewGitHub struct {
 	// fail answers the next review post with this status and body.
 	fail   int
 	failBy string
-	// acceptThenStall records a review, then answers too late.
+	// acceptThenStall records a review, then answers too late;
+	// acceptThenFail records one, then answers with this status.
 	acceptThenStall time.Duration
+	acceptThenFail  int
 	resolveError    string
 	posts           int
 	// lists are the comment lists' pages, by path; listHits counts the
@@ -277,7 +279,24 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 				time.Sleep(stall)
 				g.mu.Lock()
 			}
+			if g.acceptThenFail != 0 {
+				w.WriteHeader(g.acceptThenFail)
+				_, _ = io.WriteString(w, `{"message":"Server Error"}`)
+				break
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 100 + len(g.reviews) - 1, "html_url": "https://github.com/r/new"})
+		case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/repos/cpave3/legato/pulls/12/reviews/") && strings.HasSuffix(r.URL.Path, "/comments"):
+			// A review's inline comments: review 100+i's are 5000+100i+j.
+			var id int
+			fmt.Sscan(strings.Split(r.URL.Path, "/")[7], &id)
+			out := []map[string]any{}
+			if i := id - 100; i >= 0 && i < len(g.reviews) {
+				comments, _ := g.reviews[i]["comments"].([]any)
+				for j, c := range comments {
+					out = append(out, map[string]any{"id": 5000 + 100*i + j, "body": c.(map[string]any)["body"]})
+				}
+			}
+			_ = json.NewEncoder(w).Encode(out)
 		case r.Method == "POST" && (r.URL.Path == "/repos/cpave3/legato/pulls/12/comments/555/replies" || r.URL.Path == "/repos/cpave3/legato/pulls/12/comments/600/replies"):
 			g.replyPosts++
 			if g.replyRefuse != 0 {

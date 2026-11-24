@@ -66,6 +66,13 @@ type FakeReviewGitHub struct {
 	// diffs are the pull request's own diff at each head: head -> file
 	// -> the head's lines it changes.
 	diffs map[string]map[string][][2]int
+	// reviews are the reviews GitHub has, by marker; tried every post
+	// Legato sent; failPosts how many more posts answer 502, GitHub
+	// taking each first when failTaken.
+	reviews   map[string]service.PostedReview
+	tried     []service.ReviewPost
+	failPosts int
+	failTaken bool
 }
 
 type fakePush struct {
@@ -118,6 +125,32 @@ func (f *FakeReviewGitHub) PullDiff(_ context.Context, _ string, number int) (ma
 		return out, nil
 	}
 	return nil, &service.GitHubError{Status: 404, Message: "Not Found"}
+}
+
+// FailPosts answers the next n review posts with a 502. With taken, GitHub
+// takes each review first, as when its answer is lost.
+func (f *FakeReviewGitHub) FailPosts(n int, taken bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failPosts, f.failTaken = n, taken
+}
+
+// Tried are the review posts Legato sent, those GitHub found or refused
+// included.
+func (f *FakeReviewGitHub) Tried() []service.ReviewPost {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]service.ReviewPost(nil), f.tried...)
+}
+
+// FindReview finds the review with the post's marker, as the publisher
+// does.
+func (f *FakeReviewGitHub) FindReview(_ context.Context, post service.ReviewPost) (service.PostedReview, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	review, ok := f.reviews[post.Marker]
+	review.Existed = ok
+	return review, ok, nil
 }
 
 // LoseAnswers makes GitHub take the next n replies and conversation
@@ -242,6 +275,19 @@ func (f *FakeReviewGitHub) PullRequests(_ context.Context, _ string, branches []
 func (f *FakeReviewGitHub) PostReview(_ context.Context, post service.ReviewPost) (service.PostedReview, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.tried = append(f.tried, post)
+	if review, ok := f.reviews[post.Marker]; ok {
+		review.Existed = true
+		return review, nil // a review with the marker is found, as the publisher finds it
+	}
+	lost := false
+	if f.failPosts > 0 {
+		f.failPosts--
+		if !f.failTaken {
+			return service.PostedReview{}, &service.GitHubError{Status: 502, Message: "Bad Gateway"}
+		}
+		lost = true
+	}
 	f.posted = append(f.posted, post)
 	posted := service.PostedReview{ID: int64(len(f.posted)), URL: fmt.Sprintf("https://github.com/review/%d", len(f.posted))}
 	for i, finding := range post.Findings {
@@ -251,6 +297,10 @@ func (f *FakeReviewGitHub) PostReview(_ context.Context, post service.ReviewPost
 			posted.CommentIDs = append(posted.CommentIDs, f.comment)
 		}
 	}
+	if f.reviews == nil {
+		f.reviews = map[string]service.PostedReview{}
+	}
+	f.reviews[post.Marker] = posted
 	if push, ok := f.pushAfter[post.Number]; ok {
 		delete(f.pushAfter, post.Number)
 		for branch, pr := range f.prs {
@@ -259,6 +309,9 @@ func (f *FakeReviewGitHub) PostReview(_ context.Context, post service.ReviewPost
 				f.prs[branch] = pr
 			}
 		}
+	}
+	if lost {
+		return service.PostedReview{}, &service.GitHubError{Status: 502, Message: "Bad Gateway"}
 	}
 	return posted, nil
 }
