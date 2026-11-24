@@ -318,7 +318,7 @@ func (s *WorkflowService) enrichWorkflowAttention(ctx context.Context, view *sto
 		if attempt.ExecutorType != "agent.run" || attempt.Status != "waiting_agent" {
 			continue
 		}
-		session, err := s.store.GetAgentSessionByTaskID(ctx, attempt.TaskID)
+		session, err := attemptAgentSession(ctx, s.store, *attempt)
 		if err != nil {
 			attempt.NeedsAttention = true
 			attempt.AttentionReason = "agent session ended before step completion"

@@ -150,7 +150,7 @@ func PlaceOf(a AgentSession) WorkStagePlace {
 	if place.TaskID == "" {
 		place.TaskID, _ = SplitAgentID(a.TaskID)
 	}
-	if executionPlace(a.ExecutionKind, a.AttributionTaskID, a.TaskID) {
+	if executionPlace(a.ExecutionKind, a.AttributionTaskID, place.TaskID) {
 		place.PlaceExecutionID = a.ExecutionID
 	}
 	return place
