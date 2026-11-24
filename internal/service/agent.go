@@ -901,8 +901,14 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		if repos == nil {
 			return fmt.Errorf("%s: Legato clones repositories for agents with a github credential, and none is configured", opt.Repo)
 		}
+		// A named slot's agent (a workflow's triage agent) gets a clone of
+		// its own on a branch of its own, so it never pushes the card's.
+		fresh := "legato/" + strings.ToLower(taskID)
+		if named {
+			fresh += "-" + slot
+		}
 		clone, err := repos.JobClone(ctx, JobCloneRequest{ExecutionID: executionID, TaskID: taskID, Repo: opt.Repo, Ref: opt.Ref,
-			Branch: opt.Branch, FreshBranch: "legato/" + strings.ToLower(taskID), CloneID: opt.Clone, PushedBranch: opt.PushedBranch})
+			Branch: opt.Branch, FreshBranch: fresh, CloneID: opt.Clone, PushedBranch: opt.PushedBranch, Slot: slot})
 		if err != nil {
 			return err
 		}

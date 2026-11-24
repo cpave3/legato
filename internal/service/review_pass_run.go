@@ -268,9 +268,10 @@ func (c *ReviewRunCaller) Start(ctx context.Context, step ResolvedWorkflowStep) 
 	local := reviewRunBranches(repo, prs)
 	// Its own clone: the run's task may have one already, an author's,
 	// and the reviewer resets its clone before each pass and removes it at
-	// the end.
+	// the end. Made for the reviewer slot, no later agent of the run's task
+	// works in it.
 	clone, err := c.opts.Clones.JobClone(ctx, JobCloneRequest{ExecutionID: step.AttemptID, TaskID: step.TaskID, Repo: repo, Ref: pr.HeadSHA,
-		FreshBranch: local[number], Own: true})
+		FreshBranch: local[number], Own: true, Slot: SlotReviewer})
 	if err != nil {
 		return WorkflowExecutionResult{}, fmt.Errorf("cloning %s at the head of #%d: %w", repo, number, err)
 	}

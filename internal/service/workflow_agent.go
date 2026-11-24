@@ -164,6 +164,7 @@ func (r *WorkflowAgentRunner) FinishWorkflowAgent(ctx context.Context, attempt s
 	}
 	return nil
 }
+
 // PromptAgent messages the agent of an agent ID: a task's main slot, or
 // <task>_<slot> for a named one.
 func (r *WorkflowAgentRunner) PromptAgent(ctx context.Context, taskID, prompt string) error {
