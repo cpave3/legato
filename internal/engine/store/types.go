@@ -421,6 +421,9 @@ type AgentSession struct {
 	// ReeveWaitSince is when its execution's open wait on the Reeve began
 	// (RFC 3339), "" when it waits on none.
 	ReeveWaitSince string `db:"reeve_wait_since"`
+	// ReeveWaitToldAt is when the Reeve was told of that wait (RFC 3339),
+	// "" while it has not been.
+	ReeveWaitToldAt string `db:"reeve_wait_told_at"`
 	// Engram is the engram its execution runs as, "" for none.
 	Engram string `db:"engram"`
 	// WorkingDir is the directory its execution was started in, "" for a
