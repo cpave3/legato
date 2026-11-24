@@ -242,6 +242,7 @@ func (w *Worker) start() {
 		setter.SetHandedOffAgents(w.Handoffs)
 	}
 	srv.SetTaskHandoffs(w.Handoffs)
+	srv.SetReviewLoops(service.NewReviewLoopLookup(db))
 	srv.SetHandoffReauthEvery(50 * time.Millisecond)
 	w.Server = srv
 	// As a worker's runtime with agents.mcp.enabled (the default): its
