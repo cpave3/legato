@@ -57,7 +57,7 @@ export function SubagentLink({ tile, highlighted, onOpen, onHighlight, kind = "s
   onOpen: () => void
   onHighlight: (id: string | null) => void
 }) {
-  const tone = tile.state === "running" ? "bg-lw-live" : tile.state === "done" ? "bg-lw-done" : tile.state === "error" ? "bg-lw-error"
+  const tone = tile.state === "running" ? "bg-lw-live" : tile.state === "background" ? "border border-lw-live" : tile.state === "done" ? "bg-lw-done" : tile.state === "error" ? "bg-lw-error"
     : tile.state === "killed" || tile.state === "interrupted" ? "bg-lw-text-2" : "bg-lw-needs"
   return (
     <button
