@@ -323,6 +323,11 @@ func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentSer
 	deps.Ops["cli.run"] = cliRunOp(legatoBinary(), *sandboxScratch(cfg), func(ctx context.Context, taskID string) bool {
 		return service.IsReeveTask(ctx, db, taskID)
 	})
+	// review-pass feedback and answer act for the caller's own session,
+	// which only its broker token names (B4).
+	for name, op := range cli.ReviewPassBrokerOps(db, agentHasSkill(cfg, db)) {
+		deps.Ops[name] = op
+	}
 	// Values come from this broker, whose stores (1Password) stay signed in.
 	if credentials != nil {
 		for name, op := range cli.CredentialBrokerOps(credentials) {

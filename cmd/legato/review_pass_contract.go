@@ -3,26 +3,127 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/cpave3/legato/internal/cli"
+	"github.com/cpave3/legato/internal/engine/broker"
 	"github.com/cpave3/legato/internal/service"
 )
 
-// reviewPassTask is the task a review-pass command acts on: --task, else
-// the session's own.
-func reviewPassTask(values map[string]string) string {
-	if task := strings.TrimSpace(values["task"]); task != "" {
-		return task
+// The review-pass commands act for whoever runs them (B4, LEG-571). Inside an
+// agent session that is the session: its loop is found from the session the
+// broker token names, and only the author task's main slot may answer. --task
+// is refused there. Outside any session it is the operator on the host, who
+// names a task with --task.
+
+// reviewPassInSession reports whether the command runs for an agent session:
+// it has a broker, or a session's identity (the host sets both variables
+// when it runs a forwarded command for a session, from the broker token).
+func reviewPassInSession() bool {
+	if _, _, ok := brokerSession(); ok {
+		return true
 	}
-	return strings.TrimSpace(os.Getenv("LEGATO_TASK_ID"))
+	return os.Getenv("LEGATO_TASK_ID") != "" || os.Getenv("LEGATO_EXECUTION_ID") != ""
 }
 
-// runReviewPassFeedbackContract prints the current round of a reviewed
-// handoff's feedback. Its text is data: it is printed as JSON whatever the
-// flags, so text from GitHub never reads as the author's own instructions.
+// reviewPassAnswerer is who the command acts for, or why it is refused.
+func reviewPassAnswerer(verb string, parsed parsedArgs) (service.ReviewAnswerer, *commandError) {
+	if reviewPassInSession() {
+		if parsed.Present["task"] {
+			return service.ReviewAnswerer{}, &commandError{Code: "task_in_session", Exit: exitForbidden,
+				Message: "--task is refused inside an agent session: review-pass " + verb + " finds the review loop your own task authors, so give no task"}
+		}
+		return service.ReviewAnswerer{TaskID: strings.TrimSpace(os.Getenv("LEGATO_TASK_ID")), ExecutionID: strings.TrimSpace(os.Getenv("LEGATO_EXECUTION_ID"))}, nil
+	}
+	task := strings.TrimSpace(parsed.Values["task"])
+	if task == "" {
+		return service.ReviewAnswerer{}, usageError("missing_argument", "outside an agent session, review-pass "+verb+" needs --task")
+	}
+	return service.ReviewAnswerer{TaskID: task, Operator: true}, nil
+}
+
+// reviewPassHostAnswer is what asking the host's broker came to.
+type reviewPassHostAnswer int
+
+const (
+	// reviewPassAskedNobody: no broker, or none answered outside the
+	// sandbox. The command opens the store, with the session's identity.
+	reviewPassAskedNobody reviewPassHostAnswer = iota
+	// reviewPassHostAnswered: the host decided, with the result or an error.
+	reviewPassHostAnswered
+	// reviewPassHostTooOld: a sandboxed session's host has no review_pass
+	// operations; the command is forwarded whole, as before.
+	reviewPassHostTooOld
+)
+
+// reviewPassFromHost asks the host's broker to run op for this session.
+func reviewPassFromHost(op string, args, out any) (reviewPassHostAnswer, error) {
+	socket, token, ok := brokerSession()
+	if !ok {
+		return reviewPassAskedNobody, nil
+	}
+	err := broker.Call(fallbackCtx(context.Background()), socket, token, op, args, out)
+	var refused *broker.Error
+	switch {
+	case err == nil:
+		return reviewPassHostAnswered, nil
+	case errors.As(err, &refused) && refused.Code == "unknown_op":
+		if sandboxed() {
+			return reviewPassHostTooOld, nil
+		}
+		return reviewPassAskedNobody, nil
+	case errors.Is(err, broker.ErrUnreachable) && !sandboxed():
+		return reviewPassAskedNobody, nil
+	}
+	return reviewPassHostAnswered, err
+}
+
+// reviewPassBrokerError is a host's refusal in the command's terms.
+func reviewPassBrokerError(err error) *commandError {
+	var refused *broker.Error
+	if errors.As(err, &refused) {
+		switch refused.Code {
+		case "forbidden", "unauthorized":
+			return &commandError{Code: refused.Code, Message: refused.Message, Exit: exitForbidden}
+		case "rejected":
+			return commandDomainError(errors.New(refused.Message))
+		}
+	}
+	if errors.Is(err, broker.ErrUnreachable) {
+		return &commandError{Code: "broker_unreachable", Message: err.Error(), Exit: exitEnvironment}
+	}
+	return commandDomainError(err)
+}
+
+// reviewPassError is a store-side error in the command's terms.
+func reviewPassError(err error) *commandError {
+	if errors.Is(err, service.ErrReviewAnswerRefused) {
+		return &commandError{Code: "forbidden", Message: err.Error(), Exit: exitForbidden}
+	}
+	return commandDomainError(err)
+}
+
+// forwardReviewPass runs the command whole on a sandboxed session's host
+// that has no review_pass operations; the host runs it as the session.
+func forwardReviewPass(args []string, stdin []byte) int {
+	out, err := runOnHost(args, stdin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "legato: %v\n", err)
+		return exitEnvironment
+	}
+	_, _ = os.Stdout.Write(out.Stdout)
+	_, _ = os.Stderr.Write(out.Stderr)
+	return out.Exit
+}
+
+// runReviewPassFeedbackContract prints the current round of the feedback
+// on the loop the caller's task authors. Its text is data: it is printed as
+// JSON whatever the flags, so text from GitHub never reads as the author's
+// own instructions.
 func runReviewPassFeedbackContract(args []string) int {
 	const command = "review-pass.feedback"
 	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("review-pass", "feedback"))
@@ -30,20 +131,29 @@ func runReviewPassFeedbackContract(args []string) int {
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
 	}
-	taskID := reviewPassTask(parsed.Values)
-	if taskID == "" {
-		return renderCommandError(command, usageError("missing_argument", "review-pass feedback needs --task or a session's LEGATO_TASK_ID"), jsonMode)
+	who, refusal := reviewPassAnswerer("feedback", parsed)
+	if refusal != nil {
+		return renderCommandError(command, refusal, jsonMode)
 	}
-	cfg, db, code := openCommandStoreWithConfig(command, jsonMode)
-	if db == nil {
-		return code
-	}
-	defer db.Close()
-	// The guidance for a stack names the skill that works through it,
-	// when the author's agent has it.
-	view, err := service.ReviewFeedback(context.Background(), db, taskID, service.ReviewFeedbackOptions{HasSkill: agentHasSkill(cfg, db)})
-	if err != nil {
-		return renderCommandError(command, commandDomainError(err), jsonMode)
+	var view service.ReviewFeedbackView
+	asked, err := reviewPassFromHost("review_pass.feedback", map[string]any{}, &view)
+	switch {
+	case asked == reviewPassHostTooOld:
+		return forwardReviewPass(append([]string{"review-pass", "feedback"}, args...), nil)
+	case asked == reviewPassHostAnswered && err != nil:
+		return renderCommandError(command, reviewPassBrokerError(err), jsonMode)
+	case asked == reviewPassAskedNobody:
+		cfg, db, code := openCommandStoreWithConfig(command, jsonMode)
+		if db == nil {
+			return code
+		}
+		defer db.Close()
+		// The guidance for a stack names the skill that works through it,
+		// when the author's agent has it.
+		view, err = service.OwnReviewFeedback(context.Background(), db, who, service.ReviewFeedbackOptions{HasSkill: agentHasSkill(cfg, db)})
+		if err != nil {
+			return renderCommandError(command, reviewPassError(err), jsonMode)
+		}
 	}
 	text, _ := json.MarshalIndent(view, "", "  ")
 	return writeCommandSuccess(command, view, string(text), jsonMode)
@@ -60,9 +170,9 @@ func runReviewPassAnswerContract(args []string) int {
 	if len(parsed.Positionals) != 1 {
 		return renderCommandError(command, usageError("missing_argument", "review-pass answer takes one item ID"), jsonMode)
 	}
-	taskID := reviewPassTask(parsed.Values)
-	if taskID == "" {
-		return renderCommandError(command, usageError("missing_argument", "review-pass answer needs --task or a session's LEGATO_TASK_ID"), jsonMode)
+	who, refusal := reviewPassAnswerer("answer", parsed)
+	if refusal != nil {
+		return renderCommandError(command, refusal, jsonMode)
 	}
 	var answers []string
 	for _, a := range []string{service.AnswerFixed, service.AnswerReplied, service.AnswerSkipped} {
@@ -77,15 +187,31 @@ func runReviewPassAnswerContract(args []string) int {
 	if inputErr != nil {
 		return renderCommandError(command, inputErr, jsonMode)
 	}
-	db, code := openCommandStore(command, jsonMode)
-	if db == nil {
-		return code
-	}
-	defer db.Close()
 	id := parsed.Positionals[0]
-	if err := service.AnswerReviewItem(context.Background(), db, taskID, id, answers[0], note, time.Now()); err != nil {
-		return renderCommandError(command, commandDomainError(err), jsonMode)
+	var result cli.ReviewPassAnswerResult
+	asked, err := reviewPassFromHost("review_pass.answer", map[string]string{"item": id, "answer": answers[0], "note": note}, &result)
+	switch {
+	case asked == reviewPassHostTooOld:
+		// The text was read here: the host gets it on stdin.
+		forwarded := []string{"review-pass", "answer", id, "--" + answers[0]}
+		if note != "" {
+			forwarded = append(forwarded, "--file", "-")
+		}
+		return forwardReviewPass(forwarded, []byte(note))
+	case asked == reviewPassHostAnswered && err != nil:
+		return renderCommandError(command, reviewPassBrokerError(err), jsonMode)
+	case asked == reviewPassAskedNobody:
+		db, code := openCommandStore(command, jsonMode)
+		if db == nil {
+			return code
+		}
+		defer db.Close()
+		loopTask, err := service.AnswerOwnReviewItem(context.Background(), db, who, id, answers[0], note, time.Now())
+		if err != nil {
+			return renderCommandError(command, reviewPassError(err), jsonMode)
+		}
+		result = cli.ReviewPassAnswerResult{TaskID: loopTask, Item: id, Answer: answers[0]}
 	}
-	return writeCommandSuccess(command, map[string]any{"task_id": taskID, "item": id, "answer": answers[0]},
-		fmt.Sprintf("Answered %s (%s). Legato posts it to GitHub.", id, answers[0]), jsonMode)
+	return writeCommandSuccess(command, map[string]any{"task_id": result.TaskID, "item": result.Item, "answer": result.Answer},
+		fmt.Sprintf("Answered %s (%s). Legato posts it to GitHub.", result.Item, result.Answer), jsonMode)
 }
