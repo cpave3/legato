@@ -33,7 +33,7 @@ export function MacroPickButton({ label, onPick, disabled, className }: {
   const { shown, hidden, showAll } = useMacroPicker(macros, open)
   const item = "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-lw-text transition-colors hover:bg-lw-raised"
   return (
-    <Dropdown open={open} onOpenChange={setOpen} align="left" minWidth={200}
+    <Dropdown open={open} onOpenChange={setOpen} align="left" minWidth={200} panelClassName="z-50"
       trigger={<button type="button" disabled={disabled} className={className} onClick={() => setOpen(!open)}>{label}…</button>}>
       {error && <p role="alert" className="px-3 py-1.5 text-xs text-lw-error">{error}</p>}
       {!error && shown.length === 0 && hidden === 0 && <p className="px-3 py-1.5 text-xs text-lw-text-2">(no macros)</p>}
