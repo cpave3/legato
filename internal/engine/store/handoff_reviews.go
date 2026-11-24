@@ -181,6 +181,16 @@ func (s *Store) InsertHandoffReviewPass(ctx context.Context, p HandoffReviewPass
 	return tx.Commit()
 }
 
+// AnyCurrentReviewPassIn says whether a review loop in loopPhase has its
+// current pass in passState.
+func (s *Store) AnyCurrentReviewPassIn(ctx context.Context, loopPhase, passState string) (bool, error) {
+	var found bool
+	err := s.db.GetContext(ctx, &found, `SELECT EXISTS (SELECT 1 FROM handoff_reviews r
+		JOIN handoff_review_passes p ON p.task_id = r.task_id AND p.pass = r.pass
+		WHERE r.phase = ? AND p.state = ?)`, loopPhase, passState)
+	return found, err
+}
+
 // ReviewApprovedHead says whether Legato's latest review of repo's pull
 // request number at head, by any review loop whichever task it is kept on (a
 // card's, a workflow run's own), approves it: a pass posted APPROVE on it, or

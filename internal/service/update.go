@@ -66,8 +66,9 @@ type UpdateOptions struct {
 	Current string
 	// Executable is the running binary, which an update replaces.
 	Executable string
-	// Busy reports whether an agent is in the middle of a turn; an
-	// automatic update waits until none is.
+	// Busy reports whether an agent is in the middle of a turn or a review
+	// pass is being posted (UpdateBusy); an automatic update waits until
+	// neither is.
 	Busy func(ctx context.Context) (bool, error)
 	// Restart starts this Legato again on the binary just installed, after
 	// a clean shutdown, and reports whether it will. When it cannot (no
@@ -324,7 +325,8 @@ func (s *UpdateService) Run(ctx context.Context) {
 	}
 }
 
-// waitForQuiet waits until no agent is in the middle of a turn, or MaxWait
+// waitForQuiet waits until no agent is in the middle of a turn and no review
+// pass is being posted (Busy), or MaxWait
 // has passed, and reports whether to install. It gives up when ctx ends or
 // the mode is no longer auto.
 func (s *UpdateService) waitForQuiet(ctx context.Context) bool {
@@ -337,7 +339,7 @@ func (s *UpdateService) waitForQuiet(ctx context.Context) bool {
 			return true
 		}
 		if time.Now().After(deadline) {
-			log.Printf("updates: agents still busy after %s; installing anyway", s.opts.MaxWait)
+			log.Printf("updates: agents or a review post still busy after %s; installing anyway", s.opts.MaxWait)
 			return true
 		}
 		select {
@@ -385,6 +387,27 @@ func (s *UpdateService) setState(state string) {
 func (s *UpdateService) changed() {
 	if s.opts.Bus != nil {
 		s.opts.Bus.Publish(events.Event{Type: events.EventUpdateChanged, At: time.Now()})
+	}
+}
+
+// AgentLister lists the agents (AgentService's ListAgents).
+type AgentLister interface {
+	ListAgents(ctx context.Context) ([]AgentSession, error)
+}
+
+// UpdateBusy is what an automatic update waits for (UpdateOptions.Busy): a
+// review pass mid-post (ReviewPassMidPost), or an agent mid-turn
+// (AgentsMidTurn). agents may be nil.
+func UpdateBusy(db *store.Store, agents AgentLister) func(ctx context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		if posting, err := ReviewPassMidPost(ctx, db); err != nil || posting {
+			return posting, err
+		}
+		if agents == nil {
+			return false, nil
+		}
+		sessions, err := agents.ListAgents(ctx)
+		return AgentsMidTurn(sessions), err
 	}
 }
 

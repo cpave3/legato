@@ -82,17 +82,21 @@ func newUpdateService(db *store.Store, bus *events.Bus, agents service.AgentServ
 			service.NewSTUpdater(service.ToolUpdaterOptions{}),
 			service.NewChimeraUpdater(service.ToolUpdaterOptions{}),
 		},
-		Busy: func(ctx context.Context) (bool, error) {
-			if agents == nil {
-				return false, nil
-			}
-			sessions, err := agents.ListAgents(ctx)
-			return service.AgentsMidTurn(sessions), err
-		},
+		// An automatic update waits for agents mid-turn and for a review
+		// pass mid-post, wherever in this instance it runs.
+		Busy:            service.UpdateBusy(db, agentLister(agents)),
 		Restart:         restart,
 		FirstCheckAfter: time.Minute, CheckEvery: 6 * time.Hour,
 		QuietPoll: 30 * time.Second, MaxWait: 3 * time.Hour,
 	})
+}
+
+// agentLister is agents as UpdateBusy lists them; nil when there are none.
+func agentLister(agents service.AgentService) service.AgentLister {
+	if agents == nil {
+		return nil
+	}
+	return agents
 }
 
 // wireUpdates serves the updater and starts its checks.

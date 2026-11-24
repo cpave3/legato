@@ -26,7 +26,7 @@ Open Settings › System › Updates in the web UI. It shows this server's versi
 | Mode | What happens |
 | --- | --- |
 | **Ask** (the default) | When a release is out, a bar along the top of the web UI says so, with **Update and restart** and **Later**. Attention lists it too. Nothing installs until you choose. |
-| **Automatic** | Legato installs a new release once no agent is in the middle of a turn. An agent that waits for you does not hold it back. After three hours it installs whatever the agents are doing. |
+| **Automatic** | Legato installs a new release once no agent is in the middle of a turn and no review pass is being posted to GitHub. An agent that waits for you does not hold it back. After three hours it installs whatever the agents are doing. |
 | **Off** | Legato never looks for a release. |
 
 The mode is saved in Legato's database, not in `config.yaml`, so you set it in the web UI only. **Check now** looks at once. **Later** hides the bar in that browser until the next release.

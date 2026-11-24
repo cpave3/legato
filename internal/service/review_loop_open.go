@@ -83,3 +83,11 @@ func OpenReviewLoopClones(ctx context.Context, db *store.Store) (map[int64]bool,
 func reviewLoopOpen(loop *store.HandoffReview) bool {
 	return loop != nil && loop.Phase != ReviewPhaseEnded && loop.Phase != ReviewPhaseSkipped
 }
+
+// ReviewPassMidPost says whether a review pass is being posted to GitHub: the
+// reviewer submitted it and its loop, still reviewing, has not finished
+// posting it (a post under way, or one a rate limit left for the next tick).
+// An automatic update waits for it.
+func ReviewPassMidPost(ctx context.Context, db *store.Store) (bool, error) {
+	return db.AnyCurrentReviewPassIn(ctx, ReviewPhaseReviewing, ReviewPassSubmitted)
+}
