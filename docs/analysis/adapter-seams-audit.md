@@ -123,7 +123,10 @@ Reeve meets Y4 and Y5 only as settings and catalog text.
 | B6 | `internal/service/task_handoff_brief.go:92-94`; goldens `internal/service/testdata/handoff_brief/*-burnlite.md`, `*-jira.md` | "you may claim this ticket, add notes to it and close it, as holder … $LEGATO_HOLDER". The verbs are Burnlite's but are offered for Jira tickets too. The provider name itself is generic. | agent text | cosmetic (wrong verbs for Jira) |
 | B7 | `internal/service/mcp_connections.go:58`, `:127`, `:696-697`; `docs/ai/integrations.md` § One Burnlite connection (LEG-544) | The board's Burnlite connection is shared with agents as an upstream MCP server, so agents call `mcp__burnlite__claim_task`, `close_task`, `list_tasks` and `get_tracker_doc` by name. There is no Legato-level ticket verb for agents. | agent text | blocks |
 | B8 | Managed skills, **operator-owned**, in the Legato skills folder (not in the repository). `implement-stack/SKILL.md:3`, `:6`, `:8`, `:12`, `:14`, `:35-36`, `:47`, `:51`, `:64`, `:82`; `implement-stack/agents/openai.yaml:3`; `proposal-stack/SKILL.md:3`, `:10`, `:66` | "Implement a Burnlite spec … as a local staccato stack". `list_tasks` with `frontier`, `claim_task`, `close_task`, `st append`, `st restack`, `st log`. **These also leak Staccato.** | agent text | blocks |
-| B9 | The operator's macros, kept in Legato's database. **"Ticket to PR"** was read as this agent's own brief: it says "for a Burnlite task, also read it in full with get_task … and claim it (holder: the task key)" and "close it yourself … using close_task". "Rebase and repush", "Fix CI" and "Address Stack Feedback" could not be read from the agent sandbox. | "Ticket to PR" names Burnlite tools; it names no `st`. The other three are presumed to name `st`. | agent text | blocks ("Ticket to PR"); the other three unknown, to check at the host |
+| B9a | The operator's macro **"Ticket to PR"**, kept in Legato's database (read as this agent's own brief) | "For a Burnlite task, also read it in full with get_task … and claim it (holder: the task key)" and "close it yourself … using close_task". It names Burnlite's tools and no `st`. | agent text | blocks |
+| B9b | The operator's macro **"Address Stack Feedback"** (applies to a task; text from the Reeve) | "Please use the address-stack-feedback skill to handle the feedback on this stack of pull requests". The macro names no tool, but the skill is built on Staccato (`st restack`, `st continue`): **a Staccato leak through the skill**, the same skill S9 names. | agent text | blocks (Staccato) |
+| B9c | The operator's macro **"Rebase and repush"** (no `applies_to`; text from the Reeve) | Rebases the PR branch onto the latest default branch with the resolve-merge-conflicts skill, runs the checks, `git push --force-with-lease`, waits for CI. Plain git, no `st`, no tracker. | agent text | none |
+| B9d | The operator's macro **"Fix CI"** (no `applies_to`; text from the Reeve) | `gh pr view`, `gh run view --log-failed`, reproduce, rerun a failure that also happens on main as flaky, fix, push. Plain git and `gh`: GitHub-only, which is the forge seam (out of scope), not one of these three. | agent text | none (forge only) |
 | B10 | `internal/cli/mcp_operator.go:17`; `internal/server/api_reference.go:33`, `:63` | Example keys `LEG-374`, `LEG-12` in a tool schema and the API reference. | agent text / docs | cosmetic |
 | B11 | `internal/service/attention_integrations.go:93-95`; `workflow_burnlite_close.go:82`, `:86`, `:90`; `config/settings.go`, `config/config.go` (the `burnlite:` block); `cmd/legato/command_tree.go:237-255`; `internal/setup/flow.go:327`, `:338`; `web/src/components/BurnliteSettings.tsx`, `IntegrationsSettings.tsx`, `MCPSettings.tsx`, `ImportRemoteModal.tsx`; site `integrations/burnlite.md` and others | Provider-named settings, pages, errors and docs. | UI / setting / docs | **legit** (as Jira's are) |
 
@@ -236,7 +239,7 @@ only; none is filed.
 | 11 | **Agent ticket tools** (`ticket_*` in `legato mcp serve`); the handoff brief offers only the verbs the source supports (B6). | M | High | 9 |
 | 12 | **Bundled defaults.** Download pinned `st` and `yg` builds into `<data_dir>/bin`, checked against `SHA256SUMS` as `selfupdate` does, or default to git when they are absent (open question 1). Doctor and setup stop naming them unless the user chose them. | M | High | 2, 7 |
 | 13 | **Second ticket provider: GitHub Issues**, read and close. | L | High | 9, 10 |
-| 14 | **Move the operator's managed skills and macros** (B8, B9) to Legato verbs. Operator content, not repository code: a short guide and the edits at the host. | S | Low | 8, 11 |
+| 14 | **Move the operator's managed skills and macros** (B8, B9a, B9b: implement-stack, proposal-stack, the address-stack-feedback skill, "Ticket to PR" and "Address Stack Feedback") to Legato verbs. Operator content, not repository code: a short guide and the edits at the host. | S | Low | 8, 11 |
 | 15 | **Docs.** Generic site pages "Stacks" and "Worktrees", each with a backend section; `integrations/staccato` and `integrations/yggdrasil` become backend pages. Each earlier ticket updates its own pages, as `CLAUDE.md` asks; this is the final sweep. | S | Low | 8, 12 |
 
 Total: about 56 points.
@@ -261,9 +264,12 @@ Each has a recommendation. They shape the tickets above, not this audit.
    and `worktrees.tool` default to `auto`: the bundled tool when Legato has
    downloaded it, else git. Legato downloads pinned builds on first use
    (ticket 12). This decides ticket 12's scope.
-2. **The operator's macros and managed skills (B8, B9) live outside the
-   repository.** *Recommend:* check the three unread macros at the host
-   during ticket 14.
+2. **The operator's macros and managed skills (B8, B9a–B9d) live outside
+   the repository.** Of the four macros, only "Ticket to PR" (Burnlite) and
+   "Address Stack Feedback" (Staccato, through its skill) leak.
+   *Recommend:* ticket 14 changes those two macros and the
+   `address-stack-feedback` skill; "Rebase and repush" and "Fix CI" need
+   nothing.
 3. **Where plain-git worktrees go.** *Recommend:* beside the primary
    checkout (`<primary>/../<repo>.worktrees/<branch>`), as `yg` does by
    default.
