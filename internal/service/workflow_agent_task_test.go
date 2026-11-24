@@ -163,7 +163,12 @@ func TestCancellingTheRunStopsTheCardsAgent(t *testing.T) {
 // task's place, not the workflow execution's.
 func TestATasksOwnWorkflowAgentKeepsItsStageOnTheCard(t *testing.T) {
 	ctx := context.Background()
-	_, s, _, _, _ := startTaskAgentRun(t, taskAgentWorkflow, nil)
+	agents, s, _, _, _ := startTaskAgentRun(t, taskAgentWorkflow, nil)
+	// The agents list reads the stage from the same place.
+	list, err := agents.ListAgents(ctx)
+	if err != nil || len(list) != 1 || list[0].TaskID != "LEG-7" || list[0].Stage == "" {
+		t.Fatalf("agents = %+v, %v", list, err)
+	}
 	stage, err := s.GetWorkStage(ctx, TaskPlace("LEG-7", ""))
 	if err != nil || stage == nil {
 		t.Fatalf("the card's stage = %+v, %v", stage, err)

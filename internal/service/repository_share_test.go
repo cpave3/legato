@@ -196,3 +196,21 @@ func TestRemoveJobCloneWaitsForItsAgentThenRemovesEverything(t *testing.T) {
 		t.Fatalf("removing it again = %v", err)
 	}
 }
+
+func TestAnOwnCloneIsNewEvenWhenTheTaskHasALiveOne(t *testing.T) {
+	f, first := jobFixture(t) // task1's clone, ex-abc running in it
+	own, err := f.svc.JobClone(context.Background(), JobCloneRequest{ExecutionID: "ex-review", TaskID: "task1", Repo: "acme/widget",
+		Own: true, FreshBranch: "legato-review/pr-12"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if own.ID == first.ID || own.Path == first.Path {
+		t.Fatalf("own clone = %+v, the task's live clone is %+v", own, first)
+	}
+	if own.Branch != "legato-review/pr-12" {
+		t.Fatalf("own clone on %q", own.Branch)
+	}
+	if _, err := os.Lstat(first.Path); err != nil {
+		t.Fatalf("the task's clone: %v", err)
+	}
+}

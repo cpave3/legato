@@ -71,3 +71,21 @@ func TestWorkflowAttentionSnapshotFailsRatherThanResolvingOnShowError(t *testing
 		t.Fatal("snapshot succeeded after a run failed to load")
 	}
 }
+
+func TestAWorkflowAttentionItemNamesTheRunsCard(t *testing.T) {
+	fake := &fakeWorkflowAttentionSource{
+		runs: []store.WorkflowRun{{ID: "wr-1", WorkflowTitle: "Ticket to PR", Status: "failed", RelatedTaskID: "c9x2k1m4",
+			RelatedTaskKey: "LEG-9", RelatedTaskTitle: "Fix login"}},
+		view: &store.WorkflowRunView{
+			Run:   store.WorkflowRun{ID: "wr-1", Status: "failed"},
+			Steps: []store.WorkflowStep{{RunID: "wr-1", Path: "deploy", StepID: "deploy", Status: "failed", Title: "Deploy"}},
+		},
+	}
+	items, err := NewWorkflowAttentionAdapter(fake).Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Detail != "For LEG-9: Fix login" {
+		t.Fatalf("items = %+v", items)
+	}
+}

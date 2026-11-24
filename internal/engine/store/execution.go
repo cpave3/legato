@@ -35,6 +35,12 @@ func (s *Store) CreateExecution(ctx context.Context, execution Execution) error 
 		execution.WorkingDir, execution.ProviderSessionID, execution.SubagentTelemetry,
 		formatExecutionTime(execution.StartedAt), nullableExecutionTime(execution.EndedAt),
 	)
+	if err != nil || execution.Label == "" {
+		return err
+	}
+	// Only a labelled one names the column: tests build executions on
+	// databases from before migration 139.
+	_, err = s.db.ExecContext(ctx, `UPDATE executions SET label = ? WHERE id = ?`, execution.Label, execution.ID)
 	return err
 }
 

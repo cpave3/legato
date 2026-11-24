@@ -9,6 +9,28 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
+// reviewRunCard is the board card a workflow run's loop on taskID reviews for (its
+// linked task, else its author's), or nil for a handoff's loop or a run's
+// with no card; the run's loop record too, nil for a handoff's.
+func reviewRunCard(ctx context.Context, db *store.Store, taskID string) (*store.Task, *reviewRun) {
+	run, err := readReviewRun(ctx, db, taskID)
+	if err != nil {
+		return nil, nil
+	}
+	id := run.LinkedTask
+	if id == "" {
+		id = run.AuthorTask
+	}
+	if id == "" {
+		return nil, run
+	}
+	card, err := db.GetTask(ctx, id)
+	if err != nil {
+		return nil, run
+	}
+	return card, run
+}
+
 // brief is a reviewer's assignment: the pull requests at their pinned
 // heads, the task, and on a later pass what earlier passes found. It wraps
 // the configured skill and ends by asking for submit_review.
@@ -41,12 +63,27 @@ func (s *ReviewPassService) brief(ctx context.Context, l ReviewLoop, pass int, p
 	}
 	b.WriteString("## Pull requests\n\n")
 	for _, pr := range prs {
-		fmt.Fprintf(&b, "### #%d %s\n\n- branch `%s`, base `%s`\n- pinned head `%s` (also at `%s`)\n\n", pr.Number, pr.Title, pr.Branch, pr.Base, pr.HeadSHA, pinRef(l.TaskID, pass, pr.Number))
+		fork := ""
+		if pr.HeadRepo != "" && !strings.EqualFold(pr.HeadRepo, l.Repo) {
+			fork = " (in " + pr.HeadRepo + ")"
+		}
+		fmt.Fprintf(&b, "### #%d %s\n\n- branch `%s`%s, base `%s`\n- pinned head `%s` (also at `%s`)\n", pr.Number, pr.Title, pr.Branch, fork, pr.Base, pr.HeadSHA, pinRef(l.TaskID, pass, pr.Number))
+		if pr.LocalBranch != "" {
+			fmt.Fprintf(&b, "- Your checkout is on `%s` at `%s`.\n", pr.LocalBranch, pr.HeadSHA)
+		}
+		b.WriteString("\n")
 		if body := strings.TrimSpace(pr.Body); body != "" {
 			b.WriteString("<pr-description>\n" + body + "\n</pr-description>\n\n")
 		}
 	}
-	b.WriteString("## The task\n\n<task-details>\n# " + task.Title + "\n\n" + strings.TrimSpace(task.DescriptionMD) + "\n</task-details>\n\n")
+	b.WriteString("## The task\n\n")
+	if card, run := reviewRunCard(ctx, s.db, l.TaskID); card != nil {
+		// A run's loop is kept on the run's own task, whose description
+		// says only which run it is: the card is the work.
+		fmt.Fprintf(&b, "Card %s, reviewed by workflow run %s (its task %s, %s).\n\n", cardKey(card), run.RunID, l.TaskID, task.Title)
+		task = card
+	}
+	b.WriteString("<task-details>\n# " + task.Title + "\n\n" + strings.TrimSpace(task.DescriptionMD) + "\n</task-details>\n\n")
 	if pass > 1 {
 		if err := s.laterPassBrief(ctx, &b, l, pass); err != nil {
 			return "", err

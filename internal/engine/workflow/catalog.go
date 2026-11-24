@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -49,6 +50,10 @@ type Field struct {
 	// runs.
 	Checked bool
 	Invalid string
+	// Pattern, when set, is what a text value must match (a regular
+	// expression), and Reserved the values it may not take.
+	Pattern  string
+	Reserved []string
 	// Essential fields are the ones the inspector shows first; the rest go
 	// under More options.
 	Essential bool
@@ -75,6 +80,7 @@ const (
 	ExactlyOne ConstraintKind = "exactly_one"
 	AtLeastOne ConstraintKind = "at_least_one"
 	Excludes   ConstraintKind = "excludes" // not both
+	Requires   ConstraintKind = "requires" // the first field needs the rest
 )
 
 // Constraint ties several with fields together. Checked constraints are
@@ -157,6 +163,7 @@ func (s ExecutorSpec) clone() ExecutorSpec {
 	s.With = append([]Field(nil), s.With...)
 	for i := range s.With {
 		s.With[i].Enum = append([]string(nil), s.With[i].Enum...)
+		s.With[i].Reserved = append([]string(nil), s.With[i].Reserved...)
 	}
 	s.Constraints = append([]Constraint(nil), s.Constraints...)
 	for i := range s.Constraints {
@@ -207,6 +214,17 @@ func (c Constraint) check(with map[string]any) error {
 			present++
 		}
 	}
+	if c.Kind == Requires {
+		if _, ok := with[c.Fields[0]]; !ok {
+			return nil
+		}
+		for _, name := range c.Fields[1:] {
+			if _, ok := with[name]; !ok {
+				return fmt.Errorf("with %s requires %s", c.Fields[0], name)
+			}
+		}
+		return nil
+	}
 	names := strings.Join(c.Fields, " or ")
 	switch {
 	case c.Kind == ExactlyOne && present > 1, c.Kind == Excludes && present > 1:
@@ -224,6 +242,12 @@ func (f Field) accepts(value any, inputs map[string]Input) bool {
 	expression := isText && !f.Literal && expressionPattern.MatchString(text)
 	if len(f.Enum) > 0 && !expression {
 		return isText && slices.Contains(f.Enum, text)
+	}
+	if f.Pattern != "" && !expression && (!isText || !regexp.MustCompile(f.Pattern).MatchString(text)) {
+		return false
+	}
+	if isText && slices.Contains(f.Reserved, text) {
+		return false
 	}
 	switch f.Kind {
 	case KindTask:
@@ -275,13 +299,20 @@ var (
 	}
 )
 
+// SlotNamePattern is what a named agent slot of a card must match, and
+// ReservedSlots the named slots agent.run may not take: the review loop's.
+// The agent service keeps the same rules; a test there keeps them equal.
+const SlotNamePattern = `^[a-z][a-z0-9-]{0,31}$`
+
+var ReservedSlots = []string{"reviewer"}
+
 var catalog = []ExecutorSpec{
 	{
 		Type: "agent.run", Group: "Agents", Title: "Run an agent",
 		Description: "Start an agent of the workflow on a prompt or a macro, and wait for it to complete the step with the outputs the step declares.",
 		With: []Field{
 			promptField.at(1, true), macroField.at(2, true), agentField.at(5, false), tierField.at(6, false),
-			{Name: "name", Kind: KindString, Label: "Agent's name", Description: "The agent's name, shown beside it", Order: 7},
+			{Name: "name", Kind: KindString, Label: "Agent's name", Description: "The agent's name in lists of agents. It does not rename the run or its task", Order: 7},
 			{Name: "working_dir", Kind: KindPath, Label: "Works in", Description: "Directory the agent works in", Essential: true, Order: 3},
 			{Name: "repo", Kind: KindRepository, Label: "Or a clone of", Description: "GitHub repository (owner/name) the agent works in a fresh clone of; with macro, also the pull request's repository", Essential: true, Order: 4},
 			{Name: "ref", Kind: KindString, Label: "Clone starts from", Description: "With repo: the branch, tag or commit the clone starts from", Order: 8},
@@ -290,10 +321,14 @@ var catalog = []ExecutorSpec{
 			literalFalse("keep_agent", "Keep the agent running", "Leave the agent running once its outputs are in, so the operator can go on talking to it").at(11, false),
 			prNumberFld.at(12, false),
 			literalFalse("scratch", "Work in a scratch folder", "The work needs no folder of its own: the agent works in a new folder Legato removes when the step completes (kept when it fails or keeps its agent); anything to keep goes in the step's outputs").at(13, false),
-			{Name: "task", Kind: KindTaskOrID, Label: "As the task's own agent", Description: "A task, or a task ID: the agent is that task's own, on its card, in a fresh clone of repo on the task's branch; a macro is sent as one started on the card is. The step fails when the task already has an agent running", Order: 14},
+			{Name: "task", Kind: KindTaskOrID, Label: "As the task's own agent", Description: "A task, or a task ID: the agent is that task's own, on its card, in a fresh clone of repo on the task's branch; a macro is sent as one started on the card is. The step fails when the task already has an agent running in the slot", Order: 14},
+			{Name: "slot", Kind: KindString, Label: "In the card's slot", Description: "With task: the card's named agent slot the agent runs in, such as triage, plan or review, beside the card's own agent, in a fresh clone of its own; main (the default) is the card's own agent, and reviewer is the review loop's",
+				Literal: true, Checked: true, Pattern: SlotNamePattern, Reserved: ReservedSlots, Order: 15,
+				Invalid: "must be main or a slot name: lowercase letters, digits and dashes, starting with a letter, at most 32; reviewer is the review loop's"},
 		},
 		Constraints: []Constraint{promptMacro, {Kind: Excludes, Fields: []string{"scratch", "working_dir"}, Checked: true}, {Kind: Excludes, Fields: []string{"scratch", "repo"}, Checked: true},
-			{Kind: Excludes, Fields: []string{"task", "working_dir"}, Checked: true}, {Kind: Excludes, Fields: []string{"task", "scratch"}, Checked: true}, {Kind: Excludes, Fields: []string{"task", "name"}, Checked: true}},
+			{Kind: Excludes, Fields: []string{"task", "working_dir"}, Checked: true}, {Kind: Excludes, Fields: []string{"task", "scratch"}, Checked: true}, {Kind: Excludes, Fields: []string{"task", "name"}, Checked: true},
+			{Kind: Requires, Fields: []string{"slot", "task"}, Checked: true}},
 		DeclaredOutputs: true,
 		Summary:         []string{"macro", "prompt"},
 	},

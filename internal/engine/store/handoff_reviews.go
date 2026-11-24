@@ -69,6 +69,12 @@ type HandoffReviewPR struct {
 	// Event is the pass's review of it: APPROVE or COMMENT as posted,
 	// kept when an earlier approval stands; "" before it is posted.
 	Event string `db:"event"`
+	// LocalBranch is the branch of the reviewer's checkout the head was
+	// put on when it is not Branch; "" otherwise.
+	LocalBranch string `db:"local_branch"`
+	// HeadRepo is the repository (owner/name) the head branch is in, when
+	// read; a fork's differs from Repo.
+	HeadRepo string `db:"head_repo"`
 }
 
 // HandoffReviewFinding is one finding of a pass, with its ruling by a later one.
@@ -147,12 +153,25 @@ func (s *Store) InsertHandoffReviewPass(ctx context.Context, p HandoffReviewPass
 	}
 	for _, pr := range prs {
 		if _, err := tx.NamedExecContext(ctx, `
-			INSERT INTO handoff_review_prs (task_id, pass, repo, number, branch, base, title, body, url, head_sha, review_id, review_url, author)
-			VALUES (:task_id, :pass, :repo, :number, :branch, :base, :title, :body, :url, :head_sha, :review_id, :review_url, :author)`, pr); err != nil {
+			INSERT INTO handoff_review_prs (task_id, pass, repo, number, branch, base, title, body, url, head_sha, review_id, review_url, author, local_branch, head_repo)
+			VALUES (:task_id, :pass, :repo, :number, :branch, :base, :title, :body, :url, :head_sha, :review_id, :review_url, :author, :local_branch, :head_repo)`, pr); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
+}
+
+// ReviewApprovedHead says whether any review loop, whichever task it is
+// kept on (a card's, a workflow run's own), approved repo's pull request
+// number at head: a pass posted APPROVE on it, or kept an earlier approval.
+func (s *Store) ReviewApprovedHead(ctx context.Context, repo string, number int, head string) (bool, error) {
+	if head == "" {
+		return false, nil
+	}
+	var approved bool
+	err := s.db.GetContext(ctx, &approved, `SELECT EXISTS (SELECT 1 FROM handoff_review_prs
+		WHERE repo = ? COLLATE NOCASE AND number = ? AND head_sha = ? AND event IN ('APPROVE', 'kept'))`, repo, number, head)
+	return approved, err
 }
 
 // GetHandoffReviewPass returns one pass.

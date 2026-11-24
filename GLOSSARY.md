@@ -61,7 +61,7 @@ The slot of a task's own agent: the handoff's author, and any session the person
 _Avoid_: primary agent, default agent
 
 **Named slot**:
-A slot other than the main one, such as `reviewer`. Only Legato starts agents in one; the person can attach to or stop them.
+A slot other than the main one, such as `reviewer`, or one a workflow's `agent.run` step names, such as `triage`. Only Legato starts agents in one; the person can attach to or stop them.
 _Avoid_: extra slot, side agent
 
 **Interrupted agent**:

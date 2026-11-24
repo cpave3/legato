@@ -44,30 +44,77 @@ func (r *WorkflowAgentRunner) SpawnWorkflowAgent(ctx context.Context, taskID, na
 	if r.binaryPath != "" {
 		opts.ExtraEnv["LEGATO_WORKFLOW_BINARY"] = r.binaryPath
 	}
-	if name != "" {
-		task, err := r.store.GetTask(ctx, taskID)
-		if err != nil {
-			return nil, err
-		}
-		task.Title = name
-		if err := r.store.UpdateTask(ctx, *task); err != nil {
-			return nil, err
-		}
-	}
+	// The name is the agent's, not the run's task's: the run keeps its
+	// run_title, and a run's later agents keep their own names.
+	opts.Label = name
 	if err := r.agents.SpawnAgent(ctx, taskID, 0, 0, opts); err != nil {
 		return nil, err
 	}
-	return r.store.GetAgentSessionByTaskID(ctx, taskID)
+	// The session is the slot's: a named slot's agent runs beside the
+	// task's own, which the step must never take for its agent.
+	return r.store.GetAgentSessionInSlot(ctx, taskID, opts.Slot)
 }
 
-// TaskHasAgent says whether taskID's main slot has an agent running.
-func (r *WorkflowAgentRunner) TaskHasAgent(ctx context.Context, taskID string) bool {
-	_, err := r.store.GetAgentSessionByTaskID(ctx, taskID)
+// SlotHasAgent says whether one of taskID's slots has an agent running.
+func (r *WorkflowAgentRunner) SlotHasAgent(ctx context.Context, taskID, slot string) bool {
+	_, err := r.store.GetAgentSessionInSlot(ctx, taskID, slot)
 	return err == nil
 }
 
+// KillAgent stops the agent of an agent ID: a task's main slot, or
+// <task>_<slot> for a named one.
 func (r *WorkflowAgentRunner) KillAgent(ctx context.Context, taskID string) error {
 	return r.agents.KillAgent(ctx, taskID)
+}
+
+// AttemptAgentID is the agent ID of an attempt's own agent: <task>_<slot>
+// when it runs in a named slot. With its agent gone, a named slot's
+// attempt has none, so nothing is stopped or prompted in the main slot.
+func (r *WorkflowAgentRunner) AttemptAgentID(ctx context.Context, attempt store.WorkflowStepAttempt) (string, bool) {
+	session, err := attemptAgentSession(ctx, r.store, attempt)
+	switch {
+	case err == nil:
+		return AgentSlotKey(session.TaskID, session.Slot), true
+	case attemptInNamedSlot(ctx, r.store, attempt):
+		return "", false
+	}
+	return attempt.TaskID, true
+}
+
+// attemptAgentSession is the running session of an attempt's own agent:
+// the session it recorded, which tells a named slot's agent from the main
+// slot's. An attempt with no session it can find is read as the main
+// slot's, unless its tmux session is a named slot's.
+func attemptAgentSession(ctx context.Context, s *store.Store, attempt store.WorkflowStepAttempt) (*store.AgentSession, error) {
+	if attempt.AgentSessionID != nil {
+		session, err := s.GetAgentSessionByID(ctx, *attempt.AgentSessionID)
+		if err == nil {
+			if session.Status != "running" {
+				return nil, store.ErrNotFound
+			}
+			return session, nil
+		}
+		if err != store.ErrNotFound {
+			return nil, err
+		}
+	}
+	if attemptInNamedSlot(ctx, s, attempt) {
+		return nil, store.ErrNotFound
+	}
+	return s.GetAgentSessionByTaskID(ctx, attempt.TaskID)
+}
+
+// attemptInNamedSlot says whether an attempt's agent ran in a named slot
+// of its task: its session says so, or its tmux session is a named slot's
+// (legato-<task>_<slot>).
+func attemptInNamedSlot(ctx context.Context, s *store.Store, attempt store.WorkflowStepAttempt) bool {
+	if attempt.AgentSessionID != nil {
+		if session, err := s.GetAgentSessionByID(ctx, *attempt.AgentSessionID); err == nil {
+			return IsNamedSlot(session.Slot)
+		}
+	}
+	slot, ok := strings.CutPrefix(attempt.TmuxSession, AgentTmuxSession(attempt.TaskID, store.SlotMain)+"_")
+	return ok && slotName.MatchString(slot)
 }
 func (r *WorkflowAgentRunner) FinishWorkflowAgent(ctx context.Context, attempt store.WorkflowStepAttempt) error {
 	if attempt.AgentSessionID == nil {
@@ -113,11 +160,15 @@ func (r *WorkflowAgentRunner) FinishWorkflowAgent(ctx context.Context, attempt s
 		remover.RemoveSandboxScratch(session.ExecutionID)
 	}
 	if r.bus != nil && session != nil {
-		r.bus.Publish(events.Event{Type: events.EventAgentCompleted, At: time.Now(), Payload: events.AgentDiedPayload{TaskID: session.TaskID}})
+		r.bus.Publish(events.Event{Type: events.EventAgentCompleted, At: time.Now(), Payload: events.AgentDiedPayload{TaskID: session.TaskID, Slot: namedSlot(session.Slot)}})
 	}
 	return nil
 }
+
+// PromptAgent messages the agent of an agent ID: a task's main slot, or
+// <task>_<slot> for a named one.
 func (r *WorkflowAgentRunner) PromptAgent(ctx context.Context, taskID, prompt string) error {
+	ctx, taskID = agentAddress(ctx, taskID)
 	return r.agents.SendMessage(ctx, taskID, prompt)
 }
 
@@ -160,8 +211,13 @@ func (e *AgentRunExecutor) Type() string { return "agent.run" }
 
 func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep) (WorkflowExecutionResult, error) {
 	// With task, the agent is that task's own (LEG-540): on its card, in
-	// its slot main, reading its context.
+	// its slot main, reading its context; with slot too, in that named
+	// slot of the card, beside its own agent (LEG-618).
 	agentTask, err := stepAgentTask(step.With)
+	if err != nil {
+		return WorkflowExecutionResult{}, err
+	}
+	slot, err := stepAgentSlot(step.With, agentTask)
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
@@ -209,8 +265,11 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 			return WorkflowExecutionResult{}, fmt.Errorf("with task takes no working_dir or name")
 		}
 		if checker, ok := e.agents.(interface {
-			TaskHasAgent(ctx context.Context, taskID string) bool
-		}); ok && checker.TaskHasAgent(ctx, agentTask) {
+			SlotHasAgent(ctx context.Context, taskID, slot string) bool
+		}); ok && checker.SlotHasAgent(ctx, agentTask, slot) {
+			if IsNamedSlot(slot) {
+				return WorkflowExecutionResult{}, fmt.Errorf("task %s already has an agent in its %s slot: it must end first", agentTask, slot)
+			}
 			return WorkflowExecutionResult{}, fmt.Errorf("task %s already has an agent running: stop it first, or use agent.dispatch to message it", agentTask)
 		}
 		spawnTask, attribution = agentTask, agentTask
@@ -218,7 +277,7 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 	assignment := buildWorkflowAssignment(prompt, step, e.binaryPath)
 	opts := AgentSpawnOptions{
 		AgentKind: kind, Tier: tier, WorkingDir: workingDir, Repo: strings.TrimSpace(repo), Ref: strings.TrimSpace(ref), Branch: strings.TrimSpace(branch), Assignment: assignment,
-		ExecutionKind: store.ExecutionWorkflowAgent, AttributionTaskID: attribution,
+		ExecutionKind: store.ExecutionWorkflowAgent, AttributionTaskID: attribution, Slot: slot,
 		WorkflowRunID: step.RunID, WorkflowAttemptID: step.AttemptID,
 		Engram: strings.TrimSpace(engram), EngramRequired: strings.TrimSpace(engram) != "",
 		ExtraEnv: map[string]string{
@@ -253,8 +312,50 @@ func stepAgentTask(with map[string]any) (string, error) {
 	return strings.TrimSpace(taskID), nil
 }
 
+// stepAgentSlot is the card's slot an agent.run step's agent runs in
+// (with.slot): "" for the main slot. The file was checked when it loaded;
+// this checks it again on the resolved values.
+func stepAgentSlot(with map[string]any, agentTask string) (string, error) {
+	value, ok := with["slot"]
+	if !ok || value == nil {
+		return "", nil
+	}
+	slot, isText := value.(string)
+	if !isText || slot == "" {
+		return "", fmt.Errorf("with slot must be main or a slot name")
+	}
+	if !IsNamedSlot(slot) {
+		return "", nil
+	}
+	if agentTask == "" {
+		return "", fmt.Errorf("with slot requires task")
+	}
+	if err := ValidateAgentSlot(slot); err != nil {
+		return "", fmt.Errorf("with slot: %w", err)
+	}
+	if slot == SlotReviewer {
+		return "", fmt.Errorf("with slot %s is the review loop's", slot)
+	}
+	return slot, nil
+}
+
+// attemptAgent is the agent ID of the attempt's own agent, when its runner
+// can tell it apart from the task's main slot.
+func (e *AgentRunExecutor) attemptAgent(ctx context.Context, attempt store.WorkflowStepAttempt) (string, bool) {
+	if finder, ok := e.agents.(interface {
+		AttemptAgentID(context.Context, store.WorkflowStepAttempt) (string, bool)
+	}); ok {
+		return finder.AttemptAgentID(ctx, attempt)
+	}
+	return attempt.TaskID, true
+}
+
 func (e *AgentRunExecutor) Cancel(ctx context.Context, attempt store.WorkflowStepAttempt) error {
-	return e.agents.KillAgent(ctx, attempt.TaskID)
+	agentID, ok := e.attemptAgent(ctx, attempt)
+	if !ok {
+		return nil
+	}
+	return e.agents.KillAgent(ctx, agentID)
 }
 func (e *AgentRunExecutor) Finish(ctx context.Context, attempt store.WorkflowStepAttempt) error {
 	if err := e.agents.FinishWorkflowAgent(ctx, attempt); err != nil {
@@ -265,7 +366,11 @@ func (e *AgentRunExecutor) Finish(ctx context.Context, attempt store.WorkflowSte
 	return nil
 }
 func (e *AgentRunExecutor) Prompt(ctx context.Context, attempt store.WorkflowStepAttempt, prompt string) error {
-	return e.agents.PromptAgent(ctx, attempt.TaskID, prompt)
+	agentID, ok := e.attemptAgent(ctx, attempt)
+	if !ok {
+		return fmt.Errorf("the step's agent has ended")
+	}
+	return e.agents.PromptAgent(ctx, agentID, prompt)
 }
 
 func buildWorkflowAssignment(prompt string, step ResolvedWorkflowStep, binaryPath string) string {

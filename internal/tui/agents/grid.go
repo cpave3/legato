@@ -351,7 +351,7 @@ func (m Model) renderTile(a service.AgentSession, selected bool, width, height i
 		frameColor = theme.Accent
 	}
 
-	label := strings.ToUpper(stateWord(state))
+	label := strings.ToUpper(m.stateWord(state))
 	if state == "working" {
 		if duration := m.stateDuration(a); duration != "" {
 			label = duration

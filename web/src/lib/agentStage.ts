@@ -1,5 +1,6 @@
 import type { AgentInfo } from "../hooks/useWebSocket"
 import { apiFetch } from "./api"
+import { reeveName, type ReeveName } from "./reeveName"
 
 // Where an agent's work stands, as the server keeps it (see
 // docs/ai/agent-states.md § Stages), in the order work moves through them.
@@ -72,12 +73,25 @@ export function glanceSection(agent: Pick<AgentInfo, "glance" | "activity" | "st
   }
 }
 
+// reeveUnanswered is why an agent whose question to the Reeve went
+// unanswered (no Reeve runs, or ten minutes passed) needs the operator.
+export function reeveUnanswered(reeve: ReeveName = reeveName()): string {
+  return `${reeve.start} hasn't answered`
+}
+
+// reeveWaitLabel is the line a list gives an agent working because it waits
+// on the Reeve's answer, "" for any other.
+export function reeveWaitLabel(agent: AgentInfo, reeve: ReeveName = reeveName()): string {
+  return agent.waiting_on === "reeve" && glanceSection(agent) === "working" ? `◈ Waiting on ${reeve.mid}` : ""
+}
+
 // needsYouReason says why an agent needs the operator, "" when it does not.
-export function needsYouReason(agent: AgentInfo): string {
+export function needsYouReason(agent: AgentInfo, reeve: ReeveName = reeveName()): string {
   if (glanceSection(agent) !== "needs-you") return ""
   if (agent.activity === "error") return "Stopped on an error"
   if (agent.activity === "waiting") return "Waiting for your answer"
   if (agent.plan_pending) return "Plan to approve"
+  if (agent.waiting_on === "reeve") return reeveUnanswered(reeve)
   const items = (agent.open_items ?? 0) - (agent.open_done_items ?? 0)
   if (items > 1) return `${items} items for you`
   if (items === 1) return "An item for you"

@@ -67,10 +67,13 @@ type AgentResponse struct {
 	AttributionTaskID string `json:"attribution_task_id"`
 	ExecutionKind     string `json:"execution_kind,omitempty"`
 	WorkflowRunID     string `json:"workflow_run_id,omitempty"`
-	Title             string `json:"task_title"`
-	TmuxSession       string `json:"tmux_session"`
-	Command           string `json:"command"`
-	AgentKind         string `json:"agent_kind"`
+	// RunCard is the card a workflow run is for, on an agent that works on
+	// the run's own task (a step's agent, the run's reviewer).
+	RunCard     *service.RunCard `json:"run_card,omitempty"`
+	Title       string           `json:"task_title"`
+	TmuxSession string           `json:"tmux_session"`
+	Command     string           `json:"command"`
+	AgentKind   string           `json:"agent_kind"`
 	// Engram is the engram the agent runs as; absent for none.
 	Engram string `json:"engram,omitempty"`
 	// Group is the group the agent's task is in; absent for none.
@@ -139,14 +142,23 @@ type AgentStageFields struct {
 	// done notes, which a list marks unread.
 	PlanPending   bool `json:"plan_pending,omitempty"`
 	OpenDoneItems int  `json:"open_done_items,omitempty"`
+	// WaitingOn is "reeve" when the glance is the agent's wait on the
+	// Reeve's answer (working; needs_you once it has gone unanswered),
+	// with WaitingSince when it asked. See docs/ai/agent-states.md.
+	WaitingOn    string     `json:"waiting_on,omitempty"`
+	WaitingSince *time.Time `json:"waiting_since,omitempty"`
 }
 
 func agentStageFields(agent service.AgentSession) AgentStageFields {
-	return AgentStageFields{
+	fields := AgentStageFields{
 		Stage: agent.Stage, StageReason: agent.StageReason, StageSource: agent.StageSource,
 		StageSince: agent.StageSince, Glance: agent.Glance(),
 		PlanPending: agent.PlanPending, OpenDoneItems: agent.OpenDoneItems,
 	}
+	if agent.WaitingOnReeve() != "" {
+		fields.WaitingOn, fields.WaitingSince = "reeve", agent.ReeveWaitSince
+	}
+	return fields
 }
 
 // AgentClone is the job clone an agent works in: its repository (owner/name)
@@ -160,7 +172,7 @@ func agentResponse(agent service.AgentSession) AgentResponse {
 	return AgentResponse{
 		ID: agent.ID, TaskID: agent.TaskID, ExecutionID: agent.ExecutionID,
 		AttributionTaskID: agent.AttributionTaskID, ExecutionKind: agent.ExecutionKind,
-		WorkflowRunID: agent.WorkflowRunID, Title: agent.Title, TmuxSession: agent.TmuxSession,
+		WorkflowRunID: agent.WorkflowRunID, RunCard: agent.RunCard, Title: agent.Title, TmuxSession: agent.TmuxSession,
 		Command: agent.Command, AgentKind: agent.AgentKind, Engram: agent.Engram, Group: agent.Group, Status: agent.Status,
 		Activity: agent.Activity, OpenItems: agent.OpenItems, Role: agent.Role, ParentTaskID: agent.ParentTaskID,
 		SubtaskID: agent.SubtaskID, StartedAt: agent.StartedAt, EndedAt: agent.EndedAt,

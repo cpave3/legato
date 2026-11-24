@@ -206,3 +206,26 @@ func TestAWorkflowAddedBeforeStacksIsNotOfferedButNamed(t *testing.T) {
 		}
 	}
 }
+
+// A workflow run's loop that approved the card's pull requests counts as
+// their review, though it is kept on the run's own task (LEG-613); a push
+// after the approval asks again.
+func TestARunLoopThatApprovedTheCardsPRsRaisesNothing(t *testing.T) {
+	p := newPrompted(t, true)
+	p.move(t, "Done")
+	view := p.r.start(t, map[string]string{"repo": "acme/widget", "pr_number": "31"})
+	p.r.tick()
+	p.r.submit(t, view.Run.TaskID, service.ReviewSubmission{Summary: "All good."})
+	if shown := p.r.show(t, view.Run.ID); shown.Run.Status != "succeeded" {
+		t.Fatalf("run %q", shown.Run.Status)
+	}
+	if items := p.items(t); len(items) != 0 {
+		t.Fatalf("after an approving run: %+v", items)
+	}
+
+	setHead(t, p.r.worker.Store, "local/two", 32, "sha32-b")
+	items := p.items(t)
+	if len(items) != 1 || items[0].Title != "local-1 has 1 open PR not reviewed" {
+		t.Fatalf("after a push past the approval: %+v", items)
+	}
+}

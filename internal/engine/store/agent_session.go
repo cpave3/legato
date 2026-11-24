@@ -28,6 +28,11 @@ const agentSessionSelect = `SELECT a.*,
 	COALESCE(e.kind, '') AS execution_kind,
 	COALESCE(e.workflow_run_id, '') AS workflow_run_id,
 	COALESCE(e.workflow_attempt_id, '') AS workflow_attempt_id,
+	COALESCE(e.label, '') AS execution_label,
+	COALESCE((SELECT rw.since FROM reeve_waits rw WHERE e.id IS NOT NULL AND rw.execution_id = e.id AND rw.cleared_at IS NULL), '') AS reeve_wait_since,
+	COALESCE(rc.id, '') AS run_card_task_id,
+	COALESCE(NULLIF(TRIM(rc.remote_id), ''), rc.id, '') AS run_card_key,
+	COALESCE(rc.title, '') AS run_card_title,
 	COALESCE(e.engram, '') AS engram,
 	COALESCE(e.working_dir, '') AS working_dir,
 	COALESCE(c.repo, '') AS clone_repo,
@@ -43,8 +48,9 @@ const agentSessionSelect = `SELECT a.*,
 	FROM agent_sessions a
 	LEFT JOIN executions e ON e.agent_session_id = a.id
 	LEFT JOIN job_clones c ON e.working_dir != '' AND c.path = e.working_dir AND c.removed_at IS NULL
+	LEFT JOIN tasks rc ON rc.id = (SELECT wr.related_task_id FROM workflow_runs wr WHERE wr.task_id = a.task_id ORDER BY wr.created_at DESC LIMIT 1)
 	LEFT JOIN agent_stages ws ON ws.task_id = a.task_id AND ws.slot = a.slot
-		AND ws.place_execution_id = CASE WHEN e.kind = 'workflow_agent' THEN e.id ELSE '' END`
+		AND ws.place_execution_id = CASE WHEN e.kind = 'workflow_agent' AND COALESCE(e.task_id, '') != a.task_id THEN e.id ELSE '' END`
 
 func (s *Store) InsertAgentSession(ctx context.Context, a AgentSession) error {
 	result, err := s.db.NamedExecContext(ctx, `

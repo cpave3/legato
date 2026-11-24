@@ -148,6 +148,14 @@ describe("links between agents", () => {
     expect(edgeKinds(layout)).toEqual(["review_loop:t_reviewer->t"])
   })
 
+  it("links a task's other named slots to their card as a card slot, not a reviewer", () => {
+    const agents = [agent("t"), agent("t_triage", { card_task_id: "t", slot: "triage" })]
+    const layout = lay(agents)
+    expect(edgeKinds(layout)).toEqual(["slot:t_triage->t"])
+    expect(linkLines("t_triage", layout.edges, agents)).toEqual(["triage for t"])
+    expect(linkLines("t", layout.edges, agents)).toEqual(["has triage agent t_triage"])
+  })
+
   it("draws the server's links, with a peer message fading as it ages and gone after the window", () => {
     const links = [
       { kind: "review_loop", from: "r_reviewer", to: "a", label: "pass 2" },

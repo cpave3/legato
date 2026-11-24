@@ -72,6 +72,12 @@ func (a *ReviewPromptAttentionAdapter) unreviewed(ctx context.Context, task *sto
 		if reviews != nil && reviews.ActiveLoopOn(ctx, pr.Repo, pr.PRNumber) != nil {
 			return nil
 		}
+		// A loop that approved it at its head reviewed it, whichever task
+		// the loop is kept on: a workflow run's is on the run's own
+		// (LEG-613). A push since asks again.
+		if approved, err := a.db.ReviewApprovedHead(ctx, pr.Repo, pr.PRNumber, pr.Head); err == nil && approved {
+			continue
+		}
 		open = append(open, pr)
 	}
 	return open

@@ -65,7 +65,7 @@ The web dialogs for spawning an agent, or opening an agent for an existing task,
 Version 1 executes steps in declaration order and supports these executors. Legato also reads files with `schema_version: 2`, which say how a step starts with `start:` instead of `trigger:` (see [Schema version 2](#schema-version-2)):
 
 - `github.pr.prepare`: deterministically fetch an exact GitHub PR head, create a Yggdrasil worktree, and link the workflow task to the PR.
-- `agent.run`: launch a workflow-owned Legato agent with an explicit assignment and completion contract. Set `with.name` to customize the agent's visible name; workflow input references are supported. The agent is removed after completing its step, unless `with.keep_agent: true`: then its outputs are collected and the run moves on as usual, but the agent keeps running on the workflow task, for you to go on talking to. Follow it with a step with `trigger: agent_ended` to end the run (and remove a worktree) when that agent ends. Set `with.engram` to start the agent as one of your [engrams](/legato/agent-tools/engrams/), such as `engram: mneme` or `engram: ${{ workflow.inputs.engram }}`; without it the agent has none. A step whose engram engram does not know fails before the agent starts. Workflows do not use or change the engrams bound to a repository.
+- `agent.run`: launch a workflow-owned Legato agent with an explicit assignment and completion contract. Set `with.name` to name the agent in lists of agents (workflow input references are supported). It names that agent only: the run and its task keep the run's title. The agent is removed after completing its step, unless `with.keep_agent: true`: then its outputs are collected and the run moves on as usual, but the agent keeps running on the workflow task, for you to go on talking to. Follow it with a step with `trigger: agent_ended` to end the run (and remove a worktree) when that agent ends. Set `with.engram` to start the agent as one of your [engrams](/legato/agent-tools/engrams/), such as `engram: mneme` or `engram: ${{ workflow.inputs.engram }}`; without it the agent has none. A step whose engram engram does not know fails before the agent starts. Workflows do not use or change the engrams bound to a repository.
 - `agent.run` works in `with.working_dir`, in a fresh clone of `with.repo`, or in a scratch folder. A folder is for persistent work: a repository or project the agent changes, which outlives the run. Work that is about no folder, such as a daily digest, a summary or a check of a dashboard, sets `with.scratch: true` instead. Each attempt then works in a new, empty folder of its own (`<data_dir>/workflow-scratch/<attempt>`), which the sandbox shows the agent, as it shows a job clone. Legato removes the folder when the step completes. A step that fails, or keeps its agent, keeps its folder for a look, and Legato removes it a week later once nothing works in it. A retry gets a new folder. Nothing left in the folder is kept, so the step's result goes in its declared outputs: an artifact output copies a file out before the folder goes, and the agent's brief says so. `scratch` cannot be given with `working_dir` or `repo`.
 
   ```yaml
@@ -79,6 +79,18 @@ Version 1 executes steps in declaration order and supports these executors. Lega
       digest: {type: string}
   ```
 - `agent.run` with `with.task` (a task input or a task ID) runs the agent as that task's own agent instead of the workflow's: it shows on the task's card, reads that task's context, keeps its stage on the card, and its conversation can be resumed like any agent on the card. With `with.repo` it works in a fresh clone on the task's branch (`legato/<task>`), as an agent started on the card would; a live clone of the task is used again. A macro is sent as one started on the card is: the task's key and title, then the macro's text. The step still waits for the agent to complete it with its outputs, and removes the agent then unless `keep_agent` is set. A step whose task already has an agent running fails without touching it: stop that agent first, or message it with `agent.dispatch`. `task` cannot be given with `working_dir`, `scratch` or `name`.
+- `agent.run` with `with.task` and `with.slot` runs the agent in a named slot of that task's card, such as `triage`, `plan` or `review`, beside the card's own agent instead of in its place. It shows on the card and in the agents list and graph as "<card> · triage", keeps its stage there, and is removed after its step like any other, unless `keep_agent` is set. With `with.repo` it gets a fresh clone of its own on the branch `legato/<task>-<slot>`, so it never works in the card's agent's clone or pushes the card's branch, and the card's next agent never works in its clone. It leaves the card's repository and branch as they were. A step whose slot already has an agent running fails without touching it. A slot is named with lowercase letters, digits and dashes, starts with a letter, and is at most 32 characters long. It is written as it is, with no `${{ }}`, and is checked when the file loads. `main`, the default, is the card's own agent, and `reviewer` is kept for review passes. `slot` needs `task`. For example:
+
+  ```yaml
+  - id: triage
+    title: Triage
+    type: agent.run
+    with:
+      task: ${{ workflow.inputs.task }}
+      slot: triage
+      repo: ${{ workflow.inputs.repo }}
+      prompt: Triage this task and write what you find in a note.
+  ```
 
   ```yaml
   - id: implement
@@ -152,7 +164,7 @@ title: Review pull request
 run_title: Review PR #${{ workflow.inputs.pr_number }}
 ```
 
-`run_title` supports declared `workflow.inputs` references, including expanded task fields and metadata, but not step outputs or `${{ workflow.task }}`. The intrinsic workflow task does not exist until after the run title resolves, so using it here is rejected as circular. The title resolves after typed input and task/repository expansion and must produce a non-empty string. The resolved value is stored on the run and used for its Workflows execution task; omitting it preserves the definition `title`.
+`run_title` supports declared `workflow.inputs` references, including expanded task fields and metadata, but not step outputs or `${{ workflow.task }}`. The intrinsic workflow task does not exist until after the run title resolves, so using it here is rejected as circular. The title resolves after typed input and task/repository expansion and must produce a non-empty string. The resolved value is stored on the run and used for its Workflows execution task. Without `run_title`, a run is named by the definition's `title`, with ` · <card>` added when the workflow takes a `task` input: the card's ticket key, such as `LEG-603`, or its ID for a local card. An `agent.run` step's `with.name` never renames the run.
 
 Set `after_start` to control web navigation after a manual launch: `workflow` (the default) opens the run, `stay` closes the dialog without changing pages, and `agent` opens Agents focused on the selected task. `agent` requires exactly one required task input. This is presentation-only; it does not change workflow execution or automatic trigger behavior.
 
@@ -638,7 +650,9 @@ For a `worktree.remove` step, `--force` forwards Yggdrasil's force option and di
 
 Each run makes one task of its own, the execution task, in the **Workflows** workspace, which Legato manages. The **All** view of the board leaves these tasks out; switch to the **Workflows** workspace to see the runs in progress. When a run succeeds, its execution task moves to **Done** and is archived at once. A run that failed or was cancelled stays in its column, for you to deal with.
 
-The execution task is where the run's agents work, and `${{ workflow.task }}` and `LEGATO_TASK_ID` name it. When a workflow takes a `task` input, the task you chose is the run's subject, recorded beside the run; the run's agents still work on the execution task, so an agent already running on your task is not replaced. The run shows on that task's detail.
+The execution task is where the run's agents work, and `${{ workflow.task }}` and `LEGATO_TASK_ID` name it. When a workflow takes a `task` input, the task you chose is the run's subject, recorded beside the run; the run's agents still work on the execution task, so an agent already running on your task is not replaced. The run shows on that task's detail. An agent working on the execution task (a step's agent, or a review loop's reviewer) shows "for <card>" under its name in the agents rail, and the run's Attention items say which card they are for.
+
+A run's agent can send its questions to [the Reeve](/legato/using/reeve/) instead of you (the Ticket to PR macro does when its `ask_reeve` input is on). While it waits for the answer, it shows as **Waiting on the Reeve** on its card and in the agents list, not as your turn. If the Reeve has not answered within 10 minutes, or none is running, it moves to **Needs you** and says "The Reeve hasn't answered".
 
 Fixed steps run one after another until a step hands work to an agent. The run moves on when that agent reports that it completed or failed its step.
 

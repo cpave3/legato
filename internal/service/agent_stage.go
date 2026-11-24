@@ -77,7 +77,19 @@ type GlanceInput struct {
 	NeedsItems  int
 	PlanPending bool
 	Stage       string
+	// ReeveWait is whether the agent waits on the Reeve's answer (LEG-613).
+	ReeveWait string
 }
+
+// An agent's wait on the Reeve: it asked the Reeve with message_reeve and
+// no answer, nor turn of the operator's, has come since (reeve_waits).
+const (
+	// ReeveWaitOpen: the Reeve has it, inside ReeveAnswerWait.
+	ReeveWaitOpen = "waiting"
+	// ReeveWaitUnanswered: no Reeve runs, or it has not answered within
+	// ReeveAnswerWait, so the operator should know.
+	ReeveWaitUnanswered = "unanswered"
+)
 
 // Glance is an agent's glance group. It is the one rule every surface
 // sorts agents by: the web lists, the TUI, MQTT and the navigation summary.
@@ -91,7 +103,14 @@ func Glance(in GlanceInput) string {
 	case in.Activity == store.ActivityWorking, in.Activity == store.ActivityBackground:
 		return GlanceWorking
 	case in.Stage == store.WorkStageFinished:
+		// Finished wins over a wait: message_reeve also carries reports.
 		return GlanceFinished
+	case in.ReeveWait == ReeveWaitUnanswered:
+		return GlanceNeedsYou
+	case in.ReeveWait == ReeveWaitOpen:
+		// Its turn ended on a question to the Reeve: it works on the
+		// operator's behalf until the answer comes.
+		return GlanceWorking
 	}
 	return GlanceYourTurn
 }
@@ -100,7 +119,7 @@ func Glance(in GlanceInput) string {
 func (a AgentSession) Glance() string {
 	return Glance(GlanceInput{
 		Status: a.Status, Activity: a.Activity, NeedsItems: a.OpenItems - a.OpenDoneItems,
-		PlanPending: a.PlanPending, Stage: a.Stage,
+		PlanPending: a.PlanPending, Stage: a.Stage, ReeveWait: a.ReeveWait,
 	})
 }
 
@@ -131,7 +150,7 @@ func PlaceOf(a AgentSession) WorkStagePlace {
 	if place.TaskID == "" {
 		place.TaskID, _ = SplitAgentID(a.TaskID)
 	}
-	if executionPlace(a.ExecutionKind, a.AttributionTaskID, a.TaskID) {
+	if executionPlace(a.ExecutionKind, a.AttributionTaskID, place.TaskID) {
 		place.PlaceExecutionID = a.ExecutionID
 	}
 	return place

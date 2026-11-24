@@ -797,10 +797,14 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 // watch watches the agent a call that ran started or messaged, for the
 // set's Reeve session.
 func (c *ChangeSetService) watch(ctx context.Context, reeveTaskID string, call ProposedCall, body string) {
-	if c.opts.Watch == nil {
+	taskID := agentStartedBy(call.ChangeCall, body)
+	if taskID == "" {
 		return
 	}
-	if taskID := agentStartedBy(call.ChangeCall, body); taskID != "" {
+	// The Reeve turned to the agent: its answer, so the agent no longer
+	// waits on it (LEG-613).
+	endReeveWaitOf(ctx, c.opts.Store, taskID)
+	if c.opts.Watch != nil {
 		c.opts.Watch(ctx, reeveTaskID, taskID)
 	}
 }

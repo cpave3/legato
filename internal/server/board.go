@@ -110,6 +110,8 @@ func (s *Server) boardHandler() http.HandlerFunc {
 					resp.Columns[r.col].Cards[r.card].Stage = summary.Stage
 					resp.Columns[r.col].Cards[r.card].StageReason = summary.StageReason
 					resp.Columns[r.col].Cards[r.card].Glance = summary.Glance
+					resp.Columns[r.col].Cards[r.card].WaitingOn = summary.WaitingOn
+					resp.Columns[r.col].Cards[r.card].WaitingSince = summary.WaitingSince
 				}
 			}
 		}

@@ -178,6 +178,9 @@ func TestTheSchemaRefusesInvalidFiles(t *testing.T) {
 		"bad step trigger":    base + step + "    type: agent.run\n    trigger: later\n    with: {prompt: hi}\n",
 		"bad catch_up":        base + "on:\n  schedule: {cron: \"0 9 * * *\", catch_up: never}\n" + step + "    type: agent.run\n    with: {prompt: hi}\n",
 		"unknown trigger key": base + "on:\n  schedule: {cron: \"0 9 * * *\", when: now}\n" + step + "    type: agent.run\n    with: {prompt: hi}\n",
+		"bad slot name":       base + step + "    type: agent.run\n    with: {prompt: hi, task: x, slot: Triage}\n",
+		"reserved slot":       base + step + "    type: agent.run\n    with: {prompt: hi, task: x, slot: reviewer}\n",
+		"slot without task":   base + step + "    type: agent.run\n    with: {prompt: hi, slot: triage}\n",
 		"bad condition key":   base + "on:\n  task.entered_column: {column: Doing, conditions: {field: task.id, is: x}}\n" + step + "    type: agent.run\n    with: {prompt: hi}\n",
 	} {
 		if err := schema.Validate(asJSON(t, []byte(text))); err == nil {
@@ -193,6 +196,7 @@ func TestTheSchemaAcceptsWhatTheEngineDoes(t *testing.T) {
 		"a task from an earlier step": "schema_version: 1\nname: s\ntitle: S\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}, outputs: {task: {type: json}}}\n  - {id: b, title: B, type: task.metadata.set, with: {task: \"${{ steps.a.outputs.task }}\", values: {x: 1}}}\n",
 		"an empty step trigger":       "schema_version: 1\nname: s\ntitle: S\nsteps:\n  - {id: a, title: A, type: agent.run, trigger: '', with: {prompt: hi}}\n",
 		"a step with no with":         "schema_version: 1\nname: s\ntitle: S\nsteps:\n  - {id: a, title: A, type: task.note}\n",
+		"an agent in a card's slot":   "schema_version: 1\nname: s\ntitle: S\ninputs:\n  task: {type: task}\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi, task: \"${{ workflow.inputs.task }}\", repo: a/b, slot: triage}}\n",
 	} {
 		if _, err := workflow.Parse("s.yaml", []byte(text)); err != nil {
 			t.Fatalf("%s: the engine refuses it: %v", name, err)

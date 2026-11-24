@@ -122,7 +122,7 @@ func (f *FakeRepos) JobClone(_ context.Context, req service.JobCloneRequest) (st
 		return store.JobClone{}, fmt.Errorf("%w: %s has no branch %s", service.ErrBranchNotOnGitHub, req.Repo, req.Branch)
 	}
 	f.clones = append(f.clones, req)
-	if own, ok := f.live[req.TaskID+"@"+req.Repo]; ok && (req.CloneID == 0 || req.CloneID == own.ID) {
+	if own, ok := f.live[req.TaskID+"@"+req.Repo]; ok && !req.Own && (req.CloneID == 0 || req.CloneID == own.ID) {
 		return own, nil // joined: still the execution that made it
 	}
 	f.nextID++

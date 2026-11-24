@@ -73,6 +73,11 @@ export interface AgentInfo {
   attribution_task_id?: string
   execution_kind?: string
   workflow_run_id?: string
+  /** The card a workflow run is for, on an agent working on the run's own task (its step's agent, its reviewer). */
+  run_card?: { task_id: string; key: string; title: string }
+  /** "reeve" when the agent's glance is its wait on the Reeve's answer (working; needs_you once unanswered), since waiting_since. */
+  waiting_on?: string
+  waiting_since?: string
   task_title: string
   tmux_session: string
   command: string

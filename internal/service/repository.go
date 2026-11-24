@@ -391,6 +391,14 @@ type JobCloneRequest struct {
 	// CloneID, when set, is a job clone to work in instead of a new one.
 	// Without it, a task with a clone of Repo works in that one again.
 	CloneID int64
+	// Own asks for a new clone even when the task has a live clone of
+	// Repo: a reviewer's, which resets its tree before each pass and is
+	// removed when its loop ends, so it must never be an author's.
+	Own bool
+	// Slot is the task's agent slot the clone is for. A named slot's (a
+	// workflow's triage agent, a reviewer) is always new, never joined by
+	// the task's next agent, and leaves the task's code context alone.
+	Slot string
 }
 
 var executionName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -401,7 +409,7 @@ func (s *RepositoryService) JobDir(executionID string) string {
 }
 
 // JobClone gives a task a job clone to work in: the one CloneID names,
-// else the task's own clone of Repo when it has one, else a new clone of
+// else the task's own clone of Repo when it has one (unless Own), else a new clone of
 // the repository at the ref, at jobs/<execution>/<name> beside the cache,
 // whose objects it borrows. A new clone's origin names the repository on
 // GitHub; when the session's pushes do not go to Legato's proxy, they go
@@ -411,6 +419,10 @@ func (s *RepositoryService) JobClone(ctx context.Context, req JobCloneRequest) (
 	if !executionName.MatchString(req.ExecutionID) {
 		return store.JobClone{}, fmt.Errorf("%q is not an execution", req.ExecutionID)
 	}
+	named := IsNamedSlot(req.Slot)
+	if req.CloneID != 0 && named {
+		return store.JobClone{}, fmt.Errorf("an agent in the %s slot works in a clone of its own, not job clone %d", req.Slot, req.CloneID)
+	}
 	if req.CloneID != 0 {
 		clone, err := s.opts.Store.JobCloneByID(ctx, req.CloneID)
 		if err != nil {
@@ -418,7 +430,7 @@ func (s *RepositoryService) JobClone(ctx context.Context, req JobCloneRequest) (
 		}
 		return s.joinJobClone(ctx, req, *clone)
 	}
-	if own, err := s.opts.Store.LiveJobCloneForTask(ctx, req.TaskID, req.Repo); err == nil {
+	if own, err := s.opts.Store.LiveJobCloneForTask(ctx, req.TaskID, req.Repo); err == nil && !req.Own && !named {
 		if _, statErr := os.Lstat(own.Path); statErr == nil {
 			return s.joinJobClone(ctx, req, *own)
 		}
@@ -460,13 +472,18 @@ func (s *RepositoryService) JobClone(ctx context.Context, req JobCloneRequest) (
 		return store.JobClone{}, fmt.Errorf("checking out %s: %w", req.Repo, err)
 	}
 	clone := store.JobClone{ExecutionID: req.ExecutionID, TaskID: req.TaskID, Repo: req.Repo, Ref: req.Ref, Branch: branch,
-		Path: dest, CreatedAt: s.opts.Now(), TaskIDs: []string{req.TaskID}}
+		Path: dest, CreatedAt: s.opts.Now(), TaskIDs: []string{req.TaskID}, Slot: store.SlotMain}
+	if named {
+		clone.Slot = req.Slot
+	}
 	clone.LastUsedAt = clone.CreatedAt
 	if clone.ID, err = s.opts.Store.CreateJobClone(ctx, clone); err != nil {
 		_ = os.RemoveAll(dest)
 		return store.JobClone{}, err
 	}
-	s.recordCodeContext(ctx, clone, base)
+	if !named {
+		s.recordCodeContext(ctx, clone, base)
+	}
 	return clone, nil
 }
 

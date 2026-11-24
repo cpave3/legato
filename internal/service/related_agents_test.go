@@ -1,6 +1,9 @@
 package service
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestSummarizeRelatedAgentsGroupsByAttributionAndDetectsMixedState(t *testing.T) {
 	agents := []AgentSession{
@@ -91,5 +94,20 @@ func TestSummarizeRelatedAgentsKeepsTheMainAgentsOwnStateBesideAWaitingSlot(t *t
 	})
 	if got := summaries["t1"]; got.State != "waiting" || got.MainState != "working" {
 		t.Fatalf("summary = %+v", got)
+	}
+}
+
+// A card's agent that waits on the Reeve says so, with since when (LEG-613).
+func TestACardsAgentWaitingOnTheReeveSaysSo(t *testing.T) {
+	since := time.Date(2026, 11, 24, 5, 0, 0, 0, time.UTC)
+	summaries := SummarizeRelatedAgents([]AgentSession{
+		{TaskID: "task-a", AttributionTaskID: "task-a", Status: "running", Stage: "implementing", ReeveWait: ReeveWaitOpen, ReeveWaitSince: &since},
+		{TaskID: "task-b", AttributionTaskID: "task-b", Status: "running", Stage: "implementing"},
+	})
+	if got := summaries["task-a"]; got.WaitingOn != "reeve" || got.WaitingSince == nil || !got.WaitingSince.Equal(since) || got.Glance != GlanceWorking {
+		t.Fatalf("task-a = %#v", got)
+	}
+	if got := summaries["task-b"]; got.WaitingOn != "" || got.WaitingSince != nil {
+		t.Fatalf("task-b = %#v", got)
 	}
 }

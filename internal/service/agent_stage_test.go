@@ -219,6 +219,14 @@ func TestGlance(t *testing.T) {
 		{"idle mid-work is your turn", GlanceInput{Status: "running", Stage: store.WorkStageImplementing}, GlanceYourTurn},
 		{"no stage recorded, idle, is your turn", GlanceInput{Status: "running"}, GlanceYourTurn},
 		{"ended", GlanceInput{Status: "dead", Activity: store.ActivityWaiting}, GlanceEnded},
+		// Waiting on the Reeve (LEG-613).
+		{"idle waiting on the Reeve is working", GlanceInput{Status: "running", Stage: store.WorkStageImplementing, ReeveWait: ReeveWaitOpen}, GlanceWorking},
+		{"working while waiting on the Reeve is working", GlanceInput{Status: "running", Activity: store.ActivityWorking, ReeveWait: ReeveWaitOpen}, GlanceWorking},
+		{"a finished agent that reported to the Reeve is finished", GlanceInput{Status: "running", Stage: store.WorkStageFinished, ReeveWait: ReeveWaitOpen}, GlanceFinished},
+		{"a question beside a Reeve wait needs you", GlanceInput{Status: "running", NeedsItems: 1, ReeveWait: ReeveWaitOpen}, GlanceNeedsYou},
+		{"a permission prompt beside a Reeve wait needs you", GlanceInput{Status: "running", Activity: store.ActivityWaiting, ReeveWait: ReeveWaitOpen}, GlanceNeedsYou},
+		{"a Reeve wait no one answers needs you", GlanceInput{Status: "running", Stage: store.WorkStageImplementing, ReeveWait: ReeveWaitUnanswered}, GlanceNeedsYou},
+		{"a finished agent's unanswered report is finished", GlanceInput{Status: "running", Stage: store.WorkStageFinished, ReeveWait: ReeveWaitUnanswered}, GlanceFinished},
 	}
 	for _, c := range cases {
 		if got := Glance(c.in); got != c.want {

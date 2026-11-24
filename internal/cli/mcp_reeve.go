@@ -621,12 +621,14 @@ func (m *mcpTools) messageOwnReeve() mcpserver.Tool {
 		Description: "Sends a message to this Legato's Reeve: the agent that runs this Legato instance and may have started you. " +
 			"Use it when the Reeve asked you to report to it (say what you finished, the pull requests, what is left), or to ask it something you need answered. " +
 			"It is told between its own turns, within a minute or so, and a suspended Reeve is woken for it. Its answer, if any, comes as a message in this conversation; do not wait idle for one unless you are blocked. " +
+			"When you are blocked on its answer, end your turn: Legato shows you as waiting on the Reeve until it answers or the operator writes to you, and tells the operator if it has not answered within 10 minutes. " +
 			"Record findings that should last in a task note as well (add_task_note): the Reeve and the operator read those.",
 	}, func(ctx context.Context, in messageOwnReeveInput) (mcpserver.Result, error) {
-		if _, err := m.session(ctx); err != nil {
+		session, err := m.session(ctx)
+		if err != nil {
 			return mcpserver.Result{}, err
 		}
-		out, err := service.MessageReeve(ctx, m.opts.Store, m.opts.TaskID, in.Text, time.Now().UTC())
+		out, err := service.MessageReeve(ctx, m.opts.Store, m.opts.TaskID, session.ExecutionID, in.Text, time.Now().UTC())
 		if err != nil {
 			return mcpserver.Result{}, err
 		}

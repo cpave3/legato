@@ -59,6 +59,10 @@ export interface BoardCard {
   // finished), which the strip leads with; absent with no main agent or
   // from an older server.
   glance?: string
+  // "reeve" when that agent waits on the Reeve's answer (glance working;
+  // needs_you once it has gone unanswered), since waiting_since.
+  waiting_on?: string
+  waiting_since?: string
   working_seconds: number
   waiting_seconds: number
   error_seconds: number

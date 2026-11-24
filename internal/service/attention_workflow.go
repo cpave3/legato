@@ -43,7 +43,9 @@ type workflowAttentionState struct {
 	revision string
 	runTitle string
 	// title, when set, is the item's in place of the run's.
-	title  string
+	title string
+	// card names the run's related card, "" for none.
+	card   string
 	taskID string
 	reason string
 	action AttentionAction
@@ -64,7 +66,12 @@ func (a *WorkflowAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInp
 			if err != nil {
 				return nil, fmt.Errorf("loading workflow run %s for attention: %w", run.ID, err)
 			}
-			states = append(states, a.collectRunStates(run, view)...)
+			runStates := a.collectRunStates(run, view)
+			for i := range runStates {
+				// The item's task is the run's own: name the card it is for.
+				runStates[i].card = runCardDetail(run)
+			}
+			states = append(states, runStates...)
 		}
 	}
 	items := make([]AttentionInput, 0, len(states))
@@ -91,7 +98,7 @@ func (a *WorkflowAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInp
 		items = append(items, AttentionInput{
 			SignalKind: signalKind,
 			SourceKey:  fmt.Sprintf("%s:%s", s.runID, s.stepID), SourceRevision: s.revision,
-			TaskID: s.taskID, Title: title, Reason: s.reason,
+			TaskID: s.taskID, Title: title, Reason: s.reason, Detail: s.card,
 			Category: "workflow", Urgency: urgency,
 			Navigation: AttentionNavigation{Kind: "workflow_run", Target: s.runID},
 			Actions: append([]AttentionAction{
@@ -101,6 +108,17 @@ func (a *WorkflowAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInp
 		})
 	}
 	return items, nil
+}
+
+// runCardDetail names the card a run is for, "" for none.
+func runCardDetail(run store.WorkflowRun) string {
+	if run.RelatedTaskKey == "" {
+		return ""
+	}
+	if run.RelatedTaskTitle == "" {
+		return "For " + run.RelatedTaskKey
+	}
+	return "For " + run.RelatedTaskKey + ": " + run.RelatedTaskTitle
 }
 
 func (a *WorkflowAttentionAdapter) collectRunStates(run store.WorkflowRun, view *store.WorkflowRunView) []workflowAttentionState {

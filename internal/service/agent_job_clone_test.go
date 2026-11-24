@@ -122,6 +122,24 @@ func TestAJobCloneIsOnABranchOfTheTasksOwn(t *testing.T) {
 	}
 }
 
+// An agent in a named slot of a card asks for a clone of its own, on a
+// branch of the slot's, so it never pushes to the card's (LEG-618).
+func TestASlottedAgentsCloneIsItsOwnOnTheSlotsBranch(t *testing.T) {
+	svc, db, _ := newTestAgentService(t)
+	cloner := &recordingCloner{root: t.TempDir()}
+	svc.(*agentService).SetRepositories(cloner)
+	ctx := context.Background()
+	if err := db.CreateTask(ctx, store.Task{ID: "LEG-7", Title: "Job", Status: "Doing"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SpawnAgent(ctx, "LEG-7", 80, 24, AgentSpawnOptions{Repo: "acme/widget", Slot: "triage"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := cloner.requests[0]; got.Slot != "triage" || got.FreshBranch != "legato/leg-7-triage" {
+		t.Fatalf("request = %+v", got)
+	}
+}
+
 // An agent can be started in a job clone another task made, for the next
 // branch of a stack.
 func TestSpawningInAJobCloneJoinsIt(t *testing.T) {

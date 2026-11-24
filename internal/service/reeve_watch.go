@@ -8,6 +8,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -21,6 +22,10 @@ import (
 // nothing. Check runs in the process that serves the broker.
 type ReeveWatcher struct {
 	opts ReeveWatcherOptions
+	// waitsAt is the last check's time, from which a wait on the Reeve
+	// passing ReeveAnswerWait is told once.
+	waitsMu sync.Mutex
+	waitsAt time.Time
 }
 
 // ReeveWatchSettings are the reeve.watch.* settings, read at each check.
@@ -50,6 +55,9 @@ type ReeveWatcherOptions struct {
 	Conversation func(ctx context.Context, taskID string) (*ConversationTail, error)
 	Settings     func(ctx context.Context) ReeveWatchSettings
 	Now          func() time.Time
+	// WaitsDue is called when an agent's wait on the Reeve passes
+	// ReeveAnswerWait between two checks (NotifyReeveWaitChanged when nil).
+	WaitsDue func()
 }
 
 // NewReeveWatcher makes a watcher.
@@ -59,6 +67,9 @@ func NewReeveWatcher(opts ReeveWatcherOptions) *ReeveWatcher {
 	}
 	if opts.Settings == nil {
 		opts.Settings = func(context.Context) ReeveWatchSettings { return ReeveWatchSettings{Started: true} }
+	}
+	if opts.WaitsDue == nil {
+		opts.WaitsDue = func() { NotifyReeveWaitChanged("") }
 	}
 	return &ReeveWatcher{opts: opts}
 }
@@ -407,6 +418,7 @@ func prState(pr store.PRMeta) string {
 // told, and tells it when it is between turns (or, with Wake on, when no
 // session runs). It returns how many messages it sent.
 func (w *ReeveWatcher) Check(ctx context.Context) int {
+	w.checkWaits(ctx)
 	settings := w.opts.Settings(ctx)
 	if settings.Settle <= 0 {
 		settings.Settle = ReeveWatchSettleDefault
@@ -419,6 +431,18 @@ func (w *ReeveWatcher) Check(ctx context.Context) int {
 		w.checkOne(ctx, watch, settings)
 	}
 	return w.deliver(ctx, settings)
+}
+
+// checkWaits tells the lists when an agent's wait on the Reeve went
+// unanswered since the last check: its glance moved to Needs you.
+func (w *ReeveWatcher) checkWaits(ctx context.Context) {
+	w.waitsMu.Lock()
+	defer w.waitsMu.Unlock()
+	now := w.opts.Now()
+	if !w.waitsAt.IsZero() && ReeveWaitsDue(ctx, w.opts.Store, w.waitsAt, now) {
+		w.opts.WaitsDue()
+	}
+	w.waitsAt = now
 }
 
 func (w *ReeveWatcher) checkOne(ctx context.Context, watch store.ReeveWatch, settings ReeveWatchSettings) {
@@ -811,7 +835,7 @@ type ReeveMessageOutcome struct {
 // it between the Reeve's turns, beside what watched agents did, and resumes
 // a suspended session for it. It needs only the store, so it works from
 // any process: the host's broker or an agent's own `legato mcp serve`.
-func MessageReeve(ctx context.Context, db *store.Store, taskID, text string, at time.Time) (ReeveMessageOutcome, error) {
+func MessageReeve(ctx context.Context, db *store.Store, taskID, executionID, text string, at time.Time) (ReeveMessageOutcome, error) {
 	text = strings.TrimSpace(text)
 	switch {
 	case text == "":
@@ -828,6 +852,14 @@ func MessageReeve(ctx context.Context, db *store.Store, taskID, text string, at 
 	raw, _ := json.Marshal(e)
 	if err := db.QueueReeveWatchEvent(ctx, taskID, string(raw)); err != nil {
 		return ReeveMessageOutcome{}, err
+	}
+	// Its agent now waits on the Reeve's answer, until the Reeve or the
+	// operator turns to it (LEG-613).
+	if executionID != "" {
+		if err := db.OpenReeveWait(ctx, taskID, executionID, at); err != nil {
+			return ReeveMessageOutcome{}, err
+		}
+		NotifyReeveWaitChanged(taskID)
 	}
 	current, err := db.CurrentReeveSession(ctx)
 	if err != nil || current == nil {

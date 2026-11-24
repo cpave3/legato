@@ -49,6 +49,14 @@ type TmuxManager interface {
 }
 
 // AgentSession represents a running or completed agent session.
+// RunCard is a board card a workflow run is for: its ID, the key a person
+// knows it by (its ticket's, else its ID) and its title.
+type RunCard struct {
+	TaskID string `json:"task_id"`
+	Key    string `json:"key"`
+	Title  string `json:"title"`
+}
+
 type AgentSession struct {
 	ID                int
 	TaskID            string // backing task used for session controls
@@ -59,6 +67,10 @@ type AgentSession struct {
 	// WorkflowAttemptID is the step attempt that started it, with
 	// WorkflowRunID.
 	WorkflowAttemptID string
+	// RunCard is the card a workflow run is for when this agent works on
+	// the run's own task (a step's agent, the run's reviewer), nil
+	// otherwise: the run's task is named after the run, not the card.
+	RunCard *RunCard
 	// Engram is the engram the agent runs as, "" for none.
 	Engram        string
 	Title         string
@@ -123,6 +135,11 @@ type AgentSession struct {
 	StageReason string
 	StageSource string
 	StageSince  *time.Time
+	// ReeveWaitSince is when the agent asked the Reeve something it has not
+	// answered yet (nor the operator taken a turn), nil for no wait;
+	// ReeveWait is that wait's state (ReeveWaitOpen, ReeveWaitUnanswered).
+	ReeveWaitSince *time.Time
+	ReeveWait      string
 }
 
 // NeedsOperator says whether a running agent waits on the operator: its
@@ -183,6 +200,9 @@ type DurationData struct {
 // to inject role tags, scope-based conflict checks, a role system prompt, and
 // the per-worker initial brief that the launch command delivers.
 type AgentSpawnOptions struct {
+	// Label names this agent in lists in place of its task's title (an
+	// agent.run step's with.name); kept on its execution.
+	Label        string
 	Role         string   // free-form role label (e.g. "conductor", "backend"); "" for non-swarm
 	ParentTaskID string   // parent task ID when spawning a swarm sub-task
 	SubtaskID    string   // sub-task ID being assigned
@@ -881,8 +901,14 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		if repos == nil {
 			return fmt.Errorf("%s: Legato clones repositories for agents with a github credential, and none is configured", opt.Repo)
 		}
+		// A named slot's agent (a workflow's triage agent) gets a clone of
+		// its own on a branch of its own, so it never pushes the card's.
+		fresh := "legato/" + strings.ToLower(taskID)
+		if named {
+			fresh += "-" + slot
+		}
 		clone, err := repos.JobClone(ctx, JobCloneRequest{ExecutionID: executionID, TaskID: taskID, Repo: opt.Repo, Ref: opt.Ref,
-			Branch: opt.Branch, FreshBranch: "legato/" + strings.ToLower(taskID), CloneID: opt.Clone, PushedBranch: opt.PushedBranch})
+			Branch: opt.Branch, FreshBranch: fresh, CloneID: opt.Clone, PushedBranch: opt.PushedBranch, Slot: slot})
 		if err != nil {
 			return err
 		}
@@ -1191,7 +1217,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		WorkflowRunID: opt.WorkflowRunID, WorkflowAttemptID: opt.WorkflowAttemptID,
 		SwarmID: opt.SwarmID, SwarmSubtaskID: opt.SubtaskID,
 		AgentKind: agentKind, Role: opt.Role, WorkingDir: workDir, StartedAt: time.Now().UTC(),
-		SubagentTelemetry: reportsSubagents(adapter),
+		SubagentTelemetry: reportsSubagents(adapter), Label: strings.TrimSpace(opt.Label),
 	}
 	if err := a.store.CreateExecution(ctx, execution); err != nil {
 		return fmt.Errorf("creating execution: %w", err)
@@ -1980,6 +2006,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 	liveCmds, _ := a.tmux.PaneCommands()
 
 	result := make([]AgentSession, len(sessions))
+	var reeveRuns *bool // read once, when an agent waits on the Reeve
 	for i, s := range sessions {
 		startedAt, err := time.Parse("2006-01-02 15:04:05", s.StartedAt)
 		if err != nil {
@@ -2003,6 +2030,9 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			if task.Group != nil {
 				group = *task.Group
 			}
+		}
+		if s.ExecutionLabel != "" {
+			title = s.ExecutionLabel // an agent.run step's name for its agent
 		}
 
 		parentID := ""
@@ -2056,6 +2086,17 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			StageReason:       s.WorkStageReason,
 			StageSource:       s.WorkStageSource,
 			StageSince:        parseStageTime(s.WorkStageSince),
+		}
+		if since, err := time.Parse(time.RFC3339, s.ReeveWaitSince); err == nil && s.ReeveWaitSince != "" {
+			if reeveRuns == nil {
+				current, _ := a.store.CurrentReeveSession(ctx)
+				runs := current != nil
+				reeveRuns = &runs
+			}
+			result[i].ReeveWaitSince, result[i].ReeveWait = &since, reeveWaitState(since, *reeveRuns, time.Now())
+		}
+		if s.RunCardTaskID != "" {
+			result[i].RunCard = &RunCard{TaskID: s.RunCardTaskID, Key: s.RunCardKey, Title: s.RunCardTitle}
 		}
 		if s.Status == "running" {
 			result[i].BackgroundJobs = s.BackgroundJobs
@@ -2462,11 +2503,11 @@ func (a *agentService) ListPeers(ctx context.Context, taskID, executionID, direc
 // SendPeerMessage queues a coordination message so busy structured agents
 // receive it at their next supported step boundary.
 func (a *agentService) SendPeerMessage(ctx context.Context, senderTaskID, recipientID, message string) error {
-	recipientTaskID, err := a.resolveAgentAddress(ctx, recipientID)
+	recipientCtx, recipientTaskID, err := a.resolveAgentAddress(ctx, recipientID)
 	if err != nil {
 		return err
 	}
-	if err := a.QueueMessage(ctx, recipientTaskID, formatPeerMessage(senderTaskID, message)); err != nil {
+	if err := a.QueueMessage(recipientCtx, recipientTaskID, formatPeerMessage(senderTaskID, message)); err != nil {
 		return err
 	}
 	// Who messaged whom, never what, for the graph of agents. A message
@@ -2484,24 +2525,31 @@ func (a *agentService) SendPeerMessage(ctx context.Context, senderTaskID, recipi
 	return nil
 }
 
-func (a *agentService) resolveAgentAddress(ctx context.Context, address string) (string, error) {
+// resolveAgentAddress is the task, and the context that addresses its slot,
+// of the agent an address names: a task ID (its main slot), else a running
+// execution's ID, whose own slot it keeps, so a reviewer's execution is
+// told and not its task's main agent.
+func (a *agentService) resolveAgentAddress(ctx context.Context, address string) (context.Context, string, error) {
 	if _, err := a.store.GetAgentSessionByTaskID(ctx, address); err == nil {
-		return address, nil
+		return ctx, address, nil
 	} else if !errors.Is(err, store.ErrNotFound) {
-		return "", err
+		return ctx, "", err
 	}
 	execution, err := a.store.GetExecution(ctx, address)
 	if err != nil {
-		return "", fmt.Errorf("agent address %s: %w", address, err)
+		return ctx, "", fmt.Errorf("agent address %s: %w", address, err)
 	}
 	if execution.Status != store.ExecutionRunning || execution.ExecutionTaskID == "" || execution.AgentSessionID == nil {
-		return "", fmt.Errorf("execution %s is not a live addressable agent", address)
+		return ctx, "", fmt.Errorf("execution %s is not a live addressable agent", address)
 	}
 	session, err := a.store.GetAgentSessionByID(ctx, *execution.AgentSessionID)
 	if err != nil || session.Status != "running" || session.TaskID != execution.ExecutionTaskID {
-		return "", fmt.Errorf("execution %s is not linked to a live agent session", address)
+		return ctx, "", fmt.Errorf("execution %s is not linked to a live agent session", address)
 	}
-	return execution.ExecutionTaskID, nil
+	if IsNamedSlot(session.Slot) {
+		ctx = WithAgentSlot(ctx, session.Slot)
+	}
+	return ctx, execution.ExecutionTaskID, nil
 }
 
 // formatPeerMessage frames another agent's words for delivery. The opening

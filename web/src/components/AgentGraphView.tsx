@@ -26,6 +26,7 @@ import { agentLook, subagentLook } from "./agent-graph/look"
 import { StageMenu } from "./StageMenu"
 import { LoadingState } from "./ui/LoadingState"
 import { coalesce, isRunChange } from "../lib/querySync"
+import { useReeveName } from "../lib/reeveName"
 
 export interface AgentGraphViewProps {
   agents: AgentInfo[]
@@ -287,8 +288,9 @@ function SelectionCard({ node, layout, agents, phone, onOpen, onSend, onClose, o
 }) {
   const agent = agents.find((candidate) => candidate.task_id === node.agentId)
   const [draft, setDraft] = useState("")
+  const reeve = useReeveName()
   if (!agent) return null
-  const look = agentLook(agent)
+  const look = agentLook(agent, reeve)
   const time = formatAgentTime(stateSeconds(agent))
   const sub = node.kind === "subagent" ? node : null
   const subLook = sub ? subagentLook(sub.state) : null

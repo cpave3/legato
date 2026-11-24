@@ -87,6 +87,19 @@ type ReviewGitHubPR struct {
 	// name: Legato fetched its head for review, and its tip is not
 	// compared.
 	Fetched bool
+	// LocalBranch is the branch of the checkout the pull request is put
+	// on when it is not Branch (a run's reviewer clone: GitHub's head
+	// branch, or legato-review/pr-<n> for a fork's); "" means Branch.
+	LocalBranch string
+}
+
+// checkoutBranch is the branch of the checkout that holds the pull
+// request's head.
+func (pr ReviewGitHubPR) checkoutBranch() string {
+	if pr.LocalBranch != "" {
+		return pr.LocalBranch
+	}
+	return pr.Branch
 }
 
 // ReviewGitHub is what a review pass asks of GitHub: ReviewPublisher, as
@@ -446,9 +459,9 @@ func (s *ReviewPassService) ready(ctx context.Context, l ReviewLoop, loop *store
 		if pr.Fetched {
 			continue // no local branch to compare: reviewed at GitHub's head
 		}
-		tip, err := s.opts.Checkout.Tip(ctx, dir, pr.Branch)
+		tip, err := s.opts.Checkout.Tip(ctx, dir, pr.checkoutBranch())
 		if err != nil || tip != pr.HeadSHA {
-			mismatch = append(mismatch, fmt.Sprintf("%s is at %s here and %s on GitHub (#%d)", pr.Branch, short(tip), short(pr.HeadSHA), pr.Number))
+			mismatch = append(mismatch, fmt.Sprintf("%s is at %s here and %s on GitHub (#%d)", pr.checkoutBranch(), short(tip), short(pr.HeadSHA), pr.Number))
 		}
 	}
 	if _, clean, err := s.opts.Checkout.State(ctx, dir); err != nil || !clean {
@@ -552,7 +565,7 @@ func (s *ReviewPassService) startPass(ctx context.Context, l ReviewLoop, loop *s
 			return s.stuck(ctx, l, loop, "Legato could not pin the head of #"+fmt.Sprint(pr.Number)+": "+err.Error())
 		}
 		pinned = append(pinned, store.HandoffReviewPR{TaskID: l.TaskID, Pass: pass, Repo: l.Repo, Number: pr.Number, Branch: pr.Branch,
-			Base: pr.Base, Title: pr.Title, Body: pr.Body, URL: pr.URL, HeadSHA: pr.HeadSHA, Author: pr.Author})
+			Base: pr.Base, Title: pr.Title, Body: pr.Body, URL: pr.URL, HeadSHA: pr.HeadSHA, Author: pr.Author, LocalBranch: pr.LocalBranch, HeadRepo: pr.HeadRepo})
 	}
 	if err := s.db.InsertHandoffReviewPass(ctx, record, pinned); err != nil {
 		return err

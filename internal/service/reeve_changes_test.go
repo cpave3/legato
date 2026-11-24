@@ -398,3 +398,83 @@ func TestAConfigEditOfAnOwnRuleNeedsASignature(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The Reeve's answer, a change set that messages the agent, reaches the
+// agent its address names and ends that agent's wait on it, and no other's:
+// by execution ID (a reviewer's too), or by agent ID (LEG-613). The change
+// set's legato agent message is routed through the agent service, as the
+// host runs it.
+func TestTheReevesAnswerEndsTheAgentsWait(t *testing.T) {
+	f := newChangeSetFixture(t)
+	ctx := context.Background()
+	db := f.devices.db
+	mt := newMockTmux()
+	agents := NewAgentService(db, mt, t.TempDir())
+	f.svc.opts.RunLegato = func(ctx context.Context, args []string) (int, string, error) {
+		if len(args) == 4 && args[0] == "agent" && args[1] == "message" {
+			if err := agents.SendPeerMessage(ctx, "", args[2], args[3]); err != nil {
+				return 1, err.Error(), nil
+			}
+			return 0, "sent", nil
+		}
+		return 1, "not routed", nil
+	}
+	createTask(t, db, "T-1")
+	execution := map[string]string{}
+	for _, slot := range []string{store.SlotMain, "reviewer"} {
+		opts := AgentSpawnOptions{AgentKind: "shell", WorkingDir: t.TempDir()}
+		if slot != store.SlotMain {
+			opts.Slot = slot
+		}
+		if err := agents.SpawnAgent(ctx, "T-1", 0, 0, opts); err != nil {
+			t.Fatal(err)
+		}
+		session, err := db.GetAgentSessionInSlot(ctx, "T-1", slot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		execution[slot] = session.ExecutionID
+		if _, err := MessageReeve(ctx, db, "T-1", session.ExecutionID, "One PR or two?", time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waiting := func(slot string) bool {
+		t.Helper()
+		session, err := db.GetAgentSessionInSlot(ctx, "T-1", slot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return session.ReeveWaitSince != ""
+	}
+	received := func(tmux string) bool {
+		mt.mu.Lock()
+		defer mt.mu.Unlock()
+		for _, m := range mt.sentMultiline[tmux] {
+			if strings.Contains(m, "One PR.") {
+				return true
+			}
+		}
+		return false
+	}
+	answer := func(address string) {
+		t.Helper()
+		out, err := f.svc.Propose(ctx, f.reeve, "answer", []ChangeCall{{Kind: CallLegato, Args: []string{"agent", "message", address, "One PR."}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.decide(t, out.ApprovalID, ApprovalAllow, "")
+		f.svc.RunQueued(ctx)
+	}
+
+	answer(execution["reviewer"])
+	if !received("legato-T-1_reviewer") || received("legato-T-1") {
+		t.Fatal("an answer to the reviewer's execution did not reach the reviewer alone")
+	}
+	if waiting("reviewer") || !waiting(store.SlotMain) {
+		t.Fatalf("after answering the reviewer: reviewer waits %v, main waits %v", waiting("reviewer"), waiting(store.SlotMain))
+	}
+	answer("T-1")
+	if !received("legato-T-1") || waiting(store.SlotMain) {
+		t.Fatal("the Reeve answered the main agent and it still waits, or was not told")
+	}
+}

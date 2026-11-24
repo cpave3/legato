@@ -115,6 +115,15 @@ func (s *WorkflowService) SetAgentKinds(kinds []string) {
 	s.agentKinds = append([]string(nil), kinds...)
 }
 
+// cardKey is the key a person knows a task by: its ticket's (LEG-603),
+// else its own ID.
+func cardKey(task *store.Task) string {
+	if task.RemoteID != nil && strings.TrimSpace(*task.RemoteID) != "" {
+		return strings.TrimSpace(*task.RemoteID)
+	}
+	return task.ID
+}
+
 func (s *WorkflowService) Start(ctx context.Context, definition *workflowengine.Definition, rawInputs map[string]string) (*store.WorkflowRunView, error) {
 	return s.start(ctx, definition, rawInputs, "")
 }
@@ -128,7 +137,7 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 	if err != nil {
 		return nil, err
 	}
-	relatedTaskID := ""
+	relatedTaskID, relatedKey := "", ""
 	for key, spec := range definition.Inputs {
 		switch spec.Type {
 		case "task":
@@ -139,7 +148,7 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 			}
 			inputs[key] = workflowTaskContext(task)
 			if relatedTaskID == "" {
-				relatedTaskID = task.ID
+				relatedTaskID, relatedKey = task.ID, cardKey(task)
 			}
 		case "repository":
 			value, _ := inputs[key].(string)
@@ -162,6 +171,11 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 	runTitle, err := definition.ResolveRunTitle(inputs)
 	if err != nil {
 		return nil, err
+	}
+	if definition.RunTitle == "" && relatedKey != "" {
+		// A run for a card is named after it: several runs of one
+		// workflow tell apart on the board and the run page.
+		runTitle += " · " + relatedKey
 	}
 	for _, step := range definition.Steps {
 		if _, ok := s.executors[step.Type]; !ok {
@@ -304,7 +318,7 @@ func (s *WorkflowService) enrichWorkflowAttention(ctx context.Context, view *sto
 		if attempt.ExecutorType != "agent.run" || attempt.Status != "waiting_agent" {
 			continue
 		}
-		session, err := s.store.GetAgentSessionByTaskID(ctx, attempt.TaskID)
+		session, err := attemptAgentSession(ctx, s.store, *attempt)
 		if err != nil {
 			attempt.NeedsAttention = true
 			attempt.AttentionReason = "agent session ended before step completion"
@@ -348,6 +362,13 @@ func (s *WorkflowService) ListRuns(ctx context.Context, filter store.WorkflowRun
 		return nil, err
 	}
 	s.addRunOutputWarnings(ctx, runs)
+	for i := range runs {
+		if runs[i].RelatedTaskID != "" {
+			if task, err := s.store.GetTask(ctx, runs[i].RelatedTaskID); err == nil {
+				runs[i].RelatedTaskKey = cardKey(task)
+			}
+		}
+	}
 	for i := range runs {
 		if runs[i].Status != "running" && runs[i].Status != "waiting" {
 			continue

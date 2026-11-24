@@ -129,9 +129,10 @@ func (m *Model) SetVoiceEnabled(v bool) {
 }
 
 // ReeveName is the Reeve's name as the agents list last gave it, "" when
-// it has none or its agent is not listed.
+// it has none or its agent is not listed, whatever the filter shows.
 func (m Model) ReeveName() service.ReeveName {
-	for _, a := range m.agents {
+	// The whole list: a filter may hide the Reeve, not its name.
+	for _, a := range m.all {
 		if a.Reeve {
 			return service.ReeveName(a.ReeveName)
 		}
@@ -576,7 +577,7 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 		return m, nil
 	case hotkey.ActionAgentsAskReeve:
 		if a := m.SelectedAgent(); a != nil && !a.Reeve {
-			msg := AskReeveMsg{TaskID: a.TaskID, Title: a.Title, AgentKind: a.AgentKind, State: stateWord(stateOf(*a))}
+			msg := AskReeveMsg{TaskID: a.TaskID, Title: a.Title, AgentKind: a.AgentKind, State: m.stateWord(stateOf(*a))}
 			return m, func() tea.Msg { return msg }
 		}
 		return m, nil

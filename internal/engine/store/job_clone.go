@@ -22,6 +22,9 @@ type JobClone struct {
 	LastUsedAt time.Time
 	// TaskIDs are the tasks that work in it, the one it was made for first.
 	TaskIDs []string
+	// Slot is the slot of its task it was made for: SlotMain, or a named
+	// slot, whose clone the task's next agent never joins.
+	Slot string
 }
 
 type jobCloneRow struct {
@@ -35,6 +38,7 @@ type jobCloneRow struct {
 	CreatedAt   string         `db:"created_at"`
 	RemoveAfter sql.NullString `db:"remove_after"`
 	LastUsedAt  sql.NullString `db:"last_used_at"`
+	Slot        string         `db:"slot"`
 }
 
 func (r jobCloneRow) clone() (JobClone, error) {
@@ -42,7 +46,7 @@ func (r jobCloneRow) clone() (JobClone, error) {
 	if err != nil {
 		return JobClone{}, err
 	}
-	c := JobClone{ID: r.ID, ExecutionID: r.ExecutionID, TaskID: r.TaskID, Repo: r.Repo, Ref: r.Ref, Branch: r.Branch, Path: r.Path, CreatedAt: created, LastUsedAt: created}
+	c := JobClone{ID: r.ID, ExecutionID: r.ExecutionID, TaskID: r.TaskID, Repo: r.Repo, Ref: r.Ref, Branch: r.Branch, Path: r.Path, CreatedAt: created, LastUsedAt: created, Slot: r.Slot}
 	if r.LastUsedAt.Valid {
 		if c.LastUsedAt, err = time.Parse(executionTimestamp, r.LastUsedAt.String); err != nil {
 			return JobClone{}, err
@@ -58,7 +62,7 @@ func (r jobCloneRow) clone() (JobClone, error) {
 	return c, nil
 }
 
-const jobCloneColumns = `id, execution_id, task_id, repo, ref, branch, path, created_at, remove_after, last_used_at`
+const jobCloneColumns = `id, execution_id, task_id, repo, ref, branch, path, created_at, remove_after, last_used_at, slot`
 
 // ListJobCloneHolds returns the execution identities and working folders
 // held by undismissed sessions. Running sessions bridge the startup window
@@ -82,8 +86,8 @@ func (s *Store) CreateJobClone(ctx context.Context, c JobClone) (int64, error) {
 	}
 	defer func() { _ = tx.Rollback() }()
 	made := formatExecutionTime(c.CreatedAt)
-	result, err := tx.ExecContext(ctx, `INSERT INTO job_clones (execution_id, task_id, repo, ref, branch, path, created_at, last_used_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, c.ExecutionID, c.TaskID, c.Repo, c.Ref, c.Branch, c.Path, made, made)
+	result, err := tx.ExecContext(ctx, `INSERT INTO job_clones (execution_id, task_id, repo, ref, branch, path, created_at, last_used_at, slot)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, c.ExecutionID, c.TaskID, c.Repo, c.Ref, c.Branch, c.Path, made, made, slotOrMain(c.Slot))
 	if err != nil {
 		return 0, err
 	}
@@ -171,7 +175,7 @@ func (s *Store) JobCloneByID(ctx context.Context, id int64) (*JobClone, error) {
 // LiveJobCloneForTask finds the newest clone of a repository that a task
 // works in and that has not been removed.
 func (s *Store) LiveJobCloneForTask(ctx context.Context, taskID, repo string) (*JobClone, error) {
-	return s.oneLiveJobClone(ctx, ` AND repo = ? AND id IN (SELECT clone_id FROM job_clone_tasks WHERE task_id = ?) ORDER BY created_at DESC, id DESC`, repo, taskID)
+	return s.oneLiveJobClone(ctx, ` AND repo = ? AND slot = 'main' AND id IN (SELECT clone_id FROM job_clone_tasks WHERE task_id = ?) ORDER BY created_at DESC, id DESC`, repo, taskID)
 }
 
 // ListLiveJobClones lists the clones that have not been removed, oldest
