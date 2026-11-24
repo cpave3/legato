@@ -30,6 +30,7 @@ pub mod widgetapprovals;
 pub mod widgetitems;
 pub mod hostline;
 pub mod lifecycle;
+pub mod tray;
 #[cfg(target_os = "linux")]
 pub mod voicekey_portal;
 #[cfg(target_os = "linux")]

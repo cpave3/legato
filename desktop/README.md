@@ -6,7 +6,7 @@ What it does for a person is on the docs site: [The desktop app](https://cpave3.
 
 ## Building
 
-You need Rust, Node 24 with pnpm 11, and on Linux the WebKitGTK 4.1, GTK 3, librsvg and libudev development packages. On a Mac, Xcode or its command line tools (`xcode-select --install`), which build the Swift in `src-tauri/touchid/`.
+You need Rust, Node 24 with pnpm 11, and on Linux the WebKitGTK 4.1, GTK 3, librsvg, libudev and Ayatana AppIndicator (`libayatana-appindicator3-dev`; Tauri's bundler asks for it because of the tray icon, though the app uses KSNI) development packages. On a Mac, Xcode or its command line tools (`xcode-select --install`), which build the Swift in `src-tauri/touchid/`.
 
 ```bash
 task desktop:test    # Rust unit tests and the TypeScript check

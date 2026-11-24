@@ -1,9 +1,9 @@
 //! When the app ends, and what a second start does: the decisions, apart
 //! from Tauri, so they are tested. `app.rs` acts on them.
 //!
-//! The app does not run in the background: it has no tray, so a process
-//! with no main window would leave the person no way back. Closing the
-//! main window quits the app, and the voice widget goes with it. Tauri
+//! The app does not run in the background, so no process is left without a
+//! window to come back to: closing the main window quits the app, and the
+//! voice widget and the tray icon go with it. Tauri
 //! would otherwise keep running while any window is open, and the widget
 //! (a layer surface on Wayland) is one.
 

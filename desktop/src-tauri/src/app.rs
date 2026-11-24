@@ -22,7 +22,7 @@ use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
 use crate::links;
 use crate::bridge::{self, PageMessage, VoiceAction, VoiceEvent};
-use crate::{fido, hostline, lifecycle, screens, systrust, touchid, voice, voiceclient, voicekey, voicemain, voicewidget, widgetapprovals, widgetitems, workers};
+use crate::{fido, hostline, lifecycle, screens, systrust, touchid, tray, voice, voiceclient, voicekey, voicemain, voicewidget, widgetapprovals, widgetitems, workers};
 use crate::voiceclient::{Command, Ui};
 use crate::voicekey::{Backend, Input, KeyBackend, VoiceKey};
 
@@ -88,6 +88,8 @@ pub struct Desktop {
     widget_items: Mutex<Vec<widgetitems::Listed>>,
     /// Asks the servers again now (a decision was made).
     approvals_asked: tokio::sync::Notify,
+    /// The tray menu's Show/Hide widget item, while there is a tray icon.
+    tray_widget_item: Mutex<Option<tauri::menu::MenuItem<tauri::Wry>>>,
 }
 
 fn webview_label(id: &str) -> String {
@@ -1276,20 +1278,104 @@ fn voice_widget_menu_chosen(app: &AppHandle, id: &str) {
 fn set_widget(app: &AppHandle, desktop: &Desktop, hidden: Option<bool>, anchor: Option<Anchor>) -> Result<(), String> {
     {
         let mut store = desktop.store.lock().unwrap();
-        if let Some(h) = hidden {
-            store.state.voice.widget_hidden = h;
-        }
-        if let Some(a) = anchor {
-            if store.state.voice.anchor != a || store.state.voice.offset.is_some() {
-                store.state.voice.anchor = a;
-                store.state.voice.offset = None;
-            }
-        }
+        voicewidget::choose(&mut store.state.voice, hidden, anchor);
         store.save()?;
     }
     show_widget_as_it_should(app);
     let _ = app.emit("voice-widget-changed", voice_widget_settings(app.state::<Desktop>()));
+    sync_tray(app);
     Ok(())
+}
+
+// ---- The tray ----
+
+/// Makes the icon by the clock (tray.rs). Without a tray host it says so
+/// once, and the app goes on without one.
+fn make_tray(app: &AppHandle) {
+    if let Err(e) = build_tray(app) {
+        println!("{}", tray::no_host(&e.to_string()));
+    }
+}
+
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+    use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+    let hidden = app.state::<Desktop>().store.lock().unwrap().state.voice.widget_hidden;
+    let widget = MenuItem::with_id(app, tray::WIDGET, tray::widget_item_text(hidden), true, None::<&str>)?;
+    let talk = MenuItem::with_id(app, tray::TALK, "Talk to the Reeve", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, tray::OPEN, "Open Legato", true, None::<&str>)?;
+    // && is a plain & (a single one marks the key of a mnemonic).
+    let settings = MenuItem::with_id(app, tray::SETTINGS, "Servers && keys…", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, tray::QUIT, "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&widget, &talk, &PredefinedMenuItem::separator(app)?, &open, &settings, &PredefinedMenuItem::separator(app)?, &quit])?;
+    // The colour mark reads on light and dark panels, and a StatusNotifierItem
+    // through KSNI is a pixmap the panel cannot recolour; the Mac's menu bar
+    // takes a template image, which it colours itself.
+    #[cfg(target_os = "macos")]
+    let (icon, template) = (tauri::include_image!("icons/tray-template.png"), true);
+    #[cfg(not(target_os = "macos"))]
+    let (icon, template) = (tauri::include_image!("icons/tray.png"), false);
+    TrayIconBuilder::with_id(tray::ID)
+        .icon(icon)
+        .icon_as_template(template)
+        .title("Legato")
+        .tooltip("Legato")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_tray_icon_event(|icon, event| {
+            if let TrayIconEvent::Click { button, button_state, .. } = event {
+                if let Some(action) = tray::on_click(button, button_state) {
+                    tray_action(icon.app_handle(), action);
+                }
+            }
+        })
+        .build(app)?;
+    println!("[tray] the icon is by the clock");
+    *app.state::<Desktop>().tray_widget_item.lock().unwrap() = Some(widget);
+    Ok(())
+}
+
+/// Does what the tray asked. Showing and hiding go through `set_widget`, as
+/// Servers & keys, the × and Hide do, so they all agree.
+fn tray_action(app: &AppHandle, action: tray::Action) {
+    println!("[tray] {action:?}");
+    match action {
+        tray::Action::ToggleWidget => {
+            let desktop = app.state::<Desktop>();
+            let hidden = desktop.store.lock().unwrap().state.voice.widget_hidden;
+            if let Err(e) = set_widget(app, &desktop, Some(tray::toggled(hidden)), None) {
+                println!("[tray] the widget's setting was not saved: {e}");
+            }
+        }
+        tray::Action::Talk => voice_key(app, VoiceKey::Talk, "tray"),
+        tray::Action::OpenLegato => open_main(app),
+        tray::Action::Settings => {
+            open_main(app);
+            let _ = app.emit_to("shell", "shell-open-panel", json!({ "kind": "manage" }));
+        }
+        tray::Action::Quit => app.exit(0),
+    }
+}
+
+/// The main window in front, made again if it is gone.
+fn open_main(app: &AppHandle) {
+    if app.get_window(lifecycle::MAIN).is_none() {
+        if let Err(e) = make_main_window(app) {
+            println!("[start] the main window was not made again: {e}");
+            return;
+        }
+    }
+    bring_to_front(app);
+}
+
+/// The tray's Show/Hide widget item, as the setting is now.
+fn sync_tray(app: &AppHandle) {
+    let desktop = app.state::<Desktop>();
+    let hidden = desktop.store.lock().unwrap().state.voice.widget_hidden;
+    let item = desktop.tray_widget_item.lock().unwrap().clone();
+    if let Some(item) = item {
+        let _ = item.set_text(tray::widget_item_text(hidden));
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -2933,8 +3019,13 @@ pub fn run() {
             widget_approvals: Mutex::default(),
             widget_items: Mutex::default(),
             approvals_asked: tokio::sync::Notify::new(),
+            tray_widget_item: Mutex::default(),
         })
-        .on_menu_event(|app, event| voice_widget_menu_chosen(app, event.id().as_ref()))
+        // The widget's menu and the tray's share Tauri's one handler.
+        .on_menu_event(|app, event| match tray::chosen(event.id().as_ref()) {
+            Some(action) => tray_action(app, action),
+            None => voice_widget_menu_chosen(app, event.id().as_ref()),
+        })
         .setup(|app| {
             // Servers take a few seconds to answer on the network; listening
             // from the start has the pair form's list ready when it opens.
@@ -2978,6 +3069,7 @@ pub fn run() {
             if let Err(e) = make_voice_widget(app.handle()) {
                 println!("[voice widget] the window was not made: {e}");
             }
+            make_tray(app.handle());
             tauri::async_runtime::spawn(watch_approvals(app.handle().clone()));
             tauri::async_runtime::spawn(watch_host_lines(app.handle().clone()));
             // Started with --voice. No page hears the voice-key event this
