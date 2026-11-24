@@ -971,6 +971,52 @@ func (s *Store) EndReviewLoop(ctx context.Context, id, phase, reason, outcome, a
 	return l, closed, err
 }
 
+// ErrReviewLoopNotClean is a Confirm of a loop whose pass is not the clean
+// one it read: it moved on (another pass, feedback) in the meantime.
+var ErrReviewLoopNotClean = errors.New("the review loop is not at the clean pass it was confirmed for")
+
+// ConfirmReviewLoop records a loop's clean pass confirmed at GitHub's heads
+// (the engine's Confirm, invariant 9), in one compare-and-swap transition:
+// confirmed_at and clean_pass set, the pass window reset to start after the
+// pass, confirm_clean cleared, and each layer's clean_head the head it was
+// confirmed at. A loop that is not open, not clean, or past pass is refused
+// (ErrReviewLoopClosed, ErrReviewLoopNotClean), and nothing is written.
+func (s *Store) ConfirmReviewLoop(ctx context.Context, id string, pass int, heads map[int]string, at string) error {
+	if at == "" {
+		at = reviewLoopNow()
+	}
+	var err error
+	for try := 0; try < 5; try++ {
+		err = withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+			l, err := getReviewLoop(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if l.State != ReviewLoopOpenState {
+				return ErrReviewLoopClosed
+			}
+			if l.Phase != "clean" || l.Pass != pass {
+				return fmt.Errorf("%w: %s is %q at pass %d, not clean at pass %d", ErrReviewLoopNotClean, id, l.Phase, l.Pass, pass)
+			}
+			next := *l
+			next.ConfirmedAt, next.CleanPass, next.WindowStart, next.ConfirmClean, next.UpdatedAt = at, pass, pass, false, at
+			if err := writeReviewLoop(ctx, tx, *l, next); err != nil {
+				return err
+			}
+			for number, head := range heads {
+				if _, err := tx.ExecContext(ctx, `UPDATE review_loop_prs SET clean_head = ? WHERE loop_id = ? AND number = ?`, head, id, number); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if !errors.Is(err, ErrConflict) {
+			return err
+		}
+	}
+	return err
+}
+
 // ClosedLoopReviewer is a reviewer execution of a loop that closed: its
 // host task and the execution a pass of it ran.
 type ClosedLoopReviewer struct {

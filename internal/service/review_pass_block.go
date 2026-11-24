@@ -146,6 +146,13 @@ func (s *ReviewPassService) ReviewBlock(ctx context.Context, taskID string) *Rev
 		}
 	case ReviewPhaseWaitingForReviewer:
 		block.WaitingOn = ReviewWaitingOnReviewerSlot
+	case ReviewPhaseClean:
+		if !confirmed(loop) {
+			// Clean, and not approved until GitHub confirms the heads
+			// (invariant 9): the pass is still under way, as a main reads
+			// it.
+			block.Phase, block.WaitingOn = ReviewPhaseReviewing, ReviewWaitingOnGitHub
+		}
 	}
 	if items, err := currentItems(ctx, s.db, loop); err == nil {
 		for _, item := range items {

@@ -19,7 +19,8 @@ type ReviewLoopMessenger interface {
 // --loop`). It runs in a process without the engine's callers: today's
 // task-keyed engine actions on the loop's host task, whose state the
 // engine's own process picks up on its next tick. The engine's operator
-// actions by loop ID (LEG-582) can replace it.
+// actions by loop ID (AnotherPassOn and the rest, LEG-582) need the
+// callers, which only the engine's process has, so this writes the record.
 type ReviewLoopSteering struct {
 	DB *store.Store
 	// Engine is an engine on DB for its task-keyed actions; it never ticks.
@@ -38,7 +39,7 @@ func (s ReviewLoopSteering) AnotherPass(ctx context.Context, loopID string) erro
 	}
 	switch {
 	case l.Phase == ReviewPhaseStuck:
-		return s.Engine.AnotherPass(ctx, l.HostTask)
+		return s.Engine.RecordAnotherPass(ctx, l.HostTask)
 	case l.Phase == ReviewPhaseWaitingForAuthor && l.OwnerKind == store.ReviewLoopOwnerRun:
 		return s.Engine.NextPass(ctx, l.HostTask)
 	}

@@ -586,7 +586,9 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 	stage := ReviewStageClean
 	var raised []store.HandoffReviewItem
 	if pass.Verdict == VerdictClean {
-		loop.Phase = ReviewPhaseClean
+		// Clean, and not approved until Confirm finds GitHub's heads at
+		// this pass's pins.
+		loop.Phase, loop.ConfirmClean = ReviewPhaseClean, true
 	} else {
 		if raised, err = s.passItems(ctx, taskID, pass.Pass, prs); err != nil {
 			return err
@@ -606,6 +608,9 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 		return err
 	}
 	s.changed(taskID)
+	if stage == ReviewStageClean {
+		return s.confirmLoop(ctx, l, loop.LoopID)
+	}
 	l.stage(ctx, stage)
 	return nil
 }

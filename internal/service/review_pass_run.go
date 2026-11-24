@@ -97,7 +97,6 @@ type ReviewRunCaller struct {
 	engine    *ReviewPassService
 	opts      ReviewRunOptions
 	workflows ReviewRunWorkflows
-	stops     runAuthorStops
 	// opening keeps two ticks from opening one step twice.
 	opening sync.Mutex
 }
@@ -146,9 +145,6 @@ type reviewRun struct {
 	SeenAt   string `json:"seen_at,omitempty"`
 	// Replies are the thread replies the loop has taken as answers.
 	Replies []int64 `json:"replies,omitempty"`
-	// ConfirmClean is a clean pass whose head GitHub has not yet confirmed
-	// is still the pull request's: each tick asks again.
-	ConfirmClean bool `json:"confirm_clean,omitempty"`
 	// Scope is stack or pr (ReviewScope*); Stack the pull requests a
 	// stack run reviews, bottom first, PR among them (empty for a run
 	// started before stacks: PR alone, on Branch).
@@ -179,7 +175,7 @@ func readReviewRun(ctx context.Context, db *store.Store, taskID string) (*review
 	}
 	run := reviewRun{RunID: l.RunID, StepID: l.StepPath, AttemptID: l.AttemptID, Repo: l.Repo, PR: l.SubjectPR,
 		CloneID: l.CloneID, Dir: l.CloneDir, LinkedTask: l.LinkedTask, SeenHead: l.SeenHead, SeenAt: l.SeenAt,
-		ConfirmClean: l.ConfirmClean, Scope: l.Scope, closed: l.State != store.ReviewLoopOpenState}
+		Scope: l.Scope, closed: l.State != store.ReviewLoopOpenState}
 	if l.AgentAuthor {
 		run.AuthorTask = l.AuthorTask
 	}
@@ -221,7 +217,8 @@ func saveReviewRun(ctx context.Context, db *store.Store, taskID string, run *rev
 			return fmt.Errorf("%s hosts no run's review loop", taskID)
 		}
 		l.AttemptID, l.CloneID, l.CloneDir, l.LinkedTask = run.AttemptID, run.CloneID, run.Dir, run.LinkedTask
-		l.SeenHead, l.SeenAt, l.ConfirmClean, l.Replies = run.SeenHead, run.SeenAt, run.ConfirmClean, string(replies)
+		// confirm_clean is the engine's (Confirm), written with the phase.
+		l.SeenHead, l.SeenAt, l.Replies = run.SeenHead, run.SeenAt, string(replies)
 		for _, p := range run.prs() {
 			if err := t.SetLocalBranch(p.Number, p.Branch); err != nil && !errors.Is(err, store.ErrNotFound) {
 				return err
@@ -259,7 +256,7 @@ func reviewRunOpen(taskID string, run reviewRun, settings ReviewPassSettings, pr
 		AgentAuthor: run.AuthorTask != "", AuthorTask: run.AuthorTask, LinkedTask: run.LinkedTask, Phase: ReviewPhaseReady,
 		PassesOff: !settings.Enabled, MaxPasses: settings.MaxPasses, Reviewer: settings.Agent, ReviewerModel: settings.Model,
 		ReviewerTier: settings.Tier, Skill: settings.Skill, SkillManaged: settings.SkillManaged,
-		ConfirmClean: run.ConfirmClean, SeenHead: run.SeenHead, SeenAt: run.SeenAt,
+		SeenHead: run.SeenHead, SeenAt: run.SeenAt,
 		// No marker key: OpenReviewLoop gives the loop's own ID, so a
 		// later step's loop on this task never finds this one's reviews
 		// on GitHub for its own (LEG-605 review).
@@ -915,7 +912,7 @@ func (c *ReviewRunCaller) Loop(ctx context.Context, taskID string) (ReviewLoop, 
 	}
 	// An agent author handles failing checks too (LEG-305); a person's
 	// loop is findings only (LEG-255).
-	return ReviewLoop{TaskID: taskID, Repo: run.Repo, PR: run.PR, PRs: run.numbers(), AuthorTaskID: run.AuthorTask, Pending: run.ConfirmClean, CountChecks: run.AuthorTask != "",
+	return ReviewLoop{TaskID: taskID, Repo: run.Repo, PR: run.PR, PRs: run.numbers(), AuthorTaskID: run.AuthorTask, CountChecks: run.AuthorTask != "",
 		Name: "run " + run.RunID, Link: "/workflows/runs/" + run.RunID, Owner: store.HandoffReviewOwner{AttemptID: run.AttemptID}}, true
 }
 
@@ -968,10 +965,6 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 		return false
 	}
 	c.noteAuthor(ctx, l.TaskID, run)
-	if run.ConfirmClean {
-		c.confirmClean(ctx, l.TaskID)
-		return false
-	}
 	open, err := c.openRunPRs(ctx, run)
 	if err != nil {
 		return false // GitHub may answer next time
@@ -1171,7 +1164,8 @@ func (c *ReviewRunCaller) Pushed(ctx context.Context, l ReviewLoop, pinned []sto
 }
 
 // AnotherPass starts the next pass of a run's review step now: Run another
-// pass. Refused unless the loop waits for its author.
+// pass, on the step's loop by its ID (the engine's AnotherPassOn). Refused
+// unless the loop waits for its author or is stuck.
 func (c *ReviewRunCaller) AnotherPass(ctx context.Context, runID, stepID string) error {
 	if c.workflows == nil {
 		return ErrReviewNotWaiting
@@ -1182,21 +1176,89 @@ func (c *ReviewRunCaller) AnotherPass(ctx context.Context, runID, stepID string)
 	}
 	for _, attempt := range attempts {
 		if attempt.RunID == runID && attempt.Path == stepID {
-			if c.opened(ctx, attempt) == nil {
+			id := c.openedLoopID(ctx, attempt)
+			if id == "" {
 				return ErrReviewNotWaiting
 			}
-			return c.anotherPass(ctx, attempt.TaskID)
+			return c.engine.AnotherPassOn(ctx, id)
 		}
 	}
 	return ErrReviewNotWaiting
 }
 
-// Stage ends the step when a clean pass approved, or when no open pull
-// request is left to review.
+// openedLoopID is the ID of the loop an attempt opened, "" while it waits
+// to open.
+func (c *ReviewRunCaller) openedLoopID(ctx context.Context, attempt store.WorkflowStepAttempt) string {
+	if c.opened(ctx, attempt) == nil {
+		return ""
+	}
+	l, err := c.engine.db.CurrentReviewLoop(ctx, attempt.TaskID)
+	if err != nil || l == nil {
+		return ""
+	}
+	return l.ID
+}
+
+// The operator's actions on a run's loop by its ID (reviewLoopActor), which
+// the engine's AnotherPassOn, MessageAuthorOn and EndOn reach: each acts
+// only while the step that owns the loop waits on it.
+
+func (c *ReviewRunCaller) ownsLoop(l *store.ReviewLoop) bool {
+	return l.OwnerKind == store.ReviewLoopOwnerRun
+}
+
+// stepWaits says the step attempt that owns the loop waits on it (a failed
+// step's loop, kept for Retry, takes no action).
+func (c *ReviewRunCaller) stepWaits(ctx context.Context, l *store.ReviewLoop) bool {
+	if c.workflows == nil {
+		return false
+	}
+	attempts, err := c.workflows.WaitingAttempts(ctx, ReviewPassesStepType)
+	if err != nil {
+		return false
+	}
+	for _, attempt := range attempts {
+		if attempt.ID == l.AttemptID && attempt.RunID == l.RunID {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *ReviewRunCaller) anotherPassOn(ctx context.Context, l *store.ReviewLoop) error {
+	if !c.stepWaits(ctx, l) {
+		return ErrReviewNotWaiting
+	}
+	return c.anotherPass(ctx, l.HostTask)
+}
+
+func (c *ReviewRunCaller) messageAuthorOn(ctx context.Context, l *store.ReviewLoop, text string) error {
+	if !c.stepWaits(ctx, l) {
+		return ErrReviewNotWaiting
+	}
+	return c.messageAuthor(ctx, l.HostTask, text)
+}
+
+// endOn ends a stuck loop with outcome stuck: the step completes with its
+// outputs, and the workflow goes on.
+func (c *ReviewRunCaller) endOn(ctx context.Context, l *store.ReviewLoop) error {
+	if !c.stepWaits(ctx, l) {
+		return ErrReviewNotStuck
+	}
+	loop, err := c.engine.db.GetHandoffReview(ctx, l.HostTask)
+	if err != nil || loop == nil || loop.Phase != ReviewPhaseStuck {
+		return ErrReviewNotStuck
+	}
+	c.finish(ctx, l.HostTask, ReviewOutcomeStuck)
+	return nil
+}
+
+// Stage ends the step when a clean pass is approved at GitHub's heads (the
+// engine's Confirm), or when no open pull request is left to review.
 func (c *ReviewRunCaller) Stage(ctx context.Context, l ReviewLoop, stage string) {
 	switch stage {
 	case ReviewStageClean:
-		c.confirmClean(ctx, l.TaskID)
+		c.approved(ctx, l)
 	case ReviewStageNone:
 		c.finish(ctx, l.TaskID, ReviewOutcomeClosed)
 	}
@@ -1505,8 +1567,9 @@ func (c *ReviewRunCaller) Details(ctx context.Context, attempt store.WorkflowSte
 	if block := c.engine.ReviewBlock(ctx, attempt.TaskID); block != nil {
 		d.BlockingOpen = block.BlockingOpen
 	}
+	approved := confirmed(loop)
 	if run, err := c.run(ctx, attempt.TaskID); err == nil {
-		d.Reviews = append(d.Reviews, c.postedReviews(ctx, attempt.TaskID, run, loop.Pass, loop.Phase == ReviewPhaseClean)...)
+		d.Reviews = append(d.Reviews, c.postedReviews(ctx, attempt.TaskID, run, loop.Pass, approved)...)
 	}
 	for _, r := range d.Reviews {
 		d.ApprovalWithheld = d.ApprovalWithheld || r.ApprovalWithheld
@@ -1529,6 +1592,11 @@ func (c *ReviewRunCaller) Details(ctx context.Context, attempt store.WorkflowSte
 			d.Summary += fmt.Sprintf(" · %d blocking", d.BlockingOpen)
 		}
 	case ReviewPhaseClean:
+		if !approved {
+			// Clean, and not approved until GitHub confirms the heads.
+			d.Phase, d.Summary = ReviewPhaseReviewing, "Clean · waiting for GitHub to confirm the heads"
+			break
+		}
 		d.Summary = "Approved"
 		if d.ApprovalWithheld {
 			d.Summary = "Clean · approval withheld: the author is outside the repository"
@@ -1592,27 +1660,16 @@ func (c *ReviewRunCaller) Attention(ctx context.Context, attempt store.WorkflowS
 	return reason, actions
 }
 
-// Act takes a stuck loop's actions: another_pass reviews again (one pass
-// past the limit, or a retry), end ends it with outcome stuck, so the step
-// completes and the workflow goes on.
+// Act takes a stuck loop's actions on the step's loop by its ID (the
+// engine's ActOnLoop): another_pass reviews again (one pass past the limit,
+// or a retry), message tells an agent author, end ends it with outcome
+// stuck, so the step completes and the workflow goes on.
 func (c *ReviewRunCaller) Act(ctx context.Context, attempt store.WorkflowStepAttempt, action, text string) error {
-	if c.opened(ctx, attempt) == nil {
+	id := c.openedLoopID(ctx, attempt)
+	if id == "" {
 		return errors.New("the review loop has not opened yet: " + reviewOpeningSummary)
 	}
-	switch action {
-	case "message":
-		return c.messageAuthor(ctx, attempt.TaskID, text)
-	case "another_pass":
-		return c.anotherPass(ctx, attempt.TaskID)
-	case "end":
-		loop, err := c.engine.db.GetHandoffReview(ctx, attempt.TaskID)
-		if err != nil || loop == nil || loop.Phase != ReviewPhaseStuck {
-			return ErrReviewNotStuck
-		}
-		c.finish(ctx, attempt.TaskID, ReviewOutcomeStuck)
-		return nil
-	}
-	return fmt.Errorf("a review loop takes no action %q", action)
+	return c.engine.ActOnLoop(ctx, id, action, text)
 }
 
 // anotherPass is Run another pass: at once on a loop waiting for its author,
@@ -1620,7 +1677,7 @@ func (c *ReviewRunCaller) Act(ctx context.Context, attempt store.WorkflowStepAtt
 func (c *ReviewRunCaller) anotherPass(ctx context.Context, taskID string) error {
 	loop, err := c.engine.db.GetHandoffReview(ctx, taskID)
 	if err == nil && loop != nil && loop.Phase == ReviewPhaseStuck {
-		return c.engine.AnotherPass(ctx, taskID)
+		return c.engine.anotherPass(ctx, taskID)
 	}
 	return c.engine.NextPass(ctx, taskID)
 }
@@ -1702,67 +1759,32 @@ func (c *ReviewRunCaller) authoredLoop(ctx context.Context, author string) *Auth
 	return nil
 }
 
-// reopen sends a loop whose clean pass reviewed a head that moved to the
-// next pass. Called with the engine's lock held (from post).
-func (s *ReviewPassService) reopen(ctx context.Context, taskID string) error {
-	loop, err := s.db.GetHandoffReview(ctx, taskID)
-	if err != nil || loop == nil {
-		return err
-	}
-	loop.Phase, loop.Reason = ReviewPhaseReady, ""
-	return s.saveChanged(ctx, loop)
-}
-
-// confirmClean ends a clean pass only once GitHub says the pull request's
-// head is still the one it reviewed: approved; a head that moved while the
-// reviewer worked goes to the next pass; a closed pull request ends the loop
-// closed. When GitHub does not answer, the check is kept and asked again each
-// tick, and nothing is approved meanwhile.
-func (c *ReviewRunCaller) confirmClean(ctx context.Context, taskID string) {
-	run, err := c.run(ctx, taskID)
-	if err != nil {
-		log.Printf("review passes: confirming %s: %v", taskID, err)
-		return
-	}
-	open, err := c.openRunPRs(ctx, run)
-	if err != nil {
-		if !run.ConfirmClean {
-			run.ConfirmClean = true
-			_ = saveReviewRun(ctx, c.engine.db, taskID, run)
+// approved ends a loop the engine's Confirm found clean at GitHub's heads
+// with outcome approved. An agent author's loop first handles its counted
+// checks: one that fails sends the loop back to the author, and a pull
+// request the clean pass left at a COMMENT for a check now settled gets its
+// APPROVE. Until that APPROVE is on GitHub the run is not approved: the
+// loop is confirmed again, and the APPROVE tried again, on the next tick.
+func (c *ReviewRunCaller) approved(ctx context.Context, l ReviewLoop) {
+	if l.CountChecks {
+		loop, err := c.engine.db.GetHandoffReview(ctx, l.TaskID)
+		if err != nil || loop == nil {
+			return
 		}
-		log.Printf("review passes: confirming the heads of %s, trying again: %v", reviewStackName(run.Repo, run.numbers()), err)
-		return
-	}
-	if run.ConfirmClean {
-		run.ConfirmClean = false
-		_ = saveReviewRun(ctx, c.engine.db, taskID, run)
-	}
-	switch {
-	case len(open) == 0:
-		c.finish(ctx, taskID, ReviewOutcomeClosed)
-	case moved(open, c.pinnedHeads(ctx, taskID)):
-		if err := c.engine.reopen(ctx, taskID); err != nil {
-			log.Printf("review passes: %s moved during its pass: %v", taskID, err)
+		if c.engine.failingChecks(ctx, l.TaskID) {
+			// Not approved while a counted check fails: the author handles
+			// it first.
+			if err := c.engine.checksReopen(ctx, l, loop); err != nil {
+				log.Printf("review passes: %s: %v", l.TaskID, err)
+			}
+			c.engine.confirmAgain(ctx, l.TaskID)
+			return
 		}
-	default:
-		if l, ok := c.Loop(ctx, taskID); ok && l.CountChecks {
-			l.caller = c
-			loop, err := c.engine.db.GetHandoffReview(ctx, taskID)
-			if err != nil || loop == nil {
-				return
-			}
-			if c.engine.failingChecks(ctx, taskID) {
-				// Not approved while a counted check fails: the author
-				// handles it first.
-				if err := c.engine.checksReopen(ctx, l, loop); err != nil {
-					log.Printf("review passes: %s: %v", taskID, err)
-				}
-				return
-			}
-			if err := c.engine.approveSettled(ctx, l, loop); err != nil {
-				log.Printf("review passes: %s: %v", taskID, err)
-			}
+		if err := c.engine.approveSettled(ctx, l, loop); err != nil {
+			log.Printf("review passes: %s: %v", l.TaskID, err)
+			c.engine.confirmAgain(ctx, l.TaskID)
+			return
 		}
-		c.finish(ctx, taskID, ReviewOutcomeApproved)
 	}
+	c.finish(ctx, l.TaskID, ReviewOutcomeApproved)
 }

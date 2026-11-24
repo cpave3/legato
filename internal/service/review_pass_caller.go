@@ -40,9 +40,6 @@ type ReviewLoop struct {
 	// Name and Link say whose loop it is, for a refusal to start another
 	// on the same pull request ("run wr-1", "/workflows/runs/wr-1").
 	Name, Link string
-	// Pending says a loop whose phase reads finished (clean) is not: its
-	// caller has yet to end it (a run confirming its head with GitHub).
-	Pending bool
 	// Owner is who the loop writes to GitHub for: the run's step attempt,
 	// or the handoff. Each write checks it still is (mayWrite).
 	Owner store.HandoffReviewOwner
@@ -56,7 +53,8 @@ const (
 	ReviewStagePass = "pass"
 	// ReviewStageAuthor: the author has feedback to work on.
 	ReviewStageAuthor = "author"
-	// ReviewStageClean: a clean pass approved.
+	// ReviewStageClean: a clean pass is approved, confirmed at GitHub's
+	// heads (Confirm). No caller reports approved before it.
 	ReviewStageClean = "clean"
 	// ReviewStageNone: no open pull request was left to review.
 	ReviewStageNone = "none"
@@ -214,7 +212,9 @@ func (s *ReviewPassService) heldLoopOn(ctx context.Context, repo string, number 
 		if err != nil {
 			continue
 		}
-		if loop != nil && !l.Pending && (loop.Phase == ReviewPhaseClean || loop.Phase == ReviewPhaseSkipped || loop.Phase == ReviewPhaseEnded) {
+		// A clean loop GitHub has yet to confirm (or whose caller has yet
+		// to end it) is still active.
+		if loop != nil && (confirmed(loop) || loop.Phase == ReviewPhaseSkipped || loop.Phase == ReviewPhaseEnded) {
 			continue
 		}
 		on := l.PR == number || slices.Contains(l.PRs, number)

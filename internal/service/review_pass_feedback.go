@@ -324,14 +324,14 @@ func (s *ReviewPassService) feedback(ctx context.Context, l ReviewLoop, loop *st
 		loop.Phase = ReviewPhaseReady
 		return s.ready(ctx, l, loop)
 	}
-	loop.Phase = ReviewPhaseClean
+	loop.Phase, loop.ConfirmClean = ReviewPhaseClean, true
 	if err := s.saveChanged(ctx, loop); err != nil {
 		return err
 	}
 	// Nothing to review again (failing checks answered by a reply, say):
-	// the loop is clean, as after a clean pass.
-	l.stage(ctx, ReviewStageClean)
-	return nil
+	// the loop is clean, as after a clean pass, once GitHub's heads are
+	// still the pass's.
+	return s.confirmLoop(ctx, l, loop.LoopID)
 }
 
 // deliver tells the author of a round: one tagged line naming the command

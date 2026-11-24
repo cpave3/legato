@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log"
 	"strings"
 	"time"
@@ -254,15 +255,20 @@ func (c *HandoffReviewCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool
 }
 
 // Stage moves the card: to the review column for a pass, the work column
-// for feedback, Done for a clean pass.
+// for feedback, Done for a clean pass approved at GitHub's heads (Confirm)
+// or when nothing is left to review.
 func (c *HandoffReviewCaller) Stage(ctx context.Context, l ReviewLoop, stage string) {
 	if c.opts.Board == nil {
 		return
 	}
 	cfg := c.config()
-	column := map[string]string{ReviewStagePass: cfg.ReviewColumn, ReviewStageAuthor: cfg.WorkColumn, ReviewStageClean: cfg.DoneColumn}[stage]
+	column := map[string]string{ReviewStagePass: cfg.ReviewColumn, ReviewStageAuthor: cfg.WorkColumn, ReviewStageClean: cfg.DoneColumn,
+		ReviewStageNone: cfg.DoneColumn}[stage]
 	if column == "" {
 		return
+	}
+	if task, err := c.db.GetTask(ctx, l.TaskID); stage == ReviewStageNone && err == nil && strings.EqualFold(task.Status, column) {
+		return // there already: the author moved it to Done
 	}
 	if err := c.opts.Board.MoveCard(ctx, l.TaskID, column); err != nil {
 		log.Printf("review passes: moving %s to %s: %v", l.TaskID, column, err)
@@ -287,6 +293,29 @@ func (c *HandoffReviewCaller) Changed(taskID string) {
 // Subject is what the reviewer reviews.
 func (c *HandoffReviewCaller) Subject() string { return "a handed-off task's pull requests" }
 
+// The operator's actions on a handoff's loop by its ID (reviewLoopActor):
+// a main's Run another pass and Message the author. A handoff's loop ends
+// with its handoff (Return, Recall, Drop), so End is refused.
+
+func (c *HandoffReviewCaller) ownsLoop(l *store.ReviewLoop) bool {
+	return l.OwnerKind == store.ReviewLoopOwnerHandoff
+}
+
+func (c *HandoffReviewCaller) anotherPassOn(ctx context.Context, l *store.ReviewLoop) error {
+	return c.anotherPass(ctx, l.HostTask)
+}
+
+func (c *HandoffReviewCaller) messageAuthorOn(ctx context.Context, l *store.ReviewLoop, text string) error {
+	return c.messageAuthor(ctx, l.HostTask, text)
+}
+
+// ErrHandoffLoopEnds refuses End on a handoff's loop.
+var ErrHandoffLoopEnds = errors.New("a handed-off task's review loop ends with its handoff: Return, Recall or Drop it")
+
+func (c *HandoffReviewCaller) endOn(context.Context, *store.ReviewLoop) error {
+	return ErrHandoffLoopEnds
+}
+
 // DoneAllowed says whether a handoff whose card is in Done may be done: one
 // without review passes always, one with them only after a clean pass whose
 // counted checks all passed or were answered by a reply (or when it had no
@@ -303,7 +332,9 @@ func (c *HandoffReviewCaller) DoneAllowed(ctx context.Context, h *store.Handoff)
 	case ReviewPhaseSkipped:
 		return true
 	case ReviewPhaseClean:
-		return c.checksHandled(ctx, loop)
+		// Approved only once Confirm found GitHub's heads at the clean
+		// pass's pins (invariant 9).
+		return confirmed(loop) && c.checksHandled(ctx, loop)
 	}
 	return false
 }

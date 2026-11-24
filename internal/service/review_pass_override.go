@@ -100,9 +100,31 @@ func (s *ReviewPassService) Override(o ReviewPassOverride) (ReviewPassSettings, 
 // ErrReviewNotStuck refuses Run another pass to a review that is not stuck.
 var ErrReviewNotStuck = errors.New("the review is not stuck")
 
-// AnotherPass runs one more pass of a stuck review: past its limit, or
-// again after a reviewer that could not review or a sandbox that failed.
+// AnotherPass is Run another pass on the loop a task hosts (a handed-off
+// card's), by its loop ID (AnotherPassOn).
 func (s *ReviewPassService) AnotherPass(ctx context.Context, taskID string) error {
+	l, err := s.db.CurrentReviewLoop(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	if l == nil || l.State != store.ReviewLoopOpenState {
+		return ErrReviewNotStuck
+	}
+	return s.AnotherPassOn(ctx, l.ID)
+}
+
+// RecordAnotherPass is anotherPass for a process that runs no callers,
+// such as the operator's `legato review-pass another-pass --loop` on the
+// host: it writes the stuck loop's record only, and the Legato that runs
+// the engine starts the pass on its next tick.
+func (s *ReviewPassService) RecordAnotherPass(ctx context.Context, taskID string) error {
+	return s.anotherPass(ctx, taskID)
+}
+
+// anotherPass runs one more pass of a stuck review: past its limit, or
+// again after a reviewer that could not review or a sandbox that failed.
+// It only writes the record; the tick starts the pass.
+func (s *ReviewPassService) anotherPass(ctx context.Context, taskID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	loop, err := s.db.GetHandoffReview(ctx, taskID)
@@ -136,10 +158,23 @@ func (s *ReviewPassService) AnotherPass(ctx context.Context, taskID string) erro
 // MainTag opens every message the main instance's person sends the author.
 const MainTag = "[legato main]"
 
-// MessageAuthor sends the author the person's words from the main, tagged,
+// MessageAuthor sends the author of the loop a task hosts (a handed-off
+// card's) the person's words, by its loop ID (MessageAuthorOn).
+func (s *ReviewPassService) MessageAuthor(ctx context.Context, taskID, text string) error {
+	l, err := s.db.CurrentReviewLoop(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	if l == nil || l.State != store.ReviewLoopOpenState {
+		return errors.New("no review loop runs on " + taskID)
+	}
+	return s.MessageAuthorOn(ctx, l.ID, text)
+}
+
+// messageAuthor sends the author the person's words from the main, tagged,
 // queued as feedback is (no attachments, and the tag keeps it from reading
 // as a slash command). A dead author is resumed first.
-func (s *ReviewPassService) MessageAuthor(ctx context.Context, taskID, text string) error {
+func (s *ReviewPassService) messageAuthor(ctx context.Context, taskID, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return errors.New("a message needs text")
@@ -173,7 +208,8 @@ var ErrReviewNotWaiting = errors.New("the review loop is not waiting for its aut
 
 // NextPass starts the next pass of a loop that waits for its author now,
 // whether or not the author pushed: Run another pass on a run's loop. Its
-// maximum passes still hold, so a loop at its limit goes stuck.
+// maximum passes still hold, so a loop at its limit goes stuck. It only
+// writes the record; the tick starts the pass.
 func (s *ReviewPassService) NextPass(ctx context.Context, taskID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

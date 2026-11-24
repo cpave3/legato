@@ -49,6 +49,17 @@ type HandoffReview struct {
 	ChecksPolledAt string `db:"checks_polled_at"`
 	ChecksHeads    string `db:"checks_heads"`
 	ChecksPending  int    `db:"checks_pending"`
+	// ConfirmClean says the loop is clean and its heads are yet to be
+	// confirmed on GitHub (the engine's Confirm), which clears it. The
+	// engine writes it with the phase.
+	ConfirmClean bool `db:"confirm_clean"`
+	// ConfirmedAt and CleanPass are the last Confirm that found GitHub's
+	// heads at the clean pass's pins (ConfirmReviewLoop); they are not
+	// written through the view.
+	ConfirmedAt string `db:"-"`
+	CleanPass   int    `db:"-"`
+	// Closed says the loop record is closed (history); it is not written.
+	Closed bool `db:"-"`
 }
 
 // HandoffReviewPass is one review pass.
@@ -350,7 +361,8 @@ func handoffReviewOf(l *ReviewLoop) *HandoffReview {
 		Mismatches: l.Mismatches, NudgedAt: l.NudgedAt, AuthorBusySinceNudge: l.AuthorBusySinceNudge, Reason: l.Reason,
 		QueuedAt: l.QueuedAt, UpdatedAt: l.UpdatedAt, DeliveredPass: l.DeliveredPass, PolledAt: l.PolledAt,
 		LastNewAt: l.LastNewAt, SkippedComments: l.SkippedComments, ChecksPolledAt: l.ChecksPolledAt,
-		ChecksHeads: l.ChecksHeads, ChecksPending: l.ChecksPending}
+		ChecksHeads: l.ChecksHeads, ChecksPending: l.ChecksPending, ConfirmClean: l.ConfirmClean,
+		ConfirmedAt: l.ConfirmedAt, CleanPass: l.CleanPass, Closed: l.State != ReviewLoopOpenState}
 }
 
 // applyHandoffReview writes what the engine keeps of a loop onto its record.
@@ -360,6 +372,7 @@ func applyHandoffReview(l *ReviewLoop, r HandoffReview) {
 	l.AuthorBusySinceNudge, l.Reason, l.QueuedAt, l.UpdatedAt = r.AuthorBusySinceNudge, r.Reason, r.QueuedAt, r.UpdatedAt
 	l.DeliveredPass, l.PolledAt, l.LastNewAt, l.SkippedComments = r.DeliveredPass, r.PolledAt, r.LastNewAt, r.SkippedComments
 	l.ChecksPolledAt, l.ChecksHeads, l.ChecksPending = r.ChecksPolledAt, r.ChecksHeads, r.ChecksPending
+	l.ConfirmClean = r.ConfirmClean
 }
 
 // GetHandoffReview returns a task's review loop, nil, nil when it has none.

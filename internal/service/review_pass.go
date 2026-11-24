@@ -216,6 +216,10 @@ type ReviewPassService struct {
 	// schemaOnce logs, once, that the tick stopped on a schema newer than
 	// this binary knows.
 	schemaOnce sync.Once
+
+	// authorStops is when each run loop's agent author was first seen
+	// stopped, for the author-mode wait's quiet time. In memory.
+	authorStops runAuthorStops
 }
 
 // What a ready loop waits on before its next pass starts (ReviewLoopBlock's
@@ -390,6 +394,11 @@ func (s *ReviewPassService) step(ctx context.Context, l ReviewLoop) error {
 	if loop == nil {
 		loop = &store.HandoffReview{TaskID: l.TaskID, Settings: "{}"}
 	}
+	if loop.Phase == ReviewPhaseClean && !confirmed(loop) {
+		// A clean pass whose heads GitHub has yet to confirm: nothing is
+		// approved until it does (invariant 9).
+		return s.confirmLoop(ctx, l, loop.LoopID)
+	}
 	inDone := l.caller.AuthorDone(ctx, l)
 	// AuthorDone may have ended the loop (a run's pull request closed):
 	// the phase read before it is stale.
@@ -420,7 +429,7 @@ func (s *ReviewPassService) step(ctx context.Context, l ReviewLoop) error {
 			return nil
 		}
 		if err := s.approveSettled(ctx, l, loop); err != nil {
-			return err
+			log.Printf("review passes: %s: %v", l.TaskID, err)
 		}
 		return s.checksReopen(ctx, l, loop)
 	}

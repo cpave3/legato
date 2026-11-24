@@ -212,7 +212,9 @@ func (s *ReviewPassService) failingChecks(ctx context.Context, taskID string) bo
 
 // approveSettled approves, after a clean pass, each pull request the pass
 // left at a comment review only for a failing counted check that is now
-// handled: it passed, or the author answered it by a reply.
+// handled: it passed, or the author answered it by a reply. A post that
+// fails is an error: the loop is not approved until GitHub has the APPROVE
+// (invariant 9), and the next try finds a review GitHub took by its marker.
 func (s *ReviewPassService) approveSettled(ctx context.Context, l ReviewLoop, loop *store.HandoffReview) error {
 	if loop.Phase != ReviewPhaseClean || loop.Pass == 0 {
 		return nil
@@ -245,8 +247,7 @@ func (s *ReviewPassService) approveSettled(ctx context.Context, l ReviewLoop, lo
 			Summary: "Its failing checks are settled.", Footer: reviewFooter(settings, loop.Pass),
 			Marker: laterReviewMarker(*pass, pr.Number, LaterApprove)})
 		if err != nil {
-			log.Printf("review passes: approving %s#%d once its checks settled, trying again: %v", pr.Repo, pr.Number, err)
-			return nil
+			return fmt.Errorf("approving %s#%d once its checks settled, trying again: %w", pr.Repo, pr.Number, err)
 		}
 		if err := s.db.SetHandoffReviewPRPosted(ctx, l.TaskID, loop.Pass, pr.Number, posted.ID, posted.URL, ReviewApprove); err != nil {
 			return err
