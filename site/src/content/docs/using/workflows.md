@@ -79,6 +79,18 @@ Version 1 executes steps in declaration order and supports these executors. Lega
       digest: {type: string}
   ```
 - `agent.run` with `with.task` (a task input or a task ID) runs the agent as that task's own agent instead of the workflow's: it shows on the task's card, reads that task's context, keeps its stage on the card, and its conversation can be resumed like any agent on the card. With `with.repo` it works in a fresh clone on the task's branch (`legato/<task>`), as an agent started on the card would; a live clone of the task is used again. A macro is sent as one started on the card is: the task's key and title, then the macro's text. The step still waits for the agent to complete it with its outputs, and removes the agent then unless `keep_agent` is set. A step whose task already has an agent running fails without touching it: stop that agent first, or message it with `agent.dispatch`. `task` cannot be given with `working_dir`, `scratch` or `name`.
+- `agent.run` with `with.task` and `with.slot` runs the agent in a named slot of that task's card, such as `triage`, `plan` or `review`, beside the card's own agent instead of in its place. It shows on the card and in the agents list and graph as "<card> · triage", keeps its stage there, and is removed after its step like any other, unless `keep_agent` is set. With `with.repo` it gets a fresh clone of its own on the branch `legato/<task>-<slot>`, so it never works in the card's agent's clone or pushes the card's branch, and the card's next agent never works in its clone. It leaves the card's repository and branch as they were. A step whose slot already has an agent running fails without touching it. A slot is named with lowercase letters, digits and dashes, starts with a letter, and is at most 32 characters long. It is written as it is, with no `${{ }}`, and is checked when the file loads. `main`, the default, is the card's own agent, and `reviewer` is kept for review passes. `slot` needs `task`. For example:
+
+  ```yaml
+  - id: triage
+    title: Triage
+    type: agent.run
+    with:
+      task: ${{ workflow.inputs.task }}
+      slot: triage
+      repo: ${{ workflow.inputs.repo }}
+      prompt: Triage this task and write what you find in a note.
+  ```
 
   ```yaml
   - id: implement
