@@ -278,7 +278,8 @@ describe("SettingsPage layout", () => {
     await loaded()
     expect(within(nav()).getByRole("link", { name: /^Swarms/ })).toHaveTextContent("On")
     expect(within(nav()).getByRole("link", { name: /^Sandbox/ })).toHaveTextContent("Off")
-    expect(within(nav()).getByRole("link", { name: /^Learn/ })).toHaveTextContent("Off")
+    // Learn has no switch of its own: the learn workflow's trigger is it.
+    expect(within(nav()).getByRole("link", { name: /^Learn/ }).textContent).toBe("Learn")
     expect(await within(nav()).findByRole("img", { name: "No approval device" })).toBeTruthy()
     expect(within(nav()).getByRole("link", { name: /^System/ })).toHaveTextContent("2")
   })

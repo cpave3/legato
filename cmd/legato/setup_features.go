@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
+
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -12,6 +16,9 @@ const siteDocs = "https://cpave3.github.io/legato/"
 type featureCounts struct {
 	Workers   int
 	Workflows int
+	// LearnOn is how many workflows with a Learn step have a trigger on in
+	// this Legato: automatic Learn.
+	LearnOn int
 }
 
 // setupFeatures are the More setup cards: each optional feature, on, off,
@@ -53,10 +60,30 @@ func setupFeatures(cfg *config.Config, report service.DoctorReport, counts featu
 			Link: "/settings#setting-review_passes.enabled", Docs: siteDocs + "using/review-passes/"},
 		{ID: "swarms", Title: "Swarms", State: state(cfg.Swarm.Enabled),
 			Link: "/settings#setting-swarm.enabled", Docs: siteDocs + "using/swarms/"},
-		{ID: "learn", Title: "Learn", State: state(cfg.Learning.Enabled),
-			Link: "/settings#setting-learning.enabled", Docs: siteDocs + "using/learn/"},
+		{ID: "learn", Title: "Learn", State: state(counts.LearnOn > 0),
+			Link: "/workflows", Docs: siteDocs + "using/learn/"},
 		reeve,
 		{ID: "workflows", Title: "Workflow templates", State: state(counts.Workflows > 0),
 			Link: "/workflows", Docs: siteDocs + "using/workflows/"},
 	}
+}
+
+// learnWorkflowsOn counts the workflows with a Learn step whose column
+// trigger is on in this Legato: its switch, else the file's enabled.
+func learnWorkflowsOn(ctx context.Context, db *store.Store, workflows []*workflow.Definition) int {
+	on := 0
+	for _, definition := range workflows {
+		trigger := definition.On.TaskEnteredColumn
+		if trigger == nil || !definition.UsesLearning() {
+			continue
+		}
+		enabled := trigger.Enabled == nil || *trigger.Enabled
+		if switched, ok, err := db.WorkflowTriggerSwitchFor(ctx, definition.Name, workflow.TriggerTaskEnteredColumn); err == nil && ok {
+			enabled = switched
+		}
+		if enabled {
+			on++
+		}
+	}
+	return on
 }

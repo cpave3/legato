@@ -200,10 +200,10 @@ var registry = []Setting{
 	{Key: "credential_channels.gh.isolate_login", Title: "Keep gh's own login from agents", Help: "With a github credential, an agent's gh gets Legato's tokens or none. Off, it falls back to your own login.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
 
 	// Learning.
-	{Key: "learning.enabled", Title: "Learn", Help: "Reflects on a task and curates its lessons when its card moves to a column below. Manual commands work either way.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.enabled", Title: "Learn (deprecated)", Help: "Does nothing now. Automatic Learn is the learn workflow: add it and switch its trigger on and off on the Workflows tab.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "learning.prompt_enabled", Title: "Add learnings to launch prompts", Help: "Adds accepted lessons to the prompt of agents Legato starts.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
-	{Key: "learning.transition_columns", Title: "Reflect when a card moves to", Help: "Board columns whose entry starts learning. Needed while Learn is on.", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
-	{Key: "learning.curator_adapter", Title: "Curator", Help: "The agent tool the curator runs.", DefaultLabel: "Same as the default agent", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.transition_columns", Title: "Reflect when a card moves to (deprecated)", Help: "Does nothing now. The learn workflow's trigger names its column.", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.curator_adapter", Title: "Curator", Help: "The agent tool the curator of legato learn curate and consolidate runs. The learn workflow names its own.", DefaultLabel: "Same as the default agent", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "learning.curator_tier", Title: "Curator's tier", Help: "A tier of the curator's tool to run it with.", DefaultLabel: "The tool's default", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "learning.curator_working_dir", Title: "Curator's folder", Help: "An absolute folder the curator always works in.", DefaultLabel: "The task's checkout", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "learning.packet_max_items", Title: "Items in a packet", Help: "The most items in what the curator is given.", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},

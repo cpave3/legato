@@ -20,3 +20,33 @@ func TestASettingOfThisLegatoIsKeptAndChanged(t *testing.T) {
 		}
 	}
 }
+
+func TestOnlyOneProcessClaimsAValueOfThisLegato(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	results := make(chan bool, 8)
+	for range 8 {
+		go func() {
+			claimed, err := s.ClaimInstanceValue(ctx, "learning.template_migrated", "done")
+			if err != nil {
+				t.Error(err)
+			}
+			results <- claimed
+		}()
+	}
+	claims := 0
+	for range 8 {
+		if <-results {
+			claims++
+		}
+	}
+	if claims != 1 {
+		t.Fatalf("%d claims, want 1", claims)
+	}
+	if err := s.DeleteInstanceValue(ctx, "learning.template_migrated"); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := s.ClaimInstanceValue(ctx, "learning.template_migrated", "done"); err != nil || !claimed {
+		t.Fatalf("after it was let go: %v, %v", claimed, err)
+	}
+}
