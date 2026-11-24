@@ -84,10 +84,11 @@ type GlanceInput struct {
 // An agent's wait on the Reeve: it asked the Reeve with message_reeve and
 // no answer, nor turn of the operator's, has come since (reeve_waits).
 const (
-	// ReeveWaitOpen: the Reeve has it, inside ReeveAnswerWait.
+	// ReeveWaitOpen: the Reeve has it, or will once it is between turns.
 	ReeveWaitOpen = "waiting"
-	// ReeveWaitUnanswered: no Reeve runs, or it has not answered within
-	// ReeveAnswerWait, so the operator should know.
+	// ReeveWaitUnanswered: no Reeve can answer, or it has not answered
+	// within ReeveAnswerWait of being told (ReeveUntoldWait of the asking,
+	// never told), so the operator should know.
 	ReeveWaitUnanswered = "unanswered"
 )
 

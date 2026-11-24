@@ -23,7 +23,7 @@ import (
 type ReeveWatcher struct {
 	opts ReeveWatcherOptions
 	// waitsAt is the last check's time, from which a wait on the Reeve
-	// passing ReeveAnswerWait is told once.
+	// going unanswered is told once.
 	waitsMu sync.Mutex
 	waitsAt time.Time
 }
@@ -55,8 +55,8 @@ type ReeveWatcherOptions struct {
 	Conversation func(ctx context.Context, taskID string) (*ConversationTail, error)
 	Settings     func(ctx context.Context) ReeveWatchSettings
 	Now          func() time.Time
-	// WaitsDue is called when an agent's wait on the Reeve passes
-	// ReeveAnswerWait between two checks (NotifyReeveWaitChanged when nil).
+	// WaitsDue is called when an agent's wait on the Reeve goes unanswered
+	// between two checks (NotifyReeveWaitChanged when nil).
 	WaitsDue func()
 }
 
