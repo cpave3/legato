@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"log"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -40,6 +43,35 @@ type learningMigration struct {
 
 var nonWorkflowName = regexp.MustCompile(`[^a-z0-9]+`)
 
+// learningMigrationStale is how long a claim may say started before a later
+// start takes it over: the start that made it stopped before finishing.
+const learningMigrationStale = 10 * time.Minute
+
+// learningMigrationStarted is the claim's value while a start migrates.
+func learningMigrationStarted(at time.Time) string {
+	return "started " + at.UTC().Format(time.RFC3339)
+}
+
+// claimLearningMigration claims the migration for this start: a new claim,
+// or one a start that stopped part way left for longer than
+// learningMigrationStale, taken over atomically.
+func claimLearningMigration(ctx context.Context, db *store.Store, now time.Time) (bool, error) {
+	claimed, err := db.ClaimInstanceValue(ctx, learningMigratedKey, learningMigrationStarted(now))
+	if err != nil || claimed {
+		return claimed, err
+	}
+	value, err := db.GetInstanceValue(ctx, learningMigratedKey)
+	if err != nil {
+		return false, err
+	}
+	at, found := strings.CutPrefix(value, "started ")
+	started, parseErr := time.Parse(time.RFC3339, at)
+	if !found || (parseErr == nil && now.Sub(started) < learningMigrationStale) {
+		return false, nil
+	}
+	return db.ReplaceInstanceValue(ctx, learningMigratedKey, value, learningMigrationStarted(now))
+}
+
 // migrateLearningTriggers runs once for a Legato, at its first start with
 // the learn template. Automatic Learn used to be a definition built in Go
 // for each learning.transition_columns column while learning.enabled was
@@ -57,7 +89,7 @@ func migrateLearningTriggers(ctx context.Context, m learningMigration) {
 	}
 	logf := m.Logf
 	learning := m.Config.Learning
-	claimed, err := m.Store.ClaimInstanceValue(ctx, learningMigratedKey, "started")
+	claimed, err := claimLearningMigration(ctx, m.Store, time.Now())
 	if err != nil {
 		logf("learning: migrating learning.enabled: %v", err)
 		return
@@ -126,17 +158,40 @@ func installLearnWorkflow(ctx context.Context, m learningMigration, name, column
 }
 
 // switchLearnOn switches a learn workflow's trigger on for this Legato,
-// unless this Legato has a switch for it already.
+// unless this Legato has a switch for it already. A switch of the built-in
+// it replaces (paused, say) carries over instead.
 func switchLearnOn(ctx context.Context, m learningMigration, name, column string) error {
 	kind := workflowengine.TriggerTaskEnteredColumn
 	if _, ok, err := m.Triggers.TriggerSwitch(ctx, name, kind); err != nil || ok {
 		return err
 	}
-	if err := m.Triggers.SetTriggerEnabled(ctx, name, kind, true); err != nil {
+	on := true
+	if legacy, ok, err := m.Triggers.TriggerSwitch(ctx, legacyLearningWorkflowName(column), kind); err != nil {
+		return err
+	} else if ok {
+		on = legacy
+	}
+	if err := m.Triggers.SetTriggerEnabled(ctx, name, kind, on); err != nil {
 		return err
 	}
-	m.Logf("learning: installed workflow %q, on when a card enters %s, from learning.enabled", name, column)
+	state := "on"
+	if !on {
+		state = "paused, as its built-in was"
+	}
+	m.Logf("learning: installed workflow %q, %s, for cards entering %s, from learning.enabled", name, state, column)
 	return nil
+}
+
+// legacyLearningWorkflowName is the name the built-in Learn definition for
+// a column had before the learn template, under which its trigger switch
+// was kept: legato-learning-<slug>-<first 4 bytes of sha256(column), hex>.
+func legacyLearningWorkflowName(column string) string {
+	slug := strings.Trim(nonWorkflowName.ReplaceAllString(strings.ToLower(column), "-"), "-")
+	if slug == "" {
+		slug = "column"
+	}
+	digest := sha256.Sum256([]byte(column))
+	return "legato-learning-" + slug + "-" + hex.EncodeToString(digest[:4])
 }
 
 // warnDeprecatedLearningSettings says, once a start, that the deprecated

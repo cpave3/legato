@@ -50,3 +50,20 @@ func TestOnlyOneProcessClaimsAValueOfThisLegato(t *testing.T) {
 		t.Fatalf("after it was let go: %v, %v", claimed, err)
 	}
 }
+
+func TestAValueOfThisLegatoIsReplacedOnlyFromWhatWasRead(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.SetInstanceValue(ctx, "k", "old"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.ReplaceInstanceValue(ctx, "k", "stale", "new"); err != nil || ok {
+		t.Fatalf("replaced from a value it no longer had: %v, %v", ok, err)
+	}
+	if ok, err := s.ReplaceInstanceValue(ctx, "k", "old", "new"); err != nil || !ok {
+		t.Fatalf("not replaced: %v, %v", ok, err)
+	}
+	if got, _ := s.GetInstanceValue(ctx, "k"); got != "new" {
+		t.Fatalf("value = %q", got)
+	}
+}

@@ -233,3 +233,15 @@ func (s *Store) DeleteInstanceValue(ctx context.Context, key string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM instance_values WHERE key = ?`, key)
 	return err
 }
+
+// ReplaceInstanceValue changes a value of this Legato only while it is
+// still old, and says whether it did: of processes that read the same
+// value and replace it, exactly one is told true.
+func (s *Store) ReplaceInstanceValue(ctx context.Context, key, old, value string) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE instance_values SET value = ? WHERE key = ? AND value = ?`, value, key, old)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	return n == 1, err
+}

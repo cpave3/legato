@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -225,5 +226,42 @@ func TestAFailedWriteIsTriedAgainAtTheNextStart(t *testing.T) {
 	f.migrate(t, learningConfig(true, "Review"))
 	if got := f.installed(t); got["learn"] != "Review on" {
 		t.Fatalf("installed = %v", got)
+	}
+}
+
+// The built-in this replaces could be paused by its own name; that pause
+// carries over to the workflow that takes its place.
+func TestAPausedBuiltInLearnStaysPaused(t *testing.T) {
+	f := newLearningMigrationFixture(t)
+	ctx := context.Background()
+	if err := f.db.SetWorkflowTriggerSwitch(ctx, "legato-learning-review-aff0766a", workflowengine.TriggerTaskEnteredColumn, false); err != nil {
+		t.Fatal(err)
+	}
+	f.migrate(t, learningConfig(true, "Review", "Done"))
+	if got := f.installed(t); got["learn"] != "Review paused" || got["learn-done"] != "Done on" {
+		t.Fatalf("installed = %v", got)
+	}
+}
+
+// A start that stopped between claiming and installing leaves its claim; a
+// later start takes over a claim older than a few minutes, never a fresh one.
+func TestAnAbandonedMigrationIsFinishedByALaterStart(t *testing.T) {
+	for name, tc := range map[string]struct {
+		age  time.Duration
+		want int
+	}{
+		"abandoned": {age: time.Hour, want: 1},
+		"running":   {age: time.Second, want: 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newLearningMigrationFixture(t)
+			if _, err := f.db.ClaimInstanceValue(context.Background(), learningMigratedKey, learningMigrationStarted(time.Now().Add(-tc.age))); err != nil {
+				t.Fatal(err)
+			}
+			f.migrate(t, learningConfig(true, "Review"))
+			if got := f.installed(t); len(got) != tc.want {
+				t.Fatalf("installed = %v, want %d", got, tc.want)
+			}
+		})
 	}
 }

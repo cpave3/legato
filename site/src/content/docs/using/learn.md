@@ -39,7 +39,7 @@ The steps of `learn` are ordinary step types that any workflow can use (see [Lea
 
 ### From `learning.enabled`
 
-Before the template, `learning.enabled` and `learning.transition_columns` started Learn on their own. They are deprecated and now do nothing. At its first start with the template, a Legato with `learning.enabled: true` installed a `learn` workflow for each of those columns that its board has (`learn`, then `learn-<column>`) in its workflows folder, with your curator settings in it, and switched it on. It does this once; while the old settings are still set, its log says that they do nothing. A Legato with Learn off installed nothing.
+Before the template, `learning.enabled` and `learning.transition_columns` started Learn on their own. They are deprecated and now do nothing. At its first start with the template, a Legato with `learning.enabled: true` installed a `learn` workflow for each of those columns that its board has (`learn`, then `learn-<column>`) in its workflows folder, with your curator settings in it, and switched it on (or left it paused, if you had paused the built-in). It does this once; while the old settings are still set, its log says that they do nothing. A Legato with Learn off installed nothing.
 
 `learning.curator_adapter`, `learning.curator_tier`, `learning.curator_working_dir` and the packet limits still apply to `legato learn curate` and `legato learn consolidate`. See the [configuration reference](/legato/reference/configuration/) for them and the limits on prompts.
 
