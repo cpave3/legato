@@ -14,7 +14,7 @@ import { stageLabel } from "../../lib/agentStage"
 import { cn } from "../../lib/utils"
 import { agentLook, subagentLook } from "./look"
 import { linkStyles } from "./linkStyles"
-import { useReeveName } from "../../lib/reeveName"
+import { useReeveName, type ReeveName } from "../../lib/reeveName"
 
 export type AgentGraphCanvasProps = {
   layout: AgentGraphLayout
@@ -232,6 +232,7 @@ function neighbours(layout: AgentGraphLayout, selected: string | null): Set<stri
 
 function Graph({ layout, direction, selectedId, onSelect, onOpen, onToggleFold, onToggleBox, focusOn, fit, faded }: AgentGraphCanvasProps) {
   const flow = useReactFlow()
+  const reeve = useReeveName()
   const lit = useMemo(() => neighbours(layout, selectedId), [layout, selectedId])
   const nodes: FlowNode[] = useMemo(() => [
     ...layout.boxes.map((box): FlowNode => ({
@@ -241,9 +242,9 @@ function Graph({ layout, direction, selectedId, onSelect, onOpen, onToggleFold, 
     ...layout.nodes.map((node): FlowNode => ({
       id: node.id, type: node.kind, position: { x: node.x, y: node.y }, width: node.width, height: node.height,
       data: { node, dimmed: Boolean(lit && !lit.has(node.id)) || Boolean(faded?.has(node.agentId)), direction, onToggleBox },
-      draggable: false, connectable: false, selected: node.id === selectedId, ariaRole: "button", ariaLabel: nodeName(node),
+      draggable: false, connectable: false, selected: node.id === selectedId, ariaRole: "button", ariaLabel: nodeName(node, reeve),
     })),
-  ], [layout, lit, selectedId, direction, onToggleBox, faded])
+  ], [layout, lit, selectedId, direction, onToggleBox, faded, reeve])
   const edges: Edge[] = useMemo(() => {
     const agentOf = new Map(layout.nodes.map((node) => [node.id, node.agentId]))
     const fadedEnd = (id: string) => Boolean(faded?.has(agentOf.get(id) ?? id))
@@ -333,11 +334,11 @@ function Graph({ layout, direction, selectedId, onSelect, onOpen, onToggleFold, 
 }
 
 // nodeName is how a node is read out: what it is and what state it is in.
-function nodeName(node: GraphNode): string {
+function nodeName(node: GraphNode, reeve: ReeveName): string {
   switch (node.kind) {
     case "agent":
     case "reeve": {
-      const name = `${node.agent?.task_id}, ${agentLook(node.agent!).label}${node.agent?.task_title ? `: ${node.agent.task_title}` : ""}`
+      const name = `${node.agent?.task_id}, ${agentLook(node.agent!, reeve).label}${node.agent?.task_title ? `: ${node.agent.task_title}` : ""}`
       const workflow = node.workflows?.[0]
       if (!workflow) return name
       const words = workflowWords(workflow)

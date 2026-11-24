@@ -32,3 +32,21 @@ func TestAnAgentWaitingOnTheReeveSaysSoInTheList(t *testing.T) {
 		t.Fatalf("named, unanswered: %q", got)
 	}
 }
+
+// A filter that hides the Reeve keeps its name in the wait's words.
+func TestAFilterThatHidesTheReeveKeepsItsName(t *testing.T) {
+	waiting := service.AgentSession{TaskID: "LEG-613", Status: "running", Stage: "implementing", ReeveWait: service.ReeveWaitOpen}
+	reeve := service.AgentSession{TaskID: "rv-1", Status: "running", Reeve: true, ReeveName: "Hestia"}
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents([]service.AgentSession{waiting, reeve})
+	m.stageFilter = "implementing"
+	m.agents = m.filtered()
+	for _, a := range m.agents {
+		if a.Reeve {
+			t.Fatal("the filter did not hide the Reeve")
+		}
+	}
+	if got := m.stateWord(stateOf(waiting)); got != "waiting on Hestia" {
+		t.Fatalf("filtered: %q", got)
+	}
+}

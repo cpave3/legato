@@ -129,9 +129,10 @@ func (m *Model) SetVoiceEnabled(v bool) {
 }
 
 // ReeveName is the Reeve's name as the agents list last gave it, "" when
-// it has none or its agent is not listed.
+// it has none or its agent is not listed, whatever the filter shows.
 func (m Model) ReeveName() service.ReeveName {
-	for _, a := range m.agents {
+	// The whole list: a filter may hide the Reeve, not its name.
+	for _, a := range m.all {
 		if a.Reeve {
 			return service.ReeveName(a.ReeveName)
 		}
