@@ -226,13 +226,24 @@ describe("workflow runs on the ensemble's graph", () => {
     expect(await screen.findByRole("region", { name: "LEG-1" })).toBeInTheDocument()
   })
 
-  it("reads the graph again when a workflow run moves on", async () => {
+  it("reads the graph again, once, when a workflow run moves on", async () => {
     show(agents(), { layout: "graph" })
     await node(/^LEG-1, running/)
     const reads = () => apiFetch.mock.calls.filter(([, path]) => path === "/api/agents/graph").length
     const before = reads()
-    act(() => { for (const handler of socket.handlers) handler({ type: "workflow_changed" } as WSMessage) })
+    // A step completing and the next starting is several changes at once.
+    act(() => {
+      for (const kind of ["step_completed", "step_started", "step_waiting"]) {
+        for (const handler of socket.handlers) handler({ type: "workflow_changed", workflow_run_id: "wr-1", kind } as WSMessage)
+      }
+    })
     await waitFor(() => expect(reads()).toBe(before + 1))
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    expect(reads()).toBe(before + 1)
+    // A workflow file saved or a trigger switched moves no run.
+    act(() => { for (const handler of socket.handlers) handler({ type: "workflow_changed", kind: "definitions" } as WSMessage) })
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    expect(reads()).toBe(before + 1)
   })
 
   it("opens on an agent and its run's graph when the address names them, with a way back to the run", async () => {

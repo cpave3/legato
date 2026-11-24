@@ -1,12 +1,11 @@
 import { useQueryClient, type QueryKey } from "@tanstack/react-query"
 import { useEffect, useRef, type ReactNode } from "react"
 import { queryKeys } from "../lib/query"
+import { coalesce, invalidationsFor, type Coalesced } from "../lib/querySync"
 import { useServer } from "../hooks/useServer"
 import { useWebSocket, type AgentInfo, type WSMessage } from "../hooks/useWebSocket"
 import type { NavigationSummary } from "../hooks/useNavigationSummary"
 import type { RepositoryCacheStatus } from "../lib/preparingAgents"
-
-const COALESCE_MS = 75
 
 function countActiveAgents(agents: AgentInfo[]) {
   return agents.filter((agent) => Boolean(agent.activity)).length
@@ -16,108 +15,28 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
   const { baseUrl } = useServer()
   const { connectionGeneration, subscribe } = useWebSocket()
-  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const timers = useRef(new Map<string, Coalesced>())
   const connectionState = useRef({ baseUrl, generation: 0, awaitingFirstOpen: true })
 
   useEffect(() => {
     const pending = timers.current
+    // A burst of messages is one refetch of each query (coalesce).
     function invalidate(queryKey: QueryKey, exact = true) {
       const timerKey = JSON.stringify(queryKey)
-      const existing = pending.get(timerKey)
-      if (existing) clearTimeout(existing)
-      pending.set(timerKey, setTimeout(() => {
-        pending.delete(timerKey)
-        void queryClient.invalidateQueries({ queryKey, exact, refetchType: "active" })
-      }, COALESCE_MS))
+      let refetch = pending.get(timerKey)
+      if (!refetch) {
+        refetch = coalesce(() => {
+          pending.delete(timerKey)
+          void queryClient.invalidateQueries({ queryKey, exact, refetchType: "active" })
+        })
+        pending.set(timerKey, refetch)
+      }
+      refetch()
     }
 
     function onMessage(message: WSMessage) {
+      for (const { queryKey, exact } of invalidationsFor(message, baseUrl)) invalidate(queryKey, exact)
       switch (message.type) {
-        case "review_changed":
-          invalidate(queryKeys.reviewQueue(baseUrl, false))
-          invalidate(queryKeys.reviewQueue(baseUrl, true))
-          if (message.tour_id) {
-            invalidate(queryKeys.reviewTour(baseUrl, message.tour_id))
-            invalidate(queryKeys.handoff(baseUrl, message.tour_id))
-          }
-          invalidate(queryKeys.navigationSummary(baseUrl))
-          break
-        case "plan_changed":
-          invalidate(queryKeys.planQueue(baseUrl))
-          if (message.plan_id) invalidate(queryKeys.plan(baseUrl, message.plan_id))
-          invalidate(queryKeys.navigationSummary(baseUrl))
-          break
-        case "attention_changed":
-          invalidate(queryKeys.attention(baseUrl))
-          // A card says what waits on the operator (needs_you): an item
-          // posted or cleared while its agent idles changes it.
-          invalidate([baseUrl, "board"], false)
-          invalidate(queryKeys.railAttention(baseUrl))
-          // A run's review loop waits on the operator or on its agent
-          // author as the rail says (LEG-543): an open run reads it again.
-          invalidate([baseUrl, "workflow-run"], false)
-          invalidate(queryKeys.navigationSummary(baseUrl))
-          break
-        case "approvals_changed":
-          invalidate(queryKeys.approvals(baseUrl))
-          // A set that ran without asking is an approval decided at once.
-          invalidate(queryKeys.reeveAuto(baseUrl))
-          invalidate(queryKeys.peerApprovals(baseUrl))
-          // A decided approval may enroll or remove a device.
-          invalidate(queryKeys.devices(baseUrl))
-          invalidate(queryKeys.navigationSummary(baseUrl))
-          break
-        case "workflow_changed":
-          invalidate(queryKeys.workflowRuns(baseUrl))
-          invalidate([baseUrl, "workflow-runs-of"], false)
-          if (message.workflow_run_id) invalidate(queryKeys.workflowRun(baseUrl, message.workflow_run_id))
-          invalidate(queryKeys.navigationSummary(baseUrl))
-          break
-        case "agent_ui_changed":
-          // An agent showed, replaced or lost an artifact or a card.
-          if (message.task_id) invalidate(queryKeys.agentUIItems(baseUrl, message.task_id))
-          if (message.item_id) invalidate([baseUrl, "agent-ui-item", message.item_id], false)
-          break
-        case "cards_changed":
-          invalidate([baseUrl, "board"], false)
-          invalidate([baseUrl, "task"], false)
-          break
-        case "agent_stage_changed":
-          // An agent's stage moved: its card's strip and its stage history.
-          invalidate([baseUrl, "board"], false)
-          invalidate([baseUrl, "agent-stage-history"], false)
-          break
-        case "agents_changed":
-          invalidate(queryKeys.jobClones(baseUrl))
-          invalidate(queryKeys.reeve(baseUrl))
-          invalidate(queryKeys.navigationSummary(baseUrl))
-          invalidate([baseUrl, "board"], false)
-          // An agent started in the background began, or failed.
-          invalidate(queryKeys.preparingAgents(baseUrl))
-          invalidate(queryKeys.interruptedAgents(baseUrl))
-          // Runs start and end with agents.
-          invalidate([baseUrl, "sessions"], false)
-          invalidate([baseUrl, "session"], false)
-          break
-        case "server_theme_changed":
-          invalidate(queryKeys.meta(baseUrl), false)
-          invalidate(queryKeys.themePreference(baseUrl))
-          invalidate(queryKeys.settings(baseUrl))
-          break
-        case "settings_changed":
-          // Another browser changed this server's settings.
-          invalidate(queryKeys.settings(baseUrl))
-          invalidate(queryKeys.configSettings(baseUrl))
-          invalidate(queryKeys.configLists(baseUrl))
-          // The rail's settings choose what it shows.
-          invalidate(queryKeys.railAttention(baseUrl))
-          invalidate(queryKeys.macros(baseUrl))
-          break
-        case "update_changed":
-          // A check, a new mode, or an update installing: the settings
-          // carry where updates stand.
-          invalidate(queryKeys.settings(baseUrl))
-          break
         case "repository_cache":
           // git's progress comes several times a second: the message is
           // the new state, so nothing is asked for again.
@@ -143,7 +62,7 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
     const unsubscribe = subscribe(onMessage)
     return () => {
       unsubscribe()
-      pending.forEach(clearTimeout)
+      pending.forEach((refetch) => refetch.cancel())
       pending.clear()
     }
   }, [baseUrl, queryClient, subscribe])

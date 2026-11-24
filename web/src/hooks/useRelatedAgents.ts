@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useServer } from "./useServer"
 import { useWebSocket, type WSMessage } from "./useWebSocket"
 import { fetchRelatedAgents, type RelatedAgent } from "../lib/related-agents"
+import { coalesce, isRunChange } from "../lib/querySync"
 
 /**
  * The agents on the other side of an agent's review loops, fetched again
@@ -32,9 +33,16 @@ export function useRelatedAgents(agentId: string): RelatedAgent[] {
 
   useEffect(() => { void refresh() }, [refresh])
 
-  useEffect(() => subscribe((message: WSMessage) => {
-    if (message.type === "agents_changed" || message.type === "workflow_changed" || message.type === "cards_changed") void refresh()
-  }), [refresh, subscribe])
+  useEffect(() => {
+    const read = coalesce(() => void refresh())
+    const unsubscribe = subscribe((message: WSMessage) => {
+      if (message.type === "agents_changed" || isRunChange(message) || message.type === "cards_changed") read()
+    })
+    return () => {
+      read.cancel()
+      unsubscribe()
+    }
+  }, [refresh, subscribe])
 
   return rows
 }
