@@ -37,6 +37,15 @@ type PRState struct {
 	State    string
 	MergedAt string
 	URL      string
+	// HeadBranch is the branch it merges from, BaseBranch the one it
+	// merges into.
+	HeadBranch string
+	BaseBranch string
+	// Conflicts says whether it conflicts with its base: nil while GitHub
+	// works it out, when the last answer stands.
+	Conflicts *bool
+	// CheckStatus is its head's CI: pass, fail, pending, or "" with none.
+	CheckStatus string
 }
 
 // PRStateReader reads a pull request's state from GitHub.
@@ -53,22 +62,70 @@ func (g GitHubPRStates) PullRequestState(_ context.Context, repo string, number 
 	if !ok || owner == "" || name == "" {
 		return PRState{}, fmt.Errorf("repository %q is not owner/name", repo)
 	}
-	status, err := g.Client.FetchPRState(owner, name, number)
+	status, err := g.Client.FetchPRWaitState(owner, name, number)
 	if err != nil {
 		return PRState{}, err
 	}
-	return PRState{State: strings.ToLower(status.State), MergedAt: status.MergedAt, URL: status.URL}, nil
+	state := PRState{
+		State: strings.ToLower(status.State), MergedAt: status.MergedAt, URL: status.URL,
+		HeadBranch: status.HeadBranch, BaseBranch: status.BaseBranch, CheckStatus: status.CheckStatus,
+	}
+	switch {
+	case status.MergeableState == "dirty":
+		state.Conflicts = boolPtr(true)
+	case status.Mergeable != nil:
+		state.Conflicts = boolPtr(!*status.Mergeable)
+	}
+	return state, nil
 }
+
+func boolPtr(v bool) *bool { return &v }
 
 // PRWaitExecutor is github.pr.wait: it reads the pull request when the step
 // starts, and waits on WorkflowService.CheckPRWaits when it is still open.
+// It keeps the last state it read of each waiting attempt's pull request,
+// in memory: each host process reads GitHub for itself, at once when it
+// starts, so nothing needs it across a restart.
 type PRWaitExecutor struct {
 	reader PRStateReader
+	mu     sync.Mutex
+	seen   map[string]PRState
 }
 
 // NewPRWaitExecutor waits on the pull requests reader reads.
 func NewPRWaitExecutor(reader PRStateReader) *PRWaitExecutor {
-	return &PRWaitExecutor{reader: reader}
+	return &PRWaitExecutor{reader: reader, seen: map[string]PRState{}}
+}
+
+// remember keeps what a read of an attempt's pull request said, and says
+// whether that changes what its needs-you item says: a first read, a
+// conflict that starts or ends, CI that changes. A read that leaves
+// mergeability unknown keeps the last answer.
+func (e *PRWaitExecutor) remember(attemptID string, state PRState) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	old, ok := e.seen[attemptID]
+	if state.Conflicts == nil && ok {
+		state.Conflicts = old.Conflicts
+	}
+	e.seen[attemptID] = state
+	return !ok || conflicted(old) != conflicted(state) || old.CheckStatus != state.CheckStatus
+}
+
+func conflicted(state PRState) bool { return state.Conflicts != nil && *state.Conflicts }
+
+// last is what the latest read of an attempt's pull request said.
+func (e *PRWaitExecutor) last(attemptID string) (PRState, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	state, ok := e.seen[attemptID]
+	return state, ok
+}
+
+func (e *PRWaitExecutor) forget(attemptID string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	delete(e.seen, attemptID)
 }
 
 func (e *PRWaitExecutor) Type() string { return PRWaitStepType }
@@ -80,12 +137,15 @@ func (e *PRWaitExecutor) Start(ctx context.Context, step ResolvedWorkflowStep) (
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
-	outputs, done, err := e.check(ctx, target)
+	state, outputs, done, err := e.check(ctx, target)
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
 	if done {
 		return WorkflowExecutionResult{Status: "succeeded", Outputs: outputs}, nil
+	}
+	if step.AttemptID != "" {
+		e.remember(step.AttemptID, state)
 	}
 	return WorkflowExecutionResult{Status: WorkflowStepWaiting}, nil
 }
@@ -117,44 +177,57 @@ func prWaitTarget(with map[string]any) (prWait, error) {
 	return prWait{repo: strings.TrimSpace(repo), number: number, until: until}, nil
 }
 
-// check reads the pull request: its outputs and true when the wait is over,
-// an error when it can never be (closed without merging, waiting for the
-// merge).
-func (e *PRWaitExecutor) check(ctx context.Context, target prWait) (map[string]any, bool, error) {
+// check reads the pull request: what it said, its outputs and true when
+// the wait is over, an error when it can never be (closed without merging,
+// waiting for the merge).
+func (e *PRWaitExecutor) check(ctx context.Context, target prWait) (PRState, map[string]any, bool, error) {
 	if e.reader == nil {
-		return nil, false, errors.New("waiting for a pull request needs Legato's GitHub access")
+		return PRState{}, nil, false, errors.New("waiting for a pull request needs Legato's GitHub access")
 	}
 	state, err := e.reader.PullRequestState(ctx, target.repo, target.number)
 	if err != nil {
-		return nil, false, fmt.Errorf("reading %s#%d: %w", target.repo, target.number, err)
+		return PRState{}, nil, false, fmt.Errorf("reading %s#%d: %w", target.repo, target.number, err)
 	}
 	switch state.State {
 	case PRStateMerged:
 	case PRStateClosed:
 		if target.until == PRStateMerged {
-			return nil, false, fmt.Errorf("pull request %s#%d %w", target.repo, target.number, errPRClosedUnmerged)
+			return state, nil, false, fmt.Errorf("pull request %s#%d %w", target.repo, target.number, errPRClosedUnmerged)
 		}
 	default:
-		return nil, false, nil
+		return state, nil, false, nil
 	}
-	return map[string]any{
+	return state, map[string]any{
 		"state": state.State, "merged": state.State == PRStateMerged, "merged_at": state.MergedAt, "url": state.URL,
 	}, true, nil
 }
 
 // CheckPRWaits reads the pull request of every github.pr.wait step that
-// waits, and completes (or fails) the steps whose wait is over. A read that
-// fails leaves the step waiting for the next check.
+// waits, and completes (or fails) the steps whose wait is over, stopping
+// the agent Resume agent started for the run (stopResumedAgent). A read
+// that fails leaves the step waiting for the next check.
 func (s *WorkflowService) CheckPRWaits(ctx context.Context) error {
+	_, err := s.checkPRWaits(ctx)
+	return err
+}
+
+// PRWaitChangedKind marks the EventWorkflowChanged of a waiting pull
+// request whose state changed what its needs-you item says.
+const PRWaitChangedKind = "pr_wait"
+
+// checkPRWaits is CheckPRWaits, and the runs whose waiting pull request
+// changed what their needs-you item says.
+func (s *WorkflowService) checkPRWaits(ctx context.Context) ([]string, error) {
 	executor, ok := s.executors[PRWaitStepType].(*PRWaitExecutor)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	attempts, err := s.WaitingAttempts(ctx, PRWaitStepType)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var errs []error
+	var changed []string
 	for _, attempt := range attempts {
 		with, err := s.attemptWith(ctx, attempt)
 		if err != nil {
@@ -163,16 +236,25 @@ func (s *WorkflowService) CheckPRWaits(ctx context.Context) error {
 		}
 		target, err := prWaitTarget(with)
 		if err == nil {
+			var state PRState
 			var outputs map[string]any
 			var done bool
-			outputs, done, err = executor.check(ctx, target)
+			state, outputs, done, err = executor.check(ctx, target)
 			if err == nil && !done {
+				if executor.remember(attempt.ID, state) {
+					changed = append(changed, attempt.RunID)
+				}
 				continue
 			}
 			if err == nil {
 				_, err = s.CompleteWaiting(ctx, attempt.RunID, attempt.Path, attempt.ID, outputs)
 				if errors.Is(err, store.ErrWorkflowStateConflict) {
 					continue // another Legato completed it
+				}
+				var recorded *StepRecordedError
+				if err == nil || errors.As(err, &recorded) {
+					executor.forget(attempt.ID)
+					s.stopResumedAgent(ctx, attempt)
 				}
 				errs = append(errs, err)
 				continue
@@ -184,11 +266,16 @@ func (s *WorkflowService) CheckPRWaits(ctx context.Context) error {
 				continue
 			}
 		}
-		if _, failErr := s.FailWaiting(ctx, attempt.RunID, attempt.Path, attempt.ID, err.Error()); failErr != nil && !errors.Is(failErr, store.ErrWorkflowStateConflict) {
+		_, failErr := s.FailWaiting(ctx, attempt.RunID, attempt.Path, attempt.ID, err.Error())
+		if failErr != nil && !errors.Is(failErr, store.ErrWorkflowStateConflict) {
 			errs = append(errs, failErr)
 		}
+		if failErr == nil {
+			executor.forget(attempt.ID)
+			s.stopResumedAgent(ctx, attempt)
+		}
 	}
-	return errors.Join(errs...)
+	return changed, errors.Join(errs...)
 }
 
 // attemptWith is the resolved with of an attempt's step.
@@ -225,8 +312,15 @@ func (s *WorkflowService) StartPRWaitLoop(ctx context.Context, bus *events.Bus, 
 	var once sync.Once
 	done := make(chan struct{})
 	check := func() {
-		if err := s.CheckPRWaits(ctx); err != nil && ctx.Err() == nil {
+		changed, err := s.checkPRWaits(ctx)
+		if err != nil && ctx.Err() == nil {
 			log.Printf("workflows: pull request waits: %v", err)
+		}
+		if bus == nil {
+			return
+		}
+		for _, runID := range changed {
+			bus.Publish(events.Event{Type: events.EventWorkflowChanged, At: time.Now(), Payload: events.WorkflowChangedPayload{RunID: runID, Kind: PRWaitChangedKind}})
 		}
 	}
 	go func() {

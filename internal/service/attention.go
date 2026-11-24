@@ -34,7 +34,15 @@ type AttentionAction struct {
 	// Text is what a copy action puts on the clipboard. A client copies it
 	// and calls nothing.
 	Text string `json:"text,omitempty"`
+	// Picks is what an execute action asks the operator to choose before
+	// it runs, sent as the request's text: "macro" for a macro's name. A
+	// client that cannot offer the choice leaves the action out.
+	Picks string `json:"picks,omitempty"`
 }
+
+// AttentionPicksMacro is an action that runs with a macro the operator
+// picks.
+const AttentionPicksMacro = "macro"
 
 const (
 	AttentionSignalPlanDecision                = "plan_decision"
@@ -55,6 +63,10 @@ const (
 	// on an author who will not move it alone: a person, or an agent
 	// author that waits on the operator, stopped or ended (LEG-543).
 	AttentionSignalWorkflowReviewAuthor = "workflow_review_author"
+	// AttentionSignalWorkflowMergeWaiting is a run's github.pr.wait step
+	// waiting for the operator to review and merge its pull request
+	// (LEG-614).
+	AttentionSignalWorkflowMergeWaiting = "workflow_merge_waiting"
 	AttentionSignalLearningCuratorWork  = "learning_curator_work"
 	AttentionSignalApproval             = "approval"
 	AttentionSignalDevicesReset         = "devices_reset"
@@ -72,6 +84,7 @@ var defaultAttentionSignals = []string{
 	AttentionSignalWorkflowFailed,
 	AttentionSignalWorkflowReviewStuck,
 	AttentionSignalWorkflowReviewAuthor,
+	AttentionSignalWorkflowMergeWaiting,
 	AttentionSignalWorkflowTriggerInput,
 	AttentionSignalWorkflowTriggerConfirmation,
 	AttentionSignalWorkflowTriggerFailed,
@@ -114,6 +127,7 @@ var knownAttentionSignals = map[string]bool{
 	AttentionSignalWorkflowFailed:              true,
 	AttentionSignalWorkflowReviewStuck:         true,
 	AttentionSignalWorkflowReviewAuthor:        true,
+	AttentionSignalWorkflowMergeWaiting:        true,
 	AttentionSignalWorkflowTriggerInput:        true,
 	AttentionSignalWorkflowTriggerConfirmation: true,
 	AttentionSignalWorkflowTriggerFailed:       true,
@@ -438,6 +452,9 @@ func (s *AttentionService) Execute(ctx context.Context, id string, request Atten
 	}
 	if declared.RequiresText && strings.TrimSpace(request.Text) == "" {
 		return fmt.Errorf("attention action %q requires text", request.ActionID)
+	}
+	if declared.Picks != "" && strings.TrimSpace(request.Text) == "" {
+		return fmt.Errorf("attention action %q needs a %s picked", request.ActionID, declared.Picks)
 	}
 	if declared.RequiresConfirm && !request.Confirmed {
 		return fmt.Errorf("attention action %q requires confirmation", request.ActionID)

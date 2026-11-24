@@ -465,6 +465,8 @@ var catalog = []ExecutorSpec{
 			{Name: "repo", Kind: KindRepository, Label: "Repository", Description: "GitHub repository (owner/name)", Required: true, Essential: true, Order: 1},
 			{Name: "pr_number", Kind: KindInteger, Label: "Pull request number", Description: "The pull request's number", Required: true, Essential: true, Order: 2},
 			{Name: "until", Kind: KindString, Label: "Wait until it is", Description: "merged: the step completes when the pull request merges, and fails when it closes without merging; closed: it completes when the pull request merges or closes", Default: "merged", Enum: []string{"merged", "closed"}, Checked: true, Invalid: "must be merged or closed", Order: 3},
+			{Name: "task", Kind: KindTaskOrID, Label: "The card", Description: "The task, or a task ID, whose pull request it is: its needs-you item is on that card, and Resume agent starts that card's agent. The run's task input when empty", Order: 4},
+			{Name: "notify", Kind: KindBoolean, Label: "Ask me to review and merge", Description: "While it waits, a needs-you item asks the operator to review and merge the pull request, and says when it conflicts or CI fails", Default: true, Literal: true, Checked: true, Invalid: "must be true or false", Order: 5},
 		},
 		Summary: []string{"repo"},
 		Outputs: []OutputSpec{
