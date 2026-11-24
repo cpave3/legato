@@ -112,8 +112,9 @@ func NewReviewRunCaller(engine *ReviewPassService, opts ReviewRunOptions) *Revie
 // SetWorkflows gives the caller the workflow service.
 func (c *ReviewRunCaller) SetWorkflows(workflows ReviewRunWorkflows) { c.workflows = workflows }
 
-// reviewRun is what a run's loop keeps on its task's metadata
-// (legato.review_loop).
+// reviewRun is what the engine reads of a run's loop record (the run loop
+// its task hosts): its owner, its pull requests and the reviewer's clone,
+// and what the run caller notes between passes.
 type reviewRun struct {
 	RunID      string `json:"run_id"`
 	StepID     string `json:"step_id"`
@@ -142,35 +143,143 @@ type reviewRun struct {
 	// started before stacks: PR alone, on Branch).
 	Scope string        `json:"scope,omitempty"`
 	Stack []reviewRunPR `json:"stack,omitempty"`
+	// closed says the loop record is closed: history, which nothing
+	// moves on.
+	closed bool
 }
-
-var reviewRunKey = []string{"legato", "review_loop"}
 
 func (c *ReviewRunCaller) run(ctx context.Context, taskID string) (*reviewRun, error) {
 	return readReviewRun(ctx, c.engine.db, taskID)
 }
 
-// readReviewRun is the review loop a run keeps on its task's metadata.
+// readReviewRun is the run loop a run's task hosts on the loop record (its
+// open one, else its newest).
 func readReviewRun(ctx context.Context, db *store.Store, taskID string) (*reviewRun, error) {
-	task, err := db.GetTask(ctx, taskID)
+	l, err := db.CurrentReviewLoop(ctx, taskID)
 	if err != nil {
 		return nil, err
 	}
-	metadata, err := store.ParseTaskMetadata(task.Metadata)
-	if err != nil {
-		return nil, err
-	}
-	legato, _ := metadata["legato"].(map[string]any)
-	raw, ok := legato["review_loop"]
-	if !ok {
+	if l == nil || l.OwnerKind != store.ReviewLoopOwnerRun {
 		return nil, fmt.Errorf("%s has no review loop", taskID)
 	}
-	data, _ := json.Marshal(raw)
-	var run reviewRun
-	if err := json.Unmarshal(data, &run); err != nil {
+	layers, err := db.ListReviewLoopPRs(ctx, l.ID)
+	if err != nil {
 		return nil, err
 	}
+	run := reviewRun{RunID: l.RunID, StepID: l.StepPath, AttemptID: l.AttemptID, Repo: l.Repo, PR: l.SubjectPR,
+		CloneID: l.CloneID, Dir: l.CloneDir, LinkedTask: l.LinkedTask, SeenHead: l.SeenHead, SeenAt: l.SeenAt,
+		ConfirmClean: l.ConfirmClean, Scope: l.Scope, closed: l.State != store.ReviewLoopOpenState}
+	if l.AgentAuthor {
+		run.AuthorTask = l.AuthorTask
+	}
+	if l.Replies != "" {
+		if err := json.Unmarshal([]byte(l.Replies), &run.Replies); err != nil {
+			return nil, fmt.Errorf("reading the replies of %s: %w", l.ID, err)
+		}
+	}
+	for _, layer := range layers {
+		branch := layer.LocalBranch
+		if branch == "" {
+			branch = layer.Branch
+		}
+		if layer.Number == run.PR {
+			run.Branch = branch
+		}
+		if len(layers) > 1 {
+			run.Stack = append(run.Stack, reviewRunPR{Number: layer.Number, Branch: branch})
+		}
+	}
 	return &run, nil
+}
+
+// saveReviewRun writes what the run caller notes of a run's loop (its
+// attempt and clone, the head it last saw move, the replies it took, a
+// clean pass to confirm, its branches) onto the loop record, in one
+// transition.
+func saveReviewRun(ctx context.Context, db *store.Store, taskID string, run *reviewRun) error {
+	replies := []byte("[]")
+	if len(run.Replies) > 0 {
+		var err error
+		if replies, err = json.Marshal(run.Replies); err != nil {
+			return err
+		}
+	}
+	_, err := db.UpdateHostedReviewLoop(ctx, taskID, func(t *store.ReviewLoopTx) error {
+		l := t.Loop
+		if l.OwnerKind != store.ReviewLoopOwnerRun {
+			return fmt.Errorf("%s hosts no run's review loop", taskID)
+		}
+		l.AttemptID, l.CloneID, l.CloneDir, l.LinkedTask = run.AttemptID, run.CloneID, run.Dir, run.LinkedTask
+		l.SeenHead, l.SeenAt, l.ConfirmClean, l.Replies = run.SeenHead, run.SeenAt, run.ConfirmClean, string(replies)
+		for _, p := range run.prs() {
+			if err := t.SetLocalBranch(p.Number, p.Branch); err != nil && !errors.Is(err, store.ErrNotFound) {
+				return err
+			}
+		}
+		return nil
+	})
+	return err
+}
+
+// openReviewRun opens a run's loop on the loop record, owned by its step
+// attempt and hosted by its task, with its pull requests claimed, in one
+// transaction (OpenReviewLoop): pass 1 starts on the next tick. prs are
+// the pull requests as GitHub gave them, when read.
+func openReviewRun(ctx context.Context, db *store.Store, taskID string, run reviewRun, settings ReviewPassSettings, prs []ReviewGitHubPR) error {
+	read := map[int]ReviewGitHubPR{}
+	for _, pr := range prs {
+		read[pr.Number] = pr
+	}
+	open := store.ReviewLoopOpen{Loop: store.ReviewLoop{OwnerKind: store.ReviewLoopOwnerRun, RunID: run.RunID, StepPath: run.StepID,
+		AttemptID: run.AttemptID, HostTask: taskID, Repo: run.Repo, SubjectPR: run.PR, Scope: run.Scope,
+		AgentAuthor: run.AuthorTask != "", AuthorTask: run.AuthorTask, LinkedTask: run.LinkedTask, Phase: ReviewPhaseReady,
+		PassesOff: !settings.Enabled, MaxPasses: settings.MaxPasses, Reviewer: settings.Agent, ReviewerModel: settings.Model,
+		ReviewerTier: settings.Tier, Skill: settings.Skill, SkillManaged: settings.SkillManaged,
+		ConfirmClean: run.ConfirmClean, SeenHead: run.SeenHead, SeenAt: run.SeenAt,
+		// Markers and pin refs keep the task's ID, as before the loop
+		// record, so what a loop left on GitHub is found again.
+		MarkerKey: taskID, CloneID: run.CloneID, CloneDir: run.Dir}}
+	for _, p := range run.prs() {
+		pr := read[p.Number]
+		open.PRs = append(open.PRs, store.ReviewLoopPR{Number: p.Number, Branch: pr.Branch, Base: pr.Base, Title: pr.Title, URL: pr.URL,
+			HeadRepo: pr.HeadRepo, Author: pr.Author, AuthorAssociation: pr.AuthorAssociation, AuthorTask: run.AuthorTask, LocalBranch: p.Branch})
+	}
+	_, created, err := db.OpenReviewLoop(ctx, open)
+	if err != nil {
+		return err
+	}
+	if !created {
+		return fmt.Errorf("run %s's step %s has opened its review loop already", run.RunID, run.StepID)
+	}
+	return nil
+}
+
+// reviewLoopConflict says what the loop record refused when it would not
+// open a loop: a pull request another loop holds, or an author whose agent
+// authors another loop.
+func reviewLoopConflict(ctx context.Context, db *store.Store, err error) error {
+	var conflict *store.ReviewLoopConflictError
+	if !errors.As(err, &conflict) {
+		return err
+	}
+	holder, getErr := db.GetReviewLoop(ctx, conflict.LoopID)
+	if getErr != nil {
+		return err
+	}
+	name, link := "review loop "+holder.ID, ""
+	switch holder.OwnerKind {
+	case store.ReviewLoopOwnerRun:
+		name, link = "run "+holder.RunID, "/workflows/runs/"+holder.RunID
+	case store.ReviewLoopOwnerHandoff:
+		name, link = "handed-off task "+holder.HostTask, "/board?highlight_task="+holder.HostTask
+	}
+	switch {
+	case errors.Is(err, store.ErrReviewLoopActive):
+		return &ReviewLoopActiveError{Repo: conflict.Repo, PR: conflict.PR, Name: name, Link: link}
+	case errors.Is(err, store.ErrAuthorLoopActive):
+		return fmt.Errorf("%s's agent already authors the review loop of %s (%s): one agent-authored loop runs per task", conflict.AuthorTask, name, link)
+	}
+	return fmt.Errorf("%w (%s, %s)", err, name, link)
 }
 
 func (c *ReviewRunCaller) Type() string { return ReviewPassesStepType }
@@ -434,12 +543,14 @@ func (c *ReviewRunCaller) open(ctx context.Context, step ResolvedWorkflowStep) e
 			log.Printf("review passes: naming run %s after its stack: %v", step.RunID, err)
 		}
 	}
-	// The record that names this attempt (opened) is written with the
-	// loop, so a holder that exits here leaves the step to open again.
-	if err := c.engine.beginLoop(ctx, step.TaskID, settings, run); err != nil {
+	// The loop and its record, which names this attempt, are written in
+	// one transaction, so a holder that exits here leaves the step to open
+	// again.
+	if err := openReviewRun(ctx, c.engine.db, step.TaskID, run, settings, prs); err != nil {
 		c.removeClone(ctx, &run)
-		return err
+		return reviewLoopConflict(ctx, c.engine.db, err)
 	}
+	c.engine.changed(step.TaskID)
 	return nil
 }
 
@@ -447,10 +558,7 @@ func (c *ReviewRunCaller) open(ctx context.Context, step ResolvedWorkflowStep) e
 // Retry resumes; nil when there is none.
 func (c *ReviewRunCaller) earlierLoop(ctx context.Context, step ResolvedWorkflowStep) *reviewRun {
 	run, err := c.run(ctx, step.TaskID)
-	if err != nil || run.RunID != step.RunID || run.StepID != step.StepID || run.AttemptID == step.AttemptID {
-		return nil
-	}
-	if loop, err := c.engine.db.GetHandoffReview(ctx, step.TaskID); err != nil || loop == nil {
+	if err != nil || run.closed || run.RunID != step.RunID || run.StepID != step.StepID || run.AttemptID == step.AttemptID {
 		return nil
 	}
 	return run
@@ -509,7 +617,7 @@ func (c *ReviewRunCaller) adopt(ctx context.Context, step ResolvedWorkflowStep, 
 		}
 	}
 	run.AttemptID, run.CloneID, run.Dir, run.Branch = step.AttemptID, clone.ID, clone.Path, clone.Branch
-	if err := c.engine.db.SetTaskMetadata(ctx, step.TaskID, reviewRunKey, run); err != nil {
+	if err := saveReviewRun(ctx, c.engine.db, step.TaskID, run); err != nil {
 		c.removeClone(ctx, run)
 		return err
 	}
@@ -531,7 +639,7 @@ func (c *ReviewRunCaller) FailStep(ctx context.Context, attempt store.WorkflowSt
 	}
 	c.removeClone(ctx, run)
 	run.CloneID, run.Dir = 0, ""
-	return c.engine.db.SetTaskMetadata(ctx, attempt.TaskID, reviewRunKey, run)
+	return saveReviewRun(ctx, c.engine.db, attempt.TaskID, run)
 }
 
 // holdForRetry stops a loop's reviewer and keeps the loop for a Retry
@@ -684,8 +792,8 @@ func (c *ReviewRunCaller) Loops(ctx context.Context) ([]ReviewLoop, error) {
 	}
 	var out []ReviewLoop
 	for _, attempt := range attempts {
-		if c.opened(ctx, attempt) == nil {
-			continue // waiting to open (OpenWaiting)
+		if run := c.opened(ctx, attempt); run == nil || run.closed {
+			continue // waiting to open (OpenWaiting), or closed already
 		}
 		if l, ok := c.Loop(ctx, attempt.TaskID); ok {
 			out = append(out, l)
@@ -778,7 +886,7 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 			// A push, or another one to any layer (a restack moves
 			// several): the quiet time starts again.
 			run.SeenHead, run.SeenAt = heads, now.UTC().Format(time.RFC3339)
-			_ = c.engine.db.SetTaskMetadata(ctx, l.TaskID, reviewRunKey, run)
+			_ = saveReviewRun(ctx, c.engine.db, l.TaskID, run)
 			return false
 		}
 		seen, err := time.Parse(time.RFC3339, run.SeenAt)
@@ -905,7 +1013,7 @@ func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *revie
 		answered = true
 	}
 	if answered {
-		_ = c.engine.db.SetTaskMetadata(ctx, l.TaskID, reviewRunKey, run)
+		_ = saveReviewRun(ctx, c.engine.db, l.TaskID, run)
 	}
 	return answered
 }
@@ -1158,34 +1266,22 @@ func reviewRunSummary(run *reviewRun, outcome string, passes int, findings []sto
 // its pull request, or cancelled. Its reason is the outcome.
 const ReviewPhaseEnded = "ended"
 
-// beginLoop starts a run's loop at once, writing the run's record with it
-// in one transaction: pass 1 starts on the next tick.
-func (s *ReviewPassService) beginLoop(ctx context.Context, taskID string, settings ReviewPassSettings, run reviewRun) error {
-	data, err := encodeJSON(settings)
+// endLoop closes a run's loop with its outcome, releasing its claims (an
+// approved one is clean already; any other ends, its reason the outcome).
+// Closing a closed loop changes nothing.
+func (s *ReviewPassService) endLoop(ctx context.Context, taskID, outcome string) error {
+	phase, reason := ReviewPhaseEnded, outcome
+	if outcome == ReviewOutcomeApproved {
+		phase, reason = "", ""
+	}
+	closed, err := s.db.CloseHostedReviewLoop(ctx, taskID, phase, reason, outcome, s.now())
 	if err != nil {
 		return err
 	}
-	loop := store.HandoffReview{TaskID: taskID, Phase: ReviewPhaseReady, Settings: data, UpdatedAt: s.now()}
-	if err := s.db.SaveHandoffReviewWithMetadata(ctx, loop, reviewRunKey, run); err != nil {
-		return err
-	}
-	for _, caller := range s.callers {
-		caller.Changed(taskID)
+	if closed {
+		s.changed(taskID)
 	}
 	return nil
-}
-
-// endLoop records how a loop ended; an approved one is clean already.
-func (s *ReviewPassService) endLoop(ctx context.Context, taskID, outcome string) error {
-	if outcome == ReviewOutcomeApproved {
-		return nil
-	}
-	loop, err := s.db.GetHandoffReview(ctx, taskID)
-	if err != nil || loop == nil {
-		return err
-	}
-	loop.Phase, loop.Reason, loop.QueuedAt = ReviewPhaseEnded, outcome, ""
-	return s.saveChanged(ctx, loop)
 }
 
 // ReviewPhaseOpening is a run's review step that waits for the review
@@ -1474,13 +1570,13 @@ func reviewLoopTask(ctx context.Context, db *store.Store, taskID string) string 
 	if loop, err := db.GetHandoffReview(ctx, taskID); err == nil && loop != nil {
 		return taskID
 	}
-	ids, err := db.TasksWithMetadataText(ctx, []string{"legato", "review_loop", "author_task"}, taskID)
+	loops, err := db.ListRunReviewLoopsAuthoredBy(ctx, taskID)
 	if err != nil {
 		return taskID
 	}
-	for _, id := range ids {
-		if loop, err := db.GetHandoffReview(ctx, id); err == nil && loop != nil && loop.Phase != ReviewPhaseEnded && loop.Phase != ReviewPhaseClean {
-			return id
+	for _, l := range loops {
+		if loop, err := db.GetHandoffReview(ctx, l.HostTask); err == nil && loop != nil && loop.Phase != ReviewPhaseEnded && loop.Phase != ReviewPhaseClean {
+			return l.HostTask
 		}
 	}
 	return taskID
@@ -1529,14 +1625,14 @@ func (c *ReviewRunCaller) confirmClean(ctx context.Context, taskID string) {
 	if err != nil {
 		if !run.ConfirmClean {
 			run.ConfirmClean = true
-			_ = c.engine.db.SetTaskMetadata(ctx, taskID, reviewRunKey, run)
+			_ = saveReviewRun(ctx, c.engine.db, taskID, run)
 		}
 		log.Printf("review passes: confirming the heads of %s, trying again: %v", reviewStackName(run.Repo, run.numbers()), err)
 		return
 	}
 	if run.ConfirmClean {
 		run.ConfirmClean = false
-		_ = c.engine.db.SetTaskMetadata(ctx, taskID, reviewRunKey, run)
+		_ = saveReviewRun(ctx, c.engine.db, taskID, run)
 	}
 	switch {
 	case len(open) == 0:

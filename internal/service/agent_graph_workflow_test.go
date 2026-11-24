@@ -108,7 +108,7 @@ func (f *graphFixture) reviewStep(t *testing.T, run, step, runTask, author strin
 	ctx := context.Background()
 	attempt := "att-" + run + "-" + step
 	loop := reviewRun{Repo: "cpave3/legato", PR: 42, AuthorTask: author, LinkedTask: author, RunID: run, StepID: step, AttemptID: attempt}
-	if err := f.store.SetTaskMetadata(ctx, runTask, reviewRunKey, loop); err != nil {
+	if err := openReviewRun(ctx, f.store, runTask, loop, ReviewPassSettings{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.store.StartWorkflowStepAttempt(ctx, store.WorkflowStepAttempt{ID: attempt, RunID: run, StepID: step, AttemptNumber: 1,

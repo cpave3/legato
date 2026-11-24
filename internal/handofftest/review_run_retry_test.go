@@ -10,7 +10,7 @@ import (
 )
 
 // latestAttempt is the newest attempt of a run's step.
-func latestAttempt(t *testing.T, view *store.WorkflowRunView, step string) store.WorkflowStepAttempt {
+func latestAttempt(t testing.TB, view *store.WorkflowRunView, step string) store.WorkflowStepAttempt {
 	t.Helper()
 	var found *store.WorkflowStepAttempt
 	for i := range view.Attempts {

@@ -363,20 +363,6 @@ func (s *Store) SaveHandoffReview(ctx context.Context, r HandoffReview) error {
 	})
 }
 
-// SaveHandoffReviewWithMetadata saves a loop (as SaveHandoffReview) and, in
-// the same transaction, value at path in its task's metadata
-// (SetTaskMetadata): the record that names who opened the loop is never
-// there without the loop.
-func (s *Store) SaveHandoffReviewWithMetadata(ctx context.Context, r HandoffReview, path []string, value any) error {
-	return s.reviewTransition(ctx, r.TaskID, true, func(t *ReviewLoopTx) error {
-		if err := setTaskMetadata(ctx, t.tx, r.TaskID, path, value); err != nil {
-			return err
-		}
-		applyHandoffReview(t.Loop, r)
-		return nil
-	})
-}
-
 // DeleteHandoffReview forgets every loop a task hosts, with their passes.
 func (s *Store) DeleteHandoffReview(ctx context.Context, taskID string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM review_loops WHERE host_task = ?`, taskID)
@@ -1117,4 +1103,13 @@ func withTxDB(ctx context.Context, s *Store, f func(exec func(string, ...any) er
 // namedExecer is a database or a transaction.
 type namedExecer interface {
 	NamedExecContext(ctx context.Context, query string, arg any) (sql.Result, error)
+}
+
+// ListRunReviewLoopsAuthoredBy returns the workflow runs' loops whose agent
+// author is authorTask's, newest first.
+func (s *Store) ListRunReviewLoopsAuthoredBy(ctx context.Context, authorTask string) ([]ReviewLoop, error) {
+	var out []ReviewLoop
+	err := s.db.SelectContext(ctx, &out, `SELECT * FROM review_loops WHERE owner_kind = 'run' AND agent_author = 1 AND author_task = ?
+		ORDER BY state = 'open' DESC, created_at DESC, rowid DESC`, authorTask)
+	return out, err
 }
