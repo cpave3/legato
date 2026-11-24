@@ -141,17 +141,27 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
   }, [panel, selected, closePanel])
-  // An agent the address names is selected once it is on the graph, with
-  // its run's graph open when the address names the run.
-  const applied = useRef("")
+  // An agent the address names is kept until it is on the graph (the page
+  // may drop it from the address first), then selected, with its run's
+  // graph open when the address names the run. A stage filter that hides it
+  // is cleared.
+  const [target, setTarget] = useState<GraphFocus | null>(null)
   useEffect(() => {
-    const agentId = linked?.agentId
-    if (!agentId || applied.current === `${agentId}|${linked?.runId ?? ""}`) return
-    if (!layout.nodes.some((node) => node.id === agentId)) return
-    applied.current = `${agentId}|${linked?.runId ?? ""}`
+    if (linked?.agentId) setTarget({ agentId: linked.agentId, runId: linked.runId })
+  }, [linked?.agentId, linked?.runId])
+  useEffect(() => {
+    const agentId = target?.agentId
+    if (!agentId) return
+    if (!layout.nodes.some((node) => node.id === agentId)) {
+      // Once the page has taken the agent out of the address: clearing the
+      // filter writes the address too, and would put it back.
+      if (stageFilter && onStageFilter && linked?.agentId !== agentId && agents.some((agent) => agent.task_id === agentId)) onStageFilter(null)
+      return
+    }
+    setTarget(null)
     focus(agentId)
-    if (linked?.runId) setRunPanel({ runId: linked.runId, agentId })
-  }, [linked, layout, focus])
+    if (target.runId) setRunPanel({ runId: target.runId, agentId })
+  }, [target, layout, focus, agents, stageFilter, onStageFilter, linked?.agentId])
   const panelWorkflow = panel ? selectedNode?.workflows?.find((workflow) => workflow.run.id === panel.runId) : undefined
 
   const needsYou = shown.filter((agent) => !agent.reeve && glanceSection(agent) === "needs-you")

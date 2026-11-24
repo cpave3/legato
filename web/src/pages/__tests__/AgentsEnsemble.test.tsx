@@ -2,7 +2,13 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { useImperativeHandle, useState, type Ref } from "react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { MemoryRouter, useLocation } from "react-router-dom"
+import { QueryClientProvider } from "@tanstack/react-query"
 import { AgentsPage } from "../Agents"
+import { createQueryClient } from "../../lib/query"
+import { STAGE_FILTER_KEY } from "../../hooks/useStageFilter"
+import { mockReactFlow } from "../../test/reactFlow"
+
+mockReactFlow()
 // The agents being started have their own tests, and a query client.
 vi.mock("../../components/PreparingAgents", () => ({ PreparingAgents: () => null }))
 vi.mock("../../components/InterruptedAgents", () => ({ InterruptedAgents: () => null }))
@@ -311,4 +317,20 @@ it("cancels the switching animation when the page unmounts", async () => {
   } finally {
     vi.useRealTimers()
   }
+})
+
+it("selects the agent a run page links to on the graph, with its run's graph, even when the stage filter hides it", async () => {
+  localStorage.setItem(STAGE_FILTER_KEY, "planning")
+  const answer = mockFetch.getMockImplementation()!
+  mockFetch.mockImplementation((input: RequestInfo | URL) => String(input).includes("/api/workflow-runs/")
+    ? Promise.resolve({ ok: false, status: 404, json: async () => ({ error: "not found" }), text: async () => "not found" })
+    : answer(input))
+  render(<QueryClientProvider client={createQueryClient()}><MemoryRouter initialEntries={["/agents?view=graph&task=TASK-1&workflow=wr-1"]}><AgentsPage /><Location /></MemoryRouter></QueryClientProvider>)
+
+  expect(await screen.findByRole("region", { name: "TASK-1" })).toBeTruthy()
+  expect(await screen.findByRole("region", { name: /^Run graph:/ })).toBeTruthy()
+  expect(localStorage.getItem(STAGE_FILTER_KEY)).toBeNull()
+  await waitFor(() => expect(address()).not.toContain("task="))
+  expect(screen.getByRole("region", { name: /^Run graph:/ })).toBeTruthy()
+  expect(screen.getByRole("link", { name: "Back to workflow" }).getAttribute("href")).toBe("/workflows/runs/wr-1")
 })

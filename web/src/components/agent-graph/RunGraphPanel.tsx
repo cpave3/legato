@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import { ExternalLink, X } from "lucide-react"
+import { useModalLayer } from "../../hooks/useModalLayer"
 import { useWorkflowRun } from "../../hooks/useWorkflow"
 import { useNow } from "../../hooks/useNow"
 import { useRunGraphExtras } from "../../hooks/useRunGraph"
@@ -35,16 +36,23 @@ export function RunGraphPanel({ runId, title, stepId, phone, onClose }: RunGraph
     setCenterOn((current) => stepNode ? { id: stepNode, n: (current?.n ?? 0) + 1 } : null)
   }, [stepNode])
   const close = useRef<HTMLButtonElement>(null)
+  // On a phone the sheet covers the graph, so it is modal: the graph behind
+  // it is inert, Tab stays in it and Escape closes it. Beside the fleet it
+  // is not, and the graph's own Escape closes it.
+  const sheet = useRef<HTMLElement>(null)
+  useModalLayer({ open: phone, onClose, containerRef: sheet })
   useEffect(() => { close.current?.focus() }, [])
 
-  const run = data ? runWithAttention(data.run, data.attempts ?? []) : null
+  const run = data?.run ? runWithAttention(data.run, data.attempts ?? []) : null
   const state = run ? runState(run) : null
   const steps: StepLike[] = (data?.steps ?? []).map((step) => ({ step_id: step.step_id, title: step.title, status: step.status }))
   const position = run ? stepPosition(run, steps) : null
-  const name = data?.run.workflow_title || title
+  const name = data?.run?.workflow_title || title
   return (
     <section
+      ref={sheet}
       aria-label={`Run graph: ${name}`}
+      {...(phone ? { role: "dialog", "aria-modal": true } : {})}
       className={cn(
         "absolute z-20 flex flex-col overflow-hidden border border-lw-line-strong bg-lw-surface font-lw text-[13px] text-lw-text shadow-lg",
         phone ? "inset-0" : "bottom-4 left-4 right-[22rem] h-[45%] min-h-[16rem] rounded-xl",

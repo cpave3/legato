@@ -46,6 +46,12 @@ function asStepLike(step: WorkflowStepRun): StepLike {
   return { step_id: step.step_id, title: step.title, status: step.status, trigger: stepTrigger(step) }
 }
 
+// attemptAgent is the agent an attempt's session is: an interview's attempt
+// keeps the run's task, so the agent's own ID comes first.
+function attemptAgent(attempt: WorkflowAttempt): string {
+  return attempt.agent_id || attempt.task_id || ""
+}
+
 function definitionTitle(view: WorkflowRunView): string {
   const definition = parseJSON(view.run.definition_json)
   return definition && typeof definition === "object" && "title" in definition ? String((definition as { title: unknown }).title) : ""
@@ -121,8 +127,8 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
   const attempt = [...attempts].reverse().find(item => item.step_id === current.step_id && item.status === "waiting_agent")
   if (attempt) {
     const open = attempt.agent_session_id ? <>
-      <Button asChild variant="primary"><Link to={agentLink(attempt.task_id ?? "", runId)}>Open agent</Link></Button>
-      <Button asChild variant="outline"><Link to={graphLink(attempt.task_id ?? "", runId)}>Show on agents graph</Link></Button>
+      <Button asChild variant="primary"><Link to={agentLink(attemptAgent(attempt), runId)}>Open agent</Link></Button>
+      <Button asChild variant="outline"><Link to={graphLink(attemptAgent(attempt), runId)}>Show on agents graph</Link></Button>
     </> : null
     if (attempt.needs_attention) {
       const copy = attentionCopy(attempt.attention_reason ?? "", current.title)
@@ -379,7 +385,7 @@ function RunStepPanel({ view, node, runId, secrets, state }: { view: WorkflowRun
         {(attempt.agent_kind || attempt.tier) && <p>{attempt.agent_kind || attempt.executor_type}{attempt.tier && ` (${attempt.tier})`}</p>}
         {attempt.working_dir && <p className="break-all font-lw-mono text-xs text-lw-faint">{attempt.working_dir}</p>}
         {attempt.error && <p className="text-lw-error">{redact(attempt.error, secrets)}</p>}
-        {attempt.agent_session_id && attempt.task_id ? <Button asChild variant="outline" size="sm" className="mt-1.5"><Link to={agentLink(attempt.task_id, runId)}>Open agent</Link></Button> : null}
+        {attempt.agent_session_id && attemptAgent(attempt) ? <Button asChild variant="outline" size="sm" className="mt-1.5"><Link to={agentLink(attemptAgent(attempt), runId)}>Open agent</Link></Button> : null}
       </li>)}</ul>
     </div>}
     {artifacts.length > 0 && <div className="grid gap-2"><h3 className="text-xs text-lw-text-2">Artifacts</h3>{artifacts.map(artifact => <Artifact key={artifact.id} artifact={artifact} />)}</div>}

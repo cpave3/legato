@@ -217,8 +217,11 @@ describe("workflow runs on the ensemble's graph", () => {
     show(agents(), { layout: "graph" })
     fireEvent.click(await node(/^LEG-1, running/))
     fireEvent.click(within(await screen.findByRole("region", { name: "LEG-1" })).getByRole("button", { name: "Show run graph" }))
-    const panel = await screen.findByRole("region", { name: "Run graph: Triage LEG-1" })
+    const panel = await screen.findByRole("dialog", { name: "Run graph: Triage LEG-1" })
+    expect(panel).toHaveAttribute("aria-modal", "true")
     expect(screen.queryByRole("region", { name: "LEG-1" })).not.toBeInTheDocument()
+    // The graph behind the sheet takes no focus.
+    expect(screen.getByRole("button", { name: "Fit the graph" }).closest("[inert]")).not.toBeNull()
     fireEvent.click(within(panel).getByRole("button", { name: "Close the run graph" }))
     expect(await screen.findByRole("region", { name: "LEG-1" })).toBeInTheDocument()
   })

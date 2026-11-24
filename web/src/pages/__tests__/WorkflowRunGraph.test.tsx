@@ -123,6 +123,12 @@ describe("the run graph", () => {
     expect(link.getAttribute("href")).toBe("/agents?view=graph&task=task-1&workflow=wr-1")
   })
 
+  it("links an interview to the agent it borrows, not to the run's task", async () => {
+    show(view({ attempts: [attempt(1, { executor_type: "agent.interview", task_id: "run-task", agent_id: "LEG-2", status: "waiting_agent", error: undefined, ended_at: undefined })] }))
+    expect((await screen.findByRole("link", { name: "Show on agents graph" })).getAttribute("href")).toBe("/agents?view=graph&task=LEG-2&workflow=wr-1")
+    expect(screen.getAllByRole("link", { name: "Open agent" })[0].getAttribute("href")).toContain("task=LEG-2")
+  })
+
   it("marks the trigger that started the run and dims the others", async () => {
     show(view())
     expect(await screen.findByRole("button", { name: "Trigger: Card enters Triage, started this run" })).toBeTruthy()
