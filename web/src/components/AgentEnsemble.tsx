@@ -114,7 +114,9 @@ export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowLi
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[var(--theme-border,#222228)] px-5 py-3.5">
         <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
           <h1 className="m-0 text-lg font-semibold leading-6">Ensemble</h1>
-          <ul aria-label="Agents by state" className="m-0 flex list-none flex-wrap items-center gap-x-3 gap-y-1 p-0">
+          {/* On the graph the counts keep to one line, so a change of state
+              never moves the graph below. */}
+          <ul aria-label="Agents by state" className={cn("m-0 flex list-none items-center gap-x-3 gap-y-1 p-0", layout === "graph" ? "min-w-0 flex-nowrap overflow-x-auto whitespace-nowrap" : "flex-wrap")}>
             {counts.map(({ section, count, glyph, tone }) => {
               const total = counted.filter((agent) => glanceSection(agent) === section).length
               return total > 0 && <li key={section} className={tone}><span aria-hidden="true">{glyph}</span> {count(total)}</li>

@@ -12,7 +12,7 @@ import { useWebSocket, type AgentInfo, type WSMessage } from "../hooks/useWebSoc
 import { useServer } from "../hooks/useServer"
 import { useMediaQuery } from "../hooks/useMediaQuery"
 import { apiFetch } from "../lib/api"
-import { layoutAgentGraph, linkKinds, linkLabels, linkLines, workflowWords, type AgentGraphData, type AgentGraphLayout, type GraphNode, type NodeWorkflow } from "../lib/agentGraph"
+import { compactGraphMemory, layoutAgentGraph, linkKinds, linkLabels, linkLines, workflowWords, type AgentGraphData, type AgentGraphLayout, type GraphMemory, type GraphNode, type NodeWorkflow } from "../lib/agentGraph"
 import { runState, stepSegments } from "../lib/workflowView"
 import { glanceSection, needsYouOutside, stageLabel, type WorkStage } from "../lib/agentStage"
 import { formatAgentTime, stateSeconds } from "../lib/agentList"
@@ -58,6 +58,12 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
   const phone = useMediaQuery("(max-width: 767px)")
   const direction = phone ? "TB" : "LR"
   const [data, setData] = useState<AgentGraphData | null>(null)
+  // The agents listed when the graph was last read: one listed since then
+  // waits for the next read to say where it works.
+  const [readFor, setReadFor] = useState<ReadonlySet<string> | null>(null)
+  // What the last layout left, so the next keeps its order (LEG-615).
+  const memory = useRef<GraphMemory | undefined>(undefined)
+  const [compacted, setCompacted] = useState(0)
   // The graph is drawn once the first read has answered (or failed), so it
   // is first fitted with its agents in their boxes.
   const [read, setRead] = useState(false)
@@ -82,9 +88,14 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
   // with every agents_changed, which a peer message sends too.
   useEffect(() => {
     let live = true
+    const listed = new Set(agents.map((agent) => agent.task_id))
     apiFetch(baseUrl, "/api/agents/graph")
       .then((res) => (res.ok ? res.json() : null))
-      .then((body: AgentGraphData | null) => { if (live && body) setData(body) })
+      .then((body: AgentGraphData | null) => {
+        if (!live || !body) return
+        setData(body)
+        setReadFor(listed)
+      })
       .catch(() => { /* the graph draws from the agent list alone */ })
       .finally(() => { if (live) setRead(true) })
     setNow(Date.now())
@@ -96,8 +107,29 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
   }, [])
 
   const counted = useMemo(() => agents.filter((agent) => !agent.reeve), [agents])
-  const shown = useMemo(() => stageFilter ? agents.filter((agent) => agent.reeve || agent.stage === stageFilter) : agents, [agents, stageFilter])
-  const layout = useMemo(() => layoutAgentGraph(shown, data, { now, direction, unfolded, collapsed }), [shown, data, now, direction, unfolded, collapsed])
+  // The stage filter dims the agents it leaves out rather than taking them
+  // off the graph, so a change of stage never moves a node.
+  const atStage = useMemo(() => stageFilter ? agents.filter((agent) => agent.reeve || agent.stage === stageFilter) : agents, [agents, stageFilter])
+  const faded = useMemo(() => new Set(stageFilter ? agents.filter((agent) => !agent.reeve && agent.stage !== stageFilter).map((agent) => agent.task_id) : []), [agents, stageFilter])
+  const pending = useMemo(() => new Set(readFor && data
+    ? agents.filter((agent) => !readFor.has(agent.task_id) && !data.agents[agent.task_id] && !agent.clone?.repo).map((agent) => agent.task_id)
+    : []), [agents, readFor, data])
+  const layout = useMemo(() => {
+    // Nothing is kept from before the first read has settled: until then the
+    // links that order a box's agents are unknown.
+    if (!read) return layoutAgentGraph(agents, data, { now, direction, unfolded, collapsed, pending })
+    const next = layoutAgentGraph(agents, data, { now, direction, unfolded, collapsed, pending, memory: memory.current })
+    memory.current = next.memory
+    return next
+    // compacted lays the graph out again after Fit let go of held places.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agents, data, read, now, direction, unfolded, collapsed, pending, compacted])
+  // Fit the graph also closes up the places of agents that left.
+  const fitGraph = useCallback(() => {
+    if (memory.current) memory.current = compactGraphMemory(memory.current)
+    setCompacted((n) => n + 1)
+    setFit((n) => n + 1)
+  }, [])
 
   // A selection that left the graph is let go.
   const selectedNode = layout.nodes.find((node) => node.id === selected) ?? null
@@ -143,7 +175,7 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
   }, [panel, selected, closePanel])
   // An agent the address names is kept until it is on the graph (the page
   // may drop it from the address first), then selected, with its run's
-  // graph open when the address names the run. A stage filter that hides it
+  // graph open when the address names the run. A stage filter that dims it
   // is cleared.
   const [target, setTarget] = useState<GraphFocus | null>(null)
   useEffect(() => {
@@ -152,7 +184,7 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
   useEffect(() => {
     const agentId = target?.agentId
     if (!agentId) return
-    if (!layout.nodes.some((node) => node.id === agentId)) {
+    if (!layout.nodes.some((node) => node.id === agentId) || faded.has(agentId)) {
       // Once the page has taken the agent out of the address: clearing the
       // filter writes the address too, and would put it back.
       if (stageFilter && onStageFilter && linked?.agentId !== agentId && agents.some((agent) => agent.task_id === agentId)) onStageFilter(null)
@@ -161,19 +193,21 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
     setTarget(null)
     focus(agentId)
     if (target.runId) setRunPanel({ runId: target.runId, agentId })
-  }, [target, layout, focus, agents, stageFilter, onStageFilter, linked?.agentId])
+  }, [target, layout, faded, focus, agents, stageFilter, onStageFilter, linked?.agentId])
   const panelWorkflow = panel ? selectedNode?.workflows?.find((workflow) => workflow.run.id === panel.runId) : undefined
 
-  const needsYou = shown.filter((agent) => !agent.reeve && glanceSection(agent) === "needs-you")
+  const needsYou = atStage.filter((agent) => !agent.reeve && glanceSection(agent) === "needs-you")
   const hiddenNeeds = needsYouOutside(counted, stageFilter)
   const kinds = linkKinds.filter((kind) => layout.edges.some((edge) => edge.kind === kind))
 
   return (
     <div data-agent-graph className="relative flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--theme-border,#222228)] px-5 py-2">
+      {/* One line, whatever needs you: a toolbar that wrapped would move the
+          whole graph down on a change of state. */}
+      <div className="flex h-11 shrink-0 flex-nowrap items-center gap-x-3 border-b border-[var(--theme-border,#222228)] px-5">
         {onStageFilter && <StageMenu agents={counted} filter={stageFilter} onFilter={onStageFilter} touch={phone} />}
         {needsYou.length > 0 && (
-          <ul aria-label="Needs you" className="m-0 flex list-none flex-wrap items-center gap-1.5 p-0">
+          <ul aria-label="Needs you" className="m-0 flex min-w-0 list-none flex-nowrap items-center gap-1.5 overflow-x-auto p-0">
             {needsYou.map((agent) => (
               <li key={agent.task_id}>
                 <button type="button" onClick={() => focus(agent.task_id)} className="flex h-7 items-center gap-1 rounded-md border border-lw-needs/50 bg-lw-needs-soft px-2 text-xs text-lw-needs hover:border-lw-needs">
@@ -184,18 +218,18 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
           </ul>
         )}
         {hiddenNeeds > 0 && onStageFilter && (
-          <span className="text-xs text-lw-needs">
+          <span className="shrink-0 whitespace-nowrap text-xs text-lw-needs">
             {hiddenNeeds} more {hiddenNeeds === 1 ? "needs" : "need"} you · <button type="button" onClick={() => onStageFilter(null)} className="text-lw-link hover:underline">Show all</button>
           </span>
         )}
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex shrink-0 items-center gap-3">
           {linked?.runId && <Link to={`/workflows/runs/${encodeURIComponent(linked.runId)}`} className="text-xs text-lw-link hover:underline">Back to workflow</Link>}
           {kinds.length > 0 && (
-            <ul aria-label="Links" className="m-0 hidden list-none flex-wrap items-center gap-x-3 gap-y-1 p-0 text-[11px] text-lw-text-2 sm:flex">
+            <ul aria-label="Links" className="m-0 hidden list-none flex-nowrap items-center gap-x-3 p-0 text-[11px] text-lw-text-2 xl:flex">
               {kinds.map((kind) => <li key={kind} className="flex items-center gap-1"><LinkSwatch kind={kind} />{linkLabels[kind]}</li>)}
             </ul>
           )}
-          <button type="button" aria-label="Fit the graph" title="Fit the graph" onClick={() => setFit((n) => n + 1)} className="flex h-7 w-7 items-center justify-center rounded-md border border-lw-line text-lw-text-2 hover:text-lw-text">
+          <button type="button" aria-label="Fit the graph" title="Fit the graph" onClick={fitGraph} className="flex h-7 w-7 items-center justify-center rounded-md border border-lw-line text-lw-text-2 hover:text-lw-text">
             <Maximize2 size={14} aria-hidden="true" />
           </button>
         </div>
@@ -203,10 +237,14 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
       <div className="relative min-h-0 flex-1">
         {!read
           ? <LoadingState label="Reading the graph…" size="inline" />
-          : shown.length === 0
-          ? <p className="py-12 text-center text-lw-faint">No agents at this stage.</p>
+          : agents.length === 0
+          ? <p className="py-12 text-center text-lw-faint">No agents running.</p>
           : <LazyAgentGraphCanvas layout={layout} direction={direction} selectedId={selected} onSelect={setSelected} onOpen={onOpen}
-              onToggleFold={onToggleFold} onToggleBox={onToggleBox} focusOn={focusOn} fit={fit} />}
+              onToggleFold={onToggleFold} onToggleBox={onToggleBox} focusOn={focusOn} fit={fit} faded={faded} />}
+        {/* Over the graph, which stays drawn (dimmed) so its view is kept. */}
+        {read && stageFilter && counted.length > 0 && faded.size === counted.length && (
+          <p className="pointer-events-none absolute inset-x-0 top-3 text-center text-lw-faint">No agents at this stage.</p>
+        )}
         {selectedNode && !(phone && panel) && (
           <SelectionCard node={selectedNode} layout={layout} agents={agents} phone={phone} onOpen={onOpen} onSend={onSend} onClose={() => setSelected(null)}
             onShowRun={(runId, button) => openPanel(runId, selectedNode.agentId, button)} />

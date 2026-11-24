@@ -105,10 +105,100 @@ describe("the ensemble's graph", () => {
     await waitFor(() => expect(within(legend).getByText("Reeve watches")).toBeInTheDocument())
   })
 
-  it("draws only the agents at the stage the list is filtered to", async () => {
+  // Dimmed, not removed (LEG-615): a stage is state, and state never moves
+  // a node.
+  it("dims the agents not at the stage the list is filtered to, leaving each in its place", async () => {
     show([agent({ task_id: "LEG-1", stage: "reviewing" }), agent({ task_id: "LEG-2", stage: "planning" })], { layout: "graph", stageFilter: "reviewing", onStageFilter: vi.fn() })
     expect(await node(/^LEG-1, running/)).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: /^LEG-2, running/ })).not.toBeInTheDocument()
+    expect(within(await node(/^LEG-2, running/)).getByText("LEG-2 title").closest(".opacity-30")).not.toBeNull()
+    expect(within(await node(/^LEG-1, running/)).getByText("LEG-1 title").closest(".opacity-30")).toBeNull()
+  })
+
+  it("keeps the graph drawn, dimmed, when the last agent at the stage moves on, and says none is at it", async () => {
+    const handlers = { onOpen: vi.fn(), onSpawn: vi.fn(), onShowList: vi.fn(), onSend: vi.fn(), onStageFilter: vi.fn() }
+    const client = createQueryClient()
+    const ui = (list: AgentInfo[]) => <QueryClientProvider client={client}><MemoryRouter><AgentEnsemble agents={list} layout="graph" stageFilter="implementing" {...handlers} /></MemoryRouter></QueryClientProvider>
+    const { rerender } = render(ui([agent({ task_id: "LEG-1", stage: "implementing" }), agent({ task_id: "LEG-2", stage: "planning" })]))
+    const before = await node(/^LEG-1, running/)
+    rerender(ui([agent({ task_id: "LEG-1", stage: "reviewing" }), agent({ task_id: "LEG-2", stage: "planning" })]))
+    expect(await screen.findByText("No agents at this stage.")).toBeInTheDocument()
+    // The same node, not a new canvas.
+    expect((await node(/^LEG-1, running/))).toBe(before)
+    expect(within(before).getByText("LEG-1 title").closest(".opacity-30")).not.toBeNull()
+  })
+
+  it("groups agents that work together once the first read answers, though their clones placed them before it", async () => {
+    graph = {
+      agents: {
+        tri: { repo: "a/x", workflows: [{ run_id: "wr-1", step_id: "triage", role: "agent" }] },
+        other: { repo: "a/x" },
+        impl: { repo: "a/x", workflows: [{ run_id: "wr-1", step_id: "implement", role: "agent" }] },
+      },
+      links: [], peer_window_seconds: 1800, runs: { "wr-1": graphRun() },
+    }
+    let answer: (() => void) | null = null
+    apiFetch.mockImplementation(() => new Promise((resolve) => { answer = () => resolve(new Response(JSON.stringify(graph), { status: 200 })) }))
+    const clone = { repo: "a/x" } as AgentInfo["clone"]
+    show([
+      agent({ task_id: "tri", clone, started_at: "2026-11-23T08:00:00Z" }),
+      agent({ task_id: "other", clone, started_at: "2026-11-23T08:10:00Z" }),
+      agent({ task_id: "impl", clone, started_at: "2026-11-23T08:20:00Z" }),
+    ], { layout: "graph" })
+    await waitFor(() => expect(answer).not.toBeNull())
+    act(() => answer!())
+    const y = async (name: RegExp) => Number((await node(name)).style.transform.match(/translate\([^,]+,\s*([-\d.]+)px/)![1])
+    expect(await y(/^impl, /)).toBeLessThan(await y(/^other, /))
+    expect(await y(/^tri, /)).toBeLessThan(await y(/^impl, /))
+  })
+
+  it("draws the Reeve's watch lines faint, and in full while the Reeve is selected", async () => {
+    graph.links = [{ kind: "reeve_watch", from: "reeve-1", to: "LEG-1" }]
+    show([agent({ task_id: "LEG-1" }), agent({ task_id: "reeve-1", reeve: true, task_title: "Reeve" })], { layout: "graph" })
+    const line = async () => {
+      let path: SVGPathElement | null = null
+      await waitFor(() => {
+        path = document.querySelector<SVGPathElement>(".react-flow__edge[data-id='reeve_watch:reeve-1->LEG-1'] path.react-flow__edge-path")
+        expect(path).not.toBeNull()
+      })
+      return path!
+    }
+    expect((await line()).style.opacity).toBe("0.35")
+    fireEvent.click(await node(/^reeve-1, /))
+    await waitFor(async () => expect((await line()).style.opacity).toBe("1"))
+  })
+
+  it("moves no node when only the agents' state changes", async () => {
+    graph.agents = { "LEG-1": { repo: "a/one" }, "LEG-2": { repo: "a/one" }, "LEG-3": { repo: "a/two" } }
+    const agents = [agent({ task_id: "LEG-1" }), agent({ task_id: "LEG-2", started_at: "2026-11-23T09:05:00Z" }), agent({ task_id: "LEG-3" })]
+    const handlers = { onOpen: vi.fn(), onSpawn: vi.fn(), onShowList: vi.fn(), onSend: vi.fn() }
+    const ui = (list: AgentInfo[]) => <QueryClientProvider client={client}><MemoryRouter><AgentEnsemble agents={list} layout="graph" {...handlers} /></MemoryRouter></QueryClientProvider>
+    const client = createQueryClient()
+    const { rerender } = render(ui(agents))
+    await node(/^LEG-2, running/)
+    const where = () => Object.fromEntries([...document.querySelectorAll<HTMLElement>(".react-flow__node")].map((n) => [n.dataset.id, n.style.transform]))
+    const before = where()
+    rerender(ui(agents.map((a, i) => ({ ...a, activity: i === 0 ? "waiting" : "idle", stage: "reviewing", stage_reason: "a long reason that changes", working_seconds: 999 }))))
+    await node(/^LEG-1, needs you/i)
+    expect(where()).toEqual(before)
+  })
+
+  it("leaves a new agent out until the graph's next read says where it works", async () => {
+    graph.agents = { "LEG-1": { repo: "a/one" } }
+    let answer: (() => void) | null = null
+    const handlers = { onOpen: vi.fn(), onSpawn: vi.fn(), onShowList: vi.fn(), onSend: vi.fn() }
+    const client = createQueryClient()
+    const ui = (list: AgentInfo[]) => <QueryClientProvider client={client}><MemoryRouter><AgentEnsemble agents={list} layout="graph" {...handlers} /></MemoryRouter></QueryClientProvider>
+    const { rerender } = render(ui([agent({ task_id: "LEG-1" })]))
+    await node(/^LEG-1, running/)
+    // The next read is slow to answer.
+    apiFetch.mockImplementation(() => new Promise((resolve) => { answer = () => resolve(new Response(JSON.stringify({ ...graph, agents: { ...graph.agents, "LEG-9": { repo: "a/one" } } }), { status: 200 })) }))
+    rerender(ui([agent({ task_id: "LEG-1" }), agent({ task_id: "LEG-9" })]))
+    await waitFor(() => expect(answer).not.toBeNull())
+    expect(screen.queryByRole("button", { name: /^LEG-9, / })).not.toBeInTheDocument()
+    expect(screen.queryByRole("group", { name: /^No repository/ })).not.toBeInTheDocument()
+    act(() => answer!())
+    expect(await node(/^LEG-9, running/)).toBeInTheDocument()
+    expect(screen.getByRole("group", { name: "a/one, 2 agents" })).toBeInTheDocument()
   })
 })
 

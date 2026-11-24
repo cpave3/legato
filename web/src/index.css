@@ -298,3 +298,14 @@ body {
   65%  { box-shadow: inset 3px 0 rgba(255, 0, 180, 0.1), inset -3px 0 rgba(0, 255, 220, 0.1); }
   100% { box-shadow: none; }
 }
+
+/* The agents graph moves a node only when the fleet changes (LEG-615); the
+   move is short and easy to follow, and none at all with reduced motion. */
+[data-agent-graph] .react-flow__node {
+  transition: transform 200ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-agent-graph] .react-flow__node {
+    transition: none;
+  }
+}
