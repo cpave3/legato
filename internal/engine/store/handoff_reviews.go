@@ -161,6 +161,19 @@ func (s *Store) InsertHandoffReviewPass(ctx context.Context, p HandoffReviewPass
 	return tx.Commit()
 }
 
+// ReviewApprovedHead says whether any review loop, whichever task it is
+// kept on (a card's, a workflow run's own), approved repo's pull request
+// number at head: a pass posted APPROVE on it, or kept an earlier approval.
+func (s *Store) ReviewApprovedHead(ctx context.Context, repo string, number int, head string) (bool, error) {
+	if head == "" {
+		return false, nil
+	}
+	var approved bool
+	err := s.db.GetContext(ctx, &approved, `SELECT EXISTS (SELECT 1 FROM handoff_review_prs
+		WHERE repo = ? COLLATE NOCASE AND number = ? AND head_sha = ? AND event IN ('APPROVE', 'kept'))`, repo, number, head)
+	return approved, err
+}
+
 // GetHandoffReviewPass returns one pass.
 func (s *Store) GetHandoffReviewPass(ctx context.Context, taskID string, pass int) (*HandoffReviewPass, error) {
 	var p HandoffReviewPass
