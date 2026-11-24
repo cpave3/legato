@@ -94,10 +94,14 @@ export function suggestedFirst(macros: Macro[], target: "task" | "my_pr" | "othe
   return { list: [first, ...list.slice(0, index), ...list.slice(index + 1)], suggested: first }
 }
 
-// macrosFor keeps the macros that apply to a task or a pull request: those
-// that say so, and those that say nothing.
-export function macrosFor(macros: Macro[], target: "task" | "pr"): Macro[] {
-  return macros.filter(macro => !macro.applies_to || macro.applies_to === target)
+// What a macro can be offered on: a task, or a pull request.
+export type MacroTarget = "task" | "pr"
+
+// macrosFor keeps the macros that apply to a target, or to any of several:
+// those that name it, and those that name none.
+export function macrosFor<T extends Pick<Macro, "applies_to">>(macros: T[], target: MacroTarget | MacroTarget[]): T[] {
+  const targets = Array.isArray(target) ? target : [target]
+  return macros.filter(macro => !macro.applies_to || targets.includes(macro.applies_to))
 }
 
 // anyFavorite says whether any macro is starred.
@@ -112,6 +116,26 @@ export function anyFavorite(macros: Pick<Macro, "name" | "favorite">[]): boolean
 export function splitFavorites<T extends Pick<Macro, "name" | "favorite">>(list: T[], starred = anyFavorite(list)): { favorites: T[]; rest: T[] } {
   if (!starred) return { favorites: list, rest: [] }
   return { favorites: list.filter(macro => macro.favorite), rest: list.filter(macro => !macro.favorite) }
+}
+
+// What a macro picker is asked for: the targets its macros must apply to
+// (every macro when absent), and the macro to put first in its group.
+export interface PickerOptions {
+  targets?: MacroTarget[]
+  suggested?: string
+}
+
+// pickerMacros is what every macro picker lists: the macros that apply to
+// the caller's targets, the suggested one first, split into the favourites
+// and the rest it keeps behind Show all. Whether anything is starred is
+// decided over every macro, so a star on a macro this picker leaves out
+// still keeps the unstarred behind Show all.
+export function pickerMacros<T extends Pick<Macro, "name" | "favorite" | "applies_to">>(macros: T[], options: PickerOptions = {}): { favorites: T[]; rest: T[] } {
+  let list = options.targets ? macrosFor(macros, options.targets) : macros
+  const name = options.suggested?.toLowerCase()
+  const index = name ? list.findIndex(macro => macro.name.toLowerCase() === name) : -1
+  if (index > 0) list = [list[index], ...list.slice(0, index), ...list.slice(index + 1)]
+  return splitFavorites(list, anyFavorite(macros))
 }
 
 // startMacro starts a macro on a task (and one of its pull requests): the

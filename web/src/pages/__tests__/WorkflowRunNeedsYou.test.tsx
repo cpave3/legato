@@ -46,7 +46,7 @@ beforeEach(() => {
   calls.approvals.mockResolvedValue([])
   calls.attention.mockResolvedValue([])
   for (const fn of [calls.trigger, calls.prompt, calls.retry, calls.another, calls.resume, calls.decide, calls.execute, calls.dismiss]) fn.mockResolvedValue({})
-  calls.macros.mockResolvedValue({ macros: [{ name: "Rebase and repush", keys: "Rebase.\n", favorite: true }, { name: "Plan", keys: "Plan.\n" }], suggested: { task: "Plan", my_pr: "Address feedback", others_pr: "Review" }, tiers: {} })
+  calls.macros.mockResolvedValue({ macros: [{ name: "Rebase and repush", keys: "Rebase.\n", applies_to: "task", favorite: true }, { name: "Plan", keys: "Plan.\n" }, { name: "Review", keys: "Review.\n", applies_to: "pr" }], suggested: { task: "Plan", my_pr: "Address feedback", others_pr: "Review" }, tiers: {} })
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("min-width"), media: query, addEventListener: () => {}, removeEventListener: () => {} }))
 })
 afterEach(() => { vi.unstubAllGlobals() })

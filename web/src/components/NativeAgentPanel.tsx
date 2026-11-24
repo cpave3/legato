@@ -1413,7 +1413,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
               </button>
               {macrosOpen && (
                 <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[180px] max-w-[calc(100vw-2rem)] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
-                  <MacroPickerItems shown={macroPicker.shown} hidden={macroPicker.hidden} onShowAll={macroPicker.showAll} onPick={handleMacro} />
+                  <MacroPickerItems shown={macroPicker.shown} hidden={macroPicker.hidden} onShowAll={macroPicker.showAll} onPick={(macro) => handleMacro(macro.keys)} />
                 </div>
               )}
             </div>

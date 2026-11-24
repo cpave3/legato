@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { fetchMacros, macrosFor, prIsMine, splitFavorites, startMacro, suggestedFirst, type Macro } from "../macros"
+import { fetchMacros, macrosFor, pickerMacros, prIsMine, splitFavorites, startMacro, suggestedFirst, type Macro } from "../macros"
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -77,5 +77,43 @@ describe("splitFavorites", () => {
 
   it("follows a star elsewhere in the full list", () => {
     expect(splitFavorites([ticket], true)).toEqual({ favorites: [], rest: [ticket] })
+  })
+})
+
+describe("pickerMacros", () => {
+  const fixCI: Macro = { name: "Fix CI", keys: "f", applies_to: "task", favorite: true }
+  const review: Macro = { name: "Review", keys: "r", applies_to: "pr", favorite: true }
+  const plan: Macro = { name: "Plan", keys: "p" }
+  const ticket: Macro = { name: "Ticket to PR", keys: "t", applies_to: "task" }
+  const all = [fixCI, review, plan, ticket]
+  const names = (got: { favorites: Macro[]; rest: Macro[] }) => ({ favorites: got.favorites.map(m => m.name), rest: got.rest.map(m => m.name) })
+
+  it("lists every macro, favourites first, when no targets are given", () => {
+    expect(names(pickerMacros(all))).toEqual({ favorites: ["Fix CI", "Review"], rest: ["Plan", "Ticket to PR"] })
+  })
+
+  it("keeps the macros for any of the targets, and those that name none", () => {
+    expect(names(pickerMacros(all, { targets: ["task", "pr"] }))).toEqual({ favorites: ["Fix CI", "Review"], rest: ["Plan", "Ticket to PR"] })
+    expect(names(pickerMacros(all, { targets: ["pr"] }))).toEqual({ favorites: ["Review"], rest: ["Plan"] })
+    expect(names(pickerMacros(all, { targets: ["task"] }))).toEqual({ favorites: ["Fix CI"], rest: ["Plan", "Ticket to PR"] })
+  })
+
+  it("decides whether anything is starred over every macro, not the ones kept", () => {
+    expect(names(pickerMacros([fixCI, plan, { ...review, favorite: false }], { targets: ["pr"] }))).toEqual({ favorites: [], rest: ["Plan", "Review"] })
+  })
+
+  it("lists every kept macro as a favourite while none is starred", () => {
+    expect(names(pickerMacros([plan, ticket], { targets: ["task"] }))).toEqual({ favorites: ["Plan", "Ticket to PR"], rest: [] })
+  })
+
+  it("puts the suggested macro first in its group", () => {
+    expect(names(pickerMacros(all, { targets: ["task"], suggested: "ticket to pr" }))).toEqual({ favorites: ["Fix CI"], rest: ["Ticket to PR", "Plan"] })
+  })
+})
+
+describe("macrosFor several targets", () => {
+  it("keeps the macros for any of them", () => {
+    const list: Macro[] = [{ name: "A", keys: "a", applies_to: "task" }, { name: "B", keys: "b", applies_to: "pr" }, { name: "C", keys: "c" }]
+    expect(macrosFor(list, ["task", "pr"]).map(m => m.name)).toEqual(["A", "B", "C"])
   })
 })

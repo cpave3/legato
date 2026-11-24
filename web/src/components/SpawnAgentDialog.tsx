@@ -2,7 +2,7 @@ import { useModalLayer } from "../hooks/useModalLayer"
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
 import { ChevronDown, X } from "lucide-react"
 import { accessLabel, listResources, type Resource } from "../lib/resources"
-import { anyFavorite, macroMessage, macrosFor, splitFavorites, useMacros } from "../lib/macros"
+import { macroMessage, pickerMacros, useMacros } from "../lib/macros"
 import { useServer } from "../hooks/useServer"
 import { useSettings } from "../hooks/useSettings"
 import { apiFetch } from "../lib/api"
@@ -177,8 +177,9 @@ export function SpawnAgentDialog({
   // "Start with macro": the macros, the one chosen, and the tier it names.
   const macroList = useMacros(baseUrl, open ? "open" : null)
   const [macroName, setMacroName] = useState("")
-  // A select cannot hide the rest behind Show all: it groups the favourites first.
-  const spawnMacros = splitFavorites(macrosFor(macroList.macros, "task"), anyFavorite(macroList.macros))
+  // The task's macros by the pickers' rule (LEG-619). A select cannot hide
+  // the rest behind Show all: it groups the favourites first.
+  const spawnMacros = pickerMacros(macroList.macros, { targets: ["task"] })
   const [tier, setTier] = useState("")
   const chooseMacro = (name: string) => {
     setMacroName(name)
@@ -960,7 +961,7 @@ export function SpawnAgentDialog({
               </div>
             </fieldset>
           )}
-          {macrosFor(macroList.macros, "task").length > 0 && <label className="flex flex-col gap-1.5">
+          {spawnMacros.favorites.length + spawnMacros.rest.length > 0 && <label className="flex flex-col gap-1.5">
             <span className={fieldLabel}>Start with macro <span className="text-lw-faint">· optional</span></span>
             <select aria-label="Start with macro" value={macroName} onChange={(event) => chooseMacro(event.target.value)}
               className={`min-h-11 rounded-[10px] border border-lw-line-strong bg-lw-ground px-3 text-base text-lw-text sm:min-h-9 sm:rounded-md sm:text-sm ${focusRing}`}>

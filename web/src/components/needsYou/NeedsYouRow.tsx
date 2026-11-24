@@ -4,7 +4,7 @@ import { Copy, ExternalLink } from "lucide-react"
 import { kindIcons, toneClass } from "../../lib/needsYouIcons"
 import type { AttentionAction, AttentionItem } from "../../lib/attention"
 import { externalHref, legatoHref } from "../../lib/navigation"
-import { MacroPickButton } from "../MacroPickButton"
+import { MacroPickerButton } from "../MacroPicker"
 import { itemHow, needsYouKind, needsYouKinds, shortAge } from "../../lib/needsYou"
 
 // The kind of an item: its word and its own icon, on its tone.
@@ -102,8 +102,8 @@ export function NeedsYouRow({ item, onAction, onDismiss, here, pending }: NeedsY
           </button>
         ))}
         {picks.map((action) => (
-          <MacroPickButton key={action.id} label={action.label} disabled={pending} className={button}
-            onPick={(name) => onAction(item, action.id, name)} />
+          <MacroPickerButton key={action.id} label={action.label} disabled={pending} className={button}
+            targets={["task", "pr"]} onPick={(macro) => onAction(item, action.id, macro.name)} />
         ))}
         {reply && !replying && <button type="button" className={quiet} disabled={pending} onClick={() => setReplying(true)}>{reply.label}…</button>}
         {navigates.map((action) => {

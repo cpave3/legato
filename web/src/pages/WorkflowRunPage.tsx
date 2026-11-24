@@ -26,7 +26,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { queryKeys } from "../lib/query"
 import { dismissAttentionItem, executeAttentionAction, type AttentionItem } from "../lib/attention"
 import { NeedsYouRow } from "../components/needsYou/NeedsYouRow"
-import { MacroPickButton } from "../components/MacroPickButton"
+import { MacroPickerButton } from "../components/MacroPicker"
 import { ApprovalCard } from "../components/ApprovalTray"
 import { NodeSheet } from "../components/NodeSheet"
 
@@ -208,7 +208,7 @@ function ResumeAgentControls({ view, runId, refresh }: { view: WorkflowRunView; 
   }
   return <>
     {view.resume_agent_state && <Button asChild variant="primary"><Link to={agentLink(card, runId)}>Open agent</Link></Button>}
-    {view.can_resume_agent && <MacroPickButton label={view.resume_agent_state === "running" ? "Send a macro" : "Resume agent"} disabled={busy} onPick={pick}
+    {view.can_resume_agent && <MacroPickerButton label={view.resume_agent_state === "running" ? "Send a macro" : "Resume agent"} disabled={busy} targets={["task", "pr"]} onPick={macro => { void pick(macro.name) }}
       className="inline-flex min-h-9 items-center rounded-md border border-lw-line-strong/40 bg-lw-raised px-3 text-[13px] font-medium text-lw-text hover:bg-lw-selected disabled:opacity-50" />}
     {notice && <span role="status" className="text-xs text-lw-text-2">{notice}</span>}
     {error && <span role="alert" className="text-xs text-lw-error">{error}</span>}
