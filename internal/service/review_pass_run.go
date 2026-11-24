@@ -323,6 +323,9 @@ func (c *ReviewRunCaller) open(ctx context.Context, step ResolvedWorkflowStep) e
 	if err != nil {
 		return err
 	}
+	if run := c.earlierLoop(ctx, step); run != nil {
+		return c.adopt(ctx, step, run)
+	}
 	agentAuthor, _ := step.With["agent_author"].(bool)
 	scope, err := reviewScope(step.With)
 	if err != nil {
@@ -436,6 +439,116 @@ func (c *ReviewRunCaller) open(ctx context.Context, step ResolvedWorkflowStep) e
 	if err := c.engine.beginLoop(ctx, step.TaskID, settings, run); err != nil {
 		c.removeClone(ctx, &run)
 		return err
+	}
+	return nil
+}
+
+// earlierLoop is the loop an earlier attempt of the step opened, which a
+// Retry resumes; nil when there is none.
+func (c *ReviewRunCaller) earlierLoop(ctx context.Context, step ResolvedWorkflowStep) *reviewRun {
+	run, err := c.run(ctx, step.TaskID)
+	if err != nil || run.RunID != step.RunID || run.StepID != step.StepID || run.AttemptID == step.AttemptID {
+		return nil
+	}
+	if loop, err := c.engine.db.GetHandoffReview(ctx, step.TaskID); err != nil || loop == nil {
+		return nil
+	}
+	return run
+}
+
+// adopt resumes, for a retried step, the loop its failed attempt opened:
+// the same passes, findings, rulings and items, on the same pull requests,
+// in a fresh clone. A pass that was in flight is pinned again under its
+// number. What open refuses for another loop's pull requests or author, it
+// refuses here too: the failed step held neither.
+func (c *ReviewRunCaller) adopt(ctx context.Context, step ResolvedWorkflowStep, run *reviewRun) error {
+	if !c.engine.config().Enabled {
+		return errors.New("review passes are off on this Legato: turn on review_passes, with a reviewer App credential, to run a review loop")
+	}
+	if c.opts.GitHub == nil || c.opts.Clones == nil {
+		return errors.New("review loops are not wired on this Legato")
+	}
+	for _, number := range run.numbers() {
+		if active := c.engine.activeLoopOn(ctx, run.Repo, number, step.TaskID); active != nil {
+			return active
+		}
+	}
+	if run.AuthorTask != "" {
+		if other := c.authoredLoop(ctx, run.AuthorTask); other != "" {
+			return fmt.Errorf("%s's agent already authors the review loop of run %s (/workflows/runs/%s): one agent-authored loop runs per task", run.AuthorTask, other, other)
+		}
+	}
+	pr, state, err := c.opts.GitHub.PullRequest(ctx, run.Repo, run.PR)
+	if err != nil {
+		return fmt.Errorf("reading pull request #%d of %s: %w", run.PR, run.Repo, err)
+	}
+	if state != "open" {
+		return fmt.Errorf("pull request #%d of %s is %s: a review loop needs an open pull request", run.PR, run.Repo, state)
+	}
+	for _, number := range run.numbers() {
+		if err := c.opts.Clones.PullHead(ctx, run.Repo, number); err != nil {
+			return fmt.Errorf("fetching the head of #%d: %w", number, err)
+		}
+	}
+	// The loop first (its reviewer stopped, a pass in flight set aside),
+	// then the record that makes it this attempt's: a crash between them
+	// leaves the step waiting to open, and the next tick adopts the loop
+	// again.
+	if err := c.engine.holdForRetry(ctx, step.TaskID); err != nil {
+		return err
+	}
+	c.removeClone(ctx, run) // a failure that left it
+	clone, err := c.opts.Clones.JobClone(ctx, JobCloneRequest{ExecutionID: step.AttemptID, TaskID: step.TaskID, Repo: run.Repo, Ref: pr.HeadSHA,
+		FreshBranch: run.Branch, Own: true, Slot: SlotReviewer})
+	if err != nil {
+		return fmt.Errorf("cloning %s at the head of #%d: %w", run.Repo, run.PR, err)
+	}
+	for i := range run.Stack {
+		if run.Stack[i].Number == run.PR {
+			run.Stack[i].Branch = clone.Branch
+		}
+	}
+	run.AttemptID, run.CloneID, run.Dir, run.Branch = step.AttemptID, clone.ID, clone.Path, clone.Branch
+	if err := c.engine.db.SetTaskMetadata(ctx, step.TaskID, reviewRunKey, run); err != nil {
+		c.removeClone(ctx, run)
+		return err
+	}
+	c.Changed(step.TaskID)
+	return nil
+}
+
+// FailStep keeps a failed step's loop for Retry (spec LEG-559 D1): the
+// reviewer stops and a pass in flight is set aside, but the loop keeps
+// where it stood, its passes, findings and items. The clone goes; Retry
+// makes another.
+func (c *ReviewRunCaller) FailStep(ctx context.Context, attempt store.WorkflowStepAttempt) error {
+	run := c.opened(ctx, attempt)
+	if run == nil {
+		return nil // it never opened: there is no loop to keep
+	}
+	if err := c.engine.holdForRetry(ctx, attempt.TaskID); err != nil {
+		return err
+	}
+	c.removeClone(ctx, run)
+	run.CloneID, run.Dir = 0, ""
+	return c.engine.db.SetTaskMetadata(ctx, attempt.TaskID, reviewRunKey, run)
+}
+
+// holdForRetry stops a loop's reviewer and keeps the loop for a Retry
+// (HoldHandoffReviewForRetry).
+func (s *ReviewPassService) holdForRetry(ctx context.Context, taskID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.opts.Agents != nil {
+		_ = s.opts.Agents.KillAgentInSlot(ctx, taskID, SlotReviewer)
+	}
+	changed, err := s.db.HoldHandoffReviewForRetry(ctx, taskID, "the workflow step failed before the pass was posted", s.now())
+	if err != nil {
+		return err
+	}
+	s.setWaiting(taskID, "")
+	if changed {
+		s.changed(taskID)
 	}
 	return nil
 }
@@ -1136,6 +1249,14 @@ func (s *ReviewPassesStep) Start(ctx context.Context, step ResolvedWorkflowStep)
 	}
 	// No engine here: the holder's tick opens it.
 	return WorkflowExecutionResult{Status: WorkflowStepWaiting}, nil
+}
+
+// FailStep is the run caller's, once it is attached.
+func (s *ReviewPassesStep) FailStep(ctx context.Context, attempt store.WorkflowStepAttempt) error {
+	if caller := s.current(); caller != nil {
+		return caller.FailStep(ctx, attempt)
+	}
+	return nil
 }
 
 func (s *ReviewPassesStep) Cancel(ctx context.Context, attempt store.WorkflowStepAttempt) error {

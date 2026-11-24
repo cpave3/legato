@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+
+	"github.com/jmoiron/sqlx"
 )
 
 // HandoffReview is one card's review loop on a worker.
@@ -126,7 +128,16 @@ func (s *Store) ListHandoffReviews(ctx context.Context) ([]HandoffReview, error)
 
 // SaveHandoffReview writes a card's review loop.
 func (s *Store) SaveHandoffReview(ctx context.Context, r HandoffReview) error {
-	_, err := s.db.NamedExecContext(ctx, saveHandoffReviewSQL, r)
+	return saveHandoffReview(ctx, s.db, r)
+}
+
+// namedExecer is a database or a transaction.
+type namedExecer interface {
+	NamedExecContext(ctx context.Context, query string, arg any) (sql.Result, error)
+}
+
+func saveHandoffReview(ctx context.Context, db namedExecer, r HandoffReview) error {
+	_, err := db.NamedExecContext(ctx, saveHandoffReviewSQL, r)
 	return err
 }
 
@@ -152,7 +163,7 @@ func (s *Store) SaveHandoffReviewWithMetadata(ctx context.Context, r HandoffRevi
 	if err := setTaskMetadata(ctx, tx, r.TaskID, path, value); err != nil {
 		return err
 	}
-	if _, err := tx.NamedExecContext(ctx, saveHandoffReviewSQL, r); err != nil {
+	if err := saveHandoffReview(ctx, tx, r); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -266,13 +277,26 @@ func (s *Store) EndHandoffReview(ctx context.Context, taskID, reason, passReason
 // discarded pass of the same number is replaced, the new one's Attempt one
 // past it; a pass of that number in any other state is a conflict.
 func (s *Store) InsertHandoffReviewPass(ctx context.Context, p HandoffReviewPass, prs []HandoffReviewPR) error {
-	tx, err := s.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		return insertHandoffReviewPass(ctx, tx, p, prs)
+	})
+}
+
+// StartHandoffReviewPass records a pass with its pinned pull requests
+// (as InsertHandoffReviewPass) and its loop, which now names it, in one
+// transaction: both are written or neither.
+func (s *Store) StartHandoffReviewPass(ctx context.Context, p HandoffReviewPass, prs []HandoffReviewPR, loop HandoffReview) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		if err := insertHandoffReviewPass(ctx, tx, p, prs); err != nil {
+			return err
+		}
+		return saveHandoffReview(ctx, tx, loop)
+	})
+}
+
+func insertHandoffReviewPass(ctx context.Context, tx *sqlx.Tx, p HandoffReviewPass, prs []HandoffReviewPR) error {
 	var earlier HandoffReviewPass
-	err = tx.GetContext(ctx, &earlier, `SELECT * FROM handoff_review_passes WHERE task_id = ? AND pass = ?`, p.TaskID, p.Pass)
+	err := tx.GetContext(ctx, &earlier, `SELECT * FROM handoff_review_passes WHERE task_id = ? AND pass = ?`, p.TaskID, p.Pass)
 	switch {
 	case err == nil && earlier.State == "discarded":
 		p.Attempt = earlier.Attempt + 1
@@ -297,7 +321,7 @@ func (s *Store) InsertHandoffReviewPass(ctx context.Context, p HandoffReviewPass
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // AnyCurrentReviewPassIn says whether a review loop in loopPhase has its
@@ -350,7 +374,22 @@ func (s *Store) ListHandoffReviewPasses(ctx context.Context, taskID string) ([]H
 // UpdateHandoffReviewPass writes a pass's state, verdict, summary, reason,
 // execution and end.
 func (s *Store) UpdateHandoffReviewPass(ctx context.Context, p HandoffReviewPass) error {
-	_, err := s.db.NamedExecContext(ctx, `
+	return updateHandoffReviewPass(ctx, s.db, p)
+}
+
+// UpdateHandoffReviewPassWithLoop writes a pass (as UpdateHandoffReviewPass)
+// and its loop in one transaction: both are written or neither.
+func (s *Store) UpdateHandoffReviewPassWithLoop(ctx context.Context, p HandoffReviewPass, loop HandoffReview) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		if err := updateHandoffReviewPass(ctx, tx, p); err != nil {
+			return err
+		}
+		return saveHandoffReview(ctx, tx, loop)
+	})
+}
+
+func updateHandoffReviewPass(ctx context.Context, db namedExecer, p HandoffReviewPass) error {
+	_, err := db.NamedExecContext(ctx, `
 		UPDATE handoff_review_passes SET state = :state, verdict = :verdict, summary = :summary, reason = :reason,
 			execution_id = :execution_id, ended_at = :ended_at
 		WHERE task_id = :task_id AND pass = :pass`, p)
@@ -366,21 +405,135 @@ func (s *Store) SetHandoffReviewPassPosting(ctx context.Context, taskID string, 
 	return err
 }
 
-// DiscardHandoffReviewPass sets a pass's result aside in one transaction:
-// its state, reason and end, and none of its findings or rulings stand.
-// Its findings go, and the earlier findings it ruled on are open again with
-// no ruling, as the next attempt at the pass finds them.
-func (s *Store) DiscardHandoffReviewPass(ctx context.Context, p HandoffReviewPass) error {
-	return withTxDB(ctx, s, func(exec func(string, ...any) error) error {
-		if err := exec(`UPDATE handoff_review_passes SET state = 'discarded', reason = ?, ended_at = ? WHERE task_id = ? AND pass = ?`,
-			p.Reason, p.EndedAt, p.TaskID, p.Pass); err != nil {
+// HandoffReviewRuling is a pass's ruling on an earlier finding.
+type HandoffReviewRuling struct {
+	Finding string
+	Status  string
+	Ruling  string
+}
+
+// SubmitHandoffReviewPass records a reviewer's result in one transaction:
+// the pass's findings (any recorded for it before dropped), its rulings on
+// earlier findings, and the pass itself (as UpdateHandoffReviewPass).
+func (s *Store) SubmitHandoffReviewPass(ctx context.Context, p HandoffReviewPass, findings []HandoffReviewFinding, rulings []HandoffReviewRuling) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		if err := replaceHandoffReviewFindings(ctx, tx, p.TaskID, p.Pass, findings); err != nil {
 			return err
 		}
-		if err := exec(`DELETE FROM handoff_review_findings WHERE task_id = ? AND pass = ?`, p.TaskID, p.Pass); err != nil {
-			return err
+		for _, r := range rulings {
+			if _, err := tx.ExecContext(ctx, `UPDATE handoff_review_findings SET status = ?, ruled_pass = ?, ruling = ? WHERE task_id = ? AND id = ?`,
+				r.Status, p.Pass, r.Ruling, p.TaskID, r.Finding); err != nil {
+				return err
+			}
 		}
-		return exec(`UPDATE handoff_review_findings SET status = 'open', ruled_pass = 0, ruling = '' WHERE task_id = ? AND ruled_pass = ?`, p.TaskID, p.Pass)
+		return updateHandoffReviewPass(ctx, tx, p)
 	})
+}
+
+// FinishHandoffReviewPass records a posted pass in one transaction: the
+// items it raises for the author (as UpsertHandoffReviewItem), the pass (as
+// UpdateHandoffReviewPass) and its loop, moved on. All are written or none.
+func (s *Store) FinishHandoffReviewPass(ctx context.Context, p HandoffReviewPass, items []HandoffReviewItem, loop HandoffReview) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		for _, item := range items {
+			if err := upsertHandoffReviewItem(ctx, tx, item); err != nil {
+				return err
+			}
+		}
+		if err := updateHandoffReviewPass(ctx, tx, p); err != nil {
+			return err
+		}
+		return saveHandoffReview(ctx, tx, loop)
+	})
+}
+
+// DiscardHandoffReviewPass sets a pass's result aside and writes its loop in
+// one transaction: the pass's state, reason and end, and none of its
+// findings or rulings stand (its findings go, and the earlier findings it
+// ruled on are open again with no ruling, as the next attempt at the pass
+// finds them). Either all of it is written or none.
+func (s *Store) DiscardHandoffReviewPass(ctx context.Context, p HandoffReviewPass, loop HandoffReview) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		if err := discardHandoffReviewPass(ctx, tx, p.TaskID, p.Pass, p.Reason, p.EndedAt); err != nil {
+			return err
+		}
+		return saveHandoffReview(ctx, tx, loop)
+	})
+}
+
+func discardHandoffReviewPass(ctx context.Context, tx *sqlx.Tx, taskID string, pass int, reason, at string) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE handoff_review_passes SET state = 'discarded', reason = ?, ended_at = ? WHERE task_id = ? AND pass = ?`,
+		reason, at, taskID, pass); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM handoff_review_findings WHERE task_id = ? AND pass = ?`, taskID, pass); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE handoff_review_findings SET status = 'open', ruled_pass = 0, ruling = '' WHERE task_id = ? AND ruled_pass = ?`, taskID, pass)
+	return err
+}
+
+// HoldHandoffReviewForRetry keeps a review loop whose workflow step failed
+// for a Retry to resume, in one transaction. A pass in flight (reviewing or
+// submitted) is discarded with passReason, as a moved head discards one,
+// and the loop's pass count steps back over a discarded current pass, so
+// the next pass pinned takes the number after the last that counted. A
+// loop that held or waited for a reviewer, or that a cancel ended, is ready
+// for that pass; one ended after a pass that asked for changes waits for
+// its author again. A loop in any other phase (the author's turn, clean,
+// stuck) keeps it, and every pass, finding, ruling and item stays. It says
+// whether the loop changed; a task with no loop is false.
+func (s *Store) HoldHandoffReviewForRetry(ctx context.Context, taskID, passReason, at string) (bool, error) {
+	changed := false
+	err := withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		var loop HandoffReview
+		err := tx.GetContext(ctx, &loop, `SELECT * FROM handoff_reviews WHERE task_id = ?`, taskID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		before := loop
+		var inFlight []int
+		if err := tx.SelectContext(ctx, &inFlight, `SELECT pass FROM handoff_review_passes WHERE task_id = ? AND state IN ('reviewing', 'submitted') ORDER BY pass`, taskID); err != nil {
+			return err
+		}
+		for _, pass := range inFlight {
+			if err := discardHandoffReviewPass(ctx, tx, taskID, pass, passReason, at); err != nil {
+				return err
+			}
+		}
+		var current HandoffReviewPass
+		err = tx.GetContext(ctx, &current, `SELECT * FROM handoff_review_passes WHERE task_id = ? AND pass = ?`, taskID, loop.Pass)
+		if err == nil && current.State == "discarded" && loop.Pass > 0 {
+			loop.Pass--
+			err = tx.GetContext(ctx, &current, `SELECT * FROM handoff_review_passes WHERE task_id = ? AND pass = ?`, taskID, loop.Pass)
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		lastAskedForChanges := err == nil && current.State == "posted" && current.Verdict == "changes"
+		switch loop.Phase {
+		case "ready", "waiting_for_reviewer", "reviewing":
+			loop.Phase = "ready"
+		case "ended":
+			loop.Phase = "ready"
+			if lastAskedForChanges {
+				loop.Phase = "waiting_for_author"
+			}
+		}
+		if loop.Phase != before.Phase {
+			loop.Reason, loop.QueuedAt, loop.Mismatches, loop.NudgedAt, loop.AuthorBusySinceNudge = "", "", 0, "", false
+		}
+		if loop == before && len(inFlight) == 0 {
+			return nil
+		}
+		changed = true
+		loop.UpdatedAt = at
+		return saveHandoffReview(ctx, tx, loop)
+	})
+	return changed, err
 }
 
 // ListHandoffReviewPRs returns a pass's pull requests in stack order.
@@ -400,11 +553,12 @@ func (s *Store) SetHandoffReviewPRPosted(ctx context.Context, taskID string, pas
 // ReplaceHandoffReviewFindings sets a pass's findings, dropping any recorded for
 // it before (a submission refused, then made again).
 func (s *Store) ReplaceHandoffReviewFindings(ctx context.Context, taskID string, pass int, findings []HandoffReviewFinding) error {
-	tx, err := s.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		return replaceHandoffReviewFindings(ctx, tx, taskID, pass, findings)
+	})
+}
+
+func replaceHandoffReviewFindings(ctx context.Context, tx *sqlx.Tx, taskID string, pass int, findings []HandoffReviewFinding) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM handoff_review_findings WHERE task_id = ? AND pass = ?`, taskID, pass); err != nil {
 		return err
 	}
@@ -415,7 +569,7 @@ func (s *Store) ReplaceHandoffReviewFindings(ctx context.Context, taskID string,
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // ListHandoffReviewFindings returns a card's findings, oldest pass first.
@@ -493,7 +647,11 @@ type HandoffReviewItem struct {
 // same ID in another loop (the same pull request number and check name in
 // another repository) is another item.
 func (s *Store) UpsertHandoffReviewItem(ctx context.Context, item HandoffReviewItem) error {
-	_, err := s.db.NamedExecContext(ctx, `
+	return upsertHandoffReviewItem(ctx, s.db, item)
+}
+
+func upsertHandoffReviewItem(ctx context.Context, db namedExecer, item HandoffReviewItem) error {
+	_, err := db.NamedExecContext(ctx, `
 		INSERT INTO handoff_review_items (id, task_id, kind, pass, repo, pr, path, line, url, version, outdated, author, title, body,
 			thread_comment_id, source_id, answer, answer_note, answered_at, posted, closed, created_at, delivered)
 		VALUES (:id, :task_id, :kind, :pass, :repo, :pr, :path, :line, :url, :version, :outdated, :author, :title, :body,

@@ -137,19 +137,17 @@ func (s *ReviewPassService) Submit(ctx context.Context, taskID, executionID stri
 		findings = append(findings, finding)
 		ids = append(ids, finding.ID)
 	}
-	if err := s.db.ReplaceHandoffReviewFindings(ctx, taskID, pass.Pass, findings); err != nil {
-		return ReviewSubmitResult{}, err
-	}
+	var rulings []store.HandoffReviewRuling
 	for _, r := range sub.Rulings {
 		if r.Status == "open" {
 			verdict = VerdictChanges
 		}
-		if err := s.db.RuleHandoffReviewFinding(ctx, taskID, r.Finding, r.Status, pass.Pass, strings.TrimSpace(r.Reason)); err != nil {
-			return ReviewSubmitResult{}, err
-		}
+		rulings = append(rulings, store.HandoffReviewRuling{Finding: r.Finding, Status: r.Status, Ruling: strings.TrimSpace(r.Reason)})
 	}
 	pass.State, pass.Verdict, pass.Summary = ReviewPassSubmitted, verdict, strings.TrimSpace(sub.Summary)
-	if err := s.db.UpdateHandoffReviewPass(ctx, *pass); err != nil {
+	// Findings, rulings and the pass's state together: a submission is
+	// whole or not there.
+	if err := s.db.SubmitHandoffReviewPass(ctx, *pass, findings, rulings); err != nil {
 		return ReviewSubmitResult{}, err
 	}
 	publishMilestone(s.opts.Bus, events.WorkMilestonePayload{TaskID: taskID, Slot: SlotReviewer,
@@ -438,15 +436,18 @@ func (s *ReviewPassService) moved(ctx context.Context, pass *store.HandoffReview
 func (s *ReviewPassService) discard(ctx context.Context, loop *store.HandoffReview, pass store.HandoffReviewPass, why string) error {
 	_ = s.opts.Agents.KillAgentInSlot(ctx, loop.TaskID, SlotReviewer)
 	pass.State, pass.Reason, pass.EndedAt = ReviewPassDiscarded, why, s.now()
-	if err := s.db.DiscardHandoffReviewPass(ctx, pass); err != nil {
-		return err
-	}
-	log.Printf("review passes: %s: pass %d discarded, to be pinned again: %s", loop.TaskID, pass.Pass, why)
+	before := *loop
 	if loop.Pass == pass.Pass {
 		loop.Pass = pass.Pass - 1
 	}
-	loop.Phase, loop.Mismatches = ReviewPhaseReady, 0
-	return s.saveChanged(ctx, loop)
+	loop.Phase, loop.Mismatches, loop.UpdatedAt = ReviewPhaseReady, 0, s.now()
+	if err := s.db.DiscardHandoffReviewPass(ctx, pass, *loop); err != nil {
+		*loop = before
+		return err
+	}
+	log.Printf("review passes: %s: pass %d discarded, to be pinned again: %s", loop.TaskID, pass.Pass, why)
+	s.changed(loop.TaskID)
+	return nil
 }
 
 // post posts a submitted pass to GitHub, one review per pull request, then
@@ -581,34 +582,31 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 	}
 	_ = s.opts.Agents.KillAgentInSlot(ctx, taskID, SlotReviewer)
 	pass.State, pass.EndedAt, pass.Reason = ReviewPassPosted, s.now(), strings.Join(failures, "; ")
-	if err := s.db.UpdateHandoffReviewPass(ctx, *pass); err != nil {
-		return err
-	}
-	loop.Reason = ""
+	loop.Reason, loop.UpdatedAt = "", s.now()
+	stage := ReviewStageClean
+	var raised []store.HandoffReviewItem
 	if pass.Verdict == VerdictClean {
 		loop.Phase = ReviewPhaseClean
-		if err := s.saveChanged(ctx, loop); err != nil {
+	} else {
+		if raised, err = s.passItems(ctx, taskID, pass.Pass, prs); err != nil {
 			return err
 		}
-		l.stage(ctx, ReviewStageClean)
-		return nil
-	}
-	if err := s.raiseItems(ctx, taskID, pass.Pass, prs); err != nil {
-		return err
-	}
-	// Two passes in a row that each found new problems: the author fixes
-	// these, then the person decides whether another pass is worth it.
-	if notConverging(all, pass.Pass) && (settings.MaxPasses == 0 || settings.MaxPasses > pass.Pass) {
-		settings.MaxPasses = pass.Pass
-		if err := s.setSettings(ctx, loop, settings); err != nil {
-			return err
+		// Two passes in a row that each found new problems: the author fixes
+		// these, then the person decides whether another pass is worth it.
+		if notConverging(all, pass.Pass) && (settings.MaxPasses == 0 || settings.MaxPasses > pass.Pass) {
+			settings.MaxPasses = pass.Pass
+			if loop.Settings, err = encodeJSON(settings); err != nil {
+				return err
+			}
 		}
+		loop.Phase, stage = ReviewPhaseWaitingForAuthor, ReviewStageAuthor
 	}
-	loop.Phase = ReviewPhaseWaitingForAuthor
-	if err := s.saveChanged(ctx, loop); err != nil {
+	// The pass posted, the items it raises and the loop moved on, together.
+	if err := s.db.FinishHandoffReviewPass(ctx, *pass, raised, *loop); err != nil {
 		return err
 	}
-	l.stage(ctx, ReviewStageAuthor)
+	s.changed(taskID)
+	l.stage(ctx, stage)
 	return nil
 }
 

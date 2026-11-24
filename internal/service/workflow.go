@@ -448,6 +448,13 @@ func (s *WorkflowService) PromptStep(ctx context.Context, runID, stepID string) 
 	return nil, fmt.Errorf("workflow step %q does not currently need attention", stepID)
 }
 
+// WorkflowStepFailer is an executor whose step keeps what it holds when it
+// fails, for a Retry to resume (a review step keeps its loop): Fail calls
+// FailStep in place of Cancel.
+type WorkflowStepFailer interface {
+	FailStep(ctx context.Context, attempt store.WorkflowStepAttempt) error
+}
+
 func (s *WorkflowService) Fail(ctx context.Context, runID, stepID, attemptID, reason string) (*store.WorkflowRunView, error) {
 	view, err := s.store.GetWorkflowRun(ctx, runID)
 	if err != nil {
@@ -465,7 +472,11 @@ func (s *WorkflowService) Fail(ctx context.Context, runID, stepID, attemptID, re
 		return nil, store.ErrWorkflowStateConflict
 	}
 	if executor := s.executors[active.ExecutorType]; executor != nil {
-		if err := executor.Cancel(ctx, *active); err != nil {
+		stop := executor.Cancel
+		if failer, ok := executor.(WorkflowStepFailer); ok {
+			stop = failer.FailStep
+		}
+		if err := stop(ctx, *active); err != nil {
 			return nil, fmt.Errorf("stopping failed workflow agent: %w", err)
 		}
 	}

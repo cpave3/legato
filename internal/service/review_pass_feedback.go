@@ -264,13 +264,14 @@ func RefuseUnansweredReview(ctx context.Context, db *store.Store, taskID string)
 	return fmt.Errorf("%w: %s %d item(s) of pass %d are not answered. Run legato review-pass feedback --json to read them", ErrReviewItemsOpen, ReviewTag, open, loop.Pass)
 }
 
-// raiseItems makes a changes pass's items: its findings, and the earlier
+// passItems are a changes pass's items: its findings, and the earlier
 // findings its rulings kept open.
-func (s *ReviewPassService) raiseItems(ctx context.Context, taskID string, pass int, prs []store.HandoffReviewPR) error {
+func (s *ReviewPassService) passItems(ctx context.Context, taskID string, pass int, prs []store.HandoffReviewPR) ([]store.HandoffReviewItem, error) {
 	findings, err := s.db.ListHandoffReviewFindings(ctx, taskID)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var out []store.HandoffReviewItem
 	repo := map[int]string{}
 	url := map[int]string{}
 	for _, pr := range prs {
@@ -290,11 +291,9 @@ func (s *ReviewPassService) raiseItems(ctx context.Context, taskID string, pass 
 			}
 			item.Body = f.Body + "\n\nStill open after pass " + fmt.Sprint(pass) + ": " + f.Ruling
 		}
-		if err := s.db.UpsertHandoffReviewItem(ctx, item); err != nil {
-			return err
-		}
+		out = append(out, item)
 	}
-	return nil
+	return out, nil
 }
 
 // feedback moves a loop waiting for its author on: it tells the author of

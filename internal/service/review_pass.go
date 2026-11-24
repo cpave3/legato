@@ -596,18 +596,22 @@ func (s *ReviewPassService) startPass(ctx context.Context, l ReviewLoop, loop *s
 		pinned = append(pinned, store.HandoffReviewPR{TaskID: l.TaskID, Pass: pass, Repo: l.Repo, Number: pr.Number, Branch: pr.Branch,
 			Base: pr.Base, Title: pr.Title, Body: pr.Body, URL: pr.URL, HeadSHA: pr.HeadSHA, Author: pr.Author, LocalBranch: pr.LocalBranch, HeadRepo: pr.HeadRepo})
 	}
-	if err := s.db.InsertHandoffReviewPass(ctx, record, pinned); err != nil {
-		return err
-	}
+	before := *loop
 	loop.Pass, loop.Phase, loop.QueuedAt, loop.Reason = pass, ReviewPhaseReviewing, "", ""
-	s.setWaiting(l.TaskID, "")
 	if l.CountChecks && loop.ChecksHeads != checkHeads(pinned) {
 		// The checks of the heads this pass reviews, read now.
 		s.readChecks(ctx, l, loop, pinned)
 	}
-	if err := s.saveChanged(ctx, loop); err != nil {
+	// The pass and the loop that names it are written together: a crash
+	// between them would leave a pass the loop does not know, pinned again
+	// under its number on every tick.
+	loop.UpdatedAt = s.now()
+	if err := s.db.StartHandoffReviewPass(ctx, record, pinned, *loop); err != nil {
+		*loop = before
 		return err
 	}
+	s.setWaiting(l.TaskID, "")
+	s.changed(l.TaskID)
 	l.stage(ctx, ReviewStagePass)
 	// The author's work is up for review; the reviewer reviews again, a
 	// resumed one that finished the pass before included.
@@ -684,10 +688,13 @@ func (s *ReviewPassService) watchReviewer(ctx context.Context, l ReviewLoop, loo
 func (s *ReviewPassService) unable(ctx context.Context, l ReviewLoop, loop *store.HandoffReview, pass store.HandoffReviewPass, reason string) error {
 	_ = s.opts.Agents.KillAgentInSlot(ctx, l.TaskID, SlotReviewer)
 	pass.State, pass.Reason, pass.EndedAt = ReviewPassUnable, reason, s.now()
-	if err := s.db.UpdateHandoffReviewPass(ctx, pass); err != nil {
+	s.setWaiting(l.TaskID, "")
+	loop.Phase, loop.Reason, loop.QueuedAt, loop.UpdatedAt = ReviewPhaseStuck, reason, "", s.now()
+	if err := s.db.UpdateHandoffReviewPassWithLoop(ctx, pass, *loop); err != nil {
 		return err
 	}
-	return s.stuck(ctx, l, loop, reason)
+	s.changed(l.TaskID)
+	return nil
 }
 
 // stuck stops the loop for the person, who decides what comes next.
@@ -707,10 +714,15 @@ func (s *ReviewPassService) saveChanged(ctx context.Context, loop *store.Handoff
 	if err := s.save(ctx, loop); err != nil {
 		return err
 	}
-	for _, caller := range s.callers {
-		caller.Changed(loop.TaskID)
-	}
+	s.changed(loop.TaskID)
 	return nil
+}
+
+// changed tells the callers a loop changed.
+func (s *ReviewPassService) changed(taskID string) {
+	for _, caller := range s.callers {
+		caller.Changed(taskID)
+	}
 }
 
 // passReviewMarker is the marker of a pass's review of a pull request. A pass
