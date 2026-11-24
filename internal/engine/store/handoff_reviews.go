@@ -1113,3 +1113,29 @@ func (s *Store) ListRunReviewLoopsAuthoredBy(ctx context.Context, authorTask str
 		ORDER BY state = 'open' DESC, created_at DESC, rowid DESC`, authorTask)
 	return out, err
 }
+
+// CloseReviewLoopsOfClosedHandoffs closes the open loops owned by a handoff
+// that has closed, or is gone, here (CloseReviewLoop: claims released, a
+// pass in flight discarded, the phase kept), outcome ended, as the
+// conversion closes them. It says how many it closed.
+func (s *Store) CloseReviewLoopsOfClosedHandoffs(ctx context.Context, at string) (int, error) {
+	var ids []string
+	if err := s.db.SelectContext(ctx, &ids, `SELECT l.id FROM review_loops l
+		WHERE l.state = 'open' AND l.owner_kind = 'handoff' AND l.handoff_id != ''
+		AND NOT EXISTS (SELECT 1 FROM handoffs h WHERE h.handoff_id = l.handoff_id AND h.task_id = l.host_task
+			AND (l.main_instance_id = '' OR h.main_instance_id = l.main_instance_id) AND h.closed_at IS NULL)
+		ORDER BY l.created_at, l.id`); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, id := range ids {
+		_, closed, err := s.CloseReviewLoop(ctx, id, "ended", at)
+		if err != nil {
+			return n, err
+		}
+		if closed {
+			n++
+		}
+	}
+	return n, nil
+}

@@ -156,3 +156,29 @@ func TestARunLoopConvertedMidReviewFinishesOnTheLoopRecord(t *testing.T) {
 		t.Fatal("the converted loop's clone was not removed")
 	}
 }
+
+// A run cancelled in a process without the review engine never reaches the
+// run caller's Cancel: the holder's next tick closes its loop record, so
+// the pull request it claimed is free for another loop.
+func TestARunCancelledWithoutTheEngineFreesItsPullRequest(t *testing.T) {
+	r, view := afterPassOne(t, ReviewPassOptions{})
+	ctx := context.Background()
+	if held, _ := r.worker.Store.ActiveReviewLoop(ctx, "acme/widget", 12); held == nil {
+		t.Fatal("the run's loop holds no claim on #12")
+	}
+	if _, err := otherProcess(r.worker).Cancel(ctx, view.Run.ID, "not needed"); err != nil {
+		t.Fatal(err)
+	}
+	r.tick()
+	if held, _ := r.worker.Store.ActiveReviewLoop(ctx, "acme/widget", 12); held != nil {
+		t.Fatalf("#12 is still claimed by %s after its run was cancelled", held.ID)
+	}
+	loop, _ := r.worker.Store.CurrentReviewLoop(ctx, view.Run.TaskID)
+	if loop == nil || loop.State != store.ReviewLoopClosedState || loop.Outcome != service.ReviewOutcomeCancelled || loop.Phase != service.ReviewPhaseEnded {
+		t.Fatalf("loop = %+v; want it closed cancelled", loop)
+	}
+	again := r.start(t, pr12)
+	if again.Run.Status != "running" {
+		t.Fatalf("another run on #12: %q: %s", again.Run.Status, again.Run.Error)
+	}
+}

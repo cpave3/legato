@@ -12,11 +12,12 @@ import (
 
 // ReviewLoop is one review loop as the review-pass engine moves it on: the
 // pull requests of one task's branches, reviewed in that task's reviewer
-// slot and recorded in the ledger under that task. A caller says which
+// slot and recorded on the loop record that task hosts (store's
+// HandoffReview view of it, keyed by the task). A caller says which
 // loops there are; the engine knows nothing else of where they came from.
 type ReviewLoop struct {
-	// TaskID keys the loop: its ledger rows, its reviewer slot, its job
-	// clone.
+	// TaskID keys the loop: the loop record it hosts, its reviewer slot,
+	// its job clone.
 	TaskID string
 	// Repo is the repository (owner/name) of its pull requests.
 	Repo string

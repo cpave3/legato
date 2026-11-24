@@ -85,7 +85,8 @@ type ReviewRunOptions struct {
 }
 
 // ReviewRunCaller is the review-pass engine's caller for workflow runs: the
-// github.pr.review_passes step. Its loop is keyed on the run's own task, the
+// github.pr.review_passes step. Its loop record is opened by the step's
+// attempt (OpenReviewLoop) and hosted by the run's own task, the
 // reviewer reviews a job clone of the pull request's head, the author is the
 // branch's owner (who pushes and replies on GitHub; Legato only reviews), and
 // only the reviewer's findings count. No card moves. A clean pass completes
@@ -326,6 +327,7 @@ func (c *ReviewRunCaller) OpenWaiting(ctx context.Context) {
 	}
 	c.opening.Lock()
 	defer c.opening.Unlock()
+	c.closeEnded(ctx)
 	attempts, err := c.workflows.WaitingAttempts(ctx, ReviewPassesStepType)
 	if err != nil {
 		log.Printf("review passes: the steps waiting to open: %v", err)
@@ -350,6 +352,58 @@ func (c *ReviewRunCaller) OpenWaiting(ctx context.Context) {
 			log.Printf("review passes: failing %s: %v", attempt.RunID, failErr)
 		}
 	}
+}
+
+// closeEnded closes the open loops of runs that ended where the run caller
+// never heard of it (a Cancel in a process without the review engine): the
+// run gone, cancelled, stopped or succeeded, or its review step done. Each
+// ends cancelled as Cancel ends one: the reviewer stops, its pull requests
+// are free, and its clone goes. A failed run's loop stays for Retry (D1).
+func (c *ReviewRunCaller) closeEnded(ctx context.Context) {
+	loops, err := c.engine.db.ListOpenReviewLoops(ctx)
+	if err != nil {
+		log.Printf("review passes: the open review loops: %v", err)
+		return
+	}
+	for _, l := range loops {
+		if l.OwnerKind != store.ReviewLoopOwnerRun || !c.runEnded(ctx, l.RunID, l.StepPath) {
+			continue
+		}
+		if c.engine.opts.Agents != nil {
+			_ = c.engine.opts.Agents.KillAgentInSlot(ctx, l.HostTask, SlotReviewer)
+		}
+		if err := c.engine.endLoop(ctx, l.HostTask, ReviewOutcomeCancelled); err != nil {
+			log.Printf("review passes: closing the loop of run %s: %v", l.RunID, err)
+			continue
+		}
+		if run, err := c.run(ctx, l.HostTask); err == nil {
+			c.removeClone(ctx, run)
+		}
+	}
+}
+
+// runEnded says a run, or its step, ended for good.
+func (c *ReviewRunCaller) runEnded(ctx context.Context, runID, stepPath string) bool {
+	view, err := c.engine.db.GetWorkflowRun(ctx, runID)
+	if errors.Is(err, store.ErrNotFound) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	switch view.Run.Status {
+	case "cancelled", "stopped", "succeeded":
+		return true
+	}
+	for _, s := range view.Steps {
+		if s.Path == stepPath {
+			switch s.Status {
+			case "succeeded", "skipped", "cancelled":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // opened is the loop an attempt opened, nil while it waits to open. A loop

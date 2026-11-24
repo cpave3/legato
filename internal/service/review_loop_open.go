@@ -9,9 +9,9 @@ import (
 
 // What other parts of Legato ask of open review loops, read from the
 // store rather than from a review engine, so a process that runs none (the
-// one sweeping job clones, or updating) still sees every loop. Today's loops
-// are a worker's handed-off cards with a review loop and the
-// github.pr.review_passes step's runs; the loop record replaces both.
+// one sweeping job clones, or updating) still sees every loop: a worker's
+// handed-off cards with a review loop and the github.pr.review_passes
+// step's runs, both on the loop record.
 
 // OpenReviewLoopClones are the IDs of the live job clones open review loops
 // use: an open handoff's card clone that its loop reviews, and a waiting

@@ -349,6 +349,11 @@ func (s *ReviewPassService) Tick(ctx context.Context) {
 	if !s.schemaKnown(ctx) {
 		return
 	}
+	// A handoff that closed frees its loop's pull requests: its loop
+	// record closes, as the conversion closes one.
+	if _, err := s.db.CloseReviewLoopsOfClosedHandoffs(ctx, s.now()); err != nil {
+		log.Printf("review passes: closing the loops of closed handoffs: %v", err)
+	}
 	// Steps any process started open here first (spec LEG-559 D9). Not
 	// under the lock: opening asks GitHub and makes clones, as a start
 	// did.
