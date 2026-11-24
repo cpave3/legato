@@ -8,7 +8,7 @@ import { Button } from "../ui/Button"
 import { CommitField, Problems, ReferencePicker } from "./builderFields"
 import { fieldClass, labelClass, problemsAt, valueText } from "./builderStyles"
 import type { BuilderOptions } from "./stepForms"
-import { conditionFields, KIND_TITLES, newTrigger, OPERATORS, operandKind, operandOf, operatorOf, scalarText, triggerKinds, withOperator, type Condition, type OperandKind, type Operator } from "./triggerForms"
+import { conditionFields, KIND_TITLES, newTrigger, textMatchOf, OPERATORS, operandKind, operandOf, operatorOf, scalarText, triggerKinds, withOperator, type Condition, type OperandKind, type Operator } from "./triggerForms"
 
 type Props = {
   text: string
@@ -72,6 +72,8 @@ export function TriggerCard({ kind, trigger, text, values, diagnostics, options,
       <label className="flex items-center gap-1.5 self-end text-xs text-lw-text-2"><input type="checkbox" aria-label="Also on cards handed off to this Legato" checked={trigger.handed_off === true} onChange={event => set(["handed_off"], event.target.checked || undefined)} />Also on cards handed off to this Legato</label>
     </div>}
 
+    {(kind === "chat.message" || kind === "chat.mention") && <ChatFields kind={kind} trigger={trigger} bots={options.bots ?? []} set={set} at={at} />}
+
     {kind === "schedule" && <ScheduleFields trigger={trigger} set={set} replace={next => apply(() => setTrigger(text, kind, next))} at={at} preview={schedule} />}
 
     <div className="flex flex-wrap gap-4 text-xs text-lw-text-2">
@@ -104,6 +106,54 @@ export function TriggerCard({ kind, trigger, text, values, diagnostics, options,
         : <Button type="button" size="sm" variant="outline" className="self-start" onClick={() => set(["conditions"], { all: [{ field: "task.priority", equals: "" }] })}><Plus size={13} />Add a condition</Button>}
     </fieldset>}
   </article>
+}
+
+// ChatFields are a chat trigger's: the bot (one offered, or a typed name),
+// where and from whom, how its text matches, what the loop stop counts by
+// and whether other bots' messages count.
+function ChatFields({ kind, trigger, bots, set, at }: { kind: string; trigger: Record<string, unknown>; bots: string[]; set: (sub: YamlPath, value: unknown) => void; at: (sub: YamlPath) => WorkflowDiagnostic[] }) {
+  const invalid = (sub: YamlPath) => at(sub).length > 0 ? { "aria-invalid": true as const } : {}
+  const match = textMatchOf(trigger.text)
+  const listId = `trigger-bots-${kind.replace(/\W/g, "-")}`
+  return <div className="flex flex-col gap-2">
+    <div className="grid gap-2 sm:grid-cols-3">
+      <label className={labelClass}>Bot
+        <CommitField aria-label={`Bot of the ${kind} trigger`} list={listId} placeholder="slack" value={valueText(trigger.bot)} onCommit={value => set(["bot"], value)} {...invalid(["bot"])} />
+        <datalist id={listId}>{bots.map(bot => <option key={bot} value={bot} />)}</datalist>
+        <Problems diagnostics={at(["bot"])} />
+      </label>
+      <label className={labelClass}>Channel
+        <CommitField aria-label={`Channel of the ${kind} trigger`} placeholder="Any channel" value={valueText(trigger.channel)} onCommit={value => set(["channel"], value)} {...invalid(["channel"])} />
+        <Problems diagnostics={at(["channel"])} />
+      </label>
+      <label className={labelClass}>From user
+        <CommitField aria-label={`User of the ${kind} trigger`} placeholder="Anyone" value={valueText(trigger.user)} onCommit={value => set(["user"], value)} {...invalid(["user"])} />
+        <Problems diagnostics={at(["user"])} />
+      </label>
+    </div>
+    <div className="grid gap-2 sm:grid-cols-[10rem_1fr]">
+      <label className={labelClass}>Text
+        <select aria-label={`Text match of the ${kind} trigger`} className={fieldClass} value={match.mode} onChange={event => {
+          const mode = event.target.value
+          set(["text"], mode === "" ? undefined : { [mode]: match.pattern })
+        }}>
+          <option value="">Any text</option><option value="contains">Contains</option><option value="regex">Matches the regex</option>
+        </select>
+      </label>
+      {match.mode && <label className={labelClass}>{match.mode === "regex" ? "Regex" : "Words (any case)"}
+        <CommitField aria-label={`Text of the ${kind} trigger`} value={match.pattern} onCommit={value => set(["text"], { [match.mode]: value })} {...invalid(["text"])} />
+      </label>}
+    </div>
+    <Problems diagnostics={at(["text"])} />
+    <div className="flex flex-wrap items-center gap-4 text-xs text-lw-text-2">
+      <label className="flex items-center gap-1.5">The loop stop counts runs by
+        <select aria-label={`Loop stop of the ${kind} trigger counts runs by`} className={`${fieldClass} w-auto`} value={valueText(trigger.loop_item)} onChange={event => set(["loop_item"], event.target.value)}>
+          <option value="">Channel (the default)</option><option value="channel">Channel</option><option value="thread">Thread</option>
+        </select>
+      </label>
+      <label className="flex items-center gap-1.5"><input type="checkbox" aria-label={`The ${kind} trigger also runs on other bots' messages`} checked={trigger.include_bots === true} onChange={event => set(["include_bots"], event.target.checked || undefined)} />Also on other bots' messages</label>
+    </div>
+  </div>
 }
 
 function ScheduleFields({ trigger, set, replace, at, preview }: { trigger: Record<string, unknown>; set: (sub: YamlPath, value: unknown) => void; replace: (next: Record<string, unknown>) => void; at: (sub: YamlPath) => WorkflowDiagnostic[]; preview?: SchedulePreview | null }) {

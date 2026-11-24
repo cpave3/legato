@@ -51,6 +51,7 @@ const stepTypeLabels: Record<string, string> = {
   "chimera.session.remove": "End Chimera session",
   "learning.packet.prepare": "Gather learnings",
   "learning.proposals.submit": "Submit learnings",
+  "chat.message.send": "Chat message",
 }
 
 export function stepTypeLabel(type: string): string {
@@ -62,6 +63,8 @@ const triggerNames: Record<string, string> = {
   "task.entered_column": "Card enters a column",
   schedule: "Schedule",
   "pr.changes_requested": "Changes requested on a PR",
+  "chat.message": "Chat message",
+  "chat.mention": "Bot mentioned",
 }
 
 export function triggerName(kind: string): string {

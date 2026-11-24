@@ -1,4 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
+import { fetchIntegrations } from "../lib/integrations"
+import { builderBots } from "../lib/chatBots"
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { fetchMacroList } from "../lib/macros"
@@ -71,18 +73,19 @@ function writeDraft(key: string, draft: Draft | null) {
 }
 
 // useBuilderOptions is what the builder's pickers offer: this Legato's
-// macros, agent tools with their tiers, and board columns. Each is left
+// macros, agent tools with their tiers, board columns and chat bots. Each is left
 // empty when it can't be read; a value can still be typed.
 function useBuilderOptions(baseUrl: string) {
   const quiet = async <T,>(read: () => Promise<T>, fallback: T) => { try { return await read() } catch { return fallback } }
   const query = useQuery({
     queryKey: [baseUrl, "workflow-builder-options"],
     queryFn: async () => {
-      const [macros, adapters, board, repositories] = await Promise.all([
+      const [macros, adapters, board, repositories, integrations] = await Promise.all([
         quiet(() => fetchMacroList(baseUrl), null),
         quiet(() => fetchAdapters(baseUrl), { adapters: [], default: "" }),
         quiet(() => fetchBoard(baseUrl), null),
         quiet(() => listRepositories(baseUrl), []),
+        quiet(() => fetchIntegrations(baseUrl), null),
       ])
       return {
         macros: (macros?.macros ?? []).map(macro => macro.name),
@@ -90,6 +93,7 @@ function useBuilderOptions(baseUrl: string) {
         tiers: Object.fromEntries(Object.entries(macros?.tiers ?? {}).map(([agent, tiers]) => [agent, tiers.map(tier => tier.name)])),
         columns: (board?.columns ?? []).map(column => column.name),
         repositories: [...new Set(repositories.map(repository => repository.repo).filter(Boolean))],
+        bots: builderBots(integrations?.chat_bots),
       }
     },
     staleTime: 60_000,

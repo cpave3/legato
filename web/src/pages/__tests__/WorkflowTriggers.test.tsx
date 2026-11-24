@@ -44,6 +44,8 @@ steps:
 `
 const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }))
 let puts: { path: string; body: unknown }[] = []
+// served is the file the server gives; a test may serve another.
+let served = fileText
 
 beforeEach(() => {
   localStorage.clear()
@@ -54,12 +56,13 @@ beforeEach(() => {
     { trigger: "pr.changes_requested", enabled: false, file_enabled: false, overridden: false },
   ]
   puts = []
+  served = fileText
   apiFetch.mockReset()
   apiFetch.mockImplementation((_: string, path: string, init?: RequestInit) => {
     const body = init?.body ? JSON.parse(String(init.body)) : {}
     if (init?.method === "PUT") { puts.push({ path, body }); return json(path.includes("/triggers/") ? { status: "ok" } : { name: "triage", path: "/g/triage.yaml", folder: "global", digest: "sha256:new", diagnostics: [] }) }
     if (path === "/api/workflow-files/check") return json({ definition: { name: "triage" }, graph: null, diagnostics: [] })
-    if (path === "/api/workflows/triage/file") return json({ name: "triage", yaml: fileText, path: "/g/triage.yaml", folder: "global", digest: "sha256:old", editable: true })
+    if (path === "/api/workflows/triage/file") return json({ name: "triage", yaml: served, path: "/g/triage.yaml", folder: "global", digest: "sha256:old", editable: true })
     return json({}, 404)
   })
 })
@@ -94,6 +97,7 @@ it("writes each trigger as a sentence, with its state here", async () => {
 
 it("offers no trigger kind once every kind is used", async () => {
   discovery.states = []
+  served = fileText.replace("steps:", "  chat.message:\n    bot: slack\n    enabled: false\n  chat.mention:\n    bot: discord\n    enabled: false\nsteps:")
   const when = await renderAt()
   expect(within(when).queryByRole("button", { name: "Add trigger" })).toBeNull()
 })

@@ -15,7 +15,7 @@ let latest = ""
 function Builder({ initial, diagnostics, schedule }: { initial: string; diagnostics?: WorkflowDiagnostic[]; schedule?: SchedulePreview }) {
   const [text, setText] = useState(initial)
   return <WorkflowBuilder text={text} onEdit={edit => { latest = edit.text; setText(edit.text) }} onEditYaml={() => {}} diagnostics={diagnostics} schedule={schedule}
-    options={{ macros: [], agents: [], tiers: {}, columns: ["Backlog", "Triage", "Ready"] }} />
+    options={{ macros: [], agents: [], tiers: {}, columns: ["Backlog", "Triage", "Ready"], bots: ["slack", "discord"] }} />
 }
 const renderBuilder = (initial: string, extra: { diagnostics?: WorkflowDiagnostic[]; schedule?: SchedulePreview } = {}) => { latest = initial; return render(<Builder initial={initial} {...extra} />) }
 const commit = (element: HTMLElement, value: string) => { fireEvent.change(element, { target: { value } }); fireEvent.blur(element) }
@@ -116,4 +116,41 @@ it("keeps each value of an in list its own type", () => {
   fireEvent.change(screen.getByRole("combobox", { name: "Conditions, 1: new value type" }), { target: { value: "number" } })
   fireEvent.click(screen.getByRole("button", { name: "Add a value to Conditions, 1" }))
   expect(parse(latest).on["task.entered_column"].conditions.all[0].in).toEqual(["bar", true, "a, b", 3])
+})
+
+it("adds a chat trigger paused, on the first bot", () => {
+  renderBuilder("schema_version: 1\nname: s\ntitle: S\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}}\n")
+  fireEvent.click(screen.getByRole("button", { name: "Add trigger" }))
+  fireEvent.click(within(screen.getByRole("group", { name: "Trigger kinds" })).getByRole("button", { name: /When the bot is mentioned/ }))
+  expect(parse(latest).on).toEqual({ "chat.mention": { bot: "slack", enabled: false } })
+  const card = screen.getByRole("article", { name: "When the bot is mentioned" })
+  expect((within(card).getByRole("combobox", { name: "Bot of the chat.mention trigger" }) as HTMLInputElement).value).toBe("slack")
+  expect(errors(latest)).toEqual([])
+})
+
+it("edits a chat message trigger's bot, channel, user, text match, loop item and bots", () => {
+  const text = "schema_version: 1\nname: s\ntitle: S\non:\n  chat.message:\n    bot: slack\n    channel: C123\n    text: {contains: deploy}\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}}\n"
+  renderBuilder(text)
+  const card = within(screen.getByRole("article", { name: "When a chat message arrives" }))
+  const bot = card.getByRole("combobox", { name: "Bot of the chat.message trigger" }) as HTMLInputElement
+  expect(bot.value).toBe("slack")
+  expect([...document.querySelectorAll(`#${bot.getAttribute("list")} option`)].map(o => o.getAttribute("value"))).toEqual(["slack", "discord"])
+  expect((card.getByRole("textbox", { name: "Channel of the chat.message trigger" }) as HTMLInputElement).value).toBe("C123")
+  expect((card.getByRole("combobox", { name: "Text match of the chat.message trigger" }) as HTMLSelectElement).value).toBe("contains")
+  expect((card.getByRole("textbox", { name: "Text of the chat.message trigger" }) as HTMLInputElement).value).toBe("deploy")
+
+  commit(bot, "discord")
+  commit(card.getByRole("textbox", { name: "Channel of the chat.message trigger" }), "")
+  commit(card.getByRole("textbox", { name: "User of the chat.message trigger" }), "U42")
+  fireEvent.change(card.getByRole("combobox", { name: "Text match of the chat.message trigger" }), { target: { value: "regex" } })
+  expect(parse(latest).on["chat.message"].text).toEqual({ regex: "deploy" })
+  commit(card.getByRole("textbox", { name: "Text of the chat.message trigger" }), "^deploy (\\w+)$")
+  fireEvent.change(card.getByRole("combobox", { name: "Loop stop of the chat.message trigger counts runs by" }), { target: { value: "thread" } })
+  fireEvent.click(card.getByRole("checkbox", { name: "The chat.message trigger also runs on other bots' messages" }))
+  expect(parse(latest).on["chat.message"]).toEqual({ bot: "discord", user: "U42", text: { regex: "^deploy (\\w+)$" }, loop_item: "thread", include_bots: true })
+  expect(errors(latest)).toEqual([])
+
+  fireEvent.change(card.getByRole("combobox", { name: "Text match of the chat.message trigger" }), { target: { value: "" } })
+  expect(parse(latest).on["chat.message"].text).toBeUndefined()
+  expect(card.queryByRole("textbox", { name: "Text of the chat.message trigger" })).toBeNull()
 })

@@ -62,6 +62,7 @@ export function operandOf(raw: string, kind: OperandKind): unknown {
 /** newTrigger is a trigger of a kind as it is added: paused, so the
  * operator switches it on (LEG-459). */
 export function newTrigger(kind: string, options: BuilderOptions): Record<string, unknown> {
+  if (kind === "chat.message" || kind === "chat.mention") return { bot: options.bots?.[0] ?? "", enabled: false }
   return kind === "task.entered_column" ? { column: options.columns[0] ?? "", enabled: false } : kind === "schedule" ? { every: "weekdays", at: "09:00", enabled: false } : { enabled: false }
 }
 
@@ -104,5 +105,31 @@ export function triggerSentence(kind: string, trigger: Record<string, unknown> |
     return [{ text: "Every " }, { text: when, strong: true }, ...(t.at ? [{ text: " at " }, { text: String(t.at), strong: true }] : [])]
   }
   if (kind === "pr.changes_requested") return [{ text: "A PR gets changes requested" }]
+  if (kind === "chat.message" || kind === "chat.mention") return chatSentence(kind, t)
   return [{ text: kind, strong: true }]
+}
+
+/** TextMatch is a chat trigger's text: contains or regex, exactly one. */
+export type TextMatch = { contains?: string; regex?: string }
+
+/** textMatchOf is how a chat trigger matches text: its mode and pattern. */
+export function textMatchOf(value: unknown): { mode: "" | "contains" | "regex"; pattern: string } {
+  const match = (value && typeof value === "object" ? value : {}) as TextMatch
+  if ("regex" in match) return { mode: "regex", pattern: scalarText(match.regex) }
+  if ("contains" in match) return { mode: "contains", pattern: scalarText(match.contains) }
+  return { mode: "", pattern: "" }
+}
+
+// chatSentence is a chat trigger in words: "A message in C123 on slack ·
+// containing deploy", "A mention of discord".
+function chatSentence(kind: string, t: Record<string, unknown>): SentencePart[] {
+  const bot: SentencePart = { text: String(t.bot || "a bot"), strong: true }
+  const channel: SentencePart[] = t.channel ? [{ text: " in " }, { text: String(t.channel), strong: true }] : []
+  const parts: SentencePart[] = kind === "chat.mention"
+    ? [{ text: "A mention of " }, bot, ...channel]
+    : [{ text: "A message" }, ...channel, { text: " on " }, bot]
+  if (t.user) parts.push({ text: " from " }, { text: String(t.user), strong: true })
+  const match = textMatchOf(t.text)
+  if (match.mode) parts.push({ text: match.mode === "regex" ? " · matching " : " · containing " }, { text: match.pattern, strong: true })
+  return parts
 }

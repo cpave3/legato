@@ -3,9 +3,10 @@ import { pickerGroups } from "../stepPickerGroups"
 import { executors } from "../../../lib/workflowSchema"
 
 describe("the step picker's list", () => {
-  it("groups every step type as Agents, Code, Board, Learn and Cleanup", () => {
+  it("groups every step type as Agents, Code, Board, Chat, Learn and Cleanup", () => {
     const groups = pickerGroups("")
-    expect(groups.map(g => g.group)).toEqual(["Agents", "Code", "Board", "Learn", "Cleanup"])
+    expect(groups.map(g => g.group)).toEqual(["Agents", "Code", "Board", "Chat", "Learn", "Cleanup"])
+    expect(groups.find(g => g.group === "Chat")?.entries.map(e => e.type)).toEqual(["chat.message.send"])
     const listed = groups.flatMap(g => g.entries.map(e => e.type)).sort()
     expect(listed).toEqual(executors.map(e => e.type).sort())
     expect(groups[0].entries.map(e => e.type)).toEqual(["agent.run", "agent.dispatch", "agent.stop", "agent.compact"])
@@ -14,6 +15,10 @@ describe("the step picker's list", () => {
   it("offers Learn's steps for any workflow", () => {
     expect(pickerGroups("learning").map(g => g.group)).toEqual(["Learn"])
     expect(pickerGroups("learn").find(g => g.group === "Learn")?.entries.map(e => e.type)).toEqual(["agent.interview", "learning.packet.prepare", "learning.proposals.submit"])
+  })
+
+  it("finds the chat step by its words", () => {
+    expect(pickerGroups("slack").flatMap(g => g.entries.map(e => e.type))).toEqual(["chat.message.send"])
   })
 
   it("finds by name, type and words of the description, dropping empty groups", () => {

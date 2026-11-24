@@ -1,4 +1,5 @@
 import { apiFetch } from "./api"
+import type { ChatBotStatus } from "./chatBots"
 
 /** A scoped token an integration uses; the token itself is never sent. */
 export interface IntegrationToken {
@@ -54,6 +55,8 @@ export interface IntegrationsOverview {
   argus: ArgusOverview
   /** absent from a server without Burnlite */
   burnlite?: BurnliteOverview
+  /** the Slack and Discord bots; absent from a server without them */
+  chat_bots?: ChatBotStatus[]
 }
 
 // The server's {error} for a refusal, else its status.
