@@ -4,6 +4,7 @@ import { Copy, ExternalLink } from "lucide-react"
 import { kindIcons, toneClass } from "../../lib/needsYouIcons"
 import type { AttentionAction, AttentionItem } from "../../lib/attention"
 import { externalHref, legatoHref } from "../../lib/navigation"
+import { MacroPickButton } from "../MacroPickButton"
 import { itemHow, needsYouKind, needsYouKinds, shortAge } from "../../lib/needsYou"
 
 // The kind of an item: its word and its own icon, on its tone.
@@ -52,7 +53,9 @@ export function NeedsYouRow({ item, onAction, onDismiss, here, pending }: NeedsY
   const [copied, setCopied] = useState(false)
   const { copy, link } = itemHow(item)
   const actions = item.actions ?? []
-  const executes = actions.filter((action) => action.kind === "execute" && !action.requires_text)
+  const executes = actions.filter((action) => action.kind === "execute" && !action.requires_text && !action.picks)
+  // An action that runs with a macro the operator picks (Resume agent).
+  const picks = actions.filter((action) => action.kind === "execute" && action.picks === "macro")
   const reply = actions.find((action) => action.kind === "execute" && action.requires_text)
   const navigates = actions.filter((action) => action.kind === "navigate" && action !== link)
   const send = () => {
@@ -97,6 +100,10 @@ export function NeedsYouRow({ item, onAction, onDismiss, here, pending }: NeedsY
             }}>
             {action.label}
           </button>
+        ))}
+        {picks.map((action) => (
+          <MacroPickButton key={action.id} label={action.label} disabled={pending} className={button}
+            onPick={(name) => onAction(item, action.id, name)} />
         ))}
         {reply && !replying && <button type="button" className={quiet} disabled={pending} onClick={() => setReplying(true)}>{reply.label}…</button>}
         {navigates.map((action) => {

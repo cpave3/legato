@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, Download, FileText } from "lucide-react"
 import { useWorkflowRun } from "../hooks/useWorkflow"
 import { useServer } from "../hooks/useServer"
 import { useNow } from "../hooks/useNow"
-import { anotherReviewPass, cancelWorkflow, retryWorkflowStep, triggerWorkflowStep, promptWorkflowStep, fetchWorkflowArtifact, type ReviewRunDetails, type WorkflowArtifact, type WorkflowAttempt, type WorkflowRunView, type WorkflowStepRun } from "../lib/workflow"
+import { anotherReviewPass, resumeWorkflowAgent, type MergeWaitDetails, cancelWorkflow, retryWorkflowStep, triggerWorkflowStep, promptWorkflowStep, fetchWorkflowArtifact, type ReviewRunDetails, type WorkflowArtifact, type WorkflowAttempt, type WorkflowRunView, type WorkflowStepRun } from "../lib/workflow"
 import { ago, attentionCopy, currentStep, elapsed, inputText, runWithAttention, producedValues, runState, runSubject, sourceLabel, stepIntent, stepMark, stepPosition, stepSegments, type StepLike, type Tone } from "../lib/workflowView"
 import { WorkflowMarkdownPreview } from "../components/WorkflowMarkdownPreview"
 import { ManualWorkflowStepAction } from "../components/ManualWorkflowStepAction"
@@ -26,6 +26,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { queryKeys } from "../lib/query"
 import { dismissAttentionItem, executeAttentionAction, type AttentionItem } from "../lib/attention"
 import { NeedsYouRow } from "../components/needsYou/NeedsYouRow"
+import { MacroPickButton } from "../components/MacroPickButton"
 import { ApprovalCard } from "../components/ApprovalTray"
 import { NodeSheet } from "../components/NodeSheet"
 
@@ -144,6 +145,10 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
   if (current.status === "waiting" && current.executor_type === "github.pr.review_passes") {
     return <ReviewLoopNow view={view} step={current} runId={runId} refresh={refresh} />
   }
+  const resume = <ResumeAgentControls view={view} runId={runId} refresh={refresh} />
+  if (current.status === "waiting" && current.executor_type === "github.pr.wait") {
+    return <MergeWaitNow view={view} step={current} actions={resume} />
+  }
   if (current.status === "waiting_manual") {
     if (stepTrigger(current) === "agent_ended" && !run.needs_attention) {
       return <NowPanel tone="live" heading={`${current.title} starts when the agent ends`}
@@ -154,11 +159,60 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
         </>} />
     }
     return <NowPanel tone="needs" heading={`${current.title} waits for you`}
-      actions={<ManualWorkflowStepAction step={current} onTrigger={async force => { await triggerWorkflowStep(baseUrl, runId, current.step_id, force); await refresh() }} />}>
+      actions={<><ManualWorkflowStepAction step={current} onTrigger={async force => { await triggerWorkflowStep(baseUrl, runId, current.step_id, force); await refresh() }} />{resume}</>}>
       {stepIntent(current) && <p>{stepIntent(current)}</p>}
     </NowPanel>
   }
-  return <NowPanel tone={state.tone} heading={`Running ${current.title}`} />
+  return <NowPanel tone={state.tone} heading={`Running ${current.title}`} actions={view.can_resume_agent ? resume : undefined} />
+}
+
+// MergeWaitNow is a run waiting for its card's pull request to merge: the
+// pull request, whether it conflicts or CI fails, the card's agent, and
+// Resume agent (LEG-614).
+function MergeWaitNow({ view, step, actions }: { view: WorkflowRunView; step: WorkflowStepRun; actions: ReactNode }) {
+  const wait = view.details?.[step.step_id] as MergeWaitDetails | undefined
+  if (!wait) return <NowPanel tone="live" heading={step.title} actions={actions} />
+  const troubles = [wait.conflicts && `PR #${wait.pr_number} conflicts with ${wait.base_branch || "main"}`, wait.check_status === "fail" && "CI failing"].filter(Boolean) as string[]
+  const url = wait.url || `https://github.com/${wait.repo}/pull/${wait.pr_number}`
+  return <NowPanel tone={troubles.length > 0 ? "needs" : "live"} heading={`Waiting for PR #${wait.pr_number} to merge`}
+    actions={<><Button asChild variant="outline"><a href={url} target="_blank" rel="noopener noreferrer">Open PR</a></Button>{actions}</>}>
+    <p>{wait.repo}{wait.head_branch && <> · <span className="font-lw-mono text-xs">{wait.head_branch}</span></>}{wait.check_status && wait.check_status !== "fail" && <> · CI {wait.check_status === "pass" ? "passing" : wait.check_status}</>}</p>
+    {troubles.length > 0 && <p className="mt-1 font-medium text-lw-needs">{troubles.join(" · ")}</p>}
+    <p className="mt-1">{wait.agent === "running" ? "The card's agent is running: a macro goes to it as its next message." : wait.agent === "waiting" ? "The card's agent waits on you." : "The card's agent is stopped. Resume it with a macro, such as Rebase and repush, to fix the PR. The run goes on waiting for the merge."}</p>
+  </NowPanel>
+}
+
+// ResumeAgentControls are Open agent while the run's card has an agent, and
+// Resume agent… (Send a macro… while it runs), which starts or messages it
+// with the macro picked.
+function ResumeAgentControls({ view, runId, refresh }: { view: WorkflowRunView; runId: string; refresh: () => Promise<void> }) {
+  const { baseUrl } = useServer()
+  const [error, setError] = useState("")
+  const [notice, setNotice] = useState("")
+  const [busy, setBusy] = useState(false)
+  const card = view.resume_task_id
+  if (!card) return null
+  async function pick(name: string) {
+    setError("")
+    setNotice("")
+    setBusy(true)
+    try {
+      const result = await resumeWorkflowAgent(baseUrl, runId, name)
+      setNotice(result.queued ? `${name} will be the agent's next message.` : `Started the agent with ${name}.`)
+      await refresh()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return <>
+    {view.resume_agent_state && <Button asChild variant="primary"><Link to={agentLink(card, runId)}>Open agent</Link></Button>}
+    {view.can_resume_agent && <MacroPickButton label={view.resume_agent_state === "running" ? "Send a macro" : "Resume agent"} disabled={busy} onPick={pick}
+      className="inline-flex min-h-9 items-center rounded-md border border-lw-line-strong/40 bg-lw-raised px-3 text-[13px] font-medium text-lw-text hover:bg-lw-selected disabled:opacity-50" />}
+    {notice && <span role="status" className="text-xs text-lw-text-2">{notice}</span>}
+    {error && <span role="alert" className="text-xs text-lw-error">{error}</span>}
+  </>
 }
 
 // ReviewLoopNow is a run's review loop while its step waits on it: where it
@@ -317,6 +371,7 @@ function NeedsYouList({ rows, steps, runId, refresh, onFocus }: { rows: RunNeeds
     const step = row?.kind === "item" ? row.run?.step : undefined
     if (step) {
       const calls: Record<string, () => Promise<unknown>> = {
+        resume_agent: () => resumeWorkflowAgent(baseUrl, runId, text ?? ""),
         start: () => triggerWorkflowStep(baseUrl, runId, step, false),
         end_now: () => triggerWorkflowStep(baseUrl, runId, step, false),
         prompt: () => promptWorkflowStep(baseUrl, runId, step),

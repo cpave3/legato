@@ -27,7 +27,7 @@ export type WorkflowArtifact = { id:string; run_id:string; step_id:string; attem
 export type ReviewRunDetails = { phase:string; pass:number; summary:string; blocking_open:number; reason?:string; needs_you?:boolean; reviews:{pass:number;pr:number;url:string}[] | null }
 // graph is the workflow graph of the run's own copy of its definition;
 // definition_changed and definition_missing compare that copy with the file.
-export type WorkflowRunView = { run:WorkflowRun; steps:WorkflowStepRun[] | null; attempts:WorkflowAttempt[] | null; artifacts:WorkflowArtifact[] | null; details?:Record<string,unknown> | null; trigger_kind?:string; graph?:WorkflowGraphModel | null; definition_changed?:boolean; definition_missing?:boolean }
+export type WorkflowRunView = { run:WorkflowRun; steps:WorkflowStepRun[] | null; attempts:WorkflowAttempt[] | null; artifacts:WorkflowArtifact[] | null; details?:Record<string,unknown> | null; trigger_kind?:string; resume_task_id?:string; resume_agent_state?:"" | "running" | "waiting"; can_resume_agent?:boolean; graph?:WorkflowGraphModel | null; definition_changed?:boolean; definition_missing?:boolean }
 
 async function decode<T>(response:Response):Promise<T> { if (!response.ok) throw new Error(await response.text()); return response.json() }
 export const fetchWorkflows=(baseUrl:string)=>apiFetch(baseUrl,"/api/workflows").then(decode<WorkflowDiscovery>)
@@ -50,6 +50,12 @@ export const triggerWorkflowStep=(baseUrl:string,id:string,step:string,force=fal
 export const retryWorkflowStep=(baseUrl:string,id:string,step:string,force=false)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/steps/${encodeURIComponent(step)}/retry`,forceBody(force)).then(decode<WorkflowRunView>)
 export const promptWorkflowStep=(baseUrl:string,id:string,step:string)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/steps/${encodeURIComponent(step)}/prompt`,{method:"POST"}).then(decode<WorkflowRunView>)
 export async function fetchWorkflowArtifact(baseUrl:string,id:string):Promise<Blob>{const response=await apiFetch(baseUrl,`/api/workflow-artifacts/${encodeURIComponent(id)}`);if(!response.ok)throw new Error(await response.text());return response.blob()}
+// MergeWaitDetails is a waiting github.pr.wait step, as the run's details
+// give it (LEG-614).
+export type MergeWaitDetails = { repo:string; pr_number:number; url?:string; state?:string; head_branch?:string; base_branch?:string; conflicts?:boolean; check_status?:string; task_id?:string; task_title?:string; agent?:"" | "running" | "waiting"; notify:boolean }
+// resumeWorkflowAgent starts the run's card agent with a macro, or sends the
+// macro to the one running.
+export const resumeWorkflowAgent=(baseUrl:string,id:string,macro:string)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/resume-agent`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({macro})}).then(decode<{task_id:string;started:boolean;queued:boolean;agent_kind?:string}>)
 export const anotherReviewPass=(baseUrl:string,id:string,step:string)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/steps/${encodeURIComponent(step)}/another-pass`,{method:"POST"}).then(decode<WorkflowRunView>)
 // The review loop already running on a pull request, as a run of
 // review-pr-passes, or null.

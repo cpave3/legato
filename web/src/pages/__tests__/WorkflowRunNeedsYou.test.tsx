@@ -9,14 +9,15 @@ import { WorkflowRunPage } from "../WorkflowRunPage"
 
 mockReactFlow()
 
-const calls = vi.hoisted(() => ({ fetchRun: vi.fn(), trigger: vi.fn(), prompt: vi.fn(), retry: vi.fn(), another: vi.fn(), approvals: vi.fn(), decide: vi.fn(), attention: vi.fn(), execute: vi.fn(), dismiss: vi.fn() }))
+const calls = vi.hoisted(() => ({ fetchRun: vi.fn(), trigger: vi.fn(), prompt: vi.fn(), retry: vi.fn(), another: vi.fn(), resume: vi.fn(), macros: vi.fn(), approvals: vi.fn(), decide: vi.fn(), attention: vi.fn(), execute: vi.fn(), dismiss: vi.fn() }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
-vi.mock("../../lib/workflow", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/workflow")>()), fetchWorkflowRun: calls.fetchRun, triggerWorkflowStep: calls.trigger, promptWorkflowStep: calls.prompt, retryWorkflowStep: calls.retry, anotherReviewPass: calls.another }))
+vi.mock("../../lib/workflow", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/workflow")>()), fetchWorkflowRun: calls.fetchRun, triggerWorkflowStep: calls.trigger, promptWorkflowStep: calls.prompt, retryWorkflowStep: calls.retry, anotherReviewPass: calls.another, resumeWorkflowAgent: calls.resume }))
+vi.mock("../../lib/macros", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/macros")>()), fetchMacroList: calls.macros }))
 vi.mock("../../lib/approvals", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/approvals")>()), fetchPendingApprovals: calls.approvals, decideApproval: calls.decide }))
 vi.mock("../../lib/attention", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/attention")>()), fetchAttention: calls.attention, executeAttentionAction: calls.execute, dismissAttentionItem: calls.dismiss }))
 
 const def = (id: string, title: string, type: string, trigger = "automatic") => ({ id, title, type, trigger, with: {} })
-const steps = [def("investigate", "Investigate", "agent.run"), def("gate", "Approve the plan", "task.note", "manual"), def("end", "End the review", "agent.stop", "agent_ended"), def("review", "Review in passes", "github.pr.review_passes"), def("move", "Move to Ready", "task.move")]
+const steps = [def("investigate", "Investigate", "agent.run"), def("gate", "Approve the plan", "task.note", "manual"), def("end", "End the review", "agent.stop", "agent_ended"), def("review", "Review in passes", "github.pr.review_passes"), def("move", "Move to Ready", "task.move"), def("merged", "Wait for the merge", "github.pr.wait")]
 const graph = { version: 1, nodes: [
   { id: "trigger:manual", kind: "trigger", trigger: { kind: "manual", summary: "Run by hand", enabled: true } },
   ...steps.map(s => ({ id: `step:${s.id}`, kind: "step", step: { id: s.id, title: s.title, type: s.type, trigger: s.trigger, key: {}, definition: s } })),
@@ -44,7 +45,8 @@ beforeEach(() => {
   for (const fn of Object.values(calls)) fn.mockReset()
   calls.approvals.mockResolvedValue([])
   calls.attention.mockResolvedValue([])
-  for (const fn of [calls.trigger, calls.prompt, calls.retry, calls.another, calls.decide, calls.execute, calls.dismiss]) fn.mockResolvedValue({})
+  for (const fn of [calls.trigger, calls.prompt, calls.retry, calls.another, calls.resume, calls.decide, calls.execute, calls.dismiss]) fn.mockResolvedValue({})
+  calls.macros.mockResolvedValue({ macros: [{ name: "Rebase and repush", keys: "Rebase.\n", favorite: true }, { name: "Plan", keys: "Plan.\n" }], suggested: { task: "Plan", my_pr: "Address feedback", others_pr: "Review" }, tiers: {} })
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("min-width"), media: query, addEventListener: () => {}, removeEventListener: () => {} }))
 })
 afterEach(() => { vi.unstubAllGlobals() })
@@ -167,5 +169,57 @@ describe("a run's Needs you list", () => {
     calls.approvals.mockResolvedValue([])
     await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.approvals("") }) })
     await waitFor(() => expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull())
+  })
+
+  // LEG-614: a run waiting for its card's pull request to merge.
+  const mergeAttempt = { id: "wa-9", run_id: "wr-1", step_id: "merged", attempt_number: 1, executor_type: "github.pr.wait", task_id: "wf-task", status: "waiting", needs_attention: true, attention_reason: "PR #12 conflicts with main · CI failing", started_at: "2026-11-21T10:00:00Z" }
+  const mergeDetails = (agent = "") => ({ merged: { repo: "acme/widget", pr_number: 12, url: "https://github.com/acme/widget/pull/12", state: "open", head_branch: "legato/leg-7", base_branch: "main", conflicts: true, check_status: "fail", task_id: "card0001", task_title: "Fix the login", agent, notify: true } })
+  const mergeView = (agent = "") => view([stepRun("merged", "github.pr.wait", "waiting")], { attempts: [mergeAttempt], details: mergeDetails(agent), resume_task_id: "card0001", resume_agent_state: agent || undefined, can_resume_agent: agent !== "waiting" })
+
+  it("asks the operator to review and merge a waiting PR, and resumes the card's agent with a macro", async () => {
+    const data = mergeView()
+    data.run.status = "running"
+    data.run.current_step_id = "merged"
+    show(data)
+    const row = await within(await screen.findByRole("region", { name: "Needs you" })).findByRole("article", { name: "Review and merge PR #12" })
+    expect(row.textContent).toContain("PR #12 conflicts with main")
+    expect(within(row).getByRole("link", { name: /Open PR/ }).getAttribute("href")).toBe("https://github.com/acme/widget/pull/12")
+    fireEvent.click(within(row).getByRole("button", { name: "Resume agent…" }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Rebase and repush/ }))
+    await waitFor(() => expect(calls.resume).toHaveBeenCalledWith("", "wr-1", "Rebase and repush"))
+  })
+
+  it("says where the merge stands and offers Resume agent on the run page", async () => {
+    const data = mergeView()
+    data.run.status = "running"
+    data.run.current_step_id = "merged"
+    show(data)
+    const now = await screen.findByRole("region", { name: "Now" })
+    await within(now).findByText(/Waiting for PR #12 to merge/)
+    expect(now.textContent).toContain("conflicts with main")
+    expect(now.textContent).toContain("CI failing")
+    fireEvent.click(within(now).getByRole("button", { name: "Resume agent…" }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Rebase and repush/ }))
+    await waitFor(() => expect(calls.resume).toHaveBeenCalledWith("", "wr-1", "Rebase and repush"))
+  })
+
+  it("offers Open agent, and a macro for it, while the card's agent runs", async () => {
+    const data = mergeView("running")
+    data.run.status = "running"
+    data.run.current_step_id = "merged"
+    show(data)
+    const now = await screen.findByRole("region", { name: "Now" })
+    expect((await within(now).findByRole("link", { name: "Open agent" })).getAttribute("href")).toBe("/agents?task=card0001&workflow=wr-1")
+    expect(within(now).getByRole("button", { name: "Send a macro…" })).toBeTruthy()
+  })
+
+  it("offers only Open agent while the card's agent waits on the operator", async () => {
+    const data = mergeView("waiting")
+    data.run.status = "running"
+    data.run.current_step_id = "merged"
+    show(data)
+    const now = await screen.findByRole("region", { name: "Now" })
+    await within(now).findByRole("link", { name: "Open agent" })
+    expect(within(now).queryByRole("button", { name: /Resume agent|Send a macro/ })).toBeNull()
   })
 })

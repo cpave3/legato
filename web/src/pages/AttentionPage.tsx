@@ -6,6 +6,7 @@ import { useServer } from "../hooks/useServer"
 import { useSettings } from "../hooks/useSettings"
 import { SetupChecklistButton } from "../components/SetupChip"
 import { executeAttentionAction, dismissAttentionItem, type AttentionAction, type AttentionItem } from "../lib/attention"
+import { MacroPickButton } from "../components/MacroPickButton"
 import { externalHref, legatoHref } from "../lib/navigation"
 import { LoadingState } from "../components/ui/LoadingState"
 import { InlineNotice } from "../components/ui/InlineNotice"
@@ -202,7 +203,12 @@ function AttentionCard({ item, pending, onAction, onDismiss }: AttentionCardProp
           {(item.actions ?? []).filter((action) => action.kind === "execute" && action.requires_text).map((action) => (
             <ReplyBox key={action.id} action={action} pending={pending} onSend={(text) => onAction(item, action.id, action.requires_confirmation ?? false, text)} />
           ))}
-          {(item.actions ?? []).filter((action) => action.kind === "execute" && !action.requires_text).map((action) => (
+          {(item.actions ?? []).filter((action) => action.kind === "execute" && action.picks === "macro").map((action) => (
+            <MacroPickButton key={action.id} label={action.label} disabled={pending}
+              className="min-h-11 rounded-lg bg-indigo-500 px-3 text-sm font-medium text-[var(--theme-canvas,#fff)] hover:bg-indigo-400 disabled:opacity-50"
+              onPick={(name) => onAction(item, action.id, action.requires_confirmation ?? false, name)} />
+          ))}
+          {(item.actions ?? []).filter((action) => action.kind === "execute" && !action.requires_text && !action.picks).map((action) => (
             <button
               key={action.id}
               type="button"
