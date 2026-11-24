@@ -312,6 +312,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `GET` | `/api/workflow-runs` | read | List the workflow runs |  |
 | `GET` | `/api/workflow-runs/{run_id}` | read | Read a workflow run, with the workflow graph of its own copy |  |
 | `POST` | `/api/workflow-runs/{run_id}/cancel` | risky | Cancel a workflow run |  |
+| `POST` | `/api/workflow-runs/{run_id}/resume-agent` | change | Start the run's card agent with a macro, or send the macro to the one running |  |
 | `POST` | `/api/workflow-runs/{run_id}/steps/{step_id}/retry` | change | Retry a workflow step |  |
 | `POST` | `/api/workflow-runs/{run_id}/steps/{step_id}/trigger` | change | Trigger a manual workflow step |  |
 | `POST` | `/api/workflow-runs/{run_id}/steps/{step_id}/prompt` | change | Remind a workflow step's agent |  |

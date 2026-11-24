@@ -4,10 +4,10 @@
 // with the rail's own row and approval card.
 import type { Approval } from "./approvals"
 import type { AttentionItem } from "./attention"
-import type { ReviewRunDetails, WorkflowRunView } from "./workflow"
+import type { MergeWaitDetails, ReviewRunDetails, WorkflowRunView } from "./workflow"
 
 // The actions of the rows only the run knows; the run page carries them out.
-export type RunActionId = "start" | "end_now" | "prompt" | "retry" | "another_pass"
+export type RunActionId = "start" | "end_now" | "prompt" | "retry" | "another_pass" | "resume_agent"
 
 // The step a run row acts on. A worktree removal has no plain button in the
 // row: control names the page's existing control for it (trigger or
@@ -43,6 +43,11 @@ export function runNeedsYou(view: WorkflowRunView, attention: AttentionItem[], a
   const attempts = view.attempts ?? []
   const stepOfTask = new Map<string, string>()
   for (const attempt of attempts) if (attempt.task_id) stepOfTask.set(attempt.task_id, attempt.step_id)
+  // A waiting merge's card: its agent's approvals and items are the run's.
+  for (const step of view.steps ?? []) {
+    const wait = step.executor_type === "github.pr.wait" && step.status === "waiting" ? view.details?.[step.step_id] as MergeWaitDetails | undefined : undefined
+    if (wait?.task_id) stepOfTask.set(wait.task_id, step.step_id)
+  }
   const nodeOf = (taskId?: string) => { const step = taskId ? stepOfTask.get(taskId) : undefined; return step ? `step:${step}` : null }
   const rows: RunNeedsYouRow[] = []
 
@@ -72,6 +77,13 @@ export function runNeedsYou(view: WorkflowRunView, attention: AttentionItem[], a
       rows.push({ kind: "item", node, run: { step: step.step_id }, item: runItem(view, step.step_id, stuck ? "workflow_review_stuck" : "workflow_review_author", "review",
         stuck ? `${step.title} is stuck` : `${step.title} waits on its author`,
         hide(details.summary || (stuck ? details.reason ?? "" : `${details.blocking_open} blocking findings to fix or answer.`)), [execute("another_pass", "Run another pass")]) })
+    }
+    const merge = step.executor_type === "github.pr.wait" && step.status === "waiting" ? details as unknown as MergeWaitDetails | undefined : undefined
+    if (merge?.notify && latest?.needs_attention) {
+      const actions: AttentionItem["actions"] = [{ id: "open_pr", label: "Open PR", kind: "navigate", href: merge.url || `https://github.com/${merge.repo}/pull/${merge.pr_number}` }]
+      if (merge.task_id && merge.agent !== "waiting") actions.push({ id: "resume_agent", label: merge.agent === "running" ? "Send a macro" : "Resume agent", kind: "execute", picks: "macro" })
+      if (merge.task_id && merge.agent) actions.push({ id: "open_agent", label: "Open agent", kind: "navigate", href: agentHref(merge.task_id) })
+      rows.push({ kind: "item", node, run: { step: step.step_id }, item: { ...runItem(view, step.step_id, "workflow_merge_waiting", "merge", `Review and merge PR #${merge.pr_number}`, hide(latest.attention_reason || merge.repo), actions), task_id: merge.task_id || view.run.related_task_id || undefined } })
     }
     if (step.status === "failed") {
       rows.push({ kind: "item", node, run: cleanup ? { step: step.step_id, control: "retry" } : { step: step.step_id }, item: runItem(view, step.step_id, "workflow_failed", "failed", `${step.title} failed`, hide(step.error || view.run.error || ""), cleanup ? [] : [execute("retry", "Retry", "primary")]) })

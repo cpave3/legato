@@ -23,6 +23,7 @@ type WorkflowAttentionSource interface {
 	Retry(ctx context.Context, runID, stepID string, force bool) (*store.WorkflowRunView, error)
 	PromptStep(ctx context.Context, runID, stepID string) (*store.WorkflowRunView, error)
 	StepAction(ctx context.Context, runID, stepID, action, text string) (*store.WorkflowRunView, error)
+	ResumeAgent(ctx context.Context, runID, macro string) (MacroStartResult, error)
 }
 
 type WorkflowAttentionAdapter struct {
@@ -38,12 +39,14 @@ func (a *WorkflowAttentionAdapter) Producer() string { return "workflows" }
 type workflowAttentionState struct {
 	runID    string
 	stepID   string
-	kind     string // manual | failed | waiting_agent | waiting | author
+	kind     string // manual | failed | waiting_agent | waiting | author | merge
 	revision string
 	runTitle string
-	taskID   string
-	reason   string
-	action   AttentionAction
+	// title, when set, is the item's in place of the run's.
+	title  string
+	taskID string
+	reason string
+	action AttentionAction
 	// more are the actions after the first, for a step waiting on its
 	// service.
 	more []AttentionAction
@@ -78,11 +81,17 @@ func (a *WorkflowAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInp
 			signalKind = AttentionSignalWorkflowReviewStuck
 		case "author":
 			signalKind = AttentionSignalWorkflowReviewAuthor
+		case "merge":
+			signalKind = AttentionSignalWorkflowMergeWaiting
+		}
+		title := s.runTitle
+		if s.title != "" {
+			title = s.title
 		}
 		items = append(items, AttentionInput{
 			SignalKind: signalKind,
 			SourceKey:  fmt.Sprintf("%s:%s", s.runID, s.stepID), SourceRevision: s.revision,
-			TaskID: s.taskID, Title: s.runTitle, Reason: s.reason,
+			TaskID: s.taskID, Title: title, Reason: s.reason,
 			Category: "workflow", Urgency: urgency,
 			Navigation: AttentionNavigation{Kind: "workflow_run", Target: s.runID},
 			Actions: append([]AttentionAction{
@@ -117,6 +126,12 @@ func (a *WorkflowAttentionAdapter) collectRunStates(run store.WorkflowRun, view 
 		}
 	}
 	for _, attempt := range view.Attempts {
+		if wait, ok := view.Details[attempt.Path].(MergeWait); ok && attempt.ExecutorType == PRWaitStepType && attempt.Status == WorkflowStepWaiting {
+			if attempt.NeedsAttention {
+				states = append(states, mergeWaitState(run, attempt, wait))
+			}
+			continue
+		}
 		if attempt.NeedsAttention && attempt.Status == WorkflowStepWaiting {
 			// A step waiting on its service that needs the person: a
 			// review loop stuck (it offers end), or waiting for an
@@ -175,12 +190,43 @@ func (a *WorkflowAttentionAdapter) Execute(ctx context.Context, request Attentio
 	case "another_pass", "end", "message":
 		_, err := a.workflows.StepAction(ctx, runID, stepID, request.ActionID, request.Text)
 		return err
+	case "resume_agent":
+		_, err := a.workflows.ResumeAgent(ctx, runID, request.Text)
+		return err
 	default:
 		return fmt.Errorf("unsupported workflow attention action %q", request.ActionID)
 	}
 }
 
-// Ensure unused import is referenced
+// mergeWaitState is a waiting merge's item, on the card: Open PR, and
+// Resume agent with a macro (Send a macro while the agent runs, with Open
+// agent beside it); Open agent alone while the agent waits on the operator.
+func mergeWaitState(run store.WorkflowRun, attempt store.WorkflowStepAttempt, wait MergeWait) workflowAttentionState {
+	taskID := wait.TaskID
+	if taskID == "" {
+		taskID = run.TaskID
+	}
+	var more []AttentionAction
+	if wait.TaskID != "" {
+		switch wait.Agent {
+		case "":
+			more = append(more, AttentionAction{ID: "resume_agent", Label: "Resume agent", Kind: "execute", Picks: AttentionPicksMacro})
+		case "running":
+			more = append(more, AttentionAction{ID: "resume_agent", Label: "Send a macro", Kind: "execute", Picks: AttentionPicksMacro})
+		}
+		if wait.Agent != "" {
+			more = append(more, AttentionAction{ID: "open_agent", Label: "Open agent", Kind: "navigate", Href: agentHref(wait.TaskID, run.ID)})
+		}
+	}
+	return workflowAttentionState{
+		runID: run.ID, stepID: attempt.Path, kind: "merge",
+		revision: wait.revision(attempt),
+		runTitle: run.WorkflowTitle, title: wait.Title(), taskID: taskID,
+		reason: wait.Reason(),
+		action: AttentionAction{ID: "open_pr", Label: "Open PR", Kind: "navigate", Href: wait.URL},
+		more:   more,
+	}
+}
 
 func splitWorkflowSourceKey(sourceKey string) (runID, stepID string, ok bool) {
 	for i := 0; i < len(sourceKey); i++ {

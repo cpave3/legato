@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"os"
@@ -408,6 +409,54 @@ func (s *Server) workflowPromptHandler() http.HandlerFunc {
 		}
 		s.NotifyWorkflowChanged(view.Run.ID, view.Run.CurrentStepID)
 		s.writeJSON(w, http.StatusOK, view)
+	}
+}
+
+// WorkflowAgentResumer is a workflow service whose runs can resume their
+// card's agent with a macro (service.WorkflowService.ResumeAgent).
+type WorkflowAgentResumer interface {
+	ResumeAgent(ctx context.Context, runID, macro string) (service.MacroStartResult, error)
+}
+
+// workflowResumeAgentHandler is POST /api/workflow-runs/{run_id}/resume-agent
+// {"macro": name}: the run's card agent starts with the macro, or the one
+// running gets it as its next message. 409 when the run cannot (finished,
+// a step's agent at work, the agent waiting on the operator, its folder
+// gone with no repository), 404 for an unknown run or macro.
+func (s *Server) workflowResumeAgentHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		resumer, ok := s.workflows.(WorkflowAgentResumer)
+		if !ok {
+			http.Error(w, "resuming agents is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			Macro string `json:"macro"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.Macro) == "" {
+			http.Error(w, "name the macro to resume the agent with", http.StatusBadRequest)
+			return
+		}
+		runID := r.PathValue("run_id")
+		result, err := resumer.ResumeAgent(r.Context(), runID, body.Macro)
+		switch {
+		case err == nil:
+		case errors.Is(err, store.ErrNotFound), errors.Is(err, service.ErrMacroNotFound):
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		case errors.Is(err, store.ErrWorkflowStateConflict), errors.Is(err, service.ErrResumeAgentWaiting), errors.Is(err, service.ErrMacroFolderGone):
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		default:
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		s.NotifyWorkflowChanged(runID, "")
+		s.writeJSON(w, http.StatusOK, result)
 	}
 }
 

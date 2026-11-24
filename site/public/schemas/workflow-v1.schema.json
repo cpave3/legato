@@ -1784,6 +1784,17 @@
       "additionalProperties": false,
       "description": "Wait until a pull request merges, or closes. Legato reads its state from GitHub when the step starts, after each refresh of a card's pull requests, and every few minutes.",
       "properties": {
+        "notify": {
+          "default": true,
+          "description": "While it waits, a needs-you item asks the operator to review and merge the pull request, and says when it conflicts or CI fails",
+          "type": "boolean",
+          "x-legato": {
+            "expressions": false,
+            "kind": "boolean",
+            "label": "Ask me to review and merge",
+            "order": 5
+          }
+        },
         "pr_number": {
           "anyOf": [
             {
@@ -1814,6 +1825,17 @@
             "kind": "repository",
             "label": "Repository",
             "order": 1
+          }
+        },
+        "task": {
+          "description": "The task, or a task ID, whose pull request it is: its needs-you item is on that card, and Resume agent starts that card's agent. The run's task input when empty",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "task_or_id",
+            "label": "The card",
+            "order": 4
           }
         },
         "until": {

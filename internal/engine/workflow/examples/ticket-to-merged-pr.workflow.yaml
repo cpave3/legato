@@ -57,6 +57,7 @@ steps:
     with:
       repo: ${{ workflow.inputs.repo }}
       pr_number: ${{ steps.implement.outputs.pr_number }}
+      task: ${{ workflow.inputs.task }}
   - id: close-ticket
     title: Close the Burnlite ticket
     type: burnlite.task.close

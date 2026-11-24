@@ -227,7 +227,7 @@ func (s *Server) macroStartHandler() http.HandlerFunc {
 		case errors.Is(err, service.ErrMacroNotFound), errors.Is(err, store.ErrNotFound):
 			s.writeError(w, http.StatusNotFound, err.Error())
 			return
-		case errors.Is(err, service.ErrTaskResumeConflict):
+		case errors.Is(err, service.ErrTaskResumeConflict), errors.Is(err, service.ErrMacroFolderGone):
 			s.writeError(w, http.StatusConflict, err.Error())
 			return
 		case err != nil:

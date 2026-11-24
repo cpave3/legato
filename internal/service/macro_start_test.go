@@ -17,6 +17,8 @@ type macroAgentsSpy struct {
 	queued   []string
 	saved    *TaskResumeSession
 	queueErr error
+	// gone are the folders that are not there; every other one is.
+	gone map[string]bool
 }
 
 func (m *macroAgentsSpy) CaptureOutput(_ context.Context, taskID string) (string, error) {
@@ -47,8 +49,9 @@ func newMacroStartFixture(t *testing.T) (*MacroService, *macroAgentsSpy) {
 	}
 	createTask(t, db, "local01")
 	svc := NewMacroService(settings)
-	spy := &macroAgentsSpy{running: map[string]bool{}}
+	spy := &macroAgentsSpy{running: map[string]bool{}, gone: map[string]bool{}}
 	svc.SetAgents(spy)
+	svc.folderExists = func(path string) bool { return !spy.gone[path] }
 	return svc, spy
 }
 

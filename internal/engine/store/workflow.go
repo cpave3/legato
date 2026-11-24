@@ -175,6 +175,15 @@ type WorkflowRunView struct {
 	// TriggerKind is the kind of trigger that started the run, from its
 	// trigger request; empty for a run started by hand. The service fills it.
 	TriggerKind string `json:"trigger_kind"`
+	// ResumeTaskID is the card whose agent Resume agent starts, or sends a
+	// macro to: the waiting github.pr.wait step's task, else the run's
+	// task input. ResumeAgentState is that card's agent: "" with none
+	// running, "running", or "waiting" while it waits on the operator.
+	// CanResumeAgent says whether Resume agent is offered now. The service
+	// fills them (LEG-614).
+	ResumeTaskID     string `json:"resume_task_id,omitempty"`
+	ResumeAgentState string `json:"resume_agent_state,omitempty"`
+	CanResumeAgent   bool   `json:"can_resume_agent,omitempty"`
 }
 
 // RetitleWorkflowRun gives a run, and its task when it has one, a new title:
@@ -325,6 +334,24 @@ func (s *Store) TriggerWorkflowStep(ctx context.Context, runID, path string) err
 		}
 		return nil
 	})
+}
+
+// RecordWorkflowAttemptAgent notes on a step attempt that waits on its
+// service the agent session started for it (Resume agent on a waiting
+// github.pr.wait), so the step stops that agent, and no other, when it
+// ends. ErrWorkflowStateConflict when the attempt no longer waits.
+func (s *Store) RecordWorkflowAttemptAgent(ctx context.Context, attemptID string, session AgentSession) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE workflow_step_attempts SET agent_session_id = ?, tmux_session = ?, agent_kind = ?
+		WHERE id = ? AND status = 'waiting'`, session.ID, session.TmuxSession, session.AgentKind, attemptID)
+	if err != nil {
+		return err
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return err
+	} else if rows != 1 {
+		return ErrWorkflowStateConflict
+	}
+	return nil
 }
 
 func (s *Store) ListActiveWorkflowAgentAttemptsByTask(ctx context.Context, taskID string) ([]WorkflowStepAttempt, error) {

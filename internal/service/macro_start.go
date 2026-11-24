@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"os"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -21,6 +23,10 @@ type MacroStart struct {
 	Name   string
 	TaskID string
 	PR     *MacroPR
+	// Branch is the pull request's head branch: what a fresh clone checks
+	// out when the task's folder is gone. The task's code context's branch
+	// when empty.
+	Branch string
 }
 
 // MacroStartResult says what a start did: started the task's agent with
@@ -44,6 +50,10 @@ type MacroAgents interface {
 // ErrMacroAgentsMissing is a start with no agent service wired.
 var ErrMacroAgentsMissing = errors.New("macros cannot start agents here")
 
+// ErrMacroFolderGone is a start whose task's folder is gone, with no
+// repository to make a fresh clone of.
+var ErrMacroFolderGone = errors.New("the task's folder is gone and it names no repository to clone")
+
 // SetAgents lets Start start and message agents.
 func (s *MacroService) SetAgents(agents MacroAgents) { s.agents = agents }
 
@@ -51,9 +61,12 @@ func (s *MacroService) SetAgents(agents MacroAgents) { s.agents = agents }
 // is queued as its next one; with none, the task's main agent starts with
 // the macro's agent tool and tier (else the default tool), resuming its
 // saved conversation in its own directory, or starting a new one in the
-// task's checkout (macroWorkingDir), with the message as its first prompt. The message is
-// a short header naming the task (and pull request), then the macro's
-// text. It is never tagged: a macro is the operator's own words.
+// task's checkout (macroWorkingDir), with the message as its first prompt.
+// When that folder is gone (a job clone removed), the agent starts a new
+// conversation in a fresh clone of the repository on the pull request's
+// branch, and a task note says so; with no repository it does not start.
+// The message is a short header naming the task (and pull request), then
+// the macro's text. It is never tagged: a macro is the operator's own words.
 func (s *MacroService) Start(ctx context.Context, req MacroStart) (MacroStartResult, error) {
 	if s.agents == nil {
 		return MacroStartResult{}, ErrMacroAgentsMissing
@@ -91,11 +104,57 @@ func (s *MacroService) Start(ctx context.Context, req MacroStart) (MacroStartRes
 			opts.WorkingDir = saved.CWD
 		}
 	}
+	if gone := opts.WorkingDir; gone != "" && !s.folderExists(gone) {
+		if err := s.freshClone(ctx, req, &opts); err != nil {
+			return MacroStartResult{}, err
+		}
+	}
 	if err := s.agents.SpawnAgent(ctx, req.TaskID, 0, 0, opts); err != nil {
 		return MacroStartResult{}, err
 	}
 	result.Started, result.AgentKind = true, kind
 	return result, nil
+}
+
+// freshClone turns a start in a folder that is gone into one in a new job
+// clone of the task's repository, on the pull request's branch (else the
+// one the task remembers), with a new conversation: an agent tool keeps a
+// conversation with the folder it ran in, so it cannot resume elsewhere.
+func (s *MacroService) freshClone(ctx context.Context, req MacroStart, opts *AgentSpawnOptions) error {
+	gone := opts.WorkingDir
+	repo, branch := "", req.Branch
+	if req.PR != nil {
+		repo = req.PR.Repo
+	}
+	if task, err := s.settings.db.GetTask(ctx, req.TaskID); err == nil {
+		if cc, _ := store.ParseCodeContext(task.CodeContext); cc != nil {
+			if repo == "" {
+				repo = cc.Repo
+			}
+			if branch == "" && cc.Repo == repo {
+				branch = cc.Branch
+			}
+		}
+	}
+	if repo == "" {
+		return fmt.Errorf("%w: %s", ErrMacroFolderGone, gone)
+	}
+	opts.WorkingDir, opts.SessionPolicy, opts.ResumeSessionID, opts.ResumeWorkingDir = "", "new", "", ""
+	opts.Repo, opts.Branch, opts.PushedBranch = repo, branch, branch != ""
+	on := "a new branch"
+	if branch != "" {
+		on = branch
+	}
+	note := fmt.Sprintf("The agent's folder %s was gone, so the %s macro started it in a fresh clone of %s on %s, in a new conversation: the earlier one stayed with that folder.", gone, req.Name, repo, on)
+	if _, err := AddTaskNote(ctx, s.settings.db, req.TaskID, note, "macro"); err != nil {
+		log.Printf("macros: note on %s: %v", req.TaskID, err)
+	}
+	return nil
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // macroWorkingDir is where a macro's new agent starts: the task's

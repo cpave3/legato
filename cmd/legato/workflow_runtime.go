@@ -154,6 +154,9 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		workflows.SetRepositorySource(opts.Presets.WorkflowPresets)
 	}
 	workflows.SetAgentKinds(agentSvc.RegisteredAdapters())
+	// Resume agent: a run's card agent started with a macro, as the card
+	// menu starts one, and stopped when the run's merge is over.
+	workflows.SetAgentResumer(macrosFor(db, agentSvc), agentSvc)
 	return workflows, nil
 }
 

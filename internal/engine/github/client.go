@@ -38,6 +38,12 @@ type PRStatus struct {
 	CreatedAt  string
 	// MergedAt is when the PR merged (RFC 3339), "" when it has not.
 	MergedAt string
+	// Mergeable says whether the PR merges into its base without
+	// conflicts: nil while GitHub works it out. MergeableState is GitHub's
+	// word for it ("dirty" for conflicts). FetchPRState, FetchPRWaitState
+	// and FetchPRByNumber fill them.
+	Mergeable      *bool
+	MergeableState string
 	// Reviews are every review of the PR, oldest first (FetchPRByNumber
 	// only).
 	Reviews []PRReview
@@ -142,6 +148,8 @@ type apiPR struct {
 	Merged         bool    `json:"merged"`
 	MergedAt       *string `json:"merged_at"`
 	HTMLURL        string  `json:"html_url"`
+	Mergeable      *bool   `json:"mergeable"`
+	MergeableState string  `json:"mergeable_state"`
 	CreatedAt      string  `json:"created_at"`
 	Comments       int     `json:"comments"`
 	ReviewComments int     `json:"review_comments"`
@@ -167,6 +175,7 @@ func statusFromAPI(pr apiPR) PRStatus {
 		State: state, IsDraft: pr.Draft, CommentCount: pr.Comments + pr.ReviewComments,
 		HeadBranch: pr.Head.Ref, HeadSHA: pr.Head.SHA, HeadRepo: pr.Head.Repo.FullName,
 		BaseBranch: pr.Base.Ref, CreatedAt: pr.CreatedAt, MergedAt: deref(pr.MergedAt),
+		Mergeable: pr.Mergeable, MergeableState: pr.MergeableState,
 	}
 }
 
@@ -224,6 +233,23 @@ func (c *Client) FetchPRState(owner, repo string, number int) (*PRStatus, error)
 	}
 	status := statusFromAPI(raw)
 	return &status, nil
+}
+
+// FetchPRWaitState is FetchPRState and, for an open PR, the CI of its head
+// (CheckStatus: pass, fail, pending, or "" with none): what a step that
+// waits for a merge tells the operator. A CI read that fails is the call's
+// error, so a caller never takes "no CI" for one it could not read.
+func (c *Client) FetchPRWaitState(owner, repo string, number int) (*PRStatus, error) {
+	status, err := c.FetchPRState(owner, repo, number)
+	if err != nil || status.State != "OPEN" || status.HeadSHA == "" {
+		return status, err
+	}
+	checks, err := c.fetchCheckStatus(owner, repo, status.HeadSHA)
+	if err != nil {
+		return nil, fmt.Errorf("reading CI of %s/%s#%d: %w", owner, repo, number, err)
+	}
+	status.CheckStatus = checks
+	return status, nil
 }
 
 // FetchPRByNumber fetches a single PR by repository and number.

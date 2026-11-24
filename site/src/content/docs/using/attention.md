@@ -19,7 +19,7 @@ Attention lists only what you can act on. Each item comes from the part of Legat
 | Agents | An agent you started by hand waits for you or stopped on an error. Agents that a swarm or a workflow runs are left to those. |
 | Pull requests not reviewed | A task you worked on here (not handed off) reached Done or the Review column with open pull requests, and no review loop reviews them. **Start review passes** starts one [review loop](/legato/using/review-passes/#an-agent-as-the-author) on the whole stack with the task's agent as the author. With review passes off, the item says so. Dismiss it and it comes back when someone pushes to one of them. |
 | Interrupted agents | Agents were running when Legato stopped, and their tmux sessions were gone when it started again: the machine or tmux went down. **Resume all** resumes those that can be; **Show them** opens the Agents page. See [interrupted agents](/legato/using/agents/#after-a-crash-interrupted-agents). |
-| Workflows | A step waits for you to go on, a workflow agent waits for input, a step failed, or a run's [review loop](/legato/using/review-passes/#review-any-pull-request) is stuck: **Run another pass**, or **End** it as stuck so the run goes on (in the TUI, Enter and `x`). A review loop also shows here when it waits on an author who will not move it alone: a person, or an agent author that waits for you or has stopped with findings unanswered. An agent author at work on the findings raises nothing. See [Workflows](/legato/using/workflows/). |
+| Workflows | A step waits for you to go on, a workflow agent waits for input, a step failed, or a run's [review loop](/legato/using/review-passes/#review-any-pull-request) is stuck: **Run another pass**, or **End** it as stuck so the run goes on (in the TUI, Enter and `x`). A review loop also shows here when it waits on an author who will not move it alone: a person, or an agent author that waits for you or has stopped with findings unanswered. An agent author at work on the findings raises nothing. A run waiting for its pull request to merge asks you to **Review and merge PR #n**, on its card, with **Open PR** and **Resume agent…** (pick a macro to start the card's agent with, or to send to it while it runs), and says when the pull request conflicts or its CI fails. See [Workflows](/legato/using/workflows/). |
 | Workflow triggers | A trigger needs input or confirmation, failed, or was stopped to prevent a loop (**Run anyway**, **Pause trigger**). |
 | Approvals | An agent's request waits for your answer. See [Approvals](#approvals). |
 | Devices | Someone ran `legato device reset`. |
@@ -66,12 +66,14 @@ Most items have a main action, such as approving a plan, allowing an agent's req
 
 In the web UI each item also has **Ask the Reeve**, which starts the [Reeve](/legato/using/reeve/) with what the item is about, so it can find out what is wrong.
 
+An action that ends in **…**, such as **Resume agent…** on a waiting merge, opens a list to pick from: your favourite macros first, and **Show all** for the rest. The pick runs the action.
+
 You can also dismiss an item. Dismissing hides that item as it is now. If its source changes (the pull request fails CI again, the agent asks something new), the item comes back.
 
 ### Where you see it
 
 - **Web UI**: the **Attention** page, in three sections: **Needs intervention**, **Ready for review** and **Merge blockers**. Its count shows on **Attention** in the navigation.
-- **TUI**: press `I` on the board. `j` and `k` select an item, `enter` runs its main action, and `d` dismisses it. On an item an agent posted for you, `enter` opens the agent and `x` marks it done; `c` copies an item's command. The TUI lists the items of away tasks and workers but does not run their actions: return, recall and take back from the web UI.
+- **TUI**: press `I` on the board. `j` and `k` select an item, `enter` runs its main action, and `d` dismisses it. On an item an agent posted for you, `enter` opens the agent and `x` marks it done; `c` copies an item's command. On a waiting merge, `enter` opens the pull request in the browser: **Resume agent…** is the web UI's. The TUI lists the items of away tasks and workers but does not run their actions: return, recall and take back from the web UI.
 - **Command line**:
 
   ```bash

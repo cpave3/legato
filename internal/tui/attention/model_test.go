@@ -269,3 +269,38 @@ func TestCOnAnItemCopiesItsCommand(t *testing.T) {
 		t.Fatalf("view = %q", m.View())
 	}
 }
+
+// A waiting merge's Resume agent needs a macro picked, which only the web
+// UI offers: Enter opens the pull request instead, and x has nothing to
+// run (LEG-614).
+func TestEnterOnAWaitingMergeOpensThePRAndNeverResumes(t *testing.T) {
+	svc := &fakeService{items: []service.AttentionItem{{
+		ID: "att-1", Title: "Review and merge PR #12", Producer: "workflows", SourceRevision: "r1", Urgency: "normal",
+		SignalKind: service.AttentionSignalWorkflowMergeWaiting,
+		Navigation: service.AttentionNavigation{Kind: "workflow_run", Target: "wr-1"},
+		Actions: []service.AttentionAction{
+			{ID: "open", Label: "Open run", Kind: "navigate"},
+			{ID: "open_pr", Label: "Open PR", Kind: "navigate", Href: "https://github.com/acme/widget/pull/12"},
+			{ID: "resume_agent", Label: "Resume agent", Kind: "execute", Picks: service.AttentionPicksMacro},
+		},
+	}}}
+	var opened string
+	m := New(svc)
+	m.openURL = func(url string) error { opened = url; return nil }
+	m, _ = m.Update(queueMsg{items: svc.items})
+	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter did nothing")
+	}
+	m, _ = m.Update(cmd())
+	if opened != "https://github.com/acme/widget/pull/12" || svc.calls != 0 {
+		t.Fatalf("opened %q, service calls %d", opened, svc.calls)
+	}
+	m, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if cmd != nil {
+		m, _ = m.Update(cmd())
+	}
+	if svc.calls != 0 {
+		t.Fatalf("x ran an action that needs a macro picked: %+v", svc.last)
+	}
+}

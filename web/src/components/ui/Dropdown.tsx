@@ -11,10 +11,13 @@ interface DropdownProps {
   align?: "left" | "right"
   minWidth?: number
   className?: string
+  // panelClassName is added to the open panel's, such as a z-index that
+  // puts a menu opened in a sheet above the sheet.
+  panelClassName?: string
   kind?: "menu" | "dialog"
 }
 
-export function Dropdown({ trigger, children, open, onOpenChange, align = "right", minWidth = 160, className, kind = "menu" }: DropdownProps) {
+export function Dropdown({ trigger, children, open, onOpenChange, align = "right", minWidth = 160, className, panelClassName, kind = "menu" }: DropdownProps) {
   const ref = useRef<HTMLDivElement>(null)
 
   const panel = useRef<HTMLDivElement>(null)
@@ -39,6 +42,7 @@ export function Dropdown({ trigger, children, open, onOpenChange, align = "right
           className={cn(
             "absolute bottom-full mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 z-10",
             align === "right" ? "right-0" : "left-0",
+            panelClassName,
           )}
           style={{ minWidth: `min(${minWidth}px, calc(100vw - 16px))` }}
         >

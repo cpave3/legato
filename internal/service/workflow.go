@@ -63,6 +63,10 @@ type WorkflowService struct {
 	// runs in its pane): a completion records its step, and a host's
 	// advance loop moves the run on (spec LEG-482 §5.4).
 	recordOnly bool
+	// resumer starts a run's card agent with a macro (Resume agent), and
+	// resumedAgents stops the one it started (LEG-614).
+	resumer       AgentResumer
+	resumedAgents AgentKiller
 }
 
 func NewWorkflowService(s *store.Store, executors []WorkflowExecutor) *WorkflowService {
@@ -278,6 +282,7 @@ func (s *WorkflowService) addAttemptAgents(ctx context.Context, view *store.Work
 
 func (s *WorkflowService) enrichWorkflowAttention(ctx context.Context, view *store.WorkflowRunView) {
 	s.waitingAttention(ctx, view)
+	s.addMergeWaits(ctx, view)
 	for _, step := range view.Steps {
 		if step.Status == "waiting_manual" && waitsForAgentToEnd(view.Run) && s.taskHasRunningAgent(ctx, view.Run.TaskID) {
 			break

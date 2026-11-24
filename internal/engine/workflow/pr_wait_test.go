@@ -58,3 +58,28 @@ func TestAPRWaitStepNamesItsPullRequestAndWhatItWaitsFor(t *testing.T) {
 		}
 	}
 }
+
+// The wait names the card whose merge it is, and makes a needs-you item
+// unless notify is false (LEG-614).
+func TestAPRWaitStepNamesItsCardAndCanStayQuiet(t *testing.T) {
+	for name, with := range map[string]string{
+		"a card":       "      repo: acme/widget\n      pr_number: 3\n      task: abc12345\n",
+		"notify false": "      repo: acme/widget\n      pr_number: 3\n      notify: false\n",
+		"notify true":  "      repo: acme/widget\n      pr_number: 3\n      notify: true\n",
+	} {
+		if _, err := workflow.Parse("wait.yaml", []byte(prWaitStep(with))); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	if _, err := workflow.Parse("wait.yaml", []byte(prWaitStep("      repo: acme/widget\n      pr_number: 3\n      notify: sometimes\n"))); err == nil {
+		t.Fatal("notify: sometimes accepted")
+	}
+	spec, _ := workflow.LookupExecutor("github.pr.wait")
+	fields := map[string]workflow.Field{}
+	for _, field := range spec.With {
+		fields[field.Name] = field
+	}
+	if fields["task"].Kind != workflow.KindTaskOrID || fields["notify"].Kind != workflow.KindBoolean || fields["notify"].Default != true {
+		t.Fatalf("task = %+v, notify = %+v", fields["task"], fields["notify"])
+	}
+}

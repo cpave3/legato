@@ -3,6 +3,7 @@ package attention
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -144,8 +145,17 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 				return m, func() tea.Msg { return OpenAgentMsg{TaskID: taskID} }
 			}
 			for _, action := range item.Actions {
-				if action.Kind == "execute" {
+				// An action that needs a choice (a macro) is the web UI's.
+				if action.Kind == "execute" && action.Picks == "" {
 					return m, m.executeAction(item, action)
+				}
+			}
+			// A page outside Legato an action names (a pull request)
+			// opens in the browser.
+			for _, action := range item.Actions {
+				if action.Kind == "navigate" && strings.HasPrefix(action.Href, "https://") && m.openURL != nil {
+					url, open := action.Href, m.openURL
+					return m, func() tea.Msg { return openedMsg{err: open(url)} }
 				}
 			}
 			// An integration's item opens its own page.
@@ -171,7 +181,7 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 			}
 			seen := 0
 			for _, action := range item.Actions {
-				if action.Kind != "execute" {
+				if action.Kind != "execute" || action.Picks != "" {
 					continue
 				}
 				if seen++; seen == 2 {

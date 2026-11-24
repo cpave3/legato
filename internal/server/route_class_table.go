@@ -249,6 +249,7 @@ var routeClassTable = []routeClassEntry{
 	{"GET", "/api/workflow-runs", ClassRead, "List the workflow runs"},
 	{"GET", "/api/workflow-runs/{run_id}", ClassRead, "Read a workflow run, with the workflow graph of its own copy"},
 	{"POST", "/api/workflow-runs/{run_id}/cancel", ClassRisky, "Cancel a workflow run"},
+	{"POST", "/api/workflow-runs/{run_id}/resume-agent", ClassChange, "Start the run's card agent with a macro, or send the macro to the one running"},
 	{"POST", "/api/workflow-runs/{run_id}/steps/{step_id}/retry", ClassChange, "Retry a workflow step"},
 	{"POST", "/api/workflow-runs/{run_id}/steps/{step_id}/trigger", ClassChange, "Trigger a manual workflow step"},
 	{"POST", "/api/workflow-runs/{run_id}/steps/{step_id}/prompt", ClassChange, "Remind a workflow step's agent"},

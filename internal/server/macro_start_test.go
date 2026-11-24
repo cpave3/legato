@@ -84,3 +84,14 @@ func TestTheTaskAgentEndpointTakesATier(t *testing.T) {
 		t.Fatalf("status = %d, tier = %q", rec.Code, agents.opts.Tier)
 	}
 }
+
+// A task whose folder is gone, with no repository to clone, is a conflict
+// the operator can fix, not a server error (LEG-614).
+func TestTheMacroEndpointSaysTheFolderIsGone(t *testing.T) {
+	board := &mockBoardService{cardDetail: &service.CardDetail{ID: "T-1"}}
+	s := New(board, &taskAgentFake{}, nil, ":0")
+	s.SetMacroService(&fakeMacroStarter{err: fmt.Errorf("%w: /jobs/ex-1/app", service.ErrMacroFolderGone)})
+	if rec := postMacro(t, s, "T-1", `{"name":"Plan"}`); rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d %s", rec.Code, rec.Body)
+	}
+}

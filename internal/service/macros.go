@@ -120,11 +120,13 @@ func (e *MacroEntry) UnmarshalJSON(data []byte) error {
 type MacroService struct {
 	settings *SettingsService
 	agents   MacroAgents
+	// folderExists says whether an agent's folder is still there.
+	folderExists func(string) bool
 }
 
 // NewMacroService reads and keeps macros through settings.
 func NewMacroService(settings *SettingsService) *MacroService {
-	return &MacroService{settings: settings}
+	return &MacroService{settings: settings, folderExists: dirExists}
 }
 
 // List is every macro, in order.
