@@ -36,7 +36,7 @@ type reviewFindingInput struct {
 type reviewRulingInput struct {
 	Finding string `json:"finding" jsonschema:"the ID of an earlier blocking finding, as the brief lists it (f-…)"`
 	Status  string `json:"status" jsonschema:"resolved (fixed, or you accept the author's answer) or open"`
-	Reason  string `json:"reason,omitempty" jsonschema:"why; required when open"`
+	Reason  string `json:"reason,omitempty" jsonschema:"why: how it was fixed or why you accept the answer, or why it is still open; required"`
 }
 
 type submitReviewInput struct {
@@ -53,7 +53,7 @@ func (m *mcpTools) submitReview() mcpserver.Tool {
 		Description: "Hands your review pass to Legato, which posts it to GitHub; you never post yourself. " +
 			"Give a summary and findings: each with the pull request's number, severity blocking or nit, a one-line title, a body, a failure_scenario when blocking, " +
 			"and a place (path and line at the pinned head, optional start_line, side RIGHT or LEFT) when it is about particular lines. " +
-			"On a later pass, give a ruling on every earlier blocking finding the brief lists: resolved, or open with a reason. " +
+			"On a later pass, give a ruling on every earlier blocking finding the brief lists: resolved or open, each with a reason. " +
 			"The verdict follows from them: any blocking finding or open ruling means changes, otherwise clean. " +
 			"If you cannot review, give only unable and the reason. If Legato lists problems, fix them and call it again.",
 	}, func(ctx context.Context, in submitReviewInput) (mcpserver.Result, error) {

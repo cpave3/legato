@@ -36,8 +36,8 @@ type SubmittedFinding struct {
 	Critical string `json:"critical,omitempty"`
 }
 
-// SubmittedRuling rules on an earlier blocking finding: resolved, or open
-// with why.
+// SubmittedRuling rules on an earlier blocking finding: resolved or open,
+// with why either way.
 type SubmittedRuling struct {
 	Finding string `json:"finding"`
 	Status  string `json:"status"`
@@ -236,8 +236,13 @@ func (s *ReviewPassService) validate(ctx context.Context, pass *store.HandoffRev
 		if r.Status != "resolved" && r.Status != "open" {
 			problems = append(problems, fmt.Sprintf("rulings[%d]: status is resolved or open, not %q", i, r.Status))
 		}
-		if r.Status == "open" && strings.TrimSpace(r.Reason) == "" {
-			problems = append(problems, fmt.Sprintf("rulings[%d]: an open ruling needs a reason", i))
+		if strings.TrimSpace(r.Reason) == "" {
+			switch r.Status {
+			case "open":
+				problems = append(problems, fmt.Sprintf("rulings[%d]: an open ruling needs a reason: say why %s is not fixed", i, r.Finding))
+			case "resolved":
+				problems = append(problems, fmt.Sprintf("rulings[%d]: a resolved ruling needs a reason: say how %s was fixed, or why you accept the author's answer", i, r.Finding))
+			}
 		}
 		delete(need, r.Finding)
 	}

@@ -62,6 +62,19 @@ func (f *FakeReviewGitHub) OpenPR(number int, branch, head string) {
 	f.prs[branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: "main", Title: fmt.Sprintf("PR %d", number), HeadSHA: head, Author: "legato-author[bot]"}
 }
 
+// Describe gives an open pull request a title and a body, as its author
+// wrote them on GitHub.
+func (f *FakeReviewGitHub) Describe(number int, title, body string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for branch, pr := range f.prs {
+		if pr.Number == number {
+			pr.Title, pr.Body = title, body
+			f.prs[branch] = pr
+		}
+	}
+}
+
 // OpenStackedPR opens a pull request from branch onto base at head, a layer
 // of a stack.
 func (f *FakeReviewGitHub) OpenStackedPR(number int, branch, base, head string) {
