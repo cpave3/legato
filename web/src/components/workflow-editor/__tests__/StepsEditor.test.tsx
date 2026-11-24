@@ -27,7 +27,7 @@ const commit = (element: HTMLElement, value: string) => { fireEvent.change(eleme
 const stepCard = (n: number) => screen.getAllByRole("listitem").filter(li => li.getAttribute("aria-label")?.startsWith(`Step ${n}:`))[0]
 
 describe("the step types", () => {
-  const types = executors.filter(e => !e.internal)
+  const types = executors
 
   it("have forms of kinds the builder draws", () => {
     for (const executor of executors) {
@@ -62,7 +62,7 @@ describe("the catalog's metadata", () => {
   })
 
   it("gives every offered step type a summary and an essential field", () => {
-    for (const executor of executors.filter(e => !e.internal)) {
+    for (const executor of executors) {
       const form = stepForm(executor.type)!
       expect(form.summary.length, executor.type).toBeGreaterThan(0)
       expect(form.fields.some(f => f.essential), executor.type).toBe(true)

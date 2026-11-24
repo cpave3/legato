@@ -86,7 +86,7 @@ export function StepsEditor({ text, values, diagnostics, options, apply }: Props
     </ol>
     {adding
       ? <div role="group" aria-label="Step types" className="grid gap-2 sm:grid-cols-2">
-        {executors.filter(e => !e.internal).map(e => <button key={e.type} type="button" className="flex flex-col items-start gap-0.5 rounded-lg border border-lw-line p-2 text-left hover:bg-lw-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-lw-accent" onClick={() => add(e.type)}>
+        {executors.map(e => <button key={e.type} type="button" className="flex flex-col items-start gap-0.5 rounded-lg border border-lw-line p-2 text-left hover:bg-lw-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-lw-accent" onClick={() => add(e.type)}>
           <span className="text-sm font-medium">{e.title}</span>
           <span className="font-lw-mono text-[11px] text-lw-faint">{e.type}</span>
           <span className="text-xs text-lw-text-2">{e.description}</span>

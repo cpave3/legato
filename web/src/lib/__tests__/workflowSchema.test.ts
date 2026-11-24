@@ -29,12 +29,11 @@ describe("contextAt", () => {
 })
 
 describe("completion", () => {
-  it("offers every step type but the internal ones, with titles", () => {
+  it("offers every step type, the Learn ones included, with titles", () => {
     const [text, offset] = at(head + "steps:\n  - id: a\n    type: |\n")
     const labels = completionsAt(text, offset)!.options.map(o => o.label)
-    const public_ = executors.filter(e => !e.internal).map(e => e.type)
-    expect(labels.sort()).toEqual([...public_].sort())
-    expect(labels).not.toContain("learning.packet.prepare")
+    expect(labels.sort()).toEqual(executors.map(e => e.type).sort())
+    expect(labels).toContain("learning.packet.prepare")
     expect(completionsAt(text, offset)!.options.find(o => o.label === "agent.run")?.detail).toBe("Run an agent")
   })
 

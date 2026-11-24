@@ -38,14 +38,11 @@ func buildSchema() schemaObject {
 	root["title"] = "Legato workflow"
 	root["description"] = "A Legato workflow definition, schema version 1."
 
-	var types, internal []string
+	var types []string
 	var cases []any
 	var executors []any
 	for _, spec := range catalog {
 		types = append(types, spec.Type)
-		if spec.Internal {
-			internal = append(internal, spec.Type)
-		}
 		name := "with." + spec.Type
 		definitions[name] = withSchema(spec)
 		then := schemaObject{"properties": schemaObject{"with": schemaObject{"$ref": "#/definitions/" + name}}}
@@ -58,7 +55,7 @@ func buildSchema() schemaObject {
 			"if":   schemaObject{"properties": schemaObject{"type": schemaObject{"const": spec.Type}}, "required": []string{"type"}},
 			"then": then,
 		})
-		executor := schemaObject{"type": spec.Type, "title": spec.Title, "description": spec.Description, "internal": spec.Internal}
+		executor := schemaObject{"type": spec.Type, "title": spec.Title, "description": spec.Description}
 		if len(spec.Summary) > 0 {
 			executor["summary"] = spec.Summary
 		}
@@ -81,7 +78,6 @@ func buildSchema() schemaObject {
 		"schema_version":    SchemaVersion,
 		"step_groups":       StepGroups,
 		"executors":         executors,
-		"internal":          internal,
 		"expressions":       contexts,
 		"task_fields":       TaskFields,
 		"repository_fields": RepositoryFields,
@@ -152,7 +148,7 @@ func withSchema(spec ExecutorSpec) schemaObject {
 	for _, output := range spec.Outputs {
 		outputs = append(outputs, schemaObject{"name": output.Name, "type": output.Type, "description": output.Description})
 	}
-	extension := schemaObject{"type": spec.Type, "internal": spec.Internal, "outputs": outputs, "declared_outputs": spec.DeclaredOutputs}
+	extension := schemaObject{"type": spec.Type, "outputs": outputs, "declared_outputs": spec.DeclaredOutputs}
 	if len(unchecked) > 0 {
 		extension["run_constraints"] = unchecked
 	}

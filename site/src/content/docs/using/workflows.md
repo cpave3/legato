@@ -33,6 +33,7 @@ The templates Legato ships use your default agent tool and your [macros](/legato
 | `discuss-pr` | An agent in a fresh clone gets across a pull request's change set and answers your questions about it. |
 | `address-feedback` | When someone requests changes on a pull request one of your tasks owns, gives the task's agent your **Address feedback** macro, starting it if none is running. |
 | `review-pr-passes` | Reviews a pull request in passes posted to GitHub; see [Review passes](/legato/using/review-passes/). |
+| `learn` | When a card enters **Review**, asks the card's running agent what it learned; a curator and a critic agent turn that into candidate learnings on the **Learning** page. See [Legato Learn](/legato/using/learn/#setting-it-up). |
 | `ticket-to-merged-pr` | Takes a card (`task`) from its ticket to a merged pull request: the card's own agent works in a fresh clone of `repo` on your `macro` (**Implement** unless you give another; it must open a pull request) and stays, the pull request is reviewed in passes while that agent fixes the findings, then the run waits for the merge, closes the card's Burnlite ticket (a card not from Burnlite is skipped) and stops the agent. A paused trigger offers to start it when a card enters **Doing**. Needs review passes, GitHub access, and Burnlite connected with write access for the close. |
 
 In the web UI, **New workflow** on the **Workflows** tab (and the tab itself when you have no workflows) shows the templates: each says what starts it, what it asks for and what it does. Choose one to see its outline, then **Use this template** to open it in the editor. Nothing is written until you press **Create**, in the folder you pick (yours, the project's, or a repository's checkout). If a workflow already has the template's name, the new one gets another.
@@ -103,7 +104,7 @@ Version 1 executes steps in declaration order and supports these executors. Lega
       macro: Review
       working_dir: ${{ steps.clone.outputs.working_dir }}
   ```
-- `agent.stop`: idempotently stop the active agent for the resolved `with.task`. Built-in Learn does not use it because interviews borrow the original task session; curator and critic agents run under the separate generated workflow task.
+- `agent.stop`: idempotently stop the active agent for the resolved `with.task`. The `learn` template does not use it, because its interview borrows the card's own agent; its curator and critic run under the run's own task.
 - `agent.compact`: compact the running agent of `with.task` with its tool's own compaction, as `/compact` in its panel does (see [Compacting an agent](/legato/using/agents/#compacting-an-agent)). `${{ workflow.task }}` is the agent an `agent.run` step with `keep_agent: true` left running. `with.instructions` says what the summary must keep; only Claude Code takes them. An agent still in its turn is compacted when the turn ends, which is the usual case right after an `agent.run` step, since the agent completes that step from inside its turn. The step then waits for the compaction to finish. Outputs: `tokens_before` and `tokens_after`, when the tool reports them. The step fails at once when the task has no agent running, when Legato cannot compact the agent's tool or shows the agent only in its terminal, or when a Codex or Chimera agent is given instructions. It fails when the compaction fails, and when 15 minutes after the step started the agent is still working or Legato has seen no end to the compaction (for example because Legato restarted meanwhile); **Retry step** compacts again.
 
   ```yaml
@@ -135,7 +136,7 @@ Version 1 executes steps in declaration order and supports these executors. Lega
   ```
 - `burnlite.task.close`: close the Burnlite ticket a task was imported from (`with.task`), as `completed` (the default) or `not_planned` (`with.reason`), with a one-line `with.summary`. With `optional: true`, a task that is not a Burnlite ticket is skipped (`skipped: true`) instead of failing the step. Outputs: `key`, `closed` and `skipped`. Legato must be connected to Burnlite with write access; see [Burnlite](/legato/integrations/burnlite/#close-a-ticket-from-a-workflow).
 - `repo.ensure`: prepare what a job works in. With an empty `with.repo` it does nothing and outputs `working_dir` as given in `with.working_dir`. With a repository (`owner/name`) it makes Legato's cache of it ready (cloning or fetching with the `github` credential, so a repository Legato cannot read fails here) and outputs `repo`, `ref` and `branch` for the agent step; giving both `repo` and `working_dir` is refused. `agent.run` with `with.repo` (and `with.ref`, `with.branch`) starts its agent in a fresh clone made for the agent's execution, on its own branch.
-- Built-in Learn definitions additionally own `agent.interview`, `learning.packet.prepare`, and `learning.proposals.submit`. They are internal orchestration contracts rather than general-purpose user workflow examples; see [Legato Learn](/legato/using/learn/).
+- `agent.interview`, `learning.packet.prepare` and `learning.proposals.submit`: the steps of [Legato Learn](/legato/using/learn/), for your own workflows too. See [Learn steps](#learn-steps) below.
 
 Task inputs expose `${{ workflow.inputs.task.metadata.<path> }}`. Metadata is arbitrary JSON, local to Legato, and separate from provider-owned `remote_meta`. `${{ workflow.inputs.task.description }}` is effective Markdown: local tasks receive their description unchanged, while provider-backed tasks receive provider Markdown followed by editable local content under `## Legato details`.
 
@@ -149,6 +150,40 @@ run_title: Review PR #${{ workflow.inputs.pr_number }}
 `run_title` supports declared `workflow.inputs` references, including expanded task fields and metadata, but not step outputs or `${{ workflow.task }}`. The intrinsic workflow task does not exist until after the run title resolves, so using it here is rejected as circular. The title resolves after typed input and task/repository expansion and must produce a non-empty string. The resolved value is stored on the run and used for its Workflows execution task; omitting it preserves the definition `title`.
 
 Set `after_start` to control web navigation after a manual launch: `workflow` (the default) opens the run, `stay` closes the dialog without changing pages, and `agent` opens Agents focused on the selected task. `agent` requires exactly one required task input. This is presentation-only; it does not change workflow execution or automatic trigger behavior.
+
+### Learn steps
+
+The steps of [Legato Learn](/legato/using/learn/) work in any workflow, so you can use part of it: a reflection with no curation, say, or a curation on a column of your own. The `learn` template uses all three, with two `agent.run` steps (the curator and the critic) between the packet and the submit; read it for a full example (`legato workflow add learn`).
+
+- `agent.interview`: ask a task's running agent (`with.task`, a task or a task ID) what it learned, with Legato's reflection prompt or your own `with.prompt`. The agent answers with `legato learn reflection submit`, and each observation becomes evidence on the task. The step waits for that answer. It fails when the task has no agent running; it never starts or stops one. Outputs: `available` and `request_id`. When the question cannot be delivered to the agent, the step succeeds at once with `available: false` and the `reason`, and there is nothing new to curate.
+- `learning.packet.prepare`: gather the task's evidence and the learnings it may touch into a bounded packet for a curator (`with.task`; `with.limits` with `max_items` and `max_bytes`; optional `with.project` with `key` and `label`, found from the evidence otherwise). Outputs: `generation_id`, `packet_digest` and `packet` (JSON), which a curator's prompt quotes.
+- `learning.proposals.submit`: check a curator's operations (`with.operations`) against the packet (`with.generation`, the packet step's `generation_id`) and keep them as candidates. It accepts nothing for you. Outputs: `status`, `replayed` and `summary`.
+
+A workflow whose steps include any of these is a Learn run: its own task is marked `legato.learning_workflow`, and the `learn` template's trigger skips such tasks, so a run never starts another. Use the same condition in a trigger of your own.
+
+A reflection alone, kept as evidence for a later `legato learn curate`:
+
+```yaml
+schema_version: 1
+name: reflect
+title: Keep a reflection
+inputs:
+  task: {type: task, required: true}
+on:
+  task.entered_column:
+    column: Done
+    enabled: false
+    inputs: {task: "${{ event.task }}"}
+    conditions:
+      field: task.metadata.legato.learning_workflow
+      not_equals: true
+steps:
+  - id: interview
+    title: Ask what it learned
+    type: agent.interview
+    with:
+      task: ${{ workflow.inputs.task }}
+```
 
 ### Writing workflows in your own editor
 

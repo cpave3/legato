@@ -78,15 +78,6 @@ func TestCatalogEntriesAreWellFormed(t *testing.T) {
 	}
 }
 
-func TestCatalogMarksTheLearningExecutorsInternal(t *testing.T) {
-	for _, spec := range workflow.Catalog() {
-		internal := spec.Type == "agent.interview" || strings.HasPrefix(spec.Type, "learning.")
-		if spec.Internal != internal {
-			t.Errorf("%s: Internal = %v, want %v", spec.Type, spec.Internal, internal)
-		}
-	}
-}
-
 func TestLookupExecutor(t *testing.T) {
 	spec, ok := workflow.LookupExecutor("task.note")
 	if !ok {
@@ -192,9 +183,6 @@ steps:
 // in the catalog's order, and a step row is summed up by one of its fields.
 func TestOfferedStepTypesSayWhatTheInspectorAndTheirRowShow(t *testing.T) {
 	for _, spec := range workflow.Catalog() {
-		if spec.Internal {
-			continue
-		}
 		essential := 0
 		orders := map[int]string{}
 		for _, field := range spec.With {
@@ -228,9 +216,6 @@ func TestOfferedStepTypesSayWhatTheInspectorAndTheirRowShow(t *testing.T) {
 // The step picker groups the offered step types (LEG-507).
 func TestOfferedStepTypesAreInAPickerGroup(t *testing.T) {
 	for _, spec := range workflow.Catalog() {
-		if spec.Internal {
-			continue
-		}
 		if !slices.Contains(workflow.StepGroups, spec.Group) {
 			t.Errorf("%s: group %q is not one of %v", spec.Type, spec.Group, workflow.StepGroups)
 		}

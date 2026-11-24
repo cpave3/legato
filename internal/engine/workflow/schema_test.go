@@ -212,8 +212,7 @@ func TestTheSchemaCarriesTheEditorsExtensions(t *testing.T) {
 		Extension struct {
 			SchemaVersion int `json:"schema_version"`
 			Executors     []struct {
-				Type     string `json:"type"`
-				Internal bool   `json:"internal"`
+				Type string `json:"type"`
 			} `json:"executors"`
 			Expressions map[string]workflow.ExpressionContext `json:"expressions"`
 		} `json:"x-legato"`
@@ -254,9 +253,10 @@ func TestTheSchemaCarriesTheEditorsExtensions(t *testing.T) {
 	if run.Extension["group"] != "Agents" {
 		t.Errorf("with.agent.run group = %v", run.Extension["group"])
 	}
-	interview := schema.Definitions["with.agent.interview"].Extension
-	if interview["internal"] != true {
-		t.Errorf("agent.interview x-legato = %v", interview)
+	for _, kind := range workflow.LearningStepTypes {
+		if group := schema.Definitions["with."+kind].Extension["group"]; group != "Learn" {
+			t.Errorf("%s group = %v, want Learn: any workflow may use it", kind, group)
+		}
 	}
 }
 
