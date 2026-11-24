@@ -803,7 +803,7 @@ func (c *ChangeSetService) watch(ctx context.Context, reeveTaskID string, call P
 	}
 	// The Reeve turned to the agent: its answer, so the agent no longer
 	// waits on it (LEG-613).
-	endReeveWaitsForTask(ctx, c.opts.Store, taskID)
+	endReeveWaitOf(ctx, c.opts.Store, taskID)
 	if c.opts.Watch != nil {
 		c.opts.Watch(ctx, reeveTaskID, taskID)
 	}

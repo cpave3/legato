@@ -41,16 +41,17 @@ func endReeveWait(ctx context.Context, db *store.Store, taskID, executionID, rea
 	}
 }
 
-// endReeveWaitsForTask ends the waits on the Reeve of a task's agents: the
-// Reeve answered it.
-func endReeveWaitsForTask(ctx context.Context, db *store.Store, taskID string) {
-	ended, err := db.ClearReeveWaitsForTask(ctx, taskID, store.ReeveWaitReeveAnswered)
-	if err != nil {
-		log.Printf("reeve wait: ending %s's: %v", taskID, err)
+// endReeveWaitOf ends the wait on the Reeve of the one agent an address
+// names, as legato agent message delivers to it: a running execution's ID,
+// else an agent ID (a task ID for its main slot, <task>_<slot> for a named
+// one). The Reeve answered it; a task's other slots keep theirs.
+func endReeveWaitOf(ctx context.Context, db *store.Store, address string) {
+	if execution, err := db.GetExecution(ctx, address); err == nil && execution.Status == store.ExecutionRunning {
+		endReeveWait(ctx, db, execution.ExecutionTaskID, execution.ID, store.ReeveWaitReeveAnswered)
 		return
 	}
-	if ended > 0 {
-		NotifyReeveWaitChanged(taskID)
+	if session, err := slotSession(ctx, db, address); err == nil {
+		endReeveWait(ctx, db, session.TaskID, session.ExecutionID, store.ReeveWaitReeveAnswered)
 	}
 }
 

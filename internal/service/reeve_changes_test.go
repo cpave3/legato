@@ -399,8 +399,9 @@ func TestAConfigEditOfAnOwnRuleNeedsASignature(t *testing.T) {
 	}
 }
 
-// The Reeve's answer, a change set that messages the agent, ends the
-// agent's wait on it (LEG-613).
+// The Reeve's answer, a change set that messages the agent, ends that
+// agent's wait on it and no other's: addressed by execution ID, task ID or
+// <task>_<slot>, as legato agent message delivers it (LEG-613).
 func TestTheReevesAnswerEndsTheAgentsWait(t *testing.T) {
 	f := newChangeSetFixture(t)
 	ctx := context.Background()
@@ -408,33 +409,50 @@ func TestTheReevesAnswerEndsTheAgentsWait(t *testing.T) {
 	if err := db.CreateTask(ctx, store.Task{ID: "T-1", Title: "Asker", Status: "Doing"}); err != nil {
 		t.Fatal(err)
 	}
-	id, err := db.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: "T-1", TmuxSession: "legato-T-1", Command: "claude", AgentKind: "claude-code", Status: "running"})
-	if err != nil {
-		t.Fatal(err)
+	asker := func(slot, execution string) {
+		t.Helper()
+		id, err := db.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: "T-1", Slot: slot, TmuxSession: "legato-T-1-" + slot, Command: "claude", AgentKind: "claude-code", Status: "running"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.CreateExecution(ctx, store.Execution{ID: execution, Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: "T-1", ExecutionTaskID: "T-1", AgentSessionID: &id, StartedAt: time.Now().UTC()}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := MessageReeve(ctx, db, "T-1", execution, "One PR or two?", time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := db.CreateExecution(ctx, store.Execution{ID: "ex-T-1", Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: "T-1", AgentSessionID: &id, StartedAt: time.Now().UTC()}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := MessageReeve(ctx, db, "T-1", "ex-T-1", "One PR or two?", time.Now().UTC()); err != nil {
-		t.Fatal(err)
-	}
-	waiting := func() bool {
-		session, err := db.GetAgentSessionByTaskID(ctx, "T-1")
+	asker(store.SlotMain, "ex-main")
+	asker("reviewer", "ex-reviewer")
+	waiting := func(slot string) bool {
+		t.Helper()
+		session, err := db.GetAgentSessionInSlot(ctx, "T-1", slot)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return session.ReeveWaitSince != ""
 	}
-	if !waiting() {
-		t.Fatal("no wait recorded")
+	answer := func(address string) {
+		t.Helper()
+		out, err := f.svc.Propose(ctx, f.reeve, "answer", []ChangeCall{{Kind: CallLegato, Args: []string{"agent", "message", address, "One PR."}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.decide(t, out.ApprovalID, ApprovalAllow, "")
+		f.svc.RunQueued(ctx)
 	}
-	out, err := f.svc.Propose(ctx, f.reeve, "answer T-1", []ChangeCall{{Kind: CallLegato, Args: []string{"agent", "message", "T-1", "One PR."}}})
-	if err != nil {
-		t.Fatal(err)
+	if !waiting(store.SlotMain) || !waiting("reviewer") {
+		t.Fatal("no waits recorded")
 	}
-	f.decide(t, out.ApprovalID, ApprovalAllow, "")
-	f.svc.RunQueued(ctx)
-	if waiting() {
-		t.Fatal("the Reeve answered and the agent still waits on it")
+	answer("ex-main")
+	if waiting(store.SlotMain) {
+		t.Fatal("the Reeve answered the main agent by its execution and it still waits")
+	}
+	if !waiting("reviewer") {
+		t.Fatal("an answer to the main agent ended the reviewer's wait")
+	}
+	answer("T-1_reviewer")
+	if waiting("reviewer") {
+		t.Fatal("the Reeve answered the reviewer and it still waits")
 	}
 }

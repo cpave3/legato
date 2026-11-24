@@ -39,18 +39,6 @@ func (s *Store) ClearReeveWait(ctx context.Context, executionID, reason string) 
 	return n > 0, err
 }
 
-// ClearReeveWaitsForTask ends every open wait on the Reeve of a task's
-// executions, saying why, and says how many it ended.
-func (s *Store) ClearReeveWaitsForTask(ctx context.Context, taskID, reason string) (int, error) {
-	res, err := s.db.ExecContext(ctx, `UPDATE reeve_waits SET cleared_at = ?, clear_reason = ? WHERE task_id = ? AND cleared_at IS NULL`,
-		time.Now().UTC().Format(time.RFC3339), reason, taskID)
-	if err != nil {
-		return 0, err
-	}
-	n, err := res.RowsAffected()
-	return int(n), err
-}
-
 // OpenReeveWaitsSince lists the times of the open waits on the Reeve of
 // running executions, oldest first.
 func (s *Store) OpenReeveWaitsSince(ctx context.Context) ([]time.Time, error) {
