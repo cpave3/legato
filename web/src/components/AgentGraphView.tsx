@@ -25,6 +25,7 @@ import { linkStyles } from "./agent-graph/linkStyles"
 import { agentLook, subagentLook } from "./agent-graph/look"
 import { StageMenu } from "./StageMenu"
 import { LoadingState } from "./ui/LoadingState"
+import { coalesce, isRunChange } from "../lib/querySync"
 
 export interface AgentGraphViewProps {
   agents: AgentInfo[]
@@ -77,12 +78,20 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
   // The button that opened the run's graph, which has focus again when it
   // closes.
   const opener = useRef<HTMLElement | null>(null)
-  // workflow_changed reads the graph again: a run can move on to its next
-  // step without any agent changing.
+  // A run's change reads the graph again: a run can move on to its next
+  // step without any agent changing. A step completing and the next
+  // starting is one read.
   const [moved, setMoved] = useState(0)
-  useEffect(() => subscribe?.((message: WSMessage) => {
-    if (message.type === "workflow_changed") setMoved((n) => n + 1)
-  }), [subscribe])
+  useEffect(() => {
+    const read = coalesce(() => setMoved((n) => n + 1))
+    const unsubscribe = subscribe?.((message: WSMessage) => {
+      if (isRunChange(message)) read()
+    })
+    return () => {
+      read.cancel()
+      unsubscribe?.()
+    }
+  }, [subscribe])
 
   // The graph is read again whenever the agent list is: a new list comes
   // with every agents_changed, which a peer message sends too.

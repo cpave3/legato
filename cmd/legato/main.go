@@ -1167,6 +1167,7 @@ func runServeCmd(args []string) int {
 	srv.StartAgentLifecycleEvents()
 	srv.StartChimeraDiscoveryEvents()
 	srv.StartReviewEvents()
+	srv.StartWorkflowEvents()
 	srv.StartPlanEvents()
 	srv.StartBoardEvents()
 	srv.StartLearningEvents()
@@ -1419,6 +1420,9 @@ func runTUI() int {
 	giveAgentsPrimaryDirs(agentSvc, repoPresets)
 	if built, workflowErr := buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: boardSvc, Sync: syncSvc, Agents: agentSvc, PR: prSvc, PRErr: ghErr, WorkDir: wd, Repos: repos, Presets: repoPresets}); workflowErr == nil {
 		tuiWorkflowSvc = built
+		// A `legato serve` on the same database hosts the web UI while
+		// the TUI runs: it hears of the TUI's own run changes by IPC.
+		tuiWorkflowSvc.SetChangeListener(workflowChangeBroadcaster(func(msg ipc.Message) { go ipc.Broadcast(msg) }))
 		triggerCoordinator = buildWorkflowTriggerCoordinator(db, tuiWorkflowSvc, cfg, bus)
 		startLearningMigration(cfg, db, triggerCoordinator)
 		defer triggerCoordinator.StartEventLoop(context.Background(), bus)()
@@ -1546,6 +1550,7 @@ func runTUI() int {
 			webSrv.StartAgentLifecycleEvents()
 			webSrv.StartChimeraDiscoveryEvents()
 			webSrv.StartReviewEvents()
+			webSrv.StartWorkflowEvents()
 			webSrv.StartPlanEvents()
 			webSrv.StartBoardEvents()
 			webSrv.StartLearningEvents()

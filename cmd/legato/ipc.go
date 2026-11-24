@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
@@ -15,6 +16,29 @@ type webNotifier interface {
 
 type workflowWebNotifier interface {
 	NotifyWorkflowChanged(runID, stepID string)
+}
+
+// workflowKindNotifier is a web server that publishes a workflow change on
+// the bus with its kind, and sends it to its clients from there.
+type workflowKindNotifier interface {
+	NotifyWorkflowChangedKind(runID, stepID, kind string)
+}
+
+// agentWebNotifier is a web server that tells the run pages of a task's
+// agent steps that the agent changed.
+type agentWebNotifier interface {
+	NotifyAgentChanged(taskID string)
+}
+
+// workflowChangeBroadcaster tells the other Legato processes of each change
+// the TUI's workflow service makes, so a `legato serve` on the same database
+// shows it in its web UI. The message names this process, which ignores it
+// (handleIPCMessage).
+func workflowChangeBroadcaster(send func(ipc.Message)) func(events.WorkflowChangedPayload) {
+	pid := os.Getpid()
+	return func(change events.WorkflowChangedPayload) {
+		send(ipc.Message{Type: "workflow_changed", WorkflowRunID: change.RunID, WorkflowStepID: change.StepID, Kind: change.Kind, PID: pid})
+	}
 }
 
 // serveNotifier is the subset of *server.Server the standalone server's IPC
@@ -76,6 +100,10 @@ func handleIPCMessage(msg ipc.Message, bus *events.Bus, wn webNotifier) {
 		bus.Publish(events.Event{Type: events.EventAgentActivityChanged, At: now, Payload: events.AgentActivityChangedPayload{TaskID: msg.TaskID, Activity: msg.Status}})
 		if wn != nil {
 			wn.NotifyAgentsChanged()
+		}
+		// A step's agent: its run page shows what the agent is doing.
+		if notifier, ok := wn.(agentWebNotifier); ok && msg.TaskID != "" {
+			notifier.NotifyAgentChanged(msg.TaskID)
 		}
 	case "agents_changed":
 		// A Claude Code bridge bound or unbound its agent's native endpoint
@@ -147,13 +175,19 @@ func handleIPCMessage(msg ipc.Message, bus *events.Bus, wn webNotifier) {
 			},
 		})
 	case "workflow_changed":
-		if notifier, ok := wn.(workflowWebNotifier); ok {
-			notifier.NotifyWorkflowChanged(msg.WorkflowRunID, msg.WorkflowStepID)
+		if msg.PID == os.Getpid() {
+			// This process's own change, already on its bus.
+			return
 		}
-		bus.Publish(events.Event{
-			Type: events.EventWorkflowChanged, At: time.Now(),
-			Payload: events.WorkflowChangedPayload{RunID: msg.WorkflowRunID, StepID: msg.WorkflowStepID, Kind: msg.Kind},
-		})
+		// The web server publishes it on the bus, which it shares.
+		if notifier, ok := wn.(workflowKindNotifier); ok {
+			notifier.NotifyWorkflowChangedKind(msg.WorkflowRunID, msg.WorkflowStepID, msg.Kind)
+		} else {
+			bus.Publish(events.Event{
+				Type: events.EventWorkflowChanged, At: time.Now(),
+				Payload: events.WorkflowChangedPayload{RunID: msg.WorkflowRunID, StepID: msg.WorkflowStepID, Kind: msg.Kind},
+			})
+		}
 		if msg.Kind == "completed_step" {
 			bus.Publish(events.Event{Type: events.EventCardUpdated, At: time.Now()})
 			if wn != nil {

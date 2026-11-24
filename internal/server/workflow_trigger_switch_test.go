@@ -59,8 +59,13 @@ steps:
 		s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPut, path, strings.NewReader(body)))
 		return rec.Code
 	}
+	messages := workflowMessages(s)
 	if code := put("/api/workflows/triage/triggers/task.entered_column", `{"enabled": true}`); code != http.StatusOK {
 		t.Fatalf("switch on: %d", code)
+	}
+	// Every open Workflows tab reads the switch again.
+	if got := nextWorkflowMessage(t, messages); got.Kind != WorkflowDefinitionsChanged {
+		t.Fatalf("switch on told the web UI %+v", got)
 	}
 	if got := states(); got[0]["enabled"] != true || got[0]["overridden"] != true {
 		t.Fatalf("after switching on: %v", got)

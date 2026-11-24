@@ -149,6 +149,8 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		executors = append(executors, service.NewWorktreeRemoveExecutor(worktrees))
 	}
 	workflows := service.NewWorkflowServiceWithOutputs(db, executors, workflowArtifactRoot(cfg))
+	// Every change to a run's state, for the web UI (Server.StartWorkflowEvents).
+	workflows.SetEventBus(bus)
 	workflows.SetRepositoryPresets(workflowRepositoryPresets(cfg))
 	if opts.Presets != nil {
 		workflows.SetRepositorySource(opts.Presets.WorkflowPresets)

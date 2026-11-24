@@ -203,6 +203,87 @@ describe("web request traffic", () => {
     }
   })
 
+  function countingWorkflowFetch(counts: Map<string, number>) {
+    return vi.fn((input: RequestInfo | URL) => {
+      const path = requestPath(input)
+      counts.set(path, (counts.get(path) ?? 0) + 1)
+      if (path === "/api/workflows") return response({ definitions: [], errors: [], repositories: [] })
+      if (path === "/api/workflow-runs") return response([])
+      if (path === "/api/workflow-runs/run-a" || path === "/api/workflow-runs/run-b") return response({ run: { id: path.endsWith("run-a") ? "run-a" : "run-b" }, steps: [], attempts: [], artifacts: [] })
+      if (path === "/api/navigation-summary") return response({ attention: 0, review: 0, plans: 0, workflow_attention: 0, agents: 0 })
+      if (path === "/api/review/queue") return response([])
+      throw new Error(`unexpected request: ${path}`)
+    })
+  }
+
+  it("reads the trigger states again when a trigger or a workflow file changes", async () => {
+    const counts = new Map<string, number>()
+    vi.stubGlobal("fetch", countingWorkflowFetch(counts))
+    const client = createQueryClient()
+    render(<QueryClientProvider client={client}><QuerySyncProvider><WorkflowObservers/></QuerySyncProvider></QueryClientProvider>)
+    await waitFor(() => expect(counts.get("/api/navigation-summary")).toBe(1))
+
+    vi.useFakeTimers()
+    try {
+      act(() => { websocket.handler?.({ type: "workflow_changed", kind: "trigger" }) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(75) })
+      expect(counts.get("/api/workflows")).toBe(2)
+      // No run is named: no run page reads itself again.
+      expect(counts.get("/api/workflow-runs/run-a")).toBe(1)
+      act(() => { websocket.handler?.({ type: "workflow_changed", kind: "definitions" }) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(75) })
+      expect(counts.get("/api/workflows")).toBe(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("refreshes a run's list at least once a second while its events keep coming", async () => {
+    const counts = new Map<string, number>()
+    vi.stubGlobal("fetch", countingWorkflowFetch(counts))
+    const client = createQueryClient()
+    render(<QueryClientProvider client={client}><QuerySyncProvider><WorkflowObservers/></QuerySyncProvider></QueryClientProvider>)
+    await waitFor(() => expect(counts.get("/api/workflow-runs")).toBe(1))
+
+    vi.useFakeTimers()
+    try {
+      // An event every 50 ms never leaves the 75 ms quiet a burst waits for.
+      for (let elapsed = 0; elapsed < 2000; elapsed += 50) {
+        act(() => { websocket.handler?.({ type: "workflow_changed", workflow_run_id: "run-a", kind: "step_started" }) })
+        await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+      }
+      expect(counts.get("/api/workflow-runs")).toBeGreaterThanOrEqual(3)
+      expect(counts.get("/api/workflow-runs")).toBeLessThanOrEqual(4)
+      expect(counts.get("/api/workflow-runs/run-a")).toBeGreaterThanOrEqual(3)
+      expect(counts.get("/api/workflow-runs/run-b")).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("reads every open view again when the socket reconnects", async () => {
+    const counts = new Map<string, number>()
+    vi.stubGlobal("fetch", countingWorkflowFetch(counts))
+    function Observers() {
+      useWorkflowRun("run-a")
+      useWorkflowRuns()
+      useQuery({ queryKey: queryKeys.reviewQueue("", false), queryFn: () => fetch("/api/review/queue").then((res) => res.json()) })
+      return null
+    }
+    const client = createQueryClient()
+    const tree = () => <QueryClientProvider client={client}><QuerySyncProvider><Observers/></QuerySyncProvider></QueryClientProvider>
+    const view = render(tree())
+    await waitFor(() => expect(counts.get("/api/review/queue")).toBe(1))
+    expect(counts.get("/api/workflow-runs/run-a")).toBe(1)
+
+    // A laptop wakes: the socket opens again.
+    websocket.connectionGeneration = 2
+    view.rerender(tree())
+    await waitFor(() => expect(counts.get("/api/review/queue")).toBe(2))
+    expect(counts.get("/api/workflow-runs/run-a")).toBe(2)
+    expect(counts.get("/api/workflow-runs")).toBe(2)
+  })
+
   it("shares the visible plan queue with Layout and coalesces event bursts", async () => {
     const counts = new Map<string, number>()
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {

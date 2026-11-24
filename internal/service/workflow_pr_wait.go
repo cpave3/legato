@@ -217,8 +217,9 @@ func (s *WorkflowService) CheckPRWaits(ctx context.Context) error {
 const PRWaitChangedKind = "pr_wait"
 
 // checkPRWaits is CheckPRWaits, and the runs whose waiting pull request
-// changed what their needs-you item says or whose wait ended: neither
-// CompleteWaiting nor FailWaiting publishes anything itself.
+// changed what their needs-you item says or whose wait ended. CompleteWaiting
+// and FailWaiting publish the step's own change (workflow_events.go); a
+// change to the item while the step still waits is only this.
 func (s *WorkflowService) checkPRWaits(ctx context.Context) ([]string, error) {
 	executor, ok := s.executors[PRWaitStepType].(*PRWaitExecutor)
 	if !ok {

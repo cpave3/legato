@@ -103,7 +103,7 @@ func (s *Server) workflowTemplateAddHandler() http.HandlerFunc {
 		if name == "" {
 			name = template
 		}
-		s.hub.Broadcast(WSMessage{Type: MsgWorkflowChanged})
+		s.notifyWorkflowDefinitionsChanged()
 		s.writeJSON(w, http.StatusCreated, map[string]string{"name": name, "path": path})
 	}
 }
@@ -146,7 +146,7 @@ func (s *Server) workflowDraftHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		s.hub.Broadcast(WSMessage{Type: MsgWorkflowChanged})
+		s.notifyWorkflowDefinitionsChanged()
 		s.writeJSON(w, http.StatusCreated, map[string]string{"path": path, "triggers": "paused"})
 	}
 }

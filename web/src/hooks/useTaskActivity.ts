@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useServer } from "./useServer"
 import { useWebSocket, type WSMessage } from "./useWebSocket"
 import { fetchTaskActivity, toRelatedWork, emptyActivity, type RelatedWorkItem } from "../lib/task-activity"
+import { coalesce, isRunChange } from "../lib/querySync"
 
 interface AsyncState {
   items: RelatedWorkItem[]
@@ -43,13 +44,21 @@ export function useTaskActivity(taskId: string): AsyncState {
 
   useEffect(() => { void refresh() }, [refresh])
 
-  useEffect(() => subscribe((message: WSMessage) => {
-    if (message.type === "plan_changed" && message.task_id === taskId) return void refresh()
-    if (message.type === "review_changed" && message.task_id === taskId) return void refresh()
-    // workflow_changed carries no task_id; refetch so workflow-spawned agents
-    // reflect step transitions. The activity endpoint filters to this task.
-    if (message.type === "workflow_changed") return void refresh()
-  }), [refresh, subscribe, taskId])
+  useEffect(() => {
+    // A run's changes come several at once: one refetch for them.
+    const refreshRuns = coalesce(() => void refresh())
+    const unsubscribe = subscribe((message: WSMessage) => {
+      if (message.type === "plan_changed" && message.task_id === taskId) return void refresh()
+      if (message.type === "review_changed" && message.task_id === taskId) return void refresh()
+      // workflow_changed carries no task_id; refetch so workflow-spawned agents
+      // reflect step transitions. The activity endpoint filters to this task.
+      if (isRunChange(message)) refreshRuns()
+    })
+    return () => {
+      refreshRuns.cancel()
+      unsubscribe()
+    }
+  }, [refresh, subscribe, taskId])
 
   return { items, loading, error, refresh }
 }
