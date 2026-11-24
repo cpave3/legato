@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -381,5 +382,60 @@ func TestIPCMessage_AgentLinksChangedRefreshesTheWebUI(t *testing.T) {
 	handleServeIPCMessage(ipc.Message{Type: agentLinksChanged}, events.New(), serve)
 	if !serve.called {
 		t.Error("serve's web server was not told the agents changed")
+	}
+}
+
+// The TUI's web server hears a workflow change from another process once:
+// on the bus, which its forwarder sends on, and the advance loop reads.
+func TestIPCMessage_WorkflowChangedIsPublishedOnce(t *testing.T) {
+	bus := events.New()
+	srv := server.NewWithSwarm(nil, nil, nil, "", nil, bus, "")
+	srv.StartWorkflowEvents()
+	changed := bus.Subscribe(events.EventWorkflowChanged)
+
+	handleIPCMessage(ipc.Message{Type: "workflow_changed", WorkflowRunID: "wr-1", WorkflowStepID: "work", Kind: "completed_step"}, bus, srv)
+
+	payload, ok := drainEvent(t, changed).Payload.(events.WorkflowChangedPayload)
+	if !ok || payload.RunID != "wr-1" || payload.Kind != "completed_step" {
+		t.Fatalf("payload = %+v", payload)
+	}
+	select {
+	case event := <-changed:
+		t.Fatalf("published twice: %+v", event.Payload)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// A step's agent going idle shows on its run's page in the TUI's web server
+// as it does in serve's.
+func TestIPCMessage_AgentStateTellsTheRunPage(t *testing.T) {
+	notifier := &recordingServeNotifier{}
+	handleIPCMessage(ipc.Message{Type: "agent_state", TaskID: "task-1", Status: "idle"}, events.New(), notifier)
+	if len(notifier.agentChanged) != 1 || notifier.agentChanged[0] != "task-1" {
+		t.Fatalf("agent changed = %v", notifier.agentChanged)
+	}
+}
+
+// What the TUI's workflow service changes reaches a `legato serve` on the
+// same database, and the TUI does not act on its own message again.
+func TestTheTUIsWorkflowChangesReachOtherProcesses(t *testing.T) {
+	var sent []ipc.Message
+	listener := workflowChangeBroadcaster(func(msg ipc.Message) { sent = append(sent, msg) })
+	listener(events.WorkflowChangedPayload{RunID: "wr-1", StepID: "work", Kind: "step_started"})
+	if len(sent) != 1 || sent[0].Type != "workflow_changed" || sent[0].WorkflowRunID != "wr-1" || sent[0].WorkflowStepID != "work" || sent[0].Kind != "step_started" || sent[0].PID != os.Getpid() {
+		t.Fatalf("sent = %+v", sent)
+	}
+
+	bus := events.New()
+	changed := bus.Subscribe(events.EventWorkflowChanged)
+	notifier := &fakeNotifier{}
+	handleIPCMessage(sent[0], bus, notifier)
+	if notifier.workflowChanged {
+		t.Fatal("the TUI told its web UI of its own change again")
+	}
+	select {
+	case event := <-changed:
+		t.Fatalf("the TUI published its own change again: %+v", event.Payload)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
