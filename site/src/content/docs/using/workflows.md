@@ -151,6 +151,7 @@ Version 1 executes steps in declaration order and supports these executors. Lega
       pr_number: ${{ steps.implement.outputs.pr_number }}
       task: ${{ workflow.inputs.task }}
   ```
+- `chat.message.send`: post a message as a chat bot. `with.bot` is `slack` or `discord`; `with.channel` is a channel ID (empty: the bot's default channel); `with.text` is the message; `with.thread_id`, such as `${{ event.thread_id }}` from a chat trigger, replies in that thread. Outputs: `message_id`, `channel` and `thread_id` (what replies in the same thread). The step fails at once when the bot is not set up, is switched off, or its platform refused it. See [Slack](/legato/integrations/slack/) and [Discord](/legato/integrations/discord/).
 - `burnlite.task.close`: close the Burnlite ticket a task was imported from (`with.task`), as `completed` (the default) or `not_planned` (`with.reason`), with a one-line `with.summary`. With `optional: true`, a task that is not a Burnlite ticket is skipped (`skipped: true`) instead of failing the step. Outputs: `key`, `closed` and `skipped`. Legato must be connected to Burnlite with write access; see [Burnlite](/legato/integrations/burnlite/#close-a-ticket-from-a-workflow).
 - `repo.ensure`: prepare what a job works in. With an empty `with.repo` it does nothing and outputs `working_dir` as given in `with.working_dir`. With a repository (`owner/name`) it makes Legato's cache of it ready (cloning or fetching with the `github` credential, so a repository Legato cannot read fails here) and outputs `repo`, `ref` and `branch` for the agent step; giving both `repo` and `working_dir` is refused. `agent.run` with `with.repo` (and `with.ref`, `with.branch`) starts its agent in a fresh clone made for the agent's execution, on its own branch.
 - `agent.interview`, `learning.packet.prepare` and `learning.proposals.submit`: the steps of [Legato Learn](/legato/using/learn/), for your own workflows too. See [Learn steps](#learn-steps) below.
@@ -398,6 +399,36 @@ on:
 With no inputs to map, write `pr.changes_requested: {}`. The inputs may also read `${{ event.pr_url }}` and `${{ event.reviewer }}`. The [loop stop](#the-loop-stop) counts runs by the task.
 
 In the web UI's editor, the builder's **Triggers** section edits this trigger as a form: see [Create and edit in the web UI](#create-and-edit-in-the-web-ui).
+
+### Chat messages and mentions
+
+A `chat.message` trigger starts a workflow when a [Slack](/legato/integrations/slack/) or [Discord](/legato/integrations/discord/) bot you set up receives a message. A `chat.mention` trigger starts one only when the message mentions the bot, or is a direct message to it.
+
+```yaml
+on:
+  chat.message:
+    bot: slack
+    channel: C0123456789
+    user: U0123456789
+    text: {contains: deploy}
+    inputs:
+      request: ${{ event.text }}
+      thread: ${{ event.thread_id }}
+```
+
+- `bot` is required: `slack` or `discord`.
+- `channel` and `user` narrow it to one channel and one sender, by the platform's IDs.
+- `text` matches the message's text: `{contains: deploy}` ignores case; `{regex: "^deploy (\\w+)$"}` is a Go regular expression (add `(?i)` to ignore case). Give one of the two.
+- `include_bots: true` also starts runs on messages from other bots. The bot's own messages never start a run.
+- `loop_item` is what the [loop stop](#the-loop-stop) counts runs by: `channel` (the default) or `thread`.
+
+The inputs may read `${{ event.bot }}`, `${{ event.platform }}`, `${{ event.channel }}`, `${{ event.user }}`, `${{ event.text }}`, `${{ event.message_id }}` and `${{ event.thread_id }}`. `event.thread_id` is what a `chat.message.send` step's `thread_id` takes to reply to the message. Each message starts at most one run per trigger. A mention is a message too, so a workflow with both triggers gets a run from each.
+
+Message text is stored with the trigger request, cut to 8 KiB.
+
+A workflow that both listens to and posts in a channel cannot start itself, since the bot ignores its own messages. Two bots answering each other can still loop: the loop stop holds the fourth run in a day for one channel and asks you.
+
+If a workflow names a bot that is not set up on this Legato, or is switched off, the editor warns you; a bot name Legato does not know is an error.
 
 ### Pausing a trigger
 
