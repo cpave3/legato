@@ -114,9 +114,41 @@ describe("the ensemble's graph", () => {
     expect(within(await node(/^LEG-1, running/)).getByText("LEG-1 title").closest(".opacity-30")).toBeNull()
   })
 
-  it("says so when no agent is at the stage", async () => {
-    show([agent({ task_id: "LEG-1", stage: "reviewing" })], { layout: "graph", stageFilter: "planning", onStageFilter: vi.fn() })
+  it("keeps the graph drawn, dimmed, when the last agent at the stage moves on, and says none is at it", async () => {
+    const handlers = { onOpen: vi.fn(), onSpawn: vi.fn(), onShowList: vi.fn(), onSend: vi.fn(), onStageFilter: vi.fn() }
+    const client = createQueryClient()
+    const ui = (list: AgentInfo[]) => <QueryClientProvider client={client}><MemoryRouter><AgentEnsemble agents={list} layout="graph" stageFilter="implementing" {...handlers} /></MemoryRouter></QueryClientProvider>
+    const { rerender } = render(ui([agent({ task_id: "LEG-1", stage: "implementing" }), agent({ task_id: "LEG-2", stage: "planning" })]))
+    const before = await node(/^LEG-1, running/)
+    rerender(ui([agent({ task_id: "LEG-1", stage: "reviewing" }), agent({ task_id: "LEG-2", stage: "planning" })]))
     expect(await screen.findByText("No agents at this stage.")).toBeInTheDocument()
+    // The same node, not a new canvas.
+    expect((await node(/^LEG-1, running/))).toBe(before)
+    expect(within(before).getByText("LEG-1 title").closest(".opacity-30")).not.toBeNull()
+  })
+
+  it("groups agents that work together once the first read answers, though their clones placed them before it", async () => {
+    graph = {
+      agents: {
+        tri: { repo: "a/x", workflows: [{ run_id: "wr-1", step_id: "triage", role: "agent" }] },
+        other: { repo: "a/x" },
+        impl: { repo: "a/x", workflows: [{ run_id: "wr-1", step_id: "implement", role: "agent" }] },
+      },
+      links: [], peer_window_seconds: 1800, runs: { "wr-1": graphRun() },
+    }
+    let answer: (() => void) | null = null
+    apiFetch.mockImplementation(() => new Promise((resolve) => { answer = () => resolve(new Response(JSON.stringify(graph), { status: 200 })) }))
+    const clone = { repo: "a/x" } as AgentInfo["clone"]
+    show([
+      agent({ task_id: "tri", clone, started_at: "2026-11-23T08:00:00Z" }),
+      agent({ task_id: "other", clone, started_at: "2026-11-23T08:10:00Z" }),
+      agent({ task_id: "impl", clone, started_at: "2026-11-23T08:20:00Z" }),
+    ], { layout: "graph" })
+    await waitFor(() => expect(answer).not.toBeNull())
+    act(() => answer!())
+    const y = async (name: RegExp) => Number((await node(name)).style.transform.match(/translate\([^,]+,\s*([-\d.]+)px/)![1])
+    expect(await y(/^impl, /)).toBeLessThan(await y(/^other, /))
+    expect(await y(/^tri, /)).toBeLessThan(await y(/^impl, /))
   })
 
   it("draws the Reeve's watch lines faint, and in full while the Reeve is selected", async () => {

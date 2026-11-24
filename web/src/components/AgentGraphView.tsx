@@ -115,12 +115,15 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
     ? agents.filter((agent) => !readFor.has(agent.task_id) && !data.agents[agent.task_id] && !agent.clone?.repo).map((agent) => agent.task_id)
     : []), [agents, readFor, data])
   const layout = useMemo(() => {
+    // Nothing is kept from before the first read has settled: until then the
+    // links that order a box's agents are unknown.
+    if (!read) return layoutAgentGraph(agents, data, { now, direction, unfolded, collapsed, pending })
     const next = layoutAgentGraph(agents, data, { now, direction, unfolded, collapsed, pending, memory: memory.current })
     memory.current = next.memory
     return next
     // compacted lays the graph out again after Fit let go of held places.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agents, data, now, direction, unfolded, collapsed, pending, compacted])
+  }, [agents, data, read, now, direction, unfolded, collapsed, pending, compacted])
   // Fit the graph also closes up the places of agents that left.
   const fitGraph = useCallback(() => {
     if (memory.current) memory.current = compactGraphMemory(memory.current)
@@ -234,10 +237,14 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
       <div className="relative min-h-0 flex-1">
         {!read
           ? <LoadingState label="Reading the graph…" size="inline" />
-          : atStage.length === 0
-          ? <p className="py-12 text-center text-lw-faint">No agents at this stage.</p>
+          : agents.length === 0
+          ? <p className="py-12 text-center text-lw-faint">No agents running.</p>
           : <LazyAgentGraphCanvas layout={layout} direction={direction} selectedId={selected} onSelect={setSelected} onOpen={onOpen}
               onToggleFold={onToggleFold} onToggleBox={onToggleBox} focusOn={focusOn} fit={fit} faded={faded} />}
+        {/* Over the graph, which stays drawn (dimmed) so its view is kept. */}
+        {read && stageFilter && counted.length > 0 && faded.size === counted.length && (
+          <p className="pointer-events-none absolute inset-x-0 top-3 text-center text-lw-faint">No agents at this stage.</p>
+        )}
         {selectedNode && !(phone && panel) && (
           <SelectionCard node={selectedNode} layout={layout} agents={agents} phone={phone} onOpen={onOpen} onSend={onSend} onClose={() => setSelected(null)}
             onShowRun={(runId, button) => openPanel(runId, selectedNode.agentId, button)} />
