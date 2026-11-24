@@ -69,3 +69,63 @@ func TestEachLoopSeesItsOwnCheckWhenTwoRepositoriesShareAPRNumber(t *testing.T) 
 		t.Fatalf("widget's check items %+v; want its own failing build", checks)
 	}
 }
+
+// Ending a handoff mid-pass (Recall, Drop, or step 1 of a Return) ends its
+// pass and frees its reviewer slot: max_concurrent admits the next loop.
+func TestEndingAHandoffMidPassFreesItsReviewerSlot(t *testing.T) {
+	for name, end := range map[string]func(t *testing.T, r reviewed){
+		"recall": func(t *testing.T, r reviewed) {
+			if _, err := r.main.Handoffs.Recall(context.Background(), r.taskID); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"drop": func(t *testing.T, r reviewed) {
+			h, _ := r.worker.Store.OpenHandoffForTask(context.Background(), r.card)
+			if _, err := r.worker.Handoffs.Drop(context.Background(), h.MainInstanceID, h.HandoffID); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"return": func(t *testing.T, r reviewed) {
+			h, _ := r.worker.Store.OpenHandoffForTask(context.Background(), r.card)
+			if _, err := r.worker.Handoffs.Return(context.Background(), h.MainInstanceID, h.HandoffID); err != nil {
+				t.Fatal(err)
+			}
+			// Step 1 again (the main did not hear the answer): the note
+			// says the review ended.
+			back, err := r.worker.Handoffs.Return(context.Background(), h.MainInstanceID, h.HandoffID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if last := back.Notes[len(back.Notes)-1].Body; !strings.Contains(last, "Review passes: 1 pass(es); Review ended.") {
+				t.Fatalf("the review note of a repeated step 1: %q", last)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			widget := newReviewed(t, ReviewPassOptions{MaxConcurrent: 1})
+			widget.finish(t)
+			if phase := widget.loop(t).Phase; phase != service.ReviewPhaseReviewing {
+				t.Fatalf("widget's loop %q", phase)
+			}
+			gadget := widget.another(t, "acme/gadget", 8, "ccc333")
+			gadget.finish(t)
+			if phase := gadget.loop(t).Phase; phase != service.ReviewPhaseWaitingForReviewer {
+				t.Fatalf("gadget's loop %q; want it waiting for the only reviewer", phase)
+			}
+
+			end(t, widget)
+			gadget.tick()
+
+			if phase := gadget.loop(t).Phase; phase != service.ReviewPhaseReviewing {
+				t.Fatalf("gadget's loop %q after %s; want its pass started", phase, name)
+			}
+			pass, err := widget.worker.Store.GetHandoffReviewPass(context.Background(), widget.card, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pass.State != service.ReviewPassDiscarded {
+				t.Fatalf("widget's pass %q after %s; want it set aside", pass.State, name)
+			}
+		})
+	}
+}

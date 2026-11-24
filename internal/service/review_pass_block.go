@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 )
 
@@ -96,6 +97,8 @@ func (b *ReviewLoopBlock) Summary() string {
 		return summary
 	case ReviewPhaseStuck:
 		return "Review stuck: " + b.Reason
+	case ReviewPhaseEnded:
+		return "Review ended"
 	}
 	return ""
 }
@@ -204,12 +207,27 @@ func (s *ReviewPassService) latestReviews(ctx context.Context, taskID string, la
 	return out
 }
 
-// StopReview stops a card's reviewer: the handoff is closed (Drop, Leave,
-// unpair) and its loop ends with it, posting nothing more.
+// StopReview ends a card's review: its handoff ended (Return or Recall,
+// Drop, Leave, unpair) or its run was cancelled. The reviewer stops, a pass
+// in flight is discarded so nothing more is posted, and a loop that a pass
+// runs on or waits to run on ends (ReviewPhaseEnded), so it holds no
+// max_concurrent reviewer slot and the next queued loop may start. Ending
+// it is one transaction, and repeating it changes nothing.
 func (s *ReviewPassService) StopReview(ctx context.Context, taskID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_ = s.opts.Agents.KillAgentInSlot(ctx, taskID, SlotReviewer)
+	ended, err := s.db.EndHandoffReview(ctx, taskID, ReviewOutcomeClosed, "the review loop ended before the pass was posted", s.now())
+	if err != nil {
+		log.Printf("review passes: ending the loop of %s: %v", taskID, err)
+		return
+	}
+	s.setWaiting(taskID, "")
+	if ended {
+		for _, caller := range s.callers {
+			caller.Changed(taskID)
+		}
+	}
 }
 
 // ReviewNote sums up a card's passes and open items for the notes a Return

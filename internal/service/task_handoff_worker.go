@@ -490,7 +490,9 @@ type HandoffReviews interface {
 	ReviewBlock(ctx context.Context, taskID string) *HandoffReviewBlock
 	// ReviewNote sums the passes and open items up for a Return or Recall.
 	ReviewNote(ctx context.Context, taskID string) string
-	// StopReview stops the reviewer of a handoff that closed.
+	// StopReview ends the review of a handoff that ended (Return or
+	// Recall, Drop, unpair): its reviewer stops, a pass in flight is
+	// discarded, and its reviewer slot is free.
 	StopReview(ctx context.Context, taskID string)
 	// Override checks a main's override; SetSettings keeps a handoff's.
 	Override(o ReviewPassOverride) (ReviewPassSettings, error)

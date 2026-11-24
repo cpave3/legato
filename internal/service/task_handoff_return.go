@@ -71,6 +71,10 @@ func (s *HandoffWorkerService) Return(ctx context.Context, mainInstanceID, hando
 	if err != nil {
 		return HandoffReturn{}, err
 	}
+	// The review ends with step 1, once the note below sums it up as it
+	// stood: a returning handoff's loop never moves on, so a pass in flight
+	// would hold its reviewer slot for good.
+	defer s.stopReview(ctx, h)
 	if h.ClosedAt == nil {
 		s.stopAgent(ctx, h)
 		s.publish(events.EventHandoffChanged, h.TaskID)
@@ -122,6 +126,7 @@ func (s *HandoffWorkerService) FinishReturn(ctx context.Context, mainInstanceID,
 	}
 	if h.ClosedAt == nil {
 		s.stopAgent(ctx, h)
+		s.stopReview(ctx, h)
 		if err := s.db.CloseHandoffAndArchive(ctx, mainInstanceID, handoffID, s.opts.Now().UTC().Format(time.RFC3339)); err != nil {
 			return HandoffArchived{}, err
 		}
@@ -148,6 +153,15 @@ func (s *HandoffWorkerService) stopAgent(ctx context.Context, h *store.Handoff) 
 	}
 	if err := s.opts.Agents.KillAgent(ctx, h.TaskID); err != nil {
 		log.Printf("handoff %s: stopping its agent: %v", h.HandoffID, err)
+	}
+}
+
+// stopReview ends a handoff's review loop, if review passes run here: its
+// reviewer stops, a pass in flight is discarded, and its reviewer slot is
+// free for the next loop.
+func (s *HandoffWorkerService) stopReview(ctx context.Context, h *store.Handoff) {
+	if s.opts.Reviews != nil {
+		s.opts.Reviews.StopReview(ctx, h.TaskID)
 	}
 }
 

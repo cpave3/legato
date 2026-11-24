@@ -164,6 +164,32 @@ func (s *Store) DeleteHandoffReview(ctx context.Context, taskID string) error {
 	})
 }
 
+// EndHandoffReview ends a card's review loop that a pass runs on, waits to
+// run, or is about to start (phase ready, waiting_for_reviewer or
+// reviewing), in one transaction: the loop's phase becomes ended with
+// reason, and a pass in flight (reviewing or submitted) is discarded with
+// passReason. Such a loop holds no reviewer slot after. A loop in any other
+// phase (the author's turn, clean, stuck) keeps it. It says whether the
+// loop ended.
+func (s *Store) EndHandoffReview(ctx context.Context, taskID, reason, passReason, at string) (bool, error) {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE handoff_review_passes SET state = 'discarded', reason = ?, ended_at = ?
+		WHERE task_id = ? AND state IN ('reviewing', 'submitted')`, passReason, at, taskID); err != nil {
+		return false, err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE handoff_reviews SET phase = 'ended', reason = ?, queued_at = '', updated_at = ?
+		WHERE task_id = ? AND phase IN ('ready', 'waiting_for_reviewer', 'reviewing')`, reason, at, taskID)
+	if err != nil {
+		return false, err
+	}
+	n, _ := result.RowsAffected()
+	return n > 0, tx.Commit()
+}
+
 // InsertHandoffReviewPass records a pass and its pinned pull requests. A
 // discarded pass of the same number is replaced, the new one's Attempt one
 // past it; a pass of that number in any other state is a conflict.
