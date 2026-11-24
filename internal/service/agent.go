@@ -56,6 +56,9 @@ type AgentSession struct {
 	AttributionTaskID string // user-facing task this execution concerns
 	ExecutionKind     string
 	WorkflowRunID     string
+	// WorkflowAttemptID is the step attempt that started it, with
+	// WorkflowRunID.
+	WorkflowAttemptID string
 	// Engram is the engram the agent runs as, "" for none.
 	Engram        string
 	Title         string
@@ -2023,6 +2026,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			AttributionTaskID: attributionTaskID,
 			ExecutionKind:     s.ExecutionKind,
 			WorkflowRunID:     s.WorkflowRunID,
+			WorkflowAttemptID: s.WorkflowAttemptID,
 			Engram:            s.Engram,
 			Title:             title,
 			Group:             group,

@@ -404,6 +404,9 @@ type AgentSession struct {
 	AttributionTaskID string `db:"attribution_task_id"`
 	ExecutionKind     string `db:"execution_kind"`
 	WorkflowRunID     string `db:"workflow_run_id"`
+	// WorkflowAttemptID is the workflow step attempt that started its
+	// execution, "" for none.
+	WorkflowAttemptID string `db:"workflow_attempt_id"`
 	// Engram is the engram its execution runs as, "" for none.
 	Engram string `db:"engram"`
 	// WorkingDir is the directory its execution was started in, "" for a

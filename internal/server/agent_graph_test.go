@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -47,6 +48,40 @@ func TestTheAgentGraphGivesPlacesAndLinks(t *testing.T) {
 	}
 }
 
+func TestTheAgentGraphGivesEachAgentsPlaceInItsWorkflowRuns(t *testing.T) {
+	srv := New(nil, nil, nil, ":0")
+	srv.SetAgentGraphService(fakeAgentGraph{graph: service.AgentGraph{
+		Agents: map[string]service.AgentGraphPlace{"LEG-1": {Workflows: []service.AgentWorkflowPlace{{RunID: "wr-1", StepID: "review", Role: service.AgentRoleAuthor}}}},
+		Links:  []service.AgentLink{},
+		Runs: map[string]service.AgentGraphRun{"wr-1": {ID: "wr-1", WorkflowName: "flow", WorkflowTitle: "LEG-1 one-off", Status: "running",
+			CurrentStepID: "review", NeedsAttention: true, AttentionReason: "agent idle before step completion", Pass: 2, CreatedAt: "2026-11-24 04:00:00",
+			Steps: []store.WorkflowStepSummary{{StepID: "implement", Title: "Implement", Status: "succeeded"}, {StepID: "review", Title: "Review", Status: "waiting"}}}},
+	}})
+
+	var body struct {
+		Agents map[string]struct {
+			Workflows []map[string]any `json:"workflows"`
+		} `json:"agents"`
+		Runs map[string]map[string]any `json:"runs"`
+	}
+	if status := serveJSON(t, srv, http.MethodGet, "/api/agents/graph", "", &body); status != http.StatusOK {
+		t.Fatalf("status %d", status)
+	}
+	workflows := body.Agents["LEG-1"].Workflows
+	if len(workflows) != 1 || workflows[0]["run_id"] != "wr-1" || workflows[0]["step_id"] != "review" || workflows[0]["role"] != "author" {
+		t.Errorf("LEG-1's workflows = %v, want author on wr-1's review", workflows)
+	}
+	run := body.Runs["wr-1"]
+	if run["workflow_title"] != "LEG-1 one-off" || run["status"] != "running" || run["current_step_id"] != "review" ||
+		run["needs_attention"] != true || run["pass"] != float64(2) {
+		t.Errorf("wr-1 = %v", run)
+	}
+	steps, _ := run["steps"].([]any)
+	if len(steps) != 2 || steps[1].(map[string]any)["step_id"] != "review" || steps[1].(map[string]any)["status"] != "waiting" {
+		t.Errorf("wr-1's steps = %v", run["steps"])
+	}
+}
+
 func TestTheAgentGraphIsEmptyWithoutTheService(t *testing.T) {
 	srv := New(nil, nil, nil, ":0")
 	var body map[string]any
@@ -58,6 +93,9 @@ func TestTheAgentGraphIsEmptyWithoutTheService(t *testing.T) {
 	}
 	if agents, ok := body["agents"].(map[string]any); !ok || len(agents) != 0 {
 		t.Errorf("agents = %v, want an empty object", body["agents"])
+	}
+	if runs, ok := body["runs"].(map[string]any); !ok || len(runs) != 0 {
+		t.Errorf("runs = %v, want an empty object", body["runs"])
 	}
 }
 

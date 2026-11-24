@@ -1056,9 +1056,6 @@ func runServeCmd(args []string) int {
 	srv.SetJobCloneService(repos)
 	srv.SetTaskStackService(wireTaskStacks(db, bus, repos))
 	srv.SetRelatedAgentsService(service.NewRelatedAgentsService(db))
-	if graph := agentGraphFor(db, agentSvc); graph != nil {
-		srv.SetAgentGraphService(graph)
-	}
 	repos.SetCacheListener(srv.BroadcastRepositoryCache)
 	if built, workflowErr := buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: boardSvc, Sync: syncSvc, Agents: agentSvc, WorkDir: wd, Repos: repos, Presets: repoPresets}); workflowErr == nil {
 		workflowSvc = built
@@ -1083,6 +1080,9 @@ func runServeCmd(args []string) int {
 	approvalsRT.captureConversationText(db, bus, agentSvc)
 	approvalsRT.trackAgentBranches(db, prSvc)
 	defer approvalsRT.stop()
+	if graph := agentGraphFor(db, agentSvc, workflowSvc); graph != nil {
+		srv.SetAgentGraphService(graph)
+	}
 	defer approvalsRT.compactWaits(workflowSvc)()
 	approvalsRT.attach(srv)
 	updates := newUpdateService(db, bus, agentSvc, serveRestarter())
@@ -1511,7 +1511,7 @@ func runTUI() int {
 			webSrv.SetJobCloneService(repos)
 			webSrv.SetTaskStackService(taskStacks)
 			webSrv.SetRelatedAgentsService(service.NewRelatedAgentsService(db))
-			if graph := agentGraphFor(db, agentSvc); graph != nil {
+			if graph := agentGraphFor(db, agentSvc, tuiWorkflowSvc); graph != nil {
 				webSrv.SetAgentGraphService(graph)
 			}
 			repos.SetCacheListener(webSrv.BroadcastRepositoryCache)

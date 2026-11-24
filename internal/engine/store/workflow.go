@@ -505,6 +505,21 @@ func (s *Store) WaitWorkflowStepOnService(ctx context.Context, runID, path, atte
 	})
 }
 
+// ListWorkflowAttemptsForRuns lists every attempt of runIDs, oldest first.
+func (s *Store) ListWorkflowAttemptsForRuns(ctx context.Context, runIDs []string) ([]WorkflowStepAttempt, error) {
+	attempts := []WorkflowStepAttempt{}
+	if len(runIDs) == 0 {
+		return attempts, nil
+	}
+	query, args, err := sqlx.In("SELECT "+workflowAttemptColumns+` FROM workflow_step_attempts
+		WHERE run_id IN (?) ORDER BY started_at, id`, runIDs)
+	if err != nil {
+		return nil, err
+	}
+	err = s.db.SelectContext(ctx, &attempts, s.db.Rebind(query), args...)
+	return attempts, err
+}
+
 // ListWaitingWorkflowAttemptsByExecutor lists the attempts of one executor
 // type that wait on its service, oldest first.
 func (s *Store) ListWaitingWorkflowAttemptsByExecutor(ctx context.Context, executorType string) ([]WorkflowStepAttempt, error) {

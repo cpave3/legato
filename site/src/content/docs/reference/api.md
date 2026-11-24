@@ -120,7 +120,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `GET` | `/api/agents/{task_id}/preview` | read | Preview an agent's terminal |  |
 | `GET` | `/api/agents/{task_id}/conversation` | read | Read an agent's latest conversation |  |
 | `GET` | `/api/agents/{task_id}/related` | read | List the agents on the other side of an agent's review loops |  |
-| `GET` | `/api/agents/graph` | read | Read the agents' graph: each running agent's repository, worktree and badges, and the links between agents (recent peer messages, review runs, the Reeve's watches) |  |
+| `GET` | `/api/agents/graph` | read | Read the agents' graph: each running agent's repository, worktree, badges and place in its active workflow runs, those runs, and the links between agents (recent peer messages, review runs, the Reeve's watches) |  |
 | `GET` | `/api/agents/{task_id}/image` | read | Read an image an agent read |  |
 | `POST` | `/api/agents/{task_id}/image` | change | Store a pasted image for an agent |  |
 | `GET` | `/api/agents/{task_id}/ui-items` | read | List what an agent showed |  |

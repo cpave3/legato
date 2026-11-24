@@ -54,6 +54,50 @@ type AgentGraph struct {
 	// PeerWindowSeconds is how long a peer message's link stays, so the
 	// web UI can fade it.
 	PeerWindowSeconds int `json:"peer_window_seconds"`
+	// Runs is each active workflow run a running agent works for, by run
+	// ID: what the graph shows of where the run stands.
+	Runs map[string]AgentGraphRun `json:"runs"`
+}
+
+// Roles an agent has in a workflow run.
+const (
+	// AgentRoleAgent: an agent.run step started the agent.
+	AgentRoleAgent = "agent"
+	// AgentRoleInterview: an agent.interview step borrows the agent.
+	AgentRoleInterview = "interview"
+	// AgentRoleReviewer: the agent reviews in the run's review loop.
+	AgentRoleReviewer = "reviewer"
+	// AgentRoleAuthor: the agent authors the pull request the run's
+	// review loop reviews.
+	AgentRoleAuthor = "author"
+	// AgentRoleAwaited: the run's next step starts when the agent ends.
+	AgentRoleAwaited = "awaited"
+)
+
+// AgentWorkflowPlace is an agent's place in an active workflow run.
+type AgentWorkflowPlace struct {
+	RunID string `json:"run_id"`
+	// StepID is the top-level step the agent works on; its node in the
+	// run's workflow graph is "step:<StepID>".
+	StepID string `json:"step_id"`
+	Role   string `json:"role"`
+}
+
+// AgentGraphRun is an active run as the graph shows it, in the shape of the
+// runs list's runs.
+type AgentGraphRun struct {
+	ID            string `json:"id"`
+	WorkflowName  string `json:"workflow_name"`
+	WorkflowTitle string `json:"workflow_title"`
+	Status        string `json:"status"`
+	// CurrentStepID is the top-level step the run is at.
+	CurrentStepID   string                      `json:"current_step_id"`
+	NeedsAttention  bool                        `json:"needs_attention,omitempty"`
+	AttentionReason string                      `json:"attention_reason,omitempty"`
+	Steps           []store.WorkflowStepSummary `json:"steps"`
+	// Pass is the review loop's pass when the run is at its loop.
+	Pass      int    `json:"pass,omitempty"`
+	CreatedAt string `json:"created_at"`
 }
 
 // AgentGraphPlace is where an agent works.
@@ -64,6 +108,9 @@ type AgentGraphPlace struct {
 	// Worktree is the root of its Git worktree; agents in one are peers.
 	Worktree string       `json:"worktree,omitempty"`
 	Badges   []AgentBadge `json:"badges,omitempty"`
+	// Workflows are the active runs the agent works for, the one that
+	// needs the operator first, then the newest.
+	Workflows []AgentWorkflowPlace `json:"workflows,omitempty"`
 }
 
 // AgentBadge marks an agent with where its work came from.
@@ -91,12 +138,28 @@ type AgentGraphAgents interface {
 	ListAgents(ctx context.Context) ([]AgentSession, error)
 }
 
+// AgentGraphRuns lists workflow runs with what needs the operator
+// (WorkflowService).
+type AgentGraphRuns interface {
+	ListRuns(ctx context.Context, filter store.WorkflowRunFilter) ([]store.WorkflowRun, error)
+}
+
+// storeRuns lists runs from the store alone, without attention.
+type storeRuns struct{ db *store.Store }
+
+func (r storeRuns) ListRuns(ctx context.Context, filter store.WorkflowRunFilter) ([]store.WorkflowRun, error) {
+	return r.db.ListWorkflowRuns(ctx, filter)
+}
+
 // AgentGraphOptions are what the graph service reads.
 type AgentGraphOptions struct {
 	Store  *store.Store
 	Agents AgentGraphAgents
 	// Related gives the open review loops; nil draws none.
 	Related *RelatedAgentsService
+	// Runs lists the workflow runs agents work for; the store's runs,
+	// without what needs the operator, when nil.
+	Runs AgentGraphRuns
 	// Inspector reads a checkout's repository; nil leaves only job
 	// clones' and worktree folders' names.
 	Inspector CheckoutInspector
@@ -121,6 +184,9 @@ func NewAgentGraphService(opts AgentGraphOptions) *AgentGraphService {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
+	if opts.Runs == nil {
+		opts.Runs = storeRuns{db: opts.Store}
+	}
 	return &AgentGraphService{opts: opts, repos: map[string]repoPlace{}}
 }
 
@@ -130,13 +196,16 @@ func (s *AgentGraphService) Graph(ctx context.Context) (AgentGraph, error) {
 	if err != nil {
 		return AgentGraph{}, err
 	}
-	graph := AgentGraph{Agents: map[string]AgentGraphPlace{}, Links: []AgentLink{}, PeerWindowSeconds: int(PeerMessageWindow / time.Second)}
+	graph := AgentGraph{Agents: map[string]AgentGraphPlace{}, Links: []AgentLink{}, PeerWindowSeconds: int(PeerMessageWindow / time.Second),
+		Runs: map[string]AgentGraphRun{}}
 	running := map[string]bool{}
+	var live []AgentSession
 	for _, agent := range agents {
 		if agent.Status != "running" {
 			continue
 		}
 		running[agent.TaskID] = true
+		live = append(live, agent)
 		place, err := s.place(ctx, agent)
 		if err != nil {
 			return AgentGraph{}, err
@@ -150,6 +219,11 @@ func (s *AgentGraphService) Graph(ctx context.Context) (AgentGraph, error) {
 	}
 	for _, build := range []func(context.Context, func(AgentLink)) error{s.peerLinks, s.reviewLinks, s.reeveLinks} {
 		if err := build(ctx, add); err != nil {
+			return AgentGraph{}, err
+		}
+	}
+	if len(live) > 0 {
+		if err := s.workflowPlaces(ctx, live, &graph); err != nil {
 			return AgentGraph{}, err
 		}
 	}
