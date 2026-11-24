@@ -6,7 +6,9 @@ import { cn } from "../lib/utils"
 // can be opened in full. It knows nothing of what a tile stands for; the
 // native panel uses it for subagents and background shells.
 
-export type TileState = "spawning" | "running" | "waiting" | "done" | "error" | "interrupted" | "killed"
+// background is live but not working: its turn ended and work it started,
+// such as a shell, still runs.
+export type TileState = "spawning" | "running" | "waiting" | "background" | "done" | "error" | "interrupted" | "killed"
 
 export interface DeckTile {
   id: string
@@ -14,6 +16,9 @@ export interface DeckTile {
   // A short line under the title, such as the agent type.
   meta?: string
   state: TileState
+  // Says the state in the tile's own words, such as "waiting on 3 shells",
+  // in place of the state's label.
+  stateLabel?: string
   // When it started and ended, in milliseconds since the epoch.
   startedAt?: number
   endedAt?: number
@@ -48,11 +53,12 @@ const looks: Record<TileState, { label: string; glyph: string; chip: string; fra
   killed: { label: "killed", glyph: "■", chip: "bg-lw-idle-soft text-lw-text-2", frame: "border-lw-line" },
   running: { label: "running", glyph: "●", chip: "bg-lw-live-soft text-lw-live", frame: "border-[var(--theme-border,#2d3a33)]" },
   waiting: { label: "needs you", glyph: "◆", chip: "bg-lw-needs-soft text-lw-needs", frame: "border-[var(--theme-border,#4a3a1a)]" },
+  background: { label: "waiting on work", glyph: "◌", chip: "bg-lw-live-soft text-lw-text-2", frame: "border-dashed border-[var(--theme-border,#2d3a33)]" },
   done: { label: "done", glyph: "✓", chip: "bg-lw-done-soft text-lw-done", frame: "border-lw-line" },
   error: { label: "error", glyph: "✕", chip: "bg-lw-error-soft text-lw-error", frame: "border-[var(--theme-border,#4a2a2e)]" },
 }
 
-const live = (tile: DeckTile) => tile.state === "spawning" || tile.state === "running" || tile.state === "waiting"
+const live = (tile: DeckTile) => tile.state === "spawning" || tile.state === "running" || tile.state === "waiting" || tile.state === "background"
 
 export function TileDeck(props: TileDeckProps) {
   const { tiles, focused, onFocus } = props
@@ -214,7 +220,7 @@ function TileCard({ tile, now, open = false, highlighted = false, onOpen }: {
 
   return (
     <article
-      aria-label={`${tile.title}, ${look.label}`}
+      aria-label={`${tile.title}, ${tile.stateLabel ?? look.label}`}
       onClick={onOpen}
       className={cn("flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[10px] border bg-lw-surface transition-colors",
         onOpen && "cursor-pointer hover:border-lw-accent",
@@ -332,7 +338,7 @@ function Sheet({ tile, now, onClose, onStep, position }: {
 
 function Counts({ tiles }: { tiles: DeckTile[] }) {
   const count = (state: TileState) => tiles.filter((tile) => tile.state === state).length
-  const parts: Array<[TileState, string]> = [["spawning", "text-lw-live"], ["interrupted", "text-lw-text-2"], ["killed", "text-lw-text-2"], ["waiting", "text-lw-needs"], ["running", "text-lw-live"], ["done", "text-lw-done"], ["error", "text-lw-error"]]
+  const parts: Array<[TileState, string]> = [["spawning", "text-lw-live"], ["interrupted", "text-lw-text-2"], ["killed", "text-lw-text-2"], ["waiting", "text-lw-needs"], ["running", "text-lw-live"], ["background", "text-lw-text-2"], ["done", "text-lw-done"], ["error", "text-lw-error"]]
   return (
     <ul aria-label="By state" className="m-0 flex list-none flex-wrap gap-x-3 p-0 text-xs">
       {parts.map(([state, tone]) => count(state) > 0 && (
@@ -348,7 +354,7 @@ function StateChip({ tile, now }: { tile: DeckTile; now: number }) {
   const time = tile.startedAt !== undefined && end !== undefined ? formatDuration(end - tile.startedAt) : ""
   return (
     <span className={cn("whitespace-nowrap rounded px-2 font-lw-mono text-[11px] uppercase", look.chip)}>
-      <span aria-hidden="true">{look.glyph}</span> {look.label}{time && ` ${time}`}
+      <span aria-hidden="true">{look.glyph}</span> {tile.stateLabel ?? look.label}{time && ` ${time}`}
     </span>
   )
 }

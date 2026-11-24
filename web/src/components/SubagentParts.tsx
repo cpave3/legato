@@ -1,3 +1,4 @@
+import type { BackgroundJob } from "../hooks/useWebSocket"
 import { toolDisplayName } from "../lib/mcpToolName"
 import type { NativeSubagentState } from "../lib/nativeAgentSync"
 import { cn } from "../lib/utils"
@@ -29,6 +30,21 @@ export function SubagentActivity({ subagent }: { subagent?: NativeSubagentState 
         return <li key={activity.key} className={cn("whitespace-pre-wrap break-words", failed ? "text-lw-error" : "text-lw-text")}>{activity.text}</li>
       })}
     </ol>
+  )
+}
+
+// SubagentShells lists the shells a subagent started that still run, which
+// it waits on once its own turn has ended.
+export function SubagentShells({ shells }: { shells: BackgroundJob[] }) {
+  return (
+    <ul aria-label="Shells" className="m-0 mt-1.5 flex list-none flex-col gap-0.5 border-t border-lw-line p-0 pt-1.5 text-xs text-lw-text-2">
+      {shells.map((shell) => (
+        <li key={shell.id} title={`Started ${new Date(shell.started_at).toLocaleTimeString()}`} className="flex min-w-0 items-baseline gap-1.5">
+          <span aria-hidden="true" className="font-lw-mono text-[11px] text-lw-faint">$</span>
+          <span className="min-w-0 truncate font-lw-mono text-[11.5px]">{shell.label}</span>
+        </li>
+      ))}
+    </ul>
   )
 }
 
