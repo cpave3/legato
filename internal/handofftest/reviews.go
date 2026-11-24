@@ -450,3 +450,12 @@ func (f *FakeReviewGitHub) Fetched() []int {
 	defer f.mu.Unlock()
 	return append([]int(nil), f.fetched...)
 }
+
+// OpenForkPR opens a pull request onto main from branch of headRepo, a
+// fork, at head.
+func (f *FakeReviewGitHub) OpenForkPR(number int, branch, head, headRepo string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.prs[headRepo+":"+branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: "main", Title: fmt.Sprintf("PR %d", number), HeadSHA: head,
+		Author: "someone", HeadRepo: headRepo}
+}

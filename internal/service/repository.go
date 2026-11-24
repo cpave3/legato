@@ -391,6 +391,10 @@ type JobCloneRequest struct {
 	// CloneID, when set, is a job clone to work in instead of a new one.
 	// Without it, a task with a clone of Repo works in that one again.
 	CloneID int64
+	// Own asks for a new clone even when the task has a live clone of
+	// Repo: a reviewer's, which resets its tree before each pass and is
+	// removed when its loop ends, so it must never be an author's.
+	Own bool
 }
 
 var executionName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -401,7 +405,7 @@ func (s *RepositoryService) JobDir(executionID string) string {
 }
 
 // JobClone gives a task a job clone to work in: the one CloneID names,
-// else the task's own clone of Repo when it has one, else a new clone of
+// else the task's own clone of Repo when it has one (unless Own), else a new clone of
 // the repository at the ref, at jobs/<execution>/<name> beside the cache,
 // whose objects it borrows. A new clone's origin names the repository on
 // GitHub; when the session's pushes do not go to Legato's proxy, they go
@@ -418,7 +422,7 @@ func (s *RepositoryService) JobClone(ctx context.Context, req JobCloneRequest) (
 		}
 		return s.joinJobClone(ctx, req, *clone)
 	}
-	if own, err := s.opts.Store.LiveJobCloneForTask(ctx, req.TaskID, req.Repo); err == nil {
+	if own, err := s.opts.Store.LiveJobCloneForTask(ctx, req.TaskID, req.Repo); err == nil && !req.Own {
 		if _, statErr := os.Lstat(own.Path); statErr == nil {
 			return s.joinJobClone(ctx, req, *own)
 		}

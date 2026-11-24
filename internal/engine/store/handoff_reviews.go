@@ -69,6 +69,12 @@ type HandoffReviewPR struct {
 	// Event is the pass's review of it: APPROVE or COMMENT as posted,
 	// kept when an earlier approval stands; "" before it is posted.
 	Event string `db:"event"`
+	// LocalBranch is the branch of the reviewer's checkout the head was
+	// put on when it is not Branch; "" otherwise.
+	LocalBranch string `db:"local_branch"`
+	// HeadRepo is the repository (owner/name) the head branch is in, when
+	// read; a fork's differs from Repo.
+	HeadRepo string `db:"head_repo"`
 }
 
 // HandoffReviewFinding is one finding of a pass, with its ruling by a later one.
@@ -147,8 +153,8 @@ func (s *Store) InsertHandoffReviewPass(ctx context.Context, p HandoffReviewPass
 	}
 	for _, pr := range prs {
 		if _, err := tx.NamedExecContext(ctx, `
-			INSERT INTO handoff_review_prs (task_id, pass, repo, number, branch, base, title, body, url, head_sha, review_id, review_url, author)
-			VALUES (:task_id, :pass, :repo, :number, :branch, :base, :title, :body, :url, :head_sha, :review_id, :review_url, :author)`, pr); err != nil {
+			INSERT INTO handoff_review_prs (task_id, pass, repo, number, branch, base, title, body, url, head_sha, review_id, review_url, author, local_branch, head_repo)
+			VALUES (:task_id, :pass, :repo, :number, :branch, :base, :title, :body, :url, :head_sha, :review_id, :review_url, :author, :local_branch, :head_repo)`, pr); err != nil {
 			return err
 		}
 	}

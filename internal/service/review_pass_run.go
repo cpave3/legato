@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/stackgraph"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -264,8 +265,12 @@ func (c *ReviewRunCaller) Start(ctx context.Context, step ResolvedWorkflowStep) 
 			return WorkflowExecutionResult{}, fmt.Errorf("fetching the head of #%d: %w", p.Number, err)
 		}
 	}
+	local := reviewRunBranches(repo, prs)
+	// Its own clone: the run's task may have one already, an author's,
+	// and the reviewer resets its clone before each pass and removes it at
+	// the end.
 	clone, err := c.opts.Clones.JobClone(ctx, JobCloneRequest{ExecutionID: step.AttemptID, TaskID: step.TaskID, Repo: repo, Ref: pr.HeadSHA,
-		FreshBranch: reviewRunBranch(number)})
+		FreshBranch: local[number], Own: true})
 	if err != nil {
 		return WorkflowExecutionResult{}, fmt.Errorf("cloning %s at the head of #%d: %w", repo, number, err)
 	}
@@ -275,7 +280,7 @@ func (c *ReviewRunCaller) Start(ctx context.Context, step ResolvedWorkflowStep) 
 		// One branch of the clone per layer, each put at its head by
 		// Checkout before every pass.
 		for _, p := range prs {
-			branch := reviewRunBranch(p.Number)
+			branch := local[p.Number]
 			if p.Number == number {
 				branch = clone.Branch
 			}
@@ -379,6 +384,34 @@ func (c *ReviewRunCaller) removeClone(ctx context.Context, run *reviewRun) {
 
 func reviewRunBranch(number int) string { return fmt.Sprintf("legato-review/pr-%d", number) }
 
+// reviewRunBranches names the branch of the reviewer's clone each pull
+// request is checked out on: its head branch on GitHub, so git status says
+// which pull request is under review, or legato-review/pr-<n> when the head
+// is in a fork, or its name is its base's or another layer's.
+func reviewRunBranches(repo string, prs []ReviewGitHubPR) map[int]string {
+	out := map[int]string{}
+	heads := map[string]bool{}
+	for _, p := range prs {
+		heads[p.Branch] = true
+	}
+	used := map[string]bool{} // the stack's bases that are no layer's head
+	for _, p := range prs {
+		if !heads[p.Base] {
+			used[p.Base] = true
+		}
+	}
+	for _, p := range prs {
+		branch := p.Branch
+		fork := p.HeadRepo != "" && !strings.EqualFold(p.HeadRepo, repo)
+		if branch == "" || fork || used[branch] || !stackgraph.ValidBranchName(branch) {
+			branch = reviewRunBranch(p.Number)
+		}
+		used[branch] = true
+		out[p.Number] = branch
+	}
+	return out
+}
+
 // Loops are the runs whose review step waits on its loop.
 func (c *ReviewRunCaller) Loops(ctx context.Context) ([]ReviewLoop, error) {
 	if c.workflows == nil {
@@ -434,7 +467,7 @@ func (c *ReviewRunCaller) Checkout(ctx context.Context, l ReviewLoop) (string, [
 		if err := c.opts.Clones.Reset(ctx, run.Dir, branches[pr.Number], pr.HeadSHA); err != nil {
 			return "", nil, &ReviewCheckoutError{Err: err}
 		}
-		open[i].Branch = branches[pr.Number]
+		open[i].LocalBranch = branches[pr.Number]
 	}
 	return run.Dir, open, nil
 }

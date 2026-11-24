@@ -140,7 +140,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
   https://server:3080/api/workflows/review-pr-passes/runs
 ```
 
-Legato makes its own clone of the pull request's head (a fork's too) and starts pass 1 at once, in the run's reviewer slot. Each pass is posted as a GitHub review from the reviewer App, as for a handoff. The author is whoever owns the branch: Legato only reviews, and the author fixes by pushing and answers by replying in the review threads on GitHub. Only the reviewer's findings count: comments from other people are not items of this loop, and neither are required checks unless an agent authors it (below). No card moves.
+Legato makes the reviewer a clone of its own at the pull request's head (a fork's too) and starts pass 1 at once, in the run's reviewer slot. The clone is never one an author works in, even when an earlier step of the same run cloned the repository. It is on a branch named after the pull request's head branch, so `git status` in it says which pull request is under review; a head in a fork is on `legato-review/pr-<n>` instead. The reviewer's brief names the head branch, its commit, and the branch the checkout is on. Each pass is posted as a GitHub review from the reviewer App, as for a handoff. The author is whoever owns the branch: Legato only reviews, and the author fixes by pushing and answers by replying in the review threads on GitHub. Only the reviewer's findings count: comments from other people are not items of this loop, and neither are required checks unless an agent authors it (below). No card moves.
 
 ### Tuning one loop
 

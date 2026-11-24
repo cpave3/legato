@@ -41,7 +41,15 @@ func (s *ReviewPassService) brief(ctx context.Context, l ReviewLoop, pass int, p
 	}
 	b.WriteString("## Pull requests\n\n")
 	for _, pr := range prs {
-		fmt.Fprintf(&b, "### #%d %s\n\n- branch `%s`, base `%s`\n- pinned head `%s` (also at `%s`)\n\n", pr.Number, pr.Title, pr.Branch, pr.Base, pr.HeadSHA, pinRef(l.TaskID, pass, pr.Number))
+		fork := ""
+		if pr.HeadRepo != "" && !strings.EqualFold(pr.HeadRepo, l.Repo) {
+			fork = " (in " + pr.HeadRepo + ")"
+		}
+		fmt.Fprintf(&b, "### #%d %s\n\n- branch `%s`%s, base `%s`\n- pinned head `%s` (also at `%s`)\n", pr.Number, pr.Title, pr.Branch, fork, pr.Base, pr.HeadSHA, pinRef(l.TaskID, pass, pr.Number))
+		if pr.LocalBranch != "" {
+			fmt.Fprintf(&b, "- Your checkout is on `%s` at `%s`.\n", pr.LocalBranch, pr.HeadSHA)
+		}
+		b.WriteString("\n")
 		if body := strings.TrimSpace(pr.Body); body != "" {
 			b.WriteString("<pr-description>\n" + body + "\n</pr-description>\n\n")
 		}
