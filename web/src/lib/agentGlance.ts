@@ -171,34 +171,83 @@ export async function fetchAgentConversation(baseUrl: string, taskId: string): P
 }
 
 // What an agent in the background waits on: its one job by kind and label;
-// else its subagents (at any depth) by what they do, working or waiting on
-// work of their own, and how many other jobs run; "" for none.
+// else its subagents (at any depth) as subagentsLabel counts them, and how
+// many jobs of its own run. A job a listed subagent started is the
+// subagent's, not the agent's.
 export function backgroundSummary(jobs: BackgroundJob[] | undefined): string {
   if (!jobs || jobs.length === 0) return ""
   if (jobs.length === 1) return `${jobs[0].kind}: ${jobs[0].label}`
-  let working = 0, waiting = 0, other = 0
-  for (const job of jobs) {
-    if (job.kind !== "subagent") other++
-    else if (job.state === "background") waiting++
-    else working++
-  }
-  if (working + waiting === 0) return `${jobs.length} jobs`
-  const parts = [working > 0 ? `${plural(working, "sub-agent")} working` : `${plural(waiting, "sub-agent")} waiting`]
-  if (other > 0) parts.push(plural(other, "job"))
-  return parts.join(" · ")
+  const subagents = subagentsLabel(jobs)
+  if (!subagents) return `${jobs.length} jobs`
+  const ids = new Set(jobs.filter((job) => job.kind === "subagent").map((job) => job.id))
+  const own = jobs.filter((job) => job.kind !== "subagent" && !(job.parent && ids.has(job.parent))).length
+  return own > 0 ? `${subagents} · ${plural(own, "job")}` : subagents
 }
 
 function plural(n: number, noun: string): string {
   return n === 1 ? `1 ${noun}` : `${n} ${noun}s`
 }
 
-// subagentsLabel says how many of an agent's subagents work ("2 sub-agents
-// working"), or wait on work of their own; "" for none.
+// SubagentCounts counts an agent's subagents at any depth by what they do:
+// working, needing the operator, or waiting (their turn ended and work they
+// started still runs).
+export interface SubagentCounts {
+  total: number
+  working: number
+  needsYou: number
+  waiting: number
+  // Whether every waiting one waits on at least one shell.
+  waitingOnShells: boolean
+}
+
+export function subagentCounts(nodes: SubagentNode[]): SubagentCounts {
+  const waiting = nodes.filter((node) => node.job.state === "background")
+  return {
+    total: nodes.length,
+    working: nodes.filter((node) => node.job.state !== "background" && node.job.state !== "waiting").length,
+    needsYou: nodes.filter((node) => node.job.state === "waiting").length,
+    waiting: waiting.length,
+    waitingOnShells: waiting.length > 0 && waiting.every((node) => node.shells.length > 0),
+  }
+}
+
+// subagentsLabel says how many subagents an agent runs and what they do:
+// "7 sub-agents · 1 working · 6 waiting on shells", or for one,
+// "1 sub-agent · waiting on 3 shells"; "" for none.
 export function subagentsLabel(jobs: BackgroundJob[] | undefined): string {
   const nodes = subagentTree(jobs)
   if (nodes.length === 0) return ""
-  const working = nodes.filter((node) => node.job.state !== "background").length
-  return working > 0 ? `${plural(working, "sub-agent")} working` : `${plural(nodes.length, "sub-agent")} waiting`
+  if (nodes.length === 1) return `1 sub-agent · ${subagentDoing(nodes[0])}`
+  const counts = subagentCounts(nodes)
+  const parts = [`${counts.total} sub-agents`]
+  if (counts.working > 0) parts.push(`${counts.working} working`)
+  if (counts.needsYou > 0) parts.push(`${counts.needsYou} ${counts.needsYou === 1 ? "needs" : "need"} you`)
+  if (counts.waiting > 0) parts.push(`${counts.waiting} ${counts.waitingOnShells ? "waiting on shells" : "waiting"}`)
+  return parts.join(" · ")
+}
+
+// subagentDoing is what one subagent does, in a few words.
+export function subagentDoing(node: SubagentNode): string {
+  switch (node.job.state) {
+    case "background":
+      return subagentWaitsOn(node)
+    case "waiting":
+      return "needs you"
+    default:
+      return "working"
+  }
+}
+
+// subagentWaitsOn says what a subagent whose turn ended waits on: "waiting
+// on 3 shells", "waiting on 1 shell · 1 sub-agent"; "finishing" when nothing
+// it started is listed.
+export function subagentWaitsOn(node: SubagentNode): string {
+  const on = [
+    node.shells.length > 0 && plural(node.shells.length, "shell"),
+    node.subagents > 0 && plural(node.subagents, "sub-agent"),
+    node.jobs > 0 && plural(node.jobs, "job"),
+  ].filter(Boolean).join(" · ")
+  return on ? `waiting on ${on}` : "finishing"
 }
 
 // SubagentNode is one subagent in an agent's tree, at depth 1 for one the
@@ -206,7 +255,9 @@ export function subagentsLabel(jobs: BackgroundJob[] | undefined): string {
 export interface SubagentNode {
   job: BackgroundJob
   depth: number
-  // What it started that still runs: subagents and other jobs.
+  // What it started that still runs: its shells, how many subagents, and
+  // how many other jobs (monitors, crons).
+  shells: BackgroundJob[]
   subagents: number
   jobs: number
 }
@@ -224,7 +275,13 @@ export function subagentTree(jobs: BackgroundJob[] | undefined): SubagentNode[] 
       if (job.kind !== "subagent" || parentOf(job) !== parent || seen.has(job.id)) continue
       seen.add(job.id)
       const children = jobs.filter((child) => parentOf(child) === job.id)
-      out.push({ job, depth, subagents: children.filter((c) => c.kind === "subagent").length, jobs: children.filter((c) => c.kind !== "subagent").length })
+      out.push({
+        job,
+        depth,
+        shells: children.filter((c) => c.kind === "bash"),
+        subagents: children.filter((c) => c.kind === "subagent").length,
+        jobs: children.filter((c) => c.kind !== "subagent" && c.kind !== "bash").length,
+      })
       walk(job.id, depth + 1)
     }
   }
