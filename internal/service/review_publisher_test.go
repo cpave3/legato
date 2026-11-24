@@ -57,6 +57,8 @@ type reviewGitHub struct {
 	// the methods of every request.
 	pulls   []map[string]any
 	methods []string
+	// headReads are the permissions of each token that read #12 itself.
+	headReads []map[string]any
 }
 
 const reviewPatch = "@@ -1,3 +1,4 @@\n package main\n-import \"fmt\"\n+import \"os\"\n+\n func main() {\n@@ -20,2 +21,3 @@ func helper() {\n \treturn\n+\t// done\n }"
@@ -102,6 +104,11 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 				}
 			}
 			_ = json.NewEncoder(w).Encode(out)
+		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/pulls/12":
+			g.headReads = append(g.headReads, perms)
+			pull := githubPull(12, "feature", "main", "legato-author[bot]")
+			pull["state"] = "open"
+			_ = json.NewEncoder(w).Encode(pull)
 		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/pulls/12/files":
 			_ = json.NewEncoder(w).Encode([]map[string]any{{"filename": "main.go", "patch": reviewPatch}, {"filename": "big.bin"}})
 		case r.Method == "GET" && g.lists != nil && g.lists[r.URL.Path] != nil:
@@ -582,5 +589,26 @@ func TestAStackIsFollowedOnGitHubWithGETsOnly(t *testing.T) {
 		if m != "GET" && m != "POST" && m != "DELETE" {
 			t.Fatalf("methods %v", f.github.methods)
 		}
+	}
+}
+
+// A pass's heads are read from GitHub as the reviewer App, with a read
+// token: no write permission is asked for.
+func TestAPullRequestsHeadIsReadFromGitHubAsTheReviewerApp(t *testing.T) {
+	f := newPublisherFixture(t)
+
+	pr, state, err := f.publisher.PullRequest(context.Background(), "cpave3/legato", 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if pr.HeadSHA != "sha12" || pr.Number != 12 || state != "open" {
+		t.Fatalf("pull request %+v, state %q", pr, state)
+	}
+	// The reviewer App's read permissions (the author App's token has no
+	// checks read), with no write.
+	if len(f.github.headReads) != 1 || f.github.headReads[0]["checks"] != "read" || f.github.headReads[0]["pull_requests"] != "read" ||
+		f.github.headReads[0]["contents"] != "read" {
+		t.Fatalf("read with %v", f.github.headReads)
 	}
 }

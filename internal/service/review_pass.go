@@ -111,6 +111,10 @@ type ReviewGitHub interface {
 	// OpenPulls are the open pull requests with a head or a base branch
 	// (FindReviewStack follows them).
 	OpenPulls(ctx context.Context, repo string, q PullQuery) ([]ReviewGitHubPR, error)
+	// PullRequest is one pull request and its state (open, closed or
+	// merged): its head is read again before a pass's reviews are
+	// posted.
+	PullRequest(ctx context.Context, repo string, number int) (ReviewGitHubPR, string, error)
 	PostReview(ctx context.Context, post ReviewPost) (PostedReview, error)
 	PostIssueComment(ctx context.Context, who GitHubIdentity, repo string, number int, body string) (int64, error)
 	PollComments(ctx context.Context, repo string, number int, pages PollPages) (CommentPoll, error)
@@ -686,6 +690,16 @@ func (s *ReviewPassService) saveChanged(ctx context.Context, loop *store.Handoff
 		caller.Changed(loop.TaskID)
 	}
 	return nil
+}
+
+// passReviewMarker is the marker of a pass's review of a pull request. A pass
+// pinned again after a discard (Attempt > 0) has markers of its own, so a
+// review a discarded attempt left on GitHub is never taken for its own.
+func passReviewMarker(pass store.HandoffReviewPass, number int) string {
+	if pass.Attempt > 0 {
+		return fmt.Sprintf("%s/pass-%d.%d/pr-%d", pass.TaskID, pass.Pass, pass.Attempt, number)
+	}
+	return fmt.Sprintf("%s/pass-%d/pr-%d", pass.TaskID, pass.Pass, number)
 }
 
 // pinRef is the ref a pass's pinned head is kept under.

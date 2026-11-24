@@ -101,11 +101,16 @@ func (s *ReviewPassService) Submit(ctx context.Context, taskID, executionID stri
 	if problems := s.validate(ctx, pass, prs, earlier, sub); len(problems) > 0 {
 		return ReviewSubmitResult{}, &ReviewSubmissionError{Problems: problems}
 	}
-	if moved := s.moved(ctx, pass); moved != "" {
+	moved, err := s.headsMoved(ctx, pass, prs)
+	if err != nil {
+		// GitHub did not answer: the check before posting decides.
+		log.Printf("review passes: %s: reading the heads of pass %d at submit: %v", taskID, pass.Pass, err)
+	}
+	if moved != "" {
 		if err := s.discard(ctx, loop, *pass, moved); err != nil {
 			return ReviewSubmitResult{}, err
 		}
-		return ReviewSubmitResult{Message: "The author's checkout changed while you reviewed (" + moved + "), so Legato set this result aside and will review again. You are done."}, nil
+		return ReviewSubmitResult{Message: "What you reviewed changed while you reviewed (" + moved + "), so Legato set this result aside and will review the new heads. You are done."}, nil
 	}
 
 	verdict := VerdictClean
@@ -315,6 +320,44 @@ func onChangedLines(p *ReviewPlace, changed map[string][][2]int) bool {
 	return false
 }
 
+// headsMoved says how what a pass reviews differs from what it pinned:
+// the checkout (moved), or a head on GitHub, read as the reviewer App, of
+// any of layers; "" when nothing moved. An error is GitHub not answering:
+// whether a head moved is not known.
+func (s *ReviewPassService) headsMoved(ctx context.Context, pass *store.HandoffReviewPass, layers []store.HandoffReviewPR) (string, error) {
+	if moved := s.moved(ctx, pass); moved != "" {
+		return moved, nil
+	}
+	var why []string
+	for _, pr := range layers {
+		now, _, err := s.opts.GitHub.PullRequest(ctx, pr.Repo, pr.Number)
+		if err != nil {
+			return "", fmt.Errorf("reading the head of #%d: %w", pr.Number, err)
+		}
+		if now.HeadSHA != pr.HeadSHA {
+			why = append(why, fmt.Sprintf("#%d moved from %s to %s on GitHub", pr.Number, short(pr.HeadSHA), short(now.HeadSHA)))
+		}
+	}
+	return strings.Join(why, "; "), nil
+}
+
+// beforePost is the check every post of a pass's reviews goes through:
+// once for every layer before the first, and for each layer again just
+// before its own. A head that moved discards the pass (D2), and nothing
+// more of it is posted (false). An error leaves the pass submitted, to be
+// tried again on the next tick. Later checks before a write (the loop
+// still open) belong here too.
+func (s *ReviewPassService) beforePost(ctx context.Context, loop *store.HandoffReview, pass *store.HandoffReviewPass, layers []store.HandoffReviewPR) (bool, error) {
+	moved, err := s.headsMoved(ctx, pass, layers)
+	if err != nil {
+		return false, err
+	}
+	if moved != "" {
+		return false, s.discard(ctx, loop, *pass, moved)
+	}
+	return true, nil
+}
+
 // moved says how the author's checkout differs from the pass's pin: HEAD,
 // or the working tree; "" when it does not.
 func (s *ReviewPassService) moved(ctx context.Context, pass *store.HandoffReviewPass) string {
@@ -330,13 +373,19 @@ func (s *ReviewPassService) moved(ctx context.Context, pass *store.HandoffReview
 	return ""
 }
 
-// discard sets a pass's result aside: nothing is posted, and a new pass
-// starts once the author is idle.
+// discard sets a pass's result aside: nothing more of it is posted, its
+// findings and rulings do not stand, and it counts toward no limit. The
+// same pass is pinned again at the new heads once the author is idle, so
+// pushes made by then fold into it.
 func (s *ReviewPassService) discard(ctx context.Context, loop *store.HandoffReview, pass store.HandoffReviewPass, why string) error {
 	_ = s.opts.Agents.KillAgentInSlot(ctx, loop.TaskID, SlotReviewer)
 	pass.State, pass.Reason, pass.EndedAt = ReviewPassDiscarded, why, s.now()
-	if err := s.db.UpdateHandoffReviewPass(ctx, pass); err != nil {
+	if err := s.db.DiscardHandoffReviewPass(ctx, pass); err != nil {
 		return err
+	}
+	log.Printf("review passes: %s: pass %d discarded, to be pinned again: %s", loop.TaskID, pass.Pass, why)
+	if loop.Pass == pass.Pass {
+		loop.Pass = pass.Pass - 1
 	}
 	loop.Phase, loop.Mismatches = ReviewPhaseReady, 0
 	return s.saveChanged(ctx, loop)
@@ -358,12 +407,12 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 	if err != nil {
 		return err
 	}
-	if moved := s.moved(ctx, pass); moved != "" {
-		return s.discard(ctx, loop, *pass, moved)
-	}
 	settings := loopSettings(loop, cfg.Defaults)
 	prs, err := s.db.ListHandoffReviewPRs(ctx, taskID, pass.Pass)
 	if err != nil {
+		return err
+	}
+	if ok, err := s.beforePost(ctx, loop, pass, prs); !ok {
 		return err
 	}
 	all, err := s.db.ListHandoffReviewFindings(ctx, taskID)
@@ -404,7 +453,7 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 			}
 		}
 		post := ReviewPost{Repo: pr.Repo, Number: pr.Number, CommitID: pr.HeadSHA, Event: event, Summary: pass.Summary,
-			Footer: reviewFooter(settings, pass.Pass), Marker: fmt.Sprintf("%s/pass-%d/pr-%d", taskID, pass.Pass, pr.Number)}
+			Footer: reviewFooter(settings, pass.Pass), Marker: passReviewMarker(*pass, pr.Number)}
 		var mine []store.HandoffReviewFinding
 		for _, f := range all {
 			switch {
@@ -418,6 +467,9 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 			case f.RuledPass == pass.Pass && f.PR == pr.Number && f.CommentID == 0:
 				post.Rulings = append(post.Rulings, rulingLine(f, pass.Pass))
 			}
+		}
+		if ok, err := s.beforePost(ctx, loop, pass, []store.HandoffReviewPR{pr}); !ok {
+			return err
 		}
 		posted, err := s.opts.GitHub.PostReview(ctx, post)
 		if err != nil {

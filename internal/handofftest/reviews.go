@@ -46,8 +46,10 @@ type FakeReviewGitHub struct {
 	notInstalled map[string]bool
 	// fetched are the pull requests whose heads were fetched for review.
 	fetched []int
-	// failReads makes the next PullRequest and PullRequests reads fail, as GitHub's 503.
+	// failReads makes the next PullRequest and PullRequests reads fail, as
+	// GitHub's 503, once failAfter more have succeeded.
 	failReads int
+	failAfter int
 }
 
 // NewFakeReviewGitHub has no pull requests.
@@ -86,8 +88,7 @@ func (f *FakeReviewGitHub) OpenStackedPR(number int, branch, base, head string) 
 func (f *FakeReviewGitHub) OpenPulls(_ context.Context, _ string, q service.PullQuery) ([]service.ReviewGitHubPR, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.failReads > 0 {
-		f.failReads--
+	if f.readFails() {
 		return nil, &service.GitHubError{Status: 503, Message: "Service Unavailable"}
 	}
 	var out []service.ReviewGitHubPR
@@ -126,8 +127,7 @@ func (f *FakeReviewGitHub) Resolved() []int64 {
 func (f *FakeReviewGitHub) PullRequests(_ context.Context, _ string, branches []string) ([]service.ReviewGitHubPR, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.failReads > 0 {
-		f.failReads--
+	if f.readFails() {
 		return nil, &service.GitHubError{Status: 503, Message: "Service Unavailable"}
 	}
 	var out []service.ReviewGitHubPR
@@ -423,17 +423,32 @@ func (f *FakeReviewGitHub) Installed(_ context.Context, repo string) error {
 }
 
 // FailReads makes the next n pull request reads (one or by branch) fail.
-func (f *FakeReviewGitHub) FailReads(n int) {
+func (f *FakeReviewGitHub) FailReads(n int) { f.FailReadsAfter(0, n) }
+
+// FailReadsAfter lets ok pull request reads succeed, then fails n.
+func (f *FakeReviewGitHub) FailReadsAfter(ok, n int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.failReads = n
+	f.failAfter, f.failReads = ok, n
+}
+
+// readFails says whether this read fails. Call with f.mu held.
+func (f *FakeReviewGitHub) readFails() bool {
+	if f.failReads == 0 {
+		return false
+	}
+	if f.failAfter > 0 {
+		f.failAfter--
+		return false
+	}
+	f.failReads--
+	return true
 }
 
 func (f *FakeReviewGitHub) PullRequest(_ context.Context, _ string, number int) (service.ReviewGitHubPR, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.failReads > 0 {
-		f.failReads--
+	if f.readFails() {
 		return service.ReviewGitHubPR{}, "", &service.GitHubError{Status: 503, Message: "Service Unavailable"}
 	}
 	for _, pr := range f.prs {

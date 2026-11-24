@@ -48,6 +48,10 @@ type HandoffReviewPass struct {
 	HeadSHA     string `db:"head_sha"`
 	StartedAt   string `db:"started_at"`
 	EndedAt     string `db:"ended_at"`
+	// Attempt is how many times this pass's number was pinned before: a
+	// pass discarded because a head moved is pinned again under the same
+	// number (InsertHandoffReviewPass).
+	Attempt int `db:"attempt"`
 }
 
 // HandoffReviewPR is a pull request of a pass, pinned at its head.
@@ -159,16 +163,32 @@ func (s *Store) DeleteHandoffReview(ctx context.Context, taskID string) error {
 	})
 }
 
-// InsertHandoffReviewPass records a pass and its pinned pull requests.
+// InsertHandoffReviewPass records a pass and its pinned pull requests. A
+// discarded pass of the same number is replaced, the new one's Attempt one
+// past it; a pass of that number in any other state is a conflict.
 func (s *Store) InsertHandoffReviewPass(ctx context.Context, p HandoffReviewPass, prs []HandoffReviewPR) error {
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	var earlier HandoffReviewPass
+	err = tx.GetContext(ctx, &earlier, `SELECT * FROM handoff_review_passes WHERE task_id = ? AND pass = ?`, p.TaskID, p.Pass)
+	switch {
+	case err == nil && earlier.State == "discarded":
+		p.Attempt = earlier.Attempt + 1
+		if _, err := tx.ExecContext(ctx, `DELETE FROM handoff_review_prs WHERE task_id = ? AND pass = ?`, p.TaskID, p.Pass); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM handoff_review_passes WHERE task_id = ? AND pass = ?`, p.TaskID, p.Pass); err != nil {
+			return err
+		}
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		return err
+	}
 	if _, err := tx.NamedExecContext(ctx, `
-		INSERT INTO handoff_review_passes (task_id, pass, state, verdict, summary, reason, execution_id, checkout, head_sha, started_at, ended_at)
-		VALUES (:task_id, :pass, :state, :verdict, :summary, :reason, :execution_id, :checkout, :head_sha, :started_at, :ended_at)`, p); err != nil {
+		INSERT INTO handoff_review_passes (task_id, pass, state, verdict, summary, reason, execution_id, checkout, head_sha, started_at, ended_at, attempt)
+		VALUES (:task_id, :pass, :state, :verdict, :summary, :reason, :execution_id, :checkout, :head_sha, :started_at, :ended_at, :attempt)`, p); err != nil {
 		return err
 	}
 	for _, pr := range prs {
@@ -236,6 +256,23 @@ func (s *Store) UpdateHandoffReviewPass(ctx context.Context, p HandoffReviewPass
 			execution_id = :execution_id, ended_at = :ended_at
 		WHERE task_id = :task_id AND pass = :pass`, p)
 	return err
+}
+
+// DiscardHandoffReviewPass sets a pass's result aside in one transaction:
+// its state, reason and end, and none of its findings or rulings stand.
+// Its findings go, and the earlier findings it ruled on are open again with
+// no ruling, as the next attempt at the pass finds them.
+func (s *Store) DiscardHandoffReviewPass(ctx context.Context, p HandoffReviewPass) error {
+	return withTxDB(ctx, s, func(exec func(string, ...any) error) error {
+		if err := exec(`UPDATE handoff_review_passes SET state = 'discarded', reason = ?, ended_at = ? WHERE task_id = ? AND pass = ?`,
+			p.Reason, p.EndedAt, p.TaskID, p.Pass); err != nil {
+			return err
+		}
+		if err := exec(`DELETE FROM handoff_review_findings WHERE task_id = ? AND pass = ?`, p.TaskID, p.Pass); err != nil {
+			return err
+		}
+		return exec(`UPDATE handoff_review_findings SET status = 'open', ruled_pass = 0, ruling = '' WHERE task_id = ? AND ruled_pass = ?`, p.TaskID, p.Pass)
+	})
 }
 
 // ListHandoffReviewPRs returns a pass's pull requests in stack order.
