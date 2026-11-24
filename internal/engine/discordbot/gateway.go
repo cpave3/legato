@@ -118,7 +118,7 @@ func (c *Client) Run(ctx context.Context, onMessage func(Message), onReady func(
 		}
 	}()
 
-	s := &session{c: c, ctx: ctx, conn: conn, resume: resume, onMessage: onMessage, onReady: onReady, acked: true}
+	s := &session{c: c, ctx: ctx, conn: conn, resume: resume, onMessage: onMessage, onReady: onReady, acked: true, reads: reads}
 	return s.loop(reads)
 }
 
@@ -129,6 +129,9 @@ type session struct {
 	resume    bool
 	onMessage func(Message)
 	onReady   func(string)
+	// reads is the reader goroutine's channel, which a failed write asks
+	// for the close the server may have sent.
+	reads <-chan readResult
 
 	hello    bool
 	interval time.Duration
@@ -272,9 +275,34 @@ func (s *session) send(op int, d any) error {
 			s.c.clearSession()
 			return s.ctx.Err()
 		}
-		return fmt.Errorf("discord: gateway write: %w", err)
+		return s.writeError(err)
 	}
 	return nil
+}
+
+// writeError is a failed write's error. A write fails when the server has
+// just closed the connection, often before the reader has passed its close
+// frame on; the close code the server sent says why, so it wins.
+func (s *session) writeError(err error) error {
+	deadline := time.NewTimer(closeWait)
+	defer deadline.Stop()
+	for {
+		select {
+		case r := <-s.reads:
+			if r.err == nil {
+				continue // a frame that came before the close
+			}
+			if websocket.CloseStatus(r.err) != -1 {
+				return s.readError(r.err)
+			}
+			return fmt.Errorf("discord: gateway write: %w", err)
+		case <-deadline.C:
+			return fmt.Errorf("discord: gateway write: %w", err)
+		case <-s.ctx.Done():
+			s.c.clearSession()
+			return s.ctx.Err()
+		}
+	}
 }
 
 // close starts the close handshake and waits for it at most closeWait.
