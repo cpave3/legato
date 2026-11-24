@@ -169,10 +169,10 @@ Workflow definitions do not support `notify_on_complete`. Successful runs remain
 
 A run's page says the same at the top, and under it what you can do now:
 
-- an agent at work: **Open agent**
+- an agent at work: **Open agent**, and **Show on agents graph**, which opens the [agents graph](/legato/using/agents/#the-graph) on that agent with this run's graph open
 - an agent that went idle or is waiting for an answer: **Open agent** and **Prompt to continue**
 - a manual step: what it will do (such as "Moves LEG-42 to Ready") and **Run step**
-- a step that waits for the agent to end: **Open agent**, and **End now** to run the step without waiting
+- a step that waits for the agent to end: **Open agent**, **Show on agents graph**, and **End now** to run the step without waiting
 - a failed step: its error and **Retry step**
 - a finished run: the files it produced, with **Preview** and **Download**, and the values its agents reported
 - a finished run whose agent step finished with no output: **No output**, and what became of the agent. An agent step's conversation is not kept: when the step completes, Legato removes its agent, and anything it wrote in chat goes with it, unless `keep_agent` kept it. The run's row in **Runs** says so quietly too, after how long it took, and `legato workflow show` gives it as `output_warning` on the step and the run.
