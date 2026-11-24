@@ -15,6 +15,40 @@ import (
 // besides when a card or a handoff changes.
 const reviewPassEvery = 15 * time.Second
 
+// reviewPassRunGap is how long after a workflow run changes the review
+// loop looks: a step completing and the next starting are several changes,
+// and each tick asks GitHub about every loop.
+const reviewPassRunGap = 2 * time.Second
+
+// reviewPassWake ticks the review loop until ctx ends: at once when a card
+// moves, every `every`, and `gap` after a run changes, however many changes
+// come in that time. A review loop's own changes (it moved on) never tick
+// it again.
+func reviewPassWake(ctx context.Context, moved, runs <-chan events.Event, every, gap time.Duration, tick func(context.Context)) {
+	timer := time.NewTicker(every)
+	defer timer.Stop()
+	var pending <-chan time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-moved:
+		case event := <-runs:
+			if payload, ok := event.Payload.(events.WorkflowChangedPayload); ok && payload.Kind == service.ReviewLoopChangedKind {
+				continue
+			}
+			if pending == nil {
+				pending = time.After(gap)
+			}
+			continue
+		case <-pending:
+			pending = nil
+		case <-timer.C:
+		}
+		tick(ctx)
+	}
+}
+
 // reviewPassConfig is config review_passes as the review loop reads it.
 func reviewPassConfig(cfg *config.Config) func() service.ReviewPassConfig {
 	return func() service.ReviewPassConfig {
@@ -78,18 +112,7 @@ func startReviewPasses(deps integrationDeps) (*service.ReviewPassService, func()
 		go func() {
 			defer deps.bus.Unsubscribe(moved)
 			defer deps.bus.Unsubscribe(runs)
-			timer := time.NewTicker(reviewPassEvery)
-			defer timer.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-moved:
-				case <-runs:
-				case <-timer.C:
-				}
-				tick(ctx)
-			}
+			reviewPassWake(ctx, moved, runs, reviewPassEvery, reviewPassRunGap, tick)
 		}()
 	}
 	log.Printf("review passes: on, reviewing as %s with %s", deps.cfg.ReviewPasses.GitHubCredential, deps.cfg.ReviewPasses.Reviewer.Agent)
