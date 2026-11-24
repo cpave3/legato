@@ -404,22 +404,26 @@ func (s *ReviewPassService) postAnswers(ctx context.Context, l ReviewLoop) {
 	if err != nil {
 		return
 	}
-	dir, _, _ := s.opts.Checkout.Branches(ctx, l.TaskID, l.Repo)
-	prs := map[int]string{}
+	// pinned are the heads the round's pass reviewed, by pull request.
+	pinned := map[int]string{}
 	if loop, err := s.db.GetHandoffReview(ctx, l.TaskID); err == nil && loop != nil {
 		if list, err := s.db.ListHandoffReviewPRs(ctx, l.TaskID, loop.Pass); err == nil {
 			for _, pr := range list {
-				prs[pr.Number] = pr.Branch
+				pinned[pr.Number] = pr.HeadSHA
 			}
 		}
 	}
+	var pushed map[int]string
 	for _, item := range items {
 		if item.Answer == "" || item.Posted || item.Closed || item.PR == 0 {
 			continue
 		}
 		body := answerText(item)
 		if item.Answer == AnswerFixed {
-			if tip, err := s.opts.Checkout.Tip(ctx, dir, prs[item.PR]); err == nil && tip != "" {
+			if pushed == nil {
+				pushed = s.pushedHeads(ctx, l)
+			}
+			if tip := pushed[item.PR]; tip != "" && tip != pinned[item.PR] {
 				body = strings.Replace(body, "Fixed", "Fixed in "+short(tip), 1)
 			}
 		}
@@ -434,6 +438,25 @@ func (s *ReviewPassService) postAnswers(ctx context.Context, l ReviewLoop) {
 		}
 		_ = s.db.MarkHandoffReviewItemPosted(ctx, l.TaskID, item.ID)
 	}
+}
+
+// pushedHeads are the heads GitHub has now for a loop's open pull requests:
+// what the author pushed. A --fixed answer names its pull request's, once it
+// moved past the head the pass reviewed; never a local checkout's tip, which
+// for a run's loop is the reviewer's clone at that reviewed head (LEG-571).
+func (s *ReviewPassService) pushedHeads(ctx context.Context, l ReviewLoop) map[int]string {
+	heads := map[int]string{}
+	if l.caller == nil {
+		return heads
+	}
+	prs, err := l.caller.OpenPRs(ctx, l)
+	if err != nil {
+		return heads
+	}
+	for _, pr := range prs {
+		heads[pr.Number] = pr.HeadSHA
+	}
+	return heads
 }
 
 func answerText(item store.HandoffReviewItem) string {
