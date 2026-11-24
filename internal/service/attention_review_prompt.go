@@ -55,32 +55,33 @@ func (a *ReviewPromptAttentionAdapter) engine() *ReviewPassService {
 
 func (a *ReviewPromptAttentionAdapter) Producer() string { return ReviewPromptAttentionProducer }
 
-// unreviewed is a card's open pull requests, in stack order, when it should
-// prompt a review; nil when not.
-func (a *ReviewPromptAttentionAdapter) unreviewed(ctx context.Context, task *store.Task, tracked []store.TaskBranch, reviews *ReviewPassService) []PRMetaView {
+// unreviewed is a card's open pull requests that no review loop reviewed,
+// in stack order, when it should prompt a review (nil when not), and whether
+// it left out any open one as approved.
+func (a *ReviewPromptAttentionAdapter) unreviewed(ctx context.Context, task *store.Task, tracked []store.TaskBranch, reviews *ReviewPassService) (open []PRMetaView, approved bool) {
 	if RefuseAway(ctx, a.db, task.ID) != nil {
-		return nil // away: its worker reviews it
+		return nil, false // away: its worker reviews it
 	}
 	if h, err := a.db.OpenHandoffForTask(ctx, task.ID); err == nil && h != nil {
-		return nil // a main's task: its handoff's loop reviews it
+		return nil, false // a main's task: its handoff's loop reviews it
 	}
-	var open []PRMetaView
 	for _, pr := range TaskPullRequests(task, tracked) {
 		if pr.Repo == "" || strings.EqualFold(pr.State, "MERGED") || strings.EqualFold(pr.State, "CLOSED") {
 			continue
 		}
 		if reviews != nil && reviews.ActiveLoopOn(ctx, pr.Repo, pr.PRNumber) != nil {
-			return nil
+			return nil, false // an open loop holds it
 		}
-		// A loop that approved it at its head reviewed it, whichever task
+		// Legato's latest review at its head approved it, whichever task
 		// the loop is kept on: a workflow run's is on the run's own
-		// (LEG-613). A push since asks again.
-		if approved, err := a.db.ReviewApprovedHead(ctx, pr.Repo, pr.PRNumber, pr.Head); err == nil && approved {
+		// (LEG-613, LEG-573). A push since asks again.
+		if ok, err := a.db.ReviewApprovedHead(ctx, pr.Repo, pr.PRNumber, pr.Head); err == nil && ok {
+			approved = true
 			continue
 		}
 		open = append(open, pr)
 	}
-	return open
+	return open, approved
 }
 
 // columns are the Done and review columns.
@@ -127,7 +128,7 @@ func (a *ReviewPromptAttentionAdapter) Snapshot(ctx context.Context) ([]Attentio
 		}
 		for i := range tasks {
 			task := &tasks[i]
-			open := a.unreviewed(ctx, task, tracked[task.ID], reviews)
+			open, _ := a.unreviewed(ctx, task, tracked[task.ID], reviews)
 			if len(open) == 0 {
 				continue
 			}
@@ -164,8 +165,11 @@ func (a *ReviewPromptAttentionAdapter) Snapshot(ctx context.Context) ([]Attentio
 }
 
 // Execute starts review-pr-passes on the card's stack, from its bottom open
-// pull request, with the card's agent as the author. A refusal (a loop
-// running on one of them) is the error, naming that loop.
+// pull request, with the card's agent as the author. When a loop approved
+// some of them at their heads, it starts on the bottom one not approved
+// alone (scope pr), so no approved pull request is reviewed again; the item
+// comes back for the rest once that loop ends. A refusal (a loop running on
+// one of them) is the error, naming that loop.
 func (a *ReviewPromptAttentionAdapter) Execute(ctx context.Context, request AttentionActionRequest) error {
 	if request.ActionID != "start_review" {
 		return fmt.Errorf("unknown action %q", request.ActionID)
@@ -182,12 +186,16 @@ func (a *ReviewPromptAttentionAdapter) Execute(ctx context.Context, request Atte
 	if err != nil {
 		return err
 	}
-	open := a.unreviewed(ctx, task, tracked, reviews)
+	open, approved := a.unreviewed(ctx, task, tracked, reviews)
 	if len(open) == 0 {
 		return errors.New("its pull requests are reviewed already, or none is open")
 	}
+	scope := ReviewScopeStack
+	if approved {
+		scope = ReviewScopePR
+	}
 	_, err = a.launcher.Start(ctx, ReviewPassesWorkflow, map[string]string{
-		"repo": open[0].Repo, "pr_number": fmt.Sprint(open[0].PRNumber), "agent_author": "true", "scope": ReviewScopeStack,
+		"repo": open[0].Repo, "pr_number": fmt.Sprint(open[0].PRNumber), "agent_author": "true", "scope": scope,
 	})
 	return err
 }

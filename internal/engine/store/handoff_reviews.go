@@ -181,17 +181,24 @@ func (s *Store) InsertHandoffReviewPass(ctx context.Context, p HandoffReviewPass
 	return tx.Commit()
 }
 
-// ReviewApprovedHead says whether any review loop, whichever task it is
-// kept on (a card's, a workflow run's own), approved repo's pull request
-// number at head: a pass posted APPROVE on it, or kept an earlier approval.
+// ReviewApprovedHead says whether Legato's latest review of repo's pull
+// request number at head, by any review loop whichever task it is kept on (a
+// card's, a workflow run's own), approves it: a pass posted APPROVE on it, or
+// kept an earlier approval. A later pass at the same head that posted a
+// COMMENT undoes it; a pass not posted yet (no event) is no review.
 func (s *Store) ReviewApprovedHead(ctx context.Context, repo string, number int, head string) (bool, error) {
 	if head == "" {
 		return false, nil
 	}
-	var approved bool
-	err := s.db.GetContext(ctx, &approved, `SELECT EXISTS (SELECT 1 FROM handoff_review_prs
-		WHERE repo = ? COLLATE NOCASE AND number = ? AND head_sha = ? AND event IN ('APPROVE', 'kept'))`, repo, number, head)
-	return approved, err
+	var events []string
+	err := s.db.SelectContext(ctx, &events, `SELECT r.event FROM handoff_review_prs r
+		JOIN handoff_review_passes p ON p.task_id = r.task_id AND p.pass = r.pass
+		WHERE r.repo = ? COLLATE NOCASE AND r.number = ? AND r.head_sha = ? AND r.event != ''
+		ORDER BY p.started_at DESC, r.rowid DESC LIMIT 1`, repo, number, head)
+	if err != nil || len(events) == 0 {
+		return false, err
+	}
+	return events[0] == "APPROVE" || events[0] == "kept", nil
 }
 
 // GetHandoffReviewPass returns one pass.
