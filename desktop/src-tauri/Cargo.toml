@@ -22,7 +22,8 @@ swift-rs = { version = "1.0.9", features = ["build"] }
 
 [dependencies]
 # "unstable" gives a window several webviews: the shell beside each server's page.
-tauri = { version = "2", features = ["unstable"] }
+# "tray-icon" is the icon by the clock (tray.rs).
+tauri = { version = "2", features = ["unstable", "tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -71,6 +72,12 @@ libloading = "0.8"
 # compositor's wl_output over a connection of the app's own (wloutputs.rs).
 # Pure Rust: no libwayland.
 wayland-client = "0.31"
+# Switches Tauri's tray to tray-icon's KSNI backend (StatusNotifierItem over
+# zbus, pure Rust), which hears a left click: the default AppIndicator one
+# never does, and opens the menu instead (tray.rs). Keep it the version
+# Tauri uses (`cargo tree -i tray-icon` after a Tauri upgrade), or there are
+# two crates and Tauri's stays on AppIndicator.
+tray-icon = { version = "0.25", default-features = false, features = ["ksni"] }
 
 [dev-dependencies]
 rcgen = "0.13"

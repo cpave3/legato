@@ -268,6 +268,22 @@ pub fn shows(hidden: bool, showing: Showing, waiting: bool, now: Instant) -> boo
         }
 }
 
+/// Saves the person's choices about the widget: hidden or not, and an
+/// anchor chosen (not dropped), which forgets where the widget was dropped.
+/// Every way of showing and hiding it comes here through `set_widget`:
+/// Servers & keys, the capsule's ×, its menu's Hide, and the tray.
+pub fn choose(voice: &mut crate::store::VoiceSettings, hidden: Option<bool>, anchor: Option<Anchor>) {
+    if let Some(h) = hidden {
+        voice.widget_hidden = h;
+    }
+    if let Some(a) = anchor {
+        if voice.anchor != a || voice.offset.is_some() {
+            voice.anchor = a;
+            voice.offset = None;
+        }
+    }
+}
+
 /// The widget's size before the page says.
 pub const FIRST_SIZE: (f64, f64) = (318.0, 64.0);
 
@@ -468,6 +484,44 @@ mod tests {
     use std::time::{Duration, Instant};
 
     const SCREEN: Rect = Rect { x: 0.0, y: 0.0, width: 1920.0, height: 1040.0 };
+
+    #[test]
+    fn a_tray_toggle_hides_a_shown_widget_and_shows_a_hidden_one() {
+        let mut voice = crate::store::VoiceSettings::default();
+        let hidden = crate::tray::toggled(voice.widget_hidden);
+        choose(&mut voice, Some(hidden), None);
+        assert!(voice.widget_hidden);
+        let hidden = crate::tray::toggled(voice.widget_hidden);
+        choose(&mut voice, Some(hidden), None);
+        assert!(!voice.widget_hidden);
+    }
+
+    #[test]
+    fn a_tray_toggle_shows_what_servers_and_keys_hid() {
+        let mut voice = crate::store::VoiceSettings::default();
+        // Show the Legato widget unchecked: set_voice_widget(shown: false, anchor).
+        choose(&mut voice, Some(true), Some(Anchor::BottomRight));
+        let hidden = crate::tray::toggled(voice.widget_hidden);
+        choose(&mut voice, Some(hidden), None);
+        assert!(!voice.widget_hidden);
+    }
+
+    #[test]
+    fn a_toggle_keeps_where_the_widget_was_dropped() {
+        let dropped = Some(Offset { x: 40.0, y: 300.0 });
+        let mut voice = crate::store::VoiceSettings { anchor: Anchor::Left, offset: dropped, ..Default::default() };
+        choose(&mut voice, Some(true), None);
+        choose(&mut voice, Some(false), None);
+        assert_eq!((voice.anchor, voice.offset), (Anchor::Left, dropped));
+    }
+
+    #[test]
+    fn choosing_an_anchor_forgets_the_drop_and_keeps_the_widget_hidden() {
+        let dropped = Some(Offset { x: 40.0, y: 300.0 });
+        let mut voice = crate::store::VoiceSettings { anchor: Anchor::Left, offset: dropped, widget_hidden: true, ..Default::default() };
+        choose(&mut voice, None, Some(Anchor::Top));
+        assert_eq!((voice.anchor, voice.offset, voice.widget_hidden), (Anchor::Top, None, true));
+    }
 
     #[test]
     fn the_widget_keeps_16_pixels_from_its_corner() {
