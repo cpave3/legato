@@ -57,6 +57,12 @@ A new binary takes effect when Legato starts again. How that happens depends on 
 
 Agents keep running across the restart in every case, since they live in tmux. An agent that uses a Legato tool or command while Legato is away waits for it, for up to 30 seconds, instead of failing.
 
+### When a release changes the database
+
+Some releases change Legato's database. The first Legato process to start on such a release asks every other Legato on the same data folder to exit before it changes anything: a TUI you started by hand says "Legato updated: restart" and quits, and `legato serve` stops and is started again by systemd on the new binary. It waits up to 30 seconds for them, keeps a copy of the database beside it, then changes the database. Start the TUI again when you are ready. A Legato on another data folder, such as a scratch instance, is left alone.
+
+The copy is named for the change, such as `legato.db.before-146_review_loops`, and is readable only by you.
+
 ### Restarting Legato yourself
 
 Legato restarts itself on request: **Restart Legato** in Settings › System › Restart (or the bar at the top of Settings while a change waits), or `legato restart` on the machine. Every Legato process of the instance, the TUI and `legato serve` alike, shuts down and starts again in place, with the same command line: the TUI clears its screen and draws again in the same terminal, and a systemd service or launchd agent keeps its process. Under `--hot-reload`, the supervisor starts it again. Agents keep running, and an agent that was still starting gets its first message once it is ready.
@@ -83,7 +89,14 @@ If a new release does not start, put the old binary back:
 mv ~/.local/bin/legato.prev ~/.local/bin/legato
 ```
 
-Use the path your `legato` is at. This brings back the binary only. A new release may have changed the database, and an older binary cannot undo that.
+Use the path your `legato` is at. This brings back the binary only. A new release may have changed the database, and an older binary cannot use the changed one. To go back fully, stop every Legato and put the copy taken before the change in place of the database as well, then start the old binary:
+
+```bash
+rm -f ~/.local/share/legato/legato.db-wal ~/.local/share/legato/legato.db-shm
+mv ~/.local/share/legato/legato.db.before-146_review_loops ~/.local/share/legato/legato.db
+```
+
+Use your database's path and the copy's name. Anything done on the new release since is lost.
 
 ## Builds from source
 

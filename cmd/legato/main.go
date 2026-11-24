@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -900,6 +901,8 @@ func runServeCmd(args []string) int {
 		return 1
 	}
 	defer db.Close()
+	// While serve runs, an upgrade waits for it to exit (upgrade_restart.go).
+	defer holdLegatoProcess(config.ResolveDataDir(cfg))()
 	// A first start with no terminal to run the wizard in, such as a
 	// headless worker's, still gets the default columns: a board without
 	// them refuses every handoff.
@@ -1138,7 +1141,12 @@ func runServeCmd(args []string) int {
 
 	// IPC server for receiving CLI→web updates.
 	socketPath := ipc.SocketPath()
+	// A newer Legato about to migrate the database asks serve to exit.
+	upgradeExit := onUpgradeExit(dataDir, os.Getpid(), store.SupportedSchema(), serveExitForUpgrade(func() { _ = syscall.Kill(os.Getpid(), syscall.SIGTERM) }, &restartRequested))
 	ipcSrv, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
+		if upgradeExit(msg) {
+			return
+		}
 		if isRestartFor(msg, config.ResolveConfigPath()) {
 			prepareRestart(restartRollback(cfg, db), "restart")
 			requestRestart()
@@ -1225,6 +1233,9 @@ func runTUI() int {
 		return 1
 	}
 	defer db.Close()
+	// While the TUI runs, an upgrade waits for it to exit
+	// (upgrade_restart.go).
+	defer holdLegatoProcess(config.ResolveDataDir(cfg))()
 
 	// First-run setup: seed columns if none exist
 	mappings, err := db.ListColumnMappings(context.Background())
@@ -1277,7 +1288,18 @@ func runTUI() int {
 	stopAgentUI := func() {}
 	stopIntegrations := func() {}
 	socketPath := ipc.SocketPath()
+	// A newer Legato about to migrate the database asks the TUI to exit:
+	// it says so and quits, once its program runs (below).
+	var legatoUpdated atomic.Bool
+	legatoUpdatedCh := make(chan struct{}, 1)
+	upgradeExit := onUpgradeExit(config.ResolveDataDir(cfg), os.Getpid(), store.SupportedSchema(), func() {
+		legatoUpdated.Store(true)
+		legatoUpdatedCh <- struct{}{}
+	})
 	ipcServer, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
+		if upgradeExit(msg) {
+			return
+		}
 		if isRestartFor(msg, config.ResolveConfigPath()) {
 			prepareRestart(restartRollback(cfg, db), "restart")
 			requestRestart()
@@ -1716,7 +1738,21 @@ func runTUI() int {
 	}
 
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithoutSignalHandler())
-	if err := runProgram(p, nil); err != nil {
+	programDone := make(chan struct{})
+	go func() {
+		select {
+		case <-legatoUpdatedCh:
+			p.Send(tui.LegatoUpdatedMsg{})
+		case <-programDone:
+		}
+	}()
+	err = runProgram(p, nil)
+	close(programDone)
+	if legatoUpdated.Load() {
+		// The alt screen is gone: say it again where the operator sees it.
+		fmt.Println(tui.LegatoUpdatedNotice)
+	}
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}

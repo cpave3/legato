@@ -33,6 +33,7 @@ type Message struct {
 	Placement      string `json:"placement,omitempty"`        // where the item is drawn, for agent_ui_changed
 	Revision       int    `json:"revision,omitempty"`         // item revision for agent_ui_changed
 	PID            int    `json:"pid,omitempty"`              // the sender, which does not act on its own broadcast again
+	Schema         int    `json:"schema,omitempty"`           // the sender's newest schema revision, for upgrade_exit
 }
 
 // SocketDir returns the directory for Legato IPC sockets.

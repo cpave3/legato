@@ -670,6 +670,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, tick := msg.(spinnerTickMsg); tick {
 		return a.handleSpinnerTick()
 	}
+	if _, updated := msg.(LegatoUpdatedMsg); updated {
+		return a.legatoUpdated()
+	}
 	model, cmd := a.update(msg)
 	if app, ok := model.(App); ok {
 		return app.keepSpinning(cmd)
