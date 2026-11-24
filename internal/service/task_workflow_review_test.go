@@ -107,3 +107,53 @@ func TestACardWhosePullRequestsAreAStackOffersTheStackFirst(t *testing.T) {
 		t.Fatalf("start = %v, %+v", err, step.starts)
 	}
 }
+
+// With no Legato on the data folder running the review engine, a card's
+// menu offers no review and says why (spec LEG-559 D9, AC 5).
+func TestACardOffersNoReviewPassesWithoutTheReviewEngineAndSaysWhy(t *testing.T) {
+	launcher, _ := launcherWithReviewPasses(t, &store.PRMeta{Repo: "acme/widget", Branch: "feature/greeting", PRNumber: 12, State: "OPEN"})
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name    string
+		enabled bool
+		reason  string
+	}{
+		{"review passes off", false, "Review passes are off: turn on review_passes.enabled (Settings › Review passes)."},
+		{"no process runs the engine", true, "Review passes need `legato serve` running."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			launcher.SetReviewEngine(func() ReviewEngineStatus { return ReviewEngineStatusOf(tc.enabled, false) })
+			items, err := launcher.List(ctx, "task-1")
+			if err != nil || len(items) != 0 {
+				t.Fatalf("items = %#v, %v", items, err)
+			}
+			if got := launcher.ReviewUnavailable(ctx, "task-1"); got != tc.reason {
+				t.Fatalf("reason = %q", got)
+			}
+		})
+	}
+}
+
+// The engine in another process on the data folder is enough: the item is
+// offered, whatever this process's own setting says.
+func TestACardOffersReviewPassesWhenAnotherProcessRunsTheEngine(t *testing.T) {
+	launcher, _ := launcherWithReviewPasses(t, &store.PRMeta{Repo: "acme/widget", Branch: "feature/greeting", PRNumber: 12, State: "OPEN"})
+	ctx := context.Background()
+	launcher.SetReviewEngine(func() ReviewEngineStatus { return ReviewEngineStatusOf(false, true) })
+	items, err := launcher.List(ctx, "task-1")
+	if err != nil || len(items) != 1 || items[0].Title != "Review passes · #12" {
+		t.Fatalf("items = %#v, %v", items, err)
+	}
+	if got := launcher.ReviewUnavailable(ctx, "task-1"); got != "" {
+		t.Fatalf("reason = %q", got)
+	}
+}
+
+// A card with nothing to review says nothing of the engine.
+func TestACardWithNoPullRequestSaysNothingOfTheReviewEngine(t *testing.T) {
+	launcher, _ := launcherWithReviewPasses(t, nil)
+	launcher.SetReviewEngine(func() ReviewEngineStatus { return ReviewEngineStatusOf(true, false) })
+	if got := launcher.ReviewUnavailable(context.Background(), "task-1"); got != "" {
+		t.Fatalf("reason = %q", got)
+	}
+}

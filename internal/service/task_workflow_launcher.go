@@ -40,10 +40,49 @@ type TaskWorkflowLauncher struct {
 	store     *store.Store
 	workflows *WorkflowService
 	discover  func() workflowengine.DiscoveryResult
+	// reviewEngine says whether some process runs the review engine; nil
+	// counts as running.
+	reviewEngine func() ReviewEngineStatus
 }
 
 func NewTaskWorkflowLauncher(s *store.Store, workflows *WorkflowService, discover func() workflowengine.DiscoveryResult) *TaskWorkflowLauncher {
 	return &TaskWorkflowLauncher{store: s, workflows: workflows, discover: discover}
+}
+
+// SetReviewEngine tells the launcher whether some Legato on the data folder
+// runs the review engine. Without it, a card offers no review passes and
+// ReviewUnavailable says why.
+func (l *TaskWorkflowLauncher) SetReviewEngine(status func() ReviewEngineStatus) {
+	l.reviewEngine = status
+}
+
+// reviewEngineReason is why no review can start, or "" when one can.
+func (l *TaskWorkflowLauncher) reviewEngineReason() string {
+	if l.reviewEngine == nil {
+		return ""
+	}
+	if status := l.reviewEngine(); !status.Running {
+		return status.Reason
+	}
+	return ""
+}
+
+// ReviewUnavailable says why a card's menu offers no review passes when it
+// would offer some with the review engine running: "" when it offers them,
+// or when the card has nothing to review.
+func (l *TaskWorkflowLauncher) ReviewUnavailable(ctx context.Context, taskID string) string {
+	reason := l.reviewEngineReason()
+	if reason == "" {
+		return ""
+	}
+	task, err := l.store.GetTask(ctx, taskID)
+	if err != nil {
+		return ""
+	}
+	if len(l.reviewPassItems(ctx, task, l.discover())) == 0 {
+		return ""
+	}
+	return reason
 }
 
 // Has says whether a workflow of a name is discovered.
@@ -222,7 +261,16 @@ const ReviewPassesWorkflow = "review-pr-passes"
 // repository (its tracked branches are in stack order), the first action
 // reviews the whole stack, started on the bottom one, and the others each
 // pull request alone.
+// They are offered only while some process runs the review engine.
 func (l *TaskWorkflowLauncher) reviewPassOptions(ctx context.Context, task *store.Task, result workflowengine.DiscoveryResult) []TaskWorkflowOption {
+	if l.reviewEngineReason() != "" {
+		return nil
+	}
+	return l.reviewPassItems(ctx, task, result)
+}
+
+// reviewPassItems are the Review passes actions a card would offer.
+func (l *TaskWorkflowLauncher) reviewPassItems(ctx context.Context, task *store.Task, result workflowengine.DiscoveryResult) []TaskWorkflowOption {
 	var definition *workflowengine.Definition
 	for i := range result.Definitions {
 		if result.Definitions[i].Name == ReviewPassesWorkflow {

@@ -134,6 +134,8 @@ A review loop need not start from a handoff. The `review-pr-passes` workflow run
 
 When several Legato processes share one data folder (the TUI and `legato serve`, say), the review loops run in the one that serves the broker: the first one started, until it exits. You can start a loop from any of them, or from `legato workflow run`: the run's review step waits, its page saying **Waiting for the review engine**, until that process picks it up, which takes a few seconds. If the process running the loops exits, the next one to serve the broker carries on with every loop.
 
+The card menu (in the web UI, and **Workflows** in the TUI's `c` menu) offers **Review passes · #N** only while some Legato on the data folder runs the review loops. When none does, it says why in place of the item: the review passes setting (`review_passes.enabled`) is off, or "Review passes need `legato serve` running". Start `legato serve` (or the TUI) and open the menu again.
+
 Add the workflow with `legato workflow add review-pr-passes` (`--project` for the repository's own workflows folder), then start it from the web **Workflows** page, from the command line (`legato workflow run review-pr-passes --input repo=acme/widget --input pr_number=12`), or from the API (as the Reeve can), with the repository and the pull request's number:
 
 ```bash

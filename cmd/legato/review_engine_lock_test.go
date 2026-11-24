@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/service"
+)
 
 // Whether any Legato on a data folder runs the review engine: the broker
 // holder holds the engine's lock while it ticks, and the operating system
@@ -32,4 +37,26 @@ func TestTheReviewEngineLockSaysWhetherAnyProcessRunsTheEngine(t *testing.T) {
 		t.Fatal("the next holder could not take the lock")
 	}
 	other.release()
+}
+
+// What the card menus are told of the engine: offered while any process on
+// the data folder holds it, else why not.
+func TestTheReviewEngineStatusSaysWhyNoReviewIsOffered(t *testing.T) {
+	cfg := &config.Config{DataDir: t.TempDir()}
+	status := reviewEngineStatus(cfg)
+	if got := status(); got.Running || got.Reason != service.ReviewPassesOffReason {
+		t.Fatalf("off = %+v", got)
+	}
+	cfg.ReviewPasses.Enabled = true
+	if got := status(); got.Running || got.Reason != service.ReviewEngineStoppedReason {
+		t.Fatalf("no holder = %+v", got)
+	}
+	holder := &reviewEngineLock{dir: config.ResolveDataDir(cfg)}
+	if !holder.hold() {
+		t.Fatal("the holder could not take the lock")
+	}
+	defer holder.release()
+	if got := status(); !got.Running || got.Reason != "" {
+		t.Fatalf("held = %+v", got)
+	}
 }

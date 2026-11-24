@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+
+	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/service"
 )
 
 // reviewEngineLockFile is the lock, in the data folder, that the Legato
@@ -69,4 +72,14 @@ func reviewEngineRunning(dir string) bool {
 	}
 	_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
 	return false
+}
+
+// reviewEngineStatus is what the card menus (web and TUI) are told of the
+// review engine: offered while any Legato on the data folder holds it, else
+// why not (spec LEG-559 D9). Asked at each menu, so a holder that started
+// or ended since shows.
+func reviewEngineStatus(cfg *config.Config) func() service.ReviewEngineStatus {
+	return func() service.ReviewEngineStatus {
+		return service.ReviewEngineStatusOf(cfg.ReviewPasses.Enabled, reviewEngineRunning(config.ResolveDataDir(cfg)))
+	}
 }

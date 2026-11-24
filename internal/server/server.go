@@ -140,6 +140,10 @@ type Server struct {
 	// workflowForwarding is set once StartWorkflowEvents sends the bus's
 	// workflow changes to the web UI.
 	workflowForwarding atomic.Bool
+
+	// reviewEngine says whether some Legato on the data folder runs the
+	// review engine (SetReviewEngine).
+	reviewEngine func() service.ReviewEngineStatus
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -270,6 +274,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/agents/interrupted/resume-all", s.interruptedResumeAllHandler())
 	mux.HandleFunc("/api/agents/{task_id}/resume", s.interruptedResumeHandler())
 	mux.HandleFunc("/api/agents/{task_id}/dismiss", s.interruptedDismissHandler())
+	mux.HandleFunc("/api/review-engine", s.reviewEngineHandler())
 	mux.HandleFunc("/api/macros", s.macrosHandler())
 	mux.HandleFunc("/api/macros/{name}", s.macroEntryHandler())
 	mux.HandleFunc("/api/macros/{name}/reset", s.macroActionHandler("reset"))

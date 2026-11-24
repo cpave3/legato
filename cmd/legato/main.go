@@ -1106,6 +1106,7 @@ func runServeCmd(args []string) int {
 	wireUpdates(srv, updates)
 	srv.SetRestarter(restartAll)
 	srv.SetMacros(cfg.Macros)
+	srv.SetReviewEngine(reviewEngineStatus(cfg))
 	srv.SetMacroService(macrosFor(db, agentSvc))
 	srv.SetGroupDefaults(cfg.Groups.Defaults)
 	srv.SetTerminalAttacher(terminalAttacher(tmuxMgr))
@@ -1512,6 +1513,7 @@ func runTUI() int {
 			wireUpdates(webSrv, updates)
 			webSrv.SetRestarter(restartAll)
 			webSrv.SetMacros(cfg.Macros)
+			webSrv.SetReviewEngine(reviewEngineStatus(cfg))
 			webSrv.SetMacroService(macrosFor(db, agentSvc))
 			webSrv.SetGroupDefaults(cfg.Groups.Defaults)
 			webSrv.SetTerminalAttacher(terminalAttacher(tmuxMgr))
@@ -1633,7 +1635,11 @@ func runTUI() int {
 		_ = attentionSvc.RegisterHandler(workflowAdapter.Producer(), workflowAdapter)
 	}
 	if tuiWorkflowSvc != nil {
-		app.SetTaskWorkflowLauncher(service.NewTaskWorkflowLauncher(db, tuiWorkflowSvc, workflowDiscoveryProvider(cfg, db)))
+		launcher := service.NewTaskWorkflowLauncher(db, tuiWorkflowSvc, workflowDiscoveryProvider(cfg, db))
+		// Review passes are offered only while a Legato on the data folder
+		// runs the review engine.
+		launcher.SetReviewEngine(reviewEngineStatus(cfg))
+		app.SetTaskWorkflowLauncher(launcher)
 	}
 	if triggerCoordinator != nil {
 		triggerAdapter := service.NewWorkflowTriggerAttentionAdapter(triggerCoordinator, db)

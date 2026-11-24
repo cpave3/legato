@@ -73,6 +73,9 @@ type CardContextOverlay struct {
 	values        map[string]string
 	fields        []service.TaskWorkflowInput
 	width, height int
+
+	// reviewNotice is why the Workflows list offers no review passes.
+	reviewNotice string
 }
 
 func NewCardContext(taskID string) CardContextOverlay {
@@ -96,6 +99,13 @@ func (m CardContextOverlay) SetWorkflows(workflows []service.TaskWorkflowOption,
 			m.warningText = err.Error()
 		}
 	}
+	return m
+}
+
+// SetReviewNotice says, under the Workflows list, why it offers no review
+// passes: no Legato on the data folder runs the review engine.
+func (m CardContextOverlay) SetReviewNotice(notice string) CardContextOverlay {
+	m.reviewNotice = notice
 	return m
 }
 
@@ -316,7 +326,7 @@ func (m CardContextOverlay) View() string {
 			lines = append(lines, "Loading workflows…")
 		case m.errorText != "":
 			lines = append(lines, lipgloss.NewStyle().Foreground(theme.SyncError).Render(m.errorText))
-		case len(m.workflows) == 0:
+		case len(m.workflows) == 0 && m.reviewNotice == "":
 			lines = append(lines, "No workflows accept exactly one task input.")
 		default:
 			for i, workflow := range m.workflows {
@@ -325,6 +335,12 @@ func (m CardContextOverlay) View() string {
 					label += " — " + workflow.Description
 				}
 				lines = append(lines, contextItem(label, i == m.cursor))
+			}
+			if m.reviewNotice != "" {
+				if len(m.workflows) > 0 {
+					lines = append(lines, "")
+				}
+				lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextTertiary).Render(m.reviewNotice))
 			}
 			if m.warningText != "" {
 				lines = append(lines, "", lipgloss.NewStyle().Foreground(theme.SyncError).Render(m.warningText))
