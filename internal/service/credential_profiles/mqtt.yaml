@@ -1,7 +1,0 @@
-name: mqtt
-description: MQTT broker login for Legato's publisher; never given to agents
-issuer: static
-host_only: true
-accepts: [userpass]
-policy:
-  - { approve: deny }
