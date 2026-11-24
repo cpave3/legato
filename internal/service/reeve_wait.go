@@ -9,11 +9,17 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
-// ReeveAnswerWait is how long an agent waits on the Reeve before the
-// operator is told: past it, or with no Reeve session to answer, the agent
-// needs the operator ("The Reeve hasn't answered"), so a question never
-// sits unseen.
-const ReeveAnswerWait = 10 * time.Minute
+// ReeveAnswerWait is how long the Reeve has to answer an agent once it was
+// told the agent's question: past it the agent needs the operator
+// ("Waiting on the Reeve for N min"), so a question never sits unseen. It
+// runs from when the Reeve was told, not from when the agent asked: the
+// watcher holds a message while the Reeve is busy (LEG-623).
+const ReeveAnswerWait = 15 * time.Minute
+
+// ReeveUntoldWait is the backstop for a question the Reeve was never told
+// (one stuck mid-turn, say): past it from the asking, the agent needs the
+// operator.
+const ReeveUntoldWait = time.Hour
 
 // ReeveWaitChanged is the IPC message a process sends when an agent starts
 // or stops waiting on the Reeve, or a wait passes ReeveAnswerWait: each
@@ -55,25 +61,36 @@ func endReeveWaitOf(ctx context.Context, db *store.Store, address string) {
 	}
 }
 
-// reeveWaitState is a wait's state at now: open while a Reeve session can
-// answer and ReeveAnswerWait has not passed, else unanswered.
-func reeveWaitState(since time.Time, reeveRuns bool, now time.Time) string {
-	if !reeveRuns || now.Sub(since) >= ReeveAnswerWait {
+// reeveWaitState is a wait's state at now: unanswered when no Reeve can
+// answer (no session, and none started for the question), when the Reeve
+// was told at toldAt and ReeveAnswerWait has passed since, or when it was
+// never told and ReeveUntoldWait has passed since the agent asked; else
+// open.
+func reeveWaitState(since time.Time, toldAt *time.Time, reachable bool, now time.Time) string {
+	if !reachable || !now.Before(reeveWaitDue(since, toldAt)) {
 		return ReeveWaitUnanswered
 	}
 	return ReeveWaitOpen
 }
 
-// ReeveWaitsDue says whether a wait on the Reeve passed ReeveAnswerWait in
+// reeveWaitDue is when a wait the Reeve can answer goes unanswered.
+func reeveWaitDue(since time.Time, toldAt *time.Time) time.Time {
+	if toldAt != nil {
+		return toldAt.Add(ReeveAnswerWait)
+	}
+	return since.Add(ReeveUntoldWait)
+}
+
+// ReeveWaitsDue says whether a wait on the Reeve went unanswered in
 // (after, until]: its agent's glance moved to Needs you with nothing else
 // to tell the lists so.
 func ReeveWaitsDue(ctx context.Context, db *store.Store, after, until time.Time) bool {
-	waits, err := db.OpenReeveWaitsSince(ctx)
+	waits, err := db.OpenReeveWaits(ctx)
 	if err != nil {
 		return false
 	}
-	for _, since := range waits {
-		if due := since.Add(ReeveAnswerWait); due.After(after) && !due.After(until) {
+	for _, w := range waits {
+		if due := reeveWaitDue(w.Since, w.ToldAt); due.After(after) && !due.After(until) {
 			return true
 		}
 	}

@@ -435,6 +435,7 @@ type agentService struct {
 	learningMaxBytes     int
 	peerAwareness        bool
 	peerMessageSent      func()
+	reeveWakes           bool
 	// nativeBindTimeout bounds how long a launch message waits for the
 	// session's native endpoint before it is typed into the pane instead.
 	nativeBindTimeout time.Duration
@@ -624,6 +625,10 @@ type AgentServiceOptions struct {
 	// two agents is delivered and recorded, so the web UI's graph of agents
 	// draws the link (the runtime tells every Legato process over IPC).
 	PeerMessageSent func()
+	// ReeveWakes is reeve.watch.wake: an agent's message to the Reeve
+	// starts one when none runs, so a wait on the Reeve with no session is
+	// still open, not unanswered.
+	ReeveWakes bool
 	// RepositoryGuidance adds the guidance of the repository an agent works
 	// in to its launch prompt. Nil: none.
 	RepositoryGuidance RepositoryGuidanceSource
@@ -769,6 +774,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.learningMaxBytes = opts[0].LearningPromptMaxBytes
 		svc.peerAwareness = !opts[0].DisablePeerAwareness
 		svc.peerMessageSent = opts[0].PeerMessageSent
+		svc.reeveWakes = opts[0].ReeveWakes
 		svc.sandbox = opts[0].Sandbox
 		svc.capabilities = opts[0].Capabilities
 		svc.capabilityFolders = opts[0].CapabilityFolders
@@ -2006,7 +2012,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 	liveCmds, _ := a.tmux.PaneCommands()
 
 	result := make([]AgentSession, len(sessions))
-	var reeveRuns *bool // read once, when an agent waits on the Reeve
+	var reeveReachable *bool // read once, when an agent waits on the Reeve
 	for i, s := range sessions {
 		startedAt, err := time.Parse("2006-01-02 15:04:05", s.StartedAt)
 		if err != nil {
@@ -2088,12 +2094,16 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			StageSince:        parseStageTime(s.WorkStageSince),
 		}
 		if since, err := time.Parse(time.RFC3339, s.ReeveWaitSince); err == nil && s.ReeveWaitSince != "" {
-			if reeveRuns == nil {
+			if reeveReachable == nil {
 				current, _ := a.store.CurrentReeveSession(ctx)
-				runs := current != nil
-				reeveRuns = &runs
+				reachable := current != nil || a.reeveWakes
+				reeveReachable = &reachable
 			}
-			result[i].ReeveWaitSince, result[i].ReeveWait = &since, reeveWaitState(since, *reeveRuns, time.Now())
+			var toldAt *time.Time
+			if told, err := time.Parse(time.RFC3339, s.ReeveWaitToldAt); err == nil {
+				toldAt = &told
+			}
+			result[i].ReeveWaitSince, result[i].ReeveWait = &since, reeveWaitState(since, toldAt, *reeveReachable, time.Now())
 		}
 		if s.RunCardTaskID != "" {
 			result[i].RunCard = &RunCard{TaskID: s.RunCardTaskID, Key: s.RunCardKey, Title: s.RunCardTitle}

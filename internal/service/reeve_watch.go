@@ -23,7 +23,7 @@ import (
 type ReeveWatcher struct {
 	opts ReeveWatcherOptions
 	// waitsAt is the last check's time, from which a wait on the Reeve
-	// passing ReeveAnswerWait is told once.
+	// going unanswered is told once.
 	waitsMu sync.Mutex
 	waitsAt time.Time
 }
@@ -55,8 +55,8 @@ type ReeveWatcherOptions struct {
 	Conversation func(ctx context.Context, taskID string) (*ConversationTail, error)
 	Settings     func(ctx context.Context) ReeveWatchSettings
 	Now          func() time.Time
-	// WaitsDue is called when an agent's wait on the Reeve passes
-	// ReeveAnswerWait between two checks (NotifyReeveWaitChanged when nil).
+	// WaitsDue is called when an agent's wait on the Reeve goes unanswered
+	// between two checks (NotifyReeveWaitChanged when nil).
 	WaitsDue func()
 }
 
@@ -184,6 +184,9 @@ type WatchEvent struct {
 	Asks string `json:"asks,omitempty"`
 	// Detail is a note's text, or what changed of a pull request.
 	Detail string `json:"detail,omitempty"`
+	// ExecutionID is the execution of an agent's own message, whose wait
+	// on the Reeve is told when the message is.
+	ExecutionID string `json:"execution_id,omitempty"`
 }
 
 // ReeveWatchInfo is one watch, as listed.
@@ -671,11 +674,29 @@ func (w *ReeveWatcher) deliver(ctx context.Context, settings ReeveWatchSettings)
 			log.Printf("reeve: telling it what its agents did: %v", err)
 			return 0
 		}
+		w.markTold(ctx, events)
 	}
 	if err := w.opts.Store.DeleteReeveWatchEventsThrough(ctx, queued[len(queued)-1].ID); err != nil {
 		log.Printf("reeve: clearing what it was told: %v", err)
 	}
 	return 1
+}
+
+// markTold records that the Reeve was told the questions in events: the
+// time their agents wait for its answer runs from now (ReeveAnswerWait).
+func (w *ReeveWatcher) markTold(ctx context.Context, events []WatchEvent) {
+	var executions []string
+	for _, e := range events {
+		if e.Kind == WatchAgentMessage && e.ExecutionID != "" {
+			executions = append(executions, e.ExecutionID)
+		}
+	}
+	if len(executions) == 0 {
+		return
+	}
+	if err := w.opts.Store.MarkReeveWaitsTold(ctx, executions, w.opts.Now()); err != nil {
+		log.Printf("reeve: recording that it was told: %v", err)
+	}
 }
 
 // reeveCanHear says whether a message to the Reeve now lands between its
@@ -845,7 +866,7 @@ func MessageReeve(ctx context.Context, db *store.Store, taskID, executionID, tex
 	case IsReeveTask(ctx, db, taskID):
 		return ReeveMessageOutcome{}, errors.New("this session is the Reeve's own")
 	}
-	e := WatchEvent{TaskID: taskID, Kind: WatchAgentMessage, At: at, Detail: text}
+	e := WatchEvent{TaskID: taskID, Kind: WatchAgentMessage, At: at, Detail: text, ExecutionID: executionID}
 	if task, err := db.GetTask(ctx, taskID); err == nil {
 		e.Title = task.Title
 	}

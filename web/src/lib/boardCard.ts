@@ -82,7 +82,7 @@ export function agentStripLook(card: BoardCard, reeve: ReeveName = reeveName()):
     // behalf, until the Reeve has not answered for too long.
     const waited = secondsSince(card.waiting_since)
     if (cardGlance(card) === "needs_you") {
-      return { glyph: "◆", label: "Needs you", time: waited, tint: "bg-lw-needs-soft", tone: "text-lw-needs", stage: true, reason: reeveUnanswered(reeve), tool }
+      return { glyph: "◆", label: "Needs you", time: waited, tint: "bg-lw-needs-soft", tone: "text-lw-needs", stage: true, reason: reeveUnanswered(card.waiting_since, reeve), tool }
     }
     if (cardGlance(card) === "working") {
       return { glyph: "◈", label: `Waiting on ${reeve.mid}`, time: waited, tint: reeveTint, tone: reeveTone, ...quiet }
