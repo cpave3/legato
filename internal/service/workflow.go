@@ -174,7 +174,9 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 	if err := s.store.CreateTask(ctx, store.Task{ID: taskID, Title: runTitle, Description: "Workflow run " + runID, DescriptionMD: "Workflow run " + runID, Status: "Backlog", WorkspaceID: workspaceID, CreatedAt: now, UpdatedAt: now}); err != nil {
 		return nil, err
 	}
-	if isBuiltInLearningDefinition(definition.Source) {
+	// A Learn run's own task never starts another: the learn template's
+	// trigger skips tasks with this mark.
+	if definition.UsesLearning() {
 		if err := s.store.SetTaskMetadata(ctx, taskID, []string{"legato", "learning_workflow"}, true); err != nil {
 			return nil, fmt.Errorf("mark learning workflow task: %w", err)
 		}

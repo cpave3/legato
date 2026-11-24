@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"sort"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/events"
@@ -19,7 +18,7 @@ func workflowDiscoveryProvider(cfg *config.Config, db *store.Store) func() workf
 	repositories := workflowRepositoriesFor(cfg, db)
 	return func() workflowengine.DiscoveryResult {
 		presets := repositories()
-		result := workflowengine.WithBuiltIns(injectBuiltInLearningTriggers(workflowengine.DiscoverFolders(workflowFolders(presets)), cfg), service.BuiltInJobWorkflow())
+		result := workflowengine.WithBuiltIns(workflowengine.DiscoverFolders(workflowFolders(presets)), service.BuiltInJobWorkflow())
 		result.Repositories = presets
 		return result
 	}
@@ -55,22 +54,4 @@ func buildWorkflowTriggerCoordinator(db *store.Store, workflows *service.Workflo
 		coordinator.SetEventBus(bus[0])
 	}
 	return coordinator
-}
-
-func injectBuiltInLearningTriggers(result workflowengine.DiscoveryResult, cfg *config.Config) workflowengine.DiscoveryResult {
-	if cfg == nil || !cfg.Learning.Enabled {
-		return result
-	}
-	definitions, err := service.BuiltInTriggeredLearningWorkflows(cfg.Learning.TransitionColumns, service.LearningWorkflowOptions{
-		Adapter: firstNonEmpty(cfg.Learning.CuratorAdapter, cfg.DefaultAgentTool()), Tier: cfg.Learning.CuratorTier,
-		WorkingDir: cfg.Learning.CuratorWorkingDir, PacketMaxItems: cfg.Learning.PacketMaxItems,
-		PacketMaxBytes: cfg.Learning.PacketMaxBytes,
-	})
-	if err != nil {
-		result.Errors = append(result.Errors, workflowengine.DiscoveryError{Path: "builtin:learning", Error: err.Error()})
-		return result
-	}
-	result.Definitions = append(result.Definitions, definitions...)
-	sort.Slice(result.Definitions, func(i, j int) bool { return result.Definitions[i].Name < result.Definitions[j].Name })
-	return result
 }

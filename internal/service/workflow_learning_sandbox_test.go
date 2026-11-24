@@ -12,6 +12,7 @@ import (
 
 	"github.com/cpave3/legato/internal/engine/sandbox"
 	"github.com/cpave3/legato/internal/engine/store"
+	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
 
 func TestLearningWorkflowAgentsUseTheirTasksCloneAcrossHomeSpellings(t *testing.T) {
@@ -48,9 +49,9 @@ func TestLearningWorkflowAgentsUseTheirTasksCloneAcrossHomeSpellings(t *testing.
 					if err := db.AttachJobCloneTask(ctx, id, "subject", time.Now()); err != nil {
 						t.Fatal(err)
 					}
-					definitions, err := BuiltInTriggeredLearningWorkflows([]string{"Review"}, LearningWorkflowOptions{Adapter: "claude-code", PacketMaxItems: 25, PacketMaxBytes: 8192})
-					if err != nil {
-						t.Fatal(err)
+					definitions := []*workflowengine.Definition{learnTemplate(t)}
+					for _, step := range definitions[0].Steps[2:4] {
+						step.With["agent"] = "claude-code"
 					}
 					// Separate the two agent lifetimes: automatic advancement before
 					// cleanup of a live curator is outside this sandbox regression.
