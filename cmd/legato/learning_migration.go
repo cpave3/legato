@@ -152,7 +152,11 @@ func warnDeprecatedLearningSettings(cfg *config.Config, logf func(string, ...any
 	if len(set) == 0 {
 		return
 	}
-	logf("learning: %s no longer does anything: automatic Learn is the learn workflow, switched on and off on the Workflows tab (legato workflow add learn)", strings.Join(set, " and "))
+	verb := "does"
+	if len(set) > 1 {
+		verb = "do"
+	}
+	logf("learning: %s %s nothing now: automatic Learn is the learn workflow, switched on and off on the Workflows tab (legato workflow add learn)", strings.Join(set, " and "), verb)
 }
 
 // startLearningMigration runs the migration for a long-lived process, once
