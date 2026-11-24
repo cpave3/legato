@@ -2,6 +2,7 @@ package handofftest
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -189,5 +190,59 @@ func TestAnAgentAuthoredLoopIsApprovedWhateverTheAuthorAppsAssociation(t *testin
 	posted := r.worker.ReviewGitHub.Posted()
 	if len(posted) != 1 || posted[0].Event != service.ReviewApprove || strings.Contains(posted[0].Summary, "outside") {
 		t.Fatalf("posted %+v", posted)
+	}
+}
+
+// cleanRunOutputs runs a person-authored loop on #12, opened by an author
+// of the given association, to a clean pass, and gives the step's outputs.
+func cleanRunOutputs(t *testing.T, association string) map[string]any {
+	t.Helper()
+	r := newReviewRun(t, ReviewPassOptions{})
+	r.worker.ReviewGitHub.SetAuthor(12, "octocat", association)
+	view := r.start(t, pr12)
+	r.tick()
+	r.submit(t, view.Run.TaskID, service.ReviewSubmission{Summary: "Looks right."})
+	view = r.show(t, view.Run.ID)
+	if view.Run.Status != "succeeded" {
+		t.Fatalf("run %q: %s", view.Run.Status, view.Run.Error)
+	}
+	out := outputs(t, view, "review")
+	if out["outcome"] != service.ReviewOutcomeApproved {
+		t.Fatalf("outputs %+v", out)
+	}
+	return out
+}
+
+func TestAnOutsidersCleanRunSaysItsApprovalWasWithheld(t *testing.T) {
+	out := cleanRunOutputs(t, "CONTRIBUTOR")
+	if out["approval_withheld"] != true {
+		t.Fatalf("approval_withheld = %v", out["approval_withheld"])
+	}
+	reviews, _ := out["reviews"].([]any)
+	if len(reviews) != 1 {
+		t.Fatalf("reviews %+v", out["reviews"])
+	}
+	review := reviews[0].(map[string]any)
+	if review["pr"] != float64(12) || review["event"] != service.ReviewComment || review["approval_withheld"] != true ||
+		review["withheld_reason"] != "outside_author" || review["approved"] == true {
+		t.Fatalf("review %+v", review)
+	}
+	summary, err := os.ReadFile(out["summary_path"].(string))
+	if err != nil || !strings.Contains(string(summary), "approval withheld: the author is outside the repository") {
+		t.Fatalf("summary %q, %v", summary, err)
+	}
+}
+
+func TestAMembersCleanRunSaysNoApprovalWasWithheld(t *testing.T) {
+	out := cleanRunOutputs(t, "MEMBER")
+	if withheld, ok := out["approval_withheld"]; !ok || withheld != false {
+		t.Fatalf("approval_withheld = %v (set %v)", withheld, ok)
+	}
+	reviews, _ := out["reviews"].([]any)
+	if len(reviews) != 1 {
+		t.Fatalf("reviews %+v", out["reviews"])
+	}
+	if review := reviews[0].(map[string]any); review["event"] != service.ReviewApprove || review["approval_withheld"] == true {
+		t.Fatalf("review %+v", review)
 	}
 }

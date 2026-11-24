@@ -953,19 +953,18 @@ func (c *ReviewRunCaller) outputs(ctx context.Context, taskID string, run *revie
 	if err != nil {
 		return nil, err
 	}
-	var reviews []map[string]any
-	for pass := 1; pass <= passes; pass++ {
-		prs, _ := c.engine.db.ListHandoffReviewPRs(ctx, taskID, pass)
-		for _, pr := range prs {
-			if pr.ReviewURL != "" {
-				reviews = append(reviews, map[string]any{"pass": pass, "pr": pr.Number, "url": pr.ReviewURL})
-			}
+	posted := c.postedReviews(ctx, taskID, run, passes, outcome == ReviewOutcomeApproved)
+	reviews := []map[string]any{}
+	withheld := false
+	for _, r := range posted {
+		review := map[string]any{"pass": r.Pass, "pr": r.PR, "url": r.URL, "event": r.Event, "approved": r.Event == ReviewApprove}
+		if r.ApprovalWithheld {
+			withheld = true
+			review["approval_withheld"], review["withheld_reason"] = true, r.WithheldReason
 		}
+		reviews = append(reviews, review)
 	}
-	if reviews == nil {
-		reviews = []map[string]any{}
-	}
-	summary := reviewRunSummary(run, outcome, passes, findings, reviews)
+	summary := reviewRunSummary(run, outcome, passes, findings, posted)
 	path := ""
 	if c.opts.SummaryDir != "" {
 		dir := filepath.Join(c.opts.SummaryDir, run.RunID)
@@ -978,15 +977,47 @@ func (c *ReviewRunCaller) outputs(ctx context.Context, taskID string, run *revie
 		}
 	}
 	return map[string]any{"outcome": outcome, "passes": passes, "findings": len(findings), "reviews": reviews,
-		"summary_path": path, "linked_task": run.LinkedTask}, nil
+		"approval_withheld": withheld, "summary_path": path, "linked_task": run.LinkedTask}, nil
+}
+
+// WithheldOutsideAuthor is why a clean pass's review of a pull request is
+// a COMMENT and not an APPROVE: a person-authored loop's pull request
+// whose author is outside the repository (ReviewOutsideAuthor).
+const WithheldOutsideAuthor = "outside_author"
+
+// postedReviews are the reviews a run's passes posted, oldest first. When
+// the loop ended approved (its last pass clean), a COMMENT that pass
+// posted on a person-authored loop is an approval withheld: a clean pass
+// comments on such a loop's pull request only when its author is outside
+// the repository (person-authored run loops count no checks, so nothing
+// else leaves a clean pass's pull request unapproved).
+func (c *ReviewRunCaller) postedReviews(ctx context.Context, taskID string, run *reviewRun, passes int, approved bool) []ReviewRunReview {
+	var out []ReviewRunReview
+	for pass := 1; pass <= passes; pass++ {
+		prs, _ := c.engine.db.ListHandoffReviewPRs(ctx, taskID, pass)
+		for _, pr := range prs {
+			if pr.ReviewURL == "" {
+				continue
+			}
+			review := ReviewRunReview{Pass: pass, PR: pr.Number, URL: pr.ReviewURL, Event: pr.Event}
+			if approved && pass == passes && run.AuthorTask == "" && pr.Event == ReviewComment {
+				review.ApprovalWithheld, review.WithheldReason = true, WithheldOutsideAuthor
+			}
+			out = append(out, review)
+		}
+	}
+	return out
 }
 
 // reviewRunSummary is the loop in Markdown, for the linked task's note.
-func reviewRunSummary(run *reviewRun, outcome string, passes int, findings []store.HandoffReviewFinding, reviews []map[string]any) string {
+func reviewRunSummary(run *reviewRun, outcome string, passes int, findings []store.HandoffReviewFinding, reviews []ReviewRunReview) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Review loop on %s: %s after %d %s.\n", reviewStackName(run.Repo, run.numbers()), outcome, passes, plural(passes, "pass", "passes"))
 	for _, r := range reviews {
-		fmt.Fprintf(&b, "\n- Pass %v review: %v", r["pass"], r["url"])
+		fmt.Fprintf(&b, "\n- Pass %d review: %s", r.Pass, r.URL)
+		if r.ApprovalWithheld {
+			fmt.Fprintf(&b, " (#%d commented, approval withheld: the author is outside the repository)", r.PR)
+		}
 	}
 	blocking, open := 0, 0
 	for _, f := range findings {
@@ -1107,7 +1138,8 @@ func (s *ReviewPassesStep) Cancel(ctx context.Context, attempt store.WorkflowSte
 
 // ReviewRunDetails is where a run's review loop stands, as the run page
 // shows it: its phase, the pass, a line ("Reviewing · pass 2", "Author
-// fixing · 3 blocking", "Waiting for author · 3 blocking", "Approved",
+// fixing · 3 blocking", "Waiting for author · 3 blocking", "Approved" (or
+// "Clean · approval withheld: …" for an outsider's pull request),
 // "Stuck: …"), and every review posted. NeedsYou says the loop waits on the
 // operator, as the step's attention does: stuck, or waiting for an author
 // that will not move it alone.
@@ -1119,13 +1151,21 @@ type ReviewRunDetails struct {
 	Reason       string            `json:"reason,omitempty"`
 	NeedsYou     bool              `json:"needs_you"`
 	Reviews      []ReviewRunReview `json:"reviews"`
+	// ApprovalWithheld: the loop is clean, and a pull request got the
+	// outside-author COMMENT in place of an APPROVE.
+	ApprovalWithheld bool `json:"approval_withheld,omitempty"`
 }
 
-// ReviewRunReview is one review a pass posted.
+// ReviewRunReview is one review a pass posted: its event as posted
+// (APPROVE or COMMENT), and whether it is a clean pass's COMMENT in place
+// of an approval, and why (WithheldOutsideAuthor).
 type ReviewRunReview struct {
-	Pass int    `json:"pass"`
-	PR   int    `json:"pr"`
-	URL  string `json:"url"`
+	Pass             int    `json:"pass"`
+	PR               int    `json:"pr"`
+	URL              string `json:"url"`
+	Event            string `json:"event,omitempty"`
+	ApprovalWithheld bool   `json:"approval_withheld,omitempty"`
+	WithheldReason   string `json:"withheld_reason,omitempty"`
 }
 
 // Details is where the run task's loop stands; nil before it has one.
@@ -1141,13 +1181,11 @@ func (c *ReviewRunCaller) Details(ctx context.Context, attempt store.WorkflowSte
 	if block := c.engine.ReviewBlock(ctx, attempt.TaskID); block != nil {
 		d.BlockingOpen = block.BlockingOpen
 	}
-	for pass := 1; pass <= loop.Pass; pass++ {
-		prs, _ := c.engine.db.ListHandoffReviewPRs(ctx, attempt.TaskID, pass)
-		for _, pr := range prs {
-			if pr.ReviewURL != "" {
-				d.Reviews = append(d.Reviews, ReviewRunReview{Pass: pass, PR: pr.Number, URL: pr.ReviewURL})
-			}
-		}
+	if run, err := c.run(ctx, attempt.TaskID); err == nil {
+		d.Reviews = append(d.Reviews, c.postedReviews(ctx, attempt.TaskID, run, loop.Pass, loop.Phase == ReviewPhaseClean)...)
+	}
+	for _, r := range d.Reviews {
+		d.ApprovalWithheld = d.ApprovalWithheld || r.ApprovalWithheld
 	}
 	switch loop.Phase {
 	case ReviewPhaseReady, ReviewPhaseWaitingForReviewer:
@@ -1168,6 +1206,9 @@ func (c *ReviewRunCaller) Details(ctx context.Context, attempt store.WorkflowSte
 		}
 	case ReviewPhaseClean:
 		d.Summary = "Approved"
+		if d.ApprovalWithheld {
+			d.Summary = "Clean · approval withheld: the author is outside the repository"
+		}
 	case ReviewPhaseStuck:
 		d.Summary, d.NeedsYou = "Stuck: "+loop.Reason, true
 	case ReviewPhaseSkipped:

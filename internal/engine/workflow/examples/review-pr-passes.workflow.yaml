@@ -47,7 +47,8 @@ steps:
       outcome: {type: string, description: "approved, stuck, closed or cancelled"}
       passes: {type: integer}
       findings: {type: integer}
-      reviews: {type: json, description: "The reviews posted, with their links"}
+      reviews: {type: json, description: "The reviews posted: pass, pr, url, event (APPROVE or COMMENT), approved, and approval_withheld with withheld_reason when a clean pass commented instead of approving"}
+      approval_withheld: {type: boolean, description: "true when the loop is approved but a pull request got a COMMENT instead of an APPROVE, because its author is outside the repository"}
       summary_path: {type: string, description: "A Markdown summary of the loop"}
       linked_task: {type: string, description: "The board task the pull request belongs to, or empty"}
   - id: note

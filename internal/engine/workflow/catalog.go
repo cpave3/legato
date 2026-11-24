@@ -473,7 +473,8 @@ var catalog = []ExecutorSpec{
 		Outputs: []OutputSpec{
 			{Name: "outcome", Type: "string", Description: "approved, stuck, closed or cancelled"},
 			{Name: "passes", Type: "integer"}, {Name: "findings", Type: "integer"},
-			{Name: "reviews", Type: "json", Description: "The reviews posted, with their links"},
+			{Name: "reviews", Type: "json", Description: "The reviews posted: pass, pr, url, event (APPROVE or COMMENT), approved, and approval_withheld with withheld_reason when a clean pass commented instead of approving"},
+			{Name: "approval_withheld", Type: "boolean", Description: "true when the loop is approved but a pull request got a COMMENT instead of an APPROVE, because its author is outside the repository"},
 			{Name: "summary_path", Type: "string", Description: "A Markdown summary of the loop"},
 			{Name: "linked_task", Type: "string", Description: "The board task the pull request belongs to, or empty"},
 		},
