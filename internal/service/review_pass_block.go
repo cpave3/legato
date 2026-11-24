@@ -213,17 +213,29 @@ func (s *ReviewPassService) latestReviews(ctx context.Context, taskID string, la
 // runs on or waits to run on ends (ReviewPhaseEnded), so it holds no
 // max_concurrent reviewer slot and the next queued loop may start. Ending
 // it is one transaction, and repeating it changes nothing.
+//
+// The loop ends in the store before StopReview waits for the engine: a post
+// under way holds it, and finds the loop ended at its next check before a
+// GitHub write (mayWrite). It ends again once the engine is free, in case
+// that tick saved the loop as it had read it.
 func (s *ReviewPassService) StopReview(ctx context.Context, taskID string) {
+	end := func() (bool, error) {
+		return s.db.EndHandoffReview(ctx, taskID, ReviewOutcomeClosed, "the review loop ended before the pass was posted", s.now())
+	}
+	endedFirst, err := end()
+	if err != nil {
+		log.Printf("review passes: ending the loop of %s: %v", taskID, err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_ = s.opts.Agents.KillAgentInSlot(ctx, taskID, SlotReviewer)
-	ended, err := s.db.EndHandoffReview(ctx, taskID, ReviewOutcomeClosed, "the review loop ended before the pass was posted", s.now())
+	ended, err := end()
 	if err != nil {
 		log.Printf("review passes: ending the loop of %s: %v", taskID, err)
 		return
 	}
 	s.setWaiting(taskID, "")
-	if ended {
+	if ended || endedFirst {
 		for _, caller := range s.callers {
 			caller.Changed(taskID)
 		}

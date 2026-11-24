@@ -43,6 +43,9 @@ type ReviewLoop struct {
 	// Pending says a loop whose phase reads finished (clean) is not: its
 	// caller has yet to end it (a run confirming its head with GitHub).
 	Pending bool
+	// Owner is who the loop writes to GitHub for: the run's step attempt,
+	// or the handoff. Each write checks it still is (mayWrite).
+	Owner store.HandoffReviewOwner
 
 	caller ReviewCaller
 }

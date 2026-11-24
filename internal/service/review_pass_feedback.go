@@ -431,6 +431,12 @@ func (s *ReviewPassService) postAnswers(ctx context.Context, l ReviewLoop) {
 		// was marked posted (a crash, a lost answer) is found, not posted
 		// again.
 		marker := answerMarker(l.TaskID, item)
+		if ok, err := s.mayWrite(ctx, l, 0); !ok {
+			if err != nil {
+				log.Printf("review passes: posting the answer to %s: %v", item.ID, err)
+			}
+			return
+		}
 		if item.ThreadCommentID != 0 {
 			err = s.opts.GitHub.Reply(ctx, AsAuthor, item.Repo, item.PR, item.ThreadCommentID, body, marker)
 		} else {

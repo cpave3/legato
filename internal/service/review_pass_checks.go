@@ -238,6 +238,9 @@ func (s *ReviewPassService) approveSettled(ctx context.Context, l ReviewLoop, lo
 		if pr.Event != ReviewComment || !prClean(loop.Pass, pr.Number, findings, items, true) {
 			continue
 		}
+		if ok, err := s.mayWrite(ctx, l, 0); !ok {
+			return err
+		}
 		posted, err := s.opts.GitHub.PostReview(ctx, ReviewPost{Repo: pr.Repo, Number: pr.Number, CommitID: pr.HeadSHA, Event: ReviewApprove,
 			Summary: "Its failing checks are settled.", Footer: reviewFooter(settings, loop.Pass),
 			Marker: laterReviewMarker(*pass, pr.Number, LaterApprove)})

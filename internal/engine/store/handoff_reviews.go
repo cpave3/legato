@@ -170,6 +170,72 @@ func (s *Store) DeleteHandoffReview(ctx context.Context, taskID string) error {
 	})
 }
 
+// HandoffReviewOwner is who a card's review loop writes to GitHub for: the
+// workflow step attempt that opened it (AttemptID), or the handoff the card
+// is (MainInstanceID and HandoffID).
+type HandoffReviewOwner struct {
+	AttemptID      string
+	MainInstanceID string
+	HandoffID      string
+}
+
+// ErrReviewPassNotSubmitted is a pass whose review may no longer be posted:
+// it was set aside (discarded) or ended since it was submitted.
+var ErrReviewPassNotSubmitted = errors.New("the review pass is no longer waiting to be posted")
+
+// CheckHandoffReviewWrite is the re-check before each GitHub write of a
+// card's review loop (spec LEG-559 D11), in one transaction: the loop has
+// not ended (ErrReviewLoopClosed); pass, when not 0, is still submitted
+// (ErrReviewPassNotSubmitted); and owner still owns it
+// (ErrReviewLoopNotOwned): its step attempt still waits, in a run not
+// ended, or its handoff is still open on this worker and not returning.
+// Nil allows the write. What happens between this check and the write is
+// not covered.
+func (s *Store) CheckHandoffReviewWrite(ctx context.Context, taskID string, pass int, owner HandoffReviewOwner) error {
+	tx, err := s.db.BeginTxx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var phase string
+	switch err := tx.GetContext(ctx, &phase, `SELECT phase FROM handoff_reviews WHERE task_id = ?`, taskID); {
+	case errors.Is(err, sql.ErrNoRows):
+		return ErrReviewLoopClosed
+	case err != nil:
+		return err
+	case phase == "ended":
+		return ErrReviewLoopClosed
+	}
+	if pass > 0 {
+		var state string
+		switch err := tx.GetContext(ctx, &state, `SELECT state FROM handoff_review_passes WHERE task_id = ? AND pass = ?`, taskID, pass); {
+		case errors.Is(err, sql.ErrNoRows):
+			return ErrReviewPassNotSubmitted
+		case err != nil:
+			return err
+		case state != "submitted":
+			return ErrReviewPassNotSubmitted
+		}
+	}
+	var owned int
+	switch {
+	case owner.AttemptID != "":
+		err = tx.GetContext(ctx, &owned, `SELECT COUNT(*) FROM workflow_step_attempts a JOIN workflow_runs r ON r.id = a.run_id
+			WHERE a.id = ? AND a.task_id = ? AND a.status = 'waiting' AND r.status IN ('running', 'waiting')`, owner.AttemptID, taskID)
+	case owner.HandoffID != "":
+		err = tx.GetContext(ctx, &owned, `SELECT COUNT(*) FROM handoffs
+			WHERE main_instance_id = ? AND handoff_id = ? AND task_id = ? AND closed_at IS NULL AND state IN (?, ?)`,
+			owner.MainInstanceID, owner.HandoffID, taskID, HandoffInProgress, HandoffDone)
+	}
+	if err != nil {
+		return err
+	}
+	if owned == 0 {
+		return ErrReviewLoopNotOwned
+	}
+	return nil
+}
+
 // EndHandoffReview ends a card's review loop that a pass runs on, waits to
 // run, or is about to start (phase ready, waiting_for_reviewer or
 // reviewing), in one transaction: the loop's phase becomes ended with

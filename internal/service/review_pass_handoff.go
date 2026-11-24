@@ -71,7 +71,8 @@ func (c *HandoffReviewCaller) applies(h *store.Handoff) bool {
 
 func handoffLoop(h *store.Handoff) ReviewLoop {
 	return ReviewLoop{TaskID: h.TaskID, Repo: h.Repo, AuthorTaskID: h.TaskID, CountComments: true, CountChecks: true,
-		Name: "handed-off task " + h.TaskID, Link: "/board?highlight_task=" + h.TaskID}
+		Name: "handed-off task " + h.TaskID, Link: "/board?highlight_task=" + h.TaskID,
+		Owner: store.HandoffReviewOwner{MainInstanceID: h.MainInstanceID, HandoffID: h.HandoffID}}
 }
 
 // Loops are the open handoffs whose review passes are on and whose agent

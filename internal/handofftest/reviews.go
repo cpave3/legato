@@ -79,6 +79,10 @@ type FakeReviewGitHub struct {
 	// learnLogin is told the login each review is posted as, as the
 	// publisher's login recorder is.
 	learnLogin func(login string)
+	// onRead runs once, before a pull request read once onReadSkip more
+	// have gone by, outside the fake's lock (OnRead).
+	onRead     func()
+	onReadSkip int
 }
 
 // ReviewerLogin is the login the fake posts reviews as: the reviewer
@@ -169,6 +173,32 @@ func (f *FakeReviewGitHub) FindReview(_ context.Context, post service.ReviewPost
 	review, ok := f.reviews[post.Marker]
 	review.Existed = ok
 	return review, ok, nil
+}
+
+// OnRead runs hook once, just before a pull request read (one or by
+// branch), after skip reads go by: a test acts while Legato reads GitHub,
+// as it does before each post.
+func (f *FakeReviewGitHub) OnRead(skip int, hook func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.onRead, f.onReadSkip = hook, skip
+}
+
+// beforeRead runs the hook OnRead set when its read comes. Call without
+// f.mu.
+func (f *FakeReviewGitHub) beforeRead() {
+	f.mu.Lock()
+	hook := f.onRead
+	if hook != nil && f.onReadSkip > 0 {
+		f.onReadSkip--
+		hook = nil
+	} else {
+		f.onRead = nil
+	}
+	f.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 }
 
 // LoseAnswers makes GitHub take the next n replies and conversation
@@ -292,6 +322,7 @@ func (f *FakeReviewGitHub) Resolved() []int64 {
 }
 
 func (f *FakeReviewGitHub) PullRequests(_ context.Context, _ string, branches []string) ([]service.ReviewGitHubPR, error) {
+	f.beforeRead()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.readFails() {
@@ -728,6 +759,7 @@ func (f *FakeReviewGitHub) readFails() bool {
 }
 
 func (f *FakeReviewGitHub) PullRequest(_ context.Context, _ string, number int) (service.ReviewGitHubPR, string, error) {
+	f.beforeRead()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.readFails() {

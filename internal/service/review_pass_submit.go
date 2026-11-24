@@ -402,10 +402,10 @@ func (s *ReviewPassService) headsMoved(ctx context.Context, pass *store.HandoffR
 // beforePost is the check every post of a pass's reviews goes through:
 // once for every layer before the first, and for each layer again just
 // before its own. A head that moved discards the pass (D2), and nothing
-// more of it is posted (false). An error leaves the pass submitted, to be
-// tried again on the next tick. Later checks before a write (the loop
-// still open) belong here too.
-func (s *ReviewPassService) beforePost(ctx context.Context, loop *store.HandoffReview, pass *store.HandoffReviewPass, layers []store.HandoffReviewPR) (bool, error) {
+// more of it is posted (false). Last, nearest the write, the loop must
+// still be open and its owner's (mayWrite, D11). An error leaves the pass
+// submitted, to be tried again on the next tick.
+func (s *ReviewPassService) beforePost(ctx context.Context, l ReviewLoop, loop *store.HandoffReview, pass *store.HandoffReviewPass, layers []store.HandoffReviewPR) (bool, error) {
 	moved, err := s.headsMoved(ctx, pass, layers)
 	if err != nil {
 		return false, err
@@ -413,7 +413,7 @@ func (s *ReviewPassService) beforePost(ctx context.Context, loop *store.HandoffR
 	if moved != "" {
 		return false, s.discard(ctx, loop, *pass, moved)
 	}
-	return true, nil
+	return s.mayWrite(ctx, l, pass.Pass)
 }
 
 // moved says how the author's checkout differs from the pass's pin: HEAD,
@@ -526,7 +526,7 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 				continue
 			}
 			if err := s.posted(ctx, l, pass, layer, found, all, &failures); err != nil {
-				return err
+				return droppedIsDone(err)
 			}
 		}
 		layers = waiting
@@ -534,7 +534,7 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 	// Checked even when every review was found by its marker: a pass is
 	// never finished on heads that moved. The reviews found stay recorded,
 	// as a lower layer's does when a head moves before the next.
-	if ok, err := s.beforePost(ctx, loop, pass, prs); !ok {
+	if ok, err := s.beforePost(ctx, l, loop, pass, prs); !ok {
 		if err != nil {
 			return s.postFailed(ctx, l, loop, pass, layers, err)
 		}
@@ -544,7 +544,7 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 		// Each layer's head is read just before its own write: its post,
 		// or the record that its approval stands, which must not be kept
 		// at a head GitHub has replaced.
-		if ok, err := s.beforePost(ctx, loop, pass, []store.HandoffReviewPR{layer.pr}); !ok {
+		if ok, err := s.beforePost(ctx, l, loop, pass, []store.HandoffReviewPR{layer.pr}); !ok {
 			if err != nil {
 				return s.postFailed(ctx, l, loop, pass, layers[i:], err)
 			}
@@ -570,8 +570,14 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 			return s.postFailed(ctx, l, loop, pass, layers[i:], err)
 		}
 		if err := s.posted(ctx, l, pass, layer, posted, all, &failures); err != nil {
-			return err
+			return droppedIsDone(err)
 		}
+	}
+	// A loop closed while its last write was under way: what GitHub took
+	// stands, but the pass does not move the loop on (a cancelled run does
+	// not end succeeded).
+	if ok, err := s.mayWrite(ctx, l, pass.Pass); !ok {
+		return err
 	}
 	_ = s.opts.Agents.KillAgentInSlot(ctx, taskID, SlotReviewer)
 	pass.State, pass.EndedAt, pass.Reason = ReviewPassPosted, s.now(), strings.Join(failures, "; ")
@@ -687,11 +693,17 @@ func (s *ReviewPassService) posted(ctx context.Context, l ReviewLoop, pass *stor
 		if f.RuledPass != pass.Pass || f.PR != pr.Number || f.CommentID == 0 {
 			continue
 		}
+		if ok, err := s.mayWrite(ctx, l, pass.Pass); !ok {
+			return writeDropped(err)
+		}
 		if err := s.opts.GitHub.Reply(ctx, AsReviewer, pr.Repo, pr.Number, f.CommentID, rulingLine(f, pass.Pass), rulingMarker(*pass, f.ID)); err != nil {
 			*failures = append(*failures, fmt.Sprintf("replying on %s: %v", f.ID, err))
 			continue
 		}
 		if f.Status == "resolved" {
+			if ok, err := s.mayWrite(ctx, l, pass.Pass); !ok {
+				return writeDropped(err)
+			}
 			if err := s.opts.GitHub.ResolveThread(ctx, pr.Repo, pr.Number, f.CommentID); err != nil {
 				*failures = append(*failures, fmt.Sprintf("resolving the thread of %s (left for a person): %v", f.ID, err))
 			}
@@ -853,4 +865,25 @@ func findingID() string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
 	return "f-" + hex.EncodeToString(b)
+}
+
+// errWriteDropped stops a post whose loop closed or changed owner between
+// two of its writes (mayWrite said no): nothing more of the pass is posted.
+var errWriteDropped = errors.New("the review loop closed: nothing more is posted")
+
+// writeDropped is what a write mayWrite refused returns: the store's
+// error to try again, else errWriteDropped.
+func writeDropped(err error) error {
+	if err != nil {
+		return err
+	}
+	return errWriteDropped
+}
+
+// droppedIsDone ends a post quietly when mayWrite dropped its writes.
+func droppedIsDone(err error) error {
+	if errors.Is(err, errWriteDropped) {
+		return nil
+	}
+	return err
 }

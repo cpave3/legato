@@ -441,10 +441,16 @@ func (c *ReviewRunCaller) open(ctx context.Context, step ResolvedWorkflowStep) e
 }
 
 // Cancel ends a cancelled run's loop: the reviewer stops, nothing more is
-// posted, and the clone goes.
+// posted, and the clone goes. The loop ends in the store first, whatever
+// its phase, so a post or an answer under way in a tick finds it ended at
+// its next check before a GitHub write (mayWrite); StopReview then waits
+// for that tick.
 func (c *ReviewRunCaller) Cancel(ctx context.Context, attempt store.WorkflowStepAttempt) error {
 	if c.opened(ctx, attempt) == nil {
 		return nil // it never opened: there is no loop to end
+	}
+	if err := c.engine.endLoop(ctx, attempt.TaskID, ReviewOutcomeCancelled); err != nil {
+		log.Printf("review passes: ending the loop of %s: %v", attempt.TaskID, err)
 	}
 	c.engine.StopReview(ctx, attempt.TaskID)
 	if err := c.engine.endLoop(ctx, attempt.TaskID, ReviewOutcomeCancelled); err != nil {
@@ -585,7 +591,7 @@ func (c *ReviewRunCaller) Loop(ctx context.Context, taskID string) (ReviewLoop, 
 	// An agent author handles failing checks too (LEG-305); a person's
 	// loop is findings only (LEG-255).
 	return ReviewLoop{TaskID: taskID, Repo: run.Repo, PR: run.PR, PRs: run.numbers(), AuthorTaskID: run.AuthorTask, Pending: run.ConfirmClean, CountChecks: run.AuthorTask != "",
-		Name: "run " + run.RunID, Link: "/workflows/runs/" + run.RunID}, true
+		Name: "run " + run.RunID, Link: "/workflows/runs/" + run.RunID, Owner: store.HandoffReviewOwner{AttemptID: run.AttemptID}}, true
 }
 
 // Checkout puts each of the run's pull requests still open at its head on
