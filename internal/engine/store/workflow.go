@@ -51,7 +51,7 @@ type WorkflowRun struct {
 	RelatedTaskTitle string `db:"related_task_title" json:"related_task_title,omitempty"`
 	// RelatedTaskKey is the key a person knows the related task by: its
 	// ticket's, else its ID. The service fills it (WorkflowService.ListRuns).
-	RelatedTaskKey string `db:"-" json:"related_task_key,omitempty"`
+	RelatedTaskKey   string `db:"-" json:"related_task_key,omitempty"`
 	TriggerRequestID string `db:"trigger_request_id" json:"trigger_request_id,omitempty"`
 	// ParentRunID and ParentStepPath name the workflow.run step that
 	// started this run as its child (LEG-489); empty for any other run.
@@ -803,8 +803,24 @@ func (s *Store) attachStepSummaries(ctx context.Context, runs []WorkflowRun) err
 // its error; ErrWorkflowStateConflict for a run that succeeded, was
 // stopped or was cancelled.
 func (s *Store) CancelWorkflowRun(ctx context.Context, runID, reason string) error {
+	return s.endWorkflowRun(ctx, runID, "cancelled", reason)
+}
+
+// StopWorkflowRun ends a running run as stopped, its unfinished steps and
+// attempts cancelled, as CancelWorkflowRun does: what a gate's Stop does
+// (LEG-486).
+func (s *Store) StopWorkflowRun(ctx context.Context, runID, reason string) error {
+	return s.endWorkflowRun(ctx, runID, "stopped", reason)
+}
+
+// endWorkflowRun ends a running, waiting or suspended run with status
+// (cancelled or stopped), or a failed one with cancelled, and cancels its
+// unfinished steps and attempts.
+func (s *Store) endWorkflowRun(ctx context.Context, runID, status, reason string) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		result, err := tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE id = ? AND status IN ('running','waiting','suspended','failed')`, reason, runID)
+		// Only Cancel gives up a failed run; Stop is a gate's, on a run
+		// that has not ended.
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_runs SET status = ?, error = ?, completed_at = datetime('now') WHERE id = ? AND (status IN ('running','waiting','suspended') OR (? = 'cancelled' AND status = 'failed'))`, status, reason, runID, status)
 		if err != nil {
 			return err
 		}

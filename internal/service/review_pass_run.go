@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -110,8 +111,17 @@ func NewReviewRunCaller(engine *ReviewPassService, opts ReviewRunOptions) *Revie
 	return c
 }
 
-// SetWorkflows gives the caller the workflow service.
-func (c *ReviewRunCaller) SetWorkflows(workflows ReviewRunWorkflows) { c.workflows = workflows }
+// SetWorkflows gives the caller the workflow service, and subscribes it to
+// the service's run-ended hook (OnRunEnded) when it has one: a run that
+// ends succeeded, cancelled or stopped closes its loop.
+func (c *ReviewRunCaller) SetWorkflows(workflows ReviewRunWorkflows) {
+	c.workflows = workflows
+	if hook, ok := workflows.(interface {
+		OnRunEnded(WorkflowRunEndedListener)
+	}); ok {
+		hook.OnRunEnded(c)
+	}
+}
 
 // reviewRun is what the engine reads of a run's loop record (the run loop
 // its task hosts): its owner, its pull requests and the reviewer's clone,
@@ -335,11 +345,11 @@ func (c *ReviewRunCaller) OpenWaiting(ctx context.Context) {
 	}
 }
 
-// closeEnded closes the open loops of runs that ended where the run caller
-// never heard of it (a Cancel in a process without the review engine): the
-// run gone, cancelled, stopped or succeeded, or its review step done. Each
-// ends cancelled as Cancel ends one: the reviewer stops, its pull requests
-// are free, and its clone goes. A failed run's loop stays for Retry (D1).
+// closeEnded closes the open loops whose run ended where the run caller
+// never heard of it (a Cancel in a process without the review engine, or
+// while Legato was down), as the run-ended hook's sweep does (RunEnded),
+// and those whose review step finished while the run goes on. A failed
+// run's loop stays for Retry (D1).
 func (c *ReviewRunCaller) closeEnded(ctx context.Context) {
 	loops, err := c.engine.db.ListOpenReviewLoops(ctx)
 	if err != nil {
@@ -347,34 +357,82 @@ func (c *ReviewRunCaller) closeEnded(ctx context.Context) {
 		return
 	}
 	for _, l := range loops {
-		if l.OwnerKind != store.ReviewLoopOwnerRun || !c.runEnded(ctx, l.RunID, l.StepPath) {
+		if l.OwnerKind != store.ReviewLoopOwnerRun {
 			continue
 		}
-		if c.engine.opts.Agents != nil {
-			_ = c.engine.opts.Agents.KillAgentInSlot(ctx, l.HostTask, SlotReviewer)
-		}
-		if err := c.engine.endLoop(ctx, l.HostTask, ReviewOutcomeCancelled); err != nil {
-			log.Printf("review passes: closing the loop of run %s: %v", l.RunID, err)
+		end, ended, err := workflowRunEnd(ctx, c.engine.db, l.RunID)
+		if err != nil {
 			continue
 		}
-		if run, err := c.run(ctx, l.HostTask); err == nil {
-			c.removeClone(ctx, run)
+		if ended && !closesLoop(end) {
+			continue
+		}
+		if ended || c.stepEnded(ctx, l.RunID, l.StepPath) {
+			c.closeRunLoop(ctx, l)
 		}
 	}
 }
 
-// runEnded says a run, or its step, ended for good.
-func (c *ReviewRunCaller) runEnded(ctx context.Context, runID, stepPath string) bool {
-	view, err := c.engine.db.GetWorkflowRun(ctx, runID)
-	if errors.Is(err, store.ErrNotFound) {
-		return true
+// closesLoop says a run's end closes its review loop: succeeded, cancelled,
+// stopped or gone. A failed run keeps it, open and claimed, for Retry,
+// Cancel or End (spec LEG-559 D1).
+func closesLoop(end WorkflowRunEnd) bool {
+	return end.Gone || (end.Status != "failed" && WorkflowRunTerminal(end.Status))
+}
+
+// RunEnded closes the open review loops a run owns when it ends succeeded,
+// cancelled or stopped, or is gone (the run-ended hook): Close releases
+// their claims and discards a pass in flight, the reviewer stops and the
+// clone goes. A failed run's loop is kept. Closing a closed loop changes
+// nothing, so hearing of an end twice is harmless. It takes no lock of the
+// engine's: it is told inside a tick too, when the tick's step completes a
+// run.
+func (c *ReviewRunCaller) RunEnded(ctx context.Context, end WorkflowRunEnd) {
+	if !closesLoop(end) {
+		return
 	}
+	loops, err := c.engine.db.ListOpenReviewLoops(ctx)
+	if err != nil {
+		log.Printf("review passes: the open review loops: %v", err)
+		return
+	}
+	for _, l := range loops {
+		if l.OwnerKind == store.ReviewLoopOwnerRun && l.RunID == end.RunID {
+			c.closeRunLoop(ctx, l)
+		}
+	}
+}
+
+// RunsHeld are the runs that own an open review loop, for the run-ended
+// hook's sweep.
+func (c *ReviewRunCaller) RunsHeld(ctx context.Context) ([]string, error) {
+	loops, err := c.engine.db.ListOpenReviewLoops(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var runs []string
+	for _, l := range loops {
+		if l.OwnerKind == store.ReviewLoopOwnerRun && !slices.Contains(runs, l.RunID) {
+			runs = append(runs, l.RunID)
+		}
+	}
+	return runs, nil
+}
+
+// closeRunLoop closes a run's loop as cancelled. Close does the rest: the
+// claims go in its transaction, then the reviewer stops and the clone goes
+// (loopClosed).
+func (c *ReviewRunCaller) closeRunLoop(ctx context.Context, l store.ReviewLoop) {
+	if _, err := c.engine.Close(ctx, l.ID, ReviewOutcomeCancelled); err != nil {
+		log.Printf("review passes: closing the loop of run %s: %v", l.RunID, err)
+	}
+}
+
+// stepEnded says a run's review step ended for good while the run goes on.
+func (c *ReviewRunCaller) stepEnded(ctx context.Context, runID, stepPath string) bool {
+	view, err := c.engine.db.GetWorkflowRun(ctx, runID)
 	if err != nil {
 		return false
-	}
-	switch view.Run.Status {
-	case "cancelled", "stopped", "succeeded":
-		return true
 	}
 	for _, s := range view.Steps {
 		if s.Path == stepPath {

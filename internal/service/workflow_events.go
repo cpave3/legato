@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
@@ -14,6 +15,7 @@ import (
 const (
 	WorkflowChangeRunStarted    = "run_started"
 	WorkflowChangeRunCancelled  = "run_cancelled"
+	WorkflowChangeRunStopped    = "run_stopped"
 	WorkflowChangeStepStarted   = "step_started"
 	WorkflowChangeStepWaiting   = "step_waiting"
 	WorkflowChangeStepTriggered = "step_triggered"
@@ -33,7 +35,15 @@ func (s *WorkflowService) SetChangeListener(listener func(events.WorkflowChanged
 }
 
 // changed publishes a change to run's state, of step when it names one.
-func (s *WorkflowService) changed(runID, stepID, kind string) {
+// It is the one place the run-ended hook hears of an end this process
+// made: after a change that can end a run, its listeners are told when it
+// has (workflow_run_ended.go).
+func (s *WorkflowService) changed(ctx context.Context, runID, stepID, kind string) {
+	defer func() {
+		if endsRun(kind) {
+			s.tellIfEnded(ctx, runID)
+		}
+	}()
 	payload := events.WorkflowChangedPayload{RunID: runID, StepID: stepID, Kind: kind}
 	if s.bus != nil {
 		s.bus.Publish(events.Event{Type: events.EventWorkflowChanged, At: time.Now(), Payload: payload})
