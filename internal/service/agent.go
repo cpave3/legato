@@ -2497,11 +2497,11 @@ func (a *agentService) ListPeers(ctx context.Context, taskID, executionID, direc
 // SendPeerMessage queues a coordination message so busy structured agents
 // receive it at their next supported step boundary.
 func (a *agentService) SendPeerMessage(ctx context.Context, senderTaskID, recipientID, message string) error {
-	recipientTaskID, err := a.resolveAgentAddress(ctx, recipientID)
+	recipientCtx, recipientTaskID, err := a.resolveAgentAddress(ctx, recipientID)
 	if err != nil {
 		return err
 	}
-	if err := a.QueueMessage(ctx, recipientTaskID, formatPeerMessage(senderTaskID, message)); err != nil {
+	if err := a.QueueMessage(recipientCtx, recipientTaskID, formatPeerMessage(senderTaskID, message)); err != nil {
 		return err
 	}
 	// Who messaged whom, never what, for the graph of agents. A message
@@ -2519,24 +2519,31 @@ func (a *agentService) SendPeerMessage(ctx context.Context, senderTaskID, recipi
 	return nil
 }
 
-func (a *agentService) resolveAgentAddress(ctx context.Context, address string) (string, error) {
+// resolveAgentAddress is the task, and the context that addresses its slot,
+// of the agent an address names: a task ID (its main slot), else a running
+// execution's ID, whose own slot it keeps, so a reviewer's execution is
+// told and not its task's main agent.
+func (a *agentService) resolveAgentAddress(ctx context.Context, address string) (context.Context, string, error) {
 	if _, err := a.store.GetAgentSessionByTaskID(ctx, address); err == nil {
-		return address, nil
+		return ctx, address, nil
 	} else if !errors.Is(err, store.ErrNotFound) {
-		return "", err
+		return ctx, "", err
 	}
 	execution, err := a.store.GetExecution(ctx, address)
 	if err != nil {
-		return "", fmt.Errorf("agent address %s: %w", address, err)
+		return ctx, "", fmt.Errorf("agent address %s: %w", address, err)
 	}
 	if execution.Status != store.ExecutionRunning || execution.ExecutionTaskID == "" || execution.AgentSessionID == nil {
-		return "", fmt.Errorf("execution %s is not a live addressable agent", address)
+		return ctx, "", fmt.Errorf("execution %s is not a live addressable agent", address)
 	}
 	session, err := a.store.GetAgentSessionByID(ctx, *execution.AgentSessionID)
 	if err != nil || session.Status != "running" || session.TaskID != execution.ExecutionTaskID {
-		return "", fmt.Errorf("execution %s is not linked to a live agent session", address)
+		return ctx, "", fmt.Errorf("execution %s is not linked to a live agent session", address)
 	}
-	return execution.ExecutionTaskID, nil
+	if IsNamedSlot(session.Slot) {
+		ctx = WithAgentSlot(ctx, session.Slot)
+	}
+	return ctx, execution.ExecutionTaskID, nil
 }
 
 // formatPeerMessage frames another agent's words for delivery. The opening
