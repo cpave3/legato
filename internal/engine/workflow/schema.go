@@ -96,7 +96,7 @@ func needsWith(spec ExecutorSpec) bool {
 		}
 	}
 	for _, constraint := range spec.Constraints {
-		if constraint.Checked && constraint.Kind != Excludes {
+		if constraint.Checked && constraint.Kind != Excludes && constraint.Kind != Requires {
 			return true
 		}
 	}
@@ -139,6 +139,8 @@ func withSchema(spec ExecutorSpec) schemaObject {
 			all = append(all, schemaObject{"anyOf": each})
 		case Excludes:
 			all = append(all, schemaObject{"not": schemaObject{"required": constraint.Fields}})
+		case Requires:
+			all = append(all, schemaObject{"dependencies": schemaObject{constraint.Fields[0]: constraint.Fields[1:]}})
 		}
 	}
 	if len(all) > 0 {
@@ -185,6 +187,12 @@ func fieldSchema(field Field) schemaObject {
 	}
 	if len(field.Enum) > 0 {
 		value["enum"] = field.Enum
+	}
+	if field.Pattern != "" {
+		value["pattern"] = field.Pattern
+	}
+	if len(field.Reserved) > 0 {
+		value["not"] = schemaObject{"enum": field.Reserved}
 	}
 	takesExpressions := !field.Literal && field.Kind != KindJSON && field.Kind != KindTask && !(value["type"] == "string" && value["enum"] == nil)
 	if takesExpressions {

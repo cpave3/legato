@@ -1113,6 +1113,13 @@
               "name"
             ]
           }
+        },
+        {
+          "dependencies": {
+            "slot": [
+              "task"
+            ]
+          }
         }
       ],
       "description": "Start an agent of the workflow on a prompt or a macro, and wait for it to complete the step with the outputs the step declares.",
@@ -1250,8 +1257,24 @@
             "order": 13
           }
         },
+        "slot": {
+          "description": "With task: the card's named agent slot the agent runs in, such as triage, plan or review, beside the card's own agent, in a fresh clone of its own; main (the default) is the card's own agent, and reviewer is the review loop's",
+          "not": {
+            "enum": [
+              "reviewer"
+            ]
+          },
+          "pattern": "^[a-z][a-z0-9-]{0,31}$",
+          "type": "string",
+          "x-legato": {
+            "expressions": false,
+            "kind": "string",
+            "label": "In the card's slot",
+            "order": 15
+          }
+        },
         "task": {
-          "description": "A task, or a task ID: the agent is that task's own, on its card, in a fresh clone of repo on the task's branch; a macro is sent as one started on the card is. The step fails when the task already has an agent running",
+          "description": "A task, or a task ID: the agent is that task's own, on its card, in a fresh clone of repo on the task's branch; a macro is sent as one started on the card is. The step fails when the task already has an agent running in the slot",
           "type": "string",
           "x-legato": {
             "context": "with",
