@@ -14,6 +14,7 @@ import { Mark } from "../PullRequestMarks"
 import { CardPullRequests } from "./PullRequests"
 import { StageTrack } from "../StageTrack"
 import { stageLabel } from "../../lib/agentStage"
+import { useReeveName } from "../../lib/reeveName"
 
 // CardStage is an agent's stage on a card's strip: the track and the word,
 // or for a finished agent "✓ Finished", which says the same.
@@ -59,7 +60,7 @@ const stripAction = "shrink-0 font-medium text-lw-text underline underline-offse
 // The line at the foot of a card whose task has an agent: what the agent is
 // doing, on the tint of that state, and the time that goes with it.
 function AgentStrip({ card }: { card: BoardCardType }) {
-  const look = agentStripLook(card)
+  const look = agentStripLook(card, useReeveName())
   return (
     <div data-testid="agent-strip" title={look.tool || undefined} className={cn(stripRow, look.tint)}>
       <span className={cn("flex min-w-0 items-center gap-1.5", look.tone)}><span aria-hidden="true">{look.glyph}</span><span className="shrink-0">{look.label}</span>

@@ -126,12 +126,24 @@ func stateWord(state string) string {
 	case statusInterrupted:
 		return "interrupted"
 	case stateReeve:
-		return "waiting on Reeve"
+		return "waiting on the Reeve"
 	case stateReeveUnanswered:
-		return "Reeve hasn't answered"
+		return "the Reeve hasn't answered"
 	default:
 		return "idle"
 	}
+}
+
+// stateWord is how a state is written out in this list: a wait on the
+// Reeve names this instance's Reeve, as the list gives it.
+func (m Model) stateWord(state string) string {
+	switch state {
+	case stateReeve:
+		return "waiting on " + m.ReeveName().Mid()
+	case stateReeveUnanswered:
+		return m.ReeveName().Mid() + " hasn't answered"
+	}
+	return stateWord(state)
 }
 
 func colored(color lipgloss.Color, text string) string {
@@ -357,7 +369,7 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 	var note string
 	switch state := stateOf(a); {
 	case state == "dead" || state == "error":
-		note = colored(theme.Red, stateWord(state))
+		note = colored(theme.Red, m.stateWord(state))
 	case state == "waiting":
 		note = colored(theme.Amber, m.stateDuration(a))
 	case quiet:
@@ -508,9 +520,9 @@ func (m Model) renderHeader(width int) string {
 	}
 
 	state := stateOf(*a)
-	status := colored(theme.StateColor(state), stateWord(state))
+	status := colored(theme.StateColor(state), m.stateWord(state))
 	if state == "" {
-		status = colored(theme.TextSecondary, stateWord(state))
+		status = colored(theme.TextSecondary, m.stateWord(state))
 	}
 	if duration := m.stateDuration(*a); duration != "" && state != "dead" && state != "error" {
 		status += " " + colored(theme.TextSecondary, duration)
@@ -553,7 +565,7 @@ func (m Model) renderBanner(width int) string {
 
 	first := waiting[0]
 	state := stateOf(first)
-	what := stateWord(state)
+	what := m.stateWord(state)
 	if state == "error" {
 		what = "stopped on an error"
 	}

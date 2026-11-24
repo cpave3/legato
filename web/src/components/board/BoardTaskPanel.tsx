@@ -9,6 +9,7 @@ import { cardSource } from "../../lib/boardCard"
 import { awayLook, awayTime, kindLabel, purposeLabel, workerHistoryURL } from "../../lib/away"
 import { AwayPullRequests } from "./AwayPullRequests"
 import { cn } from "../../lib/utils"
+import { useReeveName } from "../../lib/reeveName"
 
 interface BoardTaskPanelProps {
   card: BoardCard
@@ -74,7 +75,8 @@ function AwayProperties({ card, actions }: { card: BoardCard; actions?: ReactNod
 
 export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, onMove, onOpenURL, onHandOff, awayActions }: BoardTaskPanelProps) {
   const ready = detail?.id === card.id ? detail : null
-  const look = card.agent_active ? agentStripLook(card) : null
+  const reeve = useReeveName()
+  const look = card.agent_active ? agentStripLook(card, reeve) : null
   const spent = formatDuration(card.working_seconds + card.waiting_seconds + card.error_seconds)
   const providerURL = ready?.remote_meta?.url || ""
   const pullRequests = card.pull_requests ?? []

@@ -3,6 +3,7 @@ import { agentStripLook } from "../boardCard"
 import { needsYouReason, reeveWaitLabel } from "../agentStage"
 import { agentLook } from "../../components/agent-graph/look"
 import type { BoardCard } from "../board-types"
+import { reeveName } from "../reeveName"
 import type { AgentInfo } from "../../hooks/useWebSocket"
 
 const now = new Date("2026-11-24T05:12:00Z")
@@ -39,5 +40,16 @@ describe("an agent waiting on the Reeve", () => {
   it("is waiting on Reeve on the graph", () => {
     expect(agentLook(agent({ glance: "working", waiting_on: "reeve" })).label).toBe("waiting on Reeve")
     expect(agentLook(agent({ glance: "needs_you", waiting_on: "reeve" })).label).toBe("needs you")
+  })
+})
+
+describe("a named Reeve", () => {
+  it("is named in the wait's words", () => {
+    const hestia = reeveName("Hestia")
+    expect(agentStripLook(card({ glance: "working", waiting_on: "reeve", waiting_since: "2026-11-24T05:00:00Z" }), hestia).label).toBe("Waiting on Hestia")
+    expect(agentStripLook(card({ glance: "needs_you", waiting_on: "reeve", waiting_since: "2026-11-24T05:00:00Z" }), hestia).reason).toBe("Hestia hasn't answered")
+    expect(needsYouReason(agent({ glance: "needs_you", waiting_on: "reeve" }), hestia)).toBe("Hestia hasn't answered")
+    expect(reeveWaitLabel(agent({ glance: "working", waiting_on: "reeve" }), hestia)).toBe("◈ Waiting on Hestia")
+    expect(agentLook(agent({ glance: "working", waiting_on: "reeve" }), hestia).label).toBe("waiting on Hestia")
   })
 })

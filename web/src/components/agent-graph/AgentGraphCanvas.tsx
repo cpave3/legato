@@ -14,6 +14,7 @@ import { stageLabel } from "../../lib/agentStage"
 import { cn } from "../../lib/utils"
 import { agentLook, subagentLook } from "./look"
 import { linkStyles } from "./linkStyles"
+import { useReeveName } from "../../lib/reeveName"
 
 export type AgentGraphCanvasProps = {
   layout: AgentGraphLayout
@@ -48,7 +49,7 @@ function Handles() {
 function AgentNode({ data, selected }: NodeProps<FlowNode>) {
   const node = data.node!
   const agent = node.agent!
-  const look = agentLook(agent)
+  const look = agentLook(agent, useReeveName())
   const time = formatAgentTime(stateSeconds(agent))
   const stage = stageLabel(agent.stage)
   const workflow = node.workflows?.[0]

@@ -2,6 +2,7 @@ import type { BoardCard } from "./board-types"
 import { agentToolLabel } from "./agentKind"
 import { providerLabel } from "./providers"
 import { reeveUnanswered } from "./agentStage"
+import { reeveName, type ReeveName } from "./reeveName"
 
 export function formatDuration(seconds: number): string {
   if (seconds <= 0) return ""
@@ -53,7 +54,7 @@ function cardGlance(card: BoardCard): string {
 // What an agent in each state looks like on a card, leading with what it
 // needs from the operator (the glance), then its stage and why; the agent
 // tool is in the tooltip.
-export function agentStripLook(card: BoardCard): StripLook {
+export function agentStripLook(card: BoardCard, reeve: ReeveName = reeveName()): StripLook {
   const tool = card.agent_kind ? agentToolLabel(card.agent_kind, card.agent_engram) : ""
   const reason = card.stage_reason ?? ""
   const quiet = { stage: true, reason, tool }
@@ -81,10 +82,10 @@ export function agentStripLook(card: BoardCard): StripLook {
     // behalf, until the Reeve has not answered for too long.
     const waited = secondsSince(card.waiting_since)
     if (cardGlance(card) === "needs_you") {
-      return { glyph: "◆", label: "Needs you", time: waited, tint: "bg-lw-needs-soft", tone: "text-lw-needs", stage: true, reason: reeveUnanswered, tool }
+      return { glyph: "◆", label: "Needs you", time: waited, tint: "bg-lw-needs-soft", tone: "text-lw-needs", stage: true, reason: reeveUnanswered(reeve), tool }
     }
     if (cardGlance(card) === "working") {
-      return { glyph: "◈", label: "Waiting on the Reeve", time: waited, tint: reeveTint, tone: reeveTone, ...quiet }
+      return { glyph: "◈", label: `Waiting on ${reeve.mid}`, time: waited, tint: reeveTint, tone: reeveTone, ...quiet }
     }
   }
   switch (cardGlance(card)) {

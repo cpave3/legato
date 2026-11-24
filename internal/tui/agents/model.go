@@ -576,7 +576,7 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 		return m, nil
 	case hotkey.ActionAgentsAskReeve:
 		if a := m.SelectedAgent(); a != nil && !a.Reeve {
-			msg := AskReeveMsg{TaskID: a.TaskID, Title: a.Title, AgentKind: a.AgentKind, State: stateWord(stateOf(*a))}
+			msg := AskReeveMsg{TaskID: a.TaskID, Title: a.Title, AgentKind: a.AgentKind, State: m.stateWord(stateOf(*a))}
 			return m, func() tea.Msg { return msg }
 		}
 		return m, nil

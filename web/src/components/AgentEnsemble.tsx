@@ -21,6 +21,7 @@ import { glanceSection, needsYouReason, stageLabel, unreadDone, workStages, type
 import type { Approval, ApprovalDecision } from "../lib/approvals"
 import { showApproval } from "../lib/railState"
 import { cn } from "../lib/utils"
+import { useReeveName } from "../lib/reeveName"
 import { ActivityBar, ContextMeter } from "./AgentMeters"
 import { StageTrack } from "./StageTrack"
 
@@ -484,12 +485,13 @@ function NeedsBox({ agent, conversation, approval, onDecide, onOpen, touch }: {
   onDecide?: (approval: Approval, decision: ApprovalDecision) => void
   onOpen: (taskId: string) => void
 }) {
+  const reeve = useReeveName()
   const permission = conversation?.permission
   const question = conversation?.question
   const asked = approval?.title
     || (permission ? (permission.plan ? "Asks you to approve a plan" : `Wants to run: ${permission.command || permission.reason || permission.tool}`) : "")
     || question?.text
-    || (agent.plan_pending ? "Plan to approve" : needsYouReason(agent))
+    || (agent.plan_pending ? "Plan to approve" : needsYouReason(agent, reeve))
   // What the approval would allow, which its title does not say: the
   // command, the plan, the target.
   const shown = approval ? approvalContent(approval) : { command: "", text: "" }
