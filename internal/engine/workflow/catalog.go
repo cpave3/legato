@@ -29,6 +29,7 @@ const (
 	KindAgent      FieldKind = "agent"      // an agent tool, such as claude-code
 	KindTier       FieldKind = "tier"       // an agent tool's tier
 	KindJSON       FieldKind = "json"       // any structured value
+	KindChatBot    FieldKind = "chat_bot"   // a chat bot set up in Settings › Integrations, such as slack
 )
 
 // Field is one with field of a step type.
@@ -119,7 +120,7 @@ type ExecutorSpec struct {
 }
 
 // StepGroups are the step picker's groups, in its order.
-var StepGroups = []string{"Agents", "Code", "Board", "Learn", "Cleanup"}
+var StepGroups = []string{"Agents", "Code", "Board", "Chat", "Learn", "Cleanup"}
 
 // Field is the spec's with field of that name.
 func (s ExecutorSpec) Field(name string) (Field, bool) {
@@ -491,6 +492,22 @@ var catalog = []ExecutorSpec{
 			{Name: "key", Type: "string", Description: "The ticket's key, or empty when skipped"},
 			{Name: "closed", Type: "boolean", Description: "Whether the step closed a ticket"},
 			{Name: "skipped", Type: "boolean", Description: "Whether the task was not a Burnlite ticket"},
+		},
+	},
+	{
+		Type: "chat.message.send", Group: "Chat", Title: "Send a chat message",
+		Description: "Post a message as a Slack or Discord bot set up in Settings › Integrations. Fails at once when the bot is not set up or cannot send.",
+		With: []Field{
+			{Name: "bot", Kind: KindChatBot, Label: "Bot", Description: "The bot, by name: slack or discord", Required: true, Checked: true, Pattern: ChatBotNamePattern, Invalid: "must be a bot's name, such as slack or discord", Essential: true, Order: 1},
+			{Name: "channel", Kind: KindString, Label: "Channel", Description: "The channel's ID; the bot's default channel when empty", RequiredAtRun: true, Essential: true, Order: 2},
+			{Name: "text", Kind: KindText, Label: "Message", Description: "The message: plain text or the platform's markdown", Required: true, Essential: true, Order: 3},
+			{Name: "thread_id", Kind: KindString, Label: "Reply to", Description: "A thread or message to reply to, such as ${{ event.thread_id }} of a chat trigger", Order: 4},
+		},
+		Summary: []string{"text"},
+		Outputs: []OutputSpec{
+			{Name: "message_id", Type: "string", Description: "The sent message's ID"},
+			{Name: "channel", Type: "string", Description: "The channel it was sent to"},
+			{Name: "thread_id", Type: "string", Description: "What thread_id takes to reply in the same thread"},
 		},
 	},
 	{

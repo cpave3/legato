@@ -369,3 +369,34 @@ func TestGraphDrawsTheReviewLoopAsAGroup(t *testing.T) {
 		t.Fatal("data edges attach to the group")
 	}
 }
+
+const chatTriggers = `
+schema_version: 1
+name: ops
+title: Ops
+on:
+  chat.message:
+    bot: slack
+    channel: C1
+  chat.mention:
+    bot: discord
+    enabled: false
+steps:
+  - {id: say, title: Say, type: chat.message.send, with: {bot: slack, channel: C1, text: "On it"}}
+`
+
+func TestGraphLabelsChatTriggersAndSends(t *testing.T) {
+	graph := BuildGraph(mustParse(t, chatTriggers))
+	for kind, summary := range map[string]string{TriggerChatMessage: "Message in C1 on slack", TriggerChatMention: "Mention of discord"} {
+		node := nodeByID(graph, "trigger:"+kind)
+		if node == nil || node.Trigger == nil || node.Trigger.Summary != summary || node.Trigger.Definition == nil {
+			t.Fatalf("%s node = %+v", kind, node)
+		}
+	}
+	if node := nodeByID(graph, "trigger:"+TriggerChatMention); node.Trigger.Enabled {
+		t.Fatal("a paused mention trigger is enabled in the graph")
+	}
+	if node := nodeByID(graph, "step:say"); node == nil || node.Step == nil || node.Step.Key != (GraphKey{Field: "text", Value: "On it"}) {
+		t.Fatalf("say node = %+v", node)
+	}
+}

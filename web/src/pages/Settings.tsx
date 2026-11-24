@@ -23,6 +23,8 @@ import { CredentialsSettings } from "../components/CredentialsSettings"
 import { DevicesSettings } from "../components/DevicesSettings"
 import { IntegrationsSettings } from "../components/IntegrationsSettings"
 import { MQTTSettings } from "../components/settings/MQTTSettings"
+import { SlackSettings } from "../components/settings/SlackSettings"
+import { DiscordSettings } from "../components/settings/DiscordSettings"
 import { MainInstancesSettings, WorkersSettings } from "../components/InstancePairingSettings"
 import { ApprovalNotificationSettings } from "../components/ApprovalNotificationSettings"
 import { UpdatesSettings } from "../components/UpdatesSettings"
@@ -166,6 +168,8 @@ export function SettingsPage() {
     "burnlite": <IntegrationsSettings baseUrl={baseUrl} only="burnlite" />,
     "argus": <IntegrationsSettings baseUrl={baseUrl} only="argus" argusSetHere={registered("integrations.argus.url") ? !registered("integrations.argus.url")!.pinned : false} />,
     "mcp-connections": <MCPSettings baseUrl={baseUrl} />,
+    "chat-bot-slack": <SlackSettings settings={registry} baseUrl={baseUrl} />,
+    "chat-bot-discord": <DiscordSettings settings={registry} baseUrl={baseUrl} />,
     "mqtt": <MQTTSettings settings={registry} baseUrl={baseUrl} loading={false} error={null} onRetry={() => void configSettings.refetch()} />,
     "devices": <DevicesSettings baseUrl={baseUrl} />,
     "credentials": <CredentialsSettings baseUrl={baseUrl} editors={<div className="flex flex-col gap-3 border-t border-lw-line pt-3">

@@ -353,6 +353,8 @@ var routeClassTable = []routeClassEntry{
 	{"POST", "/api/settings/integrations/burnlite/connect", ClassRisky, "Connect Burnlite"},
 	{"PUT", "/api/settings/integrations/burnlite", ClassChange, "Choose the Burnlite projects"},
 	{"DELETE", "/api/settings/integrations/burnlite", ClassRisky, "Disconnect Burnlite"},
+	{"GET", "/api/settings/integrations/chat-bots", ClassRead, "Read the Slack and Discord bots' connection status"},
+	{"POST", "/api/settings/integrations/chat-bots/{name}/reconnect", ClassChange, "Have a Slack or Discord bot connect again"},
 	{"GET", "/oauth/callback", ClassRisky, "Finish connecting an integration"},
 	{"GET", "/api/ticket-providers", ClassRead, "List the ticket providers"},
 

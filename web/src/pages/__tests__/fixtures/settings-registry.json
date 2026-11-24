@@ -1535,6 +1535,97 @@
       "mode": "restart"
     },
     {
+      "key": "integrations.slack.enabled",
+      "title": "Connect",
+      "section": "integrations",
+      "group": "Slack",
+      "help": "Keeps the Slack bot connected over Socket Mode, so workflows can start on its messages and post as it.",
+      "description": "Keeps the Slack bot connected over Socket Mode, so workflows can start on its messages and post as it.",
+      "kind": "bool",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "integrations.slack.app_token",
+      "title": "App-level token",
+      "section": "integrations",
+      "group": "Slack",
+      "help": "The name of a secret holding the app's xapp- token, with connections:write.",
+      "description": "The name of a secret holding the app's xapp- token, with connections:write.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart",
+      "secret": true
+    },
+    {
+      "key": "integrations.slack.bot_token",
+      "title": "Bot token",
+      "section": "integrations",
+      "group": "Slack",
+      "help": "The name of a secret holding the app's xoxb- bot token.",
+      "description": "The name of a secret holding the app's xoxb- bot token.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart",
+      "secret": true
+    },
+    {
+      "key": "integrations.slack.default_channel",
+      "title": "Default channel",
+      "section": "integrations",
+      "group": "Slack",
+      "help": "The channel ID a workflow's message goes to when its step names none.",
+      "description": "The channel ID a workflow's message goes to when its step names none.",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "integrations.discord.enabled",
+      "title": "Connect",
+      "section": "integrations",
+      "group": "Discord",
+      "help": "Keeps the Discord bot connected to the Gateway, so workflows can start on its messages and post as it.",
+      "description": "Keeps the Discord bot connected to the Gateway, so workflows can start on its messages and post as it.",
+      "kind": "bool",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "integrations.discord.token",
+      "title": "Bot token",
+      "section": "integrations",
+      "group": "Discord",
+      "help": "The name of a secret holding the bot's token.",
+      "description": "The name of a secret holding the bot's token.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart",
+      "secret": true
+    },
+    {
+      "key": "integrations.discord.intents",
+      "title": "Gateway intents",
+      "section": "integrations",
+      "group": "Discord",
+      "help": "Of guilds, guild_messages, direct_messages and message_content. Without message_content, a server message's text arrives only when it mentions the bot.",
+      "description": "Of guilds, guild_messages, direct_messages and message_content. Without message_content, a server message's text arrives only when it mentions the bot.",
+      "kind": "strings",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "integrations.discord.default_channel",
+      "title": "Default channel",
+      "section": "integrations",
+      "group": "Discord",
+      "help": "The channel ID a workflow's message goes to when its step names none.",
+      "description": "The channel ID a workflow's message goes to when its step names none.",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
       "key": "integrations.argus.url",
       "title": "Address",
       "section": "integrations",

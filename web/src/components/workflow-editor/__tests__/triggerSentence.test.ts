@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { triggerSentence } from "../triggerForms"
+import { KIND_TITLES, newTrigger, triggerKinds, triggerSentence } from "../triggerForms"
+import { noOptions } from "../stepForms"
 
 const plain = (parts: { text: string; strong?: boolean }[]) => parts.map(p => p.strong ? `**${p.text}**` : p.text).join("")
 
@@ -26,7 +27,33 @@ describe("a trigger as a sentence", () => {
     expect(plain(triggerSentence("pr.changes_requested", { enabled: false }))).toBe("A PR gets changes requested")
   })
 
+  it("says which chat message starts a run", () => {
+    expect(plain(triggerSentence("chat.message", { bot: "slack", channel: "C123", text: { contains: "deploy" } }))).toBe("A message in **C123** on **slack** · containing **deploy**")
+    expect(plain(triggerSentence("chat.message", { bot: "slack" }))).toBe("A message on **slack**")
+    expect(plain(triggerSentence("chat.message", { bot: "discord", user: "U9", text: { regex: "^ship (\\w+)" } }))).toBe("A message on **discord** from **U9** · matching **^ship (\\w+)**")
+    expect(plain(triggerSentence("chat.message", {}))).toBe("A message on **a bot**")
+  })
+
+  it("says which mention of a bot starts a run", () => {
+    expect(plain(triggerSentence("chat.mention", { bot: "discord" }))).toBe("A mention of **discord**")
+    expect(plain(triggerSentence("chat.mention", { bot: "discord", channel: "C1", text: { contains: "help" } }))).toBe("A mention of **discord** in **C1** · containing **help**")
+  })
+
   it("names a kind it doesn't know", () => {
     expect(plain(triggerSentence("something.new", {}))).toBe("**something.new**")
+  })
+})
+
+describe("a new trigger", () => {
+  it("starts a chat trigger paused, on the first bot offered", () => {
+    expect(newTrigger("chat.message", { ...noOptions, bots: ["discord", "slack"] })).toEqual({ bot: "discord", enabled: false })
+    expect(newTrigger("chat.mention", { ...noOptions, bots: ["slack"] })).toEqual({ bot: "slack", enabled: false })
+    expect(newTrigger("chat.mention", noOptions)).toEqual({ bot: "", enabled: false })
+  })
+
+  it("has a title for every kind in the schema", () => {
+    for (const { kind } of triggerKinds) expect(KIND_TITLES[kind], kind).toBeTruthy()
+    expect(KIND_TITLES["chat.message"]).toBe("When a chat message arrives")
+    expect(KIND_TITLES["chat.mention"]).toBe("When the bot is mentioned")
   })
 })

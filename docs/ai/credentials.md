@@ -256,6 +256,10 @@ Commands in an agent's session (`legato credential get`, `legato mcp serve`) ask
 - `<data_dir>/secrets.source` records the source and a value sealed under the key. Later starts use that source and no other, and refuse a key that does not open the value (a wrong passphrase).
 - Legato keeps some values there itself: an integration's OAuth refresh token, and on a main instance each paired worker's handoff token as `handoff-worker-<worker instance ID>` (see [Integrations](integrations.md) § Main instances and workers). They are listed with the rest.
 
+## Chat bot tokens
+
+The Slack bot's app-level and bot tokens and the Discord bot's token (LEG-624) are secret settings (`integrations.slack.app_token`, `integrations.slack.bot_token`, `integrations.discord.token`): the settings hold a secret's name (`legato://slack-bot-token`, `op://…`), never the token, and `config.DecodeSetting` refuses anything else. `ApplySettings` reads them into the in-memory configuration only; a name `config.yaml` gives is read by `chatBotSettings` the same way. They are host-only: they are not broker credentials, so no agent can ask for them, and they reach only the chat bots' clients. They never appear in the settings API (only `secret_status`), the integrations overview, a settings export, a bot's status or error, a trigger request's event or a workflow run's records; `TestChatBotTokensNeverLeaveTheSecretStore` checks each of these, and the log.
+
 ## Profiles
 
 A profile is YAML: `name`, `description`, `issuer` (`static` in this phase), `channels` (`helper`, `http-proxy`, `ssh-agent`), `accepts` (secret types) and default `policy`; a proxied profile adds `inspector: rest`, `upstream`, `key`, `routes` and `env`, and an SSH one `inspector: ssh`. Legato ships `secret` (a value handed to the agent on request; default rule `read: session`), `elevenlabs`, `api-key`, `ssh`, `github`, `github-reviewer` and `azure` (see [Azure](#azure)). Profiles in `<config dir>/profiles/*.yaml` add to or replace the shipped ones by name. Shipped profiles are in `internal/service/credential_profiles/`.

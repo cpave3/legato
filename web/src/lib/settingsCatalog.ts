@@ -40,7 +40,7 @@ export const settingsSections: SettingsSection[] = [
   { id: "review-passes", title: "Review passes", nav: "Features", groups: ["Reviewer", "Limits", "Timing", "Bots and checks"], terms: "review passes reviewer pull requests checks bots" },
   { id: "learn", title: "Learn", nav: "Features", groups: ["Reflection", "Curator", "Prompts", "Semantic search", "Advanced"], terms: "learning lessons curator reflection embeddings" },
   { id: "board", title: "Board and tickets", nav: "Services", groups: ["Workspaces", "Columns", "Jira", "Burnlite"], terms: "board workspaces columns jira burnlite tickets import sync" },
-  { id: "integrations", title: "Integrations", nav: "Services", groups: ["GitHub", "Argus", "MCP servers", "Home Assistant", "Manticore"], terms: "github argus mcp servers oauth home assistant mqtt broker manticore usage" },
+  { id: "integrations", title: "Integrations", nav: "Services", groups: ["GitHub", "Argus", "MCP servers", "Slack", "Discord", "Home Assistant", "Manticore"], terms: "github argus mcp servers oauth slack discord chat bots home assistant mqtt broker manticore usage" },
   { id: "security", title: "Security", nav: "Access", groups: ["Approval devices", "Credentials", "Integration tokens"], terms: "credentials secrets password grants audit approval devices channels tokens ssh" },
   { id: "connections", title: "Connections", nav: "Access", groups: ["This browser", "Phones", "Workers and mains", "Network"], terms: "browser servers pairing phone workers main instances handoff tls network discovery port" },
   { id: "system", title: "System", nav: "System", groups: ["Restart", "Updates", "config.yaml", "Only in config.yaml", "Development"], terms: "restart updates release configuration move export import database data folder development rebuild" },
@@ -79,6 +79,8 @@ export const settingsCards: (Place & { id: string; title: string; terms: string;
   { id: "burnlite", title: "Burnlite connection", section: "board", group: "Burnlite", terms: "burnlite connect oauth projects" },
   { id: "argus", title: "Argus", section: "integrations", group: "Argus", terms: "argus cases briefs delegations" },
   { id: "mcp-connections", title: "MCP servers", section: "integrations", group: "MCP servers", terms: "mcp oauth tools upstream notion linear connect authorize" },
+  { id: "chat-bot-slack", title: "Slack bot", section: "integrations", group: "Slack", terms: "slack chat bot socket mode messages workflows" },
+  { id: "chat-bot-discord", title: "Discord bot", section: "integrations", group: "Discord", terms: "discord chat bot gateway intents messages workflows" },
   { id: "mqtt", title: "Home Assistant over MQTT", section: "integrations", group: "Home Assistant", terms: "broker smart home automation mqtt" },
   { id: "devices", title: "Approval devices", section: "security", group: "Approval devices", terms: "passkey signature phone" },
   { id: "credentials", title: "Credentials", section: "security", group: "Credentials", terms: "grants audit secrets passwords" },
@@ -174,7 +176,7 @@ export function settingPlace(setting: { section?: string; group?: string }): Pla
 // Settings drawn by a card of their own rather than a registry row; the
 // card carries their setting-<key> ID.
 export function hasOwnCard(key: string): boolean {
-  return key === "web.tint" || key === "updates.mode" || key.startsWith("web.rail.") || key.startsWith("integrations.mqtt.") || key.startsWith("notifications.ntfy.") || key.startsWith("credential_channels.") || key === "ssh_agent_socket"
+  return key === "web.tint" || key === "updates.mode" || key.startsWith("web.rail.") || key.startsWith("integrations.mqtt.") || key.startsWith("integrations.slack.") || key.startsWith("integrations.discord.") || key.startsWith("notifications.ntfy.") || key.startsWith("credential_channels.") || key === "ssh_agent_socket"
 }
 
 // What a group's heading says when its changes apply, where the mode alone

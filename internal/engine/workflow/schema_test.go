@@ -227,7 +227,7 @@ func TestTheSchemaCarriesTheEditorsExtensions(t *testing.T) {
 	if schema.Extension.SchemaVersion != workflow.SchemaVersion || len(schema.Extension.Executors) != len(workflow.Catalog()) {
 		t.Fatalf("x-legato = %+v", schema.Extension)
 	}
-	for _, location := range []string{"run_title", "with", "output_path", "trigger.task.entered_column", "trigger.schedule", "trigger.pr.changes_requested"} {
+	for _, location := range []string{"run_title", "with", "output_path", "trigger.task.entered_column", "trigger.schedule", "trigger.pr.changes_requested", "trigger.chat.message", "trigger.chat.mention"} {
 		if len(schema.Extension.Expressions[location].Roots) == 0 {
 			t.Errorf("no expression context for %s", location)
 		}

@@ -1,8 +1,9 @@
 import { deref, executors, workflowSchema, type Schema } from "../../lib/workflowSchema"
 
 /** BuilderOptions are what the pickers offer: this Legato's macros, agent
- * tools with their tiers, and board columns. A value may still be typed. */
-export type BuilderOptions = { macros: string[]; agents: string[]; tiers: Record<string, string[]>; columns: string[]; repositories?: string[] }
+ * tools with their tiers, board columns and chat bots. A value may still
+ * be typed. */
+export type BuilderOptions = { macros: string[]; agents: string[]; tiers: Record<string, string[]>; columns: string[]; repositories?: string[]; bots?: string[] }
 
 export const noOptions: BuilderOptions = { macros: [], agents: [], tiers: {}, columns: [], repositories: [] }
 
@@ -42,7 +43,7 @@ export function stepForm(type: string): { fields: FieldSpec[]; groups: Group[]; 
 
 /** The kinds a with field may be; a test fails when the schema has one the
  * form can't draw. */
-export const FIELD_KINDS = ["string", "text", "integer", "boolean", "task", "task_or_id", "repository", "path", "column", "macro", "agent", "tier", "json"]
+export const FIELD_KINDS = ["string", "text", "integer", "boolean", "task", "task_or_id", "repository", "path", "column", "macro", "agent", "tier", "chat_bot", "json"]
 
 // stepReferences are the steps.<id>.outputs references in a step.
 export function stepReferences(step: StepValue): { id: string; expression: string }[] {

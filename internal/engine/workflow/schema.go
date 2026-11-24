@@ -234,6 +234,9 @@ var schemaNames = map[reflect.Type]string{
 	reflect.TypeOf(TaskEnteredColumnTrigger{}): "trigger." + TriggerTaskEnteredColumn,
 	reflect.TypeOf(ScheduleTrigger{}):          "trigger." + TriggerSchedule,
 	reflect.TypeOf(PRTrigger{}):                "trigger." + TriggerPRChangesRequested,
+	reflect.TypeOf(ChatMessageTrigger{}):       "trigger." + TriggerChatMessage,
+	reflect.TypeOf(ChatMentionTrigger{}):       "trigger." + TriggerChatMention,
+	reflect.TypeOf(ChatTextMatch{}):            "chat_text_match",
 	reflect.TypeOf(Condition{}):                "condition",
 }
 
@@ -273,6 +276,8 @@ var fieldSchemas = map[string]schemaObject{
 	"Triggers.task.entered_column":  {"description": "Start a run when a card enters a column"},
 	"Triggers.schedule":             {"description": "Start runs at due times"},
 	"Triggers.pr.changes_requested": {"description": "Start a run when a review requests changes on a pull request a task owns"},
+	"Triggers.chat.message":         {"description": "Start a run when a chat bot set up in Settings › Integrations receives a message"},
+	"Triggers.chat.mention":         {"description": "Start a run when a message mentions a chat bot set up in Settings › Integrations, or is sent to it directly"},
 
 	"TaskEnteredColumnTrigger.column":           {"description": "The column, by name", "required": true, "pattern": `\S`},
 	"TaskEnteredColumnTrigger.enabled":          {"description": "false makes the trigger start paused, until a Legato switches it on"},
@@ -297,6 +302,9 @@ var fieldSchemas = map[string]schemaObject{
 	"PRTrigger.confirm":          {"description": "Ask the operator before each run"},
 	"PRTrigger.max_runs_per_day": {"description": "Most runs for one task in a day before the loop stop asks; 0 for 3", "minimum": 0},
 	"PRTrigger.inputs":           {"description": "The run's inputs, by name: literals, or ${{ event.* }}", "context": "trigger." + TriggerPRChangesRequested},
+
+	"ChatTextMatch.contains": {"description": "The text contains this, ignoring case"},
+	"ChatTextMatch.regex":    {"description": "The text matches this Go regular expression (RE2); (?i) ignores case", "maxLength": MaxChatRegexLength},
 
 	"Condition.all":        {"description": "Every one of these matches"},
 	"Condition.any":        {"description": "At least one of these matches"},
@@ -388,4 +396,24 @@ func (r schemaReflector) value(t reflect.Type) schemaObject {
 		return r.object(t)
 	}
 	panic("workflow schema: no schema for " + t.String())
+}
+
+// The two chat trigger types say the same, each under its own name.
+func init() {
+	for typeName, kind := range map[string]string{"ChatMessageTrigger": TriggerChatMessage, "ChatMentionTrigger": TriggerChatMention} {
+		for field, schema := range map[string]schemaObject{
+			"bot":              {"description": "The bot, by name: slack or discord", "required": true, "pattern": ChatBotNamePattern},
+			"channel":          {"description": "Only messages in this channel, by the platform's ID"},
+			"user":             {"description": "Only messages from this user, by the platform's ID"},
+			"text":             {"description": "Only messages whose text matches"},
+			"include_bots":     {"description": "Also run on messages other bots post; the bot's own never start runs"},
+			"loop_item":        {"description": "What the loop stop counts runs by: the channel, or each thread", "enum": []string{ChatLoopChannel, ChatLoopThread}, "default": ChatLoopChannel},
+			"enabled":          {"description": "false makes the trigger start paused, until a Legato switches it on"},
+			"confirm":          {"description": "Ask the operator before each run"},
+			"max_runs_per_day": {"description": "Most runs for one channel (or thread) in a day before the loop stop asks; 0 for 3", "minimum": 0},
+			"inputs":           {"description": "The run's inputs, by name: literals, or ${{ event.* }}", "context": "trigger." + kind},
+		} {
+			fieldSchemas[typeName+"."+field] = schema
+		}
+	}
 }

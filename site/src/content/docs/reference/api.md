@@ -404,6 +404,8 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `POST` | `/api/settings/integrations/burnlite/connect` | risky | Connect Burnlite |  |
 | `PUT` | `/api/settings/integrations/burnlite` | change | Choose the Burnlite projects |  |
 | `DELETE` | `/api/settings/integrations/burnlite` | risky | Disconnect Burnlite |  |
+| `GET` | `/api/settings/integrations/chat-bots` | read | Read the Slack and Discord bots' connection status |  |
+| `POST` | `/api/settings/integrations/chat-bots/{name}/reconnect` | change | Have a Slack or Discord bot connect again |  |
 | `POST` | `/api/config/import` | risky | Import settings from a file, as a change set |  |
 | `PUT` | `/api/settings/mains/{instance_id}/reeve` | risky | Let a paired main's Reeve message this one's, or stop it |  |
 

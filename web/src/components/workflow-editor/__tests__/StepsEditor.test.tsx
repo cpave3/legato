@@ -15,7 +15,7 @@ afterEach(cleanup)
 let latest = ""
 function Builder({ initial }: { initial: string }) {
   const [text, setText] = useState(initial)
-  return <WorkflowBuilder text={text} onEdit={edit => { latest = edit.text; setText(edit.text) }} onEditYaml={() => {}} options={{ macros: ["Review", "Plan"], agents: ["claude-code", "codex"], tiers: { codex: ["fast"] }, columns: ["Backlog", "Doing"] }} />
+  return <WorkflowBuilder text={text} onEdit={edit => { latest = edit.text; setText(edit.text) }} onEditYaml={() => {}} options={{ macros: ["Review", "Plan"], agents: ["claude-code", "codex"], tiers: { codex: ["fast"] }, columns: ["Backlog", "Doing"], bots: ["slack", "discord"] }} />
 }
 
 // renderBuilder draws the builder over its own text; latest is that text.
@@ -76,6 +76,29 @@ describe("the catalog's metadata", () => {
     const column = within(card).getByLabelText("column of step s")
     expect(task.compareDocumentPosition(column) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(within(card).getByText(/^To column/)).toBeTruthy()
+  })
+})
+
+describe("a chat message step", () => {
+  it("asks for the bot, the channel, the message and what it replies to, in that order", () => {
+    expect(stepForm("chat.message.send")!.fields.map(f => [f.name, f.kind])).toEqual([["bot", "chat_bot"], ["channel", "string"], ["text", "text"], ["thread_id", "string"]])
+    expect(FIELD_KINDS).toContain("chat_bot")
+  })
+
+  it("offers the bots and writes the step", () => {
+    const step = newStep("chat.message.send", [])
+    expect(step.with).toEqual({ bot: "", text: "" })
+    renderBuilder(head + "steps:\n  - id: say\n    title: Say\n    type: chat.message.send\n    with: {bot: \"\", text: \"\"}\n")
+    const card = stepCard(1)
+    const labels = ["bot", "channel", "text", "thread_id"].map(name => within(card).getByLabelText(`${name} of step say`))
+    for (let i = 1; i < labels.length; i++) expect(labels[i - 1].compareDocumentPosition(labels[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const bot = labels[0]
+    expect([...document.querySelectorAll(`#${bot.getAttribute("list")} option`)].map(o => o.getAttribute("value"))).toEqual(["slack", "discord"])
+    commit(bot, "discord")
+    commit(labels[1], "C42")
+    commit(labels[2], "Deployed.")
+    commit(labels[3], "${{ event.thread_id }}")
+    expect(parse(latest).steps[0].with).toEqual({ bot: "discord", channel: "C42", text: "Deployed.", thread_id: "${{ event.thread_id }}" })
   })
 })
 

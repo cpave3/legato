@@ -590,16 +590,33 @@ describe("SettingsPage layout", () => {
     await waitFor(() => expect(mockedApiFetch).toHaveBeenCalledWith("https://remote.example", "/api/config/settings/notifications.os.enabled", expect.objectContaining({ method: "PUT" })))
   })
 
-  it("orders Integrations GitHub, Argus, MCP servers, Home Assistant, Manticore, and Argus points to its field when it can be set here", async () => {
+  it("orders Integrations GitHub, Argus, MCP servers, Slack, Discord, Home Assistant, Manticore, and Argus points to its field when it can be set here", async () => {
     serveRegistry()
     renderPage("/settings#integrations")
     await loaded()
     const groups = within(screen.getByRole("region", { name: "Integrations" })).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)
-    expect(groups).toEqual(["GitHub", "Argus", "MCP servers", "Home Assistant", "Manticore"])
+    expect(groups).toEqual(["GitHub", "Argus", "MCP servers", "Slack", "Discord", "Home Assistant", "Manticore"])
     const argus = within(await waitFor(() => { const el = document.getElementById("argus"); expect(el).toBeTruthy(); return el! }))
     expect(argus.getByText(/Give Argus's address below/)).toBeTruthy()
     expect(argus.queryByText(/in config.yaml/)).toBeNull()
     expect(argus.getByRole("link", { name: /Integration tokens/ })).toHaveAttribute("href", "#integration-tokens")
+  })
+
+  it("draws the Slack and Discord settings once each, in their bots' cards, with the bots' status", async () => {
+    serveRegistry({}, (path) => path === "/api/settings/integrations/chat-bots" ? Response.json({ bots: [
+      { name: "slack", platform: "slack", enabled: true, configured: true, state: "connected", since: "2026-11-24T09:00:00Z" },
+      { name: "discord", platform: "discord", enabled: false, configured: false, state: "disabled", since: "2026-11-24T09:00:00Z" },
+    ] }) : undefined)
+    renderPage("/settings#integrations")
+    await loaded()
+    const slack = await screen.findByRole("region", { name: "Slack bot" })
+    const discord = screen.getByRole("region", { name: "Discord bot" })
+    expect(await within(slack).findByText("Connected")).toBeTruthy()
+    expect(await within(discord).findByText("Disabled")).toBeTruthy()
+    for (const s of registry.settings.filter((s) => s.key.startsWith("integrations.slack.") || s.key.startsWith("integrations.discord."))) {
+      expect(document.querySelectorAll(`[id="setting-${s.key}"]`), s.key).toHaveLength(1)
+      expect((s.key.startsWith("integrations.slack.") ? slack : discord).querySelector(`[id="setting-${s.key}"]`), s.key).toBeTruthy()
+    }
   })
 
   it("shows integration tokens once, in Security, and one Credentials card with its lists and channels", async () => {

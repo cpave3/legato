@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dagre from "@dagrejs/dagre"
 import { Background, BaseEdge, MarkerType, Controls, EdgeLabelRenderer, getBezierPath, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type EdgeProps, type EdgeTypes, type NodeProps, type NodeTypes, type ReactFlowInstance, useReactFlow } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
-import { ArrowRightLeft, BookOpen, Bot, CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleStop, CircleX, SkipForward, Clock, Columns3, FileText, FileX, FolderSearch, FolderX, GitBranch, GitPullRequest, Hand, Hourglass, MessageSquareWarning, MessagesSquare, Repeat, Send, Shrink, StickyNote, Tag, Trash2, Workflow, type LucideIcon } from "lucide-react"
+import { CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleX, SkipForward, Hand, Hourglass, Repeat, Workflow, type LucideIcon } from "lucide-react"
+import { stepIcons, triggerIcons } from "./graphIcons"
 import { dataEdgeName, gateLabel, keyValueText, nodeName, runStateWords, stepTypeLabel, triggerName, triggerOn, type GraphNode, type GraphNodeExtra, type NodeRunState, type WorkflowGraphModel } from "../../lib/workflowGraph"
 import { toneText } from "../../lib/workflowTones"
 import type { Tone } from "../../lib/workflowView"
@@ -24,34 +25,6 @@ export type WorkflowGraphProps = {
   // centerOn moves the view to a node, each time n changes.
   centerOn?: { id: string; n: number } | null
   className?: string
-}
-
-const stepIcons: Record<string, LucideIcon> = {
-  "agent.run": Bot,
-  "agent.dispatch": Send,
-  "agent.interview": MessagesSquare,
-  "agent.stop": CircleStop,
-  "agent.compact": Shrink,
-  "task.note": StickyNote,
-  "task.move": ArrowRightLeft,
-  "task.context": FileText,
-  "task.metadata.set": Tag,
-  "task.working_dir.resolve": FolderSearch,
-  "github.pr.prepare": GitPullRequest,
-  "github.pr.review_passes": Repeat,
-  "repo.ensure": GitBranch,
-  "worktree.remove": FolderX,
-  "file.remove": FileX,
-  "chimera.session.remove": Trash2,
-  "learning.packet.prepare": BookOpen,
-  "learning.proposals.submit": BookOpen,
-}
-
-const triggerIcons: Record<string, LucideIcon> = {
-  manual: Hand,
-  "task.entered_column": Columns3,
-  schedule: Clock,
-  "pr.changes_requested": MessageSquareWarning,
 }
 
 // Node sizes come from fixed classes, so the layout never waits for the

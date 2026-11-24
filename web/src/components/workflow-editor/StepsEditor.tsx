@@ -190,11 +190,11 @@ export function WithField({ spec, stepId, value, onChange, refs, taskRefs, optio
   const set = (raw: string) => onChange(raw === "" && !spec.required ? undefined : raw)
   const picker = spec.expressions && !rich && <ReferencePicker name={name} options={refs} onPick={expression => onChange(`${text}\${{ ${expression} }}`)} />
   let control: React.ReactNode
-  const suggestions = spec.kind === "macro" ? options.macros : spec.kind === "agent" ? options.agents : spec.kind === "tier" ? (options.tiers[agent] ?? Object.values(options.tiers).flat()) : spec.kind === "column" ? options.columns : spec.kind === "repository" ? options.repositories ?? [] : []
+  const suggestions = spec.kind === "macro" ? options.macros : spec.kind === "agent" ? options.agents : spec.kind === "tier" ? (options.tiers[agent] ?? Object.values(options.tiers).flat()) : spec.kind === "column" ? options.columns : spec.kind === "repository" ? options.repositories ?? [] : spec.kind === "chat_bot" ? options.bots ?? [] : []
   const groups = reads && spec.expressions ? valueGroups(reads.values, reads.location, spec.kind) : null
   const check = (expression: string) => reads ? checkExpression(reads.values, reads.location, expression) : null
   // In the inspector, a text field takes values at its cursor (LEG-510).
-  const textKinds = ["string", "text", "path", "repository", "column", "macro", "tier", "agent", "task_or_id"]
+  const textKinds = ["string", "text", "path", "repository", "column", "macro", "tier", "agent", "chat_bot", "task_or_id"]
   const expressionText = rich && groups && textKinds.includes(spec.kind) && !(spec.enum && !isExpression)
   const richControl = rich && !isExpression ? richControlOf({ spec, name, value, text, onChange, set, options, groups, check }) : null
   switch (richControl ? "rich" : expressionText ? "expression" : spec.kind) {
