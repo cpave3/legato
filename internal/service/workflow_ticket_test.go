@@ -19,8 +19,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// fakeJira is Jira's create, comment and search endpoints.
-type fakeJira struct {
+// fakeTicketJira is Jira's create, comment and search endpoints.
+type fakeTicketJira struct {
 	mu       sync.Mutex
 	srv      *httptest.Server
 	creates  []map[string]any
@@ -35,9 +35,9 @@ type fakeJira struct {
 	jql   []string
 }
 
-func newFakeJira(t *testing.T) *fakeJira {
+func newFakeJira(t *testing.T) *fakeTicketJira {
 	t.Helper()
-	f := &fakeJira{}
+	f := &fakeTicketJira{}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		f.mu.Lock()
@@ -77,7 +77,7 @@ func newFakeJira(t *testing.T) *fakeJira {
 	return f
 }
 
-func (f *fakeJira) writer() JiraTicketWriter {
+func (f *fakeTicketJira) writer() JiraTicketWriter {
 	return JiraTicketWriter{BaseURL: f.srv.URL, Email: "bot@example.com", APIToken: "jira-secret-token"}
 }
 
