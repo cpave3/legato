@@ -335,3 +335,58 @@ steps:
 		t.Fatalf("watch %q (%s): %s", watch.Status, watch.ErrorCode, watch.Error)
 	}
 }
+
+// reenteredWithAFinding is a stewarded run that a push sent back to
+// review, whose pass 2 posted one blocking finding the author was told of.
+func reenteredWithAFinding(t *testing.T) (reviewRun, *store.WorkflowRunView) {
+	t.Helper()
+	r := newReviewRun(t, ReviewPassOptions{})
+	withBoardAuthor(t, r)
+	view := r.stewarded(t, stewardInputs)
+	r.worker.ReviewGitHub.Push(12, "ccc333")
+	r.worker.Checkout.Change("ccc333", "greet.go", 3, 5)
+	r.watchTick()
+	r.tick()
+	r.submit(t, view.Run.TaskID, service.ReviewSubmission{Summary: "One problem.", Findings: []service.SubmittedFinding{blockingFinding}})
+	r.tick()
+	r.tick()
+	if typed := r.worker.typedTo("legato-board-1"); !strings.Contains(typed, "[legato steward] Pass 2 has 1 blocking finding") {
+		t.Fatalf("typed to the author: %q", typed)
+	}
+	return r, view
+}
+
+// A re-entry's pass waits for answers to its blocking findings: a push
+// with a blocking finding unanswered starts no pass.
+func TestAReEntryPassWaitsForItsBlockingFindingsToBeAnswered(t *testing.T) {
+	r, view := reenteredWithAFinding(t)
+	task := view.Run.TaskID
+
+	r.worker.ReviewGitHub.Push(12, "ddd444")
+	r.worker.Checkout.Change("ddd444", "greet.go", 3, 5)
+	for range 4 {
+		r.watchTick()
+		r.worker.Clock.Advance(3 * time.Minute) // the quiet time
+		r.tick()
+	}
+	if loop := r.loopPhase(t, task); loop.Pass != 2 || loop.Phase != service.ReviewPhaseWaitingForAuthor {
+		t.Fatalf("a pass started with a blocking finding unanswered: loop %+v", loop)
+	}
+}
+
+// While the steward watches, a re-entry's wait for its author reads GitHub
+// only through the watch: a tick with no watch due reads nothing.
+func TestAReEntryWaitReadsGitHubOnlyThroughTheWatch(t *testing.T) {
+	r, _ := reenteredWithAFinding(t)
+	r.watchTick() // the watch is read now, so the next is not due for a minute
+	reads, polls := r.worker.ReviewGitHub.Reads(), r.worker.ReviewGitHub.Polls()
+	for range 3 {
+		r.tick()
+	}
+	if got := r.worker.ReviewGitHub.Reads(); got != reads {
+		t.Fatalf("%d pull request reads outside the watch", got-reads)
+	}
+	if got := r.worker.ReviewGitHub.Polls(); got != polls {
+		t.Fatalf("%d comment polls outside the watch", got-polls)
+	}
+}

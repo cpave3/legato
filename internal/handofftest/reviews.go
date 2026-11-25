@@ -95,6 +95,8 @@ type FakeReviewGitHub struct {
 	refuseReady int
 	// watches counts the steward's watch sessions.
 	watches int
+	// reads counts PullRequest calls.
+	reads int
 }
 
 // Draft makes an open pull request a draft, or ready.
@@ -834,6 +836,7 @@ func (f *FakeReviewGitHub) PullRequest(_ context.Context, _ string, number int) 
 	f.beforeRead()
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.reads++
 	if f.readFails() {
 		return service.ReviewGitHubPR{}, "", &service.GitHubError{Status: 503, Message: "Service Unavailable"}
 	}
@@ -883,6 +886,13 @@ func (f *FakeReviewGitHub) WatchSession(repo string) service.ReviewWatchSession 
 	defer f.mu.Unlock()
 	f.watches++
 	return &fakeWatchSession{f: f, repo: repo}
+}
+
+// Reads counts the reads of one pull request (PullRequest).
+func (f *FakeReviewGitHub) Reads() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.reads
 }
 
 // Watches counts the steward's watch sessions opened.

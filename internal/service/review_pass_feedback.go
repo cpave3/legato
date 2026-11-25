@@ -319,10 +319,17 @@ func (s *ReviewPassService) feedback(ctx context.Context, l ReviewLoop, loop *st
 		return nil
 	}
 	steward := s.stewardRecord(ctx, l.TaskID) != nil
-	if err := RefuseUnansweredReview(ctx, s.db, l.TaskID); l.CountComments && !steward && err != nil {
-		// Moved by hand, past the refusal: wait for the answers. A
-		// re-entry's pass waits only for blocking findings (the
-		// steward's agentDone).
+	items, _ := currentItems(ctx, s.db, loop)
+	if steward {
+		// A re-entry's pass waits only for its blocking findings, never
+		// for checks or comments.
+		for _, item := range items {
+			if item.Kind == ItemBlocking && item.Answer == "" {
+				return nil
+			}
+		}
+	} else if err := RefuseUnansweredReview(ctx, s.db, l.TaskID); l.CountComments && err != nil {
+		// Moved by hand, past the refusal: wait for the answers.
 		return nil
 	}
 	pushed, err := s.pushedSince(ctx, l, loop)
@@ -330,7 +337,6 @@ func (s *ReviewPassService) feedback(ctx context.Context, l ReviewLoop, loop *st
 		return err
 	}
 	disputed := false
-	items, _ := currentItems(ctx, s.db, loop)
 	for _, item := range items {
 		disputed = disputed || (item.Kind == ItemBlocking && item.Answer == AnswerReplied)
 	}

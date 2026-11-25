@@ -1059,9 +1059,14 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 		return false
 	}
 	c.noteAuthor(ctx, l.TaskID, run)
-	open, err := c.openRunPRs(ctx, run)
-	if err != nil {
-		return false // GitHub may answer next time
+	open, polls, watched := c.watchedPRs(ctx, l)
+	if watched && open == nil {
+		return false // no watch read yet: the next one tells
+	}
+	if !watched {
+		if open, err = c.openRunPRs(ctx, run); err != nil {
+			return false // GitHub may answer next time
+		}
 	}
 	if len(open) == 0 {
 		c.finish(ctx, l.TaskID, ReviewOutcomeClosed)
@@ -1083,7 +1088,37 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 		seen, err := time.Parse(time.RFC3339, run.SeenAt)
 		return err == nil && now.Sub(seen) >= c.engine.config().QuietTime
 	}
-	return c.disputed(ctx, l, run, open)
+	return c.disputed(ctx, l, run, open, polls)
+}
+
+// watchedPRs are a stewarding loop's open pull requests and their comments
+// as its newest watch read found them (spec LEG-559 C7: while the steward
+// watches, GitHub is read only through the watch, one token per loop per
+// tick, at the watch's cadence). watched is false for a loop no steward
+// watches; open is nil while it has no good read yet.
+func (c *ReviewRunCaller) watchedPRs(ctx context.Context, l ReviewLoop) (open []ReviewGitHubPR, polls map[int]CommentPoll, watched bool) {
+	rec := c.engine.stewardRecord(ctx, l.TaskID)
+	if rec == nil {
+		return nil, nil, false
+	}
+	w, ok := c.engine.freshWatch(rec.ID)
+	if !ok {
+		return nil, nil, true
+	}
+	authors := map[int]string{}
+	if layers, err := c.engine.db.ListReviewLoopPRs(ctx, rec.ID); err == nil {
+		for _, layer := range layers {
+			authors[layer.Number] = layer.Author
+		}
+	}
+	open = []ReviewGitHubPR{}
+	for _, layer := range w.Layers {
+		if layer.State == "open" {
+			open = append(open, ReviewGitHubPR{Number: layer.Number, Branch: layer.HeadBranch, Base: layer.BaseBranch,
+				HeadSHA: layer.HeadSHA, Author: authors[layer.Number]})
+		}
+	}
+	return open, w.Comments, true
 }
 
 // agentDone says an agent author finished its round: idle, every finding
@@ -1141,7 +1176,7 @@ func (c *ReviewRunCaller) agentDone(ctx context.Context, l ReviewLoop, pushed bo
 // again: after Legato's last comment in the thread
 // (the finding, or its "still open" ruling), and not before that pass
 // started by GitHub's clock.
-func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *reviewRun, open []ReviewGitHubPR) bool {
+func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *reviewRun, open []ReviewGitHubPR, watched map[int]CommentPoll) bool {
 	loop, err := c.engine.db.GetHandoffReview(ctx, l.TaskID)
 	if err != nil || loop == nil {
 		return false
@@ -1162,9 +1197,14 @@ func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *revie
 	var poll CommentPoll
 	authors := map[int]string{}
 	for _, pr := range open {
-		got, err := c.engine.opts.GitHub.PollComments(ctx, run.Repo, pr.Number, storePollPages{db: c.engine.db, taskID: l.TaskID, pr: pr.Number})
-		if err != nil {
-			return false
+		got, ok := watched[pr.Number]
+		if watched == nil {
+			var err error
+			if got, err = c.engine.opts.GitHub.PollComments(ctx, run.Repo, pr.Number, storePollPages{db: c.engine.db, taskID: l.TaskID, pr: pr.Number}); err != nil {
+				return false
+			}
+		} else if !ok {
+			continue // not read yet: the next watch reads it
 		}
 		poll.Comments = append(poll.Comments, got.Comments...)
 		authors[pr.Number] = pr.Author
