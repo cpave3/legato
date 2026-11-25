@@ -1,6 +1,7 @@
 // Package discordbot is a thin Discord bot client: the Gateway websocket (API
-// v10, JSON encoding) for receiving messages, and the one REST call Legato
-// makes, POST /channels/{id}/messages.
+// v10, JSON encoding) for receiving messages, and the REST calls Legato
+// makes: POST /channels/{id}/messages, and PUT and DELETE
+// /channels/{id}/messages/{id}/reactions/{emoji}/@me.
 //
 // It follows Discord's gateway rules:
 //

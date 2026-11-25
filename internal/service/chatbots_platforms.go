@@ -103,6 +103,27 @@ func (c *slackConnection) Send(ctx context.Context, channel, text, threadID stri
 	return SentMessage{MessageID: posted.TS, Channel: channel, ThreadID: threadID}, nil
 }
 
+func (c *slackConnection) React(ctx context.Context, channel, messageID, emoji string, remove bool) error {
+	name, err := slackReactionName(emoji)
+	if err != nil {
+		return err
+	}
+	if remove {
+		err = c.client.RemoveReaction(ctx, channel, messageID, name)
+	} else {
+		err = c.client.AddReaction(ctx, channel, messageID, name)
+	}
+	var apiErr *slackbot.APIError
+	if errors.As(err, &apiErr) && apiErr.Code == "missing_scope" {
+		scope := apiErr.Needed
+		if scope == "" {
+			scope = "reactions:write"
+		}
+		return fmt.Errorf("slack refused: missing_scope (needs %s). Add %s under OAuth & Permissions › Bot Token Scopes and reinstall the app", scope, scope)
+	}
+	return slackError(err)
+}
+
 func slackError(err error) error {
 	switch {
 	case err == nil, errors.Is(err, context.Canceled):
@@ -173,9 +194,11 @@ func (c *discordConnection) Run(ctx context.Context, emit func(ChatEvent), conne
 	return err
 }
 
+// Send posts text with the :names: Legato knows as their emoji, since
+// Discord shows a bot's :eyes: as it is.
 func (c *discordConnection) Send(ctx context.Context, channel, text, threadID string) (SentMessage, error) {
 	replyTo := discordReplyTo(channel, threadID)
-	id, err := c.client.CreateMessage(ctx, channel, text, replyTo)
+	id, err := c.client.CreateMessage(ctx, channel, expandEmojiShortcodes(text), replyTo)
 	if err != nil {
 		return SentMessage{}, err
 	}
@@ -186,6 +209,32 @@ func (c *discordConnection) Send(ctx context.Context, channel, text, threadID st
 		threadID = channel
 	}
 	return SentMessage{MessageID: id, Channel: channel, ThreadID: threadID}, nil
+}
+
+func (c *discordConnection) React(ctx context.Context, channel, messageID, emoji string, remove bool) error {
+	e, err := discordReactionEmoji(emoji)
+	if err != nil {
+		return err
+	}
+	if remove {
+		err = c.client.RemoveReaction(ctx, channel, messageID, e)
+	} else {
+		err = c.client.AddReaction(ctx, channel, messageID, e)
+	}
+	var apiErr *discordbot.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.Code {
+		case discordbot.CodeMissingPermissions:
+			return fmt.Errorf("%v: the bot lacks a permission in this channel: it needs Add Reactions and Read Message History", err)
+		case discordbot.CodeMissingAccess:
+			return fmt.Errorf("%v: the bot cannot see this channel: it needs View Channel", err)
+		case discordbot.CodeUnknownMessage:
+			return fmt.Errorf("%v: there is no message %s in channel %s", err, messageID, channel)
+		case discordbot.CodeUnknownEmoji:
+			return fmt.Errorf("%v: Discord does not know the emoji %s", err, e)
+		}
+	}
+	return err
 }
 
 // discordReplyTo is the message a send replies to: a thread_id that is

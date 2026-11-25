@@ -102,6 +102,15 @@ describe("a chat message step", () => {
   })
 })
 
+describe("a chat reaction step", () => {
+  it("asks for the bot, the channel, the message and the emoji, in that order", () => {
+    for (const type of ["chat.reaction.add", "chat.reaction.remove"]) {
+      expect(stepForm(type)!.fields.map(f => [f.name, f.kind]), type).toEqual([["bot", "chat_bot"], ["channel", "string"], ["message_id", "string"], ["emoji", "string"]])
+      expect(newStep(type, []).with, type).toEqual({ bot: "", message_id: "", emoji: "" })
+    }
+  })
+})
+
 describe("fields by kind", () => {
   const base = head + "inputs:\n  target: {type: task, required: true}\nsteps:\n  - id: s\n    title: S\n    type: agent.run\n    with:\n      prompt: hi\n"
   it("writes text, booleans, numbers, task references and picks", () => {

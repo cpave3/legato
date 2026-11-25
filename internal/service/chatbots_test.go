@@ -15,14 +15,32 @@ import (
 type fakeChatConnection struct {
 	name, platform string
 
-	mu    sync.Mutex
-	runs  []func(ctx context.Context, emit func(ChatEvent), connected func()) error
-	calls int
-	sent  []fakeSent
-	send  func(ctx context.Context, channel, text, threadID string) (SentMessage, error)
+	mu      sync.Mutex
+	runs    []func(ctx context.Context, emit func(ChatEvent), connected func()) error
+	calls   int
+	sent    []fakeSent
+	send    func(ctx context.Context, channel, text, threadID string) (SentMessage, error)
+	reacted []fakeReaction
+	react   func(ctx context.Context, channel, messageID, emoji string, remove bool) error
 }
 
 type fakeSent struct{ Channel, Text, ThreadID string }
+
+type fakeReaction struct {
+	Channel, MessageID, Emoji string
+	Remove                    bool
+}
+
+func (f *fakeChatConnection) React(ctx context.Context, channel, messageID, emoji string, remove bool) error {
+	f.mu.Lock()
+	f.reacted = append(f.reacted, fakeReaction{channel, messageID, emoji, remove})
+	react := f.react
+	f.mu.Unlock()
+	if react != nil {
+		return react(ctx, channel, messageID, emoji, remove)
+	}
+	return nil
+}
 
 func (f *fakeChatConnection) Name() string     { return f.name }
 func (f *fakeChatConnection) Platform() string { return f.platform }
@@ -343,5 +361,59 @@ func TestChatBotsKnow(t *testing.T) {
 	}
 	if configured, _ := bots.Known("teams"); configured {
 		t.Fatal("knows teams")
+	}
+}
+
+func TestChatBotsReact(t *testing.T) {
+	secret := "xoxb-react-secret"
+	conn := &fakeChatConnection{name: "slack", platform: "slack"}
+	off := &fakeChatConnection{name: "discord", platform: "discord"}
+	bots, _ := testChatBots(t, []ChatBotSpec{
+		{Name: "slack", Platform: "slack", Enabled: true, Conn: conn, DefaultChannel: "CDEF", Secrets: []string{secret}},
+		{Name: "discord", Platform: "discord", Conn: off},
+	}, nil)
+	if err := bots.React(context.Background(), "slack", "C1", "1.5", "eyes", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := bots.React(context.Background(), "slack", "", "1.5", "white_check_mark", true); err != nil {
+		t.Fatal(err)
+	}
+	want := []fakeReaction{{"C1", "1.5", "eyes", false}, {"CDEF", "1.5", "white_check_mark", true}}
+	if len(conn.reacted) != 2 || conn.reacted[0] != want[0] || conn.reacted[1] != want[1] {
+		t.Fatalf("reacted = %+v", conn.reacted)
+	}
+	for name, tc := range map[string]struct {
+		bot, message, emoji, want string
+	}{
+		"unknown bot":  {"teams", "1.5", "eyes", "no such chat bot"},
+		"switched off": {"discord", "1.5", "eyes", "switched off"},
+		"no message":   {"slack", " ", "eyes", "message"},
+		"no emoji":     {"slack", "1.5", "", "emoji"},
+	} {
+		err := bots.React(context.Background(), tc.bot, "C1", tc.message, tc.emoji, false)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
+	}
+	if len(conn.reacted) != 2 || len(off.reacted) != 0 {
+		t.Fatalf("refused reactions reached a platform: %+v %+v", conn.reacted, off.reacted)
+	}
+
+	conn.react = func(context.Context, string, string, string, bool) error {
+		return errors.New("refused for Bearer " + secret)
+	}
+	err := bots.React(context.Background(), "slack", "C1", "1.5", "eyes", false)
+	if err == nil || strings.Contains(err.Error(), secret) || !strings.Contains(err.Error(), "1.5") {
+		t.Fatalf("err = %v", err)
+	}
+
+	conn.react = func(ctx context.Context, _, _, _ string, _ bool) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	bots.SendTimeout = 20 * time.Millisecond
+	start := time.Now()
+	if err := bots.React(context.Background(), "slack", "C1", "1.5", "eyes", false); err == nil || time.Since(start) > time.Second {
+		t.Fatalf("blocked reaction: %v after %v", err, time.Since(start))
 	}
 }

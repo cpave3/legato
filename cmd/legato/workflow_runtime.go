@@ -109,6 +109,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 	agentRun.SetScratchRoot(filepath.Join(config.ResolveDataDir(cfg), service.WorkflowScratchFolder), db.WorkflowAttemptInUse)
 	agentDispatch := service.NewAgentDispatchExecutor(agentSvc, db)
 	agentDispatch.SetMacros(macros)
+	chatBots := chatBotsFor(cfg, db)
 	executors := []service.WorkflowExecutor{
 		agentRun,
 		agentDispatch,
@@ -135,7 +136,9 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		service.NewFileRemoveExecutor(),
 		prWait,
 		service.NewBurnliteCloseExecutor(db, service.ConnectedBurnlite{Connection: burnliteConnections(cfg, db)}),
-		service.NewChatSendExecutor(chatBotsFor(cfg, db)),
+		service.NewChatSendExecutor(chatBots),
+		service.NewChatReactionAddExecutor(chatBots),
+		service.NewChatReactionRemoveExecutor(chatBots),
 		// Starting it only writes the step; the review engine's tick in
 		// the broker holder opens it (attachReviewRuns, spec LEG-559 D9).
 		reviewPassesStep(cfg),

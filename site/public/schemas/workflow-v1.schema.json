@@ -442,6 +442,50 @@
           "if": {
             "properties": {
               "type": {
+                "const": "chat.reaction.add"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.chat.reaction.add"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "chat.reaction.remove"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.chat.reaction.remove"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "github.pr.wait"
               }
             },
@@ -629,6 +673,8 @@
             "github.pr.review_passes",
             "burnlite.task.close",
             "chat.message.send",
+            "chat.reaction.add",
+            "chat.reaction.remove",
             "github.pr.wait",
             "worktree.remove",
             "file.remove",
@@ -1671,7 +1717,7 @@
           }
         },
         "thread_id": {
-          "description": "A thread or message to reply to, such as ${{ event.thread_id }} of a chat trigger",
+          "description": "A message or thread to reply to: a chat trigger's ${{ event.thread_id }} or ${{ event.message_id }}, an earlier step's message_id or thread_id, or any message's ID in the channel. On Slack it replies in that message's thread (give a thread's parent, which event.thread_id is); on Discord it is a reply to that message",
           "type": "string",
           "x-legato": {
             "context": "with",
@@ -1712,6 +1758,162 @@
           "text"
         ],
         "type": "chat.message.send"
+      }
+    },
+    "with.chat.reaction.add": {
+      "additionalProperties": false,
+      "description": "Add a chat bot's emoji reaction to a message. A reaction the bot has already left is fine. The Slack app needs the reactions:write scope; the Discord bot needs Add Reactions and Read Message History.",
+      "properties": {
+        "bot": {
+          "description": "The bot, by name: slack or discord",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "chat_bot",
+            "label": "Bot",
+            "order": 1
+          }
+        },
+        "channel": {
+          "description": "The channel's ID; the bot's default channel when empty",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Channel",
+            "order": 2,
+            "required_at_run": true
+          }
+        },
+        "emoji": {
+          "description": "An emoji's name without colons, such as eyes or white_check_mark, or the emoji itself; on Discord a custom emoji as name:id",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Emoji",
+            "order": 4
+          }
+        },
+        "message_id": {
+          "description": "The message's ID: a chat trigger's ${{ event.message_id }} (with its ${{ event.channel }}), an earlier chat.message.send's message_id output, or any message's ID in the channel",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Message",
+            "order": 3
+          }
+        }
+      },
+      "required": [
+        "bot",
+        "message_id",
+        "emoji"
+      ],
+      "title": "React to a chat message",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Chat",
+        "outputs": [
+          {
+            "description": "True once the reaction is there",
+            "name": "ok",
+            "type": "boolean"
+          }
+        ],
+        "summary": [
+          "emoji"
+        ],
+        "type": "chat.reaction.add"
+      }
+    },
+    "with.chat.reaction.remove": {
+      "additionalProperties": false,
+      "description": "Remove a chat bot's own emoji reaction from a message. A reaction that is not there is fine. Needs the same scope and permissions as adding one.",
+      "properties": {
+        "bot": {
+          "description": "The bot, by name: slack or discord",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "chat_bot",
+            "label": "Bot",
+            "order": 1
+          }
+        },
+        "channel": {
+          "description": "The channel's ID; the bot's default channel when empty",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Channel",
+            "order": 2,
+            "required_at_run": true
+          }
+        },
+        "emoji": {
+          "description": "An emoji's name without colons, such as eyes or white_check_mark, or the emoji itself; on Discord a custom emoji as name:id",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Emoji",
+            "order": 4
+          }
+        },
+        "message_id": {
+          "description": "The message's ID: a chat trigger's ${{ event.message_id }} (with its ${{ event.channel }}), an earlier chat.message.send's message_id output, or any message's ID in the channel",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Message",
+            "order": 3
+          }
+        }
+      },
+      "required": [
+        "bot",
+        "message_id",
+        "emoji"
+      ],
+      "title": "Remove a chat reaction",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Chat",
+        "outputs": [
+          {
+            "description": "True once the reaction is gone",
+            "name": "ok",
+            "type": "boolean"
+          }
+        ],
+        "summary": [
+          "emoji"
+        ],
+        "type": "chat.reaction.remove"
       }
     },
     "with.chimera.session.remove": {
@@ -3017,6 +3219,24 @@
         ],
         "title": "Send a chat message",
         "type": "chat.message.send"
+      },
+      {
+        "description": "Add a chat bot's emoji reaction to a message. A reaction the bot has already left is fine. The Slack app needs the reactions:write scope; the Discord bot needs Add Reactions and Read Message History.",
+        "group": "Chat",
+        "summary": [
+          "emoji"
+        ],
+        "title": "React to a chat message",
+        "type": "chat.reaction.add"
+      },
+      {
+        "description": "Remove a chat bot's own emoji reaction from a message. A reaction that is not there is fine. Needs the same scope and permissions as adding one.",
+        "group": "Chat",
+        "summary": [
+          "emoji"
+        ],
+        "title": "Remove a chat reaction",
+        "type": "chat.reaction.remove"
       },
       {
         "description": "Wait until a pull request merges, or closes. Legato reads its state from GitHub when the step starts, after each refresh of a card's pull requests, and every few minutes.",

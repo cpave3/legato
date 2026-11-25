@@ -1,11 +1,11 @@
 ---
 title: Slack
-description: Start workflows from Slack messages and mentions, and post to Slack from a workflow step.
+description: Start workflows from Slack messages and mentions, and post and react in Slack from a workflow step.
 sidebar:
   order: 55
 ---
 
-Legato can run a Slack bot. A workflow can start when the bot receives a message or is mentioned, and a workflow step can post a message as the bot. Use it to start a triage run from a channel, or to report a run's result back to the thread that started it.
+Legato can run a Slack bot. A workflow can start when the bot receives a message or is mentioned, and a workflow step can post a message as the bot, or react to a message with an emoji. Use it to start a triage run from a channel, or to report a run's result back to the thread that started it.
 
 The bot connects with Slack's Socket Mode, an outbound connection from Legato to Slack. Legato needs no public address, so it works on a laptop or a machine on your network.
 
@@ -13,7 +13,7 @@ The bot connects with Slack's Socket Mode, an outbound connection from Legato to
 
 1. Go to [api.slack.com/apps](https://api.slack.com/apps) and create an app from scratch in your workspace.
 2. Under **Socket Mode**, turn Socket Mode on. Slack asks you to make an app-level token: give it the `connections:write` scope. The token starts `xapp-`.
-3. Under **OAuth & Permissions › Bot Token Scopes**, add `chat:write`, `channels:history`, `groups:history`, `im:history` and `app_mentions:read`.
+3. Under **OAuth & Permissions › Bot Token Scopes**, add `chat:write`, `reactions:write`, `channels:history`, `groups:history`, `im:history` and `app_mentions:read`. `reactions:write` is for the reaction steps; if you add it to an app that is already installed, reinstall the app (step 5) so the bot token gets it.
 4. Under **Event Subscriptions**, turn events on and subscribe to the bot events `message.channels`, `message.groups` and `message.im`.
 5. Install the app to your workspace. Copy the **Bot User OAuth Token**, which starts `xoxb-`.
 6. In Slack, invite the bot to each channel it should read or post in: `/invite @your-bot`.
@@ -82,6 +82,24 @@ steps:
 ```
 
 With `thread_id`, the message goes into that thread. `${{ event.thread_id }}` of a Slack trigger is the thread of the message that started the run, or a new thread under it. Without a `channel`, the step posts to the default channel. The step fails at once if the bot is not set up, is switched off, or Slack refused its token.
+
+The text can carry emoji, as `:eyes:` names or as the emoji itself: Slack shows both.
+
+## React to a message
+
+```yaml
+steps:
+  - id: seen
+    title: Show the request was picked up
+    type: chat.reaction.add
+    with:
+      bot: slack
+      channel: ${{ workflow.inputs.channel }}
+      message_id: ${{ workflow.inputs.message }}
+      emoji: eyes
+```
+
+Pass `${{ event.channel }}` and `${{ event.message_id }}` in from the trigger to react to the message that started the run, or give an earlier `chat.message.send` step's `channel` and `message_id` outputs to react to a message the run posted. `emoji` is a name without colons (`eyes`, `white_check_mark`, your workspace's custom emoji), or the emoji itself for the common ones. `chat.reaction.remove` takes the same fields and removes the bot's reaction. A reaction already there, or already gone, is fine. Without the `reactions:write` scope the step fails and says to add it and reinstall the app. See [Workflows](/legato/using/workflows/#react-to-the-message-that-started-a-run).
 
 ## Limits
 

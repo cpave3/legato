@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// maxRetryAfter is the longest rate-limit wait CreateMessage sits out itself.
+// maxRetryAfter is the longest rate-limit wait a REST call sits out itself.
 const maxRetryAfter = 5 * time.Second
 
 // maxResponse bounds a REST response body.
@@ -59,25 +59,59 @@ func (c *Client) CreateMessage(ctx context.Context, channelID, content, replyTo 
 	var out struct {
 		ID string `json:"id"`
 	}
-	for attempt := 0; ; attempt++ {
-		err = c.do(ctx, http.MethodPost, endpoint, payload, &out)
-		var apiErr *APIError
-		if attempt == 0 && errors.As(err, &apiErr) && apiErr.Status == http.StatusTooManyRequests &&
-			apiErr.RetryAfter <= maxRetryAfter {
-			t := time.NewTimer(apiErr.RetryAfter)
-			select {
-			case <-ctx.Done():
-				t.Stop()
-				return "", ctx.Err()
-			case <-t.C:
-			}
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		return out.ID, nil
+	if err := c.doRetrying(ctx, http.MethodPost, endpoint, payload, &out); err != nil {
+		return "", err
 	}
+	return out.ID, nil
+}
+
+// Discord's JSON error codes a caller may want to tell apart.
+const (
+	CodeUnknownMessage     = 10008
+	CodeUnknownEmoji       = 10014
+	CodeMissingAccess      = 50001
+	CodeMissingPermissions = 50013
+)
+
+// AddReaction reacts to a message with emoji: a Unicode emoji, or a custom
+// emoji as name:id. Discord answers 204 to a reaction the bot has already
+// left, so that is success. It needs the Read Message History permission, and
+// Add Reactions when no one has reacted with that emoji yet.
+func (c *Client) AddReaction(ctx context.Context, channelID, messageID, emoji string) error {
+	return c.react(ctx, http.MethodPut, channelID, messageID, emoji)
+}
+
+// RemoveReaction removes the bot's own reaction. Removing one it has not left
+// is success too.
+func (c *Client) RemoveReaction(ctx context.Context, channelID, messageID, emoji string) error {
+	return c.react(ctx, http.MethodDelete, channelID, messageID, emoji)
+}
+
+func (c *Client) react(ctx context.Context, method, channelID, messageID, emoji string) error {
+	if channelID == "" || messageID == "" || emoji == "" {
+		return errors.New("discord: a reaction needs a channel, a message and an emoji")
+	}
+	endpoint := c.apiBase() + "/channels/" + url.PathEscape(channelID) + "/messages/" +
+		url.PathEscape(messageID) + "/reactions/" + url.PathEscape(emoji) + "/@me"
+	return c.doRetrying(ctx, method, endpoint, nil, nil)
+}
+
+// doRetrying is do, with a rate limit of up to maxRetryAfter waited out and
+// the call retried once.
+func (c *Client) doRetrying(ctx context.Context, method, endpoint string, payload []byte, out any) error {
+	err := c.do(ctx, method, endpoint, payload, out)
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.Status == http.StatusTooManyRequests && apiErr.RetryAfter <= maxRetryAfter {
+		t := time.NewTimer(apiErr.RetryAfter)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return ctx.Err()
+		case <-t.C:
+		}
+		err = c.do(ctx, method, endpoint, payload, out)
+	}
+	return err
 }
 
 // do makes one REST call. Errors never hold the token: the request is not

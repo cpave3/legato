@@ -1,11 +1,11 @@
 ---
 title: Discord
-description: Start workflows from Discord messages and mentions, and post to Discord from a workflow step.
+description: Start workflows from Discord messages and mentions, and post and react in Discord from a workflow step.
 sidebar:
   order: 56
 ---
 
-Legato can run a Discord bot. A workflow can start when the bot receives a message or is mentioned, and a workflow step can post a message as the bot.
+Legato can run a Discord bot. A workflow can start when the bot receives a message or is mentioned, and a workflow step can post a message as the bot, or react to a message with an emoji.
 
 The bot connects to Discord's Gateway, an outbound connection from Legato to Discord. Legato needs no public address.
 
@@ -14,7 +14,7 @@ The bot connects to Discord's Gateway, an outbound connection from Legato to Dis
 1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and create an application.
 2. Under **Bot**, reset and copy the bot's token.
 3. Under **Bot › Privileged Gateway Intents**, turn on **Message Content Intent**. Without it, Discord sends the text of a server message only when the message mentions the bot, so text filters do not match other messages.
-4. Under **OAuth2 › URL Generator**, choose the `bot` scope and the **View Channels**, **Send Messages** and **Read Message History** permissions. Open the generated address to add the bot to your server.
+4. Under **OAuth2 › URL Generator**, choose the `bot` scope and the **View Channels**, **Send Messages**, **Read Message History** and **Add Reactions** permissions. **Add Reactions** is for the reaction steps; to give it to a bot already in your server, turn it on for the bot's role in **Server Settings › Roles**. Open the generated address to add the bot to your server.
 
 ## Set it up in Legato
 
@@ -41,7 +41,7 @@ integrations:
 
 ## Use it in workflows
 
-The triggers and step are the same as Slack's, with `bot: discord`:
+The triggers and steps are the same as Slack's, with `bot: discord`:
 
 ```yaml
 on:
@@ -61,11 +61,29 @@ steps:
 
 On Discord, `${{ event.thread_id }}` is the thread's channel ID when the message is in a thread, so the reply goes into the thread. Otherwise it is the message's own ID, and the step sends its message as a reply to that message. See [Workflows](/legato/using/workflows/#chat-messages-and-mentions).
 
+Discord shows a bot's `:eyes:` as text, so Legato turns the common emoji names in a message (`:eyes:`, `:white_check_mark:`, `:tada:`, `:rocket:` and so on) into the emoji before sending. Names it does not know, a custom emoji such as `<:rocket:123…>`, and anything in `code` are sent as written. An emoji written as itself always works.
+
 ### Forwarding a message to the bot
 
 Forward a message to the bot's direct messages, or into a channel it reads, and the run's `${{ event.text }}` is the forwarded message quoted under a `> Forwarded message from <link>:` line. `${{ event.forwarded }}` is `true` and `${{ event.forwarded_url }}` is the original's link. Discord does not say who wrote a forwarded message, so the quote names only its link.
 
 A comment you add while forwarding reaches the bot as a message of its own, just after the forward, so it starts a run of its own. A forward to the bot's direct messages counts as a mention; in a server channel, a forward never does, since it carries no comment of yours. In a server, the forwarded text needs the Message Content intent, as any other message's text does. Only text is read, not attachments or embeds. See [Forwarded and shared messages](/legato/using/workflows/#forwarded-and-shared-messages).
+
+### React to a message
+
+```yaml
+steps:
+  - id: seen
+    title: Show the request was picked up
+    type: chat.reaction.add
+    with:
+      bot: discord
+      channel: ${{ workflow.inputs.channel }}
+      message_id: ${{ workflow.inputs.message }}
+      emoji: eyes
+```
+
+Pass `${{ event.channel }}` and `${{ event.message_id }}` in from the trigger; for a message in a thread, `event.channel` is the thread. `emoji` is the emoji itself (`👀`), one of the common names (`eyes`, `white_check_mark`, `thumbsup`, ...), or a custom emoji as `name:id`. `chat.reaction.remove` removes the bot's reaction. The bot needs **Read Message History**, and **Add Reactions** for an emoji no one has reacted with yet; without them the step fails and says which. See [Workflows](/legato/using/workflows/#react-to-the-message-that-started-a-run).
 
 ## Limits
 
