@@ -279,3 +279,32 @@ func TestEventCommandsFitsADiscordMessage(t *testing.T) {
 		t.Fatalf("commands are %d bytes, ending %q", len(commands), commands[len(commands)-20:])
 	}
 }
+
+// A click is no message (LEG-636): it never fires a fallback or stops one,
+// whichever way it reaches the coordinator.
+func TestAButtonClickAndAFallbackKeepApart(t *testing.T) {
+	buttonOn := "on:\n  chat.button:\n    bot: slack\n    user: U1\n"
+	messageFallbackOn := "on:\n  chat.message:\n    bot: slack\n    fallback: true\n"
+	db, coordinator, _ := chatWorkflowsFixture(t, map[string]string{"fix": buttonOn, "help": helpOn, "catchall": messageFallbackOn})
+	ctx := context.Background()
+
+	click := chatMention("5.5", "U1", "")
+	click.Click = &ChatClick{Value: "fix:LEG-1", Label: "Fix", InteractionID: "i1"}
+	sendChat(t, coordinator, click)
+	if outcome, err := coordinator.ChatButton(ctx, click); err != nil || outcome.Status != ChatClickAccepted {
+		t.Fatalf("click outcome = %+v, %v", outcome, err)
+	}
+	if help, catchall := requestsFor(t, db, "help"), requestsFor(t, db, "catchall"); len(help)+len(catchall) != 0 {
+		t.Fatalf("a click reached the fallbacks: help %+v, catchall %+v", help, catchall)
+	}
+
+	// A button trigger on the bot is not another trigger that matched: a
+	// mention still reaches the fallbacks.
+	sendChat(t, coordinator, chatMention("6.6", "U1", "<@UBOT> hello"))
+	if help := requestsFor(t, db, "help"); len(help) != 1 || help[0].Status != "started" {
+		t.Fatalf("help requests = %+v", help)
+	}
+	if fix := requestsFor(t, db, "fix"); len(fix) != 1 {
+		t.Fatalf("fix requests = %+v", fix)
+	}
+}
