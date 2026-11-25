@@ -191,3 +191,14 @@ it("excludes text from a chat trigger without losing its match", () => {
   fireEvent.change(card.getByRole("combobox", { name: "Text exclusion of the chat.mention trigger" }), { target: { value: "" } })
   expect(parse(latest).on["chat.mention"].text).toBeUndefined()
 })
+
+it("keeps both exclusions when the builder edits one", () => {
+  const text = "schema_version: 1\nname: s\ntitle: S\non:\n  chat.mention:\n    bot: slack\n    text: {not_contains: lunch, not_regex: \"(?i)fix\"}\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}}\n"
+  renderBuilder(text)
+  const card = within(screen.getByRole("article", { name: "When the bot is mentioned" }))
+  commit(card.getByRole("textbox", { name: "Excluded text of the chat.mention trigger" }), "(?i)\\bfix")
+  expect(parse(latest).on["chat.mention"].text).toEqual({ not_contains: "lunch", not_regex: "(?i)\\bfix" })
+  // Switching the kind would overwrite the other exclusion: only YAML changes both.
+  expect((card.getByRole("combobox", { name: "Text exclusion of the chat.mention trigger" }) as HTMLSelectElement).disabled).toBe(true)
+  expect(card.getByText(/also excludes text containing lunch/i)).toBeTruthy()
+})

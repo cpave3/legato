@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -232,5 +233,49 @@ func TestEventCommandsIsEmptyWithNoChatHelpWorkflows(t *testing.T) {
 	sendChat(t, coordinator, chatMention("1.1", "U1", "<@UBOT> hello"))
 	if help := requestsFor(t, db, "help"); len(help) != 1 || help[0].Status != "started" || !strings.Contains(help[0].InputsJSON, `"commands":""`) {
 		t.Fatalf("help requests = %+v", help)
+	}
+}
+
+// commandsFor is ${{ event.commands }} as a help fallback on bot received
+// it, with count chat_help workflows of 200-character descriptions on the
+// bot.
+func commandsFor(t *testing.T, bot string, count int) string {
+	t.Helper()
+	workflows := map[string]string{
+		"help": "inputs:\n  commands: {type: string}\n" +
+			"on:\n  chat.mention:\n    bot: " + bot + "\n    fallback: true\n    inputs: {commands: \"${{ event.commands }}\"}\n",
+	}
+	for i := 0; i < count; i++ {
+		workflows[fmt.Sprintf("cmd%02d", i)] = "description: " + strings.Repeat("x", 200) + "\nchat_help: true\non:\n  chat.message:\n    bot: " + bot + "\n    text: {contains: never-said}\n"
+	}
+	db, coordinator, _ := chatWorkflowsFixture(t, workflows)
+	e := chatMention("1.1", "U1", "<@UBOT> hello")
+	e.Bot, e.Platform = bot, bot
+	sendChat(t, coordinator, e)
+	help := requestsFor(t, db, "help")
+	if len(help) != 1 {
+		t.Fatalf("help requests = %+v", help)
+	}
+	var inputs struct{ Commands string }
+	if err := json.Unmarshal([]byte(help[0].InputsJSON), &inputs); err != nil {
+		t.Fatal(err)
+	}
+	return inputs.Commands
+}
+
+func TestEventCommandsStaysWithinItsBoundWithTheSuffix(t *testing.T) {
+	// 21 lines of 213 bytes: 19 fit in 4 KiB, and the suffix must too.
+	commands := commandsFor(t, "slack", 21)
+	if len(commands) > 4<<10 || !strings.HasSuffix(commands, " more") {
+		t.Fatalf("commands are %d bytes, ending %q", len(commands), commands[len(commands)-20:])
+	}
+}
+
+func TestEventCommandsFitsADiscordMessage(t *testing.T) {
+	// Discord refuses a message over 2000 characters; the list leaves room
+	// for the reply's own words.
+	commands := commandsFor(t, "discord", 21)
+	if len(commands) > 1500 || !strings.HasSuffix(commands, " more") {
+		t.Fatalf("commands are %d bytes, ending %q", len(commands), commands[len(commands)-20:])
 	}
 }

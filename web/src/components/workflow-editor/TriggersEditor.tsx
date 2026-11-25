@@ -8,7 +8,7 @@ import { Button } from "../ui/Button"
 import { CommitField, Problems, ReferencePicker } from "./builderFields"
 import { fieldClass, labelClass, problemsAt, valueText } from "./builderStyles"
 import type { BuilderOptions } from "./stepForms"
-import { conditionFields, KIND_TITLES, newTrigger, textExclusionOf, textMatchOf, withTextTest, OPERATORS, operandKind, operandOf, operatorOf, scalarText, triggerKinds, withOperator, type Condition, type OperandKind, type Operator } from "./triggerForms"
+import { conditionFields, KIND_TITLES, newTrigger, textExclusionOf, textMatchOf, withTextTest, OPERATORS, operandKind, operandOf, operatorOf, scalarText, triggerKinds, withOperator, type Condition, type TextMatch, type OperandKind, type Operator } from "./triggerForms"
 
 type Props = {
   text: string
@@ -115,6 +115,8 @@ function ChatFields({ kind, trigger, bots, set, at }: { kind: string; trigger: R
   const invalid = (sub: YamlPath) => at(sub).length > 0 ? { "aria-invalid": true as const } : {}
   const match = textMatchOf(trigger.text)
   const exclusion = textExclusionOf(trigger.text)
+  // The builder shows one exclusion; with both, the other is kept as it is.
+  const bothExclusions = exclusion.mode === "not_regex" && "not_contains" in ((trigger.text ?? {}) as TextMatch)
   const listId = `trigger-bots-${kind.replace(/\W/g, "-")}`
   return <div className="flex flex-col gap-2">
     <div className="grid gap-2 sm:grid-cols-3">
@@ -135,27 +137,28 @@ function ChatFields({ kind, trigger, bots, set, at }: { kind: string; trigger: R
     <div className="grid gap-2 sm:grid-cols-[10rem_1fr]">
       <label className={labelClass}>Text
         <select aria-label={`Text match of the ${kind} trigger`} className={fieldClass} value={match.mode} onChange={event => {
-          set(["text"], withTextTest(trigger.text, "match", event.target.value, match.pattern))
+          set(["text"], withTextTest(trigger.text, match.mode, event.target.value, match.pattern))
         }}>
           <option value="">Any text</option><option value="contains">Contains</option><option value="regex">Matches the regex</option>
         </select>
       </label>
       {match.mode && <label className={labelClass}>{match.mode === "regex" ? "Regex" : "Words (any case)"}
-        <CommitField aria-label={`Text of the ${kind} trigger`} value={match.pattern} onCommit={value => set(["text"], withTextTest(trigger.text, "match", match.mode, value))} {...invalid(["text"])} />
+        <CommitField aria-label={`Text of the ${kind} trigger`} value={match.pattern} onCommit={value => set(["text"], withTextTest(trigger.text, match.mode, match.mode, value))} {...invalid(["text"])} />
       </label>}
     </div>
     <div className="grid gap-2 sm:grid-cols-[10rem_1fr]">
       <label className={labelClass}>Except
-        <select aria-label={`Text exclusion of the ${kind} trigger`} className={fieldClass} value={exclusion.mode} onChange={event => {
-          set(["text"], withTextTest(trigger.text, "exclusion", event.target.value, exclusion.pattern))
+        <select aria-label={`Text exclusion of the ${kind} trigger`} className={fieldClass} value={exclusion.mode} disabled={bothExclusions} onChange={event => {
+          set(["text"], withTextTest(trigger.text, exclusion.mode, event.target.value, exclusion.pattern))
         }}>
           <option value="">Nothing</option><option value="not_contains">Containing</option><option value="not_regex">Matching the regex</option>
         </select>
       </label>
       {exclusion.mode && <label className={labelClass}>{exclusion.mode === "not_regex" ? "Regex" : "Words (any case)"}
-        <CommitField aria-label={`Excluded text of the ${kind} trigger`} value={exclusion.pattern} onCommit={value => set(["text"], withTextTest(trigger.text, "exclusion", exclusion.mode, value))} {...invalid(["text"])} />
+        <CommitField aria-label={`Excluded text of the ${kind} trigger`} value={exclusion.pattern} onCommit={value => set(["text"], withTextTest(trigger.text, exclusion.mode, exclusion.mode, value))} {...invalid(["text"])} />
       </label>}
     </div>
+    {bothExclusions && <p className="text-xs text-lw-text-2">Also excludes text containing {scalarText((trigger.text as TextMatch).not_contains)}: edit the YAML to change both.</p>}
     <Problems diagnostics={at(["text"])} />
     <div className="flex flex-wrap items-center gap-4 text-xs text-lw-text-2">
       <label className="flex items-center gap-1.5">The loop stop counts runs by

@@ -38,7 +38,7 @@ func (c *WorkflowTriggerCoordinator) ChatEvent(ctx context.Context, e ChatEvent)
 	if err != nil || len(normal)+len(fallbacks) == 0 {
 		return err
 	}
-	if event["commands"], err = c.chatCommands(ctx, e.Bot); err != nil {
+	if event["commands"], err = c.chatCommands(ctx, e.Bot, e.Platform); err != nil {
 		return err
 	}
 	key := e.Platform + ":" + e.Bot + ":" + e.Channel + ":" + e.MessageID
@@ -104,17 +104,20 @@ func (c *WorkflowTriggerCoordinator) matchingChatTriggers(ctx context.Context, e
 }
 
 // Bounds of ${{ event.commands }}: each description, in characters, and
-// the whole list, in bytes.
+// the whole list, in bytes, its "… and N more" included. On Discord, which
+// refuses a message over 2000 characters, the list leaves room for the
+// reply's own words.
 const (
-	maxCommandDescription = 200
-	maxCommandsBytes      = 4 << 10
+	maxCommandDescription   = 200
+	maxCommandsBytes        = 4 << 10
+	maxDiscordCommandsBytes = 1500
 )
 
 // chatCommands is ${{ event.commands }}: one line per workflow with
 // chat_help: true and an enabled chat trigger on the bot that is not a
 // fallback, sorted by title, "• Title — first line of its description".
 // Plain text, which Slack and Discord show alike; "" when none.
-func (c *WorkflowTriggerCoordinator) chatCommands(ctx context.Context, bot string) (string, error) {
+func (c *WorkflowTriggerCoordinator) chatCommands(ctx context.Context, bot, platform string) (string, error) {
 	type command struct{ title, line string }
 	var commands []command
 	for _, definition := range c.definitions().Definitions {
@@ -144,16 +147,29 @@ func (c *WorkflowTriggerCoordinator) chatCommands(ctx context.Context, bot strin
 	}
 	sort.SliceStable(commands, func(i, j int) bool { return commands[i].title < commands[j].title })
 	lines := make([]string, 0, len(commands))
-	size := 0
-	for i, command := range commands {
-		if size+len(command.line)+1 > maxCommandsBytes {
-			lines = append(lines, fmt.Sprintf("… and %d more", len(commands)-i))
-			break
-		}
+	for _, command := range commands {
 		lines = append(lines, command.line)
-		size += len(command.line) + 1
 	}
-	return strings.Join(lines, "\n"), nil
+	limit := maxCommandsBytes
+	if platform == "discord" {
+		limit = maxDiscordCommandsBytes
+	}
+	return boundedLines(lines, limit), nil
+}
+
+// boundedLines joins lines in at most limit bytes: as many as fit, then
+// "… and N more" for the rest.
+func boundedLines(lines []string, limit int) string {
+	if text := strings.Join(lines, "\n"); len(text) <= limit {
+		return text
+	}
+	for n := len(lines) - 1; n > 0; n-- {
+		text := strings.Join(append(lines[:n:n], fmt.Sprintf("… and %d more", len(lines)-n)), "\n")
+		if len(text) <= limit {
+			return text
+		}
+	}
+	return fmt.Sprintf("… and %d more", len(lines))
 }
 
 // maxSkipNames is how many triggers a skipped fallback's reason names.

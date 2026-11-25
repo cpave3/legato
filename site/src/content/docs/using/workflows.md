@@ -465,7 +465,7 @@ description: Investigates an alert and replies with what it found
 chat_help: true
 ```
 
-`${{ event.commands }}` is one line per such workflow, sorted by title: `• Title — the first line of its description`. Each description is cut to 200 characters and the whole list to 4 KiB. It is plain text, which Slack and Discord both show as written. A workflow is listed when it has a chat trigger on the message's bot that is enabled and is not a fallback, so a help workflow with only a fallback trigger does not list itself. The list is empty when no workflow is listed. The editor and `legato workflow validate` warn of `chat_help` on a workflow with no chat trigger.
+`${{ event.commands }}` is one line per such workflow, sorted by title: `• Title — the first line of its description`. Each description is cut to 200 characters, and the whole list to 4 KiB (1,500 bytes on Discord, which refuses a message over 2,000 characters, so your reply has room for its own words), with `… and N more` for the workflows that did not fit. It is plain text, which Slack and Discord both show as written. A workflow is listed when it has a chat trigger on the message's bot that is enabled and is not a fallback, so a help workflow with only a fallback trigger does not list itself. The list is empty when no workflow is listed. The editor and `legato workflow validate` warn of `chat_help` on a workflow with no chat trigger.
 
 #### Forwarded and shared messages
 

@@ -131,13 +131,12 @@ export function textExclusionOf(value: unknown): { mode: "" | "not_contains" | "
   return { mode: "", pattern: "" }
 }
 
-/** withTextTest is a chat trigger's text with one side (the match, or the
- * exclusion) set to mode and pattern, or taken out for mode ""; the other
- * side is kept. undefined when nothing is left. */
-export function withTextTest(value: unknown, side: "match" | "exclusion", mode: string, pattern: string): TextMatch | undefined {
-  const keys = side === "match" ? ["contains", "regex"] : ["not_contains", "not_regex"]
-  const next: Record<string, unknown> = Object.fromEntries(Object.entries(textOf(value)).filter(([key]) => !keys.includes(key)))
-  if (mode) next[mode] = pattern
+/** withTextTest is a chat trigger's text with the test from (a key of it,
+ * or "" for none) replaced by to set to pattern, or taken out for to "";
+ * every other test is kept. undefined when nothing is left. */
+export function withTextTest(value: unknown, from: string, to: string, pattern: string): TextMatch | undefined {
+  const next: Record<string, unknown> = Object.fromEntries(Object.entries(textOf(value)).filter(([key]) => key !== from))
+  if (to) next[to] = pattern
   return Object.keys(next).length > 0 ? next as TextMatch : undefined
 }
 
