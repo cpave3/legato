@@ -153,7 +153,7 @@ func chatButtonsWithoutUser(root *yaml.Node, definition *Definition) []Diagnosti
 // an optional style, within the limits, and no two values alike. A value
 // given by ${{ }} is checked when the step runs.
 func checkChatButtons(value any) error {
-	if text, ok := value.(string); ok && expressionPattern.MatchString(text) {
+	if text, ok := value.(string); ok && HasExpression(text) {
 		return nil
 	}
 	list, ok := value.([]any)
@@ -179,14 +179,14 @@ func checkChatButtons(value any) error {
 		if !ok || strings.TrimSpace(label) == "" {
 			return fmt.Errorf("%s: label is required, as text", at)
 		}
-		if !expressionPattern.MatchString(label) && utf8.RuneCountInString(label) > MaxChatButtonLabel {
+		if !HasExpression(label) && utf8.RuneCountInString(label) > MaxChatButtonLabel {
 			return fmt.Errorf("%s: label is longer than %d characters", at, MaxChatButtonLabel)
 		}
 		text, ok := button["value"].(string)
 		if !ok || strings.TrimSpace(text) == "" {
 			return fmt.Errorf("%s: value is required, as text", at)
 		}
-		if !expressionPattern.MatchString(text) {
+		if !HasExpression(text) {
 			if utf8.RuneCountInString(text) > MaxChatButtonValue {
 				return fmt.Errorf("%s: value is longer than %d characters", at, MaxChatButtonValue)
 			}
@@ -197,7 +197,7 @@ func checkChatButtons(value any) error {
 		}
 		if style, present := button["style"]; present {
 			s, ok := style.(string)
-			if !ok || !(s == ChatButtonStylePrimary || s == ChatButtonStyleDanger || s == chatButtonStyleDefault || expressionPattern.MatchString(s)) {
+			if !ok || !(s == ChatButtonStylePrimary || s == ChatButtonStyleDanger || s == chatButtonStyleDefault || HasExpression(s)) {
 				return fmt.Errorf("%s: style must be primary or danger, or left out", at)
 			}
 		}
