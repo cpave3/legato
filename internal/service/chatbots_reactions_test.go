@@ -181,3 +181,15 @@ func TestSlackSendKeepsTextAsWritten(t *testing.T) {
 		t.Fatalf("body = %v", got)
 	}
 }
+
+// A custom emoji whose name is in Legato's table reaches Discord intact.
+func TestDiscordSendKeepsCustomEmoji(t *testing.T) {
+	base, calls := platformServer(t, discordAnswer(http.StatusOK, `{"id":"new"}`))
+	text := "Ship <:rocket:123456789012345678> <a:eyes:234567890123456789> :eyes:"
+	if _, err := testDiscordConnection(base).Send(context.Background(), "c1", text, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*calls)[0].body["content"]; got != "Ship <:rocket:123456789012345678> <a:eyes:234567890123456789> 👀" {
+		t.Fatalf("content = %q", got)
+	}
+}

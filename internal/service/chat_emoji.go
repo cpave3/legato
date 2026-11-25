@@ -112,11 +112,13 @@ func discordReactionEmoji(emoji string) (string, error) {
 	return "", fmt.Errorf("unknown emoji name %q on Discord: give the emoji itself (👀) or a custom emoji as name:id", e)
 }
 
-var emojiShortcode = regexp.MustCompile(`:[a-z0-9_+-]+:`)
+// emojiShortcode matches a :name:, or a whole Discord custom emoji
+// (<:name:id>, animated <a:name:id>), which stays as it is.
+var emojiShortcode = regexp.MustCompile(`<a?:[A-Za-z0-9_~-]+:[0-9]+>|:[a-z0-9_+-]+:`)
 
 // expandEmojiShortcodes turns the :names: Legato knows into their emoji, for
 // Discord, which shows a bot's :eyes: as text. Unknown names and anything in
-// a code span or block stay as they are.
+// a code span or block or a custom emoji's markup stay as they are.
 func expandEmojiShortcodes(text string) string {
 	if !strings.Contains(text, ":") {
 		return text
@@ -124,6 +126,9 @@ func expandEmojiShortcodes(text string) string {
 	var out strings.Builder
 	expand := func(s string) {
 		out.WriteString(emojiShortcode.ReplaceAllStringFunc(s, func(code string) string {
+			if code[0] == '<' {
+				return code
+			}
 			if u, ok := chatEmojiByName[code[1:len(code)-1]]; ok {
 				return u
 			}

@@ -71,6 +71,9 @@ func TestDiscordTextExpandsKnownShortcodes(t *testing.T) {
 		{"code `:eyes:` stays, :eyes: goes", "code `:eyes:` stays, 👀 goes"},
 		{"```\n:eyes:\n```\n:eyes:", "```\n:eyes:\n```\n👀"},
 		{"an unclosed `:eyes:", "an unclosed `👀"},
+		// Discord's own custom emoji markup stays whole.
+		{"<:rocket:123456789012345678> :rocket:", "<:rocket:123456789012345678> 🚀"},
+		{"<a:eyes:234567890123456789>:eyes:", "<a:eyes:234567890123456789>👀"},
 		{"", ""},
 	} {
 		if got := expandEmojiShortcodes(tc.in); got != tc.want {
