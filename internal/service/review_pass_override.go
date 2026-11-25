@@ -184,7 +184,7 @@ func (s *ReviewPassService) messageAuthor(ctx context.Context, taskID, text stri
 		return err
 	}
 	if l.AuthorTaskID == "" {
-		return errors.New("the author is a person, who reads GitHub")
+		return ErrReviewAuthorNotAgent
 	}
 	if err := s.authorRunning(ctx, l); err != nil {
 		return err

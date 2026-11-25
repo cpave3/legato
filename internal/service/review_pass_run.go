@@ -1707,7 +1707,7 @@ func (s *ReviewPassesStep) Act(ctx context.Context, attempt store.WorkflowStepAt
 	return errors.New("review passes are off on this Legato")
 }
 
-// ReviewOperatorTag opens the operator's words relayed to an agent author.
+// reviewOperatorPrefix opens the operator's words relayed to an agent author.
 const reviewOperatorPrefix = ReviewTag + " From the operator: "
 
 // messageAuthor sends an agent author the operator's words, tagged, resumed
@@ -1719,7 +1719,7 @@ func (c *ReviewRunCaller) messageAuthor(ctx context.Context, taskID, text string
 	}
 	l, ok := c.Loop(ctx, taskID)
 	if !ok || l.AuthorTaskID == "" {
-		return errors.New("the author is a person, who reads GitHub")
+		return ErrReviewAuthorNotAgent
 	}
 	l.caller = c
 	if err := c.engine.authorRunning(ctx, l); err != nil {
@@ -1728,7 +1728,7 @@ func (c *ReviewRunCaller) messageAuthor(ctx context.Context, taskID, text string
 	return c.engine.tellAuthor(ctx, l, reviewOperatorPrefix+text)
 }
 
-// reviewLoopTask is the task whose ledger holds the loop an agent of taskID
+// reviewLoopTask is the task that hosts the loop record an agent of taskID
 // answers: its own (a handoff's card), else the newest run loop it authors.
 func reviewLoopTask(ctx context.Context, db *store.Store, taskID string) string {
 	if loop, err := db.GetHandoffReview(ctx, taskID); err == nil && loop != nil {

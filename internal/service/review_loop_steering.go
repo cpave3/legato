@@ -47,9 +47,9 @@ func (s ReviewLoopSteering) AnotherPass(ctx context.Context, loopID string) erro
 }
 
 // MessageAuthor is Message the author: the operator's words, tagged, as
-// the author agent's next message. A person author reads GitHub; an author
-// whose agent is not running is refused, since this process cannot resume
-// it as the engine's callers do.
+// the author agent's next message. An author that is not an agent is
+// refused with ErrReviewAuthorNotAgent; an author whose agent is not running
+// is refused, since this process cannot resume it as the engine's callers do.
 func (s ReviewLoopSteering) MessageAuthor(ctx context.Context, loopID, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -61,7 +61,7 @@ func (s ReviewLoopSteering) MessageAuthor(ctx context.Context, loopID, text stri
 	}
 	author := ReviewLoopAuthor(ctx, s.DB, l.HostTask)
 	if author == "" {
-		return fmt.Errorf("the author of review loop %s is a person, who reads GitHub", loopID)
+		return fmt.Errorf("review loop %s: %w", loopID, ErrReviewAuthorNotAgent)
 	}
 	if _, err := s.DB.GetAgentSessionByTaskID(ctx, author); err != nil {
 		return fmt.Errorf("the author's agent on %s is not running; start it, then message it", author)

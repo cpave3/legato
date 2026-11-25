@@ -280,7 +280,7 @@ func runRelatedLoop(taskID string, run *reviewRun, loop *store.HandoffReview) Re
 		Link: fmt.Sprintf("/workflows/runs/%s", run.RunID)}
 }
 
-// relatedPhase names the author's turn, which the ledger keeps as "".
+// relatedPhase names the author's turn, which the loop record keeps as "".
 func relatedPhase(phase string) string {
 	if phase == ReviewPhaseAuthor {
 		return "author"

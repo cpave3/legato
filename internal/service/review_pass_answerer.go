@@ -14,6 +14,11 @@ import (
 // loop whose author is a person (B4, LEG-571).
 var ErrReviewAnswerRefused = errors.New("refused")
 
+// ErrReviewAuthorNotAgent is an action that needs an agent author on a loop
+// whose author is the pull request's own, not an agent: it answers on
+// GitHub, and Legato neither takes its answers nor messages it.
+var ErrReviewAuthorNotAgent = errors.New("the pull request's author is not an agent, and answers on GitHub")
+
 // ReviewAnswerer is who a `legato review-pass` command comes from. Inside an
 // agent session it is the session, as the host resolved it (the broker
 // token's execution, never a task the agent named). The operator on the host
@@ -49,8 +54,8 @@ func OperatorReviewLoop(ctx context.Context, db *store.Store, loopID string) (*s
 	return l, nil
 }
 
-// AnswererReviewLoop is the task whose ledger holds the review loop the
-// answerer reads and answers. A session finds the loop its task's agent
+// AnswererReviewLoop is the task that hosts the loop record of the review
+// loop the answerer reads and answers. A session finds the loop its task's agent
 // authors: its card's (a handoff) or the newest open run loop that names its
 // task as author_task. Only the author task's main slot is let through; a
 // named slot (the reviewer), another task, and a loop whose author is a
@@ -93,7 +98,7 @@ func AnswererReviewLoop(ctx context.Context, db *store.Store, who ReviewAnswerer
 	}
 	author := ReviewLoopAuthor(ctx, db, loopTask)
 	if author == "" {
-		return "", fmt.Errorf("%w: the author of %s's review loop is a person, who answers on GitHub", ErrReviewAnswerRefused, loopTask)
+		return "", fmt.Errorf("%w: the review loop on %s: %w", ErrReviewAnswerRefused, loopTask, ErrReviewAuthorNotAgent)
 	}
 	if author != who.TaskID {
 		return "", fmt.Errorf("%w: the review loop on %s is answered by its author, task %s, not by task %s", ErrReviewAnswerRefused, loopTask, author, who.TaskID)
@@ -120,7 +125,7 @@ func AnswerOwnReviewItem(ctx context.Context, db *store.Store, who ReviewAnswere
 		return "", err
 	}
 	if ReviewLoopAuthor(ctx, db, loopTask) == "" {
-		return "", fmt.Errorf("%w: the author of %s's review loop is a person, who answers on GitHub", ErrReviewAnswerRefused, loopTask)
+		return "", fmt.Errorf("%w: the review loop on %s: %w", ErrReviewAnswerRefused, loopTask, ErrReviewAuthorNotAgent)
 	}
 	return loopTask, AnswerReviewItem(ctx, db, loopTask, id, answer, note, now)
 }

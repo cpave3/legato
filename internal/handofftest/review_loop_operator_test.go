@@ -148,7 +148,7 @@ func TestTheOperatorMessagesALoopsAuthorByItsID(t *testing.T) {
 	if person.Run.Status != "running" {
 		t.Fatalf("run %q: %s", person.Run.Status, person.Steps[0].Error)
 	}
-	if err := steering.MessageAuthor(ctx, loopID(t, r.worker, person.Run.TaskID), "Hello"); err == nil || !strings.Contains(err.Error(), "a person") {
+	if err := steering.MessageAuthor(ctx, loopID(t, r.worker, person.Run.TaskID), "Hello"); !errors.Is(err, service.ErrReviewAuthorNotAgent) {
 		t.Fatalf("message to a person: %v", err)
 	}
 }

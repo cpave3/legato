@@ -428,8 +428,9 @@ func (s *ReviewPassService) AnotherPassOn(ctx context.Context, loopID string) er
 }
 
 // MessageAuthorOn sends a loop's agent author the operator's words, tagged
-// and queued as feedback is; a dead author is resumed first. A person
-// author reads GitHub, so there is no one to message.
+// and queued as feedback is; a dead author is resumed first. An author that
+// is not an agent answers on GitHub, so there is no one to message
+// (ErrReviewAuthorNotAgent).
 func (s *ReviewPassService) MessageAuthorOn(ctx context.Context, loopID, text string) error {
 	l, err := s.openLoopByID(ctx, loopID)
 	if err != nil {

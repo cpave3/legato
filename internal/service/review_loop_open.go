@@ -79,7 +79,7 @@ func OpenReviewLoopClones(ctx context.Context, db *store.Store) (map[int64]bool,
 	return out, nil
 }
 
-// reviewLoopOpen says whether a ledger row is a loop that has not ended.
+// reviewLoopOpen says whether a loop record is a loop that has not ended.
 func reviewLoopOpen(loop *store.HandoffReview) bool {
 	return loop != nil && loop.Phase != ReviewPhaseEnded && loop.Phase != ReviewPhaseSkipped
 }
