@@ -589,9 +589,15 @@ func (s *Store) InsertHandoffReviewPass(ctx context.Context, p HandoffReviewPass
 
 // StartHandoffReviewPass records a pass with its pinned pull requests
 // (as InsertHandoffReviewPass) and its loop, which now names it, in one
-// transition: both are written or neither.
-func (s *Store) StartHandoffReviewPass(ctx context.Context, p HandoffReviewPass, prs []HandoffReviewPR, loop HandoffReview) error {
+// transition: both are written or neither. The pass takes one of
+// maxConcurrent reviewer slots in that transition (as ReviewLoopTx.StartPass
+// does): when every slot is taken it is ErrReviewSlotsFull and nothing is
+// written.
+func (s *Store) StartHandoffReviewPass(ctx context.Context, p HandoffReviewPass, prs []HandoffReviewPR, loop HandoffReview, maxConcurrent int) error {
 	return s.reviewTransition(ctx, p.TaskID, true, func(t *ReviewLoopTx) error {
+		if err := takeReviewSlot(ctx, t.tx, maxConcurrent); err != nil {
+			return err
+		}
 		if err := insertReviewLoopPass(ctx, t.tx, t.Loop, p, prs); err != nil {
 			return err
 		}

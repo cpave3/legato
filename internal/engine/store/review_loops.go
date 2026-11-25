@@ -708,13 +708,8 @@ func (t *ReviewLoopTx) SavePR(pr ReviewLoopPR) error {
 // open loops, counted and taken in this transaction. Every slot taken is
 // ErrReviewSlotsFull.
 func (t *ReviewLoopTx) StartPass(p ReviewLoopPass, maxConcurrent int) error {
-	var inFlight int
-	if err := t.tx.GetContext(t.ctx, &inFlight, `SELECT COUNT(*) FROM review_loop_passes p JOIN review_loops l ON l.id = p.loop_id
-		WHERE l.state = 'open' AND p.state IN `+reviewLoopInFlight); err != nil {
+	if err := takeReviewSlot(t.ctx, t.tx, maxConcurrent); err != nil {
 		return err
-	}
-	if inFlight >= maxConcurrent {
-		return ErrReviewSlotsFull
 	}
 	p.LoopID = t.Loop.ID
 	if p.State == "" {
@@ -725,6 +720,36 @@ func (t *ReviewLoopTx) StartPass(p ReviewLoopPass, maxConcurrent int) error {
 	}
 	_, err := t.tx.NamedExecContext(t.ctx, `INSERT INTO review_loop_passes (`+reviewLoopPassColumns+`) VALUES (`+reviewLoopPassValues+`)`, p)
 	return err
+}
+
+// takeReviewSlot is the slot check of a pass start, run in the
+// transaction that writes the pass: ErrReviewSlotsFull when maxConcurrent
+// passes of open loops are in flight. The transaction is immediate, so no
+// other writer counts or takes a slot between this count and the pass's
+// insert.
+func takeReviewSlot(ctx context.Context, q sqlx.QueryerContext, maxConcurrent int) error {
+	inFlight, err := reviewPassesInFlight(ctx, q)
+	if err != nil {
+		return err
+	}
+	if inFlight >= maxConcurrent {
+		return ErrReviewSlotsFull
+	}
+	return nil
+}
+
+func reviewPassesInFlight(ctx context.Context, q sqlx.QueryerContext) (int, error) {
+	var n int
+	err := sqlx.GetContext(ctx, q, &n, `SELECT COUNT(*) FROM review_loop_passes p JOIN review_loops l ON l.id = p.loop_id
+		WHERE l.state = 'open' AND p.state IN `+reviewLoopInFlight)
+	return n, err
+}
+
+// ReviewPassesInFlight counts the review slots taken: the in-flight passes
+// (reviewing, submitted, posting) of open loops. It is a read for deciding
+// whether to try a start; the start itself takes its slot atomically.
+func (s *Store) ReviewPassesInFlight(ctx context.Context) (int, error) {
+	return reviewPassesInFlight(ctx, s.db)
 }
 
 // SavePass writes a pass's state and what it recorded.

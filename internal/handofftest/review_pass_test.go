@@ -280,16 +280,32 @@ func TestAMalformedSubmissionIsRefusedAndThePassGoesOn(t *testing.T) {
 	}
 }
 
+// takeTheOnlyReviewer gives a second card a pass in flight, which holds a
+// reviewer slot; the returned func posts it clean, freeing the slot.
+func takeTheOnlyReviewer(t *testing.T, st *store.Store) (finish func()) {
+	t.Helper()
+	ctx := context.Background()
+	if err := st.CreateTask(ctx, store.Task{ID: "busy", Title: "busy", Status: "Review"}); err != nil {
+		t.Fatal(err)
+	}
+	loop := store.HandoffReview{TaskID: "busy", Phase: service.ReviewPhaseReviewing, Pass: 1, UpdatedAt: "x"}
+	pass := store.HandoffReviewPass{TaskID: "busy", Pass: 1, State: service.ReviewPassReviewing, StartedAt: "x"}
+	if err := st.StartHandoffReviewPass(ctx, pass, nil, loop, 1); err != nil {
+		t.Fatal(err)
+	}
+	return func() {
+		pass.State, pass.Verdict = "posted", service.VerdictClean
+		loop.Phase = service.ReviewPhaseClean
+		if err := st.FinishHandoffReviewPass(ctx, pass, nil, loop); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestPassesBeyondTheCapacityWaitForAReviewer(t *testing.T) {
 	r := newReviewed(t, ReviewPassOptions{MaxConcurrent: 1})
-	other := r.worker.Store
 	// A second reviewing card takes the only reviewer.
-	if err := r.worker.Store.CreateTask(context.Background(), store.Task{ID: "busy", Title: "busy", Status: "Review"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := other.SaveHandoffReview(context.Background(), store.HandoffReview{TaskID: "busy", Phase: service.ReviewPhaseReviewing, UpdatedAt: "x"}); err != nil {
-		t.Fatal(err)
-	}
+	finishOther := takeTheOnlyReviewer(t, r.worker.Store)
 
 	r.finish(t)
 
@@ -297,9 +313,7 @@ func TestPassesBeyondTheCapacityWaitForAReviewer(t *testing.T) {
 		t.Fatalf("phase %q", r.loop(t).Phase)
 	}
 	// The other reviewer finishes: this pass starts.
-	if err := other.SaveHandoffReview(context.Background(), store.HandoffReview{TaskID: "busy", Phase: service.ReviewPhaseClean, UpdatedAt: "x"}); err != nil {
-		t.Fatal(err)
-	}
+	finishOther()
 	r.tick()
 	if r.loop(t).Phase != service.ReviewPhaseReviewing {
 		t.Fatalf("phase %q after a reviewer freed up", r.loop(t).Phase)

@@ -537,14 +537,19 @@ func (s *ReviewPassService) ready(ctx context.Context, l ReviewLoop, loop *store
 			return s.stuck(ctx, l, loop, fmt.Sprintf("another review loop reviews #%d: %s (%s)%s", pr.Number, active.Name, active.Link, loopNamed(active.LoopID)))
 		}
 	}
-	if s.running(ctx) >= s.config().MaxConcurrent {
-		if loop.Phase != ReviewPhaseWaitingForReviewer {
-			loop.Phase, loop.QueuedAt = ReviewPhaseWaitingForReviewer, s.now()
-			return s.saveChanged(ctx, loop)
-		}
-		return nil
+	if s.slotsFull(ctx) {
+		return s.waitForReviewer(ctx, loop)
 	}
 	return s.startPass(ctx, l, loop, dir, prs)
+}
+
+// waitForReviewer queues a loop whose pass found every reviewer slot taken.
+func (s *ReviewPassService) waitForReviewer(ctx context.Context, loop *store.HandoffReview) error {
+	if loop.Phase != ReviewPhaseWaitingForReviewer {
+		loop.Phase, loop.QueuedAt = ReviewPhaseWaitingForReviewer, s.now()
+		return s.saveChanged(ctx, loop)
+	}
+	return nil
 }
 
 // mismatch tells the author once to push or discard; a second miss is
@@ -561,19 +566,13 @@ func (s *ReviewPassService) mismatch(ctx context.Context, l ReviewLoop, loop *st
 	return s.saveChanged(ctx, loop)
 }
 
-// running counts the reviewers at work on this instance.
-func (s *ReviewPassService) running(ctx context.Context) int {
-	loops, err := s.db.ListHandoffReviews(ctx)
-	if err != nil {
-		return 0
-	}
-	n := 0
-	for _, l := range loops {
-		if l.Phase == ReviewPhaseReviewing {
-			n++
-		}
-	}
-	return n
+// slotsFull says whether every reviewer slot looks taken: the in-flight
+// passes of open loops. It spares a queued loop the checkout and pins of a
+// start that would be refused; the start takes its slot atomically
+// (StartHandoffReviewPass), which is what decides.
+func (s *ReviewPassService) slotsFull(ctx context.Context) bool {
+	n, err := s.db.ReviewPassesInFlight(ctx)
+	return err == nil && n >= s.config().MaxConcurrent
 }
 
 // startQueued starts the passes waiting for a reviewer, oldest first, while
@@ -585,7 +584,7 @@ func (s *ReviewPassService) startQueued(ctx context.Context) {
 	}
 	for i := range loops {
 		loop := &loops[i]
-		if loop.Phase != ReviewPhaseWaitingForReviewer || s.running(ctx) >= s.config().MaxConcurrent {
+		if loop.Phase != ReviewPhaseWaitingForReviewer || s.slotsFull(ctx) {
 			continue
 		}
 		l, err := s.loop(ctx, loop.TaskID)
@@ -628,8 +627,12 @@ func (s *ReviewPassService) startPass(ctx context.Context, l ReviewLoop, loop *s
 	// between them would leave a pass the loop does not know, pinned again
 	// under its number on every tick.
 	loop.UpdatedAt = s.now()
-	if err := s.db.StartHandoffReviewPass(ctx, record, pinned, *loop); err != nil {
+	if err := s.db.StartHandoffReviewPass(ctx, record, pinned, *loop, cfg.MaxConcurrent); err != nil {
 		*loop = before
+		if errors.Is(err, store.ErrReviewSlotsFull) {
+			// Another loop took the last slot since the check above.
+			return s.waitForReviewer(ctx, loop)
+		}
 		// A pull request another loop claimed since the check above: the
 		// loop is stuck, naming it (a layer added later is claimed when
 		// it is added).
