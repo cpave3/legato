@@ -26,7 +26,7 @@ Open Settings › System › Updates in the web UI. It shows this server's versi
 | Mode | What happens |
 | --- | --- |
 | **Ask** (the default) | When a release is out, a bar along the top of the web UI says so, with **Update and restart** and **Later**. Attention lists it too. Nothing installs until you choose. |
-| **Automatic** | Legato installs a new release once no agent is in the middle of a turn. An agent that waits for you does not hold it back. After three hours it installs whatever the agents are doing. |
+| **Automatic** | Legato installs a new release once no agent is in the middle of a turn and no review pass is being posted to GitHub. An agent that waits for you does not hold it back. After three hours it installs whatever the agents are doing. |
 | **Off** | Legato never looks for a release. |
 
 The mode is saved in Legato's database, not in `config.yaml`, so you set it in the web UI only. **Check now** looks at once. **Later** hides the bar in that browser until the next release.
@@ -57,11 +57,29 @@ A new binary takes effect when Legato starts again. How that happens depends on 
 
 Agents keep running across the restart in every case, since they live in tmux. An agent that uses a Legato tool or command while Legato is away waits for it, for up to 30 seconds, instead of failing.
 
+### When a release changes the database
+
+Some releases change Legato's database. The first Legato process to start on such a release asks every other Legato on the same data folder to exit before it changes anything: a TUI you started by hand says "Legato updated: restart" and quits, and `legato serve` stops and is started again by systemd on the new binary. A Legato from a release before this mechanism restarts in place on the new binary instead. It waits up to 30 seconds for them, keeps a copy of the database beside it, then changes the database. Start the TUI again when you are ready. A Legato on another data folder, such as a scratch instance, is left alone.
+
+The copy is named for the change, such as `legato.db.before-146_review_loops`, and is readable only by you.
+
 ### Restarting Legato yourself
 
 Legato restarts itself on request: **Restart Legato** in Settings › System › Restart (or the bar at the top of Settings while a change waits), or `legato restart` on the machine. Every Legato process of the instance, the TUI and `legato serve` alike, shuts down and starts again in place, with the same command line: the TUI clears its screen and draws again in the same terminal, and a systemd service or launchd agent keeps its process. Under `--hot-reload`, the supervisor starts it again. Agents keep running, and an agent that was still starting gets its first message once it is ready.
 
 If you edited `config.yaml` since Legato started, the restart keeps the file Legato was running on as `config.yaml.<time>.bak`. When the edited file does not load, or Legato is not answering within 30 seconds of starting on it, Legato puts the old file back, starts again on it, and says so in Attention ("A restart of Legato failed and was rolled back", with the error).
+
+## Upgrading to this release
+
+Review passes now post a review or a reply only when Legato can tell its own App's posts from a copy of one, so a profile must name its App. The shipped `github` and `github-reviewer` profiles do. If you keep your own copy of either in `<config folder>/profiles/` (such as `~/.config/legato/profiles/github.yaml`), add this line under `jwt_exchange.lookup` in it:
+
+```yaml
+jwt_exchange:
+  lookup:
+    actor: "$.app_slug"
+```
+
+Until you do, review passes and their answers cannot post with that profile's credentials, and the error names the file. `legato doctor` names each copy that lacks the line, and Legato logs a line for each when it starts. A copy that you no longer need can go: the shipped profile then applies.
 
 ## Going back
 
@@ -71,7 +89,14 @@ If a new release does not start, put the old binary back:
 mv ~/.local/bin/legato.prev ~/.local/bin/legato
 ```
 
-Use the path your `legato` is at. This brings back the binary only. A new release may have changed the database, and an older binary cannot undo that.
+Use the path your `legato` is at. This brings back the binary only. A new release may have changed the database, and an older binary cannot use the changed one. To go back fully, stop every Legato and put the copy taken before the change in place of the database as well, then start the old binary:
+
+```bash
+rm -f ~/.local/share/legato/legato.db-wal ~/.local/share/legato/legato.db-shm
+mv ~/.local/share/legato/legato.db.before-146_review_loops ~/.local/share/legato/legato.db
+```
+
+Use your database's path and the copy's name. Anything done on the new release since is lost.
 
 ## Builds from source
 

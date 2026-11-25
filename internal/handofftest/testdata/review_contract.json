@@ -1,0 +1,39 @@
+{
+  "about": "The main-worker review contract (LEG-575): recorded from the worker before review loops moved into workflows. A worker must keep sending every field here with its value; it may add optional fields. Do not edit this to make review_contract_test.go pass.",
+  "pull": {"method": "GET", "path": "/api/integrations/handoff/pull"},
+  "blocks": {
+    "reviewing": {"pass": 1, "phase": "reviewing", "blocking_open": 0, "comments_open": 0, "checks_open": 0, "skipped_comments": 0},
+    "waiting_on_author_working": {"pass": 1, "phase": "reviewing", "blocking_open": 0, "comments_open": 0, "checks_open": 0, "skipped_comments": 0, "waiting_on": "author_working"},
+    "waiting_on_author_waiting": {"pass": 1, "phase": "reviewing", "blocking_open": 0, "comments_open": 0, "checks_open": 0, "skipped_comments": 0, "waiting_on": "author_waiting"},
+    "waiting_on_author_push": {"pass": 1, "phase": "reviewing", "blocking_open": 0, "comments_open": 0, "checks_open": 0, "skipped_comments": 0, "waiting_on": "author_push"},
+    "waiting_on_github": {"pass": 1, "phase": "reviewing", "blocking_open": 0, "comments_open": 0, "checks_open": 0, "skipped_comments": 0, "waiting_on": "github"},
+    "waiting_on_start": {"pass": 1, "phase": "reviewing", "blocking_open": 0, "comments_open": 0, "checks_open": 0, "skipped_comments": 0, "waiting_on": "start"},
+    "waiting_for_reviewer": {"pass": 0, "phase": "waiting_for_reviewer", "blocking_open": 0, "comments_open": 0, "checks_open": 0, "skipped_comments": 0, "waiting_on": "reviewer_slot"},
+    "waiting_for_author": {"pass": 1, "phase": "waiting_for_author", "blocking_open": 3, "comments_open": 2, "checks_open": 1, "skipped_comments": 1, "links": [{"pr": 7, "url": "https://github.com/review/1"}]},
+    "clean": {"pass": 1, "phase": "clean", "blocking_open": 0, "comments_open": 0, "checks_open": 0, "skipped_comments": 0, "links": [{"pr": 7, "url": "https://github.com/review/1"}]},
+    "clean_checks_pending": {"pass": 1, "phase": "clean", "blocking_open": 0, "comments_open": 0, "checks_open": 0, "checks_pending": 1, "skipped_comments": 0, "links": [{"pr": 7, "url": "https://github.com/review/1"}]},
+    "clean_checks_replied": {"pass": 1, "phase": "clean", "blocking_open": 0, "comments_open": 0, "checks_open": 0, "checks_replied": 1, "skipped_comments": 0, "links": [{"pr": 7, "url": "https://github.com/review/1"}]},
+    "stuck": {"pass": 1, "phase": "stuck", "blocking_open": 0, "comments_open": 0, "checks_open": 0, "skipped_comments": 0, "reason": "the reviewer ran past 45m0s"}
+  },
+  "routes": {
+    "another_pass": {
+      "method": "POST",
+      "path": "/api/integrations/handoff/tasks/{handoff_id}/review/another-pass",
+      "answer": {"status": "ok"},
+      "refused": {
+        "not_stuck": {"status": 422, "code": "not_stuck"},
+        "not_found": {"status": 404, "code": "not_found"}
+      }
+    },
+    "message": {
+      "method": "POST",
+      "path": "/api/integrations/handoff/tasks/{handoff_id}/review/message",
+      "body": {"text": "/clear the cache, then rebase on main"},
+      "answer": {"status": "ok"},
+      "typed": "[legato main] /clear the cache, then rebase on main",
+      "refused": {
+        "not_found": {"status": 404, "code": "not_found"}
+      }
+    }
+  }
+}

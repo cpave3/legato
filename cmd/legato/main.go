@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -900,6 +901,8 @@ func runServeCmd(args []string) int {
 		return 1
 	}
 	defer db.Close()
+	// While serve runs, an upgrade waits for it to exit (upgrade_restart.go).
+	defer holdLegatoProcess(config.ResolveDataDir(cfg))()
 	// A first start with no terminal to run the wizard in, such as a
 	// headless worker's, still gets the default columns: a board without
 	// them refuses every handoff.
@@ -1106,6 +1109,7 @@ func runServeCmd(args []string) int {
 	wireUpdates(srv, updates)
 	srv.SetRestarter(restartAll)
 	srv.SetMacros(cfg.Macros)
+	srv.SetReviewEngine(reviewEngineStatus(cfg))
 	srv.SetMacroService(macrosFor(db, agentSvc))
 	srv.SetGroupDefaults(cfg.Groups.Defaults)
 	srv.SetTerminalAttacher(terminalAttacher(tmuxMgr))
@@ -1137,7 +1141,12 @@ func runServeCmd(args []string) int {
 
 	// IPC server for receiving CLI→web updates.
 	socketPath := ipc.SocketPath()
+	// A newer Legato about to migrate the database asks serve to exit.
+	upgradeExit := onUpgradeExit(dataDir, os.Getpid(), store.SupportedSchema(), serveExitForUpgrade(func() { _ = syscall.Kill(os.Getpid(), syscall.SIGTERM) }, &restartRequested))
 	ipcSrv, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
+		if upgradeExit(msg) {
+			return
+		}
 		if isRestartFor(msg, config.ResolveConfigPath()) {
 			prepareRestart(restartRollback(cfg, db), "restart")
 			requestRestart()
@@ -1176,7 +1185,10 @@ func runServeCmd(args []string) int {
 	defer wireAgentUI(srv, cfg, db, bus)()
 	wireWorkStages(srv, db, bus)
 	wireSessionHistory(srv, cfg, db, agentSvc, boardSvc, serveReeve)
-	defer wireIntegrations(srv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: workflowSvc, reviewPrompt: serveReviewPrompt, prs: prSvc})()
+	serveIntegrations := integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: workflowSvc, reviewPrompt: serveReviewPrompt, prs: prSvc}
+	serveIntegrations.engine = startReviewEngine(serveIntegrations)
+	defer serveIntegrations.engine.stop()
+	defer wireIntegrations(srv, serveIntegrations)()
 	srv.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 	srv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
 
@@ -1221,6 +1233,9 @@ func runTUI() int {
 		return 1
 	}
 	defer db.Close()
+	// While the TUI runs, an upgrade waits for it to exit
+	// (upgrade_restart.go).
+	defer holdLegatoProcess(config.ResolveDataDir(cfg))()
 
 	// First-run setup: seed columns if none exist
 	mappings, err := db.ListColumnMappings(context.Background())
@@ -1273,7 +1288,18 @@ func runTUI() int {
 	stopAgentUI := func() {}
 	stopIntegrations := func() {}
 	socketPath := ipc.SocketPath()
+	// A newer Legato about to migrate the database asks the TUI to exit:
+	// it says so and quits, once its program runs (below).
+	var legatoUpdated atomic.Bool
+	legatoUpdatedCh := make(chan struct{}, 1)
+	upgradeExit := onUpgradeExit(config.ResolveDataDir(cfg), os.Getpid(), store.SupportedSchema(), func() {
+		legatoUpdated.Store(true)
+		legatoUpdatedCh <- struct{}{}
+	})
 	ipcServer, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
+		if upgradeExit(msg) {
+			return
+		}
 		if isRestartFor(msg, config.ResolveConfigPath()) {
 			prepareRestart(restartRollback(cfg, db), "restart")
 			requestRestart()
@@ -1456,6 +1482,10 @@ func runTUI() int {
 	approvalsRT.trackAgentBranches(db, prSvc)
 	defer approvalsRT.stop()
 	defer approvalsRT.compactWaits(tuiWorkflowSvc)()
+	// The review-pass engine, whether or not this TUI serves the web UI: it
+	// ticks while the TUI serves the broker (spec LEG-559 D9).
+	tuiReviewEngine := startReviewEngine(integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: tuiWorkflowSvc, reviewPrompt: reviewPrompt, prs: prSvc})
+	defer tuiReviewEngine.stop()
 
 	// Auto-start web server if configured and port is free.
 	stopAnnouncing := func() {}
@@ -1505,6 +1535,7 @@ func runTUI() int {
 			wireUpdates(webSrv, updates)
 			webSrv.SetRestarter(restartAll)
 			webSrv.SetMacros(cfg.Macros)
+			webSrv.SetReviewEngine(reviewEngineStatus(cfg))
 			webSrv.SetMacroService(macrosFor(db, agentSvc))
 			webSrv.SetGroupDefaults(cfg.Groups.Defaults)
 			webSrv.SetTerminalAttacher(terminalAttacher(tmuxMgr))
@@ -1560,7 +1591,7 @@ func runTUI() int {
 			stopAgentUI = wireAgentUI(webSrv, cfg, db, bus)
 			wireWorkStages(webSrv, db, bus)
 			wireSessionHistory(webSrv, cfg, db, agentSvc, boardSvc, webReeve)
-			stopIntegrations = wireIntegrations(webSrv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: tuiWorkflowSvc, reviewPrompt: webReviewPrompt, prs: prSvc})
+			stopIntegrations = wireIntegrations(webSrv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: tuiWorkflowSvc, reviewPrompt: webReviewPrompt, prs: prSvc, engine: tuiReviewEngine})
 			webSrv.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 			webSrv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
 			go func() {
@@ -1626,7 +1657,11 @@ func runTUI() int {
 		_ = attentionSvc.RegisterHandler(workflowAdapter.Producer(), workflowAdapter)
 	}
 	if tuiWorkflowSvc != nil {
-		app.SetTaskWorkflowLauncher(service.NewTaskWorkflowLauncher(db, tuiWorkflowSvc, workflowDiscoveryProvider(cfg, db)))
+		launcher := service.NewTaskWorkflowLauncher(db, tuiWorkflowSvc, workflowDiscoveryProvider(cfg, db))
+		// Review passes are offered only while a Legato on the data folder
+		// runs the review engine.
+		launcher.SetReviewEngine(reviewEngineStatus(cfg))
+		app.SetTaskWorkflowLauncher(launcher)
 	}
 	if triggerCoordinator != nil {
 		triggerAdapter := service.NewWorkflowTriggerAttentionAdapter(triggerCoordinator, db)
@@ -1703,7 +1738,21 @@ func runTUI() int {
 	}
 
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithoutSignalHandler())
-	if err := runProgram(p, nil); err != nil {
+	programDone := make(chan struct{})
+	go func() {
+		select {
+		case <-legatoUpdatedCh:
+			p.Send(tui.LegatoUpdatedMsg{})
+		case <-programDone:
+		}
+	}()
+	err = runProgram(p, nil)
+	close(programDone)
+	if legatoUpdated.Load() {
+		// The alt screen is gone: say it again where the operator sees it.
+		fmt.Println(tui.LegatoUpdatedNotice)
+	}
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}

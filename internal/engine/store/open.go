@@ -8,12 +8,17 @@ type Options struct {
 }
 
 func Open(options Options) (*Store, error) {
-	driver := options.Driver
-	if driver == "" {
-		driver = "sqlite"
-	}
-	if driver != "sqlite" {
-		return nil, fmt.Errorf("database driver %q is not supported", driver)
+	if err := checkDriver(options.Driver); err != nil {
+		return nil, err
 	}
 	return New(options.Path)
+}
+
+// checkDriver refuses a database driver other than SQLite, the only one
+// there is; an empty driver is SQLite.
+func checkDriver(driver string) error {
+	if driver != "" && driver != "sqlite" {
+		return fmt.Errorf("database driver %q is not supported", driver)
+	}
+	return nil
 }

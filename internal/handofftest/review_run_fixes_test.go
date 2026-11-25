@@ -10,23 +10,6 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
-// A push while the reviewer worked: a clean pass of the old head does not
-// end the loop as approved; the next pass reviews the new head.
-func TestACleanPassOfAHeadThatMovedReviewsTheNewHead(t *testing.T) {
-	r := newReviewRun(t, ReviewPassOptions{})
-	view := r.start(t, pr12)
-	r.tick()
-	r.worker.ReviewGitHub.Push(12, "ccc333")
-	r.submit(t, view.Run.TaskID, service.ReviewSubmission{Summary: "Clean."})
-	if got := r.show(t, view.Run.ID); got.Run.Status != "running" {
-		t.Fatalf("run %q after a clean pass of an old head", got.Run.Status)
-	}
-	r.tick()
-	if loop := r.loopPhase(t, view.Run.TaskID); loop.Pass != 2 || r.worker.Checkout.Pins()["refs/legato/review/"+view.Run.TaskID+"/2/12"] != "ccc333" {
-		t.Fatalf("loop = %+v, pins %v", loop, r.worker.Checkout.Pins())
-	}
-}
-
 // A run started on a handoff's pull request before the handoff's first pass:
 // when the handoff's author finishes, its pass refuses to start on it.
 func TestAHandoffPassDoesNotStartOnAPullRequestARunReviews(t *testing.T) {
@@ -124,32 +107,38 @@ func TestATasksAgentAuthorsOneLoopAtATime(t *testing.T) {
 	refused(t, second, "board-1's agent already authors the review loop of run "+first.Run.ID)
 }
 
-// The head check after a clean pass that GitHub fails to answer is tried
-// again: the run is not approved until it knows the head did not move.
+// A head GitHub fails to read before posting is read again on the next
+// tick, and nothing is posted until it is: a push found then posts nothing
+// and pins the pass again. And the head check after a clean pass that GitHub
+// fails to answer is tried again: the run is not approved until it knows
+// the head did not move.
 func TestACleanPassIsApprovedOnlyOnceGitHubConfirmsTheHead(t *testing.T) {
 	r := newReviewRun(t, ReviewPassOptions{})
 	view := r.start(t, pr12)
 	r.tick()
 	r.worker.ReviewGitHub.Push(12, "ccc333")
-	r.worker.ReviewGitHub.FailReads(1)
+	r.worker.ReviewGitHub.FailReads(2) // at submit, and before posting
 	r.submit(t, view.Run.TaskID, service.ReviewSubmission{Summary: "Clean."})
-	if got := r.show(t, view.Run.ID); got.Run.Status != "running" {
-		t.Fatalf("run %q on an unconfirmed head", got.Run.Status)
+	if got := r.show(t, view.Run.ID); got.Run.Status != "running" || len(r.worker.ReviewGitHub.Posted()) != 0 {
+		t.Fatalf("run %q on an unconfirmed head, posted %d", got.Run.Status, len(r.worker.ReviewGitHub.Posted()))
 	}
-	r.tick() // GitHub answers: the head moved, so the loop is ready again
+	r.tick() // GitHub answers: the head moved, so the pass is discarded
 	r.tick()
-	if loop := r.loopPhase(t, view.Run.TaskID); loop.Pass != 2 {
-		t.Fatalf("no pass on the pushed head: %+v", loop)
+	if loop := r.loopPhase(t, view.Run.TaskID); loop.Pass != 1 || loop.Phase != service.ReviewPhaseReviewing ||
+		r.worker.Checkout.Pins()["refs/legato/review/"+view.Run.TaskID+"/1/12"] != "ccc333" || len(r.worker.ReviewGitHub.Posted()) != 0 {
+		t.Fatalf("no pass on the pushed head: %+v, posted %d", loop, len(r.worker.ReviewGitHub.Posted()))
 	}
 
-	// The same with no push: once GitHub answers, the run is approved.
+	// No push, and the read after the clean pass fails (after the reads
+	// at submit, before posting the layer and of its author): once GitHub
+	// answers, the run is approved.
 	other := newReviewRun(t, ReviewPassOptions{})
 	view = other.start(t, pr12)
 	other.tick()
-	other.worker.ReviewGitHub.FailReads(1)
+	other.worker.ReviewGitHub.FailReadsAfter(4, 1)
 	other.submit(t, view.Run.TaskID, service.ReviewSubmission{Summary: "Clean."})
-	if got := other.show(t, view.Run.ID); got.Run.Status != "running" {
-		t.Fatalf("run %q on an unconfirmed head", got.Run.Status)
+	if got := other.show(t, view.Run.ID); got.Run.Status != "running" || len(other.worker.ReviewGitHub.Posted()) != 1 {
+		t.Fatalf("run %q on an unconfirmed head, posted %d", got.Run.Status, len(other.worker.ReviewGitHub.Posted()))
 	}
 	other.tick()
 	if got := other.show(t, view.Run.ID); got.Run.Status != "succeeded" || outputs(t, got, "review")["outcome"] != "approved" {
@@ -163,7 +152,7 @@ func TestALoopConfirmingItsHeadIsStillActive(t *testing.T) {
 	r := newReviewRun(t, ReviewPassOptions{})
 	first := r.start(t, pr12)
 	r.tick()
-	r.worker.ReviewGitHub.FailReads(1)
+	r.worker.ReviewGitHub.FailReadsAfter(4, 1) // the read after the clean pass is posted
 	r.submit(t, first.Run.TaskID, service.ReviewSubmission{Summary: "Clean."})
 	r.worker.ReviewGitHub.Push(12, "ccc333")
 	refused(t, r.start(t, pr12), "already has an active review loop: run "+first.Run.ID)

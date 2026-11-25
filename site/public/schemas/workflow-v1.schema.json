@@ -2048,9 +2048,14 @@
             "type": "integer"
           },
           {
-            "description": "The reviews posted, with their links",
+            "description": "The reviews posted: pass, pr, url, event (APPROVE or COMMENT), approved, and approval_withheld with withheld_reason when a clean pass commented instead of approving",
             "name": "reviews",
             "type": "json"
+          },
+          {
+            "description": "true when the loop is approved but a pull request got a COMMENT instead of an APPROVE, because its author is outside the repository",
+            "name": "approval_withheld",
+            "type": "boolean"
           },
           {
             "description": "A Markdown summary of the loop",

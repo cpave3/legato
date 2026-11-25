@@ -33,6 +33,9 @@ type integrationDeps struct {
 	// prs is PR tracking, which a review loop asks to look again before it
 	// refuses an agent author; nil when GitHub is not set up.
 	prs service.PRTrackingService
+	// engine is the process's review-pass engine (startReviewEngine),
+	// which the host starts before its web server; nil for none.
+	engine *reviewEngine
 }
 
 // wireIntegrations gives a web server what integrations (Argus) use on
@@ -61,18 +64,10 @@ func wireIntegrations(srv *server.Server, deps integrationDeps) (stop func()) {
 	srv.SetChatBots(bots)
 	srv.SetIntegrationOverview(overview)
 	ctx, cancel := context.WithCancel(context.Background())
-	// The review-pass engine runs wherever review passes are on; handoffs
-	// are one of its callers.
-	reviews, stopReviews := startReviewPasses(deps)
-	if deps.reviewPrompt != nil {
-		deps.reviewPrompt.SetReviews(reviews)
-		if deps.bus != nil {
-			// Attention reconciled before the engine ran: look again.
-			deps.bus.Publish(events.Event{Type: events.EventCardsRefreshed, At: time.Now()})
-		}
-	}
-	wireReviewRuns(srv, deps, reviews)
-	stopHandoffs := wireTaskHandoffs(srv, deps, reviews)
+	// The review-pass engine runs in every host process with review passes
+	// on (startReviewEngine); handoffs are one of its callers.
+	wireReviewRuns(srv, deps.engine)
+	stopHandoffs := wireTaskHandoffs(srv, deps)
 	if deps.cfg.Integrations.Argus != nil && deps.approvals != nil && deps.approvals.caseAttention != nil {
 		srv.SetCaseAttention(deps.approvals.caseAttention)
 	}
@@ -88,7 +83,6 @@ func wireIntegrations(srv *server.Server, deps integrationDeps) (stop func()) {
 	}
 	return func() {
 		stopHandoffs()
-		stopReviews()
 		cancel()
 	}
 }

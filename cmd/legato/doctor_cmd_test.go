@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -132,5 +134,76 @@ func TestDoctorRequiresWhatTheSettingsUse(t *testing.T) {
 	}
 	if plain := doctorConfig(&config.Config{}, nil); len(plain.RequiredBy) != 0 {
 		t.Errorf("defaults require %+v", plain.RequiredBy)
+	}
+}
+
+// writeProfileOverride writes an override of a GitHub profile copied
+// before Legato needed its App's name (no lookup.actor) into the profiles
+// folder of a temporary configuration, and returns its path.
+func writeProfileOverride(t *testing.T, name string) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("LEGATO_CONFIG", filepath.Join(dir, "config.yaml"))
+	path := filepath.Join(dir, "profiles", name+".yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	profile := `name: ` + name + `
+issuer: jwt-exchange
+accepts: [keypair]
+jwt_exchange:
+  jwt:
+    alg: RS256
+    claims: { iss: "{settings.client_id}", iat: "{now-60}", exp: "{now+540}" }
+  lookup:
+    url: "https://api.github.com/repos/{owner}/{repo}/installation"
+    set: { installation: "$.id" }
+  exchange:
+    method: POST
+    url: "https://api.github.com/app/installations/{installation}/access_tokens"
+    token: "$.token"
+`
+	if err := os.WriteFile(path, []byte(profile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestDoctorReadsTheOperatorsProfilesAndRequiresThemWithReviewPasses(t *testing.T) {
+	path := writeProfileOverride(t, "github-reviewer")
+	got := doctorConfig(&config.Config{}, nil)
+	if len(got.ProfileDirs) != 1 || got.ProfileDirs[0] != filepath.Dir(path) {
+		t.Fatalf("profile dirs = %v, want %s", got.ProfileDirs, filepath.Dir(path))
+	}
+	if got.RequiredBy["profiles.app"] != "" {
+		t.Errorf("required without review passes: %+v", got.RequiredBy)
+	}
+	cfg := &config.Config{}
+	cfg.ReviewPasses.Enabled = true
+	if by := doctorConfig(cfg, nil).RequiredBy["profiles.app"]; !strings.Contains(by, "review_passes.enabled") {
+		t.Errorf("profiles.app required by %q", by)
+	}
+}
+
+func TestStartingLogsEachGitHubProfileOverrideThatNamesNoApp(t *testing.T) {
+	path := writeProfileOverride(t, "github")
+	var logged []string
+	logProfilesNamingNoApp(credentialProfileDirs(), func(format string, args ...any) {
+		logged = append(logged, fmt.Sprintf(format, args...))
+	})
+	if len(logged) != 1 {
+		t.Fatalf("logged %q", logged)
+	}
+	for _, want := range []string{"github", path, "review passes and their answers cannot post", `actor: "$.app_slug"`} {
+		if !strings.Contains(logged[0], want) {
+			t.Errorf("line lacks %q: %s", want, logged[0])
+		}
+	}
+	logged = nil
+	logProfilesNamingNoApp([]string{t.TempDir()}, func(format string, args ...any) {
+		logged = append(logged, fmt.Sprintf(format, args...))
+	})
+	if len(logged) != 0 {
+		t.Errorf("logged %q with no override", logged)
 	}
 }

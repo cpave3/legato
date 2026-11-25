@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { activeReviewLoop } from "../lib/workflow"
+import { useReviewEngine } from "../lib/reviewEngine"
 import { BoardMacrosContext, macroPR } from "../components/board/PRMacros"
 import { cardMacroPRs } from "../lib/cardMacros"
 import { macroNotice, startMacro, useMacros, type Macro, type MacroPR } from "../lib/macros"
@@ -228,6 +229,8 @@ export function BoardPage() {
   // a card has a pull request line to put them on.
   const showsPullRequests = boardColumns.some(column => column.cards.some(card => (card.pull_requests ?? []).length > 0))
   const macros = useMacros(baseUrl, contextMenu ? `menu:${contextMenu.card.id}` : showsPullRequests ? "page" : null)
+  // Whether a review can start: read as each card menu opens.
+  const reviewEngine = useReviewEngine(baseUrl, contextMenu)
   // A macro on a card, or on one of its pull requests: it starts the task's
   // agent, or is queued to the one running.
   const runMacro = useCallback(async (card: BoardCard, macro: Macro, pr?: MacroPR) => {
@@ -1150,7 +1153,8 @@ export function BoardPage() {
         canHandOff={canHandOff}
         onAction={handleContextAction}
         onWorkflow={workflow => { setCardWorkflow({ card: contextMenu.card, workflow }); setContextMenu(null) }}
-        reviewPasses={reviewPassesDefinition ? (contextMenu.card.pull_requests ?? []).filter(pr => pr.repo && !["MERGED", "CLOSED"].includes(pr.state.toUpperCase())) : []}
+        reviewPasses={reviewPassesDefinition && reviewEngine ? (contextMenu.card.pull_requests ?? []).filter(pr => pr.repo && !["MERGED", "CLOSED"].includes(pr.state.toUpperCase())) : []}
+        reviewUnavailable={reviewEngine && !reviewEngine.running ? reviewEngine.reason : undefined}
         reviewStack={Boolean(reviewPassesDefinition?.inputs?.scope)}
         onReviewPasses={(pr, scope) => { void startReviewLoop(contextMenu.card, pr, scope) }}
         macros={macros.macros}

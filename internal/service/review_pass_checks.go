@@ -80,9 +80,9 @@ func (s *ReviewPassService) readChecks(ctx context.Context, l ReviewLoop, loop *
 	for _, pr := range prs {
 		checks, err := s.opts.GitHub.Checks(ctx, l.Repo, pr.Base, pr.HeadSHA, s.config().RequiredChecks)
 		if err != nil {
-			var gh *GitHubError
-			if errors.As(err, &gh) && gh.RateLimited {
-				loop.ChecksPolledAt = gh.RetryAt.UTC().Add(-interval).Format(time.RFC3339)
+			var limit *GitHubRateLimit
+			if errors.As(err, &limit) {
+				loop.ChecksPolledAt = limit.RetryAt.UTC().Add(-interval).Format(time.RFC3339)
 			} else {
 				log.Printf("review passes: reading the checks of %s#%d: %v", l.Repo, pr.Number, err)
 			}
@@ -229,14 +229,21 @@ func (s *ReviewPassService) approveSettled(ctx context.Context, l ReviewLoop, lo
 	if err != nil {
 		return err
 	}
+	pass, err := s.db.GetHandoffReviewPass(ctx, l.TaskID, loop.Pass)
+	if err != nil {
+		return err
+	}
 	settings := loopSettings(loop, s.config().Defaults)
 	for _, pr := range prs {
 		if pr.Event != ReviewComment || !prClean(loop.Pass, pr.Number, findings, items, true) {
 			continue
 		}
+		if ok, err := s.mayWrite(ctx, l, 0); !ok {
+			return err
+		}
 		posted, err := s.opts.GitHub.PostReview(ctx, ReviewPost{Repo: pr.Repo, Number: pr.Number, CommitID: pr.HeadSHA, Event: ReviewApprove,
 			Summary: "Its failing checks are settled.", Footer: reviewFooter(settings, loop.Pass),
-			Marker: fmt.Sprintf("%s/pass-%d/pr-%d/checks", l.TaskID, loop.Pass, pr.Number)})
+			Marker: laterReviewMarker(*pass, pr.Number, LaterApprove)})
 		if err != nil {
 			log.Printf("review passes: approving %s#%d once its checks settled, trying again: %v", pr.Repo, pr.Number, err)
 			return nil

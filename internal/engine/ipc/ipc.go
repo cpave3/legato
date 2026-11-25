@@ -33,6 +33,7 @@ type Message struct {
 	Placement      string `json:"placement,omitempty"`        // where the item is drawn, for agent_ui_changed
 	Revision       int    `json:"revision,omitempty"`         // item revision for agent_ui_changed
 	PID            int    `json:"pid,omitempty"`              // the sender, which does not act on its own broadcast again
+	Schema         int    `json:"schema,omitempty"`           // the sender's newest schema revision, for upgrade_exit
 }
 
 // SocketDir returns the directory for Legato IPC sockets.
@@ -159,6 +160,35 @@ func sendContext(ctx context.Context, socketPath string, msg Message) error {
 
 	_, err = conn.Write(data)
 	return err
+}
+
+// Listening returns the PIDs of the processes whose Legato socket in
+// SocketDir (legato-<pid>.sock, SocketPath) accepts a connection now. A
+// socket left by a process that died, or of another name, is not counted.
+// It connects and closes, sending nothing.
+func Listening() []int {
+	dir := SocketDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var pids []int
+	for _, e := range entries {
+		var pid int
+		if e.IsDir() || filepath.Ext(e.Name()) != ".sock" {
+			continue
+		}
+		if _, err := fmt.Sscanf(e.Name(), "legato-%d.sock", &pid); err != nil || pid <= 0 || e.Name() != fmt.Sprintf("legato-%d.sock", pid) {
+			continue
+		}
+		conn, err := net.DialTimeout("unix", filepath.Join(dir, e.Name()), time.Second)
+		if err != nil {
+			continue
+		}
+		conn.Close()
+		pids = append(pids, pid)
+	}
+	return pids
 }
 
 // Broadcast sends a message to all Legato IPC sockets in the socket directory.

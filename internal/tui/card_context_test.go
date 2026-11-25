@@ -17,6 +17,12 @@ type fakeTaskWorkflowLauncher struct {
 	startErr      error
 	startedName   string
 	startedInputs map[string]string
+	// reviewReason is why the card offers no review passes.
+	reviewReason string
+}
+
+func (f *fakeTaskWorkflowLauncher) ReviewUnavailable(context.Context, string) string {
+	return f.reviewReason
 }
 
 func (f *fakeTaskWorkflowLauncher) List(context.Context, string) ([]service.TaskWorkflowOption, error) {
@@ -116,5 +122,58 @@ func TestCardContextStartsReviewPassesOnTheCardsPullRequest(t *testing.T) {
 	}
 	if launcher.startedName != "review-pr-passes" || launcher.startedInputs["agent_author"] != "true" || launcher.startedInputs["pr_number"] != "12" {
 		t.Fatalf("start = %q %#v", launcher.startedName, launcher.startedInputs)
+	}
+}
+
+// openCardWorkflows opens the selected card's menu and its Workflows list.
+func openCardWorkflows(t *testing.T, launcher *fakeTaskWorkflowLauncher) App {
+	t.Helper()
+	app := NewApp(&fakeBoardService{}, nil, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
+	app.SetTaskWorkflowLauncher(launcher)
+	app, _ = updateApp(app, app.board.Init()())
+	app, cmd := updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	app, _ = updateApp(app, cmd())
+	for range 3 {
+		app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyDown})
+	}
+	app, cmd = updateApp(app, tea.KeyMsg{Type: tea.KeyEnter})
+	app, cmd = updateApp(app, cmd())
+	app, _ = updateApp(app, cmd())
+	return app
+}
+
+// With no Legato on the data folder running the review engine, the card's
+// menu offers no review and says why (spec LEG-559 AC 5).
+func TestCardContextSaysWhyItOffersNoReviewPasses(t *testing.T) {
+	launcher := &fakeTaskWorkflowLauncher{
+		options: []service.TaskWorkflowOption{{
+			Name: "triage", Title: "Triage", TaskInput: "subject",
+			Inputs: []service.TaskWorkflowInput{{Key: "subject", Type: "task"}},
+			Values: map[string]string{"subject": "REX-1"},
+		}},
+		reviewReason: service.ReviewEngineStoppedReason,
+	}
+	app := openCardWorkflows(t, launcher)
+	view := app.activeOverlay.View()
+	if strings.Contains(view, "Review passes ·") || !strings.Contains(view, "Review passes need `legato serve` running.") {
+		t.Fatalf("the menu does not say why: %s", view)
+	}
+	// The reason is no item: enter still opens the one workflow there is.
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyDown})
+	app, cmd := updateApp(app, tea.KeyMsg{Type: tea.KeyEnter})
+	app, cmd = updateApp(app, tea.KeyMsg{Type: tea.KeyEnter})
+	app, cmd = updateApp(app, cmd())
+	_, _ = updateApp(app, cmd())
+	if launcher.startedName != "triage" {
+		t.Fatalf("start = %q", launcher.startedName)
+	}
+}
+
+// With nothing else to offer, the reason stands alone.
+func TestCardContextSaysWhyWhenReviewWasAllItWouldOffer(t *testing.T) {
+	app := openCardWorkflows(t, &fakeTaskWorkflowLauncher{reviewReason: service.ReviewPassesOffReason})
+	view := app.activeOverlay.View()
+	if !strings.Contains(view, "review_passes.enabled") {
+		t.Fatalf("the menu does not name the setting: %s", view)
 	}
 }

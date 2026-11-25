@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/jmoiron/sqlx"
 )
 
 func ParseTaskMetadata(raw *string) (map[string]any, error) {
@@ -25,6 +27,14 @@ func (s *Store) SetTaskMetadata(ctx context.Context, taskID string, path []strin
 		return err
 	}
 	defer tx.Rollback()
+	if err := setTaskMetadata(ctx, tx, taskID, path, value); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// setTaskMetadata is SetTaskMetadata inside tx.
+func setTaskMetadata(ctx context.Context, tx *sqlx.Tx, taskID string, path []string, value any) error {
 	var raw sql.NullString
 	if err := tx.GetContext(ctx, &raw, "SELECT metadata FROM tasks WHERE id = ?", taskID); err != nil {
 		if err == sql.ErrNoRows {
@@ -54,10 +64,8 @@ func (s *Store) SetTaskMetadata(ctx context.Context, taskID string, path []strin
 	if err != nil {
 		return fmt.Errorf("encode task metadata: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE tasks SET metadata = ?, updated_at = datetime('now') WHERE id = ?", string(encoded), taskID); err != nil {
-		return err
-	}
-	return tx.Commit()
+	_, err = tx.ExecContext(ctx, "UPDATE tasks SET metadata = ?, updated_at = datetime('now') WHERE id = ?", string(encoded), taskID)
+	return err
 }
 
 func ValidateTaskMetadataPath(path string) ([]string, error) {

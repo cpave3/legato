@@ -75,6 +75,9 @@ type DoctorConfig struct {
 	// RequiredBy makes optional checks required, by check ID, with the
 	// setting that needs them, such as gh for PR tracking.
 	RequiredBy map[string]string
+	// ProfileDirs hold the operator's credential profiles, which add to or
+	// replace the shipped ones; the profiles.app check reads them.
+	ProfileDirs []string
 }
 
 // DoctorOptions are the doctor's ways of looking at the machine; tests give
@@ -253,7 +256,7 @@ func (d *Doctor) Check(ctx context.Context, cfg DoctorConfig, online bool) Docto
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		groups[len(tools)] = []DoctorCheck{d.checkLoginShellPath(ctx)}
+		groups[len(tools)] = []DoctorCheck{d.checkLoginShellPath(ctx), checkProfilesNameTheirApp(cfg.ProfileDirs)}
 	}()
 	wg.Wait()
 
@@ -494,6 +497,37 @@ func chimeraProviders(raw json.RawMessage) []chimeraProvider {
 	var list []chimeraProvider
 	_ = json.Unmarshal(raw, &list)
 	return list
+}
+
+// checkProfilesNameTheirApp names each override of the github and
+// github-reviewer profiles that does not say which App its tokens act as:
+// review passes and their answers cannot post with it.
+func checkProfilesNameTheirApp(dirs []string) DoctorCheck {
+	c := DoctorCheck{ID: "profiles.app", Title: "GitHub credential profiles name their App"}
+	profiles, err := LoadCredentialProfiles(dirs...)
+	if err != nil {
+		c.Result, c.Detail = DoctorFailed, "the credential profiles cannot be read: "+err.Error()
+		c.Fix = "Fix the profile file the error names."
+		return c
+	}
+	lacking := ProfilesNamingNoApp(profiles)
+	if len(lacking) == 0 {
+		c.Result, c.Detail = DoctorOK, "no override of github or github-reviewer lacks jwt_exchange.lookup.actor"
+		return c
+	}
+	var named, files []string
+	for _, p := range lacking {
+		named = append(named, fmt.Sprintf("%s (%s)", p.Name, p.Source))
+		files = append(files, p.Source)
+	}
+	verb := " name"
+	if len(named) == 1 {
+		verb = " names"
+	}
+	c.Result = DoctorFailed
+	c.Detail = strings.Join(named, ", ") + verb + " no App (no jwt_exchange.lookup.actor): review passes and their answers cannot post, as Legato cannot tell its App's own posts from a copy"
+	c.Fix = fmt.Sprintf("Add %s under jwt_exchange.lookup in %s.", GitHubActorLine, strings.Join(files, " and "))
+	return c
 }
 
 // checkLoginShellPath compares the PATH of the operator's login shell, in

@@ -52,9 +52,15 @@ var forwardedEnv = []string{"LEGATO_PARENT_TASK_ID", "LEGATO_SUBTASK_ID", "LEGAT
 
 // asksHostItself reports whether a command reaches the host by an operation
 // of its own instead of being forwarded whole: credential get and exec ask
-// for the value (credential.value), and forward only to a host without it.
+// for the value (credential.value), review-pass feedback and answer for the
+// session's own loop (review_pass.*); each forwards only to a host without
+// its operation.
 func asksHostItself(args []string) bool {
-	return len(args) >= 2 && args[0] == "credential" && (args[1] == "get" || args[1] == "exec")
+	if len(args) < 2 {
+		return false
+	}
+	return args[0] == "credential" && (args[1] == "get" || args[1] == "exec") ||
+		args[0] == "review-pass" && (args[1] == "feedback" || args[1] == "answer")
 }
 
 // forwardsToHost reports whether runCLI sends args to the host: an agent

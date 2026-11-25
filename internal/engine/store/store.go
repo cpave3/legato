@@ -49,7 +49,29 @@ type SchemaStatus struct {
 	Supported int
 }
 
+// SupportedSchema is the newest schema revision this binary knows: the
+// number of its migrations (SchemaStatus's Supported).
+func SupportedSchema() int {
+	return len(migrations)
+}
+
+// Newer says whether the database is at a schema newer than this binary
+// knows: a newer Legato migrated it while this one ran.
+func (s SchemaStatus) Newer() bool {
+	return s.Current > s.Supported
+}
+
 func New(dbPath string) (*Store, error) {
+	db, err := openChecked(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	return migrateOpened(db)
+}
+
+// openChecked opens a SQLite database, creating its folder and file when
+// missing, and refuses one this binary cannot migrate. It changes nothing.
+func openChecked(dbPath string) (*sqlx.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
 		return nil, fmt.Errorf("creating db directory: %w", err)
 	}
@@ -61,11 +83,17 @@ func New(dbPath string) (*Store, error) {
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(4)
 
-	s := &Store{db: db}
-	if err := s.preflight(); err != nil {
+	if err := (&Store{db: db}).preflight(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("checking schema compatibility: %w", err)
 	}
+	return db, nil
+}
+
+// migrateOpened runs the pending migrations on a database openChecked
+// opened and turns on WAL. The database is closed when it fails.
+func migrateOpened(db *sqlx.DB) (*Store, error) {
+	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("running migrations: %w", err)
@@ -472,6 +500,18 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 			return "", err
 		}
 		if tables == 0 {
+			return "", nil
+		}
+	}
+	if strings.HasSuffix(name, "_review_items_per_loop.sql") {
+		// A legacy database built in part may have no tasks or review
+		// tables: rebuilding the review tables there would fail on their
+		// foreign keys, and there is nothing to move.
+		var tables int
+		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('tasks', 'handoffs', 'handoff_reviews', 'handoff_review_passes', 'handoff_review_findings', 'handoff_review_items')`); err != nil {
+			return "", err
+		}
+		if tables != 6 {
 			return "", nil
 		}
 	}

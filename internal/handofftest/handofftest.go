@@ -198,6 +198,9 @@ func (w *Worker) start() {
 	sandbox := !w.opts.NoSandbox
 	srv.SetSandboxAvailable(func() bool { return sandbox })
 	w.Credentials = w.credentialBroker(db)
+	// As the runtime's learningPublisher: the login each review is posted
+	// as is kept as one of Legato's Apps.
+	w.ReviewGitHub.SetLoginRecorder(func(login string) { _ = db.RecordGitHubAppLogin(context.Background(), login) })
 	var reviews *service.ReviewPassService
 	var reviewAdvert func() *service.ReviewPassesAdvert
 	if rp := w.opts.ReviewPasses; rp != nil {
@@ -222,7 +225,7 @@ func (w *Worker) start() {
 	})
 	if reviews != nil {
 		// As a worker's runtime does: the handoff caller registers when
-		// handoffs are wired.
+		// the engine is built.
 		w.Handoffs.SetReviews(service.NewHandoffReviewCaller(reviews, service.HandoffReviewCallerOptions{
 			Board: w.Board, Bus: w.Bus, Now: w.Clock.Now, FetchPR: w.ReviewGitHub.PullHead,
 			ResumeAuthor: func(ctx context.Context, taskID string) error { return w.Handoffs.ResumeAuthor(ctx, taskID) },

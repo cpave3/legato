@@ -230,6 +230,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 
 | Method | Route | Class | What it does | Body |
 | --- | --- | --- | --- | --- |
+| `GET` | `/api/review-engine` | read | Say whether a Legato on this data folder runs the review engine, and why not |  |
 | `GET` | `/api/review/queue` | read | List the reviews |  |
 | `POST` | `/api/review/tours/bulk-delete` | risky | Delete several reviews |  |
 | `GET` | `/api/review/tours/{tour_id}` | read | Read a review |  |

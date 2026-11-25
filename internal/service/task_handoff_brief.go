@@ -1,6 +1,7 @@
 package service
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/cpave3/legato/config"
@@ -166,11 +167,15 @@ func handoffPRLine(mode string) string {
 	return "- Pushing these branches and opening draft PRs is already allowed. Open PRs as drafts; never merge."
 }
 
-// fenced is text people wrote, made safe to put inside the brief's <tag>
-// fence: a closing tag of that name in it is escaped, so the text cannot end
-// its fence early and pass what follows off as the brief's own words.
+// fenced is text people wrote, made safe to put inside a brief's <tag>
+// fence: a closing tag of that name in it, in any case and with any space
+// around its slash, is escaped (<\/tag), so the text cannot end its fence
+// early and pass what follows off as the brief's own words.
 func fenced(text, tag string) string {
-	return strings.ReplaceAll(text, "</"+tag, "<\\/"+tag)
+	closing := regexp.MustCompile(`(?i)<\s*/\s*` + regexp.QuoteMeta(tag))
+	return closing.ReplaceAllStringFunc(text, func(m string) string {
+		return strings.Replace(m, "/", "\\/", 1)
+	})
 }
 
 // attr is a value for an attribute of a fence's opening tag.

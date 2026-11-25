@@ -60,7 +60,7 @@ func TestEachLayerOfAStackIsApprovedOnItsOwn(t *testing.T) {
 	if loop := r.loop(t); loop.Pass != 2 || loop.Phase != service.ReviewPhaseReviewing {
 		t.Fatalf("loop %+v", loop)
 	}
-	result, err = r.submit(t, service.ReviewSubmission{Summary: "Fixed.", Rulings: []service.SubmittedRuling{{Finding: result.Findings[0], Status: "resolved"}}})
+	result, err = r.submit(t, service.ReviewSubmission{Summary: "Fixed.", Rulings: []service.SubmittedRuling{{Finding: result.Findings[0], Status: "resolved", Reason: "fixed"}}})
 	if err != nil || result.Verdict != service.VerdictClean {
 		t.Fatalf("pass 2 = %+v, %v", result, err)
 	}

@@ -56,6 +56,7 @@ export function CardContextMenu({
   canHandOff = false,
   reviewPasses = [],
   reviewStack = false,
+  reviewUnavailable,
   onReviewPasses,
   macros = [],
   onMacro,
@@ -81,6 +82,9 @@ export function CardContextMenu({
   // requests (in stack order) are several in one repository offers the
   // whole stack first, started on the bottom one, and each one alone.
   reviewStack?: boolean
+  // Why no review can start (no Legato on the data folder runs the review
+  // engine): said in place of the review items, which are not offered.
+  reviewUnavailable?: string
   onReviewPasses?: (pr: PRMetaView, scope?: "stack" | "pr") => void
   // Every macro. The task's list keeps those for a task, each pull
   // request's those for a pull request, through the shared picker: the
@@ -148,7 +152,8 @@ export function CardContextMenu({
     <div ref={menuRef} role="menu" aria-label={`Actions for ${card.title}`} onPointerDown={event => event.stopPropagation()} className="fixed w-60 rounded-lg border border-zinc-700 bg-zinc-900 p-1 shadow-2xl" style={{ visibility: compact && flyout ? "hidden" : undefined }}>
       <p className="truncate border-b border-zinc-800 px-3 py-2 text-xs text-zinc-500">{card.id} · {card.title}</p>
       {items.map(item => <button key={item.action} type="button" role="menuitem" onClick={() => { restoreFocus(); onClose(); onAction(item.action) }} className={`flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none ${item.action === "delete" ? "text-red-300" : "text-zinc-200"}`}>{item.icon}<span>{item.label}</span></button>)}
-      {!card.away && onReviewPasses && reviewItems.map(item => <button key={`review-${item.key}`} type="button" role="menuitem" onClick={() => { restoreFocus(); onClose(); if (item.scope) onReviewPasses(item.pr, item.scope); else onReviewPasses(item.pr) }} className="flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><Repeat size={16} /><span>{item.label}</span></button>)}
+      {!card.away && onReviewPasses && reviewUnavailable && reviewItems.length > 0 && <p className="flex items-start gap-3 px-3 py-2 text-xs text-zinc-500"><Repeat size={16} className="shrink-0" /><span>{reviewUnavailable}</span></p>}
+      {!card.away && onReviewPasses && !reviewUnavailable && reviewItems.map(item => <button key={`review-${item.key}`} type="button" role="menuitem" onClick={() => { restoreFocus(); onClose(); if (item.scope) onReviewPasses(item.pr, item.scope); else onReviewPasses(item.pr) }} className="flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><Repeat size={16} /><span>{item.label}</span></button>)}
       {!card.away && ((onMacro && hasTaskMacros) || (onPRMacro && prsWithMacros.length > 0)) && <>
         <p className="mt-1 border-t border-zinc-800 px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-zinc-500">Macros</p>
         {onMacro && <CardMacros macros={macros} target="task" suggested={suggested?.task} onPick={macro => pick(() => onMacro(macro))} />}

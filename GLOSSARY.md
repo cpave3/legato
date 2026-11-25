@@ -101,6 +101,10 @@ _Avoid_: sidebar, inbox, tray
 The review passes on one set of pull requests, from the first pass until it is approved, goes stuck or is ended. A handoff or a workflow run starts it.
 _Avoid_: review cycle, review session
 
+**Loop record**:
+The engine's record of one review loop, with its ID `rl-…` (the review loop ID), owned by the workflow run that opened it. It holds a claim on each of its pull requests until it closes.
+_Avoid_: ledger row, review state
+
 **Author**:
 Whoever fixes and answers a review loop's findings: the branch's owner, or a board task's agent when asked.
 _Avoid_: developer, PR owner

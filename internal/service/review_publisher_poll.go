@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // PRComment is one comment on a pull request: a review's body, an inline
@@ -27,6 +28,9 @@ type PRComment struct {
 	State       string // a review's state
 	Outdated    bool   // an inline comment whose lines changed since
 	Resolved    bool   // an inline comment whose thread a person resolved
+	// CreatedAt is when GitHub says the comment was made (a review's:
+	// submitted); zero when it does not say.
+	CreatedAt time.Time
 }
 
 // CommentPoll is what one poll of a pull request found.
@@ -110,6 +114,9 @@ func (p *ReviewPublisher) PollComments(ctx context.Context, repo string, number 
 
 // conditional is a GET with If-None-Match: its status, ETag and body.
 func (c *githubCall) conditional(ctx context.Context, path, etag string) (int, string, string, error) {
+	if err := c.p.channels.githubBackingOff(c.bc, c.repo); err != nil {
+		return 0, "", "", err
+	}
 	ctx, cancel := context.WithTimeout(ctx, c.p.Timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(c.bc.upstream.String(), "/")+path, nil)
@@ -136,7 +143,7 @@ func (c *githubCall) conditional(ctx context.Context, path, etag string) (int, s
 		return resp.StatusCode, etag, "", nil
 	}
 	if resp.StatusCode >= 300 {
-		return 0, "", "", githubError(resp, data)
+		return 0, "", "", c.refused(resp, data)
 	}
 	return resp.StatusCode, resp.Header.Get("ETag"), string(data), nil
 }
@@ -152,6 +159,8 @@ func appendComments(out *[]PRComment, kind, body string) (int, error) {
 		State       string `json:"state"`
 		Path        string `json:"path"`
 		Line        *int   `json:"line"`
+		CreatedAt   string `json:"created_at"`
+		SubmittedAt string `json:"submitted_at"`
 		User        struct {
 			Login string `json:"login"`
 			Type  string `json:"type"`
@@ -163,6 +172,13 @@ func appendComments(out *[]PRComment, kind, body string) (int, error) {
 	for _, r := range rows {
 		c := PRComment{Kind: kind, ID: r.ID, Author: r.User.Login, Bot: r.User.Type == "Bot", Association: r.Association,
 			Body: r.Body, URL: r.HTMLURL, Path: r.Path, State: r.State}
+		at := r.CreatedAt
+		if at == "" {
+			at = r.SubmittedAt // a review's
+		}
+		if t, err := time.Parse(time.RFC3339, at); err == nil {
+			c.CreatedAt = t
+		}
 		if kind == "inline" {
 			c.ThreadRoot = r.ID
 			if r.InReplyTo != 0 {
@@ -209,7 +225,7 @@ func (p *ReviewPublisher) threads(ctx context.Context, call *githubCall, repo st
 			} `json:"repository"`
 		}
 		query := `query($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { isResolved isOutdated comments(first: 1) { nodes { fullDatabaseId } } } } } } }`
-		if err := p.channels.githubGraphQL(ctx, call.bc, call.token, query, map[string]any{"owner": owner, "name": name, "number": number, "after": after}, &found); err != nil {
+		if err := call.graphQL(ctx, query, map[string]any{"owner": owner, "name": name, "number": number, "after": after}, &found); err != nil {
 			return nil, err
 		}
 		threads := found.Repository.PullRequest.ReviewThreads

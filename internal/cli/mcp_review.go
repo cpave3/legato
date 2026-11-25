@@ -30,13 +30,13 @@ type reviewFindingInput struct {
 	Place    *reviewPlaceInput `json:"place,omitempty" jsonschema:"where it is, when it is about particular lines"`
 	// FailureScenario is required on a blocking finding.
 	FailureScenario string `json:"failure_scenario,omitempty" jsonschema:"required when blocking: what happens, and what goes wrong (who or what triggers it, and the result)"`
-	Critical        string `json:"critical,omitempty" jsonschema:"on a later pass only, for a new blocking finding on code that did not change since the pass before: why it cannot wait"`
+	Critical        string `json:"critical,omitempty" jsonschema:"on a later pass only, for a new blocking finding not on lines that changed since the last posted pass and are in the pull request's own diff: why it cannot wait"`
 }
 
 type reviewRulingInput struct {
 	Finding string `json:"finding" jsonschema:"the ID of an earlier blocking finding, as the brief lists it (f-…)"`
 	Status  string `json:"status" jsonschema:"resolved (fixed, or you accept the author's answer) or open"`
-	Reason  string `json:"reason,omitempty" jsonschema:"why; required when open"`
+	Reason  string `json:"reason,omitempty" jsonschema:"why: how it was fixed or why you accept the answer, or why it is still open; required"`
 }
 
 type submitReviewInput struct {
@@ -53,7 +53,7 @@ func (m *mcpTools) submitReview() mcpserver.Tool {
 		Description: "Hands your review pass to Legato, which posts it to GitHub; you never post yourself. " +
 			"Give a summary and findings: each with the pull request's number, severity blocking or nit, a one-line title, a body, a failure_scenario when blocking, " +
 			"and a place (path and line at the pinned head, optional start_line, side RIGHT or LEFT) when it is about particular lines. " +
-			"On a later pass, give a ruling on every earlier blocking finding the brief lists: resolved, or open with a reason. " +
+			"On a later pass, give a ruling on every earlier blocking finding the brief lists: resolved or open, each with a reason. " +
 			"The verdict follows from them: any blocking finding or open ruling means changes, otherwise clean. " +
 			"If you cannot review, give only unable and the reason. If Legato lists problems, fix them and call it again.",
 	}, func(ctx context.Context, in submitReviewInput) (mcpserver.Result, error) {

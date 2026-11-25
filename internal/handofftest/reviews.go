@@ -22,6 +22,9 @@ type ReviewPassOptions struct {
 	// does, in place of the harness's codex defaults. The advert is also
 	// what the worker's /api/meta says.
 	Runtime func(service.ReviewPassOptions) service.ReviewPassOptions
+	// CountedBots are review_passes.counted_bots as configured
+	// (cubic-dev-ai[bot] when nil).
+	CountedBots []string
 }
 
 // FakeReviewGitHub is GitHub as review passes see it: open pull requests by
@@ -38,6 +41,11 @@ type FakeReviewGitHub struct {
 	// the polls of them.
 	prComments map[int][]service.PRComment
 	polls      int
+	// pollsOf counts the polls of each repository's pull requests, and
+	// pollErrors makes every poll of a repository fail with its error
+	// (a rate limit, a 5xx) while set.
+	pollsOf    map[string]int
+	pollErrors map[string]error
 	// checks are the counted checks of each head.
 	checks map[string][]service.CheckResult
 	// closed are the pull requests closed, by number; notInstalled the
@@ -46,8 +54,183 @@ type FakeReviewGitHub struct {
 	notInstalled map[string]bool
 	// fetched are the pull requests whose heads were fetched for review.
 	fetched []int
-	// failReads makes the next PullRequest and PullRequests reads fail, as GitHub's 503.
+	// failReads makes the next PullRequest and PullRequests reads fail, as
+	// GitHub's 503, once failAfter more have succeeded.
 	failReads int
+	failAfter int
+	// markers are the hidden markers of the replies and conversation
+	// comments posted; lose is how many more GitHub takes without Legato
+	// hearing back.
+	markers map[string]bool
+	lose    int
+	// pushAfter moves a pull request's head once a review of another is
+	// posted: posted number -> the pull request and its new head.
+	pushAfter map[int]fakePush
+	// diffs are the pull request's own diff at each head: head -> file
+	// -> the head's lines it changes.
+	diffs map[string]map[string][][2]int
+	// reviews are the reviews GitHub has, by marker; tried every post
+	// Legato sent; failPosts how many more posts answer 502, GitHub
+	// taking each first when failTaken.
+	reviews   map[string]service.PostedReview
+	tried     []service.ReviewPost
+	failPosts int
+	failTaken bool
+	// learnLogin is told the login each review is posted as, as the
+	// publisher's login recorder is.
+	learnLogin func(login string)
+	// onRead runs once, before a pull request read once onReadSkip more
+	// have gone by, outside the fake's lock (OnRead).
+	onRead     func()
+	onReadSkip int
+}
+
+// ReviewerLogin is the login the fake posts reviews as: the reviewer
+// App's, as GitHub's REST reads name it.
+const ReviewerLogin = "legato-reviewer[bot]"
+
+// SetLoginRecorder is told the login each review is posted as, as
+// ReviewPublisher.SetLoginRecorder is.
+func (f *FakeReviewGitHub) SetLoginRecorder(record func(login string)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.learnLogin = record
+}
+
+type fakePush struct {
+	number int
+	head   string
+}
+
+// PushAfterPost moves pull request number's head to head as soon as a
+// review of pull request posted is posted, as an owner pushing while a
+// pass posts layer by layer.
+func (f *FakeReviewGitHub) PushAfterPost(posted, number int, head string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.pushAfter == nil {
+		f.pushAfter = map[int]fakePush{}
+	}
+	f.pushAfter[posted] = fakePush{number: number, head: head}
+}
+
+// Diff records that a pull request's own diff at head (GitHub's, against
+// its base) changes lines first to last of path. A head with none
+// recorded has a diff GitHub could not give.
+func (f *FakeReviewGitHub) Diff(head, path string, first, last int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.diffs == nil {
+		f.diffs = map[string]map[string][][2]int{}
+	}
+	if f.diffs[head] == nil {
+		f.diffs[head] = map[string][][2]int{}
+	}
+	f.diffs[head][path] = append(f.diffs[head][path], [2]int{first, last})
+}
+
+func (f *FakeReviewGitHub) PullDiff(_ context.Context, _ string, number int) (map[string][][2]int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, pr := range f.prs {
+		if pr.Number != number {
+			continue
+		}
+		recorded, ok := f.diffs[pr.HeadSHA]
+		if !ok {
+			return nil, nil
+		}
+		out := map[string][][2]int{}
+		for path, ranges := range recorded {
+			out[path] = append([][2]int(nil), ranges...)
+		}
+		return out, nil
+	}
+	return nil, &service.GitHubError{Status: 404, Message: "Not Found"}
+}
+
+// FailPosts answers the next n review posts with a 502. With taken, GitHub
+// takes each review first, as when its answer is lost.
+func (f *FakeReviewGitHub) FailPosts(n int, taken bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failPosts, f.failTaken = n, taken
+}
+
+// Tried are the review posts Legato sent, those GitHub found or refused
+// included.
+func (f *FakeReviewGitHub) Tried() []service.ReviewPost {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]service.ReviewPost(nil), f.tried...)
+}
+
+// FindReview finds the review with the post's marker, as the publisher
+// does.
+func (f *FakeReviewGitHub) FindReview(_ context.Context, post service.ReviewPost) (service.PostedReview, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	review, ok := f.reviews[post.Marker]
+	review.Existed = ok
+	return review, ok, nil
+}
+
+// OnRead runs hook once, just before a pull request read (one or by
+// branch), after skip reads go by: a test acts while Legato reads GitHub,
+// as it does before each post.
+func (f *FakeReviewGitHub) OnRead(skip int, hook func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.onRead, f.onReadSkip = hook, skip
+}
+
+// beforeRead runs the hook OnRead set when its read comes. Call without
+// f.mu.
+func (f *FakeReviewGitHub) beforeRead() {
+	f.mu.Lock()
+	hook := f.onRead
+	if hook != nil && f.onReadSkip > 0 {
+		f.onReadSkip--
+		hook = nil
+	} else {
+		f.onRead = nil
+	}
+	f.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+}
+
+// LoseAnswers makes GitHub take the next n replies and conversation
+// comments, but answer each with a 502, as when Legato crashes or GitHub's
+// answer never comes back.
+func (f *FakeReviewGitHub) LoseAnswers(n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lose = n
+}
+
+// take records a comment with its marker, as the publisher does: one
+// already posted with that marker is found, not posted again. Call with
+// f.mu held.
+func (f *FakeReviewGitHub) take(marker service.CommentMarker, record func()) (found bool, err error) {
+	if marker.Key == "" || marker.Kind == "" {
+		return false, fmt.Errorf("a comment needs a marker")
+	}
+	key := marker.Kind + " " + marker.Key
+	if f.markers[key] {
+		return true, nil
+	}
+	if f.markers == nil {
+		f.markers = map[string]bool{}
+	}
+	f.markers[key] = true
+	record()
+	if f.lose > 0 {
+		f.lose--
+		return false, &service.GitHubError{Status: 502, Message: "Bad Gateway"}
+	}
+	return false, nil
 }
 
 // NewFakeReviewGitHub has no pull requests.
@@ -59,7 +242,35 @@ func NewFakeReviewGitHub() *FakeReviewGitHub {
 func (f *FakeReviewGitHub) OpenPR(number int, branch, head string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.prs[branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: "main", Title: fmt.Sprintf("PR %d", number), HeadSHA: head, Author: "legato-author[bot]"}
+	f.prs[branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: "main", Title: fmt.Sprintf("PR %d", number), HeadSHA: head, Author: "legato-author[bot]",
+		AuthorAssociation: "OWNER"}
+}
+
+// SetAuthor makes login, with its association to the repository (OWNER,
+// MEMBER, COLLABORATOR, CONTRIBUTOR, NONE...), an open pull request's
+// author, as GitHub's REST reads name it.
+func (f *FakeReviewGitHub) SetAuthor(number int, login, association string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for branch, pr := range f.prs {
+		if pr.Number == number {
+			pr.Author, pr.AuthorAssociation = login, association
+			f.prs[branch] = pr
+		}
+	}
+}
+
+// Describe gives an open pull request a title and a body, as its author
+// wrote them on GitHub.
+func (f *FakeReviewGitHub) Describe(number int, title, body string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for branch, pr := range f.prs {
+		if pr.Number == number {
+			pr.Title, pr.Body = title, body
+			f.prs[branch] = pr
+		}
+	}
 }
 
 // OpenStackedPR opens a pull request from branch onto base at head, a layer
@@ -67,14 +278,14 @@ func (f *FakeReviewGitHub) OpenPR(number int, branch, head string) {
 func (f *FakeReviewGitHub) OpenStackedPR(number int, branch, base, head string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.prs[branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: base, Title: fmt.Sprintf("PR %d", number), HeadSHA: head, Author: "legato-author[bot]"}
+	f.prs[branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: base, Title: fmt.Sprintf("PR %d", number), HeadSHA: head, Author: "legato-author[bot]",
+		AuthorAssociation: "OWNER"}
 }
 
 func (f *FakeReviewGitHub) OpenPulls(_ context.Context, _ string, q service.PullQuery) ([]service.ReviewGitHubPR, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.failReads > 0 {
-		f.failReads--
+	if f.readFails() {
 		return nil, &service.GitHubError{Status: 503, Message: "Service Unavailable"}
 	}
 	var out []service.ReviewGitHubPR
@@ -111,10 +322,10 @@ func (f *FakeReviewGitHub) Resolved() []int64 {
 }
 
 func (f *FakeReviewGitHub) PullRequests(_ context.Context, _ string, branches []string) ([]service.ReviewGitHubPR, error) {
+	f.beforeRead()
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.failReads > 0 {
-		f.failReads--
+	if f.readFails() {
 		return nil, &service.GitHubError{Status: 503, Message: "Service Unavailable"}
 	}
 	var out []service.ReviewGitHubPR
@@ -129,7 +340,23 @@ func (f *FakeReviewGitHub) PullRequests(_ context.Context, _ string, branches []
 func (f *FakeReviewGitHub) PostReview(_ context.Context, post service.ReviewPost) (service.PostedReview, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.tried = append(f.tried, post)
+	if review, ok := f.reviews[post.Marker]; ok {
+		review.Existed = true
+		return review, nil // a review with the marker is found, as the publisher finds it
+	}
+	lost := false
+	if f.failPosts > 0 {
+		f.failPosts--
+		if !f.failTaken {
+			return service.PostedReview{}, &service.GitHubError{Status: 502, Message: "Bad Gateway"}
+		}
+		lost = true
+	}
 	f.posted = append(f.posted, post)
+	if f.learnLogin != nil {
+		f.learnLogin(ReviewerLogin)
+	}
 	posted := service.PostedReview{ID: int64(len(f.posted)), URL: fmt.Sprintf("https://github.com/review/%d", len(f.posted))}
 	for i, finding := range post.Findings {
 		if finding.Place != nil {
@@ -137,6 +364,22 @@ func (f *FakeReviewGitHub) PostReview(_ context.Context, post service.ReviewPost
 			posted.Inline = append(posted.Inline, i)
 			posted.CommentIDs = append(posted.CommentIDs, f.comment)
 		}
+	}
+	if f.reviews == nil {
+		f.reviews = map[string]service.PostedReview{}
+	}
+	f.reviews[post.Marker] = posted
+	if push, ok := f.pushAfter[post.Number]; ok {
+		delete(f.pushAfter, post.Number)
+		for branch, pr := range f.prs {
+			if pr.Number == push.number {
+				pr.HeadSHA = push.head
+				f.prs[branch] = pr
+			}
+		}
+	}
+	if lost {
+		return service.PostedReview{}, &service.GitHubError{Status: 502, Message: "Bad Gateway"}
 	}
 	return posted, nil
 }
@@ -176,10 +419,40 @@ func (f *FakeReviewGitHub) Polls() int {
 	return f.polls
 }
 
-func (f *FakeReviewGitHub) PollComments(_ context.Context, _ string, number int, _ service.PollPages) (service.CommentPoll, error) {
+// FailPolls makes every poll of repo's pull requests fail with err (a
+// *service.GitHubRateLimit, a *service.GitHubError with a 5xx), until it is
+// called again with nil.
+func (f *FakeReviewGitHub) FailPolls(repo string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.pollErrors == nil {
+		f.pollErrors = map[string]error{}
+	}
+	if err == nil {
+		delete(f.pollErrors, repo)
+		return
+	}
+	f.pollErrors[repo] = err
+}
+
+// PollsOf counts the polls of repo's pull requests, failed ones included.
+func (f *FakeReviewGitHub) PollsOf(repo string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.pollsOf[repo]
+}
+
+func (f *FakeReviewGitHub) PollComments(_ context.Context, repo string, number int, _ service.PollPages) (service.CommentPoll, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.polls++
+	if f.pollsOf == nil {
+		f.pollsOf = map[string]int{}
+	}
+	f.pollsOf[repo]++
+	if err := f.pollErrors[repo]; err != nil {
+		return service.CommentPoll{}, err
+	}
 	return service.CommentPoll{Changed: true, Comments: append([]service.PRComment(nil), f.prComments[number]...)}, nil
 }
 
@@ -190,11 +463,11 @@ func (f *FakeReviewGitHub) Comments() []string {
 	return append([]string(nil), f.comments...)
 }
 
-func (f *FakeReviewGitHub) PostIssueComment(_ context.Context, who service.GitHubIdentity, _ string, _ int, body string) (int64, error) {
+func (f *FakeReviewGitHub) PostIssueComment(_ context.Context, who service.GitHubIdentity, _ string, _ int, body string, marker service.CommentMarker) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.comments = append(f.comments, identityName(who)+": "+body)
-	return int64(len(f.comments)), nil
+	_, err := f.take(marker, func() { f.comments = append(f.comments, identityName(who)+": "+body) })
+	return int64(len(f.comments)), err
 }
 
 func identityName(who service.GitHubIdentity) string {
@@ -204,11 +477,11 @@ func identityName(who service.GitHubIdentity) string {
 	return "reviewer"
 }
 
-func (f *FakeReviewGitHub) Reply(_ context.Context, who service.GitHubIdentity, _ string, _ int, commentID int64, body string) error {
+func (f *FakeReviewGitHub) Reply(_ context.Context, who service.GitHubIdentity, _ string, _ int, commentID int64, body string, marker service.CommentMarker) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.replies = append(f.replies, fmt.Sprintf("%s %d: %s", identityName(who), commentID, body))
-	return nil
+	_, err := f.take(marker, func() { f.replies = append(f.replies, fmt.Sprintf("%s %d: %s", identityName(who), commentID, body)) })
+	return err
 }
 
 func (f *FakeReviewGitHub) ResolveThread(_ context.Context, _ string, _ int, commentID int64) error {
@@ -220,17 +493,24 @@ func (f *FakeReviewGitHub) ResolveThread(_ context.Context, _ string, _ int, com
 
 // FakeCheckout is the author's checkout as review passes read it: one
 // folder, its branch tips, HEAD, whether it is clean, and its files' line
-// counts.
+// counts. SetFor gives a card a checkout of its own, in its own folder.
 type FakeCheckout struct {
 	mu       sync.Mutex
 	dir      string
 	branches []string
-	tips     map[string]string
-	head     string
-	clean    bool
-	lines    map[string]int
-	pins     map[string]string
-	changes  map[string]map[string][][2]int // commit -> file -> lines
+	// cards are the cards with a checkout of their own; heads the HEAD
+	// of each such checkout's folder.
+	cards   map[string]fakeCardCheckout
+	heads   map[string]string
+	tips    map[string]string
+	head    string
+	clean   bool
+	lines   map[string]int
+	pins    map[string]string
+	changes map[string]map[string][][2]int // commit -> file -> lines
+	// since are changes from one commit to another, "from..to" -> file ->
+	// lines; they win over changes.
+	since map[string]map[string][][2]int
 }
 
 // NewFakeCheckout is a clean checkout with no branches.
@@ -243,6 +523,23 @@ func (f *FakeCheckout) Set(dir, branch, tip string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.dir, f.branches, f.tips[branch], f.head = dir, []string{branch}, tip, tip
+}
+
+type fakeCardCheckout struct {
+	dir      string
+	branches []string
+}
+
+// SetFor gives the card a checkout of its own in dir, with branch at tip
+// checked out; other cards keep the one Set puts.
+func (f *FakeCheckout) SetFor(card, dir, branch, tip string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.cards == nil {
+		f.cards, f.heads = map[string]fakeCardCheckout{}, map[string]string{}
+	}
+	f.cards[card] = fakeCardCheckout{dir: dir, branches: []string{branch}}
+	f.tips[branch], f.heads[dir] = tip, tip
 }
 
 // Dirty changes the working tree, or cleans it.
@@ -277,6 +574,21 @@ func (f *FakeCheckout) Change(sha, path string, first, last int) {
 	f.changes[sha][path] = append(f.changes[sha][path], [2]int{first, last})
 }
 
+// ChangeSince records that from..to changed lines first to last of path:
+// what Changed says of that pair, in place of what Change recorded of to.
+func (f *FakeCheckout) ChangeSince(from, to, path string, first, last int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.since == nil {
+		f.since = map[string]map[string][][2]int{}
+	}
+	key := from + ".." + to
+	if f.since[key] == nil {
+		f.since[key] = map[string][][2]int{}
+	}
+	f.since[key][path] = append(f.since[key][path], [2]int{first, last})
+}
+
 func (f *FakeCheckout) Changed(_ context.Context, _, from, to string) (map[string][][2]int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -284,7 +596,11 @@ func (f *FakeCheckout) Changed(_ context.Context, _, from, to string) (map[strin
 	if from == to {
 		return out, nil
 	}
-	for path, ranges := range f.changes[to] {
+	changes := f.changes[to]
+	if since, ok := f.since[from+".."+to]; ok {
+		changes = since
+	}
+	for path, ranges := range changes {
 		out[path] = append([][2]int(nil), ranges...)
 	}
 	return out, nil
@@ -301,9 +617,12 @@ func (f *FakeCheckout) Pins() map[string]string {
 	return out
 }
 
-func (f *FakeCheckout) Branches(context.Context, string, string) (string, []string, error) {
+func (f *FakeCheckout) Branches(_ context.Context, card, _ string) (string, []string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if own, ok := f.cards[card]; ok {
+		return own.dir, append([]string(nil), own.branches...), nil
+	}
 	return f.dir, append([]string(nil), f.branches...), nil
 }
 
@@ -313,9 +632,12 @@ func (f *FakeCheckout) Tip(_ context.Context, _, branch string) (string, error) 
 	return f.tips[branch], nil
 }
 
-func (f *FakeCheckout) State(context.Context, string) (string, bool, error) {
+func (f *FakeCheckout) State(_ context.Context, dir string) (string, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if head, ok := f.heads[dir]; ok {
+		return head, f.clean, nil
+	}
 	return f.head, f.clean, nil
 }
 
@@ -343,8 +665,12 @@ func (o ReviewPassOptions) config() service.ReviewPassConfig {
 	if passes == 0 {
 		passes = 3
 	}
+	bots := o.CountedBots
+	if bots == nil {
+		bots = []string{"cubic-dev-ai[bot]"}
+	}
 	return service.ReviewPassConfig{Enabled: true, PassTimeout: 45 * time.Minute, MaxConcurrent: concurrent, ReviewColumn: "Review",
-		PollInterval: time.Minute, QuietTime: 2 * time.Minute, CountedBots: []string{"cubic-dev-ai[bot]"},
+		PollInterval: time.Minute, QuietTime: 2 * time.Minute, CountedBots: bots,
 		Defaults: service.ReviewPassSettings{Enabled: true, Agent: "codex", Model: "gpt-5.5", Skill: "3-tier-review", MaxPasses: passes}}
 }
 
@@ -410,17 +736,33 @@ func (f *FakeReviewGitHub) Installed(_ context.Context, repo string) error {
 }
 
 // FailReads makes the next n pull request reads (one or by branch) fail.
-func (f *FakeReviewGitHub) FailReads(n int) {
+func (f *FakeReviewGitHub) FailReads(n int) { f.FailReadsAfter(0, n) }
+
+// FailReadsAfter lets ok pull request reads succeed, then fails n.
+func (f *FakeReviewGitHub) FailReadsAfter(ok, n int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.failReads = n
+	f.failAfter, f.failReads = ok, n
+}
+
+// readFails says whether this read fails. Call with f.mu held.
+func (f *FakeReviewGitHub) readFails() bool {
+	if f.failReads == 0 {
+		return false
+	}
+	if f.failAfter > 0 {
+		f.failAfter--
+		return false
+	}
+	f.failReads--
+	return true
 }
 
 func (f *FakeReviewGitHub) PullRequest(_ context.Context, _ string, number int) (service.ReviewGitHubPR, string, error) {
+	f.beforeRead()
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.failReads > 0 {
-		f.failReads--
+	if f.readFails() {
 		return service.ReviewGitHubPR{}, "", &service.GitHubError{Status: 503, Message: "Service Unavailable"}
 	}
 	for _, pr := range f.prs {
@@ -457,5 +799,5 @@ func (f *FakeReviewGitHub) OpenForkPR(number int, branch, head, headRepo string)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.prs[headRepo+":"+branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: "main", Title: fmt.Sprintf("PR %d", number), HeadSHA: head,
-		Author: "someone", HeadRepo: headRepo}
+		Author: "someone", AuthorAssociation: "NONE", HeadRepo: headRepo}
 }

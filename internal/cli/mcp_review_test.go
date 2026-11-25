@@ -45,7 +45,7 @@ func TestSubmitReviewIsOfferedToTheReviewerOnly(t *testing.T) {
 	result := callMCP(t, session, "submit_review", map[string]any{
 		"summary":  "One bug.",
 		"findings": []any{map[string]any{"pr": 7, "severity": "blocking", "title": "No bound", "body": "Retries forever.", "failure_scenario": "A login while the server is down never returns.", "place": map[string]any{"path": "login.go", "line": 20, "side": "right"}}},
-		"rulings":  []any{map[string]any{"finding": "f-1", "status": "resolved"}},
+		"rulings":  []any{map[string]any{"finding": "f-1", "status": "resolved", "reason": "fixed"}},
 	})
 
 	if result.IsError || !strings.Contains(mcpText(result), "verdict is changes") {

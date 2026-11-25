@@ -67,6 +67,10 @@ type ReviewPassConfig struct {
 	// RequiredChecks count when branch protection on a pull request's
 	// base names none.
 	RequiredChecks []string
+	// AppLogins are the bot logins of Legato's own GitHub Apps that the
+	// configuration names (github.app_logins), beside those learned from
+	// Legato's own posts.
+	AppLogins []string
 }
 
 // ReviewGitHubPR is an open pull request of a loop's branch.
@@ -78,8 +82,15 @@ type ReviewGitHubPR struct {
 	Body    string
 	URL     string
 	HeadSHA string
-	// Author is the pull request's author (the author App's login).
+	// Author is the pull request's author (the author App's login), as
+	// REST names it: an App is "<slug>[bot]" (compare with sameLogin,
+	// which keeps the suffix).
 	Author string
+	// AuthorAssociation is the author's association with the repository
+	// (OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR,
+	// FIRST_TIMER, NONE). The author App's pull requests read NONE
+	// (LEG-604).
+	AuthorAssociation string
 	// HeadRepo is the repository (owner/name) its head branch is in; ""
 	// when not read.
 	HeadRepo string
@@ -111,10 +122,24 @@ type ReviewGitHub interface {
 	// OpenPulls are the open pull requests with a head or a base branch
 	// (FindReviewStack follows them).
 	OpenPulls(ctx context.Context, repo string, q PullQuery) ([]ReviewGitHubPR, error)
+	// PullRequest is one pull request and its state (open, closed or
+	// merged): its head is read again before a pass's reviews are
+	// posted.
+	PullRequest(ctx context.Context, repo string, number int) (ReviewGitHubPR, string, error)
+	// PullDiff is the pull request's own diff at its head (GitHub's,
+	// against its base): the head's changed lines, first and last, by
+	// file. nil when GitHub could not say.
+	PullDiff(ctx context.Context, repo string, number int) (map[string][][2]int, error)
 	PostReview(ctx context.Context, post ReviewPost) (PostedReview, error)
-	PostIssueComment(ctx context.Context, who GitHubIdentity, repo string, number int, body string) (int64, error)
+	// FindReview finds the review with the post's marker, with its inline
+	// comments: a post whose outcome was not known is looked for before
+	// it is tried again.
+	FindReview(ctx context.Context, post ReviewPost) (PostedReview, bool, error)
+	// PostIssueComment and Reply post once by marker: a comment GitHub
+	// already has with the marker is taken for it.
+	PostIssueComment(ctx context.Context, who GitHubIdentity, repo string, number int, body string, marker CommentMarker) (int64, error)
 	PollComments(ctx context.Context, repo string, number int, pages PollPages) (CommentPoll, error)
-	Reply(ctx context.Context, who GitHubIdentity, repo string, number int, commentID int64, body string) error
+	Reply(ctx context.Context, who GitHubIdentity, repo string, number int, commentID int64, body string, marker CommentMarker) error
 	ResolveThread(ctx context.Context, repo string, number int, commentID int64) error
 	// Checks are the counted checks of a pull request's head.
 	Checks(ctx context.Context, repo, base, head string, configured []string) ([]CheckResult, error)
@@ -187,6 +212,10 @@ type ReviewPassService struct {
 	waitMu  sync.Mutex
 	waiting map[string]string
 	lastErr map[string]string
+
+	// schemaOnce logs, once, that the tick stopped on a schema newer than
+	// this binary knows.
+	schemaOnce sync.Once
 }
 
 // What a ready loop waits on before its next pass starts (ReviewLoopBlock's
@@ -314,11 +343,18 @@ func encodeJSON(v any) (string, error) {
 // pass, a reviewer past its time or gone is unable, and queued passes start
 // as reviewers free up.
 func (s *ReviewPassService) Tick(ctx context.Context) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if !s.config().Enabled {
 		return
 	}
+	if !s.schemaKnown(ctx) {
+		return
+	}
+	// Steps any process started open here first (spec LEG-559 D9). Not
+	// under the lock: opening asks GitHub and makes clones, as a start
+	// did.
+	s.openWaiting(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	loops := s.loops(ctx)
 	if len(loops) == 0 {
 		return // no caller has a loop: nothing to move on
@@ -567,18 +603,22 @@ func (s *ReviewPassService) startPass(ctx context.Context, l ReviewLoop, loop *s
 		pinned = append(pinned, store.HandoffReviewPR{TaskID: l.TaskID, Pass: pass, Repo: l.Repo, Number: pr.Number, Branch: pr.Branch,
 			Base: pr.Base, Title: pr.Title, Body: pr.Body, URL: pr.URL, HeadSHA: pr.HeadSHA, Author: pr.Author, LocalBranch: pr.LocalBranch, HeadRepo: pr.HeadRepo})
 	}
-	if err := s.db.InsertHandoffReviewPass(ctx, record, pinned); err != nil {
-		return err
-	}
+	before := *loop
 	loop.Pass, loop.Phase, loop.QueuedAt, loop.Reason = pass, ReviewPhaseReviewing, "", ""
-	s.setWaiting(l.TaskID, "")
 	if l.CountChecks && loop.ChecksHeads != checkHeads(pinned) {
 		// The checks of the heads this pass reviews, read now.
 		s.readChecks(ctx, l, loop, pinned)
 	}
-	if err := s.saveChanged(ctx, loop); err != nil {
+	// The pass and the loop that names it are written together: a crash
+	// between them would leave a pass the loop does not know, pinned again
+	// under its number on every tick.
+	loop.UpdatedAt = s.now()
+	if err := s.db.StartHandoffReviewPass(ctx, record, pinned, *loop); err != nil {
+		*loop = before
 		return err
 	}
+	s.setWaiting(l.TaskID, "")
+	s.changed(l.TaskID)
 	l.stage(ctx, ReviewStagePass)
 	// The author's work is up for review; the reviewer reviews again, a
 	// resumed one that finished the pass before included.
@@ -655,10 +695,13 @@ func (s *ReviewPassService) watchReviewer(ctx context.Context, l ReviewLoop, loo
 func (s *ReviewPassService) unable(ctx context.Context, l ReviewLoop, loop *store.HandoffReview, pass store.HandoffReviewPass, reason string) error {
 	_ = s.opts.Agents.KillAgentInSlot(ctx, l.TaskID, SlotReviewer)
 	pass.State, pass.Reason, pass.EndedAt = ReviewPassUnable, reason, s.now()
-	if err := s.db.UpdateHandoffReviewPass(ctx, pass); err != nil {
+	s.setWaiting(l.TaskID, "")
+	loop.Phase, loop.Reason, loop.QueuedAt, loop.UpdatedAt = ReviewPhaseStuck, reason, "", s.now()
+	if err := s.db.UpdateHandoffReviewPassWithLoop(ctx, pass, *loop); err != nil {
 		return err
 	}
-	return s.stuck(ctx, l, loop, reason)
+	s.changed(l.TaskID)
+	return nil
 }
 
 // stuck stops the loop for the person, who decides what comes next.
@@ -678,10 +721,54 @@ func (s *ReviewPassService) saveChanged(ctx context.Context, loop *store.Handoff
 	if err := s.save(ctx, loop); err != nil {
 		return err
 	}
-	for _, caller := range s.callers {
-		caller.Changed(loop.TaskID)
-	}
+	s.changed(loop.TaskID)
 	return nil
+}
+
+// changed tells the callers a loop changed.
+func (s *ReviewPassService) changed(taskID string) {
+	for _, caller := range s.callers {
+		caller.Changed(taskID)
+	}
+}
+
+// passReviewMarker is the marker of a pass's review of a pull request. A pass
+// pinned again after a discard (Attempt > 0) has markers of its own, so a
+// review a discarded attempt left on GitHub is never taken for its own.
+func passReviewMarker(pass store.HandoffReviewPass, number int) string {
+	if pass.Attempt > 0 {
+		return fmt.Sprintf("%s/pass-%d.%d/pr-%d", pass.TaskID, pass.Pass, pass.Attempt, number)
+	}
+	return fmt.Sprintf("%s/pass-%d/pr-%d", pass.TaskID, pass.Pass, number)
+}
+
+// rulingMarker is the marker of a pass's ruling replied in a finding's
+// thread. Like passReviewMarker, a pass pinned again after a discard has
+// markers of its own, so a reply a discarded attempt left is never taken
+// for the ruling of the attempt that replaced it.
+func rulingMarker(pass store.HandoffReviewPass, findingID string) CommentMarker {
+	if pass.Attempt > 0 {
+		return CommentMarker{Kind: MarkerRuling, Key: fmt.Sprintf("%s/pass-%d.%d/%s", pass.TaskID, pass.Pass, pass.Attempt, findingID)}
+	}
+	return CommentMarker{Kind: MarkerRuling, Key: fmt.Sprintf("%s/pass-%d/%s", pass.TaskID, pass.Pass, findingID)}
+}
+
+// Later reviews of a pass's pull request, each with a marker of its own in
+// the legato-review-pass space, apart from the pass's review: the publisher
+// matches a marker's whole line, so one kind is never taken for another.
+const (
+	// LaterApprove is the APPROVE posted once a clean pass's failing
+	// checks settle (approveSettled).
+	LaterApprove = "checks"
+	// LaterHeldComment is the COMMENT a clean pass posts in place of an
+	// APPROVE that is held for the operator's sign-off (a later spec).
+	LaterHeldComment = "held"
+)
+
+// laterReviewMarker is the marker of a later review of a pass's pull
+// request: kind is LaterApprove or LaterHeldComment.
+func laterReviewMarker(pass store.HandoffReviewPass, number int, kind string) string {
+	return passReviewMarker(pass, number) + "/" + kind
 }
 
 // pinRef is the ref a pass's pinned head is kept under.

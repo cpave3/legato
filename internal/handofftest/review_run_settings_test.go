@@ -74,6 +74,7 @@ steps:
 	if err != nil {
 		t.Fatal(err)
 	}
+	r.runs.Open(context.Background())
 	if s := r.settings(t, view.Run.TaskID); s.MaxPasses != 2 {
 		t.Fatalf("step parameter: %+v", s)
 	}

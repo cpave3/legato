@@ -264,13 +264,14 @@ func RefuseUnansweredReview(ctx context.Context, db *store.Store, taskID string)
 	return fmt.Errorf("%w: %s %d item(s) of pass %d are not answered. Run legato review-pass feedback --json to read them", ErrReviewItemsOpen, ReviewTag, open, loop.Pass)
 }
 
-// raiseItems makes a changes pass's items: its findings, and the earlier
+// passItems are a changes pass's items: its findings, and the earlier
 // findings its rulings kept open.
-func (s *ReviewPassService) raiseItems(ctx context.Context, taskID string, pass int, prs []store.HandoffReviewPR) error {
+func (s *ReviewPassService) passItems(ctx context.Context, taskID string, pass int, prs []store.HandoffReviewPR) ([]store.HandoffReviewItem, error) {
 	findings, err := s.db.ListHandoffReviewFindings(ctx, taskID)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var out []store.HandoffReviewItem
 	repo := map[int]string{}
 	url := map[int]string{}
 	for _, pr := range prs {
@@ -290,11 +291,9 @@ func (s *ReviewPassService) raiseItems(ctx context.Context, taskID string, pass 
 			}
 			item.Body = f.Body + "\n\nStill open after pass " + fmt.Sprint(pass) + ": " + f.Ruling
 		}
-		if err := s.db.UpsertHandoffReviewItem(ctx, item); err != nil {
-			return err
-		}
+		out = append(out, item)
 	}
-	return nil
+	return out, nil
 }
 
 // feedback moves a loop waiting for its author on: it tells the author of
@@ -404,29 +403,43 @@ func (s *ReviewPassService) postAnswers(ctx context.Context, l ReviewLoop) {
 	if err != nil {
 		return
 	}
-	dir, _, _ := s.opts.Checkout.Branches(ctx, l.TaskID, l.Repo)
-	prs := map[int]string{}
+	// pinned are the heads the round's pass reviewed, by pull request.
+	pinned := map[int]string{}
 	if loop, err := s.db.GetHandoffReview(ctx, l.TaskID); err == nil && loop != nil {
 		if list, err := s.db.ListHandoffReviewPRs(ctx, l.TaskID, loop.Pass); err == nil {
 			for _, pr := range list {
-				prs[pr.Number] = pr.Branch
+				pinned[pr.Number] = pr.HeadSHA
 			}
 		}
 	}
+	var pushed map[int]string
 	for _, item := range items {
 		if item.Answer == "" || item.Posted || item.Closed || item.PR == 0 {
 			continue
 		}
 		body := answerText(item)
 		if item.Answer == AnswerFixed {
-			if tip, err := s.opts.Checkout.Tip(ctx, dir, prs[item.PR]); err == nil && tip != "" {
+			if pushed == nil {
+				pushed = s.pushedHeads(ctx, l)
+			}
+			if tip := pushed[item.PR]; tip != "" && tip != pinned[item.PR] {
 				body = strings.Replace(body, "Fixed", "Fixed in "+short(tip), 1)
 			}
 		}
+		// The same marker on every try: an answer GitHub took before it
+		// was marked posted (a crash, a lost answer) is found, not posted
+		// again.
+		marker := answerMarker(l.TaskID, item)
+		if ok, err := s.mayWrite(ctx, l, 0); !ok {
+			if err != nil {
+				log.Printf("review passes: posting the answer to %s: %v", item.ID, err)
+			}
+			return
+		}
 		if item.ThreadCommentID != 0 {
-			err = s.opts.GitHub.Reply(ctx, AsAuthor, item.Repo, item.PR, item.ThreadCommentID, body)
+			err = s.opts.GitHub.Reply(ctx, AsAuthor, item.Repo, item.PR, item.ThreadCommentID, body, marker)
 		} else {
-			_, err = s.opts.GitHub.PostIssueComment(ctx, AsAuthor, item.Repo, item.PR, quoteItem(item)+body)
+			_, err = s.opts.GitHub.PostIssueComment(ctx, AsAuthor, item.Repo, item.PR, quoteItem(item)+body, marker)
 		}
 		if err != nil {
 			log.Printf("review passes: posting the answer to %s: %v", item.ID, err)
@@ -434,6 +447,34 @@ func (s *ReviewPassService) postAnswers(ctx context.Context, l ReviewLoop) {
 		}
 		_ = s.db.MarkHandoffReviewItemPosted(ctx, l.TaskID, item.ID)
 	}
+}
+
+// pushedHeads are the heads GitHub has now for a loop's open pull requests:
+// what the author pushed. A --fixed answer names its pull request's, once it
+// moved past the head the pass reviewed; never a local checkout's tip, which
+// for a run's loop is the reviewer's clone at that reviewed head (LEG-571).
+func (s *ReviewPassService) pushedHeads(ctx context.Context, l ReviewLoop) map[int]string {
+	heads := map[int]string{}
+	if l.caller == nil {
+		return heads
+	}
+	prs, err := l.caller.OpenPRs(ctx, l)
+	if err != nil {
+		return heads
+	}
+	for _, pr := range prs {
+		heads[pr.Number] = pr.HeadSHA
+	}
+	return heads
+}
+
+// answerMarker names an answer on GitHub: the loop, the item and the
+// answer's own marker, never its text, so the same words answering two
+// items are two answers. An item's ID may hold a check's name, which
+// cannot be allowed to end the hidden comment early.
+func answerMarker(taskID string, item store.HandoffReviewItem) CommentMarker {
+	id := strings.NewReplacer("-->", "--", "\n", " ").Replace(item.ID)
+	return CommentMarker{Kind: MarkerAnswer, Key: taskID + "/" + id + "/" + item.AnswerMarker}
 }
 
 func answerText(item store.HandoffReviewItem) string {

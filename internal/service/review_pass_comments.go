@@ -12,8 +12,51 @@ import (
 )
 
 // countedAssociations are the authors whose comments count as feedback,
-// with the bots of review_passes.counted_bots.
+// with the bots of review_passes.counted_bots. They are the repository's
+// insiders: every other association (CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR,
+// FIRST_TIMER, NONE, or none read) is outside (spec LEG-559 X2).
 var countedAssociations = map[string]bool{"OWNER": true, "MEMBER": true, "COLLABORATOR": true}
+
+// insideRepository says whether an author association is the
+// repository's own: OWNER, MEMBER or COLLABORATOR.
+func insideRepository(association string) bool {
+	return countedAssociations[strings.ToUpper(strings.TrimSpace(association))]
+}
+
+// sameLogin says whether two GitHub logins, as REST gives them, name one
+// account: equal ignoring case, the "[bot]" suffix kept, as postedBy
+// compares them. REST names an App "<slug>[bot]", and a person can never
+// have the suffix, so a person whose login is an App's slug is not the
+// App. Every login compared here is REST's (comment authors, pull request
+// authors, the logins GitHub answered Legato's posts with) or a
+// configured bot name given the suffix (botLogins: github.app_logins,
+// review_passes.counted_bots); none is GraphQL's, which drops the suffix
+// (LEG-604).
+func sameLogin(a, b string) bool {
+	a, b = strings.TrimSpace(a), strings.TrimSpace(b)
+	return a != "" && strings.EqualFold(a, b)
+}
+
+// botLogins are configured bot names (github.app_logins,
+// review_passes.counted_bots) as REST names the bots: each name without
+// the "[bot]" suffix gets it, one that has it (in any case) is kept, and
+// blank ones are dropped. A configured name always names a bot, so
+// "cubic-dev-ai" is the bot cubic-dev-ai[bot], never a person whose login
+// is cubic-dev-ai.
+func botLogins(names []string) []string {
+	var out []string
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if !strings.HasSuffix(strings.ToLower(name), "[bot]") {
+			name += "[bot]"
+		}
+		out = append(out, name)
+	}
+	return out
+}
 
 // storePollPages keeps a pull request's polled pages in the store.
 type storePollPages struct {
@@ -33,7 +76,11 @@ func (p storePollPages) SavePollPage(ctx context.Context, list string, page int,
 // pollComments polls a loop's pull requests for comments when it is
 // due, and turns the counted ones into items: new, edited (a new version
 // to handle again), resolved by a person (handled), outdated (marked) or
-// deleted (dropped, the author told when it had it). Call with s.mu held.
+// deleted (dropped, the author told when it had it). Only a read that
+// succeeded closes an item: a pull request whose poll failed (a 5xx, the
+// network) keeps its items as they are, and a rate limit ends the poll
+// with nothing closed and the next one after the limit. Call with s.mu
+// held.
 func (s *ReviewPassService) pollComments(ctx context.Context, l ReviewLoop) {
 	cfg := s.config()
 	loop, err := s.db.GetHandoffReview(ctx, l.TaskID)
@@ -63,31 +110,29 @@ func (s *ReviewPassService) pollComments(ctx context.Context, l ReviewLoop) {
 		byID[item.ID] = item
 	}
 	seen := map[string]bool{}
+	failed := map[string]bool{} // repo#number of the pull requests not read
 	skipped, fresh := 0, 0
 	var gone []string
 	for _, pr := range prs {
 		poll, err := s.opts.GitHub.PollComments(ctx, pr.Repo, pr.Number, storePollPages{db: s.db, taskID: l.TaskID, pr: pr.Number})
 		if err != nil {
-			var gh *GitHubError
-			if errors.As(err, &gh) && gh.RateLimited {
-				loop.PolledAt = gh.RetryAt.UTC().Add(-interval).Format(time.RFC3339)
+			var limit *GitHubRateLimit
+			if errors.As(err, &limit) {
+				loop.PolledAt = limit.RetryAt.UTC().Add(-interval).Format(time.RFC3339)
 				_ = s.save(ctx, loop)
 				return
 			}
 			log.Printf("review passes: polling %s#%d: %v", pr.Repo, pr.Number, err)
+			failed[fmt.Sprintf("%s#%d", pr.Repo, pr.Number)] = true
 			continue
 		}
-		legato := map[string]bool{}
-		if pr.Author != "" {
-			legato[strings.ToLower(pr.Author)] = true
-		}
+		// Legato's own comments are known by who posted them: the pull
+		// request's author (the author App's on a handoff) and the Apps'
+		// logins Legato knows. Never by a marker in a comment's text,
+		// which anyone can copy.
+		legato := append(s.legatoLogins(ctx), pr.Author)
 		for _, c := range poll.Comments {
-			if c.Kind == "review" && strings.Contains(c.Body, "<!-- legato-review-pass ") {
-				legato[strings.ToLower(c.Author)] = true
-			}
-		}
-		for _, c := range poll.Comments {
-			if legato[strings.ToLower(c.Author)] || (c.Kind == "review" && (strings.TrimSpace(c.Body) == "" || c.State == "PENDING")) {
+			if anyLogin(legato, c.Author) || (c.Kind == "review" && (strings.TrimSpace(c.Body) == "" || c.State == "PENDING")) {
 				continue
 			}
 			if !countedAssociations[c.Association] && !s.countedBot(c.Author) {
@@ -123,7 +168,7 @@ func (s *ReviewPassService) pollComments(ctx context.Context, l ReviewLoop) {
 		}
 	}
 	for _, item := range items {
-		if item.Kind == ItemComment && !item.Closed && !seen[item.ID] {
+		if item.Kind == ItemComment && !item.Closed && !seen[item.ID] && !failed[fmt.Sprintf("%s#%d", item.Repo, item.PR)] {
 			item.Closed = true
 			_ = s.db.UpsertHandoffReviewItem(ctx, item)
 			if item.Delivered && item.Answer == "" {
@@ -168,9 +213,28 @@ func (s *ReviewPassService) pollTargets(ctx context.Context, l ReviewLoop, loop 
 	return out, nil
 }
 
+// legatoLogins are the logins of Legato's own GitHub Apps: those learned
+// from Legato's own posts (the login GitHub answered each review it posted
+// with) and those the configuration names (botLogins). A login is never
+// learned from a comment's text.
+func (s *ReviewPassService) legatoLogins(ctx context.Context) []string {
+	learned, _ := s.db.GitHubAppLogins(ctx)
+	return append(learned, botLogins(s.config().AppLogins)...)
+}
+
+// anyLogin says whether login is one of logins (sameLogin).
+func anyLogin(logins []string, login string) bool {
+	for _, l := range logins {
+		if sameLogin(l, login) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *ReviewPassService) countedBot(login string) bool {
-	for _, bot := range s.config().CountedBots {
-		if strings.EqualFold(bot, login) {
+	for _, bot := range botLogins(s.config().CountedBots) {
+		if sameLogin(bot, login) {
 			return true
 		}
 	}

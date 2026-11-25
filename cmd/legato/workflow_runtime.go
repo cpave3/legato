@@ -136,9 +136,9 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		prWait,
 		service.NewBurnliteCloseExecutor(db, service.ConnectedBurnlite{Connection: burnliteConnections(cfg, db)}),
 		service.NewChatSendExecutor(chatBotsFor(cfg, db)),
-		// Runs on the run caller once review passes are wired
-		// (wireReviewRuns); refuses to start before.
-		service.NewReviewPassesStep(),
+		// Starting it only writes the step; the review engine's tick in
+		// the broker holder opens it (attachReviewRuns, spec LEG-559 D9).
+		reviewPassesStep(cfg),
 	)
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		worktrees := service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector())
@@ -272,4 +272,12 @@ func (rt *approvalRuntime) compactWaits(workflows *service.WorkflowService) func
 		events = rt.watcher
 	}
 	return workflows.StartCompactWaits(context.Background(), events, service.CompactCheckEvery)
+}
+
+// reviewPassesStep is the github.pr.review_passes executor, refused while
+// review_passes is off: no Legato on the data folder runs the engine then.
+func reviewPassesStep(cfg *config.Config) *service.ReviewPassesStep {
+	step := service.NewReviewPassesStep()
+	step.SetEnabled(func() bool { return cfg.ReviewPasses.Enabled })
+	return step
 }

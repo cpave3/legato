@@ -23,7 +23,10 @@ func openStore(cfg *config.Config) (*store.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	db, err := store.Open(store.Options{Driver: database.Driver, Path: database.Path})
+	// A database with migrations pending is upgraded with the upgrade
+	// restart: the other Legato processes on the data folder are asked to
+	// exit, and it is backed up before it migrates (upgrade_restart.go).
+	db, err := newUpgradeOpener(config.ResolveDataDir(cfg), config.ResolveConfigPath()).open(context.Background(), store.Options{Driver: database.Driver, Path: database.Path})
 	if err != nil {
 		return nil, err
 	}

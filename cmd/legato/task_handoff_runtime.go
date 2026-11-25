@@ -21,16 +21,16 @@ func sandboxAvailable(cfg *config.Config) bool {
 	return cfg.Agents.Sandbox.Enabled && (sandbox.Bwrap{}).Available() == nil
 }
 
-// wireTaskHandoffs lets the main instances paired with this Legato hand it
-// tasks (POST /api/integrations/handoff/tasks): it makes their cards and
-// starts their agents, sandboxed and unattended, in clones of their
-// repositories. While this process serves the broker, so one Legato does it,
-// it starts the agents of handoffs accepted and never started. See
-// docs/ai/integrations.md § Handing off a task.
-func wireTaskHandoffs(srv *server.Server, deps integrationDeps, reviews *service.ReviewPassService) (stop func()) {
+// newHandoffWorker is the worker side of handoffs: the service that makes a
+// main's cards and starts their agents, sandboxed and unattended, in clones
+// of their repositories. One per process: the review engine builds it
+// (startReviewEngine), so its handoff caller is registered whether or not
+// this process serves the web UI, and wireTaskHandoffs serves it. Nil
+// without agents or a database.
+func newHandoffWorker(deps integrationDeps) *service.HandoffWorkerService {
 	agents, ok := deps.agents.(service.HandoffAgents)
 	if !ok || deps.db == nil {
-		return func() {}
+		return nil
 	}
 	opts := service.HandoffWorkerOptions{
 		Agents:  agents,
@@ -57,6 +57,26 @@ func wireTaskHandoffs(srv *server.Server, deps integrationDeps, reviews *service
 	sources := handoffAdvertSources(deps.cfg, deps.db, credentials)
 	sources.ReviewPasses = reviewPassesAdvert(deps.cfg, deps.db)
 	handoffs.SetAdvertSources(sources)
+	return handoffs
+}
+
+// wireTaskHandoffs lets the main instances paired with this Legato hand it
+// tasks (POST /api/integrations/handoff/tasks) through the review engine's
+// handoff worker, or one of its own without the engine (newHandoffWorker).
+// While this process serves the broker, so one Legato does it, it starts
+// the agents of handoffs accepted and never started. See
+// docs/ai/integrations.md § Handing off a task.
+func wireTaskHandoffs(srv *server.Server, deps integrationDeps) (stop func()) {
+	var handoffs *service.HandoffWorkerService
+	if deps.engine != nil {
+		handoffs = deps.engine.handoffs
+	}
+	if handoffs == nil {
+		handoffs = newHandoffWorker(deps)
+	}
+	if handoffs == nil {
+		return func() {}
+	}
 	srv.SetTaskHandoffs(handoffs)
 	addInterruptedResumeRoute(deps.agents, handoffs.ResumeInterrupted)
 	// A handed-off card's agent restarts through the handoff: unattended,
@@ -64,7 +84,6 @@ func wireTaskHandoffs(srv *server.Server, deps integrationDeps, reviews *service
 	if setter, ok := deps.agents.(interface{ SetHandedOffAgents(service.HandedOffAgents) }); ok {
 		setter.SetHandedOffAgents(handoffs)
 	}
-	wireHandoffReviewCaller(deps, reviews, handoffs)
 	ctx, cancel := context.WithCancel(context.Background())
 	stopLoop := handoffs.StartEventLoop(ctx, handoffReconcileEvery)
 	if deps.approvals != nil && deps.approvals.brokerOwner != nil {

@@ -53,6 +53,9 @@ type WorktreeService interface {
 type TaskWorkflowLauncher interface {
 	List(ctx context.Context, taskID string) ([]service.TaskWorkflowOption, error)
 	Start(ctx context.Context, name string, inputs map[string]string) (*service.TaskWorkflowRun, error)
+	// ReviewUnavailable says why the card offers no review passes when no
+	// Legato on the data folder runs the review engine ("" otherwise).
+	ReviewUnavailable(ctx context.Context, taskID string) string
 }
 
 // VoiceService is the interface the TUI uses for voice dictation. The
@@ -152,6 +155,8 @@ type manualRefreshDoneMsg struct {
 type taskWorkflowsLoadedMsg struct {
 	Workflows []service.TaskWorkflowOption
 	Err       error
+	// ReviewNotice is why the card offers no review passes, or "".
+	ReviewNotice string
 }
 
 type taskWorkflowStartedMsg struct {
@@ -665,6 +670,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, tick := msg.(spinnerTickMsg); tick {
 		return a.handleSpinnerTick()
 	}
+	if _, updated := msg.(LegatoUpdatedMsg); updated {
+		return a.legatoUpdated()
+	}
 	model, cmd := a.update(msg)
 	if app, ok := model.(App); ok {
 		return app.keepSpinning(cmd)
@@ -935,7 +943,7 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		launcher, taskID := a.taskWorkflows, msg.TaskID
 		return a, func() tea.Msg {
 			workflows, err := launcher.List(context.Background(), taskID)
-			return taskWorkflowsLoadedMsg{Workflows: workflows, Err: err}
+			return taskWorkflowsLoadedMsg{Workflows: workflows, Err: err, ReviewNotice: launcher.ReviewUnavailable(context.Background(), taskID)}
 		}
 	case overlay.CardContextLoadMacrosMsg:
 		if refused, cmd, away := a.refuseAway(msg.TaskID); away {
@@ -987,7 +995,7 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	case taskWorkflowsLoadedMsg:
 		if model, ok := a.activeOverlay.(overlay.CardContextOverlay); ok {
-			a.activeOverlay = model.SetWorkflows(msg.Workflows, msg.Err)
+			a.activeOverlay = model.SetWorkflows(msg.Workflows, msg.Err).SetReviewNotice(msg.ReviewNotice)
 		}
 		return a, nil
 	case overlay.CardContextStartWorkflowMsg:

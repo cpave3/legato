@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -92,19 +93,14 @@ type PostedReview struct {
 	CommentIDs []int64
 }
 
-// GitHubError is GitHub refusing a call.
+// GitHubError is GitHub refusing a call. A rate limit is a
+// *GitHubRateLimit instead.
 type GitHubError struct {
 	Status  int
 	Message string
-	// RateLimited says GitHub limited the call; RetryAt is when to try again.
-	RateLimited bool
-	RetryAt     time.Time
 }
 
 func (e *GitHubError) Error() string {
-	if e.RateLimited {
-		return fmt.Sprintf("GitHub rate limit: %s (try again at %s)", e.Message, e.RetryAt.Format(time.RFC3339))
-	}
 	return fmt.Sprintf("GitHub answered %d: %s", e.Status, e.Message)
 }
 
@@ -120,6 +116,10 @@ type ReviewPublisher struct {
 	learnLogin func(login string)
 	// Timeout bounds each request to GitHub.
 	Timeout time.Duration
+	// logins are the bot logins each credential's App posts as, by
+	// credential name, once read.
+	mu     sync.Mutex
+	logins map[string]string
 }
 
 // NewReviewPublisher posts with the reviewer credential named reviewer.
@@ -130,10 +130,11 @@ func NewReviewPublisher(channels *CredentialChannels, reviewer string) *ReviewPu
 // SetLoginRecorder is told the login each review is posted as.
 func (p *ReviewPublisher) SetLoginRecorder(record func(login string)) { p.learnLogin = record }
 
-// call is one authorized request to GitHub's REST API.
+// call is one authorized request to GitHub's REST API about repo.
 type githubCall struct {
 	p     *ReviewPublisher
 	bc    brokerCredential
+	repo  string
 	token []byte
 }
 
@@ -159,6 +160,9 @@ func (p *ReviewPublisher) open(ctx context.Context, who GitHubIdentity, repo str
 		}
 		bc, operation = found, opAuthorPost
 	}
+	if err := p.channels.githubBackingOff(bc, repo); err != nil {
+		return nil, nil, err
+	}
 	token, release, err := p.channels.githubToken(ctx, bc, repo, operation)
 	if err != nil {
 		return nil, nil, err
@@ -166,11 +170,60 @@ func (p *ReviewPublisher) open(ctx context.Context, who GitHubIdentity, repo str
 	if release == nil {
 		release = func() {}
 	}
-	return &githubCall{p: p, bc: bc, token: token}, release, nil
+	return &githubCall{p: p, bc: bc, repo: repo, token: token}, release, nil
 }
 
-// do sends one request and decodes a 2xx answer into out.
+// login is the login the call's posts are made as on GitHub: its App's
+// bot, <slug>[bot], the slug read with the installation. A comment or a
+// review is taken for one Legato posted only when this login posted it;
+// no person's login has the [bot] suffix.
+func (c *githubCall) login(ctx context.Context, repo string) (string, error) {
+	name := c.bc.config.Name
+	c.p.mu.Lock()
+	login, ok := c.p.logins[name]
+	c.p.mu.Unlock()
+	if ok {
+		return login, nil
+	}
+	// Fail closed: without the App's name, a copy of a marker would be
+	// taken for Legato's own post.
+	if problem := c.bc.profile.AppProblem(); problem != "" {
+		return "", fmt.Errorf("credential %s: %s", name, problem)
+	}
+	secret, err := c.p.channels.broker.readSecret(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	owner, repoName, _ := strings.Cut(repo, "/")
+	slug, known, err := c.bc.jwt.Actor(ctx, secret, map[string]any{"owner": owner, "repo": repoName})
+	if err != nil {
+		return "", err
+	}
+	if !known {
+		return "", fmt.Errorf("credential %s: GitHub's installation of %s named no App at %s (the %s profile, %s), so what its App posted cannot be told from a copy", name, repo, c.bc.jwt.Template.Lookup.Actor, c.bc.profile.Name, c.bc.profile.origin())
+	}
+	login = slug + "[bot]"
+	c.p.mu.Lock()
+	if c.p.logins == nil {
+		c.p.logins = map[string]string{}
+	}
+	c.p.logins[name] = login
+	c.p.mu.Unlock()
+	return login, nil
+}
+
+// postedBy says whether a comment's or a review's author is login: GitHub
+// gives an App's bot as <slug>[bot] in REST, in any case.
+func postedBy(author, login string) bool {
+	return login != "" && strings.EqualFold(author, login)
+}
+
+// do sends one request and decodes a 2xx answer into out. Nothing is sent
+// while the installation backs off from a rate limit.
 func (c *githubCall) do(ctx context.Context, method, path string, body, out any) error {
+	if err := c.p.channels.githubBackingOff(c.bc, c.repo); err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(ctx, c.p.Timeout)
 	defer cancel()
 	var reader io.Reader
@@ -199,7 +252,7 @@ func (c *githubCall) do(ctx context.Context, method, path string, body, out any)
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if resp.StatusCode >= 300 {
-		return githubError(resp, data)
+		return c.refused(resp, data)
 	}
 	if out != nil && len(data) > 0 {
 		return json.Unmarshal(data, out)
@@ -207,9 +260,21 @@ func (c *githubCall) do(ctx context.Context, method, path string, body, out any)
 	return nil
 }
 
-// githubError reads a refusal: GitHub's message and its errors, and a rate
-// limit's reset.
-func githubError(resp *http.Response, data []byte) error {
+// refused reads a refusal of the call: a *GitHubRateLimit, which the
+// installation then backs off from, or a *GitHubError.
+func (c *githubCall) refused(resp *http.Response, data []byte) error {
+	return c.p.channels.githubLimited(c.bc, c.repo, githubError(resp, data, c.p.channels.broker.now()))
+}
+
+// graphQL runs one GraphQL request as the call's credential and token.
+func (c *githubCall) graphQL(ctx context.Context, query string, vars map[string]any, out any) error {
+	return c.p.channels.githubGraphQL(ctx, c.bc, c.repo, c.token, query, vars, out)
+}
+
+// githubError reads a refusal: a rate limit (*GitHubRateLimit, its
+// installation not yet named), else GitHub's message and its errors
+// (*GitHubError).
+func githubError(resp *http.Response, data []byte, now time.Time) error {
 	var answer struct {
 		Message string `json:"message"`
 		Errors  []any  `json:"errors"`
@@ -229,17 +294,10 @@ func githubError(resp *http.Response, data []byte) error {
 	if message == "" {
 		message = resp.Status
 	}
-	out := &GitHubError{Status: resp.StatusCode, Message: message}
-	if resp.StatusCode == http.StatusTooManyRequests || (resp.StatusCode == http.StatusForbidden && (resp.Header.Get("x-ratelimit-remaining") == "0" || strings.Contains(strings.ToLower(message), "rate limit"))) {
-		out.RateLimited = true
-		out.RetryAt = time.Now().Add(time.Minute)
-		if after, err := strconv.Atoi(resp.Header.Get("retry-after")); err == nil {
-			out.RetryAt = time.Now().Add(time.Duration(after) * time.Second)
-		} else if reset, err := strconv.ParseInt(resp.Header.Get("x-ratelimit-reset"), 10, 64); err == nil {
-			out.RetryAt = time.Unix(reset, 0)
-		}
+	if limit := readRateLimit(resp, message, false, now); limit != nil {
+		return limit
 	}
-	return out
+	return &GitHubError{Status: resp.StatusCode, Message: message}
 }
 
 // reviewMarker is the hidden line that names a review among a pull
@@ -250,7 +308,10 @@ func reviewMarker(marker string) string { return "<!-- legato-review-pass " + ma
 // anchors each finding against the pull request's diff, moving those it
 // cannot anchor into the body. A review already posted with the same
 // marker is returned, not posted again; after an error or a timeout the
-// pull request's reviews are read for it before the error is reported.
+// pull request's reviews are read for it before the error is reported. A
+// review found or posted comes with its inline comments (the threads of
+// its findings); when GitHub took it but they could not be read, the
+// error says so, and FindReview finds them on the next try.
 func (p *ReviewPublisher) PostReview(ctx context.Context, post ReviewPost) (PostedReview, error) {
 	if post.Event != ReviewApprove && post.Event != ReviewComment {
 		return PostedReview{}, fmt.Errorf("a review is %s or %s, not %q", ReviewApprove, ReviewComment, post.Event)
@@ -263,10 +324,12 @@ func (p *ReviewPublisher) PostReview(ctx context.Context, post ReviewPost) (Post
 		return PostedReview{}, err
 	}
 	defer releaseRead()
-	if found, ok, err := p.findReview(ctx, read, post); err != nil {
+	login, err := read.login(ctx, post.Repo)
+	if err != nil {
 		return PostedReview{}, err
-	} else if ok {
-		return found, nil
+	}
+	if found, ok, err := p.findPosted(ctx, read, post, login); err != nil || ok {
+		return found, err
 	}
 	diff, err := p.diffLines(ctx, read, post.Repo, post.Number)
 	if err != nil {
@@ -292,36 +355,101 @@ func (p *ReviewPublisher) PostReview(ctx context.Context, post ReviewPost) (Post
 		if p.learnLogin != nil && created.User.Login != "" {
 			p.learnLogin(created.User.Login)
 		}
-		posted := PostedReview{ID: created.ID, URL: created.HTMLURL, Inline: inline}
-		posted.CommentIDs = p.reviewComments(ctx, read, post.Repo, post.Number, created.ID)
-		return posted, nil
+		posted := PostedReview{ID: created.ID, URL: created.HTMLURL}
+		if len(inline) == 0 {
+			return posted, nil
+		}
+		return p.withThreads(ctx, read, post, posted)
 	}
 	var refused *GitHubError
-	if errors.As(err, &refused) && refused.Status < 500 {
+	if errors.As(err, &refused) && refused.Status < 500 || errors.As(err, new(*GitHubRateLimit)) {
 		return PostedReview{}, err // GitHub saw it and said no
 	}
 	// No answer, or a server error: GitHub may have taken it.
-	if found, ok, findErr := p.findReview(context.WithoutCancel(ctx), read, post); findErr == nil && ok {
-		found.Inline = inline
-		return found, nil
+	if found, ok, findErr := p.findPosted(context.WithoutCancel(ctx), read, post, login); ok || findErr != nil && found.ID != 0 {
+		return found, findErr
 	}
 	return PostedReview{}, err
 }
 
-// reviewComments are the IDs of a review's inline comments, in the order
-// they were posted; nil when GitHub does not say.
-func (p *ReviewPublisher) reviewComments(ctx context.Context, call *githubCall, repo string, number int, reviewID int64) []int64 {
+// FindReview looks on GitHub, as the reviewer App, for the review with the
+// post's marker, and returns it with its inline comments: how a post whose
+// outcome was not known is settled before it is tried again.
+func (p *ReviewPublisher) FindReview(ctx context.Context, post ReviewPost) (PostedReview, bool, error) {
+	if post.Marker == "" {
+		return PostedReview{}, false, errors.New("a review needs a marker")
+	}
+	read, release, err := p.open(ctx, AsReviewer, post.Repo, false)
+	if err != nil {
+		return PostedReview{}, false, err
+	}
+	defer release()
+	login, err := read.login(ctx, post.Repo)
+	if err != nil {
+		return PostedReview{}, false, err
+	}
+	return p.findPosted(ctx, read, post, login)
+}
+
+// findPosted is findReview with the review's inline comments. A review
+// found whose comments could not be read is returned with the error (its
+// ID set, ok false). Only a review login posted counts.
+func (p *ReviewPublisher) findPosted(ctx context.Context, call *githubCall, post ReviewPost, login string) (PostedReview, bool, error) {
+	found, ok, err := p.findReview(ctx, call, post, login)
+	if err != nil || !ok {
+		return PostedReview{}, false, err
+	}
+	placed := false
+	for _, f := range post.Findings {
+		placed = placed || f.Place != nil
+	}
+	if !placed {
+		return found, true, nil
+	}
+	found, err = p.withThreads(ctx, call, post, found)
+	return found, err == nil, err
+}
+
+// withThreads reads a review's inline comments and matches each to the
+// finding it was made of, by its text: Inline and CommentIDs, in GitHub's
+// order. When they cannot be read the review is returned with an error
+// that is not GitHub's refusal of the review (a rate limit aside): it is
+// on GitHub, and only its threads are not known yet.
+func (p *ReviewPublisher) withThreads(ctx context.Context, call *githubCall, post ReviewPost, review PostedReview) (PostedReview, error) {
 	var comments []struct {
-		ID int64 `json:"id"`
+		ID   int64  `json:"id"`
+		Body string `json:"body"`
 	}
-	if err := call.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d/reviews/%d/comments?per_page=100", repo, number, reviewID), nil, &comments); err != nil {
-		return nil
+	err := call.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d/reviews/%d/comments?per_page=100", post.Repo, post.Number, review.ID), nil, &comments)
+	if errors.As(err, new(*GitHubRateLimit)) {
+		return review, err
 	}
-	ids := make([]int64, 0, len(comments))
+	if err != nil {
+		return review, fmt.Errorf("review %d of %s#%d is on GitHub, but its inline comments could not be read: %v", review.ID, post.Repo, post.Number, err)
+	}
+	used := map[int]bool{}
 	for _, c := range comments {
-		ids = append(ids, c.ID)
+		body := normalizeText(c.Body)
+		for i, finding := range post.Findings {
+			if !used[i] && finding.Place != nil && normalizeText(inlineText(finding)) == body {
+				used[i] = true
+				review.Inline = append(review.Inline, i)
+				review.CommentIDs = append(review.CommentIDs, c.ID)
+				break
+			}
+		}
 	}
-	return ids
+	return review, nil
+}
+
+// normalizeText is text as compared with what GitHub gives back.
+func normalizeText(s string) string {
+	return strings.TrimSpace(strings.ReplaceAll(s, "\r\n", "\n"))
+}
+
+// inlineText is a finding's text as an inline comment.
+func inlineText(finding ReviewPostFinding) string {
+	return "**" + strings.TrimSpace(finding.Title) + "**\n\n" + strings.TrimSpace(finding.Body)
 }
 
 // PullRequests are the open pull requests whose heads are branches, in the
@@ -358,11 +486,12 @@ func (p *ReviewPublisher) OpenPulls(ctx context.Context, repo string, q PullQuer
 // 100.
 func openPulls(ctx context.Context, call *githubCall, repo string, q PullQuery) ([]ReviewGitHubPR, error) {
 	var pulls []struct {
-		Number  int    `json:"number"`
-		Title   string `json:"title"`
-		Body    string `json:"body"`
-		HTMLURL string `json:"html_url"`
-		User    struct {
+		Number      int    `json:"number"`
+		Title       string `json:"title"`
+		Body        string `json:"body"`
+		HTMLURL     string `json:"html_url"`
+		Association string `json:"author_association"`
+		User        struct {
 			Login string `json:"login"`
 		} `json:"user"`
 		Head struct {
@@ -394,26 +523,29 @@ func openPulls(ctx context.Context, call *githubCall, repo string, q PullQuery) 
 			headRepo = pr.Head.Repo.FullName
 		}
 		out = append(out, ReviewGitHubPR{Number: pr.Number, Branch: pr.Head.Ref, Base: pr.Base.Ref, Title: pr.Title, Body: pr.Body,
-			URL: pr.HTMLURL, HeadSHA: pr.Head.SHA, Author: pr.User.Login, HeadRepo: headRepo})
+			URL: pr.HTMLURL, HeadSHA: pr.Head.SHA, Author: pr.User.Login, AuthorAssociation: pr.Association, HeadRepo: headRepo})
 	}
 	return out, nil
 }
 
 // findReview looks among the pull request's reviews for one with the post's
-// marker.
-func (p *ReviewPublisher) findReview(ctx context.Context, call *githubCall, post ReviewPost) (PostedReview, bool, error) {
+// marker that the reviewer App (login) posted.
+func (p *ReviewPublisher) findReview(ctx context.Context, call *githubCall, post ReviewPost, login string) (PostedReview, bool, error) {
 	marker := reviewMarker(post.Marker)
 	for page := 1; page <= 50; page++ {
 		var reviews []struct {
 			ID      int64  `json:"id"`
 			Body    string `json:"body"`
 			HTMLURL string `json:"html_url"`
+			User    struct {
+				Login string `json:"login"`
+			} `json:"user"`
 		}
 		if err := call.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d/reviews?per_page=100&page=%d", post.Repo, post.Number, page), nil, &reviews); err != nil {
 			return PostedReview{}, false, err
 		}
 		for _, review := range reviews {
-			if strings.Contains(review.Body, marker) {
+			if strings.Contains(review.Body, marker) && postedBy(review.User.Login, login) {
 				return PostedReview{ID: review.ID, URL: review.HTMLURL, Existed: true}, true, nil
 			}
 		}
@@ -431,21 +563,13 @@ type diffSides map[string]map[int]int
 // diffLines reads which lines of each file the pull request's diff shows:
 // path -> side -> line -> hunk.
 func (p *ReviewPublisher) diffLines(ctx context.Context, call *githubCall, repo string, number int) (map[string]diffSides, error) {
+	files, err := pullFiles(ctx, call, repo, number)
+	if err != nil {
+		return nil, err
+	}
 	out := map[string]diffSides{}
-	for page := 1; page <= 30; page++ {
-		var files []struct {
-			Filename string `json:"filename"`
-			Patch    string `json:"patch"`
-		}
-		if err := call.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d/files?per_page=100&page=%d", repo, number, page), nil, &files); err != nil {
-			return nil, err
-		}
-		for _, f := range files {
-			out[f.Filename] = parsePatchLines(f.Patch)
-		}
-		if len(files) < 100 {
-			break
-		}
+	for _, f := range files {
+		out[f.Filename] = parsePatchLines(f.Patch)
 	}
 	return out, nil
 }
@@ -522,7 +646,7 @@ func composeReview(post ReviewPost, diff map[string]diffSides) (string, []map[st
 	var inline []int
 	var outside []string
 	for i, finding := range post.Findings {
-		text := "**" + strings.TrimSpace(finding.Title) + "**\n\n" + strings.TrimSpace(finding.Body)
+		text := inlineText(finding)
 		if anchored(finding.Place, diff) {
 			comment := map[string]any{"path": finding.Place.Path, "line": finding.Place.Line, "side": sideOf(finding.Place), "body": text}
 			if finding.Place.StartLine > 0 && finding.Place.StartLine < finding.Place.Line {
@@ -565,29 +689,120 @@ func sideOf(place *ReviewPlace) string {
 	return "RIGHT"
 }
 
-// Reply answers in the review thread whose first comment is commentID.
-func (p *ReviewPublisher) Reply(ctx context.Context, who GitHubIdentity, repo string, number int, commentID int64, body string) error {
-	call, release, err := p.open(ctx, who, repo, true)
-	if err != nil {
-		return err
-	}
-	defer release()
-	return call.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/pulls/%d/comments/%d/replies", repo, number, commentID), map[string]string{"body": body}, nil)
+// Kinds of comment markers. Each kind is a hidden tag of its own, apart
+// from a review's (legato-review-pass), so no kind is taken for another.
+const (
+	// MarkerAnswer marks an author's answer to a finding, a comment or a
+	// check, posted as the author App.
+	MarkerAnswer = "answer"
+	// MarkerRuling marks a reviewer's ruling, replied in a finding's
+	// thread as the reviewer App.
+	MarkerRuling = "ruling"
+)
+
+// CommentMarker names one reply or conversation comment Legato posts. It
+// is hidden in the comment, and looked for before the comment is posted
+// and again after a timeout or a 5xx, so a comment GitHub took is found,
+// not posted twice. The key must be unique to the comment, never derived
+// from its text.
+type CommentMarker struct {
+	Kind string
+	Key  string
 }
 
-// PostIssueComment comments on the pull request's conversation, and returns
-// the comment's ID.
-func (p *ReviewPublisher) PostIssueComment(ctx context.Context, who GitHubIdentity, repo string, number int, body string) (int64, error) {
+// hidden is the line that names the comment on GitHub.
+func (m CommentMarker) hidden() string { return "<!-- legato-" + m.Kind + " " + m.Key + " -->" }
+
+func (m CommentMarker) valid() error {
+	if (m.Kind != MarkerAnswer && m.Kind != MarkerRuling) || m.Key == "" || strings.Contains(m.Key, "\n") || strings.Contains(m.Key, "-->") {
+		return fmt.Errorf("a comment needs a marker (%s or %s, with a key), not %+v", MarkerAnswer, MarkerRuling, m)
+	}
+	return nil
+}
+
+// Reply answers in the review thread whose first comment is commentID, once:
+// a reply in that thread with the same marker, by the App who posts it, is
+// taken for it.
+func (p *ReviewPublisher) Reply(ctx context.Context, who GitHubIdentity, repo string, number int, commentID int64, body string, marker CommentMarker) error {
+	_, err := p.postComment(ctx, who, repo, marker, fmt.Sprintf("/repos/%s/pulls/%d/comments", repo, number),
+		fmt.Sprintf("/repos/%s/pulls/%d/comments/%d/replies", repo, number, commentID), body, commentID)
+	return err
+}
+
+// PostIssueComment comments on the pull request's conversation once, and
+// returns the comment's ID: a comment with the same marker already there,
+// by the App who posts it, is taken for it.
+func (p *ReviewPublisher) PostIssueComment(ctx context.Context, who GitHubIdentity, repo string, number int, body string, marker CommentMarker) (int64, error) {
+	list := fmt.Sprintf("/repos/%s/issues/%d/comments", repo, number)
+	return p.postComment(ctx, who, repo, marker, list, list, body, 0)
+}
+
+// postComment posts body with its hidden marker to create, unless a comment
+// in list has the marker and was posted as who (in the thread of thread,
+// for a reply). After a timeout or a 5xx, GitHub may have taken it: list
+// is read again, and a comment found there is the answer.
+func (p *ReviewPublisher) postComment(ctx context.Context, who GitHubIdentity, repo string, marker CommentMarker, list, create, body string, thread int64) (int64, error) {
+	if err := marker.valid(); err != nil {
+		return 0, err
+	}
 	call, release, err := p.open(ctx, who, repo, true)
 	if err != nil {
 		return 0, err
 	}
 	defer release()
+	login, err := call.login(ctx, repo)
+	if err != nil {
+		return 0, err
+	}
+	if id, ok, err := findComment(ctx, call, list, marker, login, thread); err != nil {
+		return 0, err
+	} else if ok {
+		return id, nil
+	}
 	var created struct {
 		ID int64 `json:"id"`
 	}
-	err = call.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/comments", repo, number), map[string]string{"body": body}, &created)
-	return created.ID, err
+	err = call.do(ctx, http.MethodPost, create, map[string]string{"body": body + "\n\n" + marker.hidden()}, &created)
+	if err == nil {
+		return created.ID, nil
+	}
+	var refused *GitHubError
+	if errors.As(err, &refused) && refused.Status < 500 {
+		return 0, err // GitHub saw it and said no
+	}
+	if id, ok, findErr := findComment(context.WithoutCancel(ctx), call, list, marker, login, thread); findErr == nil && ok {
+		return id, nil
+	}
+	return 0, err
+}
+
+// findComment looks through a list of comments for one with the marker
+// that login posted, and, when thread is set, posted as a reply in the
+// thread whose first comment is thread.
+func findComment(ctx context.Context, call *githubCall, list string, marker CommentMarker, login string, thread int64) (int64, bool, error) {
+	hidden := marker.hidden()
+	for page := 1; page <= 50; page++ {
+		var comments []struct {
+			ID        int64  `json:"id"`
+			Body      string `json:"body"`
+			InReplyTo int64  `json:"in_reply_to_id"`
+			User      struct {
+				Login string `json:"login"`
+			} `json:"user"`
+		}
+		if err := call.do(ctx, http.MethodGet, fmt.Sprintf("%s?per_page=100&page=%d", list, page), nil, &comments); err != nil {
+			return 0, false, err
+		}
+		for _, c := range comments {
+			if strings.Contains(c.Body, hidden) && postedBy(c.User.Login, login) && (thread == 0 || c.InReplyTo == thread) {
+				return c.ID, true, nil
+			}
+		}
+		if len(comments) < 100 {
+			break
+		}
+	}
+	return 0, false, nil
 }
 
 // ResolveThread resolves the review thread holding commentID, as the
@@ -624,7 +839,7 @@ func (p *ReviewPublisher) ResolveThread(ctx context.Context, repo string, number
 			} `json:"repository"`
 		}
 		query := `query($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id comments(first: 1) { nodes { fullDatabaseId } } } } } } }`
-		if err := p.channels.githubGraphQL(ctx, call.bc, call.token, query, map[string]any{"owner": owner, "name": name, "number": number, "after": after}, &found); err != nil {
+		if err := call.graphQL(ctx, query, map[string]any{"owner": owner, "name": name, "number": number, "after": after}, &found); err != nil {
 			return err
 		}
 		threads := found.Repository.PullRequest.ReviewThreads
@@ -641,5 +856,5 @@ func (p *ReviewPublisher) ResolveThread(ctx context.Context, repo string, number
 	if threadID == "" {
 		return fmt.Errorf("no review thread of %s#%d starts with comment %d", repo, number, commentID)
 	}
-	return p.channels.githubGraphQL(ctx, call.bc, call.token, `mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }`, map[string]any{"id": threadID}, nil)
+	return call.graphQL(ctx, `mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }`, map[string]any{"id": threadID}, nil)
 }

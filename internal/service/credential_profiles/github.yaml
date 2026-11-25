@@ -33,6 +33,9 @@ jwt_exchange:
     # The installation's permissions: a push that changes workflows is
     # refused before anyone is asked when the App lacks workflows: write.
     granted: "$.permissions"
+    # The App's slug: its posts are <slug>[bot]'s, which is how Legato tells
+    # a comment it posted from one with a copy of its marker.
+    actor: "$.app_slug"
   exchange:
     method: POST
     url: "https://api.github.com/app/installations/{installation}/access_tokens"

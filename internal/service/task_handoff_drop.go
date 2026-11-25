@@ -33,6 +33,7 @@ func (s *HandoffWorkerService) Drop(ctx context.Context, mainInstanceID, handoff
 	}
 	if h.ClosedAt == nil {
 		s.stopAgent(ctx, h)
+		s.stopReview(ctx, h)
 		note := store.TaskNote{ID: workflowID("tn-"), Source: "local",
 			Body: fmt.Sprintf("%s took this task back without its results, so it was archived here.", mainNameOf(h))}
 		closed, err := s.db.CloseHandoffWithNote(ctx, mainInstanceID, handoffID, note, true, s.opts.Now().UTC().Format(time.RFC3339))
@@ -70,9 +71,7 @@ func (s *HandoffWorkerService) UnpairMain(ctx context.Context, mainInstanceID st
 	}
 	for _, h := range closed {
 		// The author keeps running on its ordinary card; the review ends.
-		if s.opts.Reviews != nil {
-			s.opts.Reviews.StopReview(ctx, h.TaskID)
-		}
+		s.stopReview(ctx, &h)
 		s.publish(events.EventHandoffChanged, h.TaskID)
 	}
 	if len(closed) > 0 {
