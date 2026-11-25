@@ -199,4 +199,4 @@ To find the author, Legato looks for the board task linked to the pull request. 
 
 The two agents link to each other in the web UI's **Related** panel. The author's chat lists **Reviewer · pass N** with the loop's state, and the reviewer's chat lists **Author**. Without `agent_author`, the reviewer's panel lists the pull request's board task, if there is one, and that task's agent still sees the reviewer.
 
-Legato does not start a loop on local work by itself, but it prompts you: when a task on your board (not handed off) reaches Done or the Review column with open pull requests that no loop reviews, [Attention](/legato/using/attention/) offers **Start review passes**, which reviews the whole stack with the task's agent as the author.
+Legato does not start a loop on local work by itself, but it prompts you: when a task on your board (not handed off) reaches Done or the Review column with open pull requests that no loop reviews, [Attention](/legato/using/attention/) offers **Start review passes**, which reviews the whole stack with the built-in `review-loop`, with the task's agent as the author when Legato's author App opened the pull requests.
