@@ -14,8 +14,10 @@ import (
 )
 
 // A jira credential's guidance works as written from a shell in the agent's
-// sandbox: the shell has the placeholder, not the operator's own token that
-// the pane inherited, and the proxy signs the request with the real one.
+// sandbox: the shell has the placeholder, not the operator's own token, and
+// the proxy signs the request with the real one. That holds when the pane's
+// own shell startup put the operator's token back over the placeholder
+// before the sandbox started.
 func TestTheJiraGuidanceCurlWorksFromAShellInTheSandbox(t *testing.T) {
 	in := bwrapFixture(t)
 	if _, err := exec.LookPath("curl"); err != nil {
@@ -34,7 +36,7 @@ func TestTheJiraGuidanceCurlWorksFromAShellInTheSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in.SessionEnv = sessionEnvNames(env)
+	in.SessionEnv = sessionEnvValues(env)
 	plan, err := BuildSandboxPlan(in)
 	if err != nil {
 		t.Fatal(err)
@@ -52,12 +54,14 @@ curl -su "$JIRA_EMAIL:$JIRA_API_TOKEN" "$JIRA_BASE_URL/rest/api/3/search/jql?jql
 			t.Fatal(err)
 		}
 		cmd := exec.Command(args[0], args[1:]...)
-		// As the pane has it: the operator's own token inherited, then
-		// Legato's session variables over it (tmux's -e).
-		cmd.Env = append(os.Environ(), "HOME="+in.Home, "JIRA_API_TOKEN=operator-real-token")
+		// As the pane has it: Legato's session variables (tmux's -e), then
+		// the operator's own token exported again by the pane's shell
+		// startup.
+		cmd.Env = append(os.Environ(), "HOME="+in.Home)
 		for k, v := range env {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
+		cmd.Env = append(cmd.Env, "JIRA_API_TOKEN=operator-real-token")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("%s: %v: %s", shell, err, out)
