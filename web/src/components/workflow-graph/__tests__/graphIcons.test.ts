@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { AtSign, MessageCircle, MessageSquareShare } from "lucide-react"
+import { AtSign, MessageCircle, MessageSquareShare, Smile, SmilePlus } from "lucide-react"
 import { stepIcon, triggerIcon } from "../graphIcons"
 import { nodeName, stepTypeLabel, triggerName } from "../../../lib/workflowGraph"
 import { triggerKinds } from "../../workflow-editor/triggerForms"
@@ -19,6 +19,13 @@ describe("the graph's chat nodes", () => {
   it("labels and draws the chat message step", () => {
     expect(stepTypeLabel("chat.message.send")).toBe("Chat message")
     expect(stepIcon("chat.message.send")).toBe(MessageSquareShare)
+  })
+
+  it("labels and draws the chat reaction steps", () => {
+    expect(stepTypeLabel("chat.reaction.add")).toBe("Chat reaction")
+    expect(stepTypeLabel("chat.reaction.remove")).toBe("Remove reaction")
+    expect(stepIcon("chat.reaction.add")).toBe(SmilePlus)
+    expect(stepIcon("chat.reaction.remove")).toBe(Smile)
   })
 
   it("names a chat trigger node by the server's summary", () => {

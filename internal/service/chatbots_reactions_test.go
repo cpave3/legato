@@ -129,9 +129,9 @@ func TestDiscordReactions(t *testing.T) {
 
 func TestDiscordReactionRefusalsSayWhatToDo(t *testing.T) {
 	for _, tc := range []struct {
-		status    int
-		body      string
-		want      []string
+		status int
+		body   string
+		want   []string
 	}{
 		{http.StatusForbidden, `{"message":"Missing Permissions","code":50013}`, []string{"Add Reactions", "Read Message History"}},
 		{http.StatusForbidden, `{"message":"Missing Access","code":50001}`, []string{"View Channel"}},

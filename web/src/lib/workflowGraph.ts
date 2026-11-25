@@ -52,6 +52,8 @@ const stepTypeLabels: Record<string, string> = {
   "learning.packet.prepare": "Gather learnings",
   "learning.proposals.submit": "Submit learnings",
   "chat.message.send": "Chat message",
+  "chat.reaction.add": "Chat reaction",
+  "chat.reaction.remove": "Remove reaction",
 }
 
 export function stepTypeLabel(type: string): string {

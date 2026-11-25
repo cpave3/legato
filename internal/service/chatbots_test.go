@@ -15,11 +15,11 @@ import (
 type fakeChatConnection struct {
 	name, platform string
 
-	mu    sync.Mutex
-	runs  []func(ctx context.Context, emit func(ChatEvent), connected func()) error
-	calls int
-	sent  []fakeSent
-	send  func(ctx context.Context, channel, text, threadID string) (SentMessage, error)
+	mu      sync.Mutex
+	runs    []func(ctx context.Context, emit func(ChatEvent), connected func()) error
+	calls   int
+	sent    []fakeSent
+	send    func(ctx context.Context, channel, text, threadID string) (SentMessage, error)
 	reacted []fakeReaction
 	react   func(ctx context.Context, channel, messageID, emoji string, remove bool) error
 }
@@ -385,10 +385,10 @@ func TestChatBotsReact(t *testing.T) {
 	for name, tc := range map[string]struct {
 		bot, message, emoji, want string
 	}{
-		"unknown bot": {"teams", "1.5", "eyes", "no such chat bot"},
+		"unknown bot":  {"teams", "1.5", "eyes", "no such chat bot"},
 		"switched off": {"discord", "1.5", "eyes", "switched off"},
-		"no message":  {"slack", " ", "eyes", "message"},
-		"no emoji":    {"slack", "1.5", "", "emoji"},
+		"no message":   {"slack", " ", "eyes", "message"},
+		"no emoji":     {"slack", "1.5", "", "emoji"},
 	} {
 		err := bots.React(context.Background(), tc.bot, "C1", tc.message, tc.emoji, false)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
