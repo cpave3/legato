@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, Download, FileText } from "lucide-react"
 import { useWorkflowRun } from "../hooks/useWorkflow"
 import { useServer } from "../hooks/useServer"
 import { useNow } from "../hooks/useNow"
-import { anotherReviewPass, resumeWorkflowAgent, workflowStepAction, type GateDetails, type MergeWaitDetails, cancelWorkflow, retryWorkflowStep, resumeWorkflowStep, triggerWorkflowStep, promptWorkflowStep, fetchWorkflowArtifact, type ReviewRunDetails, type WorkflowArtifact, type WorkflowAttempt, type WorkflowRunView, type WorkflowStepRun } from "../lib/workflow"
+import { anotherReviewPass, resumeWorkflowAgent, workflowStepAction, type GateDetails, type MergeWaitDetails, type WorkflowCallDetails, cancelWorkflow, retryWorkflowStep, resumeWorkflowStep, triggerWorkflowStep, promptWorkflowStep, fetchWorkflowArtifact, type ReviewRunDetails, type WorkflowArtifact, type WorkflowAttempt, type WorkflowRunView, type WorkflowStepRun } from "../lib/workflow"
 import { ago, attentionCopy, currentStep, elapsed, inputText, runWithAttention, producedValues, runState, runSubject, sourceLabel, stepIntent, stepMark, stepPosition, stepSegments, type StepLike, type Tone } from "../lib/workflowView"
 import { WorkflowMarkdownPreview } from "../components/WorkflowMarkdownPreview"
 import { ManualWorkflowStepAction } from "../components/ManualWorkflowStepAction"
@@ -102,17 +102,27 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
   const state = runState(run)
   if (run.status === "succeeded") {
     const values = producedValues(steps)
+    // The run's own declared outputs (LEG-489), and those that did not
+    // resolve.
+    const runOutputs = objectEntries(run.outputs_json ?? "")
+    const unresolved = view.output_warnings ?? []
     // Agent steps that finished with no output (LEG-532).
     const warned = steps.filter(step => step.output_warning)
-    const warnings = warned.length > 0 && <ul aria-label="Steps with no output" className="mt-2 space-y-1 text-lw-needs">
-      {warned.map(step => <li key={step.step_id}><span className="font-medium">{step.title}:</span> {step.output_warning}</li>)}
-    </ul>
-    if (artifacts.length === 0 && values.length === 0) return warnings ? <NowPanel tone="needs" heading="No output">{warnings}</NowPanel> : null
+    const warnings = (warned.length > 0 || unresolved.length > 0) && <>
+      {unresolved.length > 0 && <ul aria-label="Outputs not resolved" className="mt-2 space-y-1 text-lw-needs">
+        {unresolved.map(warning => <li key={warning}>{warning}</li>)}
+      </ul>}
+      {warned.length > 0 && <ul aria-label="Steps with no output" className="mt-2 space-y-1 text-lw-needs">
+        {warned.map(step => <li key={step.step_id}><span className="font-medium">{step.title}:</span> {step.output_warning}</li>)}
+      </ul>}
+    </>
+    if (artifacts.length === 0 && values.length === 0 && runOutputs.length === 0) return warnings ? <NowPanel tone="needs" heading="No output">{warnings}</NowPanel> : null
     return <NowPanel tone="done" heading="Produced">
       {warnings}
       <div className="mt-2 grid gap-2 text-lw-text">
+        {runOutputs.length > 0 && <section aria-label="Run outputs"><ValueList values={runOutputs} secrets={secrets} className="mt-1" /></section>}
         {artifacts.map(artifact => <Artifact key={artifact.id} artifact={artifact} step={steps.find(step => step.step_id === artifact.step_id)?.title} />)}
-        {values.length > 0 && <ValueList values={values.map(value => [value.key, value.value])} secrets={secrets} className="mt-1" />}
+        {runOutputs.length === 0 && values.length > 0 && <ValueList values={values.map(value => [value.key, value.value])} secrets={secrets} className="mt-1" />}
       </div>
     </NowPanel>
   }
@@ -144,6 +154,13 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
   if (!current) return null
   if (current.status === "waiting" && current.executor_type === "gate") {
     return <GateNow view={view} step={current} runId={runId} refresh={refresh} />
+  }
+  if (current.status === "waiting" && current.executor_type === "workflow.run" && current.child_run_id) {
+    const child = view.details?.[current.step_id] as WorkflowCallDetails | undefined
+    return <NowPanel tone={state.tone} heading={`${current.title} waits on its child run`}
+      actions={<Button asChild variant="primary"><Link to={runLink(current.child_run_id)}>Open child run</Link></Button>}>
+      {child && <p>{child.title || child.workflow} · {child.status.replaceAll("_", " ")}</p>}
+    </NowPanel>
   }
   const attempt = [...attempts].reverse().find(item => item.step_id === current.step_id && item.status === "waiting_agent")
   if (attempt) {
@@ -312,6 +329,8 @@ function stepDuration(step: WorkflowStepRun, now: number): string {
   return elapsed(step.started_at, step.completed_at ?? now)
 }
 
+const runLink = (id: string) => `/workflows/runs/${encodeURIComponent(id)}`
+
 function objectEntries(raw: string): [string, unknown][] {
   const value = parseJSON(raw)
   return value && typeof value === "object" && !Array.isArray(value) ? Object.entries(value as Record<string, unknown>) : []
@@ -335,6 +354,7 @@ function StepRow({ step, run, attempts, artifacts, now, secrets }: { step: Workf
       <p className="font-lw-mono text-xs text-lw-faint sm:hidden">{step.executor_type}</p>
       {step.error && step.status !== "failed" && <p className="text-lw-error">{redact(step.error, secrets)}</p>}
       {step.output_warning && <p className="text-lw-needs">{step.output_warning}</p>}
+      {step.child_run_id && <p className="text-lw-text-2">Child run <Link className="font-lw-mono text-xs text-lw-link" to={runLink(step.child_run_id)}>{step.child_run_id}</Link></p>}
       {inputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Inputs</h3><ValueList values={inputs} secrets={secrets} /></div>}
       {outputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Outputs</h3><ValueList values={outputs} secrets={secrets} /></div>}
       {artifacts.length > 0 && run.status !== "succeeded" && <div className="grid gap-2">{artifacts.map(artifact => <Artifact key={artifact.id} artifact={artifact} />)}</div>}
@@ -498,6 +518,7 @@ function RunStepPanel({ view, node, runId, secrets, state }: { view: WorkflowRun
       <h2 className="mt-0.5 text-[15px] font-semibold">{graphStep.title}</h2>
       {step?.error && <p className="mt-1 whitespace-pre-wrap break-words text-lw-error">{redact(step.error, secrets)}</p>}
       {step?.output_warning && <p className="mt-1 text-lw-needs">{step.output_warning}</p>}
+      {step?.child_run_id && <p className="mt-1 text-lw-text-2">Child run <Link className="font-lw-mono text-xs text-lw-link" to={runLink(step.child_run_id)}>{step.child_run_id}</Link></p>}
     </div>
     {inputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Inputs</h3><ValueList values={inputs} secrets={secrets} /></div>}
     {outputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Outputs</h3><ValueList values={outputs} secrets={secrets} /></div>}
@@ -586,6 +607,7 @@ export function WorkflowRunPage() {
           <h1 className="break-words text-xl font-semibold">{run.workflow_title}</h1>
           <p className="mt-1 text-[13px] text-lw-text-2">
             {workflow && workflow !== run.workflow_title && <>{workflow} · </>}
+            {run.parent_run_id && <span>called by <Link to={runLink(run.parent_run_id)} className="text-lw-link">{run.parent_run_id}</Link>{run.parent_step_path && <> at <span className="font-lw-mono text-xs">{run.parent_step_path}</span></>} · </span>}
             {run.related_task_id && <>for <Link to={`/board?highlight_task=${encodeURIComponent(run.related_task_id)}`} className="text-lw-link">{run.related_task_id}</Link>{run.related_task_title && ` ${run.related_task_title}`} · </>}
             {subject && <>{subject}{when && " · "}</>}
             {when}
