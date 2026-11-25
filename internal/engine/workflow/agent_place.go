@@ -68,6 +68,9 @@ func checkAgentStep(step Step) error {
 	if step.Type != "agent.run" {
 		return nil
 	}
+	if value, ok := step.With["clone"]; ok && !cloneForm(value) {
+		return within("with.clone", fmt.Errorf("with clone must be {from: <step>}, a clone ID, or null for a fresh clone"))
+	}
 	if AgentOnTask(step.With) {
 		for _, key := range []string{"keep", "keep_agent"} {
 			if _, ok := step.With[key]; ok {
@@ -106,4 +109,19 @@ func checkAgentFrom(step Step, agentSteps map[string]bool) error {
 		return within("with.agent", fmt.Errorf("with agent: step %q runs no agent", from))
 	}
 	return nil
+}
+
+// cloneForm says whether an agent.run step's with.clone is one a file may
+// give: {from: <step>}, a clone ID (a number, or an expression), or null.
+func cloneForm(value any) bool {
+	switch v := value.(type) {
+	case nil, int, int64, float64:
+		return true
+	case string:
+		return HasExpression(v)
+	case map[string]any:
+		_, ok := AgentFrom(v)
+		return ok
+	}
+	return false
 }

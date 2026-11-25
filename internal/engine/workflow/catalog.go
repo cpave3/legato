@@ -112,7 +112,8 @@ type ExecutorSpec struct {
 	Constraints []Constraint
 	Outputs     []OutputSpec
 	// DeclaredOutputs executors produce whatever outputs the step declares:
-	// an agent completes the step with them.
+	// an agent completes the step with them. Their Outputs are those Legato
+	// fills beside them (an agent step's, LEG-485).
 	DeclaredOutputs bool
 	// Summary names the fields a step row is summed up by: the first of
 	// them with a value, such as the macro or else the prompt.
@@ -318,8 +319,25 @@ var (
 	}
 	// agentFromField names the agent an earlier step used: {from: <step>}.
 	agentFromField = Field{Name: "agent", Kind: KindJSON, Label: "Or the agent of a step", Description: "{from: <step>}: the agent an earlier agent.run, agent.message or agent.dispatch step used; checked when the file loads"}
-	agentOrTask  = Constraint{Kind: ExactlyOne, Fields: []string{"task", "agent"}, Checked: true}
-	wholeTask    = Field{Name: "task", Kind: KindTask, Label: "Task", Description: "The task: ${{ workflow.task }} or a task input", Required: true, Checked: true, Invalid: "must be a whole task reference"}
+	agentOrTask    = Constraint{Kind: ExactlyOne, Fields: []string{"task", "agent"}, Checked: true}
+	wholeTask      = Field{Name: "task", Kind: KindTask, Label: "Task", Description: "The task: ${{ workflow.task }} or a task input", Required: true, Checked: true, Invalid: "must be a whole task reference"}
+	// agentFilledOutputs are what Legato fills on an agent step when its
+	// wait ends (spec LEG-482 §5.6, LEG-485), beside the outputs the step
+	// declares, which the agent fills and which win on a clash.
+	agentFilledOutputs = []OutputSpec{
+		{Name: "signal", Type: "string", Description: "What ended the wait: complete, finished, ended or none"},
+		{Name: "stage", Type: "string", Description: "The agent's stage then"},
+		{Name: "stage_reason", Type: "string", Description: "Why it is at that stage: the agent's note, or what moved it"},
+		{Name: "last_message", Type: "string", Description: "The agent's last message, at most 4 KiB; empty when Legato cannot read its conversation"},
+		{Name: "session_id", Type: "integer", Description: "The agent's session"},
+		{Name: "task", Type: "string", Description: "The task whose agent it is"},
+		{Name: "working_dir", Type: "string", Description: "The folder the agent works in"},
+		{Name: "clone_id", Type: "integer", Description: "The job clone it works in, for a later step's clone; 0 for none"},
+		{Name: "branch", Type: "string", Description: "The branch its folder has checked out"},
+		{Name: "top_branch", Type: "string", Description: "The top of the clone's stack, or branch"},
+		{Name: "stack", Type: "json", Description: "The clone's stack, bottom first: [{name, parent, state, head_sha}]"},
+		{Name: "prs", Type: "json", Description: "The pull requests of the clone's branches: [{repo, number, url, state, draft, branch}]"},
+	}
 	literalFalse = func(name, label, description string) Field {
 		return Field{Name: name, Kind: KindBoolean, Label: label, Description: description, Default: false, Literal: true, Checked: true, Invalid: "must be true or false"}
 	}
@@ -386,26 +404,26 @@ var catalog = []ExecutorSpec{
 			literalFalse("keep", "Keep the agent running", "With on: run: leave the agent running once its outputs are in, so the operator can go on talking to it").at(17, false),
 			literalFalse("reuse", "Message a running agent", "With on: <task>: when the task's agent is running, message it instead of failing the step").at(18, false),
 			literalFalse("stop", "Stop the agent after", "With on: <task>: stop the task's agent once its outputs are in").at(19, false),
+			{Name: "clone", Kind: KindJSON, Label: "Work in the clone of", Description: "{from: <step>}: the job clone an earlier agent step worked in, or a clone ID such as ${{ steps.x.outputs.clone_id }} (null for a fresh one). In a version 2 file, a step with repo and no clone gets a fresh clone, never one its task has", Order: 20},
 		},
 		Constraints: []Constraint{promptMacro, {Kind: Excludes, Fields: []string{"scratch", "working_dir"}, Checked: true}, {Kind: Excludes, Fields: []string{"scratch", "repo"}, Checked: true},
 			{Kind: Excludes, Fields: []string{"task", "working_dir"}, Checked: true}, {Kind: Excludes, Fields: []string{"task", "scratch"}, Checked: true}, {Kind: Excludes, Fields: []string{"task", "name"}, Checked: true},
 			{Kind: Requires, Fields: []string{"slot", "task"}, Checked: true}, {Kind: Excludes, Fields: []string{"keep", "keep_agent"}, Checked: true}},
 		DeclaredOutputs: true,
 		Summary:         []string{"macro", "prompt"},
+		Outputs:         agentFilledOutputs,
 	},
 	{
 		Type: "agent.message", Group: "Agents", Title: "Message an agent",
-		Description: "Send a prompt or a macro to a running agent: the one an earlier step used (agent: {from: <step>}), or a task's own. A prompt reaches it tagged [legato workflow]; a macro is sent as the operator's own words. The step does not wait for the agent.",
+		Description: "Send a prompt or a macro to a running agent: the one an earlier step used (agent: {from: <step>}), or a task's own. A prompt reaches it tagged [legato workflow]; a macro is sent as the operator's own words. The step does not wait for the agent unless it says wait_for, or declares outputs (complete).",
 		With: []Field{
 			{Name: "task", Kind: KindTaskOrID, Label: "The task's agent", Description: "A task, or a task ID, whose own agent (its main slot) to message", Essential: true, Order: 1}, agentFromField.at(2, true),
 			promptField.at(3, true), macroField.at(4, true), prRepoField.at(5, false), prNumberFld.at(6, false),
 		},
-		Constraints: []Constraint{agentOrTask, promptMacro},
-		Summary:     []string{"macro", "prompt"},
-		Outputs: []OutputSpec{
-			{Name: "task", Type: "string", Description: "The task whose agent was messaged"},
-			{Name: "session_id", Type: "integer", Description: "The agent's session"},
-		},
+		Constraints:     []Constraint{agentOrTask, promptMacro},
+		Summary:         []string{"macro", "prompt"},
+		DeclaredOutputs: true,
+		Outputs:         agentFilledOutputs,
 	},
 	{
 		Type: "agent.dispatch", Group: "Agents", Title: "Send to the task's agent",
@@ -425,7 +443,7 @@ var catalog = []ExecutorSpec{
 	},
 	{
 		Type: "agent.stop", Group: "Agents", Title: "Stop the task's agent",
-		Description: "Stop a task's agent: the one an earlier step used (agent: {from: <step>}), or a task's own (its main slot).",
+		Description: "Stop a task's agent: the one an earlier step used (agent: {from: <step>}), or a task's own (its main slot). With wait_for: [ended], wait for the agent to end first (the operator closes it), then go on.",
 		With: []Field{
 			{Name: "task", Kind: KindTaskOrID, Label: "The task's agent", Description: "The task, or a task ID, whose own agent (its main slot) to stop", Essential: true, Order: 1},
 			agentFromField.at(2, true),

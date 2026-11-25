@@ -74,9 +74,6 @@ func TestCatalogEntriesAreWellFormed(t *testing.T) {
 				t.Errorf("%s output %q: unknown type %q", spec.Type, output.Name, output.Type)
 			}
 		}
-		if spec.DeclaredOutputs && len(spec.Outputs) > 0 {
-			t.Errorf("%s: an executor whose outputs the step declares lists none of its own", spec.Type)
-		}
 	}
 }
 

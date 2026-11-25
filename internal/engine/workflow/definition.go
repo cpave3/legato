@@ -76,9 +76,16 @@ type Step struct {
 	// default) fails the run, OnFailureContinue makes the failure the
 	// step's outputs and goes on, OnFailurePause holds the run at a gate
 	// with Retry, Skip and Stop.
-	OnFailure string            `yaml:"on_failure,omitempty" json:"on_failure,omitempty" legato:"v2"`
-	With      map[string]any    `yaml:"with" json:"with"`
-	Outputs   map[string]Output `yaml:"outputs,omitempty" json:"outputs,omitempty"`
+	OnFailure string `yaml:"on_failure,omitempty" json:"on_failure,omitempty" legato:"v2"`
+	// WaitFor are the signals that end an agent step, the first to come
+	// (spec LEG-482 §5.3): complete, finished, ended or none. Empty is the
+	// step's default (EffectiveWaitFor).
+	WaitFor []string `yaml:"wait_for,omitempty" json:"wait_for,omitempty" legato:"v2"`
+	// Timeout is how long the step may take once it starts, as a duration
+	// such as 12h or 30m (§5.5).
+	Timeout string            `yaml:"timeout,omitempty" json:"timeout,omitempty" legato:"v2"`
+	With    map[string]any    `yaml:"with" json:"with"`
+	Outputs map[string]Output `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 }
 
 // What a step's failure does (Step.OnFailure).
@@ -290,6 +297,8 @@ func (d *Definition) problems() []*PathError {
 			problems = append(problems, err)
 		} else if err := checkAgentFrom(*step, agentSteps); err != nil {
 			problems = append(problems, within(fmt.Sprintf("steps[%d]", i), fmt.Errorf("step %q: %w", step.ID, err)))
+		} else if err := checkCloneFrom(*step, agentSteps); err != nil {
+			problems = append(problems, within(fmt.Sprintf("steps[%d]", i), fmt.Errorf("step %q: %w", step.ID, err)))
 		}
 		agentSteps[step.ID] = agentStepTypes[step.Type]
 		seen[step.ID] = true
@@ -313,6 +322,9 @@ func validateStep(step *Step, index, version int, fromFile bool, seen map[string
 	}
 	if err := validateControl(*step, version, inputs, availableOutputs); err != nil {
 		return within(at+"."+err.key, err.err)
+	}
+	if err := checkWait(*step, version, fromFile); err != nil {
+		return within(at, fmt.Errorf("step %q: %w", step.ID, err))
 	}
 	if err := validateStepContract(*step, inputs); err != nil {
 		return within(at, fmt.Errorf("step %q: %w", step.ID, err))
