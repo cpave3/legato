@@ -238,11 +238,7 @@ func (s *WorkflowService) driveChild(ctx context.Context, attempt store.Workflow
 
 // resumeRun advances a run from its current step.
 func (s *WorkflowService) resumeRun(ctx context.Context, view *store.WorkflowRunView) error {
-	_, definition, inputs, prior, index, err := s.loadExecution(ctx, view.Run.ID, view.Run.CurrentStepID)
-	if err != nil {
-		return err
-	}
-	return s.advance(ctx, definition, inputs, view.Run.ID, view.Run.TaskID, index, prior, "", false)
+	return s.advance(ctx, view.Run.ID, "", false)
 }
 
 // settleChild settles a parent's step at path, when it still waits on

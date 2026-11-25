@@ -83,7 +83,7 @@ func (s *WorkflowService) failRecorded(ctx context.Context, runID, path, attempt
 		return nil
 	}
 	s.changed(ctx, runID, path, WorkflowChangeStepFailed)
-	if mode == store.FailureContinued && !s.recordOnly {
+	if (mode == store.FailureContinued || mode == store.FailurePassEnded) && !s.recordOnly {
 		if _, err := s.advanceRecorded(ctx, runID, path); err != nil {
 			return err
 		}
@@ -123,23 +123,20 @@ func (s *WorkflowService) pausedStepAction(ctx context.Context, view *store.Work
 // SkipStep skips a step paused after a failure: its outputs are missing,
 // and the run goes on with the next step.
 func (s *WorkflowService) SkipStep(ctx context.Context, runID, stepID string) (*store.WorkflowRunView, error) {
-	view, definition, inputs, prior, index, err := s.loadExecution(ctx, runID, stepID)
+	at, err := s.loadExecution(ctx, runID, stepID)
 	if err != nil {
 		return nil, err
 	}
-	if view.Run.Status != "waiting" || view.Run.CurrentStepID != stepID {
+	if at.view.Run.Status != "waiting" || at.view.Run.CurrentStepID != stepID {
 		return nil, store.ErrWorkflowStateConflict
 	}
-	next := ""
-	if index+1 < len(definition.Steps) {
-		next = definition.Steps[index+1].ID
-	}
+	next := at.next
 	if err := s.store.SkipWorkflowStep(ctx, runID, stepID, next); err != nil {
 		return nil, err
 	}
 	s.changed(ctx, runID, stepID, WorkflowChangeStepSkipped)
 	if next != "" {
-		if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index+1, prior, "", false); err != nil {
+		if err := s.advance(ctx, runID, "", false); err != nil {
 			return nil, &StepRecordedError{StepID: stepID, NextStepID: next, Err: err}
 		}
 	}

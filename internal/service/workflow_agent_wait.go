@@ -310,15 +310,11 @@ func (s *WorkflowService) resolveAgentWait(ctx context.Context, step store.Workf
 		outputs[key] = value
 	}
 	encoded, _ := json.Marshal(outputs)
-	_, definition, _, _, index, err := s.loadExecution(ctx, step.RunID, step.Path)
+	at, err := s.loadExecution(ctx, step.RunID, step.Path)
 	if err != nil {
 		return err
 	}
-	next := ""
-	if index+1 < len(definition.Steps) {
-		next = workflowengine.StepPath(step.ParentPath, definition.Steps[index+1].ID)
-	}
-	if err := s.store.RecordWorkflowStepCompletion(ctx, step.RunID, step.Path, attempt.ID, string(encoded), next); err != nil {
+	if err := s.store.RecordWorkflowStepCompletion(ctx, step.RunID, step.Path, attempt.ID, string(encoded), at.next); err != nil {
 		if errors.Is(err, store.ErrWorkflowStateConflict) {
 			return nil
 		}
@@ -534,11 +530,12 @@ func outputsUnavailable(cause error) *WorkflowStepError {
 // will read its outputs, so they are recorded without prs.
 func (s *WorkflowService) failUnfilled(ctx context.Context, advance *store.WorkflowAdvance, cause error) (failed, goesOn bool, err error) {
 	step := advance.Step
-	_, definition, _, _, index, err := s.loadExecution(ctx, step.RunID, step.Path)
+	at, err := s.loadExecution(ctx, step.RunID, step.Path)
 	if err != nil {
 		return false, false, err
 	}
-	if index+1 >= len(definition.Steps) {
+	if at.view.Run.Status == "succeeded" {
+		// The record of the run's last step ended the run.
 		return false, true, nil
 	}
 	failure := outputsUnavailable(cause)

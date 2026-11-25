@@ -155,8 +155,9 @@ func (a *WorkflowAttentionAdapter) collectRunStates(run store.WorkflowRun, view 
 		}
 		// A failed step of a run that goes on was continued: only the
 		// failure holding a failed run needs the operator, and only it can
-		// be retried.
-		if step.Status == "failed" && run.Status == "failed" && step.Path == run.CurrentStepID {
+		// be retried. A loop's pass's failed step is its loop's failure,
+		// which Retry is on (LEG-490).
+		if step.Status == "failed" && run.Status == "failed" && step.ParentPath == "" && step.Path == run.CurrentStepID {
 			states = append(states, workflowAttentionState{
 				runID: run.ID, stepID: step.Path, kind: "failed",
 				revision: fmt.Sprintf("failed:%s:%s", step.Path, step.Status),

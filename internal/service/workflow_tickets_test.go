@@ -281,3 +281,63 @@ func TestBuildMilestonesTicketStepsRunOnABurnliteMilestone(t *testing.T) {
 		t.Fatal("EST-11, which waits on EST-10, is on the board")
 	}
 }
+
+// Example A's ticket loop on the real steps: a next: loop asks tickets.list
+// for the milestone's frontier before each pass and imports the first ticket
+// no pass has taken, so each frontier ticket is put on the board once and
+// the loop ends when nothing new is left (LEG-488 on LEG-490's loops).
+const ticketLoop = `schema_version: 2
+name: ticket-loop
+title: Import a milestone's frontier, one ticket a pass
+inputs:
+  milestone: {type: string, required: true}
+outputs:
+  imported: {type: json, value: "${{ steps.each.outputs.results }}"}
+steps:
+  - id: each
+    loop:
+      next:
+        type: tickets.list
+        with: {provider: burnlite, milestone: "${{ workflow.inputs.milestone }}", kind: work, frontier: true}
+      key: "${{ loop.item.key }}"
+      max: 10
+    outputs:
+      task: {type: string, value: "${{ steps.card.outputs.task }}"}
+    steps:
+      - id: card
+        type: ticket.import
+        with: {key: "${{ loop.item.key }}"}
+`
+
+func TestANextLoopImportsEachFrontierTicketOnce(t *testing.T) {
+	_, sync, s := ticketStepsFixture(t)
+	svc := NewWorkflowService(s, []WorkflowExecutor{NewTicketImportExecutor(sync.(TicketImporter), s), NewTicketsListExecutor(sync.(TicketLister))})
+	definition, err := workflowengine.Parse("ticket-loop.yaml", []byte(ticketLoop))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	view, err := svc.Start(ctx, definition, map[string]string{"milestone": "EST-9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Run.Status != "succeeded" {
+		t.Fatalf("run = %s: %+v", view.Run.Status, view.Steps)
+	}
+	loop := outputsOf(t, stepOf(t, view, "each"))
+	if loop["count"] != float64(2) || loop["ended_by"] != "next_empty" {
+		t.Fatalf("loop outputs = %v", loop)
+	}
+	var tasks []string
+	for _, result := range loop["results"].([]any) {
+		tasks = append(tasks, result.(map[string]any)["task"].(string))
+	}
+	if got := strings.Join(tasks, ","); got != "EST-10,EST-12" {
+		t.Fatalf("imported = %s", got)
+	}
+	for _, key := range []string{"EST-10", "EST-12"} {
+		if _, err := s.GetTask(ctx, key); err != nil {
+			t.Fatalf("%s: %v", key, err)
+		}
+	}
+}

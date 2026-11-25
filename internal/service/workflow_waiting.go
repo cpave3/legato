@@ -27,11 +27,11 @@ func (s *WorkflowService) WaitingAttempts(ctx context.Context, executorType stri
 // CompleteWaiting finishes a waiting step with its outputs, as a
 // deterministic executor's would be, and runs the steps after it.
 func (s *WorkflowService) CompleteWaiting(ctx context.Context, runID, stepID, attemptID string, outputs map[string]any) (*store.WorkflowRunView, error) {
-	view, definition, inputs, prior, index, err := s.loadExecution(ctx, runID, stepID)
+	at, err := s.loadExecution(ctx, runID, stepID)
 	if err != nil {
 		return nil, err
 	}
-	if !hasWaitingAttempt(view, stepID, attemptID) {
+	if !hasWaitingAttempt(at.view, stepID, attemptID) {
 		return nil, store.ErrWorkflowStateConflict
 	}
 	if outputs == nil {
@@ -41,17 +41,13 @@ func (s *WorkflowService) CompleteWaiting(ctx context.Context, runID, stepID, at
 	if err != nil {
 		return nil, err
 	}
-	next := ""
-	if index+1 < len(definition.Steps) {
-		next = definition.Steps[index+1].ID
-	}
+	next := at.next
 	if err := s.store.CompleteWorkflowStep(ctx, runID, stepID, attemptID, string(encoded), next); err != nil {
 		return nil, err
 	}
 	s.changed(ctx, runID, stepID, WorkflowChangeStepCompleted)
-	prior[stepID] = outputs
 	if next != "" {
-		if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index+1, prior, "", false); err != nil {
+		if err := s.advance(ctx, runID, "", false); err != nil {
 			return nil, &StepRecordedError{StepID: stepID, NextStepID: next, Err: err}
 		}
 	}

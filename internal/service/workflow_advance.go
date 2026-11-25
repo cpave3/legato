@@ -127,26 +127,19 @@ func stepKeepsAgent(with map[string]any) bool {
 	return keep || kept
 }
 
-// startNextStep starts the step after a recorded one, when the run is
-// still at it and nothing has started it: the record moved the run there.
+// startNextStep goes on from a recorded step, when the record moved the
+// run on and nothing has started what it is at: the step after it, or
+// its loop (LEG-490).
 func (s *WorkflowService) startNextStep(ctx context.Context, recorded store.WorkflowStep) (string, error) {
-	view, definition, inputs, prior, index, err := s.loadExecution(ctx, recorded.RunID, recorded.Path)
+	view, err := s.store.GetWorkflowRun(ctx, recorded.RunID)
 	if err != nil {
 		return "", err
 	}
-	if index+1 >= len(definition.Steps) {
-		return "", nil
-	}
-	next := workflowengine.StepPath(recorded.ParentPath, definition.Steps[index+1].ID)
-	if view.Run.Status != "running" || view.Run.CurrentStepID != next || !stepPending(view, next) {
+	next := view.Run.CurrentStepID
+	if view.Run.Status != "running" || next == "" || next == recorded.Path {
 		return next, nil
 	}
-	var outputs map[string]any
-	if err := json.Unmarshal([]byte(recorded.OutputsJSON), &outputs); err != nil {
-		return next, err
-	}
-	prior[definition.Steps[index].ID] = outputs
-	return next, s.advance(ctx, definition, inputs, recorded.RunID, view.Run.TaskID, index+1, prior, "", false)
+	return next, s.advance(ctx, recorded.RunID, "", false)
 }
 
 func stepPending(view *store.WorkflowRunView, path string) bool {
@@ -196,6 +189,7 @@ func (s *WorkflowService) StartAdvanceLoop(ctx context.Context, bus *events.Bus)
 	// and at each reconcile.
 	s.SweepEndedRuns(ctx)
 	s.ReconcileChildRuns(ctx, advanceClaimStale)
+	s.ReconcileLoops(ctx)
 	go func() {
 		ticker := time.NewTicker(advanceReconcileInterval)
 		defer ticker.Stop()
@@ -220,6 +214,7 @@ func (s *WorkflowService) StartAdvanceLoop(ctx context.Context, bus *events.Bus)
 				checkWaits()
 				s.SweepEndedRuns(ctx)
 				s.ReconcileChildRuns(ctx, advanceClaimStale)
+				s.ReconcileLoops(ctx)
 			}
 		}
 	}()

@@ -507,6 +507,12 @@ func (s *Store) RecordWorkflowStepCompletion(ctx context.Context, runID, path, a
 
 func (s *Store) completeWorkflowStep(ctx context.Context, runID, path, attemptID, outputsJSON, nextPath string, advanceDue bool) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		return completeWorkflowStepTx(ctx, tx, runID, path, attemptID, outputsJSON, nextPath, advanceDue)
+	})
+}
+
+func completeWorkflowStepTx(ctx context.Context, tx *sqlx.Tx, runID, path, attemptID, outputsJSON, nextPath string, advanceDue bool) error {
+	{
 		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'succeeded', ended_at = datetime('now')
 			WHERE id = ? AND run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting')`, attemptID, runID, path)
 		if err != nil {
@@ -561,7 +567,7 @@ func (s *Store) completeWorkflowStep(ctx context.Context, runID, path, attemptID
 			}
 		}
 		return nil
-	})
+	}
 }
 
 // MarkWorkflowStepWaiting ties a running step to the agent it waits on.
@@ -674,6 +680,10 @@ const (
 	FailureFailed    = "fail"
 	FailureContinued = "continue"
 	FailurePaused    = "pause"
+	// FailurePassEnded is a loop pass's step's failure under the loop's
+	// on_failure continue or fail: the pass ends there, and the run goes
+	// back to its loop, which decides (LEG-490).
+	FailurePassEnded = "pass"
 )
 
 // StepFailure is a step's failure: its text, and the code and link an
@@ -754,6 +764,19 @@ func (s *Store) FailWorkflowStepWith(ctx context.Context, runID, path, attemptID
 		if !failure.Retired && (definition.OnFailure == FailureContinued || definition.OnFailure == FailurePaused) {
 			mode = definition.OnFailure
 		}
+		loopPath := passLoopPath(step.ParentPath)
+		if loopPath != "" && mode == FailureFailed {
+			// A pass's step with no on_failure of its own (or fail) fails
+			// its pass, which does what the loop's on_failure says.
+			policy, err := loopFailurePolicy(ctx, tx, runID, loopPath)
+			if err != nil {
+				return err
+			}
+			mode = FailurePaused
+			if policy == FailureContinued || policy == FailureFailed {
+				mode = FailurePassEnded
+			}
+		}
 		if err := execOne(ctx, tx, `UPDATE workflow_step_attempts SET status = 'failed', error = ?, ended_at = datetime('now') WHERE id = ? AND run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting','suspended')`, failure.Message, attemptID, runID, path); err != nil {
 			return err
 		}
@@ -761,7 +784,7 @@ func (s *Store) FailWorkflowStepWith(ctx context.Context, runID, path, attemptID
 		if mode == FailurePaused {
 			stepStatus = WorkflowStepPaused
 		}
-		advanceDue := mode == FailureContinued && !failure.InProcess
+		advanceDue := (mode == FailureContinued || mode == FailurePassEnded) && !failure.InProcess
 		if err := execOne(ctx, tx, `UPDATE workflow_steps SET status = ?, error = ?, outputs_json = ?, completed_at = datetime('now'), advance_due = ?, advance_claimed_at = NULL WHERE run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting','suspended')`, stepStatus, failure.Message, string(encoded), advanceDue, runID, path); err != nil {
 			return err
 		}
@@ -774,6 +797,8 @@ func (s *Store) FailWorkflowStepWith(ctx context.Context, runID, path, attemptID
 				return err
 			}
 			return moveRunPast(ctx, tx, runID, path, next, "'running','suspended'")
+		case FailurePassEnded:
+			return moveRunPast(ctx, tx, runID, path, loopPath, "'running','suspended'")
 		}
 		return execOne(ctx, tx, `UPDATE workflow_runs SET status = 'failed', error = ? WHERE id = ? AND current_step_id = ? AND status IN ('running','suspended')`, failure.Message, runID, path)
 	})
@@ -794,14 +819,100 @@ func (s *Store) SkipWorkflowStep(ctx context.Context, runID, path, nextPath stri
 }
 
 // nextStepPath is the path of the step after the one at order in its
-// scope, or "" for the last.
+// scope; after a loop pass's last step (or a next: loop's query, at order
+// -1, before its pass's other steps are made) its loop's; "" after the
+// run's last.
 func nextStepPath(ctx context.Context, tx *sqlx.Tx, runID, parent string, order int) (string, error) {
 	var next string
 	err := tx.GetContext(ctx, &next, `SELECT path FROM workflow_steps WHERE run_id = ? AND parent_path = ? AND step_order > ? ORDER BY step_order LIMIT 1`, runID, parent, order)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && order < 0) {
+		return passLoopPath(parent), nil
 	}
 	return next, err
+}
+
+// passLoopPath is the loop whose pass a scope is (each/2 is each's), or
+// "" for the run's own steps.
+func passLoopPath(parent string) string {
+	if i := strings.LastIndex(parent, "/"); i >= 0 {
+		return parent[:i]
+	}
+	return ""
+}
+
+// loopFailurePolicy is what a loop's on_failure says, from the definition
+// its step row keeps: pause when it says nothing.
+func loopFailurePolicy(ctx context.Context, tx *sqlx.Tx, runID, loopPath string) (string, error) {
+	var definitionJSON string
+	if err := tx.GetContext(ctx, &definitionJSON, `SELECT definition_json FROM workflow_steps WHERE run_id = ? AND path = ?`, runID, loopPath); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrWorkflowStateConflict
+		}
+		return "", err
+	}
+	var definition struct {
+		Loop struct {
+			OnFailure string `json:"on_failure"`
+		} `json:"loop"`
+	}
+	_ = json.Unmarshal([]byte(definitionJSON), &definition)
+	if definition.Loop.OnFailure == "" {
+		return FailurePaused, nil
+	}
+	return definition.Loop.OnFailure, nil
+}
+
+// AdvanceWorkflowLoop moves a run at a running loop on, from the loop's
+// state it read (oldState) to newState: it makes a pass's steps and moves
+// the run to current, the pass's first. A host that read another state,
+// or found the run elsewhere, gets ErrWorkflowStateConflict: another got
+// there first (LEG-490).
+func (s *Store) AdvanceWorkflowLoop(ctx context.Context, runID, loopPath, oldState, newState string, steps []WorkflowStep, current string) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		if err := setLoopState(ctx, tx, runID, loopPath, oldState, newState); err != nil {
+			return err
+		}
+		for _, step := range steps {
+			if err := insertWorkflowStep(ctx, tx, step); err != nil {
+				return err
+			}
+		}
+		return execOne(ctx, tx, `UPDATE workflow_runs SET current_step_id = ?, error = '' WHERE id = ? AND current_step_id = ? AND status = 'running'`, current, runID, loopPath)
+	})
+}
+
+// ListWorkflowRunsAtLoops lists the running runs that are at a running
+// loop: between a pass's end and the loop's next move, which a host that
+// died there left undone.
+func (s *Store) ListWorkflowRunsAtLoops(ctx context.Context) ([]string, error) {
+	var runs []string
+	err := s.db.SelectContext(ctx, &runs, `SELECT DISTINCT r.id FROM workflow_runs r
+		JOIN workflow_step_attempts a ON a.run_id = r.id AND a.path = r.current_step_id
+		WHERE r.status = 'running' AND a.executor_type = 'loop' AND a.status = 'running' ORDER BY r.id`)
+	return runs, err
+}
+
+// SetWorkflowLoopState writes a running loop's state over the one read.
+func (s *Store) SetWorkflowLoopState(ctx context.Context, runID, loopPath, oldState, newState string) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		return setLoopState(ctx, tx, runID, loopPath, oldState, newState)
+	})
+}
+
+func setLoopState(ctx context.Context, tx *sqlx.Tx, runID, loopPath, oldState, newState string) error {
+	return execOne(ctx, tx, `UPDATE workflow_steps SET loop_state_json = ? WHERE run_id = ? AND path = ? AND status = 'running' AND loop_state_json = ?`, newState, runID, loopPath, oldState)
+}
+
+// EndWorkflowLoop ends a loop the run is at: its state written over the
+// one read, then its step completed with its outputs, and the run moved to
+// nextPath (or ended, when it is "").
+func (s *Store) EndWorkflowLoop(ctx context.Context, runID, loopPath, attemptID, oldState, newState, outputsJSON, nextPath string) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		if err := setLoopState(ctx, tx, runID, loopPath, oldState, newState); err != nil {
+			return err
+		}
+		return completeWorkflowStepTx(ctx, tx, runID, loopPath, attemptID, outputsJSON, nextPath, false)
+	})
 }
 
 // moveRunPast moves a run at path, in one of statuses, on to nextPath, or

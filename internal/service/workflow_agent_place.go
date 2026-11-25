@@ -271,25 +271,20 @@ func (e *AgentMessageExecutor) target(ctx context.Context, step ResolvedWorkflow
 }
 
 // stepAgentFrom is the agent an earlier step used, which a step's agent:
-// {from: <step>} names. An agent.message, agent.stop or agent.dispatch step
-// is followed to its own agent; an agent.run step's is the session its
-// latest attempt waited on.
-func (s *WorkflowService) stepAgentFrom(ctx context.Context, view *store.WorkflowRunView, definition *workflowengine.Definition, from string) (*WorkflowStepAgent, error) {
-	for range len(definition.Steps) {
-		var step *workflowengine.Step
-		for i := range definition.Steps {
-			if definition.Steps[i].ID == from {
-				step = &definition.Steps[i]
-			}
-		}
-		if step == nil {
+// {from: <step>} at path names: the nearest step of that ID, in the
+// step's own scope (a loop's pass) and then each enclosing one. An
+// agent.message, agent.stop or agent.dispatch step is followed to its own
+// agent; an agent.run step's is the session its latest attempt waited on.
+func (s *WorkflowService) stepAgentFrom(ctx context.Context, view *store.WorkflowRunView, definition *workflowengine.Definition, at, from string) (*WorkflowStepAgent, error) {
+	for range 64 {
+		path, step, err := definition.Nearest(at, from)
+		if err != nil {
 			return nil, fmt.Errorf("step %s is not in the workflow", from)
 		}
 		if next, ok := workflowengine.AgentFrom(step.With["agent"]); ok && step.Type != "agent.run" {
-			from = next
+			at, from = path, next
 			continue
 		}
-		path := workflowengine.StepPath("", from)
 		if step.Type != "agent.run" {
 			return s.taskAgentOfStep(ctx, view, path, step.Type)
 		}
@@ -358,7 +353,7 @@ func (s *WorkflowService) resolveStepAgent(ctx context.Context, definition *work
 	if err != nil {
 		return err
 	}
-	agent, err := s.stepAgentFrom(ctx, view, definition, from)
+	agent, err := s.stepAgentFrom(ctx, view, definition, step.StepID, from)
 	if err != nil {
 		return fmt.Errorf("with agent: %w", err)
 	}
