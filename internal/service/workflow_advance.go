@@ -80,6 +80,12 @@ func (s *WorkflowService) processAdvance(ctx context.Context, advance store.Work
 		// Outputs it could not fill fail the step; continued, it goes on
 		// as a failed step, its agent already stopped.
 		continued = advance.Step.Status == "failed"
+		// A run the step's record ended has its outputs kept, and its end
+		// told, only now that they are filled (outputsUnfilled; LEG-489).
+		if waitRecorded(advance.Step) {
+			s.keepRunOutputs(ctx, advance.Step.RunID)
+			s.tellIfEnded(ctx, advance.Step.RunID)
+		}
 	}
 	if !keepsAgent(advance.Step) && !continued && !endedSignal(advance.Step) {
 		if executor, ok := s.executors[advance.Attempt.ExecutorType].(interface {

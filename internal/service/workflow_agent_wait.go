@@ -503,6 +503,23 @@ func (s *WorkflowService) fillRecordedOutputs(ctx context.Context, advance *stor
 	return true, nil
 }
 
+// outputsUnfilled says a step of the run was completed by its agent and
+// awaits the outputs a host fills (fillRecordedOutputs): until then the
+// run's own outputs, which may read them, are not final.
+func outputsUnfilled(view *store.WorkflowRunView) bool {
+	for _, step := range view.Steps {
+		if !step.AdvanceDue || step.Status != "succeeded" || !waitRecorded(step) {
+			continue
+		}
+		var outputs map[string]any
+		_ = json.Unmarshal([]byte(step.OutputsJSON), &outputs)
+		if _, filled := outputs["signal"]; !filled {
+			return true
+		}
+	}
+	return false
+}
+
 // outputsUnavailable is the failure of a step whose outputs could not be
 // filled.
 func outputsUnavailable(cause error) *WorkflowStepError {

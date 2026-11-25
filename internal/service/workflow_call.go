@@ -466,10 +466,11 @@ func (s *WorkflowService) runOutputs(ctx context.Context, view *store.WorkflowRu
 	return definition.ResolveOutputs(inputs, task, steps)
 }
 
-// keepRunOutputs keeps a run's outputs once it has succeeded.
+// keepRunOutputs keeps a run's outputs once it has succeeded and a host
+// has filled what its agents' completions left (outputsUnfilled).
 func (s *WorkflowService) keepRunOutputs(ctx context.Context, runID string) {
 	view, err := s.store.GetWorkflowRun(ctx, runID)
-	if err != nil || view.Run.Status != "succeeded" {
+	if err != nil || view.Run.Status != "succeeded" || outputsUnfilled(view) {
 		return
 	}
 	outputs, _ := s.runOutputs(ctx, view)

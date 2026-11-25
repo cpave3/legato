@@ -120,7 +120,9 @@ func (s *WorkflowService) SweepEndedRuns(ctx context.Context) {
 }
 
 // workflowRunEnd is runID's end, and whether it has ended: a terminal
-// status, or gone.
+// status, or gone. A run whose last step an agent completed has not ended
+// until a host has filled that step's outputs (processAdvance), so no
+// listener reads them before.
 func workflowRunEnd(ctx context.Context, db *store.Store, runID string) (WorkflowRunEnd, bool, error) {
 	view, err := db.GetWorkflowRun(ctx, runID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -130,7 +132,7 @@ func workflowRunEnd(ctx context.Context, db *store.Store, runID string) (Workflo
 		return WorkflowRunEnd{}, false, err
 	}
 	run := view.Run
-	if !WorkflowRunTerminal(run.Status) {
+	if !WorkflowRunTerminal(run.Status) || outputsUnfilled(view) {
 		return WorkflowRunEnd{}, false, nil
 	}
 	return WorkflowRunEnd{RunID: run.ID, Status: run.Status, Error: run.Error, TaskID: run.TaskID,

@@ -556,3 +556,70 @@ func TestAChildThatEndedWhileLegatoWasDownIsSettledByTheSweep(t *testing.T) {
 		t.Fatalf("parent = %s after the sweep", view.Run.Status)
 	}
 }
+
+const signalChild = `schema_version: 2
+name: signal-child
+title: Signal child
+inputs:
+  task: {type: task, required: true}
+outputs:
+  kind:   {type: string, value: done}
+  signal: {type: string, value: "${{ steps.work.outputs.signal }}"}
+steps:
+  - id: work
+    type: agent.run
+    with: {on: "${{ workflow.inputs.task }}", prompt: Do it}
+    outputs: {note: {type: string}}
+`
+
+const signalCaller = `schema_version: 2
+name: signal-caller
+title: Signal caller
+inputs:
+  task: {type: task, required: true}
+steps:
+  - id: call
+    type: workflow.run
+    with: {workflow: signal-child, inputs: {task: "${{ workflow.inputs.task }}"}}
+`
+
+// A run that ends at an agent's completion keeps the outputs Legato fills
+// at the signal, and its parent's step gets them: neither reads the step
+// before the host has filled it.
+func TestARunEndedByAnAgentsCompletionKeepsTheOutputsLegatoFills(t *testing.T) {
+	ctx := context.Background()
+	f := newPlaceFixture(t)
+	child, caller := parseControlWorkflow(t, signalChild), parseControlWorkflow(t, signalCaller)
+	f.workflows.SetDefinitions(func() workflowengine.DiscoveryResult {
+		return workflowengine.DiscoveryResult{Definitions: []*workflowengine.Definition{child, caller}}
+	})
+	parent, err := f.workflows.Start(ctx, caller, map[string]string{"task": "LEG-7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	children, err := f.store.ListChildWorkflowRuns(ctx, parent.Run.ID)
+	if err != nil || len(children) != 1 {
+		t.Fatalf("children = %+v, %v", children, err)
+	}
+	view, err := f.store.GetWorkflowRun(ctx, children[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.workflows.Complete(ctx, view.Run.ID, "work", view.Attempts[0].ID, map[string]string{"note": "ok"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ended, err := f.store.GetWorkflowRun(ctx, view.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := decodeObject(t, ended.Run.OutputsJSON); ended.Run.Status != "succeeded" || got["kind"] != "done" || got["signal"] != "complete" {
+		t.Fatalf("child = %s, kept outputs %v", ended.Run.Status, got)
+	}
+	settled, err := f.store.GetWorkflowRun(ctx, parent.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := outputsOf(t, stepOf(t, settled, "call")); settled.Run.Status != "succeeded" || got["kind"] != "done" || got["signal"] != "complete" {
+		t.Fatalf("parent = %s, call outputs %v", settled.Run.Status, got)
+	}
+}
