@@ -385,7 +385,7 @@ on:
           not_equals: true
 ```
 
-Conditions support nested `all`, `any`, and `not`, and field comparisons using `exists`, `equals`, `not_equals`, or `in`. In addition to task snapshot, metadata, and transition fields, `task.has_active_agent` resolves at trigger time to whether the task has an open agent session. An open session includes working, waiting, idle, and error activity states; completed/dead sessions do not match. `task.has_chimera_session` resolves from the task's current retained Chimera resume ID. Both dynamic fields are re-evaluated when a confirmed trigger starts.
+Conditions support nested `all`, `any`, and `not`, and field comparisons using `exists`, `equals`, `not_equals`, `in`, `gt`, `lt` or `empty`. Numbers compare by value, so `3` equals `3.0`; `gt` and `lt` also compare text as text. A field with no value makes `gt`, `lt`, `equals` and `in` false, and `not_equals` and `empty` true; `empty` is also true for `null`, `""`, `[]` and `{}`. In addition to task snapshot, metadata, and transition fields, `task.has_active_agent` resolves at trigger time to whether the task has an open agent session. An open session includes working, waiting, idle, and error activity states; completed/dead sessions do not match. `task.has_chimera_session` resolves from the task's current retained Chimera resume ID. Both dynamic fields are re-evaluated when a confirmed trigger starts.
 
 On a [worker](/legato/running/instances/), a column trigger skips cards handed off from a main: they are the main's, and the main's own workflows run when the task comes home. Set `handed_off: true` on the trigger to run it on those cards too.
 
@@ -904,7 +904,7 @@ legato workflow cancel <run-id> --json
 
 For a `worktree.remove` step, `--force` forwards Yggdrasil's force option and discards uncommitted worktree changes. It can be selected when first triggering a manual removal or when retrying a failed removal; other step types reject it.
 
-Each run makes one task of its own, the execution task, in the **Workflows** workspace, which Legato manages. The **All** view of the board leaves these tasks out; switch to the **Workflows** workspace to see the runs in progress. When a run succeeds, its execution task moves to **Done** and is archived at once. A run that failed or was cancelled stays in its column, for you to deal with.
+Each run makes one task of its own, the execution task, in the **Workflows** workspace, which Legato manages. The **All** view of the board leaves these tasks out; switch to the **Workflows** workspace to see the runs in progress. When a run succeeds, its execution task moves to **Done** and is archived at once. A run that failed, was cancelled or was stopped (at a gate, or at a paused failure) stays in its column, for you to deal with.
 
 The execution task is where the run's agents work, and `${{ workflow.task }}` and `LEGATO_TASK_ID` name it. When a workflow takes a `task` input, the task you chose is the run's subject, recorded beside the run; the run's agents still work on the execution task, so an agent already running on your task is not replaced. The run shows on that task's detail. An agent working on the execution task (a step's agent, or a review loop's reviewer) shows "for <card>" under its name in the agents rail, and the run's Attention items say which card they are for.
 
@@ -934,7 +934,63 @@ Schema version 2 is arriving in parts. Today a version 2 file is a version 1 fil
 - A step says how it starts with `start: automatic` (the default) or `start: manual`. `trigger:` is a version 1 key, and a version 2 file refuses it. A version 2 file has no `agent_ended`.
 - A later step can read any output its executor's catalog lists, such as `${{ steps.prep.outputs.branch }}` after `repo.ensure`, without the step declaring it. This also holds in version 1 files.
 
+- A step can say `if:` and `on_failure:` (below).
+
 Legato reads a version 1 file into the same model: `trigger: manual` is `start: manual`, and `trigger: agent_ended` still waits for the workflow task's agent to end. The editor, the builder, the published schema and the bundled templates still write version 1.
+
+### Expressions
+
+`${{ }}` reads a path, in any version of the file:
+
+- `[n]` and `.field` reach into a JSON value: a `json` input, a step's `json` output, or a task's `metadata`. `[0]` is the first item and `[-1]` the last: `${{ steps.find.outputs.items[0].key }}`.
+- `a ?? b` is `b` when `a` has no value or is `null`. The empty string is a value. `b` may be another path, a quoted literal (`'none yet'` or `"none yet"`), `null`, `true`, `false` or a whole number, and you can chain them: `${{ workflow.inputs.base ?? steps.plan.outputs.base ?? 'main' }}`.
+- When the expression is a field's whole value, it keeps its type, so both sides of `??` must have the same type (a `json` value matches any). Within longer text, such as a prompt, the value is written as text and the types need not match.
+- A value that is not there (an input not given, a skipped step's output, an item past the end of a list) leaves a field whose whole value it is out of the step. Within longer text it fails the step: give it a fallback with `??`.
+
+### Running a step only sometimes: if:
+
+`if:` takes a condition, as a trigger's `conditions:` do, checked before the step does anything. Its `field` is a path, without `${{ }}`: an input, the workflow task, or an earlier step's output. When it is false the step is **skipped**, and its outputs have no value.
+
+```yaml
+- id: confirm
+  if: {field: steps.pass.outputs.verdict, equals: clean}
+  type: task.note
+  with: {task: "${{ workflow.task }}", note: Clean pass}
+- id: ready
+  if:
+    all:
+      - {field: workflow.inputs.ready, equals: true}
+      - {field: steps.review.outputs.last.state, equals: approved}
+  type: task.move
+  with: {task: "${{ workflow.inputs.task }}", column: Ready}
+```
+
+### When a step fails: on_failure
+
+- `on_failure: fail`, the default, fails the run. **Retry step** runs the step again.
+- `on_failure: continue` makes the failure the step's outputs, and the run goes on: `status` (`failed`), `error`, and `error_code`, which some steps give to say what went wrong, such as `review_loop_active`. These outputs have no value when the step succeeds, so a later step can say `if: {field: steps.open.outputs.status, equals: failed}`.
+- `on_failure: pause` holds the run at the failure: the step shows as failed with its error, and a link when the error carries one (such as the run of another review loop that holds the pull request), on the run's page and as a needs-you item. **Retry** runs the step again, **Skip** goes on without its outputs, and **Stop** ends the run as **Stopped**.
+
+### Asking you: the gate step
+
+`gate` holds the run until you choose. It raises a needs-you item and shows on the run's page, with a button for each option:
+
+```yaml
+- id: ask
+  type: gate
+  with:
+    title: Open the pull request?
+    body: ${{ steps.plan.outputs.summary }}
+    options: [Open, Hold, Stop]
+- id: open
+  if: {field: steps.ask.outputs.choice, equals: Open}
+  type: agent.run
+  with: {prompt: Open the pull request}
+```
+
+- `title` is the question. `body` is more to read, in Markdown; or `body_path` names a file to read it from, by its absolute path, such as an earlier step's `${{ steps.<id>.outputs.<file>.path }}`.
+- `options` are the choices; **Continue** and **Stop** when you give none. The step's `choice` output is the one you chose.
+- **Stop**, in any case, ends the run as **Stopped** instead of going on.
 
 ## Agent completion
 

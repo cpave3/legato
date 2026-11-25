@@ -231,7 +231,10 @@ The drawing of a workflow's triggers and steps, built from its definition. It is
 _Avoid_: flow chart, diagram, canvas
 
 **Gate**:
-A step that does not start by itself: one that waits for the operator (`trigger: manual`) or for the agent before it to end (`trigger: agent_ended`).
+Where a run waits for the operator. A step that does not start by itself: one that waits for the operator (`trigger: manual`, `start: manual`) or for the agent before it to end (`trigger: agent_ended`). Also a `gate` step, which asks the operator to choose one of its options (Stop ends the run as stopped), and a paused step.
+
+**Paused step**:
+A step that failed under `on_failure: pause`. Its run waits for the operator to Retry it, Skip it (its outputs are missing) or Stop the run. Not a suspended step.
 
 **Suspended step**:
 An `agent.run` step whose agent was interrupted. It is still open: resuming the agent goes on with it, on the same attempt. Its run is suspended too. Not a failed step.
