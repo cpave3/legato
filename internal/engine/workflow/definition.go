@@ -627,6 +627,17 @@ func ResolveFromInputs(value any, inputs map[string]any) (any, error) {
 	return resolveScope{inputs: inputs}.value(value)
 }
 
+// ResolveFromRoots resolves a trigger's inputs mapping value: each path
+// starts at one of roots (event, task, schedule) and reaches into it with
+// .field and [n]. A whole value keeps its type, one within longer text is
+// rendered as text, and a whole value that is missing is ErrMissing.
+func ResolveFromRoots(value any, roots map[string]any) (any, error) {
+	if roots == nil {
+		roots = map[string]any{}
+	}
+	return resolveScope{roots: roots}.value(value)
+}
+
 func (d *Definition) ResolveRunTitle(inputs map[string]any) (string, error) {
 	if d.RunTitle == "" {
 		return d.Title, nil
@@ -720,7 +731,10 @@ func (d *Definition) StepRuns(stepID string, inputs, workflowTask map[string]any
 // resolveScope is what ${{ }} reads when a step runs: the inputs, the
 // workflow task (nil before it exists), the outputs of the steps before
 // (succeeded, or failed under continue), and the step's own file outputs.
+// With roots it reads a trigger's event instead: a path's first name is
+// one of roots.
 type resolveScope struct {
+	roots   map[string]any
 	current map[string]Output
 	inputs  map[string]any
 	task    map[string]any
@@ -819,6 +833,13 @@ func (s resolveScope) expression(text string) (any, error) {
 
 // path reads one path; errMissing when it reads nothing.
 func (s resolveScope) path(path []PathPart) (any, error) {
+	if s.roots != nil {
+		root, ok := s.roots[path[0].Name]
+		if !ok {
+			return nil, errMissing
+		}
+		return reachOrMissing(root, path[1:])
+	}
 	parts := pathNames(path)
 	switch {
 	case len(parts) >= 2 && parts[0] == "workflow" && parts[1] == "task":

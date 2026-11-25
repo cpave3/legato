@@ -224,23 +224,16 @@ func (c *WorkflowTriggerCoordinator) processColumn(ctx context.Context, transiti
 }
 
 func resolveTriggerInputs(definition *workflowengine.Definition, task map[string]any, supplied map[string]string, presets []workflowengine.RepositoryPreset) (map[string]string, []string) {
-	return resolveMappedInputs(definition, definition.On.TaskEnteredColumn.Inputs, func(expr string) (any, bool) {
-		switch {
-		case expr == "event.task":
-			value, ok := task["id"]
-			return value, ok
-		case strings.HasPrefix(expr, "task."):
-			return lookupTriggerPath(task, strings.TrimPrefix(expr, "task."))
-		}
-		return nil, false
-	}, supplied, presets)
+	roots := map[string]any{"event": map[string]any{"task": task["id"]}, "task": task}
+	return resolveMappedInputs(definition, definition.On.TaskEnteredColumn.Inputs, roots, supplied, presets)
 }
 
 // resolveMappedInputs gives a workflow's inputs from a trigger's inputs
-// mapping (a ${{ expression }} read through lookup, or a literal), then the
+// mapping (read as a with value is, its paths starting at roots), then the
 // supplied values, a single repository preset and the defaults; missing
-// are the required inputs still empty.
-func resolveMappedInputs(definition *workflowengine.Definition, mapping map[string]any, lookup func(expr string) (any, bool), supplied map[string]string, presets []workflowengine.RepositoryPreset) (map[string]string, []string) {
+// are the required inputs still empty. A mapping whose whole value is
+// missing or null, or that cannot be read, is left out.
+func resolveMappedInputs(definition *workflowengine.Definition, mapping map[string]any, roots map[string]any, supplied map[string]string, presets []workflowengine.RepositoryPreset) (map[string]string, []string) {
 	inputs := map[string]string{}
 	for key, value := range supplied {
 		inputs[key] = value
@@ -249,14 +242,15 @@ func resolveMappedInputs(definition *workflowengine.Definition, mapping map[stri
 		if _, ok := inputs[key]; ok {
 			continue
 		}
-		if text, ok := mapped.(string); ok && strings.HasPrefix(text, "${{") {
-			expr := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(text, "${{"), "}}"))
-			if value, _ := lookup(expr); value != nil {
-				if text, ok := value.(string); ok {
-					inputs[key] = text
-				} else if encoded, err := json.Marshal(value); err == nil {
-					inputs[key] = string(encoded)
-				}
+		if text, ok := mapped.(string); ok && workflowengine.HasExpression(text) {
+			value, err := workflowengine.ResolveFromRoots(text, roots)
+			if err != nil || value == nil {
+				continue
+			}
+			if text, ok := value.(string); ok {
+				inputs[key] = text
+			} else if encoded, err := json.Marshal(value); err == nil {
+				inputs[key] = string(encoded)
 			}
 		} else if mapped != nil {
 			inputs[key] = fmt.Sprint(mapped)
@@ -281,21 +275,6 @@ func resolveMappedInputs(definition *workflowengine.Definition, mapping map[stri
 		}
 	}
 	return inputs, missing
-}
-
-func lookupTriggerPath(root map[string]any, path string) (any, bool) {
-	var current any = root
-	for _, part := range strings.Split(path, ".") {
-		object, ok := current.(map[string]any)
-		if !ok {
-			return nil, false
-		}
-		current, ok = object[part]
-		if !ok {
-			return nil, false
-		}
-	}
-	return current, true
 }
 
 func (c *WorkflowTriggerCoordinator) SupplyInputs(ctx context.Context, requestID string, supplied map[string]string, remember bool) (*store.WorkflowTriggerRequest, error) {

@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/events"
@@ -430,5 +432,74 @@ steps:
 				t.Fatalf("request=%+v starts=%d", requests[0], len(executor.starts))
 			}
 		})
+	}
+}
+
+func TestColumnTriggerInputsReadExpressionsWithFallbacksIndexesAndText(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for i, name := range []string{"Backlog", "Triaged"} {
+		if err := db.CreateColumnMapping(ctx, store.ColumnMapping{ColumnName: name, RemoteStatuses: `[]`, SortOrder: i}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.CreateTask(ctx, store.Task{ID: "AB-200", Title: "Triage", Status: "Backlog"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTaskMetadata(ctx, "AB-200", []string{"labels"}, []any{"bug", "ui"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTaskMetadata(ctx, "AB-200", []string{"reviewers"}, []any{map[string]any{"name": "ann"}, map[string]any{"name": "bo"}}); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "triage.yaml"), []byte(`schema_version: 1
+name: triage
+title: Triage
+inputs:
+  task: {type: task, required: true}
+  label: {type: string, required: true}
+  reviewer: {type: string, required: true}
+  branch: {type: string, required: true}
+  title: {type: string, required: true}
+  owner: {type: string}
+on:
+  task.entered_column:
+    column: Triaged
+    inputs:
+      task: ${{ event.task }}
+      label: ${{ task.metadata.labels[0] }}
+      reviewer: ${{ task.metadata.reviewers[-1].name }}
+      branch: ${{ task.metadata.branch ?? 'main' }}
+      title: "fix ${{ event.task }}: ${{ task.title }}"
+      owner: ${{ task.metadata.owner }}
+steps:
+  - {id: run, title: Run, type: agent.run, with: {prompt: triage}}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executor := &fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent"}}
+	coordinator := NewWorkflowTriggerCoordinator(db, NewWorkflowService(db, []WorkflowExecutor{executor}), func() workflowengine.DiscoveryResult { return workflowengine.DiscoverPaths(dir) })
+	if err := NewBoardService(db, events.New()).MoveCard(ctx, "AB-200", "Triaged"); err != nil {
+		t.Fatal(err)
+	}
+	if err := coordinator.CaptureLatestForTask(ctx, "AB-200"); err != nil {
+		t.Fatal(err)
+	}
+	started := requestsWith(t, db, "started")
+	if len(started) != 1 {
+		t.Fatalf("started = %+v, all = %+v", started, requestsWith(t, db, ""))
+	}
+	var inputs map[string]string
+	if err := json.Unmarshal([]byte(started[0].InputsJSON), &inputs); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"task": "AB-200", "label": "bug", "reviewer": "bo", "branch": "main", "title": "fix AB-200: Triage"}
+	if !reflect.DeepEqual(inputs, want) {
+		t.Fatalf("inputs = %v, want %v (a missing whole value is left out)", inputs, want)
 	}
 }
