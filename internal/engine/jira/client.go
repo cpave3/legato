@@ -210,16 +210,8 @@ func (c *Client) doRequest(req *http.Request) ([]byte, error) {
 			return nil, nil
 		}
 
-		if resp.StatusCode == http.StatusUnauthorized {
-			return nil, fmt.Errorf("authentication failed: invalid credentials")
-		}
-
-		if resp.StatusCode == http.StatusNotFound {
-			return nil, fmt.Errorf("not found: %s", req.URL.Path)
-		}
-
 		if resp.StatusCode >= 400 {
-			return nil, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+			return nil, newAPIError(resp.StatusCode, req.URL.Path, body)
 		}
 
 		return body, nil
