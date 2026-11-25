@@ -293,8 +293,11 @@ func (j *jiraSource) List(ctx context.Context, q TicketQuery) ([]TicketItem, err
 func (j *jiraSource) listJQL(q TicketQuery) string {
 	var clauses []string
 	projects := j.projectKeys
-	if q.Project != "" {
+	switch {
+	case q.Project != "":
 		projects = []string{q.Project}
+	case q.Milestone != "":
+		projects = []string{projectOf(q.Milestone)}
 	}
 	if len(projects) > 0 {
 		quoted := make([]string, len(projects))

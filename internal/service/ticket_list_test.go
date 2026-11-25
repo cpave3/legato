@@ -296,3 +296,18 @@ func TestTicketsListReadsJira(t *testing.T) {
 		t.Fatal("Jira listed meta tasks")
 	}
 }
+
+// A milestone in a project the Jira source does not search is read in its own
+// project, as Burnlite reads it, not intersected with the source's projects.
+func TestTicketsListReadsAJiraEpicOfAnotherProject(t *testing.T) {
+	fake := jiraBoard()
+	fake.add(fakeJiraIssue{key: "OTHER-10", summary: "Elsewhere", issueType: "Epic", category: "new"})
+	fake.add(fakeJiraIssue{key: "OTHER-11", summary: "Child", issueType: "Story", category: "new", parent: "OTHER-10"})
+	svc, _ := newSourcesTest(t, fake.source(t))
+	lister := svc.(TicketLister)
+
+	items, err := lister.ListTickets(context.Background(), "jira", TicketQuery{Milestone: "OTHER-10"})
+	if err != nil || keysOf(items) != "OTHER-11" {
+		t.Fatalf("OTHER-10's issues = %s, %v (jql %q)", keysOf(items), err, fake.jql)
+	}
+}
