@@ -220,10 +220,13 @@ func (a *agentService) ResumeInterruptedAgent(ctx context.Context, taskID string
 		case plan.err != nil:
 			// Its step cannot go on: it fails saying why, and Retry
 			// starts it again.
+			// The agent is then dismissed, as Dismiss does, its step
+			// already failed.
 			if !plan.open.reopen {
 				a.failInterruptedStep(ctx, plan.open, workflowNotResumable(plan.err))
-				_ = a.store.EndInterruptedAgentSession(ctx, taskID, store.SlotMain)
-				a.interruptedChanged()
+				if err := a.DismissInterruptedAgent(ctx, taskID); err != nil {
+					log.Printf("workflow: dismissing the interrupted agent of %s: %v", taskID, err)
+				}
 			}
 			return plan.err
 		case fresh:
