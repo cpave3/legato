@@ -58,6 +58,38 @@ func TaskCondition(value any) (*Condition, error) {
 	return &condition, nil
 }
 
+// conditionAtLoad puts a value of the operator's type in place of each
+// in, exists or empty given as ${{ }}, whose type is known only once it
+// resolves: TaskCondition checks the resolved value when the step runs, and
+// the expression is checked with the rest of with.
+func conditionAtLoad(value any) any {
+	condition, ok := value.(map[string]any)
+	if !ok {
+		return value
+	}
+	out := make(map[string]any, len(condition))
+	for key, item := range condition {
+		switch key {
+		case "all", "any":
+			if list, ok := item.([]any); ok {
+				children := make([]any, len(list))
+				for i, child := range list {
+					children[i] = conditionAtLoad(child)
+				}
+				item = children
+			}
+		case "not":
+			item = conditionAtLoad(item)
+		case "in", "exists", "empty":
+			if text, ok := item.(string); ok && HasExpression(text) {
+				item = map[string]any{"in": []any{}, "exists": true, "empty": true}[key]
+			}
+		}
+		out[key] = item
+	}
+	return out
+}
+
 func checkTaskWhereField(field string) error {
 	path, err := ParsePath(field)
 	if err != nil {

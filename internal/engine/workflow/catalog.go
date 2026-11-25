@@ -286,7 +286,7 @@ func (f Field) accepts(value any, inputs map[string]Input) bool {
 		case f.Name == "options" && f.Checked:
 			return gateOptionsValid(value)
 		case f.Name == "where" && f.Checked:
-			_, err := TaskCondition(value)
+			_, err := TaskCondition(conditionAtLoad(value))
 			return err == nil
 		case f.Name == "labels" && f.Checked:
 			return labelsValid(value)

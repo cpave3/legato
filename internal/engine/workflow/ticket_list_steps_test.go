@@ -145,3 +145,52 @@ func TestTheWhereContextIsListed(t *testing.T) {
 	}
 	t.Fatal("no tasks.list.where context")
 }
+
+// An operator's value given as ${{ }} is checked as an expression at load
+// and as the operator's type once it resolves, when the step runs.
+func TestATaskConditionTakesAnExpressionForAnOperatorsValue(t *testing.T) {
+	file := func(where string) string {
+		return `schema_version: 2
+name: triage
+title: Triage
+inputs:
+  priorities: {type: json}
+  triaged: {type: boolean}
+steps:
+  - id: find
+    type: tasks.list
+    with:
+      where: ` + where + "\n"
+	}
+	valid := `{all: [{field: task.priority, in: "${{ workflow.inputs.priorities }}"}, {field: task.metadata.triaged, exists: "${{ workflow.inputs.triaged }}"}, {any: [{field: task.title, empty: "${{ workflow.inputs.triaged }}"}]}]}`
+	definition, err := workflow.Parse("triage.yaml", []byte(file(valid)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workflow.Parse("triage.yaml", []byte(file(`{field: task.priority, in: "${{ workflow.inputs.nothing }}"}`))); err == nil {
+		t.Fatal("an unknown input was accepted")
+	}
+
+	step, err := definition.ResolveStep("find", map[string]any{"priorities": []any{"High", "Medium"}, "triaged": false}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	condition, err := workflow.TaskCondition(step.With["where"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for priority, want := range map[string]bool{"High": true, "Low": false} {
+		got, err := condition.MatchTask(map[string]any{"title": "A", "priority": priority, "metadata": map[string]any{}})
+		if err != nil || got != want {
+			t.Errorf("%s: matched %v, %v; want %v", priority, got, err, want)
+		}
+	}
+
+	step, err = definition.ResolveStep("find", map[string]any{"priorities": "High", "triaged": false}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workflow.TaskCondition(step.With["where"]); err == nil {
+		t.Fatal("in took text once resolved")
+	}
+}
