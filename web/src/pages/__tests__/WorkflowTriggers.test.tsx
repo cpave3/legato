@@ -97,7 +97,7 @@ it("writes each trigger as a sentence, with its state here", async () => {
 
 it("offers no trigger kind once every kind is used", async () => {
   discovery.states = []
-  served = fileText.replace("steps:", "  chat.message:\n    bot: slack\n    enabled: false\n  chat.mention:\n    bot: discord\n    enabled: false\nsteps:")
+  served = fileText.replace("steps:", "  chat.message:\n    bot: slack\n    enabled: false\n  chat.mention:\n    bot: discord\n    enabled: false\n  chat.button:\n    bot: slack\n    user: U1\n    enabled: false\nsteps:")
   const when = await renderAt()
   expect(within(when).queryByRole("button", { name: "Add trigger" })).toBeNull()
 })
