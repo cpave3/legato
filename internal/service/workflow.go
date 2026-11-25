@@ -33,6 +33,18 @@ type ResolvedWorkflowStep struct {
 	Type    string
 	With    map[string]any
 	Outputs map[string]workflowengine.Output
+	// Agent is the agent an agent.message or agent.stop step's agent:
+	// {from: <step>} names, which the service finds before the step starts.
+	Agent *WorkflowStepAgent
+	// SchemaVersion is the run's definition's: clones are explicit and
+	// branches granted from version 2 (LEG-485).
+	SchemaVersion int
+	// WaitFor are the signals that end the step (EffectiveWaitFor), which
+	// its contract names.
+	WaitFor []string
+	// Clone is the job clone an agent.run step's with.clone names, which the
+	// service finds before the step starts; nil for a fresh clone.
+	Clone *store.JobClone
 }
 
 type WorkflowExecutionResult struct {
@@ -80,6 +92,12 @@ type WorkflowService struct {
 	// workflow_run_ended.go).
 	endedMu        sync.Mutex
 	endedListeners []WorkflowRunEndedListener
+	// agentOutputSources fill agent steps' outputs at their signal
+	// (workflow_agent_wait.go).
+	agentOutputSources AgentOutputSources
+	// discover finds the workflows workflow.run steps call by name
+	// (SetDefinitions, workflow_call.go).
+	discover func() workflowengine.DiscoveryResult
 }
 
 func NewWorkflowService(s *store.Store, executors []WorkflowExecutor) *WorkflowService {
@@ -91,7 +109,18 @@ func NewWorkflowServiceWithOutputs(s *store.Store, executors []WorkflowExecutor,
 	for _, executor := range executors {
 		registry[executor.Type()] = executor
 	}
-	return &WorkflowService{store: s, executors: registry, collector: NewWorkflowOutputCollector(s, dataDir)}
+	service := &WorkflowService{store: s, executors: registry, collector: NewWorkflowOutputCollector(s, dataDir)}
+	// The gate needs nothing but the run: every workflow service has it.
+	if _, given := registry[workflowengine.GateStepType]; !given {
+		registry[workflowengine.GateStepType] = &gateExecutor{workflows: service}
+	}
+	// So does a call: its child is a run of this service, and the
+	// run-ended hook settles the step that waits on it.
+	if _, given := registry[workflowengine.WorkflowRunStepType]; !given {
+		registry[workflowengine.WorkflowRunStepType] = &workflowRunExecutor{workflows: service}
+	}
+	service.OnRunEnded(childRuns{workflows: service})
+	return service
 }
 
 func (s *WorkflowService) SetRepositoryPresets(presets []workflowengine.RepositoryPreset) {
@@ -145,6 +174,37 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 	if err != nil {
 		return nil, err
 	}
+	created, err := s.createRun(ctx, definition, inputs, store.WorkflowRun{TriggerRequestID: triggerRequestID})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.advance(ctx, created.RunID, "", false); err != nil {
+		// The run is already durable and the executor records its failure.
+		// Return that visible run instead of encouraging an accidental duplicate launch.
+		view, loadErr := s.store.GetWorkflowRun(ctx, created.RunID)
+		if loadErr != nil {
+			return nil, err
+		}
+		return view, nil
+	}
+	return s.store.GetWorkflowRun(ctx, created.RunID)
+}
+
+// createdRun is a run createRun recorded: its ID, its task and its
+// resolved inputs. Created is false for a child run its attempt had
+// already (CreateChildWorkflowRun).
+type createdRun struct {
+	RunID, TaskID string
+	Inputs        map[string]any
+	Created       bool
+}
+
+// createRun records a run of definition with its inputs normalized (a
+// task input resolved to its task, a repository to the preset or the
+// object), and its task, without starting any step. link carries what the
+// run is linked to: its trigger request, or for a child run its parent's
+// step and attempt.
+func (s *WorkflowService) createRun(ctx context.Context, definition *workflowengine.Definition, inputs map[string]any, link store.WorkflowRun) (createdRun, error) {
 	relatedTaskID, relatedKey := "", ""
 	for key, spec := range definition.Inputs {
 		switch spec.Type {
@@ -152,18 +212,23 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 			id, _ := inputs[key].(string)
 			task, taskErr := s.store.GetTask(ctx, id)
 			if taskErr != nil {
-				return nil, fmt.Errorf("workflow input %q: task %q not found: %w", key, id, taskErr)
+				return createdRun{}, fmt.Errorf("workflow input %q: task %q not found: %w", key, id, taskErr)
 			}
 			inputs[key] = workflowTaskContext(task)
 			if relatedTaskID == "" {
 				relatedTaskID, relatedKey = task.ID, cardKey(task)
 			}
 		case "repository":
+			if resolved, ok := inputs[key].(map[string]any); ok {
+				// A caller's repository, as its run resolved it (LEG-489).
+				inputs[key] = resolved
+				continue
+			}
 			value, _ := inputs[key].(string)
 			if strings.HasPrefix(strings.TrimSpace(value), "{") {
 				var custom map[string]any
 				if err := json.Unmarshal([]byte(value), &custom); err != nil || fmt.Sprint(custom["repo"]) == "" || fmt.Sprint(custom["primary_dir"]) == "" {
-					return nil, fmt.Errorf("workflow input %q: custom repository requires repo and primary_dir", key)
+					return createdRun{}, fmt.Errorf("workflow input %q: custom repository requires repo and primary_dir", key)
 				}
 				custom["name"] = ""
 				inputs[key] = custom
@@ -171,67 +236,95 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 			}
 			preset, ok := findRepositoryPreset(s.repositoryPresets(ctx), value)
 			if !ok {
-				return nil, fmt.Errorf("workflow input %q: repository preset %q not found", key, value)
+				return createdRun{}, fmt.Errorf("workflow input %q: repository preset %q not found", key, value)
 			}
 			inputs[key] = map[string]any{"name": preset.Name, "repo": preset.Repo, "primary_dir": preset.PrimaryDir, "base_branch": preset.BaseBranch}
 		}
 	}
 	runTitle, err := definition.ResolveRunTitle(inputs)
 	if err != nil {
-		return nil, err
+		return createdRun{}, err
 	}
 	if definition.RunTitle == "" && relatedKey != "" {
 		// A run for a card is named after it: several runs of one
 		// workflow tell apart on the board and the run page.
 		runTitle += " · " + relatedKey
 	}
-	for _, step := range definition.Steps {
-		if _, ok := s.executors[step.Type]; !ok {
-			return nil, fmt.Errorf("workflow executor %q is not registered", step.Type)
-		}
-		if err := s.checkAgentKind(step, inputs); err != nil {
-			return nil, err
-		}
+	if err := s.checkExecutors(definition.Steps, inputs); err != nil {
+		return createdRun{}, err
 	}
 	color := "#6366f1"
 	id, workspaceErr := s.store.EnsureWorkspace(ctx, store.Workspace{Name: store.WorkflowWorkspaceName, Color: &color, SortOrder: 1000})
 	if workspaceErr != nil {
-		return nil, fmt.Errorf("ensure workflow workspace: %w", workspaceErr)
+		return createdRun{}, fmt.Errorf("ensure workflow workspace: %w", workspaceErr)
 	}
 	workspaceID := &id
 	runID := workflowID("wr-")
 	taskID := store.GenerateTaskID()
 	now := time.Now().UTC().Format(time.RFC3339)
 	if err := s.store.CreateTask(ctx, store.Task{ID: taskID, Title: runTitle, Description: "Workflow run " + runID, DescriptionMD: "Workflow run " + runID, Status: "Backlog", WorkspaceID: workspaceID, CreatedAt: now, UpdatedAt: now}); err != nil {
-		return nil, err
+		return createdRun{}, err
 	}
 	// A Learn run's own task never starts another: the learn template's
 	// trigger skips tasks with this mark.
 	if definition.UsesLearning() {
 		if err := s.store.SetTaskMetadata(ctx, taskID, []string{"legato", "learning_workflow"}, true); err != nil {
-			return nil, fmt.Errorf("mark learning workflow task: %w", err)
+			return createdRun{}, fmt.Errorf("mark learning workflow task: %w", err)
 		}
 	}
 	definitionJSON, _ := json.Marshal(definition)
 	inputsJSON, _ := json.Marshal(inputs)
-	run := store.WorkflowRun{ID: runID, WorkflowName: definition.Name, WorkflowTitle: runTitle, DefinitionSource: definition.Source, DefinitionDigest: digestBytes(definitionJSON), DefinitionJSON: string(definitionJSON), InputsJSON: string(inputsJSON), Status: "running", CurrentStepID: definition.Steps[0].ID, TaskID: taskID, RelatedTaskID: relatedTaskID, TriggerRequestID: triggerRequestID, SchemaVersion: definition.SchemaVersion}
+	run := store.WorkflowRun{ID: runID, WorkflowName: definition.Name, WorkflowTitle: runTitle, DefinitionSource: definition.Source, DefinitionDigest: digestBytes(definitionJSON), DefinitionJSON: string(definitionJSON), InputsJSON: string(inputsJSON), Status: "running", CurrentStepID: definition.Steps[0].ID, TaskID: taskID, RelatedTaskID: relatedTaskID,
+		TriggerRequestID: link.TriggerRequestID, ParentRunID: link.ParentRunID, ParentStepPath: link.ParentStepPath, ParentAttempt: link.ParentAttempt, SchemaVersion: definition.SchemaVersion}
 	// The run reaches its own steps when it starts; a nested scope's steps
 	// are created when the run reaches them.
 	steps := stepInstances(runID, "", nil, definition.Steps)
-	if err := s.store.CreateWorkflowRun(ctx, run, steps); err != nil {
-		return nil, err
+	if link.ParentRunID == "" {
+		if err := s.store.CreateWorkflowRun(ctx, run, steps); err != nil {
+			return createdRun{}, err
+		}
+	} else {
+		existing, created, err := s.store.CreateChildWorkflowRun(ctx, run, steps)
+		if err != nil {
+			return createdRun{}, err
+		}
+		if !created {
+			// The attempt's child exists: the task made for this one is
+			// not needed.
+			if err := s.store.DeleteTask(ctx, taskID); err != nil {
+				log.Printf("workflows: removing the task of a child run not made: %v", err)
+			}
+			return createdRun{RunID: existing}, nil
+		}
 	}
 	s.changed(ctx, runID, "", WorkflowChangeRunStarted)
-	if err := s.advance(ctx, definition, inputs, runID, taskID, 0, map[string]map[string]any{}, "", false); err != nil {
-		// The run is already durable and the executor records its failure.
-		// Return that visible run instead of encouraging an accidental duplicate launch.
-		view, loadErr := s.store.GetWorkflowRun(ctx, runID)
-		if loadErr != nil {
-			return nil, err
+	return createdRun{RunID: runID, TaskID: taskID, Inputs: inputs, Created: true}, nil
+}
+
+// checkExecutors refuses a run whose steps (a loop's body and next:
+// query included) name an executor not registered, or an agent tool not
+// configured.
+func (s *WorkflowService) checkExecutors(steps []workflowengine.Step, inputs map[string]any) error {
+	for _, step := range steps {
+		if step.Loop != nil {
+			if step.Loop.Next != nil {
+				if err := s.checkExecutors([]workflowengine.Step{{ID: workflowengine.NextStepID, Type: step.Loop.Next.Type}}, inputs); err != nil {
+					return err
+				}
+			}
+			if err := s.checkExecutors(step.Steps, inputs); err != nil {
+				return err
+			}
+			continue
 		}
-		return view, nil
+		if _, ok := s.executors[step.Type]; !ok {
+			return fmt.Errorf("workflow executor %q is not registered", step.Type)
+		}
+		if err := s.checkAgentKind(step, inputs); err != nil {
+			return err
+		}
 	}
-	return s.store.GetWorkflowRun(ctx, runID)
+	return nil
 }
 
 // stepInstances are the pending step instances of one scope's steps: the
@@ -286,6 +379,7 @@ func (s *WorkflowService) Show(ctx context.Context, runID string) (*store.Workfl
 	s.enrichWorkflowAttention(ctx, view)
 	s.addDetails(ctx, view)
 	addOutputWarnings(view)
+	s.addRunOutputs(ctx, view)
 	s.addAttemptAgents(ctx, view)
 	s.addResumable(ctx, view)
 	if view.Run.TriggerRequestID != "" {
@@ -313,6 +407,11 @@ func (s *WorkflowService) enrichWorkflowAttention(ctx context.Context, view *sto
 	s.waitingAttention(ctx, view)
 	s.addMergeWaits(ctx, view)
 	for _, step := range view.Steps {
+		if step.Status == WorkflowStepPaused {
+			view.Run.NeedsAttention = true
+			view.Run.AttentionReason = pausedReason(step)
+			break
+		}
 		if step.Status == "waiting_manual" && waitsForAgentToEnd(view.Run) && s.taskHasRunningAgent(ctx, view.Run.TaskID) {
 			break
 		}
@@ -322,9 +421,15 @@ func (s *WorkflowService) enrichWorkflowAttention(ctx context.Context, view *sto
 			break
 		}
 	}
+	endsOnEnd := map[string]bool{}
+	for _, step := range view.Steps {
+		// A step that waits only for its agent to end does not need the
+		// operator while the agent sits idle: that is the agent's turn.
+		endsOnEnd[step.Path] = slices.Equal(waitSignals(step), []string{workflowengine.SignalEnded})
+	}
 	for i := range view.Attempts {
 		attempt := &view.Attempts[i]
-		if attempt.ExecutorType != "agent.run" || attempt.Status != "waiting_agent" {
+		if attempt.ExecutorType != "agent.run" || attempt.Status != "waiting_agent" || endsOnEnd[attempt.Path] {
 			continue
 		}
 		session, err := attemptAgentSession(ctx, s.store, *attempt)
@@ -404,21 +509,21 @@ func (s *WorkflowService) ListRuns(ctx context.Context, filter store.WorkflowRun
 }
 
 func (s *WorkflowService) TriggerStep(ctx context.Context, runID, stepID string, force bool) (*store.WorkflowRunView, error) {
-	view, definition, inputs, prior, index, err := s.loadExecution(ctx, runID, stepID)
+	at, err := s.loadExecution(ctx, runID, stepID)
 	if err != nil {
 		return nil, err
 	}
-	if view.Run.Status != "waiting" || view.Run.CurrentStepID != stepID || !definition.Steps[index].WaitsForPerson() || view.Steps[index].Status != "waiting_manual" {
+	if at.view.Run.Status != "waiting" || at.view.Run.CurrentStepID != stepID || !at.step.WaitsForPerson() || at.row.Status != "waiting_manual" {
 		return nil, store.ErrWorkflowStateConflict
 	}
-	if force && definition.Steps[index].Type != "worktree.remove" {
+	if force && at.step.Type != "worktree.remove" {
 		return nil, fmt.Errorf("force is only supported for worktree.remove steps")
 	}
 	if err := s.store.TriggerWorkflowStep(ctx, runID, stepID); err != nil {
 		return nil, err
 	}
 	s.changed(ctx, runID, stepID, WorkflowChangeStepTriggered)
-	if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index, prior, stepID, force); err != nil {
+	if err := s.advance(ctx, runID, stepID, force); err != nil {
 		updated, loadErr := s.store.GetWorkflowRun(ctx, runID)
 		if loadErr != nil {
 			return nil, err
@@ -444,7 +549,7 @@ func (s *WorkflowService) PromptStep(ctx context.Context, runID, stepID string) 
 		if !ok {
 			return nil, fmt.Errorf("workflow step %q cannot be prompted", stepID)
 		}
-		message := "Continue your workflow assignment now. The step is not complete; finish the declared outputs and run the exact completion command from your assignment."
+		message := WorkflowMessageTag + "Continue your workflow assignment now. The step is not complete; finish the declared outputs and run the exact completion command from your assignment."
 		if err := prompter.Prompt(ctx, attempt, message); err != nil {
 			return nil, err
 		}
@@ -461,6 +566,12 @@ type WorkflowStepFailer interface {
 }
 
 func (s *WorkflowService) Fail(ctx context.Context, runID, stepID, attemptID, reason string) (*store.WorkflowRunView, error) {
+	return s.failWith(ctx, runID, stepID, attemptID, errors.New(reason))
+}
+
+// failWith is Fail with a typed failure (a WorkflowStepError carries its
+// error code and link into the step's outputs), so on_failure sees it.
+func (s *WorkflowService) failWith(ctx context.Context, runID, stepID, attemptID string, failure error) (*store.WorkflowRunView, error) {
 	view, err := s.store.GetWorkflowRun(ctx, runID)
 	if err != nil {
 		return nil, err
@@ -485,29 +596,33 @@ func (s *WorkflowService) Fail(ctx context.Context, runID, stepID, attemptID, re
 			return nil, fmt.Errorf("stopping failed workflow agent: %w", err)
 		}
 	}
-	if err := s.store.FailWorkflowStep(ctx, runID, stepID, attemptID, reason); err != nil {
+	if err := s.failRecorded(ctx, runID, stepID, attemptID, failure); err != nil {
 		return nil, err
 	}
-	s.changed(ctx, runID, stepID, WorkflowChangeStepFailed)
 	return s.store.GetWorkflowRun(ctx, runID)
 }
 
 func (s *WorkflowService) Retry(ctx context.Context, runID, stepID string, force bool) (*store.WorkflowRunView, error) {
-	view, definition, inputs, prior, index, err := s.loadExecution(ctx, runID, stepID)
+	at, err := s.loadExecution(ctx, runID, stepID)
 	if err != nil {
 		return nil, err
 	}
-	if force && definition.Steps[index].Type != "worktree.remove" {
+	if force && at.step.Type != "worktree.remove" {
 		return nil, fmt.Errorf("force is only supported for worktree.remove steps")
 	}
-	if err := s.endSuspendedStep(ctx, view, stepID); err != nil {
+	if at.row.ParentPath != "" && at.view.Run.CurrentStepID != stepID {
+		// A pass's step is retried where its run is held; a loop that
+		// failed is retried as the loop.
+		return nil, store.ErrWorkflowStateConflict
+	}
+	if err := s.endSuspendedStep(ctx, at.view, stepID); err != nil {
 		return nil, err
 	}
 	if err := s.store.ResetWorkflowStepForRetry(ctx, runID, stepID); err != nil {
 		return nil, err
 	}
 	s.changed(ctx, runID, stepID, WorkflowChangeStepRetried)
-	if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index, prior, stepID, force); err != nil {
+	if err := s.advance(ctx, runID, stepID, force); err != nil {
 		return nil, err
 	}
 	return s.store.GetWorkflowRun(ctx, runID)
@@ -545,6 +660,9 @@ func (s *WorkflowService) end(ctx context.Context, runID, reason string, write f
 	}
 	s.dismissSuspendedAgents(ctx, view)
 	s.changed(ctx, runID, "", kind)
+	// Its children go after its own end is written, so that their
+	// cancellation never settles one of its steps (LEG-489).
+	s.cancelChildren(ctx, runID)
 	return s.store.GetWorkflowRun(ctx, runID)
 }
 
@@ -553,12 +671,16 @@ func (s *WorkflowService) end(ctx context.Context, runID, reason string, write f
 // process finishes or keeps the agent, then advances the run (AdvanceDue).
 // In a host it advances the run at once, in the same way.
 func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID string, values, artifacts map[string]string) (*store.WorkflowRunView, error) {
-	view, definition, inputs, prior, index, err := s.loadExecution(ctx, runID, stepID)
+	at, err := s.loadExecution(ctx, runID, stepID)
 	if err != nil {
 		return nil, err
 	}
-	step := definition.Steps[index]
-	resolved, err := s.resolveStep(ctx, definition, step.ID, inputs, prior, view.Run.TaskID)
+	view := at.view
+	scope, err := s.scope(ctx, at)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := at.definition.ResolveStepAt(stepID, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -577,11 +699,7 @@ func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID
 		return nil, err
 	}
 	encoded, _ := json.Marshal(outputs)
-	next := ""
-	if index+1 < len(definition.Steps) {
-		next = definition.Steps[index+1].ID
-	}
-	if err := s.store.RecordWorkflowStepCompletion(ctx, runID, stepID, attemptID, string(encoded), next); err != nil {
+	if err := s.store.RecordWorkflowStepCompletion(ctx, runID, stepID, attemptID, string(encoded), at.next); err != nil {
 		return nil, err
 	}
 	s.changed(ctx, runID, stepID, WorkflowChangeStepCompleted)
@@ -616,136 +734,6 @@ func (e *StepRecordedError) Error() string {
 }
 
 func (e *StepRecordedError) Unwrap() []error { return []error{ErrWorkflowStepRecorded, e.Err} }
-
-// loadExecution loads a run at one of its steps, by path: the run, its
-// definition and inputs, the outputs of the steps before it that succeeded,
-// and the step's index in its scope.
-func (s *WorkflowService) loadExecution(ctx context.Context, runID, stepID string) (*store.WorkflowRunView, *workflowengine.Definition, map[string]any, map[string]map[string]any, int, error) {
-	view, err := s.store.GetWorkflowRun(ctx, runID)
-	if err != nil {
-		return nil, nil, nil, nil, 0, err
-	}
-	var definition workflowengine.Definition
-	if err := json.Unmarshal([]byte(view.Run.DefinitionJSON), &definition); err != nil {
-		return nil, nil, nil, nil, 0, err
-	}
-	var inputs map[string]any
-	if err := json.Unmarshal([]byte(view.Run.InputsJSON), &inputs); err != nil {
-		return nil, nil, nil, nil, 0, err
-	}
-	instances := make(map[string]store.WorkflowStep, len(view.Steps))
-	for _, instance := range view.Steps {
-		instances[instance.Path] = instance
-	}
-	prior := map[string]map[string]any{}
-	index := -1
-	for i, step := range definition.Steps {
-		path := workflowengine.StepPath("", step.ID)
-		if path == stepID {
-			index = i
-			break
-		}
-		if instance, ok := instances[path]; ok && instance.Status == "succeeded" {
-			var values map[string]any
-			if err := json.Unmarshal([]byte(instance.OutputsJSON), &values); err != nil {
-				return nil, nil, nil, nil, 0, err
-			}
-			prior[step.ID] = values
-		}
-	}
-	if index < 0 {
-		return nil, nil, nil, nil, 0, fmt.Errorf("workflow step %q not found", stepID)
-	}
-	return view, &definition, inputs, prior, index, nil
-}
-
-func (s *WorkflowService) resolveStep(ctx context.Context, definition *workflowengine.Definition, stepID string, inputs map[string]any, prior map[string]map[string]any, taskID string) (*workflowengine.ResolvedStep, error) {
-	task, err := s.store.GetTask(ctx, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("load workflow task %q: %w", taskID, err)
-	}
-	return definition.ResolveStep(stepID, inputs, workflowTaskContext(task), prior)
-}
-
-func (s *WorkflowService) advance(ctx context.Context, definition *workflowengine.Definition, inputs map[string]any, runID, taskID string, index int, prior map[string]map[string]any, selectedStep string, force bool) error {
-	for index < len(definition.Steps) {
-		step := definition.Steps[index]
-		isTriggered := selectedStep == step.ID
-		resolved, err := s.resolveStep(ctx, definition, step.ID, inputs, prior, taskID)
-		if err != nil {
-			return err
-		}
-		if isTriggered && step.Type == "worktree.remove" {
-			resolved.With["force"] = force
-		}
-		// A step that waits for the task's agent to end has nothing to wait
-		// for when no agent is running.
-		agentGone := step.Start == workflowengine.StartAgentEnded && !s.taskHasRunningAgent(ctx, taskID)
-		if step.WaitsForPerson() && !isTriggered && !agentGone {
-			resolvedJSON, _ := json.Marshal(resolved.With)
-			path := workflowengine.StepPath("", step.ID)
-			if err := s.store.WaitWorkflowStepManual(ctx, runID, path, string(resolvedJSON)); err != nil {
-				return err
-			}
-			s.changed(ctx, runID, path, WorkflowChangeStepWaiting)
-			return nil
-		}
-		attemptID := workflowID("wa-")
-		resolvedJSON, _ := json.Marshal(resolved.With)
-		view, err := s.store.GetWorkflowRun(ctx, runID)
-		if err != nil {
-			return err
-		}
-		path := workflowengine.StepPath("", step.ID)
-		attemptNumber := 1
-		for _, persisted := range view.Steps {
-			if persisted.Path == path {
-				attemptNumber = persisted.LatestAttempt + 1
-				break
-			}
-		}
-		attempt := store.WorkflowStepAttempt{ID: attemptID, RunID: runID, Path: path, StepID: step.ID, AttemptNumber: attemptNumber, ExecutorType: step.Type, TaskID: taskID, Status: "running"}
-		if err := s.store.StartWorkflowStepAttempt(ctx, attempt, string(resolvedJSON)); err != nil {
-			return err
-		}
-		s.changed(ctx, runID, path, WorkflowChangeStepStarted)
-		result, execErr := s.executors[step.Type].Start(ctx, ResolvedWorkflowStep{RunID: runID, AttemptID: attemptID, TaskID: taskID, RelatedTaskID: view.Run.RelatedTaskID, StepID: path, Title: step.Title, Type: step.Type, With: resolved.With, Outputs: resolved.Outputs})
-		if execErr != nil {
-			if err := s.store.FailWorkflowStep(ctx, runID, path, attemptID, execErr.Error()); err == nil {
-				s.changed(ctx, runID, path, WorkflowChangeStepFailed)
-			}
-			return execErr
-		}
-		if result.Status == "waiting_agent" || result.Status == WorkflowStepWaiting {
-			var err error
-			if result.Status == "waiting_agent" {
-				err = s.store.MarkWorkflowStepWaiting(ctx, runID, path, attemptID, result.AgentSession, result.WorkingDir, result.TaskID)
-			} else {
-				err = s.store.WaitWorkflowStepOnService(ctx, runID, path, attemptID)
-			}
-			if err != nil {
-				return err
-			}
-			s.changed(ctx, runID, path, WorkflowChangeStepWaiting)
-			return nil
-		}
-		if result.Status != "succeeded" {
-			return fmt.Errorf("executor %q returned invalid status %q", step.Type, result.Status)
-		}
-		outputsJSON, _ := json.Marshal(result.Outputs)
-		next := ""
-		if index+1 < len(definition.Steps) {
-			next = definition.Steps[index+1].ID
-		}
-		if err := s.store.CompleteWorkflowStep(ctx, runID, path, attemptID, string(outputsJSON), next); err != nil {
-			return err
-		}
-		s.changed(ctx, runID, path, WorkflowChangeStepCompleted)
-		prior[step.ID] = result.Outputs
-		index++
-	}
-	return nil
-}
 
 func workflowID(prefix string) string {
 	var b [6]byte

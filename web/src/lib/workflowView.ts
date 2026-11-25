@@ -14,6 +14,8 @@ export function runState(run: RunLike): { tone: Tone; label: string } {
     case "succeeded": return { tone: "done", label: "Done" }
     case "failed": return { tone: "error", label: "Failed" }
     case "cancelled": return { tone: "idle", label: "Cancelled" }
+    // A gate's Stop, or Stop at a step paused after a failure.
+    case "stopped": return { tone: "idle", label: "Stopped" }
     // Legato stopped with its agent: the interrupted agents' item asks
     // the operator to resume it, so the run itself does not need you.
     case "suspended": return { tone: "idle", label: "Suspended" }
@@ -41,6 +43,8 @@ export function stepMark(step: StepLike, run: RunLike): { glyph: string; tone: T
     case "cancelled": return { glyph: "–", tone: "idle" }
     case "pending": return { glyph: "○", tone: null }
     case "suspended": return { glyph: "‖", tone: "idle" }
+    // Failed under on_failure: pause, waiting for Retry, Skip or Stop.
+    case "paused": return { glyph: "◆", tone: "needs" }
   }
   if (step.status === "waiting_manual" && step.trigger === "agent_ended" && !run.needs_attention) return { glyph: "●", tone: "live" }
   return run.needs_attention || step.status === "waiting_manual" ? { glyph: "◆", tone: "needs" } : { glyph: "●", tone: "live" }
@@ -115,6 +119,8 @@ export function runSummary(run: RunSummaryInput): { text: string; tone?: Tone } 
     }
     case "cancelled":
       return { text: run.error || "Cancelled" }
+    case "stopped":
+      return { text: run.error || "Stopped" }
     case "suspended": {
       const suspended = steps.find(step => step.status === "suspended") ?? current
       return { text: `“${suspended?.title ?? "The step"}” is suspended: Legato stopped while its agent was working. Resume it to go on.` }
@@ -145,6 +151,12 @@ function taskName(value: unknown): string {
   return typeof task.title === "string" && task.title ? `${id} “${task.title}”` : id
 }
 
+// agentFrom is the step an agent: {from: <step>} names, or "".
+function agentFrom(value: unknown): string {
+  const from = value && typeof value === "object" ? (value as { from?: unknown }).from : undefined
+  return typeof from === "string" ? from : ""
+}
+
 // What a step will do, said before the operator runs it by hand. Null for a
 // step whose executor it does not know how to describe.
 export function stepIntent(step: { executor_type: string; resolved_inputs_json: string }): string | null {
@@ -154,7 +166,7 @@ export function stepIntent(step: { executor_type: string; resolved_inputs_json: 
   switch (step.executor_type) {
     case "task.move": return task && typeof inputs.column === "string" ? `Moves ${task} to ${inputs.column}.` : null
     case "task.note": return task ? `Adds a note to ${task}.` : null
-    case "agent.stop": return task ? `Stops the agent of ${task}.` : null
+    case "agent.stop": return task ? `Stops the agent of ${task}.` : agentFrom(inputs.agent) ? `Stops the agent of step ${agentFrom(inputs.agent)}.` : null
     case "agent.compact": return task ? `Compacts the agent of ${task} once its turn ends.` : null
     case "chimera.session.remove": return task ? `Removes the Chimera session of ${task}.` : null
     case "worktree.remove": return typeof inputs.expected_path === "string" && inputs.expected_path ? `Removes the worktree at ${inputs.expected_path}.` : null

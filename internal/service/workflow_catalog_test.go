@@ -39,7 +39,7 @@ func TestEveryWorkflowExecutorHasACatalogEntry(t *testing.T) {
 func TestExecutorTypesInSourceFindsTheExecutors(t *testing.T) {
 	found := executorTypesInSource(t)
 	for _, executor := range []WorkflowExecutor{
-		NewAgentRunExecutor(nil), NewAgentDispatchExecutor(nil, nil), NewAgentStopExecutor(nil),
+		NewAgentRunExecutor(nil), NewAgentDispatchExecutor(nil), NewAgentMessageExecutor(nil, nil), NewAgentStopExecutor(nil),
 		NewTaskNoteExecutor(nil), NewReviewPassesStep(), NewFileRemoveExecutor(),
 	} {
 		if !slices.Contains(found, executor.Type()) {
@@ -103,9 +103,10 @@ func executorTypesInSource(t *testing.T) []string {
 		case *ast.Ident:
 			value = constants[expr.Name]
 		}
-		// A step type has a dot; other Type methods (such as a profile's)
-		// return something else.
-		if strings.Contains(value, ".") && !slices.Contains(types, value) {
+		// A step type has a dot, or is one of the catalog's without (gate);
+		// other Type methods (such as a profile's) return something else.
+		_, listed := workflowengine.LookupExecutor(value)
+		if (strings.Contains(value, ".") || listed) && !slices.Contains(types, value) {
 			types = append(types, value)
 		}
 	}

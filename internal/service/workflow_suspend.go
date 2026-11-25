@@ -89,14 +89,15 @@ func (s *WorkflowService) ResumeStep(ctx context.Context, runID, stepID string) 
 	return nil, fmt.Errorf("%w: step %s has no interrupted agent to resume", store.ErrWorkflowStateConflict, stepID)
 }
 
-// endSuspendedStep fails a suspended step the operator retries, and
-// dismisses its interrupted agent: the retry starts afresh.
+// endSuspendedStep fails a suspended step the operator retries, without
+// its on_failure, and dismisses its interrupted agent: the retry starts
+// afresh.
 func (s *WorkflowService) endSuspendedStep(ctx context.Context, view *store.WorkflowRunView, stepID string) error {
 	for _, attempt := range view.Attempts {
 		if attempt.Path != stepID || attempt.Status != store.WorkflowSuspended {
 			continue
 		}
-		if err := s.store.FailWorkflowStep(ctx, view.Run.ID, stepID, attempt.ID, workflowRetriedReason); err != nil {
+		if _, err := s.store.FailWorkflowStepWith(ctx, view.Run.ID, stepID, attempt.ID, store.StepFailure{Message: workflowRetriedReason, Retired: true}); err != nil {
 			return err
 		}
 		s.dismissInterrupted(ctx, attempt)

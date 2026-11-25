@@ -113,6 +113,20 @@ describe("a chat message step", () => {
     expect(parse(latest).steps[0].with.buttons).toBeUndefined()
   })
 
+  it("keeps a button's if: and counts only buttons without one toward five", () => {
+    const shown = "{field: workflow.inputs.t, empty: false}"
+    const buttons = [1, 2, 3, 4, 5].map(n => `      - {label: B${n}, value: b${n}, if: ${shown}}\n`).join("") + "      - {label: Dismiss, value: dismiss}\n"
+    renderBuilder(head + "inputs:\n  t: {type: string}\nsteps:\n  - id: say\n    title: Say\n    type: chat.message.send\n    with:\n      bot: slack\n      text: hi\n      buttons:\n" + buttons)
+    expect(errors(latest)).toEqual([])
+    const card = within(stepCard(1))
+    expect(card.getByRole("note", { name: "Button 1 condition of step say" }).textContent).toBe("Shown only when its if: holds; edit it in YAML")
+    expect(card.queryByRole("note", { name: "Button 6 condition of step say" })).toBeNull()
+    commit(card.getByRole("textbox", { name: "Button 1 label of step say" }), "Fix")
+    expect(parse(latest).steps[0].with.buttons[0]).toEqual({ label: "Fix", value: "b1", if: { field: "workflow.inputs.t", empty: false } })
+    fireEvent.click(card.getByRole("button", { name: "Add a button to step say" }))
+    expect(parse(latest).steps[0].with.buttons).toHaveLength(7)
+  })
+
   it("shows buttons given by an expression as text", () => {
     renderBuilder(head + "inputs:\n  b: {type: json}\nsteps:\n  - id: say\n    title: Say\n    type: chat.message.send\n    with: {bot: slack, text: hi, buttons: \"${{ workflow.inputs.b }}\"}\n")
     expect((within(stepCard(1)).getByLabelText("buttons of step say") as HTMLInputElement).value).toBe("${{ workflow.inputs.b }}")

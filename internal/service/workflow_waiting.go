@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -26,11 +27,11 @@ func (s *WorkflowService) WaitingAttempts(ctx context.Context, executorType stri
 // CompleteWaiting finishes a waiting step with its outputs, as a
 // deterministic executor's would be, and runs the steps after it.
 func (s *WorkflowService) CompleteWaiting(ctx context.Context, runID, stepID, attemptID string, outputs map[string]any) (*store.WorkflowRunView, error) {
-	view, definition, inputs, prior, index, err := s.loadExecution(ctx, runID, stepID)
+	at, err := s.loadExecution(ctx, runID, stepID)
 	if err != nil {
 		return nil, err
 	}
-	if !hasWaitingAttempt(view, stepID, attemptID) {
+	if !hasWaitingAttempt(at.view, stepID, attemptID) {
 		return nil, store.ErrWorkflowStateConflict
 	}
 	if outputs == nil {
@@ -40,25 +41,28 @@ func (s *WorkflowService) CompleteWaiting(ctx context.Context, runID, stepID, at
 	if err != nil {
 		return nil, err
 	}
-	next := ""
-	if index+1 < len(definition.Steps) {
-		next = definition.Steps[index+1].ID
-	}
+	next := at.next
 	if err := s.store.CompleteWorkflowStep(ctx, runID, stepID, attemptID, string(encoded), next); err != nil {
 		return nil, err
 	}
 	s.changed(ctx, runID, stepID, WorkflowChangeStepCompleted)
-	prior[stepID] = outputs
 	if next != "" {
-		if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index+1, prior, "", false); err != nil {
+		if err := s.advance(ctx, runID, "", false); err != nil {
 			return nil, &StepRecordedError{StepID: stepID, NextStepID: next, Err: err}
 		}
 	}
 	return s.store.GetWorkflowRun(ctx, runID)
 }
 
-// FailWaiting fails a waiting step, and with it the run, with reason.
+// FailWaiting fails a waiting step with reason; the step's on_failure
+// decides what becomes of the run.
 func (s *WorkflowService) FailWaiting(ctx context.Context, runID, stepID, attemptID, reason string) (*store.WorkflowRunView, error) {
+	return s.FailWaitingError(ctx, runID, stepID, attemptID, errors.New(reason))
+}
+
+// FailWaitingError is FailWaiting with an error that may carry a code and
+// a link (WorkflowStepError).
+func (s *WorkflowService) FailWaitingError(ctx context.Context, runID, stepID, attemptID string, failure error) (*store.WorkflowRunView, error) {
 	view, err := s.store.GetWorkflowRun(ctx, runID)
 	if err != nil {
 		return nil, err
@@ -66,10 +70,9 @@ func (s *WorkflowService) FailWaiting(ctx context.Context, runID, stepID, attemp
 	if !hasWaitingAttempt(view, stepID, attemptID) {
 		return nil, store.ErrWorkflowStateConflict
 	}
-	if err := s.store.FailWorkflowStep(ctx, runID, stepID, attemptID, reason); err != nil {
+	if err := s.failRecorded(ctx, runID, stepID, attemptID, failure); err != nil {
 		return nil, err
 	}
-	s.changed(ctx, runID, stepID, WorkflowChangeStepFailed)
 	return s.store.GetWorkflowRun(ctx, runID)
 }
 
@@ -140,12 +143,18 @@ func (s *WorkflowService) waitingAttention(ctx context.Context, view *store.Work
 	}
 }
 
-// StepAction takes an action on a step waiting on its service; text is a
-// message's.
+// StepAction takes an action on a step waiting on its service (a gate's
+// choice, a review loop's another_pass); text is a message's. On a step
+// paused after a failure it takes retry, skip or stop.
 func (s *WorkflowService) StepAction(ctx context.Context, runID, stepID, action, text string) (*store.WorkflowRunView, error) {
 	view, err := s.store.GetWorkflowRun(ctx, runID)
 	if err != nil {
 		return nil, err
+	}
+	for _, step := range view.Steps {
+		if step.Path == stepID && step.Status == WorkflowStepPaused {
+			return s.pausedStepAction(ctx, view, stepID, action)
+		}
 	}
 	for _, attempt := range view.Attempts {
 		if attempt.Path != stepID || attempt.Status != WorkflowStepWaiting {

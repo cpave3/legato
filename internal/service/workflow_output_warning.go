@@ -22,7 +22,7 @@ func stepOutputWarning(step store.WorkflowStep, hasArtifacts bool) string {
 	switch step.ExecutorType {
 	case "agent.run":
 		if keepsAgent(step) {
-			return "This step finished with no output. Its agent was kept (keep_agent), so what it wrote is only in its conversation."
+			return "This step finished with no output. Its agent was kept, so what it wrote is only in its conversation."
 		}
 		return "This step finished with no output. Anything its agent wrote in chat is gone: the agent was removed."
 	case "agent.dispatch":

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -19,7 +20,8 @@ const workflowRunSelect = `SELECT id, workflow_name, workflow_title, definition_
 	COALESCE(task_id, '') AS task_id, error, created_at, started_at, completed_at,
 	COALESCE(related_task_id, '') AS related_task_id,
 	COALESCE(trigger_request_id, '') AS trigger_request_id,
-	COALESCE(parent_run_id, '') AS parent_run_id, parent_step_path, outputs_json, schema_version,
+	COALESCE(parent_run_id, '') AS parent_run_id, parent_step_path, COALESCE(parent_attempt, 0) AS parent_attempt,
+	outputs_json, schema_version,
 	COALESCE((SELECT title FROM tasks WHERE tasks.id = workflow_runs.related_task_id), '') AS related_task_title
 	FROM workflow_runs`
 
@@ -57,6 +59,9 @@ type WorkflowRun struct {
 	// started this run as its child (LEG-489); empty for any other run.
 	ParentRunID    string `db:"parent_run_id" json:"parent_run_id,omitempty"`
 	ParentStepPath string `db:"parent_step_path" json:"parent_step_path,omitempty"`
+	// ParentAttempt is the number of the step's attempt that started it:
+	// the three are unique together (CreateChildWorkflowRun).
+	ParentAttempt int `db:"parent_attempt" json:"parent_attempt,omitempty"`
 	// OutputsJSON is the run's own outputs, computed when it succeeds.
 	OutputsJSON string `db:"outputs_json" json:"outputs_json,omitempty"`
 	// SchemaVersion is the schema version of the definition the run runs.
@@ -118,6 +123,10 @@ type WorkflowStep struct {
 	// OutputWarning says that this agent step finished with no output and
 	// what became of its agent (LEG-532); the service fills it.
 	OutputWarning string `db:"-" json:"output_warning,omitempty"`
+	// ErrorCode and ErrorLink are what the error of a failed or paused
+	// step carries beside its text (StepFailure), read from its outputs.
+	ErrorCode string `db:"-" json:"error_code,omitempty"`
+	ErrorLink string `db:"-" json:"error_link,omitempty"`
 }
 
 type WorkflowStepAttempt struct {
@@ -188,9 +197,12 @@ type WorkflowRunView struct {
 	// running, "running", or "waiting" while it waits on the operator.
 	// CanResumeAgent says whether Resume agent is offered now. The service
 	// fills them (LEG-614).
-	ResumeTaskID     string `json:"resume_task_id,omitempty"`
-	ResumeAgentState string `json:"resume_agent_state,omitempty"`
-	CanResumeAgent   bool   `json:"can_resume_agent,omitempty"`
+	// OutputWarnings name each of a succeeded run's declared outputs that
+	// could not be resolved (LEG-489); the service fills them.
+	OutputWarnings   []string `json:"output_warnings,omitempty"`
+	ResumeTaskID     string   `json:"resume_task_id,omitempty"`
+	ResumeAgentState string   `json:"resume_agent_state,omitempty"`
+	CanResumeAgent   bool     `json:"can_resume_agent,omitempty"`
 }
 
 // RetitleWorkflowRun gives a run, and its task when it has one, a new title:
@@ -209,24 +221,86 @@ func (s *Store) RetitleWorkflowRun(ctx context.Context, runID, title string) err
 // CreateWorkflowRun records a run and the step instances it has reached
 // at its start: its top-level steps.
 func (s *Store) CreateWorkflowRun(ctx context.Context, run WorkflowRun, steps []WorkflowStep) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		return insertWorkflowRun(ctx, tx, run, steps)
+	})
+}
+
+func insertWorkflowRun(ctx context.Context, tx *sqlx.Tx, run WorkflowRun, steps []WorkflowStep) error {
 	if run.SchemaVersion == 0 {
 		run.SchemaVersion = 1
 	}
 	if run.OutputsJSON == "" {
 		run.OutputsJSON = "{}"
 	}
-	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		if _, err := tx.NamedExecContext(ctx, `INSERT INTO workflow_runs
-			(id, workflow_name, workflow_title, definition_source, definition_digest, definition_json, inputs_json, status, current_step_id, task_id, related_task_id, trigger_request_id, parent_run_id, parent_step_path, outputs_json, schema_version, error, started_at)
-			VALUES (:id, :workflow_name, :workflow_title, :definition_source, :definition_digest, :definition_json, :inputs_json, :status, :current_step_id, NULLIF(:task_id,''), NULLIF(:related_task_id,''), NULLIF(:trigger_request_id,''), NULLIF(:parent_run_id,''), :parent_step_path, :outputs_json, :schema_version, :error, datetime('now'))`, run); err != nil {
+	if _, err := tx.NamedExecContext(ctx, `INSERT INTO workflow_runs
+		(id, workflow_name, workflow_title, definition_source, definition_digest, definition_json, inputs_json, status, current_step_id, task_id, related_task_id, trigger_request_id, parent_run_id, parent_step_path, parent_attempt, outputs_json, schema_version, error, started_at)
+		VALUES (:id, :workflow_name, :workflow_title, :definition_source, :definition_digest, :definition_json, :inputs_json, :status, :current_step_id, NULLIF(:task_id,''), NULLIF(:related_task_id,''), NULLIF(:trigger_request_id,''), NULLIF(:parent_run_id,''), :parent_step_path, NULLIF(:parent_attempt, 0), :outputs_json, :schema_version, :error, datetime('now'))`, run); err != nil {
+		return err
+	}
+	for _, step := range steps {
+		if err := insertWorkflowStep(ctx, tx, step); err != nil {
 			return err
 		}
-		for _, step := range steps {
-			if err := insertWorkflowStep(ctx, tx, step); err != nil {
+	}
+	return nil
+}
+
+// CreateChildWorkflowRun records the child run of a workflow.run step's
+// attempt (run.ParentRunID, ParentStepPath and ParentAttempt), with the
+// steps it reaches at its start, and links the step to it (child_run_id),
+// in one transaction. When the attempt has a child already (a crash
+// between creating it and marking the step waiting) nothing is written:
+// it returns that child's ID, and created is false.
+func (s *Store) CreateChildWorkflowRun(ctx context.Context, run WorkflowRun, steps []WorkflowStep) (string, bool, error) {
+	if run.ParentRunID == "" || run.ParentStepPath == "" || run.ParentAttempt < 1 {
+		return "", false, fmt.Errorf("a child run needs its parent run, step and attempt")
+	}
+	id, created := run.ID, true
+	err := withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		var existing string
+		err := tx.GetContext(ctx, &existing, `SELECT id FROM workflow_runs WHERE parent_run_id = ? AND parent_step_path = ? AND parent_attempt = ?`, run.ParentRunID, run.ParentStepPath, run.ParentAttempt)
+		switch {
+		case err == nil:
+			id, created = existing, false
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		default:
+			if err := insertWorkflowRun(ctx, tx, run, steps); err != nil {
 				return err
 			}
 		}
-		return nil
+		return execOne(ctx, tx, `UPDATE workflow_steps SET child_run_id = ? WHERE run_id = ? AND path = ?`, id, run.ParentRunID, run.ParentStepPath)
+	})
+	if err != nil {
+		return "", false, err
+	}
+	return id, created, nil
+}
+
+// ListChildWorkflowRuns lists the child runs a run's workflow.run steps
+// started, oldest first.
+func (s *Store) ListChildWorkflowRuns(ctx context.Context, parentRunID string) ([]WorkflowRun, error) {
+	runs := []WorkflowRun{}
+	err := s.db.SelectContext(ctx, &runs, workflowRunSelect+` WHERE parent_run_id = ? ORDER BY created_at, rowid`, parentRunID)
+	return runs, err
+}
+
+// ListUncancelledChildrenOfEndedWorkflowRuns lists the child runs that have
+// not ended cancelled, stopped or succeeded whose parent has ended
+// cancelled or stopped: children the parent's end did not reach (LEG-489).
+func (s *Store) ListUncancelledChildrenOfEndedWorkflowRuns(ctx context.Context) ([]WorkflowRun, error) {
+	runs := []WorkflowRun{}
+	err := s.db.SelectContext(ctx, &runs, workflowRunSelect+` WHERE status IN ('running','waiting','suspended','failed')
+		AND parent_run_id IN (SELECT id FROM workflow_runs WHERE status IN ('cancelled','stopped'))
+		ORDER BY created_at, rowid`)
+	return runs, err
+}
+
+// SetWorkflowRunOutputs keeps a succeeded run's own outputs.
+func (s *Store) SetWorkflowRunOutputs(ctx context.Context, runID, outputsJSON string) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		return execOne(ctx, tx, `UPDATE workflow_runs SET outputs_json = ? WHERE id = ? AND status = 'succeeded'`, outputsJSON, runID)
 	})
 }
 
@@ -277,6 +351,19 @@ func (s *Store) GetWorkflowRun(ctx context.Context, id string) (*WorkflowRunView
 	// (a loop pass's), each in order.
 	if err := s.db.SelectContext(ctx, &view.Steps, "SELECT "+workflowStepColumns+" FROM workflow_steps WHERE run_id = ? ORDER BY parent_path, step_order", id); err != nil {
 		return nil, err
+	}
+	for i := range view.Steps {
+		step := &view.Steps[i]
+		if step.Status != "failed" && step.Status != WorkflowStepPaused {
+			continue
+		}
+		var failure struct {
+			Code string `json:"error_code"`
+			Link string `json:"error_link"`
+		}
+		if json.Unmarshal([]byte(step.OutputsJSON), &failure) == nil {
+			step.ErrorCode, step.ErrorLink = failure.Code, failure.Link
+		}
 	}
 	if err := s.db.SelectContext(ctx, &view.Attempts, "SELECT "+workflowAttemptColumns+" FROM workflow_step_attempts WHERE run_id = ? ORDER BY path, attempt_number", id); err != nil {
 		return nil, err
@@ -420,6 +507,12 @@ func (s *Store) RecordWorkflowStepCompletion(ctx context.Context, runID, path, a
 
 func (s *Store) completeWorkflowStep(ctx context.Context, runID, path, attemptID, outputsJSON, nextPath string, advanceDue bool) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		return completeWorkflowStepTx(ctx, tx, runID, path, attemptID, outputsJSON, nextPath, advanceDue)
+	})
+}
+
+func completeWorkflowStepTx(ctx context.Context, tx *sqlx.Tx, runID, path, attemptID, outputsJSON, nextPath string, advanceDue bool) error {
+	{
 		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'succeeded', ended_at = datetime('now')
 			WHERE id = ? AND run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting')`, attemptID, runID, path)
 		if err != nil {
@@ -474,18 +567,23 @@ func (s *Store) completeWorkflowStep(ctx context.Context, runID, path, attemptID
 			}
 		}
 		return nil
-	})
+	}
 }
 
 // MarkWorkflowStepWaiting ties a running step to the agent it waits on.
 // taskID, when not empty, is the task the agent works on, which replaces the
 // run's task on the attempt: an agent.run step on a card's own agent
-// (LEG-540), so the attempt's agent is found on that card.
+// (LEG-540), so the attempt's agent is found on that card. An empty
+// workingDir is the session's: the folder it works in (a job clone), which
+// the attempt keeps after the session ends and is deleted.
 func (s *Store) MarkWorkflowStepWaiting(ctx context.Context, runID, path, attemptID string, session *AgentSession, workingDir, taskID string) error {
 	var sessionID any
 	var tmuxName, agentKind string
 	if session != nil {
 		sessionID, tmuxName, agentKind = session.ID, session.TmuxSession, session.AgentKind
+		if workingDir == "" {
+			workingDir = session.WorkingDir
+		}
 	}
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
 		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'waiting_agent', agent_session_id = ?, tmux_session = ?, agent_kind = ?, working_dir = ?, task_id = COALESCE(NULLIF(?, ''), task_id) WHERE id = ? AND run_id = ? AND path = ? AND status = 'running'`, sessionID, tmuxName, agentKind, workingDir, taskID, attemptID, runID, path)
@@ -561,54 +659,309 @@ func (s *Store) ListWorkflowAttemptsForRuns(ctx context.Context, runIDs []string
 // ListWaitingWorkflowAttemptsByExecutor lists the attempts of one executor
 // type that wait on its service, oldest first.
 func (s *Store) ListWaitingWorkflowAttemptsByExecutor(ctx context.Context, executorType string) ([]WorkflowStepAttempt, error) {
+	return s.ListWorkflowAttemptsByExecutor(ctx, executorType, "waiting")
+}
+
+// ListWorkflowAttemptsByExecutor lists the attempts of one executor type
+// in one status, oldest first.
+func (s *Store) ListWorkflowAttemptsByExecutor(ctx context.Context, executorType, status string) ([]WorkflowStepAttempt, error) {
 	attempts := []WorkflowStepAttempt{}
 	err := s.db.SelectContext(ctx, &attempts, "SELECT "+workflowAttemptColumns+` FROM workflow_step_attempts
-		WHERE executor_type = ? AND status = 'waiting' ORDER BY started_at, id`, executorType)
+		WHERE executor_type = ? AND status = ? ORDER BY started_at, id`, executorType, status)
 	return attempts, err
 }
 
+// WorkflowStepPaused is a step that failed under on_failure: pause: the
+// run waits (status waiting) at a gate with Retry, Skip and Stop.
+const WorkflowStepPaused = "paused"
+
+// What a step's failure did (StepFailure, FailWorkflowStepWith).
+const (
+	FailureFailed    = "fail"
+	FailureContinued = "continue"
+	FailurePaused    = "pause"
+	// FailurePassEnded is a loop pass's step's failure under the loop's
+	// on_failure continue or fail: the pass ends there, and the run goes
+	// back to its loop, which decides (LEG-490).
+	FailurePassEnded = "pass"
+)
+
+// StepFailure is a step's failure: its text, and the code and link an
+// executor's error may carry (such as review_loop_active, and the other
+// loop's run). InProcess is set by a caller that moves the run on itself
+// after a continued failure; otherwise a continued step is left due an
+// advance, for a host to start the next step (ClaimWorkflowAdvances).
+type StepFailure struct {
+	Message   string
+	Code      string
+	Link      string
+	InProcess bool
+	// Retired is set for an attempt the operator retries (a suspended
+	// step's): the step fails as on_failure: fail would, whatever it says,
+	// since its retry resets it at once and a continue would move the run
+	// past it.
+	Retired bool
+	// Status is the status output, failed when empty: a workflow.run step
+	// whose child was cancelled or stopped says so (LEG-489).
+	Status string
+	// Outputs are more outputs the failure has, such as the child run's
+	// run_id; they never replace status, error or error_code.
+	Outputs map[string]any
+	// LoopState is a failing loop's state, written over the one read in
+	// the failure's own transaction (LEG-490).
+	LoopState *LoopStateWrite
+}
+
+// LoopStateWrite is a loop's state as read (Old) and as it is to be (New).
+type LoopStateWrite struct {
+	Old, New string
+}
+
+// FailureOutputs are the outputs a failed step has: status (failed unless
+// the failure says), error, error_code and, when there is one, error_link,
+// with any more the failure carries.
+func FailureOutputs(failure StepFailure) map[string]any {
+	outputs := make(map[string]any, len(failure.Outputs)+4)
+	for key, value := range failure.Outputs {
+		outputs[key] = value
+	}
+	status := failure.Status
+	if status == "" {
+		status = "failed"
+	}
+	outputs["status"], outputs["error"], outputs["error_code"] = status, failure.Message, failure.Code
+	if failure.Link != "" {
+		outputs["error_link"] = failure.Link
+	}
+	return outputs
+}
+
+// FailWorkflowStep fails a step's attempt with errorMessage, and does
+// what the step's on_failure says (FailWorkflowStepWith).
 func (s *Store) FailWorkflowStep(ctx context.Context, runID, path, attemptID, errorMessage string) error {
-	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'failed', error = ?, ended_at = datetime('now') WHERE id = ? AND run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting','suspended')`, errorMessage, attemptID, runID, path)
-		if err != nil {
+	_, err := s.FailWorkflowStepWith(ctx, runID, path, attemptID, StepFailure{Message: errorMessage})
+	return err
+}
+
+// FailWorkflowStepWith fails a step's attempt, and with it the step, whose
+// outputs become the failure: status failed, error, error_code and, when
+// there is one, error_link. Then the step's on_failure (in the definition
+// it keeps) decides, and the result says which it did: fail (the default)
+// fails the run; continue moves the run to the next step in the step's
+// scope (or ends it succeeded when there is none); pause leaves the step
+// paused and the run waiting.
+func (s *Store) FailWorkflowStepWith(ctx context.Context, runID, path, attemptID string, failure StepFailure) (string, error) {
+	encoded, _ := json.Marshal(FailureOutputs(failure))
+	mode := FailureFailed
+	err := withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		if write := failure.LoopState; write != nil {
+			if err := setLoopState(ctx, tx, runID, path, write.Old, write.New); err != nil {
+				return err
+			}
+		}
+		var step struct {
+			ParentPath     string `db:"parent_path"`
+			StepOrder      int    `db:"step_order"`
+			DefinitionJSON string `db:"definition_json"`
+		}
+		if err := tx.GetContext(ctx, &step, `SELECT parent_path, step_order, definition_json FROM workflow_steps WHERE run_id = ? AND path = ?`, runID, path); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrWorkflowStateConflict
+			}
 			return err
 		}
-		rows, err := result.RowsAffected()
-		if err != nil {
+		var definition struct {
+			OnFailure string `json:"on_failure"`
+		}
+		_ = json.Unmarshal([]byte(step.DefinitionJSON), &definition)
+		if !failure.Retired && (definition.OnFailure == FailureContinued || definition.OnFailure == FailurePaused) {
+			mode = definition.OnFailure
+		}
+		loopPath := passLoopPath(step.ParentPath)
+		if loopPath != "" && mode == FailureFailed && !failure.Retired {
+			// A pass's step with no on_failure of its own (or fail) fails
+			// its pass, which does what the loop's on_failure says. A
+			// retired attempt does neither: its Retry resets the step at
+			// once, so the run must stay at it.
+			policy, err := loopFailurePolicy(ctx, tx, runID, loopPath)
+			if err != nil {
+				return err
+			}
+			mode = FailurePaused
+			if policy == FailureContinued || policy == FailureFailed {
+				mode = FailurePassEnded
+			}
+		}
+		if err := execOne(ctx, tx, `UPDATE workflow_step_attempts SET status = 'failed', error = ?, ended_at = datetime('now') WHERE id = ? AND run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting','suspended')`, failure.Message, attemptID, runID, path); err != nil {
 			return err
 		}
-		if rows != 1 {
-			return ErrWorkflowStateConflict
+		stepStatus := "failed"
+		if mode == FailurePaused {
+			stepStatus = WorkflowStepPaused
 		}
-		result, err = tx.ExecContext(ctx, `UPDATE workflow_steps SET status = 'failed', error = ?, completed_at = datetime('now') WHERE run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting','suspended')`, errorMessage, runID, path)
-		if err != nil {
+		advanceDue := (mode == FailureContinued || mode == FailurePassEnded) && !failure.InProcess
+		if err := execOne(ctx, tx, `UPDATE workflow_steps SET status = ?, error = ?, outputs_json = ?, completed_at = datetime('now'), advance_due = ?, advance_claimed_at = NULL WHERE run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting','suspended')`, stepStatus, failure.Message, string(encoded), advanceDue, runID, path); err != nil {
 			return err
 		}
-		rows, err = result.RowsAffected()
-		if err != nil {
-			return err
+		switch mode {
+		case FailurePaused:
+			return execOne(ctx, tx, `UPDATE workflow_runs SET status = 'waiting', error = '' WHERE id = ? AND current_step_id = ? AND status IN ('running','suspended')`, runID, path)
+		case FailureContinued:
+			next, err := nextStepPath(ctx, tx, runID, step.ParentPath, step.StepOrder)
+			if err != nil {
+				return err
+			}
+			return moveRunPast(ctx, tx, runID, path, next, "'running','suspended'")
+		case FailurePassEnded:
+			return moveRunPast(ctx, tx, runID, path, loopPath, "'running','suspended'")
 		}
-		if rows != 1 {
-			return ErrWorkflowStateConflict
-		}
-		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'failed', error = ? WHERE id = ? AND current_step_id = ? AND status IN ('running','suspended')`, errorMessage, runID, path)
-		if err != nil {
-			return err
-		}
-		rows, err = result.RowsAffected()
-		if err != nil {
-			return err
-		}
-		if rows != 1 {
-			return ErrWorkflowStateConflict
-		}
-		return nil
+		return execOne(ctx, tx, `UPDATE workflow_runs SET status = 'failed', error = ? WHERE id = ? AND current_step_id = ? AND status IN ('running','suspended')`, failure.Message, runID, path)
 	})
+	return mode, err
+}
+
+// SkipWorkflowStep skips a step: one whose if: is false, which the run
+// reached (pending), or one paused after a failure, which the operator
+// skips. Its outputs are missing. The run moves to nextPath, or ends
+// succeeded when it is empty.
+func (s *Store) SkipWorkflowStep(ctx context.Context, runID, path, nextPath string) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		if err := execOne(ctx, tx, `UPDATE workflow_steps SET status = 'skipped', outputs_json = '{}', completed_at = datetime('now') WHERE run_id = ? AND path = ? AND status IN ('pending', 'paused')`, runID, path); err != nil {
+			return err
+		}
+		return moveRunPast(ctx, tx, runID, path, nextPath, "'running','waiting'")
+	})
+}
+
+// nextStepPath is the path of the step after the one at order in its
+// scope; after a loop pass's last step (or a next: loop's query, at order
+// -1, before its pass's other steps are made) its loop's; "" after the
+// run's last.
+func nextStepPath(ctx context.Context, tx *sqlx.Tx, runID, parent string, order int) (string, error) {
+	var next string
+	err := tx.GetContext(ctx, &next, `SELECT path FROM workflow_steps WHERE run_id = ? AND parent_path = ? AND step_order > ? ORDER BY step_order LIMIT 1`, runID, parent, order)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && order < 0) {
+		return passLoopPath(parent), nil
+	}
+	return next, err
+}
+
+// passLoopPath is the loop whose pass a scope is (each/2 is each's), or
+// "" for the run's own steps.
+func passLoopPath(parent string) string {
+	if i := strings.LastIndex(parent, "/"); i >= 0 {
+		return parent[:i]
+	}
+	return ""
+}
+
+// loopFailurePolicy is what a loop's on_failure says, from the definition
+// its step row keeps: pause when it says nothing.
+func loopFailurePolicy(ctx context.Context, tx *sqlx.Tx, runID, loopPath string) (string, error) {
+	var definitionJSON string
+	if err := tx.GetContext(ctx, &definitionJSON, `SELECT definition_json FROM workflow_steps WHERE run_id = ? AND path = ?`, runID, loopPath); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrWorkflowStateConflict
+		}
+		return "", err
+	}
+	var definition struct {
+		Loop struct {
+			OnFailure string `json:"on_failure"`
+		} `json:"loop"`
+	}
+	_ = json.Unmarshal([]byte(definitionJSON), &definition)
+	if definition.Loop.OnFailure == "" {
+		return FailurePaused, nil
+	}
+	return definition.Loop.OnFailure, nil
+}
+
+// AdvanceWorkflowLoop moves a run at a running loop on, from the loop's
+// state it read (oldState) to newState: it makes a pass's steps and moves
+// the run to current, the pass's first. A host that read another state,
+// or found the run elsewhere, gets ErrWorkflowStateConflict: another got
+// there first (LEG-490).
+func (s *Store) AdvanceWorkflowLoop(ctx context.Context, runID, loopPath, oldState, newState string, steps []WorkflowStep, current string) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		if err := setLoopState(ctx, tx, runID, loopPath, oldState, newState); err != nil {
+			return err
+		}
+		for _, step := range steps {
+			if err := insertWorkflowStep(ctx, tx, step); err != nil {
+				return err
+			}
+		}
+		return execOne(ctx, tx, `UPDATE workflow_runs SET current_step_id = ?, error = '' WHERE id = ? AND current_step_id = ? AND status = 'running'`, current, runID, loopPath)
+	})
+}
+
+// ListWorkflowRunsAtLoops lists the running runs that are at a running
+// loop: between a pass's end and the loop's next move, which a host that
+// died there left undone.
+func (s *Store) ListWorkflowRunsAtLoops(ctx context.Context) ([]string, error) {
+	var runs []string
+	err := s.db.SelectContext(ctx, &runs, `SELECT DISTINCT r.id FROM workflow_runs r
+		JOIN workflow_step_attempts a ON a.run_id = r.id AND a.path = r.current_step_id
+		WHERE r.status = 'running' AND a.executor_type = 'loop' AND a.status = 'running' ORDER BY r.id`)
+	return runs, err
+}
+
+// SetWorkflowLoopState writes a running loop's state over the one read.
+func (s *Store) SetWorkflowLoopState(ctx context.Context, runID, loopPath, oldState, newState string) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		return setLoopState(ctx, tx, runID, loopPath, oldState, newState)
+	})
+}
+
+func setLoopState(ctx context.Context, tx *sqlx.Tx, runID, loopPath, oldState, newState string) error {
+	return execOne(ctx, tx, `UPDATE workflow_steps SET loop_state_json = ? WHERE run_id = ? AND path = ? AND status = 'running' AND loop_state_json = ?`, newState, runID, loopPath, oldState)
+}
+
+// EndWorkflowLoop ends a loop the run is at: its state written over the
+// one read, then its step completed with its outputs, and the run moved to
+// nextPath (or ended, when it is "").
+func (s *Store) EndWorkflowLoop(ctx context.Context, runID, loopPath, attemptID, oldState, newState, outputsJSON, nextPath string) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		if err := setLoopState(ctx, tx, runID, loopPath, oldState, newState); err != nil {
+			return err
+		}
+		return completeWorkflowStepTx(ctx, tx, runID, loopPath, attemptID, outputsJSON, nextPath, false)
+	})
+}
+
+// moveRunPast moves a run at path, in one of statuses, on to nextPath, or
+// ends it succeeded (its task done) when nextPath is empty.
+func moveRunPast(ctx context.Context, tx *sqlx.Tx, runID, path, nextPath, statuses string) error {
+	if nextPath != "" {
+		return execOne(ctx, tx, `UPDATE workflow_runs SET status = 'running', current_step_id = ?, error = '' WHERE id = ? AND current_step_id = ? AND status IN (`+statuses+`)`, nextPath, runID, path)
+	}
+	if err := execOne(ctx, tx, `UPDATE workflow_runs SET status = 'succeeded', current_step_id = '', completed_at = datetime('now'), error = '' WHERE id = ? AND current_step_id = ? AND status IN (`+statuses+`)`, runID, path); err != nil {
+		return err
+	}
+	return execOne(ctx, tx, `UPDATE tasks SET status = 'Done', archived_at = datetime('now'), updated_at = datetime('now') WHERE id = (SELECT task_id FROM workflow_runs WHERE id = ?)`, runID)
+}
+
+// execOne runs an update that must change exactly one row:
+// ErrWorkflowStateConflict otherwise.
+func execOne(ctx context.Context, tx *sqlx.Tx, query string, args ...any) error {
+	result, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return ErrWorkflowStateConflict
+	}
+	return nil
 }
 
 func (s *Store) ResetWorkflowStepForRetry(ctx context.Context, runID, path string) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		result, err := tx.ExecContext(ctx, `UPDATE workflow_steps SET status = 'pending', error = '', completed_at = NULL WHERE run_id = ? AND path = ? AND status IN ('failed','interrupted')`, runID, path)
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_steps SET status = 'pending', error = '', outputs_json = '{}', completed_at = NULL WHERE run_id = ? AND path = ? AND status IN ('failed','interrupted','paused')`, runID, path)
 		if err != nil {
 			return err
 		}
@@ -619,7 +972,10 @@ func (s *Store) ResetWorkflowStepForRetry(ctx context.Context, runID, path strin
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'running', current_step_id = ?, error = '', completed_at = NULL WHERE id = ? AND status = 'failed'`, path, runID)
+		// A run failed at this step, or one waiting at it paused after a
+		// failure: never an earlier step that failed and was continued,
+		// which the run went on past.
+		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'running', error = '', completed_at = NULL WHERE id = ? AND status IN ('failed', 'waiting') AND current_step_id = ?`, runID, path)
 		if err != nil {
 			return err
 		}
@@ -831,7 +1187,7 @@ func (s *Store) endWorkflowRun(ctx context.Context, runID, status, reason string
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE workflow_steps SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE run_id = ? AND status IN ('pending','running','waiting_agent','waiting_manual','waiting','suspended')`, reason, runID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE workflow_steps SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE run_id = ? AND status IN ('pending','running','waiting_agent','waiting_manual','waiting','suspended','paused')`, reason, runID); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'cancelled', error = ?, ended_at = datetime('now') WHERE run_id = ? AND status IN ('running','waiting_agent','waiting','suspended')`, reason, runID)

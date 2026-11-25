@@ -79,6 +79,9 @@ func (s *Server) definitionWithGraph(ctx context.Context, definition *workflowen
 			if parsed != nil && parsed.HasChatFallback() {
 				out.Warnings = append(out.Warnings, s.chatFallbackDiagnostics(ctx, data, parsed, all)...)
 			}
+			if parsed != nil && parsed.Calls() {
+				out.Warnings = append(out.Warnings, workflowengine.CallDiagnostics(data, parsed, all)...)
+			}
 		}
 	}
 	return out
@@ -508,6 +511,45 @@ func (s *Server) NotifyWorkflowChangedKind(runID, stepID, kind string) {
 	}
 	if s.bus == nil || !s.workflowForwarding.Load() {
 		s.hub.Broadcast(WSMessage{Type: MsgWorkflowChanged, WorkflowRunID: runID, WorkflowStepID: stepID, Kind: kind})
+	}
+}
+
+// workflowStepActor takes a step's actions (WorkflowService.StepAction).
+type workflowStepActor interface {
+	StepAction(ctx context.Context, runID, stepID, action, text string) (*store.WorkflowRunView, error)
+}
+
+// workflowStepActionHandler serves POST
+// /api/workflow-runs/{run_id}/steps/{step_id}/action with {action, text}: a
+// gate's choice (choose:<option>), or retry, skip or stop on a step paused
+// after a failure. 409 when the step does not take it now.
+func (s *Server) workflowStepActionHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := s.workflows.(workflowStepActor)
+		if s.workflows == nil || !ok {
+			http.Error(w, "workflow service unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			Action string `json:"action"`
+			Text   string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Action) == "" {
+			http.Error(w, "an action is required", http.StatusBadRequest)
+			return
+		}
+		runID, stepID := r.PathValue("run_id"), r.PathValue("step_id")
+		view, err := actor.StepAction(r.Context(), runID, stepID, body.Action, body.Text)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		s.NotifyWorkflowChanged(view.Run.ID, stepID)
+		s.writeJSON(w, http.StatusOK, view)
 	}
 }
 

@@ -29,7 +29,9 @@ func TestAgentStepThatFinishedWithNoOutputIsWarnedOf(t *testing.T) {
 	}{
 		{name: "no outputs", executor: "agent.run", resolved: `{"prompt":"x"}`, outputs: `{}`, want: "the agent was removed"},
 		{name: "outputs declared but empty", executor: "agent.run", resolved: `{"prompt":"x"}`, outputs: `{"digest":""}`, want: "the agent was removed"},
-		{name: "keep_agent", executor: "agent.run", resolved: `{"prompt":"x","keep_agent":true}`, outputs: `{}`, want: "kept (keep_agent)"},
+		{name: "keep_agent", executor: "agent.run", resolved: `{"prompt":"x","keep_agent":true}`, outputs: `{}`, want: "Its agent was kept"},
+		{name: "keep", executor: "agent.run", resolved: `{"prompt":"x","keep":true}`, outputs: `{}`, want: "Its agent was kept"},
+		{name: "on a task", executor: "agent.run", resolved: `{"prompt":"x","on":{"id":"LEG-7"}}`, outputs: `{}`, want: "Its agent was kept"},
 		{name: "dispatch", executor: "agent.dispatch", resolved: `{"message":"x"}`, outputs: `{}`, want: "the task's agent"},
 		{name: "with output", executor: "agent.run", resolved: `{"prompt":"x"}`, outputs: `{"digest":"news"}`},
 		{name: "with artifact", executor: "agent.run", resolved: `{"prompt":"x"}`, outputs: `{}`, artifact: true},

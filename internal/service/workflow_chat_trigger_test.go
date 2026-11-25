@@ -192,3 +192,19 @@ func TestLongChatTextIsCutBeforeItIsKept(t *testing.T) {
 		t.Fatalf("event json is %d bytes", len(started[0].EventJSON))
 	}
 }
+
+func TestChatTriggerInputsReadFallbacksAndExpressionsInText(t *testing.T) {
+	db, coordinator, _ := chatTriggerFixture(t, "  chat.message:\n    bot: slack\n    inputs:\n      text: ${{ event.subject ?? event.text }}\n      thread: \"re ${{ event.thread_id }}\"\n")
+	if err := coordinator.ChatEvent(context.Background(), chatMessage("1.1", "C1", "deploy")); err != nil {
+		t.Fatal(err)
+	}
+	started := requestsWith(t, db, "started")
+	if len(started) != 1 {
+		t.Fatalf("started = %+v", started)
+	}
+	for _, want := range []string{`"text":"deploy"`, `"thread":"re 1.1"`} {
+		if !strings.Contains(started[0].InputsJSON, want) {
+			t.Fatalf("inputs %s lack %s", started[0].InputsJSON, want)
+		}
+	}
+}

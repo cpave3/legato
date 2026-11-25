@@ -161,24 +161,33 @@ func TestAChatSendStepsButtonsAreChecked(t *testing.T) {
 `,
 		"an expression label": "        - {label: \"${{ workflow.inputs.x }}\", value: a}\n",
 		"the whole list":      "        ${{ workflow.inputs.buttons }}\n",
+		// Six entries, at most four shown, two values shared by buttons
+		// that are never shown together.
+		"buttons with if": healthCheckButtons,
 	} {
 		if definition, diagnostics := workflow.Check("say.yaml", []byte(buttonsStep(buttons))); definition == nil || len(diagnostics) != 0 {
 			t.Errorf("%s: diagnostics = %+v", name, diagnostics)
 		}
 	}
 	for name, tc := range map[string]struct{ buttons, says string }{
-		"not a list":     {"        {label: a, value: b}\n", "a list"},
-		"empty":          {"        []\n", "1 to 5"},
-		"six":            {strings.Repeat("        - {label: a, value: b}\n", 6), "1 to 5"},
-		"no label":       {"        - {value: b}\n", "buttons[0]: label"},
-		"no value":       {"        - {label: a, value: x}\n        - {label: b}\n", "buttons[1]: value"},
-		"unknown key":    {"        - {label: a, value: b, url: x}\n", "buttons[0]: no field \"url\""},
-		"bad style":      {"        - {label: a, value: b, style: big}\n", "primary or danger"},
-		"long label":     {"        - {label: " + strings.Repeat("a", 76) + ", value: b}\n", "75"},
-		"long value":     {"        - {label: a, value: " + strings.Repeat("b", 101) + "}\n", "100"},
-		"same value":     {"        - {label: a, value: b}\n        - {label: c, value: b}\n", "buttons[1]: value \"b\""},
-		"not a map":      {"        - fix\n", "buttons[0]"},
-		"a number value": {"        - {label: a, value: 3}\n", "buttons[0]: value"},
+		"not a list":      {"        {label: a, value: b}\n", "a list"},
+		"empty":           {"        []\n", "1 to 25"},
+		"six":             {sixButtons, "1 to 5 buttons without if"},
+		"twenty-six":      {strings.Repeat("        - {label: a, value: b, if: {field: workflow.inputs.x, exists: true}}\n", 26), "1 to 25"},
+		"an if not a map": {"        - {label: a, value: b, if: yes}\n", "buttons[0] if: must be a condition"},
+		"an if's shape":   {"        - {label: a, value: b, if: {field: workflow.inputs.x}}\n", "buttons[0] if: condition field \"workflow.inputs.x\" requires exactly one operator"},
+		"an if's key":     {"        - {label: a, value: b, if: {field: workflow.inputs.x, above: 3}}\n", "buttons[0] if:"},
+		"an if's input":   {"        - {label: a, value: b, if: {field: workflow.inputs.nope, exists: true}}\n", "input \"nope\" is not declared"},
+		"an if's step":    {"        - {label: a, value: b, if: {field: steps.later.outputs.x, exists: true}}\n", "step \"later\" is not an earlier step"},
+		"no label":        {"        - {value: b}\n", "buttons[0]: label"},
+		"no value":        {"        - {label: a, value: x}\n        - {label: b}\n", "buttons[1]: value"},
+		"unknown key":     {"        - {label: a, value: b, url: x}\n", "buttons[0]: no field \"url\""},
+		"bad style":       {"        - {label: a, value: b, style: big}\n", "primary or danger"},
+		"long label":      {"        - {label: " + strings.Repeat("a", 76) + ", value: b}\n", "75"},
+		"long value":      {"        - {label: a, value: " + strings.Repeat("b", 101) + "}\n", "100"},
+		"same value":      {"        - {label: a, value: b}\n        - {label: c, value: b}\n", "buttons[1]: value \"b\""},
+		"not a map":       {"        - fix\n", "buttons[0]"},
+		"a number value":  {"        - {label: a, value: 3}\n", "buttons[0]: value"},
 	} {
 		_, err := workflow.Parse("say.yaml", []byte(buttonsStep(tc.buttons)))
 		if err == nil || !strings.Contains(err.Error(), tc.says) {
@@ -186,6 +195,14 @@ func TestAChatSendStepsButtonsAreChecked(t *testing.T) {
 		}
 	}
 }
+
+const sixButtons = `        - {label: a, value: a}
+        - {label: b, value: b}
+        - {label: c, value: c}
+        - {label: d, value: d}
+        - {label: e, value: e}
+        - {label: f, value: f}
+`
 
 func TestTheChatButtonsFieldIsInTheCatalog(t *testing.T) {
 	spec, _ := workflow.LookupExecutor("chat.message.send")
@@ -203,6 +220,7 @@ func TestTheSchemaChecksButtonsAndTheButtonTrigger(t *testing.T) {
 	for name, text := range map[string]string{
 		"buttons":          buttonsStep("        - {label: Fix, value: \"fix:${{ workflow.inputs.x }}\", style: primary}\n        - {label: No, value: no}\n"),
 		"buttons by input": buttonsStep("        ${{ workflow.inputs.buttons }}\n"),
+		"buttons with if":  buttonsStep(healthCheckButtons),
 		"a button trigger": trigger("  chat.button:\n    bot: slack\n    user: U7\n    value: {regex: \"^fix:(?P<task>.+)$\"}\n    inputs: {task: \"${{ event.match.task }}\"}\n"),
 	} {
 		if _, err := workflow.Parse("s.yaml", []byte(text)); err != nil {
@@ -213,7 +231,8 @@ func TestTheSchemaChecksButtonsAndTheButtonTrigger(t *testing.T) {
 		}
 	}
 	for name, text := range map[string]string{
-		"six buttons":       buttonsStep(strings.Repeat("        - {label: a, value: b}\n", 6)),
+		"26 buttons":        buttonsStep(strings.Repeat("        - {label: a, value: b}\n", 26)),
+		"an if not a map":   buttonsStep("        - {label: a, value: b, if: yes}\n"),
 		"a button's url":    buttonsStep("        - {label: a, value: b, url: x}\n"),
 		"no value":          buttonsStep("        - {label: a}\n"),
 		"a big style":       buttonsStep("        - {label: a, value: b, style: big}\n"),
@@ -254,5 +273,60 @@ func TestChatBotDiagnosticsCheckTheButtonTriggersBot(t *testing.T) {
 	})
 	if len(got) != 1 || got[0].Line != 9 || !strings.Contains(got[0].Message, `"teams"`) {
 		t.Fatalf("diagnostics = %+v", got)
+	}
+}
+
+// healthCheckButtons are the daily health check's two button sets in one
+// step: one when the agent found a ticket, the other when it did not.
+const healthCheckButtons = `        - label: "🛠 Fix with ${{ workflow.inputs.x }}"
+          value: "fix:${{ workflow.inputs.x }}"
+          style: primary
+          if: {field: workflow.inputs.x, empty: false}
+        - {label: Fix with a new ticket, value: new-fix, if: {field: workflow.inputs.x, empty: false}}
+        - {label: New ticket only, value: new, if: {field: workflow.inputs.x, empty: false}}
+        - {label: Ticket + fix, value: new-fix, style: primary, if: {field: workflow.inputs.x, empty: true}}
+        - {label: Ticket only, value: new, if: {field: workflow.inputs.x, empty: true}}
+        - {label: Dismiss, value: dismiss, style: danger}
+`
+
+func resolvedButtons(t *testing.T, buttons string, inputs map[string]any) any {
+	t.Helper()
+	definition, err := workflow.Parse("say.yaml", []byte(buttonsStep(buttons)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := definition.ResolveStep("say", inputs, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved.With["buttons"]
+}
+
+func TestAButtonsIfLeavesItOutWhenFalse(t *testing.T) {
+	found := resolvedButtons(t, healthCheckButtons, map[string]any{"x": "AG-123"})
+	want := []any{
+		map[string]any{"label": "🛠 Fix with AG-123", "value": "fix:AG-123", "style": "primary"},
+		map[string]any{"label": "Fix with a new ticket", "value": "new-fix"},
+		map[string]any{"label": "New ticket only", "value": "new"},
+		map[string]any{"label": "Dismiss", "value": "dismiss", "style": "danger"},
+	}
+	if !reflect.DeepEqual(found, want) {
+		t.Errorf("with a ticket found: buttons = %#v", found)
+	}
+	none := resolvedButtons(t, healthCheckButtons, nil)
+	want = []any{
+		map[string]any{"label": "Ticket + fix", "value": "new-fix", "style": "primary"},
+		map[string]any{"label": "Ticket only", "value": "new"},
+		map[string]any{"label": "Dismiss", "value": "dismiss", "style": "danger"},
+	}
+	if !reflect.DeepEqual(none, want) {
+		t.Errorf("with none: buttons = %#v", none)
+	}
+}
+
+func TestEveryButtonLeftOutLeavesAnEmptyList(t *testing.T) {
+	got := resolvedButtons(t, "        - {label: Fix, value: fix, if: {field: workflow.inputs.x, exists: true}}\n", nil)
+	if list, ok := got.([]any); !ok || len(list) != 0 {
+		t.Fatalf("buttons = %#v, want an empty list: the message goes without buttons", got)
 	}
 }

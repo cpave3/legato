@@ -45,6 +45,17 @@ var (
 	}
 )
 
+// loopRoots are what a loop's pass reads of its loop (LEG-490): <loop
+// output> is one of the loop's outputs, or status or error.
+var loopRoots = []ExpressionRoot{
+	{"loop.index", "The pass's number, from 0"},
+	{"loop.item", "The pass's item (none in a repeat loop)"},
+	{"loop.item.<path>", "A field of the pass's item"},
+	{"loop.previous.<loop output>", "A result of the newest pass that succeeded; missing in the first"},
+	{"loop.results", "The results of the passes that have ended"},
+	{"loop.results.<path>", "A pass's result, as loop.results[0].<output>"},
+}
+
 // chatEventRoots are what a chat trigger's inputs may read.
 var chatEventRoots = []ExpressionRoot{
 	{"event.bot", "The bot that received the message"},
@@ -69,6 +80,7 @@ var chatButtonRoots = []ExpressionRoot{
 	{"event.label", "The clicked button's label"},
 	{"event.match.<path>", "A named group of the value regex: event.match.task for ^fix:(?P<task>.+)$"},
 	{"event.message_id", "The ID of the message with the buttons"},
+	{"event.message_text", "The text of the message with the buttons, cut to 8 KiB"},
 	{"event.thread_id", "What chat.message.send's thread_id takes to reply to that message"},
 }
 
@@ -83,6 +95,13 @@ func ExpressionContexts() []ExpressionContext {
 		{Location: "run_title", Description: "The run's title: the inputs only, as the workflow task does not exist yet", Roots: append([]ExpressionRoot{}, inputRoots...)},
 		{Location: "with", Description: "A step's with values", Roots: with},
 		{Location: "output_path", Description: "A file output's path", Roots: outputPath},
+		{Location: "if", Description: "A step's if: condition's field, a bare path (no ${{ }}); [n] and .field reach into JSON", Roots: append([]ExpressionRoot{}, outputPath...)},
+		{Location: TasksListStepType + ".where", Description: "tasks.list's where: each condition's field, a bare path (no ${{ }}) over the task being checked; its values take the with roots", Roots: []ExpressionRoot{
+			{"task.<task field>", "A field of the task being checked"},
+			{"task.workspace", "The name of the task's workspace, or empty"},
+			{"task.metadata.<path>", "A metadata value of the task being checked"},
+		}},
+		{Location: "pass", Description: "A loop's pass's steps (their with and if:) and the loop's outputs' values: as with, the earlier steps the nearest of each ID (the pass's own, then those before the loop), and the loop's context. A loop's until reads loop.last too: the result of the pass that just ended", Roots: append(append([]ExpressionRoot{}, with...), loopRoots...)},
 		{Location: "trigger." + TriggerTaskEnteredColumn, Description: "The inputs of a column-entry trigger", Roots: []ExpressionRoot{
 			{"event.task", "The ID of the task that entered the column"},
 			{"task.<task field>", "A field of the task that entered the column"},

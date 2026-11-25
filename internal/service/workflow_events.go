@@ -22,6 +22,8 @@ const (
 	WorkflowChangeStepCompleted = "step_completed"
 	WorkflowChangeStepFailed    = "step_failed"
 	WorkflowChangeStepRetried   = "step_retried"
+	WorkflowChangeStepSkipped   = "step_skipped"
+	WorkflowChangeStepPaused    = "step_paused"
 )
 
 // SetEventBus has every change to a run's state published on bus.
@@ -41,6 +43,9 @@ func (s *WorkflowService) SetChangeListener(listener func(events.WorkflowChanged
 func (s *WorkflowService) changed(ctx context.Context, runID, stepID, kind string) {
 	defer func() {
 		if endsRun(kind) {
+			// A run's outputs are kept before anyone hears of its end: a
+			// parent's workflow.run step returns them (LEG-489).
+			s.keepRunOutputs(ctx, runID)
 			s.tellIfEnded(ctx, runID)
 		}
 	}()

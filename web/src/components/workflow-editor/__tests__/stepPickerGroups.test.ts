@@ -3,13 +3,14 @@ import { pickerGroups } from "../stepPickerGroups"
 import { executors } from "../../../lib/workflowSchema"
 
 describe("the step picker's list", () => {
-  it("groups every step type as Agents, Code, Board, Chat, Learn and Cleanup", () => {
+  it("groups every step type as Agents, Code, Board, Chat, Learn, Cleanup and Control", () => {
     const groups = pickerGroups("")
-    expect(groups.map(g => g.group)).toEqual(["Agents", "Code", "Board", "Chat", "Learn", "Cleanup"])
+    expect(groups.map(g => g.group)).toEqual(["Agents", "Code", "Board", "Chat", "Learn", "Cleanup", "Control"])
     expect(groups.find(g => g.group === "Chat")?.entries.map(e => e.type)).toEqual(["chat.message.send", "chat.reaction.add", "chat.reaction.remove", "chat.thread.read"])
     const listed = groups.flatMap(g => g.entries.map(e => e.type)).sort()
     expect(listed).toEqual(executors.map(e => e.type).sort())
-    expect(groups[0].entries.map(e => e.type)).toEqual(["agent.run", "agent.dispatch", "agent.stop", "agent.compact"])
+    expect(groups[0].entries.map(e => e.type)).toEqual(["agent.run", "agent.message", "agent.dispatch", "agent.stop", "agent.compact"])
+    expect(groups.find(g => g.group === "Board")?.entries.map(e => e.type)).toEqual(expect.arrayContaining(["ticket.import", "tickets.list", "tasks.list"]))
   })
 
   it("offers Learn's steps for any workflow", () => {
@@ -24,7 +25,7 @@ describe("the step picker's list", () => {
 
   it("finds the ticket steps under Board", () => {
     expect(pickerGroups("ticket").map(g => g.group)).toEqual(["Board"])
-    expect(pickerGroups("jira").flatMap(g => g.entries.map(e => e.type))).toEqual(["ticket.create", "ticket.comment"])
+    expect(pickerGroups("jira").flatMap(g => g.entries.map(e => e.type))).toEqual(["ticket.create", "ticket.comment", "ticket.import"])
   })
 
   it("finds by name, type and words of the description, dropping empty groups", () => {
@@ -38,6 +39,6 @@ describe("the step picker's list", () => {
     const run = pickerGroups("").flatMap(g => g.entries).find(e => e.type === "agent.run")!
     expect(run.phrase).toBe("Start an agent of the workflow on a prompt or a macro, and wait for it to complete the step with the outputs the step declares")
     const stop = pickerGroups("").flatMap(g => g.entries).find(e => e.type === "agent.stop")!
-    expect(stop.phrase).toBe("Stop a task's agent")
+    expect(stop.phrase).toBe("Stop a task's agent: the one an earlier step used (agent: {from: <step>}), or a task's own (its main slot)")
   })
 })

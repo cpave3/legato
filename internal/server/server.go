@@ -365,6 +365,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/workflow-runs/{run_id}/steps/{step_id}/trigger", s.workflowTriggerHandler())
 	mux.HandleFunc("/api/workflow-runs/{run_id}/steps/{step_id}/prompt", s.workflowPromptHandler())
 	mux.HandleFunc("/api/workflow-runs/{run_id}/steps/{step_id}/another-pass", s.reviewAnotherPassHandler())
+	mux.HandleFunc("/api/workflow-runs/{run_id}/steps/{step_id}/action", s.workflowStepActionHandler())
 	mux.HandleFunc("/api/workflow-artifacts/{artifact_id}", s.workflowArtifactHandler())
 	// Swarm endpoints
 	mux.HandleFunc("/api/swarm/start", s.swarmStartHandler())

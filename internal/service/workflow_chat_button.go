@@ -79,6 +79,7 @@ func (c *WorkflowTriggerCoordinator) ChatButton(ctx context.Context, e ChatEvent
 				"bot": e.Bot, "platform": e.Platform, "channel": e.Channel, "user": e.User,
 				"value": e.Click.Value, "label": e.Click.Label, "match": match,
 				"message_id": e.MessageID, "thread_id": e.ThreadID,
+				"message_text": cutUTF8(e.Click.MessageText, MaxChatEventText),
 			}}})
 		switch {
 		case err != nil:

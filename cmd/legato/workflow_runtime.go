@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -107,12 +108,14 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 	agentRun := service.NewAgentRunExecutor(runner, binary)
 	agentRun.SetMacros(macros)
 	agentRun.SetScratchRoot(filepath.Join(config.ResolveDataDir(cfg), service.WorkflowScratchFolder), db.WorkflowAttemptInUse)
-	agentDispatch := service.NewAgentDispatchExecutor(agentSvc, db)
-	agentDispatch.SetMacros(macros)
+	agentMessage := service.NewAgentMessageExecutor(runner, db)
+	agentMessage.SetMacros(macros)
+	agentMessage.SetBinaryPath(binary)
 	chatBots := chatBotsFor(cfg, db)
 	executors := []service.WorkflowExecutor{
 		agentRun,
-		agentDispatch,
+		service.NewAgentDispatchExecutor(agentRun),
+		agentMessage,
 		service.NewAgentStopExecutor(runner),
 		agentCompactExecutor(agentSvc),
 		service.NewChimeraSessionRemoveExecutor(db, chimera.NewSessionRemover("chimera")),
@@ -127,12 +130,25 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 	if configured, ok := opts.Sync.(service.CardMoveSync); ok {
 		moveSync = configured
 	}
+	// The ticket steps go through the sync service's sources; without one
+	// they fail saying so.
+	var tickets service.TicketImporter
+	var ticketLists service.TicketLister
+	if configured, ok := opts.Sync.(service.TicketImporter); ok {
+		tickets = configured
+	}
+	if configured, ok := opts.Sync.(service.TicketLister); ok {
+		ticketLists = configured
+	}
 	executors = append(executors,
 		service.NewTaskContextExecutor(board),
 		service.NewTaskWorkingDirResolveExecutor(db),
 		service.NewTaskNoteExecutor(db),
 		service.NewTaskMetadataExecutor(db),
 		service.NewTaskMoveExecutor(service.NewWorkflowTaskMover(board, moveSync)),
+		service.NewTicketImportExecutor(tickets, db),
+		service.NewTicketsListExecutor(ticketLists),
+		service.NewTasksListExecutor(db),
 		service.NewFileRemoveExecutor(),
 		prWait,
 		service.NewBurnliteCloseExecutor(db, service.ConnectedBurnlite{Connection: burnliteConnections(cfg, db)}),
@@ -163,6 +179,9 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		workflows.SetRepositorySource(opts.Presets.WorkflowPresets)
 	}
 	workflows.SetAgentKinds(agentSvc.RegisteredAdapters())
+	workflows.SetAgentOutputs(agentOutputSources(db, agentSvc, prSvc))
+	// workflow.run steps call the workflows found now, by name (LEG-489).
+	workflows.SetDefinitions(workflowDiscoveryProvider(cfg, db))
 	// Resume agent: a run's card agent started with a macro, as the card
 	// menu starts one, and stopped when the run's merge is over.
 	workflows.SetAgentResumer(macrosFor(db, agentSvc), agentSvc)
@@ -296,5 +315,42 @@ func ticketWriters(cfg *config.Config, db *store.Store) []service.TicketWriter {
 	return []service.TicketWriter{
 		service.JiraTicketWriter{BaseURL: cfg.Jira.BaseURL, Email: cfg.Jira.Email, APIToken: cfg.Jira.APIToken},
 		service.BurnliteTicketWriter{Connection: burnliteConnections(cfg, db)},
+	}
+}
+
+// agentOutputSources fill an agent step's outputs at its signal (LEG-485):
+// its clone's stack, the pull requests of its branches, and its last
+// message.
+func agentOutputSources(db *store.Store, agents service.AgentService, prs service.PRTrackingService) service.AgentOutputSources {
+	sources := service.AgentOutputSources{Stacks: service.NewTaskStackService(db, nil)}
+	if branches, ok := prs.(service.PRBranchActions); ok {
+		sources.PRs = branches
+	}
+	if reader, ok := agents.(service.AgentConversationReader); ok {
+		sources.LastMessage = func(ctx context.Context, agentID string) string {
+			tail, err := reader.ConversationTail(ctx, agentID, 20)
+			if err != nil || tail == nil {
+				return ""
+			}
+			for i := len(tail.Entries) - 1; i >= 0; i-- {
+				if entry := tail.Entries[i]; entry.Kind == service.EntryAssistant && strings.TrimSpace(entry.Text) != "" {
+					return strings.TrimSpace(entry.Text)
+				}
+			}
+			return ""
+		}
+	}
+	return sources
+}
+
+// grantWorkflowBranches lets version 2 agent steps grant their agents the
+// branches they name (LEG-485), through the credential broker, which is
+// started after the workflow service.
+func grantWorkflowBranches(workflows *service.WorkflowService, rt *approvalRuntime) {
+	if workflows == nil || rt == nil || rt.credentials == nil {
+		return
+	}
+	if run, ok := workflows.Executor("agent.run").(*service.AgentRunExecutor); ok {
+		run.SetBranchGrants(rt.credentials)
 	}
 }

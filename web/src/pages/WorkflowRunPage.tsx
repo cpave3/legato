@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, Download, FileText } from "lucide-react"
 import { useWorkflowRun } from "../hooks/useWorkflow"
 import { useServer } from "../hooks/useServer"
 import { useNow } from "../hooks/useNow"
-import { anotherReviewPass, resumeWorkflowAgent, type MergeWaitDetails, cancelWorkflow, retryWorkflowStep, resumeWorkflowStep, triggerWorkflowStep, promptWorkflowStep, fetchWorkflowArtifact, type ReviewRunDetails, type WorkflowArtifact, type WorkflowAttempt, type WorkflowRunView, type WorkflowStepRun } from "../lib/workflow"
+import { anotherReviewPass, resumeWorkflowAgent, workflowStepAction, type GateDetails, type MergeWaitDetails, type WorkflowCallDetails, cancelWorkflow, retryWorkflowStep, resumeWorkflowStep, triggerWorkflowStep, promptWorkflowStep, fetchWorkflowArtifact, type ReviewRunDetails, type WorkflowArtifact, type WorkflowAttempt, type WorkflowRunView, type WorkflowStepRun } from "../lib/workflow"
 import { ago, attentionCopy, currentStep, elapsed, inputText, runWithAttention, producedValues, runState, runSubject, sourceLabel, stepIntent, stepMark, stepPosition, stepSegments, type StepLike, type Tone } from "../lib/workflowView"
 import { WorkflowMarkdownPreview } from "../components/WorkflowMarkdownPreview"
 import { ManualWorkflowStepAction } from "../components/ManualWorkflowStepAction"
@@ -21,6 +21,7 @@ import { LazyWorkflowGraph } from "../components/workflow-graph/LazyWorkflowGrap
 import { StepYaml } from "../components/StepYaml"
 import { redactSecrets, runStateWords, stepTypeLabel, triggerName, yamlText, type GraphNode } from "../lib/workflowGraph"
 import { type RunNeedsYouRow, type RunRowStep } from "../lib/runNeedsYou"
+import { isTopStep, runStepTree, stepPathOf, type RunStepNode } from "../lib/workflowRunTree"
 import { useApprovals } from "../hooks/useApprovals"
 import { agentLink, graphLink, secretValues, useRunGraphExtras } from "../hooks/useRunGraph"
 import { useQueryClient } from "@tanstack/react-query"
@@ -100,44 +101,73 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
   const artifacts = view.artifacts ?? []
   const run = runWithAttention(view.run, attempts)
   const state = runState(run)
+  // A step is known by its path: a loop's passes have steps of one ID.
+  const ofStep = (item: { step_id: string; path?: string }, step: WorkflowStepRun) => stepPathOf(item) === stepPathOf(step)
   if (run.status === "succeeded") {
-    const values = producedValues(steps)
+    const values = producedValues(steps.filter(isTopStep))
+    // The run's own declared outputs (LEG-489), and those that did not
+    // resolve.
+    const runOutputs = objectEntries(run.outputs_json ?? "")
+    const unresolved = view.output_warnings ?? []
     // Agent steps that finished with no output (LEG-532).
     const warned = steps.filter(step => step.output_warning)
-    const warnings = warned.length > 0 && <ul aria-label="Steps with no output" className="mt-2 space-y-1 text-lw-needs">
-      {warned.map(step => <li key={step.step_id}><span className="font-medium">{step.title}:</span> {step.output_warning}</li>)}
-    </ul>
-    if (artifacts.length === 0 && values.length === 0) return warnings ? <NowPanel tone="needs" heading="No output">{warnings}</NowPanel> : null
+    const warnings = (warned.length > 0 || unresolved.length > 0) && <>
+      {unresolved.length > 0 && <ul aria-label="Outputs not resolved" className="mt-2 space-y-1 text-lw-needs">
+        {unresolved.map(warning => <li key={warning}>{warning}</li>)}
+      </ul>}
+      {warned.length > 0 && <ul aria-label="Steps with no output" className="mt-2 space-y-1 text-lw-needs">
+        {warned.map(step => <li key={stepPathOf(step)}><span className="font-medium">{step.title}:</span> {step.output_warning}</li>)}
+      </ul>}
+    </>
+    if (artifacts.length === 0 && values.length === 0 && runOutputs.length === 0) return warnings ? <NowPanel tone="needs" heading="No output">{warnings}</NowPanel> : null
     return <NowPanel tone="done" heading="Produced">
       {warnings}
       <div className="mt-2 grid gap-2 text-lw-text">
-        {artifacts.map(artifact => <Artifact key={artifact.id} artifact={artifact} step={steps.find(step => step.step_id === artifact.step_id)?.title} />)}
-        {values.length > 0 && <ValueList values={values.map(value => [value.key, value.value])} secrets={secrets} className="mt-1" />}
+        {runOutputs.length > 0 && <section aria-label="Run outputs"><ValueList values={runOutputs} secrets={secrets} className="mt-1" /></section>}
+        {artifacts.map(artifact => <Artifact key={artifact.id} artifact={artifact} step={steps.find(step => ofStep(artifact, step))?.title} />)}
+        {runOutputs.length === 0 && values.length > 0 && <ValueList values={values.map(value => [value.key, value.value])} secrets={secrets} className="mt-1" />}
       </div>
     </NowPanel>
   }
   // Resume goes on with a step whose agent Legato stopped with, on the
   // same attempt; Retry starts it afresh.
-  const resumable = (step: WorkflowStepRun) => attempts.some(attempt => attempt.step_id === step.step_id && attempt.resumable)
-  const resumeAction = (step: WorkflowStepRun) => resumable(step) && <WorkflowStepResumeAction onResume={async () => { await resumeWorkflowStep(baseUrl, runId, step.step_id); await refresh() }} />
+  const resumable = (step: WorkflowStepRun) => attempts.some(attempt => ofStep(attempt, step) && attempt.resumable)
+  const resumeAction = (step: WorkflowStepRun) => resumable(step) && <WorkflowStepResumeAction onResume={async () => { await resumeWorkflowStep(baseUrl, runId, stepPathOf(step)); await refresh() }} />
+  // The step the run is at: in a loop, its pass's step.
+  const at = (status: string) => steps.find(step => stepPathOf(step) === run.current_step_id && step.status === status) ?? steps.find(step => step.status === status)
   if (run.status === "suspended") {
-    const suspended = steps.find(step => step.status === "suspended")
+    const suspended = at("suspended")
     return <NowPanel tone="idle" heading={suspended ? `${suspended.title} is suspended` : "The run is suspended"}
-      actions={suspended && <>{resumeAction(suspended)}<WorkflowStepRetryAction step={suspended} onRetry={async force => { await retryWorkflowStep(baseUrl, runId, suspended.step_id, force); await refresh() }} /></>}>
+      actions={suspended && <>{resumeAction(suspended)}<WorkflowStepRetryAction step={suspended} onRetry={async force => { await retryWorkflowStep(baseUrl, runId, stepPathOf(suspended), force); await refresh() }} /></>}>
       <p>Legato stopped while its agent was working. Resume goes on with the agent's conversation, in the same folder; Retry starts the step afresh.</p>
     </NowPanel>
   }
   if (run.status === "failed") {
-    const failed = steps.find(step => step.status === "failed")
+    const failed = at("failed")
     return <NowPanel tone="error" heading={failed ? `${failed.title} failed` : "The run failed"}
-      actions={failed && <>{resumeAction(failed)}<WorkflowStepRetryAction step={failed} onRetry={async force => { await retryWorkflowStep(baseUrl, runId, failed.step_id, force); await refresh() }} /></>}>
+      actions={failed && <>{resumeAction(failed)}<WorkflowStepRetryAction step={failed} onRetry={async force => { await retryWorkflowStep(baseUrl, runId, stepPathOf(failed), force); await refresh() }} /></>}>
       {(failed?.error || run.error) && <p className="mt-1 whitespace-pre-wrap break-words rounded-lg bg-[var(--theme-surface,rgba(0,0,0,0.25))] px-2.5 py-2 font-lw-mono text-xs text-lw-danger">{redact(failed?.error || run.error || "", secrets)}</p>}
     </NowPanel>
   }
-  if (run.status === "cancelled") return null
-  const current = currentStep(steps)
+  if (run.status === "cancelled" || run.status === "stopped") return null
+  // A step paused after a failure (on_failure: pause): its error, the link
+  // it carries (such as the run of the loop that holds the PR), and Retry,
+  // Skip or Stop.
+  const paused = at("paused")
+  if (paused) return <PausedNow step={paused} runId={runId} refresh={refresh} secrets={secrets} />
+  const current = steps.find(step => stepPathOf(step) === run.current_step_id) ?? currentStep(steps.filter(isTopStep))
   if (!current) return null
-  const attempt = [...attempts].reverse().find(item => item.step_id === current.step_id && item.status === "waiting_agent")
+  if (current.status === "waiting" && current.executor_type === "gate") {
+    return <GateNow view={view} step={current} runId={runId} refresh={refresh} />
+  }
+  if (current.status === "waiting" && current.executor_type === "workflow.run" && current.child_run_id) {
+    const child = view.details?.[stepPathOf(current)] as WorkflowCallDetails | undefined
+    return <NowPanel tone={state.tone} heading={`${current.title} waits on its child run`}
+      actions={<Button asChild variant="primary"><Link to={runLink(current.child_run_id)}>Open child run</Link></Button>}>
+      {child && <p>{child.title || child.workflow} · {child.status.replaceAll("_", " ")}</p>}
+    </NowPanel>
+  }
+  const attempt = [...attempts].reverse().find(item => ofStep(item, current) && item.status === "waiting_agent")
   if (attempt) {
     const open = attempt.agent_session_id ? <>
       <Button asChild variant="primary"><Link to={agentLink(attemptAgent(attempt), runId)}>Open agent</Link></Button>
@@ -146,7 +176,7 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
     if (attempt.needs_attention) {
       const copy = attentionCopy(attempt.attention_reason ?? "", current.title)
       return <NowPanel tone="needs" heading={copy.heading}
-        actions={<>{open}<Button variant="outline" onClick={async () => { await promptWorkflowStep(baseUrl, runId, current.step_id); await refresh() }}>Prompt to continue</Button></>}>
+        actions={<>{open}<Button variant="outline" onClick={async () => { await promptWorkflowStep(baseUrl, runId, stepPathOf(current)); await refresh() }}>Prompt to continue</Button></>}>
         <p>{copy.sentence}</p>
       </NowPanel>
     }
@@ -167,22 +197,67 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
         actions={<>
           {run.task_id && <Button asChild variant="primary"><Link to={agentLink(run.task_id, runId)}>Open agent</Link></Button>}
           {run.task_id && <Button asChild variant="outline"><Link to={graphLink(run.task_id, runId)}>Show on agents graph</Link></Button>}
-          <ManualWorkflowStepAction step={current} label="End now" onTrigger={async force => { await triggerWorkflowStep(baseUrl, runId, current.step_id, force); await refresh() }} />
+          <ManualWorkflowStepAction step={current} label="End now" onTrigger={async force => { await triggerWorkflowStep(baseUrl, runId, stepPathOf(current), force); await refresh() }} />
         </>} />
     }
     return <NowPanel tone="needs" heading={`${current.title} waits for you`}
-      actions={<><ManualWorkflowStepAction step={current} onTrigger={async force => { await triggerWorkflowStep(baseUrl, runId, current.step_id, force); await refresh() }} />{resume}</>}>
+      actions={<><ManualWorkflowStepAction step={current} onTrigger={async force => { await triggerWorkflowStep(baseUrl, runId, stepPathOf(current), force); await refresh() }} />{resume}</>}>
       {stepIntent(current) && <p>{stepIntent(current)}</p>}
     </NowPanel>
   }
   return <NowPanel tone={state.tone} heading={`Running ${current.title}`} actions={view.can_resume_agent ? resume : undefined} />
 }
 
+// useStepAction takes an action on a step (StepAction on the server), and
+// says why one was refused.
+function useStepAction(runId: string, step: string, refresh: () => Promise<void>) {
+  const { baseUrl } = useServer()
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+  async function act(action: string) {
+    setError("")
+    setBusy(true)
+    try { await workflowStepAction(baseUrl, runId, step, action); await refresh() }
+    catch (c) { setError(c instanceof Error ? c.message : String(c)) }
+    finally { setBusy(false) }
+  }
+  return { act, busy, error }
+}
+
+// PausedNow is a step that failed under on_failure: pause.
+function PausedNow({ step, runId, refresh, secrets }: { step: WorkflowStepRun; runId: string; refresh: () => Promise<void>; secrets: string[] }) {
+  const { act, busy, error } = useStepAction(runId, stepPathOf(step), refresh)
+  const internal = step.error_link?.startsWith("/")
+  return <NowPanel tone="needs" heading={`${step.title} failed`}
+    actions={<>
+      <Button variant="primary" disabled={busy} onClick={() => { void act("retry") }}>Retry</Button>
+      <Button variant="outline" disabled={busy} onClick={() => { void act("skip") }}>Skip</Button>
+      <Button variant="ghost" disabled={busy} onClick={() => { void act("stop") }}>Stop</Button>
+    </>}>
+    {step.error && <p className="mt-1 whitespace-pre-wrap break-words rounded-lg bg-[var(--theme-surface,rgba(0,0,0,0.25))] px-2.5 py-2 font-lw-mono text-xs text-lw-danger">{redact(step.error, secrets)}</p>}
+    {step.error_link && <p className="mt-1">See {internal ? <Link className="text-lw-accent underline" to={step.error_link}>{step.error_link}</Link> : <a className="text-lw-accent underline" href={step.error_link} target="_blank" rel="noreferrer">{step.error_link}</a>}{step.error_code && <> · <span className="font-lw-mono text-xs">{step.error_code}</span></>}</p>}
+    <p className="mt-1">Retry runs the step again, Skip goes on without its outputs, and Stop ends the run.</p>
+    {error && <p role="alert" className="mt-1 text-lw-error">{error}</p>}
+  </NowPanel>
+}
+
+// GateNow is a gate step asking the operator to choose.
+function GateNow({ view, step, runId, refresh }: { view: WorkflowRunView; step: WorkflowStepRun; runId: string; refresh: () => Promise<void> }) {
+  const { act, busy, error } = useStepAction(runId, stepPathOf(step), refresh)
+  const gate = view.details?.[stepPathOf(step)] as GateDetails | undefined
+  const options = gate?.options ?? ["Continue", "Stop"]
+  return <NowPanel tone="needs" heading={gate?.title || step.title}
+    actions={options.map((option, i) => <Button key={option} variant={i === 0 ? "primary" : option.toLowerCase() === "stop" ? "ghost" : "outline"} disabled={busy} onClick={() => { void act(`choose:${option}`) }}>{option}</Button>)}>
+    {gate?.body && <p className="whitespace-pre-wrap">{gate.body}</p>}
+    {error && <p role="alert" className="mt-1 text-lw-error">{error}</p>}
+  </NowPanel>
+}
+
 // MergeWaitNow is a run waiting for its card's pull request to merge: the
 // pull request, whether it conflicts or CI fails, the card's agent, and
 // Resume agent (LEG-614).
 function MergeWaitNow({ view, step, actions }: { view: WorkflowRunView; step: WorkflowStepRun; actions: ReactNode }) {
-  const wait = view.details?.[step.step_id] as MergeWaitDetails | undefined
+  const wait = view.details?.[stepPathOf(step)] as MergeWaitDetails | undefined
   if (!wait) return <NowPanel tone="live" heading={step.title} actions={actions} />
   const troubles = [wait.conflicts && `PR #${wait.pr_number} conflicts with ${wait.base_branch || "main"}`, wait.check_status === "fail" && "CI failing"].filter(Boolean) as string[]
   const url = wait.url || `https://github.com/${wait.repo}/pull/${wait.pr_number}`
@@ -234,11 +309,11 @@ function ReviewLoopNow({ view, step, runId, refresh }: { view: WorkflowRunView; 
   const { baseUrl } = useServer()
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
-  const details = view.details?.[step.step_id] as ReviewRunDetails | undefined
+  const details = view.details?.[stepPathOf(step)] as ReviewRunDetails | undefined
   async function another() {
     setError("")
     setBusy(true)
-    try { await anotherReviewPass(baseUrl, runId, step.step_id); await refresh() }
+    try { await anotherReviewPass(baseUrl, runId, stepPathOf(step)); await refresh() }
     catch (c) { setError(c instanceof Error ? c.message : String(c)) }
     finally { setBusy(false) }
   }
@@ -259,12 +334,32 @@ function stepDuration(step: WorkflowStepRun, now: number): string {
   return elapsed(step.started_at, step.completed_at ?? now)
 }
 
+const runLink = (id: string) => `/workflows/runs/${encodeURIComponent(id)}`
+
 function objectEntries(raw: string): [string, unknown][] {
   const value = parseJSON(raw)
   return value && typeof value === "object" && !Array.isArray(value) ? Object.entries(value as Record<string, unknown>) : []
 }
 
-function StepRow({ step, run, attempts, artifacts, now, secrets }: { step: WorkflowStepRun; run: WorkflowRunView["run"]; attempts: WorkflowAttempt[]; artifacts: WorkflowArtifact[]; now: number; secrets: string[] }) {
+// StepRows lists steps as the run has them: under a loop step, each pass
+// with its steps (LEG-490).
+function StepRows({ nodes, keyPrefix, run, attempts, artifacts, now, secrets }: { nodes: RunStepNode<WorkflowStepRun>[]; keyPrefix: string; run: WorkflowRunView["run"]; attempts: WorkflowAttempt[]; artifacts: WorkflowArtifact[]; now: number; secrets: string[] }) {
+  return <>{nodes.map(({ step, passes }) => {
+    const path = stepPathOf(step)
+    return <StepRow key={`${keyPrefix}:${path}`} step={step} run={run} attempts={attempts.filter(attempt => stepPathOf(attempt) === path)} artifacts={artifacts.filter(artifact => stepPathOf(artifact) === path)} now={now} secrets={secrets}>
+      {passes.length > 0 && <div className="space-y-2 px-3.5 pb-3 pl-11">
+        {passes.map(pass => <section key={pass.pass}>
+          <h3 className="mb-1 text-xs text-lw-text-2">Pass {pass.pass + 1}</h3>
+          <ul aria-label={`Pass ${pass.pass + 1}`} className="overflow-hidden rounded-lg border border-lw-line">
+            <StepRows nodes={pass.steps} keyPrefix={keyPrefix} run={run} attempts={attempts} artifacts={artifacts} now={now} secrets={secrets} />
+          </ul>
+        </section>)}
+      </div>}
+    </StepRow>
+  })}</>
+}
+
+function StepRow({ step, run, attempts, artifacts, now, secrets, children }: { step: WorkflowStepRun; run: WorkflowRunView["run"]; attempts: WorkflowAttempt[]; artifacts: WorkflowArtifact[]; now: number; secrets: string[]; children?: ReactNode }) {
   const [open, setOpen] = useState(step.status === "failed" || !!step.output_warning)
   const mark = stepMark(asStepLike(step), run)
   const inputs = objectEntries(step.resolved_inputs_json)
@@ -273,15 +368,16 @@ function StepRow({ step, run, attempts, artifacts, now, secrets }: { step: Workf
   return <li className="border-t border-lw-line first:border-t-0">
     <button aria-expanded={open} onClick={() => setOpen(!open)} className="grid min-h-11 w-full grid-cols-[1.25rem_minmax(0,1fr)_auto_0.75rem] items-center gap-3 px-3.5 py-2.5 text-left hover:bg-lw-raised sm:grid-cols-[1.25rem_minmax(0,1fr)_auto_auto_0.75rem]">
       <span aria-hidden="true" className={cn("text-center text-[13px]", mark.tone ? toneText[mark.tone] : "text-lw-faint")}>{mark.glyph}</span>
-      <span className={cn("min-w-0 font-medium", step.status === "pending" && "text-lw-text-2")}>{step.title}</span>
-      <span className="hidden font-lw-mono text-xs text-lw-faint sm:inline">{step.executor_type}</span>
+      <span className={cn("min-w-0 font-medium", step.status === "pending" && "text-lw-text-2")}>{step.title || step.step_id}</span>
+      <span className="hidden font-lw-mono text-xs text-lw-faint sm:inline">{step.executor_type || "loop"}</span>
       <span className="min-w-12 text-right font-lw-mono text-xs text-lw-faint">{stepDuration(step, now)}</span>
       <span aria-hidden="true" className="text-lw-faint">{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
     </button>
     {open && <div className="space-y-3 px-3.5 pb-3.5 pl-11 text-[13px]">
-      <p className="font-lw-mono text-xs text-lw-faint sm:hidden">{step.executor_type}</p>
+      <p className="font-lw-mono text-xs text-lw-faint sm:hidden">{step.executor_type || "loop"}</p>
       {step.error && step.status !== "failed" && <p className="text-lw-error">{redact(step.error, secrets)}</p>}
       {step.output_warning && <p className="text-lw-needs">{step.output_warning}</p>}
+      {step.child_run_id && <p className="text-lw-text-2">Child run <Link className="font-lw-mono text-xs text-lw-link" to={runLink(step.child_run_id)}>{step.child_run_id}</Link></p>}
       {inputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Inputs</h3><ValueList values={inputs} secrets={secrets} /></div>}
       {outputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Outputs</h3><ValueList values={outputs} secrets={secrets} /></div>}
       {artifacts.length > 0 && run.status !== "succeeded" && <div className="grid gap-2">{artifacts.map(artifact => <Artifact key={artifact.id} artifact={artifact} />)}</div>}
@@ -294,6 +390,7 @@ function StepRow({ step, run, attempts, artifacts, now, secrets }: { step: Workf
         </li>)}</ul></div>}
       {inputs.length === 0 && outputs.length === 0 && artifacts.length === 0 && agentAttempts.length === 0 && !step.error && <p className="text-lw-faint">No inputs or outputs</p>}
     </div>}
+    {children}
   </li>
 }
 
@@ -345,12 +442,12 @@ function Artifact({ artifact, step }: { artifact: WorkflowArtifact; step?: strin
 // force, so the row never removes a worktree without asking.
 function CleanupControl({ run, steps, runId, refresh }: { run: RunRowStep; steps: WorkflowStepRun[]; runId: string; refresh: () => Promise<void> }) {
   const { baseUrl } = useServer()
-  const step = steps.find(item => item.step_id === run.step)
+  const step = steps.find(item => stepPathOf(item) === run.step)
   if (!step) return null
   return <div className="mt-1.5 flex flex-wrap items-center gap-2" onClick={event => event.stopPropagation()}>
     {run.control === "retry"
-      ? <WorkflowStepRetryAction step={step} onRetry={async force => { await retryWorkflowStep(baseUrl, runId, step.step_id, force); await refresh() }} />
-      : <ManualWorkflowStepAction step={step} label={run.label} onTrigger={async force => { await triggerWorkflowStep(baseUrl, runId, step.step_id, force); await refresh() }} />}
+      ? <WorkflowStepRetryAction step={step} onRetry={async force => { await retryWorkflowStep(baseUrl, runId, stepPathOf(step), force); await refresh() }} />
+      : <ManualWorkflowStepAction step={step} label={run.label} onTrigger={async force => { await triggerWorkflowStep(baseUrl, runId, stepPathOf(step), force); await refresh() }} />}
   </div>
 }
 
@@ -389,7 +486,10 @@ function NeedsYouList({ rows, steps, runId, refresh, onFocus }: { rows: RunNeeds
         prompt: () => promptWorkflowStep(baseUrl, runId, step),
         retry: () => retryWorkflowStep(baseUrl, runId, step, false),
         another_pass: () => anotherReviewPass(baseUrl, runId, step),
+        skip: () => workflowStepAction(baseUrl, runId, step, "skip"),
+        stop: () => workflowStepAction(baseUrl, runId, step, "stop"),
       }
+      if (actionId.startsWith("choose:")) { void act(item, () => workflowStepAction(baseUrl, runId, step, actionId)); return }
       if (calls[actionId]) void act(item, calls[actionId])
       return
     }
@@ -429,9 +529,9 @@ function clock(time?: string): string {
 // YAML from the run's own copy, with the run's secrets hidden.
 function RunStepPanel({ view, node, runId, secrets, state }: { view: WorkflowRunView; node: GraphNode; runId: string; secrets: string[]; state?: string }) {
   const graphStep = node.step!
-  const step = (view.steps ?? []).find(item => item.step_id === graphStep.id)
-  const attempts = (view.attempts ?? []).filter(attempt => attempt.step_id === graphStep.id)
-  const artifacts = (view.artifacts ?? []).filter(artifact => artifact.step_id === graphStep.id)
+  const step = (view.steps ?? []).find(item => stepPathOf(item) === graphStep.id)
+  const attempts = (view.attempts ?? []).filter(attempt => stepPathOf(attempt) === graphStep.id)
+  const artifacts = (view.artifacts ?? []).filter(artifact => stepPathOf(artifact) === graphStep.id)
   const inputs = step ? objectEntries(step.resolved_inputs_json) : []
   const outputs = step ? objectEntries(step.outputs_json).filter(([key]) => !artifacts.some(artifact => artifact.output_key === key)) : []
   const details = view.details?.[graphStep.id] as ReviewRunDetails | undefined
@@ -442,6 +542,7 @@ function RunStepPanel({ view, node, runId, secrets, state }: { view: WorkflowRun
       <h2 className="mt-0.5 text-[15px] font-semibold">{graphStep.title}</h2>
       {step?.error && <p className="mt-1 whitespace-pre-wrap break-words text-lw-error">{redact(step.error, secrets)}</p>}
       {step?.output_warning && <p className="mt-1 text-lw-needs">{step.output_warning}</p>}
+      {step?.child_run_id && <p className="mt-1 text-lw-text-2">Child run <Link className="font-lw-mono text-xs text-lw-link" to={runLink(step.child_run_id)}>{step.child_run_id}</Link></p>}
     </div>
     {inputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Inputs</h3><ValueList values={inputs} secrets={secrets} /></div>}
     {outputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Outputs</h3><ValueList values={outputs} secrets={secrets} /></div>}
@@ -505,7 +606,10 @@ export function WorkflowRunPage() {
   const artifacts = data.artifacts ?? []
   const run = runWithAttention(data.run, attempts)
   const state = runState(run)
-  const stepLikes = steps.map(asStepLike)
+  // The bar and the position count the run's own steps; a loop's passes
+  // are under it in the list.
+  const topSteps = steps.filter(isTopStep)
+  const stepLikes = topSteps.map(asStepLike)
   const position = stepPosition(run, stepLikes)
   const workflow = definitionTitle(data)
   const subject = run.related_task_id ? "" : runSubject(run)
@@ -513,7 +617,7 @@ export function WorkflowRunPage() {
   const since = (time: string) => { const value = ago(time, now); return value === "now" ? "just now" : `${value} ago` }
   const when = run.completed_at ? `${run.status === "succeeded" ? "finished" : "ended"} ${since(run.completed_at)}` : run.created_at ? `started ${since(run.created_at)}` : ""
   let where = ""
-  if (run.status === "succeeded") where = `${steps.length} ${steps.length === 1 ? "step" : "steps"}${run.started_at && run.completed_at ? ` · took ${elapsed(run.started_at, run.completed_at)}` : ""}`
+  if (run.status === "succeeded") where = `${topSteps.length} ${topSteps.length === 1 ? "step" : "steps"}${run.started_at && run.completed_at ? ` · took ${elapsed(run.started_at, run.completed_at)}` : ""}`
   else if (position) where = `${run.status === "failed" ? "at step" : "Step"} ${position.number} of ${position.total} · ${position.title}`
   const inputs = objectEntries(run.inputs_json).filter(([, value]) => value !== "" && value !== null)
   const secrets = secretValues(data)
@@ -530,6 +634,7 @@ export function WorkflowRunPage() {
           <h1 className="break-words text-xl font-semibold">{run.workflow_title}</h1>
           <p className="mt-1 text-[13px] text-lw-text-2">
             {workflow && workflow !== run.workflow_title && <>{workflow} · </>}
+            {run.parent_run_id && <span>called by <Link to={runLink(run.parent_run_id)} className="text-lw-link">{run.parent_run_id}</Link>{run.parent_step_path && <> at <span className="font-lw-mono text-xs">{run.parent_step_path}</span></>} · </span>}
             {run.related_task_id && <>for <Link to={`/board?highlight_task=${encodeURIComponent(run.related_task_id)}`} className="text-lw-link">{run.related_task_id}</Link>{run.related_task_title && ` ${run.related_task_title}`} · </>}
             {subject && <>{subject}{when && " · "}</>}
             {when}
@@ -539,8 +644,8 @@ export function WorkflowRunPage() {
         {(live || run.status === "failed") && <Button variant="ghost" size="sm" className="self-start" onClick={async () => { await cancelWorkflow(baseUrl, runId); await refresh() }}>Cancel run</Button>}
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-lw-text-2"><StatePill tone={state.tone} label={state.label} />{where && <span>{where}</span>}</div>
-      {steps.length > 0 && <StepBar segments={stepSegments(run, stepLikes)} label={where || state.label} className="mt-2" />}
-      {run.status === "cancelled" && run.error && <p className="mt-3 text-[13px] text-lw-text-2">{redact(run.error, secrets)}</p>}
+      {topSteps.length > 0 && <StepBar segments={stepSegments(run, stepLikes)} label={where || state.label} className="mt-2" />}
+      {(run.status === "cancelled" || run.status === "stopped") && run.error && <p className="mt-3 text-[13px] text-lw-text-2">{redact(run.error, secrets)}</p>}
       {error && <div role="alert" className="mt-4 rounded-lg border border-lw-line bg-lw-surface p-3 text-sm">
         <p className="text-lw-needs">Showing saved run. Refresh failed: {error}</p>
         <Button variant="outline" size="sm" className="mt-2" disabled={refreshing} onClick={() => { void refresh() }}>Retry</Button>
@@ -561,7 +666,7 @@ export function WorkflowRunPage() {
       </div> : <>
         <h2 className="mb-2 mt-7 text-xs font-semibold uppercase tracking-wide text-lw-text-2">Steps</h2>
         <ul aria-label="Steps" className="overflow-hidden rounded-xl border border-lw-line bg-lw-surface">
-          {steps.map(step => <StepRow key={`${baseUrl}:${runId}:${step.step_id}`} step={step} run={run} attempts={attempts.filter(attempt => attempt.step_id === step.step_id)} artifacts={artifacts.filter(artifact => artifact.step_id === step.step_id)} now={now} secrets={secrets} />)}
+          <StepRows nodes={runStepTree(steps)} keyPrefix={`${baseUrl}:${runId}`} run={run} attempts={attempts} artifacts={artifacts} now={now} secrets={secrets} />
         </ul>
       </>}
       {showGraph && narrow && panel && <NodeSheet title={selectedNode?.step?.title ?? selectedNode?.trigger?.summary ?? ""} onClose={() => setSelected(null)}>{panel}</NodeSheet>}

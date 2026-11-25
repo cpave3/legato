@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"fmt"
-	"reflect"
 	"slices"
 	"strings"
 )
@@ -129,6 +128,11 @@ type Condition struct {
 	Equals    any         `yaml:"equals,omitempty" json:"equals,omitempty"`
 	NotEquals any         `yaml:"not_equals,omitempty" json:"not_equals,omitempty"`
 	In        []any       `yaml:"in,omitempty" json:"in,omitempty"`
+	// GT and LT compare numbers by value, or text as text.
+	GT any `yaml:"gt,omitempty" json:"gt,omitempty"`
+	LT any `yaml:"lt,omitempty" json:"lt,omitempty"`
+	// Empty is whether the field is empty: missing, null, "", [] or {}.
+	Empty *bool `yaml:"empty,omitempty" json:"empty,omitempty"`
 }
 
 func (t *TaskEnteredColumnTrigger) Validate(inputs map[string]Input) error {
@@ -142,14 +146,15 @@ func (t *TaskEnteredColumnTrigger) Validate(inputs map[string]Input) error {
 		return err
 	}
 	if t.Conditions != nil {
-		if err := t.Conditions.validate(); err != nil {
+		if err := t.Conditions.validate(checkConditionField); err != nil {
 			return within("conditions", err)
 		}
 	}
 	return nil
 }
 
-func (c Condition) validate() error {
+// validate checks a condition's shape, and each field with field.
+func (c Condition) validate(field func(string) error) error {
 	branches := 0
 	if len(c.All) > 0 {
 		branches++
@@ -167,33 +172,43 @@ func (c Condition) validate() error {
 		return fmt.Errorf("condition requires exactly one of all, any, not, or field")
 	}
 	for _, child := range append(append([]Condition{}, c.All...), c.Any...) {
-		if err := child.validate(); err != nil {
+		if err := child.validate(field); err != nil {
 			return err
 		}
 	}
 	if c.Not != nil {
-		return c.Not.validate()
+		return c.Not.validate(field)
 	}
 	if c.Field != "" {
-		if !validConditionField(c.Field) {
-			return fmt.Errorf("unsupported condition field %q", c.Field)
+		if err := field(c.Field); err != nil {
+			return err
 		}
 		ops := 0
-		if c.Exists != nil {
-			ops++
-		}
-		if c.Equals != nil {
-			ops++
-		}
-		if c.NotEquals != nil {
-			ops++
-		}
-		if c.In != nil {
-			ops++
+		for _, set := range []bool{c.Exists != nil, c.Equals != nil, c.NotEquals != nil, c.In != nil, c.GT != nil, c.LT != nil, c.Empty != nil} {
+			if set {
+				ops++
+			}
 		}
 		if ops != 1 {
 			return fmt.Errorf("condition field %q requires exactly one operator", c.Field)
 		}
+		for name, bound := range map[string]any{"gt": c.GT, "lt": c.LT} {
+			if bound == nil {
+				continue
+			}
+			if _, number := numberOf(bound); !number {
+				if _, text := bound.(string); !text {
+					return fmt.Errorf("condition field %q: %s takes a number or text", c.Field, name)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func checkConditionField(field string) error {
+	if !validConditionField(field) {
+		return fmt.Errorf("unsupported condition field %q", field)
 	}
 	return nil
 }
@@ -220,6 +235,19 @@ func (t *TaskEnteredColumnTrigger) MatchesEvent(task, event map[string]any) (boo
 	return t.Conditions.matches(task, event)
 }
 
+// eachField calls f with each field the condition reads.
+func (c Condition) eachField(f func(string)) {
+	if c.Field != "" {
+		f(c.Field)
+	}
+	for _, child := range append(append([]Condition{}, c.All...), c.Any...) {
+		child.eachField(f)
+	}
+	if c.Not != nil {
+		c.Not.eachField(f)
+	}
+}
+
 func (c Condition) UsesField(field string) bool {
 	if c.Field == field {
 		return true
@@ -238,9 +266,26 @@ func (c Condition) UsesField(field string) bool {
 }
 
 func (c Condition) matches(task, event map[string]any) (bool, error) {
+	return c.evaluate(func(field string) (any, bool, error) {
+		if strings.HasPrefix(field, "event.") {
+			if event == nil {
+				return nil, false, fmt.Errorf("event fields require transition context")
+			}
+			value, exists := lookupTaskField(event, strings.TrimPrefix(field, "event."))
+			return value, exists, nil
+		}
+		value, exists := lookupTaskField(task, strings.TrimPrefix(field, "task."))
+		return value, exists, nil
+	})
+}
+
+// evaluate checks the condition, reading each field through lookup: its
+// value, and whether it has one. A missing value makes gt, lt, equals and
+// in false, not_equals and empty true, and exists false.
+func (c Condition) evaluate(lookup func(field string) (any, bool, error)) (bool, error) {
 	if len(c.All) > 0 {
 		for _, child := range c.All {
-			ok, err := child.matches(task, event)
+			ok, err := child.evaluate(lookup)
 			if err != nil || !ok {
 				return ok, err
 			}
@@ -249,7 +294,7 @@ func (c Condition) matches(task, event map[string]any) (bool, error) {
 	}
 	if len(c.Any) > 0 {
 		for _, child := range c.Any {
-			ok, err := child.matches(task, event)
+			ok, err := child.evaluate(lookup)
 			if err != nil {
 				return false, err
 			}
@@ -260,30 +305,31 @@ func (c Condition) matches(task, event map[string]any) (bool, error) {
 		return false, nil
 	}
 	if c.Not != nil {
-		ok, err := c.Not.matches(task, event)
+		ok, err := c.Not.evaluate(lookup)
 		return !ok, err
 	}
-	var value any
-	var exists bool
-	if strings.HasPrefix(c.Field, "event.") {
-		if event == nil {
-			return false, fmt.Errorf("event fields require transition context")
-		}
-		value, exists = lookupTaskField(event, strings.TrimPrefix(c.Field, "event."))
-	} else {
-		value, exists = lookupTaskField(task, strings.TrimPrefix(c.Field, "task."))
+	value, exists, err := lookup(c.Field)
+	if err != nil {
+		return false, err
 	}
-	if c.Exists != nil {
+	switch {
+	case c.Exists != nil:
 		return exists == *c.Exists, nil
-	}
-	if c.Equals != nil {
-		return exists && reflect.DeepEqual(value, c.Equals), nil
-	}
-	if c.NotEquals != nil {
-		return !exists || !reflect.DeepEqual(value, c.NotEquals), nil
+	case c.Empty != nil:
+		return (!exists || isEmpty(value)) == *c.Empty, nil
+	case c.Equals != nil:
+		return exists && ValuesEqual(value, c.Equals), nil
+	case c.NotEquals != nil:
+		return !exists || !ValuesEqual(value, c.NotEquals), nil
+	case c.GT != nil:
+		order, ok := compareValues(value, c.GT)
+		return exists && ok && order > 0, nil
+	case c.LT != nil:
+		order, ok := compareValues(value, c.LT)
+		return exists && ok && order < 0, nil
 	}
 	for _, candidate := range c.In {
-		if exists && reflect.DeepEqual(value, candidate) {
+		if exists && ValuesEqual(value, candidate) {
 			return true, nil
 		}
 	}

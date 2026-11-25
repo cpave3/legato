@@ -167,8 +167,15 @@ func outputlessAgentSteps(root *yaml.Node, definition *Definition) []Diagnostic 
 		if step.Type != "agent.run" || len(step.Outputs) > 0 {
 			continue
 		}
-		// keep_agent given as an expression may be true: no warning.
+		// keep or keep_agent given as an expression may be true: no warning.
 		if keep, ok := step.With["keep_agent"]; ok && keep != false {
+			continue
+		}
+		if keep, ok := step.With["keep"]; ok && keep != false {
+			continue
+		}
+		// An agent on a task keeps running unless stop: true.
+		if stop, _ := step.With["stop"].(bool); AgentOnTask(step.With) && !stop {
 			continue
 		}
 		d := diagnosticAt(root, fmt.Sprintf("steps[%d].type", i), fmt.Sprintf("step %q: agent.run declares no outputs, so anything its agent finds is lost when the step completes and the agent is removed; declare an output for its result, or set keep_agent: true", step.ID))

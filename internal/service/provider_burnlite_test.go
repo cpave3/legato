@@ -52,6 +52,18 @@ func (f *fakeBurnliteReader) ListMilestones(_ context.Context, project string) (
 	return out, nil
 }
 
+func (f *fakeBurnliteReader) FindTasks(ctx context.Context, filter burnlite.TaskFilter) ([]burnlite.TaskRow, error) {
+	state := filter.State
+	if state == "" {
+		state = "open"
+	}
+	return f.ListTasks(ctx, filter.Project, state)
+}
+
+func (f *fakeBurnliteReader) FindMilestones(ctx context.Context, filter burnlite.MilestoneFilter) ([]burnlite.MilestoneRow, error) {
+	return f.ListMilestones(ctx, filter.Project)
+}
+
 func (f *fakeBurnliteReader) ListProjects(context.Context) ([]burnlite.Project, error) {
 	return f.projects, nil
 }

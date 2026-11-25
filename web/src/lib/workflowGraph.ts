@@ -35,6 +35,7 @@ export const runStateWords: Record<NodeRunState, string> = { waiting: "Waiting",
 const stepTypeLabels: Record<string, string> = {
   "agent.run": "Agent",
   "agent.dispatch": "Send to agent",
+  "agent.message": "Message agent",
   "agent.interview": "Interview",
   "agent.stop": "Stop agent",
   "agent.compact": "Compact agent",
@@ -43,6 +44,9 @@ const stepTypeLabels: Record<string, string> = {
   "task.context": "Read card",
   "task.metadata.set": "Mark card",
   "task.working_dir.resolve": "Find folder",
+  "ticket.import": "Import ticket",
+  "tickets.list": "List tickets",
+  "tasks.list": "List cards",
   "github.pr.prepare": "Check out PR",
   "github.pr.review_passes": "Review in passes",
   "repo.ensure": "Clone repository",
@@ -57,6 +61,7 @@ const stepTypeLabels: Record<string, string> = {
   "chat.thread.read": "Chat thread",
   "ticket.create": "Create ticket",
   "ticket.comment": "Ticket comment",
+  gate: "Ask you",
 }
 
 export function stepTypeLabel(type: string): string {

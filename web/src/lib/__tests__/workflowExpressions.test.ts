@@ -6,8 +6,8 @@ import { checkExpression, describeReference, locationOf, openExpression, referen
 // engine's Validate: the verdicts here must be the same.
 describe("the shared expression table", () => {
   for (const tc of fixture.cases) {
-    it(`${tc.expression} in ${tc.location.kind}${"step" in tc.location ? ` of step ${tc.location.step}` : ""} is ${tc.valid ? "valid" : "invalid"}`, () => {
-      const verdict = checkExpression(fixture.definition, tc.location as ExpressionLocation, tc.expression)
+    it(`${tc.expression} in ${tc.location.kind}${"step" in tc.location ? ` of step ${tc.location.step}` : ""}${"whole" in tc && tc.whole ? " (whole)" : ""} is ${tc.valid ? "valid" : "invalid"}`, () => {
+      const verdict = checkExpression(fixture.definition, tc.location as ExpressionLocation, tc.expression, "whole" in tc && tc.whole === true)
       expect(verdict === null).toBe(tc.valid)
     })
   }
@@ -40,8 +40,19 @@ describe("references", () => {
     expect(expressions({ kind: "trigger", trigger: "task.entered_column" })).toEqual(expect.arrayContaining(["event.task", "task.title", "task.metadata."]))
   })
 
+  it("offers a loop's pass its loop and the nearest earlier steps", () => {
+    const offered = expressions({ kind: "with", step: 3, body: 2 })
+    expect(offered).toEqual(expect.arrayContaining([
+      "loop.index", "loop.item", "loop.previous.state", "loop.previous.status", "loop.results",
+      "steps.inner.outputs.answer", "steps.first.outputs.other", "steps.third.outputs.done",
+    ]))
+    expect(offered).not.toContain("steps.first.outputs.summary")
+    expect(offered).not.toContain("steps.later.outputs.x")
+    expect(expressions({ kind: "with", step: 1 }).filter(e => e.startsWith("loop."))).toEqual([])
+  })
+
   it("every offer but a metadata path's start is valid where it is offered", () => {
-    for (const location of [{ kind: "with", step: 2 }, { kind: "run_title" }, { kind: "output_path", step: 1, output: "log" }] as ExpressionLocation[]) {
+    for (const location of [{ kind: "with", step: 2 }, { kind: "with", step: 3, body: 2 }, { kind: "run_title" }, { kind: "output_path", step: 1, output: "log" }] as ExpressionLocation[]) {
       for (const expression of expressions(location).filter(e => !e.endsWith("."))) {
         expect(checkExpression(definition, location, expression), `${expression} in ${location.kind}`).toBeNull()
       }
@@ -56,6 +67,7 @@ describe("locationOf", () => {
     expect(locationOf(["steps", 2, "with", "values", "a"])).toEqual({ kind: "with", step: 2 })
     expect(locationOf(["steps", 1, "outputs", "log", "path"])).toEqual({ kind: "output_path", step: 1, output: "log" })
     expect(locationOf(["on", "schedule", "inputs", "since"])).toEqual({ kind: "trigger", trigger: "schedule" })
+    expect(locationOf(["steps", 3, "steps", 1, "with", "prompt"])).toEqual({ kind: "with", step: 3, body: 1 })
     expect(locationOf(["title"])).toBeNull()
   })
 })

@@ -11,12 +11,13 @@ import (
 // The step types schema v1 accepts. A new executor is added to the catalog,
 // and here.
 var acceptedStepTypes = []string{
-	"agent.compact", "agent.dispatch", "agent.interview", "agent.run", "agent.stop",
+	"agent.compact", "agent.dispatch", "agent.interview", "agent.message", "agent.run", "agent.stop",
 	"burnlite.task.close", "chat.message.send", "chat.reaction.add", "chat.reaction.remove", "chat.thread.read", "chimera.session.remove", "file.remove",
+	"gate",
 	"github.pr.prepare", "github.pr.review_passes", "github.pr.wait",
 	"learning.packet.prepare", "learning.proposals.submit",
 	"repo.ensure", "task.context", "task.metadata.set", "task.move", "task.note",
-	"task.working_dir.resolve", "ticket.comment", "ticket.create", "worktree.remove",
+	"task.working_dir.resolve", "tasks.list", "ticket.comment", "ticket.create", "ticket.import", "tickets.list", "workflow.run", "worktree.remove",
 }
 
 func TestCatalogListsEveryAcceptedStepType(t *testing.T) {
@@ -72,9 +73,6 @@ func TestCatalogEntriesAreWellFormed(t *testing.T) {
 			if !slices.Contains(outputTypes, output.Type) {
 				t.Errorf("%s output %q: unknown type %q", spec.Type, output.Name, output.Type)
 			}
-		}
-		if spec.DeclaredOutputs && len(spec.Outputs) > 0 {
-			t.Errorf("%s: an executor whose outputs the step declares lists none of its own", spec.Type)
 		}
 	}
 }

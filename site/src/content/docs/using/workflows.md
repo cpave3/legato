@@ -78,7 +78,7 @@ Version 1 executes steps in declaration order and supports these executors. Lega
     outputs:
       digest: {type: string}
   ```
-- `agent.run` with `with.task` (a task input or a task ID) runs the agent as that task's own agent instead of the workflow's: it shows on the task's card, reads that task's context, keeps its stage on the card, and its conversation can be resumed like any agent on the card. With `with.repo` it works in a fresh clone on the task's branch (`legato/<task>`), as an agent started on the card would; a live clone of the task is used again. A macro is sent as one started on the card is: the task's key and title, then the macro's text. The step still waits for the agent to complete it with its outputs, and removes the agent then unless `keep_agent` is set. A step whose task already has an agent running fails without touching it: stop that agent first, or message it with `agent.dispatch`. `task` cannot be given with `working_dir`, `scratch` or `name`.
+- `agent.run` with `with.task` (a task input or a task ID) runs the agent as that task's own agent instead of the workflow's: it shows on the task's card, reads that task's context, keeps its stage on the card, and its conversation can be resumed like any agent on the card. With `with.repo` it works in a fresh clone on the task's branch (`legato/<task>`), as an agent started on the card would; a live clone of the task is used again. A macro is sent as one started on the card is: the task's key and title, then the macro's text. The step still waits for the agent to complete it with its outputs, and removes the agent then unless `keep_agent` is set. A step whose task already has an agent running fails without touching it: stop that agent first, or use `on:` with `reuse: true` (below). `task` cannot be given with `working_dir`, `scratch` or `name`.
 - `agent.run` with `with.task` and `with.slot` runs the agent in a named slot of that task's card, such as `triage`, `plan` or `review`, beside the card's own agent instead of in its place. It shows on the card and in the agents list and graph as "<card> · triage", keeps its stage there, and is removed after its step like any other, unless `keep_agent` is set. With `with.repo` it gets a fresh clone of its own on the branch `legato/<task>-<slot>`, so it never works in the card's agent's clone or pushes the card's branch, and the card's next agent never works in its clone. It leaves the card's repository and branch as they were. A step whose slot already has an agent running fails without touching it. A slot is named with lowercase letters, digits and dashes, starts with a letter, and is at most 32 characters long. It is written as it is, with no `${{ }}`, and is checked when the file loads. `main`, the default, is the card's own agent, and `reviewer` is kept for review passes. `slot` needs `task`. For example:
 
   ```yaml
@@ -104,8 +104,38 @@ Version 1 executes steps in declaration order and supports these executors. Lega
     outputs:
       pr_number: {type: integer}
   ```
-- `agent.dispatch`: send a prompt to the selected task's ordinary durable agent, or spawn that task-linked agent in `with.working_dir` (where agents start by default when empty) when none is active. With a macro, `with.repo` and `with.pr_number` name the pull request in the message. The workflow does not own or tear down this session. Outputs include `agent_session_id`, `created`, and `working_dir`.
-- Both `agent.run` and `agent.dispatch` take what to ask either as `with.prompt` or as `with.macro`, the name of one of your [macros](/legato/using/agents/#macros), not both. A macro is read when the step runs, so an edit applies to the next run. A step that names no `agent` or `tier` uses the macro's. `agent.dispatch` sends it as a macro started on the task would be: the task's key and title, then the macro's text.
+- `agent.run` with `with.on` says where its agent lives. `on: run`, the default, is an agent of the workflow, as above; `keep: true` (the same as `keep_agent: true`) leaves it running once its outputs are in. `on:` with a task, or a task ID, is that task's own agent, in its main slot: an ordinary agent on its card, started as you would start it, which keeps running after its step completes, for you or a later step to go on with. `stop: true` stops it once its outputs are in instead. The step still waits for the agent to complete it with the outputs it declares. A task whose agent is running already fails the step, unless `reuse: true`, which sends that agent the step's work instead: a prompt, or a macro as one started on the card is, and the completion contract. Cancelling the run never stops a task's own agent. `on:` with a task takes no `task`, `slot`, `working_dir`, `scratch`, `name` or `keep`; `reuse` and `stop` need it. A workflow that takes a ticket to a pull request can run the card's own agent and stop it at the end:
+
+  ```yaml
+  - id: implement
+    title: Implement the ticket
+    type: agent.run
+    with:
+      on: ${{ workflow.inputs.task }}
+      macro: Implement
+      repo: acme/widget
+    outputs:
+      pr_number: {type: integer}
+  # … review and wait for the merge …
+  - id: stop
+    title: Stop the agent
+    type: agent.stop
+    with:
+      agent: {from: implement}
+  ```
+- `agent.message`: send a prompt or a macro to a running agent: the one an earlier step used, `agent: {from: <step>}`, or a task's own agent, `task: …`. A prompt reaches the agent opening with `[legato workflow]`, so it reads as Legato's; a macro is sent as your own words, as when you send it yourself. The step does not wait for the agent unless it says `wait_for` or declares outputs (see [What ends an agent step](#what-ends-an-agent-step)), and fails when the agent is not running. Its outputs are those Legato fills on every agent step, `task` and `session_id` among them.
+
+  ```yaml
+  - id: push
+    title: Push the stack
+    type: agent.message
+    with:
+      agent: {from: implement}
+      prompt: Push every branch of the stack and open its pull requests.
+  ```
+- `agent: {from: <step>}` names the agent an earlier `agent.run`, `agent.message` or `agent.dispatch` step used: for an `agent.run` step the agent it started or reused, for the others the agent they reached. It is checked when the file loads: the step must come before, and run an agent.
+- `agent.dispatch`: send a prompt to the selected task's ordinary durable agent, or spawn that task-linked agent in `with.working_dir` (where agents start by default when empty) when none is active. It is read as `agent.run` with `on:` the task and `reuse: true` that does not wait, so workflows that use it run as before; a prompt to a running agent now opens with `[legato workflow]`. New workflows use `agent.run` with `on:` or `agent.message`. With a macro, `with.repo` and `with.pr_number` name the pull request in the message. The workflow does not own or tear down this session. Outputs include `agent_session_id`, `created`, and `working_dir`.
+- `agent.run`, `agent.message` and `agent.dispatch` take what to ask either as `with.prompt` or as `with.macro`, the name of one of your [macros](/legato/using/agents/#macros), not both. A macro is read when the step runs, so an edit applies to the next run. A step that names no `agent` or `tier` uses the macro's. A step that reaches a task's own agent sends it as a macro started on the task would be: the task's key and title, then the macro's text.
 
   ```yaml
   - id: review
@@ -116,7 +146,7 @@ Version 1 executes steps in declaration order and supports these executors. Lega
       macro: Review
       working_dir: ${{ steps.clone.outputs.working_dir }}
   ```
-- `agent.stop`: idempotently stop the active agent for the resolved `with.task`. The `learn` template does not use it, because its interview borrows the card's own agent; its curator and critic run under the run's own task.
+- `agent.stop`: idempotently stop the active agent of `with.task` (the task's own agent, in its main slot), or the agent an earlier step used, `with.agent: {from: <step>}`. In a version 2 file, `wait_for: [ended]` waits for the agent to end instead of stopping it, for a step that leaves the agent with you. The `learn` template does not use it, because its interview borrows the card's own agent; its curator and critic run under the run's own task.
 - `agent.compact`: compact the running agent of `with.task` with its tool's own compaction, as `/compact` in its panel does (see [Compacting an agent](/legato/using/agents/#compacting-an-agent)). `${{ workflow.task }}` is the agent an `agent.run` step with `keep_agent: true` left running. `with.instructions` says what the summary must keep; only Claude Code takes them. An agent still in its turn is compacted when the turn ends, which is the usual case right after an `agent.run` step, since the agent completes that step from inside its turn. The step then waits for the compaction to finish. Outputs: `tokens_before` and `tokens_after`, when the tool reports them. The step fails at once when the task has no agent running, when Legato cannot compact the agent's tool or shows the agent only in its terminal, or when a Codex or Chimera agent is given instructions. It fails when the compaction fails, and when 15 minutes after the step started the agent is still working or Legato has seen no end to the compaction (for example because Legato restarted meanwhile); **Retry step** compacts again.
 
   ```yaml
@@ -151,7 +181,7 @@ Version 1 executes steps in declaration order and supports these executors. Lega
       pr_number: ${{ steps.implement.outputs.pr_number }}
       task: ${{ workflow.inputs.task }}
   ```
-- `chat.message.send`: post a message as a chat bot. `with.bot` is `slack` or `discord`; `with.channel` is a channel ID (empty: the bot's default channel); `with.text` is the message; `with.thread_id` replies to a message: a chat trigger's `${{ event.thread_id }}` or `${{ event.message_id }}`, an earlier step's `message_id` or `thread_id` output, or any message's ID in the channel. On Slack the reply goes into that message's thread (give a thread's parent, which `event.thread_id` is); on Discord it is a reply to that message. The text can carry emoji: Slack shows `:eyes:` names itself, and on Discord Legato turns the common names (`:eyes:`, `:white_check_mark:`, `:tada:` and so on) into the emoji, outside code; an emoji written as itself works on both. `with.buttons` puts up to five buttons under the message, each a `label`, a `value` and an optional `style` (`primary` or `danger`); a click starts the workflows whose [`chat.button`](#chat-buttons) trigger matches it. Outputs: `message_id`, `channel` and `thread_id` (what replies in the same thread). The step fails at once when the bot is not set up, is switched off, or its platform refused it. See [Slack](/legato/integrations/slack/) and [Discord](/legato/integrations/discord/).
+- `chat.message.send`: post a message as a chat bot. `with.bot` is `slack` or `discord`; `with.channel` is a channel ID (empty: the bot's default channel); `with.text` is the message; `with.thread_id` replies to a message: a chat trigger's `${{ event.thread_id }}` or `${{ event.message_id }}`, an earlier step's `message_id` or `thread_id` output, or any message's ID in the channel. On Slack the reply goes into that message's thread (give a thread's parent, which `event.thread_id` is); on Discord it is a reply to that message. The text can carry emoji: Slack shows `:eyes:` names itself, and on Discord Legato turns the common names (`:eyes:`, `:white_check_mark:`, `:tada:` and so on) into the emoji, outside code; an emoji written as itself works on both. `with.buttons` puts up to five buttons under the message, each a `label`, a `value`, an optional `style` (`primary` or `danger`) and an optional `if:` that leaves it out; a click starts the workflows whose [`chat.button`](#chat-buttons) trigger matches it. Outputs: `message_id`, `channel` and `thread_id` (what replies in the same thread). The step fails at once when the bot is not set up, is switched off, or its platform refused it. See [Slack](/legato/integrations/slack/) and [Discord](/legato/integrations/discord/).
 - `chat.reaction.add` and `chat.reaction.remove`: add the bot's emoji reaction to a message, or remove it. `with.bot` and `with.channel` are as in `chat.message.send`; `with.message_id` is the message: a chat trigger's `${{ event.message_id }}` (with its `${{ event.channel }}`), an earlier `chat.message.send`'s `message_id` output, or any message's ID in the channel; `with.emoji` is an emoji's name without colons, such as `eyes` or `white_check_mark`, or the emoji itself (`👀`), and on Discord also a custom emoji as `name:id`. Slack takes any name it knows, its custom emoji too; Discord takes any emoji written as itself, and the common names. A reaction that is already there, or already gone, is not an error. Output: `ok`. A missing Slack scope (`reactions:write`) or Discord permission (**Add Reactions**, **Read Message History**) fails the step, naming it. See [React to a message](#react-to-the-message-that-started-a-run).
 - `chat.thread.read`: read the thread a chat message is in, as a chat bot, for a later step. `with.bot` and `with.channel` are as for `chat.message.send`; `with.thread_id` is the thread, such as `${{ event.thread_id }}` from a chat trigger. `with.limit` (1 to 200, default 50) is how many messages to keep, the parent included; `with.include_bots: true` also keeps other bots' messages. Outputs: `transcript`, `messages` and `count`. See [Reading the thread](#reading-the-thread).
 - `burnlite.task.close`: close the Burnlite ticket a task was imported from (`with.task`), as `completed` (the default) or `not_planned` (`with.reason`), with a one-line `with.summary`. With `optional: true`, a task that is not a Burnlite ticket is skipped (`skipped: true`) instead of failing the step. Outputs: `key`, `closed` and `skipped`. Legato must be connected to Burnlite with write access; see [Burnlite](/legato/integrations/burnlite/#close-a-ticket-from-a-workflow).
@@ -355,7 +385,7 @@ on:
           not_equals: true
 ```
 
-Conditions support nested `all`, `any`, and `not`, and field comparisons using `exists`, `equals`, `not_equals`, or `in`. In addition to task snapshot, metadata, and transition fields, `task.has_active_agent` resolves at trigger time to whether the task has an open agent session. An open session includes working, waiting, idle, and error activity states; completed/dead sessions do not match. `task.has_chimera_session` resolves from the task's current retained Chimera resume ID. Both dynamic fields are re-evaluated when a confirmed trigger starts.
+Conditions support nested `all`, `any`, and `not`, and field comparisons using `exists`, `equals`, `not_equals`, `in`, `gt`, `lt` or `empty`. Numbers compare by value, so `3` equals `3.0`; `gt` and `lt` also compare text as text. A field with no value makes `gt`, `lt`, `equals` and `in` false, and `not_equals` and `empty` true; `empty` is also true for `null`, `""`, `[]` and `{}`. In addition to task snapshot, metadata, and transition fields, `task.has_active_agent` resolves at trigger time to whether the task has an open agent session. An open session includes working, waiting, idle, and error activity states; completed/dead sessions do not match. `task.has_chimera_session` resolves from the task's current retained Chimera resume ID. Both dynamic fields are re-evaluated when a confirmed trigger starts.
 
 On a [worker](/legato/running/instances/), a column trigger skips cards handed off from a main: they are the main's, and the main's own workflows run when the task comes home. Set `handed_off: true` on the trigger to run it on those cards too.
 
@@ -614,14 +644,32 @@ on:
 ```
 
 - A message takes at most five buttons. A `label` is at most 75 characters and a `value` at most 100, and no two buttons of a message may have the same value: these are the limits both platforms keep. The `value` is yours to choose; only the triggers read it.
+- A `label`, `value` or `style` may use `${{ }}`. Legato checks the limits again once it has filled them in, and the step fails, naming the button, when a value comes out longer than 100 characters, a label longer than 75, or two values the same.
+- A button's `if:` is a [condition](#running-a-step-only-sometimes-if), written as a step's is: when it is false, the button is left out. The list may then hold up to 25 buttons, but at most five without `if:`, and at most five may be shown at once: more fails the step. When every button is left out, the message goes without buttons.
 - `bot` is required. `channel` narrows the trigger to one channel and `user` to one person, by the platform's IDs. Without `user`, anyone who can see the message can start the workflow, and the editor and `legato workflow validate` warn of it. A click by someone else starts nothing and gets no reply.
 - `value` matches the clicked button's value: `{contains: "fix:"}` ignores case, `{regex: "^fix:(?P<task>.+)$"}` is a Go regular expression. A regex's named groups can be read as `${{ event.match.<name> }}`, here `${{ event.match.task }}`.
-- The inputs may read `${{ event.bot }}`, `${{ event.platform }}`, `${{ event.channel }}`, `${{ event.user }}` (who clicked), `${{ event.value }}`, `${{ event.label }}`, `${{ event.message_id }}` (the message with the buttons), `${{ event.thread_id }}` (what a `chat.message.send` step's `thread_id` takes to reply to that message) and `${{ event.match.<name> }}`.
+- The inputs may read `${{ event.bot }}`, `${{ event.platform }}`, `${{ event.channel }}`, `${{ event.user }}` (who clicked), `${{ event.value }}`, `${{ event.label }}`, `${{ event.message_id }}` (the message with the buttons), `${{ event.message_text }}` (that message's text, cut to 8 KiB, so the message can carry what the next workflow needs), `${{ event.thread_id }}` (what a `chat.message.send` step's `thread_id` takes to reply to that message) and `${{ event.match.<name> }}`.
 - Each click starts at most one run per workflow, even when the platform sends it twice. The [loop stop](#the-loop-stop) counts runs by the message with the buttons.
 
 When a workflow takes a click, Legato changes the message so no one clicks again: on Slack the buttons give way to a line such as **🛠 Fix it — chosen by @alice**; on Discord the buttons are greyed out and the same line goes under the text. When the run has not started yet (it waits for an input, a confirmation or the loop stop), the line ends **· waiting in Legato**. A click no workflow takes, a paused trigger's included, leaves the message as it was, so give **Dismiss** a workflow of its own if it should close the message.
 
 A click is not a message: it never fires a [fallback](#a-fallback-for-everything-else) or stops one, and a workflow that starts only on a button is not listed in `${{ event.commands }}`.
+
+One step can offer different buttons for different cases. Here the buttons depend on whether an earlier step found a ticket for the issue (its `ticket` output, empty when there is none):
+
+```yaml
+      buttons:
+        - label: "🛠 Fix with ${{ steps.find.outputs.ticket }}"
+          value: "fix:${{ steps.find.outputs.ticket }}"
+          style: primary
+          if: {field: steps.find.outputs.ticket, empty: false}
+        - {label: "Fix with a new ticket", value: "new-fix", if: {field: steps.find.outputs.ticket, empty: false}}
+        - {label: "Ticket + fix", value: "new-fix", style: primary, if: {field: steps.find.outputs.ticket, empty: true}}
+        - {label: "Ticket only", value: "new", if: {field: steps.find.outputs.ticket, empty: true}}
+        - {label: "Dismiss", value: "dismiss", style: danger}
+```
+
+Two buttons may share a value when their conditions never hold together, as **Fix with a new ticket** and **Ticket + fix** do. The web editor keeps a button's `if:` and marks the button; write the condition in YAML.
 
 On Slack, buttons need **Interactivity** turned on for the app: see [Slack](/legato/integrations/slack/#buttons). Discord needs nothing more.
 
@@ -874,7 +922,7 @@ legato workflow cancel <run-id> --json
 
 For a `worktree.remove` step, `--force` forwards Yggdrasil's force option and discards uncommitted worktree changes. It can be selected when first triggering a manual removal or when retrying a failed removal; other step types reject it.
 
-Each run makes one task of its own, the execution task, in the **Workflows** workspace, which Legato manages. The **All** view of the board leaves these tasks out; switch to the **Workflows** workspace to see the runs in progress. When a run succeeds, its execution task moves to **Done** and is archived at once. A run that failed or was cancelled stays in its column, for you to deal with.
+Each run makes one task of its own, the execution task, in the **Workflows** workspace, which Legato manages. The **All** view of the board leaves these tasks out; switch to the **Workflows** workspace to see the runs in progress. When a run succeeds, its execution task moves to **Done** and is archived at once. A run that failed, was cancelled or was stopped (at a gate, or at a paused failure) stays in its column, for you to deal with.
 
 The execution task is where the run's agents work, and `${{ workflow.task }}` and `LEGATO_TASK_ID` name it. When a workflow takes a `task` input, the task you chose is the run's subject, recorded beside the run; the run's agents still work on the execution task, so an agent already running on your task is not replaced. The run shows on that task's detail. An agent working on the execution task (a step's agent, or a review loop's reviewer) shows "for <card>" under its name in the agents rail, and the run's Attention items say which card they are for.
 
@@ -899,12 +947,238 @@ A run that an older Legato failed with **agent exited before step completion**, 
 
 ## Schema version 2
 
-Schema version 2 is arriving in parts. Today a version 2 file is a version 1 file with two differences:
+Schema version 2 is arriving in parts. Today a version 2 file is a version 1 file with these differences:
 
 - A step says how it starts with `start: automatic` (the default) or `start: manual`. `trigger:` is a version 1 key, and a version 2 file refuses it. A version 2 file has no `agent_ended`.
 - A later step can read any output its executor's catalog lists, such as `${{ steps.prep.outputs.branch }}` after `repo.ensure`, without the step declaring it. This also holds in version 1 files.
+- An agent step says what ends it with `wait_for:`, and any step can have a `timeout:` (below).
+- Clones are explicit, and a step's `branch` is made under `legato/` and granted for pushes (below).
+
+### What ends an agent step
+
+`agent.run`, `agent.message` and `agent.stop` take `wait_for:`, a list of signals. The first to come ends the step:
+
+| Signal | Ends the step when |
+| --- | --- |
+| `complete` | The agent runs `legato workflow step complete` with every output the step declares. |
+| `finished` | The agent's stage becomes Finished after the step began: it reports it (`report_stage`, a done note), or you set it. Each report counts, so the same agent can end two steps one after the other. |
+| `ended` | The agent's session ends: you close it, or it exits. An interrupted agent has not ended: the step waits until it is resumed, and goes on with the resumed agent. |
+| `none` | The prompt was delivered. |
+
+Without `wait_for`, a step that declares outputs waits for `complete`. Otherwise `agent.run` waits for `complete`, or for `ended` with `on:` a task; `agent.message` does not wait (`none`); and `agent.stop` stops the agent at once. A step that declares outputs must wait for `complete`, which is how the agent gives them. `agent.stop` with `wait_for: [ended]` waits for you to close the agent, then goes on. `none` on a workflow's own agent needs `keep: true`, or the agent would be stopped as soon as it starts. The step's contract tells the agent which signals end it. A step on a task's agent that is not waiting for `ended` fails when that agent ends, so **Retry step** can start it again.
+
+Before a step that waits for `finished` sends its prompt, Legato puts the agent back to Implementing, so a Finished from an earlier step never ends it. Legato finds every wait again from its database when it starts and every 30 seconds, so a restart or a missed event loses nothing.
+
+```yaml
+schema_version: 2
+name: build
+title: Build and push
+inputs:
+  task: {type: task, required: true}
+steps:
+  - id: build
+    title: Build it
+    type: agent.run
+    with: {on: "${{ workflow.inputs.task }}", repo: acme/widget, branch: build, prompt: Build the ticket. Report finished when it is committed.}
+    wait_for: [finished]
+    timeout: 4h
+  - id: push
+    title: Push and open the pull requests
+    type: agent.message
+    with: {agent: {from: build}, prompt: Push the stack and open its pull requests. Report finished when they are open.}
+    wait_for: [finished]
+    timeout: 1h
+  - id: close
+    title: Wait for you to close the agent
+    type: agent.stop
+    with: {agent: {from: build}}
+    wait_for: [ended]
+```
+
+`timeout:` is a duration such as `30m` or `12h`, counted from when the step starts, including any time Legato is not running. A step that runs out fails with "timed out after …": a workflow's own agent is stopped, a task's own agent is left running.
+
+When an agent step ends, Legato fills these outputs beside the ones the step declares (a declared output of the same name wins): `signal` (what ended it), `stage` and `stage_reason`, `last_message` (the agent's last message, at most 4 KiB, empty when Legato cannot read its conversation), `session_id`, `task`, `working_dir`, `clone_id` (0 outside a job clone), `branch` (the branch its folder has checked out), `top_branch` (the top of the clone's Staccato stack, or `branch`), `stack` (`[{name, parent, state, head_sha}]`, bottom first) and `prs` (`[{repo, number, url, state, draft, branch}]`, the pull requests of the clone's branches, looked up on GitHub then). A GitHub error then fails the step with error code `outputs_unavailable`, rather than give a later step stale pull requests, and its `on_failure` decides what follows (in a loop's pass, the loop's `on_failure` when the step has none); **Retry step** runs it again. This holds for a step the agent completes too, except the run's last step, whose completion has already ended the run: no step reads its `prs`, so they are left out.
+
+### Clones and branches
+
+In a version 2 file, an `agent.run` step with `repo` gets a fresh clone at `ref`, never one its task already has. To work in an existing clone, say which with `clone:`: `{from: <step>}` is the clone an earlier agent step worked in, and `${{ … }}` a clone ID, such as an earlier step's `clone_id` (null or 0 is a fresh clone). A `branch` the step names is made as `legato/<task>-<branch>` (a name that already starts with `legato/` is kept), and the agent may push it and open draft pull requests from it without asking. In a joined clone the branch is stacked on the one checked out.
+
+- A step can say `if:` and `on_failure:` (below).
+- A workflow can declare its own `outputs:`, and a `workflow.run` step can call another workflow (below).
+- A step can be a loop, which runs its own steps pass after pass (below).
 
 Legato reads a version 1 file into the same model: `trigger: manual` is `start: manual`, and `trigger: agent_ended` still waits for the workflow task's agent to end. The editor, the builder, the published schema and the bundled templates still write version 1.
+
+### Expressions
+
+`${{ }}` reads a path, in any version of the file:
+
+- `[n]` and `.field` reach into a JSON value: a `json` input, a step's `json` output, or a task's `metadata`. `[0]` is the first item and `[-1]` the last: `${{ steps.find.outputs.items[0].key }}`.
+- `a ?? b` is `b` when `a` has no value or is `null`. The empty string is a value. `b` may be another path, a quoted literal (`'none yet'` or `"none yet"`), `null`, `true`, `false` or a whole number, and you can chain them: `${{ workflow.inputs.base ?? steps.plan.outputs.base ?? 'main' }}`.
+- When the expression is a field's whole value, it keeps its type, so both sides of `??` must have the same type (a `json` value matches any). Within longer text, such as a prompt, the value is written as text and the types need not match.
+- A value that is not there (an input not given, a skipped step's output, an item past the end of a list) leaves a field whose whole value it is out of the step. Within longer text it fails the step, which then does what its `on_failure` says: give it a fallback with `??`.
+- A trigger's `inputs` read the same way from what the trigger gives: `${{ task.metadata.labels[0] }}`, `${{ event.subject ?? event.text }}` or `"fix ${{ event.task }}: ${{ task.title }}"`. A mapping that reads nothing, whole or within text, leaves its input out: the input's default applies, and a required input with none is asked for.
+
+### Running a step only sometimes: if:
+
+`if:` takes a condition, as a trigger's `conditions:` do, checked before the step does anything. Its `field` is a path, without `${{ }}`: an input, the workflow task, or an earlier step's output. When it is false the step is **skipped**, and its outputs have no value. A [chat button](#chat-buttons) takes an `if:` of the same kind, which leaves out just that button.
+
+```yaml
+- id: confirm
+  if: {field: steps.pass.outputs.verdict, equals: clean}
+  type: task.note
+  with: {task: "${{ workflow.task }}", note: Clean pass}
+- id: ready
+  if:
+    all:
+      - {field: workflow.inputs.ready, equals: true}
+      - {field: steps.review.outputs.last.state, equals: approved}
+  type: task.move
+  with: {task: "${{ workflow.inputs.task }}", column: Ready}
+```
+
+### When a step fails: on_failure
+
+- `on_failure: fail`, the default, fails the run. **Retry step** runs the step again.
+- `on_failure: continue` makes the failure the step's outputs, and the run goes on: `status` (`failed`), `error`, and `error_code`, which some steps give to say what went wrong, such as `review_loop_active`. These outputs have no value when the step succeeds, so a later step can say `if: {field: steps.open.outputs.status, equals: failed}`.
+- `on_failure: pause` holds the run at the failure: the step shows as failed with its error, and a link when the error carries one (such as the run of another review loop that holds the pull request), on the run's page and as a needs-you item. **Retry** runs the step again, **Skip** goes on without its outputs, and **Stop** ends the run as **Stopped**.
+
+### Asking you: the gate step
+
+`gate` holds the run until you choose. It raises a needs-you item and shows on the run's page, with a button for each option:
+
+```yaml
+- id: ask
+  type: gate
+  with:
+    title: Open the pull request?
+    body: ${{ steps.plan.outputs.summary }}
+    options: [Open, Hold, Stop]
+- id: open
+  if: {field: steps.ask.outputs.choice, equals: Open}
+  type: agent.run
+  with: {prompt: Open the pull request}
+```
+
+- `title` is the question. `body` is more to read, in Markdown; or `body_path` names a file to read it from: an earlier step's file output, `${{ steps.<id>.outputs.<file>.path }}`. Any other path fails the gate, since a file in an agent's checkout could be a link to one its sandbox hides.
+- `options` are the choices; **Continue** and **Stop** when you give none. The step's `choice` output is the one you chose.
+- **Stop**, in any case, ends the run as **Stopped** instead of going on.
+
+### A workflow's outputs
+
+`outputs:` names what a run of the workflow produces. Each output has a `type` (`string`, `integer`, `boolean` or `json`), a `value`, which reads the run's inputs and steps as a step's `with` does, and a `description`:
+
+```yaml
+outputs:
+  top_branch: {type: string, value: "${{ steps.push.outputs.top_branch }}"}
+  prs:        {type: json,   value: "${{ steps.push.outputs.prs }}"}
+  review:     {type: string, value: "${{ steps.review.outputs.outcome ?? 'not reviewed' }}"}
+```
+
+The outputs are worked out when the run succeeds, and shown on its page under **Produced**. An output that has no value then (a skipped step's, say), or a value of another type, is left out, and the page names it under the outputs.
+
+### Calling a workflow: workflow.run
+
+`workflow.run` runs another workflow as a **child run** and waits for it to end:
+
+```yaml
+- id: build
+  type: workflow.run
+  with:
+    workflow: build-milestone
+    inputs:
+      milestone: "${{ workflow.inputs.milestone }}"
+      repo: "${{ workflow.inputs.repo }}"
+- id: tell
+  type: task.note
+  with: {task: "${{ workflow.task }}", note: "Built ${{ steps.build.outputs.top_branch }}"}
+```
+
+- `workflow` is the workflow's name, or `${{ workflow.inputs.<name> }}` of an input with `choices`, so Legato knows from the files which workflows a workflow can call.
+- `inputs` are passed as values, not text: a number stays a number, and a `repository` input passes the repository it resolved to, so a custom repository reaches the child as it is. An input whose whole value has none (an optional input not given) is not passed, and the child's default applies.
+- The step's outputs are the child's `outputs`, with `status` (`succeeded`) and `run_id`. Later steps can read any of them.
+- A child that fails, is cancelled or stops fails the step, and the step's `on_failure` decides what happens. Under `continue`, its outputs are `status` (`failed`, `cancelled` or `stopped`), `error`, `error_code` (the child's, such as `review_loop_active`) and `run_id`.
+- A child that waits (at a gate, or at a step that waits for you) keeps the step waiting. The child's page has its own needs-you items; the parent's page links to it.
+- **Retry** on a failed call resumes the same child: its own failed step runs again. A child that was cancelled or stopped is replaced by a new one.
+- **Cancel** on the parent cancels its child too, and never runs the parent's `on_failure`.
+- A workflow may not call itself, directly or through another, and calls nest at most 5 deep. The editor and the workflows list show a call that leads back as an error, and a run refuses one when it gets there. The editor also warns of a workflow it doesn't find, of inputs the child doesn't declare or requires, and of outputs the child doesn't declare.
+
+The child is a run of its own, on the **Runs** list and with its own page, which says which run and step called it.
+
+
+### Tickets and cards as data
+
+Three steps put tickets on the board and give tickets and cards to later steps as lists. A list's `items` output is a `json` list, so a later step reads into it: `${{ steps.find.outputs.items[0].key }}`, `${{ steps.find.outputs.count }}`.
+
+- `ticket.import`: put a ticket on the board as a card, or find the card it already is. `key` is the ticket's key, such as `LEG-42`: a task, or a Burnlite milestone or Jira epic. `provider` is `burnlite` or `jira`, needed only when both are connected. `column` and `workspace` (a name) place a new card; a card already on the board stays where it is, and one you archived comes back to its column. Outputs: `task` (the card's ID, which is the key), `created` (whether the step put it on the board) and `restored`.
+- `tickets.list`: a provider's tickets, in its order. `project` (the milestone's project, else the projects Legato searches, when empty), `milestone` (a milestone's tickets; on Jira, an epic's), `kind` (`work`, `meta` or `milestone`; any task when empty), `labels` (a list; a ticket must carry every one), `state` (`open`, the default, `closed` or `any`), `frontier` (only the open tasks that can be taken now: unclaimed, or on Jira not started, and blocked by no open ticket), `ready` (with `kind: milestone`: only milestones that are open, have an open work task, and none of whose open tasks waits on an open ticket outside the milestone), `limit` (default 50, at most 200). Outputs: `items`, each `{key, title, url, kind, state, labels, blocked, open_blockers, frontier, milestone}`, and `count`. Jira has no meta tasks; its milestones are epics.
+- `tasks.list`: the board's cards, column by column in board order. `column` and `workspace` (by name) narrow it; without `workspace`, every workspace but Workflows. `where` is a condition, as `if:` takes, over each card: `task.title`, `task.status`, `task.priority`, `task.provider`, `task.remote_id`, `task.workspace`, `task.metadata.<path>` and the other task fields. `limit` as above. Archived cards are left out. Outputs: `items`, each card as a task input gives it, with its `workspace`, and `count`.
+
+```yaml
+steps:
+  - id: card
+    type: ticket.import
+    with: {key: "${{ workflow.inputs.milestone }}", column: Doing}
+  - id: find
+    type: tickets.list
+    with: {provider: burnlite, milestone: "${{ workflow.inputs.milestone }}", kind: work, frontier: true}
+  - id: first
+    if: {field: steps.find.outputs.count, gt: 0}
+    type: ticket.import
+    with: {key: "${{ steps.find.outputs.items[0].key }}"}
+  - id: untriaged
+    type: tasks.list
+    with:
+      column: Triage
+      where: {not: {field: task.metadata.triaged, exists: true}}
+      limit: 15
+```
+
+### Loops
+
+A loop step says `loop:` and `steps:`, and no `type` or `with`. It runs its steps again and again, each time as a **pass**, in one of three ways:
+
+- `over:` goes through a list, one item per pass: `${{ … }}` of a `json` value, or a list written out. The list is read once, when the loop starts.
+- `next:` is a step (`type` and `with`) run before each pass. Its `items` output is a list, and the pass takes the first item whose `key` no pass has taken; with none left, the loop ends. Because it asks again each time, a ticket closed by one pass is gone from the next pass's list.
+- `repeat: true` runs passes with no item, until `until:` or `max`.
+
+```yaml
+- id: fix
+  loop: {repeat: true, max: 5, until: {field: loop.last.result, equals: green}}
+  outputs:
+    result: {type: string, value: "${{ steps.recheck.outputs.result ?? steps.check.outputs.result }}"}
+  steps:
+    - id: check
+      type: agent.run
+      with: {on: "${{ workflow.inputs.task }}", reuse: true, prompt: "Run the tests. Complete with result green or red."}
+      outputs: {result: {type: string}}
+    - id: recheck
+      if: {field: steps.check.outputs.result, equals: red}
+      type: agent.message
+      with: {agent: {from: check}, prompt: "Fix what failed, run the tests again, and complete with result green or red."}
+      outputs: {result: {type: string}}
+- id: note
+  type: task.note
+  with: {task: "${{ workflow.inputs.task }}", note: "Tests ${{ steps.fix.outputs.last.result }} after ${{ steps.fix.outputs.count }} passes"}
+```
+
+The rest of `loop:`:
+
+- `key:` tells items apart, such as `${{ loop.item.key }}`. It is required with `next:`. With `over:`, an item whose key a pass has taken is passed over.
+- `max:` is the most passes, 20 when it says none, at most 100. It stops a loop that would run away.
+- `until:` is a condition checked after each pass; when it is true the loop ends. It reads `loop.last`, the result of the pass that just ended.
+- `on_failure:` is what a pass does when one of its steps fails (a step with its own `on_failure: continue` goes on in its pass instead). `pause`, the default, holds the run at that step with **Retry**, **Skip** and **Stop**, so you can retry it and the pass goes on. `continue` ends the pass as failed and starts the next. `fail` ends the pass and fails the loop step, whose own `on_failure` then applies; **Retry** on the loop goes on with the next pass.
+
+Inside a pass:
+
+- `steps.<id>` reads the nearest step of that ID: one earlier in the pass, else one before the loop, such as `${{ steps.open.outputs.loop_id }}`. So does `agent: {from: <id>}`. A pass's step may have the ID of a step outside the loop; the pass's own is the one it reads. A step after the loop cannot read the steps of its passes: read the loop's outputs.
+- `loop.index` is the pass's number, from 0; `loop.item` its item (none in a `repeat` loop); `loop.previous` the result of the newest pass that succeeded (none in the first pass: `${{ loop.previous.clone_id ?? null }}`); `loop.results` the results of every pass that has ended.
+
+Each pass has a **result**. The loop's `outputs:` say what it holds: each has a `type` and a `value` read from the pass's steps once it ends. A step skipped by `if:` has no outputs, so `??` picks the one that ran. Every result also has `status` (`succeeded`, `failed`, or `skipped` when every step of the pass was) and `error`, so a loop's outputs may not use those names. A pass that failed has only those two. A result may hold at most 16 KiB; a larger one is a failed pass.
+
+The loop step's own outputs are `results` (every pass's result, in order), `last` (the last pass's result), `count`, `succeeded`, `failed`, and `ended_by`: `items` (the list ran out), `next_empty` (`next:` found nothing new), `until`, `max` or `failure`. A step after the loop reads them, such as `${{ steps.fix.outputs.last.result }}`.
+
+On the run's page, each pass's steps are listed under the loop, pass by pass; a `next:` loop's query is the pass's first step, `next`. Legato keeps where a loop is in its database, so a loop goes on after a restart.
 
 ## Agent completion
 
@@ -919,7 +1193,9 @@ LEGATO_WORKFLOW_ATTEMPT_ID
 
 `LEGATO_TASK_ID` is the generated workflow execution task ID and is also printed in the assignment completion contract.
 
-The step's brief ends with a completion contract: the run, step and attempt, the outputs the step declares, and where its result must go. What the agent writes in its conversation is not kept once Legato removes it, so the result belongs in the declared outputs. When a step declares no outputs, the contract says that nothing it writes in the conversation is kept, so that it does not report a result as "delivered in chat". `legato workflow validate` and the editor warn of an `agent.run` step that declares no outputs and has no `keep_agent`. It is a warning, not an error: a step whose work is its side effects (a commit, a note, a moved card) needs no output.
+A task's own agent (`on:` a task) has none of the workflow's variables, since it outlives the step: its contract names the run, step and attempt in the commands instead (`legato workflow step complete --run … --step … --attempt …`).
+
+The step's brief ends with a completion contract: the run, step and attempt, the outputs the step declares, and where its result must go. What the agent writes in its conversation is not kept once Legato removes it, so the result belongs in the declared outputs. When a step declares no outputs, the contract says that nothing it writes in the conversation is kept, so that it does not report a result as "delivered in chat". `legato workflow validate` and the editor warn of an `agent.run` step that declares no outputs and does not keep its agent (`keep`, `keep_agent`, or `on:` a task without `stop`). It is a warning, not an error: a step whose work is its side effects (a commit, a note, a moved card) needs no output.
 
 Complete a step using declared output names:
 

@@ -71,6 +71,8 @@ Import a milestone by its key, such as `EST-3`, the same way. Its card has the m
 
 The [browser extension](/legato/integrations/browser-extension/) can also import the task or milestone you have open in Burnlite.
 
+A [workflow](/legato/using/workflows/#tickets-and-cards-as-data) can import tasks and milestones with `ticket.import`, and list them with `tickets.list`: a milestone's frontier, a project's tasks by label, or the milestones ready to build.
+
 ## Choose the projects
 
 By default, a search looks in every Burnlite project. To search fewer projects, list their keys (`EST` in `EST-42`):

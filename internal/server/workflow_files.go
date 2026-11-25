@@ -75,6 +75,9 @@ func (s *Server) checked(ctx context.Context, data string) (*workflowengine.Defi
 	if definition != nil && definition.HasChatFallback() {
 		diagnostics = append(diagnostics, s.chatFallbackDiagnostics(ctx, []byte(data), definition, s.discoverWorkflowsIn(ctx).Definitions)...)
 	}
+	if definition != nil && definition.Calls() {
+		diagnostics = append(diagnostics, workflowengine.CallDiagnostics([]byte(data), definition, s.discoverWorkflowsIn(ctx).Definitions)...)
+	}
 	if diagnostics == nil {
 		diagnostics = []workflowengine.Diagnostic{}
 	}

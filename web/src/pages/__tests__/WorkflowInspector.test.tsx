@@ -199,7 +199,7 @@ it("marks an expression that can't be read here, with why", async () => {
   fileYaml = withValues.replace("prompt: Look at it", "prompt: Look at ${{ steps.run.outputs.x }}")
   await renderAt("#steps/run")
   const found = within(inspector()).getByRole("list", { name: "Values in What it should do" })
-  expect(found.textContent).toContain("is not an output of an earlier step")
+  expect(found.textContent).toContain("steps.run is not an earlier step")
   expect(within(inspector()).getByRole("textbox", { name: "prompt of step run" }).getAttribute("aria-invalid")).toBe("true")
 })
 

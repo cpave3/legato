@@ -72,6 +72,9 @@ const (
 // interaction's ID, unique to the click.
 type ChatClick struct {
 	Value, Label, InteractionID string
+	// MessageText is the text of the message with the buttons, as the
+	// platform gave it with the click.
+	MessageText string
 	// settle rewrites the message to say the click was taken, its buttons
 	// gone or disabled. It holds the platform's handle on the click (a
 	// Discord interaction token), so it is never stored.

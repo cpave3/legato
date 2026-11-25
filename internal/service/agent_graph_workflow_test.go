@@ -225,6 +225,32 @@ func TestAnInterviewedAgentIsPlacedOnTheInterviewStep(t *testing.T) {
 	}
 }
 
+// An agent.run step on a task (on: <task>) waits on the task's own agent,
+// which has no run of its own: it is placed on the step by its session.
+func TestATasksOwnAgentAStepWaitsOnIsPlacedOnTheStep(t *testing.T) {
+	f := newWorkflowGraphFixture(t)
+	ctx := context.Background()
+	createTask(t, f.store, "LEG-4")
+	f.spawn(t, "LEG-4", "")
+	f.workflowRun(t, "wr-4", "running", "implement", "",
+		graphStep{"implement", "agent.run", "automatic", ""})
+	if err := f.store.StartWorkflowStepAttempt(ctx, store.WorkflowStepAttempt{ID: "att-4", RunID: "wr-4", StepID: "implement", AttemptNumber: 1,
+		ExecutorType: "agent.run", Status: "running"}, "{}"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := f.store.GetAgentSessionByTaskID(ctx, "LEG-4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.MarkWorkflowStepWaiting(ctx, "wr-4", "implement", "att-4", session, "", "LEG-4"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := workflowsOf(t, f.read(t), "LEG-4"), []AgentWorkflowPlace{{RunID: "wr-4", StepID: "implement", Role: AgentRoleAgent}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("LEG-4's workflows = %+v, want %+v", got, want)
+	}
+}
+
 func TestAnAgentARunWaitsOnToEndIsAwaited(t *testing.T) {
 	f := newWorkflowGraphFixture(t)
 	createTask(t, f.store, "LEG-3")

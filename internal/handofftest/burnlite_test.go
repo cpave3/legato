@@ -53,6 +53,10 @@ func (f *fakeBurnlite) Enabled(context.Context) bool { return true }
 func (f *fakeBurnlite) Interval() time.Duration      { return time.Hour }
 func (f *fakeBurnlite) MovesCards() bool             { return true }
 
+func (f *fakeBurnlite) List(context.Context, service.TicketQuery) ([]service.TicketItem, error) {
+	return nil, errors.New("the fake Burnlite lists nothing")
+}
+
 func (f *fakeBurnlite) Column(_ context.Context, t service.RemoteTicket) (string, error) {
 	switch t.Status {
 	case "Claimed":

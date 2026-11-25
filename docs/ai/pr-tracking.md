@@ -69,6 +69,7 @@ The service API for other features (`service.PRBranchActions`, implemented by th
 
 - `AddTaskBranches(ctx, taskID, repo, branches) (added []string, err)`: add branches of one repository in stack order; returns those not tracked before. No GitHub call. `service.AddTaskBranches(ctx, db, ...)` is the same without the PR service, for when GitHub tracking is off.
 - `DiscoverPRs(ctx, taskID)`: find the PRs of branches that have none, one listing per repository, then fetch each found PR by number for its checks and reviews. PRs found before are not refetched. Call it when `AddTaskBranches` added any.
+- `DiscoverAndRefreshPRs(ctx, taskID)`: `DiscoverPRs` that also refetches the PRs found before by number, in one pass, returning any GitHub error. A workflow agent step's filled `prs` output uses it at the step's signal, so a PR marked ready, closed or merged since an earlier step is not read stale (see [Workflows](workflows.md) § Agent waits, timeouts and clones).
 - `TrackedBranches(ctx, taskID)`: the list, each with its PR.
 
 Readers get a task's PRs through `service.TaskPullRequests(task, branches)`: the PRs of the list in order, else the one PR in `pr_meta` for a task linked before the list existed. `CardDetail.PullRequests` and `CardDetail.Branches` carry them, and `BoardService` implements `PullRequestLister.ListPullRequests(ctx, taskIDs)` for the TUI board, which needs no GitHub credential.

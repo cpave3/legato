@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -217,6 +218,9 @@ type AgentSpawnOptions struct {
 	// another task made: the next branch of a stack in the same folder.
 	// Without it, a task with a clone of Repo works in that one again.
 	Clone int64
+	// OwnClone asks for a fresh clone of Repo even when the task has one
+	// (a version 2 workflow step: clones are explicit, LEG-485).
+	OwnClone bool
 	// Branch is the branch the clone ends on. A new clone: GitHub's branch
 	// of that name when there is one, else a new one made at Ref, and
 	// legato/<task id> when empty, which the GitHub credential lets agents
@@ -917,7 +921,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			fresh += "-" + slot
 		}
 		clone, err := repos.JobClone(ctx, JobCloneRequest{ExecutionID: executionID, TaskID: taskID, Repo: opt.Repo, Ref: opt.Ref,
-			Branch: opt.Branch, FreshBranch: fresh, CloneID: opt.Clone, PushedBranch: opt.PushedBranch, Slot: slot})
+			Branch: opt.Branch, FreshBranch: fresh, CloneID: opt.Clone, Own: opt.OwnClone, PushedBranch: opt.PushedBranch, Slot: slot})
 		if err != nil {
 			return err
 		}
@@ -2276,6 +2280,24 @@ func (a *agentService) endGoneSessionFor(ctx context.Context, s store.AgentSessi
 		return err
 	}
 	for _, attempt := range attempts {
+		// A step that waits for its agent to end (wait_for: ended) ends on
+		// the workflow host's check; one on an agent no workflow owns waits
+		// through an interruption, and binds again when it is resumed
+		// (LEG-485). A wait that cannot be read is left to the host too,
+		// which reads the tables again: failing or suspending it here could
+		// end a step that waits for exactly this.
+		signals, err := a.store.WorkflowStepWaitSignals(ctx, attempt.RunID, attempt.Path)
+		unreadable := err != nil && !errors.Is(err, store.ErrNotFound)
+		if unreadable {
+			log.Printf("workflow run %s step %s: reading what it waits for as its agent ended: %v; left to the workflow host", attempt.RunID, attempt.Path, err)
+		}
+		if unreadable || slices.Contains(signals, "ended") ||
+			(status == store.AgentSessionInterrupted && len(signals) > 0 && (plainTaskAgent(s) || attempt.ExecutorType != "agent.run")) {
+			if a.bus != nil {
+				a.bus.PublishWorkflowChanged(attempt.RunID)
+			}
+			continue
+		}
 		if status == store.AgentSessionInterrupted && attempt.ExecutorType == "agent.run" {
 			if err := a.store.SuspendWorkflowStep(ctx, attempt.RunID, attempt.Path, attempt.ID, WorkflowSuspendedReason); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
 				return err

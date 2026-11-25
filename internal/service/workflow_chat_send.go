@@ -56,21 +56,34 @@ func (e *ChatSendExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 	}}, nil
 }
 
-// chatSendButtons reads with.buttons once resolved: absent, or a list of
-// {label, value, style}. The bots check the limits.
+// chatSendButtons reads with.buttons once resolved (each label and value
+// given by ${{ }} filled in, each button whose if: was false left out):
+// absent, or a list of {label, value, style}, which must keep the limits
+// every platform keeps. An empty list sends no buttons.
 func chatSendButtons(value any) ([]ChatButton, error) {
+	buttons, err := readChatSendButtons(value)
+	if err == nil {
+		err = checkChatButtons(buttons)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("with buttons: %w", err)
+	}
+	return buttons, nil
+}
+
+func readChatSendButtons(value any) ([]ChatButton, error) {
 	if value == nil {
 		return nil, nil
 	}
 	list, ok := value.([]any)
 	if !ok {
-		return nil, fmt.Errorf("with buttons must be a list of buttons, each {label, value, style}")
+		return nil, fmt.Errorf("must be a list of buttons, each {label, value, style}")
 	}
 	buttons := make([]ChatButton, 0, len(list))
 	for i, item := range list {
 		fields, ok := item.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("with buttons[%d] must be a map of label, value and style", i)
+			return nil, fmt.Errorf("button %d must be a map of label, value and style", i+1)
 		}
 		var button ChatButton
 		for name, target := range map[string]*string{"label": &button.Label, "value": &button.Value, "style": &button.Style} {
@@ -80,7 +93,7 @@ func chatSendButtons(value any) ([]ChatButton, error) {
 			}
 			text, ok := raw.(string)
 			if !ok {
-				return nil, fmt.Errorf("with buttons[%d]: %s must be text", i, name)
+				return nil, fmt.Errorf("button %d: %s must be text", i+1, name)
 			}
 			*target = text
 		}

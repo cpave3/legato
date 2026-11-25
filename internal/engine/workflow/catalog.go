@@ -112,7 +112,8 @@ type ExecutorSpec struct {
 	Constraints []Constraint
 	Outputs     []OutputSpec
 	// DeclaredOutputs executors produce whatever outputs the step declares:
-	// an agent completes the step with them.
+	// an agent completes the step with them. Their Outputs are those Legato
+	// fills beside them (an agent step's, LEG-485).
 	DeclaredOutputs bool
 	// Summary names the fields a step row is summed up by: the first of
 	// them with a value, such as the macro or else the prompt.
@@ -122,7 +123,7 @@ type ExecutorSpec struct {
 }
 
 // StepGroups are the step picker's groups, in its order.
-var StepGroups = []string{"Agents", "Code", "Board", "Chat", "Learn", "Cleanup"}
+var StepGroups = []string{"Agents", "Code", "Board", "Chat", "Learn", "Cleanup", "Control"}
 
 // Field is the spec's with field of that name.
 func (s ExecutorSpec) Field(name string) (Field, bool) {
@@ -213,7 +214,10 @@ func validateStepContract(step Step, inputs map[string]Input) error {
 			return within("with", fmt.Errorf("with requires %s", field.Name))
 		}
 	}
-	return nil
+	if err := checkWorkflowRunStep(step, inputs); err != nil {
+		return err
+	}
+	return checkAgentStep(step)
 }
 
 func (c Constraint) check(with map[string]any) error {
@@ -248,7 +252,7 @@ func (c Constraint) check(with map[string]any) error {
 // file alone can tell.
 func (f Field) accepts(value any, inputs map[string]Input) bool {
 	text, isText := value.(string)
-	expression := isText && !f.Literal && expressionPattern.MatchString(text)
+	expression := isText && !f.Literal && HasExpression(text)
 	if len(f.Enum) > 0 && !expression {
 		return isText && slices.Contains(f.Enum, text)
 	}
@@ -275,6 +279,18 @@ func (f Field) accepts(value any, inputs map[string]Input) bool {
 	case KindColumn:
 		return isText && (expression || strings.TrimSpace(text) != "")
 	case KindJSON:
+		if isText && HasExpression(text) {
+			return true
+		}
+		switch {
+		case f.Name == "options" && f.Checked:
+			return gateOptionsValid(value)
+		case f.Name == "where" && f.Checked:
+			_, err := TaskCondition(conditionAtLoad(value))
+			return err == nil
+		case f.Name == "labels" && f.Checked:
+			return labelsValid(value)
+		}
 		return true
 	default:
 		return isText
@@ -313,11 +329,62 @@ var (
 		{Name: "message_id", Kind: KindString, Label: "Message", Description: "The message's ID: a chat trigger's ${{ event.message_id }} (with its ${{ event.channel }}), an earlier chat.message.send's message_id output, or any message's ID in the channel", Required: true, Essential: true, Order: 3},
 		{Name: "emoji", Kind: KindString, Label: "Emoji", Description: "An emoji's name without colons, such as eyes or white_check_mark, or the emoji itself; on Discord a custom emoji as name:id", Required: true, Essential: true, Order: 4},
 	}
-	wholeTask    = Field{Name: "task", Kind: KindTask, Label: "Task", Description: "The task: ${{ workflow.task }} or a task input", Required: true, Checked: true, Invalid: "must be a whole task reference"}
+	// agentFromField names the agent an earlier step used: {from: <step>}.
+	agentFromField = Field{Name: "agent", Kind: KindJSON, Label: "Or the agent of a step", Description: "{from: <step>}: the agent an earlier agent.run, agent.message or agent.dispatch step used; checked when the file loads"}
+	agentOrTask    = Constraint{Kind: ExactlyOne, Fields: []string{"task", "agent"}, Checked: true}
+	wholeTask      = Field{Name: "task", Kind: KindTask, Label: "Task", Description: "The task: ${{ workflow.task }} or a task input", Required: true, Checked: true, Invalid: "must be a whole task reference"}
+	// agentFilledOutputs are what Legato fills on an agent step when its
+	// wait ends (spec LEG-482 §5.6, LEG-485), beside the outputs the step
+	// declares, which the agent fills and which win on a clash.
+	agentFilledOutputs = []OutputSpec{
+		{Name: "signal", Type: "string", Description: "What ended the wait: complete, finished, ended or none"},
+		{Name: "stage", Type: "string", Description: "The agent's stage then"},
+		{Name: "stage_reason", Type: "string", Description: "Why it is at that stage: the agent's note, or what moved it"},
+		{Name: "last_message", Type: "string", Description: "The agent's last message, at most 4 KiB; empty when Legato cannot read its conversation"},
+		{Name: "session_id", Type: "integer", Description: "The agent's session"},
+		{Name: "task", Type: "string", Description: "The task whose agent it is"},
+		{Name: "working_dir", Type: "string", Description: "The folder the agent works in"},
+		{Name: "clone_id", Type: "integer", Description: "The job clone it works in, for a later step's clone; 0 for none"},
+		{Name: "branch", Type: "string", Description: "The branch its folder has checked out"},
+		{Name: "top_branch", Type: "string", Description: "The top of the clone's stack, or branch"},
+		{Name: "stack", Type: "json", Description: "The clone's stack, bottom first: [{name, parent, state, head_sha}]"},
+		{Name: "prs", Type: "json", Description: "The pull requests of the clone's branches: [{repo, number, url, state, draft, branch}]"},
+	}
 	literalFalse = func(name, label, description string) Field {
 		return Field{Name: name, Kind: KindBoolean, Label: label, Description: description, Default: false, Literal: true, Checked: true, Invalid: "must be true or false"}
 	}
 )
+
+// GateStepType is the step that asks the operator to choose (LEG-486).
+const GateStepType = "gate"
+
+// GateStop is the gate option that ends the run as stopped, in any case.
+const GateStop = "Stop"
+
+// DefaultGateOptions are a gate's options when it names none.
+var DefaultGateOptions = []string{"Continue", GateStop}
+
+// gateOptionsValid reports whether a gate's options are a list of
+// different, non-empty names, or a ${{ }}.
+func gateOptionsValid(value any) bool {
+	if text, ok := value.(string); ok {
+		return HasExpression(text)
+	}
+	list, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, item := range list {
+		name, ok := item.(string)
+		name = strings.TrimSpace(name)
+		if !ok || name == "" || seen[strings.ToLower(name)] {
+			return false
+		}
+		seen[strings.ToLower(name)] = true
+	}
+	return true
+}
 
 // SlotNamePattern is what a named agent slot of a card must match, and
 // ReservedSlots the named slots agent.run may not take: the review loop's.
@@ -345,16 +412,34 @@ var catalog = []ExecutorSpec{
 			{Name: "slot", Kind: KindString, Label: "In the card's slot", Description: "With task: the card's named agent slot the agent runs in, such as triage, plan or review, beside the card's own agent, in a fresh clone of its own; main (the default) is the card's own agent, and reviewer is the review loop's",
 				Literal: true, Checked: true, Pattern: SlotNamePattern, Reserved: ReservedSlots, Order: 15,
 				Invalid: "must be main or a slot name: lowercase letters, digits and dashes, starting with a letter, at most 32; reviewer is the review loop's"},
+			{Name: "on", Kind: KindTaskOrID, Label: "Where the agent lives", Description: "run (the default): an agent of the workflow, stopped once its outputs are in unless keep is true. Or a task, or a task ID: a plain agent in that task's main slot, on its card, which keeps running unless stop is true", Order: 16},
+			literalFalse("keep", "Keep the agent running", "With on: run: leave the agent running once its outputs are in, so the operator can go on talking to it").at(17, false),
+			literalFalse("reuse", "Message a running agent", "With on: <task>: when the task's agent is running, message it instead of failing the step").at(18, false),
+			literalFalse("stop", "Stop the agent after", "With on: <task>: stop the task's agent once its outputs are in").at(19, false),
+			{Name: "clone", Kind: KindJSON, Label: "Work in the clone of", Description: "{from: <step>}: the job clone an earlier agent step worked in, or a clone ID such as ${{ steps.x.outputs.clone_id }} (null for a fresh one). In a version 2 file, a step with repo and no clone gets a fresh clone, never one its task has", Order: 20},
 		},
 		Constraints: []Constraint{promptMacro, {Kind: Excludes, Fields: []string{"scratch", "working_dir"}, Checked: true}, {Kind: Excludes, Fields: []string{"scratch", "repo"}, Checked: true},
 			{Kind: Excludes, Fields: []string{"task", "working_dir"}, Checked: true}, {Kind: Excludes, Fields: []string{"task", "scratch"}, Checked: true}, {Kind: Excludes, Fields: []string{"task", "name"}, Checked: true},
-			{Kind: Requires, Fields: []string{"slot", "task"}, Checked: true}},
+			{Kind: Requires, Fields: []string{"slot", "task"}, Checked: true}, {Kind: Excludes, Fields: []string{"keep", "keep_agent"}, Checked: true}},
 		DeclaredOutputs: true,
 		Summary:         []string{"macro", "prompt"},
+		Outputs:         agentFilledOutputs,
+	},
+	{
+		Type: "agent.message", Group: "Agents", Title: "Message an agent",
+		Description: "Send a prompt or a macro to a running agent: the one an earlier step used (agent: {from: <step>}), or a task's own. A prompt reaches it tagged [legato workflow]; a macro is sent as the operator's own words. The step does not wait for the agent unless it says wait_for, or declares outputs (complete).",
+		With: []Field{
+			{Name: "task", Kind: KindTaskOrID, Label: "The task's agent", Description: "A task, or a task ID, whose own agent (its main slot) to message", Essential: true, Order: 1}, agentFromField.at(2, true),
+			promptField.at(3, true), macroField.at(4, true), prRepoField.at(5, false), prNumberFld.at(6, false),
+		},
+		Constraints:     []Constraint{agentOrTask, promptMacro},
+		Summary:         []string{"macro", "prompt"},
+		DeclaredOutputs: true,
+		Outputs:         agentFilledOutputs,
 	},
 	{
 		Type: "agent.dispatch", Group: "Agents", Title: "Send to the task's agent",
-		Description: "Send a prompt or a macro to a task's agent, starting one when the task has none. The step does not wait for the agent.",
+		Description: "Send a prompt or a macro to a task's agent, starting one when the task has none. The step does not wait for the agent. It is read as agent.run with on: <task> and reuse: true that does not wait; new workflows use agent.run or agent.message.",
 		With: []Field{
 			wholeTask.at(1, true), promptField.at(2, true), macroField.at(3, true), agentField.at(4, false), tierField.at(5, false),
 			{Name: "working_dir", Kind: KindPath, Label: "A new agent starts in", Description: "Where a new agent starts; a running agent is messaged wherever it is", Order: 6},
@@ -370,11 +455,13 @@ var catalog = []ExecutorSpec{
 	},
 	{
 		Type: "agent.stop", Group: "Agents", Title: "Stop the task's agent",
-		Description: "Stop a task's agent.",
+		Description: "Stop a task's agent: the one an earlier step used (agent: {from: <step>}), or a task's own (its main slot). With wait_for: [ended], wait for the agent to end first (the operator closes it), then go on.",
 		With: []Field{
-			{Name: "task", Kind: KindTaskOrID, Label: "Task", Description: "The task, or a task ID", Required: true, Essential: true, Order: 1},
+			{Name: "task", Kind: KindTaskOrID, Label: "The task's agent", Description: "The task, or a task ID, whose own agent (its main slot) to stop", Essential: true, Order: 1},
+			agentFromField.at(2, true),
 		},
-		Summary: []string{"task"},
+		Constraints: []Constraint{agentOrTask},
+		Summary:     []string{"task"},
 	},
 	{
 		Type: "agent.compact", Group: "Agents", Title: "Compact the task's agent",
@@ -556,6 +643,57 @@ var catalog = []ExecutorSpec{
 		},
 	},
 	{
+		Type: TicketImportStepType, Group: "Board", Title: "Import a ticket",
+		Description: "Put a Burnlite or Jira ticket on the board as a task, or find the task it already is. An existing task stays in its column; an archived one is restored.",
+		With: []Field{
+			{Name: "key", Kind: KindString, Label: "Ticket", Description: "The ticket's key, such as LEG-42: a task, or a Burnlite milestone or Jira epic", Required: true, Essential: true, Order: 1},
+			ticketProviderField.at(2, false),
+			{Name: "column", Kind: KindColumn, Label: "Start in column", Description: "The column a new task starts in; the provider's status mapping when empty. A task already on the board is not moved", Checked: true, Invalid: "must be a non-empty string", Order: 3},
+			{Name: "workspace", Kind: KindString, Label: "Workspace", Description: "The workspace, by name, a new task goes in; none when empty", Order: 4},
+		},
+		Summary: []string{"key"},
+		Outputs: []OutputSpec{
+			{Name: "task", Type: "string", Description: "The task's ID, which is the ticket's key"},
+			{Name: "created", Type: "boolean", Description: "Whether the step put the ticket on the board"},
+			{Name: "restored", Type: "boolean", Description: "Whether the task was archived and the step restored it"},
+		},
+	},
+	{
+		Type: TicketsListStepType, Group: "Board", Title: "List tickets",
+		Description: "List a provider's tickets as data, such as a milestone's frontier or a project's ready milestones, in the provider's order.",
+		With: []Field{
+			ticketProviderField.at(1, false),
+			{Name: "project", Kind: KindString, Label: "Project", Description: "The project's key; the milestone's project, else the projects Legato searches, when empty", Essential: true, Order: 2},
+			{Name: "milestone", Kind: KindString, Label: "Milestone", Description: "Only the tickets of this milestone (Burnlite) or epic (Jira), by key", Essential: true, Order: 3},
+			{Name: "kind", Kind: KindString, Label: "Kind", Description: "work or meta tasks, or milestone for milestones (Jira: epics); any task when empty", Enum: []string{"work", "meta", "milestone"}, Checked: true, Invalid: "must be work, meta or milestone", Order: 4},
+			{Name: "labels", Kind: KindJSON, Label: "Labels", Description: "Only tickets carrying every one of these labels: a list of names", Checked: true, Invalid: "must be a list of label names", Order: 5},
+			{Name: "state", Kind: KindString, Label: "State", Description: "open, closed or any", Default: TicketStateOpen, Enum: []string{TicketStateOpen, TicketStateClosed, TicketStateAny}, Checked: true, Invalid: "must be open, closed or any", Order: 6},
+			{Name: "frontier", Kind: KindBoolean, Label: "Only those that can be taken now", Description: "Only open tasks that can be taken now: unclaimed (Jira: not started) and blocked by no open ticket", Checked: true, Invalid: "must be true or false", Order: 7},
+			{Name: "ready", Kind: KindBoolean, Label: "Only ready milestones", Description: "With kind milestone: only milestones that are open, have an open work task, and none of whose open tasks waits on an open ticket outside it", Checked: true, Invalid: "must be true or false", Order: 8},
+			{Name: "limit", Kind: KindInteger, Label: "At most", Description: fmt.Sprintf("How many tickets to list, at most %d", MaxListLimit), Default: DefaultListLimit, Checked: true, Invalid: "must be a whole number", Order: 9},
+		},
+		Summary: []string{"milestone", "project"},
+		Outputs: []OutputSpec{
+			{Name: "items", Type: "json", Description: "The tickets: [{key, title, url, kind, state, labels, blocked, open_blockers, frontier, milestone}]"},
+			{Name: "count", Type: "integer", Description: "How many tickets items holds"},
+		},
+	},
+	{
+		Type: TasksListStepType, Group: "Board", Title: "List board tasks",
+		Description: "List the board's tasks as data, by column, workspace and a condition on each task, in board order. Archived tasks and workflow runs' own tasks are left out.",
+		With: []Field{
+			{Name: "column", Kind: KindColumn, Label: "Column", Description: "Only tasks in this column; every column when empty", Checked: true, Invalid: "must be a non-empty string", Essential: true, Order: 1},
+			{Name: "workspace", Kind: KindString, Label: "Workspace", Description: "Only tasks in this workspace, by name; every workspace when empty", Essential: true, Order: 2},
+			{Name: "where", Kind: KindJSON, Label: "Where", Description: "A condition each task must meet, over task.<field> and task.metadata.<path>: all, any, not, or field with one of equals, not_equals, in, exists, empty, gt or lt", Checked: true, Invalid: "must be a condition over task fields", Order: 3},
+			{Name: "limit", Kind: KindInteger, Label: "At most", Description: fmt.Sprintf("How many tasks to list, at most %d", MaxListLimit), Default: DefaultListLimit, Checked: true, Invalid: "must be a whole number", Order: 4},
+		},
+		Summary: []string{"column", "workspace"},
+		Outputs: []OutputSpec{
+			{Name: "items", Type: "json", Description: "The tasks, each as a task reference: {id, title, description, status, priority, provider, remote_id, working_dir, metadata, workspace}"},
+			{Name: "count", Type: "integer", Description: "How many tasks items holds"},
+		},
+	},
+	{
 		Type: "chat.message.send", Group: "Chat", Title: "Send a chat message",
 		Description: "Post a message as a Slack or Discord bot set up in Settings › Integrations. Fails at once when the bot is not set up or cannot send.",
 		With: []Field{
@@ -563,7 +701,7 @@ var catalog = []ExecutorSpec{
 			chatChannel,
 			{Name: "text", Kind: KindText, Label: "Message", Description: "The message: plain text or the platform's markdown", Required: true, Essential: true, Order: 3},
 			{Name: "thread_id", Kind: KindString, Label: "Reply to", Description: "A message or thread to reply to: a chat trigger's ${{ event.thread_id }} or ${{ event.message_id }}, an earlier step's message_id or thread_id, or any message's ID in the channel. On Slack it replies in that message's thread (give a thread's parent, which event.thread_id is); on Discord it is a reply to that message", Order: 4},
-			{Name: "buttons", Kind: KindChatButtons, Label: "Buttons", Description: "Up to 5 buttons under the message, each a label (at most 75 characters), a value (at most 100, its own) and a style (primary or danger); a click starts the workflows whose chat.button trigger matches", Checked: true, Invalid: "must be a list of buttons", Order: 5},
+			{Name: "buttons", Kind: KindChatButtons, Label: "Buttons", Description: "Up to 5 buttons under the message, each a label (at most 75 characters), a value (at most 100, its own), a style (primary or danger) and an if (a condition that leaves the button out when false); a click starts the workflows whose chat.button trigger matches", Checked: true, Invalid: "must be a list of buttons", Order: 5},
 		},
 		Summary: []string{"text"},
 		Outputs: []OutputSpec{
@@ -620,6 +758,21 @@ var catalog = []ExecutorSpec{
 			{Name: "merged_at", Type: "string", Description: "When it merged (RFC 3339), or empty"},
 			{Name: "url", Type: "string", Description: "The pull request's address"},
 		},
+	},
+	workflowRunSpec,
+	{
+		Type: GateStepType, Group: "Control", Title: "Ask the operator",
+		Description: "Hold the run until the operator chooses one of the options, from a needs-you item or the run page. The step's choice output is the option chosen; Stop ends the run as stopped.",
+		With: []Field{
+			{Name: "title", Kind: KindString, Label: "Question", Description: "What the operator is asked, the needs-you item's title", Required: true, Essential: true, Order: 1},
+			{Name: "body", Kind: KindText, Label: "Details", Description: "More for the operator to read before choosing: Markdown", Essential: true, Order: 2},
+			{Name: "body_path", Kind: KindPath, Label: "Details from a file", Description: "A file whose Markdown is the details: an earlier step's file output, ${{ steps.<id>.outputs.<file>.path }}; at most 64 KiB is read", Order: 3},
+			{Name: "options", Kind: KindJSON, Label: "Options", Description: "The choices, a list of names; Continue and Stop when empty. Stop, in any case, ends the run as stopped", Order: 4,
+				Checked: true, Invalid: "must be a list of different, non-empty names"},
+		},
+		Constraints: []Constraint{{Kind: Excludes, Fields: []string{"body", "body_path"}, Checked: true}},
+		Summary:     []string{"title"},
+		Outputs:     []OutputSpec{{Name: "choice", Type: "string", Description: "The option the operator chose"}},
 	},
 	{
 		Type: "worktree.remove", Group: "Cleanup", Title: "Remove the worktree",

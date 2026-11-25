@@ -62,7 +62,8 @@ func olderLegatoMidReview(t testing.TB, path string) (runID, task string) {
 	}
 	// A process without the review engine starts the step: it waits.
 	workflows := service.NewWorkflowService(db, []service.WorkflowExecutor{service.NewReviewPassesStep(), service.NewTaskNoteExecutor(db)})
-	view, err := workflows.Start(ctx, definition, pr12)
+	var view *store.WorkflowRunView
+	writeAsOlderLegato(t, db, func() { view, err = workflows.Start(ctx, definition, pr12) })
 	if err != nil || view.Run.Status != "running" {
 		t.Fatalf("start: %+v, %v", view, err)
 	}

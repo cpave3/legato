@@ -1,7 +1,7 @@
 {
- "comment": "The same references, checked by Go (validateReferences, through Validate) and by web/src/lib/workflowExpressions.ts: both must give these verdicts.",
+ "comment": "The same references, checked by Go (validateReferences, through Validate) and by web/src/lib/workflowExpressions.ts: both must give these verdicts. A case with whole is the field's whole value (a ?? there is type-checked); without, it is within longer text. Location if is a step's if: condition's field, a bare path. A location with body is the step of that index in the loop step's steps (a pass's step), where loop.* is read.",
  "definition": {
-  "schema_version": 1,
+  "schema_version": 2,
   "name": "refs",
   "title": "Refs",
   "inputs": {
@@ -14,6 +14,15 @@
    },
    "note": {
     "type": "string"
+   },
+   "ready": {
+    "type": "boolean"
+   },
+   "count": {
+    "type": "integer"
+   },
+   "data": {
+    "type": "json"
    }
   },
   "steps": [
@@ -31,8 +40,12 @@
      "report": {
       "type": "file",
       "path": "report.md"
+     },
+     "items": {
+      "type": "json"
      }
-    }
+    },
+    "on_failure": "continue"
    },
    {
     "id": "second",
@@ -62,6 +75,70 @@
      "done": {
       "type": "boolean"
      }
+    }
+   },
+   {
+    "id": "each",
+    "title": "Each",
+    "loop": {
+     "repeat": true
+    },
+    "outputs": {
+     "state": {
+      "type": "string",
+      "value": "${{ steps.inner.outputs.answer ?? 'none' }}"
+     },
+     "found": {
+      "type": "json",
+      "value": "${{ steps.inner.outputs.data }}"
+     }
+    },
+    "steps": [
+     {
+      "id": "inner",
+      "title": "Inner",
+      "type": "agent.run",
+      "with": {
+       "prompt": "hi"
+      },
+      "outputs": {
+       "answer": {
+        "type": "string"
+       },
+       "data": {
+        "type": "json"
+       }
+      }
+     },
+     {
+      "id": "first",
+      "title": "Shadow",
+      "type": "agent.run",
+      "with": {
+       "prompt": "hi"
+      },
+      "outputs": {
+       "other": {
+        "type": "string"
+       }
+      }
+     },
+     {
+      "id": "later",
+      "title": "Later",
+      "type": "agent.run",
+      "with": {
+       "prompt": "hi"
+      }
+     }
+    ]
+   },
+   {
+    "id": "after",
+    "title": "After",
+    "type": "agent.run",
+    "with": {
+     "prompt": "hi"
     }
    }
   ]
@@ -417,6 +494,851 @@
    },
    "expression": "steps.second.outputs.answer",
    "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.items[0]",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.items[-1].key",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.items.first.name",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.items[0][1]",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.summary[0]",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.data.a[2].b",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.note[0]",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.task.metadata.tags[0]",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.task.metadata.tags[-1].name",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.task.title[0]",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs[0]",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first[0].outputs.summary",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.items[x]",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.items[",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.items[1.5]",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.items[]",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs..items",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.items.",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.note ?? 'none yet'",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.note ?? \"none\"",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.note ?? null",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.note ?? steps.first.outputs.summary ?? 'x'",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.note ??",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "?? workflow.inputs.note",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.note ?? workflow.inputs.nope",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.note ? 'x'",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "'just text'",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "null",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.note ?? 'unterminated",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.note ?? 'a }} b'",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.note 'x'",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.count ?? 'none'",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.count ?? 'none'",
+   "valid": false,
+   "whole": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.count ?? 0",
+   "valid": true,
+   "whole": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.count ?? -1",
+   "valid": true,
+   "whole": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.ready ?? false",
+   "valid": true,
+   "whole": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.ready ?? 'no'",
+   "valid": false,
+   "whole": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.note ?? 'none'",
+   "valid": true,
+   "whole": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.data ?? 'x'",
+   "valid": true,
+   "whole": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.note ?? null",
+   "valid": true,
+   "whole": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.summary ?? workflow.inputs.note",
+   "valid": true,
+   "whole": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.summary ?? workflow.inputs.ready",
+   "valid": false,
+   "whole": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.items[0] ?? 'x'",
+   "valid": true,
+   "whole": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "workflow.inputs.task.title ?? 'untitled'",
+   "valid": true,
+   "whole": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.report.path ?? 'none'",
+   "valid": true,
+   "whole": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.status",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.error",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.error_code",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 2
+   },
+   "expression": "steps.second.outputs.status",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 2
+   },
+   "expression": "steps.second.outputs.answer",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "if",
+    "step": 1
+   },
+   "expression": "workflow.inputs.ready",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "if",
+    "step": 1
+   },
+   "expression": "workflow.inputs.data.items[0].key",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "if",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.items[0].key",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "if",
+    "step": 1
+   },
+   "expression": "steps.first.outputs.status",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "if",
+    "step": 1
+   },
+   "expression": "workflow.task.metadata.owner",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "if",
+    "step": 1
+   },
+   "expression": "outputs.log.path",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "if",
+    "step": 1
+   },
+   "expression": "steps.second.outputs.answer",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "if",
+    "step": 1
+   },
+   "expression": "workflow.inputs.nope",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "if",
+    "step": 1
+   },
+   "expression": "workflow.inputs.note ?? 'x'",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "if",
+    "step": 1
+   },
+   "expression": "'x'",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "if",
+    "step": 0
+   },
+   "expression": "steps.first.outputs.summary",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.index",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.item",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.item.key",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.item.items[-1].n",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.previous",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.previous.state",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.previous.status",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.previous.error",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.previous.found.x[0]",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.previous.state.x",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.previous.nope",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.previous[0]",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.results",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.results[-1].state",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.last.state",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.index.x",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.nope",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "steps.inner.outputs.answer",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "steps.inner.outputs.data.x",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "steps.third.outputs.done",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "steps.first.outputs.other",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "steps.first.outputs.summary",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "steps.later.outputs.x",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "steps.each.outputs.count",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.previous.state ?? steps.inner.outputs.answer",
+   "valid": true,
+   "whole": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 3,
+    "body": 2
+   },
+   "expression": "loop.index ?? steps.inner.outputs.answer",
+   "valid": false,
+   "whole": true
+  },
+  {
+   "location": {
+    "kind": "if",
+    "step": 3,
+    "body": 1
+   },
+   "expression": "loop.previous.state",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "if",
+    "step": 3,
+    "body": 1
+   },
+   "expression": "steps.inner.outputs.answer",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "if",
+    "step": 3,
+    "body": 0
+   },
+   "expression": "steps.inner.outputs.answer",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 1
+   },
+   "expression": "loop.index",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "if",
+    "step": 1
+   },
+   "expression": "loop.item",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 4
+   },
+   "expression": "steps.each.outputs.count",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 4
+   },
+   "expression": "steps.each.outputs.last.state",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 4
+   },
+   "expression": "steps.each.outputs.results[0].found",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 4
+   },
+   "expression": "steps.each.outputs.ended_by",
+   "valid": true
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 4
+   },
+   "expression": "steps.each.outputs.state",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 4
+   },
+   "expression": "steps.inner.outputs.answer",
+   "valid": false
+  },
+  {
+   "location": {
+    "kind": "with",
+    "step": 4
+   },
+   "expression": "steps.first.outputs.summary",
+   "valid": true
   }
  ]
 }

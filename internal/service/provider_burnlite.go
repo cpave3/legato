@@ -42,6 +42,8 @@ type burnliteReader interface {
 	ListTasks(ctx context.Context, project, state string) ([]burnlite.TaskRow, error)
 	ListTasksSince(ctx context.Context, project, state string, since time.Time) ([]burnlite.TaskRow, error)
 	ListMilestones(ctx context.Context, project string) ([]burnlite.MilestoneRow, error)
+	FindTasks(ctx context.Context, f burnlite.TaskFilter) ([]burnlite.TaskRow, error)
+	FindMilestones(ctx context.Context, f burnlite.MilestoneFilter) ([]burnlite.MilestoneRow, error)
 	GetTask(ctx context.Context, key string) (*burnlite.Task, error)
 	GetMilestone(ctx context.Context, key string) (*burnlite.Milestone, error)
 }

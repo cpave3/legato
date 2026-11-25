@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -94,9 +93,7 @@ func (c *WorkflowTriggerCoordinator) processEvent(ctx context.Context, definitio
 	}
 	var record triggerEventRecord
 	_ = json.Unmarshal([]byte(request.EventJSON), &record)
-	inputs, missing := resolveMappedInputs(definition, common.Inputs, func(expr string) (any, bool) {
-		return lookupTriggerPath(record.Context, strings.TrimSpace(expr))
-	}, supplied, c.workflows.repositoryPresets(ctx))
+	inputs, missing := resolveMappedInputs(definition, common.Inputs, record.Context, supplied, c.workflows.repositoryPresets(ctx))
 	encodedInputs, _ := json.Marshal(inputs)
 	encodedMissing, _ := json.Marshal(missing)
 	if len(missing) > 0 {

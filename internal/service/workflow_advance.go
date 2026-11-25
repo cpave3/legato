@@ -62,11 +62,32 @@ func (s *WorkflowService) advanceRecorded(ctx context.Context, runID, path strin
 }
 
 // processAdvance finishes or keeps a recorded step's agent, then starts
-// the step after it. A failure to finish the agent leaves the advance due,
+// the step after it (also after a step whose failure was continued). A failure to finish the agent leaves the advance due,
 // for a later reconcile to try again once the claim is stale; a next step
 // that fails is recorded as the run's failure, and the advance is done.
 func (s *WorkflowService) processAdvance(ctx context.Context, advance store.WorkflowAdvance) error {
-	if !keepsAgent(advance.Step) {
+	// A step that failed under on_failure: continue has no agent to finish
+	// and no outputs to fill: its failure stopped it (Fail cancels it) or it
+	// had ended; it is left as a failed step's agent is. Otherwise the
+	// agent's own completion recorded what it declared, and Legato fills the
+	// rest while the agent is still there to read.
+	continued := advance.Step.Status == "failed"
+	if !continued {
+		goesOn, err := s.fillRecordedOutputs(ctx, &advance)
+		if err != nil || !goesOn {
+			return err
+		}
+		// Outputs it could not fill fail the step; continued, it goes on
+		// as a failed step, its agent already stopped.
+		continued = advance.Step.Status == "failed"
+		// A run the step's record ended has its outputs kept, and its end
+		// told, only now that they are filled (outputsUnfilled; LEG-489).
+		if waitRecorded(advance.Step) {
+			s.keepRunOutputs(ctx, advance.Step.RunID)
+			s.tellIfEnded(ctx, advance.Step.RunID)
+		}
+	}
+	if !keepsAgent(advance.Step) && !continued && !endedSignal(advance.Step) {
 		if executor, ok := s.executors[advance.Attempt.ExecutorType].(interface {
 			Finish(context.Context, store.WorkflowStepAttempt) error
 		}); ok {
@@ -86,36 +107,39 @@ func (s *WorkflowService) processAdvance(ctx context.Context, advance store.Work
 }
 
 // keepsAgent reports whether the step leaves its agent running once its
-// outputs are in (keep_agent), for a later step to end.
+// outputs are in, for a later step to end: keep (keep_agent in version 1),
+// or an agent on a task (on: <task>) without stop.
 func keepsAgent(step store.WorkflowStep) bool {
 	var with map[string]any
 	if err := json.Unmarshal([]byte(step.ResolvedInputsJSON), &with); err != nil {
 		return false
 	}
-	keep, _ := with["keep_agent"].(bool)
-	return keep
+	return stepKeepsAgent(with)
 }
 
-// startNextStep starts the step after a recorded one, when the run is
-// still at it and nothing has started it: the record moved the run there.
+func stepKeepsAgent(with map[string]any) bool {
+	if workflowengine.AgentOnTask(with) {
+		stop, _ := with["stop"].(bool)
+		return !stop
+	}
+	keep, _ := with["keep_agent"].(bool)
+	kept, _ := with["keep"].(bool)
+	return keep || kept
+}
+
+// startNextStep goes on from a recorded step, when the record moved the
+// run on and nothing has started what it is at: the step after it, or
+// its loop (LEG-490).
 func (s *WorkflowService) startNextStep(ctx context.Context, recorded store.WorkflowStep) (string, error) {
-	view, definition, inputs, prior, index, err := s.loadExecution(ctx, recorded.RunID, recorded.Path)
+	view, err := s.store.GetWorkflowRun(ctx, recorded.RunID)
 	if err != nil {
 		return "", err
 	}
-	if index+1 >= len(definition.Steps) {
-		return "", nil
-	}
-	next := workflowengine.StepPath(recorded.ParentPath, definition.Steps[index+1].ID)
-	if view.Run.Status != "running" || view.Run.CurrentStepID != next || !stepPending(view, next) {
+	next := view.Run.CurrentStepID
+	if view.Run.Status != "running" || next == "" || next == recorded.Path {
 		return next, nil
 	}
-	var outputs map[string]any
-	if err := json.Unmarshal([]byte(recorded.OutputsJSON), &outputs); err != nil {
-		return next, err
-	}
-	prior[definition.Steps[index].ID] = outputs
-	return next, s.advance(ctx, definition, inputs, recorded.RunID, view.Run.TaskID, index+1, prior, "", false)
+	return next, s.advance(ctx, recorded.RunID, "", false)
 }
 
 func stepPending(view *store.WorkflowRunView, path string) bool {
@@ -128,9 +152,10 @@ func stepPending(view *store.WorkflowRunView, path string) bool {
 }
 
 // StartAdvanceLoop makes this process a host that advances runs: at once
-// for any left due while no host ran, then each time an agent records a
-// step (a completed_step workflow change, which reaches serve and the TUI
-// by IPC), and every advanceReconcileInterval for what it missed. It also
+// for any left due while no host ran, then on each change to a run (an
+// agent recording a step is a completed_step workflow change, which reaches
+// serve and the TUI by IPC), and every advanceReconcileInterval for what it
+// missed. It also
 // runs the run-ended hook's sweep (SweepEndedRuns). It returns a function
 // that stops the loop.
 func (s *WorkflowService) StartAdvanceLoop(ctx context.Context, bus *events.Bus) func() {
@@ -144,12 +169,27 @@ func (s *WorkflowService) StartAdvanceLoop(ctx context.Context, bus *events.Bus)
 		}
 	}
 	changed := bus.Subscribe(events.EventWorkflowChanged)
+	// Agent waits (LEG-485): a stage change or an agent's end may be a
+	// step's signal; each check reads the tables, so one missed is found
+	// at the next.
+	signals, stopSignals := bus.SubscribeInvalidations(events.EventAgentStageChanged, events.EventAgentDied)
+	checkWaits := func() {
+		if err := s.CheckAgentWaits(ctx); err != nil {
+			log.Printf("workflows: agent waits: %v", err)
+		}
+		if _, err := s.SweepTimeouts(ctx, time.Now()); err != nil {
+			log.Printf("workflows: timeouts: %v", err)
+		}
+	}
 	announce(s.AdvanceDue(ctx))
+	checkWaits()
 	// The run-ended hook's sweep: at once for the runs that ended while
 	// no host ran, then on every change to a run (one another process or
 	// the agent service ended reaches this process by IPC or on the bus)
 	// and at each reconcile.
 	s.SweepEndedRuns(ctx)
+	s.ReconcileChildRuns(ctx, advanceClaimStale)
+	s.ReconcileLoops(ctx)
 	go func() {
 		ticker := time.NewTicker(advanceReconcileInterval)
 		defer ticker.Stop()
@@ -159,20 +199,28 @@ func (s *WorkflowService) StartAdvanceLoop(ctx context.Context, bus *events.Bus)
 				return
 			case event := <-changed:
 				payload, ok := event.Payload.(events.WorkflowChangedPayload)
-				if ok && payload.Kind == "completed_step" {
-					announce(s.AdvanceDue(ctx))
-				}
 				if !ok || payload.Kind != "advanced" {
+					// A step an agent recorded, or one whose failure was
+					// continued (on_failure: continue) where the run could
+					// not move on, such as by the agent service: both are
+					// left due an advance.
+					announce(s.AdvanceDue(ctx))
 					s.SweepEndedRuns(ctx)
 				}
+			case <-signals:
+				checkWaits()
 			case <-ticker.C:
 				announce(s.AdvanceDue(ctx))
+				checkWaits()
 				s.SweepEndedRuns(ctx)
+				s.ReconcileChildRuns(ctx, advanceClaimStale)
+				s.ReconcileLoops(ctx)
 			}
 		}
 	}()
 	return func() {
 		cancel()
 		bus.Unsubscribe(changed)
+		stopSignals()
 	}
 }

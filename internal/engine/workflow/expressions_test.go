@@ -14,9 +14,11 @@ type expressionFixture struct {
 		Location struct {
 			Kind   string `json:"kind"`
 			Step   int    `json:"step"`
+			Body   *int   `json:"body"`
 			Output string `json:"output"`
 		} `json:"location"`
 		Expression string `json:"expression"`
+		Whole      bool   `json:"whole"`
 		Valid      bool   `json:"valid"`
 	} `json:"cases"`
 }
@@ -45,9 +47,19 @@ func TestTheSharedExpressionTable(t *testing.T) {
 	for _, tc := range fixture.Cases {
 		definition := fresh()
 		value := "${{ " + tc.Expression + " }}"
+		step := &definition.Steps[tc.Location.Step]
+		if tc.Location.Body != nil {
+			step = &step.Steps[*tc.Location.Body]
+		}
 		switch tc.Location.Kind {
 		case "with":
-			definition.Steps[tc.Location.Step].With["prompt"] = "Look at " + value
+			step.With["prompt"] = "Look at " + value
+			if tc.Whole {
+				step.With["prompt"] = value
+			}
+		case "if":
+			exists := true
+			step.If = &workflow.Condition{Field: tc.Expression, Exists: &exists}
 		case "run_title":
 			definition.RunTitle = "Run " + value
 		case "output_path":

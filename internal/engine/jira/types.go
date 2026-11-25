@@ -22,6 +22,36 @@ type IssueFields struct {
 	Project     ProjectField    `json:"project"`
 	EpicKey     string          `json:"customfield_10014"` // Epic Link
 	Attachments []Attachment    `json:"attachment"`
+	// Parent is the issue's parent, such as its epic in a team-managed
+	// project, where there is no Epic Link.
+	Parent *LinkedIssue `json:"parent"`
+	// IssueLinks are its links to other issues, blockers among them.
+	IssueLinks []IssueLink `json:"issuelinks"`
+}
+
+// IssueLink is a link between two issues. On the issue that holds it,
+// InwardIssue is the other end read with Type.Inward ("is blocked by"),
+// OutwardIssue with Type.Outward ("blocks").
+type IssueLink struct {
+	Type         IssueLinkType `json:"type"`
+	InwardIssue  *LinkedIssue  `json:"inwardIssue"`
+	OutwardIssue *LinkedIssue  `json:"outwardIssue"`
+}
+
+// IssueLinkType names a kind of link and how each end reads it.
+type IssueLinkType struct {
+	Name    string `json:"name"`
+	Inward  string `json:"inward"`
+	Outward string `json:"outward"`
+}
+
+// LinkedIssue is another issue as a link or a parent gives it.
+type LinkedIssue struct {
+	Key    string `json:"key"`
+	Fields struct {
+		Status    StatusField    `json:"status"`
+		IssueType IssueTypeField `json:"issuetype"`
+	} `json:"fields"`
 }
 
 // Attachment describes a file attached to a Jira issue.
@@ -36,6 +66,11 @@ type Attachment struct {
 type StatusField struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// StatusCategory is new, indeterminate or done, whatever the status
+	// is called.
+	StatusCategory struct {
+		Key string `json:"key"`
+	} `json:"statusCategory"`
 }
 
 // PriorityField represents the priority of a Jira issue.

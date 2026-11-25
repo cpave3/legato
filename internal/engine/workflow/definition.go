@@ -4,8 +4,9 @@ package workflow
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"regexp"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -31,8 +32,6 @@ const (
 	StartAgentEnded = "agent_ended"
 )
 
-var expressionPattern = regexp.MustCompile(`\$\{\{\s*([^}]+?)\s*\}\}`)
-
 type Definition struct {
 	SchemaVersion int              `yaml:"schema_version" json:"schema_version"`
 	Name          string           `yaml:"name" json:"name"`
@@ -44,9 +43,13 @@ type Definition struct {
 	On            Triggers         `yaml:"on,omitempty" json:"on,omitempty"`
 	// ChatHelp lists the workflow in ${{ event.commands }} of the chat
 	// triggers on the bots its own chat triggers run on.
-	ChatHelp bool   `yaml:"chat_help,omitempty" json:"chat_help,omitempty"`
-	Steps    []Step `yaml:"steps" json:"steps"`
-	Source   string `yaml:"-" json:"source"`
+	ChatHelp bool `yaml:"chat_help,omitempty" json:"chat_help,omitempty"`
+	// Outputs are the run's own outputs, computed from its steps when it
+	// succeeds (ResolveOutputs), which a workflow.run step that calls it
+	// returns (LEG-489).
+	Outputs map[string]WorkflowOutput `yaml:"outputs,omitempty" json:"outputs,omitempty" legato:"v2"`
+	Steps   []Step                    `yaml:"steps" json:"steps"`
+	Source  string                    `yaml:"-" json:"source"`
 	// fromFile is set while a file just decoded is checked: only then is
 	// start in a version 1 file the file's own key, and refused.
 	fromFile bool
@@ -70,9 +73,49 @@ type Step struct {
 	Trigger string `yaml:"trigger,omitempty" json:"-"`
 	// Start is how the step starts: StartAutomatic, StartManual or, from a
 	// version 1 file, StartAgentEnded. Parse fills it.
-	Start   string            `yaml:"start,omitempty" json:"start" legato:"v2"`
+	Start string `yaml:"start,omitempty" json:"start" legato:"v2"`
+	// If is checked before the step runs: when it is false the step is
+	// skipped, and its outputs are missing (LEG-486).
+	If *Condition `yaml:"if,omitempty" json:"if,omitempty" legato:"v2"`
+	// OnFailure is what a failure of the step does: OnFailureFail (the
+	// default) fails the run, OnFailureContinue makes the failure the
+	// step's outputs and goes on, OnFailurePause holds the run at a gate
+	// with Retry, Skip and Stop.
+	OnFailure string `yaml:"on_failure,omitempty" json:"on_failure,omitempty" legato:"v2"`
+	// WaitFor are the signals that end an agent step, the first to come
+	// (spec LEG-482 §5.3): complete, finished, ended or none. Empty is the
+	// step's default (EffectiveWaitFor).
+	WaitFor []string `yaml:"wait_for,omitempty" json:"wait_for,omitempty" legato:"v2"`
+	// Timeout is how long the step may take once it starts, as a duration
+	// such as 12h or 30m (§5.5).
+	Timeout string `yaml:"timeout,omitempty" json:"timeout,omitempty" legato:"v2"`
+	// Loop makes the step a loop (LEG-490): it runs Steps pass after
+	// pass, and has no type or with. Its Outputs are each pass's result,
+	// mapped from the pass's steps with value expressions.
+	Loop    *Loop             `yaml:"loop,omitempty" json:"loop,omitempty" legato:"v2"`
+	Steps   []Step            `yaml:"steps,omitempty" json:"steps,omitempty" legato:"v2"`
 	With    map[string]any    `yaml:"with" json:"with"`
 	Outputs map[string]Output `yaml:"outputs,omitempty" json:"outputs,omitempty"`
+}
+
+// What a step's failure does (Step.OnFailure).
+const (
+	OnFailureFail     = "fail"
+	OnFailureContinue = "continue"
+	OnFailurePause    = "pause"
+)
+
+// FailureOutputs are the outputs a step with on_failure: continue has when
+// it fails: status (failed), error and error_code. A later step may read
+// them; they are missing when the step succeeds.
+var FailureOutputs = []string{"status", "error", "error_code"}
+
+// Failure is what a step's on_failure says, fail when it says nothing.
+func (s Step) Failure() string {
+	if s.OnFailure == "" {
+		return OnFailureFail
+	}
+	return s.OnFailure
 }
 
 // UnmarshalJSON reads a step as a run keeps it. A run started before schema
@@ -102,8 +145,15 @@ func (s *Step) UnmarshalJSON(data []byte) error {
 func (d Definition) MarshalYAML() (any, error) {
 	type plain Definition
 	out := plain(d)
-	out.Steps = make([]Step, len(d.Steps))
-	for i, step := range d.Steps {
+	out.Steps = marshalledSteps(d.Steps, d.SchemaVersion)
+	return out, nil
+}
+
+// marshalledSteps are steps as a file of the version says how each starts,
+// a loop's body included.
+func marshalledSteps(steps []Step, version int) []Step {
+	out := make([]Step, len(steps))
+	for i, step := range steps {
 		start := step.Start
 		if start == "" {
 			start = step.Trigger
@@ -112,14 +162,17 @@ func (d Definition) MarshalYAML() (any, error) {
 			start = ""
 		}
 		step.Trigger, step.Start = "", ""
-		if d.SchemaVersion == SchemaVersion {
+		if version == SchemaVersion {
 			step.Trigger = start
 		} else {
 			step.Start = start
 		}
-		out.Steps[i] = step
+		if len(step.Steps) > 0 {
+			step.Steps = marshalledSteps(step.Steps, version)
+		}
+		out[i] = step
 	}
-	return out, nil
+	return out
 }
 
 // StepPath is the path of the step id in the scope at parent ("" for the
@@ -145,6 +198,9 @@ type Output struct {
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 	Path        string `yaml:"path,omitempty" json:"path,omitempty"`
 	MediaType   string `yaml:"media_type,omitempty" json:"media_type,omitempty"`
+	// Value is, on a loop step's output, what each pass's result holds
+	// under its name: an expression over the pass's steps (LEG-490).
+	Value any `yaml:"value,omitempty" json:"value,omitempty" legato:"v2"`
 }
 
 type ResolvedStep struct {
@@ -249,35 +305,77 @@ func (d *Definition) problems() []*PathError {
 			add("inputs."+key+".type", fmt.Errorf("input %q has unsupported type %q", key, input.Type))
 		}
 	}
-	for _, match := range expressionPattern.FindAllStringSubmatch(d.RunTitle, -1) {
-		expr := strings.TrimSpace(match[1])
-		if expr == "workflow.task" || strings.HasPrefix(expr, "workflow.task.") {
-			add("run_title", fmt.Errorf("run_title: workflow.task is unavailable before the workflow task is created"))
-			break
-		}
+	if readsWorkflowTask(d.RunTitle) {
+		add("run_title", fmt.Errorf("run_title: workflow.task is unavailable before the workflow task is created"))
 	}
 	if err := validateReferences(d.RunTitle, d.Inputs, nil, nil); err != nil {
 		add("run_title", fmt.Errorf("run_title: %w", err))
 	}
-	seen := make(map[string]bool, len(d.Steps))
-	availableOutputs := make(map[string]map[string]bool, len(d.Steps))
-	for i := range d.Steps {
-		step := &d.Steps[i]
-		if err := validateStep(step, i, d.SchemaVersion, d.fromFile, seen, d.Inputs, availableOutputs); err != nil {
+	scope := stepScope{version: d.SchemaVersion, fromFile: d.fromFile, inputs: d.Inputs, outputs: map[string]map[string]string{}, agents: map[string]bool{}}
+	stepProblems, availableOutputs := scope.check(d.Steps, "steps")
+	problems = append(problems, stepProblems...)
+	return append(problems, d.outputProblems(availableOutputs)...)
+}
+
+// stepScope is what the steps of one steps: list are checked against: the
+// file's version and inputs, and what the steps before them may be read
+// for (the steps before, nearest first by ID, and in a loop's body the
+// loop's context).
+type stepScope struct {
+	version  int
+	fromFile bool
+	inputs   map[string]Input
+	outputs  map[string]map[string]string
+	agents   map[string]bool
+}
+
+// check checks a steps: list at the path at (steps, or a loop's
+// steps[i].steps), one problem at most per step, a loop's body's included.
+// It returns the readable outputs after the list: the scope's and its
+// steps', nearest first.
+func (scope stepScope) check(steps []Step, at string) ([]*PathError, map[string]map[string]string) {
+	var problems []*PathError
+	seen := make(map[string]bool, len(steps))
+	outputs := maps.Clone(scope.outputs)
+	agents := maps.Clone(scope.agents)
+	for i := range steps {
+		step := &steps[i]
+		where := fmt.Sprintf("%s[%d]", at, i)
+		inner := scope
+		inner.outputs, inner.agents = outputs, agents
+		if step.Loop != nil || len(step.Steps) > 0 {
+			problems = append(problems, inner.checkLoop(step, where, seen)...)
+		} else if err := validateStep(step, where, scope.version, scope.fromFile, seen, scope.inputs, outputs); err != nil {
 			problems = append(problems, err)
+		} else if err := checkAgentFrom(*step, agents); err != nil {
+			problems = append(problems, within(where, fmt.Errorf("step %q: %w", step.ID, err)))
+		} else if err := checkCloneFrom(*step, agents); err != nil {
+			problems = append(problems, within(where, fmt.Errorf("step %q: %w", step.ID, err)))
 		}
+		agents[step.ID] = agentStepTypes[step.Type]
 		seen[step.ID] = true
-		availableOutputs[step.ID] = readableOutputs(*step)
+		outputs[step.ID] = readableOutputs(*step)
 	}
-	return problems
+	return problems, outputs
+}
+
+// checkID refuses an empty ID, one the list has already, and from version
+// 2 one with a slash, which step paths use.
+func checkID(step Step, at string, version int, seen map[string]bool) *PathError {
+	if step.ID == "" || seen[step.ID] {
+		return within(at+".id", fmt.Errorf("step IDs must be non-empty and unique"))
+	}
+	if version >= SchemaVersion2 && strings.Contains(step.ID, "/") {
+		return within(at+".id", fmt.Errorf("step %q: an ID may not have a / in it", step.ID))
+	}
+	return nil
 }
 
 // validateStep checks one step against the steps before it: its first
 // problem, or nil.
-func validateStep(step *Step, index, version int, fromFile bool, seen map[string]bool, inputs map[string]Input, availableOutputs map[string]map[string]bool) *PathError {
-	at := fmt.Sprintf("steps[%d]", index)
-	if step.ID == "" || seen[step.ID] {
-		return within(at+".id", fmt.Errorf("step IDs must be non-empty and unique"))
+func validateStep(step *Step, at string, version int, fromFile bool, seen map[string]bool, inputs map[string]Input, availableOutputs map[string]map[string]string) *PathError {
+	if err := checkID(*step, at, version, seen); err != nil {
+		return err
 	}
 	if err := normalizeStart(step, version, fromFile); err != nil {
 		return within(at+"."+err.key, err.err)
@@ -285,8 +383,17 @@ func validateStep(step *Step, index, version int, fromFile bool, seen map[string
 	if _, known := catalogByType[step.Type]; !known {
 		return within(at+".type", fmt.Errorf("step %q has unsupported type %q", step.ID, step.Type))
 	}
+	if err := validateControl(*step, version, inputs, availableOutputs); err != nil {
+		return within(at+"."+err.key, err.err)
+	}
+	if err := checkWait(*step, version, fromFile); err != nil {
+		return within(at, fmt.Errorf("step %q: %w", step.ID, err))
+	}
 	if err := validateStepContract(*step, inputs); err != nil {
 		return within(at, fmt.Errorf("step %q: %w", step.ID, err))
+	}
+	if err := checkChatButtonConditions(*step, inputs, availableOutputs); err != nil {
+		return within(at+"."+err.key, fmt.Errorf("step %q %w", step.ID, err.err))
 	}
 	for _, field := range sortedKeys(step.With) {
 		if err := validateReferences(step.With[field], inputs, step.Outputs, availableOutputs); err != nil {
@@ -295,6 +402,9 @@ func validateStep(step *Step, index, version int, fromFile bool, seen map[string
 	}
 	for _, key := range sortedKeys(step.Outputs) {
 		output := step.Outputs[key]
+		if output.Value != nil {
+			return within(at+".outputs."+key+".value", fmt.Errorf("step %q output %q: only a loop's outputs take a value", step.ID, key))
+		}
 		if !validValueType(output.Type, true) {
 			return within(at+".outputs."+key+".type", fmt.Errorf("step %q output %q has unsupported type %q", step.ID, key, output.Type))
 		}
@@ -315,11 +425,19 @@ func wholeTaskReference(value any, inputs map[string]Input) bool {
 	if !ok {
 		return false
 	}
-	matches := expressionPattern.FindAllStringSubmatchIndex(text, -1)
-	if len(matches) != 1 || matches[0][0] != 0 || matches[0][1] != len(text) {
+	inner, ok := wholeExpression(text)
+	if !ok {
 		return false
 	}
-	parts := strings.Split(strings.TrimSpace(text[matches[0][2]:matches[0][3]]), ".")
+	expression, err := ParseExpression(inner)
+	if err != nil || len(expression.Operands) != 1 {
+		return false
+	}
+	path := expression.Operands[0].Path
+	parts := pathNames(path)
+	if len(parts) != len(path) {
+		return false
+	}
 	if len(parts) == 2 && parts[0] == "workflow" && parts[1] == "task" {
 		return true
 	}
@@ -328,6 +446,23 @@ func wholeTaskReference(value any, inputs map[string]Input) bool {
 	}
 	input, ok := inputs[parts[2]]
 	return ok && input.Type == "task"
+}
+
+// readsWorkflowTask reports whether text has a ${{ }} that reads
+// workflow.task.
+func readsWorkflowTask(text string) bool {
+	for _, match := range findExpressions(text) {
+		expression, err := ParseExpression(match.inner)
+		if err != nil {
+			continue
+		}
+		for _, operand := range expression.Operands {
+			if names := pathNames(operand.Path); len(names) >= 2 && names[0] == "workflow" && names[1] == "task" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func validValueType(valueType string, file bool) bool {
@@ -350,11 +485,11 @@ func safeRelativePath(path string) bool {
 	return true
 }
 
-func validateReferences(value any, inputs map[string]Input, current map[string]Output, previous map[string]map[string]bool) error {
+func validateReferences(value any, inputs map[string]Input, current map[string]Output, previous map[string]map[string]string) error {
 	switch nested := value.(type) {
 	case map[string]any:
-		for _, item := range nested {
-			if err := validateReferences(item, inputs, current, previous); err != nil {
+		for _, key := range sortedKeys(nested) {
+			if err := validateReferences(nested[key], inputs, current, previous); err != nil {
 				return err
 			}
 		}
@@ -371,50 +506,138 @@ func validateReferences(value any, inputs map[string]Input, current map[string]O
 	if !ok {
 		return nil
 	}
-	for _, match := range expressionPattern.FindAllStringSubmatch(text, -1) {
-		expr := strings.TrimSpace(match[1])
-		parts := strings.Split(expr, ".")
-		switch {
-		case len(parts) == 2 && parts[0] == "workflow" && parts[1] == "task":
-		case len(parts) >= 3 && parts[0] == "workflow" && parts[1] == "task":
-			valid := validTaskField(parts[2]) && (len(parts) == 3 || parts[2] == "metadata")
-			if !valid {
-				return fmt.Errorf("workflow task has no field path %q", strings.Join(parts[2:], "."))
+	_, whole := wholeExpression(text)
+	for _, match := range findExpressions(text) {
+		expression, err := ParseExpression(match.inner)
+		if err != nil {
+			return err
+		}
+		types := make([]string, len(expression.Operands))
+		for i, operand := range expression.Operands {
+			if operand.IsLiteral {
+				types[i] = literalType(operand.Literal)
+				continue
 			}
-		case len(parts) == 3 && parts[0] == "workflow" && parts[1] == "inputs":
-			if _, ok := inputs[parts[2]]; !ok {
-				return fmt.Errorf("input %q is not declared", parts[2])
+			if types[i], err = pathType(operand.Path, inputs, current, previous); err != nil {
+				return err
 			}
-		case len(parts) >= 4 && parts[0] == "workflow" && parts[1] == "inputs":
-			input, ok := inputs[parts[2]]
-			if !ok {
-				return fmt.Errorf("input %q is not declared", parts[2])
+		}
+		if whole && len(types) > 1 {
+			// A whole value keeps its type, so both sides of ?? must have
+			// the same one; within longer text they are rendered as text.
+			for _, other := range types[1:] {
+				if !typesMatch(types[0], other) {
+					return fmt.Errorf("%s: both sides of ?? must have the same type, not %s and %s", match.inner, types[0], other)
+				}
 			}
-			valid := input.Type == "task" && validTaskField(parts[3]) && (len(parts) == 4 || parts[3] == "metadata")
-			valid = valid || (input.Type == "repository" && len(parts) == 4 && validRepositoryField(parts[3]))
-			if !valid {
-				return fmt.Errorf("input %q has no field path %q", parts[2], strings.Join(parts[3:], "."))
-			}
-		case (len(parts) == 4 || len(parts) == 5) && parts[0] == "steps" && parts[2] == "outputs":
-			outputs, ok := previous[parts[1]]
-			if !ok {
-				return fmt.Errorf("step %q is not an earlier step", parts[1])
-			}
-			if !outputs[parts[3]] {
-				return fmt.Errorf("step %q output %q is not declared", parts[1], parts[3])
-			}
-			if len(parts) == 5 && parts[4] != "path" {
-				return fmt.Errorf("output %q has no field %q", parts[3], parts[4])
-			}
-		case len(parts) == 3 && parts[0] == "outputs" && parts[2] == "path":
-			if output, ok := current[parts[1]]; !ok || output.Type != "file" {
-				return fmt.Errorf("file output %q is not declared", parts[1])
-			}
-		default:
-			return fmt.Errorf("unsupported expression %q", expr)
 		}
 	}
 	return nil
+}
+
+// literalType is the declared type a literal matches; "" (null) matches
+// any.
+func literalType(value any) string {
+	switch value.(type) {
+	case string:
+		return "string"
+	case bool:
+		return "boolean"
+	case int64:
+		return "integer"
+	}
+	return ""
+}
+
+func typesMatch(a, b string) bool {
+	return a == "" || b == "" || a == "json" || b == "json" || a == b
+}
+
+// pathType checks that a path can be read where its references are, and
+// says its declared type: string, integer, boolean, json, task,
+// repository or file.
+func pathType(path []PathPart, inputs map[string]Input, current map[string]Output, previous map[string]map[string]string) (string, error) {
+	parts := pathNames(path)
+	rest := path[len(parts):]
+	expr := pathString(path)
+	taskPath := func(fields []string, rest []PathPart, describe func(string) error) (string, error) {
+		if !validTaskField(fields[0]) || (fields[0] != "metadata" && (len(fields) > 1 || len(rest) > 0)) {
+			return "", describe(pathString(append(namesOf(fields), rest...)))
+		}
+		if fields[0] == "metadata" {
+			return "json", nil
+		}
+		return "string", nil
+	}
+	switch {
+	case len(parts) == 2 && parts[0] == "workflow" && parts[1] == "task":
+		if len(rest) > 0 {
+			return "", fmt.Errorf("workflow task has no field path %q", pathString(rest))
+		}
+		return "task", nil
+	case len(parts) >= 3 && parts[0] == "workflow" && parts[1] == "task":
+		return taskPath(parts[2:], rest, func(field string) error {
+			return fmt.Errorf("workflow task has no field path %q", field)
+		})
+	case len(parts) >= 3 && parts[0] == "workflow" && parts[1] == "inputs":
+		input, ok := inputs[parts[2]]
+		if !ok {
+			return "", fmt.Errorf("input %q is not declared", parts[2])
+		}
+		fields := parts[3:]
+		if len(fields) == 0 && len(rest) == 0 {
+			return input.Type, nil
+		}
+		noField := fmt.Errorf("input %q has no field path %q", parts[2], strings.TrimPrefix(pathString(path[3:]), "."))
+		switch {
+		case input.Type == "json":
+			return "json", nil
+		case input.Type == "task" && len(fields) > 0:
+			return taskPath(fields, rest, func(string) error { return noField })
+		case input.Type == "repository" && len(fields) == 1 && len(rest) == 0 && validRepositoryField(fields[0]):
+			return "string", nil
+		}
+		return "", noField
+	case len(parts) >= 4 && parts[0] == "steps" && parts[2] == "outputs":
+		outputs, ok := previous[parts[1]]
+		if !ok {
+			return "", fmt.Errorf("step %q is not an earlier step", parts[1])
+		}
+		outputType, ok := outputs[parts[3]]
+		if !ok {
+			// A workflow.run step's outputs are its child's: any name.
+			outputType, ok = outputs[anyOutput]
+		}
+		if !ok {
+			return "", fmt.Errorf("step %q output %q is not declared", parts[1], parts[3])
+		}
+		after := path[4:]
+		switch {
+		case len(after) == 0:
+			return outputType, nil
+		case len(after) == 1 && !after[0].IsIndex && after[0].Name == "path":
+			return "string", nil
+		case outputType == "json":
+			return "json", nil
+		}
+		return "", fmt.Errorf("output %q has no field %q", parts[3], strings.TrimPrefix(pathString(after), "."))
+	case len(parts) == 3 && len(rest) == 0 && parts[0] == "outputs" && parts[2] == "path":
+		if output, ok := current[parts[1]]; !ok || output.Type != "file" {
+			return "", fmt.Errorf("file output %q is not declared", parts[1])
+		}
+		return "string", nil
+	case len(parts) >= 1 && parts[0] == "loop":
+		return loopPathType(path, previous)
+	}
+	return "", fmt.Errorf("unsupported expression %q", expr)
+}
+
+func namesOf(names []string) []PathPart {
+	parts := make([]PathPart, len(names))
+	for i, name := range names {
+		parts[i] = PathPart{Name: name}
+	}
+	return parts
 }
 
 func (d *Definition) NormalizeInputs(raw map[string]string) (map[string]any, error) {
@@ -479,43 +702,62 @@ func parseValue(valueType, value string) (any, error) {
 	}
 }
 
+// ErrMissing is a whole value that reads nothing: an input not given, a
+// skipped step's output, a field or an item that is not there. A with
+// field whose whole value is missing is left out.
+var ErrMissing = errMissing
+
 // ResolveFromInputs resolves a value that refers only to workflow inputs. A
 // value that refers to anything else (a step's outputs, the workflow task)
-// returns an error.
+// returns an error, and a whole value that is missing ErrMissing.
 func ResolveFromInputs(value any, inputs map[string]any) (any, error) {
-	return resolveValue(value, nil, inputs, nil, nil)
+	return resolveScope{inputs: inputs}.value(value)
+}
+
+// ResolveFromRoots resolves a trigger's inputs mapping value: each path
+// starts at one of roots (event, task, schedule) and reaches into it with
+// .field and [n]. A whole value keeps its type, one within longer text is
+// rendered as text, and a whole value that is missing is ErrMissing.
+func ResolveFromRoots(value any, roots map[string]any) (any, error) {
+	if roots == nil {
+		roots = map[string]any{}
+	}
+	return resolveScope{roots: roots}.value(value)
 }
 
 func (d *Definition) ResolveRunTitle(inputs map[string]any) (string, error) {
 	if d.RunTitle == "" {
 		return d.Title, nil
 	}
-	resolved, err := resolveValue(d.RunTitle, nil, inputs, nil, nil)
-	if err != nil {
+	resolved, err := resolveScope{inputs: inputs}.value(d.RunTitle)
+	if err != nil && !errors.Is(err, errMissing) {
 		return "", fmt.Errorf("resolve run_title: %w", err)
 	}
 	title, ok := resolved.(string)
-	if !ok || strings.TrimSpace(title) == "" {
+	if err != nil || !ok || strings.TrimSpace(title) == "" {
 		return "", fmt.Errorf("resolved run_title must be a non-empty string")
 	}
 	return title, nil
 }
 
+// ResolveStep resolves one of the run's own steps (ResolveStepAt).
 func (d *Definition) ResolveStep(stepID string, inputs, workflowTask map[string]any, outputs map[string]map[string]any) (*ResolvedStep, error) {
-	var selected *Step
-	for i := range d.Steps {
-		if d.Steps[i].ID == stepID {
-			selected = &d.Steps[i]
-			break
-		}
+	return d.ResolveStepAt(stepID, Scope{Inputs: inputs, Task: workflowTask, Steps: outputs})
+}
+
+// ResolveStepAt resolves the step at a step instance's path (StepAt) in
+// its scope: its file outputs' paths, then its with.
+func (d *Definition) ResolveStepAt(path string, in Scope) (*ResolvedStep, error) {
+	selected, err := d.StepAt(path)
+	if err != nil {
+		return nil, err
 	}
-	if selected == nil {
-		return nil, fmt.Errorf("workflow step %q not found", stepID)
-	}
+	stepID := selected.ID
+	scope := in.resolver()
 	resolvedOutputs := make(map[string]Output, len(selected.Outputs))
 	for key, output := range selected.Outputs {
 		if output.Type == "file" {
-			resolved, err := resolveValue(output.Path, nil, inputs, workflowTask, outputs)
+			resolved, err := scope.value(output.Path)
 			if err != nil {
 				return nil, fmt.Errorf("step %q output %q path: %w", stepID, key, err)
 			}
@@ -527,9 +769,18 @@ func (d *Definition) ResolveStep(stepID string, inputs, workflowTask map[string]
 		}
 		resolvedOutputs[key] = output
 	}
+	scope.current = resolvedOutputs
 	with := make(map[string]any, len(selected.With))
 	for key, value := range selected.With {
-		resolved, err := resolveValue(value, resolvedOutputs, inputs, workflowTask, outputs)
+		resolve := scope.value
+		if field, ok := catalogByType[selected.Type].Field(key); ok && field.Kind == KindChatButtons {
+			resolve = scope.chatButtons
+		}
+		resolved, err := resolve(value)
+		if errors.Is(err, errMissing) {
+			// A whole value that is missing leaves the field out.
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("step %q field %q: %w", stepID, key, err)
 		}
@@ -538,12 +789,70 @@ func (d *Definition) ResolveStep(stepID string, inputs, workflowTask map[string]
 	return &ResolvedStep{ID: selected.ID, Title: selected.Title, Type: selected.Type, With: with, Outputs: resolvedOutputs}, nil
 }
 
-func resolveValue(value any, current map[string]Output, inputs, workflowTask map[string]any, outputs map[string]map[string]any) (any, error) {
+// StepRuns checks one of the run's own steps' if: (StepRunsAt).
+func (d *Definition) StepRuns(stepID string, inputs, workflowTask map[string]any, outputs map[string]map[string]any) (bool, error) {
+	return d.StepRunsAt(stepID, Scope{Inputs: inputs, Task: workflowTask, Steps: outputs})
+}
+
+// StepRunsAt checks the if: of the step at a step instance's path against
+// the run so far: false when the step is to be skipped. A step with no
+// if: runs.
+func (d *Definition) StepRunsAt(path string, scope Scope) (bool, error) {
+	selected, err := d.StepAt(path)
+	if err != nil {
+		return false, err
+	}
+	if selected.If == nil {
+		return true, nil
+	}
+	runs, err := conditionHolds(*selected.If, scope.resolver())
+	if err != nil {
+		return false, fmt.Errorf("step %q if: %w", selected.ID, err)
+	}
+	return runs, nil
+}
+
+// field reads a condition's field: its value, and whether it has one.
+func (s resolveScope) field(field string) (any, bool, error) {
+	path, err := ParsePath(field)
+	if err != nil {
+		return nil, false, err
+	}
+	value, err := s.path(path)
+	if errors.Is(err, errMissing) {
+		return nil, false, nil
+	}
+	return value, err == nil, err
+}
+
+// resolveScope is what ${{ }} reads when a step runs: the inputs, the
+// workflow task (nil before it exists), the outputs of the steps before
+// (succeeded, or failed under continue), and the step's own file outputs.
+// With roots it reads a trigger's event instead: a path's first name is
+// one of roots.
+type resolveScope struct {
+	roots   map[string]any
+	current map[string]Output
+	inputs  map[string]any
+	task    map[string]any
+	outputs map[string]map[string]any
+	// loop is the loop context inside a loop's pass (LoopContext), nil
+	// elsewhere.
+	loop map[string]any
+}
+
+// value resolves a with value: a whole ${{ }} keeps its value's type, one
+// within longer text is rendered as text. A whole value that is missing is
+// errMissing; within text it is an error.
+func (s resolveScope) value(value any) (any, error) {
 	switch nested := value.(type) {
 	case map[string]any:
 		resolved := make(map[string]any, len(nested))
 		for key, item := range nested {
-			value, err := resolveValue(item, current, inputs, workflowTask, outputs)
+			value, err := s.value(item)
+			if errors.Is(err, errMissing) {
+				continue
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -553,8 +862,8 @@ func resolveValue(value any, current map[string]Output, inputs, workflowTask map
 	case []any:
 		resolved := make([]any, len(nested))
 		for i, item := range nested {
-			value, err := resolveValue(item, current, inputs, workflowTask, outputs)
-			if err != nil {
+			value, err := s.value(item)
+			if err != nil && !errors.Is(err, errMissing) {
 				return nil, err
 			}
 			resolved[i] = value
@@ -565,113 +874,119 @@ func resolveValue(value any, current map[string]Output, inputs, workflowTask map
 	if !ok {
 		return value, nil
 	}
-	matches := expressionPattern.FindAllStringSubmatchIndex(text, -1)
+	matches := findExpressions(text)
 	if len(matches) == 0 {
 		return text, nil
 	}
-	if len(matches) == 1 && matches[0][0] == 0 && matches[0][1] == len(text) {
-		return resolveExpression(strings.TrimSpace(text[matches[0][2]:matches[0][3]]), current, inputs, workflowTask, outputs)
+	if len(matches) == 1 && matches[0].start == 0 && matches[0].end == len(text) {
+		return s.expression(matches[0].inner)
 	}
 	var result strings.Builder
 	last := 0
 	for _, match := range matches {
-		result.WriteString(text[last:match[0]])
-		resolved, err := resolveExpression(strings.TrimSpace(text[match[2]:match[3]]), current, inputs, workflowTask, outputs)
+		result.WriteString(text[last:match.start])
+		resolved, err := s.expression(match.inner)
+		if errors.Is(err, errMissing) {
+			return nil, fmt.Errorf("%s is missing: give it a fallback with ??", match.inner)
+		}
 		if err != nil {
 			return nil, err
 		}
-		if structured, ok := resolved.(map[string]any); ok {
+		switch structured := resolved.(type) {
+		case map[string]any, []any:
 			encoded, _ := json.Marshal(structured)
 			result.Write(encoded)
-		} else if structured, ok := resolved.([]any); ok {
-			encoded, _ := json.Marshal(structured)
-			result.Write(encoded)
-		} else {
+		case nil:
+		default:
 			result.WriteString(fmt.Sprint(resolved))
 		}
-		last = match[1]
+		last = match.end
 	}
 	result.WriteString(text[last:])
 	return result.String(), nil
 }
 
-func resolveExpression(expr string, current map[string]Output, inputs, workflowTask map[string]any, outputs map[string]map[string]any) (any, error) {
-	parts := strings.Split(expr, ".")
-	if len(parts) >= 2 && parts[0] == "workflow" && parts[1] == "task" {
-		if workflowTask == nil {
+// expression resolves the inside of a ${{ }}: each operand of ?? in turn,
+// until one is neither missing nor null.
+func (s resolveScope) expression(text string) (any, error) {
+	expression, err := ParseExpression(text)
+	if err != nil {
+		return nil, err
+	}
+	var last any
+	lastErr := errMissing
+	for _, operand := range expression.Operands {
+		if operand.IsLiteral {
+			last, lastErr = operand.Literal, nil
+		} else {
+			last, lastErr = s.path(operand.Path)
+			if lastErr != nil && !errors.Is(lastErr, errMissing) {
+				return nil, lastErr
+			}
+		}
+		if lastErr == nil && last != nil {
+			return last, nil
+		}
+	}
+	return last, lastErr
+}
+
+// path reads one path; errMissing when it reads nothing.
+func (s resolveScope) path(path []PathPart) (any, error) {
+	if s.roots != nil {
+		root, ok := s.roots[path[0].Name]
+		if !ok {
+			return nil, errMissing
+		}
+		return reachOrMissing(root, path[1:])
+	}
+	parts := pathNames(path)
+	switch {
+	case len(parts) >= 2 && parts[0] == "workflow" && parts[1] == "task":
+		if s.task == nil {
 			return nil, fmt.Errorf("workflow task is unavailable")
 		}
-		if len(parts) == 2 {
-			return workflowTask, nil
-		}
-		var field any = workflowTask
-		for _, part := range parts[2:] {
-			object, ok := field.(map[string]any)
-			if !ok {
-				return nil, fmt.Errorf("workflow task field path %q is unavailable", strings.Join(parts[2:], "."))
-			}
-			field, ok = object[part]
-			if !ok {
-				return nil, fmt.Errorf("workflow task field path %q is unavailable", strings.Join(parts[2:], "."))
-			}
-		}
-		return field, nil
-	}
-	if len(parts) >= 3 && parts[0] == "workflow" && parts[1] == "inputs" {
-		value, ok := inputs[parts[2]]
+		return reachOrMissing(s.task, path[2:])
+	case len(parts) >= 3 && parts[0] == "workflow" && parts[1] == "inputs":
+		value, ok := s.inputs[parts[2]]
 		if !ok {
-			return nil, fmt.Errorf("input %q is unavailable", parts[2])
+			return nil, errMissing
 		}
-		if len(parts) == 3 {
-			return value, nil
-		}
-		current, ok := value.(map[string]any)
+		return reachOrMissing(value, path[3:])
+	case len(parts) >= 4 && parts[0] == "steps" && parts[2] == "outputs":
+		stepOutputs, ok := s.outputs[parts[1]]
 		if !ok {
-			return nil, fmt.Errorf("input %q is not structured", parts[2])
-		}
-		var field any = current
-		for _, part := range parts[3:] {
-			object, ok := field.(map[string]any)
-			if !ok {
-				return nil, fmt.Errorf("input %q field path %q is unavailable", parts[2], strings.Join(parts[3:], "."))
-			}
-			field, ok = object[part]
-			if !ok {
-				return nil, fmt.Errorf("input %q field path %q is unavailable", parts[2], strings.Join(parts[3:], "."))
-			}
-		}
-		return field, nil
-	}
-	if (len(parts) == 4 || len(parts) == 5) && parts[0] == "steps" && parts[2] == "outputs" {
-		stepOutputs, ok := outputs[parts[1]]
-		if !ok {
-			return nil, fmt.Errorf("step %q outputs are unavailable", parts[1])
+			return nil, errMissing
 		}
 		value, ok := stepOutputs[parts[3]]
 		if !ok {
-			return nil, fmt.Errorf("step %q output %q is unavailable", parts[1], parts[3])
+			return nil, errMissing
 		}
-		if len(parts) == 4 {
-			return value, nil
-		}
-		structured, ok := value.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("step %q output %q has no field %q", parts[1], parts[3], parts[4])
-		}
-		field, ok := structured[parts[4]]
-		if !ok {
-			return nil, fmt.Errorf("step %q output %q field %q is unavailable", parts[1], parts[3], parts[4])
-		}
-		return field, nil
-	}
-	if len(parts) == 3 && parts[0] == "outputs" && parts[2] == "path" {
-		output, ok := current[parts[1]]
+		return reachOrMissing(value, path[4:])
+	case len(parts) == 3 && len(path) == 3 && parts[0] == "outputs" && parts[2] == "path":
+		output, ok := s.current[parts[1]]
 		if !ok || output.Type != "file" {
 			return nil, fmt.Errorf("file output %q is not declared", parts[1])
 		}
 		return output.Path, nil
+	case len(parts) >= 2 && parts[0] == "loop":
+		if s.loop == nil {
+			return nil, fmt.Errorf("%s: loop is read only inside a loop", pathString(path))
+		}
+		value, ok := s.loop[parts[1]]
+		if !ok {
+			return nil, errMissing
+		}
+		return reachOrMissing(value, path[2:])
 	}
-	return nil, fmt.Errorf("unsupported expression %q", expr)
+	return nil, fmt.Errorf("unsupported expression %q", pathString(path))
+}
+
+func reachOrMissing(value any, rest []PathPart) (any, error) {
+	if found, ok := reach(value, rest); ok {
+		return found, nil
+	}
+	return nil, errMissing
 }
 
 // TriggerAgentEnded is a version 1 file's trigger: agent_ended, read as
@@ -722,18 +1037,65 @@ func normalizeStart(step *Step, version int, fromFile bool) *startProblem {
 	return nil
 }
 
-// readableOutputs are the outputs later steps may read of a step: those it
-// declares and its executor's catalog outputs, which count as declared
-// without repeating them.
-func readableOutputs(step Step) map[string]bool {
-	readable := make(map[string]bool, len(step.Outputs))
-	for key := range step.Outputs {
-		readable[key] = true
+// readableOutputs are the outputs later steps may read of a step, with
+// their types: those it declares and its executor's catalog outputs, which
+// count as declared without repeating them, and with on_failure: continue
+// the failure's (FailureOutputs).
+func readableOutputs(step Step) map[string]string {
+	if step.Loop != nil {
+		return loopReadableOutputs(step)
 	}
+	readable := make(map[string]string, len(step.Outputs))
 	if spec, ok := catalogByType[step.Type]; ok {
 		for _, output := range spec.Outputs {
-			readable[output.Name] = true
+			readable[output.Name] = output.Type
+		}
+	}
+	if step.Type == WorkflowRunStepType {
+		readable[anyOutput] = "json"
+	}
+	for key, output := range step.Outputs {
+		readable[key] = output.Type
+	}
+	if step.OnFailure == OnFailureContinue {
+		for _, name := range FailureOutputs {
+			if _, declared := readable[name]; !declared {
+				readable[name] = "string"
+			}
 		}
 	}
 	return readable
+}
+
+// validateControl checks a step's if: and on_failure, which only a schema
+// version 2 file says.
+func validateControl(step Step, version int, inputs map[string]Input, previous map[string]map[string]string) *startProblem {
+	if version == SchemaVersion {
+		if step.If != nil {
+			return &startProblem{"if", fmt.Errorf("step %q: if is a schema_version 2 key", step.ID)}
+		}
+		if step.OnFailure != "" {
+			return &startProblem{"on_failure", fmt.Errorf("step %q: on_failure is a schema_version 2 key", step.ID)}
+		}
+		return nil
+	}
+	switch step.OnFailure {
+	case "", OnFailureFail, OnFailureContinue, OnFailurePause:
+	default:
+		return &startProblem{"on_failure", fmt.Errorf("step %q has unsupported on_failure %q: fail, continue or pause", step.ID, step.OnFailure)}
+	}
+	if step.If != nil {
+		err := step.If.validate(func(field string) error {
+			path, err := ParsePath(field)
+			if err != nil {
+				return err
+			}
+			_, err = pathType(path, inputs, nil, previous)
+			return err
+		})
+		if err != nil {
+			return &startProblem{"if", fmt.Errorf("step %q if: %w", step.ID, err)}
+		}
+	}
+	return nil
 }
