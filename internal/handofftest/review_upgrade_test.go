@@ -192,7 +192,24 @@ func TestAHandoffLoopAndARunLoopMidReviewFinishOnTheLoopRecordAfterTheUpgrade(t 
 	// The older Legato: the handoff's pass 1 posted one blocking finding on
 	// #7, and its author was told.
 	h := newReviewed(t, ReviewPassOptions{})
-	finding := changesPass(t, h, "The loop has no bound.")
+	h.finish(t)
+	// An older Legato marked what it posted with the task's ID; a loop made
+	// now marks with its own (LEG-605 review), so this one is given the
+	// task's before pass 1 posts, as the conversion gives a converted loop.
+	if res, err := h.worker.Store.DB().ExecContext(ctx, `UPDATE review_loops SET marker_key = host_task WHERE host_task = ?`, h.card); err != nil {
+		t.Fatal(err)
+	} else if n, _ := res.RowsAffected(); n != 1 {
+		t.Fatalf("the handoff's loop before pass 1: %d rows", n)
+	}
+	result, err := h.submit(t, service.ReviewSubmission{Summary: "One bug.", Findings: []service.SubmittedFinding{
+		{PR: 7, Severity: "blocking", Title: "Retries never stop", Body: "The loop has no bound.", FailureScenario: "A login while the server is down never returns.", Place: &service.ReviewPlace{Path: "login.go", Line: 20}},
+		{PR: 7, Severity: "nit", Title: "Name it", Body: "Call it maxRetries."},
+	}})
+	if err != nil || result.Verdict != service.VerdictChanges {
+		t.Fatalf("submit = %+v, %v", result, err)
+	}
+	h.tick() // feedback goes to the author
+	finding := result.Findings[0]
 	if posted := h.worker.ReviewGitHub.Posted(); len(posted) != 1 {
 		t.Fatalf("before the upgrade: posted = %+v", posted)
 	}
