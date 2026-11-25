@@ -61,14 +61,20 @@ type CredentialSettings struct {
 	// TenantID is the azure profile's Microsoft Entra tenant (directory);
 	// with it, ClientID is the app (client) ID it signs in as.
 	TenantID string `yaml:"tenant_id"`
+	// Username is who a basic key (key.scheme: basic) signs in as; for
+	// the jira profile, the Atlassian account's email, which defaults to
+	// jira.email.
+	Username string `yaml:"username"`
 }
 
 // CredentialKeyPlace is where an HTTP API takes its key: a header, written
-// with Format ("Bearer {secret}"), or a query parameter.
+// with Format ("Bearer {secret}"), or a query parameter. Scheme "basic"
+// sends it in the header as HTTP Basic's password, with settings.username.
 type CredentialKeyPlace struct {
 	Header string `yaml:"header"`
 	Format string `yaml:"format"`
 	Query  string `yaml:"query"`
+	Scheme string `yaml:"scheme"`
 }
 
 // CredentialSourceConfig is a vault whose items are credentials: its SSH
@@ -305,6 +311,7 @@ func normalizeCredentialSources(cfg *Config) error {
 func normalizeCredentialSettings(c *CredentialConfig) error {
 	s := &c.Settings
 	s.Upstream = strings.TrimRight(strings.TrimSpace(s.Upstream), "/")
+	s.Username = strings.TrimSpace(s.Username)
 	if c.Profile == "api-key" {
 		if s.Upstream == "" {
 			return fmt.Errorf("the api-key profile needs settings.upstream, the https address of the API")
@@ -355,6 +362,10 @@ func normalizeCredentialSettings(c *CredentialConfig) error {
 		return fmt.Errorf("key: a query parameter takes no format")
 	case k.Format != "" && !strings.Contains(k.Format, "{secret}"):
 		return fmt.Errorf("key: format %q must contain {secret}", k.Format)
+	case k.Scheme != "" && k.Scheme != "basic":
+		return fmt.Errorf("key: scheme %q: want basic, or leave it out", k.Scheme)
+	case k.Scheme == "basic" && (k.Header == "" || k.Format != ""):
+		return fmt.Errorf("key: a basic key goes in a header, without a format")
 	}
 	return nil
 }
