@@ -61,6 +61,12 @@ on:
 
 `chat.message` starts a run for each message the bot can see; `chat.mention` only for messages that mention the bot, and for direct messages to it. The bot's own messages never start a run, and other bots' messages start one only with `include_bots: true`. See [Workflows](/legato/using/workflows/#chat-messages-and-mentions) for every filter and the values a trigger can pass on.
 
+### Forwarding a message to the bot
+
+To have a workflow look at a message, such as an alert or a colleague's bug report, forward it to the bot: in Slack, choose **Forward message** and send it to the bot's direct messages, or share it into a channel the bot reads. Add a note if you like. The run's `${{ event.text }}` is your note, then the forwarded message quoted under a `> Forwarded from <author> in #<channel>:` line, and `${{ event.forwarded_url }}` is its link. A forward to the bot's direct messages counts as a mention; in a channel, it counts only if your note mentions the bot. See [Forwarded and shared messages](/legato/using/workflows/#forwarded-and-shared-messages).
+
+Forwarded messages come with the message events the app already subscribes to, so they need no other scope. Only their text is read, not their files or images. Users and channels in the forwarded text are written as Slack writes them, such as `<@U0123456789>`.
+
 ## Post from a workflow
 
 ```yaml
@@ -80,6 +86,7 @@ With `thread_id`, the message goes into that thread. `${{ event.thread_id }}` of
 ## Limits
 
 - Slash commands, buttons and other interactive messages are not supported.
-- A message's text is kept with its trigger request, cut to 8 KiB.
+- A message's text is kept with its trigger request, cut to 8 KiB, a forwarded message's part first.
+- A link to a message pasted into a message is not read as a forward: Slack adds its preview later, as an edit, and edits do not start runs.
 - Channels and users are named by their IDs, not their names.
 - A message longer than 40,000 characters is refused.

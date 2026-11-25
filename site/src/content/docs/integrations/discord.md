@@ -61,6 +61,12 @@ steps:
 
 On Discord, `${{ event.thread_id }}` is the thread's channel ID when the message is in a thread, so the reply goes into the thread. Otherwise it is the message's own ID, and the step sends its message as a reply to that message. See [Workflows](/legato/using/workflows/#chat-messages-and-mentions).
 
+### Forwarding a message to the bot
+
+Forward a message to the bot's direct messages, or into a channel it reads, and the run's `${{ event.text }}` is the forwarded message quoted under a `> Forwarded message from <link>:` line. `${{ event.forwarded }}` is `true` and `${{ event.forwarded_url }}` is the original's link. Discord does not say who wrote a forwarded message, so the quote names only its link.
+
+A comment you add while forwarding reaches the bot as a message of its own, just after the forward, so it starts a run of its own. A forward to the bot's direct messages counts as a mention; in a server channel, a forward never does, since it carries no comment of yours. In a server, the forwarded text needs the Message Content intent, as any other message's text does. Only text is read, not attachments or embeds. See [Forwarded and shared messages](/legato/using/workflows/#forwarded-and-shared-messages).
+
 ## Limits
 
 - Slash commands, buttons and other interactive components are not supported.
