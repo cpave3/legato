@@ -22,6 +22,9 @@ type ReviewPassOptions struct {
 	// does, in place of the harness's codex defaults. The advert is also
 	// what the worker's /api/meta says.
 	Runtime func(service.ReviewPassOptions) service.ReviewPassOptions
+	// CountedBots are review_passes.counted_bots as configured
+	// (cubic-dev-ai[bot] when nil).
+	CountedBots []string
 }
 
 // FakeReviewGitHub is GitHub as review passes see it: open pull requests by
@@ -631,8 +634,12 @@ func (o ReviewPassOptions) config() service.ReviewPassConfig {
 	if passes == 0 {
 		passes = 3
 	}
+	bots := o.CountedBots
+	if bots == nil {
+		bots = []string{"cubic-dev-ai[bot]"}
+	}
 	return service.ReviewPassConfig{Enabled: true, PassTimeout: 45 * time.Minute, MaxConcurrent: concurrent, ReviewColumn: "Review",
-		PollInterval: time.Minute, QuietTime: 2 * time.Minute, CountedBots: []string{"cubic-dev-ai[bot]"},
+		PollInterval: time.Minute, QuietTime: 2 * time.Minute, CountedBots: bots,
 		Defaults: service.ReviewPassSettings{Enabled: true, Agent: "codex", Model: "gpt-5.5", Skill: "3-tier-review", MaxPasses: passes}}
 }
 

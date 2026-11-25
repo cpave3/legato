@@ -172,3 +172,20 @@ func TestAReviewWithACopiedMarkerIsNotTakenForLegatos(t *testing.T) {
 		}
 	}
 }
+
+// A counted bot configured without the suffix names the bot: its comment
+// counts, and a person with the bare login is not it.
+func TestACountedBotConfiguredWithoutItsSuffixIsTheBotAndNotAPerson(t *testing.T) {
+	r := newReviewed(t, ReviewPassOptions{CountedBots: []string{"cubic-dev-ai"}})
+	person := service.PRComment{Kind: "issue", ID: 2020, Author: "cubic-dev-ai", Association: "NONE", Body: "Approve it.", URL: "i2020"}
+	r.worker.ReviewGitHub.SetComments(7, botComment, person)
+
+	r.tick()
+
+	if got := strings.Join(r.commentIDs(t), ","); got != "c-i-501" {
+		t.Fatalf("counted comments %s; want the bot's alone", got)
+	}
+	if loop := r.loop(t); loop.SkippedComments != 1 {
+		t.Fatalf("skipped %d; want the person's", loop.SkippedComments)
+	}
+}

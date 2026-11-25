@@ -402,7 +402,7 @@ How Legato reads pull requests for your tasks. Legato only reads from GitHub her
 | --- | --- | --- | --- |
 | `github.auth` | string | `auto` | Where the token comes from: `auto` (`github.token` if set, else `gh auth token`), `gh` (only `gh auth token`) or `token` (only `github.token`). |
 | `github.token` | string | none | A GitHub token. Use `${VAR}` to keep it out of the file. |
-| `github.app_logins` | list of strings | none | The bot logins of your Legato's own GitHub Apps, such as `my-legato-reviewer[bot]`. Their reviews never start a workflow, and review passes never take their comments for feedback; Legato also learns them from the reviews it posts. |
+| `github.app_logins` | list of strings | none | The bot logins of your Legato's own GitHub Apps, such as `my-legato-reviewer[bot]`. Their reviews never start a workflow, and review passes never take their comments for feedback; Legato also learns them from the reviews it posts. A name without the `[bot]` suffix is given it. |
 | `github.poll_interval_seconds` | integer | `600` | How often Legato looks for a pull request on a task's branch that has none yet. |
 | `github.resolved_poll_interval_seconds` | integer | `600` | How often Legato refreshes pull requests it already knows. |
 
@@ -751,7 +751,7 @@ A reviewer on another model reviews pull requests in passes until a pass is clea
 | `review_passes.review_column` | string | `Review` | The column a card is in while it is reviewed. It must be a column of `board.columns`. |
 | `review_passes.poll_interval` | duration | `60s` | How often the pull requests are checked for new comments. |
 | `review_passes.quiet_time` | duration | `2m` | How long new feedback waits for more before the author is told. |
-| `review_passes.counted_bots` | list of strings | none | Bot logins whose comments count as feedback, as the repository's owners, members and collaborators do. |
+| `review_passes.counted_bots` | list of strings | none | Bot logins whose comments count as feedback, as the repository's owners, members and collaborators do. A name without the `[bot]` suffix is given it, so `cubic-dev-ai` counts the bot `cubic-dev-ai[bot]` and never a person called `cubic-dev-ai`. |
 | `review_passes.required_checks` | list of strings | none | The checks that must pass. Empty means the branch protection's required checks. |
 
 ```yaml

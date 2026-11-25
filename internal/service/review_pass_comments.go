@@ -28,12 +28,34 @@ func insideRepository(association string) bool {
 // compares them. REST names an App "<slug>[bot]", and a person can never
 // have the suffix, so a person whose login is an App's slug is not the
 // App. Every login compared here is REST's (comment authors, pull request
-// authors, the logins GitHub answered Legato's posts with) or configured
-// as REST names it (github.app_logins, review_passes.counted_bots); none
-// is GraphQL's, which drops the suffix (LEG-604).
+// authors, the logins GitHub answered Legato's posts with) or a
+// configured bot name given the suffix (botLogins: github.app_logins,
+// review_passes.counted_bots); none is GraphQL's, which drops the suffix
+// (LEG-604).
 func sameLogin(a, b string) bool {
 	a, b = strings.TrimSpace(a), strings.TrimSpace(b)
 	return a != "" && strings.EqualFold(a, b)
+}
+
+// botLogins are configured bot names (github.app_logins,
+// review_passes.counted_bots) as REST names the bots: each name without
+// the "[bot]" suffix gets it, one that has it (in any case) is kept, and
+// blank ones are dropped. A configured name always names a bot, so
+// "cubic-dev-ai" is the bot cubic-dev-ai[bot], never a person whose login
+// is cubic-dev-ai.
+func botLogins(names []string) []string {
+	var out []string
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if !strings.HasSuffix(strings.ToLower(name), "[bot]") {
+			name += "[bot]"
+		}
+		out = append(out, name)
+	}
+	return out
 }
 
 // storePollPages keeps a pull request's polled pages in the store.
@@ -193,11 +215,11 @@ func (s *ReviewPassService) pollTargets(ctx context.Context, l ReviewLoop, loop 
 
 // legatoLogins are the logins of Legato's own GitHub Apps: those learned
 // from Legato's own posts (the login GitHub answered each review it posted
-// with) and those the configuration names. A login is never learned from
-// a comment's text.
+// with) and those the configuration names (botLogins). A login is never
+// learned from a comment's text.
 func (s *ReviewPassService) legatoLogins(ctx context.Context) []string {
 	learned, _ := s.db.GitHubAppLogins(ctx)
-	return append(learned, s.config().AppLogins...)
+	return append(learned, botLogins(s.config().AppLogins)...)
 }
 
 // anyLogin says whether login is one of logins (sameLogin).
@@ -211,7 +233,7 @@ func anyLogin(logins []string, login string) bool {
 }
 
 func (s *ReviewPassService) countedBot(login string) bool {
-	for _, bot := range s.config().CountedBots {
+	for _, bot := range botLogins(s.config().CountedBots) {
 		if sameLogin(bot, login) {
 			return true
 		}

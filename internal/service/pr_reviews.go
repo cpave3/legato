@@ -13,9 +13,10 @@ import (
 
 // SetGitHubAppLogins names the bot logins of Legato's own GitHub Apps
 // (github.app_logins), whose reviews never fire a trigger; those learned
-// from reviews Legato posted are added from the store.
+// from reviews Legato posted are added from the store. A name without the
+// "[bot]" suffix gets it (botLogins).
 func (p *prTrackingService) SetGitHubAppLogins(logins []string) {
-	p.appLogins = logins
+	p.appLogins = botLogins(logins)
 }
 
 // legatoApp says whether a login is one of Legato's own Apps.
