@@ -10,8 +10,10 @@ import (
 )
 
 // GraphVersion is the version of the workflow graph model. It changes when
-// the model does, as SchemaVersion changes with the definition.
-const GraphVersion = 1
+// the model does, as SchemaVersion changes with the definition. Version 2
+// (LEG-484) draws loops with their bodies, if: as branches, and names a
+// step's start as start.
+const GraphVersion = 2
 
 // The kinds of node in a workflow graph.
 const (
@@ -22,9 +24,15 @@ const (
 	NodeInner = "inner"
 )
 
-// GroupReviewLoop is the group a github.pr.review_passes step is drawn as:
-// a review pass and the author's fixes, round and round.
-const GroupReviewLoop = "review_loop"
+// The groups a step is drawn as (GraphStep.Group).
+const (
+	// GroupReviewLoop is a github.pr.review_passes step: a review pass and
+	// the author's fixes, round and round.
+	GroupReviewLoop = "review_loop"
+	// GroupLoop is a loop step: its body's steps are nodes whose Parent is
+	// the loop's node.
+	GroupLoop = "loop"
+)
 
 // The kinds of edge in a workflow graph.
 const (
@@ -34,15 +42,21 @@ const (
 	EdgeOrder = "order"
 	// EdgeData leads from a step to a later step that uses its outputs.
 	EdgeData = "data"
-	// EdgeLoop joins the nodes inside a group that repeats.
+	// EdgeLoop joins the nodes of a group that repeats: a loop to its
+	// pass's first step and its pass's last step back to it, or the review
+	// loop's pass and fixes.
 	EdgeLoop = "loop"
+	// EdgeBranch leads into a step with if: (with its Condition), and past
+	// it (Skip) to where the run goes when the step is skipped.
+	EdgeBranch = "branch"
 )
 
 // The gates a step may be: a step that does not start by itself.
 const (
 	// GateManual waits for the operator.
 	GateManual = "manual"
-	// GateAgentEnded waits for the agent before it to end.
+	// GateAgentEnded waits for the agent before it to end: a version 1
+	// file's trigger: agent_ended.
 	GateAgentEnded = TriggerAgentEnded
 )
 
@@ -52,8 +66,7 @@ const TriggerManual = "manual"
 
 // Graph is the workflow graph: the drawing of a workflow's triggers and
 // steps, built from its definition. It is read-only; the definition is the
-// source of truth. Nothing in it assumes one chain of steps: branches and
-// parallel steps would only add edges.
+// source of truth.
 type Graph struct {
 	Version int         `json:"version"`
 	Nodes   []GraphNode `json:"nodes"`
@@ -61,14 +74,17 @@ type Graph struct {
 }
 
 // GraphNode is one node: a trigger or a step. Its ID is stable for the same
-// definition: "trigger:<kind>" or "step:<step id>".
+// definition: "trigger:<kind>" or "step:<step path>", where a loop body's
+// step's path is the loop's, a slash and its ID, without a pass
+// (step:each/build).
 type GraphNode struct {
 	ID      string        `json:"id"`
 	Kind    string        `json:"kind"`
 	Trigger *GraphTrigger `json:"trigger,omitempty"`
 	Step    *GraphStep    `json:"step,omitempty"`
 	Inner   *GraphInner   `json:"inner,omitempty"`
-	// Parent is, for a node inside a group, the group's node.
+	// Parent is, for a node inside a group, the group's node: a loop's for
+	// its body's steps.
 	Parent string `json:"parent,omitempty"`
 }
 
@@ -98,21 +114,38 @@ type GraphTrigger struct {
 
 // GraphStep is a step node.
 type GraphStep struct {
-	ID    string `json:"id"`
+	ID string `json:"id"`
+	// Path is the step's path without a pass: its ID, or in a loop's body
+	// the loop's path, a slash and its ID. A run's step instance at
+	// each/2/build is the node of path each/build.
+	Path  string `json:"path"`
 	Title string `json:"title"`
-	Type  string `json:"type"`
-	// Trigger is how the step starts: automatic, manual or agent_ended.
-	Trigger string `json:"trigger"`
+	// Type is the step's executor, LoopStepType for a loop.
+	Type string `json:"type"`
+	// Start is how the step starts: automatic, manual, or from a version 1
+	// file agent_ended.
+	Start string `json:"start"`
 	// Gate is GateManual or GateAgentEnded for a step that does not start
 	// by itself, else empty.
 	Gate string `json:"gate,omitempty"`
-	// Group is GroupReviewLoop for a step drawn as a group of inner nodes,
-	// which keeps the step's own node ID.
+	// Group is GroupReviewLoop or GroupLoop for a step drawn as a group of
+	// nodes, which keeps the step's own node ID.
 	Group string `json:"group,omitempty"`
+	// Loop says what a loop goes over.
+	Loop *GraphLoop `json:"loop,omitempty"`
 	// Key is the one value that says what the step does.
 	Key GraphKey `json:"key"`
 	// Definition is the step as its definition declares it.
 	Definition Step `json:"definition"`
+}
+
+// GraphLoop is a loop step's loop: its form (over, next or repeat), its
+// most passes, and what it goes over or ends on, in words.
+type GraphLoop struct {
+	Form    string `json:"form"`
+	Max     int    `json:"max"`
+	Summary string `json:"summary,omitempty"`
+	Until   string `json:"until,omitempty"`
 }
 
 // GraphKey is a step's key value: the field it comes from in the step's
@@ -131,10 +164,15 @@ type GraphEdge struct {
 	// Outputs is, on a data edge, the source step's output keys the target
 	// uses, sorted.
 	Outputs []string `json:"outputs,omitempty"`
+	// Condition is, on a branch edge into a step, its if: in words.
+	Condition string `json:"condition,omitempty"`
+	// Skip marks the branch edge past a step with if:, taken when it is
+	// skipped.
+	Skip bool `json:"skip,omitempty"`
 }
 
 func triggerNodeID(kind string) string { return "trigger:" + kind }
-func stepNodeID(id string) string      { return "step:" + id }
+func stepNodeID(path string) string    { return "step:" + path }
 
 func edge(kind, source, target string) GraphEdge {
 	return GraphEdge{ID: kind + ":" + source + ">" + target, Kind: kind, Source: source, Target: target}
@@ -158,156 +196,351 @@ func BuildGraph(d *Definition) *Graph {
 		}})
 		triggers = append(triggers, id)
 	}
-	for i, step := range d.Steps {
-		trigger := step.Start
-		if trigger == "" {
-			trigger = "automatic"
-		}
-		id := stepNodeID(step.ID)
-		gate := ""
-		if trigger == GateManual || trigger == GateAgentEnded {
-			gate = trigger
-		}
-		stepType := step.Type
-		if step.Loop != nil {
-			// One node until graph version 2 draws its passes (LEG-484).
-			stepType = LoopStepType
-		}
-		graph.Nodes = append(graph.Nodes, GraphNode{ID: id, Kind: NodeStep, Step: &GraphStep{
-			ID: step.ID, Title: step.Title, Type: stepType, Trigger: trigger, Gate: gate, Key: stepKey(step), Definition: step,
-		}})
-		if step.Type == "github.pr.review_passes" {
-			graph.Nodes[len(graph.Nodes)-1].Step.Group = GroupReviewLoop
-			pass, fixes := id+"/pass", id+"/fixes"
-			graph.Nodes = append(graph.Nodes,
-				GraphNode{ID: pass, Kind: NodeInner, Parent: id, Inner: &GraphInner{Role: "pass", Title: "Review pass"}},
-				GraphNode{ID: fixes, Kind: NodeInner, Parent: id, Inner: &GraphInner{Role: "fixes", Title: "Author fixes"}})
-			graph.Edges = append(graph.Edges, edge(EdgeLoop, pass, fixes), edge(EdgeLoop, fixes, pass))
-		}
-		if i == 0 {
-			for _, trigger := range triggers {
-				graph.Edges = append(graph.Edges, edge(EdgeStart, trigger, id))
-			}
-		} else {
-			graph.Edges = append(graph.Edges, edge(EdgeOrder, stepNodeID(d.Steps[i-1].ID), id))
-		}
-	}
-	steps := map[string]bool{}
-	for _, step := range d.Steps {
-		steps[step.ID] = true
-	}
-	for _, step := range d.Steps {
-		uses := stepOutputsUsed(step)
-		sources := make([]string, 0, len(uses))
-		for source := range uses {
-			if steps[source] {
-				sources = append(sources, source)
-			}
-		}
-		sort.Strings(sources)
-		for _, source := range sources {
-			keys := make([]string, 0, len(uses[source]))
-			for key := range uses[source] {
-				keys = append(keys, key)
-			}
-			sort.Strings(keys)
-			data := edge(EdgeData, stepNodeID(source), stepNodeID(step.ID))
-			data.Outputs = keys
-			graph.Edges = append(graph.Edges, data)
-		}
-	}
+	builder := &graphBuilder{graph: graph, seen: map[string]bool{}}
+	builder.scope(d.Steps, "", "", triggers, EdgeStart, "", map[string]string{})
+	graph.Edges = append(graph.Edges, builder.flushData()...)
 	return graph
 }
 
-// stepOutputsUsed is the outputs of other steps that a step's with and
-// output paths reference (steps.<id>.outputs.<key>), by step, read with the
-// expression pattern validation reads them with.
-func stepOutputsUsed(step Step) map[string]map[string]bool {
+type graphBuilder struct {
+	graph *Graph
+	seen  map[string]bool
+	data  []GraphEdge
+}
+
+func (b *graphBuilder) add(e GraphEdge) {
+	if b.seen[e.ID] {
+		return
+	}
+	b.seen[e.ID] = true
+	b.graph.Edges = append(b.graph.Edges, e)
+}
+
+// scope draws one steps: list at path (the run's own, or a loop's body),
+// whose first step is reached from entries by edges of kind enter, and
+// whose last leads to exit ("" for the run's own: the run ends). visible
+// maps the IDs readable before it to their nodes, nearest first.
+func (b *graphBuilder) scope(steps []Step, path, parent string, entries []string, enter, exit string, visible map[string]string) {
+	visible = copyStrings(visible)
+	previous, kind := entries, enter
+	for i, step := range steps {
+		node := stepNodeID(StepPath(path, step.ID))
+		b.stepNode(step, StepPath(path, step.ID), parent)
+		if step.If != nil {
+			condition := conditionText(*step.If)
+			next := exit
+			if i+1 < len(steps) {
+				next = stepNodeID(StepPath(path, steps[i+1].ID))
+			}
+			for _, source := range previous {
+				into := edge(EdgeBranch, source, node)
+				into.Condition = condition
+				b.add(into)
+				if next != "" {
+					past := edge(EdgeBranch, source, next)
+					past.Skip = true
+					b.add(past)
+				}
+			}
+		} else {
+			for _, source := range previous {
+				b.add(edge(kind, source, node))
+			}
+		}
+		if step.Loop != nil {
+			b.loopBody(step, StepPath(path, step.ID), node, visible)
+		}
+		b.dataInto(step, node, visible)
+		visible[step.ID] = node
+		previous, kind = []string{node}, EdgeOrder
+	}
+	if exit != "" && len(steps) > 0 {
+		b.add(edge(EdgeLoop, previous[0], exit))
+	}
+}
+
+// loopBody draws a loop's pass: its next: query, then its steps.
+func (b *graphBuilder) loopBody(step Step, path, node string, visible map[string]string) {
+	entries := []string{node}
+	enter := EdgeLoop
+	body := copyStrings(visible)
+	if step.Loop.Next != nil {
+		query := Step{ID: NextStepID, Title: "Next item", Type: step.Loop.Next.Type, With: step.Loop.Next.With, Start: StartAutomatic}
+		queryPath := StepPath(path, NextStepID)
+		b.stepNode(query, queryPath, node)
+		b.add(edge(EdgeLoop, node, stepNodeID(queryPath)))
+		b.dataInto(query, stepNodeID(queryPath), visible)
+		entries, enter = []string{stepNodeID(queryPath)}, EdgeOrder
+		body[NextStepID] = stepNodeID(queryPath)
+	}
+	b.scope(step.Steps, path, node, entries, enter, node, body)
+	// The pass's result is mapped from the body's steps.
+	inner := copyStrings(visible)
+	for _, s := range step.Steps {
+		inner[s.ID] = stepNodeID(StepPath(path, s.ID))
+	}
 	uses := map[string]map[string]bool{}
-	var use func([]PathPart)
-	var walk func(any)
-	walk = func(value any) {
-		switch nested := value.(type) {
-		case map[string]any:
-			for _, item := range nested {
-				walk(item)
-			}
-		case []any:
-			for _, item := range nested {
-				walk(item)
-			}
-		case string:
-			for _, match := range findExpressions(nested) {
-				expression, err := ParseExpression(match.inner)
-				if err != nil {
-					continue
-				}
-				for _, operand := range expression.Operands {
-					use(operand.Path)
-				}
-			}
+	for _, output := range step.Outputs {
+		collectUses(output.Value, step.ID, uses)
+	}
+	b.dataEdges(uses, node, inner)
+}
+
+func (b *graphBuilder) stepNode(step Step, path, parent string) {
+	start := step.Start
+	if start == "" {
+		start = StartAutomatic
+	}
+	gate := ""
+	if start == GateManual || start == GateAgentEnded {
+		gate = start
+	}
+	stepType := step.Type
+	if step.Loop != nil {
+		stepType = LoopStepType
+	}
+	id := stepNodeID(path)
+	graphStep := &GraphStep{ID: step.ID, Path: path, Title: step.Title, Type: stepType, Start: start, Gate: gate, Key: stepKey(step), Definition: step}
+	if step.Loop != nil {
+		graphStep.Group = GroupLoop
+		graphStep.Loop = graphLoop(*step.Loop)
+	}
+	b.graph.Nodes = append(b.graph.Nodes, GraphNode{ID: id, Kind: NodeStep, Step: graphStep, Parent: parent})
+	if step.Type == "github.pr.review_passes" {
+		graphStep.Group = GroupReviewLoop
+		pass, fixes := id+"/pass", id+"/fixes"
+		b.graph.Nodes = append(b.graph.Nodes,
+			GraphNode{ID: pass, Kind: NodeInner, Parent: id, Inner: &GraphInner{Role: "pass", Title: "Review pass"}},
+			GraphNode{ID: fixes, Kind: NodeInner, Parent: id, Inner: &GraphInner{Role: "fixes", Title: "Author fixes"}})
+		b.add(edge(EdgeLoop, pass, fixes))
+		b.add(edge(EdgeLoop, fixes, pass))
+	}
+}
+
+func graphLoop(loop Loop) *GraphLoop {
+	out := &GraphLoop{Max: loop.Limit()}
+	switch {
+	case loop.Next != nil:
+		out.Form, out.Summary = "next", "Next item of "+loop.Next.Type
+	case loop.Repeat:
+		out.Form, out.Summary = "repeat", "Repeat"
+	default:
+		out.Form = "over"
+		if text, ok := loop.Over.(string); ok {
+			out.Summary = "Each of " + text
+		} else if items, ok := loop.Over.([]any); ok {
+			out.Summary = fmt.Sprintf("Each of %d items", len(items))
 		}
 	}
-	use = func(path []PathPart) {
-		parts := pathNames(path)
-		if len(parts) >= 4 && parts[0] == "steps" && parts[2] == "outputs" && parts[1] != step.ID {
-			if uses[parts[1]] == nil {
-				uses[parts[1]] = map[string]bool{}
-			}
-			uses[parts[1]][parts[3]] = true
+	if loop.Until != nil {
+		out.Until = conditionText(*loop.Until)
+	}
+	return out
+}
+
+// dataInto draws the data edges into a step's node from the steps it
+// reads, found by ID in visible (nearest first). A loop's own reads its
+// over, query, key and until here; its pass outputs read its body's steps
+// (loopBody).
+func (b *graphBuilder) dataInto(step Step, node string, visible map[string]string) {
+	b.dataEdges(ownOutputsUsed(step), node, visible)
+}
+
+func (b *graphBuilder) dataEdges(uses map[string]map[string]bool, node string, visible map[string]string) {
+	sources := make([]string, 0, len(uses))
+	for source := range uses {
+		if visible[source] != "" && visible[source] != node {
+			sources = append(sources, source)
 		}
 	}
+	sort.Strings(sources)
+	for _, source := range sources {
+		keys := make([]string, 0, len(uses[source]))
+		for key := range uses[source] {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		data := edge(EdgeData, visible[source], node)
+		data.Outputs = keys
+		b.data = append(b.data, data)
+	}
+}
+
+// flushData gives the data edges, drawn after the other edges.
+func (b *graphBuilder) flushData() []GraphEdge {
+	var out []GraphEdge
+	for _, data := range b.data {
+		if !b.seen[data.ID] {
+			b.seen[data.ID] = true
+			out = append(out, data)
+		}
+	}
+	b.data = nil
+	return out
+}
+
+func copyStrings(m map[string]string) map[string]string {
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+// conditionText is a condition in words: "steps.a.outputs.choice equals
+// Continue", all: joined by and, any: by or, not: as not (…).
+func conditionText(c Condition) string {
+	var parts []string
+	group := func(items []Condition, join string) {
+		var texts []string
+		for _, item := range items {
+			text := conditionText(item)
+			if len(item.All)+len(item.Any) > 1 {
+				text = "(" + text + ")"
+			}
+			texts = append(texts, text)
+		}
+		if len(texts) > 0 {
+			parts = append(parts, strings.Join(texts, join))
+		}
+	}
+	group(c.All, " and ")
+	group(c.Any, " or ")
+	if c.Not != nil {
+		parts = append(parts, "not ("+conditionText(*c.Not)+")")
+	}
+	if c.Field != "" {
+		value := func(v any) string {
+			if items, ok := v.([]any); ok {
+				var texts []string
+				for _, item := range items {
+					texts = append(texts, fmt.Sprint(item))
+				}
+				return strings.Join(texts, ", ")
+			}
+			return fmt.Sprint(v)
+		}
+		switch {
+		case c.Exists != nil && *c.Exists:
+			parts = append(parts, c.Field+" exists")
+		case c.Exists != nil:
+			parts = append(parts, c.Field+" does not exist")
+		case c.Empty != nil && *c.Empty:
+			parts = append(parts, c.Field+" is empty")
+		case c.Empty != nil:
+			parts = append(parts, c.Field+" is not empty")
+		case c.Equals != nil:
+			parts = append(parts, c.Field+" equals "+value(c.Equals))
+		case c.NotEquals != nil:
+			parts = append(parts, c.Field+" does not equal "+value(c.NotEquals))
+		case c.In != nil:
+			parts = append(parts, c.Field+" in "+value(c.In))
+		case c.GT != nil:
+			parts = append(parts, c.Field+" > "+value(c.GT))
+		case c.LT != nil:
+			parts = append(parts, c.Field+" < "+value(c.LT))
+		default:
+			parts = append(parts, c.Field)
+		}
+	}
+	return strings.Join(parts, " and ")
+}
+
+// ownOutputsUsed is the outputs of other steps that a step reads itself,
+// by step: from its with, output paths and if:, and for a loop from its
+// over, query, key and until (not its body's or its pass outputs).
+func ownOutputsUsed(step Step) map[string]map[string]bool {
+	uses := map[string]map[string]bool{}
 	for _, value := range step.With {
-		walk(value)
+		collectUses(value, step.ID, uses)
 	}
 	for _, output := range step.Outputs {
-		walk(output.Path)
+		collectUses(output.Path, step.ID, uses)
 	}
 	// An if: reads its fields as bare paths, as does a chat button's.
 	conditions := chatButtonConditions(step)
 	if step.If != nil {
 		conditions = append(conditions, *step.If)
 	}
+	if step.Loop != nil {
+		collectUses(step.Loop.Over, step.ID, uses)
+		collectUses(step.Loop.Key, step.ID, uses)
+		if step.Loop.Next != nil {
+			collectUses(step.Loop.Next.With, step.ID, uses)
+		}
+		if step.Loop.Until != nil {
+			conditions = append(conditions, *step.Loop.Until)
+		}
+	}
 	for _, condition := range conditions {
 		condition.eachField(func(field string) {
 			if path, err := ParsePath(field); err == nil {
-				use(path)
+				usePath(path, step.ID, uses)
 			}
 		})
 	}
-	if step.Loop != nil {
-		// A loop reads what its over, query, key, until, pass outputs and
-		// body read from outside it: its body's own steps are its own.
-		walk(step.Loop.Over)
-		walk(step.Loop.Key)
-		for _, output := range step.Outputs {
-			walk(output.Value)
-		}
-		if step.Loop.Next != nil {
-			walk(step.Loop.Next.With)
-		}
-		if step.Loop.Until != nil {
-			step.Loop.Until.eachField(func(field string) {
-				if path, err := ParsePath(field); err == nil {
-					use(path)
-				}
-			})
-		}
-		for _, inner := range step.Steps {
-			for source, keys := range stepOutputsUsed(inner) {
-				if uses[source] == nil {
-					uses[source] = map[string]bool{}
-				}
-				for key := range keys {
-					uses[source][key] = true
-				}
+	return uses
+}
+
+// stepOutputsUsed is the outputs of other steps that a step references, by
+// step, a loop's body's reads from outside it included.
+func stepOutputsUsed(step Step) map[string]map[string]bool {
+	uses := ownOutputsUsed(step)
+	if step.Loop == nil {
+		return uses
+	}
+	for _, output := range step.Outputs {
+		collectUses(output.Value, step.ID, uses)
+	}
+	for _, inner := range step.Steps {
+		for source, keys := range stepOutputsUsed(inner) {
+			if uses[source] == nil {
+				uses[source] = map[string]bool{}
+			}
+			for key := range keys {
+				uses[source][key] = true
 			}
 		}
-		for _, inner := range step.Steps {
-			delete(uses, inner.ID)
-		}
+	}
+	for _, inner := range step.Steps {
+		delete(uses, inner.ID)
 	}
 	return uses
+}
+
+// collectUses adds the steps.<id>.outputs.<key> a value's ${{ }} read,
+// read with the expression pattern validation reads them with.
+func collectUses(value any, self string, uses map[string]map[string]bool) {
+	switch nested := value.(type) {
+	case map[string]any:
+		for _, item := range nested {
+			collectUses(item, self, uses)
+		}
+	case []any:
+		for _, item := range nested {
+			collectUses(item, self, uses)
+		}
+	case string:
+		for _, match := range findExpressions(nested) {
+			expression, err := ParseExpression(match.inner)
+			if err != nil {
+				continue
+			}
+			for _, operand := range expression.Operands {
+				usePath(operand.Path, self, uses)
+			}
+		}
+	}
+}
+
+func usePath(path []PathPart, self string, uses map[string]map[string]bool) {
+	parts := pathNames(path)
+	if len(parts) >= 4 && parts[0] == "steps" && parts[2] == "outputs" && parts[1] != self {
+		if uses[parts[1]] == nil {
+			uses[parts[1]] = map[string]bool{}
+		}
+		uses[parts[1]][parts[3]] = true
+	}
 }
 
 // stepKey chooses the one value of a step's with that says what it does.

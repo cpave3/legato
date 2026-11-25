@@ -81,7 +81,7 @@ func TestGraphHasAManualStartAndAStepNodePerStep(t *testing.T) {
 		}
 	}
 	investigate := nodeByID(graph, "step:investigate").Step
-	if investigate.Title != "Investigate the task" || investigate.Type != "agent.run" || investigate.Trigger != "automatic" {
+	if investigate.Title != "Investigate the task" || investigate.Type != "agent.run" || investigate.Start != "automatic" || investigate.Path != "investigate" {
 		t.Fatalf("investigate = %#v", investigate)
 	}
 	if investigate.Definition.ID != "investigate" || investigate.Definition.With["prompt"] == nil {

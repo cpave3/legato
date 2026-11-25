@@ -49,7 +49,7 @@ func workflowCommandError(err error) *commandError {
 
 func runWorkflowCmd(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: legato workflow [list|add|validate|run|runs|show|cancel|retry|step] ...")
+		fmt.Fprintln(os.Stderr, "usage: legato workflow [list|add|validate|upgrade|run|runs|show|cancel|retry|step] ...")
 		return 1
 	}
 	positional, flags, lists, err := parseWorkflowArgs(args[1:])
@@ -61,6 +61,9 @@ func runWorkflowCmd(args []string) int {
 	}
 	if args[0] == "validate" {
 		return runWorkflowValidate(positional, flagPresent(flags, "json"))
+	}
+	if args[0] == "upgrade" {
+		return runWorkflowUpgrade(positional, flags)
 	}
 	cfg, err := config.Load()
 	if err != nil {
