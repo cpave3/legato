@@ -987,6 +987,7 @@ In a version 2 file, an `agent.run` step with `repo` gets a fresh clone at `ref`
 
 - A step can say `if:` and `on_failure:` (below).
 - A workflow can declare its own `outputs:`, and a `workflow.run` step can call another workflow (below).
+- A step can be a loop, which runs its own steps pass after pass (below).
 
 Legato reads a version 1 file into the same model: `trigger: manual` is `start: manual`, and `trigger: agent_ended` still waits for the workflow task's agent to end. The editor, the builder, the published schema and the bundled templates still write version 1.
 
@@ -1114,6 +1115,52 @@ steps:
       where: {not: {field: task.metadata.triaged, exists: true}}
       limit: 15
 ```
+
+### Loops
+
+A loop step says `loop:` and `steps:`, and no `type` or `with`. It runs its steps again and again, each time as a **pass**, in one of three ways:
+
+- `over:` goes through a list, one item per pass: `${{ … }}` of a `json` value, or a list written out. The list is read once, when the loop starts.
+- `next:` is a step (`type` and `with`) run before each pass. Its `items` output is a list, and the pass takes the first item whose `key` no pass has taken; with none left, the loop ends. Because it asks again each time, a ticket closed by one pass is gone from the next pass's list.
+- `repeat: true` runs passes with no item, until `until:` or `max`.
+
+```yaml
+- id: fix
+  loop: {repeat: true, max: 5, until: {field: loop.last.result, equals: green}}
+  outputs:
+    result: {type: string, value: "${{ steps.recheck.outputs.result ?? steps.check.outputs.result }}"}
+  steps:
+    - id: check
+      type: agent.run
+      with: {on: "${{ workflow.inputs.task }}", reuse: true, prompt: "Run the tests. Complete with result green or red."}
+      outputs: {result: {type: string}}
+    - id: recheck
+      if: {field: steps.check.outputs.result, equals: red}
+      type: agent.message
+      with: {agent: {from: check}, prompt: "Fix what failed, run the tests again, and complete with result green or red."}
+      outputs: {result: {type: string}}
+- id: note
+  type: task.note
+  with: {task: "${{ workflow.inputs.task }}", note: "Tests ${{ steps.fix.outputs.last.result }} after ${{ steps.fix.outputs.count }} passes"}
+```
+
+The rest of `loop:`:
+
+- `key:` tells items apart, such as `${{ loop.item.key }}`. It is required with `next:`. With `over:`, an item whose key a pass has taken is passed over.
+- `max:` is the most passes, 20 when it says none, at most 100. It stops a loop that would run away.
+- `until:` is a condition checked after each pass; when it is true the loop ends. It reads `loop.last`, the result of the pass that just ended.
+- `on_failure:` is what a pass does when one of its steps fails (a step with its own `on_failure: continue` goes on in its pass instead). `pause`, the default, holds the run at that step with **Retry**, **Skip** and **Stop**, so you can retry it and the pass goes on. `continue` ends the pass as failed and starts the next. `fail` ends the pass and fails the loop step, whose own `on_failure` then applies; **Retry** on the loop goes on with the next pass.
+
+Inside a pass:
+
+- `steps.<id>` reads the nearest step of that ID: one earlier in the pass, else one before the loop, such as `${{ steps.open.outputs.loop_id }}`. So does `agent: {from: <id>}`. A pass's step may have the ID of a step outside the loop; the pass's own is the one it reads. A step after the loop cannot read the steps of its passes: read the loop's outputs.
+- `loop.index` is the pass's number, from 0; `loop.item` its item (none in a `repeat` loop); `loop.previous` the result of the newest pass that succeeded (none in the first pass: `${{ loop.previous.clone_id ?? null }}`); `loop.results` the results of every pass that has ended.
+
+Each pass has a **result**. The loop's `outputs:` say what it holds: each has a `type` and a `value` read from the pass's steps once it ends. A step skipped by `if:` has no outputs, so `??` picks the one that ran. Every result also has `status` (`succeeded`, `failed`, or `skipped` when every step of the pass was) and `error`, so a loop's outputs may not use those names. A pass that failed has only those two. A result may hold at most 16 KiB; a larger one is a failed pass.
+
+The loop step's own outputs are `results` (every pass's result, in order), `last` (the last pass's result), `count`, `succeeded`, `failed`, and `ended_by`: `items` (the list ran out), `next_empty` (`next:` found nothing new), `until`, `max` or `failure`. A step after the loop reads them, such as `${{ steps.fix.outputs.last.result }}`.
+
+On the run's page, each pass's steps are listed under the loop, pass by pass; a `next:` loop's query is the pass's first step, `next`. Legato keeps where a loop is in its database, so a loop goes on after a restart.
 
 ## Agent completion
 
