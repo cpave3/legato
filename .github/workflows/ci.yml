@@ -2,15 +2,36 @@
 # merge): a check that no two paths differ only in case, a check that new
 # migrations sort last, the Go tests, as the release workflow runs them, a Go
 # build for each release platform, the web UI's build (as `task release:dist`
-# runs it) and unit tests, and the lint, types and tests of the apps under
-# packages/. The docs site has its own workflow
-# (docs.yml), and the desktop app is tested when a release builds it.
+# runs it) and unit tests, the lint, types and tests of the apps under
+# packages/, and, on a pull request, the docs site's build. docs.yml builds
+# and publishes the docs from main, and the desktop app is tested when a
+# release builds it.
+#
+# In a GitHub stack (LEG-629) only the top PR runs the heavy jobs (go, web,
+# packages, docs): each has the gate
+#
+#   github.event_name != 'pull_request' ||
+#   !github.event.pull_request.stack ||
+#   github.event.pull_request.stack.position == github.event.pull_request.stack.size
+#
+# so a PR outside a stack, and main, build in full. The cheap jobs (paths,
+# migrations) run on every PR: they take seconds and a single layer can break
+# them on its own. The commit status ci/stack stands for the CI of the PRs
+# below the top: the stack job posts it at the start of every PR's run, and
+# the stack-status job posts the top's result on each lower PR whose head the
+# top's build contains (scripts/stack-status.cjs; stack.yml re-posts it on a
+# review and on a close). Drafts build like any other PR: agents open drafts.
+# cmd/legato's ci_workflow_test.go holds these files to this.
 name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
+    # ready_for_review: linking a stack fires nothing, so a stack's PRs are
+    # opened as drafts, linked, then marked ready, and the ready event carries
+    # the stack (and cancels the opening run, through the concurrency group).
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -23,6 +44,32 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # ci/stack at the start of the run: success on a PR outside a stack and on
+  # the top (gated by its own checks), with pending below the top; pending on
+  # a lower PR that has none yet.
+  stack:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/stack-status.cjs
+          sparse-checkout-cone-mode: false
+
+      - name: Post ci/stack
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const stackStatus = require("./scripts/stack-status.cjs");
+            await stackStatus({ github, context, pr: context.payload.pull_request }).onBuildStart();
+
   # Two paths that differ only in case are one path on macOS and Windows, so a
   # release build there breaks where these Linux runners pass (LEG-149).
   paths:
@@ -55,6 +102,10 @@ jobs:
           bash scripts/migration-order.sh $refs
 
   go:
+    if: >-
+      github.event_name != 'pull_request' ||
+      !github.event.pull_request.stack ||
+      github.event.pull_request.stack.position == github.event.pull_request.stack.size
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -88,6 +139,10 @@ jobs:
         run: go test -count=1 -run '^TestLegatoBuilds' ./cmd/legato
 
   web:
+    if: >-
+      github.event_name != 'pull_request' ||
+      !github.event.pull_request.stack ||
+      github.event.pull_request.stack.position == github.event.pull_request.stack.size
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -121,6 +176,10 @@ jobs:
   # The apps under packages/: one pnpm workspace, linted, typechecked and
   # tested together.
   packages:
+    if: >-
+      github.event_name != 'pull_request' ||
+      !github.event.pull_request.stack ||
+      github.event.pull_request.stack.position == github.event.pull_request.stack.size
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -143,3 +202,103 @@ jobs:
       - name: Lint, typecheck and test
         working-directory: packages
         run: pnpm run check
+
+  # The docs site's build, for a pull request: docs.yml builds main. It is
+  # here, not in docs.yml, because a path filter compares a stacked PR with
+  # the layer below it, and a check a filter skips stays pending. It builds
+  # when the PR (or, on the top of a stack, the whole stack) changes what the
+  # site is made from, and otherwise passes at once.
+  docs:
+    if: >-
+      github.event_name == 'pull_request' &&
+      (!github.event.pull_request.stack ||
+      github.event.pull_request.stack.position == github.event.pull_request.stack.size)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # each page's "last updated" date comes from git
+
+      - name: Changes to the docs
+        id: changed
+        env:
+          BASE_REF: ${{ github.event.pull_request.stack.base.ref || github.base_ref }}
+        run: |
+          changed=$(git diff --name-only "origin/$BASE_REF...HEAD" -- \
+            site GLOSSARY.md config internal/tui/hotkey \
+            .github/workflows/docs.yml .github/workflows/ci.yml)
+          if [ -n "$changed" ]; then
+            echo "docs=true" >> "$GITHUB_OUTPUT"
+            printf 'Changed since %s:\n%s\n' "$BASE_REF" "$changed"
+          else
+            echo "docs=false" >> "$GITHUB_OUTPUT"
+            echo "The docs are unchanged since $BASE_REF." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/setup-go@v5
+        if: steps.changed.outputs.docs == 'true'
+        with:
+          go-version-file: go.mod
+
+      # The keyboard page and the configuration page must match the code.
+      - name: Pages match the code
+        if: steps.changed.outputs.docs == 'true'
+        run: go test ./internal/tui/hotkey ./config
+
+      - uses: pnpm/action-setup@v4
+        if: steps.changed.outputs.docs == 'true'
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        if: steps.changed.outputs.docs == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+
+      - name: Dependencies
+        if: steps.changed.outputs.docs == 'true'
+        working-directory: site
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        if: steps.changed.outputs.docs == 'true'
+        working-directory: site
+        run: pnpm run build
+
+  # The top PR's result, posted as ci/stack on each PR below it whose head
+  # this build contains (pending until the top is approved, when approval is
+  # required). It needs every job, so what it posts matches the run's
+  # conclusion, which stack.yml reads on a review. A cancelled run posts
+  # nothing: the run that replaced it has marked the stack pending.
+  stack-status:
+    needs: [stack, paths, migrations, go, web, packages, docs]
+    if: >-
+      !cancelled() && github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.stack &&
+      github.event.pull_request.stack.position == github.event.pull_request.stack.size
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/stack-status.cjs
+          sparse-checkout-cone-mode: false
+
+      - name: Post the build's result to the stack
+        uses: actions/github-script@v7
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        with:
+          script: |
+            const stackStatus = require("./scripts/stack-status.cjs");
+            const { stack, ...build } = JSON.parse(process.env.NEEDS);
+            const passed = Object.values(build).every((job) => job.result === "success");
+            await stackStatus({ github, context, pr: context.payload.pull_request }).onBuildEnd(passed);
