@@ -100,21 +100,25 @@ func (e *AgentRunExecutor) startOnTask(ctx context.Context, step ResolvedWorkflo
 		assignment = buildWorkflowAssignment(work, step, e.binaryPath)
 	}
 	kind, tier := stepAgent(step.With, macro)
-	repo, _ := workflowString(step.With, "repo", false)
-	ref, _ := workflowString(step.With, "ref", false)
-	branch, _ := workflowString(step.With, "branch", false)
-	engram, err := workflowString(step.With, "engram", false)
-	if err != nil {
-		return WorkflowExecutionResult{}, err
-	}
 	// A plain agent of the task, as an operator's spawn: no workflow run or
 	// attempt of its own, so its stage is the card's and it outlives the
 	// step. The contract names the step it completes.
 	opts := AgentSpawnOptions{
 		AgentKind: kind, Tier: tier, WorkingDir: workingDir, Assignment: assignment,
-		Repo: strings.TrimSpace(repo), Ref: strings.TrimSpace(ref), Branch: strings.TrimSpace(branch),
-		Engram: strings.TrimSpace(engram), EngramRequired: strings.TrimSpace(engram) != "",
 		ExtraEnv: map[string]string{},
+	}
+	// agent.dispatch's repo is only the pull request a macro reads, as it
+	// always was: its agent starts in working_dir, never in a clone.
+	if wait {
+		repo, _ := workflowString(step.With, "repo", false)
+		ref, _ := workflowString(step.With, "ref", false)
+		branch, _ := workflowString(step.With, "branch", false)
+		engram, err := workflowString(step.With, "engram", false)
+		if err != nil {
+			return WorkflowExecutionResult{}, err
+		}
+		opts.Repo, opts.Ref, opts.Branch = strings.TrimSpace(repo), strings.TrimSpace(ref), strings.TrimSpace(branch)
+		opts.Engram, opts.EngramRequired = strings.TrimSpace(engram), strings.TrimSpace(engram) != ""
 	}
 	if session, err = e.agents.SpawnWorkflowAgent(ctx, taskID, "", opts); err != nil {
 		return WorkflowExecutionResult{}, fmt.Errorf("start the agent of task %s: %w", taskID, err)

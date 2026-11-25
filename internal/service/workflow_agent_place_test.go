@@ -314,6 +314,34 @@ steps:
 	}
 }
 
+// agent.dispatch's repo names the pull request a macro reads, as it always
+// did (address-feedback gives repo with the task's working_dir): it never
+// asks for a job clone, so a new agent starts in working_dir, or where agents
+// start by default.
+func TestAgentDispatchRepoIsThePullRequestsNotAClone(t *testing.T) {
+	for name, dir := range map[string]string{"in working_dir": "/repo", "by default": ""} {
+		t.Run(name, func(t *testing.T) {
+			f := newPlaceFixture(t)
+			view := f.start(t, `
+schema_version: 1
+name: send
+title: Send
+inputs:
+  task: {type: task, required: true}
+steps:
+ - {id: send, title: Send, type: agent.dispatch, with: {task: "${{ workflow.inputs.task }}", prompt: Address it, repo: acme/app, pr_number: 4, working_dir: "`+dir+`"}}
+`)
+			if view.Run.Status != "succeeded" {
+				t.Fatalf("run = %s, attempt = %+v", view.Run.Status, view.Attempts[0])
+			}
+			session := f.cardAgent(t)
+			if session == nil || session.CloneRepo != "" || (dir != "" && session.WorkingDir != dir) {
+				t.Fatalf("the card's agent = %+v; want it in %q, no clone", session, dir)
+			}
+		})
+	}
+}
+
 // fakePlaceRunner is a runner whose task already has an agent running.
 type fakePlaceRunner struct {
 	*fakeWorkflowAgentService
