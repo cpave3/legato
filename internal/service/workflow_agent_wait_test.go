@@ -908,3 +908,51 @@ steps:
 		t.Fatalf("run = %s, outputs = %v", done.Run.Status, outputs)
 	}
 }
+
+// A pass's last step whose outputs the host cannot fill fails under its
+// loop's on_failure: here fail, so the loop fails rather than go on to
+// the next pass without the step's pull requests.
+func TestAPassStepFailedFillingItsOutputsFailsItsLoop(t *testing.T) {
+	ctx := context.Background()
+	f, _, _, prs := newCloneFixture(t)
+	pane := NewWorkflowService(f.store, nil)
+	pane.SetRecordOnly()
+	prs.err = errors.New("github: 502")
+	view := f.start(t, `
+schema_version: 2
+name: build
+title: Build
+inputs:
+  task: {type: task, required: true}
+steps:
+ - id: each
+   loop: {repeat: true, max: 2, on_failure: fail}
+   steps:
+    - id: build
+      title: Build
+      type: agent.run
+      with: {task: "${{ workflow.inputs.task }}", prompt: Build it, repo: acme/widget, branch: one, keep_agent: true}
+      outputs:
+        pr_number: {type: integer}
+`)
+	if _, err := pane.Complete(ctx, view.Run.ID, "each/0/build", view.Attempts[len(view.Attempts)-1].ID, map[string]string{"pr_number": "12"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.workflows.AdvanceDue(ctx); err != nil {
+		t.Fatal(err)
+	}
+	view, err := f.store.GetWorkflowRun(ctx, view.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := stepByPath(view, "each/0/build")
+	if build.Status != "failed" || build.ErrorCode != WorkflowErrorOutputsUnavailable {
+		t.Fatalf("build = %+v", build)
+	}
+	if each := stepByPath(view, "each"); view.Run.Status != "failed" || each.Status != "failed" || !strings.Contains(each.Error, "github: 502") {
+		t.Fatalf("run = %s at %s, each = %+v", view.Run.Status, view.Run.CurrentStepID, each)
+	}
+	if next := stepByPath(view, "each/1/build"); next.Path != "" {
+		t.Fatalf("a second pass started: %+v", next)
+	}
+}

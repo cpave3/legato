@@ -570,7 +570,8 @@ func (s *WorkflowService) failUnfilled(ctx context.Context, advance *store.Workf
 		return true, false, nil
 	}
 	s.changed(ctx, step.RunID, step.Path, WorkflowChangeStepFailed)
-	if mode != store.FailureContinued {
+	// Continued, or its pass ended (its loop decides), the run goes on.
+	if mode != store.FailureContinued && mode != store.FailurePassEnded {
 		return true, false, nil
 	}
 	encoded, _ := json.Marshal(store.FailureOutputs(stepFailure(failure)))

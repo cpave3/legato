@@ -256,3 +256,62 @@ func TestARecordedStepFailsOnceAndTheRunGoesBackToIt(t *testing.T) {
 		})
 	}
 }
+
+// A pass's last step recorded from the pane has its loop, running, after
+// it: failed, the loop's on_failure decides as for any step of a pass
+// (pause by default; fail or continue end the pass, the run at its loop
+// and the step still due its advance, for the loop to decide).
+func TestARecordedLastStepOfAPassFailsUnderItsLoopsPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		loopPolicy, stepPolicy, mode, runStatus, current string
+		due                                              bool
+	}{
+		{"", "", FailurePaused, "waiting", "each/0/build", false},
+		{"fail", "", FailurePassEnded, "running", "each", true},
+		{"continue", "", FailurePassEnded, "running", "each", true},
+		{"fail", FailureContinued, FailureContinued, "running", "each", true},
+	} {
+		t.Run(tc.loopPolicy+"/"+tc.stepPolicy, func(t *testing.T) {
+			ctx := context.Background()
+			s := newTestStore(t)
+			if err := s.CreateTask(ctx, Task{ID: "wf-task", Title: "Run", Status: "Backlog", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"}); err != nil {
+				t.Fatal(err)
+			}
+			pass := 0
+			run := WorkflowRun{ID: "wr-1", WorkflowName: "w", WorkflowTitle: "W", DefinitionJSON: "{}", InputsJSON: "{}", Status: "running", CurrentStepID: "each/0/build", TaskID: "wf-task"}
+			steps := []WorkflowStep{
+				{RunID: "wr-1", Path: "each", StepID: "each", StepOrder: 0, ExecutorType: "loop", Status: "running", DefinitionJSON: `{"loop":{"on_failure":"` + tc.loopPolicy + `"}}`},
+				{RunID: "wr-1", Path: "each/0/build", ParentPath: "each/0", StepID: "build", Pass: &pass, StepOrder: 0, ExecutorType: "agent.run", Status: "pending", DefinitionJSON: `{"on_failure":"` + tc.stepPolicy + `"}`},
+			}
+			if err := s.CreateWorkflowRun(ctx, run, steps); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.StartWorkflowStepAttempt(ctx, WorkflowStepAttempt{ID: "wa-1", RunID: "wr-1", Path: "each/0/build", StepID: "build", AttemptNumber: 1, ExecutorType: "agent.run", TaskID: "wf-task", Status: "waiting_agent"}, "{}"); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.RecordWorkflowStepCompletion(ctx, "wr-1", "each/0/build", "wa-1", `{"pr_number":12}`, "each"); err != nil {
+				t.Fatal(err)
+			}
+			failure := StepFailure{Message: "github: 502", Code: "outputs_unavailable"}
+			mode, err := s.FailRecordedWorkflowStep(ctx, "wr-1", "each/0/build", "wa-1", failure)
+			if err != nil || mode != tc.mode {
+				t.Fatalf("mode = %q, %v; want %q", mode, err, tc.mode)
+			}
+			view, err := s.GetWorkflowRun(ctx, "wr-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if view.Run.Status != tc.runStatus || view.Run.CurrentStepID != tc.current {
+				t.Fatalf("run = %s at %s; want %s at %s", view.Run.Status, view.Run.CurrentStepID, tc.runStatus, tc.current)
+			}
+			for _, step := range view.Steps {
+				if step.Path == "each/0/build" && (step.ErrorCode != "outputs_unavailable" || step.AdvanceDue != tc.due) {
+					t.Fatalf("build = %+v", step)
+				}
+				if step.Path == "each" && step.Status != "running" {
+					t.Fatalf("loop = %+v; it decides later", step)
+				}
+			}
+		})
+	}
+}

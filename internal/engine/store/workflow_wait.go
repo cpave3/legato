@@ -197,6 +197,10 @@ func (s *Store) MergeWorkflowStepOutputs(ctx context.Context, runID, path, outpu
 // step's on_failure decides: fail sends the run back to the step, failed;
 // pause sends it back waiting; continue leaves it at the next step, with
 // the step still due its advance (the caller holds that claim and goes on).
+// A loop pass's step with no on_failure of its own follows its loop's, as
+// in FailWorkflowStepWith: pause, or the pass ends (FailurePassEnded) and
+// the run goes to its loop, the step due as a continued one is. After a
+// pass's last step the step after it is the loop, running.
 // Each update is a compare-and-swap, so of two hosts one fails the step and
 // the other gets ErrWorkflowStateConflict, as does a run that has ended.
 func (s *Store) FailRecordedWorkflowStep(ctx context.Context, runID, path, attemptID string, failure StepFailure) (string, error) {
@@ -222,6 +226,18 @@ func (s *Store) FailRecordedWorkflowStep(ctx context.Context, runID, path, attem
 		if definition.OnFailure == FailureContinued || definition.OnFailure == FailurePaused {
 			mode = definition.OnFailure
 		}
+		loopPath := passLoopPath(step.ParentPath)
+		if loopPath != "" && mode == FailureFailed {
+			// A pass's step fails its pass, as FailWorkflowStepWith says.
+			policy, err := loopFailurePolicy(ctx, tx, runID, loopPath)
+			if err != nil {
+				return err
+			}
+			mode = FailurePaused
+			if policy == FailureContinued || policy == FailureFailed {
+				mode = FailurePassEnded
+			}
+		}
 		next, err := nextStepPath(ctx, tx, runID, step.ParentPath, step.StepOrder)
 		if err != nil {
 			return err
@@ -238,22 +254,32 @@ func (s *Store) FailRecordedWorkflowStep(ctx context.Context, runID, path, attem
 		if mode == FailurePaused {
 			stepStatus = WorkflowStepPaused
 		}
-		// A continued step stays due and claimed: its caller moves the run on.
+		// A continued step, or one that ended its pass, stays due and
+		// claimed: its caller moves the run on.
+		goesOn := mode == FailureContinued || mode == FailurePassEnded
 		if err := execOne(ctx, tx, `UPDATE workflow_steps SET status = ?, error = ?, outputs_json = ?, completed_at = datetime('now'),
 			advance_due = ?, advance_claimed_at = CASE WHEN ? THEN advance_claimed_at END
 			WHERE run_id = ? AND path = ? AND status = 'succeeded' AND advance_due = 1`,
-			stepStatus, failure.Message, string(encoded), mode == FailureContinued, mode == FailureContinued, runID, path); err != nil {
+			stepStatus, failure.Message, string(encoded), goesOn, goesOn, runID, path); err != nil {
 			return err
 		}
+		// The step after it has not started: pending, or after a pass's
+		// last step its loop, running and not moved on.
+		nextStatus := "pending"
+		if next == loopPath {
+			nextStatus = "running"
+		}
 		atNext := ` WHERE id = ? AND current_step_id = ? AND status = 'running'
-			AND EXISTS (SELECT 1 FROM workflow_steps WHERE run_id = ? AND path = ? AND status = 'pending')`
+			AND EXISTS (SELECT 1 FROM workflow_steps WHERE run_id = ? AND path = ? AND status = ?)`
 		switch mode {
 		case FailureContinued:
-			return execOne(ctx, tx, `UPDATE workflow_runs SET error = ''`+atNext, runID, next, runID, next)
+			return execOne(ctx, tx, `UPDATE workflow_runs SET error = ''`+atNext, runID, next, runID, next, nextStatus)
+		case FailurePassEnded:
+			return execOne(ctx, tx, `UPDATE workflow_runs SET current_step_id = ?, error = ''`+atNext, loopPath, runID, next, runID, next, nextStatus)
 		case FailurePaused:
-			return execOne(ctx, tx, `UPDATE workflow_runs SET status = 'waiting', current_step_id = ?, error = ''`+atNext, path, runID, next, runID, next)
+			return execOne(ctx, tx, `UPDATE workflow_runs SET status = 'waiting', current_step_id = ?, error = ''`+atNext, path, runID, next, runID, next, nextStatus)
 		}
-		return execOne(ctx, tx, `UPDATE workflow_runs SET status = 'failed', current_step_id = ?, error = ?`+atNext, path, failure.Message, runID, next, runID, next)
+		return execOne(ctx, tx, `UPDATE workflow_runs SET status = 'failed', current_step_id = ?, error = ?`+atNext, path, failure.Message, runID, next, runID, next, nextStatus)
 	})
 	return mode, err
 }
