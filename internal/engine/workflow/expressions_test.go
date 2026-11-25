@@ -17,6 +17,7 @@ type expressionFixture struct {
 			Output string `json:"output"`
 		} `json:"location"`
 		Expression string `json:"expression"`
+		Whole      bool   `json:"whole"`
 		Valid      bool   `json:"valid"`
 	} `json:"cases"`
 }
@@ -48,6 +49,12 @@ func TestTheSharedExpressionTable(t *testing.T) {
 		switch tc.Location.Kind {
 		case "with":
 			definition.Steps[tc.Location.Step].With["prompt"] = "Look at " + value
+			if tc.Whole {
+				definition.Steps[tc.Location.Step].With["prompt"] = value
+			}
+		case "if":
+			exists := true
+			definition.Steps[tc.Location.Step].If = &workflow.Condition{Field: tc.Expression, Exists: &exists}
 		case "run_title":
 			definition.RunTitle = "Run " + value
 		case "output_path":

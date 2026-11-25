@@ -50,7 +50,7 @@ func AgentFrom(value any) (string, bool) {
 		return "", false
 	}
 	step, ok := ref[AgentFromKey].(string)
-	if !ok || strings.TrimSpace(step) == "" || expressionPattern.MatchString(step) {
+	if !ok || strings.TrimSpace(step) == "" || HasExpression(step) {
 		return "", false
 	}
 	return step, true

@@ -54,7 +54,7 @@ func ChatBotDiagnostics(data []byte, d *Definition, lookup func(name string) (Ch
 		if !strings.HasPrefix(step.Type, "chat.") {
 			continue
 		}
-		if name, ok := step.With["bot"].(string); ok && name != "" && !expressionPattern.MatchString(name) {
+		if name, ok := step.With["bot"].(string); ok && name != "" && !HasExpression(name) {
 			check(fmt.Sprintf("steps[%d].with.bot", i), name)
 		}
 	}

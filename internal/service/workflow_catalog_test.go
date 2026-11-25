@@ -103,9 +103,10 @@ func executorTypesInSource(t *testing.T) []string {
 		case *ast.Ident:
 			value = constants[expr.Name]
 		}
-		// A step type has a dot; other Type methods (such as a profile's)
-		// return something else.
-		if strings.Contains(value, ".") && !slices.Contains(types, value) {
+		// A step type has a dot, or is one of the catalog's without (gate);
+		// other Type methods (such as a profile's) return something else.
+		_, listed := workflowengine.LookupExecutor(value)
+		if (strings.Contains(value, ".") || listed) && !slices.Contains(types, value) {
 			types = append(types, value)
 		}
 	}

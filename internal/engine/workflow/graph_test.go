@@ -125,6 +125,7 @@ func TestGraphKeyValuePerExecutorType(t *testing.T) {
 		{"note body", `{id: s, title: S, type: task.note, with: {task: "${{ workflow.inputs.task }}", body: "Hello\nthere"}}`, "body", "Hello"},
 		{"note from a file", `{id: s, title: S, type: task.note, with: {task: "${{ workflow.inputs.task }}", body_path: out.md}}`, "body_path", "out.md"},
 		{"metadata", `{id: s, title: S, type: task.metadata.set, with: {task: "${{ workflow.inputs.task }}", values: {triaged: true, area: web}}}`, "values", "area, triaged"},
+		{"gate", `{id: s, title: S, type: gate, with: {title: Ship it, options: [Ship, Stop]}}`, "title", "Ship it"},
 		{"nothing to show", `{id: s, title: S, type: agent.stop, with: {task: "${{ workflow.inputs.task }}"}}`, "", ""},
 	}
 	for _, tc := range cases {
@@ -415,4 +416,16 @@ func TestGraphLabelsChatTriggersAndSends(t *testing.T) {
 			t.Fatalf("%s node = %+v", id, node)
 		}
 	}
+}
+
+// An if: reads earlier steps' outputs as a with value does: the graph draws
+// those data edges too.
+func TestAnIfDrawsDataEdges(t *testing.T) {
+	definition := mustParse(t, "schema_version: 2\nname: k\ntitle: K\nsteps:\n  - {id: pass, type: task.context, with: {task: \"${{ workflow.task }}\"}}\n  - {id: note, if: {field: steps.pass.outputs.content, empty: false}, type: task.context, with: {task: \"${{ workflow.task }}\"}}\n")
+	for _, edge := range BuildGraph(definition).Edges {
+		if edge.Source == "step:pass" && edge.Target == "step:note" && edge.Kind == "data" {
+			return
+		}
+	}
+	t.Fatalf("no data edge from pass to note: %+v", BuildGraph(definition).Edges)
 }

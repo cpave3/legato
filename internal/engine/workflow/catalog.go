@@ -122,7 +122,7 @@ type ExecutorSpec struct {
 }
 
 // StepGroups are the step picker's groups, in its order.
-var StepGroups = []string{"Agents", "Code", "Board", "Chat", "Learn", "Cleanup"}
+var StepGroups = []string{"Agents", "Code", "Board", "Chat", "Learn", "Cleanup", "Control"}
 
 // Field is the spec's with field of that name.
 func (s ExecutorSpec) Field(name string) (Field, bool) {
@@ -248,7 +248,7 @@ func (c Constraint) check(with map[string]any) error {
 // file alone can tell.
 func (f Field) accepts(value any, inputs map[string]Input) bool {
 	text, isText := value.(string)
-	expression := isText && !f.Literal && expressionPattern.MatchString(text)
+	expression := isText && !f.Literal && HasExpression(text)
 	if len(f.Enum) > 0 && !expression {
 		return isText && slices.Contains(f.Enum, text)
 	}
@@ -275,6 +275,9 @@ func (f Field) accepts(value any, inputs map[string]Input) bool {
 	case KindColumn:
 		return isText && (expression || strings.TrimSpace(text) != "")
 	case KindJSON:
+		if f.Name == "options" && f.Checked {
+			return gateOptionsValid(value)
+		}
 		return true
 	default:
 		return isText
@@ -321,6 +324,37 @@ var (
 		return Field{Name: name, Kind: KindBoolean, Label: label, Description: description, Default: false, Literal: true, Checked: true, Invalid: "must be true or false"}
 	}
 )
+
+// GateStepType is the step that asks the operator to choose (LEG-486).
+const GateStepType = "gate"
+
+// GateStop is the gate option that ends the run as stopped, in any case.
+const GateStop = "Stop"
+
+// DefaultGateOptions are a gate's options when it names none.
+var DefaultGateOptions = []string{"Continue", GateStop}
+
+// gateOptionsValid reports whether a gate's options are a list of
+// different, non-empty names, or a ${{ }}.
+func gateOptionsValid(value any) bool {
+	if text, ok := value.(string); ok {
+		return HasExpression(text)
+	}
+	list, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, item := range list {
+		name, ok := item.(string)
+		name = strings.TrimSpace(name)
+		if !ok || name == "" || seen[strings.ToLower(name)] {
+			return false
+		}
+		seen[strings.ToLower(name)] = true
+	}
+	return true
+}
 
 // SlotNamePattern is what a named agent slot of a card must match, and
 // ReservedSlots the named slots agent.run may not take: the review loop's.
@@ -643,6 +677,20 @@ var catalog = []ExecutorSpec{
 			{Name: "merged_at", Type: "string", Description: "When it merged (RFC 3339), or empty"},
 			{Name: "url", Type: "string", Description: "The pull request's address"},
 		},
+	},
+	{
+		Type: GateStepType, Group: "Control", Title: "Ask the operator",
+		Description: "Hold the run until the operator chooses one of the options, from a needs-you item or the run page. The step's choice output is the option chosen; Stop ends the run as stopped.",
+		With: []Field{
+			{Name: "title", Kind: KindString, Label: "Question", Description: "What the operator is asked, the needs-you item's title", Required: true, Essential: true, Order: 1},
+			{Name: "body", Kind: KindText, Label: "Details", Description: "More for the operator to read before choosing: Markdown", Essential: true, Order: 2},
+			{Name: "body_path", Kind: KindPath, Label: "Details from a file", Description: "A file whose Markdown is the details, by its absolute path, such as an earlier step's ${{ steps.<id>.outputs.<file>.path }}; at most 64 KiB is read", Order: 3},
+			{Name: "options", Kind: KindJSON, Label: "Options", Description: "The choices, a list of names; Continue and Stop when empty. Stop, in any case, ends the run as stopped", Order: 4,
+				Checked: true, Invalid: "must be a list of different, non-empty names"},
+		},
+		Constraints: []Constraint{{Kind: Excludes, Fields: []string{"body", "body_path"}, Checked: true}},
+		Summary:     []string{"title"},
+		Outputs:     []OutputSpec{{Name: "choice", Type: "string", Description: "The option the operator chose"}},
 	},
 	{
 		Type: "worktree.remove", Group: "Cleanup", Title: "Remove the worktree",

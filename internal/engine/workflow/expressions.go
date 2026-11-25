@@ -83,6 +83,7 @@ func ExpressionContexts() []ExpressionContext {
 		{Location: "run_title", Description: "The run's title: the inputs only, as the workflow task does not exist yet", Roots: append([]ExpressionRoot{}, inputRoots...)},
 		{Location: "with", Description: "A step's with values", Roots: with},
 		{Location: "output_path", Description: "A file output's path", Roots: outputPath},
+		{Location: "if", Description: "A step's if: condition's field, a bare path (no ${{ }}); [n] and .field reach into JSON", Roots: append([]ExpressionRoot{}, outputPath...)},
 		{Location: "trigger." + TriggerTaskEnteredColumn, Description: "The inputs of a column-entry trigger", Roots: []ExpressionRoot{
 			{"event.task", "The ID of the task that entered the column"},
 			{"task.<task field>", "A field of the task that entered the column"},

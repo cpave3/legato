@@ -213,6 +213,7 @@ func BuildGraph(d *Definition) *Graph {
 // expression pattern validation reads them with.
 func stepOutputsUsed(step Step) map[string]map[string]bool {
 	uses := map[string]map[string]bool{}
+	var use func([]PathPart)
 	var walk func(any)
 	walk = func(value any) {
 		switch nested := value.(type) {
@@ -225,15 +226,24 @@ func stepOutputsUsed(step Step) map[string]map[string]bool {
 				walk(item)
 			}
 		case string:
-			for _, match := range expressionPattern.FindAllStringSubmatch(nested, -1) {
-				parts := strings.Split(strings.TrimSpace(match[1]), ".")
-				if len(parts) >= 4 && parts[0] == "steps" && parts[2] == "outputs" && parts[1] != step.ID {
-					if uses[parts[1]] == nil {
-						uses[parts[1]] = map[string]bool{}
-					}
-					uses[parts[1]][parts[3]] = true
+			for _, match := range findExpressions(nested) {
+				expression, err := ParseExpression(match.inner)
+				if err != nil {
+					continue
+				}
+				for _, operand := range expression.Operands {
+					use(operand.Path)
 				}
 			}
+		}
+	}
+	use = func(path []PathPart) {
+		parts := pathNames(path)
+		if len(parts) >= 4 && parts[0] == "steps" && parts[2] == "outputs" && parts[1] != step.ID {
+			if uses[parts[1]] == nil {
+				uses[parts[1]] = map[string]bool{}
+			}
+			uses[parts[1]][parts[3]] = true
 		}
 	}
 	for _, value := range step.With {
@@ -241,6 +251,14 @@ func stepOutputsUsed(step Step) map[string]map[string]bool {
 	}
 	for _, output := range step.Outputs {
 		walk(output.Path)
+	}
+	// An if: reads its fields as bare paths.
+	if step.If != nil {
+		step.If.eachField(func(field string) {
+			if path, err := ParsePath(field); err == nil {
+				use(path)
+			}
+		})
 	}
 	return uses
 }
@@ -289,6 +307,8 @@ func stepKey(step Step) GraphKey {
 		return first("summary", "project")
 	case "ticket.comment":
 		return first("key")
+	case GateStepType:
+		return first("title")
 	case "task.metadata.set":
 		if values, ok := step.With["values"].(map[string]any); ok && len(values) > 0 {
 			keys := make([]string, 0, len(values))

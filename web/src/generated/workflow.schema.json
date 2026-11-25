@@ -44,8 +44,12 @@
           },
           "type": "array"
         },
+        "empty": {
+          "description": "Whether the field is empty: missing, null, \"\", [] or {}",
+          "type": "boolean"
+        },
         "equals": {
-          "description": "The field equals this"
+          "description": "The field equals this; numbers compare by value"
         },
         "exists": {
           "description": "Whether the field has a value",
@@ -55,9 +59,15 @@
           "description": "The field to compare, such as task.priority, task.metadata.\u003ckey\u003e or event.from_column",
           "type": "string"
         },
+        "gt": {
+          "description": "The field is greater than this: numbers by value, text as text; false when the field is missing"
+        },
         "in": {
           "description": "The field is one of these",
           "type": "array"
+        },
+        "lt": {
+          "description": "The field is less than this: numbers by value, text as text; false when the field is missing"
         },
         "not": {
           "allOf": [
@@ -605,6 +615,28 @@
           "if": {
             "properties": {
               "type": {
+                "const": "gate"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.gate"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "worktree.remove"
               }
             },
@@ -777,6 +809,7 @@
             "chat.reaction.remove",
             "chat.thread.read",
             "github.pr.wait",
+            "gate",
             "worktree.remove",
             "file.remove",
             "chimera.session.remove",
@@ -2564,6 +2597,87 @@
         "type": "file.remove"
       }
     },
+    "with.gate": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "body",
+              "body_path"
+            ]
+          }
+        }
+      ],
+      "description": "Hold the run until the operator chooses one of the options, from a needs-you item or the run page. The step's choice output is the option chosen; Stop ends the run as stopped.",
+      "properties": {
+        "body": {
+          "description": "More for the operator to read before choosing: Markdown",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "text",
+            "label": "Details",
+            "order": 2
+          }
+        },
+        "body_path": {
+          "description": "A file whose Markdown is the details, by its absolute path, such as an earlier step's ${{ steps.\u003cid\u003e.outputs.\u003cfile\u003e.path }}; at most 64 KiB is read",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "path",
+            "label": "Details from a file",
+            "order": 3
+          }
+        },
+        "options": {
+          "description": "The choices, a list of names; Continue and Stop when empty. Stop, in any case, ends the run as stopped",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "json",
+            "label": "Options",
+            "order": 4
+          }
+        },
+        "title": {
+          "description": "What the operator is asked, the needs-you item's title",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Question",
+            "order": 1
+          }
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "Ask the operator",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Control",
+        "outputs": [
+          {
+            "description": "The option the operator chose",
+            "name": "choice",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "title"
+        ],
+        "type": "gate"
+      }
+    },
     "with.github.pr.prepare": {
       "additionalProperties": false,
       "description": "Fetch a pull request's exact head into a new worktree, and link the workflow task to it. Needs Yggdrasil worktrees.",
@@ -3979,6 +4093,16 @@
       {
         "description": "Send a prompt or a macro to a running agent: the one an earlier step used (agent: {from: \u003cstep\u003e}), or a task's own. A prompt reaches it tagged [legato workflow]; a macro is sent as the operator's own words. The step does not wait for the agent.",
         "group": "Agents",
+        "outputs": [
+          {
+            "name": "task",
+            "type": "string"
+          },
+          {
+            "name": "session_id",
+            "type": "integer"
+          }
+        ],
         "summary": [
           "macro",
           "prompt"
@@ -3989,6 +4113,20 @@
       {
         "description": "Send a prompt or a macro to a task's agent, starting one when the task has none. The step does not wait for the agent. It is read as agent.run with on: \u003ctask\u003e and reuse: true that does not wait; new workflows use agent.run or agent.message.",
         "group": "Agents",
+        "outputs": [
+          {
+            "name": "agent_session_id",
+            "type": "integer"
+          },
+          {
+            "name": "created",
+            "type": "boolean"
+          },
+          {
+            "name": "working_dir",
+            "type": "string"
+          }
+        ],
         "summary": [
           "macro",
           "prompt"
@@ -4008,6 +4146,16 @@
       {
         "description": "Compact a task's running agent with its tool's own compaction, once its turn ends, and wait for the compaction to finish. The step fails when the agent's tool cannot be compacted from Legato, or the agent is still working after 15 minutes.",
         "group": "Agents",
+        "outputs": [
+          {
+            "name": "tokens_before",
+            "type": "integer"
+          },
+          {
+            "name": "tokens_after",
+            "type": "integer"
+          }
+        ],
         "summary": [
           "instructions",
           "task"
@@ -4018,6 +4166,24 @@
       {
         "description": "Make Legato's copy of a GitHub repository ready for an agent to be cloned from, or pass a directory through when no repository is given.",
         "group": "Code",
+        "outputs": [
+          {
+            "name": "working_dir",
+            "type": "string"
+          },
+          {
+            "name": "repo",
+            "type": "string"
+          },
+          {
+            "name": "ref",
+            "type": "string"
+          },
+          {
+            "name": "branch",
+            "type": "string"
+          }
+        ],
         "summary": [
           "repo",
           "working_dir"
@@ -4028,6 +4194,12 @@
       {
         "description": "Export a task's full context (title, description, notes, pull requests) as text.",
         "group": "Board",
+        "outputs": [
+          {
+            "name": "content",
+            "type": "string"
+          }
+        ],
         "summary": [
           "task"
         ],
@@ -4037,6 +4209,16 @@
       {
         "description": "The task's worktree when it has one, else the fallback.",
         "group": "Board",
+        "outputs": [
+          {
+            "name": "path",
+            "type": "string"
+          },
+          {
+            "name": "source",
+            "type": "string"
+          }
+        ],
         "summary": [
           "task"
         ],
@@ -4046,6 +4228,28 @@
       {
         "description": "Add a durable note to a task.",
         "group": "Board",
+        "outputs": [
+          {
+            "name": "note_id",
+            "type": "string"
+          },
+          {
+            "name": "task_id",
+            "type": "string"
+          },
+          {
+            "name": "skipped",
+            "type": "boolean"
+          },
+          {
+            "name": "away_on",
+            "type": "string"
+          },
+          {
+            "name": "warning",
+            "type": "string"
+          }
+        ],
         "summary": [
           "body",
           "body_path"
@@ -4074,6 +4278,28 @@
       {
         "description": "Fetch a pull request's exact head into a new worktree, and link the workflow task to it. Needs Yggdrasil worktrees.",
         "group": "Code",
+        "outputs": [
+          {
+            "name": "worktree_path",
+            "type": "string"
+          },
+          {
+            "name": "branch",
+            "type": "string"
+          },
+          {
+            "name": "base_branch",
+            "type": "string"
+          },
+          {
+            "name": "head_sha",
+            "type": "string"
+          },
+          {
+            "name": "metadata",
+            "type": "json"
+          }
+        ],
         "summary": [
           "repo"
         ],
@@ -4083,6 +4309,36 @@
       {
         "description": "Review an open pull request (or its stack) in passes posted as GitHub reviews from Legato's reviewer App, until a clean pass approves it. Needs review passes turned on.",
         "group": "Code",
+        "outputs": [
+          {
+            "name": "outcome",
+            "type": "string"
+          },
+          {
+            "name": "passes",
+            "type": "integer"
+          },
+          {
+            "name": "findings",
+            "type": "integer"
+          },
+          {
+            "name": "reviews",
+            "type": "json"
+          },
+          {
+            "name": "approval_withheld",
+            "type": "boolean"
+          },
+          {
+            "name": "summary_path",
+            "type": "string"
+          },
+          {
+            "name": "linked_task",
+            "type": "string"
+          }
+        ],
         "summary": [
           "repo"
         ],
@@ -4092,6 +4348,20 @@
       {
         "description": "Close the Burnlite ticket a task was imported from, with a reason and a summary. Needs Legato connected to Burnlite with write access.",
         "group": "Board",
+        "outputs": [
+          {
+            "name": "key",
+            "type": "string"
+          },
+          {
+            "name": "closed",
+            "type": "boolean"
+          },
+          {
+            "name": "skipped",
+            "type": "boolean"
+          }
+        ],
         "summary": [
           "task"
         ],
@@ -4119,6 +4389,20 @@
       {
         "description": "Post a message as a Slack or Discord bot set up in Settings › Integrations. Fails at once when the bot is not set up or cannot send.",
         "group": "Chat",
+        "outputs": [
+          {
+            "name": "message_id",
+            "type": "string"
+          },
+          {
+            "name": "channel",
+            "type": "string"
+          },
+          {
+            "name": "thread_id",
+            "type": "string"
+          }
+        ],
         "summary": [
           "text"
         ],
@@ -4128,6 +4412,12 @@
       {
         "description": "Add a chat bot's emoji reaction to a message. A reaction the bot has already left is fine. The Slack app needs the reactions:write scope; the Discord bot needs Add Reactions and Read Message History.",
         "group": "Chat",
+        "outputs": [
+          {
+            "name": "ok",
+            "type": "boolean"
+          }
+        ],
         "summary": [
           "emoji"
         ],
@@ -4137,6 +4427,12 @@
       {
         "description": "Remove a chat bot's own emoji reaction from a message. A reaction that is not there is fine. Needs the same scope and permissions as adding one.",
         "group": "Chat",
+        "outputs": [
+          {
+            "name": "ok",
+            "type": "boolean"
+          }
+        ],
         "summary": [
           "emoji"
         ],
@@ -4146,6 +4442,20 @@
       {
         "description": "Read the thread a chat message is in, as a Slack or Discord bot set up in Settings › Integrations, for a later step: a Slack thread, a Discord thread, or the replies a Discord message ends. A message in no thread is a thread of one.",
         "group": "Chat",
+        "outputs": [
+          {
+            "name": "transcript",
+            "type": "string"
+          },
+          {
+            "name": "messages",
+            "type": "json"
+          },
+          {
+            "name": "count",
+            "type": "integer"
+          }
+        ],
         "summary": [
           "thread_id"
         ],
@@ -4155,6 +4465,24 @@
       {
         "description": "Wait until a pull request merges, or closes. Legato reads its state from GitHub when the step starts, after each refresh of a card's pull requests, and every few minutes.",
         "group": "Code",
+        "outputs": [
+          {
+            "name": "state",
+            "type": "string"
+          },
+          {
+            "name": "merged",
+            "type": "boolean"
+          },
+          {
+            "name": "merged_at",
+            "type": "string"
+          },
+          {
+            "name": "url",
+            "type": "string"
+          }
+        ],
         "summary": [
           "repo"
         ],
@@ -4162,8 +4490,37 @@
         "type": "github.pr.wait"
       },
       {
+        "description": "Hold the run until the operator chooses one of the options, from a needs-you item or the run page. The step's choice output is the option chosen; Stop ends the run as stopped.",
+        "group": "Control",
+        "outputs": [
+          {
+            "name": "choice",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "title"
+        ],
+        "title": "Ask the operator",
+        "type": "gate"
+      },
+      {
         "description": "Remove the workflow task's Yggdrasil worktree, when it is at the path expected.",
         "group": "Cleanup",
+        "outputs": [
+          {
+            "name": "removed",
+            "type": "boolean"
+          },
+          {
+            "name": "removed_path",
+            "type": "string"
+          },
+          {
+            "name": "removed_branch",
+            "type": "string"
+          }
+        ],
         "summary": [
           "expected_path"
         ],
@@ -4173,6 +4530,12 @@
       {
         "description": "Remove one regular file inside a directory; a file that is not there is not an error.",
         "group": "Cleanup",
+        "outputs": [
+          {
+            "name": "removed",
+            "type": "boolean"
+          }
+        ],
         "summary": [
           "path"
         ],
@@ -4182,6 +4545,16 @@
       {
         "description": "Remove the saved Chimera session of a task's agent.",
         "group": "Cleanup",
+        "outputs": [
+          {
+            "name": "removed",
+            "type": "boolean"
+          },
+          {
+            "name": "metadata_cleared",
+            "type": "boolean"
+          }
+        ],
         "summary": [
           "task"
         ],
@@ -4191,6 +4564,20 @@
       {
         "description": "Ask a task's running agent what it learned, and keep its answer as evidence for Legato Learn. The agent must be running.",
         "group": "Learn",
+        "outputs": [
+          {
+            "name": "available",
+            "type": "boolean"
+          },
+          {
+            "name": "request_id",
+            "type": "string"
+          },
+          {
+            "name": "reason",
+            "type": "string"
+          }
+        ],
         "summary": [
           "task"
         ],
@@ -4200,6 +4587,20 @@
       {
         "description": "Gather a task's evidence and the learnings it may touch into a bounded packet, for a curator agent to read.",
         "group": "Learn",
+        "outputs": [
+          {
+            "name": "generation_id",
+            "type": "string"
+          },
+          {
+            "name": "packet_digest",
+            "type": "string"
+          },
+          {
+            "name": "packet",
+            "type": "json"
+          }
+        ],
         "summary": [
           "task"
         ],
@@ -4209,6 +4610,28 @@
       {
         "description": "Check a curator's operations against its packet and keep them as candidates on the Learning page. Nothing is accepted for you.",
         "group": "Learn",
+        "outputs": [
+          {
+            "name": "generation_id",
+            "type": "string"
+          },
+          {
+            "name": "packet_digest",
+            "type": "string"
+          },
+          {
+            "name": "status",
+            "type": "string"
+          },
+          {
+            "name": "replayed",
+            "type": "boolean"
+          },
+          {
+            "name": "summary",
+            "type": "json"
+          }
+        ],
         "summary": [
           "generation"
         ],
@@ -4217,6 +4640,48 @@
       }
     ],
     "expressions": {
+      "if": {
+        "location": "if",
+        "description": "A step's if: condition's field, a bare path (no ${{ }}); [n] and .field reach into JSON",
+        "roots": [
+          {
+            "pattern": "workflow.inputs.\u003cinput\u003e",
+            "description": "A workflow input"
+          },
+          {
+            "pattern": "workflow.inputs.\u003ctask input\u003e.\u003ctask field\u003e",
+            "description": "A field of a task input"
+          },
+          {
+            "pattern": "workflow.inputs.\u003ctask input\u003e.metadata.\u003cpath\u003e",
+            "description": "A metadata value of a task input"
+          },
+          {
+            "pattern": "workflow.inputs.\u003crepository input\u003e.\u003crepository field\u003e",
+            "description": "A field of a repository input"
+          },
+          {
+            "pattern": "workflow.task",
+            "description": "The workflow task, whole"
+          },
+          {
+            "pattern": "workflow.task.\u003ctask field\u003e",
+            "description": "A field of the workflow task"
+          },
+          {
+            "pattern": "workflow.task.metadata.\u003cpath\u003e",
+            "description": "A metadata value of the workflow task"
+          },
+          {
+            "pattern": "steps.\u003cearlier step\u003e.outputs.\u003coutput\u003e",
+            "description": "An output of an earlier step"
+          },
+          {
+            "pattern": "steps.\u003cearlier step\u003e.outputs.\u003coutput\u003e.path",
+            "description": "Where an earlier step's file output is"
+          }
+        ]
+      },
       "output_path": {
         "location": "output_path",
         "description": "A file output's path",
@@ -4520,6 +4985,11 @@
         ]
       }
     },
+    "failure_outputs": [
+      "status",
+      "error",
+      "error_code"
+    ],
     "repository_fields": [
       "name",
       "repo",
@@ -4533,7 +5003,8 @@
       "Board",
       "Chat",
       "Learn",
-      "Cleanup"
+      "Cleanup",
+      "Control"
     ],
     "task_fields": [
       "id",

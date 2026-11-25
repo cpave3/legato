@@ -62,6 +62,15 @@ func buildSchema() schemaObject {
 		if spec.Group != "" {
 			executor["group"] = spec.Group
 		}
+		if len(spec.Outputs) > 0 {
+			// The outputs a later step may read without the step declaring
+			// them, for the editor's expression checks.
+			var outputs []any
+			for _, output := range spec.Outputs {
+				outputs = append(outputs, schemaObject{"name": output.Name, "type": output.Type})
+			}
+			executor["outputs"] = outputs
+		}
 		executors = append(executors, executor)
 	}
 	step := definitions["step"].(schemaObject)
@@ -75,11 +84,14 @@ func buildSchema() schemaObject {
 	}
 	root["definitions"] = definitions
 	root["x-legato"] = schemaObject{
-		"schema_version":    SchemaVersion,
-		"step_groups":       StepGroups,
-		"executors":         executors,
-		"expressions":       contexts,
-		"task_fields":       TaskFields,
+		"schema_version": SchemaVersion,
+		"step_groups":    StepGroups,
+		"executors":      executors,
+		"expressions":    contexts,
+		"task_fields":    TaskFields,
+		// failure_outputs are what a step with on_failure: continue may be
+		// read for after it fails.
+		"failure_outputs":   FailureOutputs,
 		"repository_fields": RepositoryFields,
 		// condition_fields are what a condition's field may be, besides
 		// task.metadata.<key>.
@@ -340,9 +352,12 @@ var fieldSchemas = map[string]schemaObject{
 	"Condition.not":        {"description": "This does not match"},
 	"Condition.field":      {"description": "The field to compare, such as task.priority, task.metadata.<key> or event.from_column"},
 	"Condition.exists":     {"description": "Whether the field has a value"},
-	"Condition.equals":     {"description": "The field equals this"},
+	"Condition.equals":     {"description": "The field equals this; numbers compare by value"},
 	"Condition.not_equals": {"description": "The field does not equal this"},
 	"Condition.in":         {"description": "The field is one of these"},
+	"Condition.gt":         {"description": "The field is greater than this: numbers by value, text as text; false when the field is missing"},
+	"Condition.lt":         {"description": "The field is less than this: numbers by value, text as text; false when the field is missing"},
+	"Condition.empty":      {"description": "Whether the field is empty: missing, null, \"\", [] or {}"},
 }
 
 func (r schemaReflector) object(t reflect.Type) schemaObject {
