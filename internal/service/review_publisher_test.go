@@ -95,6 +95,14 @@ type reviewGitHub struct {
 	// graphqlLimit, while set, answers GraphQL with a primary rate limit
 	// in a 200, as GitHub does, that resets then.
 	graphqlLimit time.Time
+	// watched are the pull requests the watch query answers with, by
+	// number (GraphQL pullRequest JSON); watchReads counts the watch
+	// queries and watchVars holds the last one's variables. bearers are
+	// the tokens of every API request, in order.
+	watched    map[int]string
+	watchReads int
+	watchVars  map[string]any
+	bearers    []string
 }
 
 // fakeAppSlugs are the Apps of the fixture, by the client ID their JWTs
@@ -181,6 +189,7 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			w.WriteHeader(204)
 		case perms == nil:
 			w.WriteHeader(401)
+		case g.bear(bearer) && false:
 		case g.hit(r) && g.limit != nil && (g.limit.owner == "" || strings.HasPrefix(r.URL.Path, "/repos/"+g.limit.owner+"/")):
 			for k, v := range g.limit.headers {
 				w.Header().Set(k, v)
@@ -356,6 +365,22 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			switch {
+			case strings.Contains(body.Query, "mergeStateStatus"):
+				g.watchReads++
+				g.watchVars = body.Variables
+				var parts []string
+				for k, v := range body.Variables {
+					if !strings.HasPrefix(k, "n") || k == "name" {
+						continue
+					}
+					n := int(v.(float64))
+					pull, ok := g.watched[n]
+					if !ok {
+						pull = "null"
+					}
+					parts = append(parts, fmt.Sprintf(`"p%s":%s`, strings.TrimPrefix(k, "n"), pull))
+				}
+				_, _ = io.WriteString(w, `{"data":{"repository":{`+strings.Join(parts, ",")+`}}}`)
 			case strings.Contains(body.Query, "resolveReviewThread"):
 				if g.resolveError != "" {
 					_, _ = io.WriteString(w, `{"errors":[{"message":"`+g.resolveError+`"}]}`)
@@ -380,6 +405,12 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 	}))
 	t.Cleanup(g.srv.Close)
 	return g
+}
+
+// bear records an API request's token, always true.
+func (g *reviewGitHub) bear(token string) bool {
+	g.bearers = append(g.bearers, token)
+	return true
 }
 
 // hit counts an API request, always true.
