@@ -420,13 +420,52 @@ on:
 
 - `bot` is required: `slack` or `discord`.
 - `channel` and `user` narrow it to one channel and one sender, by the platform's IDs.
-- `text` matches the message's text: `{contains: deploy}` ignores case; `{regex: "^deploy (\\w+)$"}` is a Go regular expression (add `(?i)` to ignore case). Give one of the two.
+- `text` matches the message's text: `{contains: deploy}` ignores case; `{regex: "^deploy (\\w+)$"}` is a Go regular expression (add `(?i)` to ignore case). Give at most one of the two. `not_contains` and `not_regex` are the text the message must not have, alone or beside `contains` or `regex`; every test given must hold. Go's regular expressions cannot say "does not contain", so this is how to write it: `{regex: "(?i)investigat", not_regex: "(?i)\\bfix"}` matches "investigate the outage" and not "investigate and fix it".
 - `include_bots: true` also starts runs on messages from other bots. The bot's own messages never start a run.
 - `loop_item` is what the [loop stop](#the-loop-stop) counts runs by: `channel` (the default) or `thread`.
+- `fallback: true` makes it fire only when no other trigger matched: see [A fallback for everything else](#a-fallback-for-everything-else).
 
-The inputs may read `${{ event.bot }}`, `${{ event.platform }}`, `${{ event.channel }}`, `${{ event.user }}`, `${{ event.text }}`, `${{ event.message_id }}`, `${{ event.thread_id }}`, `${{ event.forwarded }}` and `${{ event.forwarded_url }}`. `event.thread_id` is what a `chat.message.send` step's `thread_id` takes to reply to the message, and what a `chat.thread.read` step's takes to [read its thread](#reading-the-thread). `event.message_id` with `event.channel` names the message itself, for a reaction step. Each message starts at most one run per trigger. A mention is a message too, so a workflow with both triggers gets a run from each.
+In the web UI's builder, a chat trigger's card has the text match, an **Except** row for `not_contains` or `not_regex`, and a checkbox for `fallback`.
+
+The inputs may read `${{ event.bot }}`, `${{ event.platform }}`, `${{ event.channel }}`, `${{ event.user }}`, `${{ event.text }}`, `${{ event.message_id }}`, `${{ event.thread_id }}`, `${{ event.forwarded }}`, `${{ event.forwarded_url }}` and `${{ event.commands }}` (see [Listing the commands](#listing-the-commands)). `event.thread_id` is what a `chat.message.send` step's `thread_id` takes to reply to the message, and what a `chat.thread.read` step's takes to [read its thread](#reading-the-thread). `event.message_id` with `event.channel` names the message itself, for a reaction step. Each message starts at most one run per trigger. A mention is a message too, so a workflow with both triggers gets a run from each.
 
 Message text is stored with the trigger request, cut to 8 KiB. When a message forwards another, the forwarded part is cut first, and a final `> …` line shows where.
+
+#### A fallback for everything else
+
+Chat triggers do not know of each other: every trigger a message matches starts its own run. A trigger with `fallback: true` is the exception. It fires only when no other chat trigger on the same bot matched the message, so a help workflow can answer whatever the others do not:
+
+```yaml
+on:
+  chat.mention:
+    bot: slack
+    fallback: true
+    inputs:
+      thread: ${{ event.thread_id }}
+      commands: ${{ event.commands }}
+```
+
+- Legato matches the other triggers first, then the fallbacks. A trigger "matched" when its `channel`, `user`, `text` and `include_bots` filters passed. What became of its run after that (held by the loop stop, waiting for you, failed) does not matter.
+- The other triggers are every chat trigger on that bot, of either kind, in any workflow, the fallback's own workflow included. A `chat.message` trigger that matched stops a `chat.mention` fallback, and the other way round.
+- A paused trigger never matches, so it never stops a fallback. A paused fallback does nothing.
+- The fallback's own filters still apply: with `user: U0123456789` it answers only that person.
+- Several fallbacks may fire for one message: fallbacks never stop each other.
+- When a fallback fires, its trigger request records why. When another trigger matched, the fallback's request is **skipped** and names the triggers that matched, such as `fallback: matched by investigate (chat.mention)`.
+
+A trigger with no `channel`, `user` or `text` on the same bot matches every message, so a fallback beside it can never fire: a `chat.message` trigger stops every fallback on its bot, and a `chat.mention` trigger every `chat.mention` fallback. The editor and `legato workflow validate` warn of such a fallback. `legato workflow validate` reads no database, so it goes by each file's `enabled`, not by triggers paused in the web UI.
+
+#### Listing the commands
+
+`chat_help: true` at the top of a workflow lists it in `${{ event.commands }}` on the bots its chat triggers run on:
+
+```yaml
+name: investigate
+title: Investigate
+description: Investigates an alert and replies with what it found
+chat_help: true
+```
+
+`${{ event.commands }}` is one line per such workflow, sorted by title: `• Title — the first line of its description`. Each description is cut to 200 characters and the whole list to 4 KiB. It is plain text, which Slack and Discord both show as written. A workflow is listed when it has a chat trigger on the message's bot that is enabled and is not a fallback, so a help workflow with only a fallback trigger does not list itself. The list is empty when no workflow is listed. The editor and `legato workflow validate` warn of `chat_help` on a workflow with no chat trigger.
 
 #### Forwarded and shared messages
 
