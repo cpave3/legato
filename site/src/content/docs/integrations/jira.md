@@ -110,6 +110,8 @@ The ticket goes into the column that its Jira status maps to, or Backlog when no
 
 To choose a workspace for every import, set `default_import_workspace` to the name of one of your `workspaces`.
 
+A [workflow](/legato/using/workflows/#tickets-and-cards-as-data) can import tickets with `ticket.import`, and list them with `tickets.list`: an epic's issues, the ones that can be started now (not started, and blocked by no open issue), or the epics ready to build.
+
 ## How sync works
 
 Every `jira.sync_interval_seconds`, Legato pulls the tickets you track. It updates the title, description, priority, type, assignee, labels and epic of each ticket that changed in Jira. Press `r` on the board to sync now.

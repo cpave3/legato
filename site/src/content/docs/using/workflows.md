@@ -1086,6 +1086,35 @@ The outputs are worked out when the run succeeds, and shown on its page under **
 
 The child is a run of its own, on the **Runs** list and with its own page, which says which run and step called it.
 
+
+### Tickets and cards as data
+
+Three steps put tickets on the board and give tickets and cards to later steps as lists. A list's `items` output is a `json` list, so a later step reads into it: `${{ steps.find.outputs.items[0].key }}`, `${{ steps.find.outputs.count }}`.
+
+- `ticket.import`: put a ticket on the board as a card, or find the card it already is. `key` is the ticket's key, such as `LEG-42`: a task, or a Burnlite milestone or Jira epic. `provider` is `burnlite` or `jira`, needed only when both are connected. `column` and `workspace` (a name) place a new card; a card already on the board stays where it is, and one you archived comes back to its column. Outputs: `task` (the card's ID, which is the key), `created` (whether the step put it on the board) and `restored`.
+- `tickets.list`: a provider's tickets, in its order. `project` (the milestone's project, else the projects Legato searches, when empty), `milestone` (a milestone's tickets; on Jira, an epic's), `kind` (`work`, `meta` or `milestone`; any task when empty), `labels` (a list; a ticket must carry every one), `state` (`open`, the default, `closed` or `any`), `frontier` (only the open tasks that can be taken now: unclaimed, or on Jira not started, and blocked by no open ticket), `ready` (with `kind: milestone`: only milestones that are open, have an open work task, and none of whose open tasks waits on an open ticket outside the milestone), `limit` (default 50, at most 200). Outputs: `items`, each `{key, title, url, kind, state, labels, blocked, open_blockers, frontier, milestone}`, and `count`. Jira has no meta tasks; its milestones are epics.
+- `tasks.list`: the board's cards, column by column in board order. `column` and `workspace` (by name) narrow it; without `workspace`, every workspace but Workflows. `where` is a condition, as `if:` takes, over each card: `task.title`, `task.status`, `task.priority`, `task.provider`, `task.remote_id`, `task.workspace`, `task.metadata.<path>` and the other task fields. `limit` as above. Archived cards are left out. Outputs: `items`, each card as a task input gives it, with its `workspace`, and `count`.
+
+```yaml
+steps:
+  - id: card
+    type: ticket.import
+    with: {key: "${{ workflow.inputs.milestone }}", column: Doing}
+  - id: find
+    type: tickets.list
+    with: {provider: burnlite, milestone: "${{ workflow.inputs.milestone }}", kind: work, frontier: true}
+  - id: first
+    if: {field: steps.find.outputs.count, gt: 0}
+    type: ticket.import
+    with: {key: "${{ steps.find.outputs.items[0].key }}"}
+  - id: untriaged
+    type: tasks.list
+    with:
+      column: Triage
+      where: {not: {field: task.metadata.triaged, exists: true}}
+      limit: 15
+```
+
 ## Agent completion
 
 Workflow agents receive these environment variables:
