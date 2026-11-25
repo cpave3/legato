@@ -177,7 +177,7 @@ func holderExitsAfterTasks(t *testing.T, w *Worker) (restart func()) {
 	t.Helper()
 	db := w.Store.DB()
 	var names []string
-	for _, table := range []string{"handoff_reviews", "workflow_step_attempts", "workflow_steps", "workflow_runs"} {
+	for _, table := range []string{"review_loops", "workflow_step_attempts", "workflow_steps", "workflow_runs"} {
 		for _, op := range []string{"INSERT", "UPDATE"} {
 			name := "holder_gone_" + strings.ToLower(op) + "_" + table
 			if _, err := db.Exec(`CREATE TRIGGER ` + name + ` BEFORE ` + op + ` ON ` + table + ` BEGIN SELECT RAISE(ABORT, 'the holder exited'); END`); err != nil {
