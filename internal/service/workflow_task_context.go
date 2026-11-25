@@ -66,13 +66,19 @@ func (e *TaskWorkingDirResolveExecutor) Start(ctx context.Context, step Resolved
 	return WorkflowExecutionResult{Status: "succeeded", Outputs: map[string]any{"path": path, "source": source}}, nil
 }
 
+// workflowTaskID is the ID of a step's task: a task input (an object with
+// an id) or a task ID as text, such as ticket.import's task output.
 func workflowTaskID(value any) (string, error) {
-	task, ok := value.(map[string]any)
-	if !ok {
-		return "", fmt.Errorf("task must be a task input")
+	var taskID string
+	switch task := value.(type) {
+	case map[string]any:
+		taskID, _ = task["id"].(string)
+	case string:
+		taskID = task
+	default:
+		return "", fmt.Errorf("task must be a task input or a task ID")
 	}
-	taskID, _ := task["id"].(string)
-	if taskID == "" {
+	if taskID = strings.TrimSpace(taskID); taskID == "" {
 		return "", fmt.Errorf("task id is required")
 	}
 	return taskID, nil

@@ -100,8 +100,6 @@ func TestTaskMoveRequiresTaskAndNonEmptyColumn(t *testing.T) {
 		"missing column": "task: ${{ workflow.task }}",
 		"empty column":   "task: ${{ workflow.task }}\n      column: ' '",
 		"non-string":     "task: ${{ workflow.task }}\n      column: 42",
-		"literal task":   "task: subject-1\n      column: Ready",
-		"field task":     "task: ${{ workflow.task.id }}\n      column: Ready",
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := workflow.Parse("move.yaml", []byte(`
@@ -117,6 +115,32 @@ steps:
 `))
 			if err == nil {
 				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
+// A task ID as text names the task too, as it does for task.note (LEG-652).
+func TestTaskMoveTakesATaskIDAsText(t *testing.T) {
+	for name, task := range map[string]string{
+		"literal task": "subject-1",
+		"field task":   "${{ workflow.task.id }}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := workflow.Parse("move.yaml", []byte(`
+schema_version: 1
+name: move
+title: Move
+steps:
+  - id: move
+    title: Move
+    type: task.move
+    with:
+      task: `+task+`
+      column: Ready
+`))
+			if err != nil {
+				t.Fatal(err)
 			}
 		})
 	}

@@ -90,7 +90,7 @@ export function newStep(type: string, taken: string[]): StepValue {
   const withValues: Record<string, unknown> = {}
   for (const field of form?.fields ?? []) {
     if (!field.required) continue
-    withValues[field.name] = field.kind === "task" ? "${{ workflow.task }}" : field.kind === "boolean" ? false : ""
+    withValues[field.name] = field.kind === "task" || field.kind === "task_or_id" ? "${{ workflow.task }}" : field.kind === "boolean" ? false : ""
   }
   // An exactly-one group starts with its first choice.
   for (const group of form?.groups ?? []) if (group.kind === "exactly_one" && !group.fields.some(f => f in withValues)) withValues[group.fields[0]] = ""
