@@ -45,8 +45,13 @@ func (m Model) withInterrupted(running []service.AgentSession) []service.AgentSe
 		}
 	}
 	for _, a := range m.interrupted {
+		title := a.Title
+		// A workflow's agent says the step its resume goes on with.
+		if a.Workflow != nil {
+			title += " · step " + a.Workflow.StepID
+		}
 		out = append(out, service.AgentSession{
-			TaskID: a.TaskID, Title: a.Title, AgentKind: a.AgentKind, Engram: a.Engram,
+			TaskID: a.TaskID, Title: title, AgentKind: a.AgentKind, Engram: a.Engram,
 			Status: statusInterrupted, Sandboxed: a.Sandboxed, EndedAt: nonZero(a.InterruptedAt),
 		})
 	}
@@ -80,6 +85,13 @@ func (m Model) renderInterrupted(a service.InterruptedAgent, width, height int) 
 		"",
 		"This agent was running when Legato stopped, and its tmux session was gone when Legato started again: the machine or tmux went down.",
 		"",
+	}
+	if a.Workflow != nil {
+		step := "Workflow step " + a.Workflow.StepID
+		if a.Workflow.RunTitle != "" {
+			step += " of " + a.Workflow.RunTitle
+		}
+		lines = append(lines, step+" is suspended until it is resumed: R goes on with it on the same attempt.")
 	}
 	if a.WorkingDir != "" {
 		lines = append(lines, "Folder: "+a.WorkingDir)

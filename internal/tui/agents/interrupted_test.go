@@ -77,3 +77,24 @@ func TestTheSelectedInterruptedAgentSaysWhyItCannotBeResumed(t *testing.T) {
 		t.Fatalf("no reason shown: %q", out)
 	}
 }
+
+func TestAnInterruptedWorkflowAgentIsLabelledWithItsStep(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetSize(120, 40)
+	m, _ = m.Update(InterruptedRefreshedMsg{Agents: []service.InterruptedAgent{
+		{TaskID: "LEG-559", Title: "Ship v1", AgentKind: "claude-code", Resumable: true,
+			Workflow: &service.InterruptedWorkflow{RunID: "wr-1", StepID: "build", RunTitle: "Milestone to stack"}},
+	}})
+	m.SelectByTaskID("LEG-559")
+
+	out := m.View()
+	if !strings.Contains(out, "Ship v1 · step build") {
+		t.Fatalf("the row does not name the step: %q", out)
+	}
+	if !strings.Contains(out, "Workflow step build of Milestone to stack") {
+		t.Fatalf("the panel does not name the step: %q", out)
+	}
+	if got, ok := press(m, 'R').(ResumeInterruptedMsg); !ok || got.TaskID != "LEG-559" || got.Fresh {
+		t.Fatalf("R = %#v, want it resumed", got)
+	}
+}
