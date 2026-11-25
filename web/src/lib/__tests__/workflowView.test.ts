@@ -13,6 +13,12 @@ describe("runState", () => {
     expect(runState({ status: "cancelled" })).toEqual({ tone: "idle", label: "Cancelled" })
   })
 
+  it("names a run whose agent Legato stopped with suspended, not failed or needing the operator", () => {
+    expect(runState({ status: "suspended" })).toEqual({ tone: "idle", label: "Suspended" })
+    expect(stepMark({ step_id: "build", title: "Build", status: "suspended" }, { status: "suspended" })).toEqual({ glyph: "‖", tone: "idle" })
+    expect(runSummary({ status: "suspended", steps: [step("read", "Read", "succeeded"), step("build", "Build the stack", "suspended")] })).toEqual({ text: "“Build the stack” is suspended: Legato stopped while its agent was working. Resume it to go on." })
+  })
+
   it("counts a run waiting for its agent to end as running, not as waiting on the operator", () => {
     expect(runState({ status: "waiting" })).toEqual({ tone: "live", label: "Running" })
   })

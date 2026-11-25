@@ -4,12 +4,13 @@ import { ChevronDown, ChevronRight, Download, FileText } from "lucide-react"
 import { useWorkflowRun } from "../hooks/useWorkflow"
 import { useServer } from "../hooks/useServer"
 import { useNow } from "../hooks/useNow"
-import { anotherReviewPass, resumeWorkflowAgent, type MergeWaitDetails, cancelWorkflow, retryWorkflowStep, triggerWorkflowStep, promptWorkflowStep, fetchWorkflowArtifact, type ReviewRunDetails, type WorkflowArtifact, type WorkflowAttempt, type WorkflowRunView, type WorkflowStepRun } from "../lib/workflow"
+import { anotherReviewPass, resumeWorkflowAgent, type MergeWaitDetails, cancelWorkflow, retryWorkflowStep, resumeWorkflowStep, triggerWorkflowStep, promptWorkflowStep, fetchWorkflowArtifact, type ReviewRunDetails, type WorkflowArtifact, type WorkflowAttempt, type WorkflowRunView, type WorkflowStepRun } from "../lib/workflow"
 import { ago, attentionCopy, currentStep, elapsed, inputText, runWithAttention, producedValues, runState, runSubject, sourceLabel, stepIntent, stepMark, stepPosition, stepSegments, type StepLike, type Tone } from "../lib/workflowView"
 import { WorkflowMarkdownPreview } from "../components/WorkflowMarkdownPreview"
 import { ManualWorkflowStepAction } from "../components/ManualWorkflowStepAction"
 import { workflowArtifactFilename } from "../lib/workflow-artifact"
 import { WorkflowStepRetryAction } from "../components/WorkflowStepRetryAction"
+import { WorkflowStepResumeAction } from "../components/WorkflowStepResumeAction"
 import { StatePill, StepBar } from "../components/WorkflowRunStatus"
 import { toneGlyph, toneText } from "../lib/workflowTones"
 import { Button } from "../components/ui/Button"
@@ -115,10 +116,21 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
       </div>
     </NowPanel>
   }
+  // Resume goes on with a step whose agent Legato stopped with, on the
+  // same attempt; Retry starts it afresh.
+  const resumable = (step: WorkflowStepRun) => attempts.some(attempt => attempt.step_id === step.step_id && attempt.resumable)
+  const resumeAction = (step: WorkflowStepRun) => resumable(step) && <WorkflowStepResumeAction onResume={async () => { await resumeWorkflowStep(baseUrl, runId, step.step_id); await refresh() }} />
+  if (run.status === "suspended") {
+    const suspended = steps.find(step => step.status === "suspended")
+    return <NowPanel tone="idle" heading={suspended ? `${suspended.title} is suspended` : "The run is suspended"}
+      actions={suspended && <>{resumeAction(suspended)}<WorkflowStepRetryAction step={suspended} onRetry={async force => { await retryWorkflowStep(baseUrl, runId, suspended.step_id, force); await refresh() }} /></>}>
+      <p>Legato stopped while its agent was working. Resume goes on with the agent's conversation, in the same folder; Retry starts the step afresh.</p>
+    </NowPanel>
+  }
   if (run.status === "failed") {
     const failed = steps.find(step => step.status === "failed")
     return <NowPanel tone="error" heading={failed ? `${failed.title} failed` : "The run failed"}
-      actions={failed && <WorkflowStepRetryAction step={failed} onRetry={async force => { await retryWorkflowStep(baseUrl, runId, failed.step_id, force); await refresh() }} />}>
+      actions={failed && <>{resumeAction(failed)}<WorkflowStepRetryAction step={failed} onRetry={async force => { await retryWorkflowStep(baseUrl, runId, failed.step_id, force); await refresh() }} /></>}>
       {(failed?.error || run.error) && <p className="mt-1 whitespace-pre-wrap break-words rounded-lg bg-[var(--theme-surface,rgba(0,0,0,0.25))] px-2.5 py-2 font-lw-mono text-xs text-lw-danger">{redact(failed?.error || run.error || "", secrets)}</p>}
     </NowPanel>
   }
@@ -497,7 +509,7 @@ export function WorkflowRunPage() {
   const position = stepPosition(run, stepLikes)
   const workflow = definitionTitle(data)
   const subject = run.related_task_id ? "" : runSubject(run)
-  const live = run.status === "running" || run.status === "waiting"
+  const live = run.status === "running" || run.status === "waiting" || run.status === "suspended"
   const since = (time: string) => { const value = ago(time, now); return value === "now" ? "just now" : `${value} ago` }
   const when = run.completed_at ? `${run.status === "succeeded" ? "finished" : "ended"} ${since(run.completed_at)}` : run.created_at ? `started ${since(run.created_at)}` : ""
   let where = ""

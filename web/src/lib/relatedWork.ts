@@ -2,7 +2,7 @@ import type { RelatedWorkItem } from "./task-activity"
 
 // Statuses of work that is still under way: a review being captured, a
 // workflow running or waiting at a step.
-const UNDER_WAY = new Set(["capturing", "running", "pending", "waiting_agent", "waiting_manual", "waiting"])
+const UNDER_WAY = new Set(["capturing", "running", "pending", "waiting_agent", "waiting_manual", "waiting", "suspended"])
 
 // splitRelated puts the related work still under way apart from the rest,
 // keeping the order of each.
@@ -52,5 +52,6 @@ export function relatedStatusNote(item: RelatedWorkItem): string | undefined {
   if (item.kind === "review" && item.status === "capturing") return "Recording changes as the agent works. Moves to Review when the agent finishes."
   if (item.kind === "workflow_run" && item.status === "waiting_manual") return "Waiting for you at a step."
   if (item.kind === "workflow_run" && item.status === "waiting_agent") return "Waiting for its agent."
+  if (item.kind === "workflow_run" && item.status === "suspended") return "Suspended: Legato stopped while its agent was working. Resume it to go on."
   return undefined
 }

@@ -57,6 +57,15 @@ describe("InterruptedAgents", () => {
     expect(screen.queryByText(/Interrupted/)).toBeNull()
   })
 
+  it("names the workflow step a workflow agent's resume goes on with", async () => {
+    interrupted = [{ task_id: "LEG-559", title: "Ship v1", agent_kind: "claude-code", resources: [], resumable: true, can_start_new: false, sandboxed: true, ephemeral: false, workflow: { run_id: "wr-1", step_id: "build", run_title: "Milestone to stack" } }]
+    renderIt()
+    const agent = await screen.findByRole("listitem", { name: "Ship v1" })
+    const step = within(agent).getByRole("link", { name: "Workflow step build · Milestone to stack" })
+    expect(step.getAttribute("href")).toBe("/workflows/runs/wr-1")
+    expect(within(agent).getByRole("button", { name: "Resume" })).toBeTruthy()
+  })
+
   it("lists each interrupted agent with what can be done with it", async () => {
     renderIt()
     expect(await screen.findByText("Interrupted · 3")).toBeTruthy()

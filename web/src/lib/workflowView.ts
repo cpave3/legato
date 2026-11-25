@@ -14,6 +14,9 @@ export function runState(run: RunLike): { tone: Tone; label: string } {
     case "succeeded": return { tone: "done", label: "Done" }
     case "failed": return { tone: "error", label: "Failed" }
     case "cancelled": return { tone: "idle", label: "Cancelled" }
+    // Legato stopped with its agent: the interrupted agents' item asks
+    // the operator to resume it, so the run itself does not need you.
+    case "suspended": return { tone: "idle", label: "Suspended" }
   }
   if (run.needs_attention) return { tone: "needs", label: "Needs you" }
   return { tone: "live", label: "Running" }
@@ -37,6 +40,7 @@ export function stepMark(step: StepLike, run: RunLike): { glyph: string; tone: T
     case "failed": return { glyph: "✕", tone: "error" }
     case "cancelled": return { glyph: "–", tone: "idle" }
     case "pending": return { glyph: "○", tone: null }
+    case "suspended": return { glyph: "‖", tone: "idle" }
   }
   if (step.status === "waiting_manual" && step.trigger === "agent_ended" && !run.needs_attention) return { glyph: "●", tone: "live" }
   return run.needs_attention || step.status === "waiting_manual" ? { glyph: "◆", tone: "needs" } : { glyph: "●", tone: "live" }
@@ -111,6 +115,10 @@ export function runSummary(run: RunSummaryInput): { text: string; tone?: Tone } 
     }
     case "cancelled":
       return { text: run.error || "Cancelled" }
+    case "suspended": {
+      const suspended = steps.find(step => step.status === "suspended") ?? current
+      return { text: `“${suspended?.title ?? "The step"}” is suspended: Legato stopped while its agent was working. Resume it to go on.` }
+    }
   }
   if (run.needs_attention) return { text: attentionCopy(run.attention_reason ?? "", current?.title ?? "").sentence, tone: "needs" }
   if (!current) return { text: "" }

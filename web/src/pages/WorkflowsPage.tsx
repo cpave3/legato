@@ -31,7 +31,7 @@ function storeTab(tab: WorkflowTab) {
   try { localStorage.setItem(TAB_KEY, tab) } catch { /* the tab is only remembered where storage works */ }
 }
 
-const active = (run: WorkflowRun) => run.status === "running" || run.status === "waiting"
+const active = (run: WorkflowRun) => run.status === "running" || run.status === "waiting" || run.status === "suspended"
 
 function PageFrame({ tab, setTab, needsYou, refresh, children }: { tab: WorkflowTab; setTab: (tab: WorkflowTab) => void; needsYou: number; refresh: () => Promise<void>; children: React.ReactNode }) {
   const tabClass = (on: boolean) => cn("-mb-px flex min-h-11 items-center gap-1.5 border-b-2 px-3 text-sm", on ? "border-lw-accent text-lw-text" : "border-transparent text-lw-text-2 hover:text-lw-text")
