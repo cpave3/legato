@@ -1100,11 +1100,6 @@ func withTxDB(ctx context.Context, s *Store, f func(exec func(string, ...any) er
 	return tx.Commit()
 }
 
-// namedExecer is a database or a transaction.
-type namedExecer interface {
-	NamedExecContext(ctx context.Context, query string, arg any) (sql.Result, error)
-}
-
 // ListRunReviewLoopsAuthoredBy returns the workflow runs' loops whose agent
 // author is authorTask's, newest first.
 func (s *Store) ListRunReviewLoopsAuthoredBy(ctx context.Context, authorTask string) ([]ReviewLoop, error) {
