@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/cpave3/legato/internal/engine/credential"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -24,14 +23,13 @@ type SecretInfo struct {
 
 // SecretStoreService is Legato's own secret store, legato://name. It reads
 // the master key the first time a value is sealed or opened, so a Legato
-// that stores nothing never asks the keyring for one.
+// that stores nothing never asks the keyring for one. The key comes from
+// credential.LoadMasterKey on every use, which unseals it once per process
+// and checks it against secrets.source each time, so stores built for one
+// read each share it, and none keeps a key that was enrolled again.
 type SecretStoreService struct {
 	db   *store.Store
 	opts credential.MasterKeyOptions
-
-	mu     sync.Mutex
-	key    []byte
-	source string
 }
 
 func NewSecretStoreService(db *store.Store, opts credential.MasterKeyOptions) *SecretStoreService {
@@ -39,26 +37,17 @@ func NewSecretStoreService(db *store.Store, opts credential.MasterKeyOptions) *S
 }
 
 func (s *SecretStoreService) legato(ctx context.Context) (credential.LegatoStore, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.key == nil {
-		key, source, err := credential.LoadMasterKey(ctx, s.opts)
-		if err != nil {
-			return credential.LegatoStore{}, err
-		}
-		s.key, s.source = key, source
+	key, _, err := credential.LoadMasterKey(ctx, s.opts)
+	if err != nil {
+		return credential.LegatoStore{}, err
 	}
-	return credential.LegatoStore{Records: sealedRecords{s.db}, MasterKey: s.key}, nil
+	return credential.LegatoStore{Records: sealedRecords{s.db}, MasterKey: key}, nil
 }
 
 // Source names where the master key lives, making it on first use.
 func (s *SecretStoreService) Source(ctx context.Context) (string, error) {
-	if _, err := s.legato(ctx); err != nil {
-		return "", err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.source, nil
+	_, source, err := credential.LoadMasterKey(ctx, s.opts)
+	return source, err
 }
 
 // Add stores a value, replacing one of the same name.
@@ -102,10 +91,20 @@ func (s *SecretStoreService) List(ctx context.Context) ([]SecretInfo, error) {
 	return out, nil
 }
 
-// Get reads legato://name, as a store of the broker.
+// Get reads legato://name, as a store of the broker. A value the cached
+// master key does not open is tried once more with the key unsealed again,
+// in case the key changed under this process.
 func (s *SecretStoreService) Get(ctx context.Context, ref credential.Ref) (credential.Secret, error) {
 	legato, err := s.legato(ctx)
 	if err != nil {
+		return credential.Secret{}, err
+	}
+	secret, err := legato.Get(ctx, ref)
+	if !errors.Is(err, credential.ErrWrongMasterKey) {
+		return secret, err
+	}
+	credential.ForgetMasterKey(s.opts.DataDir)
+	if legato, err = s.legato(ctx); err != nil {
 		return credential.Secret{}, err
 	}
 	return legato.Get(ctx, ref)

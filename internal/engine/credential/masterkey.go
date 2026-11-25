@@ -73,8 +73,13 @@ const checkText = "legato master key"
 // LoadMasterKey returns the master key and the source that keeps it. The
 // first start takes the first source that works (for "auto") and records
 // it; later starts use that source and no other, and check the key against
-// the value sealed under it.
+// the value sealed under it. The key is unsealed once per process and
+// cached in memory (see masterkey_cache.go); each call still reads
+// secrets.source and checks the cached key against it. The caller gets a
+// copy of the key.
 func LoadMasterKey(ctx context.Context, opts MasterKeyOptions) ([]byte, string, error) {
+	keyMu.Lock()
+	defer keyMu.Unlock()
 	if opts.Runner == nil {
 		opts.Runner = ExecRunner{}
 	}
@@ -99,16 +104,20 @@ func LoadMasterKey(ctx context.Context, opts MasterKeyOptions) ([]byte, string, 
 		if opts.Source != "auto" && opts.Source != state.Source {
 			return nil, "", fmt.Errorf("the secret store's key was made with %s; secrets.master_key says %s (remove %s and the stored secrets to start again)", state.Source, opts.Source, statePath)
 		}
+		if key, ok := cachedMasterKey(opts, state); ok {
+			return key, state.Source, nil
+		}
 		key, err := readKey(ctx, opts, state.Source)
 		if err != nil {
 			return nil, "", fmt.Errorf("reading the secret store's key from %s: %w", state.Source, err)
 		}
-		if plain, err := Open(key, "check", TypeValue, state.Nonce, state.Check); err != nil || string(plain) != checkText {
+		if !opensCheck(key, state) {
 			if state.Source == SourcePassphrase {
 				return nil, "", errors.New("LEGATO_SECRETS_PASSPHRASE is not the passphrase the secret store was made with")
 			}
 			return nil, "", fmt.Errorf("the key %s gave does not open the secret store", state.Source)
 		}
+		cacheMasterKey(opts, state.Source, key)
 		return key, state.Source, nil
 	}
 
@@ -140,6 +149,7 @@ func LoadMasterKey(ctx context.Context, opts MasterKeyOptions) ([]byte, string, 
 		if err := os.WriteFile(statePath, data, 0o600); err != nil {
 			return nil, "", err
 		}
+		cacheMasterKey(opts, source, key)
 		return key, source, nil
 	}
 	return nil, "", fmt.Errorf("no master key source worked: %s", strings.Join(failures, "; "))

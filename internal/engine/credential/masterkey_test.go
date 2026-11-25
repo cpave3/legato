@@ -7,12 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
 // scriptedRunner answers commands by their name and first argument, and
 // remembers what was stored through it.
 type scriptedRunner struct {
+	mu     sync.Mutex
 	stored map[string][]byte // what each tool keeps
 	fail   map[string]bool   // tools that do not work here
 	calls  []string
@@ -23,6 +25,8 @@ func newScriptedRunner() *scriptedRunner {
 }
 
 func (r *scriptedRunner) Run(_ context.Context, name string, args, _ []string, stdin []byte) ([]byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.calls = append(r.calls, name+" "+args[0])
 	if r.fail[name] {
 		return nil, errors.New(name + " is not available")
