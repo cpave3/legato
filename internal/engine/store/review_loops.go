@@ -637,10 +637,11 @@ func writeReviewLoop(ctx context.Context, tx *sqlx.Tx, read, next ReviewLoop) er
 	if n, _ := result.RowsAffected(); n != 1 {
 		return fmt.Errorf("%w: review loop %s moved on", ErrConflict, read.ID)
 	}
-	if next.OwnerKind == ReviewLoopOwnerHandoff && handoffLoopLetsGo(next.Phase) {
+	if next.OwnerKind == ReviewLoopOwnerHandoff && handoffLoopLetsGo(next) {
 		// A handoff's loop that approved, had nothing to review or ended
 		// lets go of its pull requests while its card stays open; a later
-		// pass claims them again (holdReviewLoopLayer).
+		// pass claims them again (holdReviewLoopLayer). A clean pass
+		// Confirm has yet to record approved still holds them.
 		if _, err := tx.ExecContext(ctx, `DELETE FROM review_loop_claims WHERE loop_id = ?`, read.ID); err != nil {
 			return err
 		}
@@ -648,10 +649,17 @@ func writeReviewLoop(ctx context.Context, tx *sqlx.Tx, read, next ReviewLoop) er
 	return nil
 }
 
-// handoffLoopLetsGo says a handoff loop's phase holds no claims: clean
-// (approved), skipped (nothing to review) or ended.
-func handoffLoopLetsGo(phase string) bool {
-	return phase == "clean" || phase == "skipped" || phase == "ended"
+// handoffLoopLetsGo says a handoff loop holds no claims: approved (clean,
+// and Confirm recorded this pass confirmed), skipped (nothing to review) or
+// ended.
+func handoffLoopLetsGo(l ReviewLoop) bool {
+	switch l.Phase {
+	case "clean":
+		return !l.ConfirmClean && l.ConfirmedAt != "" && l.CleanPass == l.Pass
+	case "skipped", "ended":
+		return true
+	}
+	return false
 }
 
 // SetLocalBranch records the branch of the reviewer's clone a layer is put

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/service"
 )
 
 // GET /api/review-loops (spec LEG-559 § API contract, LEG-584): the loop
@@ -91,6 +92,31 @@ func TestThePullRequestOfAHandoffsLoopFindsThatLoop(t *testing.T) {
 		Link: "/board?highlight_task=" + h.card}
 	if *got != want {
 		t.Fatalf("loop = %+v, want %+v", *got, want)
+	}
+}
+
+// A handoff's clean pass that GitHub has yet to confirm still holds its
+// pull request: the lookup finds its loop, as the refusal of a new review
+// names it. Once Confirm records it approved, it lets go.
+func TestAHandoffsCleanPassHoldsItsPullRequestUntilConfirmed(t *testing.T) {
+	h := newReviewed(t, ReviewPassOptions{})
+	h.finish(t)
+	// The confirm's read after the clean post fails.
+	h.worker.ReviewGitHub.FailReadsAfter(3, 1)
+	if _, err := h.submit(t, service.ReviewSubmission{Summary: "Good."}); err != nil {
+		t.Fatal(err)
+	}
+	id := h.loopID(t)
+	if got := reviewLoopOn(t, h.worker, "repo=acme/widget&pr=7"); got == nil || got.LoopID != id || got.Phase != service.ReviewPhaseClean {
+		t.Fatalf("loop on #7 before the confirm = %+v; want %s, clean", got, id)
+	}
+
+	h.tick() // GitHub answers and Confirm records the pass approved
+	if l, err := h.worker.Store.GetReviewLoop(context.Background(), id); err != nil || l.ConfirmedAt == "" {
+		t.Fatalf("the loop %+v, %v; want it confirmed", l, err)
+	}
+	if got := reviewLoopOn(t, h.worker, "repo=acme/widget&pr=7"); got != nil {
+		t.Fatalf("loop on #7 after the confirm = %+v; want none", got)
 	}
 }
 
