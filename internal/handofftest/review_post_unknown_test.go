@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -148,5 +149,46 @@ func TestAnHourOfUnknownTriesNeedsYou(t *testing.T) {
 
 	if items := r.attention(t); len(items) != 1 || r.loopPhase(t, task).Phase != service.ReviewPhaseStuck || len(r.worker.ReviewGitHub.Tried()) != 4 {
 		t.Fatalf("items %+v, loop %+v, tried %d", items, r.loopPhase(t, task), len(r.worker.ReviewGitHub.Tried()))
+	}
+}
+
+// A clean handoff pass GitHub took, its answer lost; the author pushes
+// before the next tick. The review found by its marker stays recorded, but
+// the pass is not clean on the old head: the heads are checked even with
+// nothing left to post, so the pass is discarded and pinned again at the
+// new head, and the handoff is done only once that head is reviewed.
+func TestARecoveredCleanReviewWhoseHeadMovedIsPinnedAgainNotFinished(t *testing.T) {
+	r := newReviewed(t, ReviewPassOptions{})
+	r.finish(t)
+	r.worker.ReviewGitHub.FailPosts(1, true)
+	if _, err := r.submit(t, service.ReviewSubmission{Summary: "Fine."}); err != nil {
+		t.Fatal(err)
+	}
+	r.worker.Checkout.Commit(r.branch, "bbb222")
+	r.worker.ReviewGitHub.Push(7, "bbb222")
+
+	r.tick()
+
+	if loop := r.loop(t); loop.Phase == service.ReviewPhaseClean || r.handoffState(t) == store.HandoffDone {
+		t.Fatalf("clean on the old head: loop %+v, handoff %q", loop, r.handoffState(t))
+	}
+	pass, _ := r.worker.Store.GetHandoffReviewPass(context.Background(), r.card, 1)
+	if pass.State != service.ReviewPassDiscarded {
+		t.Fatalf("pass 1 = %+v", pass)
+	}
+	r.tick()
+	if loop := r.loop(t); loop.Phase != service.ReviewPhaseReviewing || loop.Pass != 1 || r.worker.Checkout.Pins()["refs/legato/review/"+r.card+"/1/7"] != "bbb222" {
+		t.Fatalf("loop %+v, pins %v", loop, r.worker.Checkout.Pins())
+	}
+
+	if _, err := r.submit(t, service.ReviewSubmission{Summary: "Fine."}); err != nil {
+		t.Fatal(err)
+	}
+	posted := r.worker.ReviewGitHub.Posted()
+	if len(posted) != 2 || posted[0].CommitID != "aaa111" || posted[1].CommitID != "bbb222" || posted[0].Marker == posted[1].Marker {
+		t.Fatalf("posted = %+v", posted)
+	}
+	if r.loop(t).Phase != service.ReviewPhaseClean || r.handoffState(t) != store.HandoffDone {
+		t.Fatalf("after the new head's pass: loop %+v, handoff %q", r.loop(t), r.handoffState(t))
 	}
 }

@@ -527,13 +527,14 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 		}
 		layers = waiting
 	}
-	if len(layers) > 0 {
-		if ok, err := s.beforePost(ctx, loop, pass, prs); !ok {
-			if err != nil {
-				return s.postFailed(ctx, l, loop, pass, layers, err)
-			}
-			return nil
+	// Checked even when every review was found by its marker: a pass is
+	// never finished on heads that moved. The reviews found stay recorded,
+	// as a lower layer's does when a head moves before the next.
+	if ok, err := s.beforePost(ctx, loop, pass, prs); !ok {
+		if err != nil {
+			return s.postFailed(ctx, l, loop, pass, layers, err)
 		}
+		return nil
 	}
 	for i, layer := range layers {
 		if layer.kept {
@@ -705,6 +706,9 @@ func (s *ReviewPassService) postFailed(ctx context.Context, l ReviewLoop, loop *
 		if !layer.kept {
 			prs = append(prs, fmt.Sprintf("%s#%d", layer.pr.Repo, layer.pr.Number))
 		}
+	}
+	if len(prs) == 0 {
+		prs = []string{"its pull requests' heads"} // every review found; the head check failed
 	}
 	_ = s.opts.Agents.KillAgentInSlot(ctx, l.TaskID, SlotReviewer)
 	log.Printf("review passes: %s: pass %d not confirmed on GitHub after %d tries: %v", l.TaskID, pass.Pass, pass.PostAttempts, err)
