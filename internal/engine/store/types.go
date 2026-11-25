@@ -72,6 +72,9 @@ type PRMeta struct {
 	// CreatedAt is when the PR was opened on GitHub (RFC3339), "" for one
 	// fetched before it was kept.
 	CreatedAt string `json:"created_at,omitempty"`
+	// Author is who opened the PR on GitHub, as REST names them (an App is
+	// "<slug>[bot]"); "" for a PR fetched before it was kept.
+	Author string `json:"author,omitempty"`
 }
 
 // MarshalPRMeta serializes PRMeta to a JSON string pointer for storage.

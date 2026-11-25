@@ -153,7 +153,7 @@ func (l *TaskWorkflowLauncher) Start(ctx context.Context, name string, inputs ma
 			continue
 		}
 		_, ok := soleTaskInput(definition)
-		if !ok && name != ReviewPassesWorkflow {
+		if !ok && !reviewLoopWorkflow(name) {
 			return nil, fmt.Errorf("workflow %q does not accept exactly one task input", name)
 		}
 		view, err := l.workflows.Start(ctx, definition, inputs)
@@ -162,7 +162,7 @@ func (l *TaskWorkflowLauncher) Start(ctx context.Context, name string, inputs ma
 		}
 		// A review loop refused at start (one already running on the pull
 		// request, say) says why, naming that loop.
-		if name == ReviewPassesWorkflow && view.Run.Status == "failed" {
+		if reviewLoopWorkflow(name) && view.Run.Status == "failed" {
 			for _, step := range view.Steps {
 				if step.Status == "failed" && step.Error != "" {
 					return nil, errors.New(step.Error)
@@ -253,6 +253,13 @@ func rawWorkflowValue(value any) string {
 
 // ReviewPassesWorkflow is the workflow a card's Review passes action starts.
 const ReviewPassesWorkflow = "review-pr-passes"
+
+// reviewLoopWorkflow says whether a workflow is one a launcher starts a
+// review loop with, which takes no task input: the built-in review-loop, or
+// the review-pr-passes example.
+func reviewLoopWorkflow(name string) bool {
+	return name == ReviewPassesWorkflow || name == workflowengine.ReviewLoopWorkflowName
+}
 
 // reviewPassOptions are a card's Review passes actions: one for each of its
 // open pull requests, when the review-pr-passes workflow is there. Each

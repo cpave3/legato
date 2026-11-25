@@ -102,3 +102,21 @@ func TestABodyThatStallsIsATimeout(t *testing.T) {
 		t.Fatalf("err = %#v; want a timeout", err)
 	}
 }
+
+// A pull request says who opened it: a review launcher reads an App's
+// pull request as an agent's and a person's as theirs (LEG-597, D8).
+func TestAPullRequestSaysWhoOpenedIt(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"number":42,"state":"open","user":{"login":"legato-author[bot]"},"html_url":"https://github.com/acme/widget/pull/42","head":{"ref":"legato/leg-7","sha":"abc123"}}`))
+	}))
+	defer server.Close()
+	client, _ := New(Options{Token: "token", BaseURL: server.URL, HTTPClient: server.Client()})
+	status, err := client.FetchPRState("acme", "widget", 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Author != "legato-author[bot]" {
+		t.Fatalf("author %q", status.Author)
+	}
+}

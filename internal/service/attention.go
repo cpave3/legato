@@ -222,6 +222,18 @@ type AttentionActionRequest struct {
 	Confirmed        bool   `json:"confirmed,omitempty"`
 }
 
+// AttentionElsewhereError refuses an action because what it would start
+// is going already, elsewhere: Href is where (a path of the web UI), which a
+// client opens instead. The review prompt's Start review passes refuses so
+// on a pull request a review loop holds (LEG-597).
+type AttentionElsewhereError struct {
+	Err  error
+	Href string
+}
+
+func (e *AttentionElsewhereError) Error() string { return e.Err.Error() }
+func (e *AttentionElsewhereError) Unwrap() error { return e.Err }
+
 type AttentionActionHandler interface {
 	Execute(context.Context, AttentionActionRequest) error
 }

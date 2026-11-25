@@ -27,6 +27,8 @@ type fakePR struct {
 	Merged  bool
 	Draft   bool
 	Created string
+	// Author is who opened it; "" for none read.
+	Author string
 	// Review is the one reviewer's latest review state, if any.
 	Review string
 	// Check is the one check run's conclusion, if any.
@@ -177,6 +179,7 @@ func apiJSON(repo string, pr fakePR) map[string]any {
 		"created_at": created,
 		"head":       map[string]any{"ref": pr.Head, "sha": sha, "repo": map[string]any{"full_name": repo}},
 		"base":       map[string]any{"ref": base},
+		"user":       map[string]any{"login": pr.Author},
 	}
 }
 

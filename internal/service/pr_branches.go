@@ -813,7 +813,7 @@ func prFromStatus(status *github.PRStatus, method string, pinned bool) *store.PR
 		IsDraft: status.IsDraft, ReviewDecision: status.ReviewDecision,
 		CheckStatus: status.CheckStatus, CommentCount: status.CommentCount, Base: status.BaseBranch,
 		Pinned: pinned, MatchMethod: method, SyncOutcome: "linked", Head: status.HeadSHA,
-		CreatedAt: status.CreatedAt,
+		CreatedAt: status.CreatedAt, Author: status.Author,
 	}
 }
 
@@ -835,10 +835,10 @@ func samePR(a, b *store.PRMeta) bool {
 	}
 	// Head counts: a push alone changes a PR's cached head, which the
 	// review prompt's revision follows.
-	// So does Base, so a refresh fills it for a PR tracked before it was
-	// kept.
+	// So do Base and Author, so a refresh fills them for a PR tracked
+	// before they were kept.
 	return !prMetaChanged(a, b) && a.Pinned == b.Pinned && a.MatchMethod == b.MatchMethod &&
-		a.SyncOutcome == b.SyncOutcome && a.SyncError == b.SyncError && a.Head == b.Head && a.Base == b.Base
+		a.SyncOutcome == b.SyncOutcome && a.SyncError == b.SyncError && a.Head == b.Head && a.Base == b.Base && a.Author == b.Author
 }
 
 func holdsPR(rows []store.TaskBranch, number int) bool {

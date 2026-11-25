@@ -37,6 +37,9 @@ type PRStatus struct {
 	// branch when the PR is part of a stack.
 	BaseBranch string
 	CreatedAt  string
+	// Author is who opened the PR, as REST names them: an App is
+	// "<slug>[bot]".
+	Author string
 	// MergedAt is when the PR merged (RFC 3339), "" when it has not.
 	MergedAt string
 	// Mergeable says whether the PR merges into its base without
@@ -154,7 +157,10 @@ type apiPR struct {
 	CreatedAt      string  `json:"created_at"`
 	Comments       int     `json:"comments"`
 	ReviewComments int     `json:"review_comments"`
-	Head           struct {
+	User           struct {
+		Login string `json:"login"`
+	} `json:"user"`
+	Head struct {
 		Ref  string `json:"ref"`
 		SHA  string `json:"sha"`
 		Repo struct {
@@ -176,7 +182,7 @@ func statusFromAPI(pr apiPR) PRStatus {
 		State: state, IsDraft: pr.Draft, CommentCount: pr.Comments + pr.ReviewComments,
 		HeadBranch: pr.Head.Ref, HeadSHA: pr.Head.SHA, HeadRepo: pr.Head.Repo.FullName,
 		BaseBranch: pr.Base.Ref, CreatedAt: pr.CreatedAt, MergedAt: deref(pr.MergedAt),
-		Mergeable: pr.Mergeable, MergeableState: pr.MergeableState,
+		Mergeable: pr.Mergeable, MergeableState: pr.MergeableState, Author: pr.User.Login,
 	}
 }
 
