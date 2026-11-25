@@ -512,3 +512,119 @@ func TestAPushIsKeptAsTheTrackedPRsHeadOnRefresh(t *testing.T) {
 		t.Fatalf("head after a push %q", got)
 	}
 }
+
+// countWhere is the number of calls to paths that match.
+func (f *fakeGitHub) countWhere(match func(path string) bool) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for path, calls := range f.calls {
+		if match(path) {
+			n += calls
+		}
+	}
+	return n
+}
+
+// Filling a step's prs looks up only the clone's branches (LEG-650): a task
+// with forty merged PRs from earlier work and a clone of four branches asks
+// GitHub about those four, reads each PR's state alone (no reviews or
+// checks), and keeps the review and check state it had.
+func TestRefreshingBranchStatesLooksUpOnlyThoseBranches(t *testing.T) {
+	gh := newFakeGitHub(t)
+	var old []fakePR
+	var oldBranches []string
+	for i := range 40 {
+		branch := "legato/task-1-old-" + strconv.Itoa(i)
+		old = append(old, fakePR{Number: 100 + i, Head: branch, State: "closed", Merged: true, Review: "APPROVED"})
+		oldBranches = append(oldBranches, branch)
+	}
+	clone := []string{"legato/task-1-a", "legato/task-1-b", "legato/task-1-c", "legato/task-1-d"}
+	gh.set("acme/widget", append(old,
+		fakePR{Number: 201, Head: clone[0], Draft: true, Review: "APPROVED", Check: "success"},
+		fakePR{Number: 202, Head: clone[1], Base: clone[0], State: "closed", Merged: true},
+	)...)
+	s, svc, _ := newBranchTracking(t, gh)
+	ctx := context.Background()
+	createPRTask(t, s, "task-1")
+	setRepoContext(t, s, "task-1", "acme/widget", "")
+	if _, err := svc.AddTaskBranches(ctx, "task-1", "acme/widget", append(oldBranches, clone[:2]...)); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.PollAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Since: #201 is marked ready, and c and d get PRs.
+	gh.set("acme/widget", append(old,
+		fakePR{Number: 201, Head: clone[0], Review: "APPROVED", Check: "success"},
+		fakePR{Number: 202, Head: clone[1], Base: clone[0], State: "closed", Merged: true},
+		fakePR{Number: 203, Head: clone[2], Base: clone[1]},
+		fakePR{Number: 204, Head: clone[3], Base: clone[2], Draft: true},
+	)...)
+	if _, err := svc.AddTaskBranches(ctx, "task-1", "acme/widget", clone); err != nil {
+		t.Fatal(err)
+	}
+	before := map[string]int{}
+	for _, path := range []string{"/repos/acme/widget/pulls", "/repos/acme/widget/pulls/201", "/repos/acme/widget/pulls/202"} {
+		before[path] = gh.count(path)
+	}
+	oldFetches := func() int {
+		return gh.countWhere(func(path string) bool {
+			n, err := strconv.Atoi(strings.TrimPrefix(path, "/repos/acme/widget/pulls/"))
+			return err == nil && n >= 100 && n < 140
+		})
+	}
+	extras := func() int {
+		return gh.countWhere(func(path string) bool {
+			return strings.HasSuffix(path, "/reviews") || strings.HasSuffix(path, "/check-runs") || strings.HasSuffix(path, "/status")
+		})
+	}
+	oldBefore, extrasBefore := oldFetches(), extras()
+
+	if err := svc.RefreshBranchStates(ctx, "task-1", "acme/widget", clone); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := oldFetches() - oldBefore; n != 0 {
+		t.Errorf("fetched the task's old PRs %d times, want none", n)
+	}
+	if n := extras() - extrasBefore; n != 0 {
+		t.Errorf("read reviews, checks or statuses %d times, want none", n)
+	}
+	if n := gh.count("/repos/acme/widget/pulls") - before["/repos/acme/widget/pulls"]; n > 1 {
+		t.Errorf("listed the repository's PRs %d times, want at most once", n)
+	}
+	if n := gh.count("/repos/acme/widget/pulls/201") - before["/repos/acme/widget/pulls/201"]; n != 1 {
+		t.Errorf("fetched #201 %d times, want once", n)
+	}
+	if n := gh.count("/repos/acme/widget/pulls/202") - before["/repos/acme/widget/pulls/202"]; n != 0 {
+		t.Errorf("fetched the merged #202 %d times, want none: a merge is final", n)
+	}
+	got := prList(t, svc, "task-1")
+	want := []string{"legato/task-1-a:#201:pass:APPROVED", "legato/task-1-b:#202", "legato/task-1-c:#203", "legato/task-1-d:#204:draft"}
+	if len(got) < 4 || !reflect.DeepEqual(got[len(got)-4:], want) {
+		t.Fatalf("clone branches = %v, want %v", got, want)
+	}
+}
+
+// A refresh of some branches leaves an ephemeral task alone, as polls do.
+func TestRefreshingBranchStatesOfAnEphemeralTaskAsksNothing(t *testing.T) {
+	gh := newFakeGitHub(t)
+	gh.set("acme/widget", fakePR{Number: 1, Head: "legato/x"})
+	s, svc, _ := newBranchTracking(t, gh)
+	ctx := context.Background()
+	id, err := s.CreateEphemeralTask(ctx, "quick look")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddTaskBranches(ctx, id, "acme/widget", []string{"legato/x"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RefreshBranchStates(ctx, id, "acme/widget", []string{"legato/x"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := gh.countWhere(func(string) bool { return true }); n != 0 {
+		t.Fatalf("made %d GitHub calls for an ephemeral task", n)
+	}
+}

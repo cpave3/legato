@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"slices"
 	"time"
 	"unicode/utf8"
 
 	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/github"
 	"github.com/cpave3/legato/internal/engine/gitrepo"
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
@@ -55,13 +57,18 @@ type AgentOutputSources struct {
 		Record(ctx context.Context, clone store.JobClone) error
 	}
 	// PRs tracks the clone's branches on the task, finds their pull
-	// requests and fetches those found before again (a later step marked
-	// one ready, or merged it); an error there fails the step.
+	// requests and fetches the state of those found before again (a later
+	// step marked one ready, or merged it), for the clone's branches only;
+	// an error there fails the step.
 	PRs interface {
 		AddTaskBranches(ctx context.Context, taskID, repo string, branches []string) ([]string, error)
 		TrackedBranches(ctx context.Context, taskID string) ([]store.TaskBranch, error)
-		DiscoverAndRefreshPRs(ctx context.Context, taskID string) error
+		RefreshBranchStates(ctx context.Context, taskID, repo string, branches []string) error
 	}
+	// Backoff are the waits before each further try of a brief GitHub
+	// failure (transientGitHubError) while finding the pull requests: one
+	// more try for each. Nil is defaultOutputsBackoff.
+	Backoff []time.Duration
 	// LastMessage is an agent's newest message, by agent ID; "" when its
 	// conversation cannot be read.
 	LastMessage func(ctx context.Context, agentID string) string
@@ -410,7 +417,7 @@ func (s *WorkflowService) agentOutputs(ctx context.Context, step store.WorkflowS
 	if _, err := prs.AddTaskBranches(ctx, taskID, clone.Repo, names); err != nil {
 		return out, fmt.Errorf("tracking the clone's branches: %w", err)
 	}
-	if err := prs.DiscoverAndRefreshPRs(ctx, taskID); err != nil {
+	if err := s.retryGitHub(ctx, func() error { return prs.RefreshBranchStates(ctx, taskID, clone.Repo, names) }); err != nil {
 		return out, fmt.Errorf("finding the pull requests of the clone's branches: %w", err)
 	}
 	task, err := s.store.GetTask(ctx, taskID)
@@ -429,6 +436,50 @@ func (s *WorkflowService) agentOutputs(ctx context.Context, step store.WorkflowS
 	}
 	out["prs"] = found
 	return out, nil
+}
+
+// defaultOutputsBackoff are the waits between the three tries of a brief
+// GitHub failure while filling a step's prs.
+var defaultOutputsBackoff = []time.Duration{time.Second, 3 * time.Second}
+
+// retryGitHub runs call, and again after each of the backoff waits while
+// it fails briefly (transientGitHubError) and ctx lasts. It returns the last
+// error.
+func (s *WorkflowService) retryGitHub(ctx context.Context, call func() error) error {
+	waits := s.agentOutputSources.Backoff
+	if waits == nil {
+		waits = defaultOutputsBackoff
+	}
+	err := call()
+	for _, wait := range waits {
+		if err == nil || ctx.Err() != nil || !transientGitHubError(err) {
+			return err
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return err
+		case <-timer.C:
+		}
+		err = call()
+	}
+	return err
+}
+
+// transientGitHubError says whether a GitHub failure may pass if tried again
+// soon: a server error (5xx) or a timeout reaching GitHub, anywhere in err's
+// tree. A refusal, a missing PR, a rate limit or a cancellation is not.
+func transientGitHubError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	var apiErr *github.APIError
+	if errors.As(err, &apiErr) && apiErr.Kind == github.ErrorServer {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 // topOfStack is the top of the stack a branch is in: from the branch up
