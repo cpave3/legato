@@ -703,8 +703,9 @@ func (c *ReviewRunCaller) agentDone(ctx context.Context, l ReviewLoop, pushed bo
 // of an open blocking finding as its author's answer to it (a dispute, which
 // the next pass rules on). Only a reply that may dispute counts (D7, X2):
 // from the pull request's author, an OWNER, MEMBER or COLLABORATOR, or a
-// counted bot, never Legato's own, and made after the pass that raised the
-// finding or raised it again: after Legato's last comment in the thread
+// counted bot, never Legato's own (by who posted it, never by a marker in
+// its text), and made after the pass that raised the finding or raised it
+// again: after Legato's last comment in the thread
 // (the finding, or its "still open" ruling), and not before that pass
 // started by GitHub's clock.
 func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *reviewRun, open []ReviewGitHubPR) bool {
@@ -735,14 +736,23 @@ func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *revie
 		poll.Comments = append(poll.Comments, got.Comments...)
 		authors[pr.Number] = pr.Author
 	}
-	legato := map[string]bool{}
+	// Legato is known by who posted: the authors of the threads' roots,
+	// which are the findings' comments whose IDs Legato recorded when it
+	// posted them, and the App logins it learned posting. Never by a
+	// marker in a comment's text, which anyone can write.
+	legato, _ := c.engine.db.GitHubAppLogins(ctx)
 	for _, comment := range poll.Comments {
-		if comment.Kind == "review" && strings.Contains(comment.Body, "<!-- legato-review-pass ") {
-			legato[strings.ToLower(comment.Author)] = true
+		if _, ok := threads[comment.ID]; ok && comment.Kind == "inline" && comment.ThreadRoot == comment.ID {
+			legato = append(legato, comment.Author)
 		}
 	}
 	isLegato := func(comment PRComment) bool {
-		return legato[strings.ToLower(comment.Author)] || strings.Contains(comment.Body, "<!-- legato-")
+		for _, login := range legato {
+			if sameLogin(comment.Author, login) {
+				return true
+			}
+		}
+		return false
 	}
 	// The newest of Legato's comments in each thread: a reply before it
 	// came before the finding was last raised.
