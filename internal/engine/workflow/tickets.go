@@ -42,14 +42,8 @@ func TaskCondition(value any) (*Condition, error) {
 	if _, ok := value.(map[string]any); !ok {
 		return nil, fmt.Errorf("where must be a condition: all, any, not or field")
 	}
-	raw, err := json.Marshal(value)
+	condition, err := decodeCondition(value)
 	if err != nil {
-		return nil, err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	var condition Condition
-	if err := decoder.Decode(&condition); err != nil {
 		return nil, fmt.Errorf("where: %w", err)
 	}
 	if err := condition.validate(checkTaskWhereField); err != nil {
@@ -88,6 +82,22 @@ func conditionAtLoad(value any) any {
 		out[key] = item
 	}
 	return out
+}
+
+// decodeCondition reads a condition as a file or a resolved with gives it:
+// a map of a Condition's keys and no others.
+func decodeCondition(value any) (Condition, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return Condition{}, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var condition Condition
+	if err := decoder.Decode(&condition); err != nil {
+		return Condition{}, err
+	}
+	return condition, nil
 }
 
 func checkTaskWhereField(field string) error {

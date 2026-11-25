@@ -2317,6 +2317,9 @@
               "items": {
                 "additionalProperties": false,
                 "properties": {
+                  "if": {
+                    "$ref": "#/definitions/condition"
+                  },
                   "label": {
                     "anyOf": [
                       {
@@ -2362,7 +2365,7 @@
                 ],
                 "type": "object"
               },
-              "maxItems": 5,
+              "maxItems": 25,
               "minItems": 1,
               "type": "array"
             },
@@ -2371,7 +2374,7 @@
               "type": "string"
             }
           ],
-          "description": "Up to 5 buttons under the message, each a label (at most 75 characters), a value (at most 100, its own) and a style (primary or danger); a click starts the workflows whose chat.button trigger matches",
+          "description": "Up to 5 buttons under the message, each a label (at most 75 characters), a value (at most 100, its own), a style (primary or danger) and an if (a condition that leaves the button out when false); a click starts the workflows whose chat.button trigger matches",
           "x-legato": {
             "context": "with",
             "expressions": true,
@@ -5707,6 +5710,10 @@
           {
             "pattern": "event.message_id",
             "description": "The ID of the message with the buttons"
+          },
+          {
+            "pattern": "event.message_text",
+            "description": "The text of the message with the buttons, cut to 8 KiB"
           },
           {
             "pattern": "event.thread_id",

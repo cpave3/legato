@@ -392,6 +392,9 @@ func validateStep(step *Step, at string, version int, fromFile bool, seen map[st
 	if err := validateStepContract(*step, inputs); err != nil {
 		return within(at, fmt.Errorf("step %q: %w", step.ID, err))
 	}
+	if err := checkChatButtonConditions(*step, inputs, availableOutputs); err != nil {
+		return within(at+"."+err.key, fmt.Errorf("step %q %w", step.ID, err.err))
+	}
 	for _, field := range sortedKeys(step.With) {
 		if err := validateReferences(step.With[field], inputs, step.Outputs, availableOutputs); err != nil {
 			return within(at+".with."+field, fmt.Errorf("step %q field %q: %w", step.ID, field, err))
@@ -769,7 +772,11 @@ func (d *Definition) ResolveStepAt(path string, in Scope) (*ResolvedStep, error)
 	scope.current = resolvedOutputs
 	with := make(map[string]any, len(selected.With))
 	for key, value := range selected.With {
-		resolved, err := scope.value(value)
+		resolve := scope.value
+		if field, ok := catalogByType[selected.Type].Field(key); ok && field.Kind == KindChatButtons {
+			resolve = scope.chatButtons
+		}
+		resolved, err := resolve(value)
 		if errors.Is(err, errMissing) {
 			// A whole value that is missing leaves the field out.
 			continue
@@ -803,6 +810,19 @@ func (d *Definition) StepRunsAt(path string, scope Scope) (bool, error) {
 		return false, fmt.Errorf("step %q if: %w", selected.ID, err)
 	}
 	return runs, nil
+}
+
+// field reads a condition's field: its value, and whether it has one.
+func (s resolveScope) field(field string) (any, bool, error) {
+	path, err := ParsePath(field)
+	if err != nil {
+		return nil, false, err
+	}
+	value, err := s.path(path)
+	if errors.Is(err, errMissing) {
+		return nil, false, nil
+	}
+	return value, err == nil, err
 }
 
 // resolveScope is what ${{ }} reads when a step runs: the inputs, the

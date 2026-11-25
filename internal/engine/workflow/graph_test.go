@@ -429,3 +429,14 @@ func TestAnIfDrawsDataEdges(t *testing.T) {
 	}
 	t.Fatalf("no data edge from pass to note: %+v", BuildGraph(definition).Edges)
 }
+
+// A chat button's if: reads earlier steps' outputs as a step's if: does.
+func TestAChatButtonsIfDrawsDataEdges(t *testing.T) {
+	definition := mustParse(t, "schema_version: 2\nname: k\ntitle: K\nsteps:\n  - {id: pass, type: task.context, with: {task: \"${{ workflow.task }}\"}}\n  - {id: say, type: chat.message.send, with: {bot: slack, channel: C1, text: hi, buttons: [{label: Fix, value: fix, if: {field: steps.pass.outputs.content, empty: false}}]}}\n")
+	for _, edge := range BuildGraph(definition).Edges {
+		if edge.Source == "step:pass" && edge.Target == "step:say" && edge.Kind == "data" {
+			return
+		}
+	}
+	t.Fatalf("no data edge from pass to say: %+v", BuildGraph(definition).Edges)
+}

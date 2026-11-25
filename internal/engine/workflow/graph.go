@@ -263,9 +263,13 @@ func stepOutputsUsed(step Step) map[string]map[string]bool {
 	for _, output := range step.Outputs {
 		walk(output.Path)
 	}
-	// An if: reads its fields as bare paths.
+	// An if: reads its fields as bare paths, as does a chat button's.
+	conditions := chatButtonConditions(step)
 	if step.If != nil {
-		step.If.eachField(func(field string) {
+		conditions = append(conditions, *step.If)
+	}
+	for _, condition := range conditions {
+		condition.eachField(func(field string) {
 			if path, err := ParsePath(field); err == nil {
 				use(path)
 			}

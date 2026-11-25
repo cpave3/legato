@@ -80,6 +80,7 @@ var chatButtonRoots = []ExpressionRoot{
 	{"event.label", "The clicked button's label"},
 	{"event.match.<path>", "A named group of the value regex: event.match.task for ^fix:(?P<task>.+)$"},
 	{"event.message_id", "The ID of the message with the buttons"},
+	{"event.message_text", "The text of the message with the buttons, cut to 8 KiB"},
 	{"event.thread_id", "What chat.message.send's thread_id takes to reply to that message"},
 }
 

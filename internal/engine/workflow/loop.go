@@ -790,15 +790,5 @@ func (d *Definition) PassResult(loopPath string, scope Scope, status, errorText 
 // conditionHolds evaluates a condition whose fields are paths a scope
 // reads; a missing value is one the condition's rules say how to take.
 func conditionHolds(condition Condition, scope resolveScope) (bool, error) {
-	return condition.evaluate(func(field string) (any, bool, error) {
-		path, err := ParsePath(field)
-		if err != nil {
-			return nil, false, err
-		}
-		value, err := scope.path(path)
-		if errors.Is(err, errMissing) {
-			return nil, false, nil
-		}
-		return value, err == nil, err
-	})
+	return condition.evaluate(scope.field)
 }

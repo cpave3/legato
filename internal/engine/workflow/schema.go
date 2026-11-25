@@ -199,7 +199,7 @@ func fieldSchema(field Field) schemaObject {
 			return schemaObject{"type": "string", "minLength": 1, "anyOf": []any{
 				schemaObject{"maxLength": max}, schemaObject{"pattern": expressionPatternJSON}}}
 		}
-		value = schemaObject{"type": "array", "minItems": 1, "maxItems": MaxChatButtons, "items": schemaObject{
+		value = schemaObject{"type": "array", "minItems": 1, "maxItems": MaxChatButtonEntries, "items": schemaObject{
 			"type": "object", "additionalProperties": false, "required": []string{"label", "value"},
 			"properties": schemaObject{
 				"label": text(MaxChatButtonLabel),
@@ -207,6 +207,7 @@ func fieldSchema(field Field) schemaObject {
 				"style": schemaObject{"anyOf": []any{
 					schemaObject{"enum": []string{ChatButtonStylePrimary, ChatButtonStyleDanger}},
 					schemaObject{"type": "string", "pattern": expressionPatternJSON}}},
+				"if": schemaObject{"$ref": "#/definitions/condition"},
 			},
 		}}
 	default:
