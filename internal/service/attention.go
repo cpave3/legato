@@ -67,10 +67,13 @@ const (
 	// waiting for the operator to review and merge its pull request
 	// (LEG-614).
 	AttentionSignalWorkflowMergeWaiting = "workflow_merge_waiting"
-	AttentionSignalLearningCuratorWork  = "learning_curator_work"
-	AttentionSignalApproval             = "approval"
-	AttentionSignalDevicesReset         = "devices_reset"
-	AttentionSignalAgentsInterrupted    = "agents_interrupted"
+	// AttentionSignalWorkflowGate is a run's gate step asking the
+	// operator to choose one of its options (LEG-486).
+	AttentionSignalWorkflowGate        = "workflow_gate"
+	AttentionSignalLearningCuratorWork = "learning_curator_work"
+	AttentionSignalApproval            = "approval"
+	AttentionSignalDevicesReset        = "devices_reset"
+	AttentionSignalAgentsInterrupted   = "agents_interrupted"
 )
 
 var defaultAttentionSignals = []string{
@@ -85,6 +88,7 @@ var defaultAttentionSignals = []string{
 	AttentionSignalWorkflowReviewStuck,
 	AttentionSignalWorkflowReviewAuthor,
 	AttentionSignalWorkflowMergeWaiting,
+	AttentionSignalWorkflowGate,
 	AttentionSignalWorkflowTriggerInput,
 	AttentionSignalWorkflowTriggerConfirmation,
 	AttentionSignalWorkflowTriggerFailed,
@@ -128,6 +132,7 @@ var knownAttentionSignals = map[string]bool{
 	AttentionSignalWorkflowReviewStuck:         true,
 	AttentionSignalWorkflowReviewAuthor:        true,
 	AttentionSignalWorkflowMergeWaiting:        true,
+	AttentionSignalWorkflowGate:                true,
 	AttentionSignalWorkflowTriggerInput:        true,
 	AttentionSignalWorkflowTriggerConfirmation: true,
 	AttentionSignalWorkflowTriggerFailed:       true,

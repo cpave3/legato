@@ -71,7 +71,7 @@ func (s *WorkflowService) runEndedListeners() []WorkflowRunEndedListener {
 // endsRun says a change of this kind can end its run.
 func endsRun(kind string) bool {
 	switch kind {
-	case WorkflowChangeStepCompleted, WorkflowChangeStepFailed, WorkflowChangeRunCancelled, WorkflowChangeRunStopped:
+	case WorkflowChangeStepCompleted, WorkflowChangeStepFailed, WorkflowChangeStepSkipped, WorkflowChangeRunCancelled, WorkflowChangeRunStopped:
 		return true
 	}
 	return false

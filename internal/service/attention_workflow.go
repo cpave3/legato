@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
+	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
 
 // WorkflowAttentionEvents are the events the workflows producer reconciles
@@ -90,6 +92,11 @@ func (a *WorkflowAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInp
 			signalKind = AttentionSignalWorkflowReviewAuthor
 		case "merge":
 			signalKind = AttentionSignalWorkflowMergeWaiting
+		case "gate":
+			signalKind = AttentionSignalWorkflowGate
+		case "paused":
+			signalKind = AttentionSignalWorkflowFailed
+			urgency = "high"
 		}
 		title := s.runTitle
 		if s.title != "" {
@@ -133,7 +140,22 @@ func (a *WorkflowAttentionAdapter) collectRunStates(run store.WorkflowRun, view 
 				action: AttentionAction{ID: "trigger", Label: "Trigger", Kind: "execute", RequiresConfirm: true},
 			})
 		}
-		if step.Status == "failed" {
+		if step.Status == WorkflowStepPaused {
+			states = append(states, workflowAttentionState{
+				runID: run.ID, stepID: step.Path, kind: "paused",
+				revision: fmt.Sprintf("paused:%s:%d", step.Path, step.LatestAttempt),
+				runTitle: run.WorkflowTitle, taskID: run.TaskID,
+				reason: pausedReason(step),
+				action: AttentionAction{ID: PausedRetry, Label: "Retry", Kind: "execute"},
+				more: []AttentionAction{
+					{ID: PausedSkip, Label: "Skip", Kind: "execute", RequiresConfirm: true, Confirmation: "Skip the step? Its outputs are missing, and the run goes on."},
+					{ID: PausedStop, Label: "Stop", Kind: "execute", RequiresConfirm: true, Confirmation: "Stop the run?"},
+				},
+			})
+		}
+		// A failed step of a run that goes on was continued: only a failed
+		// run's needs the operator.
+		if step.Status == "failed" && run.Status == "failed" {
 			states = append(states, workflowAttentionState{
 				runID: run.ID, stepID: step.Path, kind: "failed",
 				revision: fmt.Sprintf("failed:%s:%s", step.Path, step.Status),
@@ -148,6 +170,10 @@ func (a *WorkflowAttentionAdapter) collectRunStates(run store.WorkflowRun, view 
 			if attempt.NeedsAttention {
 				states = append(states, mergeWaitState(run, attempt, wait))
 			}
+			continue
+		}
+		if attempt.NeedsAttention && attempt.Status == WorkflowStepWaiting && attempt.ExecutorType == workflowengine.GateStepType {
+			states = append(states, gateState(run, attempt))
 			continue
 		}
 		if attempt.NeedsAttention && attempt.Status == WorkflowStepWaiting {
@@ -205,15 +231,43 @@ func (a *WorkflowAttentionAdapter) Execute(ctx context.Context, request Attentio
 	case "prompt":
 		_, err := a.workflows.PromptStep(ctx, runID, stepID)
 		return err
-	case "another_pass", "end", "message":
+	case "another_pass", "end", "message", PausedSkip, PausedStop:
 		_, err := a.workflows.StepAction(ctx, runID, stepID, request.ActionID, request.Text)
 		return err
 	case "resume_agent":
 		_, err := a.workflows.ResumeAgent(ctx, runID, request.Text)
 		return err
 	default:
+		if strings.HasPrefix(request.ActionID, gateChoicePrefix) {
+			_, err := a.workflows.StepAction(ctx, runID, stepID, request.ActionID, request.Text)
+			return err
+		}
 		return fmt.Errorf("unsupported workflow attention action %q", request.ActionID)
 	}
+}
+
+// gateState is a gate's item: its question, and an action for each option
+// (Stop asks first).
+func gateState(run store.WorkflowRun, attempt store.WorkflowStepAttempt) workflowAttentionState {
+	var actions []AttentionAction
+	for _, id := range attempt.AttentionActions {
+		option := strings.TrimPrefix(id, gateChoicePrefix)
+		action := AttentionAction{ID: id, Label: option, Kind: "execute"}
+		if strings.EqualFold(option, workflowengine.GateStop) {
+			action.RequiresConfirm, action.Confirmation = true, "Stop the run?"
+		}
+		actions = append(actions, action)
+	}
+	state := workflowAttentionState{
+		runID: run.ID, stepID: attempt.Path, kind: "gate",
+		revision: fmt.Sprintf("gate:%s:%d", attempt.Path, attempt.AttemptNumber),
+		runTitle: run.WorkflowTitle, title: attempt.AttentionReason, taskID: run.TaskID,
+		reason: run.WorkflowTitle + " asks you to choose",
+	}
+	if len(actions) > 0 {
+		state.action, state.more = actions[0], actions[1:]
+	}
+	return state
 }
 
 // mergeWaitState is a waiting merge's item, on the card: Open PR, and

@@ -22,6 +22,8 @@ const (
 	WorkflowChangeStepCompleted = "step_completed"
 	WorkflowChangeStepFailed    = "step_failed"
 	WorkflowChangeStepRetried   = "step_retried"
+	WorkflowChangeStepSkipped   = "step_skipped"
+	WorkflowChangeStepPaused    = "step_paused"
 )
 
 // SetEventBus has every change to a run's state published on bus.

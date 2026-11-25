@@ -62,11 +62,14 @@ func (s *WorkflowService) advanceRecorded(ctx context.Context, runID, path strin
 }
 
 // processAdvance finishes or keeps a recorded step's agent, then starts
-// the step after it. A failure to finish the agent leaves the advance due,
+// the step after it (also after a step whose failure was continued). A failure to finish the agent leaves the advance due,
 // for a later reconcile to try again once the claim is stale; a next step
 // that fails is recorded as the run's failure, and the advance is done.
 func (s *WorkflowService) processAdvance(ctx context.Context, advance store.WorkflowAdvance) error {
-	if !keepsAgent(advance.Step) {
+	// A step that failed under on_failure: continue has no agent to finish:
+	// its failure stopped it (Fail cancels it) or it had ended; it is left
+	// as a failed step's agent is.
+	if !keepsAgent(advance.Step) && advance.Step.Status != "failed" {
 		if executor, ok := s.executors[advance.Attempt.ExecutorType].(interface {
 			Finish(context.Context, store.WorkflowStepAttempt) error
 		}); ok {
@@ -138,9 +141,10 @@ func stepPending(view *store.WorkflowRunView, path string) bool {
 }
 
 // StartAdvanceLoop makes this process a host that advances runs: at once
-// for any left due while no host ran, then each time an agent records a
-// step (a completed_step workflow change, which reaches serve and the TUI
-// by IPC), and every advanceReconcileInterval for what it missed. It also
+// for any left due while no host ran, then on each change to a run (an
+// agent recording a step is a completed_step workflow change, which reaches
+// serve and the TUI by IPC), and every advanceReconcileInterval for what it
+// missed. It also
 // runs the run-ended hook's sweep (SweepEndedRuns). It returns a function
 // that stops the loop.
 func (s *WorkflowService) StartAdvanceLoop(ctx context.Context, bus *events.Bus) func() {
@@ -169,10 +173,12 @@ func (s *WorkflowService) StartAdvanceLoop(ctx context.Context, bus *events.Bus)
 				return
 			case event := <-changed:
 				payload, ok := event.Payload.(events.WorkflowChangedPayload)
-				if ok && payload.Kind == "completed_step" {
-					announce(s.AdvanceDue(ctx))
-				}
 				if !ok || payload.Kind != "advanced" {
+					// A step an agent recorded, or one whose failure was
+					// continued (on_failure: continue) where the run could
+					// not move on, such as by the agent service: both are
+					// left due an advance.
+					announce(s.AdvanceDue(ctx))
 					s.SweepEndedRuns(ctx)
 				}
 			case <-ticker.C:
