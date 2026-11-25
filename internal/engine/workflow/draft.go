@@ -52,14 +52,22 @@ func PauseTriggers(data []byte) ([]byte, error) {
 	return out.Bytes(), encoder.Close()
 }
 
-// PausedDraft checks a drafted definition, pauses its triggers, and checks
-// the result again: every trigger the parsed definition has (however the
-// YAML gives it: a merge key, an alias) must now be paused, or the draft
-// is refused. It returns the paused YAML and its definition.
+// PausedDraft checks a drafted definition, upgrades a schema_version 1
+// draft to version 2 (drafts are written as the version Legato writes),
+// pauses its triggers, and checks the result again: every trigger the
+// parsed definition has (however the YAML gives it: a merge key, an alias)
+// must now be paused, or the draft is refused. It returns the paused YAML
+// and its definition.
 func PausedDraft(data []byte) ([]byte, *Definition, error) {
-	if _, err := Parse("draft.workflow.yaml", data); err != nil {
+	upgraded, err := Upgrade("draft.workflow.yaml", data)
+	if err != nil {
 		return nil, nil, err
 	}
+	if len(upgraded.Notes) > 0 {
+		note := upgraded.Notes[0]
+		return nil, nil, fmt.Errorf("write it as schema_version %d: upgrading it from version 1 left this to do by hand: %s", LatestSchemaVersion, note)
+	}
+	data = upgraded.YAML
 	paused, err := PauseTriggers(data)
 	if err != nil {
 		return nil, nil, err

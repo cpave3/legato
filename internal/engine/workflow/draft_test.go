@@ -59,6 +59,19 @@ func TestADraftIsSavedWithEveryTriggerPaused(t *testing.T) {
 	}
 }
 
+// Drafts are saved as schema_version 2 (LEG-484): a version 1 draft is
+// upgraded first.
+func TestADraftIsSavedAsVersion2(t *testing.T) {
+	v1 := strings.Replace(draft, "    with: {task: \"${{ workflow.task }}\", body: hi}\n", "    trigger: manual\n    with: {task: \"${{ workflow.task }}\", body: hi}\n", 1)
+	paused, definition, err := workflow.PausedDraft([]byte(v1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if definition.SchemaVersion != workflow.SchemaVersion2 || !strings.Contains(string(paused), "schema_version: 2") || !strings.Contains(string(paused), "start: manual") {
+		t.Fatalf("saved:\n%s", paused)
+	}
+}
+
 func TestADraftWhoseTriggersCannotBePausedIsRefused(t *testing.T) {
 	merged := `schema_version: 1
 name: sneaky

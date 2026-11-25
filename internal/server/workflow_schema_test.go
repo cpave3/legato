@@ -4,19 +4,31 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
 
+// The schema of the version Legato writes, 2 (LEG-484), unless ?version=1
+// asks for version 1's.
 func TestTheWorkflowSchemaIsServedWithItsVersion(t *testing.T) {
 	s := New(nil, nil, nil, ":0")
+	for query, version := range map[string]int{"": 2, "?version=2": 2, "?version=1": 1} {
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/workflow-schema"+query, nil))
+		if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), workflowengine.JSONSchemaFor(version)) || rec.Header().Get("X-Legato-Workflow-Schema-Version") != strconv.Itoa(version) {
+			t.Fatalf("%q: status = %d, version %s, body = %.80s", query, rec.Code, rec.Header().Get("X-Legato-Workflow-Schema-Version"), rec.Body.String())
+		}
+	}
+	bad := httptest.NewRecorder()
+	s.Handler().ServeHTTP(bad, httptest.NewRequest(http.MethodGet, "/api/workflow-schema?version=3", nil))
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("version 3: status = %d", bad.Code)
+	}
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/workflow-schema", nil))
-	if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), workflowengine.JSONSchema()) {
-		t.Fatalf("status = %d, body = %.80s", rec.Code, rec.Body.String())
-	}
-	if rec.Header().Get("Content-Type") != "application/schema+json" || rec.Header().Get("X-Legato-Workflow-Schema-Version") != "1" {
+	if rec.Header().Get("Content-Type") != "application/schema+json" {
 		t.Fatalf("headers = %v", rec.Header())
 	}
 	etag := rec.Header().Get("ETag")

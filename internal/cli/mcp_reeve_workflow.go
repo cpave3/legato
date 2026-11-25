@@ -13,7 +13,7 @@ import (
 
 type draftWorkflowInput struct {
 	Reason string `json:"reason" jsonschema:"one line saying what the workflow is for, the approval's title"`
-	YAML   string `json:"yaml" jsonschema:"the whole workflow definition, schema_version 1, as legato workflow validate takes it"`
+	YAML   string `json:"yaml" jsonschema:"the whole workflow definition, schema_version 2 (a version 1 draft is upgraded), as legato workflow validate takes it"`
 }
 
 func (m *mcpTools) draftWorkflow() mcpserver.Tool {

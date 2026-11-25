@@ -365,6 +365,34 @@ func (s *Server) workflowFileCheckHandler() http.HandlerFunc {
 	}
 }
 
+// workflowFileUpgradeHandler serves POST /api/workflow-files/upgrade
+// {yaml}: the file upgraded to schema_version 2 by workflow.Upgrade, as
+// {yaml, changed, notes}, writing nothing. The editor puts the text in its
+// buffer, where the operator reads it and saves it. A file that does not
+// load is invalid (422, with diagnostics).
+func (s *Server) workflowFileUpgradeHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var body struct {
+			YAML string `json:"yaml"`
+		}
+		if json.NewDecoder(r.Body).Decode(&body) != nil {
+			s.writeError(w, http.StatusBadRequest, `want {"yaml": "…"}`)
+			return
+		}
+		result, err := workflowengine.Upgrade("workflow.yaml", []byte(body.YAML))
+		if err != nil {
+			_, diagnostics := s.checked(r.Context(), body.YAML)
+			s.writeWorkflowError(w, http.StatusUnprocessableEntity, "invalid", err.Error(), map[string]any{"diagnostics": diagnostics})
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"yaml": string(result.YAML), "changed": result.Changed, "notes": result.Notes})
+	}
+}
+
 // workflowCopyHandler serves POST /api/workflows/{name}/copy {folder}: a
 // built-in workflow written to a folder as a file of the same name, which
 // then replaces the built-in.
