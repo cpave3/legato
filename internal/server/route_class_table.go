@@ -251,6 +251,7 @@ var routeClassTable = []routeClassEntry{
 	{"POST", "/api/workflow-runs/{run_id}/cancel", ClassRisky, "Cancel a workflow run"},
 	{"POST", "/api/workflow-runs/{run_id}/resume-agent", ClassChange, "Start the run's card agent with a macro, or send the macro to the one running"},
 	{"POST", "/api/workflow-runs/{run_id}/steps/{step_id}/retry", ClassChange, "Retry a workflow step"},
+	{"POST", "/api/workflow-runs/{run_id}/steps/{step_id}/resume", ClassChange, "Resume a suspended workflow step's interrupted agent, on the same attempt"},
 	{"POST", "/api/workflow-runs/{run_id}/steps/{step_id}/trigger", ClassChange, "Trigger a manual workflow step"},
 	{"POST", "/api/workflow-runs/{run_id}/steps/{step_id}/prompt", ClassChange, "Remind a workflow step's agent"},
 	{"POST", "/api/workflow-runs/{run_id}/steps/{step_id}/another-pass", ClassChange, "Run another pass of a run's review loop"},

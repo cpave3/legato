@@ -12,8 +12,8 @@ import (
 )
 
 // ErrAgentNotResumable means an interrupted agent cannot be started again
-// from where it was: a swarm or a workflow owns it, it has no conversation
-// to resume, or its folder is gone. Nothing is started.
+// from where it was: a swarm owns it, it has no conversation to resume, or
+// its folder is gone. Nothing is started.
 var ErrAgentNotResumable = errors.New("interrupted agent cannot be resumed")
 
 // InterruptedNote is the first message a resumed interrupted agent gets: it
@@ -40,6 +40,8 @@ type InterruptedAgent struct {
 	CanStartNew bool
 	// Reason says why it cannot be resumed; empty when it can.
 	Reason string
+	// Workflow is the workflow step its resume continues, nil for none.
+	Workflow *InterruptedWorkflow
 }
 
 // InterruptedResult is how resuming one interrupted agent went.
@@ -138,7 +140,16 @@ func (a *agentService) SweepInterruptedAgents(ctx context.Context) (int, error) 
 		if IsNamedSlot(s.Slot) {
 			status = "dead"
 		}
-		if err := a.endGoneSession(ctx, s, status); err != nil {
+		// A workflow step's agent that cannot be resumed is ended, and its
+		// step fails saying why: the failed step is then the one item.
+		stepReason := legacyAgentExited
+		if status == store.AgentSessionInterrupted && a.waitsOnAgentStep(ctx, s.ID) {
+			if plan := a.planInterruptedResume(ctx, s); plan.err != nil {
+				status = "dead"
+				stepReason = workflowNotResumable(plan.err)
+			}
+		}
+		if err := a.endGoneSessionFor(ctx, s, status, stepReason); err != nil {
 			return count, err
 		}
 		if status == store.AgentSessionInterrupted {
@@ -165,6 +176,7 @@ func (a *agentService) ListInterruptedAgents(ctx context.Context) ([]Interrupted
 			TaskID: s.TaskID, AgentKind: s.AgentKind, Engram: s.Engram, Sandboxed: s.Sandboxed,
 			WorkingDir: plan.workingDir, Resources: plan.resources,
 			Resumable: plan.err == nil, CanStartNew: plan.canStartNew,
+			Workflow: a.interruptedWorkflowOf(ctx, plan.open),
 		}
 		if plan.err != nil {
 			agent.Reason = reasonOf(plan.err)
@@ -203,6 +215,24 @@ func (a *agentService) ResumeInterruptedAgent(ctx context.Context, taskID string
 	}
 	plan := a.planInterruptedResume(ctx, *session)
 	opt := plan.opt
+	if plan.open != nil {
+		switch {
+		case plan.err != nil:
+			// Its step cannot go on: it fails saying why, and Retry
+			// starts it again.
+			// The agent is then dismissed, as Dismiss does, its step
+			// already failed.
+			if !plan.open.reopen {
+				a.failInterruptedStep(ctx, plan.open, workflowNotResumable(plan.err))
+				if err := a.DismissInterruptedAgent(ctx, taskID); err != nil {
+					log.Printf("workflow: dismissing the interrupted agent of %s: %v", taskID, err)
+				}
+			}
+			return plan.err
+		case fresh:
+			return fmt.Errorf("%w: workflow step %s waits on it; retry the step to start it afresh", ErrAgentNotResumable, plan.open.attempt.Path)
+		}
+	}
 	switch {
 	case plan.err == nil && !fresh:
 	case fresh && plan.canStartNew:
@@ -220,7 +250,11 @@ func (a *agentService) ResumeInterruptedAgent(ctx context.Context, taskID string
 	chosen, _ := a.store.ListChosenExecutionResources(ctx, plan.executionID)
 	opt.Resources = a.resolveResources(ctx, chosen)
 	// The new agent replaces the interrupted one in the task's slot.
-	if err := a.SpawnAgent(ctx, taskID, 0, 0, opt); err != nil {
+	if plan.open != nil {
+		if err := a.resumeInterruptedStep(ctx, taskID, opt, plan.open); err != nil {
+			return err
+		}
+	} else if err := a.SpawnAgent(ctx, taskID, 0, 0, opt); err != nil {
 		return err
 	}
 	a.takeOverOperatorItems(ctx, taskID, session.ExecutionID)
@@ -248,9 +282,11 @@ func (a *agentService) DismissInterruptedAgent(ctx context.Context, taskID strin
 	if err != nil {
 		return err
 	}
+	open := a.interruptedAttemptOf(ctx, *session)
 	if err := a.store.EndInterruptedAgentSession(ctx, taskID, store.SlotMain); err != nil {
 		return err
 	}
+	a.failInterruptedStep(ctx, open, workflowDismissedReason)
 	if session.ExecutionID != "" {
 		if err := a.store.DismissConversationRuns(ctx, session.ExecutionID); err != nil {
 			log.Printf("session history: marking the runs of %s dismissed: %v", session.ExecutionID, err)
@@ -271,6 +307,8 @@ type interruptedResume struct {
 	resources   []string
 	err         error
 	canStartNew bool
+	// open is the workflow step attempt its resume continues, nil for none.
+	open *interruptedAttempt
 }
 
 func (a *agentService) planInterruptedResume(ctx context.Context, s store.AgentSession) interruptedResume {
@@ -282,8 +320,12 @@ func (a *agentService) planInterruptedResume(ctx context.Context, s store.AgentS
 		plan.executionID = s.ExecutionID
 	}
 	plan.workingDir = opt.WorkingDir
+	// A workflow's agent is resumed as the workflow's again, on the step it
+	// was on; a swarm starts its agents itself.
+	plan.open = a.interruptedAttemptOf(ctx, s)
+	a.workflowResumeOptions(s, &opt, plan.open)
 	plan.opt = opt
-	if owner := restartOwner(&s); owner != "" {
+	if owner := swarmOwner(&s); owner != "" {
 		plan.err = fmt.Errorf("%w: %s; it starts its agents itself", ErrAgentNotResumable, owner)
 		return plan
 	}

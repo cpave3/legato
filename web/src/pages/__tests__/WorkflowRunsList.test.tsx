@@ -39,6 +39,20 @@ describe("workflow runs", () => {
     expect(within(active[1]).getByRole("link").getAttribute("href")).toBe("/workflows/runs/wr-run")
   })
 
+  it("keeps a suspended run in progress, saying it is suspended and not that it needs the operator", () => {
+    runs.push({ ...base, id: "wr-sus", workflow_name: "ship-task", workflow_title: "Ship LEG-559", status: "suspended", current_step_id: "build", error: "Legato stopped while the agent was working", created_at: "2026-07-28T07:00:00Z", steps: [{ step_id: "build", title: "Build the stack", status: "suspended" }] })
+    try {
+      render(<MemoryRouter><WorkflowsPage /></MemoryRouter>)
+      const active = within(screen.getByRole("list", { name: "Runs in progress" })).getAllByRole("listitem")
+      const suspended = active.find(row => row.textContent?.includes("Ship LEG-559"))
+      expect(suspended?.textContent).toContain("Suspended")
+      expect(suspended?.textContent).toContain("“Build the stack” is suspended")
+      expect(within(screen.getByRole("tab", { name: /Runs/ })).getByLabelText("1 need you")).toBeTruthy()
+    } finally {
+      runs.pop()
+    }
+  })
+
   it("lists finished runs with how they ended", () => {
     render(<MemoryRouter><WorkflowsPage /></MemoryRouter>)
     const finished = within(screen.getByRole("list", { name: "Finished runs" })).getAllByRole("listitem")

@@ -81,6 +81,11 @@ export function InterruptedAgents({ className }: { className?: string }) {
                 <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
                 {agent.agent_kind && <span className="shrink-0 text-[11px] text-lw-faint">{agentKindLabel(agent.agent_kind)}</span>}
               </div>
+              {agent.workflow && (
+                <Link to={`/workflows/runs/${encodeURIComponent(agent.workflow.run_id)}`} className="m-0 truncate pl-[21px] text-xs text-lw-link">
+                  Workflow step {agent.workflow.step_id}{agent.workflow.run_title ? ` · ${agent.workflow.run_title}` : ""}
+                </Link>
+              )}
               {agent.working_dir && <p className="m-0 truncate pl-[21px] font-lw-mono text-[11px] text-lw-faint" title={agent.working_dir}>{agent.working_dir}</p>}
               {agent.reason && <p className="m-0 break-words pl-[21px] text-xs text-lw-text-2">Cannot resume: {agent.reason}</p>}
               <div className="flex gap-1 pl-[17px]">

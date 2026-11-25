@@ -27,9 +27,9 @@ export type GraphNodeExtra = {
   trigger?: "started" | "other"
 }
 
-export type NodeRunState = "waiting" | "running" | "needs" | "failed" | "done" | "skipped"
+export type NodeRunState = "waiting" | "running" | "needs" | "failed" | "done" | "skipped" | "suspended"
 
-export const runStateWords: Record<NodeRunState, string> = { waiting: "Waiting", running: "Running", needs: "Needs you", failed: "Failed", done: "Done", skipped: "Skipped" }
+export const runStateWords: Record<NodeRunState, string> = { waiting: "Waiting", running: "Running", needs: "Needs you", failed: "Failed", done: "Done", skipped: "Skipped", suspended: "Suspended" }
 
 // The short label of each executor type, as a step node shows it.
 const stepTypeLabels: Record<string, string> = {

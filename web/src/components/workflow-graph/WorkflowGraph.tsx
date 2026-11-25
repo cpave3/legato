@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dagre from "@dagrejs/dagre"
 import { Background, BaseEdge, MarkerType, Controls, EdgeLabelRenderer, getBezierPath, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type EdgeProps, type EdgeTypes, type NodeProps, type NodeTypes, type ReactFlowInstance, useReactFlow } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
-import { CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleX, SkipForward, Hand, Hourglass, Repeat, Workflow, type LucideIcon } from "lucide-react"
+import { CircleAlert, CircleCheck, CircleDashed, CircleDot, CirclePause, CircleX, SkipForward, Hand, Hourglass, Repeat, Workflow, type LucideIcon } from "lucide-react"
 import { stepIcons, triggerIcons } from "./graphIcons"
 import { dataEdgeName, gateLabel, keyValueText, nodeName, runStateWords, stepTypeLabel, triggerName, triggerOn, type GraphNode, type GraphNodeExtra, type NodeRunState, type WorkflowGraphModel } from "../../lib/workflowGraph"
 import { toneText } from "../../lib/workflowTones"
@@ -39,9 +39,9 @@ function sizeOf(node: GraphNode, run = false) {
   return node.kind === "trigger" ? sizes.trigger : run ? sizes.runStep : sizes.step
 }
 
-const stateTones: Record<NodeRunState, Tone> = { waiting: "idle", running: "live", needs: "needs", failed: "error", done: "done", skipped: "idle" }
-const stateIcons: Record<NodeRunState, LucideIcon> = { waiting: CircleDashed, running: CircleDot, needs: CircleAlert, failed: CircleX, done: CircleCheck, skipped: SkipForward }
-const stateBorders: Record<NodeRunState, string> = { waiting: "border-lw-line-strong", running: "border-lw-live", needs: "border-lw-needs", failed: "border-lw-error", done: "border-lw-done/60", skipped: "border-lw-line" }
+const stateTones: Record<NodeRunState, Tone> = { waiting: "idle", running: "live", needs: "needs", failed: "error", done: "done", skipped: "idle", suspended: "idle" }
+const stateIcons: Record<NodeRunState, LucideIcon> = { waiting: CircleDashed, running: CircleDot, needs: CircleAlert, failed: CircleX, done: CircleCheck, skipped: SkipForward, suspended: CirclePause }
+const stateBorders: Record<NodeRunState, string> = { waiting: "border-lw-line-strong", running: "border-lw-live", needs: "border-lw-needs", failed: "border-lw-error", done: "border-lw-done/60", skipped: "border-lw-line", suspended: "border-lw-line-strong" }
 
 // RunLine is a step's state in a run: the word with its icon and colour,
 // how long it has run, its attempts folded into a count, its agent tool.

@@ -2247,6 +2247,13 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 // session for the agent that resumes it. Whatever owns the agent hears that
 // it died.
 func (a *agentService) endGoneSession(ctx context.Context, s store.AgentSession, status string) error {
+	return a.endGoneSessionFor(ctx, s, status, legacyAgentExited)
+}
+
+// endGoneSessionFor is endGoneSession, failing the steps that wait on an
+// ended agent with stepReason. An interrupted agent's agent.run steps are
+// suspended instead, until it is resumed.
+func (a *agentService) endGoneSessionFor(ctx context.Context, s store.AgentSession, status, stepReason string) error {
 	if s.ExecutionID != "" {
 		endCtx := withRunEndReason(ctx, store.RunExited)
 		if status == store.AgentSessionInterrupted {
@@ -2266,7 +2273,17 @@ func (a *agentService) endGoneSession(ctx context.Context, s store.AgentSession,
 		return err
 	}
 	for _, attempt := range attempts {
-		if err := a.store.FailWorkflowStep(ctx, attempt.RunID, attempt.Path, attempt.ID, "agent exited before step completion"); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
+		if status == store.AgentSessionInterrupted && attempt.ExecutorType == "agent.run" {
+			if err := a.store.SuspendWorkflowStep(ctx, attempt.RunID, attempt.Path, attempt.ID, WorkflowSuspendedReason); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
+				return err
+			}
+			log.Printf("workflow agent interrupted run=%s step=%s attempt=%s: step suspended", attempt.RunID, attempt.Path, attempt.ID)
+			if a.bus != nil {
+				a.bus.PublishWorkflowChanged(attempt.RunID)
+			}
+			continue
+		}
+		if err := a.store.FailWorkflowStep(ctx, attempt.RunID, attempt.Path, attempt.ID, stepReason); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
 			return err
 		}
 		log.Printf("workflow agent exited run=%s step=%s attempt=%s", attempt.RunID, attempt.Path, attempt.ID)

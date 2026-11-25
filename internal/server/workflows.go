@@ -507,3 +507,34 @@ func (s *Server) NotifyWorkflowChangedKind(runID, stepID, kind string) {
 		s.hub.Broadcast(WSMessage{Type: MsgWorkflowChanged, WorkflowRunID: runID, WorkflowStepID: stepID, Kind: kind})
 	}
 }
+
+// workflowStepResumer resumes a suspended step's interrupted agent.
+type workflowStepResumer interface {
+	ResumeStep(ctx context.Context, runID, stepID string) (*store.WorkflowRunView, error)
+}
+
+// workflowStepResumeHandler serves POST
+// /api/workflow-runs/{run_id}/steps/{step_id}/resume: the interrupted agent
+// of a suspended step (or one an earlier Legato failed when its agent was
+// interrupted) resumes its conversation, and the step goes on with the same
+// attempt. 409 when the step has none to resume, or it cannot be.
+func (s *Server) workflowStepResumeHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		resumer, ok := s.workflows.(workflowStepResumer)
+		if s.workflows == nil || !ok {
+			http.Error(w, "workflow service unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		view, err := resumer.ResumeStep(r.Context(), r.PathValue("run_id"), r.PathValue("step_id"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		s.NotifyWorkflowChanged(view.Run.ID, view.Run.CurrentStepID)
+		s.writeJSON(w, http.StatusOK, view)
+	}
+}

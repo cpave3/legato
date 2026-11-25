@@ -18,6 +18,8 @@ export interface InterruptedAgent {
   can_start_new: boolean
   // Why it cannot be resumed.
   reason?: string
+  // The workflow step its resume goes on with.
+  workflow?: { run_id: string; step_id: string; run_title?: string }
 }
 
 // The interrupted agents; an older server has none.
