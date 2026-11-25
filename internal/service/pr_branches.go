@@ -493,15 +493,19 @@ func (p *prTrackingService) setBranchPR(ctx context.Context, row store.TaskBranc
 // publishPREdge publishes the stage milestone of a branch's PR changing
 // from before to after, if it is one: opened ready for review (a new PR,
 // which may follow finished work), a draft marked ready, or merged or
-// closed leaving every PR of the task merged or closed with one merged.
-// A PR newly tracked that opened before the task's running agent started
-// is no edge, open or merged (LEG-519): it was there when tracking began.
+// closed leaving every PR of the task's own merged or closed with one
+// merged. A PR opened before the task's work began is inherited
+// (inheritedPR): newly tracked, open or merged, it is no edge (LEG-519),
+// and its merge or close is none either (LEG-626). Only a draft marked
+// ready while the agent runs moves the stage.
 func (p *prTrackingService) publishPREdge(ctx context.Context, taskID string, before, after *store.PRMeta) {
 	if p.bus == nil || after == nil || after.PRNumber == 0 {
 		return
 	}
+	began := p.workBegan(ctx, taskID)
+	inherited := inheritedPR(after, began)
 	newPR := before == nil || before.PRNumber != after.PRNumber
-	if newPR && p.openedBeforeAgent(ctx, taskID, after) {
+	if newPR && inherited {
 		return
 	}
 	switch {
@@ -511,40 +515,52 @@ func (p *prTrackingService) publishPREdge(ctx context.Context, taskID string, be
 	case after.State == "OPEN" && !after.IsDraft && !newPR && before.State == "OPEN" && before.IsDraft:
 		publishMilestone(p.bus, events.WorkMilestonePayload{TaskID: taskID, Stage: store.WorkStageReviewing,
 			Reason: fmt.Sprintf("PR #%d ready for review", after.PRNumber)})
-	case (after.State == "MERGED" || after.State == "CLOSED") && (newPR || before.State != after.State):
-		if p.everyPRMerged(ctx, taskID) {
+	case (after.State == "MERGED" || after.State == "CLOSED") && (newPR || before.State != after.State) && !inherited:
+		if p.everyPRMerged(ctx, taskID, began) {
 			publishMilestone(p.bus, events.WorkMilestonePayload{TaskID: taskID, Stage: store.WorkStageFinished, Reason: "every PR merged"})
 		}
 	}
 }
 
-// openedBeforeAgent says whether a PR was opened before the task's running
-// main-slot agent started. Without a running agent or a known opening time
-// it says false, so the PR counts as opened now.
-func (p *prTrackingService) openedBeforeAgent(ctx context.Context, taskID string, pr *store.PRMeta) bool {
-	created := parseAddedAt(pr.CreatedAt)
-	if created.IsZero() {
-		return false
+// workBegan is when the work of a task's main slot began: its newest stage
+// start, which a resume, reload or sandbox switch keeps, else its running
+// agent's start, else zero (not known).
+func (p *prTrackingService) workBegan(ctx context.Context, taskID string) time.Time {
+	if at, err := p.store.WorkStageStartedAt(ctx, TaskPlace(taskID, "")); err == nil {
+		if began := parseAddedAt(at); !began.IsZero() {
+			return began
+		}
 	}
 	session, err := p.store.GetAgentSessionInSlot(ctx, taskID, store.SlotMain)
 	if err != nil {
-		return false
+		return time.Time{}
 	}
-	started := parseAddedAt(session.StartedAt)
-	return !started.IsZero() && created.Before(started)
+	return parseAddedAt(session.StartedAt)
 }
 
-// everyPRMerged says whether each of a task's branches that has a PR has
-// it merged or closed, with at least one merged; branches with no PR are
-// skipped.
-func (p *prTrackingService) everyPRMerged(ctx context.Context, taskID string) bool {
+// inheritedPR says whether a PR was opened before the work began. GitHub
+// gives the opening time to the second, so a PR opened in the second the
+// work began is the work's own. Without either time it says false: the PR
+// counts as the work's own.
+func inheritedPR(pr *store.PRMeta, began time.Time) bool {
+	created := parseAddedAt(pr.CreatedAt)
+	if created.IsZero() || began.IsZero() {
+		return false
+	}
+	return created.Before(began.Truncate(time.Second))
+}
+
+// everyPRMerged says whether each of a task's own PRs (inheritedPR against
+// began) is merged or closed, with at least one merged; branches with no
+// PR, and inherited PRs, are skipped.
+func (p *prTrackingService) everyPRMerged(ctx context.Context, taskID string, began time.Time) bool {
 	rows, err := p.store.ListTaskBranches(ctx, taskID)
 	if err != nil {
 		return false
 	}
 	merged := false
 	for _, row := range rows {
-		if row.PR == nil || row.PR.PRNumber == 0 {
+		if row.PR == nil || row.PR.PRNumber == 0 || inheritedPR(row.PR, began) {
 			continue
 		}
 		switch row.PR.State {
