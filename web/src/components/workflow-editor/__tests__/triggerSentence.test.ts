@@ -37,6 +37,9 @@ describe("a trigger as a sentence", () => {
   it("says which mention of a bot starts a run", () => {
     expect(plain(triggerSentence("chat.mention", { bot: "discord" }))).toBe("A mention of **discord**")
     expect(plain(triggerSentence("chat.mention", { bot: "discord", channel: "C1", text: { contains: "help" } }))).toBe("A mention of **discord** in **C1** · containing **help**")
+    expect(plain(triggerSentence("chat.mention", { bot: "slack", text: { regex: "investigat", not_regex: "fix" } }))).toBe("A mention of **slack** · matching **investigat** · not matching **fix**")
+    expect(plain(triggerSentence("chat.message", { bot: "slack", text: { not_contains: "lunch" } }))).toBe("A message on **slack** · not containing **lunch**")
+    expect(plain(triggerSentence("chat.mention", { bot: "slack", fallback: true }))).toBe("A mention of **slack** · when no other trigger matched")
   })
 
   it("names a kind it doesn't know", () => {

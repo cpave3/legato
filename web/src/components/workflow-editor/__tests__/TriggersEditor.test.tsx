@@ -154,3 +154,40 @@ it("edits a chat message trigger's bot, channel, user, text match, loop item and
   expect(parse(latest).on["chat.message"].text).toBeUndefined()
   expect(card.queryByRole("textbox", { name: "Text of the chat.message trigger" })).toBeNull()
 })
+
+it("makes a chat trigger a fallback, and shows why it can never fire", () => {
+  const text = "schema_version: 1\nname: s\ntitle: S\non:\n  chat.mention:\n    bot: slack\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}}\n"
+  const never = "this fallback can never fire: log's chat.message trigger on slack has no channel, user or text filter, so it matches every message this one would see"
+  renderBuilder(text, { diagnostics: [{ severity: "warning", message: never, path: "on.chat.mention.fallback", line: 7, column: 15, end_line: 7, end_column: 19 }] })
+  const card = within(screen.getByRole("article", { name: "When the bot is mentioned" }))
+  const fallback = card.getByRole("checkbox", { name: "The chat.mention trigger fires only when no other chat trigger on the bot matched" }) as HTMLInputElement
+  expect(fallback.checked).toBe(false)
+  fireEvent.click(fallback)
+  expect(parse(latest).on["chat.mention"]).toEqual({ bot: "slack", fallback: true })
+  expect(card.getByText(never)).toBeTruthy()
+  expect(errors(latest)).toEqual([])
+  fireEvent.click(fallback)
+  expect(parse(latest).on["chat.mention"]).toEqual({ bot: "slack" })
+})
+
+it("excludes text from a chat trigger without losing its match", () => {
+  const text = "schema_version: 1\nname: s\ntitle: S\non:\n  chat.mention:\n    bot: slack\n    text: {regex: \"(?i)investigat\"}\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}}\n"
+  renderBuilder(text)
+  const card = within(screen.getByRole("article", { name: "When the bot is mentioned" }))
+  const except = card.getByRole("combobox", { name: "Text exclusion of the chat.mention trigger" }) as HTMLSelectElement
+  expect(except.value).toBe("")
+  fireEvent.change(except, { target: { value: "not_regex" } })
+  commit(card.getByRole("textbox", { name: "Excluded text of the chat.mention trigger" }), "(?i)\\bfix")
+  expect(parse(latest).on["chat.mention"].text).toEqual({ regex: "(?i)investigat", not_regex: "(?i)\\bfix" })
+  expect(errors(latest)).toEqual([])
+
+  // Changing the match keeps the exclusion, and the other way round.
+  fireEvent.change(card.getByRole("combobox", { name: "Text match of the chat.mention trigger" }), { target: { value: "contains" } })
+  expect(parse(latest).on["chat.mention"].text).toEqual({ contains: "(?i)investigat", not_regex: "(?i)\\bfix" })
+  fireEvent.change(card.getByRole("combobox", { name: "Text match of the chat.mention trigger" }), { target: { value: "" } })
+  expect(parse(latest).on["chat.mention"].text).toEqual({ not_regex: "(?i)\\bfix" })
+  fireEvent.change(card.getByRole("combobox", { name: "Text exclusion of the chat.mention trigger" }), { target: { value: "not_contains" } })
+  expect(parse(latest).on["chat.mention"].text).toEqual({ not_contains: "(?i)\\bfix" })
+  fireEvent.change(card.getByRole("combobox", { name: "Text exclusion of the chat.mention trigger" }), { target: { value: "" } })
+  expect(parse(latest).on["chat.mention"].text).toBeUndefined()
+})

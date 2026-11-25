@@ -8,7 +8,7 @@ import { Button } from "../ui/Button"
 import { CommitField, Problems, ReferencePicker } from "./builderFields"
 import { fieldClass, labelClass, problemsAt, valueText } from "./builderStyles"
 import type { BuilderOptions } from "./stepForms"
-import { conditionFields, KIND_TITLES, newTrigger, textMatchOf, OPERATORS, operandKind, operandOf, operatorOf, scalarText, triggerKinds, withOperator, type Condition, type OperandKind, type Operator } from "./triggerForms"
+import { conditionFields, KIND_TITLES, newTrigger, textExclusionOf, textMatchOf, withTextTest, OPERATORS, operandKind, operandOf, operatorOf, scalarText, triggerKinds, withOperator, type Condition, type OperandKind, type Operator } from "./triggerForms"
 
 type Props = {
   text: string
@@ -114,6 +114,7 @@ export function TriggerCard({ kind, trigger, text, values, diagnostics, options,
 function ChatFields({ kind, trigger, bots, set, at }: { kind: string; trigger: Record<string, unknown>; bots: string[]; set: (sub: YamlPath, value: unknown) => void; at: (sub: YamlPath) => WorkflowDiagnostic[] }) {
   const invalid = (sub: YamlPath) => at(sub).length > 0 ? { "aria-invalid": true as const } : {}
   const match = textMatchOf(trigger.text)
+  const exclusion = textExclusionOf(trigger.text)
   const listId = `trigger-bots-${kind.replace(/\W/g, "-")}`
   return <div className="flex flex-col gap-2">
     <div className="grid gap-2 sm:grid-cols-3">
@@ -134,14 +135,25 @@ function ChatFields({ kind, trigger, bots, set, at }: { kind: string; trigger: R
     <div className="grid gap-2 sm:grid-cols-[10rem_1fr]">
       <label className={labelClass}>Text
         <select aria-label={`Text match of the ${kind} trigger`} className={fieldClass} value={match.mode} onChange={event => {
-          const mode = event.target.value
-          set(["text"], mode === "" ? undefined : { [mode]: match.pattern })
+          set(["text"], withTextTest(trigger.text, "match", event.target.value, match.pattern))
         }}>
           <option value="">Any text</option><option value="contains">Contains</option><option value="regex">Matches the regex</option>
         </select>
       </label>
       {match.mode && <label className={labelClass}>{match.mode === "regex" ? "Regex" : "Words (any case)"}
-        <CommitField aria-label={`Text of the ${kind} trigger`} value={match.pattern} onCommit={value => set(["text"], { [match.mode]: value })} {...invalid(["text"])} />
+        <CommitField aria-label={`Text of the ${kind} trigger`} value={match.pattern} onCommit={value => set(["text"], withTextTest(trigger.text, "match", match.mode, value))} {...invalid(["text"])} />
+      </label>}
+    </div>
+    <div className="grid gap-2 sm:grid-cols-[10rem_1fr]">
+      <label className={labelClass}>Except
+        <select aria-label={`Text exclusion of the ${kind} trigger`} className={fieldClass} value={exclusion.mode} onChange={event => {
+          set(["text"], withTextTest(trigger.text, "exclusion", event.target.value, exclusion.pattern))
+        }}>
+          <option value="">Nothing</option><option value="not_contains">Containing</option><option value="not_regex">Matching the regex</option>
+        </select>
+      </label>
+      {exclusion.mode && <label className={labelClass}>{exclusion.mode === "not_regex" ? "Regex" : "Words (any case)"}
+        <CommitField aria-label={`Excluded text of the ${kind} trigger`} value={exclusion.pattern} onCommit={value => set(["text"], withTextTest(trigger.text, "exclusion", exclusion.mode, value))} {...invalid(["text"])} />
       </label>}
     </div>
     <Problems diagnostics={at(["text"])} />
@@ -152,7 +164,9 @@ function ChatFields({ kind, trigger, bots, set, at }: { kind: string; trigger: R
         </select>
       </label>
       <label className="flex items-center gap-1.5"><input type="checkbox" aria-label={`The ${kind} trigger also runs on other bots' messages`} checked={trigger.include_bots === true} onChange={event => set(["include_bots"], event.target.checked || undefined)} />Also on other bots' messages</label>
+      <label className="flex items-center gap-1.5"><input type="checkbox" aria-label={`The ${kind} trigger fires only when no other chat trigger on the bot matched`} checked={trigger.fallback === true} onChange={event => set(["fallback"], event.target.checked || undefined)} />Only when no other trigger matched (fallback)</label>
     </div>
+    <Problems diagnostics={at(["fallback"])} />
   </div>
 }
 
