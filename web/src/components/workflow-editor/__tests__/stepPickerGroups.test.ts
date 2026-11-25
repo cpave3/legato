@@ -25,7 +25,7 @@ describe("the step picker's list", () => {
 
   it("finds the ticket steps under Board", () => {
     expect(pickerGroups("ticket").map(g => g.group)).toEqual(["Board"])
-    expect(pickerGroups("jira").flatMap(g => g.entries.map(e => e.type))).toEqual(["ticket.create", "ticket.comment"])
+    expect(pickerGroups("jira").flatMap(g => g.entries.map(e => e.type))).toEqual(["ticket.create", "ticket.comment", "ticket.import"])
   })
 
   it("finds by name, type and words of the description, dropping empty groups", () => {
