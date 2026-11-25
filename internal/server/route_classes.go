@@ -7,6 +7,8 @@ import (
 	"sync"
 
 	"github.com/cpave3/legato/config"
+	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
+	"github.com/cpave3/legato/internal/service"
 )
 
 // RouteClass is what a call to a route needs when an agent makes it (the
@@ -100,6 +102,11 @@ func ClassifyRequest(r *http.Request) RouteInfo {
 					info.Description = settingVerb(r.Method) + " the setting " + s.Key + " (" + s.Title + ")"
 				}
 			}
+		case "/api/attention/{id}/actions/{action_id}":
+			if action := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]; stopsAWorkflowRun(action) {
+				info.Class = ClassRisky
+				info.Description = "Stop a workflow run from its attention item"
+			}
 		case "/api/config/lists/{list}/{name}":
 			parts := strings.SplitN(pathTail(r.URL.Path, "/api/config/lists/"), "/", 2)
 			if l, found := config.LookupEntryList(parts[0]); found {
@@ -151,6 +158,14 @@ func RouteClasses() []RouteInfo {
 	return out
 }
 
+// stopsAWorkflowRun reports whether a workflow step's action (or its
+// Attention item's) ends the run as Cancel does: Stop on a step paused
+// after a failure, or a gate's Stop.
+func stopsAWorkflowRun(action string) bool {
+	option, chose := strings.CutPrefix(action, service.GateChoiceAction(""))
+	return action == service.PausedStop || (chose && strings.EqualFold(option, workflowengine.GateStop))
+}
+
 // ClassifyCall is ClassifyRequest for a call whose body is known (a change
 // set's): a body can make a call riskier than its route, never less risky.
 // Starting an agent whose containers may use the host network is risky,
@@ -180,6 +195,14 @@ func ClassifyCall(r *http.Request, body []byte) RouteInfo {
 			return info
 		}
 		info.Class = ClassRisky
+	case "/api/workflow-runs/{run_id}/steps/{step_id}/action":
+		var fields struct {
+			Action string `json:"action"`
+		}
+		if json.Unmarshal(body, &fields) == nil && stopsAWorkflowRun(fields.Action) {
+			info.Class = ClassRisky
+			info.Description = "Stop a workflow run at a step"
+		}
 	}
 	return info
 }

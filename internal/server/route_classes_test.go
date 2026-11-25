@@ -187,3 +187,34 @@ func samplePath(pattern string) string {
 	}
 	return strings.Join(parts, "/")
 }
+
+// Stopping a workflow run, at a paused step or at a gate, ends it as
+// Cancel does: whether asked at the step's action route or through the
+// Attention item's action, it is as risky as Cancel, never a change
+// (LEG-486 review).
+func TestStoppingAWorkflowRunIsAsRiskyAsCancellingIt(t *testing.T) {
+	cancel := ClassifyCall(httptest.NewRequest(http.MethodPost, "/api/workflow-runs/wr-1/cancel", nil), nil)
+	for _, tc := range []struct {
+		path, body string
+		want       RouteClass
+	}{
+		{"/api/workflow-runs/wr-1/steps/open/action", `{"action":"stop"}`, cancel.Class},
+		{"/api/workflow-runs/wr-1/steps/ask/action", `{"action":"choose:Stop"}`, cancel.Class},
+		{"/api/workflow-runs/wr-1/steps/ask/action", `{"action":"choose:stop"}`, cancel.Class},
+		{"/api/workflow-runs/wr-1/steps/ask/action", `{"action":"choose:Continue"}`, ClassChange},
+		{"/api/workflow-runs/wr-1/steps/open/action", `{"action":"retry"}`, ClassChange},
+		{"/api/attention/att-1/actions/stop", ``, cancel.Class},
+		{"/api/attention/att-1/actions/choose:Stop", ``, cancel.Class},
+		{"/api/attention/att-1/actions/choose%3AStop", ``, cancel.Class},
+		{"/api/attention/att-1/actions/choose:Merge", ``, ClassChange},
+		{"/api/attention/att-1/actions/retry", ``, ClassChange},
+	} {
+		got := ClassifyCall(httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body)), []byte(tc.body))
+		if got.Class != tc.want {
+			t.Errorf("POST %s %s = %s, want %s", tc.path, tc.body, got.Class, tc.want)
+		}
+	}
+	if cancel.Class != ClassRisky {
+		t.Fatalf("cancel = %s", cancel.Class)
+	}
+}
