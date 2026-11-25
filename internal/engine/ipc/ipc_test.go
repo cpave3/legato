@@ -245,3 +245,25 @@ func newIPCServer(t *testing.T, path string, callback func(ipc.Message)) *ipc.Se
 	}
 	return server
 }
+
+// Listening names the processes whose Legato socket accepts a connection
+// now: a stale socket left by one that died, and a socket of another name
+// (a request's reply socket), are not among them.
+func TestListeningNamesTheProcessesWhoseSocketAccepts(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", shortSocketDir(t))
+	dir := ipc.SocketDir()
+	srv := newIPCServer(t, filepath.Join(dir, "legato-4242.sock"), func(ipc.Message) {})
+	reply := newIPCServer(t, filepath.Join(dir, "reply-77.sock"), func(ipc.Message) {})
+	defer reply.Close()
+	if err := os.WriteFile(filepath.Join(dir, "legato-4343.sock"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := ipc.Listening(); len(got) != 1 || got[0] != 4242 {
+		t.Fatalf("Listening() = %v, want [4242]", got)
+	}
+	srv.Close()
+	if got := ipc.Listening(); len(got) != 0 {
+		t.Fatalf("after Close, Listening() = %v, want none", got)
+	}
+}

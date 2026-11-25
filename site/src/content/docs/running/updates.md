@@ -59,7 +59,7 @@ Agents keep running across the restart in every case, since they live in tmux. A
 
 ### When a release changes the database
 
-Some releases change Legato's database. The first Legato process to start on such a release asks every other Legato on the same data folder to exit before it changes anything: a TUI you started by hand says "Legato updated: restart" and quits, and `legato serve` stops and is started again by systemd on the new binary. It waits up to 30 seconds for them, keeps a copy of the database beside it, then changes the database. Start the TUI again when you are ready. A Legato on another data folder, such as a scratch instance, is left alone.
+Some releases change Legato's database. The first Legato process to start on such a release asks every other Legato on the same data folder to exit before it changes anything: a TUI you started by hand says "Legato updated: restart" and quits, and `legato serve` stops and is started again by systemd on the new binary. A Legato from a release before this mechanism restarts in place on the new binary instead. It waits up to 30 seconds for them, keeps a copy of the database beside it, then changes the database. Start the TUI again when you are ready. A Legato on another data folder, such as a scratch instance, is left alone.
 
 The copy is named for the change, such as `legato.db.before-146_review_loops`, and is readable only by you.
 

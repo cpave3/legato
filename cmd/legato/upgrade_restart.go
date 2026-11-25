@@ -21,11 +21,19 @@ import (
 // migrations pending must not migrate under an old Legato still running
 // on the same data folder, which would go on working on tables it does not
 // know. So it:
+//  0. takes the folder's upgrade lock (beginUpgrade), so one upgrade runs
+//     at a time; one that waited for it opens with no broadcast when the
+//     other has migrated;
 //  1. broadcasts ipcUpgradeExit for its data folder: every other TUI and
 //     `legato serve` on that folder exits (the TUI says "Legato updated:
 //     restart"; serve exits with exitRestart, so systemd starts it again);
+//     and, for Legato builds older than this one, which know neither that
+//     message nor the process lock, the `restart` they act on
+//     (upgradeRestartMessage): they re-execute the binary on disk, which
+//     after an update is the new one;
 //  2. waits, at most upgradeExitWait, for them to be gone, which it knows
-//     by the folder's process lock (holdLegatoProcess);
+//     by the folder's process lock (holdLegatoProcess) and, for the older
+//     builds, by their IPC sockets (upgradePeers);
 //  3. opens the database without migrating, backs it up beside itself
 //     (store.Unmigrated.Backup), then migrates.
 
@@ -40,6 +48,17 @@ const ipcUpgradeExit = "upgrade_exit"
 // upgradeExitWait is how long an upgrade waits for the other processes to
 // exit before it migrates anyway.
 const upgradeExitWait = 30 * time.Second
+
+// upgradeLockFile is the lock, in the data folder, that an upgrade holds
+// exclusively from before its broadcast to after its migration, so one
+// upgrade runs at a time: an older build told to restart comes back on the
+// new binary as an upgrade of its own, which must wait, not broadcast
+// again.
+const upgradeLockFile = "upgrade.lock"
+
+// upgradeQueueWait is how long an upgrade waits behind another before it
+// goes ahead anyway.
+const upgradeQueueWait = 5 * time.Minute
 
 // processLockFile is the lock, in the data folder, that each running TUI
 // and `legato serve` holds shared for as long as it runs. An upgrade takes
@@ -60,12 +79,35 @@ func isUpgradeExitFor(msg ipc.Message, dataDir string, pid, known int) bool {
 	return msg.Type == ipcUpgradeExit && msg.Content != "" && msg.PID != pid && msg.Schema > known && msg.Content == dataFolderKey(dataDir)
 }
 
+// upgradeRestartMessage is the `restart` an upgrade sends for the Legato
+// builds older than the upgrade restart, scoped as they scope it, by the
+// config path. PID and Schema, which those builds do not read, mark it as
+// an upgrade's, so a build that knows upgrade_exit ignores it
+// (onUpgradeExit).
+func upgradeRestartMessage(configPath string, pid, schema int) ipc.Message {
+	msg := restartMessage(configPath)
+	msg.PID, msg.Schema = pid, schema
+	return msg
+}
+
+// isUpgradeRestart says whether msg is an upgrade's `restart`, which only
+// older builds act on.
+func isUpgradeRestart(msg ipc.Message) bool {
+	return msg.Type == ipcRestart && msg.Schema > 0
+}
+
 // onUpgradeExit is a TUI's or serve's first look at an IPC message: it
 // says whether msg asks this process (pid, on dataDir, knowing the schema
 // known) to exit for an upgrade, and calls exit the first time one does.
+// An upgrade's `restart` is handled too, by doing nothing: upgrade_exit is
+// the message for this build, and restarting on it would start an upgrade
+// of its own, or loop.
 func onUpgradeExit(dataDir string, pid, known int, exit func()) func(ipc.Message) bool {
 	var once sync.Once
 	return func(msg ipc.Message) bool {
+		if isUpgradeRestart(msg) {
+			return true
+		}
 		if !isUpgradeExitFor(msg, dataDir, pid, known) {
 			return false
 		}
@@ -99,16 +141,31 @@ func dataFolderKey(dir string) string {
 // upgradeOpener opens a store, running the upgrade restart first when the
 // database has migrations pending.
 type upgradeOpener struct {
-	dataDir   string
-	pid       int
-	broadcast func(ipc.Message)
-	wait      time.Duration
-	poll      time.Duration
+	dataDir string
+	// configPath scopes the `restart` older builds get; none is sent
+	// without it.
+	configPath string
+	pid        int
+	broadcast  func(ipc.Message)
+	// peers lists the other Legato processes listening for IPC now that
+	// use the database at its path; nil lists none.
+	peers func(dbPath string) []int
+	wait  time.Duration
+	poll  time.Duration
 }
 
 // newUpgradeOpener is the opener of this process, broadcasting over IPC.
-func newUpgradeOpener(dataDir string) upgradeOpener {
-	return upgradeOpener{dataDir: dataDir, pid: os.Getpid(), broadcast: ipc.Broadcast, wait: upgradeExitWait, poll: 100 * time.Millisecond}
+func newUpgradeOpener(dataDir, configPath string) upgradeOpener {
+	pid := os.Getpid()
+	return upgradeOpener{
+		dataDir:    dataDir,
+		configPath: configPath,
+		pid:        pid,
+		broadcast:  ipc.Broadcast,
+		peers:      func(dbPath string) []int { return upgradePeers(ipc.Listening(), pid, dbPath, usesFile) },
+		wait:       upgradeExitWait,
+		poll:       100 * time.Millisecond,
+	}
 }
 
 // open opens the database options name, migrated. With nothing pending, or
@@ -132,13 +189,38 @@ func (o upgradeOpener) open(ctx context.Context, options store.Options) (*store.
 		return u.Migrate(ctx)
 	}
 
+	releaseUpgrade, waited := beginUpgrade(ctx, o.dataDir, upgradeQueueWait, o.poll)
+	defer releaseUpgrade()
+	if waited {
+		// Another upgrade ran first; it has most likely migrated.
+		if pending, err = u.Pending(ctx); err != nil {
+			u.Close()
+			return nil, err
+		}
+		if len(pending) == 0 {
+			log.Printf("upgrade: another Legato process migrated the database first")
+			return u.Migrate(ctx)
+		}
+	}
+
 	log.Printf("upgrade: %d migrations pending (newest %s); asking the other Legato processes on %s to exit", len(pending), pending[len(pending)-1], o.dataDir)
+	// The processes listening before the broadcast: an older build among
+	// them holds no process lock, so the upgrade waits for its socket.
+	before := o.listPeers(options.Path)
+	if len(before) > 0 {
+		log.Printf("upgrade: waiting for the Legato processes %v, which listen on this database, to stop listening", before)
+	}
 	o.broadcast(upgradeExitMessage(o.dataDir, o.pid, store.SupportedSchema()))
+	if o.configPath != "" {
+		o.broadcast(upgradeRestartMessage(o.configPath, o.pid, store.SupportedSchema()))
+	}
 	release, exited := awaitLegatoProcessesExit(ctx, o.dataDir, o.wait, o.poll, func() bool {
 		// Another new process may migrate first; then there is nothing
 		// to wait for.
 		still, err := u.Pending(ctx)
 		return err != nil || len(still) > 0
+	}, func() bool {
+		return stillListening(before, o.listPeers(options.Path))
 	})
 	defer release()
 	if !exited {
@@ -158,6 +240,43 @@ func (o upgradeOpener) open(ctx context.Context, options store.Options) (*store.
 		log.Printf("upgrade: the database before the migration is at %s", backup)
 	}
 	return u.Migrate(ctx)
+}
+
+func (o upgradeOpener) listPeers(dbPath string) []int {
+	if o.peers == nil {
+		return nil
+	}
+	return o.peers(dbPath)
+}
+
+// stillListening says whether any process of before is among now.
+func stillListening(before, now []int) bool {
+	for _, a := range before {
+		for _, b := range now {
+			if a == b {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// upgradePeers is, of the processes listening on Legato IPC sockets, those
+// other than self that have the database at dbPath open (uses; one it
+// cannot tell counts). An older build closes its socket before it exits or
+// re-executes, and the new binary it becomes listens only once it has
+// opened the database, after the migration; so the upgrade waits until
+// every one listening before its broadcast has stopped. Legatos of other
+// instances in the same runtime folder are left out, so they never hold
+// an upgrade back.
+func upgradePeers(listening []int, self int, dbPath string, uses func(pid int, path string) bool) []int {
+	var peers []int
+	for _, pid := range listening {
+		if pid != self && uses(pid, dbPath) {
+			peers = append(peers, pid)
+		}
+	}
+	return peers
 }
 
 // holdLegatoProcess takes this process's shared hold on the data folder's
@@ -187,20 +306,25 @@ func holdLegatoProcess(dataDir string) func() {
 }
 
 // awaitLegatoProcessesExit waits, at most wait, until no other process
-// holds the data folder's process lock, polling every poll, and holds it
+// holds the data folder's process lock and older (says whether an older
+// build is still running) is false, polling every poll, and holds the lock
 // exclusively then (so no process starts its hold during the migration).
 // It stops early, without the lock, when pending says there is nothing
 // left to migrate. exited says whether the others are gone; release lets
 // the lock go.
-func awaitLegatoProcessesExit(ctx context.Context, dataDir string, wait, poll time.Duration, pending func() bool) (release func(), exited bool) {
+func awaitLegatoProcessesExit(ctx context.Context, dataDir string, wait, poll time.Duration, pending, older func() bool) (release func(), exited bool) {
 	file, err := openProcessLock(dataDir)
 	if err != nil {
 		log.Printf("process lock: %v", err)
 		return func() {}, false
 	}
 	deadline := time.Now().Add(wait)
+	locked := false
 	for {
-		if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+		if !locked {
+			locked = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil
+		}
+		if locked && !older() {
 			return func() { file.Close() }, true
 		}
 		if !pending() || ctx.Err() != nil || !time.Now().Before(deadline) {
@@ -211,9 +335,42 @@ func awaitLegatoProcessesExit(ctx context.Context, dataDir string, wait, poll ti
 	}
 }
 
+// beginUpgrade takes the data folder's upgrade lock, waiting at most wait
+// behind another upgrade that holds it, polling every poll. waited says
+// whether another held it; release lets it go. A lock it cannot open or
+// take in time is logged and skipped.
+func beginUpgrade(ctx context.Context, dataDir string, wait, poll time.Duration) (release func(), waited bool) {
+	file, err := openLock(dataDir, upgradeLockFile)
+	if err != nil {
+		log.Printf("upgrade lock: %v", err)
+		return func() {}, false
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return func() { file.Close() }, waited
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) || ctx.Err() != nil || !time.Now().Before(deadline) {
+			log.Printf("upgrade lock: %v; going ahead", err)
+			file.Close()
+			return func() {}, waited
+		}
+		if !waited {
+			log.Printf("upgrade: another Legato process is upgrading %s; waiting for it", dataDir)
+		}
+		waited = true
+		time.Sleep(min(poll, time.Until(deadline)))
+	}
+}
+
 func openProcessLock(dataDir string) (*os.File, error) {
+	return openLock(dataDir, processLockFile)
+}
+
+func openLock(dataDir, name string) (*os.File, error) {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return nil, err
 	}
-	return os.OpenFile(filepath.Join(dataDir, processLockFile), os.O_CREATE|os.O_RDWR, 0o600)
+	return os.OpenFile(filepath.Join(dataDir, name), os.O_CREATE|os.O_RDWR, 0o600)
 }

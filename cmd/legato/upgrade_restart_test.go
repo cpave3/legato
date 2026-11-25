@@ -272,3 +272,209 @@ func TestServeExitsForARestartWhenANewerLegatoAsks(t *testing.T) {
 		t.Fatalf("signalled %v, restart requested %v: want both", signalled, requested.Load())
 	}
 }
+
+// olderBuildRestarts is how a Legato from before the upgrade restart reads
+// an IPC message (v0.29.0's isRestartFor): it knows only `restart`, scoped
+// by the config path, and on it re-executes the binary on disk, which after
+// an update is the new one.
+func olderBuildRestarts(msg ipc.Message, configPath string) bool {
+	return msg.Type == "restart" && msg.Content != "" && filepath.Clean(msg.Content) == filepath.Clean(configPath)
+}
+
+// olderPeers stands in for the other Legato processes that listen for IPC
+// and use the database: an older build holds no process lock, so the
+// upgrade knows of it only this way.
+type olderPeers struct {
+	mu   sync.Mutex
+	pids map[int]bool
+}
+
+func (p *olderPeers) list(string) []int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var pids []int
+	for pid := range p.pids {
+		pids = append(pids, pid)
+	}
+	return pids
+}
+
+func (p *olderPeers) gone(pid int) {
+	p.mu.Lock()
+	delete(p.pids, pid)
+	p.mu.Unlock()
+}
+
+// An older Legato knows neither upgrade_exit nor the process lock: the
+// upgrade also sends it the `restart` it acts on, scoped as it scopes it,
+// and waits for it to stop listening before it backs up and migrates.
+func TestAnUpgradeTellsAnOlderLegatoToRestartAndWaitsForIt(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	path := filepath.Join(dataDir, "legato.db")
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	databaseAtFirstMigration(t, path)
+
+	olderPID := os.Getpid() + 1
+	peers := &olderPeers{pids: map[int]bool{olderPID: true}}
+	restarts := 0
+	sent := &recorder{react: func(msg ipc.Message) {
+		if !olderBuildRestarts(msg, configPath) {
+			return
+		}
+		restarts++
+		go func() {
+			time.Sleep(150 * time.Millisecond)
+			db, err := sql.Open("sqlite", path)
+			if err == nil {
+				_, err = db.Exec(`INSERT INTO column_mappings(column_name, jira_statuses) VALUES ('written by the older build', '[]')`)
+				db.Close()
+			}
+			if err != nil {
+				t.Error(err)
+			}
+			peers.gone(olderPID)
+		}()
+	}}
+
+	db, err := upgradeOpener{dataDir: dataDir, configPath: configPath, pid: os.Getpid(), broadcast: sent.broadcast, peers: peers.list, wait: 30 * time.Second, poll: 10 * time.Millisecond}.open(ctx, store.Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if restarts != 1 {
+		t.Fatalf("the older build was asked to restart %d times, want 1: %+v", restarts, sent.messages())
+	}
+	if n := countColumns(t, store.BackupPath(path, newestMigration(t)), "written by the older build"); n != 1 {
+		t.Fatalf("the backup holds %d of the older build's last writes, want 1: the upgrade did not wait for it", n)
+	}
+}
+
+// An older Legato that never restarts holds the upgrade back only for the
+// wait.
+func TestAnUpgradeWaitsAtMostItsWaitForAnOlderLegato(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	path := filepath.Join(dataDir, "legato.db")
+	databaseAtFirstMigration(t, path)
+	peers := &olderPeers{pids: map[int]bool{os.Getpid() + 1: true}} // never goes
+
+	wait := 300 * time.Millisecond
+	start := time.Now()
+	db, err := upgradeOpener{dataDir: dataDir, configPath: filepath.Join(dataDir, "config.yaml"), pid: os.Getpid(), broadcast: (&recorder{}).broadcast, peers: peers.list, wait: wait, poll: 10 * time.Millisecond}.open(ctx, store.Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if elapsed := time.Since(start); elapsed < wait || elapsed > wait+10*time.Second {
+		t.Fatalf("opened after %s, want about %s", elapsed, wait)
+	}
+	if status, err := db.SchemaStatus(ctx); err != nil || status.Current != status.Supported {
+		t.Fatalf("schema = %+v, %v: want migrated", status, err)
+	}
+}
+
+// A Legato of this build gets the upgrade's `restart` too: it neither
+// restarts nor exits on it (upgrade_exit is the message for it), so a
+// process that already knows the new schema never loops, and the upgrade
+// is not stopped.
+func TestALegatoOfThisBuildIgnoresTheUpgradesRestart(t *testing.T) {
+	dataDir := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	pid := os.Getpid()
+	exits := 0
+	const known = 140
+	handle := onUpgradeExit(dataDir, pid, known, func() { exits++ })
+
+	for _, schema := range []int{known, known + 1} {
+		msg := upgradeRestartMessage(configPath, pid+1, schema)
+		if !olderBuildRestarts(msg, configPath) {
+			t.Fatalf("an older build would not act on %+v", msg)
+		}
+		if !handle(msg) {
+			t.Fatalf("%+v would reach the restart handler", msg)
+		}
+	}
+	if exits != 0 {
+		t.Fatalf("exited %d times on the upgrade's restart", exits)
+	}
+	if handle(restartMessage(configPath)) {
+		t.Fatal("`legato restart` no longer restarts a Legato of this build")
+	}
+}
+
+// The upgrade waits for the other processes listening on a Legato socket
+// that use its database: not for itself, and not for a Legato of another
+// instance sharing the runtime folder.
+func TestAnUpgradeWaitsOnlyForTheProcessesOnItsDatabase(t *testing.T) {
+	const self, onIt, elsewhere = 10, 11, 12
+	uses := func(pid int, path string) bool { return path == "/data/legato.db" && pid != elsewhere }
+	got := upgradePeers([]int{self, onIt, elsewhere}, self, "/data/legato.db", uses)
+	if len(got) != 1 || got[0] != onIt {
+		t.Fatalf("waits for %v, want [%d]", got, onIt)
+	}
+}
+
+// An older build told to restart comes back on the new binary while the
+// first upgrade still waits, and finds the migrations pending too. It
+// waits behind the first upgrade and broadcasts nothing: a second
+// `restart` could reach an older build already shutting down, whose
+// second SIGTERM would end it without its restart.
+func TestASecondUpgradeWaitsBehindTheFirstAndBroadcastsNothing(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	path := filepath.Join(dataDir, "legato.db")
+	databaseAtFirstMigration(t, path)
+	releaseFirst := holdUpgrade(t, dataDir)
+
+	sent := &recorder{}
+	done := make(chan error, 1)
+	go func() {
+		db, err := upgradeOpener{dataDir: dataDir, configPath: filepath.Join(dataDir, "config.yaml"), pid: os.Getpid(), broadcast: sent.broadcast, wait: 30 * time.Second, poll: 10 * time.Millisecond}.open(ctx, store.Options{Path: path})
+		if err == nil {
+			db.Close()
+		}
+		done <- err
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+	select {
+	case err := <-done:
+		t.Fatalf("opened (%v) while the first upgrade ran", err)
+	default:
+	}
+	// The first upgrade migrates and lets go.
+	first, err := store.New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Close()
+	releaseFirst()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the second upgrade never opened")
+	}
+	if msgs := sent.messages(); len(msgs) != 0 {
+		t.Fatalf("the second upgrade broadcast %+v, want nothing", msgs)
+	}
+}
+
+// holdUpgrade holds the data folder's upgrade lock as a running upgrade
+// does, until the returned release.
+func holdUpgrade(t *testing.T, dataDir string) func() {
+	t.Helper()
+	release, waited := beginUpgrade(context.Background(), dataDir, time.Second, 10*time.Millisecond)
+	if waited {
+		t.Fatal("another upgrade held the lock")
+	}
+	var once sync.Once
+	stop := func() { once.Do(release) }
+	t.Cleanup(stop)
+	return stop
+}
