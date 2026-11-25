@@ -233,3 +233,105 @@ func TestARestackAcrossThreeLayersIsOneReEntry(t *testing.T) {
 		t.Fatalf("not watching again: %s", stepStates(view))
 	}
 }
+
+func TestAReplyWithoutAPushStartsNoPassAndADisputedBlockingFindingStartsOne(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	withBoardAuthor(t, r)
+	ctx := context.Background()
+	view := r.stewarded(t, stewardInputs)
+	task := view.Run.TaskID
+
+	// A member asks for a change after approval: the author is told, and
+	// answers with a reply and no push.
+	r.worker.ReviewGitHub.SetComments(12, service.PRComment{Kind: "issue", ID: 501, Author: "octocat", Association: "MEMBER", Body: "Should this greet in French too?"})
+	r.watchTick()
+	r.worker.Clock.Advance(3 * time.Minute)
+	r.tick()
+	if typed := r.worker.typedTo("legato-board-1"); !strings.Contains(typed, "[legato steward] 1 new comment") {
+		t.Fatalf("typed to the author: %q", typed)
+	}
+	if err := service.AnswerReviewItem(ctx, r.worker.Store, "board-1", "c-c-501", service.AnswerReplied, "Not in this change.", r.worker.Clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+	r.watchTick()
+	r.watchTick()
+	if loop := r.loopPhase(t, task); loop.Pass != 1 || loop.Phase != service.ReviewPhaseClean {
+		t.Fatalf("a reply started a pass: loop %+v", loop)
+	}
+	if comments := r.worker.ReviewGitHub.Comments(); len(comments) != 1 || !strings.Contains(comments[0], "author: ") {
+		t.Fatalf("comments posted %v; want the author's reply", comments)
+	}
+
+	// A push re-enters, and pass 2 finds a blocking problem, which the
+	// author disputes without pushing: that starts pass 3.
+	r.worker.ReviewGitHub.Push(12, "ccc333")
+	r.worker.Checkout.Change("ccc333", "greet.go", 3, 5)
+	r.watchTick()
+	r.tick()
+	result := r.submit(t, task, service.ReviewSubmission{Summary: "One problem.", Findings: []service.SubmittedFinding{blockingFinding}})
+	r.tick()
+	r.tick()
+	if typed := r.worker.typedTo("legato-board-1"); !strings.Contains(typed, "[legato steward] Pass 2 has 1 blocking finding") {
+		t.Fatalf("typed to the author: %q", typed)
+	}
+	if err := service.AnswerReviewItem(ctx, r.worker.Store, "board-1", result.Findings[0], service.AnswerReplied, "An empty name is refused upstream.", r.worker.Clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+	r.tick()
+	r.tick()
+	if loop := r.loopPhase(t, task); loop.Pass != 3 {
+		t.Fatalf("the dispute started no pass: loop %+v", loop)
+	}
+	view = r.show(t, view.Run.ID)
+	watches := stewardSteps(view, "watch")
+	if len(watches) != 2 || stepOutputs(t, watches[1])["woke"] != "disputed" {
+		t.Fatalf("watch steps: %s", stepStates(view))
+	}
+	if rec := r.record(t, view); rec.Reentries != 1 {
+		t.Fatalf("re-entries %d; a dispute is not one", rec.Reentries)
+	}
+}
+
+func TestAPullRequestClosedUnmergedWhileWatchedEndsTheLoopClosed(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	withBoardAuthor(t, r)
+	view := r.stewarded(t, stewardInputs)
+
+	r.worker.ReviewGitHub.ClosePR(12)
+	r.watchTick()
+	r.tick()
+
+	view = r.show(t, view.Run.ID)
+	if view.Run.Status != "succeeded" || runOutputs(t, view)["outcome"] != "closed" {
+		t.Fatalf("run %q (%s), outputs %s: %s", view.Run.Status, view.Run.Error, view.Run.OutputsJSON, stepStates(view))
+	}
+	if watches := stewardSteps(view, "watch"); len(watches) != 1 || stepOutputs(t, watches[0])["woke"] != "closed" {
+		t.Fatalf("watch steps: %s", stepStates(view))
+	}
+	if held, _ := r.worker.Store.ActiveReviewLoop(context.Background(), "acme/widget", 12); held != nil {
+		t.Fatalf("the closed loop still holds #12: %s", held.ID)
+	}
+}
+
+// A workflow file's own watch needs a loop opened with steward.
+func TestAWatchOnALoopWithoutAStewardIsRefused(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	view := r.startFile(t, `schema_version: 2
+name: watch-it
+title: Watch it
+steps:
+  - id: open
+    title: Open
+    type: github.pr.review.open
+    with: {repo: acme/widget, pr_number: 12}
+  - id: watch
+    title: Watch
+    type: github.pr.review.wait
+    with: {loop: "${{ steps.open.outputs.loop_id }}", mode: watch}
+`, nil)
+	r.tick()
+	view = r.show(t, view.Run.ID)
+	if watch := stepOf(t, view, "watch"); watch.Status != "failed" || watch.ErrorCode != service.ReviewRefusalInvalidSettings || !strings.Contains(watch.Error, "steward") {
+		t.Fatalf("watch %q (%s): %s", watch.Status, watch.ErrorCode, watch.Error)
+	}
+}
