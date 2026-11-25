@@ -164,7 +164,7 @@ func TestAJiraCreateIsHeldForTheOperator(t *testing.T) {
 	}
 }
 
-func TestTheJiraTokenNeverReachesTheSandbox(t *testing.T) {
+func TestTheRealJiraTokenIsNeverInTheSessionEnv(t *testing.T) {
 	_, channels := jiraFixture(t, JiraDefaults{}, jiraCredential(config.CredentialSettings{Upstream: "https://acme.atlassian.net", Username: "bot@example.com"}))
 	env, err := channels.SessionEnv(context.Background(), "task-1", "ex-1")
 	if err != nil {

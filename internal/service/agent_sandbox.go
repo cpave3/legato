@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/sandbox"
@@ -56,6 +57,7 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 	// Without overlays, a throwaway checkout is the plain read-only one.
 	in.ThrowawayCheckout = readOnly && throwaway && a.CheckoutOverlayAvailable()
 	in.BrokerSocket = env["LEGATO_BROKER_SOCKET"]
+	in.SessionEnv = sessionEnvNames(env)
 	if file := env["LEGATO_CHIMERA_SECRET_FILE"]; file != "" {
 		in.ChimeraSecretDir = filepath.Dir(file)
 	}
@@ -412,4 +414,17 @@ func (a *agentService) taskJobClone(ctx context.Context, dataDir, workDir string
 		}
 	}
 	return "", nil
+}
+
+// sessionEnvNames are the variables of a session's environment that Legato
+// gives a value, sorted: SandboxPlanInput.SessionEnv.
+func sessionEnvNames(env map[string]string) []string {
+	var names []string
+	for name, value := range env {
+		if value != "" {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return names
 }

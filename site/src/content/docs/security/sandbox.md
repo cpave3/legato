@@ -69,7 +69,7 @@ Agents never see:
 - Package registry logins: `~/.npmrc`, `~/.pypirc`, `~/.yarnrc`, Gradle's `gradle.properties`, Maven's `settings.xml`, Composer's `auth.json`.
 - Password stores and keyrings, the session bus, and your runtime folder.
 
-The environment loses the variables secrets come from, such as `GITHUB_TOKEN`, `OP_SERVICE_ACCOUNT_TOKEN`, cloud and registry tokens, and `DOCKER_HOST`. It gains your git name and email address, since `~/.gitconfig` is not there.
+The environment loses the variables secrets come from, such as `GITHUB_TOKEN`, `OP_SERVICE_ACCOUNT_TOKEN`, cloud and registry tokens, and `DOCKER_HOST`. A variable of that name that Legato sets for the agent itself is kept: a credential named `jira` gives the agent a `JIRA_API_TOKEN` placeholder, which works only through Legato's proxy, while your own `JIRA_API_TOKEN` is still removed. It gains your git name and email address, since `~/.gitconfig` is not there.
 
 The sandbox shares the host's network and your user. It has its own process, IPC and hostname namespaces, and everything in it ends when the agent's pane closes.
 

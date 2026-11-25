@@ -93,15 +93,15 @@ type SandboxPlanInput struct {
 	// DockerSocket is the execution's own Docker API socket, filtered by
 	// Legato's proxy (agents.sandbox.docker); its folder is mounted and
 	// DOCKER_HOST names it.
-	DockerSocket     string
-	PastedImagesDir  string
-	AgentFilesDir    string // ~/.legato/agents/<task>: role prompt and brief
+	DockerSocket    string
+	PastedImagesDir string
+	AgentFilesDir   string // ~/.legato/agents/<task>: role prompt and brief
 	// CapabilitiesDir is the execution's own copy of what it is given (its
 	// skills), <data_dir>/capabilities/<execution>: read-only.
 	CapabilitiesDir string
 	// SkillsDir is the operator's skills folder (skills.dir), which no
 	// agent may write: never shown, an agent gets its copy of a skill.
-	SkillsDir string
+	SkillsDir        string
 	ChimeraSecretDir string // host bootstrap material, hidden even during clone setup
 	GitCommonDir     string // a worktree's main .git, written by commits
 	// JobDir is the job clone Legato made for the session's task, in its
@@ -138,7 +138,13 @@ type SandboxPlanInput struct {
 	// Engram is the engram an agent started as runs: its binary and its
 	// store. Zero for a session with no engram.
 	Engram SandboxEngram
-	FS     FSProbe
+	// SessionEnv names the variables Legato sets for the session itself,
+	// with a value (a credential's placeholder, its base URL). secretVars
+	// guard against what the pane inherits, so these are never unset there:
+	// a jira credential's JIRA_API_TOKEN reaches the agent, the operator's
+	// own does not.
+	SessionEnv []string
+	FS         FSProbe
 }
 
 // SandboxEngram is what an engram session needs inside the sandbox: the
@@ -700,7 +706,8 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	if in.GitIdentity[1] != "" {
 		plan.Setenv["GIT_AUTHOR_EMAIL"], plan.Setenv["GIT_COMMITTER_EMAIL"] = in.GitIdentity[1], in.GitIdentity[1]
 	}
-	plan.Unsetenv = append(append([]string{}, secretVars...), plan.Unsetenv...)
+	inherited := slices.DeleteFunc(append([]string{}, secretVars...), func(name string) bool { return slices.Contains(in.SessionEnv, name) })
+	plan.Unsetenv = append(inherited, plan.Unsetenv...)
 	if in.DockerSocket != "" {
 		// The execution's own socket stays; what points the docker command
 		// at another daemon, or at the person's contexts, goes.

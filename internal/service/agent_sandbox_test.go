@@ -798,3 +798,31 @@ steps:
 		t.Fatalf("the curator works in %s, want %s", got, clone)
 	}
 }
+
+// A credential's variables reach the sandboxed tool even when their names
+// are on the list of the operator's secrets the sandbox drops, whatever the
+// profile (jira's JIRA_API_TOKEN, or an operator's own profile's NPM_TOKEN).
+// A variable Legato hides by setting it empty is still dropped.
+func TestASandboxKeepsTheCredentialVariablesLegatoSetsForTheSession(t *testing.T) {
+	backend := &fakeBackend{}
+	svc, s, _ := sandboxedService(t, backend)
+	svc.(interface{ SetSessionEnv(SessionEnvProvider) }).SetSessionEnv(fixedSessionEnv{
+		"JIRA_API_TOKEN": "lgk_jira", "JIRA_EMAIL": "bot@example.com", "JIRA_BASE_URL": "http://127.0.0.1:7788/c/jira",
+		"NPM_TOKEN": "lgk_npm", "GITHUB_TOKEN": "",
+	})
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	unset := backend.plans[0].Unsetenv
+	for _, kept := range []string{"JIRA_API_TOKEN", "NPM_TOKEN"} {
+		if slices.Contains(unset, kept) {
+			t.Errorf("%s is unset: %v", kept, unset)
+		}
+	}
+	for _, dropped := range []string{"GITHUB_TOKEN", "LEGATO_JIRA_TOKEN", "OP_SERVICE_ACCOUNT_TOKEN"} {
+		if !slices.Contains(unset, dropped) {
+			t.Errorf("%s is no longer unset: %v", dropped, unset)
+		}
+	}
+}
