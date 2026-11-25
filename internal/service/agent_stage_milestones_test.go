@@ -119,8 +119,10 @@ func TestChangesRequestedIsFeedback(t *testing.T) {
 // old merged ones do not finish it again.
 func TestAStackIsFinishedOnlyWhenEveryPullRequestIsMerged(t *testing.T) {
 	gh := newFakeGitHub(t)
+	// The agent opens the stack after it starts: they are its own.
+	opened := prOpened(time.Minute)
 	open := func(n int, head, base string, merged bool) fakePR {
-		pr := fakePR{Number: n, Head: head, Base: base}
+		pr := fakePR{Number: n, Head: head, Base: base, Created: opened}
 		if merged {
 			pr.State, pr.Merged = "closed", true
 		}
@@ -128,7 +130,7 @@ func TestAStackIsFinishedOnlyWhenEveryPullRequestIsMerged(t *testing.T) {
 	}
 	gh.set("acme/widget",
 		open(11, "leg-1-a", "", false), open(12, "leg-1-b", "leg-1-a", false),
-		open(13, "leg-1-c", "leg-1-b", false), fakePR{Number: 14, Head: "leg-1-d", Base: "leg-1-c", Draft: true},
+		open(13, "leg-1-c", "leg-1-b", false), fakePR{Number: 14, Head: "leg-1-d", Base: "leg-1-c", Draft: true, Created: opened},
 	)
 	s, svc, bus := newBranchTracking(t, gh)
 	ctx := context.Background()

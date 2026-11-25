@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -17,6 +18,7 @@ type prStageFixture struct {
 	prs    *prTrackingService
 	stages *WorkStageService
 	place  WorkStagePlace
+	bus    *events.Bus
 }
 
 func newPRStageFixture(t *testing.T, prs ...fakePR) prStageFixture {
@@ -32,7 +34,7 @@ func newPRStageFixture(t *testing.T, prs ...fakePR) prStageFixture {
 	if err := stages.Start(context.Background(), place, "ex-1"); err != nil {
 		t.Fatal(err)
 	}
-	return prStageFixture{gh: gh, store: s, prs: svc, stages: stages, place: place}
+	return prStageFixture{gh: gh, store: s, prs: svc, stages: stages, place: place, bus: bus}
 }
 
 // noMilestone checks no milestone has moved the place's stage.
@@ -158,5 +160,154 @@ func TestAnEphemeralTaskLinksNoPullRequests(t *testing.T) {
 	}
 	if task.PRMeta != nil {
 		t.Fatalf("pr_meta = %s, want none", *task.PRMeta)
+	}
+}
+
+// The time a fake PR was opened, offset from now.
+func prOpened(offset time.Duration) string {
+	return time.Now().UTC().Add(offset).Format(time.RFC3339)
+}
+
+// stageChanges collects the stage changes published on the fixture's bus.
+func (f prStageFixture) stageChanges(t *testing.T) func() []events.AgentStageChangedPayload {
+	t.Helper()
+	ch := f.bus.Subscribe(events.EventAgentStageChanged)
+	t.Cleanup(func() { f.bus.Unsubscribe(ch) })
+	return func() []events.AgentStageChangedPayload {
+		time.Sleep(50 * time.Millisecond)
+		var out []events.AgentStageChangedPayload
+		for {
+			select {
+			case e := <-ch:
+				if p, ok := e.Payload.(events.AgentStageChangedPayload); ok {
+					out = append(out, p)
+				}
+			default:
+				return out
+			}
+		}
+	}
+}
+
+// LEG-626: an agent starts on a branch whose pull request is already open,
+// and the operator merges it while the agent works. The agent keeps the
+// stage it reported, and nothing hears Finished.
+func TestAnInheritedPullRequestMergingLeavesTheAgentsStage(t *testing.T) {
+	f := newPRStageFixture(t, fakePR{Number: 2049, Head: "feature/x", Created: prOpened(-time.Hour)})
+	ctx := context.Background()
+	if err := f.prs.DiscoverPRs(ctx, "LEG-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.stages.Report(ctx, f.place, "ex-1", store.WorkStageImplementing, "midway"); err != nil {
+		t.Fatal(err)
+	}
+	changes := f.stageChanges(t)
+
+	f.gh.set("acme/widget", fakePR{Number: 2049, Head: "feature/x", State: "closed", Merged: true, Created: prOpened(-time.Hour)})
+	if err := f.prs.PollAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := prList(t, f.prs, "LEG-1"); len(got) != 1 || got[0] != "feature/x:#2049" {
+		t.Fatalf("tracked = %v, want the inherited PR still linked", got)
+	}
+	stageStays(t, f.stages, f.place, store.WorkStageImplementing)
+	if got, _ := f.stages.Get(ctx, f.place); got.Source != store.WorkStageSourceAgent {
+		t.Fatalf("stage = %+v, want the agent's own", got)
+	}
+	f.noMilestone(t)
+	for _, c := range changes() {
+		if c.Stage == store.WorkStageFinished {
+			t.Fatalf("a watch heard Finished: %+v", c)
+		}
+	}
+	history, err := f.stages.History(ctx, f.place, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range history {
+		if e.Stage == store.WorkStageFinished {
+			t.Fatalf("the history has Finished: %+v", e)
+		}
+	}
+}
+
+// The agent's own pull request merging still makes it Finished.
+func TestTheAgentsOwnPullRequestMergingIsFinished(t *testing.T) {
+	f := newPRStageFixture(t)
+	ctx := context.Background()
+	f.gh.set("acme/widget", fakePR{Number: 20, Head: "feature/x", Created: prOpened(time.Minute)})
+	if err := f.prs.DiscoverPRs(ctx, "LEG-1"); err != nil {
+		t.Fatal(err)
+	}
+	stageSoon(t, f.stages, f.place, store.WorkStageReviewing)
+	f.gh.set("acme/widget", fakePR{Number: 20, Head: "feature/x", State: "closed", Merged: true, Created: prOpened(time.Minute)})
+	if err := f.prs.PollAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := stageSoon(t, f.stages, f.place, store.WorkStageFinished); got.Reason != "every PR merged" {
+		t.Fatalf("stage = %+v", got)
+	}
+}
+
+// A pull request the agent opened stays its own when it is resumed: the
+// new tmux session starts later, but the conversation, and its stage, go
+// on.
+func TestTheAgentsOwnPullRequestStaysItsOwnAcrossAResume(t *testing.T) {
+	f := newPRStageFixture(t)
+	ctx := context.Background()
+	f.gh.set("acme/widget", fakePR{Number: 20, Head: "feature/x", Created: prOpened(time.Minute)})
+	if err := f.prs.DiscoverPRs(ctx, "LEG-1"); err != nil {
+		t.Fatal(err)
+	}
+	stageSoon(t, f.stages, f.place, store.WorkStageReviewing)
+
+	// Resumed: the old session ends, a new one starts after the PR opened,
+	// and the stage is kept (no Start).
+	if _, err := f.store.DB().Exec("DELETE FROM agent_sessions WHERE task_id = 'LEG-1'"); err != nil {
+		t.Fatal(err)
+	}
+	pushingAgent(t, f.store, "LEG-1", "ex-2")
+	if _, err := f.store.DB().Exec("UPDATE agent_sessions SET started_at = ? WHERE task_id = 'LEG-1'",
+		time.Now().UTC().Add(time.Hour).Format(time.DateTime)); err != nil {
+		t.Fatal(err)
+	}
+
+	f.gh.set("acme/widget", fakePR{Number: 20, Head: "feature/x", State: "closed", Merged: true, Created: prOpened(time.Minute)})
+	if err := f.prs.PollAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := stageSoon(t, f.stages, f.place, store.WorkStageFinished); got.Reason != "every PR merged" {
+		t.Fatalf("stage = %+v", got)
+	}
+}
+
+// An inherited pull request still open does not hold back Finished when
+// every pull request the agent opened has merged.
+func TestAnInheritedPullRequestStillOpenDoesNotHoldBackFinished(t *testing.T) {
+	f := newPRStageFixture(t, fakePR{Number: 2049, Head: "feature/x", Created: prOpened(-time.Hour)})
+	ctx := context.Background()
+	if err := f.prs.DiscoverPRs(ctx, "LEG-1"); err != nil {
+		t.Fatal(err)
+	}
+	f.gh.set("acme/widget",
+		fakePR{Number: 2049, Head: "feature/x", Created: prOpened(-time.Hour)},
+		fakePR{Number: 20, Head: "legato/leg-1", Created: prOpened(time.Minute)})
+	if _, err := f.prs.AddTaskBranches(ctx, "LEG-1", "acme/widget", []string{"legato/leg-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.prs.PollAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stageSoon(t, f.stages, f.place, store.WorkStageReviewing)
+
+	f.gh.set("acme/widget",
+		fakePR{Number: 2049, Head: "feature/x", Created: prOpened(-time.Hour)},
+		fakePR{Number: 20, Head: "legato/leg-1", State: "closed", Merged: true, Created: prOpened(time.Minute)})
+	if err := f.prs.PollAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := stageSoon(t, f.stages, f.place, store.WorkStageFinished); got.Reason != "every PR merged" {
+		t.Fatalf("stage = %+v", got)
 	}
 }

@@ -128,3 +128,18 @@ func (s *Store) ListWorkStageEvents(ctx context.Context, place WorkStagePlace, l
 		ORDER BY id DESC LIMIT ?`, place.TaskID, place.Slot, place.PlaceExecutionID, limit)
 	return out, err
 }
+
+// WorkStageStartedAt is when a place's conversation began: the time of its
+// newest start event, which a resume, a reload or a sandbox switch does not
+// write. It is "" for a place never started.
+func (s *Store) WorkStageStartedAt(ctx context.Context, place WorkStagePlace) (string, error) {
+	place = place.normal()
+	var at string
+	err := s.db.GetContext(ctx, &at, `SELECT created_at FROM agent_stage_events
+		WHERE task_id = ? AND slot = ? AND place_execution_id = ? AND source = ?
+		ORDER BY id DESC LIMIT 1`, place.TaskID, place.Slot, place.PlaceExecutionID, WorkStageSourceStart)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return at, err
+}
