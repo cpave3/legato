@@ -36,16 +36,16 @@ func jiraFixture(t *testing.T, jira JiraDefaults, c config.CredentialConfig) (br
 	return f, channels
 }
 
-// fakeJira records what reaches it and answers 401 unless it is signed as
-// user with the real token.
-type fakeJira struct {
+// fakeJiraUpstream is Jira behind the credential proxy: it records what
+// reaches it and answers 401 unless it is signed as user with the real token.
+type fakeJiraUpstream struct {
 	mu    sync.Mutex
 	seen  []*http.Request
 	user  string
 	calls int
 }
 
-func (j *fakeJira) serve(t *testing.T) *httptest.Server {
+func (j *fakeJiraUpstream) serve(t *testing.T) *httptest.Server {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		j.mu.Lock()
 		j.calls++
@@ -103,7 +103,7 @@ func TestAJiraSearchGoesThroughTheProxySignedWithTheRealToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	jira := &fakeJira{user: "bot@example.com"}
+	jira := &fakeJiraUpstream{user: "bot@example.com"}
 	proxy := proxyFor(t, channels, "jira", jira.serve(t))
 
 	status, body := asAgent(t, env, "GET", proxy.URL+"/c/jira/rest/api/3/search/jql?jql=project%3DAG&fields=summary", "")
@@ -132,7 +132,7 @@ func TestAJiraIssueReadGoesWithoutAsking(t *testing.T) {
 	f, channels := jiraFixture(t, JiraDefaults{}, jiraCredential(config.CredentialSettings{Upstream: "https://acme.atlassian.net", Username: "bot@example.com"}))
 	ctx := context.Background()
 	env, _ := channels.SessionEnv(ctx, "task-1", "ex-1")
-	jira := &fakeJira{user: "bot@example.com"}
+	jira := &fakeJiraUpstream{user: "bot@example.com"}
 	proxy := proxyFor(t, channels, "jira", jira.serve(t))
 
 	status, body := asAgent(t, env, "GET", proxy.URL+"/c/jira/rest/api/3/issue/AG-12?fields=summary,comment", "")
@@ -150,7 +150,7 @@ func TestAJiraCreateIsHeldForTheOperator(t *testing.T) {
 	f, channels := jiraFixture(t, JiraDefaults{}, jiraCredential(config.CredentialSettings{Upstream: "https://acme.atlassian.net", Username: "bot@example.com"}))
 	ctx := context.Background()
 	env, _ := channels.SessionEnv(ctx, "task-1", "ex-1")
-	jira := &fakeJira{user: "bot@example.com"}
+	jira := &fakeJiraUpstream{user: "bot@example.com"}
 	proxy := proxyFor(t, channels, "jira", jira.serve(t))
 
 	create := `{"fields":{"project":{"key":"AG"},"summary":"Checkout fails","issuetype":{"name":"Bug"}}}`
