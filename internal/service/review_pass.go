@@ -83,8 +83,8 @@ type ReviewGitHubPR struct {
 	URL     string
 	HeadSHA string
 	// Author is the pull request's author (the author App's login), as
-	// REST names it: an App is "<slug>[bot]" (GraphQL drops the suffix;
-	// compare with sameLogin).
+	// REST names it: an App is "<slug>[bot]" (compare with sameLogin,
+	// which keeps the suffix).
 	Author string
 	// AuthorAssociation is the author's association with the repository
 	// (OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR,

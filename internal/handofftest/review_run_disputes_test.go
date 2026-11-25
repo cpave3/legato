@@ -77,6 +77,29 @@ func TestAForgedMarkerAfterTheAuthorsReplyDoesNotCancelTheDispute(t *testing.T) 
 	}
 }
 
+// GitHub's REST names an App "<slug>[bot]" and a person never has the
+// suffix, so a person whose login is the reviewer App's slug is not the
+// App: their reply after the author's neither cancels the dispute nor
+// passes as Legato's ruling.
+func TestAPersonNamedLikeTheReviewerAppDoesNotCancelTheDispute(t *testing.T) {
+	r, view := afterPassOne(t, ReviewPassOptions{})
+	task := view.Run.TaskID
+	r.worker.ReviewGitHub.SetAuthor(12, "octocat", "CONTRIBUTOR")
+	findings, _ := r.worker.Store.ListHandoffReviewFindings(context.Background(), task)
+	root := findings[0].CommentID
+	r.worker.ReviewGitHub.SetComments(12, threadOf(root,
+		service.PRComment{Kind: "inline", ID: root + 10, ThreadRoot: root, Author: "octocat", Association: "CONTRIBUTOR", Body: "The form requires a name."},
+		service.PRComment{Kind: "inline", ID: root + 11, ThreadRoot: root, Author: "Legato-Reviewer", Association: "NONE",
+			Body: "Still open in pass 1: no."})...)
+	r.tick()
+	if !r.reviewer(t, task) || r.loopPhase(t, task).Pass != 2 {
+		t.Fatalf("a person named like the reviewer App cancelled the author's dispute: %+v", r.loopPhase(t, task))
+	}
+	if item := r.item(t, task, findings[0].ID); item.Answer != service.AnswerReplied || !strings.Contains(item.AnswerNote, "octocat replied") {
+		t.Fatalf("the author's reply is not the answer: %+v", item)
+	}
+}
+
 func TestAMembersReplyWithAMarkerInItIsStillADispute(t *testing.T) {
 	r, view := afterPassOne(t, ReviewPassOptions{})
 	task := view.Run.TaskID

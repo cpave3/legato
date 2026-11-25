@@ -23,14 +23,17 @@ func insideRepository(association string) bool {
 	return countedAssociations[strings.ToUpper(strings.TrimSpace(association))]
 }
 
-// sameLogin says whether two GitHub logins name one account. REST names an
-// App "<slug>[bot]" and GraphQL "<slug>" (LEG-604), and logins ignore case.
+// sameLogin says whether two GitHub logins, as REST gives them, name one
+// account: equal ignoring case, the "[bot]" suffix kept, as postedBy
+// compares them. REST names an App "<slug>[bot]", and a person can never
+// have the suffix, so a person whose login is an App's slug is not the
+// App. Every login compared here is REST's (comment authors, pull request
+// authors, the logins GitHub answered Legato's posts with) or configured
+// as REST names it (github.app_logins, review_passes.counted_bots); none
+// is GraphQL's, which drops the suffix (LEG-604).
 func sameLogin(a, b string) bool {
-	trim := func(s string) string {
-		s = strings.ToLower(strings.TrimSpace(s))
-		return strings.TrimSuffix(s, "[bot]")
-	}
-	return a != "" && b != "" && trim(a) == trim(b)
+	a, b = strings.TrimSpace(a), strings.TrimSpace(b)
+	return a != "" && strings.EqualFold(a, b)
 }
 
 // storePollPages keeps a pull request's polled pages in the store.
