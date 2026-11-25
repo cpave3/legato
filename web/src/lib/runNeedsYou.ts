@@ -5,6 +5,11 @@
 import type { Approval } from "./approvals"
 import type { AttentionItem } from "./attention"
 import type { GateDetails, MergeWaitDetails, ReviewRunDetails, WorkflowRunView } from "./workflow"
+import { stepPathOf } from "./workflowRunTree"
+
+// topNode is the graph node a step's path is drawn in: a loop's pass's
+// step in its loop's (LEG-490).
+const topNode = (path: string) => `step:${path.split("/")[0]}`
 
 // The actions of the rows only the run knows; the run page carries them out.
 // skip and stop are a paused step's; choose:<option> a gate's.
@@ -43,39 +48,41 @@ export function runNeedsYou(view: WorkflowRunView, attention: AttentionItem[], a
   const hide = (text: string) => secrets.reduce((current, secret) => current.split(secret).join("••••••"), text)
   const attempts = view.attempts ?? []
   const stepOfTask = new Map<string, string>()
-  for (const attempt of attempts) if (attempt.task_id) stepOfTask.set(attempt.task_id, attempt.step_id)
+  for (const attempt of attempts) if (attempt.task_id) stepOfTask.set(attempt.task_id, stepPathOf(attempt))
   // A waiting merge's card: its agent's approvals and items are the run's.
   for (const step of view.steps ?? []) {
-    const wait = step.executor_type === "github.pr.wait" && step.status === "waiting" ? view.details?.[step.step_id] as MergeWaitDetails | undefined : undefined
-    if (wait?.task_id) stepOfTask.set(wait.task_id, step.step_id)
+    const wait = step.executor_type === "github.pr.wait" && step.status === "waiting" ? view.details?.[stepPathOf(step)] as MergeWaitDetails | undefined : undefined
+    if (wait?.task_id) stepOfTask.set(wait.task_id, stepPathOf(step))
   }
-  const nodeOf = (taskId?: string) => { const step = taskId ? stepOfTask.get(taskId) : undefined; return step ? `step:${step}` : null }
+  // A loop's pass's step is drawn in its loop's node.
+  const nodeOf = (taskId?: string) => { const step = taskId ? stepOfTask.get(taskId) : undefined; return step ? topNode(step) : null }
   const rows: RunNeedsYouRow[] = []
 
   for (const step of view.steps ?? []) {
-    const node = `step:${step.step_id}`
-    const latest = [...attempts].reverse().find(attempt => attempt.step_id === step.step_id)
+    const path = stepPathOf(step)
+    const node = topNode(path)
+    const latest = [...attempts].reverse().find(attempt => stepPathOf(attempt) === path)
     // A step says start; one a run kept before schema version 2 says trigger.
     const stepDefinition = parse(step.definition_json)
     const agentEnded = (stepDefinition.start ?? stepDefinition.trigger) === "agent_ended"
     const cleanup = step.executor_type === "worktree.remove"
     if (step.status === "waiting_manual") {
       const [action, label] = agentEnded ? ["end_now", "End now"] as const : ["start", "Start"] as const
-      rows.push({ kind: "item", node, run: cleanup ? { step: step.step_id, control: "trigger", label: agentEnded ? label : undefined } : { step: step.step_id }, item: agentEnded
-        ? runItem(view, step.step_id, "workflow_manual_gate", "gate", `${step.title} starts when the agent ends`, "End now to run it without waiting.", cleanup ? [] : [execute(action, label, "primary")])
-        : runItem(view, step.step_id, "workflow_manual_gate", "gate", `${step.title} waits for you`, "Start it to move the run on.", cleanup ? [] : [execute(action, label, "primary")]) })
+      rows.push({ kind: "item", node, run: cleanup ? { step: path, control: "trigger", label: agentEnded ? label : undefined } : { step: path }, item: agentEnded
+        ? runItem(view, path, "workflow_manual_gate", "gate", `${step.title} starts when the agent ends`, "End now to run it without waiting.", cleanup ? [] : [execute(action, label, "primary")])
+        : runItem(view, path, "workflow_manual_gate", "gate", `${step.title} waits for you`, "Start it to move the run on.", cleanup ? [] : [execute(action, label, "primary")]) })
     }
     if (latest?.status === "waiting_agent" && latest.needs_attention) {
       const actions: AttentionItem["actions"] = [execute("prompt", "Prompt to continue")]
       if (latest.task_id) actions.unshift({ id: "open_agent", label: "Open agent", kind: "navigate", href: agentHref(latest.task_id) })
-      rows.push({ kind: "item", node, run: { step: step.step_id }, item: runItem(view, step.step_id, "workflow_waiting_agent", "agent", `${step.title}: the agent stopped`, hide(latest.attention_reason || "The agent is waiting or idle."), actions) })
+      rows.push({ kind: "item", node, run: { step: path }, item: runItem(view, path, "workflow_waiting_agent", "agent", `${step.title}: the agent stopped`, hide(latest.attention_reason || "The agent is waiting or idle."), actions) })
     }
-    const details = view.details?.[step.step_id] as ReviewRunDetails | undefined
+    const details = view.details?.[path] as ReviewRunDetails | undefined
     // The server says whether the loop waits on the operator; a loop whose
     // agent author is fixing the findings does not.
     if (step.status === "waiting" && step.executor_type === "github.pr.review_passes" && details?.needs_you && (details.phase === "waiting_for_author" || details.phase === "stuck")) {
       const stuck = details.phase === "stuck"
-      rows.push({ kind: "item", node, run: { step: step.step_id }, item: runItem(view, step.step_id, stuck ? "workflow_review_stuck" : "workflow_review_author", "review",
+      rows.push({ kind: "item", node, run: { step: path }, item: runItem(view, path, stuck ? "workflow_review_stuck" : "workflow_review_author", "review",
         stuck ? `${step.title} is stuck` : `${step.title} waits on its author`,
         hide(details.summary || (stuck ? details.reason ?? "" : `${details.blocking_open} blocking findings to fix or answer.`)), [execute("another_pass", "Run another pass")]) })
     }
@@ -84,21 +91,22 @@ export function runNeedsYou(view: WorkflowRunView, attention: AttentionItem[], a
       const actions: AttentionItem["actions"] = [{ id: "open_pr", label: "Open PR", kind: "navigate", href: merge.url || `https://github.com/${merge.repo}/pull/${merge.pr_number}` }]
       if (merge.task_id && merge.agent !== "waiting") actions.push({ id: "resume_agent", label: merge.agent === "running" ? "Send a macro" : "Resume agent", kind: "execute", picks: "macro" })
       if (merge.task_id && merge.agent) actions.push({ id: "open_agent", label: "Open agent", kind: "navigate", href: agentHref(merge.task_id) })
-      rows.push({ kind: "item", node, run: { step: step.step_id }, item: { ...runItem(view, step.step_id, "workflow_merge_waiting", "merge", `Review and merge PR #${merge.pr_number}`, hide(latest.attention_reason || merge.repo), actions), task_id: merge.task_id || view.run.related_task_id || undefined } })
+      rows.push({ kind: "item", node, run: { step: path }, item: { ...runItem(view, path, "workflow_merge_waiting", "merge", `Review and merge PR #${merge.pr_number}`, hide(latest.attention_reason || merge.repo), actions), task_id: merge.task_id || view.run.related_task_id || undefined } })
     }
     // A failed step the run went on from (on_failure: continue) needs no one.
     if (step.status === "paused") {
       const link = step.error_link ? ` (${step.error_link})` : ""
-      rows.push({ kind: "item", node, run: { step: step.step_id }, item: { ...runItem(view, step.step_id, "workflow_failed", "paused", `${step.title} failed`, hide((step.error || "") + link),
+      rows.push({ kind: "item", node, run: { step: path }, item: { ...runItem(view, path, "workflow_failed", "paused", `${step.title} failed`, hide((step.error || "") + link),
         [execute("retry", "Retry", "primary"), execute("skip", "Skip"), execute("stop", "Stop")]), urgency: "high" } })
     }
-    const gate = step.executor_type === "gate" && step.status === "waiting" ? view.details?.[step.step_id] as GateDetails | undefined : undefined
+    const gate = step.executor_type === "gate" && step.status === "waiting" ? view.details?.[path] as GateDetails | undefined : undefined
     if (gate) {
-      rows.push({ kind: "item", node, run: { step: step.step_id }, item: runItem(view, step.step_id, "workflow_gate", "gate", gate.title || step.title, hide(gate.body || "Choose to move the run on."),
+      rows.push({ kind: "item", node, run: { step: path }, item: runItem(view, path, "workflow_gate", "gate", gate.title || step.title, hide(gate.body || "Choose to move the run on."),
         (gate.options ?? []).map((option, i) => execute(`choose:${option}`, option, i === 0 ? "primary" : undefined))) })
     }
-    if (step.status === "failed" && view.run.status === "failed") {
-      rows.push({ kind: "item", node, run: cleanup ? { step: step.step_id, control: "retry" } : { step: step.step_id }, item: runItem(view, step.step_id, "workflow_failed", "failed", `${step.title} failed`, hide(step.error || view.run.error || ""), cleanup ? [] : [execute("retry", "Retry", "primary")]) })
+    // A pass's failed step is its loop's failure: Retry is the loop's.
+    if (step.status === "failed" && view.run.status === "failed" && !step.parent_path) {
+      rows.push({ kind: "item", node, run: cleanup ? { step: path, control: "retry" } : { step: path }, item: runItem(view, path, "workflow_failed", "failed", `${step.title} failed`, hide(step.error || view.run.error || ""), cleanup ? [] : [execute("retry", "Retry", "primary")]) })
     }
   }
 

@@ -7,11 +7,13 @@ import { lenientValues, valuePathAt, workflowSchema, type YamlPath } from "./wor
 // completion and checks agree with what the engine accepts. The table in
 // internal/engine/workflow/testdata/expressions.json is checked by both.
 
+// A location with body is in a loop's pass: the step of that index in the
+// loop step's steps, which reads the loop's context (LEG-490).
 export type ExpressionLocation =
   | { kind: "run_title" }
-  | { kind: "with"; step: number }
+  | { kind: "with"; step: number; body?: number }
   | { kind: "output_path"; step: number; output?: string }
-  | { kind: "if"; step: number }
+  | { kind: "if"; step: number; body?: number }
   | { kind: "trigger"; trigger: string }
 
 export type Reference = { expression: string; description: string }
@@ -29,14 +31,44 @@ const catalogOutputs: Record<string, { name: string; type: string }[]> = Object.
 
 /** ExpressionDefinition is what of a definition the rules read: its inputs
  * and its steps' IDs and outputs. */
+type ExpressionStep = { id?: string; type?: string; on_failure?: string; outputs?: Record<string, { type?: string; description?: string } | null | undefined> | null; loop?: unknown; steps?: (ExpressionStep | null)[] | null }
 export type ExpressionDefinition = {
   inputs?: Record<string, { type?: string; description?: string } | null | undefined> | null
-  steps?: ({ id?: string; type?: string; on_failure?: string; outputs?: Record<string, { type?: string; description?: string } | null | undefined> | null } | null)[] | null
+  steps?: (ExpressionStep | null)[] | null
 }
 type Definition = ExpressionDefinition
 
+// A loop step's own outputs, which later steps read (LoopOutputs in the
+// engine).
+const loopOutputs: Record<string, string> = { results: "json", last: "json", count: "integer", succeeded: "integer", failed: "integer", ended_by: "string" }
+
+const inPass = (location: ExpressionLocation): location is { kind: "with" | "if"; step: number; body: number } =>
+  (location.kind === "with" || location.kind === "if") && location.body !== undefined
+
 function contextFor(location: ExpressionLocation): Context | undefined {
+  if (inPass(location)) return contexts.pass
   return contexts[location.kind === "trigger" ? `trigger.${location.trigger}` : location.kind]
+}
+
+/** earlierSteps are the steps a location reads, the nearest of each ID
+ * first: in a pass its loop's steps before it, then the steps before the
+ * loop. */
+function earlierSteps(definition: Definition, location: ExpressionLocation): ExpressionStep[] {
+  const steps = definition.steps ?? []
+  const step = "step" in location ? location.step : -1
+  const before = steps.slice(0, Math.max(0, step)).filter((s): s is ExpressionStep => Boolean(s))
+  if (!inPass(location)) return before
+  const body = (steps[step]?.steps ?? []).slice(0, Math.max(0, location.body)).filter((s): s is ExpressionStep => Boolean(s))
+  return [...body.reverse(), ...before.reverse()]
+}
+
+/** passOutputs are what a loop's pass result holds: its outputs, and
+ * status and error. */
+function passOutputs(definition: Definition, location: ExpressionLocation): Record<string, string> {
+  const loop = "step" in location ? definition.steps?.[location.step] : undefined
+  const out: Record<string, string> = { status: "string", error: "string" }
+  for (const [name, output] of Object.entries(loop?.outputs ?? {})) out[name] = output?.type ?? ""
+  return out
 }
 
 /** locationOf is the expression context of a value at a YAML path. */
@@ -44,6 +76,7 @@ export function locationOf(path: YamlPath): ExpressionLocation | null {
   const [first, second, third, , fifth] = path
   if (first === "run_title" && path.length === 1) return { kind: "run_title" }
   if (first === "steps" && typeof second === "number" && third === "with") return { kind: "with", step: second }
+  if (first === "steps" && typeof second === "number" && third === "steps" && typeof path[3] === "number" && path[4] === "with") return { kind: "with", step: second, body: path[3] }
   if (first === "steps" && typeof second === "number" && third === "outputs" && fifth === "path" && path.length === 5) return { kind: "output_path", step: second, output: String(path[3]) }
   if (first === "on" && typeof second === "string" && third === "inputs") return { kind: "trigger", trigger: second }
   return null
@@ -54,10 +87,12 @@ function placeholder(name: string, definition: Definition, location: ExpressionL
   const inputs = Object.entries(definition.inputs ?? {})
   const step = "step" in location ? location.step : -1
   const steps = definition.steps ?? []
-  const earlier = steps.slice(0, Math.max(0, step)).map(s => s?.id).filter((id): id is string => Boolean(id))
+  const nearest = earlierSteps(definition, location)
+  const earlier = [...new Set(nearest.map(s => s.id).filter((id): id is string => Boolean(id)))]
   // The outputs of the step the pattern has named so far, else this one's.
-  const named = chosen.length >= 1 && chosen[0] && earlier.includes(chosen[0]) ? steps.find(s => s?.id === chosen[0]) : steps[step]
-  const outputs = Object.entries(named?.outputs ?? {})
+  const own = inPass(location) ? steps[step]?.steps?.[location.body] : steps[step]
+  const named = chosen.length >= 1 && chosen[0] && earlier.includes(chosen[0]) ? nearest.find(s => s.id === chosen[0]) : own
+  const outputs = Object.entries(named ? readableOutputs(named) : {}).map(([key, type]) => [key, { type }] as const)
   switch (name) {
     case "input": return inputs.map(([key]) => key)
     case "task input": return inputs.filter(([, input]) => input?.type === "task").map(([key]) => key)
@@ -67,6 +102,7 @@ function placeholder(name: string, definition: Definition, location: ExpressionL
     case "earlier step": return earlier
     case "output": return outputs.map(([key]) => key)
     case "file output": return outputs.filter(([, output]) => output?.type === "file").map(([key]) => key)
+    case "loop output": return Object.keys(passOutputs(definition, location))
     case "path": return "path"
   }
   return []
@@ -148,8 +184,13 @@ function typesMatch(a: string, b: string): boolean {
 /** readableOutputs are the outputs a later step may read of a step, with
  * their types: its catalog outputs, those it declares, and with
  * on_failure: continue the failure's. */
-function readableOutputs(step: NonNullable<NonNullable<Definition["steps"]>[number]>): Record<string, string> {
+function readableOutputs(step: ExpressionStep): Record<string, string> {
   const out: Record<string, string> = {}
+  if (step.loop) {
+    Object.assign(out, loopOutputs)
+    if (step.on_failure === "continue") for (const name of failureOutputs) out[name] ??= "string"
+    return out
+  }
   for (const output of catalogOutputs[step.type ?? ""] ?? []) out[output.name] = output.type
   for (const [name, output] of Object.entries(step.outputs ?? {})) out[name] = output?.type ?? ""
   if (step.on_failure === "continue") for (const name of failureOutputs) out[name] ??= "string"
@@ -183,10 +224,27 @@ function pathType(path: PathPart[], definition: Definition, location: Expression
     if (input.type === "repository" && fields.length === 1 && rest.length === 0 && repositoryFields.includes(fields[0])) return { type: "string" }
     return { error: problem }
   }
+  if (names[0] === "loop") {
+    if (!inPass(location)) return { error: `${expression}: loop is read only inside a loop` }
+    const field = path[1] && "name" in path[1] ? path[1].name : ""
+    const after = path.slice(2)
+    switch (field) {
+      case "index": return after.length > 0 ? { error: `${expression}: loop.index is a number` } : { type: "integer" }
+      case "item": case "results": return { type: "json" }
+      case "last": return { error: `${expression}: loop.last is read only in a loop's until` }
+      case "previous": {
+        if (after.length === 0) return { type: "json" }
+        if (!("name" in after[0])) return { error: `${expression}: a pass result is read by name` }
+        const type = passOutputs(definition, location)[after[0].name]
+        if (type === undefined) return { error: `${expression}: the loop's pass result has no "${after[0].name}"` }
+        if (after.length === 1) return { type }
+        return type === "json" ? { type: "json" } : { error: `${expression}: pass output ${after[0].name} has no field "${pathString(after.slice(1)).replace(/^\./, "")}"` }
+      }
+    }
+    return { error: `${expression}: loop needs a field: index, item, previous or results` }
+  }
   if (names[0] === "steps" && names[2] === "outputs" && names.length >= 4) {
-    const step = "step" in location ? location.step : -1
-    const steps = definition.steps ?? []
-    const earlier = reads("steps.") ? steps.slice(0, Math.max(0, step)) : []
+    const earlier = reads("steps.") ? earlierSteps(definition, location) : []
     const named = earlier.find(s => s?.id === names[1])
     if (!named) return { error: `steps.${names[1]} is not an earlier step` }
     const outputs = readableOutputs(named)
