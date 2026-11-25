@@ -72,7 +72,7 @@ Explicit local column moves atomically persist a `task_transitions` snapshot. Ma
 
 Migrations 044-046 add task metadata, transition/request persistence, and the workflow-run trigger link. Migration 047 adds `code_context`, backfills repository identity from legacy `pr_meta`, and pins existing numbered PR links. Migration 048 repairs early migration-045 databases by adding the missing workflow-trigger definition snapshot column. Migration 058 extends the trigger status constraint for explicit confirmation.
 
-Migration 150 adds `workflow_step_effects`: what a step instance made outside Legato, such as a `ticket.create` step's ticket and a `ticket.comment` step's comment (LEG-640). It is keyed by `(run_id, path, effect)`, since a retry is a new attempt of the same path, and cascades with its run. `state` is `pending` (an attempt began and did not learn the outcome) or `done`. `target` is the project or ticket, `summary` the title a pending create looks for, and `key`, `remote_id` and `url` what was made. The times are RFC 3339 text. See [Workflows](workflows.md).
+Migration 152 adds `workflow_step_effects`: what a step instance made outside Legato, such as a `ticket.create` step's ticket and a `ticket.comment` step's comment (LEG-640). It is keyed by `(run_id, path, effect)`, since a retry is a new attempt of the same path, and cascades with its run. `state` is `pending` (an attempt began and did not learn the outcome) or `done`. `target` is the project or ticket, `summary` the title a pending create looks for, and `key`, `remote_id` and `url` what was made. The times are RFC 3339 text. See [Workflows](workflows.md).
 
 ### Agent UI items
 
