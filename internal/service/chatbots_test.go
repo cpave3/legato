@@ -22,6 +22,21 @@ type fakeChatConnection struct {
 	send    func(ctx context.Context, channel, text, threadID string) (SentMessage, error)
 	reacted []fakeReaction
 	react   func(ctx context.Context, channel, messageID, emoji string, remove bool) error
+	// thread is what ReadThread answers, and reads what it was asked.
+	thread []ChatThreadMessage
+	reads  []fakeRead
+}
+
+type fakeRead struct {
+	Channel, ThreadID string
+	Max               int
+}
+
+func (f *fakeChatConnection) ReadThread(ctx context.Context, channel, threadID string, max int) ([]ChatThreadMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reads = append(f.reads, fakeRead{channel, threadID, max})
+	return append([]ChatThreadMessage(nil), f.thread...), nil
 }
 
 type fakeSent struct{ Channel, Text, ThreadID string }
