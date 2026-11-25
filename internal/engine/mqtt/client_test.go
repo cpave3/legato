@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -535,8 +536,26 @@ func TestRetainedBirthCanRepublishFromCallback(t *testing.T) {
 	}
 }
 
+// lateFanOut widens a gap in mochi: it sends a publisher its PUBACK before it
+// selects the subscribers to send the publication to. OnQosComplete runs in
+// between, so the first QoS 1 publication reaches whoever subscribes in the
+// next 20 ms. A test that publishes, then subscribes, must wait for the
+// fan-out itself.
+type lateFanOut struct {
+	auth.AllowHook
+	once sync.Once
+}
+
+func (h *lateFanOut) Provides(b byte) bool {
+	return b == broker.OnQosComplete || h.AllowHook.Provides(b)
+}
+
+func (h *lateFanOut) OnQosComplete(*broker.Client, brokerpackets.Packet) {
+	h.once.Do(func() { time.Sleep(20 * time.Millisecond) })
+}
+
 func TestCommandsSkipReplayPreserveLiveRetainAndBoundPayload(t *testing.T) {
-	_, address := startBroker(t)
+	_, address := startBrokerHook(t, new(lateFanOut))
 	sender, _ := observer(t, address, "unused-command")
 	send := func(payload string, retained bool) {
 		t.Helper()
@@ -545,19 +564,24 @@ func TestCommandsSkipReplayPreserveLiveRetainAndBoundPayload(t *testing.T) {
 		}
 	}
 	send("replay", true)
+	// Mochi handles one connection's packets in order, so this SUBACK comes
+	// after the fan-out of "replay": the control client cannot receive it live.
+	if _, err := sender.Subscribe(testContext(t), &paho.Subscribe{Subscriptions: []paho.SubscribeOptions{{Topic: "test/subscribe-barrier", QoS: 0}}}); err != nil {
+		t.Fatal(err)
+	}
 	c, err := transport.Dial(testContext(t), transport.Options{Broker: address, ClientID: "control", AvailabilityTopic: "legato/theme/availability", CommandTopic: "legato/theme/set"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close(context.Background())
-	select {
-	case <-c.Commands():
-		t.Fatal("replayed retained command")
-	case <-time.After(50 * time.Millisecond):
-	}
+	// A replayed retained command would be queued for the client while it
+	// subscribed, ahead of any live one, so the first command proves none came.
 	send("live retained", true)
 	select {
 	case command := <-c.Commands():
+		if string(command.Payload) == "replay" {
+			t.Fatal("replayed retained command")
+		}
 		if !command.Retained || string(command.Payload) != "live retained" {
 			t.Fatalf("lost retain flag: %+v", command)
 		}
@@ -585,11 +609,17 @@ func TestCommandsSkipReplayPreserveLiveRetainAndBoundPayload(t *testing.T) {
 	if err := c.PublishTransient(testContext(t), "legato/theme/result", []byte(`{"code":"ok"}`)); err != nil {
 		t.Fatal(err)
 	}
+	// The QoS 0 result has no acknowledgement; the barrier's PUBACK means the broker
+	// has handled it, and would have retained it, before the observer subscribes.
+	publishBarrier(t, c)
 	_, results := observer(t, address, "legato/theme/result")
-	select {
-	case <-results:
-		t.Fatal("result retained")
-	case <-time.After(50 * time.Millisecond):
+	// A retained result would be queued for the observer while it subscribed,
+	// ahead of this live one.
+	if err := c.PublishTransient(testContext(t), "legato/theme/result", []byte("sentinel")); err != nil {
+		t.Fatal(err)
+	}
+	if result := receive(t, results); string(result.Payload) != "sentinel" {
+		t.Fatalf("result retained: %q", result.Payload)
 	}
 }
 
