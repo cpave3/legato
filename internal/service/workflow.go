@@ -68,6 +68,9 @@ type WorkflowService struct {
 	// resumedAgents stops the one it started (LEG-614).
 	resumer       AgentResumer
 	resumedAgents AgentKiller
+	// interrupted resumes and dismisses the interrupted agents of
+	// suspended steps (workflow_suspend.go).
+	interrupted InterruptedAgents
 	// bus and changeListener are told of every change to a run's state
 	// (workflow_events.go).
 	bus            *events.Bus
@@ -279,6 +282,7 @@ func (s *WorkflowService) Show(ctx context.Context, runID string) (*store.Workfl
 	s.addDetails(ctx, view)
 	addOutputWarnings(view)
 	s.addAttemptAgents(ctx, view)
+	s.addResumable(ctx, view)
 	if view.Run.TriggerRequestID != "" {
 		if request, err := s.store.GetWorkflowTriggerRequest(ctx, view.Run.TriggerRequestID); err == nil {
 			view.TriggerKind = request.TriggerKind
@@ -480,6 +484,9 @@ func (s *WorkflowService) Retry(ctx context.Context, runID, stepID string, force
 	if force && definition.Steps[index].Type != "worktree.remove" {
 		return nil, fmt.Errorf("force is only supported for worktree.remove steps")
 	}
+	if err := s.endSuspendedStep(ctx, view, stepID); err != nil {
+		return nil, err
+	}
 	if err := s.store.ResetWorkflowStepForRetry(ctx, runID, stepID); err != nil {
 		return nil, err
 	}
@@ -507,6 +514,7 @@ func (s *WorkflowService) Cancel(ctx context.Context, runID, reason string) (*st
 	if err := s.store.CancelWorkflowRun(ctx, runID, reason); err != nil {
 		return nil, err
 	}
+	s.dismissSuspendedAgents(ctx, view)
 	s.changed(runID, "", WorkflowChangeRunCancelled)
 	return s.store.GetWorkflowRun(ctx, runID)
 }

@@ -160,6 +160,11 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 	// Resume agent: a run's card agent started with a macro, as the card
 	// menu starts one, and stopped when the run's merge is over.
 	workflows.SetAgentResumer(macrosFor(db, agentSvc), agentSvc)
+	// Resume on a suspended step: its interrupted agent, resumed on the
+	// same attempt (LEG-625).
+	if interrupted, ok := agentSvc.(service.InterruptedAgents); ok {
+		workflows.SetInterruptedAgents(interrupted)
+	}
 	return workflows, nil
 }
 

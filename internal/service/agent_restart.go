@@ -244,11 +244,17 @@ func hostNetworkNote(on, resumed bool) string {
 // restartOwner names what owns an agent that is started by it, not by the
 // person, or is empty for an agent of its own.
 func restartOwner(session *store.AgentSession) string {
-	switch {
-	case session.WorkflowRunID != "" || session.ExecutionKind == store.ExecutionWorkflowAgent:
+	if session.WorkflowRunID != "" || session.ExecutionKind == store.ExecutionWorkflowAgent {
 		return "a workflow runs this agent"
-	case session.Role != "" || (session.ParentTaskID != nil && *session.ParentTaskID != "") ||
-		(session.SubtaskID != nil && *session.SubtaskID != ""):
+	}
+	return swarmOwner(session)
+}
+
+// swarmOwner says "a swarm runs this agent" for a swarm's agent, which only
+// the swarm starts again, "" for any other.
+func swarmOwner(session *store.AgentSession) string {
+	if session.Role != "" || (session.ParentTaskID != nil && *session.ParentTaskID != "") ||
+		(session.SubtaskID != nil && *session.SubtaskID != "") {
 		return "a swarm runs this agent"
 	}
 	return ""

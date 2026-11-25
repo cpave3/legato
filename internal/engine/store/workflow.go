@@ -145,6 +145,10 @@ type WorkflowStepAttempt struct {
 	AgentID         string `db:"-" json:"agent_id,omitempty"`
 	NeedsAttention  bool   `db:"-" json:"needs_attention,omitempty"`
 	AttentionReason string `db:"-" json:"attention_reason,omitempty"`
+	// Resumable says Resume continues the attempt: it is suspended, or an
+	// earlier Legato failed it when its agent was interrupted and that
+	// agent can still be resumed. The service fills it.
+	Resumable bool `db:"-" json:"resumable,omitempty"`
 	// AttentionActions are the actions a step waiting on its service
 	// offers beyond the usual, such as message for a stuck review loop
 	// with an agent author.
@@ -565,7 +569,7 @@ func (s *Store) ListWaitingWorkflowAttemptsByExecutor(ctx context.Context, execu
 
 func (s *Store) FailWorkflowStep(ctx context.Context, runID, path, attemptID, errorMessage string) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'failed', error = ?, ended_at = datetime('now') WHERE id = ? AND run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting')`, errorMessage, attemptID, runID, path)
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'failed', error = ?, ended_at = datetime('now') WHERE id = ? AND run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting','suspended')`, errorMessage, attemptID, runID, path)
 		if err != nil {
 			return err
 		}
@@ -576,7 +580,7 @@ func (s *Store) FailWorkflowStep(ctx context.Context, runID, path, attemptID, er
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		result, err = tx.ExecContext(ctx, `UPDATE workflow_steps SET status = 'failed', error = ?, completed_at = datetime('now') WHERE run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting')`, errorMessage, runID, path)
+		result, err = tx.ExecContext(ctx, `UPDATE workflow_steps SET status = 'failed', error = ?, completed_at = datetime('now') WHERE run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting','suspended')`, errorMessage, runID, path)
 		if err != nil {
 			return err
 		}
@@ -587,7 +591,7 @@ func (s *Store) FailWorkflowStep(ctx context.Context, runID, path, attemptID, er
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'failed', error = ? WHERE id = ? AND current_step_id = ? AND status = 'running'`, errorMessage, runID, path)
+		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'failed', error = ? WHERE id = ? AND current_step_id = ? AND status IN ('running','suspended')`, errorMessage, runID, path)
 		if err != nil {
 			return err
 		}
@@ -795,7 +799,7 @@ func (s *Store) attachStepSummaries(ctx context.Context, runs []WorkflowRun) err
 
 func (s *Store) CancelWorkflowRun(ctx context.Context, runID, reason string) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		result, err := tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE id = ? AND status IN ('running','waiting')`, reason, runID)
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE id = ? AND status IN ('running','waiting','suspended')`, reason, runID)
 		if err != nil {
 			return err
 		}
@@ -806,10 +810,10 @@ func (s *Store) CancelWorkflowRun(ctx context.Context, runID, reason string) err
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE workflow_steps SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE run_id = ? AND status IN ('pending','running','waiting_agent','waiting_manual','waiting')`, reason, runID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE workflow_steps SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE run_id = ? AND status IN ('pending','running','waiting_agent','waiting_manual','waiting','suspended')`, reason, runID); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'cancelled', error = ?, ended_at = datetime('now') WHERE run_id = ? AND status IN ('running','waiting_agent','waiting')`, reason, runID)
+		_, err = tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'cancelled', error = ?, ended_at = datetime('now') WHERE run_id = ? AND status IN ('running','waiting_agent','waiting','suspended')`, reason, runID)
 		return err
 	})
 }
