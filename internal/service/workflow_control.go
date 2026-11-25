@@ -28,6 +28,11 @@ type WorkflowStepError struct {
 	Link    string
 	Message string
 	Err     error
+	// Status is the step's status output when it is not failed, and
+	// Outputs are more outputs its failure has: a workflow.run step whose
+	// child stopped says stopped, with the child's run_id (LEG-489).
+	Status  string
+	Outputs map[string]any
 }
 
 func (e *WorkflowStepError) Error() string {
@@ -48,7 +53,7 @@ func stepFailure(err error) store.StepFailure {
 	failure := store.StepFailure{Message: err.Error()}
 	var typed *WorkflowStepError
 	if errors.As(err, &typed) {
-		failure.Code, failure.Link = typed.Code, typed.Link
+		failure.Code, failure.Link, failure.Status, failure.Outputs = typed.Code, typed.Link, typed.Status, typed.Outputs
 	}
 	return failure
 }

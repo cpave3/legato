@@ -189,6 +189,7 @@ func (s *WorkflowService) StartAdvanceLoop(ctx context.Context, bus *events.Bus)
 	// the agent service ended reaches this process by IPC or on the bus)
 	// and at each reconcile.
 	s.SweepEndedRuns(ctx)
+	s.ReconcileChildRuns(ctx, advanceClaimStale)
 	go func() {
 		ticker := time.NewTicker(advanceReconcileInterval)
 		defer ticker.Stop()
@@ -212,6 +213,7 @@ func (s *WorkflowService) StartAdvanceLoop(ctx context.Context, bus *events.Bus)
 				announce(s.AdvanceDue(ctx))
 				checkWaits()
 				s.SweepEndedRuns(ctx)
+				s.ReconcileChildRuns(ctx, advanceClaimStale)
 			}
 		}
 	}()

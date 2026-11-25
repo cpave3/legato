@@ -621,8 +621,22 @@ func (s *WorkflowService) timeoutStep(ctx context.Context, step store.WorkflowSt
 		}
 		reason := "timed out after " + firstNonEmpty(definition.Timeout, "its timeout")
 		failure := &WorkflowStepError{Code: WorkflowErrorTimeout, Message: reason}
-		if _, err := s.failWith(ctx, step.RunID, step.Path, attempt.ID, failure); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
+		if _, err := s.failWith(ctx, step.RunID, step.Path, attempt.ID, failure); err != nil {
+			if errors.Is(err, store.ErrWorkflowStateConflict) {
+				return nil
+			}
 			return err
+		}
+		// A call's child is cancelled only after the step's failure is
+		// written, as Cancel orders it: the child's end then settles
+		// nothing, and the step's on_failure has decided (LEG-489).
+		for _, row := range view.Steps {
+			if row.Path != step.Path || row.ChildRunID == "" {
+				continue
+			}
+			if _, err := s.Cancel(ctx, row.ChildRunID, "its workflow.run step "+step.Path+" of "+step.RunID+" timed out"); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
+				return err
+			}
 		}
 		return nil
 	}

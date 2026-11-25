@@ -95,6 +95,9 @@ type WorkflowService struct {
 	// agentOutputSources fill agent steps' outputs at their signal
 	// (workflow_agent_wait.go).
 	agentOutputSources AgentOutputSources
+	// discover finds the workflows workflow.run steps call by name
+	// (SetDefinitions, workflow_call.go).
+	discover func() workflowengine.DiscoveryResult
 }
 
 func NewWorkflowService(s *store.Store, executors []WorkflowExecutor) *WorkflowService {
@@ -111,6 +114,12 @@ func NewWorkflowServiceWithOutputs(s *store.Store, executors []WorkflowExecutor,
 	if _, given := registry[workflowengine.GateStepType]; !given {
 		registry[workflowengine.GateStepType] = &gateExecutor{workflows: service}
 	}
+	// So does a call: its child is a run of this service, and the
+	// run-ended hook settles the step that waits on it.
+	if _, given := registry[workflowengine.WorkflowRunStepType]; !given {
+		registry[workflowengine.WorkflowRunStepType] = &workflowRunExecutor{workflows: service}
+	}
+	service.OnRunEnded(childRuns{workflows: service})
 	return service
 }
 
@@ -165,6 +174,37 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 	if err != nil {
 		return nil, err
 	}
+	created, err := s.createRun(ctx, definition, inputs, store.WorkflowRun{TriggerRequestID: triggerRequestID})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.advance(ctx, definition, created.Inputs, created.RunID, created.TaskID, 0, map[string]map[string]any{}, "", false); err != nil {
+		// The run is already durable and the executor records its failure.
+		// Return that visible run instead of encouraging an accidental duplicate launch.
+		view, loadErr := s.store.GetWorkflowRun(ctx, created.RunID)
+		if loadErr != nil {
+			return nil, err
+		}
+		return view, nil
+	}
+	return s.store.GetWorkflowRun(ctx, created.RunID)
+}
+
+// createdRun is a run createRun recorded: its ID, its task and its
+// resolved inputs. Created is false for a child run its attempt had
+// already (CreateChildWorkflowRun).
+type createdRun struct {
+	RunID, TaskID string
+	Inputs        map[string]any
+	Created       bool
+}
+
+// createRun records a run of definition with its inputs normalized (a
+// task input resolved to its task, a repository to the preset or the
+// object), and its task, without starting any step. link carries what the
+// run is linked to: its trigger request, or for a child run its parent's
+// step and attempt.
+func (s *WorkflowService) createRun(ctx context.Context, definition *workflowengine.Definition, inputs map[string]any, link store.WorkflowRun) (createdRun, error) {
 	relatedTaskID, relatedKey := "", ""
 	for key, spec := range definition.Inputs {
 		switch spec.Type {
@@ -172,18 +212,23 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 			id, _ := inputs[key].(string)
 			task, taskErr := s.store.GetTask(ctx, id)
 			if taskErr != nil {
-				return nil, fmt.Errorf("workflow input %q: task %q not found: %w", key, id, taskErr)
+				return createdRun{}, fmt.Errorf("workflow input %q: task %q not found: %w", key, id, taskErr)
 			}
 			inputs[key] = workflowTaskContext(task)
 			if relatedTaskID == "" {
 				relatedTaskID, relatedKey = task.ID, cardKey(task)
 			}
 		case "repository":
+			if resolved, ok := inputs[key].(map[string]any); ok {
+				// A caller's repository, as its run resolved it (LEG-489).
+				inputs[key] = resolved
+				continue
+			}
 			value, _ := inputs[key].(string)
 			if strings.HasPrefix(strings.TrimSpace(value), "{") {
 				var custom map[string]any
 				if err := json.Unmarshal([]byte(value), &custom); err != nil || fmt.Sprint(custom["repo"]) == "" || fmt.Sprint(custom["primary_dir"]) == "" {
-					return nil, fmt.Errorf("workflow input %q: custom repository requires repo and primary_dir", key)
+					return createdRun{}, fmt.Errorf("workflow input %q: custom repository requires repo and primary_dir", key)
 				}
 				custom["name"] = ""
 				inputs[key] = custom
@@ -191,14 +236,14 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 			}
 			preset, ok := findRepositoryPreset(s.repositoryPresets(ctx), value)
 			if !ok {
-				return nil, fmt.Errorf("workflow input %q: repository preset %q not found", key, value)
+				return createdRun{}, fmt.Errorf("workflow input %q: repository preset %q not found", key, value)
 			}
 			inputs[key] = map[string]any{"name": preset.Name, "repo": preset.Repo, "primary_dir": preset.PrimaryDir, "base_branch": preset.BaseBranch}
 		}
 	}
 	runTitle, err := definition.ResolveRunTitle(inputs)
 	if err != nil {
-		return nil, err
+		return createdRun{}, err
 	}
 	if definition.RunTitle == "" && relatedKey != "" {
 		// A run for a card is named after it: several runs of one
@@ -207,51 +252,58 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 	}
 	for _, step := range definition.Steps {
 		if _, ok := s.executors[step.Type]; !ok {
-			return nil, fmt.Errorf("workflow executor %q is not registered", step.Type)
+			return createdRun{}, fmt.Errorf("workflow executor %q is not registered", step.Type)
 		}
 		if err := s.checkAgentKind(step, inputs); err != nil {
-			return nil, err
+			return createdRun{}, err
 		}
 	}
 	color := "#6366f1"
 	id, workspaceErr := s.store.EnsureWorkspace(ctx, store.Workspace{Name: store.WorkflowWorkspaceName, Color: &color, SortOrder: 1000})
 	if workspaceErr != nil {
-		return nil, fmt.Errorf("ensure workflow workspace: %w", workspaceErr)
+		return createdRun{}, fmt.Errorf("ensure workflow workspace: %w", workspaceErr)
 	}
 	workspaceID := &id
 	runID := workflowID("wr-")
 	taskID := store.GenerateTaskID()
 	now := time.Now().UTC().Format(time.RFC3339)
 	if err := s.store.CreateTask(ctx, store.Task{ID: taskID, Title: runTitle, Description: "Workflow run " + runID, DescriptionMD: "Workflow run " + runID, Status: "Backlog", WorkspaceID: workspaceID, CreatedAt: now, UpdatedAt: now}); err != nil {
-		return nil, err
+		return createdRun{}, err
 	}
 	// A Learn run's own task never starts another: the learn template's
 	// trigger skips tasks with this mark.
 	if definition.UsesLearning() {
 		if err := s.store.SetTaskMetadata(ctx, taskID, []string{"legato", "learning_workflow"}, true); err != nil {
-			return nil, fmt.Errorf("mark learning workflow task: %w", err)
+			return createdRun{}, fmt.Errorf("mark learning workflow task: %w", err)
 		}
 	}
 	definitionJSON, _ := json.Marshal(definition)
 	inputsJSON, _ := json.Marshal(inputs)
-	run := store.WorkflowRun{ID: runID, WorkflowName: definition.Name, WorkflowTitle: runTitle, DefinitionSource: definition.Source, DefinitionDigest: digestBytes(definitionJSON), DefinitionJSON: string(definitionJSON), InputsJSON: string(inputsJSON), Status: "running", CurrentStepID: definition.Steps[0].ID, TaskID: taskID, RelatedTaskID: relatedTaskID, TriggerRequestID: triggerRequestID, SchemaVersion: definition.SchemaVersion}
+	run := store.WorkflowRun{ID: runID, WorkflowName: definition.Name, WorkflowTitle: runTitle, DefinitionSource: definition.Source, DefinitionDigest: digestBytes(definitionJSON), DefinitionJSON: string(definitionJSON), InputsJSON: string(inputsJSON), Status: "running", CurrentStepID: definition.Steps[0].ID, TaskID: taskID, RelatedTaskID: relatedTaskID,
+		TriggerRequestID: link.TriggerRequestID, ParentRunID: link.ParentRunID, ParentStepPath: link.ParentStepPath, ParentAttempt: link.ParentAttempt, SchemaVersion: definition.SchemaVersion}
 	// The run reaches its own steps when it starts; a nested scope's steps
 	// are created when the run reaches them.
 	steps := stepInstances(runID, "", nil, definition.Steps)
-	if err := s.store.CreateWorkflowRun(ctx, run, steps); err != nil {
-		return nil, err
+	if link.ParentRunID == "" {
+		if err := s.store.CreateWorkflowRun(ctx, run, steps); err != nil {
+			return createdRun{}, err
+		}
+	} else {
+		existing, created, err := s.store.CreateChildWorkflowRun(ctx, run, steps)
+		if err != nil {
+			return createdRun{}, err
+		}
+		if !created {
+			// The attempt's child exists: the task made for this one is
+			// not needed.
+			if err := s.store.DeleteTask(ctx, taskID); err != nil {
+				log.Printf("workflows: removing the task of a child run not made: %v", err)
+			}
+			return createdRun{RunID: existing}, nil
+		}
 	}
 	s.changed(ctx, runID, "", WorkflowChangeRunStarted)
-	if err := s.advance(ctx, definition, inputs, runID, taskID, 0, map[string]map[string]any{}, "", false); err != nil {
-		// The run is already durable and the executor records its failure.
-		// Return that visible run instead of encouraging an accidental duplicate launch.
-		view, loadErr := s.store.GetWorkflowRun(ctx, runID)
-		if loadErr != nil {
-			return nil, err
-		}
-		return view, nil
-	}
-	return s.store.GetWorkflowRun(ctx, runID)
+	return createdRun{RunID: runID, TaskID: taskID, Inputs: inputs, Created: true}, nil
 }
 
 // stepInstances are the pending step instances of one scope's steps: the
@@ -306,6 +358,7 @@ func (s *WorkflowService) Show(ctx context.Context, runID string) (*store.Workfl
 	s.enrichWorkflowAttention(ctx, view)
 	s.addDetails(ctx, view)
 	addOutputWarnings(view)
+	s.addRunOutputs(ctx, view)
 	s.addAttemptAgents(ctx, view)
 	s.addResumable(ctx, view)
 	if view.Run.TriggerRequestID != "" {
@@ -581,6 +634,9 @@ func (s *WorkflowService) end(ctx context.Context, runID, reason string, write f
 	}
 	s.dismissSuspendedAgents(ctx, view)
 	s.changed(ctx, runID, "", kind)
+	// Its children go after its own end is written, so that their
+	// cancellation never settles one of its steps (LEG-489).
+	s.cancelChildren(ctx, runID)
 	return s.store.GetWorkflowRun(ctx, runID)
 }
 
@@ -853,6 +909,12 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 				return err
 			}
 			s.changed(ctx, runID, path, WorkflowChangeStepWaiting)
+			// What the step waits on starts only now (a call's child), so
+			// its end finds the step waiting.
+			if waiter, ok := s.executors[step.Type].(workflowStepWaiter); ok && result.Status == WorkflowStepWaiting {
+				attempt.Status = WorkflowStepWaiting
+				waiter.Waiting(ctx, attempt)
+			}
 			if waits && result.Status == "waiting_agent" {
 				// A signal may be here already (none: the prompt was
 				// delivered).

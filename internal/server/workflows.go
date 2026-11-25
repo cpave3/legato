@@ -79,6 +79,9 @@ func (s *Server) definitionWithGraph(ctx context.Context, definition *workflowen
 			if parsed != nil && parsed.HasChatFallback() {
 				out.Warnings = append(out.Warnings, s.chatFallbackDiagnostics(ctx, data, parsed, all)...)
 			}
+			if parsed != nil && parsed.Calls() {
+				out.Warnings = append(out.Warnings, workflowengine.CallDiagnostics(data, parsed, all)...)
+			}
 		}
 	}
 	return out

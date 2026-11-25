@@ -167,6 +167,8 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 	}
 	workflows.SetAgentKinds(agentSvc.RegisteredAdapters())
 	workflows.SetAgentOutputs(agentOutputSources(db, agentSvc, prSvc))
+	// workflow.run steps call the workflows found now, by name (LEG-489).
+	workflows.SetDefinitions(workflowDiscoveryProvider(cfg, db))
 	// Resume agent: a run's card agent started with a macro, as the card
 	// menu starts one, and stopped when the run's merge is over.
 	workflows.SetAgentResumer(macrosFor(db, agentSvc), agentSvc)
