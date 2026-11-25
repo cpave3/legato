@@ -104,7 +104,7 @@ func slackClickEvent(name string, click slackbot.Click, client *slackbot.Client)
 	}
 	e := ChatEvent{Bot: name, Platform: "slack", Channel: click.Channel, User: click.User, MessageID: click.TS,
 		ThreadID: thread, At: time.Now().UTC(),
-		Click: &ChatClick{Value: click.Value, Label: click.Label, InteractionID: click.InteractionID}}
+		Click: &ChatClick{Value: click.Value, Label: click.Label, InteractionID: click.InteractionID, MessageText: click.Text}}
 	if client != nil {
 		e.Click.settle = func(ctx context.Context, line string) error { return slackError(client.Settle(ctx, click, line)) }
 	}
@@ -242,7 +242,7 @@ func discordClickEvent(name string, i discordbot.Interaction, client *discordbot
 	}
 	e := ChatEvent{Bot: name, Platform: "discord", Channel: i.ChannelID, User: i.UserID, MessageID: i.MessageID,
 		ThreadID: thread, At: time.Now().UTC(),
-		Click: &ChatClick{Value: i.Value, Label: i.Label, InteractionID: i.ID}}
+		Click: &ChatClick{Value: i.Value, Label: i.Label, InteractionID: i.ID, MessageText: i.Content}}
 	if client != nil {
 		e.Click.settle = func(ctx context.Context, line string) error { return client.Settle(ctx, i, line) }
 	}

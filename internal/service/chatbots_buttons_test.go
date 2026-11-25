@@ -2,11 +2,13 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cpave3/legato/internal/engine/discordbot"
 	"github.com/cpave3/legato/internal/engine/slackbot"
@@ -76,10 +78,43 @@ func TestChatSendPostsTheStepsButtons(t *testing.T) {
 	}
 }
 
+// A step's buttons arrive resolved: their ${{ }} and if: are behind them.
+func TestChatSendChecksTheButtonsAsResolved(t *testing.T) {
+	conn := &fakeChatConnection{name: "slack", platform: "slack"}
+	bots, _ := testChatBots(t, []ChatBotSpec{{Name: "slack", Platform: "slack", Enabled: true, Configured: true, Conn: conn}}, nil)
+	executor := NewChatSendExecutor(bots)
+	button := func(label, value string) any { return map[string]any{"label": label, "value": value} }
+	for name, tc := range map[string]struct {
+		buttons []any
+		says    string
+	}{
+		"a long value":    {[]any{button("Fix", "fix:"+strings.Repeat("x", 97))}, "with buttons: button 1: the value is longer than 100 characters"},
+		"a long label":    {[]any{button("Fix with "+strings.Repeat("x", 67), "fix")}, "with buttons: button 1: the label is longer than 75 characters"},
+		"a shared value":  {[]any{button("Fix", "fix"), button("Fix it", "fix")}, "with buttons: button 2: the value \"fix\" is another button's too"},
+		"six shown":       {[]any{button("a", "a"), button("b", "b"), button("c", "c"), button("d", "d"), button("e", "e"), button("f", "f")}, "with buttons: a message takes at most 5 buttons, not 6"},
+		"a missing label": {[]any{map[string]any{"value": "fix"}}, "with buttons: button 1: no label"},
+	} {
+		_, err := executor.Start(context.Background(), chatSendStep(map[string]any{"bot": "slack", "channel": "C1", "text": "x", "buttons": tc.buttons}))
+		if err == nil || !strings.Contains(err.Error(), tc.says) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.says)
+		}
+	}
+	if len(conn.sent) != 0 {
+		t.Fatalf("sent %d messages", len(conn.sent))
+	}
+	// Every button left out by its if: the message goes without buttons.
+	if _, err := executor.Start(context.Background(), chatSendStep(map[string]any{"bot": "slack", "channel": "C1", "text": "x", "buttons": []any{}})); err != nil {
+		t.Fatal(err)
+	}
+	if len(conn.sent) != 1 || len(conn.sent[0].Buttons) != 0 {
+		t.Fatalf("sent = %+v", conn.sent)
+	}
+}
+
 func TestASlackClickIsAChatEvent(t *testing.T) {
-	click := slackbot.Click{Channel: "C1", User: "U7", TS: "5.5", ThreadTS: "5.0", Value: "fix:T1", Label: "Fix", InteractionID: "trig-1"}
+	click := slackbot.Click{Channel: "C1", User: "U7", TS: "5.5", ThreadTS: "5.0", Value: "fix:T1", Label: "Fix", InteractionID: "trig-1", Text: "Disk full on web-1"}
 	e := slackClickEvent("slack", click, nil)
-	if e.Click == nil || e.Click.Value != "fix:T1" || e.Click.Label != "Fix" || e.Click.InteractionID != "trig-1" {
+	if e.Click == nil || e.Click.Value != "fix:T1" || e.Click.Label != "Fix" || e.Click.InteractionID != "trig-1" || e.Click.MessageText != "Disk full on web-1" {
 		t.Fatalf("click = %+v", e.Click)
 	}
 	if e.Bot != "slack" || e.Platform != "slack" || e.Channel != "C1" || e.User != "U7" || e.MessageID != "5.5" || e.ThreadID != "5.0" || e.At.IsZero() {
@@ -92,9 +127,9 @@ func TestASlackClickIsAChatEvent(t *testing.T) {
 }
 
 func TestADiscordClickIsAChatEvent(t *testing.T) {
-	i := discordbot.Interaction{ID: "int-1", ChannelID: "c1", UserID: "u7", MessageID: "m9", Value: "fix:T1", Label: "Fix"}
+	i := discordbot.Interaction{ID: "int-1", ChannelID: "c1", UserID: "u7", MessageID: "m9", Value: "fix:T1", Label: "Fix", Content: "Disk full on web-1"}
 	e := discordClickEvent("discord", i, nil)
-	if e.Click == nil || e.Click.Value != "fix:T1" || e.Click.InteractionID != "int-1" || e.MessageID != "m9" || e.ThreadID != "m9" || e.User != "u7" {
+	if e.Click == nil || e.Click.Value != "fix:T1" || e.Click.InteractionID != "int-1" || e.MessageID != "m9" || e.ThreadID != "m9" || e.User != "u7" || e.Click.MessageText != "Disk full on web-1" {
 		t.Fatalf("event = %+v, click %+v", e, e.Click)
 	}
 	i.InThread = true
@@ -188,6 +223,51 @@ func TestAChatButtonStartsTheWorkflowWithTheEvent(t *testing.T) {
 			t.Fatalf("event %s lacks %s", started[0].EventJSON, want)
 		}
 	}
+}
+
+func TestAClickHandsTheMessagesTextOnCutTo8KiB(t *testing.T) {
+	db, coordinator, _ := chatTriggerFixture(t, "  chat.button:\n    bot: slack\n    user: U7\n    inputs:\n      text: ${{ event.message_text }}\n")
+	ctx := context.Background()
+	click := chatClick("i1", "5.5", "U7", "fix:LEG-1")
+	click.Click.MessageText = "Disk full on web-1"
+	if _, err := coordinator.ChatButton(ctx, click); err != nil {
+		t.Fatal(err)
+	}
+	started := requestsOfKind(t, db, "started", workflowengine.TriggerChatButton)
+	if len(started) != 1 || !strings.Contains(started[0].EventJSON, `"message_text":"Disk full on web-1"`) {
+		t.Fatalf("started = %+v", started)
+	}
+	run, err := db.FindWorkflowRunByTriggerRequest(ctx, started[0].ID)
+	if err != nil || !strings.Contains(run.Run.InputsJSON, `"text":"Disk full on web-1"`) {
+		t.Fatalf("inputs = %+v, %v", run, err)
+	}
+
+	long := chatClick("i2", "6.6", "U7", "fix:LEG-2")
+	long.Click.MessageText = strings.Repeat("é", MaxChatEventText)
+	if _, err := coordinator.ChatButton(ctx, long); err != nil {
+		t.Fatal(err)
+	}
+	started = requestsOfKind(t, db, "started", workflowengine.TriggerChatButton)
+	for _, request := range started {
+		if request.Item != "slack:C1/6.6" {
+			continue
+		}
+		var event struct {
+			Context struct {
+				Event struct {
+					MessageText string `json:"message_text"`
+				} `json:"event"`
+			} `json:"context"`
+		}
+		if err := json.Unmarshal([]byte(request.EventJSON), &event); err != nil {
+			t.Fatal(err)
+		}
+		if got := event.Context.Event.MessageText; len(got) != MaxChatEventText || !utf8.ValidString(got) {
+			t.Fatalf("message_text is %d bytes, valid %v; want %d", len(got), utf8.ValidString(got), MaxChatEventText)
+		}
+		return
+	}
+	t.Fatalf("no run for the long message: %+v", started)
 }
 
 func TestAClickByAnotherUserStartsNothing(t *testing.T) {
