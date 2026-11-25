@@ -29,6 +29,7 @@ Agent-side processes of a session (the hooks, `legato mcp serve`, the Claude Cod
 legato workflow list --json
 legato workflow add [<name>] [--project] [--force] [--json]
 legato workflow validate <name-or-file> --json
+legato workflow upgrade <file> [--stdout] [--json]
 legato workflow run <name> --input key=value --json
 legato workflow runs [--status running] [--limit 20] --json
 legato workflow show <run-id> --json
@@ -36,6 +37,8 @@ legato workflow trigger <run-id> <step-id> --json
 legato workflow retry <run-id> <step-id> --json
 legato workflow cancel <run-id> --json
 ```
+
+`workflow upgrade` (`cmd/legato/workflow_upgrade.go`, LEG-484) needs no database: it upgrades a schema_version 1 file to version 2 with `workflow.Upgrade` (see [Workflows](workflows.md) § Upgrading to version 2) and writes it back over the file (`ReplaceFile` with the digest it read), or prints it with `--stdout`. It keeps comments: only what it changes is rewritten. A file of version 2 is left alone ("is schema_version 2 already"). What the upgrade could not do is printed as `file:line:col: severity: message` and exits 2: the file needs editing by hand; a file that does not load is refused as `validate` prints it, exit 2, unchanged. `--json` prints `{path, changed, notes}` (and `yaml` with `--stdout`). `parseWorkflowArgs` takes `--stdout` as a boolean.
 
 `workflow add` (`cmd/legato/workflow_add.go`) needs no database: with no name it lists the embedded examples (`workflow.Examples`: `review-pr`, `review-pr-passes`) with their titles; with one it writes `<name>.workflow.yaml` to the XDG global workflows folder, or `.legato/workflows` with `--project`, and refuses a file that is there (`errWorkflowExists`) unless `--force`. `--json` prints `{name, path}`, or the list.
 

@@ -133,8 +133,10 @@ it("sets how a step starts, as trigger: in a v1 file and start: in v2", async ()
   cleanup()
   fileYaml = v1.replace("schema_version: 1", "schema_version: 2")
   await renderAt("#steps/run")
-  fireEvent.click(await within(inspector()).findByRole("radio", { name: "When the agent ends" }))
-  expect((await stepWith("run")).start).toBe("agent_ended")
+  fireEvent.click(await within(inspector()).findByRole("radio", { name: "You start it" }))
+  expect((await stepWith("run")).start).toBe("manual")
+  // Version 2 has no agent_ended: an agent.stop waits for the agent to end.
+  expect(within(inspector()).queryByRole("radio", { name: "When the agent ends" })).toBeNull()
 })
 
 it("keeps the step's ID in a footer, saying it is used in references", async () => {

@@ -111,6 +111,35 @@ describe("schemaDiagnostics", () => {
   })
 })
 
+// A file is read against its schema_version's schema: version 2's unless
+// it says 1 (LEG-484).
+describe("schema versions", () => {
+  const v2 = "schema_version: 2\nname: x\ntitle: X\nsteps:\n  - id: a\n    type: agent.run\n    start: manual\n    wait_for: [complete]\n    with: {prompt: hi, keep: true}\n  - id: each\n    loop: {repeat: true, max: 3}\n    steps:\n      - id: b\n        type: task.note\n        if: {field: steps.a.outputs.x, exists: true}\n        with: {task: x, body: hi}\n"
+
+  it("passes a v2 file with start, wait_for, if and a loop", () => {
+    expect(schemaDiagnostics(v2)).toEqual([])
+  })
+
+  it("refuses each version's keys in the other", () => {
+    expect(schemaDiagnostics(v2.replace("start: manual", "trigger: manual")).map(d => d.message)).toContain("steps[0] has no field trigger")
+    expect(schemaDiagnostics(head + "steps:\n  - id: a\n    type: agent.run\n    start: manual\n    with: {prompt: hi}\n").map(d => d.message)).toContain("steps[0] has no field start")
+  })
+
+  it("says a v2 step needs a type or a loop, not both", () => {
+    expect(schemaDiagnostics(v2.replace("    type: agent.run\n", "")).map(d => d.message)).toContain("steps[0] needs type or loop")
+    expect(schemaDiagnostics(v2.replace("    loop: {repeat: true, max: 3}\n", "    type: task.note\n    loop: {repeat: true, max: 3}\n")).map(d => d.message)).toContain("steps[1] takes loop or type, not both")
+  })
+
+  it("completes each version's step keys", () => {
+    let [text, offset] = at("schema_version: 2\nname: x\ntitle: X\nsteps:\n  - id: a\n    type: agent.run\n    |\n")
+    expect(completionsAt(text, offset)!.options.map(o => o.label)).toEqual(expect.arrayContaining(["start", "wait_for", "if", "on_failure", "loop", "timeout"]))
+    ;[text, offset] = at(head + "steps:\n  - id: a\n    type: agent.run\n    |\n")
+    const v1 = completionsAt(text, offset)!.options.map(o => o.label)
+    expect(v1).toContain("trigger")
+    expect(v1).not.toContain("start")
+  })
+})
+
 describe("the embedded examples", async () => {
   const { readdirSync, readFileSync } = await import("node:fs")
   const { join } = await import("node:path")

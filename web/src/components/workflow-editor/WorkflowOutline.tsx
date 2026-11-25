@@ -109,7 +109,7 @@ function nodeOf(selection: Selection | null): string | null {
 function selectionOfNode(graph: WorkflowGraphModel, id: string | null): Selection | null {
   const node = graph.nodes.find(n => n.id === id)
   const own = node?.kind === "inner" ? graph.nodes.find(n => n.id === node.parent) : node
-  if (own?.kind === "step" && own.step) return { kind: "step", path: own.step.id }
+  if (own?.kind === "step" && own.step) return { kind: "step", path: own.step.path || own.step.id }
   if (own?.kind === "trigger" && own.trigger && own.trigger.kind !== "manual") return { kind: "trigger", name: own.trigger.kind }
   return null
 }

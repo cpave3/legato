@@ -11,7 +11,7 @@ import { AlertTriangle, ArrowLeft, Redo2, Save, Trash2, Undo2 } from "lucide-rea
 import { useServer } from "../hooks/useServer"
 import { useWorkflows } from "../hooks/useWorkflow"
 import { queryKeys } from "../lib/query"
-import { checkWorkflowFile, createWorkflowFile, deleteWorkflowFile, fetchWorkflowFile, offsetOf, saveWorkflowFile, WorkflowFileError, type WorkflowCheck, type WorkflowDiagnostic, type WorkflowFile } from "../lib/workflowFiles"
+import { checkWorkflowFile, createWorkflowFile, deleteWorkflowFile, fetchWorkflowFile, offsetOf, saveWorkflowFile, upgradeWorkflowFile, WorkflowFileError, type WorkflowCheck, type WorkflowDiagnostic, type WorkflowFile } from "../lib/workflowFiles"
 import { LazyWorkflowYamlEditor } from "../components/workflow-editor/LazyWorkflowYamlEditor"
 import { LazyWorkflowOutline } from "../components/workflow-editor/LazyWorkflowOutline"
 import type { HeldYaml } from "../components/workflow-editor/WorkflowOutline"
@@ -180,6 +180,9 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
     else navigate({ pathname: location.pathname, search: location.search, hash: "" }, { replace: true })
   }
   const [showProblems, setShowProblems] = useState(false)
+  // What Upgrade to v2 left to do by hand, for the text it made.
+  const [upgradeNotes, setUpgradeNotes] = useState<{ text: string; notes: WorkflowDiagnostic[] } | null>(null)
+  const [upgrading, setUpgrading] = useState(false)
   // Item YAML the outline holds until it reads (LEG-505): kept here so it
   // outlives a switch to the whole file's YAML, and counted as unsaved.
   const [heldYaml, setHeldYaml] = useState<HeldYaml>({})
@@ -301,8 +304,25 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   const checked = result && result.text === text ? result.check : null
   useEffect(() => { if (result?.check.graph) setLastGraph({ text: result.text, model: result.check.graph }) }, [result])
   const graph = lastGraph ? { model: lastGraph.model, stale: lastGraph.text !== text } : null
-  const diagnostics = checked?.diagnostics ?? []
+  const diagnostics = useMemo(() => [...(checked?.diagnostics ?? []), ...(upgradeNotes && upgradeNotes.text === text ? upgradeNotes.notes : [])], [checked, upgradeNotes, text])
   const errors = diagnostics.filter(d => d.severity === "error")
+  // A file of schema_version 1 is offered Upgrade to v2: the server rewrites
+  // the text as legato workflow upgrade does, keeping comments, and it goes
+  // into the editor as one change, which Undo takes back.
+  const versionOne = text !== null && /^schema_version:[ \t]*1[ \t]*(#.*)?$/m.test(text)
+  const upgrade = async () => {
+    if (text === null) return
+    setUpgrading(true)
+    try {
+      const result = await upgradeWorkflowFile(baseUrl, text)
+      if (result.changed) history.push(result.yaml, "Upgrade to v2")
+      setUpgradeNotes(result.notes.length > 0 ? { text: result.yaml, notes: result.notes } : null)
+    } catch (err) {
+      setError(`Could not upgrade the file: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setUpgrading(false)
+    }
+  }
   const editable = mode === "new" || Boolean(file?.editable)
   const canSave = editable && !busy && checked !== null && errors.length === 0 && (mode === "new" || dirty)
   const folders = workflows.data?.folders ?? []
@@ -445,6 +465,10 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
       <Problems diagnostics={diagnostics} />
     </section>}
 
+    {versionOne && editable && <section role="region" aria-label="Schema version 1" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-line bg-lw-surface p-3 text-sm">
+      <p className="min-w-0 flex-1"><span className="font-medium">Schema version 1</span> <span className="text-lw-text-2">· Legato writes version 2 now, which adds loops, if: and agent waits. Upgrading keeps your comments; check the result, then save.</span></p>
+      <Button size="sm" variant="outline" disabled={upgrading} onClick={() => void upgrade()}>Upgrade to v2</Button>
+    </section>}
     {savedNotice && mode === "edit" && (pausedTriggers.length > 0 || turningOn === "done") && <section role="status" aria-label="Saved" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-line bg-lw-surface p-3 text-sm">
       {turningOn === "done"
         ? <p className="flex-1">Saved · on: it starts runs by itself.</p>

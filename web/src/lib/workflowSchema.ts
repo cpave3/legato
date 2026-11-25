@@ -1,14 +1,27 @@
-import { isMap, isScalar, isSeq, parseDocument, type Document, type Node as YamlNode } from "yaml"
-import schemaJSON from "../generated/workflow.schema.json"
+import { isMap, isScalar, isSeq, parseDocument, type Node as YamlNode } from "yaml"
+import schemaV1JSON from "../generated/workflow.schema.json"
+import schemaJSON from "../generated/workflow-v2.schema.json"
 
-// The workflow JSON Schema, generated from Go (internal/engine/workflow,
+// The workflow JSON Schemas, generated from Go (internal/engine/workflow,
 // go test -run TestTheGeneratedSchemaIsCurrent -update), read here for the
 // YAML editor's completion and its checks as you type. The server's check
 // stays the authority: only it knows references and executor rules.
+// workflowSchema is version 2's, the version Legato writes and the builder
+// edits (LEG-484); a file that says schema_version: 1 is read against
+// version 1's (schemaFor).
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type Schema = Record<string, any>
 export const workflowSchema: Schema = schemaJSON as Schema
+export const workflowSchemaV1: Schema = schemaV1JSON as Schema
+
+/** schemaFor is the schema of a file's schema_version: version 1's for 1,
+ * else version 2's. */
+export function schemaFor(version: unknown): Schema {
+  return version === 1 ? workflowSchemaV1 : workflowSchema
+}
+
+const versionOf = (doc: unknown): unknown => doc && typeof doc === "object" ? (doc as { schema_version?: unknown }).schema_version : undefined
 
 export type YamlPath = (string | number)[]
 
@@ -16,10 +29,10 @@ export type Executor = { type: string; title: string; description: string; group
 
 export const executors: Executor[] = workflowSchema["x-legato"].executors
 
-const definitions: Record<string, Schema> = workflowSchema.definitions
-
-/** deref follows a $ref, and a lone $ref wrapped in allOf for its description. */
-export function deref(schema: Schema | undefined): Schema | undefined {
+/** deref follows a $ref in root's definitions, and a lone $ref wrapped in
+ * allOf for its description. */
+export function deref(schema: Schema | undefined, root: Schema = workflowSchema): Schema | undefined {
+  const definitions: Record<string, Schema> = root.definitions
   let s = schema
   for (let i = 0; s && i < 8; i++) {
     if (typeof s.$ref === "string") {
@@ -27,7 +40,7 @@ export function deref(schema: Schema | undefined): Schema | undefined {
       continue
     }
     if (Array.isArray(s.allOf) && s.allOf.length === 1 && s.allOf[0].$ref && !s.properties) {
-      s = { ...deref(s.allOf[0]), description: s.description ?? deref(s.allOf[0])?.description }
+      s = { ...deref(s.allOf[0], root), description: s.description ?? deref(s.allOf[0], root)?.description }
       continue
     }
     break
@@ -46,8 +59,8 @@ function matches(condition: Schema, value: unknown): boolean {
 
 /** properties are an object schema's properties for a value: its own, and
  * those of each allOf branch whose if the value matches. */
-export function properties(schema: Schema | undefined, value?: unknown): Record<string, Schema> {
-  const s = deref(schema)
+export function properties(schema: Schema | undefined, value?: unknown, root: Schema = workflowSchema): Record<string, Schema> {
+  const s = deref(schema, root)
   if (!s) return {}
   const out: Record<string, Schema> = { ...(s.properties ?? {}) }
   for (const branch of s.allOf ?? []) {
@@ -62,19 +75,19 @@ export function properties(schema: Schema | undefined, value?: unknown): Record<
 
 /** requiredOf is an object schema's required keys for a value: its own,
  * and those of each allOf branch whose if the value matches. */
-export function requiredOf(schema: Schema | undefined, value?: unknown): string[] {
-  const s = deref(schema)
+export function requiredOf(schema: Schema | undefined, value?: unknown, root: Schema = workflowSchema): string[] {
+  const s = deref(schema, root)
   if (!s) return []
   const out: string[] = [...(s.required ?? [])]
   for (const branch of s.allOf ?? []) if (branch.if && matches(branch.if, value)) out.push(...(branch.then?.required ?? []))
   return out
 }
 
-function childSchema(schema: Schema | undefined, key: string | number, value: unknown): Schema | undefined {
-  const s = deref(schema)
+function childSchema(schema: Schema | undefined, key: string | number, value: unknown, root: Schema): Schema | undefined {
+  const s = deref(schema, root)
   if (!s) return undefined
   if (typeof key === "number") return s.items
-  const props = properties(s, value)
+  const props = properties(s, value, root)
   if (props[key]) return props[key]
   if (s.additionalProperties && typeof s.additionalProperties === "object") return s.additionalProperties
   return undefined
@@ -90,18 +103,20 @@ function valueAt(doc: unknown, path: YamlPath): unknown {
 }
 
 /** schemaAt is the schema of the value at path, given the document's
- * values (a step's with depends on its type). */
+ * values (a step's with depends on its type, and the schema on its
+ * schema_version). */
 export function schemaAt(path: YamlPath, doc: unknown): Schema | undefined {
-  let schema: Schema | undefined = workflowSchema
+  const root = schemaFor(versionOf(doc))
+  let schema: Schema | undefined = root
   for (let i = 0; i < path.length && schema; i++) {
-    schema = childSchema(schema, path[i], valueAt(doc, path.slice(0, i)))
+    schema = childSchema(schema, path[i], valueAt(doc, path.slice(0, i)), root)
   }
-  return schema ? deref(schema) : undefined
+  return schema ? deref(schema, root) : undefined
 }
 
 /** branches are a schema's alternatives (anyOf), or itself. */
-function branches(schema: Schema): Schema[] {
-  return Array.isArray(schema.anyOf) ? schema.anyOf.map(b => deref(b) ?? b) : [schema]
+function branches(schema: Schema, root: Schema = workflowSchema): Schema[] {
+  return Array.isArray(schema.anyOf) ? schema.anyOf.map(b => deref(b, root) ?? b) : [schema]
 }
 
 export type Completion = { label: string; detail?: string; info?: string; apply?: string; type: "property" | "enum" | "keyword" }
@@ -109,13 +124,14 @@ export type Completion = { label: string; detail?: string; info?: string; apply?
 /** keyCompletions are the keys an object at path may take that it does not
  * have yet. */
 export function keyCompletions(path: YamlPath, doc: unknown): Completion[] {
+  const root = schemaFor(versionOf(doc))
   const schema = schemaAt(path, doc)
   const present = valueAt(doc, path)
   const have = present && typeof present === "object" ? Object.keys(present as object) : []
-  const props = properties(schema, present)
+  const props = properties(schema, present, root)
   return Object.entries(props).filter(([key]) => !have.includes(key)).map(([key, raw]) => {
-    const s = deref(raw) ?? raw
-    const kind = s["x-legato"]?.kind ?? branches(s).map(b => b.type).filter(Boolean)[0]
+    const s = deref(raw, root) ?? raw
+    const kind = s["x-legato"]?.kind ?? branches(s, root).map(b => b.type).filter(Boolean)[0]
     const required = (schema?.required ?? []).includes(key)
     return { label: key, detail: [kind, required ? "required" : ""].filter(Boolean).join(" · "), info: s.description, apply: `${key}: `, type: "property" as const }
   })
@@ -131,7 +147,7 @@ export function valueCompletions(path: YamlPath, doc: unknown): Completion[] {
   const schema = schemaAt(path, doc)
   if (!schema) return []
   const out: Completion[] = []
-  for (const branch of branches(schema)) {
+  for (const branch of branches(schema, schemaFor(versionOf(doc)))) {
     for (const value of branch.enum ?? []) out.push({ label: String(value), info: schema.description, type: "enum" })
     if ("const" in branch) out.push({ label: String(branch.const), info: schema.description, type: "enum" })
     if (branch.type === "boolean") out.push({ label: "true", type: "keyword" }, { label: "false", type: "keyword" })
@@ -344,20 +360,22 @@ export function schemaDiagnostics(text: string): SchemaDiagnostic[] {
     out.push({ from, to: Math.max(to, from + 1), severity: "error", message: error.message.split("\n")[0], path: "" })
   }
   if (out.length > 0 || !doc.contents) return out
-  check(doc, doc.contents as YamlNode, workflowSchema, [], [0, 1], out)
+  const contents = doc.contents as YamlNode
+  const root = schemaFor(isMap(contents) ? (contents.get("schema_version") as unknown) : undefined)
+  check(root, contents, root, [], [0, 1], out)
   return out
 }
 
-function check(doc: Document, node: YamlNode | null, raw: Schema | undefined, path: YamlPath, anchor: Range, out: SchemaDiagnostic[]) {
-  const schema = deref(raw)
+function check(root: Schema, node: YamlNode | null, raw: Schema | undefined, path: YamlPath, anchor: Range, out: SchemaDiagnostic[]) {
+  const schema = deref(raw, root)
   if (!schema || node == null) return
   const at = rangeOf(node, anchor)
   const report = (message: string, range: Range = at, severity: "error" | "warning" = "error") => out.push({ from: range[0], to: range[1], severity, message, path: pathText(path) })
   if (Array.isArray(schema.anyOf)) {
-    const options = schema.anyOf.map((b: Schema) => deref(b) ?? b)
+    const options = schema.anyOf.map((b: Schema) => deref(b, root) ?? b)
     const fits = options.some((option: Schema) => {
       const trial: SchemaDiagnostic[] = []
-      check(doc, node, option, path, anchor, trial)
+      check(root, node, option, path, anchor, trial)
       return trial.length === 0
     })
     if (!fits) {
@@ -384,12 +402,12 @@ function check(doc: Document, node: YamlNode | null, raw: Schema | undefined, pa
   }
   if (isSeq(node)) {
     if (schema.minItems && node.items.length < schema.minItems) report(`${pathText(path)} needs at least ${schema.minItems} item`)
-    node.items.forEach((item, i) => check(doc, item as YamlNode, schema.items, [...path, i], at, out))
+    node.items.forEach((item, i) => check(root, item as YamlNode, schema.items, [...path, i], at, out))
     return
   }
   if (!isMap(node)) return
   const value = node.toJSON()
-  const props = properties(schema, value)
+  const props = properties(schema, value, root)
   const keys: string[] = []
   for (const pair of node.items) {
     const keyNode = pair.key as YamlNode | null
@@ -398,14 +416,14 @@ function check(doc: Document, node: YamlNode | null, raw: Schema | undefined, pa
     const keyRange = rangeOf(keyNode, at)
     const child = props[key] ?? (typeof schema.additionalProperties === "object" ? schema.additionalProperties : undefined)
     if (child) {
-      check(doc, pair.value as YamlNode, child, [...path, key], keyRange, out)
+      check(root, pair.value as YamlNode, child, [...path, key], keyRange, out)
     } else if (schema.additionalProperties === false) {
       const executor = schema["x-legato"]?.type
       if (executor) report(`${executor} takes no with field ${key}: it is ignored, and a later release will refuse it`, keyRange, "warning")
       else report(`${pathText(path) || "a workflow"} has no field ${key}`, keyRange)
     }
   }
-  for (const key of requiredOf(schema, value)) if (!keys.includes(key)) report(`${pathText(path) || "a workflow"} needs ${key}`, anchor)
+  for (const key of requiredOf(schema, value, root)) if (!keys.includes(key)) report(`${pathText(path) || "a workflow"} needs ${key}`, anchor)
   for (const branch of schema.allOf ?? []) {
     if (Array.isArray(branch.oneOf)) {
       const names = branch.oneOf.flatMap((b: Schema) => b.required ?? [])

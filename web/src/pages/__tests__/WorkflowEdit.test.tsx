@@ -72,7 +72,7 @@ const blank = async () => { fireEvent.click(await screen.findByRole("button", { 
 it("creates a new workflow from Blank, in the folder chosen", async () => {
   renderAt("/workflows/new")
   await blank()
-  expect(editor().value).toBe("schema_version: 1\nname: new-workflow\ntitle: New workflow\nsteps: []\n")
+  expect(editor().value).toBe("schema_version: 2\nname: new-workflow\ntitle: New workflow\nsteps: []\n")
   const create = screen.getByRole("button", { name: "Create" })
   expect(create).toHaveProperty("disabled", true)
   await waitFor(() => expect(create).toHaveProperty("disabled", false))
@@ -91,6 +91,31 @@ it("keeps Save off while the server finds an error, and lists it by line", async
   expect(screen.getByRole("button", { name: "Save" })).toHaveProperty("disabled", true)
   type(fileText.replace("Review", "Review it"))
   await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toHaveProperty("disabled", false))
+})
+
+// Upgrade to v2 (LEG-484) puts the server's upgrade of the text in the
+// editor as one change, which Undo takes back, and lists what it left to do
+// by hand at its line until the text changes.
+it("upgrades a version 1 file to version 2 in the editor", async () => {
+  const upgraded = fileText.replace("schema_version: 1", "schema_version: 2")
+  const left = { severity: "warning", message: "steps.a.outputs.extra: the step has no extra; change this reference by hand", line: 6, column: 3, end_line: 6, end_column: 9 }
+  const upgrades: string[] = []
+  const reply = apiFetch.getMockImplementation()!
+  apiFetch.mockImplementation((baseUrl: string, path: string, init?: RequestInit) => {
+    if (path === "/api/workflow-files/upgrade") { upgrades.push(JSON.parse(String(init?.body)).yaml); return json({ yaml: upgraded, changed: true, notes: [left] }) }
+    return reply(baseUrl, path, init)
+  })
+  renderAt("/workflows/review/edit")
+  await waitFor(() => expect(editor().value).toBe(fileText))
+  const banner = screen.getByRole("region", { name: "Schema version 1" })
+  fireEvent.click(within(banner).getByRole("button", { name: "Upgrade to v2" }))
+  await waitFor(() => expect(editor().value).toBe(upgraded))
+  expect(upgrades).toEqual([fileText])
+  expect(screen.queryByRole("region", { name: "Schema version 1" })).toBeNull()
+  expect(await screen.findByText(/the step has no extra; change this reference by hand/)).toBeTruthy()
+  fireEvent.keyDown(editor(), { key: "z", ctrlKey: true })
+  expect(editor().value).toBe(fileText)
+  expect(screen.queryByText(/the step has no extra/)).toBeNull()
 })
 
 it("saves the file's text over the version it opened, and offers a reload when it changed on disk", async () => {

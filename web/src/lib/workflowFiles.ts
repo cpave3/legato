@@ -58,6 +58,14 @@ export const saveWorkflowFile = (baseUrl: string, name: string, yaml: string, di
 export const deleteWorkflowFile = (baseUrl: string, name: string, digest: string) =>
   call<{ name: string; removed: string; remains: boolean }>(baseUrl, `${named(name)}/file`, json("DELETE", { digest }))
 
+/** WorkflowUpgrade is a file upgraded to schema_version 2 (LEG-484): its
+ * text, whether it changed, and what the upgrade left to do by hand, each
+ * at its line in the upgraded text. */
+export type WorkflowUpgrade = { yaml: string; changed: boolean; notes: WorkflowDiagnostic[] }
+
+export const upgradeWorkflowFile = (baseUrl: string, yaml: string) =>
+  call<WorkflowUpgrade>(baseUrl, "/api/workflow-files/upgrade", json("POST", { yaml }))
+
 export const copyBuiltInWorkflow = (baseUrl: string, name: string, folder: string) =>
   call<WorkflowSaved>(baseUrl, `${named(name)}/copy`, json("POST", { folder }))
 

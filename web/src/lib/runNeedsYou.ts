@@ -6,10 +6,11 @@ import type { Approval } from "./approvals"
 import type { AttentionItem } from "./attention"
 import type { GateDetails, MergeWaitDetails, ReviewRunDetails, WorkflowRunView } from "./workflow"
 import { stepPathOf } from "./workflowRunTree"
+import { templatePath } from "./workflowRunGraph"
 
 // topNode is the graph node a step's path is drawn in: a loop's pass's
-// step in its loop's (LEG-490).
-const topNode = (path: string) => `step:${path.split("/")[0]}`
+// step in its own node, inside its loop's (graph version 2, LEG-484).
+const topNode = (path: string) => `step:${templatePath(path)}`
 
 // The actions of the rows only the run knows; the run page carries them out.
 // skip and stop are a paused step's; choose:<option> a gate's.
