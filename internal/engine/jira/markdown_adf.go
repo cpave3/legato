@@ -3,6 +3,7 @@ package jira
 import (
 	"encoding/json"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -10,6 +11,7 @@ import (
 	"github.com/yuin/goldmark/extension"
 	east "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
 
 var markdown = goldmark.New(goldmark.WithExtensions(extension.GFM))
@@ -139,7 +141,7 @@ func (c adfConverter) inlines(parent gast.Node, marks []adfMark) []adfNode {
 func (c adfConverter) inline(n gast.Node, marks []adfMark) []adfNode {
 	switch n := n.(type) {
 	case *gast.Text:
-		value := string(n.Segment.Value(c.source))
+		value := decodeText(n.Segment.Value(c.source))
 		nodes := textNodes(value, marks)
 		switch {
 		case n.HardLineBreak():
@@ -156,6 +158,11 @@ func (c adfConverter) inline(n gast.Node, marks []adfMark) []adfNode {
 			mark = "strong"
 		}
 		return c.inlines(n, withMark(marks, adfMark{Type: mark}))
+	case *east.TaskCheckBox:
+		if n.IsChecked {
+			return textNodes("[x] ", marks)
+		}
+		return textNodes("[ ] ", marks)
 	case *east.Strikethrough:
 		return c.inlines(n, withMark(marks, adfMark{Type: "strike"}))
 	case *gast.CodeSpan:
@@ -176,9 +183,9 @@ func (c adfConverter) inline(n gast.Node, marks []adfMark) []adfNode {
 		}
 		return textNodes(sb.String(), append(kept, adfMark{Type: "code"}))
 	case *gast.Link:
-		return c.linked(n, string(n.Destination), marks)
+		return c.linked(n, decodeText(n.Destination), marks)
 	case *gast.Image:
-		return c.linked(n, string(n.Destination), marks)
+		return c.linked(n, decodeText(n.Destination), marks)
 	case *gast.AutoLink:
 		href := string(n.URL(c.source))
 		if n.AutoLinkType == gast.AutoLinkEmail && !strings.HasPrefix(href, "mailto:") {
@@ -246,4 +253,35 @@ func sameMarks(a, b []adfMark) bool {
 		}
 	}
 	return true
+}
+
+var characterReference = regexp.MustCompile(`^&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});`)
+
+// decodeText is Markdown source text as it reads: a backslash before
+// punctuation gives the punctuation, and a character reference (&amp;,
+// &#65;) its character, in one pass, so an escaped reference stays as
+// written. Code keeps its source; this is for everything else.
+func decodeText(source []byte) string {
+	var sb strings.Builder
+	for i := 0; i < len(source); i++ {
+		switch c := source[i]; {
+		case c == '\\' && i+1 < len(source) && util.IsPunct(source[i+1]):
+			i++
+			sb.WriteByte(source[i])
+		case c == '&':
+			if ref := characterReference.Find(source[i:]); ref != nil {
+				if ref[1] == '#' {
+					sb.Write(util.ResolveNumericReferences(ref))
+				} else {
+					sb.Write(util.ResolveEntityNames(ref))
+				}
+				i += len(ref) - 1
+				continue
+			}
+			sb.WriteByte(c)
+		default:
+			sb.WriteByte(c)
+		}
+	}
+	return sb.String()
 }

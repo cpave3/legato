@@ -84,6 +84,19 @@ func TestMarkdownToADF(t *testing.T) {
 			`{"type":"orderedList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"one"}]}]}]}`},
 		{"blockquote and rule", "> quoted\n\n---",
 			`{"type":"blockquote","content":[{"type":"paragraph","content":[{"type":"text","text":"quoted"}]}]},{"type":"rule"}`},
+		{"escapes and character references", "Use \\*literal\\* &amp; &#65; &#x42; \\&amp; `\\* &amp;`",
+			`{"type":"paragraph","content":[{"type":"text","text":"Use *literal* & A B &amp; "},{"type":"text","text":"\\* &amp;","marks":[{"type":"code"}]}]}`},
+		{"escapes in a link and a table", "[a\\_b](https://example.com/a\\_b)\n\n| x\\|y |\n|---|\n| &lt; |",
+			`{"type":"paragraph","content":[{"type":"text","text":"a_b","marks":[{"type":"link","attrs":{"href":"https://example.com/a_b"}}]}]},` +
+				`{"type":"table","content":[` +
+				`{"type":"tableRow","content":[{"type":"tableHeader","content":[{"type":"paragraph","content":[{"type":"text","text":"x|y"}]}]}]},` +
+				`{"type":"tableRow","content":[{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"<"}]}]}]}]}`},
+		{"code block keeps escapes", "```\n\\* &amp;\n```",
+			`{"type":"codeBlock","content":[{"type":"text","text":"\\* &amp;"}]}`},
+		{"task list", "- [x] done\n- [ ] todo",
+			`{"type":"bulletList","content":[` +
+				`{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"[x] done"}]}]},` +
+				`{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"[ ] todo"}]}]}]}`},
 		{"raw HTML is text", "<b>hi</b>",
 			`{"type":"paragraph","content":[{"type":"text","text":"<b>hi</b>"}]}`},
 		{"table", "| A | B |\n|---|---|\n| 1 | **2** |",

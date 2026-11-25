@@ -213,7 +213,7 @@ func (e *TicketCreateExecutor) findEarlier(ctx context.Context, effect store.Wor
 	for i, t := range found {
 		keys[i] = t.Key
 	}
-	return nil, fmt.Errorf("an earlier attempt may have created %s in %s, and %s each match %q: close the extra ones, then retry, or skip the step",
+	return nil, fmt.Errorf("an earlier attempt may have created %s in %s, and %s each match %q: the step cannot tell which one it created, and a retry will not either; cancel the run and carry on by hand, or start a new run",
 		ticketNoun(effect.Provider), effect.Target, strings.Join(keys, ", "), effect.Summary)
 }
 

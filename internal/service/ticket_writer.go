@@ -230,19 +230,35 @@ func (w BurnliteTicketWriter) Comment(ctx context.Context, key, markdown string)
 	return TicketComment{Provider: BurnliteIntegration, Key: key, ID: id, URL: base + "/" + key}, nil
 }
 
+// FindCreated lists the project's Tasks of that name changed since then (a
+// minute's slack for clocks), and keeps those get_task says were created
+// since: list_tasks filters on the last change, so a Task of the same name
+// made long ago and changed since is among them. A Burnlite that does not
+// say when a Task was created cannot tell them apart, so that is an error.
 func (w BurnliteTicketWriter) FindCreated(ctx context.Context, project, summary string, since time.Time) ([]CreatedTicket, error) {
 	client, base, err := w.open(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer client.Close()
-	rows, err := client.ListTasksSince(ctx, project, "any", since.Add(-time.Minute))
+	since = since.Add(-time.Minute)
+	rows, err := client.ListTasksSince(ctx, project, "any", since)
 	if err != nil {
 		return nil, err
 	}
 	var found []CreatedTicket
 	for _, row := range rows {
-		if row.Name == summary {
+		if row.Name != summary {
+			continue
+		}
+		task, err := client.GetTask(ctx, row.Key)
+		if err != nil {
+			return nil, err
+		}
+		if task.CreatedAt.IsZero() {
+			return nil, fmt.Errorf("Burnlite does not say when %s, named %q, was created, so Legato cannot tell whether that attempt made it", row.Key, summary)
+		}
+		if !task.CreatedAt.Before(since) {
 			found = append(found, CreatedTicket{Provider: BurnliteIntegration, Key: row.Key, ID: row.ID, URL: absolute(base, row.URL)})
 		}
 	}

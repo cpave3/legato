@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/burnlite"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -90,6 +91,9 @@ type fakeBurnliteWrites struct {
 	args    []map[string]any
 	refuse  string // a tool error code for create_task and create_note
 	listing []map[string]any
+	// created is when get_task says each Task was created; a Task not
+	// here has no createdAt.
+	created map[string]string
 }
 
 func newFakeBurnliteWrites(t *testing.T) *fakeBurnliteWrites {
@@ -102,7 +106,7 @@ func newFakeBurnliteWrites(t *testing.T) *fakeBurnliteWrites {
 		_ = json.Unmarshal(b, &out)
 		return &mcp.CallToolResult{StructuredContent: out, Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}
 	}
-	for _, name := range []string{"create_task", "create_note", "list_tasks"} {
+	for _, name := range []string{"create_task", "create_note", "list_tasks", "get_task"} {
 		srv.AddTool(&mcp.Tool{Name: name, InputSchema: map[string]any{"type": "object"}}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var args map[string]any
 			_ = json.Unmarshal(req.Params.Arguments, &args)
@@ -119,6 +123,13 @@ func newFakeBurnliteWrites(t *testing.T) *fakeBurnliteWrites {
 				return result(map[string]any{"task": map[string]any{"id": "uuid-9", "key": "LEG-9", "url": "/LEG-9"}}), nil
 			case "create_note":
 				return result(map[string]any{"note": map[string]any{"id": "note-1"}}), nil
+			case "get_task":
+				key := fmt.Sprint(args["taskId"])
+				task := map[string]any{"id": "uuid-" + key, "key": key, "url": "/" + key}
+				if at, ok := f.created[key]; ok {
+					task["createdAt"] = at
+				}
+				return result(map[string]any{"task": task}), nil
 			}
 			return result(map[string]any{"tasks": f.listing}), nil
 		})
@@ -440,7 +451,9 @@ func TestTicketCreateSaysToReconnectAReadOnlyBurnlite(t *testing.T) {
 	}
 }
 
-// A lost Burnlite answer is found by its name among the project's Tasks.
+// A lost Burnlite answer is found by its name among the project's Tasks
+// created since the attempt began. list_tasks lists those updated since,
+// so a Task of that name made long ago and changed since is not it.
 func TestABurnliteCreateWhoseAnswerWasLostIsFoundOnRetry(t *testing.T) {
 	db, ctx := ticketRun(t)
 	bl := newFakeBurnliteWrites(t)
@@ -451,14 +464,56 @@ func TestABurnliteCreateWhoseAnswerWasLostIsFoundOnRetry(t *testing.T) {
 		AttemptID: "wa-1", Provider: BurnliteIntegration, Target: "LEG", Summary: "Fix login"}); err != nil {
 		t.Fatal(err)
 	}
-	bl.listing = []map[string]any{{"id": "uuid-7", "key": "LEG-7", "url": "/LEG-7", "taskName": "Fix login", "state": "open"},
-		{"id": "uuid-8", "key": "LEG-8", "url": "/LEG-8", "taskName": "Fix logout", "state": "open"}}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	bl.listing = []map[string]any{
+		{"id": "uuid-LEG-6", "key": "LEG-6", "url": "/LEG-6", "taskName": "Fix login", "state": "open"},
+		{"id": "uuid-LEG-7", "key": "LEG-7", "url": "/LEG-7", "taskName": "Fix login", "state": "open"},
+		{"id": "uuid-LEG-8", "key": "LEG-8", "url": "/LEG-8", "taskName": "Fix logout", "state": "open"},
+	}
+	bl.created = map[string]string{"LEG-6": "2026-01-02T03:04:05.000Z", "LEG-7": now, "LEG-8": now}
 	result, err := step.Start(ctx, ticketStep("wa-2", with))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Outputs["key"] != "LEG-7" || result.Outputs["id"] != "uuid-7" || result.Outputs["url"] != bl.srv.URL+"/LEG-7" || result.Outputs["created"] != false {
+	if result.Outputs["key"] != "LEG-7" || result.Outputs["id"] != "uuid-LEG-7" || result.Outputs["url"] != bl.srv.URL+"/LEG-7" || result.Outputs["created"] != false {
 		t.Fatalf("outputs = %v", result.Outputs)
+	}
+	if n, _ := bl.called("create_task"); n != 0 {
+		t.Fatalf("created %d", n)
+	}
+}
+
+func TestABurnliteCreateWhoseAnswerWasLostCreatesWhenOnlyAnOldTaskHasTheName(t *testing.T) {
+	db, ctx := ticketRun(t)
+	bl := newFakeBurnliteWrites(t)
+	if _, _, err := db.BeginWorkflowStepEffect(ctx, store.WorkflowStepEffect{RunID: "wr-t", Path: "raise", Effect: TicketCreateStepType,
+		AttemptID: "wa-1", Provider: BurnliteIntegration, Target: "LEG", Summary: "Fix login"}); err != nil {
+		t.Fatal(err)
+	}
+	bl.listing = []map[string]any{{"id": "uuid-LEG-6", "key": "LEG-6", "url": "/LEG-6", "taskName": "Fix login", "state": "open"}}
+	bl.created = map[string]string{"LEG-6": "2026-01-02T03:04:05.000Z"}
+	result, err := NewTicketCreateExecutor(db, bl.writer()).Start(ctx, ticketStep("wa-2", map[string]any{"project": "LEG", "summary": "Fix login", "kind": "meta"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := bl.called("create_task"); n != 1 || result.Outputs["key"] != "LEG-9" || result.Outputs["created"] != true {
+		t.Fatalf("outputs %v, creates %d", result.Outputs, n)
+	}
+}
+
+// A Burnlite too old to say when a Task was created cannot tell a new one
+// from an old one: the step stops rather than guess.
+func TestABurnliteCreateWhoseAnswerWasLostStopsWhenBurnliteCannotSayWhenATaskWasMade(t *testing.T) {
+	db, ctx := ticketRun(t)
+	bl := newFakeBurnliteWrites(t)
+	if _, _, err := db.BeginWorkflowStepEffect(ctx, store.WorkflowStepEffect{RunID: "wr-t", Path: "raise", Effect: TicketCreateStepType,
+		AttemptID: "wa-1", Provider: BurnliteIntegration, Target: "LEG", Summary: "Fix login"}); err != nil {
+		t.Fatal(err)
+	}
+	bl.listing = []map[string]any{{"id": "uuid-LEG-6", "key": "LEG-6", "url": "/LEG-6", "taskName": "Fix login", "state": "open"}}
+	_, err := NewTicketCreateExecutor(db, bl.writer()).Start(ctx, ticketStep("wa-2", map[string]any{"project": "LEG", "summary": "Fix login", "kind": "meta"}))
+	if err == nil || !strings.Contains(err.Error(), "LEG-6") {
+		t.Fatalf("err = %v", err)
 	}
 	if n, _ := bl.called("create_task"); n != 0 {
 		t.Fatalf("created %d", n)

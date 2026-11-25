@@ -168,11 +168,12 @@ A [workflow](/legato/using/workflows/) step can create a Jira issue, or comment 
   title: Note it was seen again
   type: ticket.comment
   with:
+    provider: jira
     key: ${{ steps.raise.outputs.key }}
     body: Seen again in prod today.
 ````
 
-The description and the comment are Markdown. Legato converts them to Jira's rich text, and keeps headings, lists, code blocks, links, tables and bold, italic and struck-through text. An image becomes a link to it, because Legato does not upload attachments. `type` is `Bug` when you leave it empty. Jira labels cannot hold spaces. `fields` takes more fields as Jira names them, such as `{customfield_10020: 7}`, but not a field the step sets itself. When Jira refuses the issue, the step fails with Jira's reason, for example `issuetype: Specify a valid issue type`.
+The description and the comment are Markdown. Legato converts them to Jira's rich text, and keeps headings, lists, code blocks, links, tables and bold, italic and struck-through text. A checklist item keeps its `[x]` or `[ ]`. An image becomes a link to it, because Legato does not upload attachments. `type` is `Bug` when you leave it empty. Jira labels cannot hold spaces. `fields` takes more fields as Jira names them, such as `{customfield_10020: 7}`, but not a field the step sets itself. When Jira refuses the issue, the step fails with Jira's reason, for example `issuetype: Specify a valid issue type`.
 
 `ticket.create` gives the issue's `key`, `url` and `id`. A retry of the step returns the issue it already created instead of creating another. `ticket.comment` gives the comment's `url`. See [Workflows](/legato/using/workflows/) for both steps.
 

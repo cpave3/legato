@@ -129,6 +129,7 @@ type TaskRow struct {
 
 // Task is one Task with its text.
 type Task struct {
+	ID                string
 	Key               string
 	URL               string
 	Name              string
@@ -146,6 +147,8 @@ type Task struct {
 	ClaimHolder       string
 	Checklist         []ChecklistItem
 	UpdatedAt         time.Time
+	// CreatedAt is zero from a Burnlite too old to say.
+	CreatedAt time.Time
 }
 
 // Link is another Task, as a Blocker.
@@ -303,6 +306,7 @@ func (c *Client) GetMilestone(ctx context.Context, key string) (*Milestone, erro
 func (c *Client) GetTask(ctx context.Context, key string) (*Task, error) {
 	var out struct {
 		Task struct {
+			ID                string     `json:"id"`
 			Key               string     `json:"key"`
 			URL               string     `json:"url"`
 			TaskName          string     `json:"taskName"`
@@ -318,6 +322,7 @@ func (c *Client) GetTask(ctx context.Context, key string) (*Task, error) {
 			Blocked           bool       `json:"blocked"`
 			Claim             *wireClaim `json:"claim"`
 			UpdatedAt         string     `json:"updatedAt"`
+			CreatedAt         string     `json:"createdAt"`
 			Blockers          []struct {
 				Key      string `json:"key"`
 				TaskName string `json:"taskName"`
@@ -334,7 +339,7 @@ func (c *Client) GetTask(ctx context.Context, key string) (*Task, error) {
 		return nil, err
 	}
 	w := out.Task
-	task := &Task{Key: w.Key, URL: w.URL, Name: w.TaskName, Kind: w.Kind, Size: deref(w.Size), Uncertainty: deref(w.UncertaintyLevel),
+	task := &Task{ID: w.ID, CreatedAt: parseTime(w.CreatedAt), Key: w.Key, URL: w.URL, Name: w.TaskName, Kind: w.Kind, Size: deref(w.Size), Uncertainty: deref(w.UncertaintyLevel),
 		State: w.State, CloseReason: deref(w.CloseReason), ResolutionSummary: deref(w.ResolutionSummary),
 		Description: deref(w.Description), Plan: deref(w.Plan), Labels: w.Labels, Blocked: w.Blocked, UpdatedAt: parseTime(w.UpdatedAt)}
 	if w.Claim != nil {

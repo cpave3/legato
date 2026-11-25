@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -91,5 +92,23 @@ func TestAddNoteToAMissingTaskIsNotFound(t *testing.T) {
 	c := New(fake.server(t).URL, &tokens{current: "t1"}, nil)
 	if _, err := c.AddNote(context.Background(), "LEG-999", "x", ""); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// When a Task was created tells a Task a lost create made from one that
+// was only changed since (LEG-640).
+func TestGetTaskReadsWhenItWasCreated(t *testing.T) {
+	fake := &fakeBurnlite{token: "t1", results: map[string]func(map[string]any) *mcp.CallToolResult{
+		"get_task": func(map[string]any) *mcp.CallToolResult {
+			return structured(map[string]any{"task": map[string]any{"id": "uuid-9", "key": "LEG-9", "taskName": "Fix login", "createdAt": "2026-11-25T07:52:12.810Z"}})
+		},
+	}}
+	c := New(fake.server(t).URL, &tokens{current: "t1"}, nil)
+	task, err := c.GetTask(context.Background(), "LEG-9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Date(2026, 11, 25, 7, 52, 12, 810_000_000, time.UTC); !task.CreatedAt.Equal(want) || task.ID != "uuid-9" {
+		t.Fatalf("task = %+v", task)
 	}
 }
