@@ -1,7 +1,9 @@
 // Package discordbot is a thin Discord bot client: the Gateway websocket (API
 // v10, JSON encoding) for receiving messages, and the REST calls Legato
-// makes: POST /channels/{id}/messages, and PUT and DELETE
-// /channels/{id}/messages/{id}/reactions/{emoji}/@me.
+// makes: POST /channels/{id}/messages, PUT and DELETE
+// /channels/{id}/messages/{id}/reactions/{emoji}/@me, and the reads of a
+// thread, GET /channels/{id}, /channels/{id}/messages and
+// /channels/{id}/messages/{id}.
 //
 // It follows Discord's gateway rules:
 //
@@ -45,6 +47,9 @@ var (
 	ErrReconnect = errors.New("discord: reconnect")
 	// ErrTooLong is content over MaxContentLength characters.
 	ErrTooLong = errors.New("discord: message too long")
+	// ErrNotFound is a REST 404: a message or channel that is gone, or
+	// never was.
+	ErrNotFound = errors.New("discord: not found")
 )
 
 // MaxContentLength is the most characters a message's content may have.
@@ -105,16 +110,25 @@ func (e *APIError) Error() string {
 	return s
 }
 
-// Message is a MESSAGE_CREATE.
+// Is makes errors.Is(err, ErrNotFound) true for a 404.
+func (e *APIError) Is(target error) bool {
+	return target == ErrNotFound && e.Status == http.StatusNotFound
+}
+
+// Message is a MESSAGE_CREATE, or a message the REST API gives.
 type Message struct {
 	ID, ChannelID, GuildID string // GuildID is "" for a DM
-	AuthorID               string
-	AuthorIsBot            bool
-	Content                string
-	Mentions               []string // user IDs mentioned
-	ReferenceID            string   // the message this one replies to
-	InThread               bool     // ChannelID is a thread
-	Timestamp              time.Time
+	// Type is Discord's message type: 0 a message, 19 a reply, 21 a
+	// thread's starter stub; others are system messages.
+	Type        int
+	AuthorID    string
+	AuthorName  string // the author's display name, else their username
+	AuthorIsBot bool
+	Content     string
+	Mentions    []string // user IDs mentioned
+	ReferenceID string   // the message this one replies to
+	InThread    bool     // ChannelID is a thread; the gateway's only
+	Timestamp   time.Time
 	// Forwards are the messages this one forwards, from its message
 	// snapshots (Discord sends one at most); Content is then empty.
 	Forwards []Forward
