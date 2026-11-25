@@ -119,7 +119,7 @@ func TestListTasksReadsEachRow(t *testing.T) {
 	if fake.args[0]["projectId"] != "EST" || fake.args[0]["state"] != "any" {
 		t.Errorf("args = %v", fake.args[0])
 	}
-	want := TaskRow{Key: "EST-7", URL: "/EST-7", Name: "Wire the thing", Kind: "work", MilestoneKey: "EST-3", MilestoneName: "Sync",
+	want := TaskRow{ID: "u-7", Key: "EST-7", URL: "/EST-7", Name: "Wire the thing", Kind: "work", MilestoneKey: "EST-3", MilestoneName: "Sync",
 		State: "open", Labels: []string{"api", "sync"}, Blocked: true, OpenBlockers: []string{"EST-5"}, ClaimHolder: "agent-1",
 		UpdatedAt: time.Date(2026, 11, 5, 1, 2, 3, 456_000_000, time.UTC)}
 	if len(rows) != 1 || !rowsEqual(rows[0], want) {

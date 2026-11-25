@@ -134,8 +134,10 @@ func (f *fakeBurnliteWrites) Current(context.Context) (BurnliteLink, error) {
 	defer f.mu.Unlock()
 	return BurnliteLink{State: f.state, URL: f.srv.URL}, nil
 }
-func (f *fakeBurnliteWrites) Tokens() burnlite.TokenSource                { return staticBurnliteToken{} }
-func (f *fakeBurnliteWrites) Client(context.Context) (*http.Client, error) { return f.srv.Client(), nil }
+func (f *fakeBurnliteWrites) Tokens() burnlite.TokenSource { return staticBurnliteToken{} }
+func (f *fakeBurnliteWrites) Client(context.Context) (*http.Client, error) {
+	return f.srv.Client(), nil
+}
 
 func (f *fakeBurnliteWrites) writer() BurnliteTicketWriter {
 	return BurnliteTicketWriter{Connection: f}
