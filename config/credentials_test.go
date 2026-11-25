@@ -96,3 +96,56 @@ func TestOnePasswordIsReadThroughTheSDKUnlessOpIsChosen(t *testing.T) {
 		t.Fatalf("err = %v; want the setting and its values", err)
 	}
 }
+
+func TestAJiraCredentialLoadsWithoutSettings(t *testing.T) {
+	writeTestConfig(t, `
+credentials:
+  - name: jira
+    profile: jira
+    secret: legato://jira-api-token
+  - name: other-jira
+    profile: jira
+    secret: legato://other-token
+    settings:
+      upstream: https://other.atlassian.net/
+      username: " bot@example.com "
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := cfg.Credentials[1].Settings
+	if other.Upstream != "https://other.atlassian.net" || other.Username != "bot@example.com" {
+		t.Fatalf("settings = %+v", other)
+	}
+}
+
+func TestABasicKeyIsAHeaderWithoutAFormat(t *testing.T) {
+	writeTestConfig(t, `
+credentials:
+  - name: tracker
+    profile: api-key
+    secret: legato://tracker
+    settings:
+      upstream: https://tracker.example.com
+      username: bot
+      key: { header: Authorization, scheme: basic }
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k := cfg.Credentials[0].Settings.Key; k.Scheme != "basic" || k.Header != "Authorization" {
+		t.Fatalf("key = %+v", k)
+	}
+	for name, key := range map[string]string{
+		"basic in a query":    "{ query: key, scheme: basic }",
+		"basic with a format": `{ header: Authorization, format: "Basic {secret}", scheme: basic }`,
+		"an unknown scheme":   "{ header: Authorization, scheme: digest }",
+	} {
+		writeTestConfig(t, "credentials:\n  - {name: t, profile: api-key, secret: legato://t, settings: {upstream: https://t.example.com, username: bot, key: "+key+"}}\n")
+		if _, err := Load(); err == nil {
+			t.Errorf("%s: loaded", name)
+		}
+	}
+}

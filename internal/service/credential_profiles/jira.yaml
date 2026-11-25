@@ -1,0 +1,41 @@
+# Jira Cloud's REST API through Legato's proxy, signed with an Atlassian
+# account's email and API token (HTTP Basic). The agent gets a placeholder
+# as its token: it sends it as Basic's password (curl -u "$JIRA_EMAIL:$JIRA_API_TOKEN")
+# and Legato puts the real token in each request it allows. The upstream
+# and the email default to the Jira integration's jira.base_url and
+# jira.email. Searches and reads go without asking; comments, creates,
+# transitions and anything else that changes Jira are asked each time.
+name: jira
+description: Jira Cloud's REST API, through Legato's proxy
+issuer: static
+channels: [http-proxy]
+accepts: [value]
+inspector: rest
+key: { header: Authorization, scheme: basic }
+env:
+  "{NAME}_API_TOKEN": "{placeholder}"
+  "{NAME}_BASE_URL": "{base_url}"
+  "{NAME}_EMAIL": "{username}"
+routes:
+  # Searches.
+  - { method: GET, path: "/rest/api/3/search/jql", operation: search }
+  - { method: POST, path: "/rest/api/3/search/jql", operation: search }
+  - { method: POST, path: "/rest/api/3/search/approximate-count", operation: search }
+  - { method: GET, path: "/rest/api/3/issue/picker", operation: search }
+  # Comments and transitions, before the issue's other writes.
+  - { method: POST, path: "/rest/api/3/issue/{key}/comment", operation: comment, resource: "issue/{key}" }
+  - { method: POST, path: "/rest/api/3/issue/{key}/transitions", operation: transition, resource: "issue/{key}" }
+  # Creates: the project is named by key in the body.
+  - { method: POST, path: "/rest/api/3/issue/bulk", operation: create }
+  - { method: POST, path: "/rest/api/3/issue", operation: create, resource: "project/{$.fields.project.key}" }
+  # Reads: an issue with its comments, transitions and changelog, then
+  # anything else Jira gives with GET (projects, issue types, fields).
+  - { method: GET, path: "/rest/api/3/issue/{key}", operation: read, resource: "issue/{key}" }
+  - { method: GET, path: "/rest/api/3/issue/{key}/**", operation: read, resource: "issue/{key}" }
+  - { method: GET, path: "/rest/api/3/**", operation: read }
+  - { method: GET, path: "/rest/agile/1.0/**", operation: read }
+  # Anything else changes Jira.
+  - { method: "*", path: "/**", operation: write }
+policy:
+  - { operation: [search, read], approve: auto }
+  - { operation: [comment, create, transition, write], approve: request }

@@ -11,7 +11,7 @@ There are three ways an agent gets a credential, set by its profile's channel:
 | Channel | The agent gets | Profiles |
 | --- | --- | --- |
 | `helper` | The value itself, from `legato credential get` or `exec` | `secret` |
-| `http-proxy` | A placeholder key and Legato's proxy address; Legato puts the real key in each request it allows | `elevenlabs`, `api-key` |
+| `http-proxy` | A placeholder key and Legato's proxy address; Legato puts the real key in each request it allows | `elevenlabs`, `api-key`, `jira` |
 | `ssh-agent` | An SSH agent socket of its own; Legato signs each login it allows | `ssh` |
 | `http-proxy` with `git` | Read tokens from git's credential helper; pushes and pull requests through the proxy | `github` |
 | `helper`, through the sandbox's `az` | Nothing itself: in the sandbox, `az` signs in as the app before its first command | `azure` |
@@ -51,7 +51,7 @@ credential_channels:
 
 - `name` is unique, ignoring case. `secret` is a reference whose scheme picks the store (below). `profile` defaults to `secret`. `type` names the secret's type when the profile takes several.
 - `policy` replaces the profile's default rules. Each rule has `operation` (a name or a list; absent means any), `resource` (a glob, `**` across `/`; absent means any), `approve`, and optional `window`, `limit` and `signed`.
-- `settings` gives what a profile needs of the credential: `upstream` (an `https` address with no query) and `key` (`{header: <name>, format: "… {secret} …"}` or `{query: <name>}`). The `api-key` profile needs both; on another proxied profile they replace the profile's own.
+- `settings` gives what a profile needs of the credential: `upstream` (an `https` address with no query) and `key` (`{header: <name>, format: "… {secret} …"}`, `{query: <name>}`, or `{header: <name>, scheme: basic}`, which sends the key as HTTP Basic's password with `username`). The `api-key` profile needs both; on another proxied profile they replace the profile's own. A basic key with no `username` is refused when the broker starts.
 - Config loading checks the structure (names, schemes, modes, windows, limits, settings, a loopback `listen`). The broker checks profiles and secret types when it starts; a host Legato that finds a wrong credential logs it and refuses credential requests until it is fixed.
 
 ## Rules
@@ -72,7 +72,7 @@ The approval offers the rule's mode and every stricter one: a `session` rule off
 
 - **`request_access`** (MCP, offered when credentials are configured; its description names them) and **`legato credential request <name> --operation … [--resource …] [--reason …] [--blocking]`** ask for a scope. A request that a live grant already covers is granted; `auto` grants at once; `deny` and no rule refuse; otherwise an approval is submitted (source `credential`, deduplicated by scope while pending) and the call waits up to 60 seconds. It returns `granted`, `denied` with the person's note, or `pending` with the approval ID and the instruction to carry on with other work, or stop and end the turn when blocked.
 - **When the person decides later**, the host Legato tells the agent: `[legato approvals] ap-… approved: read with elevenlabs for this session…`, or the denial with the note and "do not look for another way". A decision made while the agent still waited is not messaged, since the waiting call returned it. A use that could not wait (a push, which git cannot hold, so it was refused at once while the person was asked) is marked `no_wait` in the approval's details, and every decision on it is messaged however soon it comes; an approval tells the agent to run the command again.
-- **`legato credential exec <name> --env VAR -- <command>`** runs one command with the value in `VAR`, so it never passes through the agent's own output. **`legato credential get <name>`** prints it. Both check the use first (`--operation`, default `read`; `--resource`): a use no grant covers becomes a request for exactly that use and waits as above. They exit `4` when the use is not allowed, `5` outside an agent session (`LEGATO_TASK_ID` and `LEGATO_EXECUTION_ID` name the session).
+- **`legato credential exec <name> --env VAR -- <command>`** runs one command with the value in `VAR`, so it never passes through the agent's own output. **`legato credential get <name>`** prints it. Both check the use first (`--operation`, default `read`; `--resource`): a use no grant covers becomes a request for exactly that use and waits as above. They read the value through `CredentialBroker.Value`, which refuses (audit `refuse`, before any rule) a credential whose profile has the `http-proxy` or `ssh-agent` channel and not `helper`: its value would let the agent skip the channel's checks. They exit `4` when the use is not allowed, `5` outside an agent session (`LEGATO_TASK_ID` and `LEGATO_EXECUTION_ID` name the session).
 - A grant covers what was asked for and approved, for one execution. It ends at its window, after its one use, when its execution ends (`EventAgentDied`), or when the person ends it (the Audit page's **Standing grants**, Settings › Security › Credentials, `DELETE /api/credentials/grants/{id}`). `GET /api/credentials/grants` names each grant's task by its title (`task_title`).
 - A resource that is itself a pattern (`…/refs/heads/legato/attention-*`) is covered by a rule whose pattern matches it as a string, and the card marks it **Broader scope**.
 
@@ -108,6 +108,23 @@ A segment is literal, `{name}` for one segment, or a last `**` for the rest (non
 | `account.manage`, `keys.manage` | `/v1/user/**`, `/v1/workspace/**`, `/v1/service-accounts/**`, `/v1/api-keys/**` | `deny` |
 
 Any other ElevenLabs request is refused. `api-key` classifies `GET` and `HEAD` as `http.read` (`session`) and every other method as `http.write` (`request`).
+
+### `jira`
+
+Jira Cloud's REST API, signed with an Atlassian account's email and API token. The key is `{header: Authorization, scheme: basic}`: the agent sends `Authorization: Basic base64(<anything>:<placeholder>)` (`curl -u "$JIRA_EMAIL:$JIRA_API_TOKEN"`), the proxy reads the placeholder from the password (`ProxyCredential.placeholderIn`) and sends `Basic base64(<username>:<token>)` (`outgoing`); a response header with the token or that pair is dropped. The session gets `<NAME>_API_TOKEN` (the placeholder), `<NAME>_BASE_URL` and `<NAME>_EMAIL` (`{username}` in the profile's `env`).
+
+`settings.upstream` and `settings.username` default to the Jira integration's `jira.base_url` and `jira.email` (`CredentialBrokerOptions.Jira`, `JiraDefaults`, given by `jiraDefaults(cfg)` in `cmd/legato/credential_runtime.go` from the effective configuration). Without either, the broker refuses the credential at start, naming the setting. The `secret` is never taken from `jira.api_token`: `ApplySettings` has already replaced that reference with the token itself, so the credential names the reference, usually `legato://jira-api-token`. A credential saved in the `credentials` settings list (`PUT /api/config/lists/credentials/jira` with `{"value": {"profile": "jira", "secret": "legato://jira-api-token"}}`) works the same, after a restart.
+
+| `jira` operation | Routes | Default rule |
+| --- | --- | --- |
+| `search` | `GET`, `POST /rest/api/3/search/jql`; `POST /rest/api/3/search/approximate-count`; `GET /rest/api/3/issue/picker` | `auto` |
+| `comment` | `POST /rest/api/3/issue/{key}/comment`, resource `issue/{key}` | `request` |
+| `transition` | `POST /rest/api/3/issue/{key}/transitions`, resource `issue/{key}` | `request` |
+| `create` | `POST /rest/api/3/issue`, resource `project/{$.fields.project.key}` (a body naming the project by ID is `400`); `POST /rest/api/3/issue/bulk` | `request` |
+| `read` | `GET /rest/api/3/issue/{key}` and `/rest/api/3/issue/{key}/**`, resource `issue/{key}`; any other `GET` under `/rest/api/3/` and `/rest/agile/1.0/` | `auto` |
+| `write` | anything else, of any method | `request` |
+
+The agent's guidance for a `jira` credential (`jiraGuidance` in `internal/cli/mcp_credential_guidance.go`) gives the `curl -su` lines for a search and an issue read. Jira Data Center (personal access tokens) and OAuth apps are not covered.
 
 A tool uses the proxy only when it takes a base address. libretto does not yet: it calls `https://api.elevenlabs.io` directly and reads only `ELEVENLABS_API_KEY`, so a credential with the `elevenlabs` profile gives it a placeholder it cannot use until it reads `ELEVENLABS_BASE_URL`.
 

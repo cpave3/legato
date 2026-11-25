@@ -118,6 +118,19 @@ func TestTheGuidanceSaysAzSignsItselfInWithAnAzureCredential(t *testing.T) {
 	}
 }
 
+func TestTheGuidanceSaysHowToSearchAndReadJira(t *testing.T) {
+	text := cli.CredentialGuidance([]service.CredentialSummary{{Name: "work-jira", Profile: "jira", Channels: []string{"http-proxy"},
+		Env: []string{"WORK_JIRA_API_TOKEN", "WORK_JIRA_BASE_URL", "WORK_JIRA_EMAIL"}}})
+	for _, want := range []string{
+		"work-jira", `curl -su "$WORK_JIRA_EMAIL:$WORK_JIRA_API_TOKEN"`, "$WORK_JIRA_BASE_URL/rest/api/3/search/jql",
+		"$WORK_JIRA_BASE_URL/rest/api/3/issue/", "project by key", `"status": "pending"`, "[legato approvals]", "placeholder",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the guidance does not say %q:\n%s", want, text)
+		}
+	}
+}
+
 func TestTheServersInstructionsIncludeTheCredentials(t *testing.T) {
 	s := newTestStore(t)
 	executionID := seedMCPAgent(t, s, "task1")

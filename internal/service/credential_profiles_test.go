@@ -158,3 +158,43 @@ func TestAnOverrideOfAGitHubProfileThatNamesNoAppIsNamedWithItsFileAndTheLineToA
 		t.Error("the shipped profiles name no App")
 	}
 }
+
+func TestEveryJiraRouteIsClassified(t *testing.T) {
+	jira := shipped(t)["jira"]
+	if jira.Key.Scheme != credential.SchemeBasic || jira.Key.Header != "Authorization" || !listHas(jira.Channels, ChannelHTTPProxy) {
+		t.Fatalf("jira = %+v", jira)
+	}
+	inspector := credential.RestInspector{Host: "x.atlassian.net", Routes: jira.Routes}
+	createBody := `{"fields":{"project":{"key":"AG"},"summary":"s","issuetype":{"name":"Bug"}}}`
+	for _, tc := range []struct{ method, path, operation, resource string }{
+		{"GET", "/rest/api/3/search/jql", "search", "x.atlassian.net/rest/api/3/search/jql"},
+		{"POST", "/rest/api/3/search/jql", "search", "x.atlassian.net/rest/api/3/search/jql"},
+		{"POST", "/rest/api/3/search/approximate-count", "search", "x.atlassian.net/rest/api/3/search/approximate-count"},
+		{"GET", "/rest/api/3/issue/picker", "search", "x.atlassian.net/rest/api/3/issue/picker"},
+		{"GET", "/rest/api/3/issue/AG-12", "read", "x.atlassian.net/issue/AG-12"},
+		{"GET", "/rest/api/3/issue/AG-12/comment", "read", "x.atlassian.net/issue/AG-12"},
+		{"GET", "/rest/api/3/issue/AG-12/transitions", "read", "x.atlassian.net/issue/AG-12"},
+		{"GET", "/rest/api/3/project/AG", "read", "x.atlassian.net/rest/api/3/project/AG"},
+		{"GET", "/rest/api/3/issue/createmeta/AG/issuetypes", "read", "x.atlassian.net/issue/createmeta"},
+		{"GET", "/rest/api/3/myself", "read", "x.atlassian.net/rest/api/3/myself"},
+		{"GET", "/rest/agile/1.0/board", "read", "x.atlassian.net/rest/agile/1.0/board"},
+		{"POST", "/rest/api/3/issue/AG-12/comment", "comment", "x.atlassian.net/issue/AG-12"},
+		{"POST", "/rest/api/3/issue/AG-12/transitions", "transition", "x.atlassian.net/issue/AG-12"},
+		{"POST", "/rest/api/3/issue", "create", "x.atlassian.net/project/AG"},
+		{"POST", "/rest/api/3/issue/bulk", "create", "x.atlassian.net/rest/api/3/issue/bulk"},
+		{"PUT", "/rest/api/3/issue/AG-12", "write", "x.atlassian.net/rest/api/3/issue/AG-12"},
+		{"DELETE", "/rest/api/3/issue/AG-12", "write", "x.atlassian.net/rest/api/3/issue/AG-12"},
+		{"PUT", "/rest/api/3/issue/AG-12/assignee", "write", "x.atlassian.net/rest/api/3/issue/AG-12/assignee"},
+		{"POST", "/rest/servicedeskapi/request", "write", "x.atlassian.net/rest/servicedeskapi/request"},
+	} {
+		route, _, ok := inspector.Match(tc.method, tc.path)
+		if !ok || route.Operation != tc.operation {
+			t.Errorf("%s %s: route %+v, %v; want %s", tc.method, tc.path, route, ok, tc.operation)
+			continue
+		}
+		got, err := inspector.Classify(nil, credential.Call{Fields: map[string]string{"method": tc.method, "path": tc.path}, Body: []byte(createBody)})
+		if err != nil || got.Resource != tc.resource {
+			t.Errorf("%s %s: resource %q, %v; want %q", tc.method, tc.path, got.Resource, err, tc.resource)
+		}
+	}
+}

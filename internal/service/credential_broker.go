@@ -124,6 +124,9 @@ type CredentialBrokerOptions struct {
 	// HTTPClient reaches token endpoints and APIs (nil: a default one).
 	HTTPClient *http.Client
 	Now        func() time.Time
+	// Jira is the Jira integration's site and account, which a jira
+	// credential signs in to when its settings name none.
+	Jira JiraDefaults
 }
 
 // CredentialBroker decides what an agent may do with a credential, keeps the
@@ -160,6 +163,8 @@ type brokerCredential struct {
 	// upstream and key, for a credential the http-proxy channel serves.
 	upstream *url.URL
 	key      credential.KeyPlace
+	// username is who a basic key signs in as.
+	username string
 	// source is the vault a credential came from; item is its item there.
 	source string
 	item   *credential.OnePasswordItem
@@ -281,7 +286,7 @@ func NewCredentialBroker(db *store.Store, approvals *ApprovalService, opts Crede
 			bc.issuer = bc.jwt
 		}
 		if listHas(profile.Channels, ChannelHTTPProxy) {
-			if err := bc.proxySettings(); err != nil {
+			if err := bc.proxySettings(opts.Jira); err != nil {
 				return nil, fmt.Errorf("credentials %q: %w", c.Name, err)
 			}
 		} else if upstream := firstNonEmpty(c.Settings.Upstream, profile.Upstream); upstream != "" {
@@ -595,10 +600,16 @@ func (b *CredentialBroker) all() []brokerCredential {
 	return out
 }
 
-// proxySettings works out where the proxy sends a credential's requests and
-// where the key goes: the credential's settings, else its profile's.
-func (bc *brokerCredential) proxySettings() error {
-	upstream := firstNonEmpty(bc.config.Settings.Upstream, bc.profile.Upstream)
+// proxySettings works out where the proxy sends a credential's requests,
+// where the key goes and who a basic key signs in as: the credential's
+// settings, else its profile's, else (a jira credential) the Jira
+// integration's.
+func (bc *brokerCredential) proxySettings(jira JiraDefaults) error {
+	jiraUpstream, jiraUser := jira.defaults(bc.profile.Name)
+	upstream := firstNonEmpty(bc.config.Settings.Upstream, bc.profile.Upstream, jiraUpstream)
+	if upstream == "" && bc.profile.Name == JiraProfile {
+		return fmt.Errorf("profile jira needs settings.upstream or jira.base_url, the Jira site")
+	}
 	if upstream == "" {
 		return fmt.Errorf("profile %s needs settings.upstream", bc.profile.Name)
 	}
@@ -609,10 +620,17 @@ func (bc *brokerCredential) proxySettings() error {
 	bc.upstream = u
 	bc.key = bc.profile.Key
 	if k := bc.config.Settings.Key; k != (config.CredentialKeyPlace{}) {
-		bc.key = credential.KeyPlace{Header: k.Header, Format: k.Format, Query: k.Query}
+		bc.key = credential.KeyPlace{Header: k.Header, Format: k.Format, Query: k.Query, Scheme: k.Scheme}
 	}
 	if err := bc.key.Validate(); err != nil {
 		return fmt.Errorf("profile %s: %w (settings.key)", bc.profile.Name, err)
+	}
+	bc.username = firstNonEmpty(bc.config.Settings.Username, jiraUser)
+	if bc.key.Scheme == credential.SchemeBasic && bc.username == "" {
+		if bc.profile.Name == JiraProfile {
+			return fmt.Errorf("profile jira needs settings.username or jira.email, the Atlassian account's email")
+		}
+		return fmt.Errorf("profile %s: a basic key needs settings.username", bc.profile.Name)
 	}
 	return nil
 }
@@ -711,8 +729,8 @@ func (b *CredentialBroker) Credentials() []CredentialSummary {
 
 // DescribeCredentials summarizes configured credentials without a store,
 // for text that tells agents about them.
-func DescribeCredentials(credentials []config.CredentialConfig, sources []config.CredentialSourceConfig, profileDirs []string) ([]CredentialSummary, []CredentialSourceSummary, error) {
-	b, err := NewCredentialBroker(nil, nil, CredentialBrokerOptions{Credentials: credentials, Sources: sources, ProfileDirs: profileDirs})
+func DescribeCredentials(credentials []config.CredentialConfig, sources []config.CredentialSourceConfig, profileDirs []string, jira JiraDefaults) ([]CredentialSummary, []CredentialSourceSummary, error) {
+	b, err := NewCredentialBroker(nil, nil, CredentialBrokerOptions{Credentials: credentials, Sources: sources, ProfileDirs: profileDirs, Jira: jira})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1346,11 +1364,23 @@ func (b *CredentialBroker) readSecret(ctx context.Context, name string) (credent
 	return secret, nil
 }
 
-// Value is a use that also reads the credential, through its issuer.
+// Value is a use that also reads the credential, through its issuer. Only
+// a credential of the helper channel has a value an agent may read: one
+// that reaches agents through the proxy or the SSH agent is refused, since
+// its value would let the agent skip that channel's checks.
 func (b *CredentialBroker) Value(ctx context.Context, use CredentialUse) (credential.Secret, UseDecision, error) {
-	if c, ok := b.lookup(ctx, use.Credential); ok && c.profile.Brokered {
-		b.audit(ctx, use.TaskID, use.ExecutionID, store.CredentialAuditEntry{Event: "refuse", Credential: use.Credential, Operation: use.Operation, Resource: use.Resource, Detail: brokeredError(use.Credential).Error()})
-		return credential.Secret{}, UseDecision{Reason: brokeredError(use.Credential).Error()}, brokeredError(use.Credential)
+	if c, ok := b.lookup(ctx, use.Credential); ok {
+		var refusal error
+		switch {
+		case c.profile.Brokered:
+			refusal = brokeredError(use.Credential)
+		case !listHas(c.profile.Channels, ChannelHelper) && (listHas(c.profile.Channels, ChannelHTTPProxy) || listHas(c.profile.Channels, ChannelSSHAgent)):
+			refusal = channelOnlyError(use.Credential, c.profile.Channels)
+		}
+		if refusal != nil {
+			b.audit(ctx, use.TaskID, use.ExecutionID, store.CredentialAuditEntry{Event: "refuse", Credential: use.Credential, Operation: use.Operation, Resource: use.Resource, Detail: refusal.Error()})
+			return credential.Secret{}, UseDecision{Reason: refusal.Error()}, refusal
+		}
 	}
 	decision, err := b.Authorize(ctx, use)
 	if err != nil || !decision.Allowed {
@@ -1631,6 +1661,12 @@ func (b *CredentialBroker) VerifyAudit(ctx context.Context) (int64, error) {
 // brokeredError refuses the value of a credential the broker uses itself.
 func brokeredError(name string) error {
 	return fmt.Errorf("%s has no value an agent can read: the broker calls the MCP server for the agent", name)
+}
+
+// channelOnlyError refuses the value of a credential agents use only
+// through the proxy or the SSH agent.
+func channelOnlyError(name string, channels []string) error {
+	return fmt.Errorf("%s has no value an agent can read: use it through %s, as Legato's guidance says", name, strings.Join(channels, " and "))
 }
 
 // hostOnlyReason refuses an agent a credential only Legato uses.
