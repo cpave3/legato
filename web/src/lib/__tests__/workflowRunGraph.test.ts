@@ -41,6 +41,19 @@ describe("a v2 run's tree", () => {
     expect(instancesOf(view, "each/write").map(step => step.path)).toEqual(["each/0/write", "each/1/write"])
   })
 
+  it("orders a nested loop's instances by every pass on their path, outermost first", () => {
+    const nested = {
+      run: { id: "wr-1", status: "running" },
+      steps: [row("outer/0/inner/2/build", "succeeded", 2), row("outer/1/inner/0/build", "running", 0), row("outer/0/inner/0/build", "succeeded", 0)],
+      attempts: [], artifacts: [],
+    } as unknown as WorkflowRunView
+    expect(instancesOf(nested, "outer/inner/build").map(step => step.path)).toEqual(["outer/0/inner/0/build", "outer/0/inner/2/build", "outer/1/inner/0/build"])
+    const nestedGraph = { version: 2, edges: [], nodes: [
+      { id: "step:outer/inner/build", kind: "step", step: { id: "build", path: "outer/inner/build", title: "Build", type: "task.note", key: {} } },
+    ] } as unknown as WorkflowGraphModel
+    expect(runNodeExtras(nested, nestedGraph, now)["step:outer/inner/build"]).toMatchObject({ state: "running", pass: "Pass 1" })
+  })
+
   it("draws a body step in its newest pass's state", () => {
     const extras = runNodeExtras(view, graph, now)
     expect(extras["step:each/write"]).toMatchObject({ state: "running", pass: "Pass 2", agent: "codex" })

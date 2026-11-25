@@ -17,10 +17,26 @@ export function templatePath(path: string): string {
 }
 
 /** instancesOf are the run's step instances of a graph node's path: one
- * for a step of the run's own, one per pass for a loop's body's, oldest
- * pass first. */
+ * for a step of the run's own, one per pass for a loop's body's, in the
+ * order they ran (every pass on the path, outermost first). */
 export function instancesOf(view: WorkflowRunView, nodePath: string): WorkflowStepRun[] {
-  return (view.steps ?? []).filter(step => templatePath(stepPathOf(step)) === nodePath).sort((a, b) => (a.pass ?? -1) - (b.pass ?? -1))
+  return (view.steps ?? []).filter(step => templatePath(stepPathOf(step)) === nodePath).sort((a, b) => comparePasses(passesOf(stepPathOf(a)), passesOf(stepPathOf(b))))
+}
+
+/** passesOf are the passes on a step instance's path, outermost first:
+ * outer/1/inner/0/build is [1, 0]. */
+function passesOf(path: string): number[] {
+  return path.split("/").filter((_, i) => i % 2 === 1).map(Number)
+}
+
+// comparePasses orders two instances as they ran: by the outermost pass,
+// then the next, so a nested loop's newest instance comes last.
+function comparePasses(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const d = (a[i] ?? -1) - (b[i] ?? -1)
+    if (d !== 0) return d
+  }
+  return 0
 }
 
 // instanceState maps a step instance, its attempts and its executor's
