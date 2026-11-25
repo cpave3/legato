@@ -55,6 +55,7 @@ ALTER TABLE review_conversion_loops ADD COLUMN closed INTEGER;
 ALTER TABLE review_conversion_loops ADD COLUMN outcome TEXT;
 ALTER TABLE review_conversion_loops ADD COLUMN closed_at TEXT;
 ALTER TABLE review_conversion_loops ADD COLUMN lost INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE review_conversion_loops ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0;
 
 UPDATE review_conversion_loops SET
     repo = COALESCE(NULLIF(json_extract(meta, '$.repo'), ''), NULLIF(handoff_repo, ''),
@@ -74,11 +75,23 @@ UPDATE review_conversion_loops SET
         THEN wr_id IS NULL OR run_status IN ('succeeded', 'cancelled', 'stopped') OR COALESCE(step_status, '') IN ('succeeded', 'skipped', 'cancelled')
         ELSE handoff_id IS NULL OR handoff_closed_at IS NOT NULL END;
 
+-- Approved only when it was (invariant 9): clean, no longer waiting for a
+-- confirm of GitHub's heads (the run's confirm_clean), and closed by its
+-- review step's success. A run cancelled or stopped after its clean pass
+-- posted, before or after that confirm, ended otherwise; and the older
+-- Legato never confirmed a handoff's heads, so a handoff's loop never
+-- converts approved. An open clean loop converts unconfirmed: the engine's
+-- Confirm reads the heads.
+UPDATE review_conversion_loops SET
+    confirmed = closed = 1 AND phase = 'clean' AND owner_kind = 'run' AND COALESCE(json_extract(meta, '$.confirm_clean'), 0) = 0
+        AND wr_id IS NOT NULL AND run_status NOT IN ('cancelled', 'stopped')
+        AND (step_status = 'succeeded' OR (step_status IS NULL AND run_status = 'succeeded'));
+
 UPDATE review_conversion_loops SET
     outcome = CASE WHEN closed = 0 THEN ''
         WHEN phase = 'ended' THEN COALESCE(NULLIF(reason, ''), 'ended')
-        WHEN phase = 'clean' THEN 'approved'
-        WHEN owner_kind = 'run' AND run_status = 'cancelled' THEN 'cancelled'
+        WHEN confirmed = 1 THEN 'approved'
+        WHEN owner_kind = 'run' AND (run_status IN ('cancelled', 'stopped') OR COALESCE(step_status, '') = 'cancelled') THEN 'cancelled'
         ELSE 'ended' END,
     closed_at = CASE WHEN closed = 0 THEN '' ELSE COALESCE(
         strftime('%Y-%m-%dT%H:%M:%SZ', CASE WHEN owner_kind = 'run' THEN run_completed_at ELSE handoff_closed_at END),
@@ -146,7 +159,7 @@ WHERE id IN (SELECT loop_id FROM review_conversion_claims WHERE rank > 1);
 INSERT INTO review_loops (id, rev, owner_kind, run_id, step_path, attempt_id, handoff_id, main_instance_id, host_task, repo,
     subject_pr, scope, agent_author, author_task, linked_task, state, phase, outcome, reason, passes_off,
     max_passes, reviewer, reviewer_model, reviewer_tier, skill, skill_managed,
-    pass, mismatches, delivered_pass, confirm_clean, nudged_at, author_busy_since_nudge, seen_head, seen_at, replies,
+    pass, window_start, mismatches, delivered_pass, confirmed_at, clean_pass, confirm_clean, nudged_at, author_busy_since_nudge, seen_head, seen_at, replies,
     polled_at, last_new_at, skipped_comments, checks_polled_at, checks_heads, checks_pending,
     marker_key, clone_id, clone_dir, queued_at, created_at, updated_at, closed_at)
 SELECT l.id, 1, l.owner_kind, l.run_id, l.step_path, l.attempt_id, COALESCE(l.handoff_id, ''), COALESCE(l.main_instance_id, ''), l.task_id, l.repo,
@@ -159,7 +172,9 @@ SELECT l.id, 1, l.owner_kind, l.run_id, l.step_path, l.attempt_id, COALESCE(l.ha
     COALESCE(json_extract(l.settings_json, '$.agent'), ''), COALESCE(json_extract(l.settings_json, '$.model'), ''),
     COALESCE(json_extract(l.settings_json, '$.tier'), ''), COALESCE(json_extract(l.settings_json, '$.skill'), ''),
     COALESCE(json_extract(l.settings_json, '$.skill_managed'), 0) != 0,
-    l.pass, l.mismatches, l.delivered_pass, COALESCE(json_extract(l.meta, '$.confirm_clean'), 0) != 0,
+    l.pass, CASE WHEN l.confirmed THEN l.pass ELSE 0 END, l.mismatches, l.delivered_pass,
+    CASE WHEN l.confirmed THEN l.closed_at ELSE '' END, CASE WHEN l.confirmed THEN l.pass ELSE 0 END,
+    CASE WHEN l.closed = 0 AND l.phase = 'clean' THEN 1 ELSE COALESCE(json_extract(l.meta, '$.confirm_clean'), 0) != 0 END,
     l.nudged_at, l.author_busy_since_nudge,
     COALESCE(json_extract(l.meta, '$.seen_head'), ''), COALESCE(json_extract(l.meta, '$.seen_at'), ''),
     CASE WHEN json_type(l.meta, '$.replies') = 'array' THEN json_extract(l.meta, '$.replies') ELSE '[]' END,
@@ -175,7 +190,7 @@ INSERT INTO review_loop_prs (loop_id, number, position, branch, base, title, url
 SELECT c.loop_id, c.number, c.position, COALESCE(p.branch, ''), COALESCE(p.base, ''), COALESCE(p.title, ''), COALESCE(p.url, ''),
     COALESCE(p.head_repo, ''), 'open', COALESCE(p.author, ''), CASE WHEN l.agent_author THEN l.author_task ELSE '' END,
     COALESCE(p.head_sha, ''),
-    CASE WHEN l.phase = 'clean' AND COALESCE(json_extract(l.meta, '$.confirm_clean'), 0) = 0 THEN COALESCE(p.head_sha, '') ELSE '' END,
+    CASE WHEN l.confirmed THEN COALESCE(p.head_sha, '') ELSE '' END,
     COALESCE(rv.review_id, 0), COALESCE(rv.review_url, ''),
     CASE WHEN l.closed = 0 AND EXISTS (SELECT 1 FROM review_conversion_claims k WHERE k.loop_id = c.loop_id AND k.number = c.number AND k.rank = 1)
         THEN l.opened_at ELSE '' END,

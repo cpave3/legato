@@ -345,3 +345,96 @@ func TestConvertingTwoOpenLoopsOfOneAuthorKeepsTheNewer(t *testing.T) {
 		t.Fatalf("acme/x#2 is held by %+v (%v)", holder, err)
 	}
 }
+
+// Invariant 9: a converted loop is approved only when it was: clean, not
+// waiting for a confirm of GitHub's heads, and ended by its own success.
+// Run ok succeeded after its confirm. Run cancel was cancelled after its
+// clean pass posted, before the confirm read GitHub's heads; run stopped
+// was stopped after its confirm, so it did not end approved either. Run
+// open still waits for its confirm, and the handoff's card went Done after
+// a clean pass that nothing confirmed (the older Legato never did).
+const cleanLoopsBeforeConversion = `
+	INSERT INTO tasks (id, title, status, metadata) VALUES
+		('run-ok', 'OK', '', '{"legato":{"review_loop":{"run_id":"wr-ok","step_id":"review","attempt_id":"att-ok","repo":"acme/clean","pr":1}}}'),
+		('run-cancel', 'Cancel', '', '{"legato":{"review_loop":{"run_id":"wr-cancel","step_id":"review","attempt_id":"att-cancel","repo":"acme/clean","pr":2,"confirm_clean":true}}}'),
+		('run-stopped', 'Stopped', '', '{"legato":{"review_loop":{"run_id":"wr-stopped","step_id":"review","attempt_id":"att-stopped","repo":"acme/clean","pr":3}}}'),
+		('run-open', 'Open', '', '{"legato":{"review_loop":{"run_id":"wr-open","step_id":"review","attempt_id":"att-open","repo":"acme/clean","pr":4,"confirm_clean":true}}}'),
+		('card-done', 'Handed off', 'Done', NULL);
+	INSERT INTO workflow_runs (id, workflow_name, workflow_title, definition_source, definition_digest, definition_json, status, task_id, created_at, completed_at) VALUES
+		('wr-ok', 'review-pr-passes', 'Review', 'test', 'sha', '{}', 'succeeded', 'run-ok', '2026-10-05 10:00:00', '2026-10-05 10:40:00'),
+		('wr-cancel', 'review-pr-passes', 'Review', 'test', 'sha', '{}', 'cancelled', 'run-cancel', '2026-10-06 10:00:00', '2026-10-06 10:40:00'),
+		('wr-stopped', 'review-pr-passes', 'Review', 'test', 'sha', '{}', 'stopped', 'run-stopped', '2026-10-07 10:00:00', '2026-10-07 10:40:00'),
+		('wr-open', 'review-pr-passes', 'Review', 'test', 'sha', '{}', 'waiting', 'run-open', '2026-10-08 10:00:00', NULL);
+	INSERT INTO workflow_steps (run_id, path, step_id, step_order, status) VALUES
+		('wr-ok', 'review', 'review', 0, 'succeeded'),
+		('wr-cancel', 'review', 'review', 0, 'cancelled'),
+		('wr-stopped', 'review', 'review', 0, 'cancelled'),
+		('wr-open', 'review', 'review', 0, 'waiting');
+	INSERT INTO handoffs (main_instance_id, handoff_id, main_name, main_task_id, task_id, purpose, kind, repo, branch, agent_kind, state, request_hash, created_at, updated_at, closed_at) VALUES
+		('main-1', 'h-9', 'main', 'mt-9', 'card-done', 'make_change', 'local', 'acme/clean', 'feat-9', 'codex', 'done', 'x', '2026-10-09T09:00:00Z', '2026-10-09T11:00:00Z', '2026-10-09T11:00:00Z');
+	INSERT INTO handoff_reviews (task_id, phase, pass, updated_at) VALUES
+		('run-ok', 'clean', 1, '2026-10-05T10:30:00Z'),
+		('run-cancel', 'clean', 1, '2026-10-06T10:30:00Z'),
+		('run-stopped', 'clean', 1, '2026-10-07T10:30:00Z'),
+		('run-open', 'clean', 1, '2026-10-08T10:30:00Z'),
+		('card-done', 'clean', 1, '2026-10-09T10:30:00Z');
+	INSERT INTO handoff_review_passes (task_id, pass, state, verdict, summary, execution_id, head_sha, started_at, ended_at) VALUES
+		('run-ok', 1, 'posted', 'clean', 'Good', 'ex-ok', 'h1', '2026-10-05T10:01:00Z', '2026-10-05T10:09:00Z'),
+		('run-cancel', 1, 'posted', 'clean', 'Good', 'ex-cancel', 'h2', '2026-10-06T10:01:00Z', '2026-10-06T10:09:00Z'),
+		('run-stopped', 1, 'posted', 'clean', 'Good', 'ex-stopped', 'h3', '2026-10-07T10:01:00Z', '2026-10-07T10:09:00Z'),
+		('run-open', 1, 'posted', 'clean', 'Good', 'ex-open', 'h4', '2026-10-08T10:01:00Z', '2026-10-08T10:09:00Z'),
+		('card-done', 1, 'posted', 'clean', 'Good', 'ex-done', 'h9', '2026-10-09T10:01:00Z', '2026-10-09T10:09:00Z');
+	INSERT INTO handoff_review_prs (task_id, pass, repo, number, branch, base, head_sha, review_id, event) VALUES
+		('run-ok', 1, 'acme/clean', 1, 'feat-1', 'main', 'h1', 501, 'APPROVE'),
+		('run-cancel', 1, 'acme/clean', 2, 'feat-2', 'main', 'h2', 502, 'APPROVE'),
+		('run-stopped', 1, 'acme/clean', 3, 'feat-3', 'main', 'h3', 503, 'APPROVE'),
+		('run-open', 1, 'acme/clean', 4, 'feat-4', 'main', 'h4', 504, 'APPROVE'),
+		('card-done', 1, 'acme/clean', 9, 'feat-9', 'main', 'h9', 509, 'APPROVE');
+`
+
+func TestAConvertedLoopIsApprovedOnlyWhenItsCleanPassWasConfirmed(t *testing.T) {
+	s := openBeforeReviewLoopConversion(t, cleanLoopsBeforeConversion)
+	ctx := context.Background()
+	cleanHeads := func(l *ReviewLoop) []string {
+		t.Helper()
+		prs, err := s.ListReviewLoopPRs(ctx, l.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var heads []string
+		for _, pr := range prs {
+			heads = append(heads, pr.CleanHead)
+		}
+		return heads
+	}
+
+	ok := convertedLoop(t, s, "run-ok")
+	if ok.State != ReviewLoopClosedState || ok.Outcome != "approved" || ok.ConfirmedAt != "2026-10-05T10:40:00Z" || ok.CleanPass != 1 ||
+		ok.WindowStart != 1 || ok.ConfirmClean {
+		t.Fatalf("the succeeded run's loop = %+v; want closed approved, confirmed at pass 1", ok)
+	}
+	if heads := cleanHeads(ok); len(heads) != 1 || heads[0] != "h1" {
+		t.Fatalf("the succeeded run's clean heads = %v", heads)
+	}
+
+	for task, outcome := range map[string]string{"run-cancel": "cancelled", "run-stopped": "cancelled", "card-done": "ended"} {
+		l := convertedLoop(t, s, task)
+		if l.State != ReviewLoopClosedState || l.Outcome != outcome || l.ConfirmedAt != "" || l.CleanPass != 0 {
+			t.Fatalf("the loop of %s = %s/%s confirmed %q at pass %d; want closed %s, never confirmed", task, l.State, l.Outcome, l.ConfirmedAt, l.CleanPass, outcome)
+		}
+		if heads := cleanHeads(l); len(heads) != 1 || heads[0] != "" {
+			t.Fatalf("the loop of %s has clean heads %v; want none", task, heads)
+		}
+	}
+
+	open := convertedLoop(t, s, "run-open")
+	if open.State != ReviewLoopOpenState || open.Phase != "clean" || open.Outcome != "" || open.ConfirmedAt != "" || open.CleanPass != 0 || !open.ConfirmClean {
+		t.Fatalf("the waiting run's loop = %+v; want open, clean and waiting for its confirm", open)
+	}
+	if heads := cleanHeads(open); len(heads) != 1 || heads[0] != "" {
+		t.Fatalf("the waiting run's clean heads = %v; want none before the confirm", heads)
+	}
+	if holder, err := s.ActiveReviewLoop(ctx, "acme/clean", 4); err != nil || holder == nil || holder.ID != open.ID {
+		t.Fatalf("acme/clean#4 is held by %+v (%v)", holder, err)
+	}
+}
