@@ -277,13 +277,25 @@ func (s *ReviewPassService) confirm(ctx context.Context, loopID string) (ReviewC
 		return out, s.save(ctx, loop)
 	case moved:
 		// A push between the clean pass's posts and now: a new pass reviews
-		// it (the moved-head rule, D2).
+		// it (the moved-head rule, D2), which a steward's watch reads as a
+		// push.
 		out.State = ReviewConfirmMoved
 		loop.Phase, loop.Reason, loop.ConfirmClean = ReviewPhaseReady, "", false
-		return out, s.saveChanged(ctx, loop)
+		if err := s.saveChanged(ctx, loop); err != nil {
+			return out, err
+		}
+		if stewarding(rec) {
+			s.woke(ctx, rec.HostTask, StewardWokePushed)
+		}
+		return out, nil
 	}
 	if err := s.db.ConfirmReviewLoop(ctx, rec.ID, loop.Pass, out.Heads, s.now()); err != nil {
 		return ReviewConfirmResult{}, err
+	}
+	if rec.Steward {
+		// The steward compares only a watch read taken after this
+		// approval with its heads.
+		s.forgetWatch(rec.ID)
 	}
 	out.State = ReviewConfirmApproved
 	return out, nil

@@ -93,6 +93,8 @@ type FakeReviewGitHub struct {
 	// refuseReady the one GitHub refuses to mark ready.
 	readied     []int
 	refuseReady int
+	// watches counts the steward's watch sessions.
+	watches int
 }
 
 // Draft makes an open pull request a draft, or ready.
@@ -871,3 +873,70 @@ func (f *FakeReviewGitHub) OpenForkPR(number int, branch, head, headRepo string)
 	f.prs[headRepo+":"+branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: "main", Title: fmt.Sprintf("PR %d", number), HeadSHA: head,
 		Author: "someone", AuthorAssociation: "NONE", HeadRepo: headRepo}
 }
+
+// WatchSession is the steward's reads of a loop in one tick (spec LEG-559
+// C7): its pull requests' state, heads and counted checks, as one read, and
+// their comments. Every check the fake has is one branch protection
+// requires.
+func (f *FakeReviewGitHub) WatchSession(repo string) service.ReviewWatchSession {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.watches++
+	return &fakeWatchSession{f: f, repo: repo}
+}
+
+// Watches counts the steward's watch sessions opened.
+func (f *FakeReviewGitHub) Watches() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.watches
+}
+
+type fakeWatchSession struct {
+	f    *FakeReviewGitHub
+	repo string
+}
+
+func (s *fakeWatchSession) Watch(_ context.Context, numbers []int) ([]service.PRWatch, error) {
+	f := s.f
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]service.PRWatch, 0, len(numbers))
+	for _, n := range numbers {
+		var pr *service.ReviewGitHubPR
+		for _, p := range f.prs {
+			if p.Number == n {
+				p := p
+				pr = &p
+			}
+		}
+		if pr == nil {
+			return nil, fmt.Errorf("GitHub has no pull request %s#%d", s.repo, n)
+		}
+		state := "open"
+		if closed, ok := f.closed[n]; ok {
+			state = closed
+		}
+		w := service.PRWatch{Number: n, State: state, Draft: pr.Draft, HeadSHA: pr.HeadSHA, HeadBranch: pr.Branch, BaseBranch: pr.Base,
+			Mergeable: "MERGEABLE", MergeState: "CLEAN"}
+		for _, c := range f.checks[pr.HeadSHA] {
+			w.Checks = append(w.Checks, service.WatchCheck{Name: c.Name, State: c.State, Conclusion: c.Conclusion, URL: c.URL, Required: true})
+			switch {
+			case c.State == service.CheckFailing:
+				w.Rollup = service.CheckFailing
+			case c.State == service.CheckPending && w.Rollup != service.CheckFailing:
+				w.Rollup = service.CheckPending
+			case w.Rollup == "":
+				w.Rollup = service.CheckPassing
+			}
+		}
+		out = append(out, w)
+	}
+	return out, nil
+}
+
+func (s *fakeWatchSession) PollComments(ctx context.Context, number int, pages service.PollPages) (service.CommentPoll, error) {
+	return s.f.PollComments(ctx, s.repo, number, pages)
+}
+
+func (s *fakeWatchSession) Close() {}

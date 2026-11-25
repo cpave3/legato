@@ -1001,9 +1001,12 @@ func (c *ReviewRunCaller) Loop(ctx context.Context, taskID string) (ReviewLoop, 
 	if err != nil {
 		return ReviewLoop{}, false
 	}
-	// An agent author handles failing checks too (LEG-305); a person's
+	// An agent author handles failing checks (LEG-305), and counted
+	// comments and reviews from pass 1 (spec LEG-559 § The steward,
+	// reversing LEG-255 for agent-authored run loops only); a person's
 	// loop is findings only (LEG-255).
-	return ReviewLoop{TaskID: taskID, Repo: run.Repo, PR: run.PR, PRs: run.numbers(), AuthorTaskID: run.AuthorTask, CountChecks: run.AuthorTask != "",
+	agent := run.AuthorTask != ""
+	return ReviewLoop{TaskID: taskID, Repo: run.Repo, PR: run.PR, PRs: run.numbers(), AuthorTaskID: run.AuthorTask, CountChecks: agent, CountComments: agent,
 		Name: "run " + run.RunID, Link: "/workflows/runs/" + run.RunID, Owner: store.HandoffReviewOwner{AttemptID: run.AttemptID}}, true
 }
 
@@ -1084,7 +1087,9 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 }
 
 // agentDone says an agent author finished its round: idle, every finding
-// that needs an answer answered, and it pushed or disputed one.
+// that needs an answer answered, and it pushed or disputed one. While the
+// steward watches, only blocking findings wait for answers: a re-entry's
+// pass never waits for checks or comments.
 func (c *ReviewRunCaller) agentDone(ctx context.Context, l ReviewLoop, pushed bool) bool {
 	if !c.engine.authorIdle(ctx, l.AuthorTaskID) {
 		return false
@@ -1096,6 +1101,19 @@ func (c *ReviewRunCaller) agentDone(ctx context.Context, l ReviewLoop, pushed bo
 	items, err := currentItems(ctx, c.engine.db, loop)
 	if err != nil {
 		return false
+	}
+	if c.engine.stewardRecord(ctx, l.TaskID) != nil {
+		disputed := false
+		for _, item := range items {
+			if item.Kind != ItemBlocking {
+				continue
+			}
+			if item.Answer == "" {
+				return false
+			}
+			disputed = disputed || item.Answer == AnswerReplied
+		}
+		return pushed || disputed
 	}
 	disputed := false
 	// Only failing checks, each answered by a reply: nothing to review
@@ -1354,7 +1372,7 @@ func (c *ReviewRunCaller) Stage(ctx context.Context, l ReviewLoop, stage string)
 	switch stage {
 	case ReviewStageClean:
 		c.approved(ctx, l)
-	case ReviewStageNone:
+	case ReviewStageNone, ReviewStageClosed:
 		c.finish(ctx, l.TaskID, ReviewOutcomeClosed)
 	}
 }
@@ -1851,6 +1869,9 @@ func reviewLoopTask(ctx context.Context, db *store.Store, taskID string) string 
 		return taskID
 	}
 	for _, l := range loops {
+		if stewarding(&l) {
+			return l.HostTask // approved, and its steward watches
+		}
 		if loop, err := db.GetHandoffReview(ctx, l.HostTask); err == nil && loop != nil && loop.Phase != ReviewPhaseEnded && loop.Phase != ReviewPhaseClean {
 			return l.HostTask
 		}
@@ -1887,7 +1908,11 @@ func (c *ReviewRunCaller) authoredLoop(ctx context.Context, author string) *Auth
 // APPROVE. Until that APPROVE is on GitHub the run is not approved: the
 // loop is confirmed again, and the APPROVE tried again, on the next tick.
 func (c *ReviewRunCaller) approved(ctx context.Context, l ReviewLoop) {
-	if l.CountChecks {
+	// A re-entry's approval while the steward watches does not wait on
+	// checks: the steward sends the author a failing one, and a layer the
+	// clean pass left at a COMMENT for it gets its APPROVE once it settles
+	// (watching).
+	if l.CountChecks && c.engine.stewardRecord(ctx, l.TaskID) == nil {
 		loop, err := c.engine.db.GetHandoffReview(ctx, l.TaskID)
 		if err != nil || loop == nil {
 			return

@@ -239,6 +239,9 @@ type ReviewPassService struct {
 	watchRun      sync.Mutex
 	watchMu       sync.Mutex
 	watched       map[string]ReviewLoopWatch
+	// watchRouted is when each stewarding loop's watch read was last
+	// routed (routeWatch): each read is routed once.
+	watchRouted map[string]time.Time
 }
 
 // What a ready loop waits on before its next pass starts (ReviewLoopBlock's
@@ -383,7 +386,7 @@ func (s *ReviewPassService) Tick(ctx context.Context) {
 	s.openWaiting(ctx)
 	s.sweepClosed(ctx)
 	// The steward's reads (spec LEG-559 C7). Not under the lock: they ask
-	// GitHub, and route nothing yet.
+	// GitHub; moveLoops routes what they found (routeWatch).
 	s.watchLoops(ctx)
 	s.moveLoops(ctx)
 	// Then the steps waiting on loops (close, and the rest): outside the
@@ -402,11 +405,18 @@ func (s *ReviewPassService) moveLoops(ctx context.Context) {
 	_ = s.opts.Agents.ReconcileSessions(ctx)
 	for _, l := range loops {
 		s.postAnswers(ctx, l)
-		if l.CountComments {
-			s.pollComments(ctx, l)
-		}
-		if l.CountChecks {
-			s.pollChecks(ctx, l)
+		if rec := s.stewardRecord(ctx, l.TaskID); rec != nil {
+			// The steward's watch read is its polls (LEG-590).
+			if s.routeWatch(ctx, l, rec) {
+				continue // closed
+			}
+		} else {
+			if l.CountComments {
+				s.pollComments(ctx, l)
+			}
+			if l.CountChecks {
+				s.pollChecks(ctx, l)
+			}
 		}
 		if err := s.step(ctx, l); err != nil {
 			log.Printf("review passes: %s: %v", l.TaskID, err)
@@ -428,6 +438,11 @@ func (s *ReviewPassService) step(ctx context.Context, l ReviewLoop) error {
 		// A clean pass whose heads GitHub has yet to confirm: nothing is
 		// approved until it does (invariant 9).
 		return s.confirmLoop(ctx, l, loop.LoopID)
+	}
+	if loop.Phase == ReviewPhaseClean {
+		if rec := s.stewardRecord(ctx, l.TaskID); rec != nil {
+			return s.watching(ctx, l, loop, rec)
+		}
 	}
 	inDone := l.caller.AuthorDone(ctx, l)
 	// AuthorDone may have ended the loop (a run's pull request closed):

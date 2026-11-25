@@ -112,7 +112,6 @@ func (s *ReviewPassService) pollComments(ctx context.Context, l ReviewLoop) {
 	seen := map[string]bool{}
 	failed := map[string]bool{} // repo#number of the pull requests not read
 	skipped, fresh := 0, 0
-	var gone []string
 	for _, pr := range prs {
 		poll, err := s.opts.GitHub.PollComments(ctx, pr.Repo, pr.Number, storePollPages{db: s.db, taskID: l.TaskID, pr: pr.Number})
 		if err != nil {
@@ -126,56 +125,12 @@ func (s *ReviewPassService) pollComments(ctx context.Context, l ReviewLoop) {
 			failed[fmt.Sprintf("%s#%d", pr.Repo, pr.Number)] = true
 			continue
 		}
-		// Legato's own comments are known by who posted them: the pull
-		// request's author (the author App's on a handoff) and the Apps'
-		// logins Legato knows. Never by a marker in a comment's text,
-		// which anyone can copy.
-		legato := append(s.legatoLogins(ctx), pr.Author)
-		for _, c := range poll.Comments {
-			if anyLogin(legato, c.Author) || (c.Kind == "review" && (strings.TrimSpace(c.Body) == "" || c.State == "PENDING")) {
-				continue
-			}
-			if !countedAssociations[c.Association] && !s.countedBot(c.Author) {
-				skipped++
-				continue
-			}
-			id := commentItemID(c)
-			seen[id] = true
-			item, known := byID[id]
-			if !known {
-				item = store.HandoffReviewItem{ID: id, TaskID: l.TaskID, Kind: ItemComment, Pass: loop.Pass, Repo: pr.Repo, PR: pr.Number,
-					Version: 1, CreatedAt: s.now(), SourceID: fmt.Sprint(c.ID)}
-				fresh++
-			} else if item.Body != c.Body && !item.Closed {
-				// An edit is a new version, to be handled again.
-				item.Version++
-				item.Answer, item.AnswerNote, item.AnsweredAt, item.Posted, item.Delivered = "", "", "", false, false
-				item.Pass = loop.Pass
-				fresh++
-			}
-			item.Author, item.Title, item.Body, item.URL = c.Author, commentTitle(c), c.Body, c.URL
-			item.Path, item.Line, item.Outdated = c.Path, c.Line, c.Outdated
-			if c.Kind == "inline" {
-				item.ThreadCommentID = c.ThreadRoot
-			}
-			if c.Resolved && item.Answer == "" {
-				// A person resolved the thread: handled.
-				item.Answer, item.AnsweredAt, item.Posted = "resolved", s.now(), true
-			}
-			if err := s.db.UpsertHandoffReviewItem(ctx, item); err != nil {
-				log.Printf("review passes: %v", err)
-			}
-		}
+		f, sk := s.countPolled(ctx, l, loop, pr.Repo, pr.Number, pr.Author, poll, byID, seen)
+		fresh, skipped = fresh+f, skipped+sk
 	}
-	for _, item := range items {
-		if item.Kind == ItemComment && !item.Closed && !seen[item.ID] && !failed[fmt.Sprintf("%s#%d", item.Repo, item.PR)] {
-			item.Closed = true
-			_ = s.db.UpsertHandoffReviewItem(ctx, item)
-			if item.Delivered && item.Answer == "" {
-				gone = append(gone, item.ID)
-			}
-		}
-	}
+	gone := s.closeUnseen(ctx, items, seen, func(item store.HandoffReviewItem) bool {
+		return !failed[fmt.Sprintf("%s#%d", item.Repo, item.PR)]
+	})
 	loop.PolledAt, loop.SkippedComments = s.now(), skipped
 	if fresh > 0 {
 		loop.LastNewAt = s.now()
@@ -191,6 +146,77 @@ func (s *ReviewPassService) pollComments(ctx context.Context, l ReviewLoop) {
 	if err := s.saveChanged(ctx, loop); err != nil {
 		log.Printf("review passes: %v", err)
 	}
+}
+
+// countPolled turns one pull request's polled comments into items: the
+// counted ones (from the repository's insiders and counted bots, never
+// Legato's own) new, or edited (a new version to handle again), a thread
+// a person resolved handled. It marks each counted comment seen, and says
+// how many items are new and how many comments did not count.
+func (s *ReviewPassService) countPolled(ctx context.Context, l ReviewLoop, loop *store.HandoffReview, repo string, number int, prAuthor string,
+	poll CommentPoll, byID map[string]store.HandoffReviewItem, seen map[string]bool) (fresh, skipped int) {
+	// Legato's own comments are known by who posted them: the pull
+	// request's author (the author App's on a handoff) and the Apps'
+	// logins Legato knows. Never by a marker in a comment's text, which
+	// anyone can copy.
+	legato := append(s.legatoLogins(ctx), prAuthor)
+	for _, c := range poll.Comments {
+		if anyLogin(legato, c.Author) || (c.Kind == "review" && (strings.TrimSpace(c.Body) == "" || c.State == "PENDING")) {
+			continue
+		}
+		if !countedAssociations[c.Association] && !s.countedBot(c.Author) {
+			skipped++
+			continue
+		}
+		id := commentItemID(c)
+		seen[id] = true
+		item, known := byID[id]
+		before := item
+		if !known {
+			item = store.HandoffReviewItem{ID: id, TaskID: l.TaskID, Kind: ItemComment, Pass: loop.Pass, Repo: repo, PR: number,
+				Version: 1, CreatedAt: s.now(), SourceID: fmt.Sprint(c.ID)}
+			fresh++
+		} else if item.Body != c.Body && !item.Closed {
+			// An edit is a new version, to be handled again.
+			item.Version++
+			item.Answer, item.AnswerNote, item.AnsweredAt, item.Posted, item.Delivered = "", "", "", false, false
+			item.Pass = loop.Pass
+			fresh++
+		}
+		item.Author, item.Title, item.Body, item.URL = c.Author, commentTitle(c), c.Body, c.URL
+		item.Path, item.Line, item.Outdated = c.Path, c.Line, c.Outdated
+		if c.Kind == "inline" {
+			item.ThreadCommentID = c.ThreadRoot
+		}
+		if c.Resolved && item.Answer == "" {
+			// A person resolved the thread: handled.
+			item.Answer, item.AnsweredAt, item.Posted = "resolved", s.now(), true
+		}
+		if known && item == before {
+			continue
+		}
+		if err := s.db.UpsertHandoffReviewItem(ctx, item); err != nil {
+			log.Printf("review passes: %v", err)
+		}
+	}
+	return fresh, skipped
+}
+
+// closeUnseen closes the open comment items a poll did not see on a pull
+// request it read (read says so): deleted on GitHub. It returns those the
+// author was told of and had not answered.
+func (s *ReviewPassService) closeUnseen(ctx context.Context, items []store.HandoffReviewItem, seen map[string]bool, read func(store.HandoffReviewItem) bool) []string {
+	var gone []string
+	for _, item := range items {
+		if item.Kind == ItemComment && !item.Closed && !seen[item.ID] && read(item) {
+			item.Closed = true
+			_ = s.db.UpsertHandoffReviewItem(ctx, item)
+			if item.Delivered && item.Answer == "" {
+				gone = append(gone, item.ID)
+			}
+		}
+	}
+	return gone
 }
 
 // pollTargets are the pull requests to poll: those of the last pass, else
@@ -265,7 +291,8 @@ func plural(n int, one, many string) string {
 
 // deliverComments tells the author of new comments and failing checks: after quiet_time with
 // nothing new, never during a pass, once the author is idle. Each item is
-// told once, whatever restarts in between.
+// told once, whatever restarts in between. While a steward watches, the
+// line is the steward's ([legato steward]).
 func (s *ReviewPassService) deliverComments(ctx context.Context, l ReviewLoop, loop *store.HandoffReview) error {
 	items, err := currentItems(ctx, s.db, loop)
 	if err != nil {
@@ -303,6 +330,11 @@ func (s *ReviewPassService) deliverComments(ctx context.Context, l ReviewLoop, l
 		parts = append(parts, fmt.Sprintf("%d failing %s", checks, plural(checks, "check", "checks")))
 	}
 	message := fmt.Sprintf("%s %s on your pull requests. Run legato review-pass feedback --json to read them.", ReviewTag, joinAnd(parts))
+	if s.stewardRecord(ctx, l.TaskID) != nil {
+		// After approval: the steward's, each item naming what a fix may
+		// need.
+		message = fmt.Sprintf("%s %s on your pull requests. Run legato review-pass feedback --json to read them: each item names the operation a fix may need, and nothing is granted ahead.", StewardTag, joinAnd(parts))
+	}
 	if err := s.tellAuthor(ctx, l, message); err != nil {
 		return s.stuck(ctx, l, loop, "the author could not be told of its feedback: "+err.Error())
 	}

@@ -145,6 +145,13 @@ func (s *ReviewWatchSchedule) forwardPending() bool {
 	return false
 }
 
+// Forget forgets a loop's watches: its next one is due at once.
+func (s *ReviewWatchSchedule) Forget(loopID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.loops, loopID)
+}
+
 // Keep forgets every loop but those named.
 func (s *ReviewWatchSchedule) Keep(ids map[string]bool) {
 	s.mu.Lock()
@@ -230,7 +237,7 @@ func (s *ReviewPassService) StartWatchEvents(ctx context.Context, bus *events.Bu
 
 // watchLoops reads, as the reviewer App, the pull requests and comments of
 // every open steward loop whose watch is due: one session (one token) per
-// loop per tick. It routes nothing (that is the steward's, LEG-590).
+// loop per tick. The steward routes what it read (routeWatch).
 func (s *ReviewPassService) watchLoops(ctx context.Context) {
 	github, ok := s.opts.GitHub.(ReviewWatchGitHub)
 	if !ok || github == nil {
@@ -260,6 +267,11 @@ func (s *ReviewPassService) watchLoops(ctx context.Context) {
 	for id := range s.watched {
 		if !keep[id] {
 			delete(s.watched, id)
+		}
+	}
+	for id := range s.watchRouted {
+		if !keep[id] {
+			delete(s.watchRouted, id)
 		}
 	}
 	s.watchMu.Unlock()

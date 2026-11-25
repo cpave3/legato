@@ -3636,7 +3636,7 @@
     },
     "with.github.pr.review.wait": {
       "additionalProperties": false,
-      "description": "Wait while the author works on a pass's findings: Legato tells an agent author of them once it is idle (resuming it when it has stopped), and the wait ends when the author pushes, disputes a blocking finding, or the pull requests close. A person author gets a quiet time after a push.",
+      "description": "Wait while the author works on a pass's findings: Legato tells an agent author of them once it is idle (resuming it when it has stopped), and the wait ends when the author pushes, disputes a blocking finding, or the pull requests close. A person author gets a quiet time after a push. In mode watch (the steward, after approval of a loop opened with steward), Legato sends the author agent the failing counted checks and the new counted comments and reviews, each naming the operation a fix may need, and the wait ends when the author pushes (pushed: review again), disputes a blocking finding (disputed), or a pull request closes unmerged (closed).",
       "properties": {
         "loop": {
           "description": "The loop's ID: ${{ steps.\u003copen step\u003e.outputs.loop_id }}",
@@ -3654,7 +3654,8 @@
           "anyOf": [
             {
               "enum": [
-                "author"
+                "author",
+                "watch"
               ],
               "type": "string"
             },
@@ -3664,7 +3665,7 @@
             }
           ],
           "default": "author",
-          "description": "author: the author's round",
+          "description": "author: the author's round; watch: the steward's watch after approval",
           "x-legato": {
             "context": "with",
             "expressions": true,
@@ -3684,8 +3685,13 @@
         "group": "Code",
         "outputs": [
           {
-            "description": "ready (the author is done), closed, or stuck when the operator ended the stuck loop",
+            "description": "Mode author: ready (the author is done), closed, or stuck when the operator ended the stuck loop",
             "name": "state",
+            "type": "string"
+          },
+          {
+            "description": "Mode watch: what woke the steward: pushed or disputed (review again), closed (a pull request closed unmerged), merged, idle or ended",
+            "name": "woke",
             "type": "string"
           },
           {
@@ -5979,11 +5985,15 @@
         "type": "github.pr.review.pass"
       },
       {
-        "description": "Wait while the author works on a pass's findings: Legato tells an agent author of them once it is idle (resuming it when it has stopped), and the wait ends when the author pushes, disputes a blocking finding, or the pull requests close. A person author gets a quiet time after a push.",
+        "description": "Wait while the author works on a pass's findings: Legato tells an agent author of them once it is idle (resuming it when it has stopped), and the wait ends when the author pushes, disputes a blocking finding, or the pull requests close. A person author gets a quiet time after a push. In mode watch (the steward, after approval of a loop opened with steward), Legato sends the author agent the failing counted checks and the new counted comments and reviews, each naming the operation a fix may need, and the wait ends when the author pushes (pushed: review again), disputes a blocking finding (disputed), or a pull request closes unmerged (closed).",
         "group": "Code",
         "outputs": [
           {
             "name": "state",
+            "type": "string"
+          },
+          {
+            "name": "woke",
             "type": "string"
           },
           {

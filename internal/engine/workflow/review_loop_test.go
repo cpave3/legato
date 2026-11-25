@@ -145,7 +145,7 @@ func TestTheBuiltInReviewLoopIsAV2WorkflowOfTheReviewSteps(t *testing.T) {
 			types = append(types, inner.Type)
 		}
 	}
-	if got := strings.Join(types, ","); got != "github.pr.review.open,,github.pr.review.pass,github.pr.review.confirm,github.pr.review.wait,github.pr.ready,github.pr.review.close" {
+	if got := strings.Join(types, ","); got != "github.pr.review.open,,github.pr.review.pass,github.pr.review.confirm,github.pr.review.wait,github.pr.ready,,github.pr.review.wait,github.pr.review.pass,github.pr.review.confirm,github.pr.ready,github.pr.review.close" {
 		t.Fatalf("steps = %s", got)
 	}
 	for _, name := range []string{"outcome", "loop_id", "passes", "clean_pass", "confirmed_at", "findings", "prs", "summary_path", "linked_task", "ready"} {
@@ -156,7 +156,7 @@ func TestTheBuiltInReviewLoopIsAV2WorkflowOfTheReviewSteps(t *testing.T) {
 	if d.Outputs["findings"].Type != "json" {
 		t.Fatalf("findings is %s", d.Outputs["findings"].Type)
 	}
-	for _, name := range []string{"repo", "pr_number", "prs", "scope", "agent_author", "reviewer", "skill", "max_passes", "max_reentries", "ready"} {
+	for _, name := range []string{"repo", "pr_number", "prs", "scope", "agent_author", "reviewer", "skill", "max_passes", "max_reentries", "ready", "steward"} {
 		if _, ok := d.Inputs[name]; !ok {
 			t.Fatalf("no input %q", name)
 		}
@@ -168,5 +168,26 @@ func TestAWrittenReviewLoopNeverReplacesTheBuiltIn(t *testing.T) {
 	result := workflow.WithBuiltIns(workflow.DiscoveryResult{Definitions: []*workflow.Definition{mine}}, workflow.BuiltInReviewLoop())
 	if len(result.Definitions) != 1 || !strings.HasPrefix(result.Definitions[0].Source, "builtin:") {
 		t.Fatalf("definitions = %+v", result.Definitions)
+	}
+}
+
+// The steward waits in mode watch (spec LEG-559 C1): a file may write it,
+// and no other mode.
+func TestAWaitStepTakesModeWatchAndNoOther(t *testing.T) {
+	wait := func(mode string) []byte {
+		return []byte(strings.Replace(string(reviewLoopYAML("pr_number: 12")), "  - id: close\n", `  - id: watch
+    title: Watch
+    type: github.pr.review.wait
+    with:
+      loop: ${{ steps.open.outputs.loop_id }}
+      mode: `+mode+`
+  - id: close
+`, 1))
+	}
+	if errs := checkErrors(t, wait("watch")); len(errs) != 0 {
+		t.Fatalf("mode watch: %+v", errs)
+	}
+	if errs := checkErrors(t, wait("nap")); len(errs) == 0 {
+		t.Fatal("mode nap loaded")
 	}
 }

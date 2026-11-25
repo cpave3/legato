@@ -141,6 +141,13 @@ func ReviewFeedback(ctx context.Context, db *store.Store, taskID string, opts ..
 	if err != nil {
 		return ReviewFeedbackView{}, err
 	}
+	steward := false
+	if rec, err := db.CurrentReviewLoop(ctx, taskID); err == nil && stewarding(rec) {
+		steward = true
+		for i := range items {
+			items[i].Operation = stewardOperation(items[i].Kind)
+		}
+	}
 	view := ReviewFeedbackView{TaskID: taskID, Pass: loop.Pass, Phase: loop.Phase, Items: items, How: feedbackHow}
 	if card, run := reviewRunCard(ctx, db, taskID); run != nil {
 		view.Run = &ReviewFeedbackRun{RunID: run.RunID, TaskID: taskID}
@@ -172,6 +179,9 @@ func ReviewFeedback(ctx context.Context, db *store.Store, taskID string, opts ..
 			}
 			view.How += stackHow(graph, skill, view.Run != nil)
 		}
+	}
+	if steward {
+		view.How += stewardHow
 	}
 	return view, nil
 }
@@ -308,8 +318,12 @@ func (s *ReviewPassService) feedback(ctx context.Context, l ReviewLoop, loop *st
 	if !inDone {
 		return nil
 	}
-	if err := RefuseUnansweredReview(ctx, s.db, l.TaskID); l.CountComments && err != nil {
-		return nil // moved by hand, past the refusal: wait for the answers
+	steward := s.stewardRecord(ctx, l.TaskID) != nil
+	if err := RefuseUnansweredReview(ctx, s.db, l.TaskID); l.CountComments && !steward && err != nil {
+		// Moved by hand, past the refusal: wait for the answers. A
+		// re-entry's pass waits only for blocking findings (the
+		// steward's agentDone).
+		return nil
 	}
 	pushed, err := s.pushedSince(ctx, l, loop)
 	if err != nil {
@@ -321,6 +335,13 @@ func (s *ReviewPassService) feedback(ctx context.Context, l ReviewLoop, loop *st
 		disputed = disputed || (item.Kind == ItemBlocking && item.Answer == AnswerReplied)
 	}
 	if pushed || disputed {
+		if steward {
+			wake := StewardWokePushed
+			if !pushed {
+				wake = StewardWokeDisputed
+			}
+			s.woke(ctx, l.TaskID, wake)
+		}
 		loop.Phase = ReviewPhaseReady
 		return s.ready(ctx, l, loop)
 	}
@@ -369,7 +390,7 @@ func (s *ReviewPassService) deliver(ctx context.Context, l ReviewLoop, loop *sto
 		loop.DeliveredPass = loop.Pass
 		return s.save(ctx, loop)
 	}
-	message := fmt.Sprintf("%s Pass %d has %s. Run legato review-pass feedback --json to read them.", ReviewTag, loop.Pass, joinAnd(parts))
+	message := fmt.Sprintf("%s Pass %d has %s. Run legato review-pass feedback --json to read them.", s.authorTag(ctx, l.TaskID), loop.Pass, joinAnd(parts))
 	if rec, err := s.db.GetReviewLoop(ctx, loop.LoopID); err == nil && rec.Ready {
 		// The run's ready step marks the stack ready once it is approved.
 		message += " Do not mark your pull requests ready: this run marks them ready once the review approves them."

@@ -780,20 +780,38 @@ func (reviewWaitExecutor) Type() string    { return ReviewWaitStepType }
 func (reviewConfirmExecutor) Type() string { return ReviewConfirmStepType }
 
 // Start checks the step's loop is its run's and open, and the wait's mode,
-// and waits.
+// and waits. A watch (the steward) needs a loop opened with steward, and
+// may start on one that closed: it says how it ended.
 func (e reviewObserver) Start(ctx context.Context, step ResolvedWorkflowStep) (WorkflowExecutionResult, error) {
+	watch := false
 	if e.kind == ReviewWaitStepType {
-		mode, _ := step.With["mode"].(string)
-		if mode = strings.TrimSpace(mode); mode != "" && mode != ReviewWaitModeAuthor {
-			return WorkflowExecutionResult{}, reviewRefused(ReviewRefusalInvalidSettings, "mode %q is not built yet: a wait takes mode author", mode)
+		switch mode := waitMode(step); mode {
+		case ReviewWaitModeAuthor:
+		case ReviewWaitModeWatch:
+			watch = true
+		default:
+			return WorkflowExecutionResult{}, reviewRefused(ReviewRefusalInvalidSettings, "a wait takes mode author or watch, not %q", mode)
 		}
 	}
 	if db := e.steps.store(); db != nil {
-		if _, err := ownedStepLoop(ctx, db, step, false); err != nil {
+		rec, err := ownedStepLoop(ctx, db, step, watch)
+		if err != nil {
 			return WorkflowExecutionResult{}, err
+		}
+		if watch && !rec.Steward {
+			return WorkflowExecutionResult{}, reviewRefused(ReviewRefusalInvalidSettings, "review loop %s was not opened with steward: true, so nothing watches it after approval", rec.ID)
 		}
 	}
 	return WorkflowExecutionResult{Status: WorkflowStepWaiting}, nil
+}
+
+// waitMode is a wait step's mode, author when it names none.
+func waitMode(step ResolvedWorkflowStep) string {
+	mode, _ := step.With["mode"].(string)
+	if mode = strings.TrimSpace(mode); mode == "" {
+		return ReviewWaitModeAuthor
+	}
+	return mode
 }
 
 // Cancel leaves the loop to its run, whose end closes it.
@@ -836,9 +854,11 @@ func (e reviewObserver) Act(ctx context.Context, attempt store.WorkflowStepAttem
 	return caller.engine.ActOnLoop(ctx, rec.ID, action, text)
 }
 
-// The modes of github.pr.review.wait.
+// The modes of github.pr.review.wait: the author's round, or the steward's
+// watch after approval (review_steward.go).
 const (
-	ReviewWaitModeAuthor = "author"
+	ReviewWaitModeAuthor = workflowengine.ReviewWaitModeAuthor
+	ReviewWaitModeWatch  = workflowengine.ReviewWaitModeWatch
 )
 
 // settleObservers ends the waiting steps of one observer kind whose loop
@@ -881,6 +901,9 @@ func (c *ReviewRunCaller) observe(ctx context.Context, kind string, step Resolve
 	case ReviewPassStepType:
 		return c.observePass(ctx, step, rec)
 	case ReviewWaitStepType:
+		if waitMode(step) == ReviewWaitModeWatch {
+			return c.observeWatch(ctx, rec)
+		}
 		return c.observeWait(ctx, rec)
 	case ReviewConfirmStepType:
 		return c.observeConfirm(ctx, step, rec)
@@ -977,6 +1000,50 @@ func (c *ReviewRunCaller) observeWait(ctx context.Context, rec *store.ReviewLoop
 	switch result.State {
 	case ReviewWaitReady, ReviewWaitClosed:
 		return out(result.State), nil
+	}
+	return nil, nil
+}
+
+// observeWatch completes a watch (mode watch, the steward) with what woke
+// it: pushed or disputed once the loop went back to review (a pass is to
+// start), closed when a pull request closed unmerged, and merged, idle or
+// ended as the loop closed so (the operator's End of a stuck loop is
+// ended). It begins the steward's watch on a loop the review approved, and
+// waits while the loop is approved and watched, waits for its author, or
+// is stuck.
+func (c *ReviewRunCaller) observeWatch(ctx context.Context, rec *store.ReviewLoop) (map[string]any, error) {
+	out := func(woke string) map[string]any { return map[string]any{"woke": woke, "loop_id": rec.ID} }
+	if rec.State != store.ReviewLoopOpenState {
+		switch rec.Outcome {
+		case ReviewOutcomeClosed, StewardWokeMerged, StewardWokeIdle, StewardWokeEnded:
+			return out(rec.Outcome), nil
+		case ReviewOutcomeStuck, ReviewOutcomeApproved:
+			return out(StewardWokeEnded), nil
+		}
+		return nil, nil // cancelled with its run
+	}
+	loop, err := c.engine.db.GetHandoffReview(ctx, rec.HostTask)
+	if err != nil || loop == nil || loop.LoopID != rec.ID {
+		return nil, err
+	}
+	if !stewarding(rec) {
+		if !confirmed(loop) {
+			return nil, nil // not approved yet: the review's
+		}
+		if err := c.engine.beginWatch(ctx, rec); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+	switch loop.Phase {
+	case ReviewPhaseReady, ReviewPhaseWaitingForReviewer, ReviewPhaseReviewing:
+		woke := rec.LastWake
+		if woke != StewardWokeDisputed {
+			woke = StewardWokePushed
+		}
+		return out(woke), nil
+	case ReviewPhaseSkipped, ReviewPhaseEnded:
+		return out(StewardWokeClosed), nil
 	}
 	return nil, nil
 }

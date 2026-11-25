@@ -89,36 +89,17 @@ func (s *ReviewPassService) readChecks(ctx context.Context, l ReviewLoop, loop *
 			return false
 		}
 		for _, c := range checks {
-			id := fmt.Sprintf("k-%d-%s", pr.Number, c.Name)
-			item, known := byID[id]
-			switch c.State {
-			case CheckPending:
+			if c.State == CheckPending {
 				pending++
-			case CheckPassing:
-				if known && !item.Closed && item.Answer != AnswerReplied {
-					item.Closed = true
-					changed = append(changed, item)
-				}
-			case CheckFailing:
-				switch {
-				case !known:
-					item = store.HandoffReviewItem{ID: id, TaskID: l.TaskID, Kind: ItemCheck, Pass: loop.Pass, Repo: l.Repo, PR: pr.Number,
-						Version: 1, Author: "GitHub", CreatedAt: s.now()}
-					fresh++
-				case item.Closed, item.SourceID != pr.HeadSHA && item.Answer == AnswerFixed:
-					// Failing again, or still failing on the commit
-					// that was to fix it: a new version to handle.
-					item.Version++
-					item.Closed, item.Pass = false, loop.Pass
-					item.Answer, item.AnswerNote, item.AnsweredAt, item.Posted, item.Delivered = "", "", "", false, false
-					fresh++
-				}
-				item.SourceID, item.URL = pr.HeadSHA, c.URL
-				item.Title = fmt.Sprintf("Check %s: %s on %s", c.Name, c.Conclusion, short(pr.HeadSHA))
-				item.Body = c.Summary
-				if c.Excerpt != "" {
-					item.Body = strings.TrimSpace(item.Body + "\n\n" + c.Excerpt)
-				}
+				continue
+			}
+			id := fmt.Sprintf("k-%d-%s", pr.Number, c.Name)
+			before, known := byID[id]
+			item, write, isNew := s.applyCheck(l, loop, pr.Number, pr.HeadSHA, c, before, known)
+			if isNew {
+				fresh++
+			}
+			if write {
 				changed = append(changed, item)
 			}
 		}
@@ -133,6 +114,45 @@ func (s *ReviewPassService) readChecks(ctx context.Context, l ReviewLoop, loop *
 		loop.LastNewAt = s.now()
 	}
 	return fresh > 0
+}
+
+// applyCheck is what a counted check's state on a pull request's head
+// makes of its item: a failing one is an item (new, or a new version when it
+// fails again, or still fails on the commit --fixed named), a passing one
+// closes its item unless a reply answered it. It says whether the item is
+// to be written and whether it is new to handle.
+func (s *ReviewPassService) applyCheck(l ReviewLoop, loop *store.HandoffReview, number int, head string, c CheckResult,
+	item store.HandoffReviewItem, known bool) (store.HandoffReviewItem, bool, bool) {
+	switch c.State {
+	case CheckPassing:
+		if known && !item.Closed && item.Answer != AnswerReplied {
+			item.Closed = true
+			return item, true, false
+		}
+	case CheckFailing:
+		fresh := false
+		switch {
+		case !known:
+			item = store.HandoffReviewItem{ID: fmt.Sprintf("k-%d-%s", number, c.Name), TaskID: l.TaskID, Kind: ItemCheck, Pass: loop.Pass, Repo: l.Repo, PR: number,
+				Version: 1, Author: "GitHub", CreatedAt: s.now()}
+			fresh = true
+		case item.Closed, item.SourceID != head && item.Answer == AnswerFixed:
+			// Failing again, or still failing on the commit that was to
+			// fix it: a new version to handle.
+			item.Version++
+			item.Closed, item.Pass = false, loop.Pass
+			item.Answer, item.AnswerNote, item.AnsweredAt, item.Posted, item.Delivered = "", "", "", false, false
+			fresh = true
+		}
+		item.SourceID, item.URL = head, c.URL
+		item.Title = fmt.Sprintf("Check %s: %s on %s", c.Name, c.Conclusion, short(head))
+		item.Body = c.Summary
+		if c.Excerpt != "" {
+			item.Body = strings.TrimSpace(item.Body + "\n\n" + c.Excerpt)
+		}
+		return item, true, fresh
+	}
+	return item, false, false
 }
 
 // checksHandled says whether the counted checks of a loop's last pass let

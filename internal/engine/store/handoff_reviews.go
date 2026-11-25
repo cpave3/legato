@@ -169,6 +169,10 @@ type HandoffReviewItem struct {
 	CreatedAt    string `db:"created_at" json:"-"`
 	// Delivered says the author was told of this version of the item.
 	Delivered bool `db:"delivered" json:"-"`
+	// Operation names what a fix of the item may need of the author's
+	// credential rules (a steward's items; spec LEG-559). Not stored: the
+	// feedback view says it.
+	Operation string `db:"-" json:"operation,omitempty"`
 }
 
 // currentReviewLoop is a task's loop: its open one, else its newest; nil
