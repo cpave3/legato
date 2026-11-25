@@ -581,3 +581,54 @@ steps:
 		t.Fatalf("after retrying c: run %s, c starts %d", view.Run.Status, len(c.starts))
 	}
 }
+
+// A pass's suspended step is retired for Retry without its loop's
+// on_failure either: under continue or fail the pass would end and the run
+// would move to the loop, past the step being retried (LEG-490 review).
+func TestRetryingASuspendedPassStepIgnoresItsLoopsOnFailure(t *testing.T) {
+	for _, onFailure := range []string{"continue", "fail"} {
+		t.Run(onFailure, func(t *testing.T) {
+			agent := &fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent"}}
+			svc, s := controlService(t, agent)
+			ctx := context.Background()
+			view, err := svc.Start(ctx, parseControlWorkflow(t, fmt.Sprintf(`schema_version: 2
+name: agent
+title: Agent
+steps:
+  - id: each
+    loop: {repeat: true, max: 2, on_failure: %s}
+    steps:
+      - {id: work, type: agent.run, with: {prompt: go}}
+`, onFailure)), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := view.Run.CurrentStepID
+			var attemptID string
+			for _, attempt := range view.Attempts {
+				if attempt.Path == path {
+					attemptID = attempt.ID
+				}
+			}
+			if !strings.HasSuffix(path, "/work") || attemptID == "" {
+				t.Fatalf("run at %q, attempts %+v; want it at the pass's work step", path, view.Attempts)
+			}
+			if err := s.SuspendWorkflowStep(ctx, view.Run.ID, path, attemptID, "the agent was interrupted"); err != nil {
+				t.Fatal(err)
+			}
+			view, err = svc.Retry(ctx, view.Run.ID, path, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var retried int
+			for _, attempt := range view.Attempts {
+				if attempt.Path == path && attempt.Status == "waiting_agent" {
+					retried++
+				}
+			}
+			if view.Run.Status != "running" || view.Run.CurrentStepID != path || retried != 1 {
+				t.Fatalf("run %s at %q, attempts %+v; want a new attempt of %s waiting on its agent", view.Run.Status, view.Run.CurrentStepID, view.Attempts, path)
+			}
+		})
+	}
+}

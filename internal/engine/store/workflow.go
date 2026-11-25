@@ -778,9 +778,11 @@ func (s *Store) FailWorkflowStepWith(ctx context.Context, runID, path, attemptID
 			mode = definition.OnFailure
 		}
 		loopPath := passLoopPath(step.ParentPath)
-		if loopPath != "" && mode == FailureFailed {
+		if loopPath != "" && mode == FailureFailed && !failure.Retired {
 			// A pass's step with no on_failure of its own (or fail) fails
-			// its pass, which does what the loop's on_failure says.
+			// its pass, which does what the loop's on_failure says. A
+			// retired attempt does neither: its Retry resets the step at
+			// once, so the run must stay at it.
 			policy, err := loopFailurePolicy(ctx, tx, runID, loopPath)
 			if err != nil {
 				return err
