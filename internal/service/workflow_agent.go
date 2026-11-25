@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -185,6 +186,10 @@ func NewAgentStopExecutor(agents workflowAgentRunner) *AgentStopExecutor {
 }
 func (e *AgentStopExecutor) Type() string { return "agent.stop" }
 func (e *AgentStopExecutor) Start(ctx context.Context, step ResolvedWorkflowStep) (WorkflowExecutionResult, error) {
+	// wait_for: [ended]: wait for the agent to end, then go on (LEG-485).
+	if slices.Contains(step.WaitFor, workflowengine.SignalEnded) {
+		return e.waitForEnd(ctx, step)
+	}
 	// The agent an earlier step used: nothing to stop once it has ended.
 	if step.Agent != nil {
 		if step.Agent.Session != nil {
@@ -205,11 +210,36 @@ func (e *AgentStopExecutor) Start(ctx context.Context, step ResolvedWorkflowStep
 }
 func (e *AgentStopExecutor) Cancel(context.Context, store.WorkflowStepAttempt) error { return nil }
 
+// waitForEnd makes an agent.stop step wait on its agent until it ends; one
+// already ended is done at once.
+func (e *AgentStopExecutor) waitForEnd(ctx context.Context, step ResolvedWorkflowStep) (WorkflowExecutionResult, error) {
+	session, taskID := (*store.AgentSession)(nil), ""
+	if step.Agent != nil {
+		session, taskID = step.Agent.Session, step.Agent.TaskID
+	} else {
+		id, err := interviewTaskID(step.With["task"])
+		if err != nil {
+			return WorkflowExecutionResult{}, err
+		}
+		taskID = id
+		if finder, ok := e.agents.(taskAgentRunner); ok {
+			if running, err := finder.AgentSessionInSlot(ctx, taskID, store.SlotMain); err == nil {
+				session = running
+			}
+		}
+	}
+	if session == nil {
+		return WorkflowExecutionResult{Status: "succeeded", Outputs: map[string]any{"signal": workflowengine.SignalEnded}}, nil
+	}
+	return WorkflowExecutionResult{Status: "waiting_agent", AgentSession: session, TaskID: taskID}, nil
+}
+
 type AgentRunExecutor struct {
 	agents     workflowAgentRunner
 	binaryPath string
 	macros     workflowMacros
 	scratch    workflowScratch
+	grants     BranchGranter
 }
 
 // SetMacros lets steps name a macro (with.macro) in place of a prompt.
@@ -308,10 +338,12 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 			"LEGATO_TASK_ID": spawnTask, "LEGATO_WORKFLOW_RUN_ID": step.RunID, "LEGATO_WORKFLOW_STEP_ID": step.StepID, "LEGATO_WORKFLOW_ATTEMPT_ID": step.AttemptID,
 		},
 	}
+	stepCloneOptions(step, spawnTask, &opts)
 	session, err := e.agents.SpawnWorkflowAgent(ctx, spawnTask, name, opts)
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
+	e.grantBranch(ctx, step, spawnTask, opts, session)
 	result := WorkflowExecutionResult{Status: "waiting_agent", AgentSession: session, WorkingDir: workingDir}
 	if agentTask != "" {
 		result.TaskID = agentTask
@@ -452,8 +484,52 @@ func workflowContract(step ResolvedWorkflowStep, binaryPath string) string {
 	}
 	return "## Workflow completion contract\n" +
 		"Workflow task ID: " + step.TaskID + "\nRun ID: " + step.RunID + "\nStep ID: " + step.StepID + "\nAttempt ID: " + step.AttemptID + "\n" +
-		"Declared outputs: " + string(encoded) + "\n" + kept +
-		"When all outputs are ready, run `" + complete + "` with the output/artifact flags. On unrecoverable failure run `" + fail + " \"reason\"`."
+		"Declared outputs: " + string(encoded) + "\n" + kept + awaitedSignals(step.WaitFor, complete, fail)
+}
+
+// awaitedSignals is what a contract says of the signals that end its step
+// (LEG-485): complete with the outputs, report Finished, or end.
+func awaitedSignals(waitFor []string, complete, fail string) string {
+	if len(waitFor) == 0 {
+		waitFor = []string{workflowengine.SignalComplete}
+	}
+	var lines []string
+	if slices.Contains(waitFor, workflowengine.SignalComplete) {
+		lines = append(lines, "When all outputs are ready, run `"+complete+"` with the output/artifact flags.")
+	}
+	if slices.Contains(waitFor, workflowengine.SignalFinished) {
+		lines = append(lines, "The step ends when you report your stage as finished, so report it once the work is done: Legato's report_stage tool, or `legato agent stage finished --note \"…\"`.")
+	}
+	if slices.Contains(waitFor, workflowengine.SignalEnded) {
+		lines = append(lines, "The step ends when your session ends: when the operator closes it, or you exit.")
+	}
+	lines = append(lines, "On unrecoverable failure run `"+fail+" \"reason\"`.")
+	return strings.Join(lines, " ")
+}
+
+// messageContract is the contract an agent.message step appends to its
+// message when it waits for the agent: the step's own IDs (the agent's
+// environment names the step it started on), its outputs and its signals.
+// It is empty for a message that does not wait.
+func messageContract(step ResolvedWorkflowStep, binaryPath string) string {
+	if len(step.WaitFor) == 0 || slices.Equal(step.WaitFor, []string{workflowengine.SignalNone}) {
+		return ""
+	}
+	keys := make([]string, 0, len(step.Outputs))
+	for key := range step.Outputs {
+		keys = append(keys, fmt.Sprintf("- %s (%s)", key, step.Outputs[key].Type))
+	}
+	sort.Strings(keys)
+	encoded, _ := json.Marshal(keys)
+	command := "legato"
+	if binaryPath != "" {
+		command = shellWorkflowCommand(binaryPath)
+	}
+	flags := fmt.Sprintf(" --run %s --step %s --attempt %s", step.RunID, step.StepID, step.AttemptID)
+	return "## Workflow step contract\n" +
+		"Run ID: " + step.RunID + "\nStep ID: " + step.StepID + "\nAttempt ID: " + step.AttemptID + "\n" +
+		"Declared outputs: " + string(encoded) + "\n" +
+		awaitedSignals(step.WaitFor, command+" workflow step complete"+flags, command+" workflow step fail"+flags)
 }
 
 func shellWorkflowCommand(path string) string {

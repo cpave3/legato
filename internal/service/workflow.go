@@ -36,6 +36,15 @@ type ResolvedWorkflowStep struct {
 	// Agent is the agent an agent.message or agent.stop step's agent:
 	// {from: <step>} names, which the service finds before the step starts.
 	Agent *WorkflowStepAgent
+	// SchemaVersion is the run's definition's: clones are explicit and
+	// branches granted from version 2 (LEG-485).
+	SchemaVersion int
+	// WaitFor are the signals that end the step (EffectiveWaitFor), which
+	// its contract names.
+	WaitFor []string
+	// Clone is the job clone an agent.run step's with.clone names, which the
+	// service finds before the step starts; nil for a fresh clone.
+	Clone *store.JobClone
 }
 
 type WorkflowExecutionResult struct {
@@ -83,6 +92,9 @@ type WorkflowService struct {
 	// workflow_run_ended.go).
 	endedMu        sync.Mutex
 	endedListeners []WorkflowRunEndedListener
+	// agentOutputSources fill agent steps' outputs at their signal
+	// (workflow_agent_wait.go).
+	agentOutputSources AgentOutputSources
 }
 
 func NewWorkflowService(s *store.Store, executors []WorkflowExecutor) *WorkflowService {
@@ -335,9 +347,15 @@ func (s *WorkflowService) enrichWorkflowAttention(ctx context.Context, view *sto
 			break
 		}
 	}
+	endsOnEnd := map[string]bool{}
+	for _, step := range view.Steps {
+		// A step that waits only for its agent to end does not need the
+		// operator while the agent sits idle: that is the agent's turn.
+		endsOnEnd[step.Path] = slices.Equal(waitSignals(step), []string{workflowengine.SignalEnded})
+	}
 	for i := range view.Attempts {
 		attempt := &view.Attempts[i]
-		if attempt.ExecutorType != "agent.run" || attempt.Status != "waiting_agent" {
+		if attempt.ExecutorType != "agent.run" || attempt.Status != "waiting_agent" || endsOnEnd[attempt.Path] {
 			continue
 		}
 		session, err := attemptAgentSession(ctx, s.store, *attempt)
@@ -474,6 +492,12 @@ type WorkflowStepFailer interface {
 }
 
 func (s *WorkflowService) Fail(ctx context.Context, runID, stepID, attemptID, reason string) (*store.WorkflowRunView, error) {
+	return s.failWith(ctx, runID, stepID, attemptID, errors.New(reason))
+}
+
+// failWith is Fail with a typed failure (a WorkflowStepError carries its
+// error code and link into the step's outputs), so on_failure sees it.
+func (s *WorkflowService) failWith(ctx context.Context, runID, stepID, attemptID string, failure error) (*store.WorkflowRunView, error) {
 	view, err := s.store.GetWorkflowRun(ctx, runID)
 	if err != nil {
 		return nil, err
@@ -498,7 +522,7 @@ func (s *WorkflowService) Fail(ctx context.Context, runID, stepID, attemptID, re
 			return nil, fmt.Errorf("stopping failed workflow agent: %w", err)
 		}
 	}
-	if err := s.failRecorded(ctx, runID, stepID, attemptID, errors.New(reason)); err != nil {
+	if err := s.failRecorded(ctx, runID, stepID, attemptID, failure); err != nil {
 		return nil, err
 	}
 	return s.store.GetWorkflowRun(ctx, runID)
@@ -766,12 +790,26 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 		if err := s.store.StartWorkflowStepAttempt(ctx, attempt, string(resolvedJSON)); err != nil {
 			return err
 		}
+		// A timeout's deadline is absolute: time Legato is down counts.
+		if timeout, _ := step.TimeoutDuration(); timeout > 0 {
+			if err := s.store.SetWorkflowStepDeadline(ctx, runID, path, time.Now().Add(timeout)); err != nil {
+				return err
+			}
+		}
 		s.changed(ctx, runID, path, WorkflowChangeStepStarted)
-		started := ResolvedWorkflowStep{RunID: runID, AttemptID: attemptID, TaskID: taskID, RelatedTaskID: view.Run.RelatedTaskID, StepID: path, Title: step.Title, Type: step.Type, With: resolved.With, Outputs: resolved.Outputs}
+		started := ResolvedWorkflowStep{RunID: runID, AttemptID: attemptID, TaskID: taskID, RelatedTaskID: view.Run.RelatedTaskID, StepID: path, Title: step.Title, Type: step.Type, With: resolved.With, Outputs: resolved.Outputs,
+			SchemaVersion: definition.SchemaVersion, WaitFor: workflowengine.EffectiveWaitFor(step)}
 		var result WorkflowExecutionResult
 		execErr := resolveErr
 		if execErr == nil {
 			execErr = s.resolveStepAgent(ctx, definition, runID, &started)
+		}
+		if execErr == nil {
+			execErr = s.resolveStepClone(ctx, prior, &started)
+		}
+		waits := beginsWait(started)
+		if execErr == nil && waits {
+			execErr = s.beginAgentWait(ctx, &started)
 		}
 		if execErr == nil {
 			result, execErr = s.executors[step.Type].Start(ctx, started)
@@ -800,7 +838,14 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 		if result.Status == "waiting_agent" || result.Status == WorkflowStepWaiting {
 			var err error
 			if result.Status == "waiting_agent" {
-				err = s.store.MarkWorkflowStepWaiting(ctx, runID, path, attemptID, result.AgentSession, result.WorkingDir, result.TaskID)
+				// The wait is bound to its agent before the step waits, so
+				// no host finds it waiting on nothing.
+				if waits && result.AgentSession != nil {
+					err = s.store.BindWorkflowWait(ctx, runID, path, attemptID, SessionPlace(*result.AgentSession), result.AgentSession.ID)
+				}
+				if err == nil {
+					err = s.store.MarkWorkflowStepWaiting(ctx, runID, path, attemptID, result.AgentSession, result.WorkingDir, result.TaskID)
+				}
 			} else {
 				err = s.store.WaitWorkflowStepOnService(ctx, runID, path, attemptID)
 			}
@@ -808,6 +853,11 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 				return err
 			}
 			s.changed(ctx, runID, path, WorkflowChangeStepWaiting)
+			if waits && result.Status == "waiting_agent" {
+				// A signal may be here already (none: the prompt was
+				// delivered).
+				return s.checkAgentWaitAt(ctx, runID, path)
+			}
 			return nil
 		}
 		if result.Status != "succeeded" {

@@ -74,9 +74,13 @@ func (s *AgentGraphService) workflowPlaces(ctx context.Context, agents []AgentSe
 			switch {
 			case attempt.ExecutorType == "agent.interview":
 				add(agent.TaskID, attempt.RunID, attempt.Path, AgentRoleInterview)
-			case attempt.ExecutorType == "agent.run" && agent.WorkflowRunID == "":
-				// A task's own agent a step waits on (on: <task>), which
-				// has no run of its own.
+			case attempt.ExecutorType == "agent.stop":
+				// agent.stop with wait_for: [ended]: the run goes on when
+				// the agent ends (LEG-485).
+				add(agent.TaskID, attempt.RunID, attempt.Path, AgentRoleAwaited)
+			case (attempt.ExecutorType == "agent.run" || attempt.ExecutorType == "agent.message") && agent.WorkflowRunID == "":
+				// A task's own agent a step waits on (on: <task>, or a
+				// message that waits), which has no run of its own.
 				add(agent.TaskID, attempt.RunID, attempt.Path, AgentRoleAgent)
 			}
 		}

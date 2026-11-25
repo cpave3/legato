@@ -257,7 +257,10 @@ func (s *WorkStageService) SetByOperator(ctx context.Context, place WorkStagePla
 	return s.store.GetWorkStage(ctx, place)
 }
 
-// Report sets the stage an agent reported for itself, with its note.
+// Report sets the stage an agent reported for itself, with its note. Each
+// report is an event, even one that repeats the stage and note: a second
+// Finished is how an agent ends a second workflow step that waits for it
+// (LEG-485).
 func (s *WorkStageService) Report(ctx context.Context, place WorkStagePlace, executionID, stage, note string) (bool, error) {
 	stage, err := ParseWorkStage(stage)
 	if err != nil {
@@ -265,9 +268,7 @@ func (s *WorkStageService) Report(ctx context.Context, place WorkStagePlace, exe
 	}
 	return s.apply(ctx, place, store.WorkStage{
 		Stage: stage, Reason: strings.TrimSpace(note), Source: store.WorkStageSourceAgent, ExecutionID: executionID,
-	}, func(current *store.WorkStage) bool {
-		return current == nil || current.Stage != stage || current.Reason != strings.TrimSpace(note)
-	})
+	}, func(*store.WorkStage) bool { return true })
 }
 
 // Milestone applies something that happened to the work: forward only,

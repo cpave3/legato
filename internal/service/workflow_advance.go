@@ -66,10 +66,16 @@ func (s *WorkflowService) advanceRecorded(ctx context.Context, runID, path strin
 // for a later reconcile to try again once the claim is stale; a next step
 // that fails is recorded as the run's failure, and the advance is done.
 func (s *WorkflowService) processAdvance(ctx context.Context, advance store.WorkflowAdvance) error {
-	// A step that failed under on_failure: continue has no agent to finish:
-	// its failure stopped it (Fail cancels it) or it had ended; it is left
-	// as a failed step's agent is.
-	if !keepsAgent(advance.Step) && advance.Step.Status != "failed" {
+	// A step that failed under on_failure: continue has no agent to finish
+	// and no outputs to fill: its failure stopped it (Fail cancels it) or it
+	// had ended; it is left as a failed step's agent is. Otherwise the
+	// agent's own completion recorded what it declared, and Legato fills the
+	// rest while the agent is still there to read.
+	continued := advance.Step.Status == "failed"
+	if !continued {
+		s.fillRecordedOutputs(ctx, &advance)
+	}
+	if !keepsAgent(advance.Step) && !continued && !endedSignal(advance.Step) {
 		if executor, ok := s.executors[advance.Attempt.ExecutorType].(interface {
 			Finish(context.Context, store.WorkflowStepAttempt) error
 		}); ok {
@@ -158,7 +164,20 @@ func (s *WorkflowService) StartAdvanceLoop(ctx context.Context, bus *events.Bus)
 		}
 	}
 	changed := bus.Subscribe(events.EventWorkflowChanged)
+	// Agent waits (LEG-485): a stage change or an agent's end may be a
+	// step's signal; each check reads the tables, so one missed is found
+	// at the next.
+	signals, stopSignals := bus.SubscribeInvalidations(events.EventAgentStageChanged, events.EventAgentDied)
+	checkWaits := func() {
+		if err := s.CheckAgentWaits(ctx); err != nil {
+			log.Printf("workflows: agent waits: %v", err)
+		}
+		if _, err := s.SweepTimeouts(ctx, time.Now()); err != nil {
+			log.Printf("workflows: timeouts: %v", err)
+		}
+	}
 	announce(s.AdvanceDue(ctx))
+	checkWaits()
 	// The run-ended hook's sweep: at once for the runs that ended while
 	// no host ran, then on every change to a run (one another process or
 	// the agent service ended reaches this process by IPC or on the bus)
@@ -181,8 +200,11 @@ func (s *WorkflowService) StartAdvanceLoop(ctx context.Context, bus *events.Bus)
 					announce(s.AdvanceDue(ctx))
 					s.SweepEndedRuns(ctx)
 				}
+			case <-signals:
+				checkWaits()
 			case <-ticker.C:
 				announce(s.AdvanceDue(ctx))
+				checkWaits()
 				s.SweepEndedRuns(ctx)
 			}
 		}
@@ -190,5 +212,6 @@ func (s *WorkflowService) StartAdvanceLoop(ctx context.Context, bus *events.Bus)
 	return func() {
 		cancel()
 		bus.Unsubscribe(changed)
+		stopSignals()
 	}
 }

@@ -129,10 +129,12 @@ func (e *AgentRunExecutor) startOnTask(ctx context.Context, step ResolvedWorkflo
 		}
 		opts.Repo, opts.Ref, opts.Branch = strings.TrimSpace(repo), strings.TrimSpace(ref), strings.TrimSpace(branch)
 		opts.Engram, opts.EngramRequired = strings.TrimSpace(engram), strings.TrimSpace(engram) != ""
+		stepCloneOptions(step, taskID, &opts)
 	}
 	if session, err = e.agents.SpawnWorkflowAgent(ctx, taskID, "", opts); err != nil {
 		return WorkflowExecutionResult{}, fmt.Errorf("start the agent of task %s: %w", taskID, err)
 	}
+	e.grantBranch(ctx, step, taskID, opts, session)
 	return taskAgentResult(session, taskID, workingDir, true, wait), nil
 }
 
@@ -187,9 +189,10 @@ func taskAgentResult(session *store.AgentSession, taskID, workingDir string, cre
 // AgentMessageExecutor sends a prompt or a macro to a running agent: the one
 // an earlier step used, or a task's own. It does not wait for the agent.
 type AgentMessageExecutor struct {
-	agents workflowAgentRunner
-	store  *store.Store
-	macros workflowMacros
+	agents     workflowAgentRunner
+	store      *store.Store
+	macros     workflowMacros
+	binaryPath string
 }
 
 func NewAgentMessageExecutor(agents workflowAgentRunner, s *store.Store) *AgentMessageExecutor {
@@ -223,13 +226,27 @@ func (e *AgentMessageExecutor) Start(ctx context.Context, step ResolvedWorkflowS
 		}
 		message = WorkflowMessageTag + prompt
 	}
+	// The step's contract names what it waits for: tagged with a prompt,
+	// tagged on its own after a macro, the operator's words.
+	contract := messageContract(step, e.binaryPath)
+	if contract != "" && !fromMacro {
+		message += "\n\n" + contract
+	}
 	if err := e.agents.PromptAgent(ctx, target.AgentID, message); err != nil {
 		return WorkflowExecutionResult{}, fmt.Errorf("message the agent: %w", err)
 	}
-	return WorkflowExecutionResult{Status: "succeeded", Outputs: map[string]any{
-		"task": target.TaskID, "session_id": int64(target.Session.ID),
-	}}, nil
+	if contract != "" && fromMacro {
+		if err := e.agents.PromptAgent(ctx, target.AgentID, WorkflowMessageTag+contract); err != nil {
+			return WorkflowExecutionResult{}, fmt.Errorf("message the agent: %w", err)
+		}
+	}
+	// The service ends the step on its signal (none: at once), with the
+	// outputs it fills.
+	return WorkflowExecutionResult{Status: "waiting_agent", AgentSession: target.Session, TaskID: target.TaskID}, nil
 }
+
+// SetBinaryPath names the legato binary the contract's commands run.
+func (e *AgentMessageExecutor) SetBinaryPath(path string) { e.binaryPath = path }
 
 // target is the running agent a message goes to.
 func (e *AgentMessageExecutor) target(ctx context.Context, step ResolvedWorkflowStep) (*WorkflowStepAgent, error) {
