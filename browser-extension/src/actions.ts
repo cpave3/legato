@@ -69,6 +69,27 @@ export function prepareGitHubWorkflow(
   }
 }
 
+// The standard review loop workflows: Legato's built-in review-loop, and
+// the review-pr-passes example an older Legato has instead (and an older
+// extension stored as the name).
+const REVIEW_LOOP = "review-loop"
+const REVIEW_PR_PASSES = "review-pr-passes"
+
+/**
+ * The workflow a review loop is started with. A name of the operator's own
+ * is used as it is. The standard one is review-loop whenever Legato lists
+ * it, even when the options still name review-pr-passes, and
+ * review-pr-passes on an older Legato without review-loop.
+ */
+export function reviewLoopWorkflowName(config: ExtensionConfig, discovery: WorkflowDiscovery): string {
+  const configured = config.reviewPassesWorkflowName
+  if (configured !== REVIEW_LOOP && configured !== REVIEW_PR_PASSES) return configured
+  const listed = (name: string) => discovery.definitions?.some((item) => item.name === name) ?? false
+  if (listed(REVIEW_LOOP)) return REVIEW_LOOP
+  if (listed(REVIEW_PR_PASSES)) return REVIEW_PR_PASSES
+  return configured
+}
+
 // A review loop needs the repository and the pull request's number only:
 // Legato makes its own clone. A repository preset that matches names the
 // repository as Legato knows it; without one, the pull request's own is used,
@@ -76,9 +97,13 @@ export function prepareGitHubWorkflow(
 // or this pull request) is sent only to a workflow that declares the input:
 // an older Legato's reviews one pull request and takes none.
 function prepareReviewPasses(config: ExtensionConfig, context: GitHubPullRequestContext, discovery: WorkflowDiscovery, scope: "stack" | "pr"): PreparedWorkflow {
-  const workflowName = config.reviewPassesWorkflowName
+  const workflowName = reviewLoopWorkflowName(config, discovery)
   const workflow = discovery.definitions?.find((item) => item.name === workflowName)
-  if (!workflow) throw new Error(`Workflow "${workflowName}" was not found. Add it with: legato workflow add review-pr-passes`)
+  if (!workflow && (workflowName === REVIEW_LOOP || workflowName === REVIEW_PR_PASSES)) {
+    // Only an older Legato lacks review-loop, which is built in.
+    throw new Error(`Workflow "${workflowName}" was not found. This Legato predates the built-in review-loop: update it, or add the old workflow with: legato workflow add review-pr-passes`)
+  }
+  if (!workflow) throw new Error(`Workflow "${workflowName}" was not found`)
   const prepared = prepareClonedWorkflow(config, context, discovery, workflowName)
   if (workflow.inputs?.scope?.type === "string") prepared.inputs.scope = scope
   return prepared

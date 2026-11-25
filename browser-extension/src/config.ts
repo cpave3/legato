@@ -4,7 +4,9 @@ export type ExtensionConfig = {
   workflowName: string
   discussWorkflowName: string
   // The workflow that runs a review loop on the pull request: review
-  // passes posted to GitHub until one approves it.
+  // passes posted to GitHub until one approves it. The built-in review-loop
+  // by default; review-pr-passes, as an older extension stored, means the
+  // same (see reviewLoopWorkflowName).
   reviewPassesWorkflowName: string
   repoInput: string
   pullRequestInput: string
@@ -20,7 +22,7 @@ export const DEFAULT_CONFIG: ExtensionConfig = {
   token: "",
   workflowName: "review-pr",
   discussWorkflowName: "discuss-pr",
-  reviewPassesWorkflowName: "review-pr-passes",
+  reviewPassesWorkflowName: "review-loop",
   repoInput: "repo",
   pullRequestInput: "pr_number",
   primaryDirInput: "primary_dir",
