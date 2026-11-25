@@ -986,6 +986,7 @@ When an agent step ends, Legato fills these outputs beside the ones the step dec
 In a version 2 file, an `agent.run` step with `repo` gets a fresh clone at `ref`, never one its task already has. To work in an existing clone, say which with `clone:`: `{from: <step>}` is the clone an earlier agent step worked in, and `${{ … }}` a clone ID, such as an earlier step's `clone_id` (null or 0 is a fresh clone). A `branch` the step names is made as `legato/<task>-<branch>` (a name that already starts with `legato/` is kept), and the agent may push it and open draft pull requests from it without asking. In a joined clone the branch is stacked on the one checked out.
 
 - A step can say `if:` and `on_failure:` (below).
+- A workflow can declare its own `outputs:`, and a `workflow.run` step can call another workflow (below).
 
 Legato reads a version 1 file into the same model: `trigger: manual` is `start: manual`, and `trigger: agent_ended` still waits for the workflow task's agent to end. The editor, the builder, the published schema and the bundled templates still write version 1.
 
@@ -1043,6 +1044,47 @@ Legato reads a version 1 file into the same model: `trigger: manual` is `start: 
 - `title` is the question. `body` is more to read, in Markdown; or `body_path` names a file to read it from: an earlier step's file output, `${{ steps.<id>.outputs.<file>.path }}`. Any other path fails the gate, since a file in an agent's checkout could be a link to one its sandbox hides.
 - `options` are the choices; **Continue** and **Stop** when you give none. The step's `choice` output is the one you chose.
 - **Stop**, in any case, ends the run as **Stopped** instead of going on.
+
+### A workflow's outputs
+
+`outputs:` names what a run of the workflow produces. Each output has a `type` (`string`, `integer`, `boolean` or `json`), a `value`, which reads the run's inputs and steps as a step's `with` does, and a `description`:
+
+```yaml
+outputs:
+  top_branch: {type: string, value: "${{ steps.push.outputs.top_branch }}"}
+  prs:        {type: json,   value: "${{ steps.push.outputs.prs }}"}
+  review:     {type: string, value: "${{ steps.review.outputs.outcome ?? 'not reviewed' }}"}
+```
+
+The outputs are worked out when the run succeeds, and shown on its page under **Produced**. An output that has no value then (a skipped step's, say), or a value of another type, is left out, and the page names it under the outputs.
+
+### Calling a workflow: workflow.run
+
+`workflow.run` runs another workflow as a **child run** and waits for it to end:
+
+```yaml
+- id: build
+  type: workflow.run
+  with:
+    workflow: build-milestone
+    inputs:
+      milestone: "${{ workflow.inputs.milestone }}"
+      repo: "${{ workflow.inputs.repo }}"
+- id: tell
+  type: task.note
+  with: {task: "${{ workflow.task }}", note: "Built ${{ steps.build.outputs.top_branch }}"}
+```
+
+- `workflow` is the workflow's name, or `${{ workflow.inputs.<name> }}` of an input with `choices`, so Legato knows from the files which workflows a workflow can call.
+- `inputs` are passed as values, not text: a number stays a number, and a `repository` input passes the repository it resolved to, so a custom repository reaches the child as it is. An input whose whole value has none (an optional input not given) is not passed, and the child's default applies.
+- The step's outputs are the child's `outputs`, with `status` (`succeeded`) and `run_id`. Later steps can read any of them.
+- A child that fails, is cancelled or stops fails the step, and the step's `on_failure` decides what happens. Under `continue`, its outputs are `status` (`failed`, `cancelled` or `stopped`), `error`, `error_code` (the child's, such as `review_loop_active`) and `run_id`.
+- A child that waits (at a gate, or at a step that waits for you) keeps the step waiting. The child's page has its own needs-you items; the parent's page links to it.
+- **Retry** on a failed call resumes the same child: its own failed step runs again. A child that was cancelled or stopped is replaced by a new one.
+- **Cancel** on the parent cancels its child too, and never runs the parent's `on_failure`.
+- A workflow may not call itself, directly or through another, and calls nest at most 5 deep. The editor and the workflows list show a call that leads back as an error, and a run refuses one when it gets there. The editor also warns of a workflow it doesn't find, of inputs the child doesn't declare or requires, and of outputs the child doesn't declare.
+
+The child is a run of its own, on the **Runs** list and with its own page, which says which run and step called it.
 
 ## Agent completion
 
