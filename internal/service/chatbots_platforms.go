@@ -128,7 +128,7 @@ func slackChatEvent(name string, self slackbot.Identity, e slackbot.Event) (Chat
 	}
 	mention := e.Type == "mention" || e.ChannelType == "im" || (self.UserID != "" && strings.Contains(e.Text, "<@"+self.UserID+">"))
 	return ChatEvent{Bot: name, Platform: "slack", Channel: e.Channel, User: e.User, Text: e.Text, MessageID: e.TS,
-		ThreadID: thread, At: slackTime(e.TS), Mention: mention, FromBot: e.BotID != ""}, true
+		ThreadID: thread, At: slackTime(e.TS), Mention: mention, FromBot: e.BotID != ""}.withForwards(slackForwards(e.Shares)), true
 }
 
 // slackTime reads a Slack ts (seconds.micros); zero when it cannot.
@@ -209,5 +209,5 @@ func discordChatEvent(name, self string, m discordbot.Message) (ChatEvent, bool)
 	}
 	mention := m.GuildID == "" || (self != "" && slices.Contains(m.Mentions, self))
 	return ChatEvent{Bot: name, Platform: "discord", Channel: m.ChannelID, User: m.AuthorID, Text: m.Content, MessageID: m.ID,
-		ThreadID: thread, At: m.Timestamp, Mention: mention, FromBot: m.AuthorIsBot}, true
+		ThreadID: thread, At: m.Timestamp, Mention: mention, FromBot: m.AuthorIsBot}.withForwards(discordForwards(m.Forwards)), true
 }
