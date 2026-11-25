@@ -335,9 +335,14 @@ func (s *WorkflowService) cancelChildren(ctx context.Context, runID string) {
 		if child.Status == "succeeded" || child.Status == "cancelled" || child.Status == WorkflowRunStopped {
 			continue
 		}
-		if _, err := s.Cancel(ctx, child.ID, "its parent run "+runID+" ended"); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
-			log.Printf("workflows: cancelling child run %s of %s: %v", child.ID, runID, err)
-		}
+		s.cancelChild(ctx, child)
+	}
+}
+
+// cancelChild cancels a child run because its parent ended.
+func (s *WorkflowService) cancelChild(ctx context.Context, child store.WorkflowRun) {
+	if _, err := s.Cancel(ctx, child.ID, "its parent run "+child.ParentRunID+" ended"); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
+		log.Printf("workflows: cancelling child run %s of %s: %v", child.ID, child.ParentRunID, err)
 	}
 }
 
@@ -398,10 +403,20 @@ func (c childRuns) held(ctx context.Context) []heldChild {
 // writes: an attempt still running (started over olderThan ago) has its
 // child made or found, is marked waiting, and its child started; a waiting
 // one has a child no process advances resumed, and an ended child
-// settled. The advance loop runs it with the run-ended hook's sweep.
+// settled. A child whose parent ended cancelled or stopped, but which that
+// end's cancelChildren never reached, is cancelled: its parent's step has
+// ended, so nothing settles it. The advance loop runs it with the run-ended
+// hook's sweep.
 func (s *WorkflowService) ReconcileChildRuns(ctx context.Context, olderThan time.Duration) {
 	if s.recordOnly {
 		return
+	}
+	orphans, err := s.store.ListUncancelledChildrenOfEndedWorkflowRuns(ctx)
+	if err != nil {
+		log.Printf("workflows: children of ended runs: %v", err)
+	}
+	for _, child := range orphans {
+		s.cancelChild(ctx, child)
 	}
 	running, err := s.store.ListWorkflowAttemptsByExecutor(ctx, workflowengine.WorkflowRunStepType, "running")
 	if err != nil {

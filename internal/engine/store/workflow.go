@@ -286,6 +286,17 @@ func (s *Store) ListChildWorkflowRuns(ctx context.Context, parentRunID string) (
 	return runs, err
 }
 
+// ListUncancelledChildrenOfEndedWorkflowRuns lists the child runs that have
+// not ended cancelled, stopped or succeeded whose parent has ended
+// cancelled or stopped: children the parent's end did not reach (LEG-489).
+func (s *Store) ListUncancelledChildrenOfEndedWorkflowRuns(ctx context.Context) ([]WorkflowRun, error) {
+	runs := []WorkflowRun{}
+	err := s.db.SelectContext(ctx, &runs, workflowRunSelect+` WHERE status IN ('running','waiting','suspended','failed')
+		AND parent_run_id IN (SELECT id FROM workflow_runs WHERE status IN ('cancelled','stopped'))
+		ORDER BY created_at, rowid`)
+	return runs, err
+}
+
 // SetWorkflowRunOutputs keeps a succeeded run's own outputs.
 func (s *Store) SetWorkflowRunOutputs(ctx context.Context, runID, outputsJSON string) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {

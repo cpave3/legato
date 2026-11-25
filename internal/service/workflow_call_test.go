@@ -623,3 +623,43 @@ func TestARunEndedByAnAgentsCompletionKeepsTheOutputsLegatoFills(t *testing.T) {
 		t.Fatalf("parent = %s, call outputs %v", settled.Run.Status, got)
 	}
 }
+
+// A parent whose end was written but whose children were never cancelled
+// (the follow-up failed, or Legato stopped between the two) has them
+// cancelled by the reconcile, and its own on_failure still never runs.
+func TestTheReconcileCancelsTheChildrenOfAnEndedParent(t *testing.T) {
+	caller := strings.Replace(gatedCaller, "on_failure: pause", "on_failure: continue", 1) + `  - id: after
+    type: task.note
+    with: {task: "${{ workflow.task }}", note: "after ${{ steps.call.outputs.status }}"}
+`
+	for _, end := range []string{"cancelled", WorkflowRunStopped} {
+		t.Run(end, func(t *testing.T) {
+			f := newCallFixture(t, gatedChild, caller)
+			ctx := context.Background()
+			view, err := f.svc.Start(ctx, f.definition(t, "gated-caller"), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			child := f.children(t, view.Run.ID)[0]
+			write := f.store.CancelWorkflowRun
+			if end == WorkflowRunStopped {
+				write = f.store.StopWorkflowRun
+			}
+			if err := write(ctx, view.Run.ID, "not now"); err != nil {
+				t.Fatal(err)
+			}
+			if got := f.run(t, child.ID); got.Run.Status != "running" {
+				t.Fatalf("child before the reconcile = %s", got.Run.Status)
+			}
+			f.svc.SweepEndedRuns(ctx)
+			f.svc.ReconcileChildRuns(ctx, 0)
+			if got := f.run(t, child.ID); got.Run.Status != "cancelled" {
+				t.Fatalf("child = %s", got.Run.Status)
+			}
+			view = f.run(t, view.Run.ID)
+			if view.Run.Status != end || stepOf(t, view, "call").Status != "cancelled" || stepOf(t, view, "after").Status != "cancelled" || len(f.notes.starts) != 0 {
+				t.Fatalf("parent = %s, call %s, after %s, notes %+v", view.Run.Status, stepOf(t, view, "call").Status, stepOf(t, view, "after").Status, f.notes.starts)
+			}
+		})
+	}
+}
