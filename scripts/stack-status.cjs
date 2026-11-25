@@ -22,7 +22,8 @@ const resultJob = 'stack-status';
 // pr is the event payload's PR, or a fresh read when the payload may be stale.
 const stackStatus = ({ github, context, pr }) => {
   const { owner, repo } = context.repo;
-  const postStatus = (sha, state, description) =>
+  const thisRun = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+  const postStatus = (sha, state, description, targetUrl = thisRun) =>
     github.rest.repos.createCommitStatus({
       owner,
       repo,
@@ -30,14 +31,14 @@ const stackStatus = ({ github, context, pr }) => {
       state,
       description,
       context: stackContext,
-      target_url: `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+      target_url: targetUrl,
     });
   const openPrWithHead = async (ref) =>
     (await github.rest.pulls.list({ owner, repo, state: 'open', head: `${owner}:${ref}` })).data[0];
   const isLast = !pr.stack || pr.stack.position === pr.stack.size;
 
   // Posts on each open PR below this one whose head this PR's head contains.
-  const postBelow = async (state, description) => {
+  const postBelow = async (state, description, targetUrl) => {
     for (let position = pr.stack?.position, ref = pr.base.ref; position > 1; position--) {
       const below = await openPrWithHead(ref);
       if (!below) return;
@@ -48,7 +49,7 @@ const stackStatus = ({ github, context, pr }) => {
         per_page: 1,
       });
       if (['ahead', 'identical'].includes(comparison.status))
-        await postStatus(below.head.sha, state, description);
+        await postStatus(below.head.sha, state, description, targetUrl);
       ref = below.base.ref;
     }
   };
@@ -62,11 +63,12 @@ const stackStatus = ({ github, context, pr }) => {
     return [null, 'APPROVED'].includes(repository.pullRequest.reviewDecision);
   };
 
-  const postStackResult = async (buildPassed) => {
-    if (!buildPassed) return postBelow('failure', `PR build failed on #${pr.number}`);
+  // buildUrl is the build's run, which the statuses link to.
+  const postStackResult = async (buildPassed, buildUrl) => {
+    if (!buildPassed) return postBelow('failure', `PR build failed on #${pr.number}`, buildUrl);
     if (await isApproved())
-      return postBelow('success', `PR build passed and approved on #${pr.number}`);
-    return postBelow('pending', `Waiting for approval on #${pr.number}`);
+      return postBelow('success', `PR build passed and approved on #${pr.number}`, buildUrl);
+    return postBelow('pending', `Waiting for approval on #${pr.number}`, buildUrl);
   };
 
   return {
@@ -87,7 +89,15 @@ const stackStatus = ({ github, context, pr }) => {
     },
 
     // buildPassed: every job of the last PR's run, but the stack jobs, succeeded.
-    onBuildEnd: postStackResult,
+    // The payload is from the build's start: a PR may have joined the stack
+    // above, or the PR a newer head, since. Then this result is not the
+    // stack's, and a newer run's (or the new top's) is.
+    async onBuildEnd(buildPassed) {
+      const { data: now } = await github.rest.pulls.get({ owner, repo, pull_number: pr.number });
+      if (now.head.sha !== pr.head.sha) return;
+      if (now.stack && now.stack.position !== now.stack.size) return;
+      return postStackResult(buildPassed);
+    },
 
     // An approval during the build is read when the build ends; one after it
     // is read here, from the last PR's latest run.
@@ -112,18 +122,19 @@ const stackStatus = ({ github, context, pr }) => {
         filter: 'latest',
       });
       const built = data.jobs.some((job) => job.name === resultJob && job.conclusion !== 'skipped');
-      if (built) await postStackResult(run.conclusion === 'success');
+      if (built) await postStackResult(run.conclusion === 'success', run.html_url);
     },
 
-    // Closing the last PR makes the PR below it last, but no event builds it,
-    // so say what will. A re-run will not: it replays the old payload, with
-    // the old position. GitHub may not have dropped the closed PR from the
-    // stack yet, so the closed PR's position counts too.
+    // Closing the last PR leaves the PR below it the top of the open ones, but
+    // GitHub keeps a closed PR in its stack, so that PR's position stays below
+    // the size and its heavy jobs keep skipping until the stack is dissolved
+    // (Unstack) and linked again without the closed PR. Say so. A re-run will
+    // not help: it replays the old payload, with the old position.
     async onClose() {
       const below = await openPrWithHead(pr.base.ref);
       const wasLast = pr.stack && pr.stack.position === pr.stack.size;
       if (!below?.stack || (below.stack.position !== below.stack.size && !wasLast)) return;
-      const description = `#${pr.number} closed; push to #${below.number}, or mark it draft and ready again, to build it`;
+      const description = `#${pr.number} closed; unstack and link the stack again without it, then push to #${below.number} to build it`;
       await postStatus(below.head.sha, 'pending', description);
       await stackStatus({ github, context, pr: below }).postBelow('pending', description);
     },

@@ -34,10 +34,18 @@ func (l *stringList) UnmarshalYAML(n *yaml.Node) error {
 	return n.Decode((*[]string)(l))
 }
 
+type ghStep struct {
+	Name string            `yaml:"name"`
+	If   string            `yaml:"if"`
+	Uses string            `yaml:"uses"`
+	With map[string]string `yaml:"with"`
+}
+
 type ghJob struct {
 	If          string            `yaml:"if"`
 	Needs       stringList        `yaml:"needs"`
 	Permissions map[string]string `yaml:"permissions"`
+	Steps       []ghStep          `yaml:"steps"`
 }
 
 type ghWorkflow struct {
@@ -215,6 +223,40 @@ func TestStackWorkflowHandlesReviewsAndCloses(t *testing.T) {
 		}
 		if job.Permissions["statuses"] != "write" {
 			t.Errorf("job %q needs statuses: write, has %v", name, job.Permissions)
+		}
+	}
+}
+
+// A job that can write statuses runs no code of the pull request's: a branch
+// pushed without the right to change workflows must not be able to change
+// what posts ci/stack. So it loads the script from the default branch, and
+// posts nothing while the default branch has none.
+func TestStatusWritingJobsLoadTheScriptFromTheDefaultBranch(t *testing.T) {
+	const trusted = "${{ github.event.repository.default_branch }}"
+	for _, name := range []string{"ci.yml", "stack.yml"} {
+		w := readWorkflow(t, name)
+		for jobName, job := range w.Jobs {
+			if job.Permissions["statuses"] != "write" {
+				continue
+			}
+			var checkouts, scripts int
+			for _, step := range job.Steps {
+				switch {
+				case strings.HasPrefix(step.Uses, "actions/checkout@"):
+					checkouts++
+					if step.With["ref"] != trusted {
+						t.Errorf("%s job %q checks out %q, want ref %s", name, jobName, step.With["ref"], trusted)
+					}
+				case strings.HasPrefix(step.Uses, "actions/github-script@"):
+					scripts++
+					if !strings.Contains(step.If, "hashFiles('scripts/stack-status.cjs') != ''") {
+						t.Errorf("%s job %q runs the script without checking the default branch has it: if: %s", name, jobName, step.If)
+					}
+				}
+			}
+			if checkouts != 1 || scripts != 1 {
+				t.Errorf("%s job %q has %d checkouts and %d scripts, want one of each", name, jobName, checkouts, scripts)
+			}
 		}
 	}
 }

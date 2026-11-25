@@ -21,6 +21,11 @@
 # the stack-status job posts the top's result on each lower PR whose head the
 # top's build contains (scripts/stack-status.cjs; stack.yml re-posts it on a
 # review and on a close). Drafts build like any other PR: agents open drafts.
+#
+# The jobs that hold statuses: write run the default branch's
+# scripts/stack-status.cjs, never the PR's: changing what posts ci/stack must
+# take the right to change workflows, or to merge, not only to push a branch.
+# While the default branch has no script, they post nothing.
 # cmd/legato's ci_workflow_test.go holds these files to this.
 name: ci
 
@@ -58,12 +63,15 @@ jobs:
       pull-requests: read
       statuses: write
     steps:
+      # The default branch's script, never the PR's: see ci.yml's header.
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.repository.default_branch }}
           sparse-checkout: scripts/stack-status.cjs
           sparse-checkout-cone-mode: false
 
       - name: Post ci/stack
+        if: hashFiles('scripts/stack-status.cjs') != ''
         uses: actions/github-script@v7
         with:
           script: |
@@ -287,12 +295,15 @@ jobs:
       pull-requests: read
       statuses: write
     steps:
+      # The default branch's script, never the PR's: see ci.yml's header.
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.repository.default_branch }}
           sparse-checkout: scripts/stack-status.cjs
           sparse-checkout-cone-mode: false
 
       - name: Post the build's result to the stack
+        if: hashFiles('scripts/stack-status.cjs') != ''
         uses: actions/github-script@v7
         env:
           NEEDS: ${{ toJSON(needs) }}

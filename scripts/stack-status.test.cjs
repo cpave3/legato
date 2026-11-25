@@ -20,6 +20,12 @@ const fakeGithub = ({ prs = [], compare = {}, statuses = {}, reviewDecision = nu
         getCombinedStatusForRef: async ({ ref }) => ({ data: { statuses: statuses[ref] || [] } }),
       },
       pulls: {
+        // The PR as GitHub has it now: fresh, from prs.
+        get: async ({ pull_number }) => {
+          const found = prs.find((pr) => pr.number === pull_number);
+          if (!found) throw Object.assign(new Error('Not Found'), { status: 404 });
+          return { data: found };
+        },
         list: async ({ head, state }) => {
           assert.equal(state, 'open');
           return { data: prs.filter((pr) => `o:${pr.head.ref}` === head) };
@@ -154,7 +160,7 @@ test('a review of an unstacked or a lower PR changes nothing', async () => {
 test("a review of the top PR posts its last build's result below", async () => {
   const github = fakeGithub({
     prs: stackOf3(),
-    runs: [{ id: 40, status: 'completed', conclusion: 'success' }],
+    runs: [{ id: 40, status: 'completed', conclusion: 'success', html_url: 'https://github.com/o/r/actions/runs/40' }],
     jobs: { 40: [{ name: 'stack-status', conclusion: 'success' }] },
   });
   await stackStatus({ github, context, pr: pr(3, 3, 3) }).onReview();
@@ -162,6 +168,8 @@ test("a review of the top PR posts its last build's result below", async () => {
     ['s2', 'success'],
     ['s1', 'success'],
   ]);
+  // The link leads to the build, not to the review's run.
+  assert.equal(github.posted[0].target_url, 'https://github.com/o/r/actions/runs/40');
   assert.equal(github.runsAsked.workflow_id, 'ci.yml');
   assert.equal(github.runsAsked.head_sha, 's3');
   assert.equal(github.runsAsked.event, 'pull_request');
@@ -207,7 +215,11 @@ test('closing the top PR says what will build the new top', async () => {
       ['s2', 'pending'],
       ['s1', 'pending'],
     ]);
-    assert.equal(github.posted[0].description, '#3 closed; push to #2, or mark it draft and ready again, to build it');
+    // GitHub keeps a closed PR in its stack, so #2 is not the top until the stack is made again.
+    assert.equal(
+      github.posted[0].description,
+      '#3 closed; unstack and link the stack again without it, then push to #2 to build it'
+    );
   }
 });
 
@@ -221,4 +233,19 @@ test('closing a PR below the top, or one with nothing below, changes nothing', a
     await stackStatus({ github, context, pr: closed }).onClose();
     assert.deepEqual(states(github), [], `closing #${closed.number}`);
   }
+});
+
+test("a former top's build posts nothing once the stack has grown above it", async () => {
+  // #3 was the top of two when its build started; #4 has joined since.
+  const started = pr(3, 2, 2);
+  const github = fakeGithub({ prs: [pr(2, 1, 3), pr(3, 2, 3), pr(4, 3, 3)] });
+  await stackStatus({ github, context, pr: started }).onBuildEnd(true);
+  assert.deepEqual(states(github), []);
+});
+
+test("a top's build posts nothing once the top has a newer head", async () => {
+  const pushed = { ...pr(3, 3, 3), head: { ref: 'b3', sha: 's3-new' } };
+  const github = fakeGithub({ prs: [pr(1, 1, 3), pr(2, 2, 3), pushed] });
+  await stackStatus({ github, context, pr: pr(3, 3, 3) }).onBuildEnd(false);
+  assert.deepEqual(states(github), []);
 });

@@ -116,6 +116,7 @@ In a GitHub stack of pull requests, only the top pull request runs `go`, `web`, 
 | pending, "Waiting for approval on #N" | The top's build passed, but the top still needs an approval. |
 | success, "PR build passed and approved on #N" | The top's build passed and contains this pull request's code. |
 | failure, "PR build failed on #N" | The top's build failed. The status's link opens that run. |
+| pending, "#N closed; unstack and link the stack again without it, …" | The top, #N, was closed without merging. See below. |
 
 To open a stack so that only its top builds:
 
@@ -125,7 +126,7 @@ To open a stack so that only its top builds:
 
 Linking starts no workflow. Marking a pull request ready does, and by then GitHub knows the stack.
 
-If you close the top pull request without merging it, the pull request below it becomes the top. Push to that pull request, or mark it as a draft and then ready again, to build it in full. Re-running its old run does not work, because a re-run still sees the old position in the stack.
+If you close the top pull request without merging it, GitHub keeps it in the stack, so the pull request below it is still not the top. Unstack the stack and link it again without the closed pull request, then push to the new top to build it in full. Re-running an old run does not work, because a re-run still sees the old position in the stack.
 
 ## Work on the web UI
 
