@@ -7,7 +7,7 @@ sidebar:
 
 Legato can track tasks from Burnlite, an issue tracker and estimator, as cards on its board. You import the tasks you want to work on, and Legato keeps their name, description, plan, checklist and state up to date. Burnlite works next to Jira: a board can hold tasks from both.
 
-Legato reads Burnlite. When you move a card, the task in Burnlite does not change. The one thing Legato writes is a close: a workflow step, `burnlite.task.close`, closes a task's ticket, for example when its pull request merges (see [Close a ticket from a workflow](#close-a-ticket-from-a-workflow)).
+Legato reads Burnlite. When you move a card, the task in Burnlite does not change. Legato writes to Burnlite only from workflow steps: `burnlite.task.close` closes a task's ticket, for example when its pull request merges (see [Close a ticket from a workflow](#close-a-ticket-from-a-workflow)), and `ticket.create` and `ticket.comment` create a task or add a Note to one (see [Create a ticket or add a Note from a workflow](#create-a-ticket-or-add-a-note-from-a-workflow)).
 
 ## Connect Legato to Burnlite
 
@@ -53,7 +53,7 @@ If you run Burnlite on the same machine as Legato, type its address with the loo
 Burnlite gives Legato a new refresh token every hour. Legato saves each token in its secret store without you. If a passphrase unlocks that store, connecting fails: set `secrets.master_key` to a source that Legato can read on its own. See [Credentials setup](/legato/security/credentials-setup/).
 :::
 
-A connection made before Legato could close tickets reads only. A `burnlite.task.close` step on it fails and says to connect again: connect again as above, and allow the new access.
+A connection made before Legato could close tickets reads only. A `burnlite.task.close`, `ticket.create` or `ticket.comment` step on it fails and says to connect again: connect again as above, and allow the new access.
 
 Older versions of Legato kept two connections to Burnlite: one for the board and one for agents' MCP connection. The first time a newer Legato starts, it joins them. It keeps the connection with the wider access, or the newer one when they have the same access. It asks Burnlite to revoke the other connection's tokens, and keeps the MCP connection's rules. Before it changes anything, it saves a copy of the database beside it, named `<database>.<time>.leg-544.bak`. Its log says which connection it kept and which one it revoked.
 
@@ -149,3 +149,30 @@ A [workflow](/legato/using/workflows/) step closes the Burnlite ticket a card wa
 ```
 
 `reason` is `completed` (the default) or `not_planned`. `summary` is one line, cut at 200 characters. With `optional: true`, a card that is not a Burnlite ticket is skipped; without it, the step fails. The card follows at the next sync.
+
+## Create a ticket or add a Note from a workflow
+
+A `ticket.create` step creates a Burnlite task, and a `ticket.comment` step adds a Note to one. Both use Legato's connection, which must be able to write (see above), and record `legato` as the holder.
+
+```yaml
+- id: raise
+  title: File the task
+  type: ticket.create
+  with:
+    provider: burnlite
+    project: LEG
+    summary: Fix login for SSO users
+    description: Seen in #support today.
+    labels: [bug]
+    size: Medium
+    uncertainty: Low
+- id: seen-again
+  title: Note it was seen again
+  type: ticket.comment
+  with:
+    provider: burnlite
+    key: ${{ steps.raise.outputs.key }}
+    body: Seen again in prod today.
+```
+
+A Work task (`kind: work`, the default) needs a `size` (`Small`, `Medium`, `Large` or `X-Large`) and an `uncertainty` (`Low`, `Medium`, `High` or `Extreme`). A Meta task (`kind: meta`) takes neither. `milestone` adds the task to a Milestone, by its key. `type`, `priority` and `fields` are for Jira, and the step fails if you set them. When Jira is not set up, you can leave `provider` empty. See [Workflows](/legato/using/workflows/) for both steps.

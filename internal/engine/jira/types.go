@@ -4,6 +4,7 @@ import "encoding/json"
 
 // Issue represents a Jira issue from the REST API v3.
 type Issue struct {
+	ID     string      `json:"id"`
 	Key    string      `json:"key"`
 	Fields IssueFields `json:"fields"`
 }

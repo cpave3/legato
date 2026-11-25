@@ -285,6 +285,10 @@ func stepKey(step Step) GraphKey {
 		return first("emoji", "message_id")
 	case "chat.thread.read":
 		return first("thread_id", "channel")
+	case "ticket.create":
+		return first("summary", "project")
+	case "ticket.comment":
+		return first("key")
 	case "task.metadata.set":
 		if values, ok := step.With["values"].(map[string]any); ok && len(values) > 0 {
 			keys := make([]string, 0, len(values))

@@ -429,6 +429,50 @@
           "if": {
             "properties": {
               "type": {
+                "const": "ticket.create"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.ticket.create"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "ticket.comment"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.ticket.comment"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "chat.message.send"
               }
             },
@@ -703,6 +747,8 @@
             "github.pr.prepare",
             "github.pr.review_passes",
             "burnlite.task.close",
+            "ticket.create",
+            "ticket.comment",
             "chat.message.send",
             "chat.reaction.add",
             "chat.reaction.remove",
@@ -3211,6 +3257,324 @@
         "type": "task.working_dir.resolve"
       }
     },
+    "with.ticket.comment": {
+      "additionalProperties": false,
+      "description": "Add a Markdown comment to a Jira issue, or a Note to a Burnlite task, with Legato's own settings or connection. A retry does not comment twice.",
+      "properties": {
+        "body": {
+          "description": "The comment, in Markdown",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "text",
+            "label": "Comment",
+            "order": 3
+          }
+        },
+        "key": {
+          "description": "The ticket's key, such as AG-12",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Ticket",
+            "order": 2
+          }
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "enum": [
+                "jira",
+                "burnlite"
+              ],
+              "type": "string"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "description": "jira or burnlite; the only one set up when empty",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Provider",
+            "order": 1
+          }
+        }
+      },
+      "required": [
+        "key",
+        "body"
+      ],
+      "title": "Comment on a ticket",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Board",
+        "outputs": [
+          {
+            "description": "The comment's address, or the Burnlite task's",
+            "name": "url",
+            "type": "string"
+          },
+          {
+            "description": "The provider's ID of the comment or Note",
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "description": "The ticket's key",
+            "name": "key",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "key"
+        ],
+        "type": "ticket.comment"
+      }
+    },
+    "with.ticket.create": {
+      "additionalProperties": false,
+      "description": "Create a Jira issue or a Burnlite task, with Legato's own Jira settings (jira.base_url, jira.email, jira.api_token) or its Burnlite connection: no agent sees the token. A retry returns the ticket the step already created instead of creating another.",
+      "properties": {
+        "description": {
+          "description": "Markdown; sent to Jira as its rich text, keeping code blocks, lists, links and tables",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "text",
+            "label": "Description",
+            "order": 4
+          }
+        },
+        "fields": {
+          "description": "Jira only: more fields as Jira names them, such as {customfield_10020: 7}; not the fields above",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "json",
+            "label": "More Jira fields",
+            "order": 8
+          }
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "work",
+                "meta"
+              ],
+              "type": "string"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "description": "Burnlite only: work, or meta for planning; work when empty",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Kind",
+            "order": 9
+          }
+        },
+        "labels": {
+          "description": "A list of labels; Jira's hold no spaces",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "json",
+            "label": "Labels",
+            "order": 5
+          }
+        },
+        "milestone": {
+          "description": "Burnlite only: the Milestone's key, such as LEG-3",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Milestone",
+            "order": 12
+          }
+        },
+        "priority": {
+          "description": "Jira only: the priority's name, such as High",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Priority",
+            "order": 7
+          }
+        },
+        "project": {
+          "description": "The Jira project key (AG) or the Burnlite project (LEG)",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Project",
+            "order": 2
+          }
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "enum": [
+                "jira",
+                "burnlite"
+              ],
+              "type": "string"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "description": "jira or burnlite; the only one set up when empty",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Provider",
+            "order": 1
+          }
+        },
+        "size": {
+          "anyOf": [
+            {
+              "enum": [
+                "Small",
+                "Medium",
+                "Large",
+                "X-Large"
+              ],
+              "type": "string"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "description": "Burnlite only: a Work task's size",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Size",
+            "order": 10
+          }
+        },
+        "summary": {
+          "description": "The ticket's title, one line of at most 255 characters",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Summary",
+            "order": 3
+          }
+        },
+        "type": {
+          "description": "Jira only: the issue type, such as Bug or Task; Bug when empty",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Issue type",
+            "order": 6
+          }
+        },
+        "uncertainty": {
+          "anyOf": [
+            {
+              "enum": [
+                "Low",
+                "Medium",
+                "High",
+                "Extreme"
+              ],
+              "type": "string"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "description": "Burnlite only: how unsure a Work task's estimate is",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Uncertainty",
+            "order": 11
+          }
+        }
+      },
+      "required": [
+        "project",
+        "summary"
+      ],
+      "title": "Create a ticket",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Board",
+        "outputs": [
+          {
+            "description": "The ticket's key, such as AG-12",
+            "name": "key",
+            "type": "string"
+          },
+          {
+            "description": "The ticket's page",
+            "name": "url",
+            "type": "string"
+          },
+          {
+            "description": "The provider's ID of the ticket",
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "description": "jira or burnlite",
+            "name": "provider",
+            "type": "string"
+          },
+          {
+            "description": "false when a retry returned the ticket an earlier attempt created",
+            "name": "created",
+            "type": "boolean"
+          }
+        ],
+        "summary": [
+          "summary"
+        ],
+        "type": "ticket.create"
+      }
+    },
     "with.worktree.remove": {
       "additionalProperties": false,
       "description": "Remove the workflow task's Yggdrasil worktree, when it is at the path expected.",
@@ -3487,6 +3851,24 @@
         ],
         "title": "Close the Burnlite ticket",
         "type": "burnlite.task.close"
+      },
+      {
+        "description": "Create a Jira issue or a Burnlite task, with Legato's own Jira settings (jira.base_url, jira.email, jira.api_token) or its Burnlite connection: no agent sees the token. A retry returns the ticket the step already created instead of creating another.",
+        "group": "Board",
+        "summary": [
+          "summary"
+        ],
+        "title": "Create a ticket",
+        "type": "ticket.create"
+      },
+      {
+        "description": "Add a Markdown comment to a Jira issue, or a Note to a Burnlite task, with Legato's own settings or connection. A retry does not comment twice.",
+        "group": "Board",
+        "summary": [
+          "key"
+        ],
+        "title": "Comment on a ticket",
+        "type": "ticket.comment"
       },
       {
         "description": "Post a message as a Slack or Discord bot set up in Settings › Integrations. Fails at once when the bot is not set up or cannot send.",

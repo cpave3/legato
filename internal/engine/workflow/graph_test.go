@@ -386,6 +386,8 @@ steps:
   - {id: say, title: Say, type: chat.message.send, with: {bot: slack, channel: C1, text: "On it"}}
   - {id: seen, title: Seen, type: chat.reaction.add, with: {bot: slack, channel: C1, message_id: "1.5", emoji: eyes}}
   - {id: unseen, title: Unseen, type: chat.reaction.remove, with: {bot: slack, channel: C1, message_id: "1.5", emoji: eyes}}
+  - {id: raise, title: Raise, type: ticket.create, with: {provider: jira, project: AG, summary: Login fails}}
+  - {id: seen-again, title: Seen again, type: ticket.comment, with: {key: AG-12, body: Seen again}}
 `
 
 func TestGraphLabelsChatTriggersAndSends(t *testing.T) {
@@ -401,6 +403,11 @@ func TestGraphLabelsChatTriggersAndSends(t *testing.T) {
 	}
 	if node := nodeByID(graph, "step:say"); node == nil || node.Step == nil || node.Step.Key != (GraphKey{Field: "text", Value: "On it"}) {
 		t.Fatalf("say node = %+v", node)
+	}
+	for id, key := range map[string]GraphKey{"step:raise": {Field: "summary", Value: "Login fails"}, "step:seen-again": {Field: "key", Value: "AG-12"}} {
+		if node := nodeByID(graph, id); node == nil || node.Step == nil || node.Step.Key != key {
+			t.Fatalf("%s node = %+v", id, node)
+		}
 	}
 	for _, id := range []string{"step:seen", "step:unseen"} {
 		if node := nodeByID(graph, id); node == nil || node.Step == nil || node.Step.Key != (GraphKey{Field: "emoji", Value: "eyes"}) {

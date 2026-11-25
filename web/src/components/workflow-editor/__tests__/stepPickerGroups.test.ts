@@ -22,6 +22,11 @@ describe("the step picker's list", () => {
     expect(pickerGroups("reaction").flatMap(g => g.entries.map(e => e.type))).toEqual(["chat.reaction.add", "chat.reaction.remove"])
   })
 
+  it("finds the ticket steps under Board", () => {
+    expect(pickerGroups("ticket").map(g => g.group)).toEqual(["Board"])
+    expect(pickerGroups("jira").flatMap(g => g.entries.map(e => e.type))).toEqual(["ticket.create", "ticket.comment"])
+  })
+
   it("finds by name, type and words of the description, dropping empty groups", () => {
     expect(pickerGroups("move").flatMap(g => g.entries.map(e => e.type))).toEqual(["task.move"])
     expect(pickerGroups("github.pr").map(g => g.group)).toEqual(["Code"])
