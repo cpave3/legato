@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/internal/service"
 )
@@ -113,5 +114,42 @@ func TestADiscardedPassDoesNotMoveTheBaseline(t *testing.T) {
 	result, err := r.submit(t, service.ReviewSubmission{Summary: "s", Findings: []service.SubmittedFinding{onTheFix}, Rulings: resolved})
 	if err != nil || result.Verdict != service.VerdictChanges {
 		t.Fatalf("submit = %+v, %v", result, err)
+	}
+}
+
+// A later pass's blocking finding whose place is no place at the head (a
+// file the head does not have, a span of a trillion lines) is refused for
+// that, promptly: its span is never walked line by line under the
+// engine's lock, and it is not held to the diff as well.
+func TestALaterPassFindingOnAnEnormousSpanOfNoFileIsRefusedPromptly(t *testing.T) {
+	r := newReviewed(t, ReviewPassOptions{})
+	finding := changesPass(t, r, "The loop has no bound.")
+	r.answer(t, finding, service.AnswerFixed, "bounded the retries")
+	r.worker.Checkout.Commit(r.branch, "bbb222")
+	r.worker.Checkout.Change("bbb222", "login.go", 18, 24)
+	r.worker.ReviewGitHub.Diff("bbb222", "login.go", 10, 30)
+	r.worker.ReviewGitHub.OpenPR(7, r.branch, "bbb222")
+	r.tick()
+	r.finish(t)
+
+	nowhere := service.SubmittedFinding{PR: 7, Severity: "blocking", Title: "Everything is wrong", Body: "x",
+		FailureScenario: "y", Place: &service.ReviewPlace{Path: "missing.go", StartLine: 1, Line: 1_000_000_000_000}}
+	type submitted struct{ err error }
+	done := make(chan submitted, 1)
+	go func() {
+		_, err := r.submit(t, service.ReviewSubmission{Summary: "s", Findings: []service.SubmittedFinding{nowhere},
+			Rulings: []service.SubmittedRuling{{Finding: finding, Status: "resolved", Reason: "the retries are bounded"}}})
+		done <- submitted{err}
+	}()
+	var err error
+	select {
+	case got := <-done:
+		err = got.err
+	case <-time.After(10 * time.Second):
+		panic("submitting a finding on an enormous span of a missing file did not return in 10s")
+	}
+	var refused *service.ReviewSubmissionError
+	if !errors.As(err, &refused) || len(refused.Problems) != 1 || !strings.Contains(refused.Problems[0], "does not exist") {
+		t.Fatalf("err = %v", err)
 	}
 }

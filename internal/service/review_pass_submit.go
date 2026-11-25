@@ -190,6 +190,7 @@ func (s *ReviewPassService) validate(ctx context.Context, pass *store.HandoffRev
 	for _, pr := range prs {
 		heads[pr.Number] = pr.HeadSHA
 	}
+	nowhere := map[int]bool{} // findings whose place is no place at the head
 	for i, f := range sub.Findings {
 		label := fmt.Sprintf("findings[%d]", i)
 		head, ok := heads[f.PR]
@@ -209,10 +210,12 @@ func (s *ReviewPassService) validate(ctx context.Context, pass *store.HandoffRev
 		if p := f.Place; p != nil {
 			if p.Side != "" && p.Side != "RIGHT" && p.Side != "LEFT" {
 				problems = append(problems, fmt.Sprintf("%s: side is RIGHT or LEFT, not %q", label, p.Side))
+				nowhere[i] = true
 				continue
 			}
 			if p.Path == "" || p.Line <= 0 || (p.StartLine > 0 && p.StartLine > p.Line) {
 				problems = append(problems, label+": a place needs a path and a line (and a start_line no later than line)")
+				nowhere[i] = true
 				continue
 			}
 			if p.Side == "LEFT" {
@@ -222,14 +225,17 @@ func (s *ReviewPassService) validate(ctx context.Context, pass *store.HandoffRev
 			switch {
 			case err != nil:
 				problems = append(problems, fmt.Sprintf("%s: reading %s: %v", label, p.Path, err))
+				nowhere[i] = true
 			case !exists:
 				problems = append(problems, fmt.Sprintf("%s: %s does not exist at %s, the head of #%d", label, p.Path, short(head), f.PR))
+				nowhere[i] = true
 			case p.Line > lines:
 				problems = append(problems, fmt.Sprintf("%s: %s has %d lines at %s, not %d", label, p.Path, lines, short(head), p.Line))
+				nowhere[i] = true
 			}
 		}
 	}
-	problems = append(problems, s.outsideChanges(ctx, pass, prs, sub)...)
+	problems = append(problems, s.outsideChanges(ctx, pass, prs, sub, nowhere)...)
 	need := map[string]bool{}
 	for _, f := range earlier {
 		need[f.ID] = true
@@ -266,8 +272,9 @@ func (s *ReviewPassService) validate(ctx context.Context, pass *store.HandoffRev
 // changed since includes the base's lines, which are not the pull
 // request's. A pull request the last posted pass did not review is new in
 // full: its own diff alone. A pass with no posted pass before it reviews
-// in full. What cannot be read (a diff, GitHub) holds no finding to it.
-func (s *ReviewPassService) outsideChanges(ctx context.Context, pass *store.HandoffReviewPass, prs []store.HandoffReviewPR, sub ReviewSubmission) []string {
+// in full. What cannot be read (a diff, GitHub) holds no finding to it. A
+// finding in nowhere, whose place is already refused, is not checked.
+func (s *ReviewPassService) outsideChanges(ctx context.Context, pass *store.HandoffReviewPass, prs []store.HandoffReviewPR, sub ReviewSubmission, nowhere map[int]bool) []string {
 	since, err := s.lastPostedPass(ctx, pass.TaskID, pass.Pass)
 	if err != nil || since == 0 {
 		return nil
@@ -287,7 +294,7 @@ func (s *ReviewPassService) outsideChanges(ctx context.Context, pass *store.Hand
 	read := map[int]*held{}
 	var problems []string
 	for i, f := range sub.Findings {
-		if _, ok := layers[f.PR]; !ok || f.Severity != SeverityBlocking || strings.TrimSpace(f.Critical) != "" {
+		if _, ok := layers[f.PR]; !ok || nowhere[i] || f.Severity != SeverityBlocking || strings.TrimSpace(f.Critical) != "" {
 			continue
 		}
 		h := read[f.PR]
@@ -333,30 +340,41 @@ func (s *ReviewPassService) lastPostedPass(ctx context.Context, taskID string, p
 }
 
 // onHeldLines says whether a place has a line in both sets of changed
-// lines; a nil set does not limit it.
+// lines; a nil set does not limit it. It intersects ranges, so the time it
+// takes never depends on the length of the place's span.
 func onHeldLines(p *ReviewPlace, changed, own map[string][][2]int) bool {
 	if p == nil || p.Side == "LEFT" {
 		return false
 	}
-	first := p.Line
+	span := [2]int{p.Line, p.Line}
 	if p.StartLine > 0 {
-		first = p.StartLine
+		span[0] = p.StartLine
 	}
-	for line := first; line <= p.Line; line++ {
-		if (changed == nil || inRanges(line, changed[p.Path])) && (own == nil || inRanges(line, own[p.Path])) {
-			return true
+	whole := [][2]int{span}
+	in := func(set map[string][][2]int) [][2]int {
+		if set == nil {
+			return whole
+		}
+		return set[p.Path]
+	}
+	for _, c := range in(changed) {
+		c, ok := overlap(span, c)
+		if !ok {
+			continue
+		}
+		for _, o := range in(own) {
+			if _, ok := overlap(c, o); ok {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-func inRanges(line int, ranges [][2]int) bool {
-	for _, r := range ranges {
-		if line >= r[0] && line <= r[1] {
-			return true
-		}
-	}
-	return false
+// overlap is the lines two ranges share, and whether they share any.
+func overlap(a, b [2]int) ([2]int, bool) {
+	r := [2]int{max(a[0], b[0]), min(a[1], b[1])}
+	return r, r[0] <= r[1]
 }
 
 // headsMoved says how what a pass reviews differs from what it pinned:
