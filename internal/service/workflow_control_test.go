@@ -499,3 +499,36 @@ steps:
 		})
 	}
 }
+
+// Retrying a step suspended when its agent was interrupted starts it again,
+// whatever its on_failure says: retiring the interrupted attempt is not the
+// step's failure, so a continue never moves the run past it (LEG-486
+// review).
+func TestRetryingASuspendedStepIgnoresItsOnFailure(t *testing.T) {
+	for _, onFailure := range []string{"continue", "pause"} {
+		t.Run(onFailure, func(t *testing.T) {
+			agent := &fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent"}}
+			svc, s := controlService(t, agent)
+			ctx := context.Background()
+			view, err := svc.Start(ctx, parseControlWorkflow(t, fmt.Sprintf(`schema_version: 2
+name: agent
+title: Agent
+steps:
+  - {id: work, type: agent.run, with: {prompt: go}, on_failure: %s}
+`, onFailure)), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SuspendWorkflowStep(ctx, view.Run.ID, "work", view.Attempts[0].ID, "the agent was interrupted"); err != nil {
+				t.Fatal(err)
+			}
+			view, err = svc.Retry(ctx, view.Run.ID, "work", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if view.Run.Status != "running" || view.Run.CurrentStepID != "work" || len(view.Attempts) != 2 || view.Attempts[1].Status != "waiting_agent" {
+				t.Fatalf("run %s at %q, attempts %+v; want a second attempt waiting on its agent", view.Run.Status, view.Run.CurrentStepID, view.Attempts)
+			}
+		})
+	}
+}

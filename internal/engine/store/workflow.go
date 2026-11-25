@@ -606,6 +606,11 @@ type StepFailure struct {
 	Code      string
 	Link      string
 	InProcess bool
+	// Retired is set for an attempt the operator retries (a suspended
+	// step's): the step fails as on_failure: fail would, whatever it says,
+	// since its retry resets it at once and a continue would move the run
+	// past it.
+	Retired bool
 }
 
 // FailureOutputs are the outputs a failed step has: status failed, error,
@@ -651,7 +656,7 @@ func (s *Store) FailWorkflowStepWith(ctx context.Context, runID, path, attemptID
 			OnFailure string `json:"on_failure"`
 		}
 		_ = json.Unmarshal([]byte(step.DefinitionJSON), &definition)
-		if definition.OnFailure == FailureContinued || definition.OnFailure == FailurePaused {
+		if !failure.Retired && (definition.OnFailure == FailureContinued || definition.OnFailure == FailurePaused) {
 			mode = definition.OnFailure
 		}
 		if err := execOne(ctx, tx, `UPDATE workflow_step_attempts SET status = 'failed', error = ?, ended_at = datetime('now') WHERE id = ? AND run_id = ? AND path = ? AND status IN ('running','waiting_agent','waiting','suspended')`, failure.Message, attemptID, runID, path); err != nil {
