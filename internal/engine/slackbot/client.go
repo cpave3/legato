@@ -1,13 +1,18 @@
 // Package slackbot is a thin client for a Slack bot: one Socket Mode session
-// at a time, and the Web API methods auth.test, apps.connections.open and
-// chat.postMessage. It knows nothing of Legato.
+// at a time, and the Web API methods auth.test, apps.connections.open,
+// chat.postMessage, reactions.add and reactions.remove. It knows nothing of
+// Legato.
 //
 // Protocol facts it relies on:
 //
 //   - Web API methods are POST https://slack.com/api/<method> with
 //     "Authorization: Bearer <token>" and answer {"ok": bool, "error": code}.
 //     A rate limit is HTTP 429 (or error "ratelimited") with Retry-After in
-//     seconds.
+//     seconds. A missing scope is error "missing_scope" with "needed" naming
+//     the scope.
+//   - reactions.add answers "already_reacted" for a reaction the bot has
+//     already left, and reactions.remove "no_reaction" for one it has not;
+//     both are treated as success.
 //   - apps.connections.open takes the app-level token (xapp-) and returns a
 //     single-use wss:// URL whose query string carries a ticket. That URL is a
 //     secret, like the tokens, and never appears in an error.
@@ -72,10 +77,15 @@ type APIError struct {
 	Method     string
 	Code       string
 	RetryAfter time.Duration
+	// Needed and Provided are the scopes Slack names for a missing_scope.
+	Needed, Provided string
 }
 
 func (e *APIError) Error() string {
 	s := "slack: " + e.Method + ": " + e.Code
+	if e.Needed != "" {
+		s += " (needs " + e.Needed + ")"
+	}
 	if e.RetryAfter > 0 {
 		s += " (retry after " + e.RetryAfter.String() + ")"
 	}
@@ -90,7 +100,7 @@ func (e *APIError) Is(target error) bool {
 // Client talks to Slack. Its zero value needs at least the tokens.
 type Client struct {
 	AppToken string       // xapp-…, for apps.connections.open
-	BotToken string       // xoxb-…, for auth.test and chat.postMessage
+	BotToken string       // xoxb-…, for auth.test, chat.postMessage and reactions
 	HTTP     *http.Client // nil = a default client with a 15s timeout
 	APIBase  string       // "" = https://slack.com/api
 }
@@ -172,8 +182,10 @@ func (c *Client) call(ctx context.Context, method, token string, jsonBody any, o
 		return &APIError{Method: method, Code: "http_" + strconv.Itoa(resp.StatusCode)}
 	}
 	var status struct {
-		OK    bool   `json:"ok"`
-		Error string `json:"error"`
+		OK       bool   `json:"ok"`
+		Error    string `json:"error"`
+		Needed   string `json:"needed"`
+		Provided string `json:"provided"`
 	}
 	if err := json.Unmarshal(data, &status); err != nil {
 		return fmt.Errorf("slack: %s: decode response: %w", method, err)
@@ -183,7 +195,7 @@ func (c *Client) call(ctx context.Context, method, token string, jsonBody any, o
 		if code == "" {
 			code = "unknown_error"
 		}
-		e := &APIError{Method: method, Code: code}
+		e := &APIError{Method: method, Code: code, Needed: status.Needed, Provided: status.Provided}
 		if code == "ratelimited" {
 			e.RetryAfter = retryAfter(resp)
 		}
@@ -247,22 +259,55 @@ func (c *Client) PostMessage(ctx context.Context, channel, text, threadTS string
 		Channel string `json:"channel"`
 		TS      string `json:"ts"`
 	}
-	err := c.call(ctx, "chat.postMessage", c.BotToken, body, &out)
+	err := c.callRetrying(ctx, "chat.postMessage", body, &out)
+	if err != nil {
+		return Posted{}, err
+	}
+	return Posted{TS: out.TS, Channel: out.Channel}, nil
+}
+
+// callRetrying calls a bot-token method, waiting out a rate limit with a
+// Retry-After of at most maxRetryWait and retrying once.
+func (c *Client) callRetrying(ctx context.Context, method string, body, out any) error {
+	err := c.call(ctx, method, c.BotToken, body, out)
 	var apiErr *APIError
 	if errors.As(err, &apiErr) && apiErr.Code == "ratelimited" && apiErr.RetryAfter <= maxRetryWait {
 		t := time.NewTimer(apiErr.RetryAfter)
 		select {
 		case <-ctx.Done():
 			t.Stop()
-			return Posted{}, err
+			return err
 		case <-t.C:
 		}
-		err = c.call(ctx, "chat.postMessage", c.BotToken, body, &out)
+		err = c.call(ctx, method, c.BotToken, body, out)
 	}
-	if err != nil {
-		return Posted{}, err
+	return err
+}
+
+// AddReaction adds the emoji name (without colons) to the message ts in
+// channel. A reaction the bot has already left is success.
+func (c *Client) AddReaction(ctx context.Context, channel, ts, name string) error {
+	return c.react(ctx, "reactions.add", "already_reacted", channel, ts, name)
+}
+
+// RemoveReaction removes the bot's emoji name from the message ts in channel.
+// A reaction the bot has not left is success.
+func (c *Client) RemoveReaction(ctx context.Context, channel, ts, name string) error {
+	return c.react(ctx, "reactions.remove", "no_reaction", channel, ts, name)
+}
+
+func (c *Client) react(ctx context.Context, method, unchanged, channel, ts, name string) error {
+	body := struct {
+		Channel   string `json:"channel"`
+		Timestamp string `json:"timestamp"`
+		Name      string `json:"name"`
+	}{channel, ts, name}
+	err := c.callRetrying(ctx, method, body, nil)
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.Code == unchanged {
+		return nil
 	}
-	return Posted{TS: out.TS, Channel: out.Channel}, nil
+	return err
 }
 
 type envelope struct {

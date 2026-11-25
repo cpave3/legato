@@ -14,6 +14,7 @@ import (
 
 type restCall struct {
 	method, path, auth string
+	escaped            string // the path as sent, percent-encoding kept
 	body               map[string]any
 }
 
@@ -25,7 +26,7 @@ func restServer(t *testing.T, handle func(n int, w http.ResponseWriter)) (*Clien
 		b, _ := io.ReadAll(r.Body)
 		var body map[string]any
 		_ = json.Unmarshal(b, &body)
-		calls <- restCall{r.Method, r.URL.Path, r.Header.Get("Authorization"), body}
+		calls <- restCall{method: r.Method, path: r.URL.Path, auth: r.Header.Get("Authorization"), escaped: r.URL.EscapedPath(), body: body}
 		handle(int(n.Add(1)), w)
 	}))
 	t.Cleanup(srv.Close)
