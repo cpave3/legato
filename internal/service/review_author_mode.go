@@ -14,15 +14,14 @@ import (
 // pull requests; appLogins are the logins of Legato's own GitHub Apps.
 //
 // GitHub's word decides when Legato has it (PRMeta.Author, kept by PR
-// tracking): one of Legato's Apps is the agent, a person is not. Before a
-// refresh has read it, or for a bot Legato does not know as its own, the
-// branch's tracked source stands in:
-// a branch the card's agent pushed or opened a pull request from through
-// Legato's credential proxy, which acts as the author App (agent), or a
-// Staccato stack of one of its job clones, which push through that proxy
-// (stack). The branch of the card's checkout (code_context) counts only once
-// an App is known to have opened its pull request, since the operator may
-// have opened it from their own checkout.
+// tracking): one of Legato's Apps (learned, or github.app_logins) is the
+// agent; a person or any other App is not. Only before a refresh has read
+// it does the branch's tracked source stand in: a branch the card's agent
+// pushed or opened a pull request from through Legato's credential proxy,
+// which acts as the author App (agent), or a Staccato stack of one of its
+// job clones, which push through that proxy (stack). The branch of the
+// card's checkout (code_context) never does, since the operator may have
+// opened its pull request from their own checkout.
 func agentAuthoredPRs(rows []store.TaskBranch, prs []PRMetaView, appLogins []string) bool {
 	if len(prs) == 0 {
 		return false
@@ -47,17 +46,14 @@ func trackedRowOf(rows []store.TaskBranch, pr PRMetaView) (store.TaskBranch, boo
 
 func agentOpened(row store.TaskBranch, appLogins []string) bool {
 	author := strings.TrimSpace(row.PR.Author)
-	if anyLogin(appLogins, author) {
-		return true
-	}
-	if author != "" && !strings.HasSuffix(strings.ToLower(author), "[bot]") {
-		return false // a person opened it
+	if author != "" {
+		// GitHub named who opened it: one of Legato's Apps is the agent;
+		// a person, or any other App (Dependabot, say), is not.
+		return anyLogin(appLogins, author)
 	}
 	switch row.Source {
 	case BranchSourceAgent, BranchSourceStack:
 		return true
-	case BranchSourceCodeContext:
-		return author != ""
 	}
 	return false
 }

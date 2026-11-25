@@ -314,14 +314,21 @@ func TestTheAuthorIsTheCardsAgentOnlyForPRsLegatosAuthorAppOpened(t *testing.T) 
 			t.Fatalf("loop %+v", loop)
 		}
 	})
-	t.Run("opened by the author App", func(t *testing.T) {
+	// openedBy starts a review of the card's two pull requests, which
+	// author opened; Legato knows its author App's login (it learns it
+	// when the App posts).
+	openedBy := func(t *testing.T, author string) *store.ReviewLoop {
+		t.Helper()
 		p := newPrompted(t, true)
 		db := p.r.worker.Store
+		if err := db.RecordGitHubAppLogin(ctx, "legato-author[bot]"); err != nil {
+			t.Fatal(err)
+		}
 		for _, pr := range []struct {
 			branch string
 			number int
 		}{{"local/one", 31}, {"local/two", 32}} {
-			if err := db.SetTaskBranchPR(ctx, p.card, "acme/widget", pr.branch, &store.PRMeta{Repo: "acme/widget", Branch: pr.branch, PRNumber: pr.number, State: "OPEN", Head: fmt.Sprintf("sha%d", pr.number), Author: "legato-author[bot]"}); err != nil {
+			if err := db.SetTaskBranchPR(ctx, p.card, "acme/widget", pr.branch, &store.PRMeta{Repo: "acme/widget", Branch: pr.branch, PRNumber: pr.number, State: "OPEN", Head: fmt.Sprintf("sha%d", pr.number), Author: author}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -330,7 +337,19 @@ func TestTheAuthorIsTheCardsAgentOnlyForPRsLegatosAuthorAppOpened(t *testing.T) 
 			t.Fatal(err)
 		}
 		p.r.runs.Open(ctx)
-		if loop := p.loopOn(t, 31); !loop.AgentAuthor || loop.AuthorTask != p.card {
+		loop := p.loopOn(t, 31)
+		if loop.AgentAuthor && loop.AuthorTask != p.card {
+			t.Fatalf("loop %+v", loop)
+		}
+		return loop
+	}
+	t.Run("opened by the author App", func(t *testing.T) {
+		if loop := openedBy(t, "legato-author[bot]"); !loop.AgentAuthor {
+			t.Fatalf("loop %+v", loop)
+		}
+	})
+	t.Run("opened by another App", func(t *testing.T) {
+		if loop := openedBy(t, "dependabot[bot]"); loop.AgentAuthor {
 			t.Fatalf("loop %+v", loop)
 		}
 	})

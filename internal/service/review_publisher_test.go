@@ -719,6 +719,20 @@ func TestTheAuthorsAnswersArePostedAsTheAuthorApp(t *testing.T) {
 	}
 }
 
+// The author App's login is learned once Legato resolves it to post, so
+// its pull requests read as the agent's (D8) without github.app_logins.
+func TestTheAuthorAppsLoginIsLearnedWhenItPosts(t *testing.T) {
+	f := newPublisherFixture(t)
+	var learned []string
+	f.publisher.SetLoginRecorder(func(login string) { learned = append(learned, login) })
+	if _, err := f.publisher.PostIssueComment(context.Background(), AsAuthor, "cpave3/legato", 12, "Fixed in abc124.", answerKey("t1/b-1/n1")); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(learned, "legato-author[bot]") {
+		t.Fatalf("learned %v; want the author App's login", learned)
+	}
+}
+
 // An override of a GitHub profile copied before Legato needed the App's
 // name fails closed, and the error says which file needs which line.
 func TestAProfileThatNamesNoAppCannotPostAndTheErrorNamesItsFileAndTheLine(t *testing.T) {

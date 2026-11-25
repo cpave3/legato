@@ -111,8 +111,9 @@ func (e *GitHubError) Error() string {
 type ReviewPublisher struct {
 	channels *CredentialChannels
 	reviewer string
-	// learnLogin is told the login a review was posted as: one of
-	// Legato's own Apps, whose reviews never fire a trigger.
+	// learnLogin is told the login a review was posted as, and each
+	// App's login once GitHub names it: Legato's own Apps, whose reviews
+	// never fire a trigger and whose pull requests are the agent's.
 	learnLogin func(login string)
 	// Timeout bounds each request to GitHub.
 	Timeout time.Duration
@@ -208,7 +209,13 @@ func (c *githubCall) login(ctx context.Context, repo string) (string, error) {
 		c.p.logins = map[string]string{}
 	}
 	c.p.logins[name] = login
+	learn := c.p.learnLogin
 	c.p.mu.Unlock()
+	if learn != nil {
+		// GitHub named the App itself: its login is Legato's own, the
+		// author App's as well as the reviewer's (D8).
+		learn(login)
+	}
 	return login, nil
 }
 
