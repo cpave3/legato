@@ -1,6 +1,6 @@
 ---
 title: Discord
-description: Start workflows from Discord messages and mentions, and post and react in Discord from a workflow step.
+description: Start workflows from Discord messages, mentions and button clicks, and post and react in Discord from a workflow step.
 sidebar:
   order: 56
 ---
@@ -109,9 +109,24 @@ People are named by their display name. The step needs the **Read Message Histor
 
 A comment added to a forward arrives as a message of its own and does not reply to the forward. A mention in that comment therefore reads only the comment. Mention the bot in a thread, or in a reply to the forward, to include the forward.
 
+## Buttons
+
+A `chat.message.send` step can end its message with up to five buttons, in one row, and a `chat.button` trigger starts a workflow when someone clicks one:
+
+```yaml
+    with:
+      bot: discord
+      text: Found the cause.
+      buttons:
+        - {label: "🛠 Fix it", value: "fix:${{ workflow.task.id }}", style: primary}
+        - {label: "✖ Dismiss", value: "dismiss:${{ workflow.task.id }}", style: danger}
+```
+
+Clicks come over the bot's Gateway connection and need no intent or other setting. Legato answers each click at once, so Discord does not show "This interaction failed". When a workflow takes the click, Legato greys out the message's buttons and adds a line such as **🛠 Fix it — chosen by @alice** under its text. A click no workflow takes changes nothing. A button's value is at most 100 characters on Discord. See [Chat buttons](/legato/using/workflows/#chat-buttons) for the trigger.
+
 ## Limits
 
-- Slash commands, buttons and other interactive components are not supported.
+- Slash commands, select menus and modals are not supported. Buttons are: see [Buttons](#buttons).
 - A message longer than 2,000 characters is refused.
 - Messages the bot sends never mention anyone, even if the text has `@everyone`.
 - A direct message to the bot counts as a mention.

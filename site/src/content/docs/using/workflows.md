@@ -151,7 +151,7 @@ Version 1 executes steps in declaration order and supports these executors. Lega
       pr_number: ${{ steps.implement.outputs.pr_number }}
       task: ${{ workflow.inputs.task }}
   ```
-- `chat.message.send`: post a message as a chat bot. `with.bot` is `slack` or `discord`; `with.channel` is a channel ID (empty: the bot's default channel); `with.text` is the message; `with.thread_id` replies to a message: a chat trigger's `${{ event.thread_id }}` or `${{ event.message_id }}`, an earlier step's `message_id` or `thread_id` output, or any message's ID in the channel. On Slack the reply goes into that message's thread (give a thread's parent, which `event.thread_id` is); on Discord it is a reply to that message. The text can carry emoji: Slack shows `:eyes:` names itself, and on Discord Legato turns the common names (`:eyes:`, `:white_check_mark:`, `:tada:` and so on) into the emoji, outside code; an emoji written as itself works on both. Outputs: `message_id`, `channel` and `thread_id` (what replies in the same thread). The step fails at once when the bot is not set up, is switched off, or its platform refused it. See [Slack](/legato/integrations/slack/) and [Discord](/legato/integrations/discord/).
+- `chat.message.send`: post a message as a chat bot. `with.bot` is `slack` or `discord`; `with.channel` is a channel ID (empty: the bot's default channel); `with.text` is the message; `with.thread_id` replies to a message: a chat trigger's `${{ event.thread_id }}` or `${{ event.message_id }}`, an earlier step's `message_id` or `thread_id` output, or any message's ID in the channel. On Slack the reply goes into that message's thread (give a thread's parent, which `event.thread_id` is); on Discord it is a reply to that message. The text can carry emoji: Slack shows `:eyes:` names itself, and on Discord Legato turns the common names (`:eyes:`, `:white_check_mark:`, `:tada:` and so on) into the emoji, outside code; an emoji written as itself works on both. `with.buttons` puts up to five buttons under the message, each a `label`, a `value` and an optional `style` (`primary` or `danger`); a click starts the workflows whose [`chat.button`](#chat-buttons) trigger matches it. Outputs: `message_id`, `channel` and `thread_id` (what replies in the same thread). The step fails at once when the bot is not set up, is switched off, or its platform refused it. See [Slack](/legato/integrations/slack/) and [Discord](/legato/integrations/discord/).
 - `chat.reaction.add` and `chat.reaction.remove`: add the bot's emoji reaction to a message, or remove it. `with.bot` and `with.channel` are as in `chat.message.send`; `with.message_id` is the message: a chat trigger's `${{ event.message_id }}` (with its `${{ event.channel }}`), an earlier `chat.message.send`'s `message_id` output, or any message's ID in the channel; `with.emoji` is an emoji's name without colons, such as `eyes` or `white_check_mark`, or the emoji itself (`👀`), and on Discord also a custom emoji as `name:id`. Slack takes any name it knows, its custom emoji too; Discord takes any emoji written as itself, and the common names. A reaction that is already there, or already gone, is not an error. Output: `ok`. A missing Slack scope (`reactions:write`) or Discord permission (**Add Reactions**, **Read Message History**) fails the step, naming it. See [React to a message](#react-to-the-message-that-started-a-run).
 - `chat.thread.read`: read the thread a chat message is in, as a chat bot, for a later step. `with.bot` and `with.channel` are as for `chat.message.send`; `with.thread_id` is the thread, such as `${{ event.thread_id }}` from a chat trigger. `with.limit` (1 to 200, default 50) is how many messages to keep, the parent included; `with.include_bots: true` also keeps other bots' messages. Outputs: `transcript`, `messages` and `count`. See [Reading the thread](#reading-the-thread).
 - `burnlite.task.close`: close the Burnlite ticket a task was imported from (`with.task`), as `completed` (the default) or `not_planned` (`with.reason`), with a one-line `with.summary`. With `optional: true`, a task that is not a Burnlite ticket is skipped (`skipped: true`) instead of failing the step. Outputs: `key`, `closed` and `skipped`. Legato must be connected to Burnlite with write access; see [Burnlite](/legato/integrations/burnlite/#close-a-ticket-from-a-workflow).
@@ -577,6 +577,51 @@ steps:
 The emoji are the workflow's choice: any emoji works, on any message the bot can see. To react to a message the run posted, give the `chat.message.send` step's `channel` and `message_id` outputs.
 
 If a workflow names a bot that is not set up on this Legato, or is switched off, the editor warns you; a bot name Legato does not know is an error.
+
+### Chat buttons
+
+A `chat.message.send` step can put buttons under its message, and a `chat.button` trigger starts a workflow when someone clicks one. Use them to offer the next step, such as a fix, on a message a workflow posts:
+
+```yaml
+# investigate.workflow.yaml: the reply ends with buttons.
+steps:
+  - id: reply
+    title: Reply with the findings
+    type: chat.message.send
+    with:
+      bot: slack
+      channel: ${{ workflow.inputs.channel }}
+      thread_id: ${{ workflow.inputs.thread }}
+      text: ${{ steps.investigate.outputs.findings }}
+      buttons:
+        - {label: "🛠 Fix it", value: "fix:${{ workflow.task.id }}", style: primary}
+        - {label: "🎫 File ticket only", value: "ticket:${{ workflow.task.id }}"}
+        - {label: "✖ Dismiss", value: "dismiss:${{ workflow.task.id }}", style: danger}
+```
+
+```yaml
+# fix.workflow.yaml: a click on Fix it starts it.
+on:
+  chat.button:
+    bot: slack
+    user: U0123456789
+    value: {regex: "^fix:(?P<task>.+)$"}
+    inputs:
+      investigation: ${{ event.match.task }}
+      thread: ${{ event.thread_id }}
+```
+
+- A message takes at most five buttons. A `label` is at most 75 characters and a `value` at most 100, and no two buttons of a message may have the same value: these are the limits both platforms keep. The `value` is yours to choose; only the triggers read it.
+- `bot` is required. `channel` narrows the trigger to one channel and `user` to one person, by the platform's IDs. Without `user`, anyone who can see the message can start the workflow, and the editor and `legato workflow validate` warn of it. A click by someone else starts nothing and gets no reply.
+- `value` matches the clicked button's value: `{contains: "fix:"}` ignores case, `{regex: "^fix:(?P<task>.+)$"}` is a Go regular expression. A regex's named groups can be read as `${{ event.match.<name> }}`, here `${{ event.match.task }}`.
+- The inputs may read `${{ event.bot }}`, `${{ event.platform }}`, `${{ event.channel }}`, `${{ event.user }}` (who clicked), `${{ event.value }}`, `${{ event.label }}`, `${{ event.message_id }}` (the message with the buttons), `${{ event.thread_id }}` (what a `chat.message.send` step's `thread_id` takes to reply to that message) and `${{ event.match.<name> }}`.
+- Each click starts at most one run per workflow, even when the platform sends it twice. The [loop stop](#the-loop-stop) counts runs by the message with the buttons.
+
+When a workflow takes a click, Legato changes the message so no one clicks again: on Slack the buttons give way to a line such as **🛠 Fix it — chosen by @alice**; on Discord the buttons are greyed out and the same line goes under the text. When the run has not started yet (it waits for an input, a confirmation or the loop stop), the line ends **· waiting in Legato**. A click no workflow takes, a paused trigger's included, leaves the message as it was, so give **Dismiss** a workflow of its own if it should close the message.
+
+A click is not a message: it never fires a [fallback](#a-fallback-for-everything-else) or stops one, and a workflow that starts only on a button is not listed in `${{ event.commands }}`.
+
+On Slack, buttons need **Interactivity** turned on for the app: see [Slack](/legato/integrations/slack/#buttons). Discord needs nothing more.
 
 ### Pausing a trigger
 
