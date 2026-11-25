@@ -1,7 +1,8 @@
 // Package burnlite reads Burnlite (an issue tracker and estimator) over its
 // MCP endpoint, the one API a token holder can use: Projects, their Tasks,
-// and one Task with its text. Its one write is closing a Task. It knows nothing of Legato, and gets its
-// bearer token from whoever made it.
+// and one Task with its text. Its writes are closing a Task, creating one
+// and adding a Note to one. It knows nothing of Legato, and gets its bearer
+// token from whoever made it.
 package burnlite
 
 import (
@@ -477,4 +478,75 @@ func deref(s *string) string {
 func parseTime(s string) time.Time {
 	t, _ := time.Parse(time.RFC3339Nano, s)
 	return t
+}
+
+// TaskDraft is a Task to create. Kind is work or meta; a Work task needs a
+// Size and an Uncertainty and a Meta task takes neither, which Burnlite
+// checks. Empty fields are not sent.
+type TaskDraft struct {
+	Project     string
+	Name        string
+	Description string
+	Labels      []string
+	Kind        string
+	Size        string
+	Uncertainty string
+	Milestone   string
+	// Holder is recorded as who wrote the Description.
+	Holder string
+}
+
+// CreatedTask is a Task Burnlite created. URL is relative to Burnlite
+// (/LEG-9), as Burnlite gives it.
+type CreatedTask struct {
+	ID  string
+	Key string
+	URL string
+}
+
+// CreateTask creates a Task. It needs the write:tasks scope.
+func (c *Client) CreateTask(ctx context.Context, draft TaskDraft) (CreatedTask, error) {
+	args := map[string]any{"projectId": draft.Project, "taskName": draft.Name}
+	for name, value := range map[string]string{"description": draft.Description, "kind": draft.Kind, "size": draft.Size,
+		"uncertaintyLevel": draft.Uncertainty, "milestoneId": draft.Milestone, "holder": draft.Holder} {
+		if value != "" {
+			args[name] = value
+		}
+	}
+	if len(draft.Labels) > 0 {
+		args["labels"] = draft.Labels
+	}
+	var out struct {
+		Task struct {
+			ID  string `json:"id"`
+			Key string `json:"key"`
+			URL string `json:"url"`
+		} `json:"task"`
+	}
+	if err := c.call(ctx, "create_task", args, &out); err != nil {
+		return CreatedTask{}, err
+	}
+	if out.Task.Key == "" {
+		return CreatedTask{}, fmt.Errorf("burnlite: create_task: its result names no Task")
+	}
+	return CreatedTask{ID: out.Task.ID, Key: out.Task.Key, URL: out.Task.URL}, nil
+}
+
+// AddNote adds a Markdown Note to a Task (key or id) and returns the Note's
+// id. holder ("" for none) is recorded as its author. It needs the
+// write:tasks scope.
+func (c *Client) AddNote(ctx context.Context, key, content, holder string) (string, error) {
+	args := map[string]any{"taskId": key, "content": content}
+	if holder != "" {
+		args["holder"] = holder
+	}
+	var out struct {
+		Note struct {
+			ID string `json:"id"`
+		} `json:"note"`
+	}
+	if err := c.call(ctx, "create_note", args, &out); err != nil {
+		return "", err
+	}
+	return out.Note.ID, nil
 }

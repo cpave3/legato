@@ -28,7 +28,7 @@ type fakeBurnlite struct {
 func (f *fakeBurnlite) server(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := mcp.NewServer(&mcp.Implementation{Name: "burnlite", Version: "test"}, nil)
-	for _, name := range []string{"list_projects", "list_tasks", "list_milestones", "get_task", "get_milestone", "close_task"} {
+	for _, name := range []string{"list_projects", "list_tasks", "list_milestones", "get_task", "get_milestone", "close_task", "create_task", "create_note"} {
 		srv.AddTool(&mcp.Tool{Name: name, InputSchema: map[string]any{"type": "object"}}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var args map[string]any
 			_ = json.Unmarshal(req.Params.Arguments, &args)
