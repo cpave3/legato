@@ -90,28 +90,41 @@ func (s *Store) GetWorkStage(ctx context.Context, place WorkStagePlace) (*WorkSt
 // history event. Since moves only when the stage changes. It returns the
 // stage the place had before, "" for none.
 func (s *Store) SetWorkStage(ctx context.Context, stage WorkStage) (string, error) {
-	stage.WorkStagePlace = stage.normal()
-	from := ""
+	var from string
 	err := withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		err := tx.GetContext(ctx, &from, `SELECT stage FROM agent_stages WHERE task_id = ? AND slot = ? AND place_execution_id = ?`,
-			stage.TaskID, stage.Slot, stage.PlaceExecutionID)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO agent_stages (task_id, slot, place_execution_id, stage, reason, source, execution_id)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT (task_id, slot, place_execution_id) DO UPDATE SET
-				since = CASE WHEN agent_stages.stage = excluded.stage THEN agent_stages.since ELSE excluded.since END,
-				stage = excluded.stage, reason = excluded.reason, source = excluded.source,
-				execution_id = excluded.execution_id, updated_at = excluded.updated_at`,
-			stage.TaskID, stage.Slot, stage.PlaceExecutionID, stage.Stage, stage.Reason, stage.Source, stage.ExecutionID); err != nil {
-			return err
-		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO agent_stage_events (task_id, slot, place_execution_id, from_stage, stage, reason, source, execution_id)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			stage.TaskID, stage.Slot, stage.PlaceExecutionID, from, stage.Stage, stage.Reason, stage.Source, stage.ExecutionID)
+		var err error
+		from, err = setWorkStage(ctx, tx, stage)
 		return err
 	})
+	return from, err
+}
+
+// setWorkStageTx is SetWorkStage within a transaction.
+func setWorkStageTx(ctx context.Context, tx *sqlx.Tx, stage WorkStage) error {
+	_, err := setWorkStage(ctx, tx, stage)
+	return err
+}
+
+func setWorkStage(ctx context.Context, tx *sqlx.Tx, stage WorkStage) (string, error) {
+	stage.WorkStagePlace = stage.normal()
+	from := ""
+	err := tx.GetContext(ctx, &from, `SELECT stage FROM agent_stages WHERE task_id = ? AND slot = ? AND place_execution_id = ?`,
+		stage.TaskID, stage.Slot, stage.PlaceExecutionID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_stages (task_id, slot, place_execution_id, stage, reason, source, execution_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (task_id, slot, place_execution_id) DO UPDATE SET
+			since = CASE WHEN agent_stages.stage = excluded.stage THEN agent_stages.since ELSE excluded.since END,
+			stage = excluded.stage, reason = excluded.reason, source = excluded.source,
+			execution_id = excluded.execution_id, updated_at = excluded.updated_at`,
+		stage.TaskID, stage.Slot, stage.PlaceExecutionID, stage.Stage, stage.Reason, stage.Source, stage.ExecutionID); err != nil {
+		return "", err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO agent_stage_events (task_id, slot, place_execution_id, from_stage, stage, reason, source, execution_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		stage.TaskID, stage.Slot, stage.PlaceExecutionID, from, stage.Stage, stage.Reason, stage.Source, stage.ExecutionID)
 	return from, err
 }
 

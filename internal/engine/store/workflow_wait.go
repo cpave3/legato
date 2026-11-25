@@ -1,0 +1,182 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"time"
+
+	"github.com/jmoiron/sqlx"
+)
+
+// The wait record of an agent step (LEG-485, spec LEG-482 §5.3): the
+// signals that end it, the agent place it watches, the stage event
+// watermark and the session it is bound to, kept on its workflow_steps row
+// so a host finds every wait again from the tables after a restart.
+
+// WorkStageSourceWorkflow: a workflow step reset the place before it sent
+// its prompt, so only a Finished reported after it counts.
+const WorkStageSourceWorkflow = "workflow"
+
+// WorkflowWait is a wait an agent step begins.
+type WorkflowWait struct {
+	// Signals are the wait_for signals, any one of which ends the step.
+	Signals []string
+	// Place is the agent place the wait watches, when known before the
+	// prompt is sent; empty for an agent not started yet (a new
+	// execution's place has no events, so its watermark is 0).
+	Place WorkStagePlace
+	// Reset puts the place back to Implementing (source workflow), in the
+	// same write as the watermark.
+	Reset bool
+	// Reason is the reset's reason.
+	Reason string
+}
+
+// workflowDeadlineFormat is fixed width, so deadlines compare as text.
+const workflowDeadlineFormat = "2006-01-02T15:04:05.000000000Z"
+
+// BeginWorkflowWait writes a running step's wait record and returns its
+// watermark: the newest stage event of the place, in one transaction with
+// the place's reset. It is written before the step's prompt is sent.
+func (s *Store) BeginWorkflowWait(ctx context.Context, runID, path string, wait WorkflowWait) (int64, error) {
+	signals, err := json.Marshal(wait.Signals)
+	if err != nil {
+		return 0, err
+	}
+	place := wait.Place
+	if place.TaskID != "" {
+		place = place.normal()
+	}
+	var watermark int64
+	err = withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		if place.TaskID != "" {
+			if err := tx.GetContext(ctx, &watermark, `SELECT COALESCE(MAX(id), 0) FROM agent_stage_events
+				WHERE task_id = ? AND slot = ? AND place_execution_id = ?`, place.TaskID, place.Slot, place.PlaceExecutionID); err != nil {
+				return err
+			}
+			if wait.Reset {
+				if err := setWorkStageTx(ctx, tx, WorkStage{WorkStagePlace: place, Stage: WorkStageImplementing, Reason: wait.Reason, Source: WorkStageSourceWorkflow}); err != nil {
+					return err
+				}
+			}
+		}
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_steps SET wait_signals = ?, wait_task_id = ?, wait_slot = ?, wait_execution_id = ?,
+			wait_watermark = ?, wait_session_id = NULL WHERE run_id = ? AND path = ? AND status = 'running'`,
+			string(signals), place.TaskID, place.Slot, place.PlaceExecutionID, watermark, runID, path)
+		if err != nil {
+			return err
+		}
+		if rows, err := result.RowsAffected(); err != nil {
+			return err
+		} else if rows != 1 {
+			return ErrWorkflowStateConflict
+		}
+		return nil
+	})
+	return watermark, err
+}
+
+// BindWorkflowWait ties a step's wait to the agent it watches: its place
+// and its session, on the step and on the attempt. It is how a wait that
+// began before its agent started, or whose agent was resumed, finds it.
+func (s *Store) BindWorkflowWait(ctx context.Context, runID, path, attemptID string, place WorkStagePlace, sessionID int) error {
+	place = place.normal()
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_steps SET wait_task_id = ?, wait_slot = ?, wait_execution_id = ?, wait_session_id = ?
+			WHERE run_id = ? AND path = ? AND status IN ('running', 'waiting_agent')`,
+			place.TaskID, place.Slot, place.PlaceExecutionID, sessionID, runID, path)
+		if err != nil {
+			return err
+		}
+		if rows, err := result.RowsAffected(); err != nil {
+			return err
+		} else if rows != 1 {
+			return ErrWorkflowStateConflict
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET agent_session_id = ? WHERE id = ? AND status IN ('running', 'waiting_agent')`, sessionID, attemptID)
+		return err
+	})
+}
+
+// WorkflowStepWaitSignals are the signals a step waits for; none for a
+// step that began no wait (one started before waits were recorded).
+func (s *Store) WorkflowStepWaitSignals(ctx context.Context, runID, path string) ([]string, error) {
+	var raw string
+	err := s.db.GetContext(ctx, &raw, `SELECT wait_signals FROM workflow_steps WHERE run_id = ? AND path = ?`, runID, path)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	var signals []string
+	if err := json.Unmarshal([]byte(raw), &signals); err != nil {
+		return nil, err
+	}
+	return signals, nil
+}
+
+// ListWorkflowAgentWaits lists the steps that wait on an agent with a wait
+// record, oldest first: what a host checks for signals.
+func (s *Store) ListWorkflowAgentWaits(ctx context.Context) ([]WorkflowStep, error) {
+	steps := []WorkflowStep{}
+	err := s.db.SelectContext(ctx, &steps, "SELECT "+workflowStepColumns+` FROM workflow_steps
+		WHERE status = 'waiting_agent' AND wait_signals NOT IN ('', '[]') ORDER BY started_at, run_id, path`)
+	return steps, err
+}
+
+// WorkStageEventAbove is the newest event of a place above an event ID
+// that reached stage, or nil.
+func (s *Store) WorkStageEventAbove(ctx context.Context, place WorkStagePlace, after int64, stage string) (*WorkStageEvent, error) {
+	place = place.normal()
+	var event WorkStageEvent
+	err := s.db.GetContext(ctx, &event, `SELECT id, task_id, slot, place_execution_id, from_stage, stage, reason, source, execution_id, created_at
+		FROM agent_stage_events WHERE task_id = ? AND slot = ? AND place_execution_id = ? AND id > ? AND stage = ?
+		ORDER BY id DESC LIMIT 1`, place.TaskID, place.Slot, place.PlaceExecutionID, after, stage)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &event, nil
+}
+
+// SetWorkflowStepDeadline gives a step its timeout's deadline: absolute, so
+// time Legato is down counts.
+func (s *Store) SetWorkflowStepDeadline(ctx context.Context, runID, path string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE workflow_steps SET deadline_at = ? WHERE run_id = ? AND path = ?`,
+		at.UTC().Format(workflowDeadlineFormat), runID, path)
+	return err
+}
+
+// ListWorkflowStepsPastDeadline lists the steps under way whose deadline
+// is at or before now.
+func (s *Store) ListWorkflowStepsPastDeadline(ctx context.Context, now time.Time) ([]WorkflowStep, error) {
+	steps := []WorkflowStep{}
+	err := s.db.SelectContext(ctx, &steps, "SELECT "+workflowStepColumns+` FROM workflow_steps
+		WHERE deadline_at IS NOT NULL AND deadline_at <= ? AND status IN ('running', 'waiting_agent', 'waiting')
+		ORDER BY deadline_at, run_id, path`, now.UTC().Format(workflowDeadlineFormat))
+	return steps, err
+}
+
+// ClaimWorkflowStepTimeout claims a step's timeout: it clears the deadline
+// it was read with, so of the hosts that sweep it, one times it out.
+func (s *Store) ClaimWorkflowStepTimeout(ctx context.Context, runID, path, deadline string) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE workflow_steps SET deadline_at = NULL
+		WHERE run_id = ? AND path = ? AND deadline_at = ? AND status IN ('running', 'waiting_agent', 'waiting')`, runID, path, deadline)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
+}
+
+// MergeWorkflowStepOutputs sets a recorded step's outputs: what a host
+// fills in for an agent's completion before it advances the run.
+func (s *Store) MergeWorkflowStepOutputs(ctx context.Context, runID, path, outputsJSON string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE workflow_steps SET outputs_json = ? WHERE run_id = ? AND path = ?`, outputsJSON, runID, path)
+	return err
+}
