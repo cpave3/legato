@@ -94,7 +94,7 @@ describe("workflow graphs at phone width", () => {
 
   it("open no sheet when a control inside a Needs you row is used", async () => {
     calls.fetchRun.mockReset()
-    const failed = { ...run, attempts: [], steps: [stepRun("write", "Write the report", "agent.run", "succeeded"), { ...stepRun("note", "Add a note", "task.note", "failed"), error: "boom" }] }
+    const failed = { ...run, run: { ...run.run, status: "failed" }, attempts: [], steps: [stepRun("write", "Write the report", "agent.run", "succeeded"), { ...stepRun("note", "Add a note", "task.note", "failed"), error: "boom" }] }
     calls.fetchRun.mockResolvedValue(failed)
     const client = createQueryClient()
     client.setQueryData(queryKeys.workflowRun("", "wr-1"), failed as unknown as WorkflowRunView)
@@ -108,7 +108,7 @@ describe("workflow graphs at phone width", () => {
 
   it("open the sheet for a tap on a Needs you row itself", async () => {
     calls.fetchRun.mockReset()
-    const failed = { ...run, attempts: [], steps: [stepRun("write", "Write the report", "agent.run", "succeeded"), { ...stepRun("note", "Add a note", "task.note", "failed"), error: "boom" }] }
+    const failed = { ...run, run: { ...run.run, status: "failed" }, attempts: [], steps: [stepRun("write", "Write the report", "agent.run", "succeeded"), { ...stepRun("note", "Add a note", "task.note", "failed"), error: "boom" }] }
     calls.fetchRun.mockResolvedValue(failed)
     const client = createQueryClient()
     client.setQueryData(queryKeys.workflowRun("", "wr-1"), failed as unknown as WorkflowRunView)
