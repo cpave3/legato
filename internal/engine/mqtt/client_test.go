@@ -500,10 +500,13 @@ func TestPublishEmptyClearsRetainedState(t *testing.T) {
 	}
 	publishBarrier(t, c)
 	_, messages := observer(t, address, "legato/attributes")
-	select {
-	case p := <-messages:
+	// Retained attributes would be queued for the observer while it
+	// subscribed, ahead of this live sentinel.
+	if err := c.PublishTransient(testContext(t), "legato/attributes", []byte("sentinel")); err != nil {
+		t.Fatal(err)
+	}
+	if p := receive(t, messages); string(p.Payload) != "sentinel" {
 		t.Fatalf("retained attributes survived clearing: %+v", p)
-	case <-time.After(50 * time.Millisecond):
 	}
 }
 
