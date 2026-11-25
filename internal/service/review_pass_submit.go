@@ -537,17 +537,20 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 		return nil
 	}
 	for i, layer := range layers {
-		if layer.kept {
-			if err := s.db.SetHandoffReviewPRPosted(ctx, taskID, pass.Pass, layer.pr.Number, 0, "", ReviewKept); err != nil {
-				return err
-			}
-			continue
-		}
+		// Each layer's head is read just before its own write: its post,
+		// or the record that its approval stands, which must not be kept
+		// at a head GitHub has replaced.
 		if ok, err := s.beforePost(ctx, loop, pass, []store.HandoffReviewPR{layer.pr}); !ok {
 			if err != nil {
 				return s.postFailed(ctx, l, loop, pass, layers[i:], err)
 			}
 			return nil
+		}
+		if layer.kept {
+			if err := s.db.SetHandoffReviewPRPosted(ctx, taskID, pass.Pass, layer.pr.Number, 0, "", ReviewKept); err != nil {
+				return err
+			}
+			continue
 		}
 		posted, err := s.opts.GitHub.PostReview(ctx, layer.post)
 		if err != nil {

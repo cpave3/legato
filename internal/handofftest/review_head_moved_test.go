@@ -155,3 +155,67 @@ func TestARulingOfAPassPinnedAgainIsRepliedThoughTheDiscardedOneWasPosted(t *tes
 		t.Fatalf("replies %s", replies)
 	}
 }
+
+// A layer whose approval stands is not posted again, but its head is still
+// read just before it is recorded as kept, as a posted layer's is before
+// its post. Here the lower layer is approved, then the upper one's head
+// moves: the upper layer is not kept at a head GitHub replaced, the pass is
+// discarded with the lower layer's review left standing, and pinned again.
+func TestAKeptLayerWhoseHeadMovesAfterALowerLayersPostDiscardsThePass(t *testing.T) {
+	r := newReviewed(t, ReviewPassOptions{})
+	r.worker.ReviewGitHub.ClosePR(7)
+	branches := []string{r.branch, r.branch + "-b"}
+	base := "main"
+	for i, branch := range branches {
+		r.worker.ReviewGitHub.OpenStackedPR(137+i, branch, base, fmt.Sprintf("sha%d", 137+i))
+		r.worker.Checkout.Commit(branch, fmt.Sprintf("sha%d", 137+i))
+		base = branch
+	}
+	r.worker.Checkout.File("login.go", 40)
+	r.finish(t)
+	result, err := r.submit(t, service.ReviewSubmission{Summary: "The bottom layer has a bug.", Findings: []service.SubmittedFinding{
+		{PR: 137, Severity: "blocking", Title: "Retries never stop", Body: "No bound.", FailureScenario: "A login while the server is down never returns.", Place: &service.ReviewPlace{Path: "login.go", Line: 20}},
+	}})
+	if err != nil || result.Verdict != service.VerdictChanges {
+		t.Fatalf("submit = %+v, %v", result, err)
+	}
+	if got := fmt.Sprint(postedEvents(r.worker.ReviewGitHub.Posted())); got != "[#137 COMMENT #138 APPROVE]" {
+		t.Fatalf("pass 1 posted %s", got)
+	}
+	finding := result.Findings[0]
+	r.tick()
+	r.answer(t, finding, service.AnswerFixed, "bounded")
+	r.worker.Checkout.Commit(branches[0], "sha137b")
+	r.worker.ReviewGitHub.OpenStackedPR(137, branches[0], "main", "sha137b")
+	r.tick()
+	r.finish(t)
+	if loop := r.loop(t); loop.Pass != 2 || loop.Phase != service.ReviewPhaseReviewing {
+		t.Fatalf("loop %+v", loop)
+	}
+
+	// Pass 2 approves #137; #138's approval would stand, but its head
+	// moves as soon as #137's review is posted.
+	r.worker.ReviewGitHub.PushAfterPost(137, 138, "sha138b")
+	if _, err := r.submit(t, service.ReviewSubmission{Summary: "Fixed.", Rulings: []service.SubmittedRuling{{Finding: finding, Status: "resolved", Reason: "bounded now"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(postedEvents(r.worker.ReviewGitHub.Posted())); got != "[#137 COMMENT #138 APPROVE #137 APPROVE]" {
+		t.Fatalf("pass 2 posted %s", got)
+	}
+	if loop := r.loop(t); loop.Phase == service.ReviewPhaseClean {
+		t.Fatalf("approved a stack whose top layer was never reviewed at its new head: loop %+v", loop)
+	}
+	prs, _ := r.worker.Store.ListHandoffReviewPRs(context.Background(), r.card, 2)
+	for _, pr := range prs {
+		if pr.Number == 138 && pr.Event == service.ReviewKept {
+			t.Fatalf("#138 recorded kept at %s", pr.HeadSHA)
+		}
+	}
+
+	r.worker.Checkout.Commit(branches[1], "sha138b")
+	r.tick()
+	prs, _ = r.worker.Store.ListHandoffReviewPRs(context.Background(), r.card, 2)
+	if loop := r.loop(t); loop.Pass != 2 || loop.Phase != service.ReviewPhaseReviewing || len(prs) != 2 || prs[1].HeadSHA != "sha138b" {
+		t.Fatalf("after the discard: loop %+v, pass 2 reviews %+v", loop, prs)
+	}
+}
