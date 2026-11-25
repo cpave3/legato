@@ -20,7 +20,8 @@ const workflowRunSelect = `SELECT id, workflow_name, workflow_title, definition_
 	COALESCE(task_id, '') AS task_id, error, created_at, started_at, completed_at,
 	COALESCE(related_task_id, '') AS related_task_id,
 	COALESCE(trigger_request_id, '') AS trigger_request_id,
-	COALESCE(parent_run_id, '') AS parent_run_id, parent_step_path, outputs_json, schema_version,
+	COALESCE(parent_run_id, '') AS parent_run_id, parent_step_path, COALESCE(parent_attempt, 0) AS parent_attempt,
+	outputs_json, schema_version,
 	COALESCE((SELECT title FROM tasks WHERE tasks.id = workflow_runs.related_task_id), '') AS related_task_title
 	FROM workflow_runs`
 
@@ -58,6 +59,9 @@ type WorkflowRun struct {
 	// started this run as its child (LEG-489); empty for any other run.
 	ParentRunID    string `db:"parent_run_id" json:"parent_run_id,omitempty"`
 	ParentStepPath string `db:"parent_step_path" json:"parent_step_path,omitempty"`
+	// ParentAttempt is the number of the step's attempt that started it:
+	// the three are unique together (CreateChildWorkflowRun).
+	ParentAttempt int `db:"parent_attempt" json:"parent_attempt,omitempty"`
 	// OutputsJSON is the run's own outputs, computed when it succeeds.
 	OutputsJSON string `db:"outputs_json" json:"outputs_json,omitempty"`
 	// SchemaVersion is the schema version of the definition the run runs.
@@ -193,9 +197,12 @@ type WorkflowRunView struct {
 	// running, "running", or "waiting" while it waits on the operator.
 	// CanResumeAgent says whether Resume agent is offered now. The service
 	// fills them (LEG-614).
-	ResumeTaskID     string `json:"resume_task_id,omitempty"`
-	ResumeAgentState string `json:"resume_agent_state,omitempty"`
-	CanResumeAgent   bool   `json:"can_resume_agent,omitempty"`
+	// OutputWarnings name each of a succeeded run's declared outputs that
+	// could not be resolved (LEG-489); the service fills them.
+	OutputWarnings   []string `json:"output_warnings,omitempty"`
+	ResumeTaskID     string   `json:"resume_task_id,omitempty"`
+	ResumeAgentState string   `json:"resume_agent_state,omitempty"`
+	CanResumeAgent   bool     `json:"can_resume_agent,omitempty"`
 }
 
 // RetitleWorkflowRun gives a run, and its task when it has one, a new title:
@@ -214,24 +221,75 @@ func (s *Store) RetitleWorkflowRun(ctx context.Context, runID, title string) err
 // CreateWorkflowRun records a run and the step instances it has reached
 // at its start: its top-level steps.
 func (s *Store) CreateWorkflowRun(ctx context.Context, run WorkflowRun, steps []WorkflowStep) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		return insertWorkflowRun(ctx, tx, run, steps)
+	})
+}
+
+func insertWorkflowRun(ctx context.Context, tx *sqlx.Tx, run WorkflowRun, steps []WorkflowStep) error {
 	if run.SchemaVersion == 0 {
 		run.SchemaVersion = 1
 	}
 	if run.OutputsJSON == "" {
 		run.OutputsJSON = "{}"
 	}
-	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		if _, err := tx.NamedExecContext(ctx, `INSERT INTO workflow_runs
-			(id, workflow_name, workflow_title, definition_source, definition_digest, definition_json, inputs_json, status, current_step_id, task_id, related_task_id, trigger_request_id, parent_run_id, parent_step_path, outputs_json, schema_version, error, started_at)
-			VALUES (:id, :workflow_name, :workflow_title, :definition_source, :definition_digest, :definition_json, :inputs_json, :status, :current_step_id, NULLIF(:task_id,''), NULLIF(:related_task_id,''), NULLIF(:trigger_request_id,''), NULLIF(:parent_run_id,''), :parent_step_path, :outputs_json, :schema_version, :error, datetime('now'))`, run); err != nil {
+	if _, err := tx.NamedExecContext(ctx, `INSERT INTO workflow_runs
+		(id, workflow_name, workflow_title, definition_source, definition_digest, definition_json, inputs_json, status, current_step_id, task_id, related_task_id, trigger_request_id, parent_run_id, parent_step_path, parent_attempt, outputs_json, schema_version, error, started_at)
+		VALUES (:id, :workflow_name, :workflow_title, :definition_source, :definition_digest, :definition_json, :inputs_json, :status, :current_step_id, NULLIF(:task_id,''), NULLIF(:related_task_id,''), NULLIF(:trigger_request_id,''), NULLIF(:parent_run_id,''), :parent_step_path, NULLIF(:parent_attempt, 0), :outputs_json, :schema_version, :error, datetime('now'))`, run); err != nil {
+		return err
+	}
+	for _, step := range steps {
+		if err := insertWorkflowStep(ctx, tx, step); err != nil {
 			return err
 		}
-		for _, step := range steps {
-			if err := insertWorkflowStep(ctx, tx, step); err != nil {
+	}
+	return nil
+}
+
+// CreateChildWorkflowRun records the child run of a workflow.run step's
+// attempt (run.ParentRunID, ParentStepPath and ParentAttempt), with the
+// steps it reaches at its start, and links the step to it (child_run_id),
+// in one transaction. When the attempt has a child already (a crash
+// between creating it and marking the step waiting) nothing is written:
+// it returns that child's ID, and created is false.
+func (s *Store) CreateChildWorkflowRun(ctx context.Context, run WorkflowRun, steps []WorkflowStep) (string, bool, error) {
+	if run.ParentRunID == "" || run.ParentStepPath == "" || run.ParentAttempt < 1 {
+		return "", false, fmt.Errorf("a child run needs its parent run, step and attempt")
+	}
+	id, created := run.ID, true
+	err := withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		var existing string
+		err := tx.GetContext(ctx, &existing, `SELECT id FROM workflow_runs WHERE parent_run_id = ? AND parent_step_path = ? AND parent_attempt = ?`, run.ParentRunID, run.ParentStepPath, run.ParentAttempt)
+		switch {
+		case err == nil:
+			id, created = existing, false
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		default:
+			if err := insertWorkflowRun(ctx, tx, run, steps); err != nil {
 				return err
 			}
 		}
-		return nil
+		return execOne(ctx, tx, `UPDATE workflow_steps SET child_run_id = ? WHERE run_id = ? AND path = ?`, id, run.ParentRunID, run.ParentStepPath)
+	})
+	if err != nil {
+		return "", false, err
+	}
+	return id, created, nil
+}
+
+// ListChildWorkflowRuns lists the child runs a run's workflow.run steps
+// started, oldest first.
+func (s *Store) ListChildWorkflowRuns(ctx context.Context, parentRunID string) ([]WorkflowRun, error) {
+	runs := []WorkflowRun{}
+	err := s.db.SelectContext(ctx, &runs, workflowRunSelect+` WHERE parent_run_id = ? ORDER BY created_at, rowid`, parentRunID)
+	return runs, err
+}
+
+// SetWorkflowRunOutputs keeps a succeeded run's own outputs.
+func (s *Store) SetWorkflowRunOutputs(ctx context.Context, runID, outputsJSON string) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		return execOne(ctx, tx, `UPDATE workflow_runs SET outputs_json = ? WHERE id = ? AND status = 'succeeded'`, outputsJSON, runID)
 	})
 }
 
@@ -584,9 +642,15 @@ func (s *Store) ListWorkflowAttemptsForRuns(ctx context.Context, runIDs []string
 // ListWaitingWorkflowAttemptsByExecutor lists the attempts of one executor
 // type that wait on its service, oldest first.
 func (s *Store) ListWaitingWorkflowAttemptsByExecutor(ctx context.Context, executorType string) ([]WorkflowStepAttempt, error) {
+	return s.ListWorkflowAttemptsByExecutor(ctx, executorType, "waiting")
+}
+
+// ListWorkflowAttemptsByExecutor lists the attempts of one executor type
+// in one status, oldest first.
+func (s *Store) ListWorkflowAttemptsByExecutor(ctx context.Context, executorType, status string) ([]WorkflowStepAttempt, error) {
 	attempts := []WorkflowStepAttempt{}
 	err := s.db.SelectContext(ctx, &attempts, "SELECT "+workflowAttemptColumns+` FROM workflow_step_attempts
-		WHERE executor_type = ? AND status = 'waiting' ORDER BY started_at, id`, executorType)
+		WHERE executor_type = ? AND status = ? ORDER BY started_at, id`, executorType, status)
 	return attempts, err
 }
 
@@ -616,12 +680,27 @@ type StepFailure struct {
 	// since its retry resets it at once and a continue would move the run
 	// past it.
 	Retired bool
+	// Status is the status output, failed when empty: a workflow.run step
+	// whose child was cancelled or stopped says so (LEG-489).
+	Status string
+	// Outputs are more outputs the failure has, such as the child run's
+	// run_id; they never replace status, error or error_code.
+	Outputs map[string]any
 }
 
-// FailureOutputs are the outputs a failed step has: status failed, error,
-// error_code and, when there is one, error_link.
+// FailureOutputs are the outputs a failed step has: status (failed unless
+// the failure says), error, error_code and, when there is one, error_link,
+// with any more the failure carries.
 func FailureOutputs(failure StepFailure) map[string]any {
-	outputs := map[string]any{"status": "failed", "error": failure.Message, "error_code": failure.Code}
+	outputs := make(map[string]any, len(failure.Outputs)+4)
+	for key, value := range failure.Outputs {
+		outputs[key] = value
+	}
+	status := failure.Status
+	if status == "" {
+		status = "failed"
+	}
+	outputs["status"], outputs["error"], outputs["error_code"] = status, failure.Message, failure.Code
 	if failure.Link != "" {
 		outputs["error_link"] = failure.Link
 	}

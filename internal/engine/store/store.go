@@ -567,6 +567,16 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 			migrationSQL, _, _ = strings.Cut(migrationSQL, "-- The run caller's record")
 		}
 	}
+	if strings.HasSuffix(name, "_workflow_child_runs.sql") {
+		// A legacy database built in part may have no workflow runs.
+		var tables int
+		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'workflow_runs'`); err != nil {
+			return "", err
+		}
+		if tables == 0 {
+			return "", nil
+		}
+	}
 	if name == "135_workflow_steps.sql" {
 		// A legacy database built in part may have no workflow tables to
 		// move.
