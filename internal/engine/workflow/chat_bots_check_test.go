@@ -21,6 +21,8 @@ on:
 steps:
   - {id: a, title: A, type: chat.message.send, with: {bot: discord, channel: C1, text: hi}}
   - {id: b, title: B, type: chat.message.send, with: {bot: "${{ workflow.inputs.bot }}", channel: C1, text: hi}}
+  - {id: c, title: C, type: chat.reaction.add, with: {bot: teams, channel: C1, message_id: "1.5", emoji: eyes}}
+  - {id: d, title: D, type: chat.reaction.remove, with: {bot: discord, channel: C1, message_id: "1.5", emoji: eyes}}
 `)
 	definition, diagnostics := workflow.Check("ops.yaml", data)
 	if definition == nil {
@@ -34,7 +36,7 @@ steps:
 		state, ok := bots[name]
 		return state, ok
 	})
-	if len(got) != 3 {
+	if len(got) != 5 {
 		t.Fatalf("diagnostics = %+v", got)
 	}
 	want := []struct {
@@ -46,6 +48,8 @@ steps:
 		{"on.chat.message.bot", workflow.SeverityWarning, 8, "switched off"},
 		{"on.chat.mention.bot", workflow.SeverityError, 10, `no bot named "teams"`},
 		{"steps[0].with.bot", workflow.SeverityWarning, 12, "not set up"},
+		{"steps[2].with.bot", workflow.SeverityError, 14, `no bot named "teams"`},
+		{"steps[3].with.bot", workflow.SeverityWarning, 15, "not set up"},
 	}
 	for i, w := range want {
 		if got[i].Path != w.path || got[i].Severity != w.severity || got[i].Line != w.line || !strings.Contains(got[i].Message, w.says) {

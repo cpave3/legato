@@ -281,6 +281,8 @@ func stepKey(step Step) GraphKey {
 		return first("body", "body_path")
 	case "chat.message.send":
 		return first("text", "channel")
+	case "chat.reaction.add", "chat.reaction.remove":
+		return first("emoji", "message_id")
 	case "task.metadata.set":
 		if values, ok := step.With["values"].(map[string]any); ok && len(values) > 0 {
 			keys := make([]string, 0, len(values))

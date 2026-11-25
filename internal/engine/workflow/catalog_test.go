@@ -12,7 +12,7 @@ import (
 // and here.
 var acceptedStepTypes = []string{
 	"agent.compact", "agent.dispatch", "agent.interview", "agent.run", "agent.stop",
-	"burnlite.task.close", "chat.message.send", "chimera.session.remove", "file.remove",
+	"burnlite.task.close", "chat.message.send", "chat.reaction.add", "chat.reaction.remove", "chimera.session.remove", "file.remove",
 	"github.pr.prepare", "github.pr.review_passes", "github.pr.wait",
 	"learning.packet.prepare", "learning.proposals.submit",
 	"repo.ensure", "task.context", "task.metadata.set", "task.move", "task.note",

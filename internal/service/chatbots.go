@@ -15,7 +15,8 @@ import (
 // Chat bots (LEG-624): a Slack bot over Socket Mode and a Discord bot over
 // the Gateway, each holding one outbound connection, so Legato needs no
 // public address. Workflows start on their messages (chat.message,
-// chat.mention) and post as them (chat.message.send).
+// chat.mention), post as them (chat.message.send) and react as them
+// (chat.reaction.add, chat.reaction.remove).
 
 // ChatEvent is a message a chat bot received, the same for every platform.
 type ChatEvent struct {
@@ -57,13 +58,16 @@ type SentMessage struct {
 // connects, calls connected once it is, hands each message to emit, and
 // returns when the session ends (ctx.Err() when ctx ends). Its errors wrap
 // ErrChatReconnect when the platform asked for a new session at once, and
-// ErrChatAuth when trying again cannot help. Send posts a message over the
-// platform's HTTP API and needs no session.
+// ErrChatAuth when trying again cannot help. Send posts a message, and
+// React adds the bot's reaction to one (or removes it), over the platform's
+// HTTP API; neither needs a session. A reaction already there, or one already
+// gone, is success.
 type ChatConnection interface {
 	Name() string
 	Platform() string
 	Run(ctx context.Context, emit func(ChatEvent), connected func()) error
 	Send(ctx context.Context, channel, text, threadID string) (SentMessage, error)
+	React(ctx context.Context, channel, messageID, emoji string, remove bool) error
 }
 
 var (
@@ -120,6 +124,11 @@ type ChatBotStatus struct {
 // ChatSender sends as a bot, for chat.message.send.
 type ChatSender interface {
 	Send(ctx context.Context, bot, channel, text, threadID string) (SentMessage, error)
+}
+
+// ChatReactor reacts as a bot, for chat.reaction.add and chat.reaction.remove.
+type ChatReactor interface {
+	React(ctx context.Context, bot, channel, messageID, emoji string, remove bool) error
 }
 
 // ChatBotDirectory says whether a bot of a name is set up, for workflow
@@ -310,29 +319,9 @@ func (b *ChatBots) Known(name string) (configured, enabled bool) {
 // after SendTimeout; a bot still connecting can send, as sending needs no
 // session.
 func (b *ChatBots) Send(ctx context.Context, name, channel, text, threadID string) (SentMessage, error) {
-	if b == nil {
-		return SentMessage{}, fmt.Errorf("%w: chat bots are not available in this process", ErrChatBotNotConnected)
-	}
-	b.mu.Lock()
-	bot, ok := b.bots[name]
-	var status ChatBotStatus
-	if ok {
-		status = bot.status
-	}
-	b.mu.Unlock()
-	switch {
-	case !ok:
-		return SentMessage{}, fmt.Errorf("%w named %q: set up Slack or Discord in Settings › Integrations", ErrChatBotUnknown, name)
-	case !bot.spec.Enabled:
-		return SentMessage{}, fmt.Errorf("bot %s: %w: it is switched off in Settings › Integrations", name, ErrChatBotNotConnected)
-	case status.State == ChatBotAuthFailed:
-		return SentMessage{}, fmt.Errorf("bot %s: %w: auth failed: %s; check its tokens in Settings › Integrations", name, ErrChatBotNotConnected, status.LastError)
-	}
-	if channel = strings.TrimSpace(channel); channel == "" {
-		channel = bot.spec.DefaultChannel
-	}
-	if channel == "" {
-		return SentMessage{}, fmt.Errorf("bot %s: no channel given, and the bot has no default channel", name)
+	bot, channel, err := b.ready(name, channel)
+	if err != nil {
+		return SentMessage{}, err
 	}
 	if strings.TrimSpace(text) == "" {
 		return SentMessage{}, fmt.Errorf("bot %s: the message is empty", name)
@@ -344,6 +333,62 @@ func (b *ChatBots) Send(ctx context.Context, name, channel, text, threadID strin
 		return SentMessage{}, fmt.Errorf("bot %s: sending to %s: %s", name, channel, scrubChatError(err.Error(), bot.spec.Secrets))
 	}
 	return sent, nil
+}
+
+// React adds the bot's emoji to a message, or removes it, as Send sends: in
+// the bot's default channel when channel is empty, refused at once for a bot
+// that cannot send, and given up after SendTimeout.
+func (b *ChatBots) React(ctx context.Context, name, channel, messageID, emoji string, remove bool) error {
+	bot, channel, err := b.ready(name, channel)
+	if err != nil {
+		return err
+	}
+	if messageID = strings.TrimSpace(messageID); messageID == "" {
+		return fmt.Errorf("bot %s: no message given to react to", name)
+	}
+	if strings.TrimSpace(emoji) == "" {
+		return fmt.Errorf("bot %s: no emoji given", name)
+	}
+	ctx, cancel := context.WithTimeout(ctx, b.SendTimeout)
+	defer cancel()
+	verb := "reacting to"
+	if remove {
+		verb = "removing a reaction from"
+	}
+	if err := bot.spec.Conn.React(ctx, channel, messageID, emoji, remove); err != nil {
+		return fmt.Errorf("bot %s: %s %s in %s: %s", name, verb, messageID, channel, scrubChatError(err.Error(), bot.spec.Secrets))
+	}
+	return nil
+}
+
+// ready is the bot of a name if it can call its platform, and the channel to
+// use: channel, else the bot's default channel.
+func (b *ChatBots) ready(name, channel string) (*chatBot, string, error) {
+	if b == nil {
+		return nil, "", fmt.Errorf("%w: chat bots are not available in this process", ErrChatBotNotConnected)
+	}
+	b.mu.Lock()
+	bot, ok := b.bots[name]
+	var status ChatBotStatus
+	if ok {
+		status = bot.status
+	}
+	b.mu.Unlock()
+	switch {
+	case !ok:
+		return nil, "", fmt.Errorf("%w named %q: set up Slack or Discord in Settings › Integrations", ErrChatBotUnknown, name)
+	case !bot.spec.Enabled:
+		return nil, "", fmt.Errorf("bot %s: %w: it is switched off in Settings › Integrations", name, ErrChatBotNotConnected)
+	case status.State == ChatBotAuthFailed:
+		return nil, "", fmt.Errorf("bot %s: %w: auth failed: %s; check its tokens in Settings › Integrations", name, ErrChatBotNotConnected, status.LastError)
+	}
+	if channel = strings.TrimSpace(channel); channel == "" {
+		channel = bot.spec.DefaultChannel
+	}
+	if channel == "" {
+		return nil, "", fmt.Errorf("bot %s: no channel given, and the bot has no default channel", name)
+	}
+	return bot, channel, nil
 }
 
 func (b *ChatBots) setStatus(bot *chatBot, state, lastError string, next *time.Time) {

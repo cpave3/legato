@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -47,7 +48,7 @@ func ChatBotDiagnostics(data []byte, d *Definition, lookup func(name string) (Ch
 		}
 	}
 	for i, step := range d.Steps {
-		if step.Type != "chat.message.send" {
+		if !strings.HasPrefix(step.Type, "chat.") {
 			continue
 		}
 		if name, ok := step.With["bot"].(string); ok && name != "" && !expressionPattern.MatchString(name) {

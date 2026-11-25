@@ -289,11 +289,20 @@ var (
 	promptField = Field{Name: "prompt", Kind: KindText, Label: "What it should do", Description: "What the agent is asked to do"}
 	macroField  = Field{Name: "macro", Kind: KindMacro, Label: "Macro", Description: "A macro to send in place of a prompt, by name; resolved when the step runs, so an edited macro applies to the next run",
 		Checked: true, Invalid: "must be the name of a macro"}
-	agentField   = Field{Name: "agent", Kind: KindAgent, Label: "Agent tool", Description: "Agent tool, such as claude-code, codex or chimera; the macro's, else the default, when empty"}
-	tierField    = Field{Name: "tier", Kind: KindTier, Label: "Tier", Description: "The agent tool's tier; the macro's when empty"}
-	prRepoField  = Field{Name: "repo", Kind: KindRepository, Label: "Pull request's repository", Description: "With macro: the GitHub repository (owner/name) of the pull request the macro is started on"}
-	prNumberFld  = Field{Name: "pr_number", Kind: KindInteger, Label: "Pull request number", Description: "With macro and repo: the number of the pull request the macro is started on"}
-	promptMacro  = Constraint{Kind: ExactlyOne, Fields: []string{"prompt", "macro"}, Checked: true}
+	agentField  = Field{Name: "agent", Kind: KindAgent, Label: "Agent tool", Description: "Agent tool, such as claude-code, codex or chimera; the macro's, else the default, when empty"}
+	tierField   = Field{Name: "tier", Kind: KindTier, Label: "Tier", Description: "The agent tool's tier; the macro's when empty"}
+	prRepoField = Field{Name: "repo", Kind: KindRepository, Label: "Pull request's repository", Description: "With macro: the GitHub repository (owner/name) of the pull request the macro is started on"}
+	prNumberFld = Field{Name: "pr_number", Kind: KindInteger, Label: "Pull request number", Description: "With macro and repo: the number of the pull request the macro is started on"}
+	promptMacro = Constraint{Kind: ExactlyOne, Fields: []string{"prompt", "macro"}, Checked: true}
+	// The fields every chat step shares (LEG-633).
+	chatBot            = Field{Name: "bot", Kind: KindChatBot, Label: "Bot", Description: "The bot, by name: slack or discord", Required: true, Checked: true, Pattern: ChatBotNamePattern, Invalid: "must be a bot's name, such as slack or discord", Essential: true, Order: 1}
+	chatChannel        = Field{Name: "channel", Kind: KindString, Label: "Channel", Description: "The channel's ID; the bot's default channel when empty", RequiredAtRun: true, Essential: true, Order: 2}
+	chatReactionFields = []Field{
+		chatBot,
+		chatChannel,
+		{Name: "message_id", Kind: KindString, Label: "Message", Description: "The message's ID: a chat trigger's ${{ event.message_id }} (with its ${{ event.channel }}), an earlier chat.message.send's message_id output, or any message's ID in the channel", Required: true, Essential: true, Order: 3},
+		{Name: "emoji", Kind: KindString, Label: "Emoji", Description: "An emoji's name without colons, such as eyes or white_check_mark, or the emoji itself; on Discord a custom emoji as name:id", Required: true, Essential: true, Order: 4},
+	}
 	wholeTask    = Field{Name: "task", Kind: KindTask, Label: "Task", Description: "The task: ${{ workflow.task }} or a task input", Required: true, Checked: true, Invalid: "must be a whole task reference"}
 	literalFalse = func(name, label, description string) Field {
 		return Field{Name: name, Kind: KindBoolean, Label: label, Description: description, Default: false, Literal: true, Checked: true, Invalid: "must be true or false"}
@@ -499,10 +508,10 @@ var catalog = []ExecutorSpec{
 		Type: "chat.message.send", Group: "Chat", Title: "Send a chat message",
 		Description: "Post a message as a Slack or Discord bot set up in Settings › Integrations. Fails at once when the bot is not set up or cannot send.",
 		With: []Field{
-			{Name: "bot", Kind: KindChatBot, Label: "Bot", Description: "The bot, by name: slack or discord", Required: true, Checked: true, Pattern: ChatBotNamePattern, Invalid: "must be a bot's name, such as slack or discord", Essential: true, Order: 1},
-			{Name: "channel", Kind: KindString, Label: "Channel", Description: "The channel's ID; the bot's default channel when empty", RequiredAtRun: true, Essential: true, Order: 2},
+			chatBot,
+			chatChannel,
 			{Name: "text", Kind: KindText, Label: "Message", Description: "The message: plain text or the platform's markdown", Required: true, Essential: true, Order: 3},
-			{Name: "thread_id", Kind: KindString, Label: "Reply to", Description: "A thread or message to reply to, such as ${{ event.thread_id }} of a chat trigger", Order: 4},
+			{Name: "thread_id", Kind: KindString, Label: "Reply to", Description: "A message or thread to reply to: a chat trigger's ${{ event.thread_id }} or ${{ event.message_id }}, an earlier step's message_id or thread_id, or any message's ID in the channel. On Slack it replies in that message's thread (give a thread's parent, which event.thread_id is); on Discord it is a reply to that message", Order: 4},
 		},
 		Summary: []string{"text"},
 		Outputs: []OutputSpec{
@@ -510,6 +519,20 @@ var catalog = []ExecutorSpec{
 			{Name: "channel", Type: "string", Description: "The channel it was sent to"},
 			{Name: "thread_id", Type: "string", Description: "What thread_id takes to reply in the same thread"},
 		},
+	},
+	{
+		Type: "chat.reaction.add", Group: "Chat", Title: "React to a chat message",
+		Description: "Add a chat bot's emoji reaction to a message. A reaction the bot has already left is fine. The Slack app needs the reactions:write scope; the Discord bot needs Add Reactions and Read Message History.",
+		With:        chatReactionFields,
+		Summary:     []string{"emoji"},
+		Outputs:     []OutputSpec{{Name: "ok", Type: "boolean", Description: "True once the reaction is there"}},
+	},
+	{
+		Type: "chat.reaction.remove", Group: "Chat", Title: "Remove a chat reaction",
+		Description: "Remove a chat bot's own emoji reaction from a message. A reaction that is not there is fine. Needs the same scope and permissions as adding one.",
+		With:        chatReactionFields,
+		Summary:     []string{"emoji"},
+		Outputs:     []OutputSpec{{Name: "ok", Type: "boolean", Description: "True once the reaction is gone"}},
 	},
 	{
 		Type: "github.pr.wait", Group: "Code", Title: "Wait for a pull request to merge",
