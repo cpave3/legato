@@ -83,6 +83,7 @@ describe("a chat message step", () => {
   it("asks for the bot, the channel, the message and what it replies to, in that order", () => {
     expect(stepForm("chat.message.send")!.fields.map(f => [f.name, f.kind])).toEqual([["bot", "chat_bot"], ["channel", "string"], ["text", "text"], ["thread_id", "string"]])
     expect(FIELD_KINDS).toContain("chat_bot")
+    expect(stepForm("chat.thread.read")!.fields.map(f => [f.name, f.kind])).toEqual([["bot", "chat_bot"], ["channel", "string"], ["thread_id", "string"], ["limit", "integer"], ["include_bots", "boolean"]])
   })
 
   it("offers the bots and writes the step", () => {

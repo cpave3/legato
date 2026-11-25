@@ -535,6 +535,23 @@ var catalog = []ExecutorSpec{
 		Outputs:     []OutputSpec{{Name: "ok", Type: "boolean", Description: "True once the reaction is gone"}},
 	},
 	{
+		Type: "chat.thread.read", Group: "Chat", Title: "Read a chat thread",
+		Description: "Read the thread a chat message is in, as a Slack or Discord bot set up in Settings › Integrations, for a later step: a Slack thread, a Discord thread, or the replies a Discord message ends. A message in no thread is a thread of one.",
+		With: []Field{
+			chatBot,
+			chatChannel,
+			{Name: "thread_id", Kind: KindString, Label: "Thread", Description: "The thread or message to read, such as ${{ event.thread_id }} of a chat trigger", Required: true, Essential: true, Order: 3},
+			{Name: "limit", Kind: KindInteger, Label: "Most messages", Description: "How many messages to keep, the parent included: the parent and the newest replies (1 to 200)", Default: 50, Order: 4},
+			literalFalse("include_bots", "Include bots' messages", "Keep messages other bots posted, the bot's own included; the thread's parent is always kept").at(5, false),
+		},
+		Summary: []string{"thread_id"},
+		Outputs: []OutputSpec{
+			{Name: "transcript", Type: "string", Description: "The thread as plain text, oldest first: each message's author and time, then its text with what it forwards quoted; at most 16 KiB, the oldest replies left out first"},
+			{Name: "messages", Type: "json", Description: "The messages in the transcript: id, author_id, author_name, at, text, forwarded, forwarded_url, parent and from_bot"},
+			{Name: "count", Type: "integer", Description: "How many messages the transcript holds"},
+		},
+	},
+	{
 		Type: "github.pr.wait", Group: "Code", Title: "Wait for a pull request to merge",
 		Description: "Wait until a pull request merges, or closes. Legato reads its state from GitHub when the step starts, after each refresh of a card's pull requests, and every few minutes.",
 		With: []Field{

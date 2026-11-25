@@ -53,7 +53,7 @@ var chatEventRoots = []ExpressionRoot{
 	{"event.user", "The ID of who sent the message"},
 	{"event.text", "The message's text, with any message it forwards quoted after it"},
 	{"event.message_id", "The message's ID"},
-	{"event.thread_id", "What chat.message.send's thread_id takes to reply to the message"},
+	{"event.thread_id", "What chat.message.send's thread_id takes to reply to the message, and chat.thread.read's to read its thread"},
 	{"event.forwarded", "true when the message forwards or shares another"},
 	{"event.forwarded_url", "The forwarded message's link; empty otherwise"},
 }

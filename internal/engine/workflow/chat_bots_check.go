@@ -13,12 +13,12 @@ type ChatBotState struct {
 	Configured, Enabled bool
 }
 
-// ChatBotDiagnostics checks the bots a definition's chat triggers and
-// chat.message.send steps name against this Legato's, which lookup gives
-// (ok false: no bot of the name). A name no Legato has is an error; a bot
-// not set up here, or switched off, is a warning, since a workflow file
-// may be shared by Legatos that differ. A step's bot given by ${{ }} is
-// checked when the step runs.
+// ChatBotDiagnostics checks the bots a definition's chat triggers and chat
+// steps name against this Legato's, which lookup gives (ok false: no bot of
+// the name). A name no Legato has is an error; a bot not set up here, or
+// switched off, is a warning, since a workflow file may be shared by
+// Legatos that differ. A step's bot given by ${{ }} is checked when the
+// step runs.
 func ChatBotDiagnostics(data []byte, d *Definition, lookup func(name string) (ChatBotState, bool)) []Diagnostic {
 	var root yaml.Node
 	if d == nil || yaml.Unmarshal(data, &root) != nil {

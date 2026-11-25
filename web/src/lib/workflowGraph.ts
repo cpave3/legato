@@ -54,6 +54,7 @@ const stepTypeLabels: Record<string, string> = {
   "chat.message.send": "Chat message",
   "chat.reaction.add": "Chat reaction",
   "chat.reaction.remove": "Remove reaction",
+  "chat.thread.read": "Chat thread",
 }
 
 export function stepTypeLabel(type: string): string {
