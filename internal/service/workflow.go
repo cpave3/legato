@@ -712,9 +712,8 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 		}
 		// if: is checked before anything else: a step it skips leaves its
 		// outputs missing.
-		if runs, err := s.stepRuns(ctx, definition, step.ID, inputs, prior, taskID); err != nil {
-			return err
-		} else if !runs {
+		runs, resolveErr := s.stepRuns(ctx, definition, step.ID, inputs, prior, taskID)
+		if resolveErr == nil && !runs {
 			path := workflowengine.StepPath("", step.ID)
 			if err := s.store.SkipWorkflowStep(ctx, runID, path, next); err != nil {
 				return err
@@ -723,17 +722,24 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 			index++
 			continue
 		}
-		resolved, err := s.resolveStep(ctx, definition, step.ID, inputs, prior, taskID)
-		if err != nil {
-			return err
+		// An if: or an expression that cannot be resolved, such as a
+		// skipped step's output with no fallback, fails the step below as
+		// its executor's error would, so its on_failure applies.
+		resolved := &workflowengine.ResolvedStep{With: map[string]any{}}
+		if resolveErr == nil {
+			if got, err := s.resolveStep(ctx, definition, step.ID, inputs, prior, taskID); err != nil {
+				resolveErr = err
+			} else {
+				resolved = got
+			}
 		}
-		if isTriggered && step.Type == "worktree.remove" {
+		if resolveErr == nil && isTriggered && step.Type == "worktree.remove" {
 			resolved.With["force"] = force
 		}
 		// A step that waits for the task's agent to end has nothing to wait
 		// for when no agent is running.
 		agentGone := step.Start == workflowengine.StartAgentEnded && !s.taskHasRunningAgent(ctx, taskID)
-		if step.WaitsForPerson() && !isTriggered && !agentGone {
+		if resolveErr == nil && step.WaitsForPerson() && !isTriggered && !agentGone {
 			resolvedJSON, _ := json.Marshal(resolved.With)
 			path := workflowengine.StepPath("", step.ID)
 			if err := s.store.WaitWorkflowStepManual(ctx, runID, path, string(resolvedJSON)); err != nil {
@@ -763,7 +769,10 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 		s.changed(ctx, runID, path, WorkflowChangeStepStarted)
 		started := ResolvedWorkflowStep{RunID: runID, AttemptID: attemptID, TaskID: taskID, RelatedTaskID: view.Run.RelatedTaskID, StepID: path, Title: step.Title, Type: step.Type, With: resolved.With, Outputs: resolved.Outputs}
 		var result WorkflowExecutionResult
-		execErr := s.resolveStepAgent(ctx, definition, runID, &started)
+		execErr := resolveErr
+		if execErr == nil {
+			execErr = s.resolveStepAgent(ctx, definition, runID, &started)
+		}
 		if execErr == nil {
 			result, execErr = s.executors[step.Type].Start(ctx, started)
 		}

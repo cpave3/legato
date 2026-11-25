@@ -461,3 +461,41 @@ func TestAGateReadsBodyPathOnlyFromTheRunsOwnFileOutputs(t *testing.T) {
 		}
 	})
 }
+
+// A step whose expressions cannot be resolved (here, an output of a step
+// if: skipped, with no fallback) fails as a step that started and failed
+// does, and follows its on_failure: the run is never left running at a
+// step with no attempt (LEG-486 review).
+func TestAStepWhoseExpressionsFailFollowsItsOnFailure(t *testing.T) {
+	for _, tc := range []struct {
+		onFailure, runStatus, stepStatus string
+	}{
+		{"fail", "failed", "failed"},
+		{"pause", "waiting", WorkflowStepPaused},
+		{"continue", "succeeded", "failed"},
+	} {
+		t.Run(tc.onFailure, func(t *testing.T) {
+			note := &scriptedExecutor{typeName: "task.note"}
+			svc, _ := controlService(t, note)
+			view, err := svc.Start(context.Background(), parseControlWorkflow(t, fmt.Sprintf(`schema_version: 2
+name: missing
+title: Missing
+inputs:
+  produce: {type: boolean, default: false}
+steps:
+  - {id: a, if: {field: workflow.inputs.produce, equals: true}, type: task.note, with: {task: "${{ workflow.task }}", note: a}}
+  - {id: b, type: task.note, with: {task: "${{ workflow.task }}", note: "Summary: ${{ steps.a.outputs.note_id }}"}, on_failure: %s}
+`, tc.onFailure)), nil)
+			if view == nil {
+				t.Fatalf("Start gave no run: %v", err)
+			}
+			b := stepOf(t, view, "b")
+			if view.Run.Status != tc.runStatus || b.Status != tc.stepStatus || b.LatestAttempt != 1 || !strings.Contains(b.Error, "steps.a.outputs.note_id") {
+				t.Fatalf("run %s, b %s (attempt %d, error %q); want run %s, b %s with the missing output named", view.Run.Status, b.Status, b.LatestAttempt, b.Error, tc.runStatus, tc.stepStatus)
+			}
+			if len(note.starts) != 0 {
+				t.Fatalf("note starts = %+v", note.starts)
+			}
+		})
+	}
+}

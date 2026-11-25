@@ -945,7 +945,7 @@ Legato reads a version 1 file into the same model: `trigger: manual` is `start: 
 - `[n]` and `.field` reach into a JSON value: a `json` input, a step's `json` output, or a task's `metadata`. `[0]` is the first item and `[-1]` the last: `${{ steps.find.outputs.items[0].key }}`.
 - `a ?? b` is `b` when `a` has no value or is `null`. The empty string is a value. `b` may be another path, a quoted literal (`'none yet'` or `"none yet"`), `null`, `true`, `false` or a whole number, and you can chain them: `${{ workflow.inputs.base ?? steps.plan.outputs.base ?? 'main' }}`.
 - When the expression is a field's whole value, it keeps its type, so both sides of `??` must have the same type (a `json` value matches any). Within longer text, such as a prompt, the value is written as text and the types need not match.
-- A value that is not there (an input not given, a skipped step's output, an item past the end of a list) leaves a field whose whole value it is out of the step. Within longer text it fails the step: give it a fallback with `??`.
+- A value that is not there (an input not given, a skipped step's output, an item past the end of a list) leaves a field whose whole value it is out of the step. Within longer text it fails the step, which then does what its `on_failure` says: give it a fallback with `??`.
 - A trigger's `inputs` read the same way from what the trigger gives: `${{ task.metadata.labels[0] }}`, `${{ event.subject ?? event.text }}` or `"fix ${{ event.task }}: ${{ task.title }}"`. A mapping that reads nothing, whole or within text, leaves its input out: the input's default applies, and a required input with none is asked for.
 
 ### Running a step only sometimes: if:
