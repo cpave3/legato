@@ -303,8 +303,10 @@ var fieldSchemas = map[string]schemaObject{
 	"PRTrigger.max_runs_per_day": {"description": "Most runs for one task in a day before the loop stop asks; 0 for 3", "minimum": 0},
 	"PRTrigger.inputs":           {"description": "The run's inputs, by name: literals, or ${{ event.* }}", "context": "trigger." + TriggerPRChangesRequested},
 
-	"ChatTextMatch.contains": {"description": "The text contains this, ignoring case"},
-	"ChatTextMatch.regex":    {"description": "The text matches this Go regular expression (RE2); (?i) ignores case", "maxLength": MaxChatRegexLength},
+	"ChatTextMatch.contains":     {"description": "The text contains this, ignoring case"},
+	"ChatTextMatch.regex":        {"description": "The text matches this Go regular expression (RE2); (?i) ignores case", "maxLength": MaxChatRegexLength},
+	"ChatTextMatch.not_contains": {"description": "The text does not contain this, ignoring case"},
+	"ChatTextMatch.not_regex":    {"description": "The text does not match this Go regular expression (RE2); (?i) ignores case", "maxLength": MaxChatRegexLength},
 
 	"Condition.all":        {"description": "Every one of these matches"},
 	"Condition.any":        {"description": "At least one of these matches"},
@@ -407,6 +409,7 @@ func init() {
 			"user":             {"description": "Only messages from this user, by the platform's ID"},
 			"text":             {"description": "Only messages whose text matches"},
 			"include_bots":     {"description": "Also run on messages other bots post; the bot's own never start runs"},
+			"fallback":         {"description": "Fire only when no other enabled chat trigger on the same bot, of either kind, matched the message; its own filters still apply"},
 			"loop_item":        {"description": "What the loop stop counts runs by: the channel, or each thread", "enum": []string{ChatLoopChannel, ChatLoopThread}, "default": ChatLoopChannel},
 			"enabled":          {"description": "false makes the trigger start paused, until a Legato switches it on"},
 			"confirm":          {"description": "Ask the operator before each run"},

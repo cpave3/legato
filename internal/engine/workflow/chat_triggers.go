@@ -45,6 +45,10 @@ type ChatTrigger struct {
 	// IncludeBots lets messages other bots post start runs, which by
 	// default they do not. The bot's own messages never do.
 	IncludeBots bool `yaml:"include_bots,omitempty" json:"include_bots,omitempty"`
+	// Fallback makes the trigger fire only when no other enabled chat
+	// trigger on the same bot, of either kind, matched the message. Its
+	// own filters still apply.
+	Fallback bool `yaml:"fallback,omitempty" json:"fallback,omitempty"`
 	// LoopItem is what the loop stop counts runs by: channel or thread.
 	LoopItem      string         `yaml:"loop_item,omitempty" json:"loop_item,omitempty"`
 	Enabled       *bool          `yaml:"enabled,omitempty" json:"enabled,omitempty"`
@@ -61,10 +65,13 @@ type (
 )
 
 // ChatTextMatch is a chat trigger's test of a message's text: contains
-// (ignoring case) or regex (Go's RE2), exactly one.
+// (ignoring case) or regex (Go's RE2), at most one, and not_contains or
+// not_regex, which the text must not match. Every test given must hold.
 type ChatTextMatch struct {
-	Contains string `yaml:"contains,omitempty" json:"contains,omitempty"`
-	Regex    string `yaml:"regex,omitempty" json:"regex,omitempty"`
+	Contains    string `yaml:"contains,omitempty" json:"contains,omitempty"`
+	Regex       string `yaml:"regex,omitempty" json:"regex,omitempty"`
+	NotContains string `yaml:"not_contains,omitempty" json:"not_contains,omitempty"`
+	NotRegex    string `yaml:"not_regex,omitempty" json:"not_regex,omitempty"`
 }
 
 // ChatEventFields is what a chat trigger matches on.
@@ -114,13 +121,18 @@ func (m *ChatTextMatch) validate() error {
 	switch {
 	case m.Contains != "" && m.Regex != "":
 		return fmt.Errorf("text takes contains or regex, not both")
-	case m.Contains == "" && m.Regex == "":
-		return fmt.Errorf("text needs contains or regex")
-	case len(m.Regex) > MaxChatRegexLength:
-		return fmt.Errorf("text regex is longer than %d characters", MaxChatRegexLength)
-	case m.Regex != "":
-		if _, err := regexp.Compile(m.Regex); err != nil {
-			return fmt.Errorf("text regex: %w", err)
+	case m.Contains == "" && m.Regex == "" && m.NotContains == "" && m.NotRegex == "":
+		return fmt.Errorf("text needs contains, regex, not_contains or not_regex")
+	}
+	for _, field := range []struct{ name, pattern string }{{"regex", m.Regex}, {"not_regex", m.NotRegex}} {
+		if field.pattern == "" {
+			continue
+		}
+		if len(field.pattern) > MaxChatRegexLength {
+			return fmt.Errorf("text %s is longer than %d characters", field.name, MaxChatRegexLength)
+		}
+		if _, err := regexp.Compile(field.pattern); err != nil {
+			return fmt.Errorf("text %s: %w", field.name, err)
 		}
 	}
 	return nil
@@ -140,15 +152,28 @@ func (t ChatTrigger) Matches(e ChatEventFields) bool {
 	if t.User != "" && e.User != t.User {
 		return false
 	}
-	if t.Text != nil {
-		if t.Text.Contains != "" && !strings.Contains(strings.ToLower(e.Text), strings.ToLower(t.Text.Contains)) {
+	return t.Text == nil || t.Text.matches(e.Text)
+}
+
+// matches says whether text passes every test given.
+func (m *ChatTextMatch) matches(text string) bool {
+	lower := strings.ToLower(text)
+	if m.Contains != "" && !strings.Contains(lower, strings.ToLower(m.Contains)) {
+		return false
+	}
+	if m.NotContains != "" && strings.Contains(lower, strings.ToLower(m.NotContains)) {
+		return false
+	}
+	if m.Regex != "" {
+		re, err := regexp.Compile(m.Regex)
+		if err != nil || !re.MatchString(text) {
 			return false
 		}
-		if t.Text.Regex != "" {
-			re, err := regexp.Compile(t.Text.Regex)
-			if err != nil || !re.MatchString(e.Text) {
-				return false
-			}
+	}
+	if m.NotRegex != "" {
+		re, err := regexp.Compile(m.NotRegex)
+		if err != nil || re.MatchString(text) {
+			return false
 		}
 	}
 	return true
@@ -171,6 +196,13 @@ func (t *ChatTrigger) common() TriggerCommon {
 
 // describe is the trigger's summary in the workflow graph.
 func (t *ChatTrigger) describe(kind string) string {
+	if t.Fallback {
+		return t.describeMatch(kind) + " (fallback)"
+	}
+	return t.describeMatch(kind)
+}
+
+func (t *ChatTrigger) describeMatch(kind string) string {
 	if kind == TriggerChatMention {
 		if t.Channel != "" {
 			return "Mention of " + t.Bot + " in " + t.Channel

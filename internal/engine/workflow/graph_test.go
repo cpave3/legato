@@ -381,6 +381,7 @@ on:
   chat.mention:
     bot: discord
     enabled: false
+    fallback: true
 steps:
   - {id: say, title: Say, type: chat.message.send, with: {bot: slack, channel: C1, text: "On it"}}
   - {id: seen, title: Seen, type: chat.reaction.add, with: {bot: slack, channel: C1, message_id: "1.5", emoji: eyes}}
@@ -389,7 +390,7 @@ steps:
 
 func TestGraphLabelsChatTriggersAndSends(t *testing.T) {
 	graph := BuildGraph(mustParse(t, chatTriggers))
-	for kind, summary := range map[string]string{TriggerChatMessage: "Message in C1 on slack", TriggerChatMention: "Mention of discord"} {
+	for kind, summary := range map[string]string{TriggerChatMessage: "Message in C1 on slack", TriggerChatMention: "Mention of discord (fallback)"} {
 		node := nodeByID(graph, "trigger:"+kind)
 		if node == nil || node.Trigger == nil || node.Trigger.Summary != summary || node.Trigger.Definition == nil {
 			t.Fatalf("%s node = %+v", kind, node)

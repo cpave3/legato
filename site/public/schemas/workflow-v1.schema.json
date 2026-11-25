@@ -10,6 +10,15 @@
           "description": "The text contains this, ignoring case",
           "type": "string"
         },
+        "not_contains": {
+          "description": "The text does not contain this, ignoring case",
+          "type": "string"
+        },
+        "not_regex": {
+          "description": "The text does not match this Go regular expression (RE2); (?i) ignores case",
+          "maxLength": 512,
+          "type": "string"
+        },
         "regex": {
           "description": "The text matches this Go regular expression (RE2); (?i) ignores case",
           "maxLength": 512,
@@ -739,6 +748,10 @@
           "description": "false makes the trigger start paused, until a Legato switches it on",
           "type": "boolean"
         },
+        "fallback": {
+          "description": "Fire only when no other enabled chat trigger on the same bot, of either kind, matched the message; its own filters still apply",
+          "type": "boolean"
+        },
         "include_bots": {
           "description": "Also run on messages other bots post; the bot's own never start runs",
           "type": "boolean"
@@ -800,6 +813,10 @@
         },
         "enabled": {
           "description": "false makes the trigger start paused, until a Legato switches it on",
+          "type": "boolean"
+        },
+        "fallback": {
+          "description": "Fire only when no other enabled chat trigger on the same bot, of either kind, matched the message; its own filters still apply",
           "type": "boolean"
         },
         "include_bots": {

@@ -80,11 +80,44 @@ func TestChatTriggerValidation(t *testing.T) {
 		"undeclared input": "  chat.message:\n    bot: slack\n    inputs: {nope: x}\n",
 		"negative max":     "  chat.message:\n    bot: slack\n    max_runs_per_day: -1\n",
 		"bad loop item":    "  chat.message:\n    bot: slack\n    loop_item: user\n",
+		"bad not_regex":    "  chat.message:\n    bot: slack\n    text: {not_regex: \"(\"}\n",
+		"long not_regex":   "  chat.message:\n    bot: slack\n    text: {not_regex: \"" + strings.Repeat("a", 513) + "\"}\n",
+		"both, negatives":  "  chat.message:\n    bot: slack\n    text: {contains: a, regex: b, not_regex: c}\n",
 	}
 	for name, trigger := range cases {
 		if _, err := parseChat(t, trigger); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+	if _, err := parseChat(t, "  chat.message:\n    bot: slack\n    text: {not_regex: \"(\"}\n"); err == nil || !strings.Contains(err.Error(), "not_regex") {
+		t.Errorf("a bad not_regex is refused as %v, which does not name not_regex", err)
+	}
+	accepted := map[string]string{
+		"not_regex alone":     "  chat.message:\n    bot: slack\n    text: {not_regex: fix}\n",
+		"not_contains alone":  "  chat.message:\n    bot: slack\n    text: {not_contains: fix}\n",
+		"regex and not_regex": "  chat.message:\n    bot: slack\n    text: {regex: investigat, not_regex: fix}\n",
+		"contains and both":   "  chat.message:\n    bot: slack\n    text: {contains: a, not_contains: b, not_regex: c}\n",
+		"fallback":            "  chat.mention:\n    bot: slack\n    fallback: true\n",
+	}
+	for name, trigger := range accepted {
+		if _, err := parseChat(t, trigger); err != nil {
+			t.Errorf("%s: refused: %v", name, err)
+		}
+	}
+}
+
+func TestChatTriggerFallbackAndNegativesParse(t *testing.T) {
+	definition, err := parseChat(t, `  chat.mention:
+    bot: slack
+    fallback: true
+    text: {regex: "(?i)investigat", not_regex: "(?i)\\bfix", not_contains: lunch}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mention := definition.On.Chat(workflow.TriggerChatMention)
+	if !mention.Fallback || mention.Text.Regex != "(?i)investigat" || mention.Text.NotRegex != `(?i)\bfix` || mention.Text.NotContains != "lunch" {
+		t.Fatalf("chat.mention = %+v, text %+v", mention, mention.Text)
 	}
 }
 
@@ -109,12 +142,25 @@ func TestChatTriggerMatches(t *testing.T) {
 		{"all together", workflow.ChatTrigger{Bot: "slack", Channel: "C1", User: "U1", Text: &workflow.ChatTextMatch{Regex: `(?i)staging$`}}, event, true},
 		{"from a bot", workflow.ChatTrigger{Bot: "slack"}, workflow.ChatEventFields{Bot: "slack", Channel: "C1", FromBot: true}, false},
 		{"from a bot, included", workflow.ChatTrigger{Bot: "slack", IncludeBots: true}, workflow.ChatEventFields{Bot: "slack", Channel: "C1", FromBot: true}, true},
+		{"not_regex alone passes", workflow.ChatTrigger{Bot: "slack", Text: &workflow.ChatTextMatch{NotRegex: `(?i)fix`}}, slackText("investigate this"), true},
+		{"not_regex alone refuses", workflow.ChatTrigger{Bot: "slack", Text: &workflow.ChatTextMatch{NotRegex: `(?i)fix`}}, slackText("please FIX it"), false},
+		{"regex and not_regex", workflow.ChatTrigger{Bot: "slack", Text: &workflow.ChatTextMatch{Regex: `(?i)investigat`, NotRegex: `(?i)\bfix`}}, slackText("Investigate the outage"), true},
+		{"regex and not_regex, both match", workflow.ChatTrigger{Bot: "slack", Text: &workflow.ChatTextMatch{Regex: `(?i)investigat`, NotRegex: `(?i)\bfix`}}, slackText("investigate and fix"), false},
+		{"regex and not_regex, neither", workflow.ChatTrigger{Bot: "slack", Text: &workflow.ChatTextMatch{Regex: `(?i)investigat`, NotRegex: `(?i)\bfix`}}, slackText("lunch?"), false},
+		{"not_contains ignores case", workflow.ChatTrigger{Bot: "slack", Text: &workflow.ChatTextMatch{Contains: "deploy", NotContains: "STAGING"}}, event, false},
+		{"not_contains misses", workflow.ChatTrigger{Bot: "slack", Text: &workflow.ChatTextMatch{Contains: "deploy", NotContains: "prod"}}, event, true},
+		{"fallback filters as any trigger", workflow.ChatTrigger{Bot: "slack", Fallback: true, User: "U2"}, event, false},
+		{"fallback matches as any trigger", workflow.ChatTrigger{Bot: "slack", Fallback: true}, event, true},
 	}
 	for _, tc := range cases {
 		if got := tc.trigger.Matches(tc.event); got != tc.want {
 			t.Errorf("%s: Matches = %v, want %v", tc.name, got, tc.want)
 		}
 	}
+}
+
+func slackText(text string) workflow.ChatEventFields {
+	return workflow.ChatEventFields{Bot: "slack", Channel: "C1", User: "U1", Text: text}
 }
 
 func TestChatTriggerLoopItem(t *testing.T) {
