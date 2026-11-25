@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
@@ -238,4 +239,89 @@ func TestTheOpenStepLowersMaxReentriesAndKeepsReadyAndSteward(t *testing.T) {
 	if err != nil || rec.MaxReentries != 2 || !rec.Steward || !rec.AgentAuthor || rec.AuthorTask != "board-1" {
 		t.Fatalf("loop = %+v, %v", rec, err)
 	}
+}
+
+// openHoldCloseFile opens a loop, holds it at a gate while the tick
+// reviews, then closes it.
+const openHoldCloseFile = `schema_version: 2
+name: review-hold-close
+title: Review, hold, close
+inputs:
+  repo: {type: string, required: true}
+  pr_number: {type: integer, required: true}
+steps:
+  - id: open
+    title: Open
+    type: github.pr.review.open
+    with:
+      repo: ${{ workflow.inputs.repo }}
+      pr_number: ${{ workflow.inputs.pr_number }}
+  - id: hold
+    title: Hold
+    type: gate
+    with:
+      title: Hold the loop
+  - id: close
+    title: Close
+    type: github.pr.review.close
+    with:
+      loop: ${{ steps.open.outputs.loop_id }}
+`
+
+// A bottom layer whose approval from pass 1 stands (kept) is approved in
+// the close outputs, and each layer says whether GitHub has it a draft.
+func TestCloseOutputsCountAKeptApprovalAndReadTheDraftState(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	ctx := context.Background()
+	r.worker.ReviewGitHub.OpenStackedPR(21, "stack/one", "main", "sha21")
+	r.worker.ReviewGitHub.OpenStackedPR(22, "stack/two", "stack/one", "sha22")
+	r.worker.ReviewGitHub.Draft(21, true)
+	view := r.startFile(t, openHoldCloseFile, map[string]string{"repo": "acme/widget", "pr_number": "22"})
+	task := view.Run.TaskID
+	r.tick()
+	top := service.SubmittedFinding{PR: 22, Severity: "blocking", Title: "Greets nobody", Body: "An empty name prints a bare comma.",
+		FailureScenario: "greet(\"\") prints \"Hello, \".", Place: &service.ReviewPlace{Path: "greet.go", Line: 4}}
+	r.submit(t, task, service.ReviewSubmission{Summary: "One problem on the top.", Findings: []service.SubmittedFinding{top}})
+	r.tick()
+	r.worker.ReviewGitHub.Push(22, "sha22b")
+	r.worker.Checkout.Change("sha22b", "greet.go", 3, 5)
+	r.tick()
+	r.worker.Clock.Advance(3 * time.Minute)
+	r.tick()
+	finding := r.findingsOf(t, task)[0].ID
+	r.submit(t, task, service.ReviewSubmission{Summary: "Fixed.", Rulings: []service.SubmittedRuling{{Finding: finding, Status: "resolved", Reason: "guarded"}}})
+	r.tick()
+	r.tick()
+	if loop, _ := r.worker.Store.GetHandoffReview(ctx, task); loop == nil || loop.ConfirmedAt == "" {
+		t.Fatalf("the loop is not approved: %+v", loop)
+	}
+	if _, err := r.runs.Workflows.StepAction(ctx, view.Run.ID, "hold", "choose:Continue", ""); err != nil {
+		t.Fatal(err)
+	}
+	r.tick()
+	view = r.show(t, view.Run.ID)
+	closed := outputs(t, view, "close")
+	if closed["outcome"] != "approved" {
+		t.Fatalf("close outputs = %v", closed)
+	}
+	layers, _ := closed["prs"].([]any)
+	if len(layers) != 2 {
+		t.Fatalf("prs = %v", closed["prs"])
+	}
+	bottom, top2 := layers[0].(map[string]any), layers[1].(map[string]any)
+	if bottom["number"] != float64(21) || bottom["approved"] != true || bottom["draft"] != true {
+		t.Fatalf("bottom = %v; want approved (kept) and a draft", bottom)
+	}
+	if top2["number"] != float64(22) || top2["approved"] != true || top2["draft"] != false {
+		t.Fatalf("top = %v", top2)
+	}
+}
+
+func (r reviewRun) findingsOf(t *testing.T, taskID string) []store.HandoffReviewFinding {
+	t.Helper()
+	findings, err := r.worker.Store.ListHandoffReviewFindings(context.Background(), taskID)
+	if err != nil || len(findings) == 0 {
+		t.Fatalf("findings = %+v, %v", findings, err)
+	}
+	return findings
 }

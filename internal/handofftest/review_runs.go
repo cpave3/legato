@@ -21,8 +21,8 @@ type ReviewRuns struct {
 	Caller    *service.ReviewRunCaller
 	// Steps are the review loop steps (github.pr.review.open and the
 	// rest), run on the same caller.
-	Steps *service.ReviewLoopSteps
-	Clones    *FakeRunClones
+	Steps  *service.ReviewLoopSteps
+	Clones *FakeRunClones
 	// Discover is the PR tracking a run asks to look again when no task
 	// is linked to an agent-authored loop's pull request.
 	Discover *FakeDiscover

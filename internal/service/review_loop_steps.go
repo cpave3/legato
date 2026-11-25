@@ -661,21 +661,22 @@ func (c *ReviewRunCaller) closeOutputs(ctx context.Context, rec *store.ReviewLoo
 	withheld := false
 	prs := []map[string]any{}
 	for _, layer := range layers {
-		state := layer.State
+		state, draft := layer.State, layer.Draft
 		if c.opts.GitHub != nil {
-			if _, read, err := c.opts.GitHub.PullRequest(ctx, rec.Repo, layer.Number); err == nil {
-				state = read
+			if pr, read, err := c.opts.GitHub.PullRequest(ctx, rec.Repo, layer.Number); err == nil {
+				state, draft = read, pr.Draft
 			}
 		}
 		head := layer.CleanHead
 		if head == "" {
 			head = layer.PinnedHead
 		}
-		layerApproved := approved && events[layer.Number] == ReviewApprove
+		// An approval a later pass kept (the layer did not change) stands.
+		layerApproved := approved && (events[layer.Number] == ReviewApprove || events[layer.Number] == ReviewKept)
 		if approved && events[layer.Number] == ReviewComment && !rec.AgentAuthor {
 			withheld = true
 		}
-		prs = append(prs, map[string]any{"number": layer.Number, "url": layer.URL, "state": state, "draft": layer.Draft,
+		prs = append(prs, map[string]any{"number": layer.Number, "url": layer.URL, "state": state, "draft": draft,
 			"author_task": layer.AuthorTask, "approved": layerApproved, "head_sha": head, "review_url": layer.ReviewURL})
 	}
 	path, err := c.writeSummary(ctx, rec, counts)

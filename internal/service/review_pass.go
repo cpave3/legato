@@ -94,6 +94,8 @@ type ReviewGitHubPR struct {
 	// HeadRepo is the repository (owner/name) its head branch is in; ""
 	// when not read.
 	HeadRepo string
+	// Draft says the pull request is a draft (as read by PullRequest).
+	Draft bool
 	// Fetched says the author's checkout has no local branch of this
 	// name: Legato fetched its head for review, and its tip is not
 	// compared.

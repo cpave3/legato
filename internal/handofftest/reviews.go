@@ -701,6 +701,18 @@ func (w *Worker) typedTo(session string) string {
 	return strings.Join(w.Tmux.Typed(session), "\n")
 }
 
+// Draft makes an open pull request a draft, or ready.
+func (f *FakeReviewGitHub) Draft(number int, draft bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for branch, pr := range f.prs {
+		if pr.Number == number {
+			pr.Draft = draft
+			f.prs[branch] = pr
+		}
+	}
+}
+
 // ClosePR closes a pull request.
 func (f *FakeReviewGitHub) ClosePR(number int) {
 	f.mu.Lock()
