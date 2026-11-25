@@ -166,7 +166,7 @@ func TestASlottedStepIsPromptedInItsSlot(t *testing.T) {
 	if _, err := workflows.PromptStep(ctx, view.Run.ID, "triage"); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.ContainsFunc(sentTo("legato-LEG-7_triage"), func(line string) bool { return strings.Contains(line, "Continue your workflow assignment") }) {
+	if !slices.ContainsFunc(sentTo("legato-LEG-7_triage"), func(line string) bool { return strings.HasPrefix(line, "[legato workflow] Continue your workflow assignment") }) {
 		t.Fatalf("sent to the triage agent: %q", sentTo("legato-LEG-7_triage"))
 	}
 	if len(sentTo("legato-LEG-7")) != before {

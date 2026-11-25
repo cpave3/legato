@@ -86,14 +86,24 @@ func (s *WorkflowService) processAdvance(ctx context.Context, advance store.Work
 }
 
 // keepsAgent reports whether the step leaves its agent running once its
-// outputs are in (keep_agent), for a later step to end.
+// outputs are in, for a later step to end: keep (keep_agent in version 1),
+// or an agent on a task (on: <task>) without stop.
 func keepsAgent(step store.WorkflowStep) bool {
 	var with map[string]any
 	if err := json.Unmarshal([]byte(step.ResolvedInputsJSON), &with); err != nil {
 		return false
 	}
+	return stepKeepsAgent(with)
+}
+
+func stepKeepsAgent(with map[string]any) bool {
+	if workflowengine.AgentOnTask(with) {
+		stop, _ := with["stop"].(bool)
+		return !stop
+	}
 	keep, _ := with["keep_agent"].(bool)
-	return keep
+	kept, _ := with["keep"].(bool)
+	return keep || kept
 }
 
 // startNextStep starts the step after a recorded one, when the run is

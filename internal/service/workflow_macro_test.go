@@ -43,10 +43,10 @@ func TestAWorkflowAgentStepResolvesTheMacrosCurrentText(t *testing.T) {
 	if err := svc.Save(ctx, "Review", macros.Macro{Keys: "Edited."}, "web"); err != nil {
 		t.Fatal(err)
 	}
-	dispatcher := &fakeTaskAgentDispatcher{store: db}
-	dispatch := NewAgentDispatchExecutor(dispatcher, db)
-	dispatch.SetMacros(svc)
-	if _, err := dispatch.Start(ctx, ResolvedWorkflowStep{With: map[string]any{"task": map[string]any{"id": "task-1"}, "macro": "Review", "working_dir": "/repo"}}); err != nil {
+	dispatcher := &fakeWorkflowAgentService{}
+	dispatchRun := NewAgentRunExecutor(dispatcher)
+	dispatchRun.SetMacros(svc)
+	if _, err := NewAgentDispatchExecutor(dispatchRun).Start(ctx, ResolvedWorkflowStep{With: map[string]any{"task": map[string]any{"id": "task-1"}, "macro": "Review", "working_dir": "/repo"}}); err != nil {
 		t.Fatal(err)
 	}
 	if dispatcher.opts.Assignment != "Task task-1: Fix login\n\nEdited." {
@@ -63,7 +63,8 @@ func TestAWorkflowStepWithAnUnknownMacroFails(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `macro "nope"`) {
 		t.Fatalf("err = %v", err)
 	}
-	dispatch := NewAgentDispatchExecutor(&fakeTaskAgentDispatcher{store: db}, db)
+	_ = db
+	dispatch := NewAgentDispatchExecutor(NewAgentRunExecutor(&fakeWorkflowAgentService{}))
 	if _, err := dispatch.Start(context.Background(), ResolvedWorkflowStep{With: map[string]any{"task": map[string]any{"id": "task-1"}, "macro": "Plan", "working_dir": "/r"}}); err == nil || !strings.Contains(err.Error(), "macros") {
 		t.Fatalf("no macro service: %v", err)
 	}
@@ -91,10 +92,10 @@ func TestADispatchedMacroOnAPullRequestNamesTheTaskAndPR(t *testing.T) {
 	if err := db.CreateTask(ctx, store.Task{ID: "task-1", Title: "Fix login", Status: "Ready"}); err != nil {
 		t.Fatal(err)
 	}
-	dispatcher := &fakeTaskAgentDispatcher{store: db}
-	dispatch := NewAgentDispatchExecutor(dispatcher, db)
-	dispatch.SetMacros(NewMacroService(settings))
-	if _, err := dispatch.Start(ctx, ResolvedWorkflowStep{With: map[string]any{"task": map[string]any{"id": "task-1"}, "macro": "Address feedback", "repo": "acme/web", "pr_number": 12, "working_dir": ""}}); err != nil {
+	dispatcher := &fakeWorkflowAgentService{}
+	run := NewAgentRunExecutor(dispatcher)
+	run.SetMacros(NewMacroService(settings))
+	if _, err := NewAgentDispatchExecutor(run).Start(ctx, ResolvedWorkflowStep{With: map[string]any{"task": map[string]any{"id": "task-1"}, "macro": "Address feedback", "repo": "acme/web", "pr_number": 12, "working_dir": ""}}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(dispatcher.opts.Assignment, "Task task-1: Fix login\nPull request acme/web#12: https://github.com/acme/web/pull/12\n\nAddress the review feedback") {

@@ -33,6 +33,9 @@ type ResolvedWorkflowStep struct {
 	Type    string
 	With    map[string]any
 	Outputs map[string]workflowengine.Output
+	// Agent is the agent an agent.message or agent.stop step's agent:
+	// {from: <step>} names, which the service finds before the step starts.
+	Agent *WorkflowStepAgent
 }
 
 type WorkflowExecutionResult struct {
@@ -444,7 +447,7 @@ func (s *WorkflowService) PromptStep(ctx context.Context, runID, stepID string) 
 		if !ok {
 			return nil, fmt.Errorf("workflow step %q cannot be prompted", stepID)
 		}
-		message := "Continue your workflow assignment now. The step is not complete; finish the declared outputs and run the exact completion command from your assignment."
+		message := WorkflowMessageTag + "Continue your workflow assignment now. The step is not complete; finish the declared outputs and run the exact completion command from your assignment."
 		if err := prompter.Prompt(ctx, attempt, message); err != nil {
 			return nil, err
 		}
@@ -709,7 +712,12 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 			return err
 		}
 		s.changed(ctx, runID, path, WorkflowChangeStepStarted)
-		result, execErr := s.executors[step.Type].Start(ctx, ResolvedWorkflowStep{RunID: runID, AttemptID: attemptID, TaskID: taskID, RelatedTaskID: view.Run.RelatedTaskID, StepID: path, Title: step.Title, Type: step.Type, With: resolved.With, Outputs: resolved.Outputs})
+		started := ResolvedWorkflowStep{RunID: runID, AttemptID: attemptID, TaskID: taskID, RelatedTaskID: view.Run.RelatedTaskID, StepID: path, Title: step.Title, Type: step.Type, With: resolved.With, Outputs: resolved.Outputs}
+		var result WorkflowExecutionResult
+		execErr := s.resolveStepAgent(ctx, definition, runID, &started)
+		if execErr == nil {
+			result, execErr = s.executors[step.Type].Start(ctx, started)
+		}
 		if execErr != nil {
 			if err := s.store.FailWorkflowStep(ctx, runID, path, attemptID, execErr.Error()); err == nil {
 				s.changed(ctx, runID, path, WorkflowChangeStepFailed)

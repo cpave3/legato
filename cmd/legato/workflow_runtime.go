@@ -107,12 +107,13 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 	agentRun := service.NewAgentRunExecutor(runner, binary)
 	agentRun.SetMacros(macros)
 	agentRun.SetScratchRoot(filepath.Join(config.ResolveDataDir(cfg), service.WorkflowScratchFolder), db.WorkflowAttemptInUse)
-	agentDispatch := service.NewAgentDispatchExecutor(agentSvc, db)
-	agentDispatch.SetMacros(macros)
+	agentMessage := service.NewAgentMessageExecutor(runner, db)
+	agentMessage.SetMacros(macros)
 	chatBots := chatBotsFor(cfg, db)
 	executors := []service.WorkflowExecutor{
 		agentRun,
-		agentDispatch,
+		service.NewAgentDispatchExecutor(agentRun),
+		agentMessage,
 		service.NewAgentStopExecutor(runner),
 		agentCompactExecutor(agentSvc),
 		service.NewChimeraSessionRemoveExecutor(db, chimera.NewSessionRemover("chimera")),

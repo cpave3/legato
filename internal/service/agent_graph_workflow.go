@@ -71,8 +71,13 @@ func (s *AgentGraphService) workflowPlaces(ctx context.Context, agents []AgentSe
 			add(agent.TaskID, agent.WorkflowRunID, path, AgentRoleAgent)
 		}
 		for _, attempt := range bySession[agent.ID] {
-			if attempt.ExecutorType == "agent.interview" {
+			switch {
+			case attempt.ExecutorType == "agent.interview":
 				add(agent.TaskID, attempt.RunID, attempt.Path, AgentRoleInterview)
+			case attempt.ExecutorType == "agent.run" && agent.WorkflowRunID == "":
+				// A task's own agent a step waits on (on: <task>), which
+				// has no run of its own.
+				add(agent.TaskID, attempt.RunID, attempt.Path, AgentRoleAgent)
 			}
 		}
 	}
