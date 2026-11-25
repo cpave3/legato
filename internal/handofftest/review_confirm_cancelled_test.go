@@ -38,7 +38,8 @@ func olderLegatoCleanThenCancelled(t testing.TB, path string) (runID, task strin
 		t.Fatal(err)
 	}
 	workflows := service.NewWorkflowService(db, []service.WorkflowExecutor{service.NewReviewPassesStep(), service.NewTaskNoteExecutor(db)})
-	view, err := workflows.Start(ctx, definition, pr12)
+	var view *store.WorkflowRunView
+	writeAsOlderLegato(t, db, func() { view, err = workflows.Start(ctx, definition, pr12) })
 	if err != nil || view.Run.Status != "running" {
 		t.Fatalf("start: %+v, %v", view, err)
 	}
@@ -62,7 +63,8 @@ func olderLegatoCleanThenCancelled(t testing.TB, path string) (runID, task strin
 		task, at, task, dir, at, at, at, task); err != nil {
 		t.Fatal(err)
 	}
-	if view, err := workflows.Cancel(ctx, runID, "not needed"); err != nil || view.Run.Status != "cancelled" {
+	writeAsOlderLegato(t, db, func() { view, err = workflows.Cancel(ctx, runID, "not needed") })
+	if err != nil || view.Run.Status != "cancelled" {
 		t.Fatalf("cancel: %+v, %v", view, err)
 	}
 	return runID, task
