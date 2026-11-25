@@ -61,7 +61,7 @@ steps:
 
 On Discord, `${{ event.thread_id }}` is the thread's channel ID when the message is in a thread, so the reply goes into the thread. Otherwise it is the message's own ID, and the step sends its message as a reply to that message. See [Workflows](/legato/using/workflows/#chat-messages-and-mentions).
 
-Discord shows a bot's `:eyes:` as text, so Legato turns the common emoji names in a message (`:eyes:`, `:white_check_mark:`, `:tada:`, `:rocket:` and so on) into the emoji before sending. Names it does not know, and anything in `code`, are sent as written. An emoji written as itself always works.
+Discord shows a bot's `:eyes:` as text, so Legato turns the common emoji names in a message (`:eyes:`, `:white_check_mark:`, `:tada:`, `:rocket:` and so on) into the emoji before sending. Names it does not know, a custom emoji such as `<:rocket:123…>`, and anything in `code` are sent as written. An emoji written as itself always works.
 
 ### Forwarding a message to the bot
 
