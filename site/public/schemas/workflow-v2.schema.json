@@ -478,6 +478,116 @@
           "if": {
             "properties": {
               "type": {
+                "const": "github.pr.review.open"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.github.pr.review.open"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "github.pr.review.pass"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.github.pr.review.pass"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "github.pr.review.wait"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.github.pr.review.wait"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "github.pr.review.confirm"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.github.pr.review.confirm"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "github.pr.review.close"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.github.pr.review.close"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "burnlite.task.close"
               }
             },
@@ -895,6 +1005,11 @@
             "task.move",
             "github.pr.prepare",
             "github.pr.review_passes",
+            "github.pr.review.open",
+            "github.pr.review.pass",
+            "github.pr.review.wait",
+            "github.pr.review.confirm",
+            "github.pr.review.close",
             "burnlite.task.close",
             "ticket.create",
             "ticket.comment",
@@ -1235,6 +1350,116 @@
             "properties": {
               "with": {
                 "$ref": "#/definitions/with.github.pr.review_passes"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "github.pr.review.open"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.github.pr.review.open"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "github.pr.review.pass"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.github.pr.review.pass"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "github.pr.review.wait"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.github.pr.review.wait"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "github.pr.review.confirm"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.github.pr.review.confirm"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "github.pr.review.close"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.github.pr.review.close"
               }
             },
             "required": [
@@ -1766,6 +1991,11 @@
             "task.move",
             "github.pr.prepare",
             "github.pr.review_passes",
+            "github.pr.review.open",
+            "github.pr.review.pass",
+            "github.pr.review.wait",
+            "github.pr.review.confirm",
+            "github.pr.review.close",
             "burnlite.task.close",
             "ticket.create",
             "ticket.comment",
@@ -3887,6 +4117,507 @@
         "type": "github.pr.prepare"
       }
     },
+    "with.github.pr.review.close": {
+      "additionalProperties": false,
+      "description": "Close a review loop and write its summary: its pull requests are free for another loop. A loop also closes by itself when its run ends; closing a closed loop changes nothing.",
+      "properties": {
+        "loop": {
+          "description": "The loop's ID: ${{ steps.\u003copen step\u003e.outputs.loop_id }}",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Review loop",
+            "order": 1
+          }
+        }
+      },
+      "required": [
+        "loop"
+      ],
+      "title": "Close a review loop",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Code",
+        "outputs": [
+          {
+            "description": "approved, closed, stuck or ended",
+            "name": "outcome",
+            "type": "string"
+          },
+          {
+            "description": "The passes posted",
+            "name": "passes",
+            "type": "integer"
+          },
+          {
+            "description": "The clean pass that approved the loop, or 0",
+            "name": "clean_pass",
+            "type": "integer"
+          },
+          {
+            "description": "When GitHub's heads were confirmed at the clean pass (RFC 3339), or empty",
+            "name": "confirmed_at",
+            "type": "string"
+          },
+          {
+            "description": "total, blocking, nits and open: the findings of every pass",
+            "name": "findings",
+            "type": "json"
+          },
+          {
+            "description": "Each pull request: number, url, state, draft, author_task, approved, head_sha (the confirmed head, else the last pinned) and review_url",
+            "name": "prs",
+            "type": "json"
+          },
+          {
+            "description": "true when the loop is approved but a pull request got a COMMENT instead of an APPROVE, because its author is outside the repository",
+            "name": "approval_withheld",
+            "type": "boolean"
+          },
+          {
+            "description": "A Markdown summary of every pass",
+            "name": "summary_path",
+            "type": "string"
+          },
+          {
+            "description": "The board task the pull requests belong to, or empty",
+            "name": "linked_task",
+            "type": "string"
+          },
+          {
+            "description": "The loop's ID",
+            "name": "loop_id",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "loop"
+        ],
+        "type": "github.pr.review.close"
+      }
+    },
+    "with.github.pr.review.confirm": {
+      "additionalProperties": false,
+      "description": "Read GitHub's heads after a clean pass: when each is the head the pass reviewed, the loop is approved; when one changed, the loop goes on to a new pass. It does not wait for pending checks.",
+      "properties": {
+        "loop": {
+          "description": "The loop's ID: ${{ steps.\u003copen step\u003e.outputs.loop_id }}",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Review loop",
+            "order": 1
+          }
+        }
+      },
+      "required": [
+        "loop"
+      ],
+      "title": "Confirm the clean pass",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Code",
+        "outputs": [
+          {
+            "description": "approved, or moved (another pass is needed); closed or stuck when the loop ended",
+            "name": "state",
+            "type": "string"
+          },
+          {
+            "description": "The clean pass confirmed, else the loop's last pass",
+            "name": "pass",
+            "type": "integer"
+          },
+          {
+            "description": "When the heads were confirmed (RFC 3339), or empty",
+            "name": "confirmed_at",
+            "type": "string"
+          },
+          {
+            "description": "The loop's ID",
+            "name": "loop_id",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "loop"
+        ],
+        "type": "github.pr.review.confirm"
+      }
+    },
+    "with.github.pr.review.open": {
+      "additionalProperties": false,
+      "description": "Open a review loop on an open pull request, its stack, or a list of pull requests: Legato's reviewer App reviews them in passes, and the loop holds them so that no other loop reviews them. The run's later review steps act on the loop by its ID. Needs review passes turned on.",
+      "properties": {
+        "agent_author": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "default": false,
+          "description": "Have the agent of the board task each pull request belongs to fix and answer the findings",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "boolean",
+            "label": "The author's agent fixes findings",
+            "order": 5
+          }
+        },
+        "max_passes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "Passes before the loop goes stuck; 0 for this Legato's setting",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "integer",
+            "label": "Most passes",
+            "order": 8
+          }
+        },
+        "max_reentries": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "Times a stewarded pull request may go back to review after approval; 0 for this Legato's setting, which a workflow may lower but never raise",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "integer",
+            "label": "Most re-entries",
+            "order": 9
+          }
+        },
+        "pr_number": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "description": "The pull request's number; or give prs",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "integer",
+            "label": "Pull request number",
+            "order": 2
+          }
+        },
+        "prs": {
+          "description": "The pull requests' numbers, bottom of the stack first, at most 20; or give pr_number",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "json",
+            "label": "Pull requests",
+            "order": 3
+          }
+        },
+        "ready": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "default": false,
+          "description": "Mark the stack's draft pull requests ready once the loop approves them",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "boolean",
+            "label": "Mark the stack ready",
+            "order": 10
+          }
+        },
+        "repo": {
+          "description": "GitHub repository (owner/name)",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "repository",
+            "label": "Repository",
+            "order": 1
+          }
+        },
+        "reviewer": {
+          "description": "Agent tool that reviews, or tool:tier, from those this Legato offers; its setting when empty",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "agent",
+            "label": "Reviewer",
+            "order": 6
+          }
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "enum": [
+                "stack",
+                "pr"
+              ],
+              "type": "string"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "default": "stack",
+          "description": "With pr_number, stack: every open pull request of its stack; pr: this pull request only",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Reviews",
+            "order": 4
+          }
+        },
+        "skill": {
+          "description": "The review skill the reviewer is told to use, from those this Legato offers; its setting when empty",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Reviewer's skill",
+            "order": 7
+          }
+        },
+        "steward": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "default": false,
+          "description": "After approval, watch an agent-authored pull request until it merges, closes or goes idle, and send its author what GitHub reports; needs agent_author",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "boolean",
+            "label": "Look after it until it merges",
+            "order": 11
+          }
+        }
+      },
+      "required": [
+        "repo"
+      ],
+      "title": "Open a review loop",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Code",
+        "outputs": [
+          {
+            "description": "The loop's ID, which the run's later review steps take as loop",
+            "name": "loop_id",
+            "type": "string"
+          },
+          {
+            "description": "The board task the pull requests belong to, or empty",
+            "name": "linked_task",
+            "type": "string"
+          },
+          {
+            "description": "The pull requests the loop reviews, bottom first: number, url, branch, base, author_task",
+            "name": "prs",
+            "type": "json"
+          },
+          {
+            "description": "What Legato warns of, such as a reviewer on the author's own tool",
+            "name": "warnings",
+            "type": "json"
+          }
+        ],
+        "run_constraints": [
+          {
+            "fields": [
+              "pr_number",
+              "prs"
+            ],
+            "kind": "exactly_one"
+          },
+          {
+            "fields": [
+              "prs",
+              "scope"
+            ],
+            "kind": "excludes"
+          }
+        ],
+        "summary": [
+          "repo"
+        ],
+        "type": "github.pr.review.open"
+      }
+    },
+    "with.github.pr.review.pass": {
+      "additionalProperties": false,
+      "description": "Run one review pass of a loop: Legato pins every open pull request's head, a read-only reviewer reviews them, and the pass is posted as one GitHub review per pull request from the reviewer App: APPROVE when clean, else COMMENT. A pass whose head changed on GitHub before it posted is pinned again; a reviewer that dies runs the pass once more. When the loop is stuck the step waits with Run another pass, Message the author and End.",
+      "properties": {
+        "loop": {
+          "description": "The loop's ID: ${{ steps.\u003copen step\u003e.outputs.loop_id }}",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Review loop",
+            "order": 1
+          }
+        }
+      },
+      "required": [
+        "loop"
+      ],
+      "title": "Run a review pass",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Code",
+        "outputs": [
+          {
+            "description": "clean or changes; empty when the loop ended",
+            "name": "verdict",
+            "type": "string"
+          },
+          {
+            "description": "posted; stuck when the operator ended the stuck loop; closed when its pull requests closed",
+            "name": "state",
+            "type": "string"
+          },
+          {
+            "description": "The pass's number",
+            "name": "pass",
+            "type": "integer"
+          },
+          {
+            "description": "The loop's ID",
+            "name": "loop_id",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "loop"
+        ],
+        "type": "github.pr.review.pass"
+      }
+    },
+    "with.github.pr.review.wait": {
+      "additionalProperties": false,
+      "description": "Wait while the author works on a pass's findings: Legato tells an agent author of them once it is idle (resuming it when it has stopped), and the wait ends when the author pushes, disputes a blocking finding, or the pull requests close. A person author gets a quiet time after a push.",
+      "properties": {
+        "loop": {
+          "description": "The loop's ID: ${{ steps.\u003copen step\u003e.outputs.loop_id }}",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Review loop",
+            "order": 1
+          }
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "author"
+              ],
+              "type": "string"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "default": "author",
+          "description": "author: the author's round",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Waits for",
+            "order": 2
+          }
+        }
+      },
+      "required": [
+        "loop"
+      ],
+      "title": "Wait for the author",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Code",
+        "outputs": [
+          {
+            "description": "ready (the author is done), closed, or stuck when the operator ended the stuck loop",
+            "name": "state",
+            "type": "string"
+          },
+          {
+            "description": "The loop's ID",
+            "name": "loop_id",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "loop"
+        ],
+        "type": "github.pr.review.wait"
+      }
+    },
     "with.github.pr.review_passes": {
       "additionalProperties": false,
       "description": "Review an open pull request (or its stack) in passes posted as GitHub reviews from Legato's reviewer App, until a clean pass approves it. Needs review passes turned on.",
@@ -5998,6 +6729,157 @@
         ],
         "title": "Review a pull request in passes",
         "type": "github.pr.review_passes"
+      },
+      {
+        "description": "Open a review loop on an open pull request, its stack, or a list of pull requests: Legato's reviewer App reviews them in passes, and the loop holds them so that no other loop reviews them. The run's later review steps act on the loop by its ID. Needs review passes turned on.",
+        "group": "Code",
+        "outputs": [
+          {
+            "name": "loop_id",
+            "type": "string"
+          },
+          {
+            "name": "linked_task",
+            "type": "string"
+          },
+          {
+            "name": "prs",
+            "type": "json"
+          },
+          {
+            "name": "warnings",
+            "type": "json"
+          }
+        ],
+        "summary": [
+          "repo"
+        ],
+        "title": "Open a review loop",
+        "type": "github.pr.review.open"
+      },
+      {
+        "description": "Run one review pass of a loop: Legato pins every open pull request's head, a read-only reviewer reviews them, and the pass is posted as one GitHub review per pull request from the reviewer App: APPROVE when clean, else COMMENT. A pass whose head changed on GitHub before it posted is pinned again; a reviewer that dies runs the pass once more. When the loop is stuck the step waits with Run another pass, Message the author and End.",
+        "group": "Code",
+        "outputs": [
+          {
+            "name": "verdict",
+            "type": "string"
+          },
+          {
+            "name": "state",
+            "type": "string"
+          },
+          {
+            "name": "pass",
+            "type": "integer"
+          },
+          {
+            "name": "loop_id",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "loop"
+        ],
+        "title": "Run a review pass",
+        "type": "github.pr.review.pass"
+      },
+      {
+        "description": "Wait while the author works on a pass's findings: Legato tells an agent author of them once it is idle (resuming it when it has stopped), and the wait ends when the author pushes, disputes a blocking finding, or the pull requests close. A person author gets a quiet time after a push.",
+        "group": "Code",
+        "outputs": [
+          {
+            "name": "state",
+            "type": "string"
+          },
+          {
+            "name": "loop_id",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "loop"
+        ],
+        "title": "Wait for the author",
+        "type": "github.pr.review.wait"
+      },
+      {
+        "description": "Read GitHub's heads after a clean pass: when each is the head the pass reviewed, the loop is approved; when one changed, the loop goes on to a new pass. It does not wait for pending checks.",
+        "group": "Code",
+        "outputs": [
+          {
+            "name": "state",
+            "type": "string"
+          },
+          {
+            "name": "pass",
+            "type": "integer"
+          },
+          {
+            "name": "confirmed_at",
+            "type": "string"
+          },
+          {
+            "name": "loop_id",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "loop"
+        ],
+        "title": "Confirm the clean pass",
+        "type": "github.pr.review.confirm"
+      },
+      {
+        "description": "Close a review loop and write its summary: its pull requests are free for another loop. A loop also closes by itself when its run ends; closing a closed loop changes nothing.",
+        "group": "Code",
+        "outputs": [
+          {
+            "name": "outcome",
+            "type": "string"
+          },
+          {
+            "name": "passes",
+            "type": "integer"
+          },
+          {
+            "name": "clean_pass",
+            "type": "integer"
+          },
+          {
+            "name": "confirmed_at",
+            "type": "string"
+          },
+          {
+            "name": "findings",
+            "type": "json"
+          },
+          {
+            "name": "prs",
+            "type": "json"
+          },
+          {
+            "name": "approval_withheld",
+            "type": "boolean"
+          },
+          {
+            "name": "summary_path",
+            "type": "string"
+          },
+          {
+            "name": "linked_task",
+            "type": "string"
+          },
+          {
+            "name": "loop_id",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "loop"
+        ],
+        "title": "Close a review loop",
+        "type": "github.pr.review.close"
       },
       {
         "description": "Close the Burnlite ticket a task was imported from, with a reason and a summary. Needs Legato connected to Burnlite with write access.",

@@ -81,7 +81,7 @@ Ending a session withdraws the change sets still waiting for you; a suspended se
 
 ### Drafting a workflow
 
-Describe a routine to the Reeve ("every weekday at nine, write me a standup from yesterday's notes") and it can write the [workflow](/legato/using/workflows/) for you. It checks the definition as `legato workflow validate` does and fixes what is wrong, then proposes saving it to your workflows folder, which you approve like any change. Every trigger is saved paused (`enabled: false`), whatever the draft said: the Reeve never switches one on, and never overwrites a workflow of the same name. Switch it on in the **Workflows** tab when you are ready.
+Describe a routine to the Reeve ("every weekday at nine, write me a standup from yesterday's notes") and it can write the [workflow](/legato/using/workflows/) for you. It checks the definition as `legato workflow validate` does and fixes what is wrong, then proposes saving it to your workflows folder, which you approve like any change. It saves workflows as [schema version 2](/legato/using/workflows/#schema-version-2). Every trigger is saved paused (`enabled: false`), whatever the draft said: the Reeve never switches one on, and never overwrites a workflow of the same name. Switch it on in the **Workflows** tab when you are ready.
 
 ### Commands on the machine
 
