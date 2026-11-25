@@ -33,11 +33,21 @@ const sizes = { step: { width: 240, height: 76 }, runStep: { width: 240, height:
 // Where a group's inner nodes sit inside it, by role.
 const innerPlaces: Record<string, { x: number; y: number }> = { pass: { x: 20, y: 72 }, fixes: { x: 340 - 20 - 132, y: 72 } }
 
-function sizeOf(node: GraphNode, run = false) {
+type Size = { width: number; height: number }
+
+// A loop (graph version 2) is a box around its body's steps: its header
+// above them, a margin round them, at least a step's width.
+const repeatBox = { header: 92, runHeader: 112, pad: 16, minWidth: 280 }
+
+function sizeOf(node: GraphNode, run = false): Size {
   if (node.kind === "inner") return sizes.inner
-  if (node.kind === "step" && node.step?.group) return run ? sizes.runLoop : sizes.loop
+  if (node.kind === "step" && node.step?.group === "review_loop") return run ? sizes.runLoop : sizes.loop
+  if (node.kind === "step" && node.step?.group === "loop") return { width: repeatBox.minWidth, height: run ? repeatBox.runHeader : repeatBox.header }
   return node.kind === "trigger" ? sizes.trigger : run ? sizes.runStep : sizes.step
 }
+
+// isRepeat is a loop of graph version 2, drawn as a box holding its body.
+const isRepeat = (node: GraphNode | undefined) => node?.kind === "step" && node.step?.group === "loop"
 
 const stateTones: Record<NodeRunState, Tone> = { waiting: "idle", running: "live", needs: "needs", failed: "error", done: "done", skipped: "idle", suspended: "idle" }
 const stateIcons: Record<NodeRunState, LucideIcon> = { waiting: CircleDashed, running: CircleDot, needs: CircleAlert, failed: CircleX, done: CircleCheck, skipped: SkipForward, suspended: CirclePause }
@@ -123,6 +133,29 @@ function LoopNode({ data, selected }: NodeProps<FlowNode>) {
   </div>
 }
 
+// RepeatNode is a loop (graph version 2): a box holding its pass's steps,
+// with what it goes over, its state, and a mark for each pass so far.
+function RepeatNode({ data, selected, width, height }: NodeProps<FlowNode>) {
+  const step = data.node.step!
+  const state = data.extra?.state
+  return <div style={{ width, height }} className={cn("flex flex-col gap-0.5 rounded-xl border border-dashed bg-lw-surface/40 px-3 py-2 text-left font-lw text-lw-text", selected ? "border-lw-accent ring-2 ring-lw-accent-ring" : state ? stateBorders[state] : "border-lw-line-strong", state === "skipped" && "opacity-60")}>
+    <Handles direction={data.direction} />
+    <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-lw-text-2">
+      <Repeat size={13} aria-hidden="true" />{stepTypeLabel(step.type)}
+      {step.loop && <span className="normal-case tracking-normal">· at most {step.loop.max}</span>}
+      {(data.extra?.passes?.length ?? 0) > 0 && <span className="ml-auto flex items-center gap-1">
+        {data.extra!.passes!.map(pass => <span key={pass.pass} role="img" aria-label={`Pass ${pass.pass + 1}: ${runStateWords[pass.state]}`} title={`Pass ${pass.pass + 1}: ${runStateWords[pass.state]}`} className={cn("h-2 w-2 rounded-full border bg-current", toneText[stateTones[pass.state]])} />)}
+      </span>}
+    </span>
+    <span className="truncate text-[13px] font-semibold" title={step.title}>{step.title}</span>
+    {(step.loop?.summary || step.loop?.until) && <span className="truncate font-lw-mono text-[11px] text-lw-text-2" title={[step.loop?.summary, step.loop?.until && `until ${step.loop.until}`].filter(Boolean).join(", ")}>
+      {keyValueText([step.loop?.summary, step.loop?.until && `until ${step.loop.until}`].filter(Boolean).join(", "))}
+    </span>}
+    <RunLine extra={data.extra} />
+    {data.extra?.pass && <span className="text-[11px] text-lw-text-2">{data.extra.pass}</span>}
+  </div>
+}
+
 function InnerNode({ data }: NodeProps<FlowNode>) {
   return <div style={sizes.inner} className="flex items-center justify-center rounded-md border border-lw-line-strong bg-lw-raised px-2 text-center font-lw text-xs text-lw-text">
     <Handle id="r" type="source" position={Position.Right} isConnectable={false} className="!h-1 !w-1 !border-0 !bg-transparent" />
@@ -133,7 +166,7 @@ function InnerNode({ data }: NodeProps<FlowNode>) {
   </div>
 }
 
-const nodeTypes: NodeTypes = { step: StepNode, trigger: TriggerNode, loop: LoopNode, inner: InnerNode }
+const nodeTypes: NodeTypes = { step: StepNode, trigger: TriggerNode, loop: LoopNode, repeat: RepeatNode, inner: InnerNode }
 
 type LoopEdgeData = { back: boolean }
 
@@ -163,19 +196,66 @@ function DataEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
   </>
 }
 
-const edgeTypes: EdgeTypes = { data: DataEdge, loop: LoopEdge }
+type BranchEdgeData = { label: string; skip: boolean }
 
-// layout places the nodes once per graph. Only start and order edges shape
-// it; the other kinds are drawn over the result.
+// BranchEdge leads into a step with if:, labelled with its condition, or
+// (dashed) past it to where the run goes when it is skipped.
+function BranchEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd }: EdgeProps & { data?: BranchEdgeData }) {
+  const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, curvature: data?.skip ? 0.6 : 0.25 })
+  return <>
+    <BaseEdge id={id} path={path} markerEnd={markerEnd} style={{ stroke: "var(--color-lw-line-strong)", strokeWidth: 1.5, strokeDasharray: data?.skip ? "4 4" : undefined }} />
+    <EdgeLabelRenderer>
+      <span style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }} title={data?.label} className="nodrag nopan pointer-events-none absolute max-w-48 truncate rounded border border-lw-line bg-lw-ground px-1 font-lw-mono text-[10px] text-lw-text-2">{data?.label}</span>
+    </EdgeLabelRenderer>
+  </>
+}
+
+const edgeTypes: EdgeTypes = { data: DataEdge, loop: LoopEdge, branch: BranchEdge }
+
+// shapes is whether an edge shapes the layout: start, order and a branch
+// into a step, between nodes of one scope.
+const shapes = (edge: GraphWorkflowEdge) => edge.kind === "start" || edge.kind === "order" || (edge.kind === "branch" && !edge.skip)
+type GraphWorkflowEdge = WorkflowGraphModel["edges"][number]
+
+// layout places the nodes once per graph. Only the edges that shape it
+// (shapes) count; the other kinds are drawn over the result. A loop of
+// graph version 2 is laid out from the inside out: its body first, as a
+// graph of its own, whose size makes the loop's box.
 function layout(graph: WorkflowGraphModel, direction: "LR" | "TB", run: boolean): Omit<FlowNode, "ariaLabel">[] {
-  const g = new dagre.graphlib.Graph()
-  g.setGraph({ rankdir: direction, nodesep: 28, ranksep: 56, marginx: 8, marginy: 8 })
-  g.setDefaultEdgeLabel(() => ({}))
-  for (const node of graph.nodes) if (node.kind !== "inner") g.setNode(node.id, { ...sizeOf(node, run) })
-  for (const edge of graph.edges) if (edge.kind === "start" || edge.kind === "order") g.setEdge(edge.source, edge.target)
-  dagre.layout(g)
+  const byId = new Map(graph.nodes.map(node => [node.id, node]))
+  const sized = new Map<string, Size>()
+  const relative = new Map<string, { x: number; y: number }>()
+  // A scope's nodes: the run's own (no parent), or a loop's body.
+  const scopeOf = (node: GraphNode) => node.kind === "inner" ? null : node.parent && isRepeat(byId.get(node.parent)) ? node.parent : ""
+  const place = (scope: string): Size => {
+    const members = graph.nodes.filter(node => scopeOf(node) === scope)
+    for (const member of members) if (isRepeat(member)) {
+      const body = place(member.id)
+      const header = run ? repeatBox.runHeader : repeatBox.header
+      sized.set(member.id, body.width === 0 ? sizeOf(member, run) : { width: Math.max(repeatBox.minWidth, body.width + 2 * repeatBox.pad), height: header + body.height + repeatBox.pad })
+    }
+    if (members.length === 0) return { width: 0, height: 0 }
+    const g = new dagre.graphlib.Graph()
+    g.setGraph({ rankdir: direction, nodesep: 28, ranksep: 56, marginx: 0, marginy: 0 })
+    g.setDefaultEdgeLabel(() => ({}))
+    for (const member of members) g.setNode(member.id, { ...(sized.get(member.id) ?? sizeOf(member, run)) })
+    const inScope = new Set(members.map(member => member.id))
+    for (const edge of graph.edges) if (shapes(edge) && inScope.has(edge.source) && inScope.has(edge.target)) g.setEdge(edge.source, edge.target)
+    dagre.layout(g)
+    let maxX = 0, maxY = 0
+    for (const member of members) {
+      const at = g.node(member.id)
+      const size = sized.get(member.id) ?? sizeOf(member, run)
+      const x = at.x - size.width / 2, y = at.y - size.height / 2
+      relative.set(member.id, scope === "" ? { x: x + 8, y: y + 8 } : { x: x + repeatBox.pad, y: y + (run ? repeatBox.runHeader : repeatBox.header) })
+      maxX = Math.max(maxX, x + size.width)
+      maxY = Math.max(maxY, y + size.height)
+    }
+    return { width: maxX, height: maxY }
+  }
+  place("")
   return graph.nodes.map(node => {
-    const size = sizeOf(node, run)
+    const size = sized.get(node.id) ?? sizeOf(node, run)
     if (node.kind === "inner") return {
       id: node.id,
       type: "inner",
@@ -191,11 +271,12 @@ function layout(graph: WorkflowGraphModel, direction: "LR" | "TB", run: boolean)
       focusable: false,
       ariaRole: "img",
     }
-    const placed = g.node(node.id)
+    const inLoop = node.parent && isRepeat(byId.get(node.parent))
     return {
       id: node.id,
-      type: node.kind === "step" && node.step?.group ? "loop" : node.kind,
-      position: { x: placed.x - size.width / 2, y: placed.y - size.height / 2 },
+      type: isRepeat(node) ? "repeat" : node.kind === "step" && node.step?.group ? "loop" : node.kind,
+      ...(inLoop ? { parentId: node.parent, extent: "parent" as const } : {}),
+      position: relative.get(node.id) ?? { x: 0, y: 0 },
       width: size.width,
       height: size.height,
       data: { node, direction },
@@ -218,7 +299,10 @@ function edgesOf(graph: WorkflowGraphModel, selected: string | null): Edge[] {
     selectable: false,
     ariaLabel: dataEdgeName(edge, title),
   }))
-  const loops: Edge[] = graph.edges.filter(edge => edge.kind === "loop").map(edge => {
+  // A loop's own edges (into its pass, back from it) are drawn by its box;
+  // the review loop's join its inner nodes.
+  const inner = (id: string) => graph.nodes.find(node => node.id === id)?.kind === "inner"
+  const loops: Edge[] = graph.edges.filter(edge => edge.kind === "loop" && inner(edge.source) && inner(edge.target)).map(edge => {
     const back = graph.nodes.find(node => node.id === edge.source)?.inner?.role === "fixes"
     return {
       id: edge.id,
@@ -235,13 +319,27 @@ function edgesOf(graph: WorkflowGraphModel, selected: string | null): Edge[] {
       ariaLabel: back ? "Author fixes, then another review pass" : "Review pass, then author fixes",
     }
   })
+  // A branch past a body's last step leads to its own loop, which its box
+  // already says.
+  const parentOf = (id: string) => graph.nodes.find(node => node.id === id)?.parent
+  const branches: Edge[] = graph.edges.filter(edge => edge.kind === "branch" && parentOf(edge.source) !== edge.target).map(edge => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    type: "branch",
+    data: { label: edge.skip ? "skipped" : `if ${edge.condition ?? ""}`, skip: Boolean(edge.skip) },
+    markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: "var(--color-lw-line-strong)" },
+    focusable: false,
+    selectable: false,
+    ariaLabel: edge.skip ? `On to ${title(edge.target)} when a step is skipped` : `If ${edge.condition}, then ${title(edge.target)}`,
+  }))
   return [...loops, ...graph.edges.filter(edge => edge.kind === "start" || edge.kind === "order").map(edge => ({
     id: edge.id,
     source: edge.source,
     target: edge.target,
     focusable: false,
     selectable: false,
-  })), ...data]
+  })), ...branches, ...data]
 }
 
 function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, run = false, centerOn, className }: WorkflowGraphProps) {
@@ -302,7 +400,7 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, r
     if (!id) return
     event.preventDefault()
     const node = graph.nodes.find(item => item.id === id)
-    choose(node?.parent ?? id)
+    choose(node?.kind === "inner" && node.parent ? node.parent : id)
   }, [choose, graph])
   return <div ref={frame} onKeyDown={onKeyDown} className={cn("h-full min-h-[18rem] w-full", className)} style={{ "--xy-background-color": "var(--color-lw-ground)", "--xy-edge-stroke": "var(--color-lw-line-strong)", "--xy-minimap-background-color": "var(--color-lw-surface)", "--xy-minimap-mask-background-color": "color-mix(in srgb, var(--color-lw-ground) 70%, transparent)", "--xy-minimap-mask-stroke-color": "var(--color-lw-line-strong)", "--xy-minimap-node-background-color": "var(--color-lw-line-strong)", "--xy-controls-button-background-color": "var(--color-lw-surface)", "--xy-controls-button-color": "var(--color-lw-text)", "--xy-controls-button-border-color": "var(--color-lw-line)" } as React.CSSProperties}>
     <ReactFlow
@@ -321,7 +419,7 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, r
       selectionKeyCode={null}
       deleteKeyCode={null}
       zoomOnDoubleClick={false}
-      onNodeClick={(_, node) => choose(node.parentId ?? node.id)}
+      onNodeClick={(_, node) => choose(node.type === "inner" && node.parentId ? node.parentId : node.id)}
       onPaneClick={() => choose(null)}
     >
       <Background gap={20} size={1} />

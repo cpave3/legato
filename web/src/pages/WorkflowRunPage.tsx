@@ -22,6 +22,7 @@ import { StepYaml } from "../components/StepYaml"
 import { redactSecrets, runStateWords, stepTypeLabel, triggerName, yamlText, type GraphNode } from "../lib/workflowGraph"
 import { type RunNeedsYouRow, type RunRowStep } from "../lib/runNeedsYou"
 import { isTopStep, runStepTree, stepPathOf, type RunStepNode } from "../lib/workflowRunTree"
+import { instancesOf } from "../lib/workflowRunGraph"
 import { useApprovals } from "../hooks/useApprovals"
 import { agentLink, graphLink, secretValues, useRunGraphExtras } from "../hooks/useRunGraph"
 import { useQueryClient } from "@tanstack/react-query"
@@ -529,17 +530,21 @@ function clock(time?: string): string {
 // YAML from the run's own copy, with the run's secrets hidden.
 function RunStepPanel({ view, node, runId, secrets, state }: { view: WorkflowRunView; node: GraphNode; runId: string; secrets: string[]; state?: string }) {
   const graphStep = node.step!
-  const step = (view.steps ?? []).find(item => stepPathOf(item) === graphStep.id)
-  const attempts = (view.attempts ?? []).filter(attempt => stepPathOf(attempt) === graphStep.id)
-  const artifacts = (view.artifacts ?? []).filter(artifact => stepPathOf(artifact) === graphStep.id)
+  // A loop's body's step is shown at its newest pass (graph version 2).
+  const instances = instancesOf(view, graphStep.path || graphStep.id)
+  const step = instances[instances.length - 1]
+  const path = step ? stepPathOf(step) : graphStep.path || graphStep.id
+  const attempts = (view.attempts ?? []).filter(attempt => stepPathOf(attempt) === path)
+  const artifacts = (view.artifacts ?? []).filter(artifact => stepPathOf(artifact) === path)
   const inputs = step ? objectEntries(step.resolved_inputs_json) : []
   const outputs = step ? objectEntries(step.outputs_json).filter(([key]) => !artifacts.some(artifact => artifact.output_key === key)) : []
-  const details = view.details?.[graphStep.id] as ReviewRunDetails | undefined
+  const details = view.details?.[path] as ReviewRunDetails | undefined
   const yaml = redact(yamlText(redactSecrets(graphStep.definition, new Set(secrets))), secrets)
   return <aside aria-label={graphStep.title} className="flex min-w-0 flex-col gap-4 rounded-xl border border-lw-line bg-lw-surface p-4 text-[13px]">
     <div>
       <p className="text-[11px] font-medium uppercase tracking-wide text-lw-text-2">Step · {stepTypeLabel(graphStep.type)}{state && <> · {state}</>}</p>
       <h2 className="mt-0.5 text-[15px] font-semibold">{graphStep.title}</h2>
+      {step?.pass != null && <p className="text-lw-text-2">Pass {step.pass + 1}{instances.length > 1 && <> of the {instances.length} it ran in</>}</p>}
       {step?.error && <p className="mt-1 whitespace-pre-wrap break-words text-lw-error">{redact(step.error, secrets)}</p>}
       {step?.output_warning && <p className="mt-1 text-lw-needs">{step.output_warning}</p>}
       {step?.child_run_id && <p className="mt-1 text-lw-text-2">Child run <Link className="font-lw-mono text-xs text-lw-link" to={runLink(step.child_run_id)}>{step.child_run_id}</Link></p>}

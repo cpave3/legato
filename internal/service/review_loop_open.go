@@ -54,6 +54,17 @@ func OpenReviewLoopClones(ctx context.Context, db *store.Store) (map[int64]bool,
 	if err != nil {
 		return nil, err
 	}
+	// A loop an open step handed to its run is kept while it is open,
+	// whatever step of the run waits (a failed run's too, for Retry).
+	stepLoops, err := db.ListOpenReviewLoops(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, l := range stepLoops {
+		if l.OwnerKind == store.ReviewLoopOwnerRun && db.ReviewLoopOpenedByStep(ctx, l.AttemptID) {
+			attempts = append(attempts, store.WorkflowStepAttempt{TaskID: l.HostTask})
+		}
+	}
 	for _, attempt := range attempts {
 		run, err := readReviewRun(ctx, db, attempt.TaskID)
 		if err != nil {

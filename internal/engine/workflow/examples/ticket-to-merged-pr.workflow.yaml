@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 name: ticket-to-merged-pr
 title: Ticket to merged pull request
 run_title: ${{ workflow.inputs.task.id }} to a merged pull request
@@ -40,7 +40,7 @@ steps:
       task: ${{ workflow.inputs.task }}
       macro: ${{ workflow.inputs.macro }}
       repo: ${{ workflow.inputs.repo }}
-      keep_agent: true
+      keep: true
     outputs:
       pr_number: {type: integer, description: The number of the pull request the agent opened}
   - id: review

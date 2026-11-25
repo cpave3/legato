@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import { ArrowLeft, Copy, Pencil, Play } from "lucide-react"
 import { useWorkflows, useWorkflowRunsOf } from "../hooks/useWorkflow"
 import { useNow } from "../hooks/useNow"
@@ -75,14 +75,18 @@ export function WorkflowPage() {
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
   const { baseUrl } = useServer()
+  const navigate = useNavigate()
   const [copying, setCopying] = useState(false)
   const [copyError, setCopyError] = useState("")
   const copy = async () => {
     setCopying(true)
     setCopyError("")
     try {
-      await copyBuiltInWorkflow(baseUrl, name, "global")
+      const saved = await copyBuiltInWorkflow(baseUrl, name, "global")
       await definitions.refresh()
+      // A reserved built-in (review-loop) stays: its copy has a name of
+      // its own, which opens for editing.
+      if (saved.name !== name) navigate(`/workflows/${encodeURIComponent(saved.name)}/edit`)
     } catch (reason) {
       setCopyError(reason instanceof Error ? reason.message : String(reason))
     } finally {

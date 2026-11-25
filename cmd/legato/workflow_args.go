@@ -36,7 +36,7 @@ func parseWorkflowArgs(args []string) (positionals []string, flags map[string]st
 			}
 			return nil, nil, nil, fmt.Errorf("unknown flag --%s", key)
 		}
-		if name == "json" || name == "force" || name == "project" {
+		if name == "json" || name == "force" || name == "project" || name == "stdout" {
 			if _, exists := flags[name]; exists {
 				return nil, nil, nil, fmt.Errorf("flag --%s may only be specified once", name)
 			}

@@ -145,10 +145,14 @@ func (s *ReviewPassService) anotherPass(ctx context.Context, taskID string) erro
 		loop.Phase, loop.Reason = ReviewPhaseReviewing, ""
 		return s.saveChanged(ctx, loop)
 	}
+	// One more pass in the current window: its start moves on, and the
+	// limit stays, so the next window has the limit it always had.
 	settings := loopSettings(loop, s.config().Defaults)
-	if settings.MaxPasses > 0 && loop.Pass >= settings.MaxPasses {
-		settings.MaxPasses = loop.Pass + 1
-		if err := s.setSettings(ctx, loop, settings); err != nil {
+	if ws := s.windowStart(ctx, loop.LoopID); settings.MaxPasses > 0 && loop.Pass-ws >= settings.MaxPasses {
+		if _, err := s.db.UpdateHostedReviewLoop(ctx, taskID, func(t *store.ReviewLoopTx) error {
+			t.Loop.WindowStart = loop.Pass - settings.MaxPasses + 1
+			return nil
+		}); err != nil {
 			return err
 		}
 	}

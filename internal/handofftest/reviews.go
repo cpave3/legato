@@ -25,6 +25,9 @@ type ReviewPassOptions struct {
 	// CountedBots are review_passes.counted_bots as configured
 	// (cubic-dev-ai[bot] when nil).
 	CountedBots []string
+	// HoldApproval is the sign-off seam's hold (ReviewPassOptions
+	// .HoldApproval): nil holds nothing.
+	HoldApproval func(ctx context.Context, loopID string, pr int) bool
 }
 
 // FakeReviewGitHub is GitHub as review passes see it: open pull requests by
@@ -86,6 +89,58 @@ type FakeReviewGitHub struct {
 	// have gone by, outside the fake's lock (OnRead).
 	onRead     func()
 	onReadSkip int
+	// readied are the pull requests marked ready, in order, and
+	// refuseReady the one GitHub refuses to mark ready.
+	readied     []int
+	refuseReady int
+}
+
+// Draft makes an open pull request a draft, or ready.
+func (f *FakeReviewGitHub) Draft(number int, draft bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for branch, pr := range f.prs {
+		if pr.Number == number {
+			pr.Draft = draft
+			f.prs[branch] = pr
+		}
+	}
+}
+
+// RefuseReady makes GitHub refuse to mark the pull request ready.
+func (f *FakeReviewGitHub) RefuseReady(number int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.refuseReady = number
+}
+
+// Readied are the pull requests marked ready, in order.
+func (f *FakeReviewGitHub) Readied() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]int(nil), f.readied...)
+}
+
+// MarkReady marks a draft ready, as the author App does host-side; a
+// pull request already ready is left alone.
+func (f *FakeReviewGitHub) MarkReady(_ context.Context, _ string, number int) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if number == f.refuseReady {
+		return false, &service.GitHubError{Status: 403, Message: "Resource not accessible by integration"}
+	}
+	for branch, pr := range f.prs {
+		if pr.Number == number {
+			if !pr.Draft {
+				return false, nil
+			}
+			pr.Draft = false
+			f.prs[branch] = pr
+			f.readied = append(f.readied, number)
+			return true, nil
+		}
+	}
+	return false, &service.GitHubError{Status: 404, Message: "Not Found"}
 }
 
 // ReviewerLogin is the login the fake posts reviews as: the reviewer

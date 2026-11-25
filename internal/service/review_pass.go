@@ -94,6 +94,8 @@ type ReviewGitHubPR struct {
 	// HeadRepo is the repository (owner/name) its head branch is in; ""
 	// when not read.
 	HeadRepo string
+	// Draft says the pull request is a draft (as read by PullRequest).
+	Draft bool
 	// Fetched says the author's checkout has no local branch of this
 	// name: Legato fetched its head for review, and its tip is not
 	// compared.
@@ -188,6 +190,16 @@ type ReviewPassOptions struct {
 	// Overlay says whether the reviewer's checkout gets a throwaway layer
 	// (CheckoutOverlayProber); nil means it does not.
 	Overlay func() bool
+	// HoldApproval is the sign-off seam (spec LEG-559, LEG-555): it says
+	// legato-reviews' approval of a loop's pull request is held for the
+	// operator, so every path that would approve it later posts nothing
+	// (approveSettled), and github.pr.ready does not count it approved.
+	// Nil holds nothing; v1 sets none outside tests.
+	HoldApproval func(ctx context.Context, loopID string, pr int) bool
+	// WatchCadence is how often the steward's watch reads a loop
+	// (ReviewWatchCadence); zero fields are DefaultReviewWatchCadence's.
+	// The watch runs when GitHub is also a ReviewWatchGitHub.
+	WatchCadence ReviewWatchCadence
 	// Advert is this instance's review passes as /api/meta says them,
 	// which a main's override is checked against; nil refuses every
 	// override.
@@ -220,6 +232,13 @@ type ReviewPassService struct {
 	// authorStops is when each run loop's agent author was first seen
 	// stopped, for the author-mode wait's quiet time. In memory.
 	authorStops runAuthorStops
+
+	// The steward's watch (review_watch.go): when each loop's is due,
+	// one tick's watch at a time, and each loop's last read. In memory.
+	watchSchedule *ReviewWatchSchedule
+	watchRun      sync.Mutex
+	watchMu       sync.Mutex
+	watched       map[string]ReviewLoopWatch
 }
 
 // What a ready loop waits on before its next pass starts (ReviewLoopBlock's
@@ -287,7 +306,7 @@ func NewReviewPassService(db *store.Store, opts ReviewPassOptions) *ReviewPassSe
 	if opts.Run == nil {
 		opts.Run = func(f func()) { f() }
 	}
-	return &ReviewPassService{db: db, opts: opts}
+	return &ReviewPassService{db: db, opts: opts, watchSchedule: NewReviewWatchSchedule(opts.WatchCadence)}
 }
 
 func (s *ReviewPassService) config() ReviewPassConfig {
@@ -363,6 +382,17 @@ func (s *ReviewPassService) Tick(ctx context.Context) {
 	// did.
 	s.openWaiting(ctx)
 	s.sweepClosed(ctx)
+	// The steward's reads (spec LEG-559 C7). Not under the lock: they ask
+	// GitHub, and route nothing yet.
+	s.watchLoops(ctx)
+	s.moveLoops(ctx)
+	// Then the steps waiting on loops (close, and the rest): outside the
+	// lock, since ending one runs the workflow on.
+	s.settleSteps(ctx)
+}
+
+// moveLoops moves every caller's loops on, under the engine's lock.
+func (s *ReviewPassService) moveLoops(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	loops := s.loops(ctx)
@@ -523,7 +553,7 @@ func (s *ReviewPassService) ready(ctx context.Context, l ReviewLoop, loop *store
 	}
 	loop.Mismatches, loop.AuthorBusySinceNudge, loop.NudgedAt = 0, false, ""
 	settings := loopSettings(loop, s.config().Defaults)
-	if loop.Pass >= settings.MaxPasses && settings.MaxPasses > 0 {
+	if settings.MaxPasses > 0 && loop.Pass-s.windowStart(ctx, loop.LoopID) >= settings.MaxPasses {
 		reason := fmt.Sprintf("the review reached its limit of %d passes", settings.MaxPasses)
 		if findings, err := s.db.ListHandoffReviewFindings(ctx, l.TaskID); err == nil && notConverging(findings, loop.Pass) {
 			reason = fmt.Sprintf("passes %d and %d each found new blocking problems in the author's fixes, so the review stopped before pass %d for you to decide", loop.Pass-1, loop.Pass, loop.Pass+1)
@@ -643,6 +673,13 @@ func (s *ReviewPassService) startPass(ctx context.Context, l ReviewLoop, loop *s
 		return err
 	}
 	s.setWaiting(l.TaskID, "")
+	// A new pass: its reviewer has not died yet.
+	if _, err := s.db.UpdateHostedReviewLoop(ctx, l.TaskID, func(t *store.ReviewLoopTx) error {
+		t.Loop.PassDeaths = 0
+		return nil
+	}); err != nil {
+		log.Printf("review passes: %s: %v", l.TaskID, err)
+	}
 	s.changed(l.TaskID)
 	l.stage(ctx, ReviewStagePass)
 	// The author's work is up for review; the reviewer reviews again, a
@@ -711,9 +748,71 @@ func (s *ReviewPassService) watchReviewer(ctx context.Context, l ReviewLoop, loo
 		return s.unable(ctx, l, loop, *pass, fmt.Sprintf("the reviewer ran past %s", limit))
 	}
 	if session, err := s.opts.Agents.GetAgentSessionInSlot(ctx, l.TaskID, SlotReviewer); err != nil || session == nil {
-		return s.unable(ctx, l, loop, *pass, "the reviewer exited without submitting")
+		return s.reviewerDied(ctx, l, loop, *pass)
 	}
 	return nil
+}
+
+// reviewerDied runs a pass whose reviewer exited without submitting once
+// more, at the same pins and under the same number, so it uses no pass (a
+// crash, or Legato restarting mid-pass); a second death of the same pass
+// makes the loop stuck, so a broken reviewer never loops (spec LEG-559 D1).
+func (s *ReviewPassService) reviewerDied(ctx context.Context, l ReviewLoop, loop *store.HandoffReview, pass store.HandoffReviewPass) error {
+	rec, err := s.db.GetReviewLoop(ctx, loop.LoopID)
+	if err != nil {
+		return err
+	}
+	if rec.PassDeaths > 0 {
+		return s.unable(ctx, l, loop, pass, fmt.Sprintf("the reviewer of pass %d exited twice without submitting", pass.Pass))
+	}
+	if _, err := s.db.UpdateReviewLoop(ctx, rec.ID, rec.Rev, func(t *store.ReviewLoopTx) error {
+		t.Loop.PassDeaths = 1
+		return nil
+	}); err != nil {
+		return err
+	}
+	log.Printf("review passes: %s: the reviewer of pass %d exited without submitting; running the pass once more at the same pins", l.TaskID, pass.Pass)
+	pinned, err := s.db.ListHandoffReviewPRs(ctx, l.TaskID, pass.Pass)
+	if err != nil {
+		return err
+	}
+	settings := loopSettings(loop, s.config().Defaults)
+	brief, err := s.brief(ctx, l, pass.Pass, pinned, settings)
+	if err != nil {
+		return s.unable(ctx, l, loop, pass, "Legato could not write the reviewer's brief: "+err.Error())
+	}
+	opts := AgentSpawnOptions{AgentKind: settings.Agent, Model: settings.Model, Tier: settings.Tier, Slot: SlotReviewer,
+		WorkingDir: pass.Checkout, Assignment: brief, Unattended: true, ReadOnlyCheckout: true, ThrowawayCheckout: true,
+		ExecutionKind: store.ExecutionInteractive}
+	if err := s.opts.Agents.SpawnAgent(ctx, l.TaskID, 0, 0, opts); err != nil {
+		return s.unable(ctx, l, loop, pass, "the reviewer could not start again: "+err.Error())
+	}
+	// The pass's time starts again, and the new reviewer is the one that
+	// submits it.
+	pass.StartedAt = s.now()
+	if session, err := s.opts.Agents.GetAgentSessionInSlot(ctx, l.TaskID, SlotReviewer); err == nil && session != nil {
+		pass.ExecutionID = session.ExecutionID
+	}
+	if err := s.db.UpdateHandoffReviewPass(ctx, pass); err != nil {
+		return err
+	}
+	s.changed(l.TaskID)
+	return nil
+}
+
+// windowStart is the pass a loop's current pass window began at: its pass
+// limit counts the passes since (spec LEG-559: the window resets at each
+// approval, and Another pass raises only the current window). 0 for a loop
+// with no record.
+func (s *ReviewPassService) windowStart(ctx context.Context, loopID string) int {
+	if loopID == "" {
+		return 0
+	}
+	rec, err := s.db.GetReviewLoop(ctx, loopID)
+	if err != nil {
+		return 0
+	}
+	return rec.WindowStart
 }
 
 // unable ends a pass and makes the review stuck: nothing more of it is
@@ -826,4 +925,10 @@ func (s *ReviewPassService) tellAuthor(ctx context.Context, l ReviewLoop, messag
 		return nil
 	}
 	return s.opts.Agents.QueueMessage(ctx, l.AuthorTaskID, message)
+}
+
+// approvalHeld says the sign-off seam holds legato-reviews' approval of a
+// loop's pull request (ReviewPassOptions.HoldApproval).
+func (s *ReviewPassService) approvalHeld(ctx context.Context, loopID string, pr int) bool {
+	return s.opts.HoldApproval != nil && s.opts.HoldApproval(ctx, loopID, pr)
 }

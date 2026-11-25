@@ -213,9 +213,9 @@ func TestALoopWritesBackAsYAML(t *testing.T) {
 	}
 }
 
-// Until graph version 2 (LEG-484) draws a loop's passes, a loop is one
-// step node, and the data its body reads from outside comes into it.
-func TestTheGraphDrawsALoopAsOneStep(t *testing.T) {
+// Graph version 2 (LEG-484) draws a loop's body: the data a body step reads
+// from outside comes into that step's node, inside the loop's.
+func TestTheGraphDrawsALoopsBody(t *testing.T) {
 	graph := workflow.BuildGraph(parse(t, ReviewLoopSketch))
 	var loop *workflow.GraphStep
 	nodes := map[string]bool{}
@@ -235,8 +235,11 @@ func TestTheGraphDrawsALoopAsOneStep(t *testing.T) {
 		}
 		edges[edge.ID] = edge.Outputs
 	}
-	if got := edges["data:step:open>step:review"]; strings.Join(got, ",") != "loop_id" {
-		t.Errorf("open → review data = %v", got)
+	if got := edges["data:step:open>step:review/pass"]; strings.Join(got, ",") != "loop_id" {
+		t.Errorf("open → review/pass data = %v", got)
+	}
+	if got := edges["data:step:review/pass>step:review"]; strings.Join(got, ",") != "state,verdict" {
+		t.Errorf("review/pass → review data = %v", got)
 	}
 	if got := edges["data:step:review>step:close"]; strings.Join(got, ",") != "last" {
 		t.Errorf("review → close data = %v", got)

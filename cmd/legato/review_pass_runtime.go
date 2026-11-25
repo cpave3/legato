@@ -134,6 +134,9 @@ func startReviewEngine(deps integrationDeps) *reviewEngine {
 		}
 	}
 	if deps.bus != nil {
+		// A refresh of a card's pull requests brings the steward's
+		// watches forward (spec LEG-559 C7); ctx's end stops it.
+		reviews.StartWatchEvents(ctx, deps.bus)
 		moved := deps.bus.Subscribe(events.EventCardMoved)
 		// A run that starts a review loop is ticked at once, so its
 		// first pass does not wait for the timer.

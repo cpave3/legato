@@ -444,6 +444,22 @@ func (s *Store) CheckHandoffReviewWrite(ctx context.Context, taskID string, pass
 	return s.CheckReviewLoopWrite(ctx, l.ID, pass, o)
 }
 
+// ReviewLoopOpenStepType is the workflow step that opens a review loop and
+// hands it to the run's later steps (github.pr.review.open), unlike the
+// inline github.pr.review_passes step, which owns its loop while it waits.
+const ReviewLoopOpenStepType = "github.pr.review.open"
+
+// ReviewLoopOpenedByStep says whether a run loop's owning attempt is a
+// github.pr.review.open step's: the loop belongs to the run, not to one
+// waiting step.
+func (s *Store) ReviewLoopOpenedByStep(ctx context.Context, attemptID string) bool {
+	var kind string
+	if err := s.db.GetContext(ctx, &kind, `SELECT executor_type FROM workflow_step_attempts WHERE id = ?`, attemptID); err != nil {
+		return false
+	}
+	return kind == ReviewLoopOpenStepType
+}
+
 // CheckReviewLoopWrite is the re-check before each GitHub write of a loop
 // (spec LEG-559 D11), in one transaction: the loop is open and has not
 // ended (ErrReviewLoopClosed); pass, when not 0, is still submitted
@@ -490,8 +506,12 @@ func (s *Store) CheckReviewLoopWrite(ctx context.Context, loopID string, pass in
 	var live int
 	switch owner.Kind {
 	case ReviewLoopOwnerRun:
+		// The inline step owns its loop while it waits; a loop an open step
+		// opened is handed on to the run's later steps, and is owned while
+		// the run runs.
 		err = tx.GetContext(ctx, &live, `SELECT COUNT(*) FROM workflow_step_attempts a JOIN workflow_runs r ON r.id = a.run_id
-			WHERE a.id = ? AND a.task_id = ? AND a.status = 'waiting' AND r.status IN ('running', 'waiting')`, l.AttemptID, l.HostTask)
+			WHERE a.id = ? AND a.task_id = ? AND r.status IN ('running', 'waiting')
+			AND (a.status = 'waiting' OR (a.executor_type = ? AND a.status = 'succeeded'))`, l.AttemptID, l.HostTask, ReviewLoopOpenStepType)
 	case ReviewLoopOwnerHandoff:
 		err = tx.GetContext(ctx, &live, `SELECT COUNT(*) FROM handoffs
 			WHERE main_instance_id = ? AND handoff_id = ? AND task_id = ? AND closed_at IS NULL AND state IN (?, ?)`,

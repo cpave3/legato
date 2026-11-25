@@ -138,6 +138,7 @@ var settingLayout = map[string]settingPlace{
 	"review_passes.review_column":     {SectionReviewPasses, "Reviewer", ""},
 	"review_passes.max_passes":        {SectionReviewPasses, "Limits", ""},
 	"review_passes.max_concurrent":    {SectionReviewPasses, "Limits", ""},
+	"review_passes.max_reentries":     {SectionReviewPasses, "Limits", ""},
 	"review_passes.pass_timeout":      {SectionReviewPasses, "Timing", ""},
 	"review_passes.poll_interval":     {SectionReviewPasses, "Timing", ""},
 	"review_passes.quiet_time":        {SectionReviewPasses, "Timing", ""},

@@ -19,9 +19,13 @@ type ReviewPassesConfig struct {
 	MaxPasses        int    `yaml:"max_passes"`
 	PassTimeout      string `yaml:"pass_timeout"`
 	MaxConcurrent    int    `yaml:"max_concurrent"`
-	ReviewColumn     string `yaml:"review_column"`
-	PollInterval     string `yaml:"poll_interval"`
-	QuietTime        string `yaml:"quiet_time"`
+	// MaxReentries is how many times a stewarded pull request may go back
+	// to review after its approval (a push to a watched head); a workflow
+	// may lower it for its own loops, never raise it.
+	MaxReentries int    `yaml:"max_reentries"`
+	ReviewColumn string `yaml:"review_column"`
+	PollInterval string `yaml:"poll_interval"`
+	QuietTime    string `yaml:"quiet_time"`
 	// CountedBots are bot logins whose comments count as feedback, beside
 	// the repository's owners, members and collaborators.
 	CountedBots []string `yaml:"counted_bots"`
@@ -41,7 +45,7 @@ type ReviewerAgentConfig struct {
 
 func defaultReviewPasses() ReviewPassesConfig {
 	return ReviewPassesConfig{
-		MaxPasses: 3, PassTimeout: "45m", MaxConcurrent: 2, ReviewColumn: "Review",
+		MaxPasses: 3, PassTimeout: "45m", MaxConcurrent: 2, MaxReentries: 5, ReviewColumn: "Review",
 		PollInterval: "60s", QuietTime: "2m",
 	}
 }
@@ -76,7 +80,7 @@ func ValidateReviewPasses(cfg *Config) error {
 	for _, count := range []struct {
 		name  string
 		value int
-	}{{"max_passes", rp.MaxPasses}, {"max_concurrent", rp.MaxConcurrent}} {
+	}{{"max_passes", rp.MaxPasses}, {"max_concurrent", rp.MaxConcurrent}, {"max_reentries", rp.MaxReentries}} {
 		if count.value <= 0 {
 			return fmt.Errorf("review_passes.%s must be positive", count.name)
 		}

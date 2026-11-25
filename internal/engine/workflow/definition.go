@@ -14,13 +14,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// SchemaVersion is the version of the published JSON Schema, and of the
-// files Legato writes until schema version 2 has its own (LEG-484).
+// SchemaVersion is schema version 1, whose JSON Schema stays published and
+// whose files Parse still reads.
 const SchemaVersion = 1
 
 // SchemaVersion2 is the version that nests steps and names how each starts
 // with start:. Parse reads a version 1 file into the same model.
 const SchemaVersion2 = 2
+
+// LatestSchemaVersion is the version Legato writes: bundled templates, new
+// files, drafts and Upgrade (LEG-484).
+const LatestSchemaVersion = SchemaVersion2
 
 // How a step starts (Step.Start).
 const (
@@ -70,7 +74,7 @@ type Step struct {
 	Type  string `yaml:"type" json:"type"`
 	// Trigger is a version 1 file's key only: Parse reads it into Start and
 	// clears it, and a version 1 definition is marshalled with it again.
-	Trigger string `yaml:"trigger,omitempty" json:"-"`
+	Trigger string `yaml:"trigger,omitempty" json:"-" legato:"v1"`
 	// Start is how the step starts: StartAutomatic, StartManual or, from a
 	// version 1 file, StartAgentEnded. Parse fills it.
 	Start string `yaml:"start,omitempty" json:"start" legato:"v2"`
@@ -252,6 +256,9 @@ func (d *Definition) problems() []*PathError {
 			path = "title"
 		}
 		add(path, fmt.Errorf("name and title are required"))
+	}
+	if err := d.reservedNameProblem(); err != nil {
+		add("name", err)
 	}
 	if len(d.Steps) == 0 {
 		add("steps", fmt.Errorf("at least one step is required"))

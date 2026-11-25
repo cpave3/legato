@@ -78,6 +78,7 @@ func (s *Server) checked(ctx context.Context, data string) (*workflowengine.Defi
 	if definition != nil && definition.Calls() {
 		diagnostics = append(diagnostics, workflowengine.CallDiagnostics([]byte(data), definition, s.discoverWorkflowsIn(ctx).Definitions)...)
 	}
+	diagnostics = append(diagnostics, s.reviewLoopDiagnostics([]byte(data), definition)...)
 	if diagnostics == nil {
 		diagnostics = []workflowengine.Diagnostic{}
 	}
@@ -364,6 +365,34 @@ func (s *Server) workflowFileCheckHandler() http.HandlerFunc {
 	}
 }
 
+// workflowFileUpgradeHandler serves POST /api/workflow-files/upgrade
+// {yaml}: the file upgraded to schema_version 2 by workflow.Upgrade, as
+// {yaml, changed, notes}, writing nothing. The editor puts the text in its
+// buffer, where the operator reads it and saves it. A file that does not
+// load is invalid (422, with diagnostics).
+func (s *Server) workflowFileUpgradeHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var body struct {
+			YAML string `json:"yaml"`
+		}
+		if json.NewDecoder(r.Body).Decode(&body) != nil {
+			s.writeError(w, http.StatusBadRequest, `want {"yaml": "…"}`)
+			return
+		}
+		result, err := workflowengine.Upgrade("workflow.yaml", []byte(body.YAML))
+		if err != nil {
+			_, diagnostics := s.checked(r.Context(), body.YAML)
+			s.writeWorkflowError(w, http.StatusUnprocessableEntity, "invalid", err.Error(), map[string]any{"diagnostics": diagnostics})
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"yaml": string(result.YAML), "changed": result.Changed, "notes": result.Notes})
+	}
+}
+
 // workflowCopyHandler serves POST /api/workflows/{name}/copy {folder}: a
 // built-in workflow written to a folder as a file of the same name, which
 // then replaces the built-in.
@@ -396,18 +425,27 @@ func (s *Server) workflowCopyHandler() http.HandlerFunc {
 			s.writeWorkflowError(w, http.StatusBadRequest, "folder", "no workflows folder "+body.Folder+" to write to", nil)
 			return
 		}
+		header := "# A copy of Legato's built-in " + name + " workflow, which this file replaces.\n"
+		if workflowengine.ReservedWorkflowName(name) {
+			// A reserved built-in is never replaced: its copy takes a name of
+			// its own, and the built-in stays in use under its name.
+			renamed := *definition
+			renamed.Name, renamed.Title = name+"-copy", definition.Title+" (copy)"
+			definition = &renamed
+			header = "# A copy of Legato's built-in " + name + " workflow, under a name of its own: " + name + " itself stays Legato's.\n"
+		}
 		data, err := yaml.Marshal(definition)
 		if err != nil {
 			s.writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		data = append([]byte("# A copy of Legato's built-in "+name+" workflow, which this file replaces.\n"), data...)
+		data = append([]byte(header), data...)
 		copied, diagnostics := s.checked(r.Context(), string(data))
 		if copied == nil {
 			s.writeWorkflowError(w, http.StatusInternalServerError, "invalid", "the built-in does not make a valid file: "+diagnostics[0].Message, nil)
 			return
 		}
-		s.createWorkflowFile(w, folder, name, data, diagnostics)
+		s.createWorkflowFile(w, folder, definition.Name, data, diagnostics)
 	}
 }
 
@@ -427,4 +465,13 @@ func schedulePreview(schedule *workflowengine.ScheduleTrigger, now time.Time) ma
 		after = due
 	}
 	return map[string]any{"description": schedule.Describe(), "timezone": loc.String(), "next": next}
+}
+
+// reviewLoopDiagnostics checks a file's review loop steps against this
+// Legato's review settings; none when they are not wired.
+func (s *Server) reviewLoopDiagnostics(data []byte, definition *workflowengine.Definition) []workflowengine.Diagnostic {
+	if s.reviewMaxReentries == nil || definition == nil {
+		return nil
+	}
+	return workflowengine.ReviewLoopDiagnostics(data, definition, s.reviewMaxReentries())
 }

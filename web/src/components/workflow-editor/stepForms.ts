@@ -15,7 +15,7 @@ export type StepValue = Record<string, unknown> & { id?: string; title?: string;
 export type FieldSpec = { name: string; kind: string; description: string; required: boolean; expressions: boolean; enum?: string[]; requiredAtRun: boolean; label: string; essential: boolean; order: number }
 export type Group = { kind: "exactly_one" | "at_least_one"; fields: string[] }
 
-export const STEP_KEYS = ["id", "title", "type", "trigger", "with", "outputs"]
+export const STEP_KEYS = ["id", "title", "type", "trigger", "start", "with", "outputs"]
 const definitions: Record<string, Schema> = workflowSchema.definitions
 
 /** stepForm is what a step type's form holds, from the schema: its with

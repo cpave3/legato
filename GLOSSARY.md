@@ -98,7 +98,7 @@ _Avoid_: sidebar, inbox, tray
 ### Review passes
 
 **Review loop**:
-The review passes on one set of pull requests, from the first pass until it is approved, goes stuck or is ended. A handoff or a workflow run starts it.
+The review passes on one set of pull requests, from the first pass until it is approved, goes stuck or is ended. A workflow run starts it, through the built-in `review-loop` workflow (which other workflows call with `workflow.run`) or the review loop steps; a handoff's worker starts one for each make-a-change handoff with review passes. An agent-authored loop may later continue past approval as a steward.
 _Avoid_: review cycle, review session
 
 **Loop record**:
@@ -114,7 +114,7 @@ One review of a review loop's pull requests by the reviewer, at heads pinned whe
 _Avoid_: review round, review cycle, auto-review, automated review, review tour
 
 **Reviewer**:
-The agent in a task's reviewer slot that does a review pass, on a different model from the author, and only looks.
+The agent in a task's reviewer slot that does a review pass, and only looks. It is independent by structure: its own slot, a read-only checkout, and a brief that fences what it reads. A reviewer on the author's own tool and model gives a warning.
 _Avoid_: review agent, critic
 
 **Finding**:

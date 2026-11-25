@@ -750,6 +750,7 @@ A reviewer on another model reviews pull requests in passes until a pass is clea
 | `review_passes.max_passes` | number | `3` | Passes before the review is stuck and the main instance is asked. |
 | `review_passes.pass_timeout` | duration | `45m` | How long a reviewer has for one pass. |
 | `review_passes.max_concurrent` | number | `2` | Reviewers that run at once on this worker; others wait. |
+| `review_passes.max_reentries` | number | `5` | How many times a stewarded pull request may go back to review after its approval, when a watched head moves. A workflow may set fewer for its own review loops (`max_reentries` of `github.pr.review.open` or `review-loop`), never more. |
 | `review_passes.review_column` | string | `Review` | The column a card is in while it is reviewed. It must be a column of `board.columns`. |
 | `review_passes.poll_interval` | duration | `60s` | How often the pull requests are checked for new comments. |
 | `review_passes.quiet_time` | duration | `2m` | How long new feedback waits for more before the author is told. |

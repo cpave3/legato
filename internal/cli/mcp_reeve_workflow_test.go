@@ -34,6 +34,10 @@ func TestTheReeveDraftsAWorkflowAndProposesItPaused(t *testing.T) {
 	}
 	var body struct{ YAML string }
 	_ = json.Unmarshal(sets.calls[0].Body, &body)
+	// A version 1 draft is proposed as version 2 (LEG-484).
+	if !strings.Contains(body.YAML, "schema_version: 2") {
+		t.Fatalf("the proposed draft is not version 2:\n%s", body.YAML)
+	}
 	if !strings.Contains(body.YAML, "enabled: false") || strings.Contains(body.YAML, "enabled: true") {
 		t.Fatalf("the proposed draft is not paused:\n%s", body.YAML)
 	}

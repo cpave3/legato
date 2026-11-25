@@ -8,19 +8,40 @@ import (
 	"strings"
 )
 
-// SchemaID names the workflow JSON Schema of this schema version.
-const SchemaID = "https://cpave3.github.io/legato/schemas/workflow-v1.schema.json"
+// SchemaID names the JSON Schema of a schema_version 1 file, which stays
+// published; SchemaID2 names version 2's (LEG-484).
+const (
+	SchemaID  = "https://cpave3.github.io/legato/schemas/workflow-v1.schema.json"
+	SchemaID2 = "https://cpave3.github.io/legato/schemas/workflow-v2.schema.json"
+)
+
+// SchemaIDFor is the $id of a schema version's JSON Schema.
+func SchemaIDFor(version int) string {
+	if version == SchemaVersion2 {
+		return SchemaID2
+	}
+	return SchemaID
+}
 
 // expressionPatternJSON matches a value that holds ${{ }}, as a JSON
 // Schema pattern.
 const expressionPatternJSON = `\$\{\{[^}]*\}\}`
 
-// JSONSchema is the JSON Schema (draft-07) of a workflow file of this
-// schema version, made from the definition's Go types (their yaml tags)
+// JSONSchema is the JSON Schema of a schema_version 1 file (JSONSchemaFor).
+func JSONSchema() []byte { return JSONSchemaFor(SchemaVersion) }
+
+// JSONSchemaFor is the JSON Schema (draft-07) of a workflow file of a
+// schema version, 1 or 2, made from the definition's Go types (their yaml
+// tags, a field tagged legato:"v1" or legato:"v2" in its version's only)
 // and the executor catalog, with x-legato extensions for the editor and
-// the builder. The same Go always gives the same bytes.
-func JSONSchema() []byte {
-	data, err := json.MarshalIndent(buildSchema(), "", "  ")
+// the builder. Step types and their with come from the catalog in both, so
+// a step type added there needs no edit here. The same Go always gives the
+// same bytes.
+func JSONSchemaFor(version int) []byte {
+	if version != SchemaVersion2 {
+		version = SchemaVersion
+	}
+	data, err := json.MarshalIndent(buildSchema(version), "", "  ")
 	if err != nil {
 		panic("workflow schema: " + err.Error())
 	}
@@ -29,14 +50,15 @@ func JSONSchema() []byte {
 
 type schemaObject = map[string]any
 
-func buildSchema() schemaObject {
+func buildSchema(version int) schemaObject {
 	definitions := schemaObject{}
-	reflector := schemaReflector{definitions: definitions}
+	reflector := schemaReflector{definitions: definitions, version: version}
 	root := reflector.object(reflect.TypeOf(Definition{}))
 	root["$schema"] = "http://json-schema.org/draft-07/schema#"
-	root["$id"] = SchemaID
+	root["$id"] = SchemaIDFor(version)
 	root["title"] = "Legato workflow"
-	root["description"] = "A Legato workflow definition, schema version 1."
+	root["description"] = fmt.Sprintf("A Legato workflow definition, schema version %d.", version)
+	root["properties"].(schemaObject)["schema_version"].(schemaObject)["const"] = version
 
 	var types []string
 	var cases []any
@@ -77,6 +99,24 @@ func buildSchema() schemaObject {
 	properties := step["properties"].(schemaObject)
 	properties["type"].(schemaObject)["enum"] = types
 	step["allOf"] = cases
+	if version == SchemaVersion2 {
+		// A step is an executor step (type and with) or a loop (loop and
+		// steps), never both.
+		step["allOf"] = append(append([]any(nil), cases...),
+			schemaObject{"anyOf": []any{schemaObject{"required": []string{"type"}}, schemaObject{"required": []string{"loop"}}}},
+			schemaObject{"not": schemaObject{"required": []string{"loop", "type"}}},
+			schemaObject{"not": schemaObject{"required": []string{"loop", "with"}}},
+			schemaObject{"dependencies": schemaObject{"loop": []string{"steps"}, "steps": []string{"loop"}}},
+		)
+		query := definitions["loop_query"].(schemaObject)
+		query["properties"].(schemaObject)["type"].(schemaObject)["enum"] = types
+		query["allOf"] = cases
+		loop := definitions["loop"].(schemaObject)
+		loop["allOf"] = []any{schemaObject{"oneOf": []any{
+			schemaObject{"required": []string{"over"}}, schemaObject{"required": []string{"next"}}, schemaObject{"required": []string{"repeat"}},
+		}}}
+		loop["dependencies"] = schemaObject{"next": []string{"key"}}
+	}
 
 	contexts := schemaObject{}
 	for _, context := range ExpressionContexts() {
@@ -84,7 +124,7 @@ func buildSchema() schemaObject {
 	}
 	root["definitions"] = definitions
 	root["x-legato"] = schemaObject{
-		"schema_version": SchemaVersion,
+		"schema_version": version,
 		"step_groups":    StepGroups,
 		"executors":      executors,
 		"expressions":    contexts,
@@ -250,9 +290,12 @@ func fieldSchema(field Field) schemaObject {
 	return value
 }
 
-// schemaReflector makes object schemas from the definition's structs,
-// named in definitions by schemaNames.
-type schemaReflector struct{ definitions schemaObject }
+// schemaReflector makes object schemas from the definition's structs of a
+// schema version, named in definitions by schemaNames.
+type schemaReflector struct {
+	definitions schemaObject
+	version     int
+}
 
 var schemaNames = map[reflect.Type]string{
 	reflect.TypeOf(Input{}):                    "input",
@@ -267,6 +310,9 @@ var schemaNames = map[reflect.Type]string{
 	reflect.TypeOf(ChatButtonTrigger{}):        "trigger." + TriggerChatButton,
 	reflect.TypeOf(ChatTextMatch{}):            "chat_text_match",
 	reflect.TypeOf(Condition{}):                "condition",
+	reflect.TypeOf(Loop{}):                     "loop",
+	reflect.TypeOf(LoopQuery{}):                "loop_query",
+	reflect.TypeOf(WorkflowOutput{}):           "workflow_output",
 }
 
 // fieldSchemas says what reflection cannot: each field's description, and
@@ -283,6 +329,11 @@ var fieldSchemas = map[string]schemaObject{
 	"Definition.on":             {"description": "What starts runs by itself, besides starting one by hand: one trigger of each kind"},
 	"Definition.chat_help":      {"description": "List this workflow in ${{ event.commands }} of the chat triggers on the bots its own chat triggers run on"},
 	"Definition.steps":          {"description": "The steps, run in order", "required": true, "minItems": 1},
+	"Definition.outputs":        {"description": "The run's own outputs, by name: computed when it succeeds, and returned by a workflow.run step that calls it"},
+
+	"WorkflowOutput.type":        {"description": "What the output holds", "required": true, "enum": WorkflowOutputTypes},
+	"WorkflowOutput.value":       {"description": "The output's value: an expression over the inputs and the steps' outputs", "required": true},
+	"WorkflowOutput.description": {"description": "What the output is"},
 
 	"Input.type":        {"description": "What the input holds", "required": true, "enum": []string{"string", "integer", "boolean", "json", "task", "repository"}},
 	"Input.required":    {"description": "A run cannot start without it"},
@@ -298,10 +349,30 @@ var fieldSchemas = map[string]schemaObject{
 	"Step.with":    {"description": "The executor's settings"},
 	"Step.outputs": {"description": "The outputs the step gives later steps, by name"},
 
+	"Step.start":      {"description": "How the step starts: by itself (automatic), or when the operator starts it (manual)", "enum": []string{StartAutomatic, StartManual}, "default": StartAutomatic},
+	"Step.if":         {"description": "Run the step only when this matches; otherwise it is skipped and its outputs are missing"},
+	"Step.on_failure": {"description": "What a failure does: fail the run (fail), make the failure the step's outputs and go on (continue), or hold the run with Retry, Skip and Stop (pause)", "enum": []string{OnFailureFail, OnFailureContinue, OnFailurePause}},
+	"Step.wait_for":   {"description": "Agent steps: the signals that end the step, the first to come: complete, finished, ended or none", "minItems": 1, "uniqueItems": true, "items": schemaObject{"type": "string", "enum": []string{SignalComplete, SignalFinished, SignalEnded, SignalNone}}},
+	"Step.timeout":    {"description": "How long the step may take once it starts, such as 30m or 12h", "pattern": `^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$`},
+	"Step.loop":       {"description": "Make the step a loop: it runs its steps pass after pass, over a list, a query's next item, or until a condition"},
+	"Step.steps":      {"description": "A loop's steps, run in order in each pass", "minItems": 1},
+
+	"Loop.over":       {"description": "A list, read once when the loop starts: a ${{ }} of a json value, or a list written out"},
+	"Loop.next":       {"description": "A query step run before each pass, whose items output the pass takes its item from: the first whose key no pass has used"},
+	"Loop.repeat":     {"description": "Run the steps with no item, until until or max"},
+	"Loop.key":        {"description": "What tells items apart, such as ${{ loop.item.key }}: required with next"},
+	"Loop.max":        {"description": "The most passes: 20 when 0 or absent, at most 100", "minimum": 0, "maximum": MaxLoopMax},
+	"Loop.until":      {"description": "Checked after each pass, with loop.last the pass that just ended: when it matches the loop ends"},
+	"Loop.on_failure": {"description": "What a pass whose step fails does: hold the run there (pause, the default), end the pass failed and go on (continue), or fail the loop (fail)", "enum": []string{OnFailurePause, OnFailureContinue, OnFailureFail}},
+
+	"LoopQuery.type": {"description": "The executor of the query, such as tickets.list", "required": true},
+	"LoopQuery.with": {"description": "The query's settings"},
+
 	"Output.type":        {"description": "What the output holds", "required": true, "enum": []string{"string", "integer", "boolean", "json", "file"}},
 	"Output.description": {"description": "What the output is"},
 	"Output.path":        {"description": "For a file output: where the file goes, relative to the run's folder", "context": "output_path"},
 	"Output.media_type":  {"description": "For a file output: its media type"},
+	"Output.value":       {"description": "On a loop's output: what each pass's result holds under this name, an expression over the pass's steps"},
 
 	"Triggers.task.entered_column":  {"description": "Start a run when a card enters a column"},
 	"Triggers.schedule":             {"description": "Start runs at due times"},
@@ -361,6 +432,14 @@ var fieldSchemas = map[string]schemaObject{
 	"Condition.empty":      {"description": "Whether the field is empty: missing, null, \"\", [] or {}"},
 }
 
+// fieldSchemasV2 are the entries version 2 says otherwise.
+var fieldSchemasV2 = map[string]schemaObject{
+	// A loop step has no type.
+	"Step.type":    {"description": "The executor that runs the step; a loop has none"},
+	"Step.outputs": {"description": "The outputs the step gives later steps, by name; on a loop, each pass's result, mapped from its steps with value"},
+	"Step.id":      {"description": "The step's ID: unique in its steps list, and how later steps read its outputs; a path names a loop's (each/build)", "required": true, "pattern": `^[^/]*\S[^/]*$`},
+}
+
 func (r schemaReflector) object(t reflect.Type) schemaObject {
 	properties := schemaObject{}
 	var required []string
@@ -370,13 +449,15 @@ func (r schemaReflector) object(t reflect.Type) schemaObject {
 		if name == "" || name == "-" || !field.IsExported() {
 			continue
 		}
-		if field.Tag.Get("legato") == "v2" {
-			// A schema_version 2 key: the published schema is version 1's
-			// until version 2 has its own (LEG-484).
+		if only := field.Tag.Get("legato"); (only == "v2" && r.version != SchemaVersion2) || (only == "v1" && r.version != SchemaVersion) {
+			// A key of the other schema version only.
 			continue
 		}
 		key := t.Name() + "." + name
 		extra, ok := fieldSchemas[key]
+		if override, found := fieldSchemasV2[key]; found && r.version == SchemaVersion2 {
+			extra = override
+		}
 		if !ok {
 			panic(fmt.Sprintf("workflow schema: %s has no entry in fieldSchemas", key))
 		}

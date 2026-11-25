@@ -99,6 +99,7 @@ type Server struct {
 	reviewBriefingDomains    []string
 	report                   service.ReportService
 	reflectionWorkflows      ReflectionWorkflowService
+	reviewMaxReentries       func() int
 	workflowGlobalDir        string
 	workflowProjectDir       string
 	workflowRepositories     []workflowengine.RepositoryPreset
@@ -350,6 +351,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/workflows/{name}/copy", s.workflowCopyHandler())
 	mux.HandleFunc("/api/workflow-files", s.workflowFilesHandler())
 	mux.HandleFunc("/api/workflow-files/check", s.workflowFileCheckHandler())
+	mux.HandleFunc("/api/workflow-files/upgrade", s.workflowFileUpgradeHandler())
 	mux.HandleFunc("/api/workflows/{name}/triggers/{trigger}", s.workflowTriggerSwitchHandler())
 	mux.HandleFunc("/api/workflow-triggers/{request_id}", s.workflowTriggerRequestHandler())
 	mux.HandleFunc("/api/workflow-schema", s.workflowSchemaHandler())
@@ -491,6 +493,13 @@ func (s *Server) SetWorkflowService(svc WorkflowService, globalDir, projectDir s
 	s.workflowGlobalDir = globalDir
 	s.workflowProjectDir = projectDir
 	s.workflowRepositories = append([]workflowengine.RepositoryPreset(nil), repositories...)
+}
+
+// SetReviewMaxReentries gives the editor this Legato's
+// review_passes.max_reentries, which a workflow's review loop may lower but
+// never raise (workflowengine.ReviewLoopDiagnostics).
+func (s *Server) SetReviewMaxReentries(max func() int) {
+	s.reviewMaxReentries = max
 }
 
 func (s *Server) SetWorkflowTriggerCoordinator(coordinator *service.WorkflowTriggerCoordinator) {

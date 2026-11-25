@@ -370,6 +370,10 @@ func (s *ReviewPassService) deliver(ctx context.Context, l ReviewLoop, loop *sto
 		return s.save(ctx, loop)
 	}
 	message := fmt.Sprintf("%s Pass %d has %s. Run legato review-pass feedback --json to read them.", ReviewTag, loop.Pass, joinAnd(parts))
+	if rec, err := s.db.GetReviewLoop(ctx, loop.LoopID); err == nil && rec.Ready {
+		// The run's ready step marks the stack ready once it is approved.
+		message += " Do not mark your pull requests ready: this run marks them ready once the review approves them."
+	}
 	if err := s.tellAuthor(ctx, l, message); err != nil {
 		return s.stuck(ctx, l, loop, "the author could not be told of its feedback: "+err.Error())
 	}

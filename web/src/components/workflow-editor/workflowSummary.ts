@@ -58,7 +58,7 @@ const free = (base: string, taken: string[]) => {
 
 /** blankWorkflow is a workflow with nothing in it yet, under a free name. */
 export function blankWorkflow(taken: string[]): string {
-  return `schema_version: 1\nname: ${free("new-workflow", taken)}\ntitle: New workflow\nsteps: []\n`
+  return `schema_version: 2\nname: ${free("new-workflow", taken)}\ntitle: New workflow\nsteps: []\n`
 }
 
 /** copyOf is one of yours as a new workflow: a free name, its title marked

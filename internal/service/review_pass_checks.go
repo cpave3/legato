@@ -240,6 +240,9 @@ func (s *ReviewPassService) approveSettled(ctx context.Context, l ReviewLoop, lo
 		if pr.Event != ReviewComment || !prClean(loop.Pass, pr.Number, findings, items, true) {
 			continue
 		}
+		if s.approvalHeld(ctx, loop.LoopID, pr.Number) {
+			continue // held for the operator's sign-off: no later APPROVE
+		}
 		if ok, err := s.mayWrite(ctx, l, 0); !ok {
 			return err
 		}

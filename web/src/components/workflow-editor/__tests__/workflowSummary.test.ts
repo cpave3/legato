@@ -24,7 +24,7 @@ describe("a workflow summed up", () => {
 
 describe("starting points", () => {
   it("a blank workflow has a free name and no steps", () => {
-    expect(blankWorkflow(["new-workflow"])).toBe("schema_version: 1\nname: new-workflow-2\ntitle: New workflow\nsteps: []\n")
+    expect(blankWorkflow(["new-workflow"])).toBe("schema_version: 2\nname: new-workflow-2\ntitle: New workflow\nsteps: []\n")
   })
 
   it("a copy takes a free name and says it is a copy, the rest kept byte for byte", () => {

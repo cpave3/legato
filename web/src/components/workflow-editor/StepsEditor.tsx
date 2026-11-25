@@ -10,6 +10,7 @@ import type { WorkflowDiagnostic } from "../../lib/workflowFiles"
 import { Button } from "../ui/Button"
 import { CommitField, Problems, ReferencePicker } from "./builderFields"
 import { fieldClass, labelClass, problemsAt, valueText } from "./builderStyles"
+import { startOf } from "./stepRows"
 
 type Props = {
   text: string
@@ -112,6 +113,9 @@ export function StepCard({ step, index, text, values, diagnostics, options, appl
   const grouped = new Set((form?.groups ?? []).filter(g => g.kind === "exactly_one").flatMap(g => g.fields))
   const others = [...Object.keys(withValues).filter(key => !form?.fields.some(f => f.name === key)).map(key => `with.${key}`), ...Object.keys(step).filter(key => !STEP_KEYS.includes(key))]
   const id = step.id ?? ""
+  // A version 1 file says how a step starts with trigger, version 2 with
+  // start (LEG-484).
+  const startKey = values.schema_version === 1 ? "trigger" : "start"
   const outputs = <OutputsEditor step={step} id={id} path={path} text={text} apply={apply} problems={at(["outputs"])} taken={taken} />
   if (parts === "outputs") return <div className="flex flex-col gap-3">{outputs}</div>
 
@@ -122,10 +126,10 @@ export function StepCard({ step, index, text, values, diagnostics, options, appl
         <CommitField aria-label={`Title of step ${id}`} value={valueText(step.title)} onCommit={value => set(["title"], value)} />
       </label>}
       <label className={labelClass}>Starts
-        <select aria-label={`How step ${id} starts`} className={fieldClass} value={step.trigger ?? "automatic"} onChange={event => set(["trigger"], event.target.value === "automatic" ? undefined : event.target.value)}>
+        <select aria-label={`How step ${id} starts`} className={fieldClass} value={startOf(step)} onChange={event => set([startKey], event.target.value === "automatic" ? undefined : event.target.value)}>
           <option value="automatic">By itself</option>
           <option value="manual">When you start it</option>
-          <option value="agent_ended">When the agent ends</option>
+          {(startKey === "trigger" || startOf(step) === "agent_ended") && <option value="agent_ended">When the agent ends</option>}
         </select>
       </label>
     </div>

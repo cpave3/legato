@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
 import { useState } from "react"
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
@@ -281,8 +279,38 @@ describe("steps", () => {
   })
 })
 
-it("builds the review-pr template from an empty workflow", () => {
-  const template = readFileSync(join(__dirname, "../../../../../internal/engine/workflow/examples/review-pr.workflow.yaml"), "utf8")
+// review-pr as it was written in version 1, before the bundled templates
+// moved to version 2 (LEG-484): this builder row writes a v1 file's trigger.
+const reviewPRV1 = `schema_version: 1
+name: review-pr
+title: Review pull request
+run_title: Review \${{ workflow.inputs.repo }}#\${{ workflow.inputs.pr_number }}
+description: >-
+  Review a pull request in a fresh clone with your Review macro, then keep
+  the agent open for your questions. The run ends when the agent does.
+inputs:
+  repo: {type: string, required: true, description: GitHub owner/repository}
+  pr_number: {type: integer, required: true, description: Pull request number}
+steps:
+  - id: review
+    title: Review pull request
+    type: agent.run
+    with:
+      name: Review \${{ workflow.inputs.repo }}#\${{ workflow.inputs.pr_number }}
+      repo: \${{ workflow.inputs.repo }}
+      pr_number: \${{ workflow.inputs.pr_number }}
+      macro: Review
+      keep_agent: true
+  - id: end
+    title: End the review
+    type: agent.stop
+    trigger: agent_ended
+    with:
+      task: \${{ workflow.task }}
+`
+
+it("builds the version 1 review-pr template from an empty workflow", () => {
+  const template = reviewPRV1
   renderBuilder("schema_version: 1\nname: review-pr\ntitle: Review pull request\nsteps: []\n")
   commit(screen.getByRole("textbox", { name: "Run title" }), "Review ${{ workflow.inputs.repo }}#${{ workflow.inputs.pr_number }}")
   commit(screen.getByRole("textbox", { name: "Description" }), parse(template).description)

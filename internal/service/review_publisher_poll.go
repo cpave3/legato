@@ -65,6 +65,11 @@ func (p *ReviewPublisher) PollComments(ctx context.Context, repo string, number 
 		return CommentPoll{}, err
 	}
 	defer release()
+	return p.pollComments(ctx, call, repo, number, pages)
+}
+
+// pollComments is PollComments with a call already open: a watch session's.
+func (p *ReviewPublisher) pollComments(ctx context.Context, call *githubCall, repo string, number int, pages PollPages) (CommentPoll, error) {
 	var poll CommentPoll
 	for _, list := range pollLists {
 		for page := 1; page <= 50; page++ {

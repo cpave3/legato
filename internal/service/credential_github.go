@@ -133,6 +133,38 @@ func (c *CredentialChannels) SetPullRequestReady(ctx context.Context, _ credenti
 	if release != nil {
 		defer release()
 	}
+	number, _, err = c.setReady(ctx, bc, repo, token, number, branch, undo)
+	return number, err
+}
+
+// MarkReadyAsAuthor marks a pull request ready for review as the author App
+// (the github credential that lists the repository), host-side, with a
+// token made for it and revoked after, as gh pr ready is: the review
+// loop's github.pr.ready step. A pull request that is not a draft is left
+// alone (false).
+func (c *CredentialChannels) MarkReadyAsAuthor(ctx context.Context, repo string, number int) (bool, error) {
+	bc, err := c.githubCredentialFor(repo)
+	if err != nil {
+		return false, err
+	}
+	if err := c.githubBackingOff(bc, repo); err != nil {
+		return false, err
+	}
+	token, release, err := c.githubToken(ctx, bc, repo, credential.OperationPRReady)
+	if err != nil {
+		return false, err
+	}
+	if release != nil {
+		defer release()
+	}
+	_, changed, err := c.setReady(ctx, bc, repo, token, number, "", false)
+	return changed, err
+}
+
+// setReady finds the pull request (numbered, or the open one whose head is
+// branch) and marks it ready, or a draft with undo, unless it is so
+// already: its number, and whether it changed.
+func (c *CredentialChannels) setReady(ctx context.Context, bc brokerCredential, repo string, token []byte, number int, branch string, undo bool) (int, bool, error) {
 	owner, repoName, _ := strings.Cut(repo, "/")
 	type pull struct {
 		ID      string `json:"id"`
@@ -156,7 +188,7 @@ func (c *CredentialChannels) SetPullRequestReady(ctx context.Context, _ credenti
 		query = `query($owner: String!, $name: String!, $head: String!) { repository(owner: $owner, name: $name) { pullRequests(headRefName: $head, states: OPEN, first: 1) { nodes { id number isDraft } } } }`
 	}
 	if err := c.githubGraphQL(ctx, bc, repo, token, query, vars, &found); err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	target := found.Repository.PullRequest
 	if target == nil && len(found.Repository.PullRequests.Nodes) > 0 {
@@ -164,21 +196,21 @@ func (c *CredentialChannels) SetPullRequestReady(ctx context.Context, _ credenti
 	}
 	if target == nil {
 		if number > 0 {
-			return 0, fmt.Errorf("no pull request #%d in %s", number, repo)
+			return 0, false, fmt.Errorf("no pull request #%d in %s", number, repo)
 		}
-		return 0, fmt.Errorf("no open pull request in %s has %s as its head", repo, branch)
+		return 0, false, fmt.Errorf("no open pull request in %s has %s as its head", repo, branch)
 	}
 	if target.IsDraft == undo {
-		return target.Number, nil // already as asked
+		return target.Number, false, nil // already as asked
 	}
 	mutation := `mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { number } } }`
 	if undo {
 		mutation = `mutation($id: ID!) { convertPullRequestToDraft(input: {pullRequestId: $id}) { pullRequest { number } } }`
 	}
 	if err := c.githubGraphQL(ctx, bc, repo, token, mutation, map[string]any{"id": target.ID}, nil); err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	return target.Number, nil
+	return target.Number, true, nil
 }
 
 // githubGraphQL runs one GraphQL request about repo against the

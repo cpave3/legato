@@ -62,7 +62,7 @@ The web dialogs for spawning an agent, or opening an agent for an existing task,
 
 ## Schema version 1
 
-Version 1 executes steps in declaration order and supports these executors. Legato also reads files with `schema_version: 2`, which say how a step starts with `start:` instead of `trigger:` (see [Schema version 2](#schema-version-2)):
+Version 1 executes steps in declaration order and supports these executors. Legato writes version 2 now, and still reads version 1 files; [Schema version 2](#schema-version-2) says what changes and how to upgrade a file. The executors are the same in both:
 
 - `github.pr.prepare`: deterministically fetch an exact GitHub PR head, create a Yggdrasil worktree, and link the workflow task to the PR.
 - `agent.run`: launch a workflow-owned Legato agent with an explicit assignment and completion contract. Set `with.name` to name the agent in lists of agents (workflow input references are supported). It names that agent only: the run and its task keep the run's title. The agent is removed after completing its step, unless `with.keep_agent: true`: then its outputs are collected and the run moves on as usual, but the agent keeps running on the workflow task, for you to go on talking to. Follow it with a step with `trigger: agent_ended` to end the run (and remove a worktree) when that agent ends. Set `with.engram` to start the agent as one of your [engrams](/legato/agent-tools/engrams/), such as `engram: mneme` or `engram: ${{ workflow.inputs.engram }}`; without it the agent has none. A step whose engram engram does not know fails before the agent starts. Workflows do not use or change the engrams bound to a repository.
@@ -239,12 +239,14 @@ steps:
 
 ### Writing workflows in your own editor
 
-Legato publishes a JSON Schema of version 1 workflow files at <https://cpave3.github.io/legato/schemas/workflow-v1.schema.json>. A running Legato serves the same schema at `GET /api/workflow-schema`. An editor with the YAML language server, such as VS Code with the Red Hat YAML extension, completes keys, checks values and shows each field's description when the file starts with:
+Legato publishes a JSON Schema of version 2 workflow files at <https://cpave3.github.io/legato/schemas/workflow-v2.schema.json>, and keeps version 1's at <https://cpave3.github.io/legato/schemas/workflow-v1.schema.json>. A running Legato serves version 2's at `GET /api/workflow-schema`, and version 1's at `GET /api/workflow-schema?version=1`. An editor with the YAML language server, such as VS Code with the Red Hat YAML extension, completes keys, checks values and shows each field's description when the file starts with:
 
 ```yaml
-# yaml-language-server: $schema=https://cpave3.github.io/legato/schemas/workflow-v1.schema.json
-schema_version: 1
+# yaml-language-server: $schema=https://cpave3.github.io/legato/schemas/workflow-v2.schema.json
+schema_version: 2
 ```
+
+Point a version 1 file at version 1's schema instead.
 
 The schema knows each step type's `with` fields. It cannot check `${{ }}` references or the rules that depend on earlier steps, so run `legato workflow validate <file>` as well. A `with` key that a step's type doesn't read is flagged by the schema and is a warning from `legato workflow validate`. Legato ignores such keys for now, and a later release will refuse them, so remove any you find, such as a misspelt `promt:`.
 
@@ -275,7 +277,7 @@ Above the graph, **Needs you** gathers everything the run waits on you for, draw
 
 Click a row to centre the graph on its step and select it. The list is hidden when nothing waits on you, and keeps up as approvals and items come and go.
 
-On a wide screen the steps are drawn as the run's **workflow graph**, which updates as the run moves while its nodes stay in place. Each step says its state in a word with an icon and a colour (**Waiting**, **Running**, **Needs you**, **Failed**, **Done** or **Skipped**), how long it has run, its attempts folded into a count (**×3**) and the agent tool. The review loop shows its pass (**Pass 2 of 5**). The trigger that started the run is marked **Started this run**, and the others are dimmed. Select a step to see, beside the graph, its inputs and outputs, every attempt with its times, error, agent tool and tier, folder and **Open agent**, its files, a review loop's passes with a link to each review, and the step's YAML. The graph is the run's own copy of the workflow: when the file has changed since, the page says **This workflow has changed since this run**, or **This workflow's file is gone**. On a phone the steps are listed one to a line with how long each took; open one to see its inputs, outputs and agent. **Graph** above the list shows the graph in its place, drawn top to bottom, and a step's details open in a sheet from the bottom of the screen; close it with ✕ or a tap outside. **Cancel run** stops a run in progress, or gives up a failed one: a failed run keeps what it holds (a review loop and its pull requests) for **Retry step** until you cancel it.
+On a wide screen the steps are drawn as the run's **workflow graph**, which updates as the run moves while its nodes stay in place. Each step says its state in a word with an icon and a colour (**Waiting**, **Running**, **Needs you**, **Failed**, **Done** or **Skipped**), how long it has run, its attempts folded into a count (**×3**) and the agent tool. The review loop shows its pass (**Pass 2 of 5**). A loop is a box with its pass's steps inside it, each in the state of its newest pass with its pass number; the box has a dot for each pass so far, coloured by how it went, and says **Pass 2 of 5**. A step with `if:` is reached by an arrow labelled with its condition, and a dashed arrow labelled **skipped** goes past it. Selecting a step of a loop shows it at its newest pass. The trigger that started the run is marked **Started this run**, and the others are dimmed. Select a step to see, beside the graph, its inputs and outputs, every attempt with its times, error, agent tool and tier, folder and **Open agent**, its files, a review loop's passes with a link to each review, and the step's YAML. The graph is the run's own copy of the workflow: when the file has changed since, the page says **This workflow has changed since this run**, or **This workflow's file is gone**. On a phone the steps are listed one to a line with how long each took; open one to see its inputs, outputs and agent. **Graph** above the list shows the graph in its place, drawn top to bottom, and a step's details open in a sheet from the bottom of the screen; close it with ✕ or a tap outside. **Cancel run** stops a run in progress, or gives up a failed one: a failed run keeps what it holds (a review loop and its pull requests) for **Retry step** until you cancel it.
 
 The **Workflows** tab lists each workflow with its steps (✋ marks one that waits for you or for its agent to end), what it takes, when it starts on its own (a column trigger), and how its last run went. The values of secret inputs are never shown. **Run** opens the form for its inputs. Flows remembers the tab you used last.
 
@@ -947,9 +949,9 @@ A run that an older Legato failed with **agent exited before step completion**, 
 
 ## Schema version 2
 
-Schema version 2 is arriving in parts. Today a version 2 file is a version 1 file with these differences:
+Legato writes version 2: the bundled templates (but for `review-pr-passes`, which stays version 1 until it is withdrawn), a new workflow in the web UI, and the Reeve's drafts. A version 2 file is a version 1 file with these differences:
 
-- A step says how it starts with `start: automatic` (the default) or `start: manual`. `trigger:` is a version 1 key, and a version 2 file refuses it. A version 2 file has no `agent_ended`.
+- A step says how it starts with `start: automatic` (the default) or `start: manual`. `trigger:` is a version 1 key, and a version 2 file refuses it. A version 2 file has no `agent_ended`: wait for an agent to end with an `agent.stop` step that has `wait_for: [ended]`.
 - A later step can read any output its executor's catalog lists, such as `${{ steps.prep.outputs.branch }}` after `repo.ensure`, without the step declaring it. This also holds in version 1 files.
 - An agent step says what ends it with `wait_for:`, and any step can have a `timeout:` (below).
 - Clones are explicit, and a step's `branch` is made under `legato/` and granted for pushes (below).
@@ -1007,7 +1009,39 @@ In a version 2 file, an `agent.run` step with `repo` gets a fresh clone at `ref`
 - A workflow can declare its own `outputs:`, and a `workflow.run` step can call another workflow (below).
 - A step can be a loop, which runs its own steps pass after pass (below).
 
-Legato reads a version 1 file into the same model: `trigger: manual` is `start: manual`, and `trigger: agent_ended` still waits for the workflow task's agent to end. The editor, the builder, the published schema and the bundled templates still write version 1.
+Legato reads a version 1 file into the same model: `trigger: manual` is `start: manual`, and `trigger: agent_ended` still waits for the workflow task's agent to end.
+
+### Upgrading a file to version 2
+
+Open a version 1 file in the web UI's editor and select **Upgrade to v2**, or run `legato workflow upgrade <file>` (`--stdout` prints the result and changes nothing). Either rewrites only what has to change, so your comments and layout stay. In the editor the upgrade is one change: check it, then **Save**, or **Undo** it. The upgrade:
+
+- sets `schema_version: 2`;
+- turns a step's `trigger:` into `start:`;
+- turns `keep_agent:` into `keep:`;
+- turns an agent step with `keep_agent` and a step after it that started when the agent ended into an agent step with `wait_for: [complete]` and `keep: true`, and an `agent.stop` of that agent (`agent: {from: <step>}`) with `wait_for: [ended]`:
+
+```yaml
+# Version 1
+- id: review
+  type: agent.run
+  with: {macro: Review, keep_agent: true}
+- id: end
+  type: agent.stop
+  trigger: agent_ended
+  with: {task: "${{ workflow.task }}"}
+
+# Version 2
+- id: review
+  type: agent.run
+  wait_for: [complete]
+  with: {macro: Review, keep: true}
+- id: end
+  type: agent.stop
+  wait_for: [ended]
+  with: {agent: {from: review}}
+```
+
+Any other step that started when the agent ended gets such an `agent.stop` before it. Where the upgrade cannot map something, such as a later step reading an output a rewritten step no longer has, it says so at that line: in the editor's problems, or as `file:line:col: warning: …` from the command, which then exits with status 2. Change those by hand before you save.
 
 ### Expressions
 
@@ -1178,7 +1212,78 @@ Each pass has a **result**. The loop's `outputs:` say what it holds: each has a 
 
 The loop step's own outputs are `results` (every pass's result, in order), `last` (the last pass's result), `count`, `succeeded`, `failed`, and `ended_by`: `items` (the list ran out), `next_empty` (`next:` found nothing new), `until`, `max` or `failure`. A step after the loop reads them, such as `${{ steps.fix.outputs.last.result }}`.
 
-On the run's page, each pass's steps are listed under the loop, pass by pass; a `next:` loop's query is the pass's first step, `next`. Legato keeps where a loop is in its database, so a loop goes on after a restart.
+On the run's page, each pass's steps are listed under the loop, pass by pass; a `next:` loop's query is the pass's first step, `next`. The run's graph draws the loop as a box holding its steps (see [Runs and workflows in the web UI](#runs-and-workflows-in-the-web-ui)). Legato keeps where a loop is in its database, so a loop goes on after a restart.
+
+### Reviewing pull requests: review-loop
+
+Every Legato has a built-in workflow, `review-loop`, that reviews pull requests in passes until a clean pass is approved. Call it from your own workflow with `workflow.run`, and branch on its `outcome`:
+
+```yaml
+- id: review
+  type: workflow.run
+  on_failure: pause
+  with:
+    workflow: review-loop
+    inputs: {repo: acme/widget, pr_number: "${{ steps.implement.outputs.pr_number }}", agent_author: true}
+- id: note
+  if: {field: steps.review.outputs.outcome, in: [stuck, closed]}
+  type: task.note
+  with: {task: "${{ workflow.task }}", body: "Review ended ${{ steps.review.outputs.outcome }}"}
+```
+
+Its inputs are those of `github.pr.review.open` below: `repo`, `pr_number` (with `scope`) or `prs`, `agent_author`, `reviewer`, `skill`, `max_passes` and `max_reentries`, and `ready`. Its outputs are `outcome` (`approved`, `closed` or `stuck`), `loop_id`, `passes`, `clean_pass`, `confirmed_at`, `findings` (`total`, `blocking`, `nits` and `open`), `prs`, `approval_withheld`, `summary_path`, `linked_task` and `ready`.
+
+With `ready: true`, once the stack is approved `review-loop` marks its draft pull requests ready for review, bottom first (the `github.pr.ready` step below), and `ready` is `true`. An agent author is told not to mark them ready itself. A pull request GitHub will not mark ready pauses the run at that step, with **Retry**, **Skip** and **Stop**. When the review is stuck, it waits for you (**Run another pass**, **Message the author** or **End**); **End** gives `stuck`, and your workflow goes on. A refused review (another loop already reviews the pull request: `review_loop_active`), or one that fails, fails your `workflow.run` step with its `error_code`, and the step's `on_failure` decides; **Retry** resumes the same review.
+
+`review-loop` is reserved: a file of yours may not take the name. To change it, use **Copy to my workflows** on its page, which makes `review-loop-copy` (rename it as you like) and opens it for editing, while `review-loop` stays Legato's; it is built from the steps below.
+
+### Review loop steps
+
+A review loop can be built from steps, each acting on one loop that Legato keeps in its database. `github.pr.review.open` opens the loop and gives its ID as `loop_id`; the steps after it take that ID as `loop`. Like the inline `github.pr.review_passes` step, they need review passes turned on, and they wait for the Legato that runs the review engine (the one serving the broker) rather than for an agent. A loop belongs to the run that opened it: a step given another run's loop fails with `loop_not_owned`.
+
+`github.pr.review.open` takes:
+
+- `repo`, and either `pr_number` (with `scope`: `stack`, the default, for every open pull request of its stack, or `pr` for that pull request alone) or `prs`, a list of at most 20 pull request numbers, bottom of the stack first. Give one of them, not both.
+- `agent_author`: the agent of the board task each pull request belongs to fixes and answers the findings.
+- `reviewer` (`tool` or `tool:tier`) and `skill`, from those this Legato offers, and `max_passes` (0, the default, for this Legato's setting).
+- `max_reentries`: how many times a stewarded pull request may go back to review after its approval. It may lower `review_passes.max_reentries`, never raise it.
+- `ready` and `steward` (`steward` needs `agent_author: true`).
+
+Its outputs are `loop_id`, `linked_task` (the board task the pull requests belong to, or empty), `prs` (number, url, branch, base and author_task of each) and `warnings`, such as a reviewer that runs the author's own agent tool. A refusal fails the step with an `error_code` you can read with `on_failure: continue`: `review_loop_active` or `author_loop_active` (another loop holds the pull request or its author; the error names that loop and links to its run), `invalid_subject`, `pr_not_open`, `no_author`, `review_passes_off`, `reviewer_app_missing`, `reviewer_not_advertised`, `skill_not_advertised`, `steward_needs_agent_author` or `max_reentries_raised`.
+
+Between them, three steps run the review itself. Each takes the loop and waits until the loop gets where it says, which Legato's review engine moves it to:
+
+- `github.pr.review.pass` runs one pass: Legato pins every open pull request's head, a read-only reviewer reviews them, and the pass is posted as one GitHub review per pull request. Its outputs are `verdict` (`clean` or `changes`), `state` (`posted`) and `pass`. A reviewer that exits without submitting runs the same pass once more, at the same heads, without using up a pass; a second time, the loop is stuck.
+- `github.pr.review.confirm`, after a clean pass, reads GitHub's heads: `state` is `approved` when each is the head the pass reviewed, or `moved` when another pass is needed.
+- `github.pr.review.wait` (`mode: author`), after a pass with changes, waits for the author's round: `state` is `ready` once the author pushed or disputed a blocking finding, or `closed`.
+
+When the loop is stuck (its pass limit, a reviewer that died twice, an author that cannot be resumed), the step waiting on it waits for you, in Attention and on the run's page, with **Run another pass** (one more pass, only this once), **Message the author** and **End**. **End** ends that step, and every later one on the loop, with `state: stuck`. Put the three in a `repeat` loop that ends on `approved`, `closed` or `stuck`:
+
+```yaml
+- id: review
+  loop: {repeat: true, max: 100, until: {field: loop.last.state, in: [approved, closed, stuck]}}
+  outputs:
+    state: {type: string, value: "${{ steps.confirm.outputs.state ?? steps.author.outputs.state ?? steps.pass.outputs.state }}"}
+  steps:
+    - {id: pass, type: github.pr.review.pass, with: {loop: "${{ steps.open.outputs.loop_id }}"}}
+    - {id: confirm, if: {field: steps.pass.outputs.verdict, equals: clean}, type: github.pr.review.confirm, with: {loop: "${{ steps.open.outputs.loop_id }}"}}
+    - {id: author, if: {field: steps.pass.outputs.verdict, equals: changes}, type: github.pr.review.wait, with: {loop: "${{ steps.open.outputs.loop_id }}", mode: author}}
+```
+
+`github.pr.ready` marks the loop's approved stack ready for review, as your GitHub App (the `github` credential for the repository), from Legato itself, so no agent holds a token that can do it: each open draft, bottom of the stack first. Pull requests that are already ready are left alone, and none goes back to draft. It runs only when every open pull request has an approval from Legato's reviewer at its head on GitHub now; before that (before approval, after a push, or on a pull request whose approval was withheld because its author is outside the repository) it fails with `not_approved_at_heads`. A pull request GitHub will not mark ready fails it with `ready_failed`, naming it; the ones below it stay ready, and the step's `on_failure` decides. Its outputs are `ready` and `flipped`, the pull requests it marked ready.
+
+`github.pr.review.close` closes the loop, which frees its pull requests for another loop, and writes a summary of every pass. Its outputs are `outcome` (`approved`, `closed`, `stuck` or `ended` for a loop closed before it finished), `passes` (the passes posted), `clean_pass`, `confirmed_at`, `findings` (`total`, `blocking`, `nits` and `open`), `prs` (each pull request's number, url, state, draft, author_task, approved, head_sha and review_url), `approval_withheld`, `summary_path`, `linked_task` and `loop_id`. Closing a closed loop changes nothing. A loop also closes by itself when its run succeeds, is cancelled or stops; a failed run keeps its loop, and its pull requests, for **Retry**.
+
+```yaml
+- id: open
+  type: github.pr.review.open
+  with: {repo: acme/widget, pr_number: "${{ workflow.inputs.pr_number }}", agent_author: true}
+- id: close
+  type: github.pr.review.close
+  with: {loop: "${{ steps.open.outputs.loop_id }}"}
+```
+
+A workflow file may not set the `handoff` input, which only Legato's handoff service sets; the editor marks it, `steward` without `agent_author`, and a `max_reentries` above this Legato's setting as errors.
 
 ## Agent completion
 

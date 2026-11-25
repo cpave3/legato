@@ -1,0 +1,344 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"log"
+	"reflect"
+	"slices"
+	"sync"
+	"time"
+
+	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/store"
+)
+
+// ReviewWatchCadence is how often the steward reads a loop's pull requests
+// (spec LEG-559 C7): every Fast for FastFor after a change, then every Slow.
+// A PR status event brings a poll forward, but no closer than ForwardGap to
+// the last one.
+type ReviewWatchCadence struct {
+	Fast, FastFor, Slow, ForwardGap time.Duration
+}
+
+// DefaultReviewWatchCadence is C7's: a minute for an hour after a change,
+// then five minutes. The gap matches the pull request waits' (prWaitEventGap).
+var DefaultReviewWatchCadence = ReviewWatchCadence{Fast: time.Minute, FastFor: time.Hour, Slow: 5 * time.Minute, ForwardGap: prWaitEventGap}
+
+// ReviewWatchSchedule says which loops' watches are due, keyed by loop ID.
+// In memory: a restart reads every loop on its first tick, and takes a
+// loop's making for its last change until it sees one.
+type ReviewWatchSchedule struct {
+	cadence ReviewWatchCadence
+	mu      sync.Mutex
+	loops   map[string]*watchSlot
+}
+
+type watchSlot struct {
+	polledAt, changedAt, notBefore time.Time
+	forward                        bool
+}
+
+// NewReviewWatchSchedule makes a schedule; a zero field of cadence is the
+// default's.
+func NewReviewWatchSchedule(cadence ReviewWatchCadence) *ReviewWatchSchedule {
+	d := DefaultReviewWatchCadence
+	if cadence.Fast <= 0 {
+		cadence.Fast = d.Fast
+	}
+	if cadence.FastFor <= 0 {
+		cadence.FastFor = d.FastFor
+	}
+	if cadence.Slow <= 0 {
+		cadence.Slow = d.Slow
+	}
+	if cadence.ForwardGap <= 0 {
+		cadence.ForwardGap = d.ForwardGap
+	}
+	return &ReviewWatchSchedule{cadence: cadence, loops: map[string]*watchSlot{}}
+}
+
+func (s *ReviewWatchSchedule) slot(loopID string) *watchSlot {
+	slot, ok := s.loops[loopID]
+	if !ok {
+		slot = &watchSlot{}
+		s.loops[loopID] = slot
+	}
+	return slot
+}
+
+// Due says whether a loop's watch runs now. changedAt is the last change
+// the caller knows of (the loop's making, a push it saw); the schedule
+// keeps the changes its own reads found, and takes the later.
+func (s *ReviewWatchSchedule) Due(loopID string, changedAt, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	slot := s.slot(loopID)
+	if now.Before(slot.notBefore) {
+		return false
+	}
+	if slot.polledAt.IsZero() {
+		return true
+	}
+	since := now.Sub(slot.polledAt)
+	if slot.forward && since >= s.cadence.ForwardGap {
+		return true
+	}
+	last := changedAt
+	if slot.changedAt.After(last) {
+		last = slot.changedAt
+	}
+	interval := s.cadence.Slow
+	if now.Sub(last) < s.cadence.FastFor {
+		interval = s.cadence.Fast
+	}
+	return since >= interval
+}
+
+// Polled records a loop's watch at now, and whether it found a change.
+func (s *ReviewWatchSchedule) Polled(loopID string, now time.Time, changed bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	slot := s.slot(loopID)
+	slot.polledAt, slot.forward = now, false
+	if changed {
+		slot.changedAt = now
+	}
+}
+
+// Changed records a change of a loop the caller saw itself.
+func (s *ReviewWatchSchedule) Changed(loopID string, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if slot := s.slot(loopID); at.After(slot.changedAt) {
+		slot.changedAt = at
+	}
+}
+
+// Limited holds a loop's watches until a rate limit's end.
+func (s *ReviewWatchSchedule) Limited(loopID string, retryAt time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.slot(loopID).notBefore = retryAt
+}
+
+// BringForward brings every loop's next watch forward (EventPRStatusUpdated
+// names no pull request).
+func (s *ReviewWatchSchedule) BringForward() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, slot := range s.loops {
+		slot.forward = true
+	}
+}
+
+// forwardPending says whether a loop's watch was brought forward and has
+// not run since.
+func (s *ReviewWatchSchedule) forwardPending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, slot := range s.loops {
+		if slot.forward {
+			return true
+		}
+	}
+	return false
+}
+
+// Keep forgets every loop but those named.
+func (s *ReviewWatchSchedule) Keep(ids map[string]bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id := range s.loops {
+		if !ids[id] {
+			delete(s.loops, id)
+		}
+	}
+}
+
+// ReviewLoopWatch is a loop's last watch: its layers, in stack order, and
+// the comments of its open ones.
+type ReviewLoopWatch struct {
+	LoopID string
+	Repo   string
+	// ReadAt is when the layers were last read.
+	ReadAt time.Time
+	Layers []PRWatch
+	// Comments are each open layer's comments, by number, as last read.
+	Comments map[int]CommentPoll
+	// Changed says the last read found a change since the one before.
+	Changed bool
+	// Err is the last read's error, nil once one succeeds; the layers and
+	// comments read before it are kept (a failed poll closes nothing).
+	Err error
+}
+
+// watchPages keeps the watch's comment pages, apart from the comment
+// poll's, in the loop record's poll pages.
+type watchPages struct {
+	db     *store.Store
+	loopID string
+	pr     int
+}
+
+func (p watchPages) PollPage(ctx context.Context, list string, page int) (string, string, bool) {
+	return p.db.ReviewLoopPollPage(ctx, p.loopID, p.pr, "watch/"+list, page)
+}
+
+func (p watchPages) SavePollPage(ctx context.Context, list string, page int, etag, body string) error {
+	return p.db.SaveReviewLoopPollPage(ctx, p.loopID, p.pr, "watch/"+list, page, etag, body)
+}
+
+// Watched is a loop's last watch, false when it has none.
+func (s *ReviewPassService) Watched(loopID string) (ReviewLoopWatch, bool) {
+	s.watchMu.Lock()
+	defer s.watchMu.Unlock()
+	w, ok := s.watched[loopID]
+	if !ok {
+		return ReviewLoopWatch{}, false
+	}
+	w.Layers = slices.Clone(w.Layers)
+	return w, true
+}
+
+// BringWatchesForward brings every loop's next watch forward.
+func (s *ReviewPassService) BringWatchesForward() { s.watchSchedule.BringForward() }
+
+func (s *ReviewPassService) watchForwardPending() bool { return s.watchSchedule.forwardPending() }
+
+// StartWatchEvents brings the watches forward on each EventPRStatusUpdated
+// until ctx ends or the returned function is called.
+func (s *ReviewPassService) StartWatchEvents(ctx context.Context, bus *events.Bus) func() {
+	if bus == nil {
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	updated := bus.Subscribe(events.EventPRStatusUpdated)
+	go func() {
+		defer bus.Unsubscribe(updated)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-updated:
+				s.BringWatchesForward()
+			}
+		}
+	}()
+	return cancel
+}
+
+// watchLoops reads, as the reviewer App, the pull requests and comments of
+// every open steward loop whose watch is due: one session (one token) per
+// loop per tick. It routes nothing (that is the steward's, LEG-590).
+func (s *ReviewPassService) watchLoops(ctx context.Context) {
+	github, ok := s.opts.GitHub.(ReviewWatchGitHub)
+	if !ok || github == nil {
+		return
+	}
+	s.watchRun.Lock()
+	defer s.watchRun.Unlock()
+	loops, err := s.db.ListOpenReviewLoops(ctx)
+	if err != nil {
+		log.Printf("review passes: the loops to watch: %v", err)
+		return
+	}
+	keep := map[string]bool{}
+	for _, l := range loops {
+		if !l.Steward {
+			continue
+		}
+		keep[l.ID] = true
+		made, _ := time.Parse(time.RFC3339, l.CreatedAt)
+		if !s.watchSchedule.Due(l.ID, made, s.opts.Now()) {
+			continue
+		}
+		s.watchLoop(ctx, github, l)
+	}
+	s.watchSchedule.Keep(keep)
+	s.watchMu.Lock()
+	for id := range s.watched {
+		if !keep[id] {
+			delete(s.watched, id)
+		}
+	}
+	s.watchMu.Unlock()
+}
+
+// watchLoop reads one loop with one session.
+func (s *ReviewPassService) watchLoop(ctx context.Context, github ReviewWatchGitHub, l store.ReviewLoop) {
+	now := s.opts.Now()
+	prs, err := s.db.ListReviewLoopPRs(ctx, l.ID)
+	if err != nil || len(prs) == 0 {
+		return
+	}
+	numbers := make([]int, 0, len(prs))
+	for _, pr := range prs {
+		numbers = append(numbers, pr.Number)
+	}
+	s.watchMu.Lock()
+	prev, seen := s.watched[l.ID]
+	s.watchMu.Unlock()
+	next := prev
+	next.LoopID, next.Repo, next.Changed = l.ID, l.Repo, false
+
+	session := github.WatchSession(l.Repo)
+	defer session.Close()
+	err = func() error {
+		layers, err := session.Watch(ctx, numbers)
+		if err != nil {
+			return err
+		}
+		comments := map[int]CommentPoll{}
+		commentsChanged := false
+		for _, layer := range layers {
+			if layer.State != "open" {
+				continue
+			}
+			poll, err := session.PollComments(ctx, layer.Number, watchPages{db: s.db, loopID: l.ID, pr: layer.Number})
+			if err != nil {
+				return err
+			}
+			comments[layer.Number] = poll
+			commentsChanged = commentsChanged || poll.Changed
+		}
+		next.Changed = seen && !prev.ReadAt.IsZero() && (commentsChanged || !sameWatch(prev.Layers, layers))
+		next.Layers, next.Comments, next.ReadAt = layers, comments, now
+		return nil
+	}()
+	next.Err = err
+	if err != nil {
+		var limit *GitHubRateLimit
+		if errors.As(err, &limit) {
+			s.watchSchedule.Limited(l.ID, limit.RetryAt)
+		}
+		if prev.Err == nil || prev.Err.Error() != err.Error() {
+			log.Printf("review passes: %s: watching %s: %v", l.ID, l.Repo, err)
+		}
+	}
+	s.watchSchedule.Polled(l.ID, now, next.Changed)
+	s.watchMu.Lock()
+	if s.watched == nil {
+		s.watched = map[string]ReviewLoopWatch{}
+	}
+	s.watched[l.ID] = next
+	s.watchMu.Unlock()
+}
+
+// sameWatch says whether two reads of a loop's layers found the same:
+// heads, states, merge state, review decision and checks. When GitHub
+// last touched them is not a change on its own (a comment is one only
+// when the comment read says so).
+func sameWatch(a, b []PRWatch) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		x, y := a[i], b[i]
+		x.UpdatedAt, y.UpdatedAt = time.Time{}, time.Time{}
+		if !reflect.DeepEqual(x, y) {
+			return false
+		}
+	}
+	return true
+}

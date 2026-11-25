@@ -162,6 +162,8 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		// the broker holder opens it (attachReviewRuns, spec LEG-559 D9).
 		reviewPassesStep(cfg),
 	)
+	// The review loop steps, opened and settled by the same tick.
+	executors = append(executors, reviewLoopSteps(cfg).Executors()...)
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		worktrees := service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector())
 		if prSvc != nil {
@@ -297,6 +299,16 @@ func (rt *approvalRuntime) compactWaits(workflows *service.WorkflowService) func
 		events = rt.watcher
 	}
 	return workflows.StartCompactWaits(context.Background(), events, service.CompactCheckEvery)
+}
+
+// reviewLoopSteps are the review loop step executors (github.pr.review.open
+// and the rest), refused while review_passes is off, with this Legato's
+// review_passes.max_reentries.
+func reviewLoopSteps(cfg *config.Config) *service.ReviewLoopSteps {
+	steps := service.NewReviewLoopSteps()
+	steps.SetEnabled(func() bool { return cfg.ReviewPasses.Enabled })
+	steps.SetMaxReentries(func() int { return cfg.ReviewPasses.MaxReentries })
+	return steps
 }
 
 // reviewPassesStep is the github.pr.review_passes executor, refused while

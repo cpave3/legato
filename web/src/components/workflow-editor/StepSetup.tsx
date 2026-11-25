@@ -23,10 +23,12 @@ type Props = {
   apply: (make: () => WorkflowEdit) => void
 }
 
-const STARTS: { value: string; label: string }[] = [
+// How a step starts. agent_ended is version 1's only: a version 2 file
+// waits for an agent with an agent.stop step's wait_for: [ended].
+const STARTS: { value: string; label: string; v1?: boolean }[] = [
   { value: "automatic", label: "Right after" },
   { value: "manual", label: "You start it" },
-  { value: "agent_ended", label: "When the agent ends" },
+  { value: "agent_ended", label: "When the agent ends", v1: true },
 ]
 
 const isSet = (value: unknown) => value !== undefined && value !== null && value !== "" && value !== false
@@ -75,7 +77,8 @@ export function StepSetup({ step, index, text, values, diagnostics, options, app
   const rest = fields.filter(spec => !essential(spec))
   const setInRest = rest.filter(spec => isSet(withValues[spec.name])).map(spec => spec.label)
   const start = startOf(step)
-  const startKey = values.schema_version === 2 ? "start" : "trigger"
+  const v1 = values.schema_version === 1
+  const startKey = v1 ? "trigger" : "start"
 
   return <div className="flex flex-col gap-3">
     <Problems diagnostics={at(["type"])} />
@@ -91,7 +94,7 @@ export function StepSetup({ step, index, text, values, diagnostics, options, app
     <fieldset className="flex flex-col gap-1.5 border-t border-lw-line pt-3">
       <legend className="text-xs text-lw-text-2">How it starts</legend>
       <div role="radiogroup" aria-label={`How step ${id} starts`} className="inline-flex flex-wrap self-start rounded-md border border-lw-line p-0.5">
-        {STARTS.map(option => <button key={option.value} type="button" role="radio" aria-checked={start === option.value} className={`min-h-8 rounded px-2.5 text-xs ${start === option.value ? "bg-lw-raised text-lw-text" : "text-lw-text-2"}`}
+        {STARTS.filter(option => v1 || !option.v1 || start === option.value).map(option => <button key={option.value} type="button" role="radio" aria-checked={start === option.value} className={`min-h-8 rounded px-2.5 text-xs ${start === option.value ? "bg-lw-raised text-lw-text" : "text-lw-text-2"}`}
           onClick={() => apply(() => setField(text, [...path, startKey], option.value === "automatic" ? undefined : option.value))}>{option.label}</button>)}
       </div>
       <Problems diagnostics={at([startKey])} />

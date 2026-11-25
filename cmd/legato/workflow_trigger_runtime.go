@@ -18,7 +18,7 @@ func workflowDiscoveryProvider(cfg *config.Config, db *store.Store) func() workf
 	repositories := workflowRepositoriesFor(cfg, db)
 	return func() workflowengine.DiscoveryResult {
 		presets := repositories()
-		result := workflowengine.WithBuiltIns(workflowengine.DiscoverFolders(workflowFolders(presets)), service.BuiltInJobWorkflow())
+		result := workflowengine.WithBuiltIns(workflowengine.DiscoverFolders(workflowFolders(presets)), service.BuiltInWorkflows()...)
 		result.Repositories = presets
 		return result
 	}

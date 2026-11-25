@@ -44,3 +44,9 @@ func BuiltInJobWorkflow() *workflowengine.Definition {
 	}
 	return definition
 }
+
+// BuiltInWorkflows are the workflows every Legato has, workers included,
+// with no file: legato-job and the reserved review-loop (LEG-587).
+func BuiltInWorkflows() []*workflowengine.Definition {
+	return []*workflowengine.Definition{BuiltInJobWorkflow(), workflowengine.BuiltInReviewLoop()}
+}

@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 name: discuss-pr
 title: Discuss pull request
 run_title: Discuss ${{ workflow.inputs.repo }}#${{ workflow.inputs.pr_number }}
@@ -18,10 +18,11 @@ steps:
   - id: discuss
     title: Discuss pull request
     type: agent.run
+    wait_for: [complete]
     with:
       name: Discuss ${{ workflow.inputs.repo }}#${{ workflow.inputs.pr_number }}
       repo: ${{ workflow.inputs.repo }}
-      keep_agent: true
+      keep: true
       prompt: |
         Pull request ${{ workflow.inputs.repo }}#${{ workflow.inputs.pr_number }}:
         https://github.com/${{ workflow.inputs.repo }}/pull/${{ workflow.inputs.pr_number }}
@@ -34,6 +35,6 @@ steps:
   - id: end
     title: End the discussion
     type: agent.stop
-    trigger: agent_ended
+    wait_for: [ended]
     with:
-      task: ${{ workflow.task }}
+      agent: {from: discuss}

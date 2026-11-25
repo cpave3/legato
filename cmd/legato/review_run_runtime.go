@@ -32,6 +32,9 @@ func attachReviewRuns(deps integrationDeps, reviews *service.ReviewPassService) 
 	})
 	caller.SetWorkflows(deps.workflows)
 	step.Attach(caller)
+	if steps := service.ReviewLoopStepsOf(deps.workflows.Executor(service.ReviewOpenStepType)); steps != nil {
+		steps.Attach(caller)
+	}
 	return caller
 }
 

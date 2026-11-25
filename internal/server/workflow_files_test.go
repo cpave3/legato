@@ -278,6 +278,24 @@ func TestCopyingABuiltInWorkflow(t *testing.T) {
 	}
 }
 
+// review-loop is reserved: its copy takes a name of its own, and the
+// built-in stays in use under its name.
+func TestCopyingTheReservedReviewLoopGivesTheCopyANameOfItsOwn(t *testing.T) {
+	f := newFilesFixture(t)
+	f.s.builtInWorkflows = append(f.s.builtInWorkflows, workflowengine.BuiltInReviewLoop())
+	code, body := f.call(t, http.MethodPost, "/api/workflows/review-loop/copy", map[string]string{"folder": "global"})
+	if code != http.StatusCreated || body["name"] != "review-loop-copy" {
+		t.Fatalf("%d %v", code, body)
+	}
+	_, file := f.call(t, http.MethodGet, "/api/workflows/review-loop-copy/file", nil)
+	if file["editable"] != true || file["folder"] != "global" || !strings.Contains(file["yaml"].(string), "name: review-loop-copy") {
+		t.Fatalf("the copy = %v", file)
+	}
+	if found := f.s.findWorkflow(context.Background(), "review-loop"); found == nil || !strings.HasPrefix(found.Source, "builtin:") {
+		t.Fatalf("review-loop is now %+v; want the built-in", found)
+	}
+}
+
 func TestTheWorkflowListSaysWhereEachFileIs(t *testing.T) {
 	f := newFilesFixture(t)
 	repo := t.TempDir()
