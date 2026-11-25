@@ -216,6 +216,10 @@ type ReviewPassService struct {
 	// schemaOnce logs, once, that the tick stopped on a schema newer than
 	// this binary knows.
 	schemaOnce sync.Once
+
+	// authorStops is when each run loop's agent author was first seen
+	// stopped, for the author-mode wait's quiet time. In memory.
+	authorStops runAuthorStops
 }
 
 // What a ready loop waits on before its next pass starts (ReviewLoopBlock's
@@ -349,10 +353,16 @@ func (s *ReviewPassService) Tick(ctx context.Context) {
 	if !s.schemaKnown(ctx) {
 		return
 	}
+	// A handoff that closed frees its loop's pull requests: its loop
+	// record closes, as the conversion closes one.
+	if _, err := s.db.CloseReviewLoopsOfClosedHandoffs(ctx, s.now()); err != nil {
+		log.Printf("review passes: closing the loops of closed handoffs: %v", err)
+	}
 	// Steps any process started open here first (spec LEG-559 D9). Not
 	// under the lock: opening asks GitHub and makes clones, as a start
 	// did.
 	s.openWaiting(ctx)
+	s.sweepClosed(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	loops := s.loops(ctx)
@@ -384,6 +394,11 @@ func (s *ReviewPassService) step(ctx context.Context, l ReviewLoop) error {
 	if loop == nil {
 		loop = &store.HandoffReview{TaskID: l.TaskID, Settings: "{}"}
 	}
+	if loop.Phase == ReviewPhaseClean && !confirmed(loop) {
+		// A clean pass whose heads GitHub has yet to confirm: nothing is
+		// approved until it does (invariant 9).
+		return s.confirmLoop(ctx, l, loop.LoopID)
+	}
 	inDone := l.caller.AuthorDone(ctx, l)
 	// AuthorDone may have ended the loop (a run's pull request closed):
 	// the phase read before it is stale.
@@ -414,7 +429,7 @@ func (s *ReviewPassService) step(ctx context.Context, l ReviewLoop) error {
 			return nil
 		}
 		if err := s.approveSettled(ctx, l, loop); err != nil {
-			return err
+			log.Printf("review passes: %s: %v", l.TaskID, err)
 		}
 		return s.checksReopen(ctx, l, loop)
 	}
@@ -519,17 +534,22 @@ func (s *ReviewPassService) ready(ctx context.Context, l ReviewLoop, loop *store
 	// reviews (a run started before a handoff's first pass, say).
 	for _, pr := range prs {
 		if active := s.activeLoopOn(ctx, l.Repo, pr.Number, l.TaskID); active != nil {
-			return s.stuck(ctx, l, loop, fmt.Sprintf("another review loop reviews #%d: %s (%s)", pr.Number, active.Name, active.Link))
+			return s.stuck(ctx, l, loop, fmt.Sprintf("another review loop reviews #%d: %s (%s)%s", pr.Number, active.Name, active.Link, loopNamed(active.LoopID)))
 		}
 	}
-	if s.running(ctx) >= s.config().MaxConcurrent {
-		if loop.Phase != ReviewPhaseWaitingForReviewer {
-			loop.Phase, loop.QueuedAt = ReviewPhaseWaitingForReviewer, s.now()
-			return s.saveChanged(ctx, loop)
-		}
-		return nil
+	if s.slotsFull(ctx) {
+		return s.waitForReviewer(ctx, loop)
 	}
 	return s.startPass(ctx, l, loop, dir, prs)
+}
+
+// waitForReviewer queues a loop whose pass found every reviewer slot taken.
+func (s *ReviewPassService) waitForReviewer(ctx context.Context, loop *store.HandoffReview) error {
+	if loop.Phase != ReviewPhaseWaitingForReviewer {
+		loop.Phase, loop.QueuedAt = ReviewPhaseWaitingForReviewer, s.now()
+		return s.saveChanged(ctx, loop)
+	}
+	return nil
 }
 
 // mismatch tells the author once to push or discard; a second miss is
@@ -546,19 +566,13 @@ func (s *ReviewPassService) mismatch(ctx context.Context, l ReviewLoop, loop *st
 	return s.saveChanged(ctx, loop)
 }
 
-// running counts the reviewers at work on this instance.
-func (s *ReviewPassService) running(ctx context.Context) int {
-	loops, err := s.db.ListHandoffReviews(ctx)
-	if err != nil {
-		return 0
-	}
-	n := 0
-	for _, l := range loops {
-		if l.Phase == ReviewPhaseReviewing {
-			n++
-		}
-	}
-	return n
+// slotsFull says whether every reviewer slot looks taken: the in-flight
+// passes of open loops. It spares a queued loop the checkout and pins of a
+// start that would be refused; the start takes its slot atomically
+// (StartHandoffReviewPass), which is what decides.
+func (s *ReviewPassService) slotsFull(ctx context.Context) bool {
+	n, err := s.db.ReviewPassesInFlight(ctx)
+	return err == nil && n >= s.config().MaxConcurrent
 }
 
 // startQueued starts the passes waiting for a reviewer, oldest first, while
@@ -570,7 +584,7 @@ func (s *ReviewPassService) startQueued(ctx context.Context) {
 	}
 	for i := range loops {
 		loop := &loops[i]
-		if loop.Phase != ReviewPhaseWaitingForReviewer || s.running(ctx) >= s.config().MaxConcurrent {
+		if loop.Phase != ReviewPhaseWaitingForReviewer || s.slotsFull(ctx) {
 			continue
 		}
 		l, err := s.loop(ctx, loop.TaskID)
@@ -613,8 +627,19 @@ func (s *ReviewPassService) startPass(ctx context.Context, l ReviewLoop, loop *s
 	// between them would leave a pass the loop does not know, pinned again
 	// under its number on every tick.
 	loop.UpdatedAt = s.now()
-	if err := s.db.StartHandoffReviewPass(ctx, record, pinned, *loop); err != nil {
+	if err := s.db.StartHandoffReviewPass(ctx, record, pinned, *loop, cfg.MaxConcurrent); err != nil {
 		*loop = before
+		if errors.Is(err, store.ErrReviewSlotsFull) {
+			// Another loop took the last slot since the check above.
+			return s.waitForReviewer(ctx, loop)
+		}
+		// A pull request another loop claimed since the check above: the
+		// loop is stuck, naming it (a layer added later is claimed when
+		// it is added).
+		var active *ReviewLoopActiveError
+		if errors.As(s.refusal(ctx, err), &active) {
+			return s.stuck(ctx, l, loop, fmt.Sprintf("another review loop reviews #%d: %s (%s)%s", active.PR, active.Name, active.Link, loopNamed(active.LoopID)))
+		}
 		return err
 	}
 	s.setWaiting(l.TaskID, "")
@@ -691,7 +716,9 @@ func (s *ReviewPassService) watchReviewer(ctx context.Context, l ReviewLoop, loo
 	return nil
 }
 
-// unable ends a pass with nothing posted and makes the review stuck.
+// unable ends a pass and makes the review stuck: nothing more of it is
+// posted (a pass GitHub refused keeps the reviews of layers posted before),
+// and it no longer holds a reviewer slot.
 func (s *ReviewPassService) unable(ctx context.Context, l ReviewLoop, loop *store.HandoffReview, pass store.HandoffReviewPass, reason string) error {
 	_ = s.opts.Agents.KillAgentInSlot(ctx, l.TaskID, SlotReviewer)
 	pass.State, pass.Reason, pass.EndedAt = ReviewPassUnable, reason, s.now()
@@ -732,14 +759,16 @@ func (s *ReviewPassService) changed(taskID string) {
 	}
 }
 
-// passReviewMarker is the marker of a pass's review of a pull request. A pass
+// passReviewMarker is the marker of a pass's review of a pull request,
+// keyed by its loop's marker key: the loop's own ID, or a converted loop's
+// old task ID, so two loops on one task never share a marker. A pass
 // pinned again after a discard (Attempt > 0) has markers of its own, so a
 // review a discarded attempt left on GitHub is never taken for its own.
 func passReviewMarker(pass store.HandoffReviewPass, number int) string {
 	if pass.Attempt > 0 {
-		return fmt.Sprintf("%s/pass-%d.%d/pr-%d", pass.TaskID, pass.Pass, pass.Attempt, number)
+		return fmt.Sprintf("%s/pass-%d.%d/pr-%d", pass.MarkerKey, pass.Pass, pass.Attempt, number)
 	}
-	return fmt.Sprintf("%s/pass-%d/pr-%d", pass.TaskID, pass.Pass, number)
+	return fmt.Sprintf("%s/pass-%d/pr-%d", pass.MarkerKey, pass.Pass, number)
 }
 
 // rulingMarker is the marker of a pass's ruling replied in a finding's
@@ -748,9 +777,9 @@ func passReviewMarker(pass store.HandoffReviewPass, number int) string {
 // for the ruling of the attempt that replaced it.
 func rulingMarker(pass store.HandoffReviewPass, findingID string) CommentMarker {
 	if pass.Attempt > 0 {
-		return CommentMarker{Kind: MarkerRuling, Key: fmt.Sprintf("%s/pass-%d.%d/%s", pass.TaskID, pass.Pass, pass.Attempt, findingID)}
+		return CommentMarker{Kind: MarkerRuling, Key: fmt.Sprintf("%s/pass-%d.%d/%s", pass.MarkerKey, pass.Pass, pass.Attempt, findingID)}
 	}
-	return CommentMarker{Kind: MarkerRuling, Key: fmt.Sprintf("%s/pass-%d/%s", pass.TaskID, pass.Pass, findingID)}
+	return CommentMarker{Kind: MarkerRuling, Key: fmt.Sprintf("%s/pass-%d/%s", pass.MarkerKey, pass.Pass, findingID)}
 }
 
 // Later reviews of a pass's pull request, each with a marker of its own in

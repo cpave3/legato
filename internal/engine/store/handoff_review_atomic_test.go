@@ -10,8 +10,8 @@ import (
 func crashOnLoopWrite(t *testing.T, s *Store) func() {
 	t.Helper()
 	for _, q := range []string{
-		`CREATE TRIGGER crash_loop_insert BEFORE INSERT ON handoff_reviews BEGIN SELECT RAISE(ABORT, 'crash between writes'); END`,
-		`CREATE TRIGGER crash_loop_update BEFORE UPDATE ON handoff_reviews BEGIN SELECT RAISE(ABORT, 'crash between writes'); END`,
+		`CREATE TRIGGER crash_loop_insert BEFORE INSERT ON review_loops BEGIN SELECT RAISE(ABORT, 'crash between writes'); END`,
+		`CREATE TRIGGER crash_loop_update BEFORE UPDATE ON review_loops BEGIN SELECT RAISE(ABORT, 'crash between writes'); END`,
 	} {
 		if _, err := s.db.Exec(q); err != nil {
 			t.Fatal(err)
@@ -68,7 +68,7 @@ func TestAPassAndItsLoopAreWrittenTogetherOrNotAtAll(t *testing.T) {
 		next := loop
 		next.Pass, next.Phase = 2, "reviewing"
 		lift := crashOnLoopWrite(t, s)
-		if err := s.StartHandoffReviewPass(ctx, pass2, pinned, next); err == nil {
+		if err := s.StartHandoffReviewPass(ctx, pass2, pinned, next, 1); err == nil {
 			t.Fatal("the crash was not seen")
 		}
 		if _, err := s.GetHandoffReviewPass(ctx, "widget-card", 2); err != ErrNotFound {
@@ -78,7 +78,7 @@ func TestAPassAndItsLoopAreWrittenTogetherOrNotAtAll(t *testing.T) {
 			t.Fatalf("loop = %+v", got)
 		}
 		lift()
-		if err := s.StartHandoffReviewPass(ctx, pass2, pinned, next); err != nil {
+		if err := s.StartHandoffReviewPass(ctx, pass2, pinned, next, 1); err != nil {
 			t.Fatalf("starting pass 2 after the crash: %v", err)
 		}
 		if got := mustLoop(t, s); got.Pass != 2 || got.Phase != "reviewing" {
@@ -93,7 +93,7 @@ func TestAPassAndItsLoopAreWrittenTogetherOrNotAtAll(t *testing.T) {
 		s, loop := loopAtPassOne(t)
 		next := loop
 		next.Pass, next.Phase = 2, "reviewing"
-		if err := s.StartHandoffReviewPass(ctx, pass2, pinned, next); err != nil {
+		if err := s.StartHandoffReviewPass(ctx, pass2, pinned, next, 1); err != nil {
 			t.Fatal(err)
 		}
 		unable := pass2
@@ -120,7 +120,7 @@ func TestAPassAndItsLoopAreWrittenTogetherOrNotAtAll(t *testing.T) {
 		s, loop := loopAtPassOne(t)
 		next := loop
 		next.Pass, next.Phase = 2, "reviewing"
-		if err := s.StartHandoffReviewPass(ctx, pass2, pinned, next); err != nil {
+		if err := s.StartHandoffReviewPass(ctx, pass2, pinned, next, 1); err != nil {
 			t.Fatal(err)
 		}
 		posted := pass2
@@ -151,7 +151,7 @@ func TestAPassAndItsLoopAreWrittenTogetherOrNotAtAll(t *testing.T) {
 		s, loop := loopAtPassOne(t)
 		next := loop
 		next.Pass, next.Phase = 2, "reviewing"
-		if err := s.StartHandoffReviewPass(ctx, pass2, pinned, next); err != nil {
+		if err := s.StartHandoffReviewPass(ctx, pass2, pinned, next, 1); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.SubmitHandoffReviewPass(ctx, HandoffReviewPass{TaskID: "widget-card", Pass: 2, State: "submitted", Verdict: "clean"}, nil,
@@ -185,7 +185,7 @@ func TestAPassAndItsLoopAreWrittenTogetherOrNotAtAll(t *testing.T) {
 		s, loop := loopAtPassOne(t)
 		next := loop
 		next.Pass, next.Phase = 2, "reviewing"
-		if err := s.StartHandoffReviewPass(ctx, pass2, pinned, next); err != nil {
+		if err := s.StartHandoffReviewPass(ctx, pass2, pinned, next, 1); err != nil {
 			t.Fatal(err)
 		}
 		lift := crashOnLoopWrite(t, s)
@@ -213,10 +213,10 @@ func TestASubmissionIsWrittenWholeOrNotAtAll(t *testing.T) {
 	s, loop := loopAtPassOne(t)
 	next := loop
 	next.Pass, next.Phase = 2, "reviewing"
-	if err := s.StartHandoffReviewPass(ctx, HandoffReviewPass{TaskID: "widget-card", Pass: 2, State: "reviewing", StartedAt: "2024-01-02T00:00:00Z"}, nil, next); err != nil {
+	if err := s.StartHandoffReviewPass(ctx, HandoffReviewPass{TaskID: "widget-card", Pass: 2, State: "reviewing", StartedAt: "2024-01-02T00:00:00Z"}, nil, next, 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`CREATE TRIGGER crash_pass_update BEFORE UPDATE ON handoff_review_passes BEGIN SELECT RAISE(ABORT, 'crash between writes'); END`); err != nil {
+	if _, err := s.db.Exec(`CREATE TRIGGER crash_pass_update BEFORE UPDATE ON review_loop_passes BEGIN SELECT RAISE(ABORT, 'crash between writes'); END`); err != nil {
 		t.Fatal(err)
 	}
 	err := s.SubmitHandoffReviewPass(ctx, HandoffReviewPass{TaskID: "widget-card", Pass: 2, State: "submitted", Verdict: "changes"},

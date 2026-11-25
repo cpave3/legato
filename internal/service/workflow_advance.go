@@ -130,8 +130,9 @@ func stepPending(view *store.WorkflowRunView, path string) bool {
 // StartAdvanceLoop makes this process a host that advances runs: at once
 // for any left due while no host ran, then each time an agent records a
 // step (a completed_step workflow change, which reaches serve and the TUI
-// by IPC), and every advanceReconcileInterval for what it missed. It
-// returns a function that stops the loop.
+// by IPC), and every advanceReconcileInterval for what it missed. It also
+// runs the run-ended hook's sweep (SweepEndedRuns). It returns a function
+// that stops the loop.
 func (s *WorkflowService) StartAdvanceLoop(ctx context.Context, bus *events.Bus) func() {
 	ctx, cancel := context.WithCancel(ctx)
 	announce := func(runs []string, err error) {
@@ -144,6 +145,11 @@ func (s *WorkflowService) StartAdvanceLoop(ctx context.Context, bus *events.Bus)
 	}
 	changed := bus.Subscribe(events.EventWorkflowChanged)
 	announce(s.AdvanceDue(ctx))
+	// The run-ended hook's sweep: at once for the runs that ended while
+	// no host ran, then on every change to a run (one another process or
+	// the agent service ended reaches this process by IPC or on the bus)
+	// and at each reconcile.
+	s.SweepEndedRuns(ctx)
 	go func() {
 		ticker := time.NewTicker(advanceReconcileInterval)
 		defer ticker.Stop()
@@ -152,12 +158,16 @@ func (s *WorkflowService) StartAdvanceLoop(ctx context.Context, bus *events.Bus)
 			case <-ctx.Done():
 				return
 			case event := <-changed:
-				if payload, ok := event.Payload.(events.WorkflowChangedPayload); !ok || payload.Kind != "completed_step" {
-					continue
+				payload, ok := event.Payload.(events.WorkflowChangedPayload)
+				if ok && payload.Kind == "completed_step" {
+					announce(s.AdvanceDue(ctx))
 				}
-				announce(s.AdvanceDue(ctx))
+				if !ok || payload.Kind != "advanced" {
+					s.SweepEndedRuns(ctx)
+				}
 			case <-ticker.C:
 				announce(s.AdvanceDue(ctx))
+				s.SweepEndedRuns(ctx)
 			}
 		}
 	}()

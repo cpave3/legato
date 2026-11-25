@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -184,14 +183,8 @@ var reviewContractScenarios = map[string]func(t *testing.T) reviewed{
 	},
 	"waiting_for_reviewer": func(t *testing.T) reviewed {
 		r := newReviewed(t, ReviewPassOptions{MaxConcurrent: 1})
-		ctx := context.Background()
 		// A second reviewing card takes the only reviewer.
-		if err := r.worker.Store.CreateTask(ctx, store.Task{ID: "busy", Title: "busy", Status: "Review"}); err != nil {
-			t.Fatal(err)
-		}
-		if err := r.worker.Store.SaveHandoffReview(ctx, store.HandoffReview{TaskID: "busy", Phase: service.ReviewPhaseReviewing, UpdatedAt: "x"}); err != nil {
-			t.Fatal(err)
-		}
+		takeTheOnlyReviewer(t, r.worker.Store)
 		r.finish(t)
 		return r
 	},

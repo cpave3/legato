@@ -145,5 +145,8 @@ func TestAPersonAuthoredLoopTakesNoCommandAnswers(t *testing.T) {
 	r.tick()
 	operator := service.ReviewAnswerer{TaskID: view.Run.TaskID, Operator: true}
 	_, err := service.AnswerOwnReviewItem(ctx, r.worker.Store, operator, result.Findings[0], service.AnswerReplied, "Fine.", r.worker.Clock.Now())
-	refusedAnswer(t, err, "a person")
+	refusedAnswer(t, err, view.Run.TaskID)
+	if !errors.Is(err, service.ErrReviewAuthorNotAgent) {
+		t.Fatalf("err = %v, want %v", err, service.ErrReviewAuthorNotAgent)
+	}
 }

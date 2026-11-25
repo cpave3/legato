@@ -288,6 +288,14 @@ func (s *Store) migrate() error {
 	return tx.Commit()
 }
 
+// oldReviewTableMigrations made or changed handoff_review*, which the loop
+// record replaced (LEG-606).
+var oldReviewTableMigrations = map[string]bool{
+	"090_handoff_reviews.sql": true, "091_handoff_review_items.sql": true, "092_handoff_review_polling.sql": true,
+	"093_handoff_review_checks.sql": true, "127_handoff_review_pr_event.sql": true, "138_review_pr_checkout.sql": true,
+	"143_review_pass_attempt.sql": true, "145_review_answer_marker.sql": true, "147_review_pass_post_attempts.sql": true,
+}
+
 type migrationQueryer interface {
 	Select(dest any, query string, args ...any) error
 	Get(dest any, query string, args ...any) error
@@ -326,6 +334,25 @@ func validateMigrationLedger(queryer migrationQueryer) (int, error) {
 }
 
 func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (string, error) {
+	if oldReviewTableMigrations[name] {
+		// Replayed after the old review tables were dropped (migration
+		// _review_loop_old_tables.sql), a migration that made or changed
+		// them leaves them gone.
+		var dropped int
+		if err := queryer.Get(&dropped, `SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'review_loops')
+			- (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'handoff_reviews')`); err != nil {
+			return "", err
+		}
+		if dropped == 1 {
+			var kept []string
+			for _, statement := range strings.SplitAfter(migrationSQL, ";\n") {
+				if !strings.Contains(statement, "handoff_review") {
+					kept = append(kept, statement)
+				}
+			}
+			return strings.Join(kept, ""), nil
+		}
+	}
 	if name == "035_review_passes.sql" {
 		migrationSQL = strings.Replace(migrationSQL, "CREATE TABLE review_passes (", "CREATE TABLE IF NOT EXISTS review_passes (", 1)
 		migrationSQL = strings.Replace(migrationSQL, "CREATE TABLE review_pass_plans (", "CREATE TABLE IF NOT EXISTS review_pass_plans (", 1)
@@ -513,6 +540,31 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 		}
 		if tables != 6 {
 			return "", nil
+		}
+	}
+	if strings.HasSuffix(name, "_review_loop_conversion.sql") {
+		// A legacy database built in part may lack what the conversion
+		// reads: the record's new columns are still added, and nothing is
+		// converted.
+		var tables int
+		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('tasks', 'handoffs', 'handoff_reviews',
+			'handoff_review_passes', 'handoff_review_prs', 'handoff_review_findings', 'handoff_review_items', 'handoff_review_poll_pages',
+			'workflow_runs', 'workflow_steps')`); err != nil {
+			return "", err
+		}
+		if tables != 10 {
+			migrationSQL, _, _ = strings.Cut(migrationSQL, "-- The conversion.")
+		}
+	}
+	if strings.HasSuffix(name, "_review_loop_old_tables.sql") {
+		// A legacy database built in part may have no tasks: the tables
+		// still go, and there is no metadata to clear.
+		var tables int
+		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'tasks'`); err != nil {
+			return "", err
+		}
+		if tables == 0 {
+			migrationSQL, _, _ = strings.Cut(migrationSQL, "-- The run caller's record")
 		}
 	}
 	if name == "135_workflow_steps.sql" {

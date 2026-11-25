@@ -324,14 +324,14 @@ func (s *ReviewPassService) feedback(ctx context.Context, l ReviewLoop, loop *st
 		loop.Phase = ReviewPhaseReady
 		return s.ready(ctx, l, loop)
 	}
-	loop.Phase = ReviewPhaseClean
+	loop.Phase, loop.ConfirmClean = ReviewPhaseClean, true
 	if err := s.saveChanged(ctx, loop); err != nil {
 		return err
 	}
 	// Nothing to review again (failing checks answered by a reply, say):
-	// the loop is clean, as after a clean pass.
-	l.stage(ctx, ReviewStageClean)
-	return nil
+	// the loop is clean, as after a clean pass, once GitHub's heads are
+	// still the pass's.
+	return s.confirmLoop(ctx, l, loop.LoopID)
 }
 
 // deliver tells the author of a round: one tagged line naming the command
@@ -399,17 +399,19 @@ func (s *ReviewPassService) pushedSince(ctx context.Context, l ReviewLoop, loop 
 // author App: a reply in the item's thread, else a comment on the pull
 // request. Call with s.mu held.
 func (s *ReviewPassService) postAnswers(ctx context.Context, l ReviewLoop) {
+	loop, err := s.db.GetHandoffReview(ctx, l.TaskID)
+	if err != nil || loop == nil {
+		return
+	}
 	items, err := s.db.ListHandoffReviewItems(ctx, l.TaskID)
 	if err != nil {
 		return
 	}
 	// pinned are the heads the round's pass reviewed, by pull request.
 	pinned := map[int]string{}
-	if loop, err := s.db.GetHandoffReview(ctx, l.TaskID); err == nil && loop != nil {
-		if list, err := s.db.ListHandoffReviewPRs(ctx, l.TaskID, loop.Pass); err == nil {
-			for _, pr := range list {
-				pinned[pr.Number] = pr.HeadSHA
-			}
+	if list, err := s.db.ListHandoffReviewPRs(ctx, l.TaskID, loop.Pass); err == nil {
+		for _, pr := range list {
+			pinned[pr.Number] = pr.HeadSHA
 		}
 	}
 	var pushed map[int]string
@@ -429,7 +431,7 @@ func (s *ReviewPassService) postAnswers(ctx context.Context, l ReviewLoop) {
 		// The same marker on every try: an answer GitHub took before it
 		// was marked posted (a crash, a lost answer) is found, not posted
 		// again.
-		marker := answerMarker(l.TaskID, item)
+		marker := answerMarker(loop.MarkerKey, item)
 		if ok, err := s.mayWrite(ctx, l, 0); !ok {
 			if err != nil {
 				log.Printf("review passes: posting the answer to %s: %v", item.ID, err)
@@ -468,13 +470,13 @@ func (s *ReviewPassService) pushedHeads(ctx context.Context, l ReviewLoop) map[i
 	return heads
 }
 
-// answerMarker names an answer on GitHub: the loop, the item and the
-// answer's own marker, never its text, so the same words answering two
-// items are two answers. An item's ID may hold a check's name, which
+// answerMarker names an answer on GitHub: the loop (its marker key), the
+// item and the answer's own marker, never its text, so the same words
+// answering two items are two answers. An item's ID may hold a check's name, which
 // cannot be allowed to end the hidden comment early.
-func answerMarker(taskID string, item store.HandoffReviewItem) CommentMarker {
+func answerMarker(markerKey string, item store.HandoffReviewItem) CommentMarker {
 	id := strings.NewReplacer("-->", "--", "\n", " ").Replace(item.ID)
-	return CommentMarker{Kind: MarkerAnswer, Key: taskID + "/" + id + "/" + item.AnswerMarker}
+	return CommentMarker{Kind: MarkerAnswer, Key: markerKey + "/" + id + "/" + item.AnswerMarker}
 }
 
 func answerText(item store.HandoffReviewItem) string {

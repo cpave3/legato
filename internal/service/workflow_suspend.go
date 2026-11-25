@@ -83,7 +83,7 @@ func (s *WorkflowService) ResumeStep(ctx context.Context, runID, stepID string) 
 		if err := s.interrupted.ResumeInterruptedAgent(ctx, s.attemptAgentTask(ctx, attempt), false); err != nil {
 			return nil, err
 		}
-		s.changed(runID, stepID, WorkflowChangeStepRetried)
+		s.changed(ctx, runID, stepID, WorkflowChangeStepRetried)
 		return s.Show(ctx, runID)
 	}
 	return nil, fmt.Errorf("%w: step %s has no interrupted agent to resume", store.ErrWorkflowStateConflict, stepID)

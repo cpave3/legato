@@ -25,6 +25,11 @@ func reviewedRun(t *testing.T) *Store {
 	if err := s.WaitWorkflowStepOnService(ctx, "wr-1", "review", "wa-1"); err != nil {
 		t.Fatal(err)
 	}
+	// The step's loop, owned by its run attempt.
+	if _, _, err := s.OpenReviewLoop(ctx, ReviewLoopOpen{Loop: ReviewLoop{OwnerKind: ReviewLoopOwnerRun, RunID: "wr-1", StepPath: "review",
+		AttemptID: "wa-1", HostTask: "run-task", Repo: "acme/widget", MarkerKey: "run-task"}, PRs: []ReviewLoopPR{{Number: 7}}}); err != nil {
+		t.Fatal(err)
+	}
 	reviewing(t, s, "run-task")
 	return s
 }
@@ -106,5 +111,46 @@ func TestAGitHubWriteOfAHandoffsLoopNeedsTheHandoffStillOpenHere(t *testing.T) {
 	}
 	if err := s.CheckHandoffReviewWrite(ctx, "card", 1, owner); !errors.Is(err, ErrReviewLoopNotOwned) {
 		t.Fatalf("check while it returns = %v; want not owned", err)
+	}
+}
+
+// A handoff's loop that holds claims (converted from before the loop
+// record) closes once its handoff has, so its pull requests are free; the
+// loop of a handoff still open keeps them.
+func TestTheLoopOfAClosedHandoffIsClosedAndFreesItsClaims(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	for _, id := range []string{"h-1", "h-2"} {
+		card := "card-" + id
+		h := Handoff{MainInstanceID: "main-1", HandoffID: id, TaskID: card, Purpose: "make_change", State: HandoffInProgress,
+			CreatedAt: "2024-01-01T00:00:00Z", UpdatedAt: "2024-01-01T00:00:00Z"}
+		if err := s.CreateHandoffCard(ctx, Task{ID: card, Title: card, Status: "Doing", CreatedAt: "2024-01-01", UpdatedAt: "2024-01-01"}, nil, h); err != nil {
+			t.Fatal(err)
+		}
+		pr := 7
+		if id == "h-2" {
+			pr = 8
+		}
+		if _, _, err := s.OpenReviewLoop(ctx, ReviewLoopOpen{Loop: ReviewLoop{OwnerKind: ReviewLoopOwnerHandoff, HandoffID: id, MainInstanceID: "main-1",
+			HostTask: card, Repo: "acme/widget", Phase: "waiting_for_author"}, PRs: []ReviewLoopPR{{Number: pr}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.CloseHandoffAndArchive(ctx, "main-1", "h-1", "2024-01-02T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	closed, err := s.CloseReviewLoopsOfClosedHandoffs(ctx, "2024-01-02T00:00:01Z")
+	if err != nil || closed != 1 {
+		t.Fatalf("closed %d, %v; want 1", closed, err)
+	}
+	if held, _ := s.ActiveReviewLoop(ctx, "acme/widget", 7); held != nil {
+		t.Fatalf("#7 is still claimed by %s", held.ID)
+	}
+	loop, _ := s.CurrentReviewLoop(ctx, "card-h-1")
+	if loop.State != ReviewLoopClosedState || loop.Phase != "waiting_for_author" {
+		t.Fatalf("loop = %+v; want it closed, its phase kept", loop)
+	}
+	if held, _ := s.ActiveReviewLoop(ctx, "acme/widget", 8); held == nil {
+		t.Fatal("the open handoff's loop lost its claim on #8")
 	}
 }

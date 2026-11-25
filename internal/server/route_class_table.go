@@ -143,6 +143,7 @@ var routeClassTable = []routeClassEntry{
 	{"POST", "/api/agents/{task_id}/resume", ClassChange, "Resume an interrupted agent, or start a new one in its place"},
 	{"POST", "/api/agents/{task_id}/dismiss", ClassChange, "Dismiss an interrupted agent"},
 	{"GET", "/api/review-engine", ClassRead, "Say whether a Legato on this data folder runs the review engine, and why not"},
+	{"GET", "/api/review-loops", ClassRead, "Find the review loop that holds a pull request (?repo=owner/name&pr=N), whichever caller opened it: {loop: {...}} or {loop: null}"},
 	{"GET", "/api/macros", ClassRead, "List the macros"},
 	{"PUT", "/api/macros/{name}", ClassChange, "Save a macro: a new one, an edit, or an edit of a built-in; {\"favorite\": true} alone stars it"},
 	{"DELETE", "/api/macros/{name}", ClassChange, "Delete a macro added in Legato"},

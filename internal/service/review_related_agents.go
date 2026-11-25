@@ -67,8 +67,8 @@ type RelatedLoop struct {
 
 // RelatedAgentsService finds the agents on the other side of the review
 // loops an agent takes part in. The link comes from the loops' own records
-// (the handoff's review, a run's legato.review_loop and its waiting
-// github.pr.review_passes step), never from folders: the reviewer works in
+// (the loop record a handoff's card or a run's task hosts, and the run's
+// waiting github.pr.review_passes step), never from folders: the reviewer works in
 // a clone of its own.
 type RelatedAgentsService struct {
 	db *store.Store
@@ -280,7 +280,7 @@ func runRelatedLoop(taskID string, run *reviewRun, loop *store.HandoffReview) Re
 		Link: fmt.Sprintf("/workflows/runs/%s", run.RunID)}
 }
 
-// relatedPhase names the author's turn, which the ledger keeps as "".
+// relatedPhase names the author's turn, which the loop record keeps as "".
 func relatedPhase(phase string) string {
 	if phase == ReviewPhaseAuthor {
 		return "author"

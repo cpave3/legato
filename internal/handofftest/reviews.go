@@ -79,6 +79,9 @@ type FakeReviewGitHub struct {
 	// learnLogin is told the login each review is posted as, as the
 	// publisher's login recorder is.
 	learnLogin func(login string)
+	// refusePosts is how many more posts GitHub refuses with a 422,
+	// taking nothing.
+	refusePosts int
 	// onRead runs once, before a pull request read once onReadSkip more
 	// have gone by, outside the fake's lock (OnRead).
 	onRead     func()
@@ -155,6 +158,14 @@ func (f *FakeReviewGitHub) FailPosts(n int, taken bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.failPosts, f.failTaken = n, taken
+}
+
+// RefusePosts answers the next n review posts with a 422: GitHub saw each
+// and took nothing.
+func (f *FakeReviewGitHub) RefusePosts(n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.refusePosts = n
 }
 
 // Tried are the review posts Legato sent, those GitHub found or refused
@@ -344,6 +355,10 @@ func (f *FakeReviewGitHub) PostReview(_ context.Context, post service.ReviewPost
 	if review, ok := f.reviews[post.Marker]; ok {
 		review.Existed = true
 		return review, nil // a review with the marker is found, as the publisher finds it
+	}
+	if f.refusePosts > 0 {
+		f.refusePosts--
+		return service.PostedReview{}, &service.GitHubError{Status: 422, Message: "Unprocessable Entity"}
 	}
 	lost := false
 	if f.failPosts > 0 {

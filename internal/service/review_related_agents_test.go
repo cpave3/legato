@@ -58,7 +58,7 @@ func (f relatedFixture) runLoop(t *testing.T, runTask string, run reviewRun, pas
 	ctx := context.Background()
 	createTask(t, f.store, runTask)
 	run.RunID, run.StepID, run.AttemptID = "wr-"+runTask, "review", "att-"+runTask
-	if err := f.store.SetTaskMetadata(ctx, runTask, reviewRunKey, run); err != nil {
+	if err := openReviewRun(ctx, f.store, runTask, run, ReviewPassSettings{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.store.CreateWorkflowRun(ctx, store.WorkflowRun{ID: run.RunID, WorkflowName: "review-pr-passes", WorkflowTitle: "Review loop",

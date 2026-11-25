@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 
@@ -12,11 +11,12 @@ import (
 
 // ReviewLoop is one review loop as the review-pass engine moves it on: the
 // pull requests of one task's branches, reviewed in that task's reviewer
-// slot and recorded in the ledger under that task. A caller says which
+// slot and recorded on the loop record that task hosts (store's
+// HandoffReview view of it, keyed by the task). A caller says which
 // loops there are; the engine knows nothing else of where they came from.
 type ReviewLoop struct {
-	// TaskID keys the loop: its ledger rows, its reviewer slot, its job
-	// clone.
+	// TaskID keys the loop: the loop record it hosts, its reviewer slot,
+	// its job clone.
 	TaskID string
 	// Repo is the repository (owner/name) of its pull requests.
 	Repo string
@@ -40,9 +40,6 @@ type ReviewLoop struct {
 	// Name and Link say whose loop it is, for a refusal to start another
 	// on the same pull request ("run wr-1", "/workflows/runs/wr-1").
 	Name, Link string
-	// Pending says a loop whose phase reads finished (clean) is not: its
-	// caller has yet to end it (a run confirming its head with GitHub).
-	Pending bool
 	// Owner is who the loop writes to GitHub for: the run's step attempt,
 	// or the handoff. Each write checks it still is (mayWrite).
 	Owner store.HandoffReviewOwner
@@ -56,7 +53,8 @@ const (
 	ReviewStagePass = "pass"
 	// ReviewStageAuthor: the author has feedback to work on.
 	ReviewStageAuthor = "author"
-	// ReviewStageClean: a clean pass approved.
+	// ReviewStageClean: a clean pass is approved, confirmed at GitHub's
+	// heads (Confirm). No caller reports approved before it.
 	ReviewStageClean = "clean"
 	// ReviewStageNone: no open pull request was left to review.
 	ReviewStageNone = "none"
@@ -176,27 +174,36 @@ type ReviewCheckoutError struct{ Err error }
 func (e *ReviewCheckoutError) Error() string { return e.Err.Error() }
 func (e *ReviewCheckoutError) Unwrap() error { return e.Err }
 
-// ReviewLoopActiveError refuses a review loop on a pull request that has an
-// active one: one review loop per pull request, whoever started it.
-type ReviewLoopActiveError struct {
-	Repo       string
-	PR         int
-	Name, Link string
-}
-
-func (e *ReviewLoopActiveError) Error() string {
-	return fmt.Sprintf("pull request #%d of %s already has an active review loop: %s (%s)", e.PR, e.Repo, e.Name, e.Link)
-}
-
-// ActiveLoopOn is the active loop on a pull request, among every caller's:
-// one that has not ended, approved, or found nothing to review. Nil when
-// there is none.
+// ActiveLoopOn is the active loop on a pull request: the loop that claims
+// it on the loop record, else among every caller's one that has not ended,
+// approved, or found nothing to review, else a step waiting to open on it.
+// Nil when there is none.
 func (s *ReviewPassService) ActiveLoopOn(ctx context.Context, repo string, number int) *ReviewLoopActiveError {
 	return s.activeLoopOn(ctx, repo, number, "")
 }
 
 // activeLoopOn is ActiveLoopOn, leaving out the loop of except.
 func (s *ReviewPassService) activeLoopOn(ctx context.Context, repo string, number int, except string) *ReviewLoopActiveError {
+	if held := s.heldLoopOn(ctx, repo, number, except); held != nil {
+		return held
+	}
+	for _, caller := range s.callers {
+		if opener, ok := caller.(reviewOpener); ok {
+			if active := opener.waitingToOpenOn(ctx, repo, number, except); active != nil {
+				return active
+			}
+		}
+	}
+	return nil
+}
+
+// heldLoopOn is activeLoopOn without the steps waiting to open: what the
+// holder's tick checks when it opens one of them, so the first it opens
+// takes the pull request and the others are refused naming its loop.
+func (s *ReviewPassService) heldLoopOn(ctx context.Context, repo string, number int, except string) *ReviewLoopActiveError {
+	if claimed := s.claimedLoopOn(ctx, repo, number, except); claimed != nil {
+		return claimed
+	}
 	for _, l := range s.loops(ctx) {
 		if l.TaskID == except || !strings.EqualFold(l.Repo, repo) {
 			continue
@@ -205,7 +212,9 @@ func (s *ReviewPassService) activeLoopOn(ctx context.Context, repo string, numbe
 		if err != nil {
 			continue
 		}
-		if loop != nil && !l.Pending && (loop.Phase == ReviewPhaseClean || loop.Phase == ReviewPhaseSkipped || loop.Phase == ReviewPhaseEnded) {
+		// A clean loop GitHub has yet to confirm (or whose caller has yet
+		// to end it) is still active.
+		if loop != nil && (confirmed(loop) || loop.Phase == ReviewPhaseSkipped || loop.Phase == ReviewPhaseEnded) {
 			continue
 		}
 		on := l.PR == number || slices.Contains(l.PRs, number)
@@ -216,14 +225,11 @@ func (s *ReviewPassService) activeLoopOn(ctx context.Context, repo string, numbe
 			}
 		}
 		if on {
-			return &ReviewLoopActiveError{Repo: repo, PR: number, Name: l.Name, Link: l.Link}
-		}
-	}
-	for _, caller := range s.callers {
-		if opener, ok := caller.(reviewOpener); ok {
-			if active := opener.waitingToOpenOn(ctx, repo, number, except); active != nil {
-				return active
+			active := &ReviewLoopActiveError{Repo: repo, PR: number, Name: l.Name, Link: l.Link}
+			if held, err := s.db.CurrentReviewLoop(ctx, l.TaskID); err == nil && held != nil {
+				active.LoopID = held.ID
 			}
+			return active
 		}
 	}
 	return nil

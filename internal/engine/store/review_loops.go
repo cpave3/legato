@@ -104,6 +104,9 @@ type ReviewLoop struct {
 	// The handoff binding: the handoff and its card's columns (JSON).
 	HandoffID      string `db:"handoff_id"`
 	HandoffColumns string `db:"handoff_columns"`
+	// MainInstanceID is the main instance of the handoff (handoff IDs are
+	// unique per main).
+	MainInstanceID string `db:"main_instance_id"`
 	// HostTask holds the reviewer slot and the clone: the workflow run's
 	// task, or the handoff's card.
 	HostTask string `db:"host_task"`
@@ -119,7 +122,9 @@ type ReviewLoop struct {
 	Phase       string `db:"phase"`
 	Outcome     string `db:"outcome"`
 	Reason      string `db:"reason"`
-	// The settings.
+	// The settings. PassesOff is a handoff whose main turned its review
+	// passes off.
+	PassesOff     bool   `db:"passes_off"`
 	MaxPasses     int    `db:"max_passes"`
 	MaxReentries  int    `db:"max_reentries"`
 	Ready         bool   `db:"ready"`
@@ -162,8 +167,10 @@ type ReviewLoop struct {
 	ChecksPolledAt  string `db:"checks_polled_at"`
 	ChecksHeads     string `db:"checks_heads"`
 	ChecksPending   int    `db:"checks_pending"`
-	// MarkerKey keys markers and pin refs: the loop ID, or the old task ID
-	// of a converted loop.
+	// MarkerKey keys the markers of what the loop leaves on GitHub: the
+	// loop ID, so two loops on one task never share one, or the old task
+	// ID of a converted loop, whose earlier posts are found by it. Pin refs
+	// keep the host task's ID.
 	MarkerKey string `db:"marker_key"`
 	CloneID   int64  `db:"clone_id"`
 	CloneDir  string `db:"clone_dir"`
@@ -199,12 +206,16 @@ type ReviewLoopPR struct {
 	ReviewID   int64  `db:"review_id"`
 	ReviewURL  string `db:"review_url"`
 	ClaimedAt  string `db:"claimed_at"`
+	// LocalBranch is the branch of the reviewer's clone the layer is put
+	// on, when it is not Branch.
+	LocalBranch string `db:"local_branch"`
 }
 
 // ReviewLoopPin is one pull request of a pass, pinned at its head, and the
 // review the pass posted on it.
 type ReviewLoopPin struct {
 	Number      int    `json:"number"`
+	Repo        string `json:"repo,omitempty"`
 	Branch      string `json:"branch,omitempty"`
 	Base        string `json:"base,omitempty"`
 	Title       string `json:"title,omitempty"`
@@ -267,8 +278,11 @@ type ReviewLoopPass struct {
 	SubmissionDigest string         `db:"submission_digest"`
 	PostingStartedAt string         `db:"posting_started_at"`
 	Attempts         int            `db:"attempts"`
-	StartedAt        string         `db:"started_at"`
-	EndedAt          string         `db:"ended_at"`
+	// Attempt is how many times the pass's number was pinned before: a pass
+	// discarded because a head moved is pinned again under its number.
+	Attempt   int    `db:"attempt"`
+	StartedAt string `db:"started_at"`
+	EndedAt   string `db:"ended_at"`
 }
 
 // ReviewLoopFinding is one finding of a pass, with a later pass's ruling.
@@ -322,16 +336,25 @@ type ReviewLoopItem struct {
 }
 
 // ReviewLoopOpen is a loop to open with its pull requests, bottom first.
+// YieldAuthor opens an agent-authored loop whose author already authors an
+// open loop as not the agent's (agent_author false) instead of refusing it:
+// a handed-off card's loop, which reviews whoever authors it.
 type ReviewLoopOpen struct {
-	Loop ReviewLoop
-	PRs  []ReviewLoopPR
+	Loop        ReviewLoop
+	PRs         []ReviewLoopPR
+	YieldAuthor bool
 }
 
 // ReviewLoopOwner names who may write to a loop.
+// A run owner may name its step attempt (AttemptID), and a handoff owner
+// its main instance (MainInstanceID, as handoff IDs are unique per main);
+// each, when set, must match too.
 type ReviewLoopOwner struct {
-	Kind      string
-	RunID     string
-	HandoffID string
+	Kind           string
+	RunID          string
+	AttemptID      string
+	HandoffID      string
+	MainInstanceID string
 }
 
 func (o ReviewLoopOwner) owns(l *ReviewLoop) bool {
@@ -339,9 +362,9 @@ func (o ReviewLoopOwner) owns(l *ReviewLoop) bool {
 		return false
 	}
 	if o.Kind == ReviewLoopOwnerRun {
-		return o.RunID == l.RunID
+		return o.RunID == l.RunID && (o.AttemptID == "" || o.AttemptID == l.AttemptID)
 	}
-	return o.HandoffID == l.HandoffID
+	return o.HandoffID == l.HandoffID && (o.MainInstanceID == "" || o.MainInstanceID == l.MainInstanceID)
 }
 
 func reviewLoopNow() string { return time.Now().UTC().Format(time.RFC3339) }
@@ -359,31 +382,63 @@ func getReviewLoop(ctx context.Context, q sqlx.QueryerContext, id string) (*Revi
 }
 
 // OpenReviewLoop opens a loop and claims its pull requests in one
-// transaction. It is idempotent by (run, step path): a run's step that
-// opened a loop before gets it back, created false. A pull request another
-// loop holds, an author task whose agent authors another open loop, or a
-// run with another open loop is refused with a *ReviewLoopConflictError.
+// transaction. It is idempotent per owner: a run's step (run, step path)
+// or a handoff (main instance, handoff) that opened a loop before gets it
+// back, open or closed, with created false; another handoff of the same
+// card is another owner, with a loop of its own. A pull request another
+// loop holds, an author task whose agent authors another open loop
+// (unless YieldAuthor), or a run with another open loop is refused with a
+// *ReviewLoopConflictError.
 func (s *Store) OpenReviewLoop(ctx context.Context, open ReviewLoopOpen) (*ReviewLoop, bool, error) {
-	l := open.Loop
-	if l.OwnerKind != ReviewLoopOwnerRun && l.OwnerKind != ReviewLoopOwnerHandoff {
-		return nil, false, fmt.Errorf("review loop owner kind %q", l.OwnerKind)
-	}
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return nil, false, err
 	}
 	defer tx.Rollback()
+	loop, created, err := openReviewLoopTx(ctx, tx, open)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, false, err
+	}
+	return loop, created, nil
+}
+
+// ownedReviewLoop is the newest loop of an owner, nil when it has none.
+func ownedReviewLoop(ctx context.Context, tx *sqlx.Tx, l ReviewLoop) (*ReviewLoop, error) {
+	var existing string
+	var err error
+	switch l.OwnerKind {
+	case ReviewLoopOwnerRun:
+		err = tx.GetContext(ctx, &existing, `SELECT id FROM review_loops WHERE run_id = ? AND step_path = ? AND owner_kind = 'run'
+			ORDER BY created_at DESC, rowid DESC LIMIT 1`, l.RunID, l.StepPath)
+	default:
+		err = tx.GetContext(ctx, &existing, `SELECT id FROM review_loops WHERE main_instance_id = ? AND handoff_id = ? AND owner_kind = 'handoff'
+			AND host_task = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, l.MainInstanceID, l.HandoffID, l.HostTask)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return getReviewLoop(ctx, tx, existing)
+}
+
+func openReviewLoopTx(ctx context.Context, tx *sqlx.Tx, open ReviewLoopOpen) (*ReviewLoop, bool, error) {
+	l := open.Loop
+	if l.OwnerKind != ReviewLoopOwnerRun && l.OwnerKind != ReviewLoopOwnerHandoff {
+		return nil, false, fmt.Errorf("review loop owner kind %q", l.OwnerKind)
+	}
+	if l.OwnerKind == ReviewLoopOwnerRun || l.HandoffID != "" {
+		existing, err := ownedReviewLoop(ctx, tx, l)
+		if err != nil || existing != nil {
+			return existing, false, err
+		}
+	}
 	if l.OwnerKind == ReviewLoopOwnerRun {
 		var existing string
-		err := tx.GetContext(ctx, &existing, `SELECT id FROM review_loops WHERE run_id = ? AND step_path = ? AND owner_kind = 'run'
-			ORDER BY created_at DESC, rowid DESC LIMIT 1`, l.RunID, l.StepPath)
-		if err == nil {
-			loop, err := getReviewLoop(ctx, tx, existing)
-			return loop, false, err
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return nil, false, err
-		}
 		if err := tx.GetContext(ctx, &existing, `SELECT id FROM review_loops WHERE run_id = ? AND owner_kind = 'run' AND state = 'open'`, l.RunID); err == nil {
 			return nil, false, &ReviewLoopConflictError{Err: ErrRunLoopActive, LoopID: existing}
 		} else if !errors.Is(err, sql.ErrNoRows) {
@@ -393,10 +448,12 @@ func (s *Store) OpenReviewLoop(ctx context.Context, open ReviewLoopOpen) (*Revie
 	if l.AgentAuthor && l.AuthorTask != "" {
 		var other string
 		err := tx.GetContext(ctx, &other, `SELECT id FROM review_loops WHERE author_task = ? AND agent_author = 1 AND state = 'open'`, l.AuthorTask)
-		if err == nil {
+		switch {
+		case err == nil && open.YieldAuthor:
+			l.AgentAuthor = false
+		case err == nil:
 			return nil, false, &ReviewLoopConflictError{Err: ErrAuthorLoopActive, LoopID: other, AuthorTask: l.AuthorTask}
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
+		case !errors.Is(err, sql.ErrNoRows):
 			return nil, false, err
 		}
 	}
@@ -436,9 +493,6 @@ func (s *Store) OpenReviewLoop(ctx context.Context, open ReviewLoopOpen) (*Revie
 		if err := addReviewLoopPR(ctx, tx, l.Repo, pr); err != nil {
 			return nil, false, err
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, false, err
 	}
 	return &l, true, nil
 }
@@ -551,30 +605,74 @@ func (s *Store) UpdateReviewLoop(ctx context.Context, id string, rev int64, chan
 	if l.Rev != rev {
 		return nil, fmt.Errorf("%w: review loop %s is at rev %d, not %d", ErrConflict, id, l.Rev, rev)
 	}
+	read := *l
 	rt := &ReviewLoopTx{Loop: l, ctx: ctx, tx: tx}
 	if err := change(rt); err != nil {
 		return nil, err
 	}
-	next := *rt.Loop
-	next.ID = id
-	next.Rev = rev + 1
-	if next.UpdatedAt == l.UpdatedAt || next.UpdatedAt == "" {
-		next.UpdatedAt = reviewLoopNow()
-	}
-	if next.Replies == "" {
-		next.Replies = "[]"
-	}
-	result, err := tx.NamedExecContext(ctx, `UPDATE review_loops SET `+reviewLoopUpdates+`, rev = :rev WHERE id = :id AND rev = `+fmt.Sprint(rev), next)
-	if err != nil {
+	if err := writeReviewLoop(ctx, tx, read, *rt.Loop); err != nil {
 		return nil, err
-	}
-	if n, _ := result.RowsAffected(); n != 1 {
-		return nil, fmt.Errorf("%w: review loop %s moved on", ErrConflict, id)
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return getReviewLoop(ctx, s.db, id)
+}
+
+// writeReviewLoop writes next over the loop read, a compare-and-swap on
+// read's rev: a loop that moved on since is ErrConflict.
+func writeReviewLoop(ctx context.Context, tx *sqlx.Tx, read, next ReviewLoop) error {
+	next.ID = read.ID
+	next.Rev = read.Rev + 1
+	if next.UpdatedAt == read.UpdatedAt || next.UpdatedAt == "" {
+		next.UpdatedAt = reviewLoopNow()
+	}
+	if next.Replies == "" {
+		next.Replies = "[]"
+	}
+	result, err := tx.NamedExecContext(ctx, `UPDATE review_loops SET `+reviewLoopUpdates+`, rev = :rev WHERE id = :id AND rev = `+fmt.Sprint(read.Rev), next)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n != 1 {
+		return fmt.Errorf("%w: review loop %s moved on", ErrConflict, read.ID)
+	}
+	if next.OwnerKind == ReviewLoopOwnerHandoff && handoffLoopLetsGo(next) {
+		// A handoff's loop that approved, had nothing to review or ended
+		// lets go of its pull requests while its card stays open; a later
+		// pass claims them again (holdReviewLoopLayer). A clean pass
+		// Confirm has yet to record approved still holds them.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM review_loop_claims WHERE loop_id = ?`, read.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// handoffLoopLetsGo says a handoff loop holds no claims: approved (clean,
+// and Confirm recorded this pass confirmed), skipped (nothing to review) or
+// ended.
+func handoffLoopLetsGo(l ReviewLoop) bool {
+	switch l.Phase {
+	case "clean":
+		return !l.ConfirmClean && l.ConfirmedAt != "" && l.CleanPass == l.Pass
+	case "skipped", "ended":
+		return true
+	}
+	return false
+}
+
+// SetLocalBranch records the branch of the reviewer's clone a layer is put
+// on.
+func (t *ReviewLoopTx) SetLocalBranch(number int, branch string) error {
+	result, err := t.tx.ExecContext(t.ctx, `UPDATE review_loop_prs SET local_branch = ? WHERE loop_id = ? AND number = ?`, branch, t.Loop.ID, number)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // AddPR adds a layer to the loop and claims it, after the layers it has. A
@@ -602,7 +700,7 @@ func (t *ReviewLoopTx) SavePR(pr ReviewLoopPR) error {
 	result, err := t.tx.NamedExecContext(t.ctx, `UPDATE review_loop_prs SET branch = :branch, base = :base, title = :title, url = :url,
 		head_repo = :head_repo, state = :state, draft = :draft, mergeable = :mergeable, author = :author,
 		author_association = :author_association, author_task = :author_task, pinned_head = :pinned_head,
-		clean_head = :clean_head, review_id = :review_id, review_url = :review_url
+		clean_head = :clean_head, review_id = :review_id, review_url = :review_url, local_branch = :local_branch
 		WHERE loop_id = :loop_id AND number = :number`, pr)
 	if err != nil {
 		return err
@@ -618,13 +716,8 @@ func (t *ReviewLoopTx) SavePR(pr ReviewLoopPR) error {
 // open loops, counted and taken in this transaction. Every slot taken is
 // ErrReviewSlotsFull.
 func (t *ReviewLoopTx) StartPass(p ReviewLoopPass, maxConcurrent int) error {
-	var inFlight int
-	if err := t.tx.GetContext(t.ctx, &inFlight, `SELECT COUNT(*) FROM review_loop_passes p JOIN review_loops l ON l.id = p.loop_id
-		WHERE l.state = 'open' AND p.state IN `+reviewLoopInFlight); err != nil {
+	if err := takeReviewSlot(t.ctx, t.tx, maxConcurrent); err != nil {
 		return err
-	}
-	if inFlight >= maxConcurrent {
-		return ErrReviewSlotsFull
 	}
 	p.LoopID = t.Loop.ID
 	if p.State == "" {
@@ -637,13 +730,43 @@ func (t *ReviewLoopTx) StartPass(p ReviewLoopPass, maxConcurrent int) error {
 	return err
 }
 
+// takeReviewSlot is the slot check of a pass start, run in the
+// transaction that writes the pass: ErrReviewSlotsFull when maxConcurrent
+// passes of open loops are in flight. The transaction is immediate, so no
+// other writer counts or takes a slot between this count and the pass's
+// insert.
+func takeReviewSlot(ctx context.Context, q sqlx.QueryerContext, maxConcurrent int) error {
+	inFlight, err := reviewPassesInFlight(ctx, q)
+	if err != nil {
+		return err
+	}
+	if inFlight >= maxConcurrent {
+		return ErrReviewSlotsFull
+	}
+	return nil
+}
+
+func reviewPassesInFlight(ctx context.Context, q sqlx.QueryerContext) (int, error) {
+	var n int
+	err := sqlx.GetContext(ctx, q, &n, `SELECT COUNT(*) FROM review_loop_passes p JOIN review_loops l ON l.id = p.loop_id
+		WHERE l.state = 'open' AND p.state IN `+reviewLoopInFlight)
+	return n, err
+}
+
+// ReviewPassesInFlight counts the review slots taken: the in-flight passes
+// (reviewing, submitted, posting) of open loops. It is a read for deciding
+// whether to try a start; the start itself takes its slot atomically.
+func (s *Store) ReviewPassesInFlight(ctx context.Context) (int, error) {
+	return reviewPassesInFlight(ctx, s.db)
+}
+
 // SavePass writes a pass's state and what it recorded.
 func (t *ReviewLoopTx) SavePass(p ReviewLoopPass) error {
 	p.LoopID = t.Loop.ID
 	result, err := t.tx.NamedExecContext(t.ctx, `UPDATE review_loop_passes SET pass_window = :pass_window, step_path = :step_path,
 		state = :state, verdict = :verdict, summary = :summary, reason = :reason, execution_id = :execution_id,
 		checkout = :checkout, head_sha = :head_sha, pins = :pins, submission_digest = :submission_digest,
-		posting_started_at = :posting_started_at, attempts = :attempts, ended_at = :ended_at
+		posting_started_at = :posting_started_at, attempts = :attempts, attempt = :attempt, ended_at = :ended_at
 		WHERE loop_id = :loop_id AND pass = :pass`, p)
 	if err != nil {
 		return err
@@ -842,15 +965,7 @@ func (s *Store) CloseReviewLoop(ctx context.Context, id, outcome, at string) (*R
 	if l.State != ReviewLoopOpenState {
 		return l, false, nil
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM review_loop_claims WHERE loop_id = ?`, id); err != nil {
-		return nil, false, err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE review_loop_passes SET state = 'discarded', ended_at = ?
-		WHERE loop_id = ? AND state IN `+reviewLoopInFlight, at, id); err != nil {
-		return nil, false, err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE review_loops SET state = 'closed', outcome = ?, closed_at = ?, updated_at = ?, rev = rev + 1
-		WHERE id = ?`, outcome, at, at, id); err != nil {
+	if err := closeReviewLoopTx(ctx, tx, id, outcome, at); err != nil {
 		return nil, false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -860,18 +975,129 @@ func (s *Store) CloseReviewLoop(ctx context.Context, id, outcome, at string) (*R
 	return l, true, err
 }
 
-const reviewLoopColumns = `id, rev, owner_kind, run_id, step_path, attempt_id, handoff_id, handoff_columns, host_task, repo,
+// EndReviewLoop is CloseReviewLoop with the loop's phase first set to phase
+// with reason, when phase is not "", in the same transaction.
+func (s *Store) EndReviewLoop(ctx context.Context, id, phase, reason, outcome, at string) (*ReviewLoop, bool, error) {
+	if at == "" {
+		at = reviewLoopNow()
+	}
+	closed := false
+	err := withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		l, err := getReviewLoop(ctx, tx, id)
+		if err != nil || l.State != ReviewLoopOpenState {
+			return err
+		}
+		if phase != "" {
+			next := *l
+			next.Phase, next.Reason, next.QueuedAt, next.UpdatedAt = phase, reason, "", at
+			if err := writeReviewLoop(ctx, tx, *l, next); err != nil {
+				return err
+			}
+		}
+		closed = true
+		return closeReviewLoopTx(ctx, tx, id, outcome, at)
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	l, err := getReviewLoop(ctx, s.db, id)
+	return l, closed, err
+}
+
+// ErrReviewLoopNotClean is a Confirm of a loop whose pass is not the clean
+// one it read: it moved on (another pass, feedback) in the meantime.
+var ErrReviewLoopNotClean = errors.New("the review loop is not at the clean pass it was confirmed for")
+
+// ConfirmReviewLoop records a loop's clean pass confirmed at GitHub's heads
+// (the engine's Confirm, invariant 9), in one compare-and-swap transition:
+// confirmed_at and clean_pass set, the pass window reset to start after the
+// pass, confirm_clean cleared, and each layer's clean_head the head it was
+// confirmed at. A loop that is not open, not clean, or past pass is refused
+// (ErrReviewLoopClosed, ErrReviewLoopNotClean), and nothing is written.
+func (s *Store) ConfirmReviewLoop(ctx context.Context, id string, pass int, heads map[int]string, at string) error {
+	if at == "" {
+		at = reviewLoopNow()
+	}
+	var err error
+	for try := 0; try < 5; try++ {
+		err = withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+			l, err := getReviewLoop(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if l.State != ReviewLoopOpenState {
+				return ErrReviewLoopClosed
+			}
+			if l.Phase != "clean" || l.Pass != pass {
+				return fmt.Errorf("%w: %s is %q at pass %d, not clean at pass %d", ErrReviewLoopNotClean, id, l.Phase, l.Pass, pass)
+			}
+			next := *l
+			next.ConfirmedAt, next.CleanPass, next.WindowStart, next.ConfirmClean, next.UpdatedAt = at, pass, pass, false, at
+			if err := writeReviewLoop(ctx, tx, *l, next); err != nil {
+				return err
+			}
+			for number, head := range heads {
+				if _, err := tx.ExecContext(ctx, `UPDATE review_loop_prs SET clean_head = ? WHERE loop_id = ? AND number = ?`, head, id, number); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if !errors.Is(err, ErrConflict) {
+			return err
+		}
+	}
+	return err
+}
+
+// ClosedLoopReviewer is a reviewer execution of a loop that closed: its
+// host task and the execution a pass of it ran.
+type ClosedLoopReviewer struct {
+	LoopID      string `db:"loop_id"`
+	HostTask    string `db:"host_task"`
+	ExecutionID string `db:"execution_id"`
+}
+
+// ClosedLoopReviewers are the reviewer executions of the loops closed at
+// or after since whose host task hosts no open loop: what Close's side
+// effects stop, for a sweep after a crash between the close and them.
+func (s *Store) ClosedLoopReviewers(ctx context.Context, since string) ([]ClosedLoopReviewer, error) {
+	var out []ClosedLoopReviewer
+	err := s.db.SelectContext(ctx, &out, `SELECT DISTINCT l.id AS loop_id, l.host_task, p.execution_id
+		FROM review_loops l JOIN review_loop_passes p ON p.loop_id = l.id
+		WHERE l.state = 'closed' AND l.closed_at >= ? AND p.execution_id != ''
+			AND NOT EXISTS (SELECT 1 FROM review_loops o WHERE o.host_task = l.host_task AND o.state = 'open')
+		ORDER BY l.closed_at, l.id`, since)
+	return out, err
+}
+
+// closeReviewLoopTx closes an open loop in a transaction: its claims
+// released, a pass in flight discarded, it marked closed with outcome.
+func closeReviewLoopTx(ctx context.Context, tx *sqlx.Tx, id, outcome, at string) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM review_loop_claims WHERE loop_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE review_loop_passes SET state = 'discarded', ended_at = ?
+		WHERE loop_id = ? AND state IN `+reviewLoopInFlight, at, id); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE review_loops SET state = 'closed', outcome = ?, closed_at = ?, updated_at = ?, rev = rev + 1
+		WHERE id = ?`, outcome, at, at, id)
+	return err
+}
+
+const reviewLoopColumns = `id, rev, owner_kind, run_id, step_path, attempt_id, handoff_id, handoff_columns, main_instance_id, host_task, repo,
 	subject_pr, scope, agent_author, author_task, linked_task, state, phase, outcome, reason,
-	max_passes, max_reentries, ready, steward, reviewer, reviewer_model, reviewer_tier, skill, skill_managed,
+	passes_off, max_passes, max_reentries, ready, steward, reviewer, reviewer_model, reviewer_tier, skill, skill_managed,
 	pass, window_start, reentries, passes_since_approval, pass_deaths, not_converging, mismatches, delivered_pass,
 	last_wake, last_wake_at, held, idle_deadline, confirmed_at, clean_pass, confirm_clean,
 	nudged_at, author_busy_since_nudge, seen_head, seen_at, replies,
 	polled_at, last_new_at, skipped_comments, checks_polled_at, checks_heads, checks_pending,
 	marker_key, clone_id, clone_dir, queued_at, created_at, updated_at, closed_at`
 
-const reviewLoopValues = `:id, :rev, :owner_kind, :run_id, :step_path, :attempt_id, :handoff_id, :handoff_columns, :host_task, :repo,
+const reviewLoopValues = `:id, :rev, :owner_kind, :run_id, :step_path, :attempt_id, :handoff_id, :handoff_columns, :main_instance_id, :host_task, :repo,
 	:subject_pr, :scope, :agent_author, :author_task, :linked_task, :state, :phase, :outcome, :reason,
-	:max_passes, :max_reentries, :ready, :steward, :reviewer, :reviewer_model, :reviewer_tier, :skill, :skill_managed,
+	:passes_off, :max_passes, :max_reentries, :ready, :steward, :reviewer, :reviewer_model, :reviewer_tier, :skill, :skill_managed,
 	:pass, :window_start, :reentries, :passes_since_approval, :pass_deaths, :not_converging, :mismatches, :delivered_pass,
 	:last_wake, :last_wake_at, :held, :idle_deadline, :confirmed_at, :clean_pass, :confirm_clean,
 	:nudged_at, :author_busy_since_nudge, :seen_head, :seen_at, :replies,
@@ -881,10 +1107,10 @@ const reviewLoopValues = `:id, :rev, :owner_kind, :run_id, :step_path, :attempt_
 // reviewLoopUpdates is what a transition writes: everything but the ID,
 // rev, state and the times of creation and closing.
 const reviewLoopUpdates = `owner_kind = :owner_kind, run_id = :run_id, step_path = :step_path, attempt_id = :attempt_id,
-	handoff_id = :handoff_id, handoff_columns = :handoff_columns, host_task = :host_task, repo = :repo,
+	handoff_id = :handoff_id, handoff_columns = :handoff_columns, main_instance_id = :main_instance_id, host_task = :host_task, repo = :repo,
 	subject_pr = :subject_pr, scope = :scope, agent_author = :agent_author, author_task = :author_task,
 	linked_task = :linked_task, phase = :phase, outcome = :outcome, reason = :reason,
-	max_passes = :max_passes, max_reentries = :max_reentries, ready = :ready, steward = :steward,
+	passes_off = :passes_off, max_passes = :max_passes, max_reentries = :max_reentries, ready = :ready, steward = :steward,
 	reviewer = :reviewer, reviewer_model = :reviewer_model, reviewer_tier = :reviewer_tier, skill = :skill,
 	skill_managed = :skill_managed, pass = :pass, window_start = :window_start, reentries = :reentries,
 	passes_since_approval = :passes_since_approval, pass_deaths = :pass_deaths, not_converging = :not_converging,
@@ -897,16 +1123,16 @@ const reviewLoopUpdates = `owner_kind = :owner_kind, run_id = :run_id, step_path
 	queued_at = :queued_at, updated_at = :updated_at`
 
 const reviewLoopPRColumns = `loop_id, number, position, branch, base, title, url, head_repo, state, draft, mergeable,
-	author, author_association, author_task, pinned_head, clean_head, review_id, review_url, claimed_at`
+	author, author_association, author_task, pinned_head, clean_head, review_id, review_url, claimed_at, local_branch`
 
 const reviewLoopPRValues = `:loop_id, :number, :position, :branch, :base, :title, :url, :head_repo, :state, :draft, :mergeable,
-	:author, :author_association, :author_task, :pinned_head, :clean_head, :review_id, :review_url, :claimed_at`
+	:author, :author_association, :author_task, :pinned_head, :clean_head, :review_id, :review_url, :claimed_at, :local_branch`
 
 const reviewLoopPassColumns = `loop_id, pass, pass_window, step_path, state, verdict, summary, reason, execution_id, checkout,
-	head_sha, pins, submission_digest, posting_started_at, attempts, started_at, ended_at`
+	head_sha, pins, submission_digest, posting_started_at, attempts, attempt, started_at, ended_at`
 
 const reviewLoopPassValues = `:loop_id, :pass, :pass_window, :step_path, :state, :verdict, :summary, :reason, :execution_id, :checkout,
-	:head_sha, :pins, :submission_digest, :posting_started_at, :attempts, :started_at, :ended_at`
+	:head_sha, :pins, :submission_digest, :posting_started_at, :attempts, :attempt, :started_at, :ended_at`
 
 const reviewLoopFindingColumns = `loop_id, id, pass, pr, severity, critical, title, body, path, line, start_line, side,
 	comment_id, status, ruled_pass, ruling`

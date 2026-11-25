@@ -92,6 +92,10 @@ type WorkerOptions struct {
 	// GitHub and the author's checkout faked (Worker.ReviewGitHub,
 	// Worker.Checkout).
 	ReviewPasses *ReviewPassOptions
+	// Database, when set, is given the worker's database path before the
+	// worker first opens it, to leave there what an older Legato wrote
+	// (store.NewBefore): the worker's open migrates it.
+	Database func(t testing.TB, path string)
 }
 
 // Worker is a worker instance: its database, services and web server.
@@ -150,6 +154,9 @@ func StartWorker(t testing.TB, opts WorkerOptions) *Worker {
 	dir := t.TempDir()
 	w := &Worker{t: t, opts: opts, Dir: dir, DBPath: filepath.Join(dir, "worker.db"), Clock: opts.Clock, Tmux: NewFakeTmux(), webToken: "worker-web-token",
 		Repos: NewFakeRepos(filepath.Join(dir, "jobs")), ReviewGitHub: NewFakeReviewGitHub(), Checkout: NewFakeCheckout()}
+	if opts.Database != nil {
+		opts.Database(t, w.DBPath)
+	}
 	w.start()
 	seedColumns(t, w.Store)
 	t.Cleanup(w.Stop)
@@ -235,6 +242,7 @@ func (w *Worker) start() {
 		setter.SetHandedOffAgents(w.Handoffs)
 	}
 	srv.SetTaskHandoffs(w.Handoffs)
+	srv.SetReviewLoops(service.NewReviewLoopLookup(db))
 	srv.SetHandoffReauthEvery(50 * time.Millisecond)
 	w.Server = srv
 	// As a worker's runtime with agents.mcp.enabled (the default): its

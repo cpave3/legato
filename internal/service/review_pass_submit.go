@@ -561,12 +561,12 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 		if err != nil {
 			var gh *GitHubError
 			if errors.As(err, &gh) && gh.Status < 500 {
-				// GitHub saw it and said no: the person decides, and
-				// Another pass starts a new pass, as it always did.
-				if err := s.db.SetHandoffReviewPassPosting(ctx, taskID, pass.Pass, pass.PostingStartedAt, 0); err != nil {
-					return err
-				}
-				return s.stuck(ctx, l, loop, fmt.Sprintf("GitHub refused the review of #%d: %v", layer.pr.Number, err))
+				// GitHub saw it and said no: the pass ends unable, so
+				// it holds no reviewer slot, and the person decides.
+				// It counts toward max_passes, the reviews of layers
+				// posted before stay recorded, and Another pass starts
+				// a new pass, as it always did.
+				return s.unable(ctx, l, loop, *pass, fmt.Sprintf("GitHub refused the review of #%d: %v", layer.pr.Number, err))
 			}
 			return s.postFailed(ctx, l, loop, pass, layers[i:], err)
 		}
@@ -586,7 +586,9 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 	stage := ReviewStageClean
 	var raised []store.HandoffReviewItem
 	if pass.Verdict == VerdictClean {
-		loop.Phase = ReviewPhaseClean
+		// Clean, and not approved until Confirm finds GitHub's heads at
+		// this pass's pins.
+		loop.Phase, loop.ConfirmClean = ReviewPhaseClean, true
 	} else {
 		if raised, err = s.passItems(ctx, taskID, pass.Pass, prs); err != nil {
 			return err
@@ -606,6 +608,9 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 		return err
 	}
 	s.changed(taskID)
+	if stage == ReviewStageClean {
+		return s.confirmLoop(ctx, l, loop.LoopID)
+	}
 	l.stage(ctx, stage)
 	return nil
 }

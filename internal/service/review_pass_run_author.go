@@ -26,7 +26,8 @@ const (
 )
 
 // runAuthorStops remembers, for each loop, when its agent author was first
-// seen stopped, its activity mark then (a turn since moves it, and the
+// seen stopped (the engine keeps it, for the author-mode wait, so the run
+// caller keeps no loop state of its own), its activity mark then (a turn since moves it, and the
 // quiet time starts again), and whether the loop said so once the quiet
 // time passed. In memory: after a restart the quiet time starts again.
 type runAuthorStops struct {
@@ -83,9 +84,9 @@ func (c *ReviewRunCaller) authorNeedsYou(ctx context.Context, taskID string, run
 	case runAuthorPerson, runAuthorWaiting:
 		return true
 	case runAuthorStopped:
-		c.stops.mu.Lock()
-		stop, ok := c.stops.stops[taskID]
-		c.stops.mu.Unlock()
+		c.engine.authorStops.mu.Lock()
+		stop, ok := c.engine.authorStops.stops[taskID]
+		c.engine.authorStops.mu.Unlock()
 		if !ok || c.engine.opts.Now().Sub(stop.since) < c.engine.config().QuietTime {
 			return false
 		}
@@ -113,22 +114,22 @@ func (c *ReviewRunCaller) noteAuthor(ctx context.Context, taskID string, run *re
 		}
 	}
 	now := c.engine.opts.Now()
-	c.stops.mu.Lock()
-	if c.stops.stops == nil {
-		c.stops.stops = map[string]runAuthorStop{}
+	c.engine.authorStops.mu.Lock()
+	if c.engine.authorStops.stops == nil {
+		c.engine.authorStops.stops = map[string]runAuthorStop{}
 	}
-	stop, ok := c.stops.stops[taskID]
+	stop, ok := c.engine.authorStops.stops[taskID]
 	tell := false
 	switch {
 	case !stopped:
-		delete(c.stops.stops, taskID)
+		delete(c.engine.authorStops.stops, taskID)
 	case !ok || stop.mark != mark:
-		c.stops.stops[taskID] = runAuthorStop{since: now, mark: mark}
+		c.engine.authorStops.stops[taskID] = runAuthorStop{since: now, mark: mark}
 	case !stop.told && now.Sub(stop.since) >= c.engine.config().QuietTime:
 		stop.told, tell = true, true
-		c.stops.stops[taskID] = stop
+		c.engine.authorStops.stops[taskID] = stop
 	}
-	c.stops.mu.Unlock()
+	c.engine.authorStops.mu.Unlock()
 	if tell {
 		c.Changed(taskID)
 	}

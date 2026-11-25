@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log"
 	"strings"
 	"time"
@@ -75,6 +76,64 @@ func handoffLoop(h *store.Handoff) ReviewLoop {
 		Owner: store.HandoffReviewOwner{MainInstanceID: h.MainInstanceID, HandoffID: h.HandoffID}}
 }
 
+// openLoop opens the loop of a card's handoff with the engine's Open: owned
+// by the handoff, hosted by the card, with no pull requests yet; each pass
+// claims those it pins. A handoff that has its loop gets it back, and
+// another handoff of the same card gets one of its own.
+func (c *HandoffReviewCaller) openLoop(ctx context.Context, h *store.Handoff) (*store.ReviewLoop, error) {
+	loop, _, err := c.Open(ctx, store.HandoffReviewLoopOpen(h.TaskID, store.HandoffOfCard{
+		MainInstanceID: h.MainInstanceID, HandoffID: h.HandoffID, Repo: h.Repo}))
+	return loop, err
+}
+
+// SetSettings opens the loop of a card's handoff (openLoop) and keeps its
+// review settings (a main's override, or the worker's defaults) on it.
+func (c *HandoffReviewCaller) SetSettings(ctx context.Context, taskID string, settings ReviewPassSettings) error {
+	if h, err := c.db.OpenHandoffForTask(ctx, taskID); err == nil {
+		if _, err := c.openLoop(ctx, h); err != nil {
+			return err
+		}
+	}
+	return c.ReviewPassService.SetSettings(ctx, taskID, settings)
+}
+
+// OpenWaiting opens the loop of each reviewed handoff whose card has none
+// of its own yet, in the holder's tick.
+func (c *HandoffReviewCaller) OpenWaiting(ctx context.Context) {
+	open, err := c.db.ListOpenHandoffs(ctx)
+	if err != nil {
+		log.Printf("review passes: %v", err)
+		return
+	}
+	for i := range open {
+		h := &open[i]
+		if !c.reviewed(h) {
+			continue
+		}
+		// A card with an open loop (its own, or one converted before its
+		// handoff was named on it) or a closed loop of this handoff has its
+		// loop.
+		l, err := c.db.CurrentReviewLoop(ctx, h.TaskID)
+		if err != nil || (l != nil && (l.State == store.ReviewLoopOpenState || (l.HandoffID == h.HandoffID && l.MainInstanceID == h.MainInstanceID))) {
+			continue
+		}
+		if _, err := c.openLoop(ctx, h); err != nil {
+			log.Printf("review passes: opening the loop of handoff %s: %v", h.HandoffID, err)
+		}
+	}
+}
+
+// waitingToOpenOn: a handoff's loop opens at once, with no pull request.
+func (c *HandoffReviewCaller) waitingToOpenOn(context.Context, string, int, string) *ReviewLoopActiveError {
+	return nil
+}
+
+// reviewed says an open handoff's loop moves on: review passes apply and
+// its agent has started.
+func (c *HandoffReviewCaller) reviewed(h *store.Handoff) bool {
+	return c.applies(h) && h.State != store.HandoffPending && h.State != store.HandoffFailed && h.State != store.HandoffReturning
+}
+
 // Loops are the open handoffs whose review passes are on and whose agent
 // has started.
 func (c *HandoffReviewCaller) Loops(ctx context.Context) ([]ReviewLoop, error) {
@@ -86,7 +145,7 @@ func (c *HandoffReviewCaller) Loops(ctx context.Context) ([]ReviewLoop, error) {
 	var out []ReviewLoop
 	for i := range open {
 		h := &open[i]
-		if !c.applies(h) || h.State == store.HandoffPending || h.State == store.HandoffFailed || h.State == store.HandoffReturning {
+		if !c.reviewed(h) {
 			continue
 		}
 		out = append(out, handoffLoop(h))
@@ -196,15 +255,20 @@ func (c *HandoffReviewCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool
 }
 
 // Stage moves the card: to the review column for a pass, the work column
-// for feedback, Done for a clean pass.
+// for feedback, Done for a clean pass approved at GitHub's heads (Confirm)
+// or when nothing is left to review.
 func (c *HandoffReviewCaller) Stage(ctx context.Context, l ReviewLoop, stage string) {
 	if c.opts.Board == nil {
 		return
 	}
 	cfg := c.config()
-	column := map[string]string{ReviewStagePass: cfg.ReviewColumn, ReviewStageAuthor: cfg.WorkColumn, ReviewStageClean: cfg.DoneColumn}[stage]
+	column := map[string]string{ReviewStagePass: cfg.ReviewColumn, ReviewStageAuthor: cfg.WorkColumn, ReviewStageClean: cfg.DoneColumn,
+		ReviewStageNone: cfg.DoneColumn}[stage]
 	if column == "" {
 		return
+	}
+	if task, err := c.db.GetTask(ctx, l.TaskID); stage == ReviewStageNone && err == nil && strings.EqualFold(task.Status, column) {
+		return // there already: the author moved it to Done
 	}
 	if err := c.opts.Board.MoveCard(ctx, l.TaskID, column); err != nil {
 		log.Printf("review passes: moving %s to %s: %v", l.TaskID, column, err)
@@ -229,6 +293,29 @@ func (c *HandoffReviewCaller) Changed(taskID string) {
 // Subject is what the reviewer reviews.
 func (c *HandoffReviewCaller) Subject() string { return "a handed-off task's pull requests" }
 
+// The operator's actions on a handoff's loop by its ID (reviewLoopActor):
+// a main's Run another pass and Message the author. A handoff's loop ends
+// with its handoff (Return, Recall, Drop), so End is refused.
+
+func (c *HandoffReviewCaller) ownsLoop(l *store.ReviewLoop) bool {
+	return l.OwnerKind == store.ReviewLoopOwnerHandoff
+}
+
+func (c *HandoffReviewCaller) anotherPassOn(ctx context.Context, l *store.ReviewLoop) error {
+	return c.anotherPass(ctx, l.HostTask)
+}
+
+func (c *HandoffReviewCaller) messageAuthorOn(ctx context.Context, l *store.ReviewLoop, text string) error {
+	return c.messageAuthor(ctx, l.HostTask, text)
+}
+
+// ErrHandoffLoopEnds refuses End on a handoff's loop.
+var ErrHandoffLoopEnds = errors.New("a handed-off task's review loop ends with its handoff: Return, Recall or Drop it")
+
+func (c *HandoffReviewCaller) endOn(context.Context, *store.ReviewLoop) error {
+	return ErrHandoffLoopEnds
+}
+
 // DoneAllowed says whether a handoff whose card is in Done may be done: one
 // without review passes always, one with them only after a clean pass whose
 // counted checks all passed or were answered by a reply (or when it had no
@@ -245,7 +332,9 @@ func (c *HandoffReviewCaller) DoneAllowed(ctx context.Context, h *store.Handoff)
 	case ReviewPhaseSkipped:
 		return true
 	case ReviewPhaseClean:
-		return c.checksHandled(ctx, loop)
+		// Approved only once Confirm found GitHub's heads at the clean
+		// pass's pins (invariant 9).
+		return confirmed(loop) && c.checksHandled(ctx, loop)
 	}
 	return false
 }
