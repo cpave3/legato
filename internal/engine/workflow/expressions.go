@@ -59,6 +59,19 @@ var chatEventRoots = []ExpressionRoot{
 	{"event.commands", "The workflows with chat_help: true that run on this bot, one per line"},
 }
 
+// chatButtonRoots are what a chat.button trigger's inputs may read.
+var chatButtonRoots = []ExpressionRoot{
+	{"event.bot", "The bot that posted the buttons"},
+	{"event.platform", "slack or discord"},
+	{"event.channel", "The channel's ID"},
+	{"event.user", "The ID of who clicked"},
+	{"event.value", "The clicked button's value"},
+	{"event.label", "The clicked button's label"},
+	{"event.match.<path>", "A named group of the value regex: event.match.task for ^fix:(?P<task>.+)$"},
+	{"event.message_id", "The ID of the message with the buttons"},
+	{"event.thread_id", "What chat.message.send's thread_id takes to reply to that message"},
+}
+
 // ExpressionContexts lists, for each place that takes ${{ }}, what it may
 // read. They are the rules validateReferences and the trigger runtimes
 // apply, for the editor's completion.
@@ -88,5 +101,6 @@ func ExpressionContexts() []ExpressionContext {
 		}},
 		{Location: "trigger." + TriggerChatMessage, Description: "The inputs of a chat message trigger", Roots: chatEventRoots},
 		{Location: "trigger." + TriggerChatMention, Description: "The inputs of a chat mention trigger", Roots: chatEventRoots},
+		{Location: "trigger." + TriggerChatButton, Description: "The inputs of a chat button trigger", Roots: chatButtonRoots},
 	}
 }

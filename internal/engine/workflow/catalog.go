@@ -30,6 +30,8 @@ const (
 	KindTier       FieldKind = "tier"       // an agent tool's tier
 	KindJSON       FieldKind = "json"       // any structured value
 	KindChatBot    FieldKind = "chat_bot"   // a chat bot set up in Settings › Integrations, such as slack
+	// KindChatButtons is a list of buttons, each {label, value, style}.
+	KindChatButtons FieldKind = "chat_buttons"
 )
 
 // Field is one with field of a step type.
@@ -194,6 +196,12 @@ func validateStepContract(step Step, inputs map[string]Input) error {
 	for _, field := range spec.With {
 		value, ok := step.With[field.Name]
 		if !field.Checked || !ok {
+			continue
+		}
+		if field.Kind == KindChatButtons {
+			if err := checkChatButtons(value); err != nil {
+				return within("with."+field.Name, err)
+			}
 			continue
 		}
 		if !field.accepts(value, inputs) {
@@ -512,6 +520,7 @@ var catalog = []ExecutorSpec{
 			chatChannel,
 			{Name: "text", Kind: KindText, Label: "Message", Description: "The message: plain text or the platform's markdown", Required: true, Essential: true, Order: 3},
 			{Name: "thread_id", Kind: KindString, Label: "Reply to", Description: "A message or thread to reply to: a chat trigger's ${{ event.thread_id }} or ${{ event.message_id }}, an earlier step's message_id or thread_id, or any message's ID in the channel. On Slack it replies in that message's thread (give a thread's parent, which event.thread_id is); on Discord it is a reply to that message", Order: 4},
+			{Name: "buttons", Kind: KindChatButtons, Label: "Buttons", Description: "Up to 5 buttons under the message, each a label (at most 75 characters), a value (at most 100, its own) and a style (primary or danger); a click starts the workflows whose chat.button trigger matches", Checked: true, Invalid: "must be a list of buttons", Order: 5},
 		},
 		Summary: []string{"text"},
 		Outputs: []OutputSpec{

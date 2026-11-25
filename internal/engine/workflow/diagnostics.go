@@ -121,6 +121,7 @@ func Check(source string, data []byte) (*Definition, []Diagnostic) {
 		return nil, diagnostics
 	}
 	diagnostics = append(diagnostics, outputlessAgentSteps(&root, &definition)...)
+	diagnostics = append(diagnostics, chatButtonsWithoutUser(&root, &definition)...)
 	diagnostics = append(diagnostics, unlistedChatHelp(&root, &definition)...)
 	return &definition, diagnostics
 }

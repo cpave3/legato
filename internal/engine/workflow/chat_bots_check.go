@@ -47,6 +47,9 @@ func ChatBotDiagnostics(data []byte, d *Definition, lookup func(name string) (Ch
 			check("on."+kind+".bot", trigger.Bot)
 		}
 	}
+	if trigger := d.On.ChatButton; trigger != nil {
+		check("on."+TriggerChatButton+".bot", trigger.Bot)
+	}
 	for i, step := range d.Steps {
 		if !strings.HasPrefix(step.Type, "chat.") {
 			continue

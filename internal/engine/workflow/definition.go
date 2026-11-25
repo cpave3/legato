@@ -229,6 +229,11 @@ func (d *Definition) problems() []*PathError {
 			}
 		}
 	}
+	if d.On.ChatButton != nil {
+		if err := d.On.ChatButton.Validate(d.Inputs); err != nil {
+			add("on."+TriggerChatButton, err)
+		}
+	}
 	if d.On.Schedule != nil {
 		if err := d.On.Schedule.Validate(d.Inputs); err != nil {
 			add("on.schedule", err)

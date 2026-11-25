@@ -327,6 +327,8 @@ func triggerSummary(on Triggers, kind string) (string, any) {
 		return on.Chat(kind).describe(kind), on.ChatMessage
 	case TriggerChatMention:
 		return on.Chat(kind).describe(kind), on.ChatMention
+	case TriggerChatButton:
+		return on.ChatButton.describe(), on.ChatButton
 	}
 	return kind, nil
 }
