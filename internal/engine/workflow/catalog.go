@@ -213,7 +213,7 @@ func validateStepContract(step Step, inputs map[string]Input) error {
 			return within("with", fmt.Errorf("with requires %s", field.Name))
 		}
 	}
-	return nil
+	return checkAgentStep(step)
 }
 
 func (c Constraint) check(with map[string]any) error {
@@ -313,6 +313,9 @@ var (
 		{Name: "message_id", Kind: KindString, Label: "Message", Description: "The message's ID: a chat trigger's ${{ event.message_id }} (with its ${{ event.channel }}), an earlier chat.message.send's message_id output, or any message's ID in the channel", Required: true, Essential: true, Order: 3},
 		{Name: "emoji", Kind: KindString, Label: "Emoji", Description: "An emoji's name without colons, such as eyes or white_check_mark, or the emoji itself; on Discord a custom emoji as name:id", Required: true, Essential: true, Order: 4},
 	}
+	// agentFromField names the agent an earlier step used: {from: <step>}.
+	agentFromField = Field{Name: "agent", Kind: KindJSON, Label: "Or the agent of a step", Description: "{from: <step>}: the agent an earlier agent.run, agent.message or agent.dispatch step used; checked when the file loads"}
+	agentOrTask  = Constraint{Kind: ExactlyOne, Fields: []string{"task", "agent"}, Checked: true}
 	wholeTask    = Field{Name: "task", Kind: KindTask, Label: "Task", Description: "The task: ${{ workflow.task }} or a task input", Required: true, Checked: true, Invalid: "must be a whole task reference"}
 	literalFalse = func(name, label, description string) Field {
 		return Field{Name: name, Kind: KindBoolean, Label: label, Description: description, Default: false, Literal: true, Checked: true, Invalid: "must be true or false"}
@@ -345,16 +348,34 @@ var catalog = []ExecutorSpec{
 			{Name: "slot", Kind: KindString, Label: "In the card's slot", Description: "With task: the card's named agent slot the agent runs in, such as triage, plan or review, beside the card's own agent, in a fresh clone of its own; main (the default) is the card's own agent, and reviewer is the review loop's",
 				Literal: true, Checked: true, Pattern: SlotNamePattern, Reserved: ReservedSlots, Order: 15,
 				Invalid: "must be main or a slot name: lowercase letters, digits and dashes, starting with a letter, at most 32; reviewer is the review loop's"},
+			{Name: "on", Kind: KindTaskOrID, Label: "Where the agent lives", Description: "run (the default): an agent of the workflow, stopped once its outputs are in unless keep is true. Or a task, or a task ID: a plain agent in that task's main slot, on its card, which keeps running unless stop is true", Order: 16},
+			literalFalse("keep", "Keep the agent running", "With on: run: leave the agent running once its outputs are in, so the operator can go on talking to it").at(17, false),
+			literalFalse("reuse", "Message a running agent", "With on: <task>: when the task's agent is running, message it instead of failing the step").at(18, false),
+			literalFalse("stop", "Stop the agent after", "With on: <task>: stop the task's agent once its outputs are in").at(19, false),
 		},
 		Constraints: []Constraint{promptMacro, {Kind: Excludes, Fields: []string{"scratch", "working_dir"}, Checked: true}, {Kind: Excludes, Fields: []string{"scratch", "repo"}, Checked: true},
 			{Kind: Excludes, Fields: []string{"task", "working_dir"}, Checked: true}, {Kind: Excludes, Fields: []string{"task", "scratch"}, Checked: true}, {Kind: Excludes, Fields: []string{"task", "name"}, Checked: true},
-			{Kind: Requires, Fields: []string{"slot", "task"}, Checked: true}},
+			{Kind: Requires, Fields: []string{"slot", "task"}, Checked: true}, {Kind: Excludes, Fields: []string{"keep", "keep_agent"}, Checked: true}},
 		DeclaredOutputs: true,
 		Summary:         []string{"macro", "prompt"},
 	},
 	{
+		Type: "agent.message", Group: "Agents", Title: "Message an agent",
+		Description: "Send a prompt or a macro to a running agent: the one an earlier step used (agent: {from: <step>}), or a task's own. A prompt reaches it tagged [legato workflow]; a macro is sent as the operator's own words. The step does not wait for the agent.",
+		With: []Field{
+			{Name: "task", Kind: KindTaskOrID, Label: "The task's agent", Description: "A task, or a task ID, whose own agent (its main slot) to message", Essential: true, Order: 1}, agentFromField.at(2, true),
+			promptField.at(3, true), macroField.at(4, true), prRepoField.at(5, false), prNumberFld.at(6, false),
+		},
+		Constraints: []Constraint{agentOrTask, promptMacro},
+		Summary:     []string{"macro", "prompt"},
+		Outputs: []OutputSpec{
+			{Name: "task", Type: "string", Description: "The task whose agent was messaged"},
+			{Name: "session_id", Type: "integer", Description: "The agent's session"},
+		},
+	},
+	{
 		Type: "agent.dispatch", Group: "Agents", Title: "Send to the task's agent",
-		Description: "Send a prompt or a macro to a task's agent, starting one when the task has none. The step does not wait for the agent.",
+		Description: "Send a prompt or a macro to a task's agent, starting one when the task has none. The step does not wait for the agent. It is read as agent.run with on: <task> and reuse: true that does not wait; new workflows use agent.run or agent.message.",
 		With: []Field{
 			wholeTask.at(1, true), promptField.at(2, true), macroField.at(3, true), agentField.at(4, false), tierField.at(5, false),
 			{Name: "working_dir", Kind: KindPath, Label: "A new agent starts in", Description: "Where a new agent starts; a running agent is messaged wherever it is", Order: 6},
@@ -370,11 +391,13 @@ var catalog = []ExecutorSpec{
 	},
 	{
 		Type: "agent.stop", Group: "Agents", Title: "Stop the task's agent",
-		Description: "Stop a task's agent.",
+		Description: "Stop a task's agent: the one an earlier step used (agent: {from: <step>}), or a task's own (its main slot).",
 		With: []Field{
-			{Name: "task", Kind: KindTaskOrID, Label: "Task", Description: "The task, or a task ID", Required: true, Essential: true, Order: 1},
+			{Name: "task", Kind: KindTaskOrID, Label: "The task's agent", Description: "The task, or a task ID, whose own agent (its main slot) to stop", Essential: true, Order: 1},
+			agentFromField.at(2, true),
 		},
-		Summary: []string{"task"},
+		Constraints: []Constraint{agentOrTask},
+		Summary:     []string{"task"},
 	},
 	{
 		Type: "agent.compact", Group: "Agents", Title: "Compact the task's agent",

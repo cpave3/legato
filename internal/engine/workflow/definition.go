@@ -261,11 +261,15 @@ func (d *Definition) problems() []*PathError {
 	}
 	seen := make(map[string]bool, len(d.Steps))
 	availableOutputs := make(map[string]map[string]bool, len(d.Steps))
+	agentSteps := make(map[string]bool, len(d.Steps))
 	for i := range d.Steps {
 		step := &d.Steps[i]
 		if err := validateStep(step, i, d.SchemaVersion, d.fromFile, seen, d.Inputs, availableOutputs); err != nil {
 			problems = append(problems, err)
+		} else if err := checkAgentFrom(*step, agentSteps); err != nil {
+			problems = append(problems, within(fmt.Sprintf("steps[%d]", i), fmt.Errorf("step %q: %w", step.ID, err)))
 		}
+		agentSteps[step.ID] = agentStepTypes[step.Type]
 		seen[step.ID] = true
 		availableOutputs[step.ID] = readableOutputs(*step)
 	}

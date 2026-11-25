@@ -116,6 +116,7 @@ func TestGraphKeyValuePerExecutorType(t *testing.T) {
 		{"agent prompt, first line", `{id: s, title: S, type: agent.run, with: {prompt: "\n  Look into it.\nMore."}}`, "prompt", "Look into it."},
 		{"agent macro", `{id: s, title: S, type: agent.run, with: {macro: tidy}}`, "macro", "tidy"},
 		{"send to agent", `{id: s, title: S, type: agent.dispatch, with: {task: "${{ workflow.inputs.task }}", macro: review}}`, "macro", "review"},
+		{"message an agent", `{id: s, title: S, type: agent.message, with: {task: "${{ workflow.inputs.task }}", prompt: "Push it\nnow"}}`, "prompt", "Push it"},
 		{"compact agent", `{id: s, title: S, type: agent.compact, with: {task: "${{ workflow.task }}", instructions: "Keep the plan\nand the tests"}}`, "instructions", "Keep the plan"},
 		{"move card", `{id: s, title: S, type: task.move, with: {task: "${{ workflow.inputs.task }}", column: Ready}}`, "column", "Ready"},
 		{"review passes", `{id: s, title: S, type: github.pr.review_passes, with: {repo: acme/widget, pr_number: 12}}`, "pr", "acme/widget#12"},

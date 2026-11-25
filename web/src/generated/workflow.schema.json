@@ -177,6 +177,28 @@
           "if": {
             "properties": {
               "type": {
+                "const": "agent.message"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.agent.message"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "agent.dispatch"
               }
             },
@@ -735,6 +757,7 @@
           "description": "The executor that runs the step",
           "enum": [
             "agent.run",
+            "agent.message",
             "agent.dispatch",
             "agent.stop",
             "agent.compact",
@@ -1234,7 +1257,7 @@
           ]
         }
       ],
-      "description": "Send a prompt or a macro to a task's agent, starting one when the task has none. The step does not wait for the agent.",
+      "description": "Send a prompt or a macro to a task's agent, starting one when the task has none. The step does not wait for the agent. It is read as agent.run with on: \u003ctask\u003e and reuse: true that does not wait; new workflows use agent.run or agent.message.",
       "properties": {
         "agent": {
           "description": "Agent tool, such as claude-code, codex or chimera; the macro's, else the default, when empty",
@@ -1427,6 +1450,143 @@
         "type": "agent.interview"
       }
     },
+    "with.agent.message": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "task"
+              ]
+            },
+            {
+              "required": [
+                "agent"
+              ]
+            }
+          ]
+        },
+        {
+          "oneOf": [
+            {
+              "required": [
+                "prompt"
+              ]
+            },
+            {
+              "required": [
+                "macro"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "Send a prompt or a macro to a running agent: the one an earlier step used (agent: {from: \u003cstep\u003e}), or a task's own. A prompt reaches it tagged [legato workflow]; a macro is sent as the operator's own words. The step does not wait for the agent.",
+      "properties": {
+        "agent": {
+          "description": "{from: \u003cstep\u003e}: the agent an earlier agent.run, agent.message or agent.dispatch step used; checked when the file loads",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "json",
+            "label": "Or the agent of a step",
+            "order": 2
+          }
+        },
+        "macro": {
+          "description": "A macro to send in place of a prompt, by name; resolved when the step runs, so an edited macro applies to the next run",
+          "minLength": 1,
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "macro",
+            "label": "Macro",
+            "order": 4
+          }
+        },
+        "pr_number": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "description": "With macro and repo: the number of the pull request the macro is started on",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "integer",
+            "label": "Pull request number",
+            "order": 6
+          }
+        },
+        "prompt": {
+          "description": "What the agent is asked to do",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "text",
+            "label": "What it should do",
+            "order": 3
+          }
+        },
+        "repo": {
+          "description": "With macro: the GitHub repository (owner/name) of the pull request the macro is started on",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "repository",
+            "label": "Pull request's repository",
+            "order": 5
+          }
+        },
+        "task": {
+          "description": "A task, or a task ID, whose own agent (its main slot) to message",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "task_or_id",
+            "label": "The task's agent",
+            "order": 1
+          }
+        }
+      },
+      "title": "Message an agent",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Agents",
+        "outputs": [
+          {
+            "description": "The task whose agent was messaged",
+            "name": "task",
+            "type": "string"
+          },
+          {
+            "description": "The agent's session",
+            "name": "session_id",
+            "type": "integer"
+          }
+        ],
+        "summary": [
+          "macro",
+          "prompt"
+        ],
+        "type": "agent.message"
+      }
+    },
     "with.agent.run": {
       "additionalProperties": false,
       "allOf": [
@@ -1490,6 +1650,14 @@
               "task"
             ]
           }
+        },
+        {
+          "not": {
+            "required": [
+              "keep",
+              "keep_agent"
+            ]
+          }
         }
       ],
       "description": "Start an agent of the workflow on a prompt or a macro, and wait for it to complete the step with the outputs the step declares.",
@@ -1527,6 +1695,17 @@
             "order": 10
           }
         },
+        "keep": {
+          "default": false,
+          "description": "With on: run: leave the agent running once its outputs are in, so the operator can go on talking to it",
+          "type": "boolean",
+          "x-legato": {
+            "expressions": false,
+            "kind": "boolean",
+            "label": "Keep the agent running",
+            "order": 17
+          }
+        },
         "keep_agent": {
           "default": false,
           "description": "Leave the agent running once its outputs are in, so the operator can go on talking to it",
@@ -1560,6 +1739,17 @@
             "kind": "string",
             "label": "Agent's name",
             "order": 7
+          }
+        },
+        "on": {
+          "description": "run (the default): an agent of the workflow, stopped once its outputs are in unless keep is true. Or a task, or a task ID: a plain agent in that task's main slot, on its card, which keeps running unless stop is true",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "task_or_id",
+            "label": "Where the agent lives",
+            "order": 16
           }
         },
         "pr_number": {
@@ -1616,6 +1806,17 @@
             "order": 4
           }
         },
+        "reuse": {
+          "default": false,
+          "description": "With on: \u003ctask\u003e: when the task's agent is running, message it instead of failing the step",
+          "type": "boolean",
+          "x-legato": {
+            "expressions": false,
+            "kind": "boolean",
+            "label": "Message a running agent",
+            "order": 18
+          }
+        },
         "scratch": {
           "default": false,
           "description": "The work needs no folder of its own: the agent works in a new folder Legato removes when the step completes (kept when it fails or keeps its agent); anything to keep goes in the step's outputs",
@@ -1641,6 +1842,17 @@
             "kind": "string",
             "label": "In the card's slot",
             "order": 15
+          }
+        },
+        "stop": {
+          "default": false,
+          "description": "With on: \u003ctask\u003e: stop the task's agent once its outputs are in",
+          "type": "boolean",
+          "x-legato": {
+            "expressions": false,
+            "kind": "boolean",
+            "label": "Stop the agent after",
+            "order": 19
           }
         },
         "task": {
@@ -1693,24 +1905,48 @@
     },
     "with.agent.stop": {
       "additionalProperties": false,
-      "description": "Stop a task's agent.",
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "task"
+              ]
+            },
+            {
+              "required": [
+                "agent"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "Stop a task's agent: the one an earlier step used (agent: {from: \u003cstep\u003e}), or a task's own (its main slot).",
       "properties": {
+        "agent": {
+          "description": "{from: \u003cstep\u003e}: the agent an earlier agent.run, agent.message or agent.dispatch step used; checked when the file loads",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "json",
+            "label": "Or the agent of a step",
+            "order": 2
+          }
+        },
         "task": {
-          "description": "The task, or a task ID",
+          "description": "The task, or a task ID, whose own agent (its main slot) to stop",
           "type": "string",
           "x-legato": {
             "context": "with",
             "essential": true,
             "expressions": true,
             "kind": "task_or_id",
-            "label": "Task",
+            "label": "The task's agent",
             "order": 1
           }
         }
       },
-      "required": [
-        "task"
-      ],
       "title": "Stop the task's agent",
       "type": "object",
       "x-legato": {
@@ -3741,7 +3977,17 @@
         "type": "agent.run"
       },
       {
-        "description": "Send a prompt or a macro to a task's agent, starting one when the task has none. The step does not wait for the agent.",
+        "description": "Send a prompt or a macro to a running agent: the one an earlier step used (agent: {from: \u003cstep\u003e}), or a task's own. A prompt reaches it tagged [legato workflow]; a macro is sent as the operator's own words. The step does not wait for the agent.",
+        "group": "Agents",
+        "summary": [
+          "macro",
+          "prompt"
+        ],
+        "title": "Message an agent",
+        "type": "agent.message"
+      },
+      {
+        "description": "Send a prompt or a macro to a task's agent, starting one when the task has none. The step does not wait for the agent. It is read as agent.run with on: \u003ctask\u003e and reuse: true that does not wait; new workflows use agent.run or agent.message.",
         "group": "Agents",
         "summary": [
           "macro",
@@ -3751,7 +3997,7 @@
         "type": "agent.dispatch"
       },
       {
-        "description": "Stop a task's agent.",
+        "description": "Stop a task's agent: the one an earlier step used (agent: {from: \u003cstep\u003e}), or a task's own (its main slot).",
         "group": "Agents",
         "summary": [
           "task"

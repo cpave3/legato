@@ -39,7 +39,7 @@ func TestEveryWorkflowExecutorHasACatalogEntry(t *testing.T) {
 func TestExecutorTypesInSourceFindsTheExecutors(t *testing.T) {
 	found := executorTypesInSource(t)
 	for _, executor := range []WorkflowExecutor{
-		NewAgentRunExecutor(nil), NewAgentDispatchExecutor(nil, nil), NewAgentStopExecutor(nil),
+		NewAgentRunExecutor(nil), NewAgentDispatchExecutor(nil), NewAgentMessageExecutor(nil, nil), NewAgentStopExecutor(nil),
 		NewTaskNoteExecutor(nil), NewReviewPassesStep(), NewFileRemoveExecutor(),
 	} {
 		if !slices.Contains(found, executor.Type()) {

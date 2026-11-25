@@ -258,7 +258,7 @@ func stepKey(step Step) GraphKey {
 		return GraphKey{}
 	}
 	switch step.Type {
-	case "agent.run", "agent.dispatch", "agent.interview":
+	case "agent.run", "agent.dispatch", "agent.message", "agent.interview":
 		return first("macro", "prompt")
 	case "agent.compact":
 		return first("instructions")

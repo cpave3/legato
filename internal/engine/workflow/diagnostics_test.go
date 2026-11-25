@@ -232,6 +232,22 @@ func TestCheckWarnsOfAnAgentRunStepWithNoOutputs(t *testing.T) {
       prompt: hi
       keep_agent: true
 `},
+		"keep": {step: `
+    with:
+      prompt: hi
+      keep: true
+`},
+		"on a task": {step: `
+    with:
+      prompt: hi
+      on: LEG-7
+`},
+		"on a task, stopped after": {step: `
+    with:
+      prompt: hi
+      on: LEG-7
+      stop: true
+`, warn: true},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
