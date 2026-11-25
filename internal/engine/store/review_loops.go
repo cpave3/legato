@@ -637,11 +637,12 @@ func writeReviewLoop(ctx context.Context, tx *sqlx.Tx, read, next ReviewLoop) er
 	if n, _ := result.RowsAffected(); n != 1 {
 		return fmt.Errorf("%w: review loop %s moved on", ErrConflict, read.ID)
 	}
-	if next.OwnerKind == ReviewLoopOwnerHandoff && handoffLoopLetsGo(next) {
-		// A handoff's loop that approved, had nothing to review or ended
-		// lets go of its pull requests while its card stays open; a later
-		// pass claims them again (holdReviewLoopLayer). A clean pass
-		// Confirm has yet to record approved still holds them.
+	if (next.OwnerKind == ReviewLoopOwnerHandoff || next.HandoffID != "") && handoffLoopLetsGo(next) {
+		// A handoff's loop (its own, or a review-loop run's bound to it)
+		// that approved, had nothing to review or ended lets go of its
+		// pull requests while its card stays open; a later pass claims
+		// them again (holdReviewLoopLayer). A clean pass Confirm has yet
+		// to record approved still holds them.
 		if _, err := tx.ExecContext(ctx, `DELETE FROM review_loop_claims WHERE loop_id = ?`, read.ID); err != nil {
 			return err
 		}

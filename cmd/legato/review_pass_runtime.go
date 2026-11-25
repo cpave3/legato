@@ -114,7 +114,7 @@ func startReviewEngine(deps integrationDeps) *reviewEngine {
 	engine.reviews = reviews
 	engine.runs = attachReviewRuns(deps, reviews)
 	if engine.handoffs = newHandoffWorker(deps); engine.handoffs != nil {
-		wireHandoffReviewCaller(deps, reviews, engine.handoffs)
+		wireHandoffReviewCaller(deps, reviews, engine.handoffs, engine.runs != nil)
 	}
 	deps.approvals.setReviewPasses(reviews)
 	if deps.reviewPrompt != nil {
@@ -158,8 +158,10 @@ func startReviewEngine(deps integrationDeps) *reviewEngine {
 }
 
 // wireHandoffReviewCaller registers the handoff caller with the engine: a
-// worker's reviewed handoffs' Done waits for a clean review.
-func wireHandoffReviewCaller(deps integrationDeps, reviews *service.ReviewPassService, handoffs *service.HandoffWorkerService) {
+// worker's reviewed handoffs' Done waits for a clean review. With the run
+// caller attached (runs), each reviewed handoff runs the built-in
+// review-loop (LEG-600); without it, its loop runs on its own as before.
+func wireHandoffReviewCaller(deps integrationDeps, reviews *service.ReviewPassService, handoffs *service.HandoffWorkerService, runs bool) {
 	if reviews == nil || deps.board == nil {
 		return
 	}
@@ -169,10 +171,14 @@ func wireHandoffReviewCaller(deps integrationDeps, reviews *service.ReviewPassSe
 		// the cache its objects come from.
 		fetch = deps.repos.PullHead
 	}
-	handoffs.SetReviews(service.NewHandoffReviewCaller(reviews, service.HandoffReviewCallerOptions{
+	opts := service.HandoffReviewCallerOptions{
 		Board: deps.board, Bus: deps.bus, FetchPR: fetch,
 		// A dead author is resumed, with everything it had, to hear of its
 		// feedback.
 		ResumeAuthor: handoffs.ResumeAuthor,
-	}))
+	}
+	if runs && deps.workflows != nil {
+		opts.Runs = deps.workflows
+	}
+	handoffs.SetReviews(service.NewHandoffReviewCaller(reviews, opts))
 }

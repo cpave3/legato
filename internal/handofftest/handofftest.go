@@ -127,6 +127,9 @@ type Worker struct {
 	Reviews      *service.ReviewPassService
 	ReviewGitHub *FakeReviewGitHub
 	Checkout     *FakeCheckout
+	// ReviewRuns are the worker's workflows and run caller, with review
+	// passes: workflow review loops and its handoffs' review-loop runs.
+	ReviewRuns *ReviewRuns
 
 	// HTTP is the TLS server; URL its address (https://127.0.0.1:port),
 	// which stays the same across restarts.
@@ -226,6 +229,12 @@ func (w *Worker) start() {
 		reviewAdvert = opts.Advert
 	}
 	w.Reviews = reviews
+	w.ReviewRuns = nil
+	if reviews != nil {
+		// As a worker's runtime does: workflows and the run caller, which
+		// the handoffs' review-loop runs run on.
+		w.ReviewRuns = newReviewRuns(w)
+	}
 	w.Handoffs = service.NewHandoffWorkerService(db, service.HandoffWorkerOptions{
 		Agents: w.Agents.(service.HandoffAgents), Repositories: w.Repos, Sandbox: func() bool { return sandbox },
 		Grants: w.Credentials, Bus: w.Bus, Run: w.run, Now: w.Clock.Now, StreamRescan: 50 * time.Millisecond,
@@ -237,6 +246,7 @@ func (w *Worker) start() {
 		w.Handoffs.SetReviews(service.NewHandoffReviewCaller(reviews, service.HandoffReviewCallerOptions{
 			Board: w.Board, Bus: w.Bus, Now: w.Clock.Now, FetchPR: w.ReviewGitHub.PullHead,
 			ResumeAuthor: func(ctx context.Context, taskID string) error { return w.Handoffs.ResumeAuthor(ctx, taskID) },
+			Runs:         w.ReviewRuns.Workflows,
 		}))
 	}
 	if setter, ok := w.Agents.(interface{ SetHandedOffAgents(service.HandedOffAgents) }); ok {

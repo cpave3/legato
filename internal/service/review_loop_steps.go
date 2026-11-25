@@ -351,6 +351,16 @@ func (e reviewOpenExecutor) Start(ctx context.Context, step ResolvedWorkflowStep
 	e.steps.mu.RLock()
 	enabled := e.steps.enabled
 	e.steps.mu.RUnlock()
+	if db := e.steps.store(); db != nil {
+		// A handoff's run: the handoff service opened the loop with its
+		// binding, which the step adopts (openStep).
+		if rec, err := db.ReviewLoopForStep(ctx, step.RunID, step.StepID); err == nil && handoffBound(rec) {
+			if err := checkHandoffOpen(step); err != nil {
+				return WorkflowExecutionResult{}, err
+			}
+			return WorkflowExecutionResult{Status: WorkflowStepWaiting}, nil
+		}
+	}
 	in, err := parseReviewOpen(step.With, e.steps.instanceReentries())
 	if err != nil {
 		return WorkflowExecutionResult{}, err
@@ -366,6 +376,18 @@ func (e reviewOpenExecutor) Start(ctx context.Context, step ResolvedWorkflowStep
 		}
 	}
 	return WorkflowExecutionResult{Status: WorkflowStepWaiting}, nil
+}
+
+// checkHandoffOpen refuses what a handoff's open step may not take: a
+// steward (a handoff's loop ends at approval) or a handoff input of its own.
+func checkHandoffOpen(step ResolvedWorkflowStep) error {
+	if _, ok := step.With["handoff"]; ok {
+		return reviewRefused(ReviewRefusalHandoffInput, "the handoff binding is set by Legato's handoff service, never by a workflow, a launcher or the API")
+	}
+	if steward, err := inputBool(step.With, "steward"); err != nil || steward {
+		return reviewRefused(ReviewRefusalHandoffInput, "a handed-off task's review loop ends at approval: its handoff binding takes no steward")
+	}
+	return nil
 }
 
 // Cancel leaves nothing to undo: a loop the step opened belongs to its run,
@@ -462,7 +484,8 @@ func (c *ReviewRunCaller) stepLoops(ctx context.Context) []ReviewLoop {
 	}
 	var out []ReviewLoop
 	for _, rec := range open {
-		if rec.OwnerKind != store.ReviewLoopOwnerRun || !c.engine.db.ReviewLoopOpenedByStep(ctx, rec.AttemptID) || !c.runRunning(ctx, rec.RunID) {
+		// A handoff's loop is moved on by the handoff caller.
+		if rec.OwnerKind != store.ReviewLoopOwnerRun || handoffBound(&rec) || !c.engine.db.ReviewLoopOpenedByStep(ctx, rec.AttemptID) || !c.runRunning(ctx, rec.RunID) {
 			continue
 		}
 		if l, ok := c.Loop(ctx, rec.HostTask); ok {
@@ -510,6 +533,8 @@ func (c *ReviewRunCaller) openSteps(ctx context.Context) {
 func (c *ReviewRunCaller) openStep(ctx context.Context, step ResolvedWorkflowStep) (*store.ReviewLoop, []string, error) {
 	if rec, err := c.engine.db.ReviewLoopForStep(ctx, step.RunID, step.StepID); err != nil {
 		return nil, nil, err
+	} else if handoffBound(rec) {
+		return c.adoptHandoffLoop(ctx, step, rec)
 	} else if rec != nil {
 		return rec, nil, nil
 	}
@@ -533,6 +558,26 @@ func (c *ReviewRunCaller) openStep(ctx context.Context, step ResolvedWorkflowSte
 		err = fmt.Errorf("run %s's step %s opened no review loop", step.RunID, step.StepID)
 	}
 	return rec, warnings, err
+}
+
+// adoptHandoffLoop makes the loop a handoff's binding opened its open step's
+// (spec LEG-559 github.pr.review.open, the handoff binding): the step's
+// attempt owns it from now, as an open step's loop. It refuses a steward.
+func (c *ReviewRunCaller) adoptHandoffLoop(ctx context.Context, step ResolvedWorkflowStep, rec *store.ReviewLoop) (*store.ReviewLoop, []string, error) {
+	if err := checkHandoffOpen(step); err != nil {
+		return nil, nil, err
+	}
+	if rec.AttemptID == step.AttemptID || rec.State != store.ReviewLoopOpenState {
+		return rec, nil, nil
+	}
+	adopted, err := c.engine.db.UpdateReviewLoop(ctx, rec.ID, rec.Rev, func(t *store.ReviewLoopTx) error {
+		t.Loop.AttemptID = step.AttemptID
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return adopted, nil, nil
 }
 
 // openOutputs are an open step's outputs: the loop's ID, its linked task
@@ -622,6 +667,10 @@ func (c *ReviewRunCaller) stepOutcome(ctx context.Context, rec *store.ReviewLoop
 		return ReviewOutcomeApproved
 	case loop.Phase == ReviewPhaseStuck:
 		return ReviewOutcomeStuck
+	case loop.Phase == ReviewPhaseSkipped && handoffBound(rec):
+		// A handoff with no pull request left to review: done as without
+		// review passes.
+		return ReviewOutcomeClosed
 	}
 	return ReviewOutcomeEnded
 }
@@ -630,7 +679,15 @@ func (c *ReviewRunCaller) stepOutcome(ctx context.Context, rec *store.ReviewLoop
 // keeps its own) and gives the close step's outputs.
 func (c *ReviewRunCaller) closeStepLoop(ctx context.Context, rec *store.ReviewLoop) (map[string]any, error) {
 	if rec.State == store.ReviewLoopOpenState {
-		if _, err := c.engine.Close(ctx, rec.ID, c.stepOutcome(ctx, rec)); err != nil {
+		outcome := c.stepOutcome(ctx, rec)
+		var err error
+		if handoffBound(rec) && outcome == ReviewOutcomeClosed {
+			// The handoff's Done reads the phase (skipped): keep it.
+			_, err = c.engine.closeKeepingPhase(ctx, rec.ID, outcome)
+		} else {
+			_, err = c.engine.Close(ctx, rec.ID, outcome)
+		}
+		if err != nil {
 			return nil, err
 		}
 		fresh, err := c.engine.db.GetReviewLoop(ctx, rec.ID)
@@ -820,9 +877,18 @@ func (e reviewObserver) Cancel(context.Context, store.WorkflowStepAttempt) error
 // Details is where the step's loop stands, as the run page shows it.
 func (e reviewObserver) Details(ctx context.Context, attempt store.WorkflowStepAttempt) any {
 	if caller := e.steps.current(); caller != nil {
-		return caller.loopDetails(ctx, attempt.TaskID)
+		return caller.loopDetails(ctx, caller.stepHost(ctx, attempt))
 	}
 	return nil
+}
+
+// stepHost is the task that hosts a step's loop: the run's own task, or a
+// handoff's card (a handoff's run).
+func (c *ReviewRunCaller) stepHost(ctx context.Context, attempt store.WorkflowStepAttempt) string {
+	if rec, err := c.engine.db.ReviewLoopForStep(ctx, attempt.RunID, ReviewLoopOpenStepID); err == nil && handoffBound(rec) {
+		return rec.HostTask
+	}
+	return attempt.TaskID
 }
 
 // Attention is why the step's loop needs the operator: stuck (it offers
@@ -833,7 +899,7 @@ func (e reviewObserver) Attention(ctx context.Context, attempt store.WorkflowSte
 	if caller == nil {
 		return "", nil
 	}
-	return caller.loopAttention(ctx, attempt.TaskID)
+	return caller.loopAttention(ctx, caller.stepHost(ctx, attempt))
 }
 
 // Act takes the operator's action on the step's loop by its ID: Another
@@ -1073,6 +1139,12 @@ func (c *ReviewRunCaller) observeConfirm(ctx context.Context, step ResolvedWorkf
 	}
 	consumed := c.consumedPass(ctx, step.RunID, rec.ID)
 	switch {
+	case confirmed(loop) && loop.Pass == consumed && handoffBound(rec) && !c.engine.checksHandled(ctx, loop):
+		// A handoff is approved as its Done is allowed: once its counted
+		// checks on the reviewed heads are finished and each failing one
+		// answered by a reply. The handoff caller sends a failing one
+		// back to the author meanwhile.
+		return nil, nil
 	case confirmed(loop) && loop.Pass == consumed:
 		return out(ReviewConfirmApproved), nil
 	case loop.Phase == ReviewPhaseClean, loop.Phase == ReviewPhaseStuck:

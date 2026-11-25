@@ -158,6 +158,9 @@ type reviewRun struct {
 	// closed says the loop record is closed: history, which nothing
 	// moves on.
 	closed bool
+	// handoff says the loop is a handoff's, under its review-loop run's
+	// binding: the handoff caller moves it on, not the run caller.
+	handoff bool
 }
 
 func (c *ReviewRunCaller) run(ctx context.Context, taskID string) (*reviewRun, error) {
@@ -185,7 +188,7 @@ func readReviewRun(ctx context.Context, db *store.Store, taskID string) (*review
 	}
 	run := reviewRun{RunID: l.RunID, StepID: l.StepPath, AttemptID: l.AttemptID, Repo: l.Repo, PR: subject,
 		CloneID: l.CloneID, Dir: l.CloneDir, LinkedTask: l.LinkedTask, SeenHead: l.SeenHead, SeenAt: l.SeenAt,
-		Scope: l.Scope, closed: l.State != store.ReviewLoopOpenState}
+		Scope: l.Scope, closed: l.State != store.ReviewLoopOpenState, handoff: handoffBound(l)}
 	if l.AgentAuthor {
 		run.AuthorTask = l.AuthorTask
 	}
@@ -373,6 +376,14 @@ func (c *ReviewRunCaller) closeEnded(ctx context.Context) {
 			continue
 		}
 		if ended && !closesLoop(end) {
+			continue
+		}
+		if handoffBound(&l) {
+			// A handoff's loop outlives its open step: only its run's end
+			// (or its close step) closes it.
+			if ended {
+				c.closeRunLoop(ctx, l)
+			}
 			continue
 		}
 		// A loop an open step handed on outlives that step: its run's end
@@ -998,8 +1009,8 @@ func (c *ReviewRunCaller) Loops(ctx context.Context) ([]ReviewLoop, error) {
 // and only findings count.
 func (c *ReviewRunCaller) Loop(ctx context.Context, taskID string) (ReviewLoop, bool) {
 	run, err := c.run(ctx, taskID)
-	if err != nil {
-		return ReviewLoop{}, false
+	if err != nil || run.handoff {
+		return ReviewLoop{}, false // a handoff's loop is the handoff caller's
 	}
 	// An agent author handles failing checks (LEG-305), and counted
 	// comments and reviews from pass 1 (spec LEG-559 § The steward,
@@ -1360,7 +1371,7 @@ func (c *ReviewRunCaller) openedLoopID(ctx context.Context, attempt store.Workfl
 // only while the step that owns the loop waits on it.
 
 func (c *ReviewRunCaller) ownsLoop(l *store.ReviewLoop) bool {
-	return l.OwnerKind == store.ReviewLoopOwnerRun
+	return l.OwnerKind == store.ReviewLoopOwnerRun && !handoffBound(l)
 }
 
 // stepWaits says the step attempt that owns the loop waits on it (a failed
@@ -1828,6 +1839,13 @@ func (c *ReviewRunCaller) attention(ctx context.Context, taskID string) (string,
 	}
 	var actions []string
 	var reason string
+	switch {
+	case run.handoff && loop.Phase == ReviewPhaseStuck:
+		// A handoff's loop ends with its handoff, never by End.
+		return "Review loop stuck: " + loop.Reason, []string{"message"}
+	case run.handoff:
+		return "", nil
+	}
 	switch loop.Phase {
 	case ReviewPhaseStuck:
 		reason, actions = "Review loop stuck: "+loop.Reason, []string{"end"}

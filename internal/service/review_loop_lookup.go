@@ -81,16 +81,22 @@ func (l *ReviewLoopLookup) ActiveReviewLoop(ctx context.Context, repo string, pr
 		return nil, err
 	}
 	_, link := reviewLoopName(loop)
-	return &FoundReviewLoop{
+	found := &FoundReviewLoop{
 		LoopID: loop.ID, Kind: kind, RunID: loop.RunID, StepPath: loop.StepPath,
 		Phase: loop.Phase, State: loop.State, Held: loop.Held, Outcome: loop.Outcome, Link: link,
-	}, nil
+	}
+	if kind == ReviewLoopKindHandoff {
+		// A handoff's loop is seen on its card, whichever run moves it.
+		found.RunID, found.StepPath = "", ""
+	}
+	return found, nil
 }
 
-// kindOf says whose a loop is: a handoff's, or a run's, which is a child
-// run when a workflow.run step started it.
+// kindOf says whose a loop is: a handoff's (its own, or its review-loop
+// run's under the handoff binding), or a run's, which is a child run when a
+// workflow.run step started it.
 func (l *ReviewLoopLookup) kindOf(ctx context.Context, loop *store.ReviewLoop) (string, error) {
-	if loop.OwnerKind == store.ReviewLoopOwnerHandoff {
+	if loop.OwnerKind == store.ReviewLoopOwnerHandoff || loop.HandoffID != "" {
 		return ReviewLoopKindHandoff, nil
 	}
 	run, err := l.db.GetWorkflowRun(ctx, loop.RunID)

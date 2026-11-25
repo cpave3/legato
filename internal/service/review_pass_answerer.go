@@ -108,9 +108,9 @@ func AnswererReviewLoop(ctx context.Context, db *store.Store, who ReviewAnswerer
 
 // ReviewLoopAuthor is the task whose agent authors the loop on loopTask: a
 // run's author_task ("" when the author is a person), else the handoff's own
-// card.
+// card (a loop the handoff owns, or its review-loop run's).
 func ReviewLoopAuthor(ctx context.Context, db *store.Store, loopTask string) string {
-	if run, err := readReviewRun(ctx, db, loopTask); err == nil {
+	if run, err := readReviewRun(ctx, db, loopTask); err == nil && !run.handoff {
 		return run.AuthorTask
 	}
 	return loopTask

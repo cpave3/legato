@@ -260,9 +260,16 @@ func (s *HandoffWorkerService) Accept(ctx context.Context, main HandoffMain, cal
 	} else if err != nil {
 		return HandoffAccepted{}, false, err
 	}
-	if review != nil {
+	switch {
+	case review != nil:
 		if err := s.opts.Reviews.SetSettings(ctx, task.ID, *review); err != nil {
 			log.Printf("handoff %s: keeping its review settings: %v", call.HandoffID, err)
+		}
+	case s.opts.Reviews != nil:
+		// Its review starts now (a review-loop run, LEG-600), so its
+		// comments and checks count from the start.
+		if err := s.opts.Reviews.StartReview(ctx, task.ID); err != nil {
+			log.Printf("handoff %s: starting its review: %v", call.HandoffID, err)
 		}
 	}
 	s.publish(events.EventCardsRefreshed, nil)
@@ -497,6 +504,9 @@ type HandoffReviews interface {
 	// Override checks a main's override; SetSettings keeps a handoff's.
 	Override(o ReviewPassOverride) (ReviewPassSettings, error)
 	SetSettings(ctx context.Context, taskID string, settings ReviewPassSettings) error
+	// StartReview starts the review of a handoff accepted with no
+	// override, when review passes apply to it: its review-loop run.
+	StartReview(ctx context.Context, taskID string) error
 	// AnotherPass and MessageAuthor are the main's actions on a stuck
 	// review.
 	AnotherPass(ctx context.Context, taskID string) error

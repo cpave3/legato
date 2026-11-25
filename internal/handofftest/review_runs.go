@@ -54,13 +54,20 @@ func (f *FakeDiscover) Calls() []string {
 	return append([]string(nil), f.calls...)
 }
 
-// StartReviewRuns gives a worker with review passes workflows and the run
-// caller, as legato serve wires them.
+// StartReviewRuns is a worker's workflows and run caller, which a worker
+// with review passes is started with, as legato serve wires them: its
+// handoffs' review-loop runs run on them too (LEG-600).
 func StartReviewRuns(t *testing.T, w *Worker) *ReviewRuns {
 	t.Helper()
-	if w.Reviews == nil {
+	if w.Reviews == nil || w.ReviewRuns == nil {
 		t.Fatal("the worker has no review passes")
 	}
+	return w.ReviewRuns
+}
+
+// newReviewRuns wires a worker's workflows and the run caller on its
+// review-pass engine.
+func newReviewRuns(w *Worker) *ReviewRuns {
 	clones := &FakeRunClones{repos: w.Repos, checkout: w.Checkout, removed: map[int64]bool{}}
 	step := service.NewReviewPassesStep()
 	steps := service.NewReviewLoopSteps()

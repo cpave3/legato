@@ -40,7 +40,7 @@ func (s ReviewLoopSteering) AnotherPass(ctx context.Context, loopID string) erro
 	switch {
 	case l.Phase == ReviewPhaseStuck:
 		return s.Engine.RecordAnotherPass(ctx, l.HostTask)
-	case l.Phase == ReviewPhaseWaitingForAuthor && l.OwnerKind == store.ReviewLoopOwnerRun:
+	case l.Phase == ReviewPhaseWaitingForAuthor && l.OwnerKind == store.ReviewLoopOwnerRun && l.HandoffID == "":
 		return s.Engine.NextPass(ctx, l.HostTask)
 	}
 	return fmt.Errorf("review loop %s is %s: %w", loopID, l.Phase, ErrReviewNotStuck)
