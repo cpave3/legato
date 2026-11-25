@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -255,7 +256,7 @@ func TestRunAcksEnvelopeBeforeHandlingEvent(t *testing.T) {
 		t.Fatalf("onConnected called %d times", connected.Load())
 	}
 	want := Event{Type: "message", Channel: "C1", ChannelType: "im", User: "U2", Text: "hi", TS: "1.1", ThreadTS: "1.0", EventTS: "1.1"}
-	if len(events) != 1 || events[0] != want {
+	if len(events) != 1 || !reflect.DeepEqual(events[0], want) {
 		t.Fatalf("events = %+v", events)
 	}
 }
@@ -296,7 +297,7 @@ func TestRunFiltersEventsAndAcksEveryEnvelope(t *testing.T) {
 		t.Fatalf("events = %+v", events)
 	}
 	for i := range want {
-		if events[i] != want[i] {
+		if !reflect.DeepEqual(events[i], want[i]) {
 			t.Errorf("event %d = %+v, want %+v", i, events[i], want[i])
 		}
 	}

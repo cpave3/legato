@@ -114,6 +114,16 @@ type Message struct {
 	ReferenceID            string   // the message this one replies to
 	InThread               bool     // ChannelID is a thread
 	Timestamp              time.Time
+	// Forwards are the messages this one forwards, from its message
+	// snapshots (Discord sends one at most); Content is then empty.
+	Forwards []Forward
+}
+
+// Forward is a forwarded message's snapshot and where the original is.
+// Discord gives no author for it.
+type Forward struct {
+	Content                       string
+	ChannelID, GuildID, MessageID string // GuildID is "" for a DM
 }
 
 // Client is a Discord bot. Its session state is kept across Run calls, so a

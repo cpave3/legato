@@ -401,8 +401,17 @@ func (s *session) dispatch(typ string, raw json.RawMessage) {
 				ID string `json:"id"`
 			} `json:"mentions"`
 			MessageReference *struct {
+				// Type is 0 for a reply, 1 for a forward.
+				Type      int    `json:"type"`
 				MessageID string `json:"message_id"`
+				ChannelID string `json:"channel_id"`
+				GuildID   string `json:"guild_id"`
 			} `json:"message_reference"`
+			MessageSnapshots []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			} `json:"message_snapshots"`
 			Timestamp string `json:"timestamp"`
 			// Position is set only on a message in a thread.
 			Position *int `json:"position"`
@@ -418,8 +427,15 @@ func (s *session) dispatch(typ string, raw json.RawMessage) {
 		for _, u := range d.Mentions {
 			m.Mentions = append(m.Mentions, u.ID)
 		}
-		if d.MessageReference != nil {
-			m.ReferenceID = d.MessageReference.MessageID
+		switch ref := d.MessageReference; {
+		case ref == nil:
+		case ref.Type == 1:
+			for _, snapshot := range d.MessageSnapshots {
+				m.Forwards = append(m.Forwards, Forward{Content: snapshot.Message.Content,
+					ChannelID: ref.ChannelID, GuildID: ref.GuildID, MessageID: ref.MessageID})
+			}
+		default:
+			m.ReferenceID = ref.MessageID
 		}
 		if t, err := time.Parse(time.RFC3339Nano, d.Timestamp); err == nil {
 			m.Timestamp = t
