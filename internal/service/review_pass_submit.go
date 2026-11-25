@@ -561,12 +561,12 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 		if err != nil {
 			var gh *GitHubError
 			if errors.As(err, &gh) && gh.Status < 500 {
-				// GitHub saw it and said no: the person decides, and
-				// Another pass starts a new pass, as it always did.
-				if err := s.db.SetHandoffReviewPassPosting(ctx, taskID, pass.Pass, pass.PostingStartedAt, 0); err != nil {
-					return err
-				}
-				return s.stuck(ctx, l, loop, fmt.Sprintf("GitHub refused the review of #%d: %v", layer.pr.Number, err))
+				// GitHub saw it and said no: the pass ends unable, so
+				// it holds no reviewer slot, and the person decides.
+				// It counts toward max_passes, the reviews of layers
+				// posted before stay recorded, and Another pass starts
+				// a new pass, as it always did.
+				return s.unable(ctx, l, loop, *pass, fmt.Sprintf("GitHub refused the review of #%d: %v", layer.pr.Number, err))
 			}
 			return s.postFailed(ctx, l, loop, pass, layers[i:], err)
 		}

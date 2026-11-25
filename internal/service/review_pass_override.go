@@ -134,10 +134,11 @@ func (s *ReviewPassService) anotherPass(ctx context.Context, taskID string) erro
 	if loop == nil || loop.Phase != ReviewPhaseStuck {
 		return ErrReviewNotStuck
 	}
-	if pass, err := s.db.GetHandoffReviewPass(ctx, taskID, loop.Pass); err == nil && pass.State == ReviewPassSubmitted && pass.PostAttempts > 0 {
+	if pass, err := s.db.GetHandoffReviewPass(ctx, taskID, loop.Pass); err == nil && pass.State == ReviewPassSubmitted {
 		// Its post was never confirmed: GitHub may have its reviews. The
 		// same pass is posted again, its markers finding what GitHub took,
-		// with a fresh budget of tries; never a second pass.
+		// with a fresh budget of tries; never a second pass while it is
+		// in flight. (A pass GitHub refused ended unable.)
 		if err := s.db.SetHandoffReviewPassPosting(ctx, taskID, pass.Pass, s.now(), 0); err != nil {
 			return err
 		}

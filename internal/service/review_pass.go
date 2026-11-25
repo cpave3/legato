@@ -716,7 +716,9 @@ func (s *ReviewPassService) watchReviewer(ctx context.Context, l ReviewLoop, loo
 	return nil
 }
 
-// unable ends a pass with nothing posted and makes the review stuck.
+// unable ends a pass and makes the review stuck: nothing more of it is
+// posted (a pass GitHub refused keeps the reviews of layers posted before),
+// and it no longer holds a reviewer slot.
 func (s *ReviewPassService) unable(ctx context.Context, l ReviewLoop, loop *store.HandoffReview, pass store.HandoffReviewPass, reason string) error {
 	_ = s.opts.Agents.KillAgentInSlot(ctx, l.TaskID, SlotReviewer)
 	pass.State, pass.Reason, pass.EndedAt = ReviewPassUnable, reason, s.now()
