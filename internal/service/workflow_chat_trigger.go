@@ -29,6 +29,9 @@ const MaxChatEventText = 8 << 10
 // naming those that did. What happens to a normal trigger's request after
 // it matched (held, waiting, failed) does not matter.
 func (c *WorkflowTriggerCoordinator) ChatEvent(ctx context.Context, e ChatEvent) error {
+	if e.Click != nil {
+		return nil // a click is no message: see ChatButton
+	}
 	fields := workflowengine.ChatEventFields{Bot: e.Bot, Channel: e.Channel, User: e.User, Text: chatText(e.Text, e.ForwardedText), ThreadID: e.ThreadID, FromBot: e.FromBot}
 	event := map[string]any{
 		"bot": e.Bot, "platform": e.Platform, "channel": e.Channel, "user": e.User, "text": keptChatText(e.Text, e.ForwardedText),

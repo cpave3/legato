@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Chat bots (LEG-624): a Slack bot over Socket Mode and a Discord bot over
@@ -46,6 +47,35 @@ type ChatEvent struct {
 	Forwarded     bool
 	ForwardedURL  string
 	ForwardedText string
+	// Click is set for a click on a button the bot posted, which is no
+	// message: MessageID is then the message with the buttons, ThreadID
+	// what replies to it, User who clicked, and Text empty.
+	Click *ChatClick
+}
+
+// ChatButton is a button under a message a bot sends.
+type ChatButton struct {
+	Label, Value string
+	// Style is "primary", "danger", or "" for the platform's default.
+	Style string
+}
+
+// The limits a button keeps on every platform (Slack's label, Discord's
+// custom_id, which is the value).
+const (
+	MaxChatButtons     = 5
+	MaxChatButtonLabel = 75
+	MaxChatButtonValue = 100
+)
+
+// ChatClick is a click on a button: its value and label, and the
+// interaction's ID, unique to the click.
+type ChatClick struct {
+	Value, Label, InteractionID string
+	// settle rewrites the message to say the click was taken, its buttons
+	// gone or disabled. It holds the platform's handle on the click (a
+	// Discord interaction token), so it is never stored.
+	settle func(ctx context.Context, line string) error
 }
 
 // SentMessage is a message a bot sent.
@@ -69,7 +99,7 @@ type ChatConnection interface {
 	Name() string
 	Platform() string
 	Run(ctx context.Context, emit func(ChatEvent), connected func()) error
-	Send(ctx context.Context, channel, text, threadID string) (SentMessage, error)
+	Send(ctx context.Context, channel, text, threadID string, buttons ...ChatButton) (SentMessage, error)
 	React(ctx context.Context, channel, messageID, emoji string, remove bool) error
 	ReadThread(ctx context.Context, channel, threadID string, max int) ([]ChatThreadMessage, error)
 }
@@ -156,7 +186,7 @@ type ChatBotStatus struct {
 
 // ChatSender sends as a bot, for chat.message.send.
 type ChatSender interface {
-	Send(ctx context.Context, bot, channel, text, threadID string) (SentMessage, error)
+	Send(ctx context.Context, bot, channel, text, threadID string, buttons ...ChatButton) (SentMessage, error)
 }
 
 // ChatReactor reacts as a bot, for chat.reaction.add and chat.reaction.remove.
@@ -362,11 +392,12 @@ func (b *ChatBots) Known(name string) (configured, enabled bool) {
 	return bot.spec.Configured, bot.spec.Enabled
 }
 
-// Send posts as a bot: to its default channel when channel is empty. It
-// fails at once for a bot that is unknown, off or refused, and gives up
+// Send posts as a bot: to its default channel when channel is empty, with
+// buttons under it when there are any. It fails at once for a bot that is
+// unknown, off or refused, or buttons no platform takes, and gives up
 // after SendTimeout; a bot still connecting can send, as sending needs no
 // session.
-func (b *ChatBots) Send(ctx context.Context, name, channel, text, threadID string) (SentMessage, error) {
+func (b *ChatBots) Send(ctx context.Context, name, channel, text, threadID string, buttons ...ChatButton) (SentMessage, error) {
 	bot, channel, err := b.ready(name, channel)
 	if err != nil {
 		return SentMessage{}, err
@@ -374,13 +405,72 @@ func (b *ChatBots) Send(ctx context.Context, name, channel, text, threadID strin
 	if strings.TrimSpace(text) == "" {
 		return SentMessage{}, fmt.Errorf("bot %s: the message is empty", name)
 	}
+	if err := checkChatButtons(buttons); err != nil {
+		return SentMessage{}, fmt.Errorf("bot %s: %w", name, err)
+	}
 	ctx, cancel := context.WithTimeout(ctx, b.SendTimeout)
 	defer cancel()
-	sent, err := bot.spec.Conn.Send(ctx, channel, text, strings.TrimSpace(threadID))
+	sent, err := bot.spec.Conn.Send(ctx, channel, text, strings.TrimSpace(threadID), buttons...)
 	if err != nil {
 		return SentMessage{}, fmt.Errorf("bot %s: sending to %s: %s", name, channel, scrubChatError(err.Error(), bot.spec.Secrets))
 	}
 	return sent, nil
+}
+
+// checkChatButtons checks buttons against the limits every platform keeps.
+func checkChatButtons(buttons []ChatButton) error {
+	if len(buttons) > MaxChatButtons {
+		return fmt.Errorf("a message takes at most %d buttons, not %d", MaxChatButtons, len(buttons))
+	}
+	values := map[string]bool{}
+	for i, button := range buttons {
+		at := fmt.Sprintf("button %d", i+1)
+		switch {
+		case strings.TrimSpace(button.Label) == "":
+			return fmt.Errorf("%s: no label", at)
+		case utf8.RuneCountInString(button.Label) > MaxChatButtonLabel:
+			return fmt.Errorf("%s: the label is longer than %d characters", at, MaxChatButtonLabel)
+		case strings.TrimSpace(button.Value) == "":
+			return fmt.Errorf("%s: no value", at)
+		case utf8.RuneCountInString(button.Value) > MaxChatButtonValue:
+			return fmt.Errorf("%s: the value is longer than %d characters", at, MaxChatButtonValue)
+		case values[button.Value]:
+			return fmt.Errorf("%s: the value %q is another button's too; each button needs its own", at, button.Value)
+		}
+		switch button.Style {
+		case "", "primary", "danger":
+		default:
+			return fmt.Errorf("%s: style must be primary or danger, or empty, not %q", at, button.Style)
+		}
+		values[button.Value] = true
+	}
+	return nil
+}
+
+// SettleClick rewrites the message a click was on to say line, its
+// buttons gone (Slack) or disabled (Discord), within SendTimeout.
+func (b *ChatBots) SettleClick(ctx context.Context, e ChatEvent, line string) error {
+	if e.Click == nil || e.Click.settle == nil {
+		return fmt.Errorf("bot %s: not a click on a button", e.Bot)
+	}
+	var secrets []string
+	if b != nil {
+		b.mu.Lock()
+		if bot, ok := b.bots[e.Bot]; ok {
+			secrets = bot.spec.Secrets
+		}
+		b.mu.Unlock()
+	}
+	timeout := 15 * time.Second
+	if b != nil && b.SendTimeout > 0 {
+		timeout = b.SendTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if err := e.Click.settle(ctx, line); err != nil {
+		return fmt.Errorf("bot %s: updating message %s: %s", e.Bot, e.MessageID, scrubChatError(err.Error(), secrets))
+	}
+	return nil
 }
 
 // React adds the bot's emoji to a message, or removes it, as Send sends: in

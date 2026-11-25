@@ -101,6 +101,10 @@ func startChatBots(cfg *config.Config, db *store.Store, triggers *service.Workfl
 		if triggers == nil {
 			return
 		}
+		if e.Click != nil {
+			chatClick(ctx, bots, triggers, e)
+			return
+		}
 		if err := triggers.ChatEvent(ctx, e); err != nil {
 			log.Printf("chat bots: %s message %s: %v", e.Bot, e.MessageID, err)
 		}
@@ -109,5 +113,22 @@ func startChatBots(cfg *config.Config, db *store.Store, triggers *service.Workfl
 	return func() {
 		bots.Stop()
 		release()
+	}
+}
+
+// chatClick fires the chat.button triggers for a click, and when one takes
+// it, rewrites the message to say who chose what, so no one clicks again.
+// A click no trigger takes, or one by someone a trigger does not allow,
+// leaves the message as it is (the platform was answered already).
+func chatClick(ctx context.Context, bots *service.ChatBots, triggers *service.WorkflowTriggerCoordinator, e service.ChatEvent) {
+	outcome, err := triggers.ChatButton(ctx, e)
+	if err != nil {
+		log.Printf("chat bots: %s click on message %s: %v", e.Bot, e.MessageID, err)
+	}
+	if outcome.Status != service.ChatClickAccepted {
+		return
+	}
+	if err := bots.SettleClick(ctx, e, outcome.Line); err != nil {
+		log.Printf("chat bots: %v", err)
 	}
 }

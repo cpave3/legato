@@ -27,7 +27,7 @@ func TestChatSendPostsAndGivesTheMessage(t *testing.T) {
 	if err != nil || result.Outputs["channel"] != "CDEF" || result.Outputs["thread_id"] != "m2" {
 		t.Fatalf("default channel: %+v, %v", result, err)
 	}
-	if conn.sent[1] != (fakeSent{Channel: "CDEF", Text: "to the default"}) {
+	if sent := conn.sent[1]; sent.Channel != "CDEF" || sent.Text != "to the default" || sent.ThreadID != "" || sent.Buttons != nil {
 		t.Fatalf("sent = %+v", conn.sent)
 	}
 }
