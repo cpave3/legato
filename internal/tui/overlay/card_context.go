@@ -30,6 +30,12 @@ type CardContextStartWorkflowMsg struct {
 	Inputs map[string]string
 }
 
+// CardContextOpenReviewLoopMsg opens the review loop that holds a card's
+// pull request, which its review item offers in place of a start.
+type CardContextOpenReviewLoopMsg struct {
+	Loop *service.FoundReviewLoop
+}
+
 // CardContextLoadMacrosMsg asks for the macros the card menu offers.
 type CardContextLoadMacrosMsg struct{ TaskID string }
 
@@ -203,6 +209,9 @@ func (m CardContextOverlay) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, func() tea.Msg { return CardContextStartMacroMsg{TaskID: id, Name: item.Name, PR: item.PR} }
 			}
 		} else if !m.loading && m.errorText == "" && m.cursor < len(m.workflows) {
+			if loop := m.workflows[m.cursor].Loop; loop != nil {
+				return m, func() tea.Msg { return CardContextOpenReviewLoopMsg{Loop: loop} }
+			}
 			m.openForm(m.cursor)
 		}
 	}
@@ -349,7 +358,9 @@ func (m CardContextOverlay) View() string {
 	case cardContextForm:
 		workflow := m.workflows[m.selected]
 		lines[0] = lipgloss.NewStyle().Bold(true).Render(workflow.Title)
-		lines = append(lines, "  "+workflow.TaskInput+": "+m.taskID+" (selected card)")
+		if workflow.TaskInput != "" {
+			lines = append(lines, "  "+workflow.TaskInput+": "+m.taskID+" (selected card)")
+		}
 		for i, field := range m.fields {
 			value := m.values[field.Key]
 			if field.Secret && value != "" {

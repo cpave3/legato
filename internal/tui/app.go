@@ -211,9 +211,12 @@ type App struct {
 	approvalSvc    ApprovalService
 	// reeve opens the Reeve (R) and asks it about an agent (a); nil
 	// without one.
-	reeve              ReeveOpener
-	approvals          []service.Approval
-	openURL            func(string) error
+	reeve     ReeveOpener
+	approvals []service.Approval
+	openURL   func(string) error
+	// webURL is where this Legato's web UI is served, for links to it:
+	// "" when it is off.
+	webURL             string
 	statusBar          statusbar.Model
 	clip               *clipboard.Clipboard
 	editor             string
@@ -299,6 +302,10 @@ func (a *App) SetWorkflowTriggerCoordinator(coordinator *service.WorkflowTrigger
 	a.workflowTriggers = coordinator
 	a.workflowRepositories = append([]workflowengine.RepositoryPreset(nil), repositories...)
 }
+
+// SetWebURL is where the web UI is served ("http://localhost:3080"), for
+// the links the TUI opens there, such as a card's running review loop.
+func (a *App) SetWebURL(url string) { a.webURL = strings.TrimRight(url, "/") }
 
 func (a *App) SetTaskWorkflowLauncher(launcher TaskWorkflowLauncher) {
 	a.taskWorkflows = launcher
@@ -1017,10 +1024,13 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			run, err := launcher.Start(context.Background(), name, inputs)
 			return taskWorkflowStartedMsg{Run: run, Err: err}
 		}
+	case overlay.CardContextOpenReviewLoopMsg:
+		a.overlayType, a.activeOverlay = overlayNone, nil
+		return a.openReviewLoop(msg.Loop)
 	case taskWorkflowStartedMsg:
 		if msg.Err != nil {
 			if model, ok := a.activeOverlay.(overlay.CardContextOverlay); ok {
-				a.activeOverlay = model.SetError(msg.Err)
+				a.activeOverlay = model.SetError(a.withWebLink(msg.Err))
 			}
 			return a, nil
 		}

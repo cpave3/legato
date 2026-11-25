@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"slices"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -54,6 +56,61 @@ func agentOpened(row store.TaskBranch, appLogins []string) bool {
 	switch row.Source {
 	case BranchSourceAgent, BranchSourceStack:
 		return true
+	}
+	return false
+}
+
+// ReviewAuthors gives the card menu, the TUI and GET /api/review-loops the
+// agent_author a review started now would take (agentAuthoredPRs), from
+// what PR tracking keeps: no GitHub read. appLogins are the configured
+// logins of Legato's own Apps (github.app_logins); those learned from the
+// reviews Legato posted are read at each ask.
+type ReviewAuthors struct {
+	db        *store.Store
+	appLogins []string
+}
+
+// NewReviewAuthors reads db, with the configured App logins.
+func NewReviewAuthors(db *store.Store, appLogins []string) *ReviewAuthors {
+	return &ReviewAuthors{db: db, appLogins: botLogins(appLogins)}
+}
+
+// logins are Legato's own Apps' logins: those learned, then configured.
+func (r *ReviewAuthors) logins(ctx context.Context) []string {
+	learned, _ := r.db.GitHubAppLogins(ctx)
+	return append(learned, r.appLogins...)
+}
+
+// Card says whether a card's pull requests prs are its agent's, from its
+// tracked branches rows.
+func (r *ReviewAuthors) Card(ctx context.Context, rows []store.TaskBranch, prs []PRMetaView) bool {
+	if r == nil {
+		return false
+	}
+	return agentAuthoredPRs(rows, prs, r.logins(ctx))
+}
+
+// AgentAuthor says whether repo's pull request number is an agent's: the
+// board card that tracks it says so (its first such card, by ID). A pull
+// request no card tracks is a person's.
+func (r *ReviewAuthors) AgentAuthor(ctx context.Context, repo string, number int) bool {
+	if r == nil {
+		return false
+	}
+	tracked, err := r.db.ListTrackedTaskBranches(ctx)
+	if err != nil {
+		return false
+	}
+	ids := make([]string, 0, len(tracked))
+	for id := range tracked {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	pr := PRMetaView{Repo: repo, PRNumber: number}
+	for _, id := range ids {
+		if _, ok := trackedRowOf(tracked[id], pr); ok {
+			return agentAuthoredPRs(tracked[id], []PRMetaView{pr}, r.logins(ctx))
+		}
 	}
 	return false
 }

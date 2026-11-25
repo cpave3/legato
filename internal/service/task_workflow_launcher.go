@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -28,6 +29,10 @@ type TaskWorkflowOption struct {
 	TaskInput   string
 	Inputs      []TaskWorkflowInput
 	Values      map[string]string
+	// Loop is the review loop that already holds a review item's pull
+	// request, whatever started it: the item opens it instead of starting
+	// review-loop. nil for any other item.
+	Loop *FoundReviewLoop
 }
 
 type TaskWorkflowRun struct {
@@ -43,6 +48,9 @@ type TaskWorkflowLauncher struct {
 	// reviewEngine says whether some process runs the review engine; nil
 	// counts as running.
 	reviewEngine func() ReviewEngineStatus
+	// authors derive a review's agent_author; nil makes every pull
+	// request a person's.
+	authors *ReviewAuthors
 }
 
 func NewTaskWorkflowLauncher(s *store.Store, workflows *WorkflowService, discover func() workflowengine.DiscoveryResult) *TaskWorkflowLauncher {
@@ -54,6 +62,12 @@ func NewTaskWorkflowLauncher(s *store.Store, workflows *WorkflowService, discove
 // ReviewUnavailable says why.
 func (l *TaskWorkflowLauncher) SetReviewEngine(status func() ReviewEngineStatus) {
 	l.reviewEngine = status
+}
+
+// SetReviewAuthors derives the agent_author a card's review starts
+// review-loop with (spec LEG-559 D8).
+func (l *TaskWorkflowLauncher) SetReviewAuthors(authors *ReviewAuthors) {
+	l.authors = authors
 }
 
 // reviewEngineReason is why no review can start, or "" when one can.
@@ -79,7 +93,7 @@ func (l *TaskWorkflowLauncher) ReviewUnavailable(ctx context.Context, taskID str
 	if err != nil {
 		return ""
 	}
-	if len(l.reviewPassItems(ctx, task, l.discover())) == 0 {
+	if open, _ := l.openPullRequests(ctx, task); len(open) == 0 {
 		return ""
 	}
 	return reason
@@ -135,7 +149,7 @@ func (l *TaskWorkflowLauncher) List(ctx context.Context, taskID string) ([]TaskW
 		}
 		options = append(options, TaskWorkflowOption{Name: definition.Name, Title: definition.Title, Description: definition.Description, TaskInput: taskInput, Inputs: inputs, Values: values})
 	}
-	options = append(options, l.reviewPassOptions(ctx, task, result)...)
+	options = append(options, l.reviewPassOptions(ctx, task)...)
 	if len(result.Errors) > 0 {
 		messages := make([]string, len(result.Errors))
 		for i, discoveryErr := range result.Errors {
@@ -147,6 +161,9 @@ func (l *TaskWorkflowLauncher) List(ctx context.Context, taskID string) ([]TaskW
 }
 
 func (l *TaskWorkflowLauncher) Start(ctx context.Context, name string, inputs map[string]string) (*TaskWorkflowRun, error) {
+	if name == workflowengine.ReviewLoopWorkflowName {
+		return l.startReviewLoop(ctx, inputs)
+	}
 	result := l.discover()
 	for _, definition := range result.Definitions {
 		if definition.Name != name {
@@ -163,16 +180,54 @@ func (l *TaskWorkflowLauncher) Start(ctx context.Context, name string, inputs ma
 		// A review loop refused at start (one already running on the pull
 		// request, say) says why, naming that loop.
 		if reviewLoopWorkflow(name) && view.Run.Status == "failed" {
-			for _, step := range view.Steps {
-				if step.Status == "failed" && step.Error != "" {
-					return nil, errors.New(step.Error)
-				}
-			}
-			return nil, errors.New(view.Run.Error)
+			return nil, failedAtStart(view)
 		}
 		return &TaskWorkflowRun{ID: view.Run.ID, Title: view.Run.WorkflowTitle, RelatedTaskID: view.Run.RelatedTaskID}, nil
 	}
 	return nil, fmt.Errorf("workflow %q not found", name)
+}
+
+// startReviewLoop starts the built-in review-loop on a pull request no loop
+// holds. One that a loop holds, whatever started it, is refused before any
+// run is made, naming the loop and its link (review_loop_active); a refusal
+// the start itself meets says the same. The start only writes the run: the
+// review engine's holder opens the loop, so it runs whether or not this
+// process has the engine.
+func (l *TaskWorkflowLauncher) startReviewLoop(ctx context.Context, inputs map[string]string) (*TaskWorkflowRun, error) {
+	repo := strings.TrimSpace(inputs["repo"])
+	if number, err := strconv.Atoi(strings.TrimSpace(inputs["pr_number"])); err == nil && CheckReviewLoopQuery(repo, number) == nil {
+		holder, err := l.store.ActiveReviewLoop(ctx, repo, number)
+		if err != nil {
+			return nil, err
+		}
+		if holder != nil {
+			name, link := reviewLoopName(holder)
+			return nil, reviewStepError(&ReviewLoopActiveError{Repo: repo, PR: number, Name: name, Link: link, LoopID: holder.ID})
+		}
+	}
+	view, err := l.workflows.Start(ctx, workflowengine.BuiltInReviewLoop(), inputs)
+	if err != nil {
+		return nil, err
+	}
+	if view.Run.Status == "failed" {
+		return nil, failedAtStart(view)
+	}
+	return &TaskWorkflowRun{ID: view.Run.ID, Title: view.Run.WorkflowTitle, RelatedTaskID: view.Run.RelatedTaskID}, nil
+}
+
+// failedAtStart is why a run failed as it started: its failed step's error,
+// with its code and link (the loop that holds the pull request), else the
+// run's.
+func failedAtStart(view *store.WorkflowRunView) error {
+	for _, step := range view.Steps {
+		if step.Status == "failed" && step.Error != "" {
+			if step.ErrorCode == "" && step.ErrorLink == "" {
+				return errors.New(step.Error)
+			}
+			return &WorkflowStepError{Code: step.ErrorCode, Link: step.ErrorLink, Message: step.Error}
+		}
+	}
+	return errors.New(view.Run.Error)
 }
 
 func soleTaskInput(definition *workflowengine.Definition) (string, bool) {
@@ -251,7 +306,8 @@ func rawWorkflowValue(value any) string {
 	}
 }
 
-// ReviewPassesWorkflow is the workflow a card's Review passes action starts.
+// ReviewPassesWorkflow is the example workflow of review passes before
+// review-loop, which an operator's copy may still run.
 const ReviewPassesWorkflow = "review-pr-passes"
 
 // reviewLoopWorkflow says whether a workflow is one a launcher starts a
@@ -261,36 +317,29 @@ func reviewLoopWorkflow(name string) bool {
 	return name == ReviewPassesWorkflow || name == workflowengine.ReviewLoopWorkflowName
 }
 
-// reviewPassOptions are a card's Review passes actions: one for each of its
-// open pull requests, when the review-pr-passes workflow is there. Each
-// starts a review loop with the card's own agent as the author. When the
-// workflow takes a scope and the card has several open pull requests in one
-// repository (its tracked branches are in stack order), the first action
-// reviews the whole stack, started on the bottom one, and the others each
-// pull request alone.
-// They are offered only while some process runs the review engine.
-func (l *TaskWorkflowLauncher) reviewPassOptions(ctx context.Context, task *store.Task, result workflowengine.DiscoveryResult) []TaskWorkflowOption {
+// reviewPassOptions are a card's review items: one for each of its open
+// pull requests (spec LEG-559 stories 1 to 4). A pull request a review loop
+// holds, whatever started it, offers that loop (Loop); any other starts the
+// built-in review-loop with agent_author derived from who opened it (D8),
+// and no ready or steward. When the card has several open pull requests in
+// one repository (its tracked branches are in stack order) and no loop
+// holds any, the first item reviews the whole stack, started on the bottom
+// one, as an agent's only when every one is, and the others each pull
+// request alone. They are offered only while some process runs the review
+// engine.
+func (l *TaskWorkflowLauncher) reviewPassOptions(ctx context.Context, task *store.Task) []TaskWorkflowOption {
 	if l.reviewEngineReason() != "" {
 		return nil
 	}
-	return l.reviewPassItems(ctx, task, result)
+	return l.reviewPassItems(ctx, task)
 }
 
-// reviewPassItems are the Review passes actions a card would offer.
-func (l *TaskWorkflowLauncher) reviewPassItems(ctx context.Context, task *store.Task, result workflowengine.DiscoveryResult) []TaskWorkflowOption {
-	var definition *workflowengine.Definition
-	for i := range result.Definitions {
-		if result.Definitions[i].Name == ReviewPassesWorkflow {
-			definition = result.Definitions[i]
-		}
-	}
-	if definition == nil {
-		return nil
-	}
-	_, scoped := definition.Inputs["scope"]
+// openPullRequests are a card's open pull requests, in stack order, and
+// its tracked branches.
+func (l *TaskWorkflowLauncher) openPullRequests(ctx context.Context, task *store.Task) ([]PRMetaView, []store.TaskBranch) {
 	tracked, err := l.store.ListTrackedTaskBranches(ctx)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	var open []PRMetaView
 	for _, pr := range TaskPullRequests(task, tracked[task.ID]) {
@@ -299,29 +348,72 @@ func (l *TaskWorkflowLauncher) reviewPassItems(ctx context.Context, task *store.
 		}
 		open = append(open, pr)
 	}
-	stack := scoped && len(open) > 1
+	return open, tracked[task.ID]
+}
+
+// reviewPassItems are the review items a card offers.
+func (l *TaskWorkflowLauncher) reviewPassItems(ctx context.Context, task *store.Task) []TaskWorkflowOption {
+	open, rows := l.openPullRequests(ctx, task)
+	lookup := NewReviewLoopLookup(l.store)
+	loops := make([]*FoundReviewLoop, len(open))
+	agents := make([]bool, len(open))
+	held, allAgents := false, true
+	for i, pr := range open {
+		loops[i], _ = lookup.ActiveReviewLoop(ctx, pr.Repo, pr.PRNumber)
+		if loops[i] != nil {
+			held = true
+			continue
+		}
+		agents[i] = l.authors.Card(ctx, rows, []PRMetaView{pr})
+		allAgents = allAgents && agents[i]
+	}
+	stack := len(open) > 1
 	for _, pr := range open {
 		stack = stack && strings.EqualFold(pr.Repo, open[0].Repo)
 	}
 	var options []TaskWorkflowOption
-	if stack {
+	if stack && !held {
 		bottom, top := open[0], open[len(open)-1]
 		options = append(options, TaskWorkflowOption{
-			Name: ReviewPassesWorkflow, Title: fmt.Sprintf("Review passes · stack #%d–#%d", bottom.PRNumber, top.PRNumber),
-			Description: fmt.Sprintf("Review every open pull request of the stack of %s#%d in passes posted to GitHub; this card's agent fixes the findings.", bottom.Repo, bottom.PRNumber),
-			Values:      map[string]string{"repo": bottom.Repo, "pr_number": fmt.Sprint(bottom.PRNumber), "agent_author": "true", "scope": ReviewScopeStack},
+			Name: workflowengine.ReviewLoopWorkflowName, Title: fmt.Sprintf("Review passes · stack #%d–#%d · %s", bottom.PRNumber, top.PRNumber, authorMode(allAgents)),
+			Description: fmt.Sprintf("Review every open pull request of the stack of %s#%d in passes posted to GitHub; %s.", bottom.Repo, bottom.PRNumber, whoFixes(allAgents)),
+			Values:      map[string]string{"repo": bottom.Repo, "pr_number": fmt.Sprint(bottom.PRNumber), "agent_author": fmt.Sprint(allAgents), "scope": ReviewScopeStack},
 		})
 	}
-	for _, pr := range open {
-		values := map[string]string{"repo": pr.Repo, "pr_number": fmt.Sprint(pr.PRNumber), "agent_author": "true"}
+	for i, pr := range open {
+		if loops[i] != nil {
+			options = append(options, TaskWorkflowOption{
+				Name: workflowengine.ReviewLoopWorkflowName, Title: fmt.Sprintf("Open review loop · #%d", pr.PRNumber),
+				Description: fmt.Sprintf("%s#%d is in review: loop %s (%s).", pr.Repo, pr.PRNumber, loops[i].LoopID, loops[i].Link),
+				Loop:        loops[i],
+			})
+			continue
+		}
+		values := map[string]string{"repo": pr.Repo, "pr_number": fmt.Sprint(pr.PRNumber), "agent_author": fmt.Sprint(agents[i])}
 		if stack {
 			values["scope"] = ReviewScopePR
 		}
 		options = append(options, TaskWorkflowOption{
-			Name: ReviewPassesWorkflow, Title: fmt.Sprintf("Review passes · #%d", pr.PRNumber),
-			Description: fmt.Sprintf("Review %s#%d in passes posted to GitHub; this card's agent fixes the findings.", pr.Repo, pr.PRNumber),
+			Name: workflowengine.ReviewLoopWorkflowName, Title: fmt.Sprintf("Review passes · #%d · %s", pr.PRNumber, authorMode(agents[i])),
+			Description: fmt.Sprintf("Review %s#%d in passes posted to GitHub; %s.", pr.Repo, pr.PRNumber, whoFixes(agents[i])),
 			Values:      values,
 		})
 	}
 	return options
+}
+
+// authorMode is what a review item says of whose pull request it is.
+func authorMode(agent bool) string {
+	if agent {
+		return "agent"
+	}
+	return "person"
+}
+
+// whoFixes says who is asked to fix a review's findings.
+func whoFixes(agent bool) string {
+	if agent {
+		return "this card's agent fixes the findings"
+	}
+	return "its author answers the findings on GitHub"
 }

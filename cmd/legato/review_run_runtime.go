@@ -3,6 +3,8 @@ package main
 import (
 	"path/filepath"
 
+	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -45,4 +47,11 @@ func wireReviewRuns(srv *server.Server, engine *reviewEngine) {
 		return
 	}
 	srv.SetReviewRuns(engine.runs)
+}
+
+// reviewAuthors derives the agent_author the card menu and the TUI start
+// review-loop with (spec LEG-559 D8), from what PR tracking keeps of who
+// opened each pull request and Legato's own App logins.
+func reviewAuthors(cfg *config.Config, db *store.Store) *service.ReviewAuthors {
+	return service.NewReviewAuthors(db, cfg.GitHub.AppLogins)
 }
