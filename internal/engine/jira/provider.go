@@ -23,6 +23,10 @@ type ProviderTicket struct {
 	URL           string
 	UpdatedAt     time.Time
 	Attachments   []Attachment
+	// StatusCategory is new, indeterminate or done.
+	StatusCategory string
+	// BlockedBy are the keys of the issues not done that block it.
+	BlockedBy []string
 }
 
 // ProviderTransition represents an available state transition.
@@ -111,19 +115,36 @@ func (p *Provider) issueToTicket(issue Issue) ProviderTicket {
 	}
 
 	browseURL := p.baseURL + "/browse/" + issue.Key
+	epic := issue.Fields.EpicKey
+	// A sub-task's parent is a story; only an epic is the ticket's epic.
+	if parent := issue.Fields.Parent; epic == "" && parent != nil && strings.EqualFold(parent.Fields.IssueType.Name, "Epic") {
+		epic = issue.Fields.Parent.Key
+	}
+	var blockedBy []string
+	for _, link := range issue.Fields.IssueLinks {
+		blocker := link.InwardIssue
+		if blocker == nil || !strings.Contains(strings.ToLower(link.Type.Inward), "blocked by") {
+			continue
+		}
+		if blocker.Fields.Status.StatusCategory.Key != "done" {
+			blockedBy = append(blockedBy, blocker.Key)
+		}
+	}
 
 	return ProviderTicket{
-		ID:            issue.Key,
-		Summary:       issue.Fields.Summary,
-		DescriptionMD: ADFToMarkdown(issue.Fields.Description),
-		Status:        issue.Fields.Status.Name,
-		Priority:      issue.Fields.Priority.Name,
-		IssueType:     issue.Fields.IssueType.Name,
-		Assignee:      assignee,
-		Labels:        issue.Fields.Labels,
-		EpicKey:       issue.Fields.EpicKey,
-		URL:           browseURL,
-		UpdatedAt:     updatedAt,
-		Attachments:   issue.Fields.Attachments,
+		ID:             issue.Key,
+		Summary:        issue.Fields.Summary,
+		DescriptionMD:  ADFToMarkdown(issue.Fields.Description),
+		Status:         issue.Fields.Status.Name,
+		Priority:       issue.Fields.Priority.Name,
+		IssueType:      issue.Fields.IssueType.Name,
+		Assignee:       assignee,
+		Labels:         issue.Fields.Labels,
+		EpicKey:        epic,
+		URL:            browseURL,
+		UpdatedAt:      updatedAt,
+		Attachments:    issue.Fields.Attachments,
+		StatusCategory: issue.Fields.Status.StatusCategory.Key,
+		BlockedBy:      blockedBy,
 	}
 }

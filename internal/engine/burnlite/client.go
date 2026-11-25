@@ -222,28 +222,97 @@ func (c *Client) listTasks(ctx context.Context, args map[string]any) ([]TaskRow,
 	return readRows(out.Tasks), nil
 }
 
+// TaskFilter narrows FindTasks. Project is required; the rest are left
+// out when empty. State is open when empty.
+type TaskFilter struct {
+	Project   string
+	Milestone string
+	// Kind is work or meta.
+	Kind   string
+	Labels []string
+	// State is open, closed or any.
+	State string
+	// Frontier asks for only the Tasks that can be taken now: open,
+	// unclaimed, every Blocker closed.
+	Frontier bool
+}
+
+// FindTasks lists a Project's Tasks that match the filter, in Burnlite's
+// order: Milestone order, then Task order.
+func (c *Client) FindTasks(ctx context.Context, f TaskFilter) ([]TaskRow, error) {
+	args := map[string]any{"projectId": f.Project, "state": orOpen(f.State)}
+	if f.Milestone != "" {
+		args["milestoneId"] = f.Milestone
+	}
+	if f.Kind != "" {
+		args["kind"] = f.Kind
+	}
+	if len(f.Labels) > 0 {
+		args["labels"] = f.Labels
+	}
+	if f.Frontier {
+		args["frontier"] = true
+	}
+	return c.listTasks(ctx, args)
+}
+
+func orOpen(state string) string {
+	if state == "" {
+		return "open"
+	}
+	return state
+}
+
 // MilestoneRow is a Milestone as list_milestones gives it: no text and no
 // Tasks. UpdatedAt is when the Milestone or any of its Tasks last changed;
 // it is zero from a Burnlite too old to say.
 type MilestoneRow struct {
-	Key       string
-	UpdatedAt time.Time
+	Key         string
+	URL         string
+	Name        string
+	State       string
+	CloseReason string
+	Labels      []string
+	UpdatedAt   time.Time
 }
 
 // ListMilestones lists a Project's Milestones, open and closed.
 func (c *Client) ListMilestones(ctx context.Context, project string) ([]MilestoneRow, error) {
+	return c.FindMilestones(ctx, MilestoneFilter{Project: project, State: "any"})
+}
+
+// MilestoneFilter narrows FindMilestones. Project is required; State is
+// open when empty.
+type MilestoneFilter struct {
+	Project string
+	State   string
+	Labels  []string
+}
+
+// FindMilestones lists a Project's Milestones that match the filter, in
+// Burnlite's order.
+func (c *Client) FindMilestones(ctx context.Context, f MilestoneFilter) ([]MilestoneRow, error) {
 	var out struct {
 		Milestones []struct {
-			Key       string `json:"key"`
-			UpdatedAt string `json:"updatedAt"`
+			Key         string   `json:"key"`
+			URL         string   `json:"url"`
+			Name        string   `json:"name"`
+			State       string   `json:"state"`
+			CloseReason *string  `json:"closeReason"`
+			Labels      []string `json:"labels"`
+			UpdatedAt   string   `json:"updatedAt"`
 		} `json:"milestones"`
 	}
-	if err := c.call(ctx, "list_milestones", map[string]any{"projectId": project, "state": "any"}, &out); err != nil {
+	args := map[string]any{"projectId": f.Project, "state": orOpen(f.State)}
+	if len(f.Labels) > 0 {
+		args["labels"] = f.Labels
+	}
+	if err := c.call(ctx, "list_milestones", args, &out); err != nil {
 		return nil, err
 	}
 	rows := make([]MilestoneRow, len(out.Milestones))
 	for i, m := range out.Milestones {
-		rows[i] = MilestoneRow{Key: m.Key, UpdatedAt: parseTime(m.UpdatedAt)}
+		rows[i] = MilestoneRow{Key: m.Key, URL: m.URL, Name: m.Name, State: m.State, CloseReason: deref(m.CloseReason), Labels: m.Labels, UpdatedAt: parseTime(m.UpdatedAt)}
 	}
 	return rows, nil
 }

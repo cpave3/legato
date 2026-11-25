@@ -49,7 +49,7 @@ func (c *Client) Search(ctx context.Context, jql string) ([]Issue, error) {
 		params := url.Values{
 			"jql":        {jql},
 			"maxResults": {strconv.Itoa(defaultPageSize)},
-			"fields":     {"summary,status,priority,issuetype,assignee,labels,description,updated,project,customfield_10014,attachment"},
+			"fields":     {"summary,status,priority,issuetype,assignee,labels,description,updated,project,customfield_10014,attachment,issuelinks,parent"},
 		}
 
 		if nextPageToken != "" {
