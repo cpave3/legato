@@ -147,3 +147,7 @@ func (e *reservedNameError) Error() string {
 // reserved says whether a built-in's name is reserved, so that no definition
 // of that name replaces it.
 func reserved(name string) bool { return reservedWorkflowNames[name] }
+
+// ReservedWorkflowName says whether a file may not take name: a reserved
+// built-in's (review-loop). A copy of it takes a name of its own.
+func ReservedWorkflowName(name string) bool { return reserved(strings.TrimSpace(name)) }

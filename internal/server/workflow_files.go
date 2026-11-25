@@ -425,18 +425,27 @@ func (s *Server) workflowCopyHandler() http.HandlerFunc {
 			s.writeWorkflowError(w, http.StatusBadRequest, "folder", "no workflows folder "+body.Folder+" to write to", nil)
 			return
 		}
+		header := "# A copy of Legato's built-in " + name + " workflow, which this file replaces.\n"
+		if workflowengine.ReservedWorkflowName(name) {
+			// A reserved built-in is never replaced: its copy takes a name of
+			// its own, and the built-in stays in use under its name.
+			renamed := *definition
+			renamed.Name, renamed.Title = name+"-copy", definition.Title+" (copy)"
+			definition = &renamed
+			header = "# A copy of Legato's built-in " + name + " workflow, under a name of its own: " + name + " itself stays Legato's.\n"
+		}
 		data, err := yaml.Marshal(definition)
 		if err != nil {
 			s.writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		data = append([]byte("# A copy of Legato's built-in "+name+" workflow, which this file replaces.\n"), data...)
+		data = append([]byte(header), data...)
 		copied, diagnostics := s.checked(r.Context(), string(data))
 		if copied == nil {
 			s.writeWorkflowError(w, http.StatusInternalServerError, "invalid", "the built-in does not make a valid file: "+diagnostics[0].Message, nil)
 			return
 		}
-		s.createWorkflowFile(w, folder, name, data, diagnostics)
+		s.createWorkflowFile(w, folder, definition.Name, data, diagnostics)
 	}
 }
 

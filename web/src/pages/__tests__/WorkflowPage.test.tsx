@@ -35,11 +35,14 @@ vi.mock("../../hooks/useWorkflow", () => ({
   useWorkflowRunsOf: (name: string) => ({ data: runs.filter(run => run.workflow_name === name), loading: false, error: null, refresh: vi.fn() }),
 }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
+const copyBuiltInWorkflow = vi.fn()
+vi.mock("../../lib/workflowFiles", async importOriginal => ({ ...(await importOriginal<object>()), copyBuiltInWorkflow: (...args: unknown[]) => copyBuiltInWorkflow(...args) }))
 
 function renderAt(path: string) {
   return render(<MemoryRouter initialEntries={[path]}><Routes>
     <Route path="/workflows" element={<WorkflowsPage />} />
     <Route path="/workflows/:name" element={<WorkflowPage />} />
+    <Route path="/workflows/:name/edit" element={<p>Editing</p>} />
   </Routes></MemoryRouter>)
 }
 
@@ -52,6 +55,15 @@ beforeEach(() => {
 })
 
 describe("WorkflowPage", () => {
+  it("opens a reserved built-in's copy, which the server names apart", async () => {
+    discovery = { definitions: [{ ...triage, name: "review-loop", title: "Review loop", source: "builtin:review-loop" }] as unknown as WorkflowDiscovery["definitions"], errors: [] }
+    copyBuiltInWorkflow.mockResolvedValue({ name: "review-loop-copy", path: "/w/review-loop-copy.workflow.yaml", folder: "global", digest: "d", diagnostics: [] })
+    renderAt("/workflows/review-loop")
+    fireEvent.click(screen.getByRole("button", { name: /Copy to my workflows/ }))
+    expect(await screen.findByText("Editing")).toBeTruthy()
+    expect(copyBuiltInWorkflow).toHaveBeenCalledWith("", "review-loop", "global")
+  })
+
   it("shows a workflow's title, description, source and its steps as a graph", async () => {
     renderAt("/workflows/triage")
     expect(screen.getByRole("heading", { name: "Triage a task" })).toBeTruthy()

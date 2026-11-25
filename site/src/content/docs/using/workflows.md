@@ -1233,7 +1233,7 @@ Every Legato has a built-in workflow, `review-loop`, that reviews pull requests 
 
 Its inputs are those of `github.pr.review.open` below: `repo`, `pr_number` (with `scope`) or `prs`, `agent_author`, `reviewer`, `skill`, `max_passes` and `max_reentries`. Its outputs are `outcome` (`approved`, `closed` or `stuck`), `loop_id`, `passes`, `clean_pass`, `confirmed_at`, `findings` (`total`, `blocking`, `nits` and `open`), `prs`, `approval_withheld`, `summary_path` and `linked_task`. When the review is stuck, it waits for you (**Run another pass**, **Message the author** or **End**); **End** gives `stuck`, and your workflow goes on. A refused review (another loop already reviews the pull request: `review_loop_active`), or one that fails, fails your `workflow.run` step with its `error_code`, and the step's `on_failure` decides; **Retry** resumes the same review.
 
-`review-loop` is reserved: a file of yours may not take the name. To change it, copy it under another name; it is built from the steps below.
+`review-loop` is reserved: a file of yours may not take the name. To change it, use **Copy to my workflows** on its page, which makes `review-loop-copy` (rename it as you like) and opens it for editing, while `review-loop` stays Legato's; it is built from the steps below.
 
 ### Review loop steps
 
