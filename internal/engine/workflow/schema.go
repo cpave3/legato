@@ -252,6 +252,7 @@ var fieldSchemas = map[string]schemaObject{
 	"Definition.after_start":    {"description": "What the web UI opens once a run starts: the run (workflow), its agent (agent, with one required task input), or nothing (stay)", "enum": []string{"workflow", "agent", "stay"}},
 	"Definition.inputs":         {"description": "The inputs a run takes, by name"},
 	"Definition.on":             {"description": "What starts runs by itself, besides starting one by hand: one trigger of each kind"},
+	"Definition.chat_help":      {"description": "List this workflow in ${{ event.commands }} of the chat triggers on the bots its own chat triggers run on"},
 	"Definition.steps":          {"description": "The steps, run in order", "required": true, "minItems": 1},
 
 	"Input.type":        {"description": "What the input holds", "required": true, "enum": []string{"string", "integer", "boolean", "json", "task", "repository"}},

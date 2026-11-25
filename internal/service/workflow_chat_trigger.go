@@ -35,7 +35,10 @@ func (c *WorkflowTriggerCoordinator) ChatEvent(ctx context.Context, e ChatEvent)
 		"message_id": e.MessageID, "thread_id": e.ThreadID, "forwarded": e.Forwarded, "forwarded_url": e.ForwardedURL,
 	}
 	normal, fallbacks, err := c.matchingChatTriggers(ctx, e, fields)
-	if err != nil {
+	if err != nil || len(normal)+len(fallbacks) == 0 {
+		return err
+	}
+	if event["commands"], err = c.chatCommands(ctx, e.Bot); err != nil {
 		return err
 	}
 	key := e.Platform + ":" + e.Bot + ":" + e.Channel + ":" + e.MessageID
@@ -98,6 +101,59 @@ func (c *WorkflowTriggerCoordinator) matchingChatTriggers(ctx context.Context, e
 		}
 	}
 	return normal, fallbacks, nil
+}
+
+// Bounds of ${{ event.commands }}: each description, in characters, and
+// the whole list, in bytes.
+const (
+	maxCommandDescription = 200
+	maxCommandsBytes      = 4 << 10
+)
+
+// chatCommands is ${{ event.commands }}: one line per workflow with
+// chat_help: true and an enabled chat trigger on the bot that is not a
+// fallback, sorted by title, "• Title — first line of its description".
+// Plain text, which Slack and Discord show alike; "" when none.
+func (c *WorkflowTriggerCoordinator) chatCommands(ctx context.Context, bot string) (string, error) {
+	type command struct{ title, line string }
+	var commands []command
+	for _, definition := range c.definitions().Definitions {
+		if !definition.ChatHelp {
+			continue
+		}
+		listed := false
+		for _, kind := range []string{workflowengine.TriggerChatMessage, workflowengine.TriggerChatMention} {
+			trigger := definition.On.Chat(kind)
+			if trigger == nil || trigger.Bot != bot || trigger.Fallback {
+				continue
+			}
+			on, err := c.triggerEnabled(ctx, definition, kind)
+			if err != nil {
+				return "", err
+			}
+			listed = listed || on
+		}
+		if !listed {
+			continue
+		}
+		line := "• " + definition.Title
+		if description := strings.TrimSpace(firstLine(strings.TrimSpace(definition.Description))); description != "" {
+			line += " — " + cutRunes(description, maxCommandDescription)
+		}
+		commands = append(commands, command{definition.Title, line})
+	}
+	sort.SliceStable(commands, func(i, j int) bool { return commands[i].title < commands[j].title })
+	lines := make([]string, 0, len(commands))
+	size := 0
+	for i, command := range commands {
+		if size+len(command.line)+1 > maxCommandsBytes {
+			lines = append(lines, fmt.Sprintf("… and %d more", len(commands)-i))
+			break
+		}
+		lines = append(lines, command.line)
+		size += len(command.line) + 1
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 // maxSkipNames is how many triggers a skipped fallback's reason names.

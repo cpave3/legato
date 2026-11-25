@@ -3162,6 +3162,10 @@
       ],
       "type": "string"
     },
+    "chat_help": {
+      "description": "List this workflow in ${{ event.commands }} of the chat triggers on the bots its own chat triggers run on",
+      "type": "boolean"
+    },
     "description": {
       "description": "What the workflow does",
       "type": "string"
@@ -3561,6 +3565,10 @@
           {
             "pattern": "event.forwarded_url",
             "description": "The forwarded message's link; empty otherwise"
+          },
+          {
+            "pattern": "event.commands",
+            "description": "The workflows with chat_help: true that run on this bot, one per line"
           }
         ]
       },
@@ -3603,6 +3611,10 @@
           {
             "pattern": "event.forwarded_url",
             "description": "The forwarded message's link; empty otherwise"
+          },
+          {
+            "pattern": "event.commands",
+            "description": "The workflows with chat_help: true that run on this bot, one per line"
           }
         ]
       },

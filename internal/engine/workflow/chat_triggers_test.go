@@ -175,3 +175,35 @@ func TestChatTriggerLoopItem(t *testing.T) {
 		t.Fatalf("thread item without a thread = %q", got)
 	}
 }
+
+func TestChatHelpParsesAndWarnsWithoutAChatTrigger(t *testing.T) {
+	file := func(on string) string {
+		return "schema_version: 1\nname: fix\ntitle: Fix\ndescription: Fixes a bug\nchat_help: true\n" + on +
+			"steps:\n  - {id: say, title: Say, type: chat.message.send, with: {bot: slack, channel: C1, text: hi}}\n"
+	}
+	definition, diagnostics := workflow.Check("fix.yaml", []byte(file("on:\n  chat.mention:\n    bot: slack\n")))
+	if definition == nil || !definition.ChatHelp || len(diagnostics) != 0 {
+		t.Fatalf("definition = %+v, diagnostics = %+v", definition, diagnostics)
+	}
+	definition, diagnostics = workflow.Check("fix.yaml", []byte(file("")))
+	if definition == nil {
+		t.Fatalf("the warning stopped the file loading: %+v", diagnostics)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Severity != workflow.SeverityWarning || diagnostics[0].Path != "chat_help" || !strings.Contains(diagnostics[0].Message, "no chat trigger") {
+		t.Fatalf("diagnostics = %+v", diagnostics)
+	}
+}
+
+func TestChatTriggerInputsMayReadEventCommands(t *testing.T) {
+	for _, context := range workflow.ExpressionContexts() {
+		if context.Location != "trigger."+workflow.TriggerChatMention {
+			continue
+		}
+		for _, root := range context.Roots {
+			if root.Pattern == "event.commands" {
+				return
+			}
+		}
+	}
+	t.Fatal("chat.mention inputs do not list event.commands")
+}

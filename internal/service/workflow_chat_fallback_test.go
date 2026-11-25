@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -189,5 +190,47 @@ func TestARedeliveredMessageMakesNoSecondFallbackRequest(t *testing.T) {
 		chatMention("1.2", "U1", "<@UBOT> investigate"), chatMention("1.2", "U1", "<@UBOT> investigate"))
 	if n := len(requestsWith(t, db, "")); n != 3 {
 		t.Fatalf("requests = %d, want 3 (help started, investigate started, help skipped)", n)
+	}
+}
+
+func TestEventCommandsListsTheChatHelpWorkflowsOnTheBot(t *testing.T) {
+	long := strings.Repeat("x", 300)
+	db, coordinator, _ := chatWorkflowsFixture(t, map[string]string{
+		"investigate": "description: |\n  Investigates an outage\n  and writes it up\nchat_help: true\n" + investigateOn,
+		"fix":         "description: " + long + "\nchat_help: true\non:\n  chat.message:\n    bot: slack\n    text: {contains: fix}\n",
+		"deploy":      "chat_help: true\non:\n  chat.mention:\n    bot: slack\n    text: {contains: deploy}\n",
+		"paused":      "chat_help: true\non:\n  chat.mention:\n    bot: slack\n    enabled: false\n",
+		"elsewhere":   "chat_help: true\non:\n  chat.mention:\n    bot: discord\n",
+		"unlisted":    "on:\n  chat.mention:\n    bot: slack\n    text: {contains: unlisted}\n",
+		"help": "chat_help: true\ninputs:\n  commands: {type: string}\n" +
+			"on:\n  chat.mention:\n    bot: slack\n    fallback: true\n    inputs: {commands: \"${{ event.commands }}\"}\n",
+	})
+	sendChat(t, coordinator, chatMention("1.1", "U1", "<@UBOT> hello"))
+	help := requestsFor(t, db, "help")
+	if len(help) != 1 || help[0].Status != "started" {
+		t.Fatalf("help requests = %+v", help)
+	}
+	run, err := db.FindWorkflowRunByTriggerRequest(context.Background(), help[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inputs struct{ Commands string }
+	if err := json.Unmarshal([]byte(run.Run.InputsJSON), &inputs); err != nil {
+		t.Fatal(err)
+	}
+	want := "• Deploy\n• Fix — " + strings.Repeat("x", 199) + "…\n• Investigate — Investigates an outage"
+	if inputs.Commands != want {
+		t.Fatalf("commands =\n%s\nwant\n%s", inputs.Commands, want)
+	}
+}
+
+func TestEventCommandsIsEmptyWithNoChatHelpWorkflows(t *testing.T) {
+	db, coordinator, _ := chatWorkflowsFixture(t, map[string]string{
+		"help": "inputs:\n  commands: {type: string}\n" +
+			"on:\n  chat.mention:\n    bot: slack\n    inputs: {commands: \"${{ event.commands }}\"}\n",
+	})
+	sendChat(t, coordinator, chatMention("1.1", "U1", "<@UBOT> hello"))
+	if help := requestsFor(t, db, "help"); len(help) != 1 || help[0].Status != "started" || !strings.Contains(help[0].InputsJSON, `"commands":""`) {
+		t.Fatalf("help requests = %+v", help)
 	}
 }
