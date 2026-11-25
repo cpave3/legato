@@ -93,6 +93,11 @@ describe("CardContextMenu", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Open review loop · #138" }))
     expect(onOpenReviewLoop).toHaveBeenCalledWith(expect.objectContaining({ loop_id: "rl-138", link: "/workflows/runs/wr-9" }))
     expect(onReviewPasses).not.toHaveBeenCalled()
+    cleanup()
+    // The layer no loop holds is reviewed alone, not with the held one.
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(137), pr(138)]} reviewStack reviewLoops={lookups([137, 138], [137, 138], { 138: "wr-9" })} onReviewPasses={onReviewPasses} onOpenReviewLoop={onOpenReviewLoop} onAction={() => {}} onClose={() => {}} />)
+    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · #137 · agent" }))
+    expect(onReviewPasses).toHaveBeenCalledWith(expect.objectContaining({ pr_number: 137 }), "pr")
   })
 
   it("offers the whole stack first when the card's pull requests are a stack", () => {
@@ -102,11 +107,15 @@ describe("CardContextMenu", () => {
     const items = screen.getAllByRole("menuitem", { name: /Review passes/ }).map(item => item.textContent)
     expect(items).toEqual(["Review passes · stack #137–#139 · agent", "Review passes · #137 · agent", "Review passes · #138 · agent", "Review passes · #139 · agent"])
     fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · stack #137–#139 · agent" }))
-    expect(onReviewPasses).toHaveBeenCalledWith(expect.objectContaining({ pr_number: 137 }), "stack")
+    expect(onReviewPasses).toHaveBeenCalledWith(expect.objectContaining({ pr_number: 137 }), "stack", true)
     cleanup()
-    // A stack with a person's pull request in it is a person's.
+    // A stack with a person's pull request in it is a person's, and is
+    // started as one.
     render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(137), pr(138)]} reviewLoops={lookups([137, 138], [137])} reviewStack onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
-    expect(screen.getByRole("menuitem", { name: "Review passes · stack #137–#138 · person" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · stack #137–#138 · person" }))
+    expect(onReviewPasses).toHaveBeenLastCalledWith(expect.objectContaining({ pr_number: 137 }), "stack", false)
+    cleanup()
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(137), pr(138)]} reviewLoops={lookups([137, 138], [137])} reviewStack onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
     fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · #138 · person" }))
     expect(onReviewPasses).toHaveBeenLastCalledWith(expect.objectContaining({ pr_number: 138 }), "pr")
     cleanup()

@@ -6,7 +6,9 @@ import { BoardPage } from "../Board"
 
 const mockFetch = vi.fn()
 const pr = { repo: "acme/app", branch: "b12", pr_number: 12, pr_url: "", state: "OPEN", is_draft: false, review_decision: "", check_status: "", comment_count: 0, pinned: false, match_method: "", sync_outcome: "", sync_error: "" }
-const card = { id: "TASK-1", title: "Review task", status: "Doing", priority: "", issue_type: "Task", provider: "", has_warning: false, agent_active: false, agent_state: "", working_seconds: 0, waiting_seconds: 0, error_seconds: 0, workspace_name: "", workspace_color: "", pull_requests: [pr] }
+// The card's pull requests: #12 alone, unless a test stacks #13 on it.
+let cardPRs: (typeof pr)[] = [pr]
+const card = { id: "TASK-1", title: "Review task", status: "Doing", priority: "", issue_type: "Task", provider: "", has_warning: false, agent_active: false, agent_state: "", working_seconds: 0, waiting_seconds: 0, error_seconds: 0, workspace_name: "", workspace_color: "", get pull_requests() { return cardPRs } }
 const reviewLoop = { schema_version: 2, name: "review-loop", title: "Review loop", source: "builtin:review-loop", steps: [], inputs: {
   repo: { type: "string", required: true }, pr_number: { type: "integer", default: 0 }, prs: { type: "json" }, scope: { type: "string", default: "" },
   agent_author: { type: "boolean", default: false }, reviewer: { type: "string", default: "" }, skill: { type: "string", default: "" },
@@ -32,10 +34,12 @@ function Where() {
 // started with agent_author derived (spec LEG-559 stories 1 to 8, AC 1, 2, 6).
 describe("Board card menu and review-loop", () => {
   let lookup: unknown
+  let lookup13: unknown
   let started: { url: string; body: unknown }[]
   let startAnswer: unknown
   beforeEach(() => {
     vi.resetAllMocks()
+    cardPRs = [pr]
     started = []
     startAnswer = { run: { id: "wr-5", status: "running" }, steps: [], attempts: [], artifacts: [] }
     mockFetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -43,6 +47,7 @@ describe("Board card menu and review-loop", () => {
       if (url.endsWith("/api/review-engine")) return new Response(JSON.stringify({ running: true }))
       if (url.endsWith("/api/macros")) return new Response(JSON.stringify({ macros: [] }))
       if (url.includes("/api/review-loops?repo=acme%2Fapp&pr=12")) return new Response(JSON.stringify(lookup))
+      if (url.includes("/api/review-loops?repo=acme%2Fapp&pr=13")) return new Response(JSON.stringify(lookup13))
       if (url.endsWith("/api/workflows/review-loop/runs") && init?.method === "POST") {
         started.push({ url, body: JSON.parse(String(init.body)) })
         return new Response(JSON.stringify(startAnswer))
@@ -76,6 +81,16 @@ describe("Board card menu and review-loop", () => {
     lookup = { loop: null, agent_author: false }
     openMenu()
     fireEvent.click(await screen.findByRole("menuitem", { name: "Review passes · #12 · person" }))
+    await screen.findByRole("dialog")
+    expect((screen.getByLabelText("agent_author") as HTMLInputElement).value).toBe("false")
+  })
+
+  it("starts a stack as the menu named it, a person's when one layer is", async () => {
+    cardPRs = [pr, { ...pr, branch: "b13", pr_number: 13 }]
+    lookup = { loop: null, agent_author: true }
+    lookup13 = { loop: null, agent_author: false }
+    openMenu()
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Review passes · stack #12–#13 · person" }))
     await screen.findByRole("dialog")
     expect((screen.getByLabelText("agent_author") as HTMLInputElement).value).toBe("false")
   })

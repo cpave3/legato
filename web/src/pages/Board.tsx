@@ -219,13 +219,14 @@ export function BoardPage() {
   const navigateTo = useNavigate()
   // The built-in review-loop every review starts (spec LEG-559).
   const reviewLoopDefinition = workflowDiscovery.data?.definitions?.find(definition => definition.name === "review-loop")
-  const startReviewLoop = useCallback(async (card: BoardCard, pr: PRMetaView, scope?: "stack" | "pr") => {
+  const startReviewLoop = useCallback(async (card: BoardCard, pr: PRMetaView, scope?: "stack" | "pr", stackAgent?: boolean) => {
     // Looked up again: a loop started since the menu opened is shown, not a
     // second. With none, the review is an agent's only when Legato's author
-    // App opened the pull request.
+    // App opened the pull request, and a stack's only when it opened every
+    // layer (the menu's mode for the stack).
     const found = await lookupReviewLoop(baseUrl, pr.repo, pr.pr_number).catch(() => null)
     if (found?.loop) navigateTo(found.loop.link)
-    else setReviewLoop({ card, pr, scope, agentAuthor: found?.agent_author === true })
+    else setReviewLoop({ card, pr, scope, agentAuthor: found?.agent_author === true && (scope !== "stack" || stackAgent === true) })
   }, [baseUrl, navigateTo])
   // Read as each card menu opens, so an edit shows, and on load only when
   // a card has a pull request line to put them on.
@@ -1163,7 +1164,7 @@ export function BoardPage() {
         reviewUnavailable={reviewEngine && !reviewEngine.running ? reviewEngine.reason : undefined}
         reviewStack={Boolean(reviewLoopDefinition?.inputs?.scope)}
         reviewLoops={reviewLoops}
-        onReviewPasses={(pr, scope) => { void startReviewLoop(contextMenu.card, pr, scope) }}
+        onReviewPasses={(pr, scope, agentAuthor) => { void startReviewLoop(contextMenu.card, pr, scope, agentAuthor) }}
         onOpenReviewLoop={loop => navigateTo(loop.link)}
         macros={macros.macros}
         suggested={macros.suggested}

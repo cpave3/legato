@@ -94,7 +94,9 @@ export function CardContextMenu({
   // whether it is an agent's or a person's. A pull request not looked up
   // yet offers nothing.
   reviewLoops?: Record<string, ReviewLoopLookup> | null
-  onReviewPasses?: (pr: PRMetaView, scope?: "stack" | "pr") => void
+  // A stack's start carries the menu's mode for the whole stack: an
+  // agent's only when every layer is.
+  onReviewPasses?: (pr: PRMetaView, scope?: "stack" | "pr", agentAuthor?: boolean) => void
   // Opens the loop that holds a pull request, whatever started it.
   onOpenReviewLoop?: (loop: FoundReviewLoop) => void
   // Every macro. The task's list keeps those for a task, each pull
@@ -141,13 +143,18 @@ export function CardContextMenu({
   // the worker. Another may be handed off once a worker is paired.
   const looked = reviewPasses.flatMap(pr => { const found = reviewLoops?.[reviewLoopKey(pr)]; return found ? [{ pr, ...found }] : [] })
   const held = looked.some(item => item.loop)
-  const stack = reviewStack && !held && looked.length > 1 && looked.every(item => item.pr.repo === looked[0].pr.repo)
+  // Several pull requests of one repository: each is reviewed alone (scope
+  // pr), and the whole stack is offered first only while no loop holds a
+  // layer of it.
+  const several = reviewStack && looked.length > 1 && looked.every(item => item.pr.repo === looked[0].pr.repo)
+  const stack = several && !held
+  const stackAgent = looked.every(item => item.agent_author)
   const mode = (agent: boolean) => agent ? "agent" : "person"
-  const reviewItems: { key: string; label: string; pr: PRMetaView; scope?: "stack" | "pr"; loop?: FoundReviewLoop }[] = [
-    ...(stack ? [{ key: "stack", label: `Review passes · stack #${looked[0].pr.pr_number}–#${looked[looked.length - 1].pr.pr_number} · ${mode(looked.every(item => item.agent_author))}`, pr: looked[0].pr, scope: "stack" as const }] : []),
+  const reviewItems: { key: string; label: string; pr: PRMetaView; scope?: "stack" | "pr"; agentAuthor?: boolean; loop?: FoundReviewLoop }[] = [
+    ...(stack ? [{ key: "stack", label: `Review passes · stack #${looked[0].pr.pr_number}–#${looked[looked.length - 1].pr.pr_number} · ${mode(stackAgent)}`, pr: looked[0].pr, scope: "stack" as const, agentAuthor: stackAgent }] : []),
     ...looked.map(item => item.loop
       ? { key: `${item.pr.repo}-${item.pr.pr_number}`, label: `Open review loop · #${item.pr.pr_number}`, pr: item.pr, loop: item.loop }
-      : { key: `${item.pr.repo}-${item.pr.pr_number}`, label: `Review passes · #${item.pr.pr_number} · ${mode(item.agent_author)}`, pr: item.pr, scope: stack ? "pr" as const : undefined }),
+      : { key: `${item.pr.repo}-${item.pr.pr_number}`, label: `Review passes · #${item.pr.pr_number} · ${mode(item.agent_author)}`, pr: item.pr, scope: several ? "pr" as const : undefined }),
   ]
   const source = card.source_url ? [{ action: "openSource" as const, label: `Open in ${providerLabel(card.provider)}`, icon: <ExternalLink size={16} /> }] : []
   const items: { action: CardContextAction; label: string; icon: React.ReactNode }[] = card.away
@@ -169,7 +176,7 @@ export function CardContextMenu({
       <p className="truncate border-b border-zinc-800 px-3 py-2 text-xs text-zinc-500">{card.id} · {card.title}</p>
       {items.map(item => <button key={item.action} type="button" role="menuitem" onClick={() => { restoreFocus(); onClose(); onAction(item.action) }} className={`flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none ${item.action === "delete" ? "text-red-300" : "text-zinc-200"}`}>{item.icon}<span>{item.label}</span></button>)}
       {!card.away && onReviewPasses && reviewUnavailable && reviewPasses.length > 0 && <p className="flex items-start gap-3 px-3 py-2 text-xs text-zinc-500"><Repeat size={16} className="shrink-0" /><span>{reviewUnavailable}</span></p>}
-      {!card.away && onReviewPasses && !reviewUnavailable && reviewItems.map(item => <button key={`review-${item.key}`} type="button" role="menuitem" onClick={() => { restoreFocus(); onClose(); if (item.loop) onOpenReviewLoop?.(item.loop); else if (item.scope) onReviewPasses(item.pr, item.scope); else onReviewPasses(item.pr) }} className="flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><Repeat size={16} /><span>{item.label}</span></button>)}
+      {!card.away && onReviewPasses && !reviewUnavailable && reviewItems.map(item => <button key={`review-${item.key}`} type="button" role="menuitem" onClick={() => { restoreFocus(); onClose(); if (item.loop) onOpenReviewLoop?.(item.loop); else if (item.scope === "stack") onReviewPasses(item.pr, item.scope, item.agentAuthor); else if (item.scope) onReviewPasses(item.pr, item.scope); else onReviewPasses(item.pr) }} className="flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><Repeat size={16} /><span>{item.label}</span></button>)}
       {!card.away && ((onMacro && hasTaskMacros) || (onPRMacro && prsWithMacros.length > 0)) && <>
         <p className="mt-1 border-t border-zinc-800 px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-zinc-500">Macros</p>
         {onMacro && <CardMacros macros={macros} target="task" suggested={suggested?.task} onPick={macro => pick(() => onMacro(macro))} />}
