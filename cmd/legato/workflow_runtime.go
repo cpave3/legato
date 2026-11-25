@@ -130,12 +130,25 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 	if configured, ok := opts.Sync.(service.CardMoveSync); ok {
 		moveSync = configured
 	}
+	// The ticket steps go through the sync service's sources; without one
+	// they fail saying so.
+	var tickets service.TicketImporter
+	var ticketLists service.TicketLister
+	if configured, ok := opts.Sync.(service.TicketImporter); ok {
+		tickets = configured
+	}
+	if configured, ok := opts.Sync.(service.TicketLister); ok {
+		ticketLists = configured
+	}
 	executors = append(executors,
 		service.NewTaskContextExecutor(board),
 		service.NewTaskWorkingDirResolveExecutor(db),
 		service.NewTaskNoteExecutor(db),
 		service.NewTaskMetadataExecutor(db),
 		service.NewTaskMoveExecutor(service.NewWorkflowTaskMover(board, moveSync)),
+		service.NewTicketImportExecutor(tickets, db),
+		service.NewTicketsListExecutor(ticketLists),
+		service.NewTasksListExecutor(db),
 		service.NewFileRemoveExecutor(),
 		prWait,
 		service.NewBurnliteCloseExecutor(db, service.ConnectedBurnlite{Connection: burnliteConnections(cfg, db)}),

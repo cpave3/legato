@@ -17,7 +17,7 @@ var acceptedStepTypes = []string{
 	"github.pr.prepare", "github.pr.review_passes", "github.pr.wait",
 	"learning.packet.prepare", "learning.proposals.submit",
 	"repo.ensure", "task.context", "task.metadata.set", "task.move", "task.note",
-	"task.working_dir.resolve", "ticket.comment", "ticket.create", "workflow.run", "worktree.remove",
+	"task.working_dir.resolve", "tasks.list", "ticket.comment", "ticket.create", "ticket.import", "tickets.list", "workflow.run", "worktree.remove",
 }
 
 func TestCatalogListsEveryAcceptedStepType(t *testing.T) {

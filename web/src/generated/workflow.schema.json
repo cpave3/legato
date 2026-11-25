@@ -505,6 +505,66 @@
           "if": {
             "properties": {
               "type": {
+                "const": "ticket.import"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.ticket.import"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "tickets.list"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.tickets.list"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "tasks.list"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.tasks.list"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "chat.message.send"
               }
             },
@@ -826,6 +886,9 @@
             "burnlite.task.close",
             "ticket.create",
             "ticket.comment",
+            "ticket.import",
+            "tickets.list",
+            "tasks.list",
             "chat.message.send",
             "chat.reaction.add",
             "chat.reaction.remove",
@@ -3751,6 +3814,89 @@
         "type": "task.working_dir.resolve"
       }
     },
+    "with.tasks.list": {
+      "additionalProperties": false,
+      "description": "List the board's tasks as data, by column, workspace and a condition on each task, in board order. Archived tasks and workflow runs' own tasks are left out.",
+      "properties": {
+        "column": {
+          "description": "Only tasks in this column; every column when empty",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "column",
+            "label": "Column",
+            "order": 1
+          }
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "default": 50,
+          "description": "How many tasks to list, at most 200",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "integer",
+            "label": "At most",
+            "order": 4
+          }
+        },
+        "where": {
+          "description": "A condition each task must meet, over task.\u003cfield\u003e and task.metadata.\u003cpath\u003e: all, any, not, or field with one of equals, not_equals, in, exists, empty, gt or lt",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "json",
+            "label": "Where",
+            "order": 3
+          }
+        },
+        "workspace": {
+          "description": "Only tasks in this workspace, by name; every workspace when empty",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Workspace",
+            "order": 2
+          }
+        }
+      },
+      "title": "List board tasks",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Board",
+        "outputs": [
+          {
+            "description": "The tasks, each as a task reference: {id, title, description, status, priority, provider, remote_id, working_dir, metadata, workspace}",
+            "name": "items",
+            "type": "json"
+          },
+          {
+            "description": "How many tasks items holds",
+            "name": "count",
+            "type": "integer"
+          }
+        ],
+        "summary": [
+          "column",
+          "workspace"
+        ],
+        "type": "tasks.list"
+      }
+    },
     "with.ticket.comment": {
       "additionalProperties": false,
       "description": "Add a Markdown comment to a Jira issue, or a Note to a Burnlite task, with Legato's own settings or connection. A retry does not comment twice.",
@@ -4067,6 +4213,292 @@
           "summary"
         ],
         "type": "ticket.create"
+      }
+    },
+    "with.ticket.import": {
+      "additionalProperties": false,
+      "description": "Put a Burnlite or Jira ticket on the board as a task, or find the task it already is. An existing task stays in its column; an archived one is restored.",
+      "properties": {
+        "column": {
+          "description": "The column a new task starts in; the provider's status mapping when empty. A task already on the board is not moved",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "column",
+            "label": "Start in column",
+            "order": 3
+          }
+        },
+        "key": {
+          "description": "The ticket's key, such as LEG-42: a task, or a Burnlite milestone or Jira epic",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Ticket",
+            "order": 1
+          }
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "enum": [
+                "jira",
+                "burnlite"
+              ],
+              "type": "string"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "description": "jira or burnlite; the only one set up when empty",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Provider",
+            "order": 2
+          }
+        },
+        "workspace": {
+          "description": "The workspace, by name, a new task goes in; none when empty",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Workspace",
+            "order": 4
+          }
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "title": "Import a ticket",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Board",
+        "outputs": [
+          {
+            "description": "The task's ID, which is the ticket's key",
+            "name": "task",
+            "type": "string"
+          },
+          {
+            "description": "Whether the step put the ticket on the board",
+            "name": "created",
+            "type": "boolean"
+          },
+          {
+            "description": "Whether the task was archived and the step restored it",
+            "name": "restored",
+            "type": "boolean"
+          }
+        ],
+        "summary": [
+          "key"
+        ],
+        "type": "ticket.import"
+      }
+    },
+    "with.tickets.list": {
+      "additionalProperties": false,
+      "description": "List a provider's tickets as data, such as a milestone's frontier or a project's ready milestones, in the provider's order.",
+      "properties": {
+        "frontier": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "description": "Only open tasks that can be taken now: unclaimed (Jira: not started) and blocked by no open ticket",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "boolean",
+            "label": "Only those that can be taken now",
+            "order": 7
+          }
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "work",
+                "meta",
+                "milestone"
+              ],
+              "type": "string"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "description": "work or meta tasks, or milestone for milestones (Jira: epics); any task when empty",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Kind",
+            "order": 4
+          }
+        },
+        "labels": {
+          "description": "Only tickets carrying every one of these labels: a list of names",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "json",
+            "label": "Labels",
+            "order": 5
+          }
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "default": 50,
+          "description": "How many tickets to list, at most 200",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "integer",
+            "label": "At most",
+            "order": 9
+          }
+        },
+        "milestone": {
+          "description": "Only the tickets of this milestone (Burnlite) or epic (Jira), by key",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Milestone",
+            "order": 3
+          }
+        },
+        "project": {
+          "description": "The project's key; the milestone's project, else the projects Legato searches, when empty",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Project",
+            "order": 2
+          }
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "enum": [
+                "jira",
+                "burnlite"
+              ],
+              "type": "string"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "description": "jira or burnlite; the only one set up when empty",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Provider",
+            "order": 1
+          }
+        },
+        "ready": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "description": "With kind milestone: only milestones that are open, have an open work task, and none of whose open tasks waits on an open ticket outside it",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "boolean",
+            "label": "Only ready milestones",
+            "order": 8
+          }
+        },
+        "state": {
+          "anyOf": [
+            {
+              "enum": [
+                "open",
+                "closed",
+                "any"
+              ],
+              "type": "string"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "default": "open",
+          "description": "open, closed or any",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "State",
+            "order": 6
+          }
+        }
+      },
+      "title": "List tickets",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Board",
+        "outputs": [
+          {
+            "description": "The tickets: [{key, title, url, kind, state, labels, blocked, open_blockers, frontier, milestone}]",
+            "name": "items",
+            "type": "json"
+          },
+          {
+            "description": "How many tickets items holds",
+            "name": "count",
+            "type": "integer"
+          }
+        ],
+        "summary": [
+          "milestone",
+          "project"
+        ],
+        "type": "tickets.list"
       }
     },
     "with.workflow.run": {
@@ -4711,6 +5143,69 @@
         "type": "ticket.comment"
       },
       {
+        "description": "Put a Burnlite or Jira ticket on the board as a task, or find the task it already is. An existing task stays in its column; an archived one is restored.",
+        "group": "Board",
+        "outputs": [
+          {
+            "name": "task",
+            "type": "string"
+          },
+          {
+            "name": "created",
+            "type": "boolean"
+          },
+          {
+            "name": "restored",
+            "type": "boolean"
+          }
+        ],
+        "summary": [
+          "key"
+        ],
+        "title": "Import a ticket",
+        "type": "ticket.import"
+      },
+      {
+        "description": "List a provider's tickets as data, such as a milestone's frontier or a project's ready milestones, in the provider's order.",
+        "group": "Board",
+        "outputs": [
+          {
+            "name": "items",
+            "type": "json"
+          },
+          {
+            "name": "count",
+            "type": "integer"
+          }
+        ],
+        "summary": [
+          "milestone",
+          "project"
+        ],
+        "title": "List tickets",
+        "type": "tickets.list"
+      },
+      {
+        "description": "List the board's tasks as data, by column, workspace and a condition on each task, in board order. Archived tasks and workflow runs' own tasks are left out.",
+        "group": "Board",
+        "outputs": [
+          {
+            "name": "items",
+            "type": "json"
+          },
+          {
+            "name": "count",
+            "type": "integer"
+          }
+        ],
+        "summary": [
+          "column",
+          "workspace"
+        ],
+        "title": "List board tasks",
+        "type": "tasks.list"
+      },
+      {
         "description": "Post a message as a Slack or Discord bot set up in Settings › Integrations. Fails at once when the bot is not set up or cannot send.",
         "group": "Chat",
         "outputs": [
@@ -5086,6 +5581,24 @@
           {
             "pattern": "workflow.inputs.\u003crepository input\u003e.\u003crepository field\u003e",
             "description": "A field of a repository input"
+          }
+        ]
+      },
+      "tasks.list.where": {
+        "location": "tasks.list.where",
+        "description": "tasks.list's where: each condition's field, a bare path (no ${{ }}) over the task being checked; its values take the with roots",
+        "roots": [
+          {
+            "pattern": "task.\u003ctask field\u003e",
+            "description": "A field of the task being checked"
+          },
+          {
+            "pattern": "task.workspace",
+            "description": "The name of the task's workspace, or empty"
+          },
+          {
+            "pattern": "task.metadata.\u003cpath\u003e",
+            "description": "A metadata value of the task being checked"
           }
         ]
       },

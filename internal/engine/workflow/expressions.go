@@ -84,6 +84,11 @@ func ExpressionContexts() []ExpressionContext {
 		{Location: "with", Description: "A step's with values", Roots: with},
 		{Location: "output_path", Description: "A file output's path", Roots: outputPath},
 		{Location: "if", Description: "A step's if: condition's field, a bare path (no ${{ }}); [n] and .field reach into JSON", Roots: append([]ExpressionRoot{}, outputPath...)},
+		{Location: TasksListStepType + ".where", Description: "tasks.list's where: each condition's field, a bare path (no ${{ }}) over the task being checked; its values take the with roots", Roots: []ExpressionRoot{
+			{"task.<task field>", "A field of the task being checked"},
+			{"task.workspace", "The name of the task's workspace, or empty"},
+			{"task.metadata.<path>", "A metadata value of the task being checked"},
+		}},
 		{Location: "trigger." + TriggerTaskEnteredColumn, Description: "The inputs of a column-entry trigger", Roots: []ExpressionRoot{
 			{"event.task", "The ID of the task that entered the column"},
 			{"task.<task field>", "A field of the task that entered the column"},

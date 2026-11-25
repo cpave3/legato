@@ -279,8 +279,17 @@ func (f Field) accepts(value any, inputs map[string]Input) bool {
 	case KindColumn:
 		return isText && (expression || strings.TrimSpace(text) != "")
 	case KindJSON:
-		if f.Name == "options" && f.Checked {
+		if isText && HasExpression(text) {
+			return true
+		}
+		switch {
+		case f.Name == "options" && f.Checked:
 			return gateOptionsValid(value)
+		case f.Name == "where" && f.Checked:
+			_, err := TaskCondition(value)
+			return err == nil
+		case f.Name == "labels" && f.Checked:
+			return labelsValid(value)
 		}
 		return true
 	default:
@@ -631,6 +640,57 @@ var catalog = []ExecutorSpec{
 			{Name: "url", Type: "string", Description: "The comment's address, or the Burnlite task's"},
 			{Name: "id", Type: "string", Description: "The provider's ID of the comment or Note"},
 			{Name: "key", Type: "string", Description: "The ticket's key"},
+		},
+	},
+	{
+		Type: TicketImportStepType, Group: "Board", Title: "Import a ticket",
+		Description: "Put a Burnlite or Jira ticket on the board as a task, or find the task it already is. An existing task stays in its column; an archived one is restored.",
+		With: []Field{
+			{Name: "key", Kind: KindString, Label: "Ticket", Description: "The ticket's key, such as LEG-42: a task, or a Burnlite milestone or Jira epic", Required: true, Essential: true, Order: 1},
+			ticketProviderField.at(2, false),
+			{Name: "column", Kind: KindColumn, Label: "Start in column", Description: "The column a new task starts in; the provider's status mapping when empty. A task already on the board is not moved", Checked: true, Invalid: "must be a non-empty string", Order: 3},
+			{Name: "workspace", Kind: KindString, Label: "Workspace", Description: "The workspace, by name, a new task goes in; none when empty", Order: 4},
+		},
+		Summary: []string{"key"},
+		Outputs: []OutputSpec{
+			{Name: "task", Type: "string", Description: "The task's ID, which is the ticket's key"},
+			{Name: "created", Type: "boolean", Description: "Whether the step put the ticket on the board"},
+			{Name: "restored", Type: "boolean", Description: "Whether the task was archived and the step restored it"},
+		},
+	},
+	{
+		Type: TicketsListStepType, Group: "Board", Title: "List tickets",
+		Description: "List a provider's tickets as data, such as a milestone's frontier or a project's ready milestones, in the provider's order.",
+		With: []Field{
+			ticketProviderField.at(1, false),
+			{Name: "project", Kind: KindString, Label: "Project", Description: "The project's key; the milestone's project, else the projects Legato searches, when empty", Essential: true, Order: 2},
+			{Name: "milestone", Kind: KindString, Label: "Milestone", Description: "Only the tickets of this milestone (Burnlite) or epic (Jira), by key", Essential: true, Order: 3},
+			{Name: "kind", Kind: KindString, Label: "Kind", Description: "work or meta tasks, or milestone for milestones (Jira: epics); any task when empty", Enum: []string{"work", "meta", "milestone"}, Checked: true, Invalid: "must be work, meta or milestone", Order: 4},
+			{Name: "labels", Kind: KindJSON, Label: "Labels", Description: "Only tickets carrying every one of these labels: a list of names", Checked: true, Invalid: "must be a list of label names", Order: 5},
+			{Name: "state", Kind: KindString, Label: "State", Description: "open, closed or any", Default: TicketStateOpen, Enum: []string{TicketStateOpen, TicketStateClosed, TicketStateAny}, Checked: true, Invalid: "must be open, closed or any", Order: 6},
+			{Name: "frontier", Kind: KindBoolean, Label: "Only those that can be taken now", Description: "Only open tasks that can be taken now: unclaimed (Jira: not started) and blocked by no open ticket", Checked: true, Invalid: "must be true or false", Order: 7},
+			{Name: "ready", Kind: KindBoolean, Label: "Only ready milestones", Description: "With kind milestone: only milestones that are open, have an open work task, and none of whose open tasks waits on an open ticket outside it", Checked: true, Invalid: "must be true or false", Order: 8},
+			{Name: "limit", Kind: KindInteger, Label: "At most", Description: fmt.Sprintf("How many tickets to list, at most %d", MaxListLimit), Default: DefaultListLimit, Checked: true, Invalid: "must be a whole number", Order: 9},
+		},
+		Summary: []string{"milestone", "project"},
+		Outputs: []OutputSpec{
+			{Name: "items", Type: "json", Description: "The tickets: [{key, title, url, kind, state, labels, blocked, open_blockers, frontier, milestone}]"},
+			{Name: "count", Type: "integer", Description: "How many tickets items holds"},
+		},
+	},
+	{
+		Type: TasksListStepType, Group: "Board", Title: "List board tasks",
+		Description: "List the board's tasks as data, by column, workspace and a condition on each task, in board order. Archived tasks and workflow runs' own tasks are left out.",
+		With: []Field{
+			{Name: "column", Kind: KindColumn, Label: "Column", Description: "Only tasks in this column; every column when empty", Checked: true, Invalid: "must be a non-empty string", Essential: true, Order: 1},
+			{Name: "workspace", Kind: KindString, Label: "Workspace", Description: "Only tasks in this workspace, by name; every workspace when empty", Essential: true, Order: 2},
+			{Name: "where", Kind: KindJSON, Label: "Where", Description: "A condition each task must meet, over task.<field> and task.metadata.<path>: all, any, not, or field with one of equals, not_equals, in, exists, empty, gt or lt", Checked: true, Invalid: "must be a condition over task fields", Order: 3},
+			{Name: "limit", Kind: KindInteger, Label: "At most", Description: fmt.Sprintf("How many tasks to list, at most %d", MaxListLimit), Default: DefaultListLimit, Checked: true, Invalid: "must be a whole number", Order: 4},
+		},
+		Summary: []string{"column", "workspace"},
+		Outputs: []OutputSpec{
+			{Name: "items", Type: "json", Description: "The tasks, each as a task reference: {id, title, description, status, priority, provider, remote_id, working_dir, metadata, workspace}"},
+			{Name: "count", Type: "integer", Description: "How many tasks items holds"},
 		},
 	},
 	{
