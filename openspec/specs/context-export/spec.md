@@ -21,7 +21,7 @@ The system SHALL support an `ExportFormatFull` format that produces a complete c
 #### Scenario: Standard card with all metadata
 
 - **WHEN** a card with key "REX-1238", summary "Refactor user service", type "Story", priority "High", epic "Platform Modernisation", labels ["backend"], and a URL is exported with `ExportFormatFull`
-- **THEN** the output SHALL match the full context block format from spec.md section 8.1, including all metadata fields on separate bold-prefixed lines and the description after a `---` separator
+- **THEN** the output SHALL match the full context block format from docs/history/spec.md section 8.1, including all metadata fields on separate bold-prefixed lines and the description after a `---` separator
 
 #### Scenario: Card with missing optional metadata
 

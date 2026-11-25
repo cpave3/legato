@@ -13,7 +13,8 @@ context: |
   Module path: github.com/cpave3/legato
   Config location: ~/.config/legato/config.yaml
 
-  See spec.md for full specification, init.md for bootstrap, lifecycle.mermaid for workflow.
+  See docs/history/spec.md for the original specification, docs/history/init.md for bootstrap,
+  docs/history/lifecycle.mermaid for workflow.
 
 rules:
   tasks:

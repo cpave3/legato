@@ -10,7 +10,7 @@ The event bus package SHALL define an `EventType` enumeration with the following
 
 ### Requirement: EventBus Interface
 
-The event bus SHALL implement the `EventBus` interface as defined in spec.md section 3.4:
+The event bus SHALL implement the `EventBus` interface as defined in docs/history/spec.md section 3.4:
 - `Publish(event Event)` -- sends an event to all subscribers of that event type
 - `Subscribe(eventType EventType) <-chan Event` -- returns a channel that receives events of the given type
 - `Unsubscribe(ch <-chan Event)` -- removes the subscription and closes the channel
