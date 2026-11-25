@@ -33,19 +33,21 @@ func (a *JiraProviderAdapter) Search(ctx context.Context, query string) ([]Remot
 	result := make([]RemoteTicket, len(tickets))
 	for i, t := range tickets {
 		result[i] = RemoteTicket{
-			ID:            t.ID,
-			Summary:       t.Summary,
-			DescriptionMD: t.DescriptionMD,
-			Status:        t.Status,
-			Priority:      t.Priority,
-			IssueType:     t.IssueType,
-			Assignee:      t.Assignee,
-			Labels:        t.Labels,
-			EpicKey:       t.EpicKey,
-			EpicName:      t.EpicName,
-			URL:           t.URL,
-			UpdatedAt:     t.UpdatedAt,
-			Attachments:   jiraAttachments(t.Attachments),
+			ID:             t.ID,
+			Summary:        t.Summary,
+			DescriptionMD:  t.DescriptionMD,
+			Status:         t.Status,
+			Priority:       t.Priority,
+			IssueType:      t.IssueType,
+			Assignee:       t.Assignee,
+			Labels:         t.Labels,
+			EpicKey:        t.EpicKey,
+			EpicName:       t.EpicName,
+			URL:            t.URL,
+			UpdatedAt:      t.UpdatedAt,
+			Attachments:    jiraAttachments(t.Attachments),
+			StatusCategory: t.StatusCategory,
+			BlockedBy:      t.BlockedBy,
 		}
 	}
 	return result, nil
@@ -57,19 +59,21 @@ func (a *JiraProviderAdapter) GetTicket(ctx context.Context, id string) (*Remote
 		return nil, err
 	}
 	return &RemoteTicket{
-		ID:            t.ID,
-		Summary:       t.Summary,
-		DescriptionMD: t.DescriptionMD,
-		Status:        t.Status,
-		Priority:      t.Priority,
-		IssueType:     t.IssueType,
-		Assignee:      t.Assignee,
-		Labels:        t.Labels,
-		EpicKey:       t.EpicKey,
-		EpicName:      t.EpicName,
-		URL:           t.URL,
-		UpdatedAt:     t.UpdatedAt,
-		Attachments:   jiraAttachments(t.Attachments),
+		ID:             t.ID,
+		Summary:        t.Summary,
+		DescriptionMD:  t.DescriptionMD,
+		Status:         t.Status,
+		Priority:       t.Priority,
+		IssueType:      t.IssueType,
+		Assignee:       t.Assignee,
+		Labels:         t.Labels,
+		EpicKey:        t.EpicKey,
+		EpicName:       t.EpicName,
+		URL:            t.URL,
+		UpdatedAt:      t.UpdatedAt,
+		Attachments:    jiraAttachments(t.Attachments),
+		StatusCategory: t.StatusCategory,
+		BlockedBy:      t.BlockedBy,
 	}, nil
 }
 

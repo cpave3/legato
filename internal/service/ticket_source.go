@@ -37,6 +37,9 @@ type TicketSource interface {
 	Get(ctx context.Context, key string) (*RemoteTicket, error)
 	// Column is the board column for the ticket's status, "" for none.
 	Column(ctx context.Context, t RemoteTicket) (string, error)
+	// List gives the tickets a query names, as data, in the provider's
+	// order (tickets.list). The sync service has checked the query.
+	List(ctx context.Context, q TicketQuery) ([]TicketItem, error)
 }
 
 // PullBatch is what a pull found.

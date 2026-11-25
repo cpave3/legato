@@ -59,6 +59,10 @@ func (f *fakeSource) Search(_ context.Context, text string) ([]RemoteTicket, err
 	return out, nil
 }
 
+func (f *fakeSource) List(context.Context, TicketQuery) ([]TicketItem, error) {
+	return nil, errors.New("the fake source lists nothing")
+}
+
 func (f *fakeSource) Get(_ context.Context, key string) (*RemoteTicket, error) {
 	if t, ok := f.tickets[key]; ok {
 		return &t, nil

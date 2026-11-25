@@ -44,6 +44,9 @@ type RemoteTicket struct {
 	BlockedBy []string
 	// Resolution is the one line on how a closed ticket was resolved.
 	Resolution string
+	// StatusCategory is where Jira files the status: new, indeterminate or
+	// done; "" from a provider that has none.
+	StatusCategory string
 }
 
 // RemoteAttachment is provider-neutral attachment metadata.

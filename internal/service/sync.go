@@ -667,45 +667,67 @@ func (s *syncService) importSource(ctx context.Context, name string) (TicketSour
 }
 
 func (s *syncService) ImportRemoteTask(ctx context.Context, providerName, ticketID string, opts ImportRemoteTaskOptions) (*Card, error) {
+	imported, err := s.ImportTicket(ctx, providerName, ticketID, opts)
+	if err != nil {
+		return nil, err
+	}
+	return imported.Card, nil
+}
+
+// TicketImport is what an import did: the task, and whether it put the
+// ticket on the board or brought an archived task back.
+type TicketImport struct {
+	Card     *Card
+	Created  bool
+	Restored bool
+}
+
+// TicketImporter imports a ticket and says what it did (ticket.import).
+type TicketImporter interface {
+	ImportTicket(ctx context.Context, provider, ticketID string, opts ImportRemoteTaskOptions) (TicketImport, error)
+}
+
+// ImportTicket tracks a ticket as a task. A task already tracked from the
+// same source is returned where it is; one that was archived is restored to
+// the column it had.
+func (s *syncService) ImportTicket(ctx context.Context, providerName, ticketID string, opts ImportRemoteTaskOptions) (TicketImport, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	source, err := s.importSource(ctx, providerName)
 	if err != nil {
-		return nil, err
+		return TicketImport{}, err
 	}
 
-	// Check if already tracked locally
-	existing, err := s.store.GetTask(ctx, ticketID)
-	if err == nil {
-		if existing.Provider == nil || *existing.Provider != source.Name() {
-			return nil, fmt.Errorf("%s: %w", ticketID, ErrTicketKeyTaken)
-		}
-		return s.importedCard(ctx, source.Name(), existing.ID, existing.Title, existing.Priority, existing.Status, existing.WorkspaceID), nil
-	}
-	if !errors.Is(err, store.ErrNotFound) {
-		return nil, err
+	if imported, found, err := s.existingImport(ctx, source, ticketID); found || err != nil {
+		return imported, err
 	}
 
 	picked, err := s.pickedColumn(ctx, opts.Column)
 	if err != nil {
-		return nil, err
+		return TicketImport{}, err
 	}
 
 	// Fetch from remote
 	rt, err := source.Get(ctx, ticketID)
 	if err != nil {
-		return nil, err
+		return TicketImport{}, err
 	}
 	if rt == nil {
-		return nil, fmt.Errorf("ticket %s not found on remote", ticketID)
+		return TicketImport{}, fmt.Errorf("ticket %s not found on remote", ticketID)
+	}
+	// The key as the provider writes it, which may not be as it was typed.
+	if rt.ID != ticketID {
+		if imported, found, err := s.existingImport(ctx, source, rt.ID); found || err != nil {
+			return imported, err
+		}
 	}
 
 	column := picked
 	if column == "" {
 		column, err = source.Column(ctx, *rt)
 		if err != nil {
-			return nil, err
+			return TicketImport{}, err
 		}
 	}
 	if column == "" {
@@ -732,13 +754,13 @@ func (s *syncService) ImportRemoteTask(ctx context.Context, providerName, ticket
 		UpdatedAt:           now,
 	}
 	if err := s.reconcileAttachments(ctx, source, *rt); err != nil {
-		return nil, err
+		return TicketImport{}, err
 	}
 	if err := s.store.CreateTask(ctx, task); err != nil {
 		if s.attachments != nil {
 			_ = s.attachments.Remove(rt.ID)
 		}
-		return nil, err
+		return TicketImport{}, err
 	}
 
 	s.bus.Publish(events.Event{
@@ -746,7 +768,33 @@ func (s *syncService) ImportRemoteTask(ctx context.Context, providerName, ticket
 		At:   time.Now(),
 	})
 
-	return s.importedCard(ctx, provider, rt.ID, rt.Summary, rt.Priority, column, opts.WorkspaceID), nil
+	return TicketImport{Card: s.importedCard(ctx, provider, rt.ID, rt.Summary, rt.Priority, column, opts.WorkspaceID), Created: true}, nil
+}
+
+// existingImport is the task a ticket already is, restored when archived;
+// found is false when there is none. A task of that ID from elsewhere is
+// ErrTicketKeyTaken.
+func (s *syncService) existingImport(ctx context.Context, source TicketSource, ticketID string) (TicketImport, bool, error) {
+	existing, err := s.store.GetTask(ctx, ticketID)
+	if errors.Is(err, store.ErrNotFound) {
+		return TicketImport{}, false, nil
+	}
+	if err != nil {
+		return TicketImport{}, true, err
+	}
+	if existing.Provider == nil || *existing.Provider != source.Name() {
+		return TicketImport{}, true, fmt.Errorf("%s: %w", ticketID, ErrTicketKeyTaken)
+	}
+	restored := false
+	if existing.ArchivedAt != nil {
+		if err := s.store.RestoreTask(ctx, existing.ID, existing.Status); err != nil {
+			return TicketImport{}, true, err
+		}
+		restored = true
+		s.bus.Publish(events.Event{Type: events.EventCardsRefreshed, At: time.Now()})
+	}
+	card := s.importedCard(ctx, source.Name(), existing.ID, existing.Title, existing.Priority, existing.Status, existing.WorkspaceID)
+	return TicketImport{Card: card, Restored: restored}, true, nil
 }
 
 // pickedColumn is the board's name for the column an import asked for, or
