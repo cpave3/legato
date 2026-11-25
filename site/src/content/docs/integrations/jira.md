@@ -145,3 +145,18 @@ A Jira task you [hand off to a worker](/legato/using/handoff/#hand-off-a-task-fr
 Legato downloads each image attached to a tracked ticket when you import it and on every sync. It removes the copies of images that are no longer on the ticket, and the folder of a task you archive. It does not download other attachments, or images larger than `jira.attachment_max_size_bytes`.
 
 The copies are in the `attachments` folder of Legato's data directory. `legato task show` prints their paths, so an agent working on the task can read them.
+
+## Let agents search Jira
+
+The settings above are for Legato's own sync. Agents do not get them. For an agent to search and read Jira itself, for example to check for an existing ticket before raising one, add a `jira` credential that names the same token:
+
+```yaml
+credentials:
+  - name: jira
+    profile: jira
+    secret: legato://jira-api-token
+```
+
+The setup wizard keeps the token as `legato://jira-api-token`. If `jira.api_token` reads an environment variable instead, name that variable, as `secret: env://LEGATO_JIRA_TOKEN`; agents' sessions then get it empty. The credential signs in to `jira.base_url` as `jira.email`.
+
+The token stays in Legato. The agent gets a placeholder and the address of Legato's proxy. Searches and reads go without asking you; comments, new tickets and status changes wait for your approval. See [Jira](/legato/security/credential-broker/#jira) on the credentials page for the rules and how agents call it.

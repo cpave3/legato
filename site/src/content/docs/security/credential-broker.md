@@ -16,7 +16,7 @@ Each credential reaches agents through one channel. Most channels keep the secre
 | Credential | The agent gets | The agent sees the secret |
 | --- | --- | --- |
 | An SSH key | An SSH agent socket of its own. Legato signs each login you allow. | No |
-| An API key with a proxied profile (`elevenlabs`, `api-key`) | A placeholder key and the address of Legato's proxy. Legato puts the real key into each request it allows. | No |
+| An API key with a proxied profile (`elevenlabs`, `api-key`, `jira`) | A placeholder key and the address of Legato's proxy. Legato puts the real key into each request it allows. | No |
 | GitHub, through a GitHub App you create | Short-lived tokens for one repository, given to `git` and `gh`. Pushes go through Legato's proxy. | Read tokens only |
 | An Azure app's client secret (profile `azure`) | In Legato's sandbox, an `az` already signed in as the app, after you allow it | Only `az login` gets it |
 | Any other secret (profile `secret`) | The value, through `legato credential exec`, after you allow it | Yes |
@@ -77,6 +77,40 @@ In Legato's sandbox, `az` is Legato's wrapper. The first `az` command that needs
 The sign-in is a `read` of the credential, so your rules apply. By default you are asked once per agent session. While you decide, `az` waits up to a minute. Then it stops with a message that tells the agent to run the command again after you approve.
 
 Outside the sandbox nothing changes: `az` is your own, with your own `~/.azure`, in your shell and in an agent that runs unsandboxed. Legato does not sign that `az` in, because it would replace your own login. If you configure several `azure` credentials, the sandbox's `az` signs in with the first.
+
+### Jira
+
+With a `jira` credential, agents can search and read your Jira Cloud site through Legato's proxy. Use it when an agent must judge whether a ticket already exists before it raises one. If you have [set up the Jira integration](/legato/integrations/jira/), the credential needs only its token:
+
+```yaml
+credentials:
+  - name: jira
+    profile: jira
+    secret: legato://jira-api-token     # the token the Jira integration already uses
+```
+
+The credential signs in to `jira.base_url` as `jira.email`. To use another site or account, set `settings.upstream` and `settings.username` on the credential. You can also add the credential in the `credentials` settings list instead of `config.yaml`. Either way, Legato reads it when it starts.
+
+The agent gets `JIRA_BASE_URL`, `JIRA_EMAIL` and `JIRA_API_TOKEN`, after the credential's name in capitals. `JIRA_API_TOKEN` is a placeholder, not your token. The agent sends it as the password of HTTP Basic, for example `curl -u "$JIRA_EMAIL:$JIRA_API_TOKEN" "$JIRA_BASE_URL/rest/api/3/search/jql?jql=project%3DAG"`. Legato signs each request it allows with the real token.
+
+| Operation | What it covers | Default rule |
+| --- | --- | --- |
+| `search` | JQL search, the issue picker | `auto` |
+| `read` | An issue with its comments and transitions, and any other `GET` (projects, issue types, fields) | `auto` |
+| `comment` | Adding a comment to an issue | `request` |
+| `create` | Creating issues. The agent must name the project by key, so a rule can name `project/AG`. | `request` |
+| `transition` | Moving an issue to another status | `request` |
+| `write` | Anything else that changes Jira | `request` |
+
+To let agents read and never write, replace the default rules:
+
+```yaml
+    policy:
+      - { operation: [search, read], approve: auto }
+      - { operation: [comment, create, transition, write], approve: deny }
+```
+
+Only Jira Cloud with an email and API token is supported. Jira Data Center tokens and OAuth apps are not.
 
 ### Secrets handed over
 
