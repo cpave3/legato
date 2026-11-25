@@ -44,6 +44,10 @@ func doctorConfig(cfg *config.Config, workflows []*workflow.Definition) service.
 		DefaultAgent:   firstNonEmpty(cfg.DefaultAgentTool(), "claude-code"),
 		SandboxEnabled: cfg.Agents.Sandbox.Enabled,
 		RequiredBy:     map[string]string{},
+		ProfileDirs:    credentialProfileDirs(),
+	}
+	if cfg.ReviewPasses.Enabled {
+		out.RequiredBy["profiles.app"] = "review passes (review_passes.enabled)"
 	}
 	if cfg.GitHub.Auth == "gh" {
 		out.RequiredBy["gh"] = "PR tracking (github.auth: gh)"

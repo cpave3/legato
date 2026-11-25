@@ -153,6 +153,10 @@ and palette without installing or uploading. Production fresh-install,
 same-signer upgrade preserving servers/pairing/approval keys, and real Obtainium
 skipped-release acceptance remain blocked operator checks, not proven outcomes.
 
+## Upgrade notes
+
+A release that needs the operator to change something they keep (a profile override, a setting) says so on the site's Updates page, § Upgrading to this release, and Legato checks for it where it can: through a `legato doctor` check and a line logged at start, not a silent fallback. Today: an override of the `github` or `github-reviewer` profile needs `lookup.actor` (doctor's `profiles.app`; see [Credentials](credentials.md) § The reviewer App).
+
 ## Known limits
 
 - Agents use the `legato` binary too (hooks, `legato mcp serve`, the native bridges). After an update, new calls run the new binary while processes already running keep the old one, and a sandboxed agent keeps the binary its sandbox mounted until it is reloaded. Waiting for a quiet moment keeps the mix short; the protocols between them must still tolerate one version of difference.

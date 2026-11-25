@@ -111,3 +111,50 @@ func TestAProfileWithAnUnknownChannelOrBadRoutesIsRefused(t *testing.T) {
 		}
 	}
 }
+
+// overrideProfile writes a copy of a shipped profile into dir, with edit
+// applied to its text, and returns the file's path.
+func overrideProfile(t *testing.T, dir, name string, edit func(string) string) string {
+	t.Helper()
+	data, err := shippedProfiles.ReadFile("credential_profiles/" + name + ".yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, name+".yaml")
+	if err := os.WriteFile(path, []byte(edit(string(data))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// withoutActor is a profile's text without its lookup's actor line, as a
+// copy made before Legato needed it reads.
+func withoutActor(text string) string {
+	return strings.Replace(text, `    actor: "$.app_slug"`+"\n", "", 1)
+}
+
+func TestAnOverrideOfAGitHubProfileThatNamesNoAppIsNamedWithItsFileAndTheLineToAdd(t *testing.T) {
+	dir := t.TempDir()
+	path := overrideProfile(t, dir, "github-reviewer", withoutActor)
+	// An override that keeps the line, and one of a profile that is not
+	// GitHub's, are not named.
+	overrideProfile(t, dir, "github", func(s string) string { return s })
+	overrideProfile(t, dir, "api-key", func(s string) string { return s })
+	profiles, err := LoadCredentialProfiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := ProfilesNamingNoApp(profiles)
+	if len(got) != 1 || got[0].Name != "github-reviewer" || got[0].Source != path {
+		t.Fatalf("profiles naming no App = %+v", got)
+	}
+	problem := got[0].AppProblem()
+	for _, want := range []string{"github-reviewer", path, "review passes and their answers cannot post", "its App's own posts from a copy", `actor: "$.app_slug"`, "jwt_exchange.lookup"} {
+		if !strings.Contains(problem, want) {
+			t.Errorf("problem lacks %q: %s", want, problem)
+		}
+	}
+	if ProfilesNamingNoApp(shipped(t)) != nil {
+		t.Error("the shipped profiles name no App")
+	}
+}

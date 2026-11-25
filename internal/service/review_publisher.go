@@ -186,6 +186,11 @@ func (c *githubCall) login(ctx context.Context, repo string) (string, error) {
 	if ok {
 		return login, nil
 	}
+	// Fail closed: without the App's name, a copy of a marker would be
+	// taken for Legato's own post.
+	if problem := c.bc.profile.AppProblem(); problem != "" {
+		return "", fmt.Errorf("credential %s: %s", name, problem)
+	}
 	secret, err := c.p.channels.broker.readSecret(ctx, name)
 	if err != nil {
 		return "", err
@@ -196,7 +201,7 @@ func (c *githubCall) login(ctx context.Context, repo string) (string, error) {
 		return "", err
 	}
 	if !known {
-		return "", fmt.Errorf("the %s profile of %s names no App (jwt_exchange.lookup.actor), so what its App posted cannot be told from a copy", c.bc.profile.Name, name)
+		return "", fmt.Errorf("credential %s: GitHub's installation of %s named no App at %s (the %s profile, %s), so what its App posted cannot be told from a copy", name, repo, c.bc.jwt.Template.Lookup.Actor, c.bc.profile.Name, c.bc.profile.origin())
 	}
 	login = slug + "[bot]"
 	c.p.mu.Lock()

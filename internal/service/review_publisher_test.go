@@ -336,7 +336,8 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 
 // reviewProfiles writes the shipped GitHub profiles with their addresses
 // moved to the fake.
-func reviewProfiles(t *testing.T, url string) string {
+// edits, by file name, change a profile's text further.
+func reviewProfiles(t *testing.T, url string, edits map[string]func(string) string) string {
 	t.Helper()
 	dir := t.TempDir()
 	for _, name := range []string{"github.yaml", "github-reviewer.yaml"} {
@@ -345,6 +346,9 @@ func reviewProfiles(t *testing.T, url string) string {
 			t.Fatal(err)
 		}
 		text := strings.ReplaceAll(strings.ReplaceAll(string(data), "https://api.github.com", url), "https://github.com", url)
+		if edit := edits[name]; edit != nil {
+			text = edit(text)
+		}
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -359,6 +363,13 @@ type publisherFixture struct {
 }
 
 func newPublisherFixture(t *testing.T) publisherFixture {
+	t.Helper()
+	return newPublisherFixtureWith(t, nil)
+}
+
+// newPublisherFixtureWith is newPublisherFixture with its profiles' text
+// edited, by file name.
+func newPublisherFixtureWith(t *testing.T, edits map[string]func(string) string) publisherFixture {
 	t.Helper()
 	g := newReviewGitHub(t)
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
@@ -375,7 +386,7 @@ func newPublisherFixture(t *testing.T) publisherFixture {
 			{Name: "gh", Secret: "env://GH_APP_KEY", Profile: "github", Type: "keypair", Settings: author},
 			{Name: "reviewer-app", Secret: "env://GH_APP_KEY", Profile: "github-reviewer", Type: "keypair", Settings: reviewer},
 		},
-		ProfileDirs: []string{reviewProfiles(t, g.srv.URL)},
+		ProfileDirs: []string{reviewProfiles(t, g.srv.URL, edits)},
 		Messenger:   &recordingMessenger{}, WaitTimeout: 100 * time.Millisecond, HTTPClient: g.srv.Client(),
 	})
 	if err != nil {
@@ -549,6 +560,25 @@ func TestTheAuthorsAnswersArePostedAsTheAuthorApp(t *testing.T) {
 	}
 	// The author App's token writes pull requests and reads code only.
 	if len(f.github.comments) != 1 || !strings.HasPrefix(f.github.comments[0], "Fixed in abc124.") || !strings.HasSuffix(f.github.comments[0], "|read") {
+		t.Fatalf("comments = %v", f.github.comments)
+	}
+}
+
+// An override of a GitHub profile copied before Legato needed the App's
+// name fails closed, and the error says which file needs which line.
+func TestAProfileThatNamesNoAppCannotPostAndTheErrorNamesItsFileAndTheLine(t *testing.T) {
+	f := newPublisherFixtureWith(t, map[string]func(string) string{"github.yaml": withoutActor})
+	_, err := f.publisher.PostIssueComment(context.Background(), AsAuthor, "cpave3/legato", 12, "Fixed in abc124.", answerKey("t1/b-1/n1"))
+	if err == nil {
+		t.Fatal("posted without knowing the App")
+	}
+	path := f.broker.credentials["gh"].profile.Source
+	for _, want := range []string{"github", path, `actor: "$.app_slug"`, "jwt_exchange.lookup"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error lacks %q: %v", want, err)
+		}
+	}
+	if len(f.github.comments) != 0 {
 		t.Fatalf("comments = %v", f.github.comments)
 	}
 }

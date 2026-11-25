@@ -59,6 +59,20 @@ func credentialProfileDirs() []string {
 	return []string{filepath.Join(filepath.Dir(config.ResolveConfigPath()), "profiles")}
 }
 
+// logProfilesNamingNoApp logs a line for each override of the github or
+// github-reviewer profile that names no App, with the file and the line to
+// add: posting with its credentials fails closed until it does. Profiles
+// that cannot be read are the broker's to report.
+func logProfilesNamingNoApp(dirs []string, logf func(format string, args ...any)) {
+	profiles, err := service.LoadCredentialProfiles(dirs...)
+	if err != nil {
+		return
+	}
+	for _, p := range service.ProfilesNamingNoApp(profiles) {
+		logf("credentials: %s", p.AppProblem())
+	}
+}
+
 // configuredCredentialBroker builds the broker over the configured
 // credentials. messenger is set only in a host process.
 func configuredCredentialBroker(cfg *config.Config, db *store.Store, approvals *service.ApprovalService, messenger service.AgentMessenger) (*service.CredentialBroker, error) {
@@ -89,6 +103,7 @@ func startCredentials(ctx context.Context, cfg *config.Config, db *store.Store, 
 	if m, ok := agents.(service.AgentMessenger); ok {
 		messenger = m
 	}
+	logProfilesNamingNoApp(credentialProfileDirs(), log.Printf)
 	broker, err := configuredCredentialBroker(cfg, db, approvals, messenger)
 	if err != nil {
 		log.Printf("credentials: %v (credential requests are refused until this is fixed)", err)

@@ -399,3 +399,35 @@ func TestDoctorReportsSayWhenTheVerdictChanges(t *testing.T) {
 		t.Fatalf("%d changes once tmux is back, want 2", changes)
 	}
 }
+
+func TestDoctorNamesEachGitHubProfileOverrideThatNamesNoApp(t *testing.T) {
+	dir := t.TempDir()
+	t.Run("none", func(t *testing.T) {
+		c := findCheck(t, runDoctor(t, healthyMachine(), DoctorConfig{ProfileDirs: []string{dir}}, false), "profiles.app")
+		if c.Result != DoctorOK || c.Required {
+			t.Fatalf("check = %+v", c)
+		}
+	})
+	author := overrideProfile(t, dir, "github", withoutActor)
+	reviewer := overrideProfile(t, dir, "github-reviewer", withoutActor)
+	t.Run("two overrides lack the line", func(t *testing.T) {
+		c := findCheck(t, runDoctor(t, healthyMachine(), DoctorConfig{ProfileDirs: []string{dir}}, false), "profiles.app")
+		if !c.Failed() || c.Required {
+			t.Fatalf("check = %+v", c)
+		}
+		for _, want := range []string{"github (" + author + ")", "github-reviewer (" + reviewer + ")", "review passes and their answers cannot post", "its App's own posts from a copy"} {
+			if !strings.Contains(c.Detail, want) {
+				t.Errorf("detail lacks %q: %s", want, c.Detail)
+			}
+		}
+		if !strings.Contains(c.Fix, `actor: "$.app_slug"`) || !strings.Contains(c.Fix, "jwt_exchange.lookup") || !strings.Contains(c.Fix, author) {
+			t.Errorf("fix = %s", c.Fix)
+		}
+	})
+	t.Run("required with review passes on", func(t *testing.T) {
+		r := runDoctor(t, healthyMachine(), DoctorConfig{ProfileDirs: []string{dir}, RequiredBy: map[string]string{"profiles.app": "review passes (review_passes.enabled)"}}, false)
+		if r.OK() {
+			t.Fatal("a profile that cannot post passed the report with review passes on")
+		}
+	})
+}

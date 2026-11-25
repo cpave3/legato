@@ -63,6 +63,18 @@ Legato restarts itself on request: **Restart Legato** in Settings › System ›
 
 If you edited `config.yaml` since Legato started, the restart keeps the file Legato was running on as `config.yaml.<time>.bak`. When the edited file does not load, or Legato is not answering within 30 seconds of starting on it, Legato puts the old file back, starts again on it, and says so in Attention ("A restart of Legato failed and was rolled back", with the error).
 
+## Upgrading to this release
+
+Review passes now post a review or a reply only when Legato can tell its own App's posts from a copy of one, so a profile must name its App. The shipped `github` and `github-reviewer` profiles do. If you keep your own copy of either in `<config folder>/profiles/` (such as `~/.config/legato/profiles/github.yaml`), add this line under `jwt_exchange.lookup` in it:
+
+```yaml
+jwt_exchange:
+  lookup:
+    actor: "$.app_slug"
+```
+
+Until you do, review passes and their answers cannot post with that profile's credentials, and the error names the file. `legato doctor` names each copy that lacks the line, and Legato logs a line for each when it starts. A copy that you no longer need can go: the shipped profile then applies.
+
 ## Going back
 
 If a new release does not start, put the old binary back:
