@@ -244,3 +244,5 @@ See [Even Realities G2 glasses](/legato/integrations/even-g2/) and [`packages/RE
 ## Release builds
 
 Releases are built by a GitHub workflow, not by hand. `task release:dist VERSION=vX.Y.Z` builds the web UI once, then a binary stamped with that version for Linux on amd64 and arm64 and for macOS on arm64, with a `SHA256SUMS` file. [`docs/ai/updates.md`](https://github.com/cpave3/legato/blob/main/docs/ai/updates.md) describes the release workflow.
+
+<!-- scratch: LEG-629 stack CI test, layer 1 -->
