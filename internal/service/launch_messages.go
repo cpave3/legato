@@ -35,7 +35,7 @@ func (a *agentService) launchWith(ctx context.Context, executionID, taskID, slot
 		return
 	}
 	log.Printf("kept %d launch message(s) for %s (%s), waiting for delivery", len(kept), taskID, executionID)
-	go a.deliverLaunchMessages(WithAgentSlot(context.Background(), slot), executionID, taskID, session, adapter, kept, promptFile)
+	a.goDeliverLaunchMessages(WithAgentSlot(context.Background(), slot), executionID, taskID, session, adapter, kept, promptFile)
 }
 
 // ResumeLaunchMessages takes over the launch messages not yet delivered:
@@ -88,8 +88,21 @@ func (a *agentService) ResumeLaunchMessages(ctx context.Context) int {
 		}
 		resumed++
 		log.Printf("delivering %d launch message(s) to %s after a restart", len(messages), first.TmuxSession)
-		go a.deliverLaunchMessages(WithAgentSlot(context.Background(), first.Slot), executionID, first.TaskID, first.TmuxSession,
+		a.goDeliverLaunchMessages(WithAgentSlot(context.Background(), first.Slot), executionID, first.TaskID, first.TmuxSession,
 			a.resolveAdapter(first.AgentKind), messages, first.PromptFile)
 	}
 	return resumed
 }
+
+// goDeliverLaunchMessages runs deliverLaunchMessages in the background.
+func (a *agentService) goDeliverLaunchMessages(ctx context.Context, executionID, taskID, session string, adapter AIToolAdapter, messages []store.LaunchMessage, promptFile string) {
+	a.launchWG.Add(1)
+	go func() {
+		defer a.launchWG.Done()
+		a.deliverLaunchMessages(ctx, executionID, taskID, session, adapter, messages, promptFile)
+	}()
+}
+
+// waitLaunchDeliveries returns once every launch delivery started so far has
+// ended.
+func (a *agentService) waitLaunchDeliveries() { a.launchWG.Wait() }

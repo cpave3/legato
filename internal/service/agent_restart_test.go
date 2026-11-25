@@ -35,6 +35,9 @@ func newRestartFixture(t *testing.T) restartFixture {
 		Adapter: hooks.NewClaudeCodeAdapter("legato"), DisablePeerAwareness: true, BriefKickoffDelay: time.Millisecond, EventBus: bus,
 	})
 	svc.(*agentService).nativeBindTimeout = time.Millisecond
+	// Runs before the store closes: a delivery still writing to it would
+	// leave a journal file in the folder TempDir is removing.
+	t.Cleanup(svc.(*agentService).waitLaunchDeliveries)
 	return restartFixture{svc: svc, store: s, tmux: mt, bus: bus}
 }
 
