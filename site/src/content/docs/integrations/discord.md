@@ -102,7 +102,7 @@ steps:
 
 With `event.thread_id` from a trigger:
 
-- **In a thread**, the step reads the thread: its starter message, which a thread started on a message keeps in the channel it was started in, then the thread's messages. Discord's system messages, such as the starter's stub inside the thread, are left out.
+- **In a thread**, the step reads the thread: its starter message, which a thread started on a message keeps in the channel it was started in, then the thread's messages. Discord's system messages, such as the starter's stub inside the thread, are left out. A bot's response to a slash command or app command is a bot's message, kept with `include_bots: true`.
 - **Anywhere else**, the step reads the chain of replies that ends at the message: the message, the one it replies to, and so on, up to 50 messages, root first. A message that replies to nothing gives that message alone.
 
 People are named by their display name. The step needs the **Read Message History** permission and the Message Content intent, which the bot already has. See [Reading the thread](/legato/using/workflows/#reading-the-thread) for what the step keeps.

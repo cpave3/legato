@@ -330,7 +330,8 @@ func (c *discordConnection) ReadThread(ctx context.Context, channel, threadID st
 // A thread started on a message has that message's ID, and the message
 // stays in the parent channel; a forum post's starter is in the thread
 // itself. Failing both, the thread's oldest message starts it. System
-// messages (the starter's stub in the thread, joins, pins) are left out.
+// messages (the starter's stub in the thread, joins, pins) are left out;
+// see discordAuthored.
 func (c *discordConnection) readThreadChannel(ctx context.Context, thread string, max int) ([]discordbot.Message, error) {
 	var newest []discordbot.Message
 	before := ""
@@ -368,7 +369,7 @@ func (c *discordConnection) readThreadChannel(ctx context.Context, thread string
 	var msgs []discordbot.Message
 	for i := len(newest) - 1; i >= 0; i-- {
 		m := newest[i]
-		if (m.Type != 0 && m.Type != 19) || (starter != nil && m.ID == starter.ID) {
+		if !discordAuthored(m.Type) || (starter != nil && m.ID == starter.ID) {
 			continue
 		}
 		msgs = append(msgs, m)
@@ -377,6 +378,18 @@ func (c *discordConnection) readThreadChannel(ctx context.Context, thread string
 		msgs = append([]discordbot.Message{*starter}, msgs...)
 	}
 	return msgs, nil
+}
+
+// discordAuthored is a message type someone wrote: a message (0), a reply
+// (19), or an application command's response (20 from a slash command, 23
+// from a context menu). The rest are system messages, the starter's stub
+// in a thread (21) among them.
+func discordAuthored(messageType int) bool {
+	switch messageType {
+	case 0, 19, 20, 23:
+		return true
+	}
+	return false
 }
 
 // readReplyChain is message and the messages it replies to, up to max of

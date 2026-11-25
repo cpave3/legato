@@ -393,3 +393,30 @@ func TestChatThreadReadErrorsAreScrubbedAndNameTheThread(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// An application command's response (type 20, or 23 from a context menu)
+// is written by a bot, so include_bots keeps it; system messages still go.
+func TestChatThreadReadKeepsDiscordCommandResponsesWithBots(t *testing.T) {
+	client := fakeDiscordAPI(t, map[string]string{
+		"/channels/t1": `{"id":"t1","type":11,"parent_id":"c1","guild_id":"g1"}`,
+		"/channels/c1/messages/t1": discordMessageJSON("t1", "c1", 0, "u1", "Cameron", false, "checkout is slow", "2026-11-25T04:12:00Z", ""),
+		"/channels/t1/messages?limit=100": "[" + strings.Join([]string{
+			discordMessageJSON("m5", "t1", 0, "u1", "Cameron", false, "<@self> why?", "2026-11-25T04:16:00Z", ""),
+			discordMessageJSON("m4", "t1", 23, "b1", "Ops", true, "trace: lock wait on orders", "2026-11-25T04:15:00Z", ""),
+			discordMessageJSON("m3", "t1", 7, "u3", "Dee", false, "", "2026-11-25T04:14:00Z", ""),
+			discordMessageJSON("m2", "t1", 20, "b1", "Ops", true, "status: database pool exhausted", "2026-11-25T04:13:00Z", ""),
+		}, ",") + "]",
+	})
+	result, err := NewChatThreadReadExecutor(discordThreadBots(t, client)).Start(context.Background(),
+		chatThreadStep(map[string]any{"bot": "discord", "channel": "t1", "thread_id": "t1", "include_bots": true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Cameron · 2026-11-25 04:12 UTC\ncheckout is slow\n\n" +
+		"Ops · 2026-11-25 04:13 UTC\nstatus: database pool exhausted\n\n" +
+		"Ops · 2026-11-25 04:15 UTC\ntrace: lock wait on orders\n\n" +
+		"Cameron · 2026-11-25 04:16 UTC\n<@self> why?"
+	if result.Outputs["transcript"] != want {
+		t.Fatalf("transcript =\n%v\nwant\n%s", result.Outputs["transcript"], want)
+	}
+}
