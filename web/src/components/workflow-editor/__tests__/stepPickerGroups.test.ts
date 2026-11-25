@@ -10,6 +10,7 @@ describe("the step picker's list", () => {
     const listed = groups.flatMap(g => g.entries.map(e => e.type)).sort()
     expect(listed).toEqual(executors.map(e => e.type).sort())
     expect(groups[0].entries.map(e => e.type)).toEqual(["agent.run", "agent.message", "agent.dispatch", "agent.stop", "agent.compact"])
+    expect(groups.find(g => g.group === "Board")?.entries.map(e => e.type)).toEqual(expect.arrayContaining(["ticket.import", "tickets.list", "tasks.list"]))
   })
 
   it("offers Learn's steps for any workflow", () => {

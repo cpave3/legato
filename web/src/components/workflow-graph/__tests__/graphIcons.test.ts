@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { AtSign, MessageCircle, MessageSquarePlus, MessageSquareQuote, MessageSquareShare, MousePointerClick, Smile, SmilePlus, TicketPlus } from "lucide-react"
+import { AtSign, ListFilter, MessageCircle, MessageSquarePlus, MessageSquareQuote, MessageSquareShare, MousePointerClick, Smile, SmilePlus, TicketCheck, TicketPlus, Tickets } from "lucide-react"
 import { stepIcon, triggerIcon } from "../graphIcons"
 import { nodeName, stepTypeLabel, triggerName } from "../../../lib/workflowGraph"
 import { triggerKinds } from "../../workflow-editor/triggerForms"
@@ -40,6 +40,15 @@ describe("the graph's chat nodes", () => {
     expect(stepTypeLabel("ticket.comment")).toBe("Ticket comment")
     expect(stepIcon("ticket.create")).toBe(TicketPlus)
     expect(stepIcon("ticket.comment")).toBe(MessageSquarePlus)
+  })
+
+  it("labels and draws the ticket and board list steps", () => {
+    expect(stepTypeLabel("ticket.import")).toBe("Import ticket")
+    expect(stepTypeLabel("tickets.list")).toBe("List tickets")
+    expect(stepTypeLabel("tasks.list")).toBe("List cards")
+    expect(stepIcon("ticket.import")).toBe(TicketCheck)
+    expect(stepIcon("tickets.list")).toBe(Tickets)
+    expect(stepIcon("tasks.list")).toBe(ListFilter)
   })
 
   it("names a chat trigger node by the server's summary", () => {

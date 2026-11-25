@@ -1,4 +1,4 @@
-import { ArrowRightLeft, AtSign, BookOpen, Bot, CircleStop, Clock, Columns3, FileText, FileX, FolderSearch, FolderX, GitBranch, GitPullRequest, Hand, MessageCircle, MessageSquarePlus, MessageSquareQuote, MessageSquareShare, MessageSquareText, MessageSquareWarning, MessagesSquare, MousePointerClick, Repeat, Send, Shrink, Smile, SmilePlus, StickyNote, Tag, TicketPlus, Trash2, Workflow, type LucideIcon } from "lucide-react"
+import { ArrowRightLeft, AtSign, BookOpen, Bot, CircleStop, Clock, Columns3, FileText, FileX, FolderSearch, FolderX, GitBranch, GitPullRequest, Hand, ListFilter, MessageCircle, MessageSquarePlus, MessageSquareQuote, MessageSquareShare, MessageSquareText, MessageSquareWarning, MessagesSquare, MousePointerClick, Repeat, Send, Shrink, Smile, SmilePlus, StickyNote, Tag, TicketCheck, TicketPlus, Tickets, Trash2, Workflow, type LucideIcon } from "lucide-react"
 
 // The icon of each step type and trigger kind, as the graph's nodes draw
 // them; one it does not know gets Workflow's.
@@ -15,6 +15,9 @@ export const stepIcons: Record<string, LucideIcon> = {
   "task.context": FileText,
   "task.metadata.set": Tag,
   "task.working_dir.resolve": FolderSearch,
+  "ticket.import": TicketCheck,
+  "tickets.list": Tickets,
+  "tasks.list": ListFilter,
   "github.pr.prepare": GitPullRequest,
   "github.pr.review_passes": Repeat,
   "repo.ensure": GitBranch,
