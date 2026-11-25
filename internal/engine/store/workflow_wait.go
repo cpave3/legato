@@ -79,8 +79,10 @@ func (s *Store) BeginWorkflowWait(ctx context.Context, runID, path string, wait 
 }
 
 // BindWorkflowWait ties a step's wait to the agent it watches: its place
-// and its session, on the step and on the attempt. It is how a wait that
-// began before its agent started, or whose agent was resumed, finds it.
+// and its session, on the step and on the attempt, with the folder the
+// session works in (kept on the attempt, since an ended session is
+// deleted). It is how a wait that began before its agent started, or
+// whose agent was resumed, finds it.
 func (s *Store) BindWorkflowWait(ctx context.Context, runID, path, attemptID string, place WorkStagePlace, sessionID int) error {
 	place = place.normal()
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
@@ -95,7 +97,9 @@ func (s *Store) BindWorkflowWait(ctx context.Context, runID, path, attemptID str
 		} else if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET agent_session_id = ? WHERE id = ? AND status IN ('running', 'waiting_agent')`, sessionID, attemptID)
+		_, err = tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET agent_session_id = ?,
+			working_dir = COALESCE(NULLIF((SELECT working_dir FROM executions WHERE agent_session_id = ? ORDER BY started_at DESC LIMIT 1), ''), working_dir)
+			WHERE id = ? AND status IN ('running', 'waiting_agent')`, sessionID, sessionID, attemptID)
 		return err
 	})
 }

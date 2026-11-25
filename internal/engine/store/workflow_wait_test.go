@@ -116,6 +116,37 @@ func TestAWaitBindsToItsAgentAndIsListedWhileItsStepWaits(t *testing.T) {
 	}
 }
 
+// A wait bound again to another agent (one resumed, or a new one in its
+// place) keeps that agent's folder on the attempt: the session is deleted
+// when the agent ends, and the step's outputs read the folder afterwards.
+func TestAWaitBoundAgainKeepsItsAgentsFolder(t *testing.T) {
+	ctx := context.Background()
+	s, runID := waitFixture(t)
+	if _, err := s.BeginWorkflowWait(ctx, runID, "build", WorkflowWait{Signals: []string{"ended"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkWorkflowStepWaiting(ctx, runID, "build", "wa-1", &AgentSession{ID: 4, WorkingDir: "/clones/old"}, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	id, err := s.InsertAgentSessionReturningID(ctx, AgentSession{TaskID: "wf-task", TmuxSession: "legato-wf-task", Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateExecution(ctx, Execution{ID: "ex-2", Kind: ExecutionInteractive, Status: ExecutionRunning, TaskID: "wf-task", AgentSessionID: &id, WorkingDir: "/clones/new", StartedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.BindWorkflowWait(ctx, runID, "build", "wa-1", WorkStagePlace{TaskID: "wf-task"}, id); err != nil {
+		t.Fatal(err)
+	}
+	view, err := s.GetWorkflowRun(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := view.Attempts[0].WorkingDir; got != "/clones/new" {
+		t.Fatalf("attempt's folder = %q; want the bound agent's", got)
+	}
+}
+
 // A timeout is claimed once: two hosts sweeping the same deadline, one
 // takes it.
 func TestATimedOutStepIsClaimedOnce(t *testing.T) {

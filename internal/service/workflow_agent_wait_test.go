@@ -463,6 +463,40 @@ steps:
 	}
 }
 
+// An agent on a task that ends in its clone leaves the clone to a later
+// step: the attempt keeps the folder its session worked in, since ending
+// the agent deletes its session.
+func TestAnAgentThatEndsInItsCloneGivesItToALaterStep(t *testing.T) {
+	ctx := context.Background()
+	f, cloner, _, _ := newCloneFixture(t)
+	view := f.start(t, `
+schema_version: 2
+name: build
+title: Build
+inputs:
+  task: {type: task, required: true}
+steps:
+ - {id: build, title: Build, type: agent.run, with: {on: "${{ workflow.inputs.task }}", prompt: Build it, repo: acme/widget}, wait_for: [ended]}
+ - {id: next, title: Next, type: agent.run, with: {on: "${{ workflow.inputs.task }}", prompt: Next, repo: acme/widget, clone: {from: build}}, wait_for: [finished]}
+`)
+	session := f.cardAgent(t)
+	if err := f.agents.KillAgent(ctx, "LEG-7"); err != nil {
+		t.Fatal(err)
+	}
+	view = f.check(t, f.workflows, view.Run.ID)
+	built := waitOutputs(t, view, "build")
+	clone, err := f.store.JobCloneByPath(ctx, session.WorkingDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if built["signal"] != "ended" || built["working_dir"] != clone.Path || built["clone_id"] != float64(clone.ID) {
+		t.Fatalf("outputs = %v; want clone %d at %s", built, clone.ID, clone.Path)
+	}
+	if next := stepByPath(view, "next"); next.Status != "waiting_agent" || len(cloner.requests) != 2 || cloner.requests[1].CloneID != clone.ID {
+		t.Fatalf("next = %+v, clone requests = %+v", next, cloner.requests)
+	}
+}
+
 // A GitHub error at the signal fails the step: stale PRs would let a
 // later step skip a review.
 func TestAGitHubErrorAtTheSignalFailsTheStep(t *testing.T) {
