@@ -73,6 +73,12 @@ func logProfilesNamingNoApp(dirs []string, logf func(format string, args ...any)
 	}
 }
 
+// jiraDefaults are the Jira integration's site and account, which a jira
+// credential uses when its settings name none.
+func jiraDefaults(cfg *config.Config) service.JiraDefaults {
+	return service.JiraDefaults{BaseURL: cfg.Jira.BaseURL, Email: cfg.Jira.Email}
+}
+
 // configuredCredentialBroker builds the broker over the configured
 // credentials. messenger is set only in a host process.
 func configuredCredentialBroker(cfg *config.Config, db *store.Store, approvals *service.ApprovalService, messenger service.AgentMessenger) (*service.CredentialBroker, error) {
@@ -86,6 +92,7 @@ func configuredCredentialBroker(cfg *config.Config, db *store.Store, approvals *
 		OnePasswordTokenFile: cfg.Secrets.OnePassword.TokenFile,
 		OnePasswordBackend:   cfg.Secrets.OnePassword.Backend,
 		Messenger:            messenger,
+		Jira:                 jiraDefaults(cfg),
 	})
 	if err != nil {
 		return nil, err

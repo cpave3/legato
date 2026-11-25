@@ -137,6 +137,7 @@ func (c *CredentialChannels) SessionEnv(ctx context.Context, taskID, executionID
 			key = strings.ReplaceAll(key, "{NAME}", upper)
 			value = strings.ReplaceAll(value, "{placeholder}", placeholder)
 			value = strings.ReplaceAll(value, "{base_url}", base+"/c/"+bc.config.Name)
+			value = strings.ReplaceAll(value, "{username}", bc.username)
 			env[key] = value
 		}
 		if bc.profile.Git != "" {
@@ -232,7 +233,7 @@ func (c *CredentialChannels) Proxy() *credential.HTTPProxy {
 	for _, bc := range proxied {
 		upstream := *bc.upstream
 		pc := credential.ProxyCredential{
-			Name: bc.config.Name, Upstream: &upstream, Key: bc.key, APIPrefix: bc.profile.APIPrefix,
+			Name: bc.config.Name, Upstream: &upstream, Username: bc.username, Key: bc.key, APIPrefix: bc.profile.APIPrefix,
 			Inspector: credential.RestInspector{Host: bc.upstream.Host, Routes: bc.profile.Routes},
 		}
 		if bc.profile.Git != "" {

@@ -41,8 +41,8 @@ type CredentialProfile struct {
 	JWTExchange *credential.ExchangeTemplate `yaml:"jwt_exchange"`
 	Permissions map[string]map[string]string `yaml:"permissions"`
 	// Env is what an agent session gets for each credential of the profile.
-	// {placeholder}, {base_url} and {NAME} (the credential's name in
-	// capitals) are filled in.
+	// {placeholder}, {base_url}, {username} (who a basic key signs in as)
+	// and {NAME} (the credential's name in capitals) are filled in.
 	Env map[string]string `yaml:"env"`
 	// HostOnly marks a credential Legato itself uses and no agent is ever
 	// given (the reviewer App): every agent request and use is refused.

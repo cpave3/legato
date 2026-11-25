@@ -44,6 +44,13 @@ func rule(approve string, ops ...string) config.CredentialRule {
 
 func newBrokerFixture(t *testing.T, credentials ...config.CredentialConfig) brokerFixture {
 	t.Helper()
+	return newBrokerFixtureWith(t, CredentialBrokerOptions{}, credentials...)
+}
+
+// newBrokerFixtureWith is newBrokerFixture with options of the test's own;
+// the fixture still sets the credentials, messenger and wait.
+func newBrokerFixtureWith(t *testing.T, opts CredentialBrokerOptions, credentials ...config.CredentialConfig) brokerFixture {
+	t.Helper()
 	approvals, db, _ := newApprovalFixture(t)
 	approvals.opts.PollInterval = 5 * time.Millisecond
 	ctx := context.Background()
@@ -53,11 +60,8 @@ func newBrokerFixture(t *testing.T, credentials ...config.CredentialConfig) brok
 	}
 	t.Setenv("BROKER_TEST_KEY", "sk-eleven")
 	messenger := &recordingMessenger{}
-	broker, err := NewCredentialBroker(db, approvals, CredentialBrokerOptions{
-		Credentials: credentials,
-		Messenger:   messenger,
-		WaitTimeout: 100 * time.Millisecond,
-	})
+	opts.Credentials, opts.Messenger, opts.WaitTimeout = credentials, messenger, 100*time.Millisecond
+	broker, err := NewCredentialBroker(db, approvals, opts)
 	if err != nil {
 		t.Fatal(err)
 	}

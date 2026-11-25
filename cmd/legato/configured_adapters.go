@@ -160,7 +160,7 @@ func credentialPromptGuidance(cfg *config.Config, stacks bool, branches service.
 	if len(cfg.Credentials) == 0 && len(cfg.CredentialSources) == 0 {
 		return cli.GuidanceFor(nil, nil, stacks, branches)
 	}
-	summaries, sources, err := service.DescribeCredentials(cfg.Credentials, cfg.CredentialSources, credentialProfileDirs())
+	summaries, sources, err := service.DescribeCredentials(cfg.Credentials, cfg.CredentialSources, credentialProfileDirs(), jiraDefaults(cfg))
 	if err != nil {
 		return cli.GuidanceFor(nil, nil, stacks, branches)
 	}
