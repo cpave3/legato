@@ -294,6 +294,8 @@ var catalogByType = func() map[string]ExecutorSpec {
 
 // Fields several executors share.
 var (
+	ticketProviderField = Field{Name: "provider", Kind: KindString, Label: "Provider", Description: "jira or burnlite; the only one set up when empty",
+		Enum: []string{"jira", "burnlite"}, Checked: true, Invalid: "must be jira or burnlite", Essential: true, Order: 1}
 	promptField = Field{Name: "prompt", Kind: KindText, Label: "What it should do", Description: "What the agent is asked to do"}
 	macroField  = Field{Name: "macro", Kind: KindMacro, Label: "Macro", Description: "A macro to send in place of a prompt, by name; resolved when the step runs, so an edited macro applies to the next run",
 		Checked: true, Invalid: "must be the name of a macro"}
@@ -510,6 +512,47 @@ var catalog = []ExecutorSpec{
 			{Name: "key", Type: "string", Description: "The ticket's key, or empty when skipped"},
 			{Name: "closed", Type: "boolean", Description: "Whether the step closed a ticket"},
 			{Name: "skipped", Type: "boolean", Description: "Whether the task was not a Burnlite ticket"},
+		},
+	},
+	{
+		Type: "ticket.create", Group: "Board", Title: "Create a ticket",
+		Description: "Create a Jira issue or a Burnlite task, with Legato's own Jira settings (jira.base_url, jira.email, jira.api_token) or its Burnlite connection: no agent sees the token. A retry returns the ticket the step already created instead of creating another.",
+		With: []Field{
+			ticketProviderField,
+			{Name: "project", Kind: KindString, Label: "Project", Description: "The Jira project key (AG) or the Burnlite project (LEG)", Required: true, Essential: true, Order: 2},
+			{Name: "summary", Kind: KindString, Label: "Summary", Description: "The ticket's title, one line of at most 255 characters", Required: true, Essential: true, Order: 3},
+			{Name: "description", Kind: KindText, Label: "Description", Description: "Markdown; sent to Jira as its rich text, keeping code blocks, lists, links and tables", Essential: true, Order: 4},
+			{Name: "labels", Kind: KindJSON, Label: "Labels", Description: "A list of labels; Jira's hold no spaces", Order: 5},
+			{Name: "type", Kind: KindString, Label: "Issue type", Description: "Jira only: the issue type, such as Bug or Task; Bug when empty", Order: 6},
+			{Name: "priority", Kind: KindString, Label: "Priority", Description: "Jira only: the priority's name, such as High", Order: 7},
+			{Name: "fields", Kind: KindJSON, Label: "More Jira fields", Description: "Jira only: more fields as Jira names them, such as {customfield_10020: 7}; not the fields above", Order: 8},
+			{Name: "kind", Kind: KindString, Label: "Kind", Description: "Burnlite only: work, or meta for planning; work when empty", Enum: []string{"work", "meta"}, Checked: true, Invalid: "must be work or meta", Order: 9},
+			{Name: "size", Kind: KindString, Label: "Size", Description: "Burnlite only: a Work task's size", Enum: []string{"Small", "Medium", "Large", "X-Large"}, Checked: true, Invalid: "must be Small, Medium, Large or X-Large", Order: 10},
+			{Name: "uncertainty", Kind: KindString, Label: "Uncertainty", Description: "Burnlite only: how unsure a Work task's estimate is", Enum: []string{"Low", "Medium", "High", "Extreme"}, Checked: true, Invalid: "must be Low, Medium, High or Extreme", Order: 11},
+			{Name: "milestone", Kind: KindString, Label: "Milestone", Description: "Burnlite only: the Milestone's key, such as LEG-3", Order: 12},
+		},
+		Summary: []string{"summary"},
+		Outputs: []OutputSpec{
+			{Name: "key", Type: "string", Description: "The ticket's key, such as AG-12"},
+			{Name: "url", Type: "string", Description: "The ticket's page"},
+			{Name: "id", Type: "string", Description: "The provider's ID of the ticket"},
+			{Name: "provider", Type: "string", Description: "jira or burnlite"},
+			{Name: "created", Type: "boolean", Description: "false when a retry returned the ticket an earlier attempt created"},
+		},
+	},
+	{
+		Type: "ticket.comment", Group: "Board", Title: "Comment on a ticket",
+		Description: "Add a Markdown comment to a Jira issue, or a Note to a Burnlite task, with Legato's own settings or connection. A retry does not comment twice.",
+		With: []Field{
+			ticketProviderField,
+			{Name: "key", Kind: KindString, Label: "Ticket", Description: "The ticket's key, such as AG-12", Required: true, Essential: true, Order: 2},
+			{Name: "body", Kind: KindText, Label: "Comment", Description: "The comment, in Markdown", Required: true, Essential: true, Order: 3},
+		},
+		Summary: []string{"key"},
+		Outputs: []OutputSpec{
+			{Name: "url", Type: "string", Description: "The comment's address, or the Burnlite task's"},
+			{Name: "id", Type: "string", Description: "The provider's ID of the comment or Note"},
+			{Name: "key", Type: "string", Description: "The ticket's key"},
 		},
 	},
 	{

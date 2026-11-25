@@ -136,6 +136,8 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		service.NewFileRemoveExecutor(),
 		prWait,
 		service.NewBurnliteCloseExecutor(db, service.ConnectedBurnlite{Connection: burnliteConnections(cfg, db)}),
+		service.NewTicketCreateExecutor(db, ticketWriters(cfg, db)...),
+		service.NewTicketCommentExecutor(db, ticketWriters(cfg, db)...),
 		service.NewChatSendExecutor(chatBots),
 		service.NewChatReactionAddExecutor(chatBots),
 		service.NewChatReactionRemoveExecutor(chatBots),
@@ -284,4 +286,15 @@ func reviewPassesStep(cfg *config.Config) *service.ReviewPassesStep {
 	step := service.NewReviewPassesStep()
 	step.SetEnabled(func() bool { return cfg.ReviewPasses.Enabled })
 	return step
+}
+
+// ticketWriters are the providers the ticket steps write to (LEG-640):
+// the Jira of this configuration, whose settings are read now as the sync
+// service reads them, and the Burnlite Legato is connected to. A writer
+// whose settings are missing says so when a step uses it.
+func ticketWriters(cfg *config.Config, db *store.Store) []service.TicketWriter {
+	return []service.TicketWriter{
+		service.JiraTicketWriter{BaseURL: cfg.Jira.BaseURL, Email: cfg.Jira.Email, APIToken: cfg.Jira.APIToken},
+		service.BurnliteTicketWriter{Connection: burnliteConnections(cfg, db)},
+	}
 }
