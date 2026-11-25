@@ -572,9 +572,14 @@ func endedSignal(step store.WorkflowStep) bool {
 	return outputs["signal"] == workflowengine.SignalEnded
 }
 
+// timeoutClaimStale is how long a claimed timeout is another host's: a
+// step still under way that long after its claim is swept again.
+const timeoutClaimStale = 2 * time.Minute
+
 // SweepTimeouts times out every step under way whose deadline is at or
-// before now. Each deadline is claimed, so of the hosts that sweep it one
-// times the step out. It returns how many it timed out.
+// before now. Each deadline is claimed until timeoutClaimStale after now,
+// so of the hosts that sweep it one times the step out, and a claim that
+// did not end the step is taken again. It returns how many it timed out.
 func (s *WorkflowService) SweepTimeouts(ctx context.Context, now time.Time) (int, error) {
 	steps, err := s.store.ListWorkflowStepsPastDeadline(ctx, now)
 	if err != nil {
@@ -583,7 +588,7 @@ func (s *WorkflowService) SweepTimeouts(ctx context.Context, now time.Time) (int
 	timedOut := 0
 	var errs []error
 	for _, step := range steps {
-		claimed, err := s.store.ClaimWorkflowStepTimeout(ctx, step.RunID, step.Path, *step.DeadlineAt)
+		claimed, err := s.store.ClaimWorkflowStepTimeout(ctx, step.RunID, step.Path, *step.DeadlineAt, now.Add(timeoutClaimStale))
 		if err != nil {
 			errs = append(errs, err)
 			continue

@@ -166,11 +166,16 @@ func (s *Store) ListWorkflowStepsPastDeadline(ctx context.Context, now time.Time
 	return steps, err
 }
 
-// ClaimWorkflowStepTimeout claims a step's timeout: it clears the deadline
-// it was read with, so of the hosts that sweep it, one times it out.
-func (s *Store) ClaimWorkflowStepTimeout(ctx context.Context, runID, path, deadline string) (bool, error) {
-	result, err := s.db.ExecContext(ctx, `UPDATE workflow_steps SET deadline_at = NULL
-		WHERE run_id = ? AND path = ? AND deadline_at = ? AND status IN ('running', 'waiting_agent', 'waiting')`, runID, path, deadline)
+// ClaimWorkflowStepTimeout claims a step's timeout: it moves the deadline
+// it was read with to until, so of the hosts that sweep it, one times it
+// out. The claim goes stale: a host that stops, or fails to stop the
+// step's agent, before the step's failure is recorded leaves the step
+// past its deadline again at until, for a later sweep to take. Recording
+// the failure ends the step, which no sweep lists after.
+func (s *Store) ClaimWorkflowStepTimeout(ctx context.Context, runID, path, deadline string, until time.Time) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE workflow_steps SET deadline_at = ?
+		WHERE run_id = ? AND path = ? AND deadline_at = ? AND status IN ('running', 'waiting_agent', 'waiting')`,
+		until.UTC().Format(workflowDeadlineFormat), runID, path, deadline)
 	if err != nil {
 		return false, err
 	}

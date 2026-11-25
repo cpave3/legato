@@ -163,12 +163,42 @@ func TestATimedOutStepIsClaimedOnce(t *testing.T) {
 	if err != nil || len(late) != 1 || late[0].DeadlineAt == nil {
 		t.Fatalf("past now = %+v, %v", late, err)
 	}
-	first, err := s.ClaimWorkflowStepTimeout(ctx, runID, "build", *late[0].DeadlineAt)
+	until := time.Now().Add(2 * time.Minute)
+	first, err := s.ClaimWorkflowStepTimeout(ctx, runID, "build", *late[0].DeadlineAt, until)
 	if err != nil || !first {
 		t.Fatalf("first claim = %v, %v", first, err)
 	}
-	if second, err := s.ClaimWorkflowStepTimeout(ctx, runID, "build", *late[0].DeadlineAt); err != nil || second {
+	if second, err := s.ClaimWorkflowStepTimeout(ctx, runID, "build", *late[0].DeadlineAt, until); err != nil || second {
 		t.Fatalf("second claim = %v, %v", second, err)
+	}
+}
+
+// A claimed timeout goes stale: a host that claimed it and could not fail
+// the step (it stopped, or stopping the agent failed) leaves the step past
+// its deadline again once the claim is old, for another sweep to take.
+func TestAClaimedTimeoutIsTakenAgainOnceItsClaimIsStale(t *testing.T) {
+	ctx := context.Background()
+	s, runID := waitFixture(t)
+	if err := s.SetWorkflowStepDeadline(ctx, runID, "build", time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	late, err := s.ListWorkflowStepsPastDeadline(ctx, time.Now())
+	if err != nil || len(late) != 1 {
+		t.Fatalf("past now = %+v, %v", late, err)
+	}
+	until := time.Now().Add(2 * time.Minute)
+	if claimed, err := s.ClaimWorkflowStepTimeout(ctx, runID, "build", *late[0].DeadlineAt, until); err != nil || !claimed {
+		t.Fatalf("claim = %v, %v", claimed, err)
+	}
+	if held, err := s.ListWorkflowStepsPastDeadline(ctx, time.Now()); err != nil || len(held) != 0 {
+		t.Fatalf("while claimed = %+v, %v; want none", held, err)
+	}
+	stale, err := s.ListWorkflowStepsPastDeadline(ctx, until.Add(time.Second))
+	if err != nil || len(stale) != 1 || stale[0].DeadlineAt == nil {
+		t.Fatalf("once stale = %+v, %v; want the step again", stale, err)
+	}
+	if again, err := s.ClaimWorkflowStepTimeout(ctx, runID, "build", *stale[0].DeadlineAt, until.Add(2*time.Minute)); err != nil || !again {
+		t.Fatalf("claim again = %v, %v", again, err)
 	}
 }
 

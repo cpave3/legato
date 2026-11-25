@@ -259,6 +259,49 @@ steps:
 	}
 }
 
+// cancelFails is an executor whose Cancel fails, as stopping an agent can.
+type cancelFails struct {
+	WorkflowExecutor
+	err error
+}
+
+func (c cancelFails) Cancel(context.Context, store.WorkflowStepAttempt) error { return c.err }
+
+// A host that claims a timeout and cannot fail the step (stopping its
+// agent failed, or the host stopped) does not use the timeout up: once its
+// claim is stale a later sweep times the step out.
+func TestATimeoutThatCouldNotStopItsAgentIsTimedOutAtALaterSweep(t *testing.T) {
+	ctx := context.Background()
+	f := newPlaceFixture(t)
+	view := f.start(t, `
+schema_version: 2
+name: own
+title: Own
+inputs:
+  task: {type: task}
+steps:
+ - {id: build, title: Build, type: agent.run, with: {prompt: Build it}, timeout: 1h}
+`)
+	broken := NewWorkflowService(f.store, []WorkflowExecutor{cancelFails{f.workflows.Executor("agent.run"), errors.New("tmux: busy")}})
+	at := time.Now().Add(2 * time.Hour)
+	if n, err := broken.SweepTimeouts(ctx, at); err == nil || n != 0 {
+		t.Fatalf("swept %d, %v; want the stop's error", n, err)
+	}
+	if n, err := f.workflows.SweepTimeouts(ctx, at); err != nil || n != 0 {
+		t.Fatalf("swept %d, %v while the first claim is fresh", n, err)
+	}
+	if n, err := f.workflows.SweepTimeouts(ctx, at.Add(10*time.Minute)); err != nil || n != 1 {
+		t.Fatalf("swept %d, %v once the claim is stale; want the step", n, err)
+	}
+	view, err := f.store.GetWorkflowRun(ctx, view.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Run.Status != "failed" || view.Steps[0].ErrorCode != WorkflowErrorTimeout {
+		t.Fatalf("run = %s, step = %+v", view.Run.Status, view.Steps[0])
+	}
+}
+
 // A timeout fails through on_failure like any other failure: continued, the
 // step's outputs carry error_code timeout and the run goes on.
 func TestATimedOutStepFollowsItsOnFailureWithErrorCodeTimeout(t *testing.T) {
