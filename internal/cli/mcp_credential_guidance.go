@@ -74,6 +74,8 @@ func credentialGuidance(credentials []service.CredentialSummary, sources []servi
 			b.WriteString(githubGuidance(c, stacks, branches))
 		case c.Profile == service.AzureProfile:
 			fmt.Fprintf(&b, "- %s (Azure, for the az command): in Legato's sandbox, run az as usual. The first az command that needs an account signs in as the credential's app by itself, once the operator allows it; do not run az login yourself. If az says Legato did not give the credential, carry on with other work or end your turn, and run the command again after the [legato approvals] message. The app's roles limit what az can do. Outside Legato's sandbox, az is the operator's own: do not sign it in with %s.\n", c.Name, c.Name)
+		case c.Profile == service.JiraProfile && len(c.Env) == 3:
+			b.WriteString(jiraGuidance(c))
 		case has(c.Channels, service.ChannelHTTPProxy):
 			key, base := "its key variable", "its base URL variable"
 			if len(c.Env) > 0 {
@@ -88,6 +90,15 @@ func credentialGuidance(credentials []service.CredentialSummary, sources []servi
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// jiraGuidance says how to search and read Jira through Legato's proxy. A
+// jira credential's variables are its token, then its base URL and email.
+func jiraGuidance(c service.CredentialSummary) string {
+	token, base, email := "$"+c.Env[0], "$"+c.Env[1], "$"+c.Env[2]
+	auth := fmt.Sprintf(`curl -su "%s:%s"`, email, token)
+	return fmt.Sprintf("- %s (Jira Cloud's REST API, through Legato's proxy): send requests to %s with HTTP Basic, as %s. %s is a placeholder that works only through that address and only for you; Legato signs each request the rules allow with the real token. Search with %s \"%s/rest/api/3/search/jql?jql=<JQL, URL-encoded>&fields=summary,status,created\" (or POST the same address with a JSON body), and read an issue with %s \"%s/rest/api/3/issue/<KEY>?fields=summary,description,status,comment\"; searching and reading usually need no approval. A comment, a create (name the project by key: fields.project.key), a transition or any other change asks the operator: a 403 with \"status\": \"pending\" names an approval, so carry on with other work or end your turn until the [legato approvals] message, then send the request again. A 403 without it is refused; do not try around it.\n",
+		c.Name, base, auth, token, auth, base, auth, base)
 }
 
 // VaultSecrets describes each vault that gives secrets, for an agent:
