@@ -3,6 +3,7 @@ package credential
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -15,15 +16,25 @@ import (
 
 // KeyPlace is where an HTTP API takes its key: a header, written with
 // Format ("Bearer {secret}"; "{secret}" when empty), or a query parameter.
+// Scheme "basic" sends it in the header as HTTP Basic's password, with the
+// credential's user: the agent sends its placeholder as the password.
 type KeyPlace struct {
 	Header string `yaml:"header" json:"header,omitempty"`
 	Format string `yaml:"format" json:"format,omitempty"`
 	Query  string `yaml:"query" json:"query,omitempty"`
+	Scheme string `yaml:"scheme" json:"scheme,omitempty"`
 }
+
+// SchemeBasic is a key sent as HTTP Basic's password.
+const SchemeBasic = "basic"
 
 // Validate checks that a key place names one header or one query parameter.
 func (k KeyPlace) Validate() error {
 	switch {
+	case k.Scheme != "" && k.Scheme != SchemeBasic:
+		return errors.New(`the key's scheme is "basic" or none`)
+	case k.Scheme == SchemeBasic && (k.Header == "" || k.Query != "" || k.Format != ""):
+		return errors.New("a basic key goes in a header, without a format")
 	case k.Header != "" && k.Query != "":
 		return errors.New("the key goes in a header or a query parameter, not both")
 	case k.Header == "" && k.Query == "":
@@ -45,8 +56,10 @@ func (k KeyPlace) format() string {
 
 // ProxyCredential is one credential the proxy serves under /c/<Name>/.
 type ProxyCredential struct {
-	Name      string
-	Upstream  *url.URL
+	Name     string
+	Upstream *url.URL
+	// Username is who a basic key signs in as.
+	Username  string
 	Key       KeyPlace
 	Inspector RestInspector
 	// APIPrefix is where the REST routes are served under /c/<Name>
@@ -270,13 +283,13 @@ func (p *HTTPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	keyText := string(key)
+	secrets := c.keyForms(key)
 	for header, values := range resp.Header {
 		if isHop(header) {
 			continue
 		}
 		for _, v := range values {
-			if keyText != "" && strings.Contains(v, keyText) {
+			if containsAny(v, secrets) {
 				continue
 			}
 			w.Header().Add(header, v)
@@ -316,12 +329,56 @@ func isHop(header string) bool {
 	return strings.HasPrefix(strings.ToLower(header), "proxy-")
 }
 
+// keyForms are the ways the key could come back in a response header: as
+// it is, and as a basic key's encoded user and password.
+func (c ProxyCredential) keyForms(key []byte) []string {
+	if len(key) == 0 {
+		return nil
+	}
+	forms := []string{string(key)}
+	if c.Key.Scheme == SchemeBasic {
+		forms = append(forms, c.basicCredentials(key))
+	}
+	return forms
+}
+
+func containsAny(s string, subs []string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+// basicCredentials is HTTP Basic's encoded user and password.
+func (c ProxyCredential) basicCredentials(key []byte) string {
+	return base64.StdEncoding.EncodeToString([]byte(c.Username + ":" + string(key)))
+}
+
 // placeholderIn reads the key's place of a request, without the format.
 func (c ProxyCredential) placeholderIn(r *http.Request) string {
 	if c.Key.Query != "" {
 		return r.URL.Query().Get(c.Key.Query)
 	}
 	value := r.Header.Get(c.Key.Header)
+	if c.Key.Scheme == SchemeBasic {
+		// The password is the placeholder; the user is whatever the agent's
+		// tool sent, since the proxy signs in as the credential's own.
+		encoded, ok := strings.CutPrefix(value, "Basic ")
+		if !ok {
+			return ""
+		}
+		decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
+		if err != nil {
+			return ""
+		}
+		_, password, ok := strings.Cut(string(decoded), ":")
+		if !ok {
+			return ""
+		}
+		return password
+	}
 	before, after, _ := strings.Cut(c.Key.format(), "{secret}")
 	if !strings.HasPrefix(value, before) || !strings.HasSuffix(value, after) || len(value) < len(before)+len(after) {
 		return ""
@@ -382,7 +439,10 @@ func (c ProxyCredential) outgoing(ctx context.Context, r *http.Request, path str
 			}
 		}
 	}
-	if c.Key.Header != "" {
+	switch {
+	case c.Key.Scheme == SchemeBasic:
+		out.Header.Set(c.Key.Header, "Basic "+c.basicCredentials(key))
+	case c.Key.Header != "":
 		out.Header.Set(c.Key.Header, strings.ReplaceAll(c.Key.format(), "{secret}", string(key)))
 	}
 	return out, nil
