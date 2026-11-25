@@ -169,3 +169,46 @@ func TestASecondStartOnAPullRequestWaitingToOpenIsRefused(t *testing.T) {
 	second := startReviewIn(t, r.runs.Workflows, pr12)
 	refused(t, second, "already has an active review loop: run "+first.Run.ID)
 }
+
+// holderExitsAfterTasks makes every write after a task's own fail, as a
+// holder that exits there leaves the store: the loop is never written, nor
+// the step's failure. The returned func is the restart.
+func holderExitsAfterTasks(t *testing.T, w *Worker) (restart func()) {
+	t.Helper()
+	db := w.Store.DB()
+	var names []string
+	for _, table := range []string{"handoff_reviews", "workflow_step_attempts", "workflow_steps", "workflow_runs"} {
+		for _, op := range []string{"INSERT", "UPDATE"} {
+			name := "holder_gone_" + strings.ToLower(op) + "_" + table
+			if _, err := db.Exec(`CREATE TRIGGER ` + name + ` BEFORE ` + op + ` ON ` + table + ` BEGIN SELECT RAISE(ABORT, 'the holder exited'); END`); err != nil {
+				t.Fatal(err)
+			}
+			names = append(names, name)
+		}
+	}
+	return func() {
+		for _, name := range names {
+			if _, err := db.Exec(`DROP TRIGGER ` + name); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+// A holder that exits while it opens a step leaves the step waiting, and
+// the next holder opens it and runs its pass: the step is never recorded as
+// opened without its loop.
+func TestAHolderThatExitsWhileOpeningLeavesTheStepForTheNextHolder(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	ctx := context.Background()
+	view := startReviewIn(t, otherProcess(r.worker), pr12)
+	restart := holderExitsAfterTasks(t, r.worker)
+	r.runs.Open(ctx)
+	restart()
+	waitingStep(t, r.show(t, view.Run.ID))
+
+	r.tick()
+	if _, err := r.worker.Store.GetAgentSessionInSlot(ctx, view.Run.TaskID, "reviewer"); err != nil {
+		t.Fatalf("the next holder ran no pass: %v", err)
+	}
+}

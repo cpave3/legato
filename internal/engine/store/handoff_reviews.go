@@ -115,7 +115,11 @@ func (s *Store) ListHandoffReviews(ctx context.Context) ([]HandoffReview, error)
 
 // SaveHandoffReview writes a card's review loop.
 func (s *Store) SaveHandoffReview(ctx context.Context, r HandoffReview) error {
-	_, err := s.db.NamedExecContext(ctx, `
+	_, err := s.db.NamedExecContext(ctx, saveHandoffReviewSQL, r)
+	return err
+}
+
+const saveHandoffReviewSQL = `
 		INSERT INTO handoff_reviews (task_id, settings, phase, pass, mismatches, nudged_at, author_busy_since_nudge, reason, queued_at, updated_at, delivered_pass, polled_at, last_new_at, skipped_comments, checks_polled_at, checks_heads, checks_pending)
 		VALUES (:task_id, :settings, :phase, :pass, :mismatches, :nudged_at, :author_busy_since_nudge, :reason, :queued_at, :updated_at, :delivered_pass, :polled_at, :last_new_at, :skipped_comments, :checks_polled_at, :checks_heads, :checks_pending)
 		ON CONFLICT(task_id) DO UPDATE SET settings = excluded.settings, phase = excluded.phase, pass = excluded.pass,
@@ -123,8 +127,24 @@ func (s *Store) SaveHandoffReview(ctx context.Context, r HandoffReview) error {
 			author_busy_since_nudge = excluded.author_busy_since_nudge, reason = excluded.reason,
 			queued_at = excluded.queued_at, updated_at = excluded.updated_at, delivered_pass = excluded.delivered_pass,
 			polled_at = excluded.polled_at, last_new_at = excluded.last_new_at, skipped_comments = excluded.skipped_comments,
-			checks_polled_at = excluded.checks_polled_at, checks_heads = excluded.checks_heads, checks_pending = excluded.checks_pending`, r)
-	return err
+			checks_polled_at = excluded.checks_polled_at, checks_heads = excluded.checks_heads, checks_pending = excluded.checks_pending`
+
+// SaveHandoffReviewWithMetadata saves a loop and, in the same transaction,
+// value at path in its task's metadata (SetTaskMetadata): the record that
+// names who opened the loop is never there without the loop.
+func (s *Store) SaveHandoffReviewWithMetadata(ctx context.Context, r HandoffReview, path []string, value any) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := setTaskMetadata(ctx, tx, r.TaskID, path, value); err != nil {
+		return err
+	}
+	if _, err := tx.NamedExecContext(ctx, saveHandoffReviewSQL, r); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // DeleteHandoffReview forgets a card's review loop and its passes.

@@ -431,11 +431,9 @@ func (c *ReviewRunCaller) open(ctx context.Context, step ResolvedWorkflowStep) e
 			log.Printf("review passes: naming run %s after its stack: %v", step.RunID, err)
 		}
 	}
-	if err := c.engine.db.SetTaskMetadata(ctx, step.TaskID, reviewRunKey, run); err != nil {
-		c.removeClone(ctx, &run)
-		return err
-	}
-	if err := c.engine.beginLoop(ctx, step.TaskID, settings); err != nil {
+	// The record that names this attempt (opened) is written with the
+	// loop, so a holder that exits here leaves the step to open again.
+	if err := c.engine.beginLoop(ctx, step.TaskID, settings, run); err != nil {
 		c.removeClone(ctx, &run)
 		return err
 	}
@@ -958,14 +956,21 @@ func reviewRunSummary(run *reviewRun, outcome string, passes int, findings []sto
 // its pull request, or cancelled. Its reason is the outcome.
 const ReviewPhaseEnded = "ended"
 
-// beginLoop starts a loop at once: pass 1 starts on the next tick.
-func (s *ReviewPassService) beginLoop(ctx context.Context, taskID string, settings ReviewPassSettings) error {
+// beginLoop starts a run's loop at once, writing the run's record with it
+// in one transaction: pass 1 starts on the next tick.
+func (s *ReviewPassService) beginLoop(ctx context.Context, taskID string, settings ReviewPassSettings, run reviewRun) error {
 	data, err := encodeJSON(settings)
 	if err != nil {
 		return err
 	}
-	loop := &store.HandoffReview{TaskID: taskID, Phase: ReviewPhaseReady, Settings: data}
-	return s.saveChanged(ctx, loop)
+	loop := store.HandoffReview{TaskID: taskID, Phase: ReviewPhaseReady, Settings: data, UpdatedAt: s.now()}
+	if err := s.db.SaveHandoffReviewWithMetadata(ctx, loop, reviewRunKey, run); err != nil {
+		return err
+	}
+	for _, caller := range s.callers {
+		caller.Changed(taskID)
+	}
+	return nil
 }
 
 // endLoop records how a loop ended; an approved one is clean already.

@@ -72,12 +72,14 @@ func workerReviewPassOptions(cfg *config.Config, db *store.Store, opts service.R
 	return opts
 }
 
-// reviewEngine is this process's review-pass engine and its run caller (the
-// github.pr.review_passes step), nil fields when review passes are off.
+// reviewEngine is this process's review-pass engine, its run caller (the
+// github.pr.review_passes step) and the handoff worker whose caller it
+// registered, nil fields when review passes are off.
 type reviewEngine struct {
-	reviews *service.ReviewPassService
-	runs    *service.ReviewRunCaller
-	stop    func()
+	reviews  *service.ReviewPassService
+	runs     *service.ReviewRunCaller
+	handoffs *service.HandoffWorkerService
+	stop     func()
 }
 
 // startReviewEngine builds the review-pass engine on an instance with
@@ -86,8 +88,10 @@ type reviewEngine struct {
 // the workflow step, and ticks only while this process serves the broker,
 // holding the engine's lock (reviewEngineRunning) meanwhile (spec LEG-559
 // D9). Any process may start a review step; the holder's tick opens it. It
-// needs the credential channels, which post as the reviewer App. Handoffs
-// register their caller when they are wired (wireHandoffReviewCaller).
+// needs the credential channels, which post as the reviewer App. Its two
+// callers, the run caller and the handoff caller, are registered here, not
+// with the web routes, so a process that holds the broker without the web
+// UI moves both on.
 func startReviewEngine(deps integrationDeps) *reviewEngine {
 	engine := &reviewEngine{stop: func() {}}
 	if !deps.cfg.ReviewPasses.Enabled || deps.approvals == nil || deps.approvals.channels == nil {
@@ -109,6 +113,9 @@ func startReviewEngine(deps integrationDeps) *reviewEngine {
 	reviews := service.NewReviewPassService(deps.db, opts)
 	engine.reviews = reviews
 	engine.runs = attachReviewRuns(deps, reviews)
+	if engine.handoffs = newHandoffWorker(deps); engine.handoffs != nil {
+		wireHandoffReviewCaller(deps, reviews, engine.handoffs)
+	}
 	deps.approvals.setReviewPasses(reviews)
 	if deps.reviewPrompt != nil {
 		deps.reviewPrompt.SetReviews(reviews)

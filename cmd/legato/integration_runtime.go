@@ -66,12 +66,8 @@ func wireIntegrations(srv *server.Server, deps integrationDeps) (stop func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	// The review-pass engine runs in every host process with review passes
 	// on (startReviewEngine); handoffs are one of its callers.
-	var reviews *service.ReviewPassService
-	if deps.engine != nil {
-		reviews = deps.engine.reviews
-	}
 	wireReviewRuns(srv, deps.engine)
-	stopHandoffs := wireTaskHandoffs(srv, deps, reviews)
+	stopHandoffs := wireTaskHandoffs(srv, deps)
 	if deps.cfg.Integrations.Argus != nil && deps.approvals != nil && deps.approvals.caseAttention != nil {
 		srv.SetCaseAttention(deps.approvals.caseAttention)
 	}
