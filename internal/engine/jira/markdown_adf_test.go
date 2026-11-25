@@ -91,6 +91,8 @@ func TestMarkdownToADF(t *testing.T) {
 				`{"type":"table","content":[` +
 				`{"type":"tableRow","content":[{"type":"tableHeader","content":[{"type":"paragraph","content":[{"type":"text","text":"x|y"}]}]}]},` +
 				`{"type":"tableRow","content":[{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"<"}]}]}]}]}`},
+		{"numeric references are decimal or hex, never octal", "&#065; &#x0042; &#0; &#1114112;",
+			`{"type":"paragraph","content":[{"type":"text","text":"A B \uFFFD \uFFFD"}]}`},
 		{"code block keeps escapes", "```\n\\* &amp;\n```",
 			`{"type":"codeBlock","content":[{"type":"text","text":"\\* &amp;"}]}`},
 		{"task list", "- [x] done\n- [ ] todo",

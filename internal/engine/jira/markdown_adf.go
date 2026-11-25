@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/yuin/goldmark"
 	gast "github.com/yuin/goldmark/ast"
@@ -271,7 +273,7 @@ func decodeText(source []byte) string {
 		case c == '&':
 			if ref := characterReference.Find(source[i:]); ref != nil {
 				if ref[1] == '#' {
-					sb.Write(util.ResolveNumericReferences(ref))
+					sb.WriteRune(numericReference(ref))
 				} else {
 					sb.Write(util.ResolveEntityNames(ref))
 				}
@@ -284,4 +286,19 @@ func decodeText(source []byte) string {
 		}
 	}
 	return sb.String()
+}
+
+// numericReference is the character of &#65; or &#x41;: decimal or hex,
+// whatever its leading zeros (goldmark's own helper reads &#065; as octal),
+// and U+FFFD for zero or what is not a character, as CommonMark says.
+func numericReference(ref []byte) rune {
+	digits, base := string(ref[2:len(ref)-1]), 10
+	if digits[0] == 'x' || digits[0] == 'X' {
+		digits, base = digits[1:], 16
+	}
+	n, err := strconv.ParseUint(digits, base, 32)
+	if err != nil || n == 0 || !utf8.ValidRune(rune(n)) {
+		return utf8.RuneError
+	}
+	return rune(n)
 }
