@@ -6,8 +6,8 @@ import { checkExpression, describeReference, locationOf, openExpression, referen
 // engine's Validate: the verdicts here must be the same.
 describe("the shared expression table", () => {
   for (const tc of fixture.cases) {
-    it(`${tc.expression} in ${tc.location.kind}${"step" in tc.location ? ` of step ${tc.location.step}` : ""} is ${tc.valid ? "valid" : "invalid"}`, () => {
-      const verdict = checkExpression(fixture.definition, tc.location as ExpressionLocation, tc.expression)
+    it(`${tc.expression} in ${tc.location.kind}${"step" in tc.location ? ` of step ${tc.location.step}` : ""}${"whole" in tc && tc.whole ? " (whole)" : ""} is ${tc.valid ? "valid" : "invalid"}`, () => {
+      const verdict = checkExpression(fixture.definition, tc.location as ExpressionLocation, tc.expression, "whole" in tc && tc.whole === true)
       expect(verdict === null).toBe(tc.valid)
     })
   }

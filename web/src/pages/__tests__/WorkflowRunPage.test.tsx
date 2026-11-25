@@ -6,10 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { WorkflowRunView } from "../../lib/workflow"
 import { WorkflowRunPage } from "../WorkflowRunPage"
 
-const { fetchArtifact, fetchRun, triggerStep, retryStep, resumeStep, promptStep, anotherPass, cancelRun } = vi.hoisted(() => ({ fetchArtifact: vi.fn(), fetchRun: vi.fn(), triggerStep: vi.fn(), retryStep: vi.fn(), resumeStep: vi.fn(), promptStep: vi.fn(), anotherPass: vi.fn(), cancelRun: vi.fn() }))
+const { fetchArtifact, fetchRun, triggerStep, retryStep, resumeStep, promptStep, anotherPass, cancelRun, stepAction } = vi.hoisted(() => ({ fetchArtifact: vi.fn(), fetchRun: vi.fn(), triggerStep: vi.fn(), retryStep: vi.fn(), resumeStep: vi.fn(), promptStep: vi.fn(), anotherPass: vi.fn(), cancelRun: vi.fn(), stepAction: vi.fn() }))
 
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
-vi.mock("../../lib/workflow", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/workflow")>()), fetchWorkflowRun: fetchRun, fetchWorkflowArtifact: fetchArtifact, triggerWorkflowStep: triggerStep, retryWorkflowStep: retryStep, resumeWorkflowStep: resumeStep, promptWorkflowStep: promptStep, anotherReviewPass: anotherPass, cancelWorkflow: cancelRun }))
+vi.mock("../../lib/workflow", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/workflow")>()), fetchWorkflowRun: fetchRun, fetchWorkflowArtifact: fetchArtifact, triggerWorkflowStep: triggerStep, retryWorkflowStep: retryStep, resumeWorkflowStep: resumeStep, promptWorkflowStep: promptStep, anotherReviewPass: anotherPass, cancelWorkflow: cancelRun, workflowStepAction: stepAction }))
 
 const run = { id: "wr-1", workflow_name: "plan-task", workflow_title: "Plan jgek1vt3", definition_source: "/w/plan-task.yaml", definition_digest: "d", definition_json: JSON.stringify({ title: "Plan a task" }), inputs_json: '{"task":"jgek1vt3"}', related_task_id: "jgek1vt3", related_task_title: "Sync retries hammer Jira", created_at: "2026-07-28T10:00:00Z", started_at: "2026-07-28T10:00:00Z" }
 const stepRun = (step_id: string, step_order: number, title: string, executor_type: string, status: string, extra = {}) => ({ run_id: "wr-1", step_id, step_order, title, executor_type, definition_json: "{}", resolved_inputs_json: "{}", outputs_json: "{}", status, latest_attempt: status === "pending" ? 0 : 1, ...extra })
@@ -25,7 +25,7 @@ function show(data: unknown) {
 const now = () => screen.getByRole("region", { name: "Now" })
 
 describe("WorkflowRunPage", () => {
-  beforeEach(() => { cleanup(); fetchRun.mockReset(); fetchArtifact.mockReset(); triggerStep.mockReset(); retryStep.mockReset(); resumeStep.mockReset(); promptStep.mockReset(); anotherPass.mockReset(); cancelRun.mockReset(); vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn(() => "blob:test"), revokeObjectURL: vi.fn() }) })
+  beforeEach(() => { cleanup(); fetchRun.mockReset(); fetchArtifact.mockReset(); triggerStep.mockReset(); retryStep.mockReset(); resumeStep.mockReset(); promptStep.mockReset(); anotherPass.mockReset(); cancelRun.mockReset(); stepAction.mockReset(); vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn(() => "blob:test"), revokeObjectURL: vi.fn() }) })
 
   it("keeps the run and expanded steps on refresh failure, then retries", async () => {
     const data = { run: { ...run, status: "succeeded" }, steps: [stepRun("plan", 0, "Write the plan", "agent.run", "succeeded", { outputs_json: '{"risk":"low"}' })], attempts: [], artifacts: [] }
@@ -163,6 +163,35 @@ describe("WorkflowRunPage", () => {
     show({ run: { ...run, status: "failed", current_step_id: "review", error: "the operator failed it", completed_at: "2026-07-28T10:00:01Z" }, steps: [stepRun("review", 0, "Review in passes", "github.pr.review_passes", "failed", { error: "the operator failed it" })], attempts: [], artifacts: [] })
     fireEvent.click(screen.getByRole("button", { name: "Cancel run" }))
     await waitFor(() => expect(cancelRun).toHaveBeenCalledWith("", "wr-1"))
+  })
+
+  it("asks a gate's question and takes the operator's choice", async () => {
+    stepAction.mockResolvedValue({})
+    show({ run: { ...run, status: "running", current_step_id: "ask", needs_attention: true, attention_reason: "Ship it?" }, steps: [stepRun("ask", 0, "Ask", "gate", "waiting")], attempts: [{ ...agentAttempt({ step_id: "ask", executor_type: "gate", status: "waiting", agent_session_id: undefined, agent_kind: undefined, working_dir: undefined }), needs_attention: true, attention_reason: "Ship it?" }], artifacts: [], details: { ask: { title: "Ship it?", body: "The review is clean.", options: ["Ship", "Hold", "Stop"] } } })
+    expect(within(now()).getByText("Ship it?")).toBeTruthy()
+    expect(within(now()).getByText("The review is clean.")).toBeTruthy()
+    fireEvent.click(within(now()).getByRole("button", { name: "Hold" }))
+    await waitFor(() => expect(stepAction).toHaveBeenCalledWith("", "wr-1", "ask", "choose:Hold"))
+  })
+
+  it("shows a paused step's failure with its link, and retries, skips or stops it", async () => {
+    stepAction.mockResolvedValue({})
+    show({ run: { ...run, status: "waiting", current_step_id: "open", needs_attention: true, attention_reason: "Step failed: Open the loop: held (/workflows/runs/wr-9)" }, steps: [stepRun("open", 0, "Open the loop", "task.context", "paused", { error: "another loop holds it", error_code: "review_loop_active", error_link: "/workflows/runs/wr-9" })], attempts: [], artifacts: [] })
+    expect(within(now()).getByText("Open the loop failed")).toBeTruthy()
+    expect(within(now()).getByText("another loop holds it")).toBeTruthy()
+    expect(within(now()).getByRole("link", { name: /wr-9/ }).getAttribute("href")).toBe("/workflows/runs/wr-9")
+    fireEvent.click(within(now()).getByRole("button", { name: "Skip" }))
+    await waitFor(() => expect(stepAction).toHaveBeenCalledWith("", "wr-1", "open", "skip"))
+    fireEvent.click(within(now()).getByRole("button", { name: "Retry" }))
+    await waitFor(() => expect(stepAction).toHaveBeenCalledWith("", "wr-1", "open", "retry"))
+    fireEvent.click(within(now()).getByRole("button", { name: "Stop" }))
+    await waitFor(() => expect(stepAction).toHaveBeenCalledWith("", "wr-1", "open", "stop"))
+  })
+
+  it("says a run a gate stopped is stopped", () => {
+    show({ run: { ...run, status: "stopped", current_step_id: "", error: "stopped at the gate: Ship it?", completed_at: "2026-07-28T10:00:01Z" }, steps: [stepRun("ask", 0, "Ask", "gate", "cancelled")], attempts: [], artifacts: [] })
+    expect(document.body.textContent).toContain("Stopped")
+    expect(document.body.textContent).toContain("stopped at the gate: Ship it?")
   })
 
   it("says a step whose agent Legato stopped with is suspended, and resumes it", async () => {

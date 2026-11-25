@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, Download, FileText } from "lucide-react"
 import { useWorkflowRun } from "../hooks/useWorkflow"
 import { useServer } from "../hooks/useServer"
 import { useNow } from "../hooks/useNow"
-import { anotherReviewPass, resumeWorkflowAgent, type MergeWaitDetails, cancelWorkflow, retryWorkflowStep, resumeWorkflowStep, triggerWorkflowStep, promptWorkflowStep, fetchWorkflowArtifact, type ReviewRunDetails, type WorkflowArtifact, type WorkflowAttempt, type WorkflowRunView, type WorkflowStepRun } from "../lib/workflow"
+import { anotherReviewPass, resumeWorkflowAgent, workflowStepAction, type GateDetails, type MergeWaitDetails, cancelWorkflow, retryWorkflowStep, resumeWorkflowStep, triggerWorkflowStep, promptWorkflowStep, fetchWorkflowArtifact, type ReviewRunDetails, type WorkflowArtifact, type WorkflowAttempt, type WorkflowRunView, type WorkflowStepRun } from "../lib/workflow"
 import { ago, attentionCopy, currentStep, elapsed, inputText, runWithAttention, producedValues, runState, runSubject, sourceLabel, stepIntent, stepMark, stepPosition, stepSegments, type StepLike, type Tone } from "../lib/workflowView"
 import { WorkflowMarkdownPreview } from "../components/WorkflowMarkdownPreview"
 import { ManualWorkflowStepAction } from "../components/ManualWorkflowStepAction"
@@ -134,9 +134,17 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
       {(failed?.error || run.error) && <p className="mt-1 whitespace-pre-wrap break-words rounded-lg bg-[var(--theme-surface,rgba(0,0,0,0.25))] px-2.5 py-2 font-lw-mono text-xs text-lw-danger">{redact(failed?.error || run.error || "", secrets)}</p>}
     </NowPanel>
   }
-  if (run.status === "cancelled") return null
+  if (run.status === "cancelled" || run.status === "stopped") return null
+  // A step paused after a failure (on_failure: pause): its error, the link
+  // it carries (such as the run of the loop that holds the PR), and Retry,
+  // Skip or Stop.
+  const paused = steps.find(step => step.status === "paused")
+  if (paused) return <PausedNow step={paused} runId={runId} refresh={refresh} secrets={secrets} />
   const current = currentStep(steps)
   if (!current) return null
+  if (current.status === "waiting" && current.executor_type === "gate") {
+    return <GateNow view={view} step={current} runId={runId} refresh={refresh} />
+  }
   const attempt = [...attempts].reverse().find(item => item.step_id === current.step_id && item.status === "waiting_agent")
   if (attempt) {
     const open = attempt.agent_session_id ? <>
@@ -176,6 +184,51 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
     </NowPanel>
   }
   return <NowPanel tone={state.tone} heading={`Running ${current.title}`} actions={view.can_resume_agent ? resume : undefined} />
+}
+
+// useStepAction takes an action on a step (StepAction on the server), and
+// says why one was refused.
+function useStepAction(runId: string, step: string, refresh: () => Promise<void>) {
+  const { baseUrl } = useServer()
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+  async function act(action: string) {
+    setError("")
+    setBusy(true)
+    try { await workflowStepAction(baseUrl, runId, step, action); await refresh() }
+    catch (c) { setError(c instanceof Error ? c.message : String(c)) }
+    finally { setBusy(false) }
+  }
+  return { act, busy, error }
+}
+
+// PausedNow is a step that failed under on_failure: pause.
+function PausedNow({ step, runId, refresh, secrets }: { step: WorkflowStepRun; runId: string; refresh: () => Promise<void>; secrets: string[] }) {
+  const { act, busy, error } = useStepAction(runId, step.step_id, refresh)
+  const internal = step.error_link?.startsWith("/")
+  return <NowPanel tone="needs" heading={`${step.title} failed`}
+    actions={<>
+      <Button variant="primary" disabled={busy} onClick={() => { void act("retry") }}>Retry</Button>
+      <Button variant="outline" disabled={busy} onClick={() => { void act("skip") }}>Skip</Button>
+      <Button variant="ghost" disabled={busy} onClick={() => { void act("stop") }}>Stop</Button>
+    </>}>
+    {step.error && <p className="mt-1 whitespace-pre-wrap break-words rounded-lg bg-[var(--theme-surface,rgba(0,0,0,0.25))] px-2.5 py-2 font-lw-mono text-xs text-lw-danger">{redact(step.error, secrets)}</p>}
+    {step.error_link && <p className="mt-1">See {internal ? <Link className="text-lw-accent underline" to={step.error_link}>{step.error_link}</Link> : <a className="text-lw-accent underline" href={step.error_link} target="_blank" rel="noreferrer">{step.error_link}</a>}{step.error_code && <> · <span className="font-lw-mono text-xs">{step.error_code}</span></>}</p>}
+    <p className="mt-1">Retry runs the step again, Skip goes on without its outputs, and Stop ends the run.</p>
+    {error && <p role="alert" className="mt-1 text-lw-error">{error}</p>}
+  </NowPanel>
+}
+
+// GateNow is a gate step asking the operator to choose.
+function GateNow({ view, step, runId, refresh }: { view: WorkflowRunView; step: WorkflowStepRun; runId: string; refresh: () => Promise<void> }) {
+  const { act, busy, error } = useStepAction(runId, step.step_id, refresh)
+  const gate = view.details?.[step.step_id] as GateDetails | undefined
+  const options = gate?.options ?? ["Continue", "Stop"]
+  return <NowPanel tone="needs" heading={gate?.title || step.title}
+    actions={options.map((option, i) => <Button key={option} variant={i === 0 ? "primary" : option.toLowerCase() === "stop" ? "ghost" : "outline"} disabled={busy} onClick={() => { void act(`choose:${option}`) }}>{option}</Button>)}>
+    {gate?.body && <p className="whitespace-pre-wrap">{gate.body}</p>}
+    {error && <p role="alert" className="mt-1 text-lw-error">{error}</p>}
+  </NowPanel>
 }
 
 // MergeWaitNow is a run waiting for its card's pull request to merge: the
@@ -389,7 +442,10 @@ function NeedsYouList({ rows, steps, runId, refresh, onFocus }: { rows: RunNeeds
         prompt: () => promptWorkflowStep(baseUrl, runId, step),
         retry: () => retryWorkflowStep(baseUrl, runId, step, false),
         another_pass: () => anotherReviewPass(baseUrl, runId, step),
+        skip: () => workflowStepAction(baseUrl, runId, step, "skip"),
+        stop: () => workflowStepAction(baseUrl, runId, step, "stop"),
       }
+      if (actionId.startsWith("choose:")) { void act(item, () => workflowStepAction(baseUrl, runId, step, actionId)); return }
       if (calls[actionId]) void act(item, calls[actionId])
       return
     }
@@ -540,7 +596,7 @@ export function WorkflowRunPage() {
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-lw-text-2"><StatePill tone={state.tone} label={state.label} />{where && <span>{where}</span>}</div>
       {steps.length > 0 && <StepBar segments={stepSegments(run, stepLikes)} label={where || state.label} className="mt-2" />}
-      {run.status === "cancelled" && run.error && <p className="mt-3 text-[13px] text-lw-text-2">{redact(run.error, secrets)}</p>}
+      {(run.status === "cancelled" || run.status === "stopped") && run.error && <p className="mt-3 text-[13px] text-lw-text-2">{redact(run.error, secrets)}</p>}
       {error && <div role="alert" className="mt-4 rounded-lg border border-lw-line bg-lw-surface p-3 text-sm">
         <p className="text-lw-needs">Showing saved run. Refresh failed: {error}</p>
         <Button variant="outline" size="sm" className="mt-2" disabled={refreshing} onClick={() => { void refresh() }}>Retry</Button>

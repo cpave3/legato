@@ -18,7 +18,9 @@ export type WorkflowTriggerState = { trigger:string; file_enabled:boolean; enabl
 export type WorkflowDiscovery = { definitions:WorkflowDefinition[] | null; errors:{path:string;error:string}[] | null; repositories?:WorkflowRepositoryPreset[] | null; trigger_states?:Record<string,WorkflowTriggerState[]> | null; folders?:WorkflowFolder[] | null }
 export type WorkflowRunStepSummary = { step_id:string; title:string; status:string; trigger?:string }
 export type WorkflowRun = { id:string; workflow_name:string; workflow_title:string; definition_source:string; definition_digest:string; definition_json?:string; inputs_json:string; status:string; current_step_id:string; task_id?:string; related_task_id?:string; related_task_title?:string; steps?:WorkflowRunStepSummary[]; error?:string; needs_attention?:boolean; attention_reason?:string; output_warning?:string; created_at:string; started_at?:string; completed_at?:string }
-export type WorkflowStepRun = { run_id:string; step_id:string; step_order:number; title:string; executor_type:string; definition_json?:string; resolved_inputs_json:string; outputs_json:string; status:string; latest_attempt:number; error?:string; output_warning?:string; started_at?:string; completed_at?:string }
+export type WorkflowStepRun = { run_id:string; step_id:string; step_order:number; title:string; executor_type:string; definition_json?:string; resolved_inputs_json:string; outputs_json:string; status:string; latest_attempt:number; error?:string; error_code?:string; error_link?:string; output_warning?:string; started_at?:string; completed_at?:string }
+/** GateDetails is what a gate step asks (a run view's details, by step). */
+export type GateDetails = { title:string; body?:string; options:string[]; choice?:string }
 export type WorkflowAttempt = { id:string; run_id:string; step_id:string; attempt_number:number; executor_type:string; agent_session_id?:number; task_id?:string; agent_id?:string; tmux_session?:string; agent_kind?:string; tier?:string; working_dir?:string; status:string; error?:string; agent_activity?:string; needs_attention?:boolean; attention_reason?:string; resumable?:boolean; started_at:string; ended_at?:string }
 export type WorkflowArtifact = { id:string; run_id:string; step_id:string; attempt_id:string; output_key:string; original_path?:string; media_type:string; size_bytes:number; digest:string; created_at:string }
 // needs_you is the server's word on whether the loop waits on the operator:
@@ -58,6 +60,9 @@ export type MergeWaitDetails = { repo:string; pr_number:number; url?:string; sta
 // resumeWorkflowAgent starts the run's card agent with a macro, or sends the
 // macro to the one running.
 export const resumeWorkflowAgent=(baseUrl:string,id:string,macro:string)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/resume-agent`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({macro})}).then(decode<{task_id:string;started:boolean;queued:boolean;agent_kind?:string}>)
+// workflowStepAction takes a step's action: a gate's choice (choose:<option>),
+// or retry, skip or stop on a step paused after a failure.
+export const workflowStepAction=(baseUrl:string,id:string,step:string,action:string,text?:string)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/steps/${encodeURIComponent(step)}/action`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,text})}).then(decode<WorkflowRunView>)
 export const anotherReviewPass=(baseUrl:string,id:string,step:string)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/steps/${encodeURIComponent(step)}/another-pass`,{method:"POST"}).then(decode<WorkflowRunView>)
 // The review loop already running on a pull request, as a run of
 // review-pr-passes, or null.

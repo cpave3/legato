@@ -4,10 +4,11 @@
 // with the rail's own row and approval card.
 import type { Approval } from "./approvals"
 import type { AttentionItem } from "./attention"
-import type { MergeWaitDetails, ReviewRunDetails, WorkflowRunView } from "./workflow"
+import type { GateDetails, MergeWaitDetails, ReviewRunDetails, WorkflowRunView } from "./workflow"
 
 // The actions of the rows only the run knows; the run page carries them out.
-export type RunActionId = "start" | "end_now" | "prompt" | "retry" | "another_pass" | "resume_agent"
+// skip and stop are a paused step's; choose:<option> a gate's.
+export type RunActionId = "start" | "end_now" | "prompt" | "retry" | "another_pass" | "resume_agent" | "skip" | "stop" | `choose:${string}`
 
 // The step a run row acts on. A worktree removal has no plain button in the
 // row: control names the page's existing control for it (trigger or
@@ -85,7 +86,18 @@ export function runNeedsYou(view: WorkflowRunView, attention: AttentionItem[], a
       if (merge.task_id && merge.agent) actions.push({ id: "open_agent", label: "Open agent", kind: "navigate", href: agentHref(merge.task_id) })
       rows.push({ kind: "item", node, run: { step: step.step_id }, item: { ...runItem(view, step.step_id, "workflow_merge_waiting", "merge", `Review and merge PR #${merge.pr_number}`, hide(latest.attention_reason || merge.repo), actions), task_id: merge.task_id || view.run.related_task_id || undefined } })
     }
-    if (step.status === "failed") {
+    // A failed step the run went on from (on_failure: continue) needs no one.
+    if (step.status === "paused") {
+      const link = step.error_link ? ` (${step.error_link})` : ""
+      rows.push({ kind: "item", node, run: { step: step.step_id }, item: { ...runItem(view, step.step_id, "workflow_failed", "paused", `${step.title} failed`, hide((step.error || "") + link),
+        [execute("retry", "Retry", "primary"), execute("skip", "Skip"), execute("stop", "Stop")]), urgency: "high" } })
+    }
+    const gate = step.executor_type === "gate" && step.status === "waiting" ? view.details?.[step.step_id] as GateDetails | undefined : undefined
+    if (gate) {
+      rows.push({ kind: "item", node, run: { step: step.step_id }, item: runItem(view, step.step_id, "workflow_gate", "gate", gate.title || step.title, hide(gate.body || "Choose to move the run on."),
+        (gate.options ?? []).map((option, i) => execute(`choose:${option}`, option, i === 0 ? "primary" : undefined))) })
+    }
+    if (step.status === "failed" && view.run.status === "failed") {
       rows.push({ kind: "item", node, run: cleanup ? { step: step.step_id, control: "retry" } : { step: step.step_id }, item: runItem(view, step.step_id, "workflow_failed", "failed", `${step.title} failed`, hide(step.error || view.run.error || ""), cleanup ? [] : [execute("retry", "Retry", "primary")]) })
     }
   }

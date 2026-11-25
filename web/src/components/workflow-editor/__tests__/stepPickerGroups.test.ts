@@ -3,9 +3,9 @@ import { pickerGroups } from "../stepPickerGroups"
 import { executors } from "../../../lib/workflowSchema"
 
 describe("the step picker's list", () => {
-  it("groups every step type as Agents, Code, Board, Chat, Learn and Cleanup", () => {
+  it("groups every step type as Agents, Code, Board, Chat, Learn, Cleanup and Control", () => {
     const groups = pickerGroups("")
-    expect(groups.map(g => g.group)).toEqual(["Agents", "Code", "Board", "Chat", "Learn", "Cleanup"])
+    expect(groups.map(g => g.group)).toEqual(["Agents", "Code", "Board", "Chat", "Learn", "Cleanup", "Control"])
     expect(groups.find(g => g.group === "Chat")?.entries.map(e => e.type)).toEqual(["chat.message.send", "chat.reaction.add", "chat.reaction.remove", "chat.thread.read"])
     const listed = groups.flatMap(g => g.entries.map(e => e.type)).sort()
     expect(listed).toEqual(executors.map(e => e.type).sort())

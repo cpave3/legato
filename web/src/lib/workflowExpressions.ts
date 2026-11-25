@@ -1,3 +1,4 @@
+import { findExpressions, isParseError, parseExpression, parsePath, pathNames, pathString, type PathPart } from "./workflowExpressionParse"
 import { lenientValues, valuePathAt, workflowSchema, type YamlPath } from "./workflowSchema"
 
 // What ${{ }} may read at each place in a workflow file, from the schema's
@@ -10,6 +11,7 @@ export type ExpressionLocation =
   | { kind: "run_title" }
   | { kind: "with"; step: number }
   | { kind: "output_path"; step: number; output?: string }
+  | { kind: "if"; step: number }
   | { kind: "trigger"; trigger: string }
 
 export type Reference = { expression: string; description: string }
@@ -21,12 +23,15 @@ const extension = workflowSchema["x-legato"]
 const contexts: Record<string, Context> = extension.expressions
 const taskFields: string[] = extension.task_fields
 const repositoryFields: string[] = extension.repository_fields
+const failureOutputs: string[] = extension.failure_outputs ?? []
+const catalogOutputs: Record<string, { name: string; type: string }[]> = Object.fromEntries(
+  (extension.executors as { type: string; outputs?: { name: string; type: string }[] }[]).map(executor => [executor.type, executor.outputs ?? []]))
 
 /** ExpressionDefinition is what of a definition the rules read: its inputs
  * and its steps' IDs and outputs. */
 export type ExpressionDefinition = {
   inputs?: Record<string, { type?: string; description?: string } | null | undefined> | null
-  steps?: ({ id?: string; outputs?: Record<string, { type?: string; description?: string } | null | undefined> | null } | null)[] | null
+  steps?: ({ id?: string; type?: string; on_failure?: string; outputs?: Record<string, { type?: string; description?: string } | null | undefined> | null } | null)[] | null
 }
 type Definition = ExpressionDefinition
 
@@ -95,16 +100,109 @@ function matchRoot(root: Root, segments: string[], definition: Definition, locat
 }
 
 /** checkExpression says what is wrong with an expression here, or null
- * when the engine would accept it. */
-export function checkExpression(definition: Definition, location: ExpressionLocation, expression: string): string | null {
+ * when the engine would accept it. whole is a field's whole value, where
+ * both sides of ?? must have the same type; within longer text they need
+ * not. At an if: location the expression is a condition's field, a bare
+ * path. */
+export function checkExpression(definition: Definition, location: ExpressionLocation, expression: string, whole = false): string | null {
   const context = contextFor(location)
   if (!context) return "${{ }} is not read here"
-  const segments = expression.trim().split(".")
-  if (context.roots.some(root => matchRoot(root, segments, definition, location))) return null
-  if (location.kind === "run_title" && segments[0] === "workflow" && segments[1] === "task") return "run_title: workflow.task is unavailable before the workflow task is created"
-  if (segments[0] === "steps" && location.kind !== "run_title") return `${segments.slice(0, 4).join(".")} is not an output of an earlier step`
-  if (segments[0] === "workflow" && segments[1] === "inputs" && !(definition.inputs ?? {})[segments[2]]) return `input ${segments[2]} is not declared`
-  return `${expression.trim()} can't be read here`
+  if (location.kind === "trigger") {
+    const segments = expression.trim().split(".")
+    return context.roots.some(root => matchRoot(root, segments, definition, location)) ? null : `${expression.trim()} can't be read here`
+  }
+  if (location.kind === "if") {
+    const path = parsePath(expression)
+    if (isParseError(path)) return path.error
+    const read = pathType(path, definition, location, context)
+    return "error" in read ? read.error : null
+  }
+  const parsed = parseExpression(expression)
+  if (isParseError(parsed)) return parsed.error
+  const types: string[] = []
+  for (const operand of parsed.operands) {
+    if ("literal" in operand) { types.push(literalType(operand.literal)); continue }
+    const read = pathType(operand.path, definition, location, context)
+    if ("error" in read) return read.error
+    types.push(read.type)
+  }
+  if (whole) {
+    for (const other of types.slice(1)) {
+      if (!typesMatch(types[0], other)) return `${expression.trim()}: both sides of ?? must have the same type, not ${types[0]} and ${other}`
+    }
+  }
+  return null
+}
+
+function literalType(value: unknown): string {
+  if (typeof value === "string") return "string"
+  if (typeof value === "boolean") return "boolean"
+  if (typeof value === "number") return "integer"
+  return ""
+}
+
+function typesMatch(a: string, b: string): boolean {
+  return a === "" || b === "" || a === "json" || b === "json" || a === b
+}
+
+/** readableOutputs are the outputs a later step may read of a step, with
+ * their types: its catalog outputs, those it declares, and with
+ * on_failure: continue the failure's. */
+function readableOutputs(step: NonNullable<NonNullable<Definition["steps"]>[number]>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const output of catalogOutputs[step.type ?? ""] ?? []) out[output.name] = output.type
+  for (const [name, output] of Object.entries(step.outputs ?? {})) out[name] = output?.type ?? ""
+  if (step.on_failure === "continue") for (const name of failureOutputs) out[name] ??= "string"
+  return out
+}
+
+/** pathType checks a path can be read here, as the engine's pathType does,
+ * and says its declared type. */
+function pathType(path: PathPart[], definition: Definition, location: ExpressionLocation, context: Context): { type: string } | { error: string } {
+  const names = pathNames(path)
+  const rest = path.slice(names.length)
+  const reads = (prefix: string) => context.roots.some(root => root.pattern.startsWith(prefix))
+  const expression = pathString(path)
+  const taskPath = (fields: string[], after: PathPart[], problem: string): { type: string } | { error: string } => {
+    if (!taskFields.includes(fields[0]) || (fields[0] !== "metadata" && (fields.length > 1 || after.length > 0))) return { error: problem }
+    return { type: fields[0] === "metadata" ? "json" : "string" }
+  }
+  if (names[0] === "workflow" && names[1] === "task" && names.length >= 2) {
+    if (!reads("workflow.task")) return { error: location.kind === "run_title" ? "run_title: workflow.task is unavailable before the workflow task is created" : `${expression} can't be read here` }
+    if (names.length === 2) return rest.length > 0 ? { error: `workflow task has no field path "${pathString(rest)}"` } : { type: "task" }
+    return taskPath(names.slice(2), rest, `workflow task has no field path "${pathString(path.slice(2))}"`)
+  }
+  if (names[0] === "workflow" && names[1] === "inputs" && names.length >= 3) {
+    const input = (definition.inputs ?? {})[names[2]]
+    if (!input) return { error: `input ${names[2]} is not declared` }
+    const fields = names.slice(3)
+    if (fields.length === 0 && rest.length === 0) return { type: input.type ?? "" }
+    const problem = `input ${names[2]} has no field path "${pathString(path.slice(3)).replace(/^\./, "")}"`
+    if (input.type === "json") return { type: "json" }
+    if (input.type === "task" && fields.length > 0) return taskPath(fields, rest, problem)
+    if (input.type === "repository" && fields.length === 1 && rest.length === 0 && repositoryFields.includes(fields[0])) return { type: "string" }
+    return { error: problem }
+  }
+  if (names[0] === "steps" && names[2] === "outputs" && names.length >= 4) {
+    const step = "step" in location ? location.step : -1
+    const steps = definition.steps ?? []
+    const earlier = reads("steps.") ? steps.slice(0, Math.max(0, step)) : []
+    const named = earlier.find(s => s?.id === names[1])
+    if (!named) return { error: `steps.${names[1]} is not an earlier step` }
+    const outputs = readableOutputs(named)
+    if (!(names[3] in outputs)) return { error: `steps.${names.slice(1, 4).join(".")} is not an output of an earlier step` }
+    const after = path.slice(4)
+    if (after.length === 0) return { type: outputs[names[3]] }
+    if (after.length === 1 && "name" in after[0] && after[0].name === "path") return { type: "string" }
+    if (outputs[names[3]] === "json") return { type: "json" }
+    return { error: `output ${names[3]} has no field "${pathString(after).replace(/^\./, "")}"` }
+  }
+  if (names[0] === "outputs" && names.length === 3 && path.length === 3 && names[2] === "path" && reads("outputs.")) {
+    const step = "step" in location ? definition.steps?.[location.step] : undefined
+    if (step?.outputs?.[names[1]]?.type === "file") return { type: "string" }
+    return { error: `file output ${names[1]} is not declared` }
+  }
+  return { error: `${expression} can't be read here` }
 }
 
 /** references are the expressions that can be read here, each spelled out
@@ -133,7 +231,9 @@ export function references(definition: Definition, location: ExpressionLocation)
 export function describeReference(definition: Definition, location: ExpressionLocation, expression: string): string | null {
   const context = contextFor(location)
   if (!context) return null
-  const segments = expression.trim().split(".")
+  const parsed = parseExpression(expression)
+  const first = !isParseError(parsed) ? parsed.operands[0] : undefined
+  const segments = first && "path" in first ? pathNames(first.path) : expression.trim().split(".")
   const root = context.roots.find(r => matchRoot(r, segments, definition, location))
   if (!root) return null
   if (segments[0] === "workflow" && segments[1] === "inputs") {
@@ -154,7 +254,6 @@ export function openExpression(lineBefore: string): { prefix: string } | null {
   return match ? { prefix: match[1] } : null
 }
 
-export const expressionPattern = /\$\{\{\s*([^}]+?)\s*\}\}/g
 
 export type ExpressionDiagnostic = { from: number; to: number; severity: "error"; message: string }
 
@@ -163,13 +262,12 @@ export type ExpressionDiagnostic = { from: number; to: number; severity: "error"
 export function expressionDiagnostics(text: string): ExpressionDiagnostic[] {
   const definition = lenientValues(text) as Definition
   const out: ExpressionDiagnostic[] = []
-  for (const match of text.matchAll(expressionPattern)) {
-    const offset = match.index ?? 0
-    const path = valuePathAt(text, offset)
+  for (const match of findExpressions(text)) {
+    const path = valuePathAt(text, match.start)
     const location = path && locationOf(path)
     if (!location) continue
-    const problem = checkExpression(definition, location, match[1])
-    if (problem) out.push({ from: offset, to: offset + match[0].length, severity: "error", message: problem })
+    const problem = checkExpression(definition, location, match.inner)
+    if (problem) out.push({ from: match.start, to: match.end, severity: "error", message: problem })
   }
   return out
 }
@@ -190,15 +288,15 @@ export function expressionCompletions(text: string, offset: number): { from: num
 export function expressionAt(text: string, offset: number): { from: number; to: number; description: string } | null {
   const lineStart = text.lastIndexOf("\n", offset - 1) + 1
   const lineEnd = text.indexOf("\n", offset) < 0 ? text.length : text.indexOf("\n", offset)
-  for (const match of text.slice(lineStart, lineEnd).matchAll(expressionPattern)) {
-    const from = lineStart + (match.index ?? 0)
-    const to = from + match[0].length
+  for (const match of findExpressions(text.slice(lineStart, lineEnd))) {
+    const from = lineStart + match.start
+    const to = lineStart + match.end
     if (offset < from || offset > to) continue
     const path = valuePathAt(text, from)
     const location = path && locationOf(path)
     if (!location) return null
     const definition = lenientValues(text) as Definition
-    return { from, to, description: describeReference(definition, location, match[1]) ?? checkExpression(definition, location, match[1]) ?? "" }
+    return { from, to, description: describeReference(definition, location, match.inner) ?? checkExpression(definition, location, match.inner) ?? "" }
   }
   return null
 }

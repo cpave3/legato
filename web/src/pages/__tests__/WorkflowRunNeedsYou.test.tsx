@@ -9,9 +9,9 @@ import { WorkflowRunPage } from "../WorkflowRunPage"
 
 mockReactFlow()
 
-const calls = vi.hoisted(() => ({ fetchRun: vi.fn(), trigger: vi.fn(), prompt: vi.fn(), retry: vi.fn(), another: vi.fn(), resume: vi.fn(), macros: vi.fn(), approvals: vi.fn(), decide: vi.fn(), attention: vi.fn(), execute: vi.fn(), dismiss: vi.fn() }))
+const calls = vi.hoisted(() => ({ stepAction: vi.fn(), fetchRun: vi.fn(), trigger: vi.fn(), prompt: vi.fn(), retry: vi.fn(), another: vi.fn(), resume: vi.fn(), macros: vi.fn(), approvals: vi.fn(), decide: vi.fn(), attention: vi.fn(), execute: vi.fn(), dismiss: vi.fn() }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
-vi.mock("../../lib/workflow", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/workflow")>()), fetchWorkflowRun: calls.fetchRun, triggerWorkflowStep: calls.trigger, promptWorkflowStep: calls.prompt, retryWorkflowStep: calls.retry, anotherReviewPass: calls.another, resumeWorkflowAgent: calls.resume }))
+vi.mock("../../lib/workflow", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/workflow")>()), fetchWorkflowRun: calls.fetchRun, triggerWorkflowStep: calls.trigger, promptWorkflowStep: calls.prompt, retryWorkflowStep: calls.retry, anotherReviewPass: calls.another, resumeWorkflowAgent: calls.resume, workflowStepAction: calls.stepAction }))
 vi.mock("../../lib/macros", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/macros")>()), fetchMacroList: calls.macros }))
 vi.mock("../../lib/approvals", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/approvals")>()), fetchPendingApprovals: calls.approvals, decideApproval: calls.decide }))
 vi.mock("../../lib/attention", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/attention")>()), fetchAttention: calls.attention, executeAttentionAction: calls.execute, dismissAttentionItem: calls.dismiss }))
@@ -27,7 +27,9 @@ const stepRun = (step_id: string, executor_type: string, status: string, extra =
 const attempt = { id: "wa-1", run_id: "wr-1", step_id: "investigate", attempt_number: 1, executor_type: "agent.run", agent_session_id: 7, task_id: "task-1", agent_kind: "claude-code", status: "waiting_agent", needs_attention: true, attention_reason: "agent idle", started_at: "2026-11-21T10:00:00Z" }
 
 function view(stepRuns: unknown[], extra = {}) {
-  return { run: { id: "wr-1", workflow_name: "w", workflow_title: "The run", definition_source: "/w/w.yaml", definition_digest: "d", definition_json: "{}", inputs_json: "{}", status: "waiting", current_step_id: "investigate", created_at: "2026-11-21T10:00:00Z" }, steps: stepRuns, attempts: [attempt], artifacts: [], graph, ...extra }
+  // A run with a failed step failed, unless the test says otherwise.
+  const status = (stepRuns as { status: string }[]).some(step => step.status === "failed") ? "failed" : "waiting"
+  return { run: { id: "wr-1", workflow_name: "w", workflow_title: "The run", definition_source: "/w/w.yaml", definition_digest: "d", definition_json: "{}", inputs_json: "{}", status, current_step_id: "investigate", created_at: "2026-11-21T10:00:00Z" }, steps: stepRuns, attempts: [attempt], artifacts: [], graph, ...extra }
 }
 const approval = (id: string, task_id: string) => ({ id, source: "claude-code", source_key: id, task_id, title: `Run git push (${id})`, details: { kind: "permission" }, options: [{ id: "allow", label: "Allow", kind: "allow" }], blocking: true, status: "pending", revision: 1, created_at: "2026-11-21T10:01:00Z" })
 const item = (id: string, task_id: string, producer = "agents") => ({ id, producer, signal_kind: "operator_action", source_key: id, source_revision: "r1", task_id, title: `Item ${id}`, reason: "Do it", category: "agents", urgency: "normal", navigation: { kind: "task", target: task_id }, actions: [{ id: "done", label: "Done", kind: "execute" }], status: "open", created_at: "2026-11-21T10:01:00Z", updated_at: "2026-11-21T10:01:00Z" })
@@ -45,7 +47,7 @@ beforeEach(() => {
   for (const fn of Object.values(calls)) fn.mockReset()
   calls.approvals.mockResolvedValue([])
   calls.attention.mockResolvedValue([])
-  for (const fn of [calls.trigger, calls.prompt, calls.retry, calls.another, calls.resume, calls.decide, calls.execute, calls.dismiss]) fn.mockResolvedValue({})
+  for (const fn of [calls.trigger, calls.prompt, calls.retry, calls.another, calls.resume, calls.decide, calls.execute, calls.dismiss, calls.stepAction]) fn.mockResolvedValue({})
   calls.macros.mockResolvedValue({ macros: [{ name: "Rebase and repush", keys: "Rebase.\n", applies_to: "task", favorite: true }, { name: "Plan", keys: "Plan.\n" }, { name: "Review", keys: "Review.\n", applies_to: "pr" }], suggested: { task: "Plan", my_pr: "Address feedback", others_pr: "Review" }, tiers: {} })
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("min-width"), media: query, addEventListener: () => {}, removeEventListener: () => {} }))
 })
@@ -57,6 +59,28 @@ describe("a run's Needs you list", () => {
     const row = await within(await screen.findByRole("region", { name: "Needs you" })).findByRole("article", { name: "Approve the plan waits for you" })
     fireEvent.click(within(row).getByRole("button", { name: "Start" }))
     await waitFor(() => expect(calls.trigger).toHaveBeenCalledWith("", "wr-1", "gate", false))
+  })
+
+  it("offers Retry, Skip and Stop for a step paused after a failure, with its link", async () => {
+    show(view([stepRun("move", "task.move", "paused", { error: "another loop holds it", error_link: "/workflows/runs/wr-9" })], { attempts: [] }))
+    const row = await within(await screen.findByRole("region", { name: "Needs you" })).findByRole("article", { name: "Move to Ready failed" })
+    expect(row.textContent).toContain("/workflows/runs/wr-9")
+    fireEvent.click(within(row).getByRole("button", { name: "Skip" }))
+    await waitFor(() => expect(calls.stepAction).toHaveBeenCalledWith("", "wr-1", "move", "skip"))
+  })
+
+  it("offers a gate's options", async () => {
+    show(view([stepRun("move", "gate", "waiting")], { attempts: [], details: { move: { title: "Ship it?", options: ["Ship", "Stop"] } } }))
+    const row = await within(await screen.findByRole("region", { name: "Needs you" })).findByRole("article", { name: "Ship it?" })
+    fireEvent.click(within(row).getByRole("button", { name: "Ship" }))
+    await waitFor(() => expect(calls.stepAction).toHaveBeenCalledWith("", "wr-1", "move", "choose:Ship"))
+  })
+
+  it("lists no failure the run went on from (on_failure: continue)", async () => {
+    show(view([stepRun("move", "task.move", "failed", { error: "no column" }), stepRun("gate", "task.note", "waiting_manual")], { attempts: [], run: { ...view([]).run, status: "waiting", current_step_id: "gate" } }))
+    const region = await screen.findByRole("region", { name: "Needs you" })
+    await within(region).findByRole("article", { name: "Approve the plan waits for you" })
+    expect(within(region).queryByRole("article", { name: "Move to Ready failed" })).toBeNull()
   })
 
   it("offers End now for a step that waits for its agent to end", async () => {
@@ -123,7 +147,7 @@ describe("a run's Needs you list", () => {
   })
 
   it("hides the run's secret values in a row's reason", async () => {
-    show(view([stepRun("move", "task.move", "failed", { error: "token hunter2 was refused" })], { attempts: [], run: { ...view([]).run, definition_json: JSON.stringify({ inputs: { token: { type: "string", secret: true } } }), inputs_json: JSON.stringify({ token: "hunter2" }) } }))
+    show(view([stepRun("move", "task.move", "failed", { error: "token hunter2 was refused" })], { attempts: [], run: { ...view([]).run, status: "failed", definition_json: JSON.stringify({ inputs: { token: { type: "string", secret: true } } }), inputs_json: JSON.stringify({ token: "hunter2" }) } }))
     const row = await within(await screen.findByRole("region", { name: "Needs you" })).findByRole("article", { name: "Move to Ready failed" })
     expect(row.textContent).toContain("token ••••••")
     expect(row.textContent).not.toContain("hunter2")

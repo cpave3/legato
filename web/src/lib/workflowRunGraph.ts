@@ -22,6 +22,7 @@ function stepRunState(view: WorkflowRunView, stepId: string): NodeRunState {
     case "succeeded": return "done"
     case "skipped": case "cancelled": return "skipped"
     case "suspended": return "suspended"
+    case "paused": return "needs"
   }
   if (latest?.status === "waiting_agent" && latest.needs_attention) return "needs"
   if (step.executor_type === "github.pr.review_passes") {

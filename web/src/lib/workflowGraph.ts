@@ -58,6 +58,7 @@ const stepTypeLabels: Record<string, string> = {
   "chat.thread.read": "Chat thread",
   "ticket.create": "Create ticket",
   "ticket.comment": "Ticket comment",
+  gate: "Ask you",
 }
 
 export function stepTypeLabel(type: string): string {

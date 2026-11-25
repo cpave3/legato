@@ -14,6 +14,8 @@ export function runState(run: RunLike): { tone: Tone; label: string } {
     case "succeeded": return { tone: "done", label: "Done" }
     case "failed": return { tone: "error", label: "Failed" }
     case "cancelled": return { tone: "idle", label: "Cancelled" }
+    // A gate's Stop, or Stop at a step paused after a failure.
+    case "stopped": return { tone: "idle", label: "Stopped" }
     // Legato stopped with its agent: the interrupted agents' item asks
     // the operator to resume it, so the run itself does not need you.
     case "suspended": return { tone: "idle", label: "Suspended" }
@@ -41,6 +43,8 @@ export function stepMark(step: StepLike, run: RunLike): { glyph: string; tone: T
     case "cancelled": return { glyph: "–", tone: "idle" }
     case "pending": return { glyph: "○", tone: null }
     case "suspended": return { glyph: "‖", tone: "idle" }
+    // Failed under on_failure: pause, waiting for Retry, Skip or Stop.
+    case "paused": return { glyph: "◆", tone: "needs" }
   }
   if (step.status === "waiting_manual" && step.trigger === "agent_ended" && !run.needs_attention) return { glyph: "●", tone: "live" }
   return run.needs_attention || step.status === "waiting_manual" ? { glyph: "◆", tone: "needs" } : { glyph: "●", tone: "live" }
@@ -115,6 +119,8 @@ export function runSummary(run: RunSummaryInput): { text: string; tone?: Tone } 
     }
     case "cancelled":
       return { text: run.error || "Cancelled" }
+    case "stopped":
+      return { text: run.error || "Stopped" }
     case "suspended": {
       const suspended = steps.find(step => step.status === "suspended") ?? current
       return { text: `“${suspended?.title ?? "The step"}” is suspended: Legato stopped while its agent was working. Resume it to go on.` }
