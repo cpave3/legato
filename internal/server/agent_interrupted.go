@@ -25,6 +25,16 @@ type interruptedAgentDTO struct {
 	Resumable     bool     `json:"resumable"`
 	CanStartNew   bool     `json:"can_start_new"`
 	Reason        string   `json:"reason,omitempty"`
+	// Workflow is the workflow step its resume continues.
+	Workflow *interruptedWorkflowDTO `json:"workflow,omitempty"`
+}
+
+// interruptedWorkflowDTO is the suspended workflow step an interrupted
+// agent works on.
+type interruptedWorkflowDTO struct {
+	RunID    string `json:"run_id"`
+	StepID   string `json:"step_id"`
+	RunTitle string `json:"run_title,omitempty"`
 }
 
 func (s *Server) interruptedAgents(w http.ResponseWriter) (service.InterruptedAgents, bool) {
@@ -59,6 +69,9 @@ func (s *Server) interruptedAgentsHandler() http.HandlerFunc {
 				TaskID: a.TaskID, Title: a.Title, AgentKind: a.AgentKind, WorkingDir: a.WorkingDir, Engram: a.Engram,
 				Sandboxed: a.Sandboxed, Ephemeral: a.Ephemeral, Resources: a.Resources,
 				Resumable: a.Resumable, CanStartNew: a.CanStartNew, Reason: a.Reason,
+			}
+			if a.Workflow != nil {
+				dto.Workflow = &interruptedWorkflowDTO{RunID: a.Workflow.RunID, StepID: a.Workflow.StepID, RunTitle: a.Workflow.RunTitle}
 			}
 			if dto.Resources == nil {
 				dto.Resources = []string{}
