@@ -593,6 +593,7 @@ var catalog = []ExecutorSpec{
 	reviewWaitSpec,
 	reviewConfirmSpec,
 	reviewCloseSpec,
+	reviewReadySpec,
 	{
 		Type: "burnlite.task.close", Group: "Board", Title: "Close the Burnlite ticket",
 		Description: "Close the Burnlite ticket a task was imported from, with a reason and a summary. Needs Legato connected to Burnlite with write access.",

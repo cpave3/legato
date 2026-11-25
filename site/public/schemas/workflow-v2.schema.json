@@ -588,6 +588,28 @@
           "if": {
             "properties": {
               "type": {
+                "const": "github.pr.ready"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.github.pr.ready"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "burnlite.task.close"
               }
             },
@@ -1010,6 +1032,7 @@
             "github.pr.review.wait",
             "github.pr.review.confirm",
             "github.pr.review.close",
+            "github.pr.ready",
             "burnlite.task.close",
             "ticket.create",
             "ticket.comment",
@@ -1460,6 +1483,28 @@
             "properties": {
               "with": {
                 "$ref": "#/definitions/with.github.pr.review.close"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "github.pr.ready"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.github.pr.ready"
               }
             },
             "required": [
@@ -1996,6 +2041,7 @@
             "github.pr.review.wait",
             "github.pr.review.confirm",
             "github.pr.review.close",
+            "github.pr.ready",
             "burnlite.task.close",
             "ticket.create",
             "ticket.comment",
@@ -4115,6 +4161,54 @@
           "repo"
         ],
         "type": "github.pr.prepare"
+      }
+    },
+    "with.github.pr.ready": {
+      "additionalProperties": false,
+      "description": "Mark a review loop's approved stack ready for review, as the author's GitHub App: every open draft, bottom of the stack first, once each has legato-reviews' approval at its head on GitHub. Pull requests already ready are left alone; none goes back to draft. Before approval the step is refused; a pull request GitHub will not mark ready fails it.",
+      "properties": {
+        "loop": {
+          "description": "The loop's ID: ${{ steps.\u003copen step\u003e.outputs.loop_id }}",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Review loop",
+            "order": 1
+          }
+        }
+      },
+      "required": [
+        "loop"
+      ],
+      "title": "Mark the stack ready",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Code",
+        "outputs": [
+          {
+            "description": "true once every open pull request of the stack is ready",
+            "name": "ready",
+            "type": "boolean"
+          },
+          {
+            "description": "The pull requests marked ready, bottom first",
+            "name": "flipped",
+            "type": "json"
+          },
+          {
+            "description": "The loop's ID",
+            "name": "loop_id",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "loop"
+        ],
+        "type": "github.pr.ready"
       }
     },
     "with.github.pr.review.close": {
@@ -6880,6 +6974,29 @@
         ],
         "title": "Close a review loop",
         "type": "github.pr.review.close"
+      },
+      {
+        "description": "Mark a review loop's approved stack ready for review, as the author's GitHub App: every open draft, bottom of the stack first, once each has legato-reviews' approval at its head on GitHub. Pull requests already ready are left alone; none goes back to draft. Before approval the step is refused; a pull request GitHub will not mark ready fails it.",
+        "group": "Code",
+        "outputs": [
+          {
+            "name": "ready",
+            "type": "boolean"
+          },
+          {
+            "name": "flipped",
+            "type": "json"
+          },
+          {
+            "name": "loop_id",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "loop"
+        ],
+        "title": "Mark the stack ready",
+        "type": "github.pr.ready"
       },
       {
         "description": "Close the Burnlite ticket a task was imported from, with a reason and a summary. Needs Legato connected to Burnlite with write access.",

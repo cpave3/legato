@@ -95,6 +95,15 @@ type reviewGitHub struct {
 	// graphqlLimit, while set, answers GraphQL with a primary rate limit
 	// in a 200, as GitHub does, that resets then.
 	graphqlLimit time.Time
+	// drafts say which pull requests are drafts (GraphQL isDraft and REST
+	// draft); readied are the pull requests marked ready, readyBy the App
+	// that marked each, readyPerms its token's permissions, and
+	// readyError refuses the mutation with this message.
+	drafts     map[int]bool
+	readied    []string
+	readyBy    []string
+	readyPerms []map[string]any
+	readyError string
 	// watched are the pull requests the watch query answers with, by
 	// number (GraphQL pullRequest JSON); watchReads counts the watch
 	// queries and watchVars holds the last one's variables. bearers are
@@ -216,6 +225,7 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			g.headReads = append(g.headReads, perms)
 			pull := githubPull(12, "feature", "main", "legato-author[bot]")
 			pull["state"] = "open"
+			pull["draft"] = g.drafts[12]
 			_ = json.NewEncoder(w).Encode(pull)
 		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/pulls/12/files":
 			_ = json.NewEncoder(w).Encode([]map[string]any{{"filename": "main.go", "patch": reviewPatch}, {"filename": "big.bin"}})
@@ -365,6 +375,21 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			switch {
+			case strings.Contains(body.Query, "markPullRequestReadyForReview"):
+				if g.readyError != "" {
+					_, _ = io.WriteString(w, `{"errors":[{"message":"`+g.readyError+`"}]}`)
+					break
+				}
+				g.readied = append(g.readied, fmt.Sprint(body.Variables["id"]))
+				g.readyBy = append(g.readyBy, g.apps[bearer])
+				g.readyPerms = append(g.readyPerms, perms)
+				_, _ = io.WriteString(w, `{"data":{"markPullRequestReadyForReview":{"pullRequest":{"number":12}}}}`)
+			case strings.Contains(body.Query, "isDraft") && !strings.Contains(body.Query, "mergeStateStatus"):
+				n := 12
+				if v, ok := body.Variables["number"].(float64); ok {
+					n = int(v)
+				}
+				_, _ = io.WriteString(w, fmt.Sprintf(`{"data":{"repository":{"pullRequest":{"id":"PR_%d","number":%d,"isDraft":%v}}}}`, n, n, g.drafts[n]))
 			case strings.Contains(body.Query, "mergeStateStatus"):
 				g.watchReads++
 				g.watchVars = body.Variables
@@ -1105,5 +1130,45 @@ func TestAPolledCommentCarriesWhenGitHubSaysItWasMade(t *testing.T) {
 	}
 	if !at[1].Equal(time.Date(2026, 11, 24, 9, 0, 0, 0, time.UTC)) || !at[501].Equal(time.Date(2026, 11, 24, 10, 30, 0, 0, time.UTC)) {
 		t.Fatalf("times %v", at)
+	}
+}
+
+// The author App marks a draft ready host-side with a token that can write
+// code, which it revokes; a pull request already ready is left alone, and
+// a refusal is an error.
+func TestTheAuthorAppMarksADraftReadyAndLeavesAReadyOneAlone(t *testing.T) {
+	f := newPublisherFixture(t)
+	ctx := context.Background()
+	f.github.drafts = map[int]bool{12: true}
+
+	pr, _, err := f.publisher.PullRequest(ctx, "cpave3/legato", 12)
+	if err != nil || !pr.Draft {
+		t.Fatalf("read = %+v, %v; want a draft", pr, err)
+	}
+	flipped, err := f.publisher.MarkReady(ctx, "cpave3/legato", 12)
+	if err != nil || !flipped {
+		t.Fatalf("mark ready = %v, %v", flipped, err)
+	}
+	if strings.Join(f.github.readied, ",") != "PR_12" || f.github.readyBy[0] != "legato-author[bot]" {
+		t.Fatalf("readied %v by %v", f.github.readied, f.github.readyBy)
+	}
+	if perms := f.github.readyPerms[0]; perms["contents"] != "write" || perms["pull_requests"] != "write" {
+		t.Fatalf("the token's permissions = %v", perms)
+	}
+	for token, perms := range f.github.tokens {
+		if perms["contents"] == "write" {
+			t.Fatalf("the write token %s was kept", token)
+		}
+	}
+
+	f.github.drafts[12] = false
+	if flipped, err := f.publisher.MarkReady(ctx, "cpave3/legato", 12); err != nil || flipped || len(f.github.readied) != 1 {
+		t.Fatalf("a ready pull request: flipped %v, %v, readied %v", flipped, err, f.github.readied)
+	}
+
+	f.github.drafts[12] = true
+	f.github.readyError = "Resource not accessible by integration"
+	if _, err := f.publisher.MarkReady(ctx, "cpave3/legato", 12); err == nil || !strings.Contains(err.Error(), "not accessible") {
+		t.Fatalf("a refusal = %v", err)
 	}
 }

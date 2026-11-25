@@ -19,6 +19,8 @@ const (
 	ReviewWaitStepType    = "github.pr.review.wait"
 	ReviewConfirmStepType = "github.pr.review.confirm"
 	ReviewCloseStepType   = "github.pr.review.close"
+	// ReviewReadyStepType marks a loop's approved stack ready (LEG-588).
+	ReviewReadyStepType = "github.pr.ready"
 )
 
 // MaxReviewLoopPRs is the most pull requests one review loop takes.
@@ -97,6 +99,18 @@ var reviewConfirmSpec = ExecutorSpec{
 		{Name: "state", Type: "string", Description: "approved, or moved (another pass is needed); closed or stuck when the loop ended"},
 		{Name: "pass", Type: "integer", Description: "The clean pass confirmed, else the loop's last pass"},
 		{Name: "confirmed_at", Type: "string", Description: "When the heads were confirmed (RFC 3339), or empty"},
+		{Name: "loop_id", Type: "string", Description: "The loop's ID"},
+	},
+}
+
+var reviewReadySpec = ExecutorSpec{
+	Type: ReviewReadyStepType, Group: "Code", Title: "Mark the stack ready",
+	Description: "Mark a review loop's approved stack ready for review, as the author's GitHub App: every open draft, bottom of the stack first, once each has legato-reviews' approval at its head on GitHub. Pull requests already ready are left alone; none goes back to draft. Before approval the step is refused; a pull request GitHub will not mark ready fails it.",
+	With:        []Field{reviewLoopField},
+	Summary:     []string{"loop"},
+	Outputs: []OutputSpec{
+		{Name: "ready", Type: "boolean", Description: "true once every open pull request of the stack is ready"},
+		{Name: "flipped", Type: "json", Description: "The pull requests marked ready, bottom first"},
 		{Name: "loop_id", Type: "string", Description: "The loop's ID"},
 	},
 }

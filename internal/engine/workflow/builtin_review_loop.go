@@ -17,8 +17,9 @@ const builtInSourcePrefix = "builtin:"
 
 // reviewLoopYAML is the built-in review-loop: open, a repeat loop of a pass
 // then, when clean, a confirm or, with changes, a wait for the author,
-// until approved, closed or stuck; then close. The ready step and the
-// steward are later additions (LEG-588, LEG-590).
+// until approved, closed or stuck; then, with ready, mark the approved
+// stack ready (LEG-588); then close. The steward is a later addition
+// (LEG-590).
 const reviewLoopYAML = `schema_version: 2
 name: review-loop
 title: Review loop
@@ -64,6 +65,10 @@ inputs:
     type: integer
     default: 0
     description: Times a stewarded pull request may go back to review after approval; 0 for this Legato's setting, which it may only lower
+  ready:
+    type: boolean
+    default: false
+    description: Once the stack is approved, mark its draft pull requests ready for review, bottom first
 outputs:
   outcome: {type: string, value: "${{ steps.close.outputs.outcome }}", description: "approved, closed or stuck (ended when the loop stopped otherwise)"}
   loop_id: {type: string, value: "${{ steps.close.outputs.loop_id }}", description: The review loop's ID}
@@ -75,6 +80,7 @@ outputs:
   approval_withheld: {type: boolean, value: "${{ steps.close.outputs.approval_withheld }}", description: "true when a pull request whose author is outside the repository got a COMMENT instead of an APPROVE"}
   summary_path: {type: string, value: "${{ steps.close.outputs.summary_path }}", description: A Markdown summary of every pass}
   linked_task: {type: string, value: "${{ steps.close.outputs.linked_task }}", description: "The board task the pull requests belong to, or empty"}
+  ready: {type: boolean, value: "${{ steps.ready.outputs.ready ?? false }}", description: "true when the stack was marked ready"}
 steps:
   - id: open
     title: Open the review loop
@@ -89,6 +95,7 @@ steps:
       skill: ${{ workflow.inputs.skill }}
       max_passes: ${{ workflow.inputs.max_passes }}
       max_reentries: ${{ workflow.inputs.max_reentries }}
+      ready: ${{ workflow.inputs.ready }}
   - id: review
     title: Review in passes
     # A failed step fails review-loop, so the caller's workflow.run step
@@ -111,6 +118,14 @@ steps:
         if: {field: steps.pass.outputs.verdict, equals: changes}
         type: github.pr.review.wait
         with: {loop: "${{ steps.open.outputs.loop_id }}", mode: author}
+  - id: ready
+    title: Mark the stack ready
+    if: {all: [{field: workflow.inputs.ready, equals: true}, {field: steps.review.outputs.last.state, equals: approved}]}
+    # A pull request that will not be marked ready waits for the
+    # operator: Retry, Skip or Stop.
+    on_failure: pause
+    type: github.pr.ready
+    with: {loop: "${{ steps.open.outputs.loop_id }}"}
   - id: close
     title: Close the review loop
     type: github.pr.review.close

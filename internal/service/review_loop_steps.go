@@ -33,6 +33,7 @@ const (
 	ReviewWaitStepType    = "github.pr.review.wait"
 	ReviewConfirmStepType = "github.pr.review.confirm"
 	ReviewCloseStepType   = "github.pr.review.close"
+	ReviewReadyStepType   = "github.pr.ready"
 )
 
 // Refusal codes of the review loop steps (error_code), beside
@@ -54,6 +55,12 @@ const (
 	ReviewRefusalMaxReentriesRaised = "max_reentries_raised"
 	// ReviewRefusalInvalidSettings: a max_passes or max_reentries below 0.
 	ReviewRefusalInvalidSettings = "invalid_settings"
+	// ReviewRefusalNotApprovedAtHeads: github.pr.ready before the loop is
+	// approved, or a layer without legato-reviews' APPROVE at its head on
+	// GitHub (moved since, withheld from an outsider, or held).
+	ReviewRefusalNotApprovedAtHeads = "not_approved_at_heads"
+	// ReviewRefusalReadyFailed: a layer GitHub would not mark ready.
+	ReviewRefusalReadyFailed = "ready_failed"
 )
 
 // ReviewOutcomeEnded is a loop its workflow closed before it was approved,
@@ -313,7 +320,8 @@ func (s *ReviewLoopSteps) instanceReentries() int {
 // Executors are the step executors, one per step type.
 func (s *ReviewLoopSteps) Executors() []WorkflowExecutor {
 	return []WorkflowExecutor{reviewOpenExecutor{s}, reviewPassExecutor{reviewObserver{s, ReviewPassStepType}},
-		reviewWaitExecutor{reviewObserver{s, ReviewWaitStepType}}, reviewConfirmExecutor{reviewObserver{s, ReviewConfirmStepType}}, reviewCloseExecutor{s}}
+		reviewWaitExecutor{reviewObserver{s, ReviewWaitStepType}}, reviewConfirmExecutor{reviewObserver{s, ReviewConfirmStepType}}, reviewCloseExecutor{s},
+		reviewReadyExecutor{s}}
 }
 
 // reviewOpenExecutor is github.pr.review.open.
@@ -332,6 +340,7 @@ func ReviewLoopStepsOf(executor WorkflowExecutor) *ReviewLoopSteps {
 func (e reviewOpenExecutor) loopSteps() *ReviewLoopSteps  { return e.steps }
 func (e reviewCloseExecutor) loopSteps() *ReviewLoopSteps { return e.steps }
 func (e reviewObserver) loopSteps() *ReviewLoopSteps      { return e.steps }
+func (e reviewReadyExecutor) loopSteps() *ReviewLoopSteps { return e.steps }
 
 func (e reviewOpenExecutor) Type() string { return ReviewOpenStepType }
 
@@ -571,6 +580,7 @@ func (c *ReviewRunCaller) SettleSteps(ctx context.Context) {
 	for _, kind := range []string{ReviewPassStepType, ReviewWaitStepType, ReviewConfirmStepType} {
 		c.settleObservers(ctx, kind)
 	}
+	c.settleReady(ctx)
 	attempts, err := c.workflows.WaitingAttempts(ctx, ReviewCloseStepType)
 	if err != nil {
 		log.Printf("review passes: the close steps waiting: %v", err)
@@ -973,9 +983,9 @@ func (c *ReviewRunCaller) observeWait(ctx context.Context, rec *store.ReviewLoop
 
 // observeConfirm completes a confirm once the holder's Confirm read
 // GitHub's heads after the run's last clean pass: approved (confirmed at
-// them), or moved (a head moved, or a counted check sent it back to its
-// author: the loop goes on to a new pass); a loop that closed says closed
-// or stuck.
+// them), or moved (a head moved: the loop goes on to a new pass); a loop
+// that closed says closed or stuck. While a counted check sent the clean
+// pass back to its author, it waits.
 func (c *ReviewRunCaller) observeConfirm(ctx context.Context, step ResolvedWorkflowStep, rec *store.ReviewLoop) (map[string]any, error) {
 	out := func(state string) map[string]any {
 		o := map[string]any{"state": state, "loop_id": rec.ID, "confirmed_at": "", "pass": rec.Pass}
@@ -1004,9 +1014,13 @@ func (c *ReviewRunCaller) observeConfirm(ctx context.Context, step ResolvedWorkf
 		return out(ReviewConfirmMoved), nil // a later pass already
 	}
 	switch loop.Phase {
-	case ReviewPhaseReady, ReviewPhaseWaitingForReviewer, ReviewPhaseReviewing, ReviewPhaseWaitingForAuthor, ReviewPhaseAuthor:
+	case ReviewPhaseReady, ReviewPhaseWaitingForReviewer, ReviewPhaseReviewing:
+		// A head moved since the clean pass: a new pass reviews it.
 		return out(ReviewConfirmMoved), nil
 	}
+	// The author handles a counted check that failed at the clean pass
+	// (checksReopen): a reply settles it and the same pass is approved, a
+	// push starts a new pass. Either way, wait.
 	return nil, nil
 }
 
@@ -1020,4 +1034,139 @@ func (c *ReviewRunCaller) loopDetails(ctx context.Context, taskID string) any {
 // hosts.
 func (c *ReviewRunCaller) loopAttention(ctx context.Context, taskID string) (string, []string) {
 	return c.attention(ctx, taskID)
+}
+
+// reviewReadyExecutor is github.pr.ready (LEG-588): it marks a loop's
+// approved stack ready, as the author App, in the holder's tick.
+type reviewReadyExecutor struct{ steps *ReviewLoopSteps }
+
+func (e reviewReadyExecutor) Type() string { return ReviewReadyStepType }
+
+// Start checks the step's loop is its run's, and waits for the holder.
+func (e reviewReadyExecutor) Start(ctx context.Context, step ResolvedWorkflowStep) (WorkflowExecutionResult, error) {
+	if db := e.steps.store(); db != nil {
+		if _, err := ownedStepLoop(ctx, db, step, true); err != nil {
+			return WorkflowExecutionResult{}, err
+		}
+	}
+	return WorkflowExecutionResult{Status: WorkflowStepWaiting}, nil
+}
+
+func (e reviewReadyExecutor) Cancel(context.Context, store.WorkflowStepAttempt) error { return nil }
+
+// ReviewReadyGitHub marks a pull request ready for review as the author App
+// (ReviewPublisher.MarkReady): false when it was not a draft.
+type ReviewReadyGitHub interface {
+	MarkReady(ctx context.Context, repo string, number int) (bool, error)
+}
+
+// settleReady runs the waiting ready steps: each completes with the layers
+// it marked ready, or fails with not_approved_at_heads or ready_failed. A
+// GitHub read that fails is tried again on the next tick.
+func (c *ReviewRunCaller) settleReady(ctx context.Context) {
+	attempts, err := c.workflows.WaitingAttempts(ctx, ReviewReadyStepType)
+	if err != nil {
+		log.Printf("review passes: the ready steps waiting: %v", err)
+		return
+	}
+	for _, attempt := range attempts {
+		step, err := c.waitingStep(ctx, attempt)
+		if err != nil {
+			continue
+		}
+		rec, err := ownedStepLoop(ctx, c.engine.db, step, true)
+		var outputs map[string]any
+		if err == nil {
+			outputs, err = c.markStackReady(ctx, rec)
+		}
+		var refused *WorkflowStepError
+		if err != nil && !errors.As(err, &refused) {
+			log.Printf("review passes: marking loop %s ready, trying again: %v", attempt.RunID, err)
+			continue
+		}
+		if err != nil {
+			if _, failErr := c.workflows.FailWaitingError(ctx, attempt.RunID, attempt.Path, attempt.ID, err); failErr != nil && !errors.Is(failErr, store.ErrWorkflowStateConflict) {
+				log.Printf("review passes: failing %s: %v", attempt.RunID, failErr)
+			}
+			continue
+		}
+		if _, err := c.workflows.CompleteWaiting(ctx, attempt.RunID, attempt.Path, attempt.ID, outputs); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
+			log.Printf("review passes: completing %s's ready: %v", attempt.RunID, err)
+		}
+	}
+}
+
+// markStackReady marks a loop's approved stack ready (spec LEG-559
+// github.pr.ready): only when the loop is approved and every open layer has
+// legato-reviews' APPROVE (or an approval kept from before) at its head on
+// GitHub now and none is held, so a withheld or held approval, or a push
+// since, never makes a pull request ready (not_approved_at_heads). Then
+// each open draft, bottom first, as the author App; one already ready is
+// left alone and none goes back to draft. One GitHub will not mark ready
+// fails the step (ready_failed), naming it; those below it stay ready.
+func (c *ReviewRunCaller) markStackReady(ctx context.Context, rec *store.ReviewLoop) (map[string]any, error) {
+	notApproved := func(format string, args ...any) error {
+		return reviewRefused(ReviewRefusalNotApprovedAtHeads, format, args...)
+	}
+	if rec.ConfirmedAt == "" || rec.CleanPass == 0 || rec.CleanPass != rec.Pass ||
+		(rec.State != store.ReviewLoopOpenState && rec.Outcome != ReviewOutcomeApproved) {
+		return nil, notApproved("review loop %s is not approved at GitHub's heads", rec.ID)
+	}
+	ready, ok := c.opts.GitHub.(ReviewReadyGitHub)
+	if !ok {
+		return nil, reviewRefused(ReviewRefusalReadyFailed, "this Legato cannot mark pull requests ready")
+	}
+	layers, err := c.engine.db.ListReviewLoopPRs(ctx, rec.ID)
+	if err != nil {
+		return nil, err
+	}
+	events := map[int]string{}
+	if pins, err := c.engine.db.ListHandoffReviewPRs(ctx, rec.HostTask, rec.CleanPass); err == nil {
+		for _, pin := range pins {
+			events[pin.Number] = pin.Event
+		}
+	}
+	type layer struct {
+		number int
+		draft  bool
+	}
+	var open []layer
+	for _, l := range layers {
+		pr, state, err := c.opts.GitHub.PullRequest(ctx, rec.Repo, l.Number)
+		if err != nil {
+			return nil, fmt.Errorf("reading #%d: %w", l.Number, err)
+		}
+		if state != "open" {
+			continue // merged or closed: nothing to make ready
+		}
+		switch {
+		case pr.HeadSHA != l.CleanHead:
+			return nil, notApproved("#%d's head on GitHub is %s, not %s, which the review approved", l.Number, short(pr.HeadSHA), short(l.CleanHead))
+		case events[l.Number] != ReviewApprove && events[l.Number] != ReviewKept:
+			return nil, notApproved("#%d has no approval from legato-reviews at %s (its review is a COMMENT: the approval was withheld or held)", l.Number, short(pr.HeadSHA))
+		case c.engine.approvalHeld(ctx, rec.ID, l.Number):
+			return nil, notApproved("#%d's approval is held", l.Number)
+		}
+		open = append(open, layer{number: l.Number, draft: pr.Draft})
+	}
+	flipped := []int{}
+	for _, l := range open {
+		if !l.draft {
+			continue
+		}
+		// Nearest the write: the run still runs and still owns the loop
+		// (D11); the window after this read is accepted.
+		if fresh, err := c.engine.db.GetReviewLoop(ctx, rec.ID); err != nil || fresh.RunID != rec.RunID || !c.runRunning(ctx, rec.RunID) {
+			return nil, fmt.Errorf("loop %s is no longer its run's to mark ready", rec.ID)
+		}
+		changed, err := ready.MarkReady(ctx, rec.Repo, l.number)
+		if err != nil {
+			return nil, &WorkflowStepError{Code: ReviewRefusalReadyFailed, Err: err, Outputs: map[string]any{"flipped": flipped},
+				Message: fmt.Sprintf("%s: #%d would not be marked ready: %v", ReviewRefusalReadyFailed, l.number, err)}
+		}
+		if changed {
+			flipped = append(flipped, l.number)
+		}
+	}
+	return map[string]any{"ready": true, "flipped": flipped, "loop_id": rec.ID}, nil
 }

@@ -214,6 +214,7 @@ func (w *Worker) start() {
 		opts := service.ReviewPassOptions{
 			Agents: w.Agents.(service.ReviewAgents), GitHub: w.ReviewGitHub,
 			Checkout: w.Checkout, Bus: w.Bus, Now: w.Clock.Now, Run: w.run, Overlay: func() bool { return false },
+			HoldApproval: rp.HoldApproval,
 		}
 		if rp.Runtime != nil {
 			opts = rp.Runtime(opts)

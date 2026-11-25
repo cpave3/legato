@@ -190,6 +190,12 @@ type ReviewPassOptions struct {
 	// Overlay says whether the reviewer's checkout gets a throwaway layer
 	// (CheckoutOverlayProber); nil means it does not.
 	Overlay func() bool
+	// HoldApproval is the sign-off seam (spec LEG-559, LEG-555): it says
+	// legato-reviews' approval of a loop's pull request is held for the
+	// operator, so every path that would approve it later posts nothing
+	// (approveSettled), and github.pr.ready does not count it approved.
+	// Nil holds nothing; v1 sets none outside tests.
+	HoldApproval func(ctx context.Context, loopID string, pr int) bool
 	// WatchCadence is how often the steward's watch reads a loop
 	// (ReviewWatchCadence); zero fields are DefaultReviewWatchCadence's.
 	// The watch runs when GitHub is also a ReviewWatchGitHub.
@@ -919,4 +925,10 @@ func (s *ReviewPassService) tellAuthor(ctx context.Context, l ReviewLoop, messag
 		return nil
 	}
 	return s.opts.Agents.QueueMessage(ctx, l.AuthorTaskID, message)
+}
+
+// approvalHeld says the sign-off seam holds legato-reviews' approval of a
+// loop's pull request (ReviewPassOptions.HoldApproval).
+func (s *ReviewPassService) approvalHeld(ctx context.Context, loopID string, pr int) bool {
+	return s.opts.HoldApproval != nil && s.opts.HoldApproval(ctx, loopID, pr)
 }

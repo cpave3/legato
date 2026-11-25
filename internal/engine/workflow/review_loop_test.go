@@ -145,10 +145,10 @@ func TestTheBuiltInReviewLoopIsAV2WorkflowOfTheReviewSteps(t *testing.T) {
 			types = append(types, inner.Type)
 		}
 	}
-	if got := strings.Join(types, ","); got != "github.pr.review.open,,github.pr.review.pass,github.pr.review.confirm,github.pr.review.wait,github.pr.review.close" {
+	if got := strings.Join(types, ","); got != "github.pr.review.open,,github.pr.review.pass,github.pr.review.confirm,github.pr.review.wait,github.pr.ready,github.pr.review.close" {
 		t.Fatalf("steps = %s", got)
 	}
-	for _, name := range []string{"outcome", "loop_id", "passes", "clean_pass", "confirmed_at", "findings", "prs", "summary_path", "linked_task"} {
+	for _, name := range []string{"outcome", "loop_id", "passes", "clean_pass", "confirmed_at", "findings", "prs", "summary_path", "linked_task", "ready"} {
 		if _, ok := d.Outputs[name]; !ok {
 			t.Fatalf("no output %q", name)
 		}
@@ -156,7 +156,7 @@ func TestTheBuiltInReviewLoopIsAV2WorkflowOfTheReviewSteps(t *testing.T) {
 	if d.Outputs["findings"].Type != "json" {
 		t.Fatalf("findings is %s", d.Outputs["findings"].Type)
 	}
-	for _, name := range []string{"repo", "pr_number", "prs", "scope", "agent_author", "reviewer", "skill", "max_passes", "max_reentries"} {
+	for _, name := range []string{"repo", "pr_number", "prs", "scope", "agent_author", "reviewer", "skill", "max_passes", "max_reentries", "ready"} {
 		if _, ok := d.Inputs[name]; !ok {
 			t.Fatalf("no input %q", name)
 		}

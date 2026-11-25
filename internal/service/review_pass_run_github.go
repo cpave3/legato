@@ -69,6 +69,13 @@ func (p *ReviewPublisher) PullRequest(ctx context.Context, repo string, number i
 		HeadSHA: pr.Head.SHA, Author: pr.User.Login, AuthorAssociation: pr.Association, HeadRepo: headRepo, Draft: pr.Draft}, state, nil
 }
 
+// MarkReady marks a pull request ready for review as the author App, host
+// side (CredentialChannels.MarkReadyAsAuthor); false when it was not a
+// draft.
+func (p *ReviewPublisher) MarkReady(ctx context.Context, repo string, number int) (bool, error) {
+	return p.channels.MarkReadyAsAuthor(ctx, repo, number)
+}
+
 // ReviewRunRepositories are a run's review clones: the repository cache's job
 // clones, reset with git on the host.
 type ReviewRunRepositories struct {
