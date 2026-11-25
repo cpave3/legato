@@ -68,7 +68,7 @@ type definitionWithGraph struct {
 	Warnings       []workflowengine.Diagnostic `json:"warnings,omitempty"`
 }
 
-func (s *Server) definitionWithGraph(definition *workflowengine.Definition, folders []workflowengine.Folder, shadows map[string][]string) definitionWithGraph {
+func (s *Server) definitionWithGraph(ctx context.Context, definition *workflowengine.Definition, folders []workflowengine.Folder, all []*workflowengine.Definition, shadows map[string][]string) definitionWithGraph {
 	info := workflowengine.FileFor(definition, folders)
 	out := definitionWithGraph{Definition: definition, Graph: workflowengine.BuildGraph(definition), Folder: info.Folder, Editable: info.Editable, ReadOnlyReason: info.Reason, Shadows: shadows[definition.Name]}
 	if info.Path != "" {
@@ -76,6 +76,9 @@ func (s *Server) definitionWithGraph(definition *workflowengine.Definition, fold
 			var parsed *workflowengine.Definition
 			parsed, out.Warnings = workflowengine.Check(info.Path, data)
 			out.Warnings = append(out.Warnings, s.chatBotDiagnostics(data, parsed)...)
+			if parsed != nil && parsed.HasChatFallback() {
+				out.Warnings = append(out.Warnings, s.chatFallbackDiagnostics(ctx, data, parsed, all)...)
+			}
 		}
 	}
 	return out
@@ -139,7 +142,7 @@ func (s *Server) workflowsHandler() http.HandlerFunc {
 		}
 		definitions := make([]definitionWithGraph, 0, len(result.Definitions))
 		for _, definition := range result.Definitions {
-			definitions = append(definitions, s.definitionWithGraph(definition, folders, result.Shadows))
+			definitions = append(definitions, s.definitionWithGraph(r.Context(), definition, folders, result.Definitions, result.Shadows))
 		}
 		s.writeJSON(w, http.StatusOK, struct {
 			workflowengine.DiscoveryResult
