@@ -190,6 +190,10 @@ type ReviewPassOptions struct {
 	// Overlay says whether the reviewer's checkout gets a throwaway layer
 	// (CheckoutOverlayProber); nil means it does not.
 	Overlay func() bool
+	// WatchCadence is how often the steward's watch reads a loop
+	// (ReviewWatchCadence); zero fields are DefaultReviewWatchCadence's.
+	// The watch runs when GitHub is also a ReviewWatchGitHub.
+	WatchCadence ReviewWatchCadence
 	// Advert is this instance's review passes as /api/meta says them,
 	// which a main's override is checked against; nil refuses every
 	// override.
@@ -222,6 +226,13 @@ type ReviewPassService struct {
 	// authorStops is when each run loop's agent author was first seen
 	// stopped, for the author-mode wait's quiet time. In memory.
 	authorStops runAuthorStops
+
+	// The steward's watch (review_watch.go): when each loop's is due,
+	// one tick's watch at a time, and each loop's last read. In memory.
+	watchSchedule *ReviewWatchSchedule
+	watchRun      sync.Mutex
+	watchMu       sync.Mutex
+	watched       map[string]ReviewLoopWatch
 }
 
 // What a ready loop waits on before its next pass starts (ReviewLoopBlock's
@@ -289,7 +300,7 @@ func NewReviewPassService(db *store.Store, opts ReviewPassOptions) *ReviewPassSe
 	if opts.Run == nil {
 		opts.Run = func(f func()) { f() }
 	}
-	return &ReviewPassService{db: db, opts: opts}
+	return &ReviewPassService{db: db, opts: opts, watchSchedule: NewReviewWatchSchedule(opts.WatchCadence)}
 }
 
 func (s *ReviewPassService) config() ReviewPassConfig {
@@ -365,6 +376,9 @@ func (s *ReviewPassService) Tick(ctx context.Context) {
 	// did.
 	s.openWaiting(ctx)
 	s.sweepClosed(ctx)
+	// The steward's reads (spec LEG-559 C7). Not under the lock: they ask
+	// GitHub, and route nothing yet.
+	s.watchLoops(ctx)
 	s.moveLoops(ctx)
 	// Then the steps waiting on loops (close, and the rest): outside the
 	// lock, since ending one runs the workflow on.
