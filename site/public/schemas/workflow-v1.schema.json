@@ -486,6 +486,28 @@
           "if": {
             "properties": {
               "type": {
+                "const": "chat.thread.read"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.chat.thread.read"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "github.pr.wait"
               }
             },
@@ -675,6 +697,7 @@
             "chat.message.send",
             "chat.reaction.add",
             "chat.reaction.remove",
+            "chat.thread.read",
             "github.pr.wait",
             "worktree.remove",
             "file.remove",
@@ -1914,6 +1937,112 @@
           "emoji"
         ],
         "type": "chat.reaction.remove"
+      }
+    },
+    "with.chat.thread.read": {
+      "additionalProperties": false,
+      "description": "Read the thread a chat message is in, as a Slack or Discord bot set up in Settings › Integrations, for a later step: a Slack thread, a Discord thread, or the replies a Discord message ends. A message in no thread is a thread of one.",
+      "properties": {
+        "bot": {
+          "description": "The bot, by name: slack or discord",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "chat_bot",
+            "label": "Bot",
+            "order": 1
+          }
+        },
+        "channel": {
+          "description": "The channel's ID; the bot's default channel when empty",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Channel",
+            "order": 2,
+            "required_at_run": true
+          }
+        },
+        "include_bots": {
+          "default": false,
+          "description": "Keep messages other bots posted, the bot's own included; the thread's parent is always kept",
+          "type": "boolean",
+          "x-legato": {
+            "expressions": false,
+            "kind": "boolean",
+            "label": "Include bots' messages",
+            "order": 5
+          }
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "default": 50,
+          "description": "How many messages to keep, the parent included: the parent and the newest replies (1 to 200)",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "integer",
+            "label": "Most messages",
+            "order": 4
+          }
+        },
+        "thread_id": {
+          "description": "The thread or message to read, such as ${{ event.thread_id }} of a chat trigger",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Thread",
+            "order": 3
+          }
+        }
+      },
+      "required": [
+        "bot",
+        "thread_id"
+      ],
+      "title": "Read a chat thread",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Chat",
+        "outputs": [
+          {
+            "description": "The thread as plain text, oldest first: each message's author and time, then its text with what it forwards quoted; at most 16 KiB, the oldest replies left out first",
+            "name": "transcript",
+            "type": "string"
+          },
+          {
+            "description": "The messages in the transcript: id, author_id, author_name, at, text, forwarded, forwarded_url, parent and from_bot",
+            "name": "messages",
+            "type": "json"
+          },
+          {
+            "description": "How many messages the transcript holds",
+            "name": "count",
+            "type": "integer"
+          }
+        ],
+        "summary": [
+          "thread_id"
+        ],
+        "type": "chat.thread.read"
       }
     },
     "with.chimera.session.remove": {
@@ -3239,6 +3368,15 @@
         "type": "chat.reaction.remove"
       },
       {
+        "description": "Read the thread a chat message is in, as a Slack or Discord bot set up in Settings › Integrations, for a later step: a Slack thread, a Discord thread, or the replies a Discord message ends. A message in no thread is a thread of one.",
+        "group": "Chat",
+        "summary": [
+          "thread_id"
+        ],
+        "title": "Read a chat thread",
+        "type": "chat.thread.read"
+      },
+      {
         "description": "Wait until a pull request merges, or closes. Legato reads its state from GitHub when the step starts, after each refresh of a card's pull requests, and every few minutes.",
         "group": "Code",
         "summary": [
@@ -3397,7 +3535,7 @@
           },
           {
             "pattern": "event.thread_id",
-            "description": "What chat.message.send's thread_id takes to reply to the message"
+            "description": "What chat.message.send's thread_id takes to reply to the message, and chat.thread.read's to read its thread"
           },
           {
             "pattern": "event.forwarded",
@@ -3439,7 +3577,7 @@
           },
           {
             "pattern": "event.thread_id",
-            "description": "What chat.message.send's thread_id takes to reply to the message"
+            "description": "What chat.message.send's thread_id takes to reply to the message, and chat.thread.read's to read its thread"
           },
           {
             "pattern": "event.forwarded",

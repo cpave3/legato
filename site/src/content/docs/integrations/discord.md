@@ -85,6 +85,30 @@ steps:
 
 Pass `${{ event.channel }}` and `${{ event.message_id }}` in from the trigger; for a message in a thread, `event.channel` is the thread. `emoji` is the emoji itself (`👀`), one of the common names (`eyes`, `white_check_mark`, `thumbsup`, ...), or a custom emoji as `name:id`. `chat.reaction.remove` removes the bot's reaction. The bot needs **Read Message History**, and **Add Reactions** for an emoji no one has reacted with yet; without them the step fails and says which. See [Workflows](/legato/using/workflows/#react-to-the-message-that-started-a-run).
 
+## Read a thread
+
+A `chat.thread.read` step gives a later step what the mention was about, as `${{ steps.<id>.outputs.transcript }}`:
+
+```yaml
+steps:
+  - id: thread
+    title: Read the thread
+    type: chat.thread.read
+    with:
+      bot: discord
+      channel: ${{ workflow.inputs.channel }}
+      thread_id: ${{ workflow.inputs.thread }}
+```
+
+With `event.thread_id` from a trigger:
+
+- **In a thread**, the step reads the thread: its starter message, which a thread started on a message keeps in the channel it was started in, then the thread's messages. Discord's system messages, such as the starter's stub inside the thread, are left out. A bot's response to a slash command or app command is a bot's message, kept with `include_bots: true`.
+- **Anywhere else**, the step reads the chain of replies that ends at the message: the message, the one it replies to, and so on, up to 50 messages, root first. A message that replies to nothing gives that message alone.
+
+People are named by their display name. The step needs the **Read Message History** permission and the Message Content intent, which the bot already has. See [Reading the thread](/legato/using/workflows/#reading-the-thread) for what the step keeps.
+
+A comment added to a forward arrives as a message of its own and does not reply to the forward. A mention in that comment therefore reads only the comment. Mention the bot in a thread, or in a reply to the forward, to include the forward.
+
 ## Limits
 
 - Slash commands, buttons and other interactive components are not supported.

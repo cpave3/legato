@@ -15,8 +15,9 @@ import (
 // Chat bots (LEG-624): a Slack bot over Socket Mode and a Discord bot over
 // the Gateway, each holding one outbound connection, so Legato needs no
 // public address. Workflows start on their messages (chat.message,
-// chat.mention), post as them (chat.message.send) and react as them
-// (chat.reaction.add, chat.reaction.remove).
+// chat.mention), post as them (chat.message.send), react as them
+// (chat.reaction.add, chat.reaction.remove) and read the thread a message
+// is in (chat.thread.read).
 
 // ChatEvent is a message a chat bot received, the same for every platform.
 type ChatEvent struct {
@@ -61,14 +62,46 @@ type SentMessage struct {
 // ErrChatAuth when trying again cannot help. Send posts a message, and
 // React adds the bot's reaction to one (or removes it), over the platform's
 // HTTP API; neither needs a session. A reaction already there, or one already
-// gone, is success.
+// gone, is success. ReadThread reads the thread a threadID names (as
+// ChatEvent.ThreadID gives it), at most max messages: the parent first, then
+// the rest oldest first; a message in no thread is a thread of one.
 type ChatConnection interface {
 	Name() string
 	Platform() string
 	Run(ctx context.Context, emit func(ChatEvent), connected func()) error
 	Send(ctx context.Context, channel, text, threadID string) (SentMessage, error)
 	React(ctx context.Context, channel, messageID, emoji string, remove bool) error
+	ReadThread(ctx context.Context, channel, threadID string, max int) ([]ChatThreadMessage, error)
 }
+
+// ChatThreadMessage is one message of a thread a bot read.
+type ChatThreadMessage struct {
+	ID string
+	// AuthorName is "" when the platform would not say (a Slack bot
+	// without users:read).
+	AuthorID, AuthorName string
+	At                   time.Time
+	// Text is the author's own words; forwarded messages are in
+	// ForwardedText, quoted as on a ChatEvent.
+	Text string
+	// Parent is the message that starts the thread: a Slack thread's
+	// parent, a Discord thread's starter, the root of a reply chain.
+	Parent, FromBot bool
+	Forwarded       bool
+	ForwardedURL    string
+	ForwardedText   string
+}
+
+// withForwards sets m's forward fields as ChatEvent.withForwards does.
+func (m ChatThreadMessage) withForwards(forwards []chatForward) ChatThreadMessage {
+	e := ChatEvent{}.withForwards(forwards)
+	m.Forwarded, m.ForwardedURL, m.ForwardedText = e.Forwarded, e.ForwardedURL, e.ForwardedText
+	return m
+}
+
+// ChatThreadReadMax is the most messages one thread read reads: on Slack
+// the parent and the first 999 replies, on Discord the newest 1000.
+const ChatThreadReadMax = 1000
 
 var (
 	// ErrChatReconnect is a session's end that wants a new one at once.
@@ -131,6 +164,19 @@ type ChatReactor interface {
 	React(ctx context.Context, bot, channel, messageID, emoji string, remove bool) error
 }
 
+// ChatThreadReader reads a thread as a bot, for chat.thread.read.
+type ChatThreadReader interface {
+	ReadThread(ctx context.Context, bot, channel, threadID string, limit int, includeBots bool) (ChatThread, error)
+}
+
+// ChatThread is what ChatBots.ReadThread kept of a thread: the parent first.
+// LeftOut is how many other messages the limit left out (bots' messages
+// left out by choice are not counted).
+type ChatThread struct {
+	Messages []ChatThreadMessage
+	LeftOut  int
+}
+
 // ChatBotDirectory says whether a bot of a name is set up, for workflow
 // checks.
 type ChatBotDirectory interface {
@@ -146,8 +192,10 @@ type ChatBots struct {
 	// BaseDelay and MaxDelay bound the backoff; StableAfter is how long a
 	// session must last for the next failure to start the backoff over.
 	BaseDelay, MaxDelay, StableAfter time.Duration
-	// SendTimeout bounds one Send; StopWait how long Stop waits.
-	SendTimeout, StopWait time.Duration
+	// SendTimeout bounds one Send; ReadTimeout one ReadThread, which may
+	// take several pages and a name for each author; StopWait how long
+	// Stop waits.
+	SendTimeout, ReadTimeout, StopWait time.Duration
 
 	onEvent func(context.Context, ChatEvent)
 	rand    func() float64
@@ -179,7 +227,7 @@ const chatEventQueue = 256
 func NewChatBots(specs []ChatBotSpec, onEvent func(context.Context, ChatEvent)) *ChatBots {
 	b := &ChatBots{
 		BaseDelay: time.Second, MaxDelay: 3 * time.Minute, StableAfter: time.Minute,
-		SendTimeout: 15 * time.Second, StopWait: 5 * time.Second,
+		SendTimeout: 15 * time.Second, ReadTimeout: 30 * time.Second, StopWait: 5 * time.Second,
 		onEvent: onEvent, rand: rand.Float64, after: time.After, clock: time.Now,
 		bots: map[string]*chatBot{},
 	}
@@ -359,6 +407,38 @@ func (b *ChatBots) React(ctx context.Context, name, channel, messageID, emoji st
 		return fmt.Errorf("bot %s: %s %s in %s: %s", name, verb, messageID, channel, scrubChatError(err.Error(), bot.spec.Secrets))
 	}
 	return nil
+}
+
+// ReadThread reads the thread threadID names, as Send sends: in the bot's
+// default channel when channel is empty, refused at once for a bot that
+// cannot call its platform, given up after ReadTimeout. It keeps the parent,
+// then the newest limit-1 of the other messages, leaving out bots' messages
+// unless includeBots (never the parent).
+func (b *ChatBots) ReadThread(ctx context.Context, name, channel, threadID string, limit int, includeBots bool) (ChatThread, error) {
+	bot, channel, err := b.ready(name, channel)
+	if err != nil {
+		return ChatThread{}, err
+	}
+	if threadID = strings.TrimSpace(threadID); threadID == "" {
+		return ChatThread{}, fmt.Errorf("bot %s: no thread given to read", name)
+	}
+	ctx, cancel := context.WithTimeout(ctx, b.ReadTimeout)
+	defer cancel()
+	read, err := bot.spec.Conn.ReadThread(ctx, channel, threadID, ChatThreadReadMax)
+	if err != nil {
+		return ChatThread{}, fmt.Errorf("bot %s: reading thread %s in %s: %s", name, threadID, channel, scrubChatError(err.Error(), bot.spec.Secrets))
+	}
+	var thread ChatThread
+	for i, m := range read {
+		if i == 0 || includeBots || !m.FromBot {
+			thread.Messages = append(thread.Messages, m)
+		}
+	}
+	if limit > 0 && len(thread.Messages) > limit {
+		thread.LeftOut = len(thread.Messages) - limit
+		thread.Messages = append(thread.Messages[:1], thread.Messages[len(thread.Messages)-(limit-1):]...)
+	}
+	return thread, nil
 }
 
 // ready is the bot of a name if it can call its platform, and the channel to

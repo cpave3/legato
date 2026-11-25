@@ -139,6 +139,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		service.NewChatSendExecutor(chatBots),
 		service.NewChatReactionAddExecutor(chatBots),
 		service.NewChatReactionRemoveExecutor(chatBots),
+		service.NewChatThreadReadExecutor(chatBots),
 		// Starting it only writes the step; the review engine's tick in
 		// the broker holder opens it (attachReviewRuns, spec LEG-559 D9).
 		reviewPassesStep(cfg),

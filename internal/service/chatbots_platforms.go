@@ -260,3 +260,156 @@ func discordChatEvent(name, self string, m discordbot.Message) (ChatEvent, bool)
 	return ChatEvent{Bot: name, Platform: "discord", Channel: m.ChannelID, User: m.AuthorID, Text: m.Content, MessageID: m.ID,
 		ThreadID: thread, At: m.Timestamp, Mention: mention, FromBot: m.AuthorIsBot}.withForwards(discordForwards(m.Forwards)), true
 }
+
+// ReadThread reads a Slack thread with conversations.replies. Authors are
+// named with users.info, once per user; a bot without users:read (or any
+// failure to name one) leaves the rest of the read's authors unnamed
+// rather than failing it.
+func (c *slackConnection) ReadThread(ctx context.Context, channel, threadID string, max int) ([]ChatThreadMessage, error) {
+	replies, err := c.client.Replies(ctx, channel, threadID, max)
+	if err != nil {
+		return nil, slackError(err)
+	}
+	names := map[string]string{}
+	naming := true
+	name := func(user string) string {
+		if n, ok := names[user]; ok || !naming {
+			return n
+		}
+		n, err := c.client.UserName(ctx, user)
+		if err != nil {
+			naming = false
+			return ""
+		}
+		names[user] = n
+		return n
+	}
+	out := make([]ChatThreadMessage, 0, len(replies))
+	for i, m := range replies {
+		msg := ChatThreadMessage{ID: m.TS, AuthorID: m.User, At: slackTime(m.TS), Text: m.Text, Parent: i == 0, FromBot: m.BotID != ""}
+		switch {
+		case m.User == "":
+			msg.AuthorID, msg.AuthorName = m.BotID, m.Username
+		case m.BotID != "" && m.Username != "":
+			msg.AuthorName = m.Username
+		default:
+			msg.AuthorName = name(m.User)
+		}
+		out = append(out, msg.withForwards(slackForwards(m.Shares)))
+	}
+	return out, nil
+}
+
+// discordReplyChainMax is the most messages a reply chain is followed up
+// through, one request each.
+const discordReplyChainMax = 50
+
+// ReadThread reads a Discord thread (threadID is the channel, a thread
+// channel) or, for any other threadID (a message), the chain of replies
+// that message ends.
+func (c *discordConnection) ReadThread(ctx context.Context, channel, threadID string, max int) ([]ChatThreadMessage, error) {
+	var msgs []discordbot.Message
+	var err error
+	if threadID == channel {
+		msgs, err = c.readThreadChannel(ctx, channel, max)
+	} else {
+		msgs, err = c.readReplyChain(ctx, channel, threadID, min(max, discordReplyChainMax))
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ChatThreadMessage, 0, len(msgs))
+	for i, m := range msgs {
+		out = append(out, ChatThreadMessage{ID: m.ID, AuthorID: m.AuthorID, AuthorName: m.AuthorName, At: m.Timestamp, Text: m.Content,
+			Parent: i == 0, FromBot: m.AuthorIsBot}.withForwards(discordForwards(m.Forwards)))
+	}
+	return out, nil
+}
+
+// readThreadChannel is a thread's starter, then its messages oldest first.
+// A thread started on a message has that message's ID, and the message
+// stays in the parent channel; a forum post's starter is in the thread
+// itself. Failing both, the thread's oldest message starts it. System
+// messages (the starter's stub in the thread, joins, pins) are left out;
+// see discordAuthored.
+func (c *discordConnection) readThreadChannel(ctx context.Context, thread string, max int) ([]discordbot.Message, error) {
+	var newest []discordbot.Message
+	before := ""
+	for len(newest) < max {
+		ask := min(100, max-len(newest))
+		page, err := c.client.ListMessages(ctx, thread, before, ask)
+		if err != nil {
+			return nil, err
+		}
+		newest = append(newest, page...)
+		if len(page) < ask {
+			break
+		}
+		before = page[len(page)-1].ID
+	}
+	ch, err := c.client.GetChannel(ctx, thread)
+	if err != nil {
+		return nil, err
+	}
+	var starter *discordbot.Message
+	for _, place := range []string{ch.ParentID, thread} {
+		if place == "" {
+			continue
+		}
+		m, err := c.client.GetMessage(ctx, place, thread)
+		if errors.Is(err, discordbot.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		starter = &m
+		break
+	}
+	var msgs []discordbot.Message
+	for i := len(newest) - 1; i >= 0; i-- {
+		m := newest[i]
+		if !discordAuthored(m.Type) || (starter != nil && m.ID == starter.ID) {
+			continue
+		}
+		msgs = append(msgs, m)
+	}
+	if starter != nil {
+		msgs = append([]discordbot.Message{*starter}, msgs...)
+	}
+	return msgs, nil
+}
+
+// discordAuthored is a message type someone wrote: a message (0), a reply
+// (19), or an application command's response (20 from a slash command, 23
+// from a context menu). The rest are system messages, the starter's stub
+// in a thread (21) among them.
+func discordAuthored(messageType int) bool {
+	switch messageType {
+	case 0, 19, 20, 23:
+		return true
+	}
+	return false
+}
+
+// readReplyChain is message and the messages it replies to, up to max of
+// them, root first. A message that is gone ends the chain.
+func (c *discordConnection) readReplyChain(ctx context.Context, channel, message string, max int) ([]discordbot.Message, error) {
+	m, err := c.client.GetMessage(ctx, channel, message)
+	if err != nil {
+		return nil, err
+	}
+	chain := []discordbot.Message{m}
+	for len(chain) < max && m.ReferenceID != "" {
+		m, err = c.client.GetMessage(ctx, channel, m.ReferenceID)
+		if errors.Is(err, discordbot.ErrNotFound) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		chain = append(chain, m)
+	}
+	slices.Reverse(chain)
+	return chain, nil
+}

@@ -1,7 +1,7 @@
 // Package slackbot is a thin client for a Slack bot: one Socket Mode session
 // at a time, and the Web API methods auth.test, apps.connections.open,
-// chat.postMessage, reactions.add and reactions.remove. It knows nothing of
-// Legato.
+// chat.postMessage, reactions.add, reactions.remove, and conversations.replies
+// and users.info for reading a thread. It knows nothing of Legato.
 //
 // Protocol facts it relies on:
 //
@@ -144,12 +144,15 @@ func (c *Client) base() string {
 	return defaultAPIBase
 }
 
-// call POSTs body (JSON when jsonBody, else an empty form) and decodes the
-// answer into out after checking ok.
+// call POSTs body (a form when jsonBody is url.Values, as Slack's read
+// methods take their arguments; JSON when it is anything else; else an empty
+// form) and decodes the answer into out after checking ok.
 func (c *Client) call(ctx context.Context, method, token string, jsonBody any, out any) error {
 	var body io.Reader = strings.NewReader("")
 	contentType := "application/x-www-form-urlencoded"
-	if jsonBody != nil {
+	if form, ok := jsonBody.(url.Values); ok {
+		body = strings.NewReader(form.Encode())
+	} else if jsonBody != nil {
 		b, err := json.Marshal(jsonBody)
 		if err != nil {
 			return fmt.Errorf("slack: %s: encode: %w", method, err)
@@ -416,11 +419,7 @@ func parseEvent(payload json.RawMessage) (Event, bool) {
 	var typ string
 	switch e.Type {
 	case "message":
-		switch e.Subtype {
-		// bot_message is a post by an integration (an incoming webhook);
-		// the caller decides about bots' messages.
-		case "", "thread_broadcast", "file_share", "bot_message":
-		default:
+		if !isPost(e.Subtype) {
 			return Event{}, false
 		}
 		typ = "message"
@@ -442,6 +441,17 @@ func parseEvent(payload json.RawMessage) (Event, bool) {
 		Subtype:     e.Subtype,
 		Shares:      shares(e.Attachments),
 	}, true
+}
+
+// isPost is a message subtype someone wrote, rather than a channel event
+// (a join, a topic). bot_message is a post by an integration (an incoming
+// webhook); the caller decides about bots' messages.
+func isPost(subtype string) bool {
+	switch subtype {
+	case "", "thread_broadcast", "file_share", "bot_message":
+		return true
+	}
+	return false
 }
 
 // redactURL is scheme://host/path of a URL, without its query (the ticket).

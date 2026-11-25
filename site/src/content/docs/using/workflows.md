@@ -153,6 +153,7 @@ Version 1 executes steps in declaration order and supports these executors. Lega
   ```
 - `chat.message.send`: post a message as a chat bot. `with.bot` is `slack` or `discord`; `with.channel` is a channel ID (empty: the bot's default channel); `with.text` is the message; `with.thread_id` replies to a message: a chat trigger's `${{ event.thread_id }}` or `${{ event.message_id }}`, an earlier step's `message_id` or `thread_id` output, or any message's ID in the channel. On Slack the reply goes into that message's thread (give a thread's parent, which `event.thread_id` is); on Discord it is a reply to that message. The text can carry emoji: Slack shows `:eyes:` names itself, and on Discord Legato turns the common names (`:eyes:`, `:white_check_mark:`, `:tada:` and so on) into the emoji, outside code; an emoji written as itself works on both. Outputs: `message_id`, `channel` and `thread_id` (what replies in the same thread). The step fails at once when the bot is not set up, is switched off, or its platform refused it. See [Slack](/legato/integrations/slack/) and [Discord](/legato/integrations/discord/).
 - `chat.reaction.add` and `chat.reaction.remove`: add the bot's emoji reaction to a message, or remove it. `with.bot` and `with.channel` are as in `chat.message.send`; `with.message_id` is the message: a chat trigger's `${{ event.message_id }}` (with its `${{ event.channel }}`), an earlier `chat.message.send`'s `message_id` output, or any message's ID in the channel; `with.emoji` is an emoji's name without colons, such as `eyes` or `white_check_mark`, or the emoji itself (`👀`), and on Discord also a custom emoji as `name:id`. Slack takes any name it knows, its custom emoji too; Discord takes any emoji written as itself, and the common names. A reaction that is already there, or already gone, is not an error. Output: `ok`. A missing Slack scope (`reactions:write`) or Discord permission (**Add Reactions**, **Read Message History**) fails the step, naming it. See [React to a message](#react-to-the-message-that-started-a-run).
+- `chat.thread.read`: read the thread a chat message is in, as a chat bot, for a later step. `with.bot` and `with.channel` are as for `chat.message.send`; `with.thread_id` is the thread, such as `${{ event.thread_id }}` from a chat trigger. `with.limit` (1 to 200, default 50) is how many messages to keep, the parent included; `with.include_bots: true` also keeps other bots' messages. Outputs: `transcript`, `messages` and `count`. See [Reading the thread](#reading-the-thread).
 - `burnlite.task.close`: close the Burnlite ticket a task was imported from (`with.task`), as `completed` (the default) or `not_planned` (`with.reason`), with a one-line `with.summary`. With `optional: true`, a task that is not a Burnlite ticket is skipped (`skipped: true`) instead of failing the step. Outputs: `key`, `closed` and `skipped`. Legato must be connected to Burnlite with write access; see [Burnlite](/legato/integrations/burnlite/#close-a-ticket-from-a-workflow).
 - `repo.ensure`: prepare what a job works in. With an empty `with.repo` it does nothing and outputs `working_dir` as given in `with.working_dir`. With a repository (`owner/name`) it makes Legato's cache of it ready (cloning or fetching with the `github` credential, so a repository Legato cannot read fails here) and outputs `repo`, `ref` and `branch` for the agent step; giving both `repo` and `working_dir` is refused. `agent.run` with `with.repo` (and `with.ref`, `with.branch`) starts its agent in a fresh clone made for the agent's execution, on its own branch.
 - `agent.interview`, `learning.packet.prepare` and `learning.proposals.submit`: the steps of [Legato Learn](/legato/using/learn/), for your own workflows too. See [Learn steps](#learn-steps) below.
@@ -423,7 +424,7 @@ on:
 - `include_bots: true` also starts runs on messages from other bots. The bot's own messages never start a run.
 - `loop_item` is what the [loop stop](#the-loop-stop) counts runs by: `channel` (the default) or `thread`.
 
-The inputs may read `${{ event.bot }}`, `${{ event.platform }}`, `${{ event.channel }}`, `${{ event.user }}`, `${{ event.text }}`, `${{ event.message_id }}`, `${{ event.thread_id }}`, `${{ event.forwarded }}` and `${{ event.forwarded_url }}`. `event.thread_id` is what a `chat.message.send` step's `thread_id` takes to reply to the message. `event.message_id` with `event.channel` names the message itself, for a reaction step. Each message starts at most one run per trigger. A mention is a message too, so a workflow with both triggers gets a run from each.
+The inputs may read `${{ event.bot }}`, `${{ event.platform }}`, `${{ event.channel }}`, `${{ event.user }}`, `${{ event.text }}`, `${{ event.message_id }}`, `${{ event.thread_id }}`, `${{ event.forwarded }}` and `${{ event.forwarded_url }}`. `event.thread_id` is what a `chat.message.send` step's `thread_id` takes to reply to the message, and what a `chat.thread.read` step's takes to [read its thread](#reading-the-thread). `event.message_id` with `event.channel` names the message itself, for a reaction step. Each message starts at most one run per trigger. A mention is a message too, so a workflow with both triggers gets a run from each.
 
 Message text is stored with the trigger request, cut to 8 KiB. When a message forwards another, the forwarded part is cut first, and a final `> …` line shows where.
 
@@ -441,6 +442,66 @@ can you look at this?
 The `text` filter matches all of it, so `{contains: "500"}` matches a forwarded alert. `event.forwarded` is `true` for such a message and `false` for any other, and `event.forwarded_url` is the forwarded message's link (empty otherwise). `event.message_id`, `event.channel` and `event.thread_id` are those of the forwarding message, in the bot's channel, not of the original: a reply goes under the forward.
 
 A forward to the bot's direct messages is a mention, as every direct message is. In a channel, a forward is a mention only when the sender's own text mentions the bot. A mention inside the forwarded message does not count.
+
+#### Reading the thread
+
+A trigger gives the run one message. When someone mentions the bot in a thread, the question is often in the messages above: a forwarded alert, or what someone asked before. A `chat.thread.read` step reads the thread, and a later step uses it:
+
+```yaml
+on:
+  chat.mention:
+    bot: slack
+    inputs:
+      channel: ${{ event.channel }}
+      thread: ${{ event.thread_id }}
+      request: ${{ event.text }}
+steps:
+  - id: thread
+    title: Read the thread
+    type: chat.thread.read
+    with:
+      bot: slack
+      channel: ${{ workflow.inputs.channel }}
+      thread_id: ${{ workflow.inputs.thread }}
+  - id: investigate
+    title: Investigate
+    type: agent.run
+    with:
+      prompt: |
+        You were asked: ${{ workflow.inputs.request }}
+
+        The thread this was asked in:
+        ${{ steps.thread.outputs.transcript }}
+```
+
+`transcript` is the thread as plain text, oldest first. Each message gives its author and time (UTC) on a line, then its text, with what it forwards quoted as in `event.text`:
+
+```text
+cameron · 2026-11-25 04:12 UTC
+> Forwarded from alice in #alerts:
+> checkout is returning 500s
+
+bob · 2026-11-25 04:13 UTC
+what changed?
+
+cameron · 2026-11-25 04:15 UTC
+@legato can you look at this thread?
+```
+
+What the step reads:
+
+- **On Slack**, the thread: its parent, then its replies. Channel events such as joins are left out. It reads at most 1,000 messages, so a longer thread ends at the 1,000th.
+- **On Discord**, a thread: its starter message, then its messages. A message outside a thread gives the chain of replies it ends, root first, up to 50 messages. A forward followed by a separate comment in a channel is two messages that do not reply to each other, so mention the bot in a thread, or in a reply to the forward, for the forward to be part of what the step reads.
+- A message in no thread is a thread of one: `count` is 1 and the transcript is that message.
+
+What the step keeps:
+
+- The thread's parent, always.
+- Other bots' messages, the bot's own included, only with `include_bots: true`.
+- The newest replies, up to `limit` messages in all.
+- At most 16 KiB of transcript. The oldest replies go first to fit, and a line after the parent says how many replies were left out, the limit's too: `[… 12 earlier replies left out]`. Each message's text is cut to 8 KiB, as `event.text` is.
+
+`messages` is a JSON list of the messages in the transcript, each with `id` (the Slack `ts` or Discord message ID), `author_id`, `author_name`, `at` (RFC 3339), `text`, `forwarded`, `forwarded_url`, `parent` and `from_bot`. `count` is how many there are. Mentions inside texts stay as the platform writes them, such as `<@U0123456789>`.
 
 A workflow that both listens to and posts in a channel cannot start itself, since the bot ignores its own messages. Two bots answering each other can still loop: the loop stop holds the fourth run in a day for one channel and asks you.
 
