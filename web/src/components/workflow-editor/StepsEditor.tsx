@@ -253,13 +253,17 @@ export function WithField({ spec, stepId, value, onChange, refs, taskRefs, optio
   </div>
 }
 
-type ChatButtonValue = { label?: unknown; value?: unknown; style?: unknown }
+type ChatButtonValue = { label?: unknown; value?: unknown; style?: unknown; if?: unknown }
 
-// MAX_CHAT_BUTTONS is what a message takes on every platform.
+// MAX_CHAT_BUTTONS is what a message takes on every platform: the buttons
+// without an if:. MAX_CHAT_BUTTON_ENTRIES bounds the list, those with one
+// included.
 const MAX_CHAT_BUTTONS = 5
+const MAX_CHAT_BUTTON_ENTRIES = 25
 
 // ChatButtonsField is chat.message.send's buttons as rows of a label, a
-// value and a style, up to five; with none left, the field goes.
+// value and a style, up to five without an if: (which only YAML writes,
+// and an edit keeps); with none left, the field goes.
 function ChatButtonsField({ name, stepId, value, refs, onChange }: { name: string; stepId: string; value: unknown; refs: string[]; onChange: (value: unknown) => void }) {
   const rows: ChatButtonValue[] = Array.isArray(value) ? value.map(row => (row && typeof row === "object" ? row : {}) as ChatButtonValue) : []
   const write = (next: ChatButtonValue[]) => onChange(next.length === 0 ? undefined : next)
@@ -288,9 +292,10 @@ function ChatButtonsField({ name, stepId, value, refs, onChange }: { name: strin
           </select>
           <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove button ${n} of step ${stepId}`} onClick={() => write(rows.filter((_, j) => j !== i))}><Trash2 size={13} /></Button>
         </div>
+        {row.if !== undefined && <p role="note" aria-label={`Button ${n} condition of step ${stepId}`} className="text-xs text-lw-faint">Shown only when its if: holds; edit it in YAML</p>}
       </div>
     })}
-    {rows.length < MAX_CHAT_BUTTONS && <Button type="button" size="sm" variant="outline" className="self-start" aria-label={`Add a button to step ${stepId}`} onClick={() => write([...rows, { label: "", value: "" }])}><Plus size={13} />Add a button</Button>}
+    {rows.filter(row => row.if === undefined).length < MAX_CHAT_BUTTONS && rows.length < MAX_CHAT_BUTTON_ENTRIES && <Button type="button" size="sm" variant="outline" className="self-start" aria-label={`Add a button to step ${stepId}`} onClick={() => write([...rows, { label: "", value: "" }])}><Plus size={13} />Add a button</Button>}
   </div>
 }
 
