@@ -751,8 +751,10 @@ func (s *Store) ResetWorkflowStepForRetry(ctx context.Context, runID, path strin
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		// A failed run, or one waiting at this step paused after a failure.
-		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'running', current_step_id = ?, error = '', completed_at = NULL WHERE id = ? AND (status = 'failed' OR (status = 'waiting' AND current_step_id = ?))`, path, runID, path)
+		// A run failed at this step, or one waiting at it paused after a
+		// failure: never an earlier step that failed and was continued,
+		// which the run went on past.
+		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'running', error = '', completed_at = NULL WHERE id = ? AND status IN ('failed', 'waiting') AND current_step_id = ?`, runID, path)
 		if err != nil {
 			return err
 		}

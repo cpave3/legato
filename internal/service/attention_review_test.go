@@ -47,9 +47,9 @@ func TestWorkflowAttentionSnapshotReportsManualStep(t *testing.T) {
 
 func TestWorkflowAttentionSnapshotClassifiesFailureAsHighUrgency(t *testing.T) {
 	fake := &fakeWorkflowAttentionSource{
-		runs: []store.WorkflowRun{{ID: "wr-1", WorkflowTitle: "Deploy", Status: "failed"}},
+		runs: []store.WorkflowRun{{ID: "wr-1", WorkflowTitle: "Deploy", Status: "failed", CurrentStepID: "deploy"}},
 		view: &store.WorkflowRunView{
-			Run:   store.WorkflowRun{ID: "wr-1", Status: "failed"},
+			Run:   store.WorkflowRun{ID: "wr-1", Status: "failed", CurrentStepID: "deploy"},
 			Steps: []store.WorkflowStep{{RunID: "wr-1", Path: "deploy", StepID: "deploy", Status: "failed", Title: "Deploy"}},
 		},
 	}
@@ -74,10 +74,10 @@ func TestWorkflowAttentionSnapshotFailsRatherThanResolvingOnShowError(t *testing
 
 func TestAWorkflowAttentionItemNamesTheRunsCard(t *testing.T) {
 	fake := &fakeWorkflowAttentionSource{
-		runs: []store.WorkflowRun{{ID: "wr-1", WorkflowTitle: "Ticket to PR", Status: "failed", RelatedTaskID: "c9x2k1m4",
+		runs: []store.WorkflowRun{{ID: "wr-1", WorkflowTitle: "Ticket to PR", Status: "failed", CurrentStepID: "deploy", RelatedTaskID: "c9x2k1m4",
 			RelatedTaskKey: "LEG-9", RelatedTaskTitle: "Fix login"}},
 		view: &store.WorkflowRunView{
-			Run:   store.WorkflowRun{ID: "wr-1", Status: "failed"},
+			Run:   store.WorkflowRun{ID: "wr-1", Status: "failed", CurrentStepID: "deploy"},
 			Steps: []store.WorkflowStep{{RunID: "wr-1", Path: "deploy", StepID: "deploy", Status: "failed", Title: "Deploy"}},
 		},
 	}

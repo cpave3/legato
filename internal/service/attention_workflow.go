@@ -153,9 +153,10 @@ func (a *WorkflowAttentionAdapter) collectRunStates(run store.WorkflowRun, view 
 				},
 			})
 		}
-		// A failed step of a run that goes on was continued: only a failed
-		// run's needs the operator.
-		if step.Status == "failed" && run.Status == "failed" {
+		// A failed step of a run that goes on was continued: only the
+		// failure holding a failed run needs the operator, and only it can
+		// be retried.
+		if step.Status == "failed" && run.Status == "failed" && step.Path == run.CurrentStepID {
 			states = append(states, workflowAttentionState{
 				runID: run.ID, stepID: step.Path, kind: "failed",
 				revision: fmt.Sprintf("failed:%s:%s", step.Path, step.Status),

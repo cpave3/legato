@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -530,5 +531,53 @@ steps:
 				t.Fatalf("run %s at %q, attempts %+v; want a second attempt waiting on its agent", view.Run.Status, view.Run.CurrentStepID, view.Attempts)
 			}
 		})
+	}
+}
+
+// Only the failure that holds the run is offered Retry: an earlier step
+// that failed and was continued is not, and Retry refuses it, since the
+// run went on past it (LEG-486 review).
+func TestOnlyTheFailureHoldingTheRunCanBeRetried(t *testing.T) {
+	a := &scriptedExecutor{typeName: "task.context", failures: []error{&WorkflowStepError{Message: "a failed"}}}
+	b := &scriptedExecutor{typeName: "task.note"}
+	c := &scriptedExecutor{typeName: "task.move", failures: []error{&WorkflowStepError{Message: "c failed"}}}
+	svc, _ := controlService(t, a, b, c)
+	ctx := context.Background()
+	view, _ := svc.Start(ctx, parseControlWorkflow(t, `schema_version: 2
+name: three
+title: Three
+steps:
+  - {id: a, type: task.context, with: {task: "${{ workflow.task }}"}, on_failure: continue}
+  - {id: b, type: task.note, with: {task: "${{ workflow.task }}", note: b}}
+  - {id: c, type: task.move, with: {task: "${{ workflow.task }}", column: Done}}
+`), nil)
+	if view == nil || view.Run.Status != "failed" || view.Run.CurrentStepID != "c" {
+		t.Fatalf("run = %+v", view)
+	}
+	items, err := NewWorkflowAttentionAdapter(svc).Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var failed []string
+	for _, item := range items {
+		if item.SignalKind == AttentionSignalWorkflowFailed {
+			failed = append(failed, item.SourceKey)
+		}
+	}
+	if strings.Join(failed, ",") != view.Run.ID+":c" {
+		t.Fatalf("failed items = %v, want only c's", failed)
+	}
+	if _, err := svc.Retry(ctx, view.Run.ID, "a", false); !errors.Is(err, store.ErrWorkflowStateConflict) {
+		t.Fatalf("retrying a = %v, want a state conflict", err)
+	}
+	if len(a.starts) != 1 {
+		t.Fatalf("a started %d times", len(a.starts))
+	}
+	view, err = svc.Retry(ctx, view.Run.ID, "c", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Run.Status != "succeeded" || len(c.starts) != 2 {
+		t.Fatalf("after retrying c: run %s, c starts %d", view.Run.Status, len(c.starts))
 	}
 }
