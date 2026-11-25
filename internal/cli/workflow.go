@@ -14,7 +14,7 @@ import (
 
 // WorkflowDefinitions is every workflow in folders, then the built-ins.
 func WorkflowDefinitions(folders []workflowengine.Folder) workflowengine.DiscoveryResult {
-	return workflowengine.WithBuiltIns(workflowengine.DiscoverFolders(folders), service.BuiltInJobWorkflow())
+	return workflowengine.WithBuiltIns(workflowengine.DiscoverFolders(folders), service.BuiltInWorkflows()...)
 }
 func WorkflowValidate(path string, data []byte) (*workflowengine.Definition, error) {
 	return workflowengine.Parse(path, data)

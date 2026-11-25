@@ -1214,6 +1214,27 @@ The loop step's own outputs are `results` (every pass's result, in order), `last
 
 On the run's page, each pass's steps are listed under the loop, pass by pass; a `next:` loop's query is the pass's first step, `next`. The run's graph draws the loop as a box holding its steps (see [Runs and workflows in the web UI](#runs-and-workflows-in-the-web-ui)). Legato keeps where a loop is in its database, so a loop goes on after a restart.
 
+### Reviewing pull requests: review-loop
+
+Every Legato has a built-in workflow, `review-loop`, that reviews pull requests in passes until a clean pass is approved. Call it from your own workflow with `workflow.run`, and branch on its `outcome`:
+
+```yaml
+- id: review
+  type: workflow.run
+  on_failure: pause
+  with:
+    workflow: review-loop
+    inputs: {repo: acme/widget, pr_number: "${{ steps.implement.outputs.pr_number }}", agent_author: true}
+- id: note
+  if: {field: steps.review.outputs.outcome, in: [stuck, closed]}
+  type: task.note
+  with: {task: "${{ workflow.task }}", body: "Review ended ${{ steps.review.outputs.outcome }}"}
+```
+
+Its inputs are those of `github.pr.review.open` below: `repo`, `pr_number` (with `scope`) or `prs`, `agent_author`, `reviewer`, `skill`, `max_passes` and `max_reentries`. Its outputs are `outcome` (`approved`, `closed` or `stuck`), `loop_id`, `passes`, `clean_pass`, `confirmed_at`, `findings` (`total`, `blocking`, `nits` and `open`), `prs`, `approval_withheld`, `summary_path` and `linked_task`. When the review is stuck, it waits for you (**Run another pass**, **Message the author** or **End**); **End** gives `stuck`, and your workflow goes on. A refused review (another loop already reviews the pull request: `review_loop_active`), or one that fails, fails your `workflow.run` step with its `error_code`, and the step's `on_failure` decides; **Retry** resumes the same review.
+
+`review-loop` is reserved: a file of yours may not take the name. To change it, copy it under another name; it is built from the steps below.
+
 ### Review loop steps
 
 A review loop can be built from steps, each acting on one loop that Legato keeps in its database. `github.pr.review.open` opens the loop and gives its ID as `loop_id`; the steps after it take that ID as `loop`. Like the inline `github.pr.review_passes` step, they need review passes turned on, and they wait for the Legato that runs the review engine (the one serving the broker) rather than for an agent. A loop belongs to the run that opened it: a step given another run's loop fails with `loop_not_owned`.

@@ -75,6 +75,17 @@ func StartReviewRuns(t *testing.T, w *Worker) *ReviewRuns {
 	caller.SetWorkflows(workflows)
 	step.Attach(caller)
 	steps.Attach(caller)
+	// workflow.run finds the built-ins, review-loop among them, and the
+	// review-pr-passes example, as Legato's discovery does.
+	workflows.SetDefinitions(func() workflowengine.DiscoveryResult {
+		var found workflowengine.DiscoveryResult
+		if example, ok := workflowengine.ExampleNamed("review-pr-passes"); ok {
+			if definition, err := workflowengine.Parse("review-pr-passes.workflow.yaml", example.YAML); err == nil {
+				found.Definitions = append(found.Definitions, definition)
+			}
+		}
+		return workflowengine.WithBuiltIns(found, service.BuiltInWorkflows()...)
+	})
 	return &ReviewRuns{w: w, Workflows: workflows, Caller: caller, Steps: steps, Clones: clones, Discover: discover}
 }
 
@@ -90,6 +101,17 @@ func (r *ReviewRuns) Start(ctx context.Context, inputs map[string]string) (*stor
 		return nil, err
 	}
 	view, err := r.Workflows.Start(ctx, definition, inputs)
+	if err != nil || view.Run.Status != "running" {
+		return view, err
+	}
+	r.Open(ctx)
+	return r.Workflows.Show(ctx, view.Run.ID)
+}
+
+// StartReviewLoop runs the built-in review-loop with inputs, top level, and
+// opens its open step as the broker holder's tick does at once.
+func (r *ReviewRuns) StartReviewLoop(ctx context.Context, inputs map[string]string) (*store.WorkflowRunView, error) {
+	view, err := r.Workflows.Start(ctx, workflowengine.BuiltInReviewLoop(), inputs)
 	if err != nil || view.Run.Status != "running" {
 		return view, err
 	}

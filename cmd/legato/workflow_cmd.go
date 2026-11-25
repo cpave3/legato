@@ -237,7 +237,7 @@ func resolveWorkflowDefinition(name string, repositories []workflowengine.Reposi
 	if data, err := os.ReadFile(name); err == nil {
 		return workflowengine.Parse(name, data)
 	}
-	result := workflowengine.WithBuiltIns(workflowengine.DiscoverFolders(workflowFolders(repositories)), service.BuiltInJobWorkflow())
+	result := workflowengine.WithBuiltIns(workflowengine.DiscoverFolders(workflowFolders(repositories)), service.BuiltInWorkflows()...)
 	for _, definition := range result.Definitions {
 		if definition.Name == name {
 			return definition, nil

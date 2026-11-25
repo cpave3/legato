@@ -1067,7 +1067,7 @@ func runServeCmd(args []string) int {
 		globalWorkflows, projectWorkflows := workflowDirs()
 		srv.SetWorkflowService(workflowSvc, globalWorkflows, projectWorkflows, workflowRepositoryPresets(cfg)...)
 		srv.SetReviewMaxReentries(func() int { return cfg.ReviewPasses.MaxReentries })
-		srv.SetBuiltInWorkflows(service.BuiltInJobWorkflow())
+		srv.SetBuiltInWorkflows(service.BuiltInWorkflows()...)
 		srv.SetReflectionWorkflowService(workflowSvc)
 		triggerCoordinator = buildWorkflowTriggerCoordinator(db, workflowSvc, cfg, bus)
 		startLearningMigration(cfg, db, triggerCoordinator)
@@ -1518,7 +1518,7 @@ func runTUI() int {
 				globalWorkflows, projectWorkflows := workflowDirs()
 				webSrv.SetWorkflowService(tuiWorkflowSvc, globalWorkflows, projectWorkflows, workflowRepositoryPresets(cfg)...)
 				webSrv.SetReviewMaxReentries(func() int { return cfg.ReviewPasses.MaxReentries })
-				webSrv.SetBuiltInWorkflows(service.BuiltInJobWorkflow())
+				webSrv.SetBuiltInWorkflows(service.BuiltInWorkflows()...)
 				webSrv.SetReflectionWorkflowService(tuiWorkflowSvc)
 				webSrv.SetWorkflowTriggerCoordinator(triggerCoordinator)
 			}

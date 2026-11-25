@@ -257,6 +257,9 @@ func (d *Definition) problems() []*PathError {
 		}
 		add(path, fmt.Errorf("name and title are required"))
 	}
+	if err := d.reservedNameProblem(); err != nil {
+		add("name", err)
+	}
 	if len(d.Steps) == 0 {
 		add("steps", fmt.Errorf("at least one step is required"))
 	}

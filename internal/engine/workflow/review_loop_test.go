@@ -120,3 +120,53 @@ func TestARaisedMaxReentriesIsAnErrorAtItsLine(t *testing.T) {
 		}
 	}
 }
+
+func TestAFileNamedReviewLoopIsAnErrorAtItsName(t *testing.T) {
+	data := []byte("schema_version: 2\nname: review-loop\ntitle: My own\nsteps:\n  - {id: note, title: Note, type: task.note, with: {task: x, body: y}}\n")
+	_, diagnostics := workflow.Check("review-loop.workflow.yaml", data)
+	if len(diagnostics) == 0 || diagnostics[0].Severity != workflow.SeverityError || diagnostics[0].Line != 2 ||
+		!strings.Contains(diagnostics[0].Message, "review-loop is Legato's built-in") {
+		t.Fatalf("diagnostics = %+v", diagnostics)
+	}
+	if _, err := workflow.Parse("review-loop.workflow.yaml", data); err == nil {
+		t.Fatal("a file named review-loop loaded")
+	}
+}
+
+func TestTheBuiltInReviewLoopIsAV2WorkflowOfTheReviewSteps(t *testing.T) {
+	d := workflow.BuiltInReviewLoop()
+	if d.Name != workflow.ReviewLoopWorkflowName || d.SchemaVersion != workflow.SchemaVersion2 || !strings.HasPrefix(d.Source, "builtin:") {
+		t.Fatalf("definition = %s v%d from %s", d.Name, d.SchemaVersion, d.Source)
+	}
+	var types []string
+	for _, step := range d.Steps {
+		types = append(types, step.Type)
+		for _, inner := range step.Steps {
+			types = append(types, inner.Type)
+		}
+	}
+	if got := strings.Join(types, ","); got != "github.pr.review.open,,github.pr.review.pass,github.pr.review.confirm,github.pr.review.wait,github.pr.review.close" {
+		t.Fatalf("steps = %s", got)
+	}
+	for _, name := range []string{"outcome", "loop_id", "passes", "clean_pass", "confirmed_at", "findings", "prs", "summary_path", "linked_task"} {
+		if _, ok := d.Outputs[name]; !ok {
+			t.Fatalf("no output %q", name)
+		}
+	}
+	if d.Outputs["findings"].Type != "json" {
+		t.Fatalf("findings is %s", d.Outputs["findings"].Type)
+	}
+	for _, name := range []string{"repo", "pr_number", "prs", "scope", "agent_author", "reviewer", "skill", "max_passes", "max_reentries"} {
+		if _, ok := d.Inputs[name]; !ok {
+			t.Fatalf("no input %q", name)
+		}
+	}
+}
+
+func TestAWrittenReviewLoopNeverReplacesTheBuiltIn(t *testing.T) {
+	mine := &workflow.Definition{Name: workflow.ReviewLoopWorkflowName, Title: "Mine", Source: "/home/me/review-loop.workflow.yaml"}
+	result := workflow.WithBuiltIns(workflow.DiscoveryResult{Definitions: []*workflow.Definition{mine}}, workflow.BuiltInReviewLoop())
+	if len(result.Definitions) != 1 || !strings.HasPrefix(result.Definitions[0].Source, "builtin:") {
+		t.Fatalf("definitions = %+v", result.Definitions)
+	}
+}
