@@ -230,7 +230,9 @@ Some agents cannot be resumed, and the list says why:
 
 - An agent that never reported its conversation has nothing to resume. **Start new** (`R` in the TUI) starts a new agent on its task, set up as it was.
 - When its folder, worktree or clone is gone, Legato does not start it.
-- An agent that a swarm or a workflow runs is only shown. The swarm or workflow hears that it died, as it does of any agent that ends. A reviewer is ended, and its review pass handles it.
+- An agent that a swarm runs is only shown. The swarm hears that it died, as it does of any agent that ends. A reviewer is ended, and its review pass handles it.
+
+An agent that a [workflow](/legato/using/workflows/#after-a-crash-suspended-steps) step was waiting on is resumed like any other, and the list names its step (**Workflow step build · Ship v1**; in the TUI, **· step build** after its title). Its step is **Suspended** meanwhile, not failed, and resuming the agent goes on with the step: its conversation, its folder or clone, and the same attempt, so the step completes as if nothing had stopped. Its first message says the step is still open. **Dismiss** fails the step. A workflow agent that cannot be resumed is not kept: its step fails saying why, and **Retry step** starts it again.
 
 The Reeve's session resumes the same way, with a fresh snapshot of Legato. An interrupted agent on a task [handed off](/legato/using/handoff/) to a worker resumes there, unattended in its clone, and your main shows **Interrupted on worker** in the Away lane.
 

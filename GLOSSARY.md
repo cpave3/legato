@@ -229,6 +229,10 @@ _Avoid_: flow chart, diagram, canvas
 **Gate**:
 A step that does not start by itself: one that waits for the operator (`trigger: manual`) or for the agent before it to end (`trigger: agent_ended`).
 
+**Suspended step**:
+An `agent.run` step whose agent was interrupted. It is still open: resuming the agent goes on with it, on the same attempt. Its run is suspended too. Not a failed step.
+_Avoid_: paused step, interrupted step
+
 ### Neighbouring terms
 
 **Delegation**:

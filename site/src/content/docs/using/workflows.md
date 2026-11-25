@@ -687,7 +687,20 @@ A run's agent can send its questions to [the Reeve](/legato/using/reeve/) instea
 
 Fixed steps run one after another until a step hands work to an agent. The run moves on when that agent reports that it completed or failed its step.
 
-A few steps wait on Legato itself rather than on an agent or on you: their status is **waiting** until the part of Legato that owns them finishes them, with their outputs, or fails them. Such a step is tied to no agent, so no agent exiting fails it, and it is still waiting after Legato restarts. Cancelling the run stops it.
+A few steps wait on Legato itself rather than on an agent or on you: their status is **waiting** until the part of Legato that owns them finishes them, with their outputs, or fails them. Such a step is tied to no agent, so no agent exiting fails it, and it is still waiting after Legato restarts. Cancelling the run stops it. This covers `github.pr.wait`, `github.pr.review_passes` and steps that wait for you, which a crash or shutdown leaves as they were.
+
+### After a crash: suspended steps
+
+When the machine goes down, or tmux is killed, the agents go with it. An `agent.run` step whose agent was working then is **Suspended** when Legato starts again, not failed, and so is its run. Its agent is listed as [interrupted](/legato/using/agents/#after-a-crash-interrupted-agents), and the one Attention item, **N agents were interrupted**, covers it: the run adds none of its own.
+
+- **Resume** goes on with the step: on the run's page (**Resume step**), on the agent in the Agents list, with **Resume all**, or `R` in the TUI. The agent starts again with its saved conversation, in the same folder or clone (its local branches are still there), with the same resources and sandbox choice, and the same attempt, so `legato workflow step complete` still completes the step. Its first message says Legato stopped while it worked and that the step is still open. With `keep_agent: true`, it stays running for the next steps, as before.
+- **Retry step** throws the conversation away: it ends the step, dismisses the interrupted agent and starts a fresh one.
+- **Cancel run** dismisses the interrupted agent too.
+- An agent that cannot be resumed (it never reported its conversation, or its folder is gone) fails its step with the reason. **Retry step** starts it again.
+
+Stopping and starting Legato alone (`legato restart`, an update, stopping `legato serve`) suspends nothing: tmux keeps running, so the agents go on working, and a step one of them completes while Legato is down moves on when Legato is back. Only a lost tmux session suspends a step.
+
+A run that an older Legato failed with **agent exited before step completion**, whose agent is still listed as interrupted, offers **Resume step** beside **Retry step**. An agent in a named slot (`slot:`) still fails its step when it is interrupted.
 
 ## Schema version 2
 
@@ -728,7 +741,7 @@ Report an unrecoverable failure:
 legato workflow step fail "review tool unavailable" --json
 ```
 
-An agent that exits, including one whose pane is back at a shell, fails its unfinished step with **agent exited before step completion**. Use **Retry step** to try again. An agent that never connects to Legato (its agent tool started, but the session's bridge to Legato did not come up within 30 seconds, so it could not be given its prompt) fails its step too, with **the agent never connected to Legato**, the reason and the name of its terminal, instead of waiting forever. Its prompt is dropped with the step. Exit has not succeeded: only `legato workflow step complete` completes a step. Missing or invalid outputs leave the step incomplete or failed. Learn's interview follows the same rule through `legato learn reflection submit`; see [Legato Learn](/legato/using/learn/). The command only saves the outputs. The Legato that runs the board or the web UI then removes the step's agent (unless `keep_agent` is set) and only then starts the next step, so two `agent.run` steps in a row work. That happens at once, or within 30 seconds if Legato missed the message. A step completed while no Legato ran moves on when one starts. If a completion is interrupted and the agent runs the command again, a file that has not changed is accepted again, and a file that changed is refused.
+An agent that exits while Legato runs, including one whose pane is back at a shell, fails its unfinished step with **agent exited before step completion**. An agent a crash took suspends its step instead; see [After a crash](#after-a-crash-suspended-steps). Use **Retry step** to try again. An agent that never connects to Legato (its agent tool started, but the session's bridge to Legato did not come up within 30 seconds, so it could not be given its prompt) fails its step too, with **the agent never connected to Legato**, the reason and the name of its terminal, instead of waiting forever. Its prompt is dropped with the step. Exit has not succeeded: only `legato workflow step complete` completes a step. Missing or invalid outputs leave the step incomplete or failed. Learn's interview follows the same rule through `legato learn reflection submit`; see [Legato Learn](/legato/using/learn/). The command only saves the outputs. The Legato that runs the board or the web UI then removes the step's agent (unless `keep_agent` is set) and only then starts the next step, so two `agent.run` steps in a row work. That happens at once, or within 30 seconds if Legato missed the message. A step completed while no Legato ran moves on when one starts. If a completion is interrupted and the agent runs the command again, a file that has not changed is accepted again, and a file that changed is refused.
 
 ## Artifacts and security
 
