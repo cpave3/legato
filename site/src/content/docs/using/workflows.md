@@ -123,7 +123,7 @@ Version 1 executes steps in declaration order and supports these executors. Lega
     with:
       agent: {from: implement}
   ```
-- `agent.message`: send a prompt or a macro to a running agent: the one an earlier step used, `agent: {from: <step>}`, or a task's own agent, `task: …`. A prompt reaches the agent opening with `[legato workflow]`, so it reads as Legato's; a macro is sent as your own words, as when you send it yourself. The step does not wait for the agent, and fails when the agent is not running. Outputs: `task` and `session_id`.
+- `agent.message`: send a prompt or a macro to a running agent: the one an earlier step used, `agent: {from: <step>}`, or a task's own agent, `task: …`. A prompt reaches the agent opening with `[legato workflow]`, so it reads as Legato's; a macro is sent as your own words, as when you send it yourself. The step does not wait for the agent unless it says `wait_for` or declares outputs (see [What ends an agent step](#what-ends-an-agent-step)), and fails when the agent is not running. Its outputs are those Legato fills on every agent step, `task` and `session_id` among them.
 
   ```yaml
   - id: push
@@ -146,7 +146,7 @@ Version 1 executes steps in declaration order and supports these executors. Lega
       macro: Review
       working_dir: ${{ steps.clone.outputs.working_dir }}
   ```
-- `agent.stop`: idempotently stop the active agent of `with.task` (the task's own agent, in its main slot), or the agent an earlier step used, `with.agent: {from: <step>}`. The `learn` template does not use it, because its interview borrows the card's own agent; its curator and critic run under the run's own task.
+- `agent.stop`: idempotently stop the active agent of `with.task` (the task's own agent, in its main slot), or the agent an earlier step used, `with.agent: {from: <step>}`. In a version 2 file, `wait_for: [ended]` waits for the agent to end instead of stopping it, for a step that leaves the agent with you. The `learn` template does not use it, because its interview borrows the card's own agent; its curator and critic run under the run's own task.
 - `agent.compact`: compact the running agent of `with.task` with its tool's own compaction, as `/compact` in its panel does (see [Compacting an agent](/legato/using/agents/#compacting-an-agent)). `${{ workflow.task }}` is the agent an `agent.run` step with `keep_agent: true` left running. `with.instructions` says what the summary must keep; only Claude Code takes them. An agent still in its turn is compacted when the turn ends, which is the usual case right after an `agent.run` step, since the agent completes that step from inside its turn. The step then waits for the compaction to finish. Outputs: `tokens_before` and `tokens_after`, when the tool reports them. The step fails at once when the task has no agent running, when Legato cannot compact the agent's tool or shows the agent only in its terminal, or when a Codex or Chimera agent is given instructions. It fails when the compaction fails, and when 15 minutes after the step started the agent is still working or Legato has seen no end to the compaction (for example because Legato restarted meanwhile); **Retry step** compacts again.
 
   ```yaml
@@ -929,10 +929,61 @@ A run that an older Legato failed with **agent exited before step completion**, 
 
 ## Schema version 2
 
-Schema version 2 is arriving in parts. Today a version 2 file is a version 1 file with two differences:
+Schema version 2 is arriving in parts. Today a version 2 file is a version 1 file with these differences:
 
 - A step says how it starts with `start: automatic` (the default) or `start: manual`. `trigger:` is a version 1 key, and a version 2 file refuses it. A version 2 file has no `agent_ended`.
 - A later step can read any output its executor's catalog lists, such as `${{ steps.prep.outputs.branch }}` after `repo.ensure`, without the step declaring it. This also holds in version 1 files.
+- An agent step says what ends it with `wait_for:`, and any step can have a `timeout:` (below).
+- Clones are explicit, and a step's `branch` is made under `legato/` and granted for pushes (below).
+
+### What ends an agent step
+
+`agent.run`, `agent.message` and `agent.stop` take `wait_for:`, a list of signals. The first to come ends the step:
+
+| Signal | Ends the step when |
+| --- | --- |
+| `complete` | The agent runs `legato workflow step complete` with every output the step declares. |
+| `finished` | The agent's stage becomes Finished after the step began: it reports it (`report_stage`, a done note), or you set it. Each report counts, so the same agent can end two steps one after the other. |
+| `ended` | The agent's session ends: you close it, or it exits. An interrupted agent has not ended: the step waits until it is resumed, and goes on with the resumed agent. |
+| `none` | The prompt was delivered. |
+
+Without `wait_for`, a step that declares outputs waits for `complete`. Otherwise `agent.run` waits for `complete`, or for `ended` with `on:` a task; `agent.message` does not wait (`none`); and `agent.stop` stops the agent at once. A step that declares outputs must wait for `complete`, which is how the agent gives them. `agent.stop` with `wait_for: [ended]` waits for you to close the agent, then goes on. `none` on a workflow's own agent needs `keep: true`, or the agent would be stopped as soon as it starts. The step's contract tells the agent which signals end it. A step on a task's agent that is not waiting for `ended` fails when that agent ends, so **Retry step** can start it again.
+
+Before a step that waits for `finished` sends its prompt, Legato puts the agent back to Implementing, so a Finished from an earlier step never ends it. Legato finds every wait again from its database when it starts and every 30 seconds, so a restart or a missed event loses nothing.
+
+```yaml
+schema_version: 2
+name: build
+title: Build and push
+inputs:
+  task: {type: task, required: true}
+steps:
+  - id: build
+    title: Build it
+    type: agent.run
+    with: {on: "${{ workflow.inputs.task }}", repo: acme/widget, branch: build, prompt: Build the ticket. Report finished when it is committed.}
+    wait_for: [finished]
+    timeout: 4h
+  - id: push
+    title: Push and open the pull requests
+    type: agent.message
+    with: {agent: {from: build}, prompt: Push the stack and open its pull requests. Report finished when they are open.}
+    wait_for: [finished]
+    timeout: 1h
+  - id: close
+    title: Wait for you to close the agent
+    type: agent.stop
+    with: {agent: {from: build}}
+    wait_for: [ended]
+```
+
+`timeout:` is a duration such as `30m` or `12h`, counted from when the step starts, including any time Legato is not running. A step that runs out fails with "timed out after …": a workflow's own agent is stopped, a task's own agent is left running.
+
+When an agent step ends, Legato fills these outputs beside the ones the step declares (a declared output of the same name wins): `signal` (what ended it), `stage` and `stage_reason`, `last_message` (the agent's last message, at most 4 KiB, empty when Legato cannot read its conversation), `session_id`, `task`, `working_dir`, `clone_id` (0 outside a job clone), `branch` (the branch its folder has checked out), `top_branch` (the top of the clone's Staccato stack, or `branch`), `stack` (`[{name, parent, state, head_sha}]`, bottom first) and `prs` (`[{repo, number, url, state, draft, branch}]`, the pull requests of the clone's branches, looked up on GitHub then). A GitHub error then fails the step, rather than give a later step stale pull requests.
+
+### Clones and branches
+
+In a version 2 file, an `agent.run` step with `repo` gets a fresh clone at `ref`, never one its task already has. To work in an existing clone, say which with `clone:`: `{from: <step>}` is the clone an earlier agent step worked in, and `${{ … }}` a clone ID, such as an earlier step's `clone_id` (null or 0 is a fresh clone). A `branch` the step names is made as `legato/<task>-<branch>` (a name that already starts with `legato/` is kept), and the agent may push it and open draft pull requests from it without asking. In a joined clone the branch is stacked on the one checked out.
 
 - A step can say `if:` and `on_failure:` (below).
 
