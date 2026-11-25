@@ -41,6 +41,9 @@ type fakeGateway struct {
 	// gatewayBotStatus is the status /gateway/bot answers with (0 = 200).
 	gatewayBotStatus int
 	gatewayBotAuth   atomic.Value
+	// rest, when set, answers the REST calls under /interactions and
+	// /channels.
+	rest func(http.ResponseWriter, *http.Request)
 }
 
 func newFakeGateway(t *testing.T) *fakeGateway {
@@ -62,6 +65,10 @@ func (gw *fakeGateway) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"url": gw.wsURL(), "shards": 1})
+		return
+	}
+	if gw.rest != nil && (strings.HasPrefix(r.URL.Path, "/interactions/") || strings.HasPrefix(r.URL.Path, "/channels/")) {
+		gw.rest(w, r)
 		return
 	}
 	c, err := websocket.Accept(w, r, nil)

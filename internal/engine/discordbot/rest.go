@@ -27,15 +27,17 @@ type messageReference struct {
 type createMessageBody struct {
 	Content          string            `json:"content"`
 	MessageReference *messageReference `json:"message_reference,omitempty"`
+	Components       []actionRow       `json:"components,omitempty"`
 	AllowedMentions  struct {
 		Parse []string `json:"parse"`
 	} `json:"allowed_mentions"`
 }
 
 // CreateMessage posts content to a channel, as a reply to replyTo when it is
-// not "". It mentions no one by @everyone, roles or users. It returns the new
-// message's ID. A rate limit of up to 5 seconds is waited out and retried once.
-func (c *Client) CreateMessage(ctx context.Context, channelID, content, replyTo string) (string, error) {
+// not "", with buttons in one action row when there are any (see Button). It
+// mentions no one by @everyone, roles or users. It returns the new message's
+// ID. A rate limit of up to 5 seconds is waited out and retried once.
+func (c *Client) CreateMessage(ctx context.Context, channelID, content, replyTo string, buttons ...Button) (string, error) {
 	if content == "" {
 		return "", errors.New("discord: empty message")
 	}
@@ -45,7 +47,7 @@ func (c *Client) CreateMessage(ctx context.Context, channelID, content, replyTo 
 	if channelID == "" {
 		return "", errors.New("discord: no channel")
 	}
-	body := createMessageBody{Content: content}
+	body := createMessageBody{Content: content, Components: components(buttons, false)}
 	body.AllowedMentions.Parse = []string{}
 	if replyTo != "" {
 		body.MessageReference = &messageReference{MessageID: replyTo}

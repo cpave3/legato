@@ -50,20 +50,41 @@ type readResult struct {
 	err  error
 }
 
-// Run runs one gateway session and returns when it ends. With a session kept
-// from an earlier run it RESUMEs at that session's resume address; otherwise it
-// IDENTIFYs. onReady gets the bot's user ID on READY and on RESUMED. onMessage
-// gets every MESSAGE_CREATE, the bot's own included (compare with SelfID).
-// Both are called on Run's goroutine.
-//
-// Run returns ErrReconnect (wrapped) when it should be called again at once,
-// ErrAuth, ErrIntents or ErrConfig when retrying will not help, ctx.Err() when
-// ctx ends (the session is closed with 1000 and forgotten), and any other
-// error when the caller should back off and call Run again, which resumes.
+// Handlers are what a gateway session calls, all on Serve's goroutine; any
+// may be nil.
+type Handlers struct {
+	// Message gets every MESSAGE_CREATE, the bot's own included (compare
+	// with SelfID).
+	Message func(Message)
+	// Interaction gets each click on a button, after the deferred response
+	// to it has been started.
+	Interaction func(Interaction)
+	// InteractionError gets a deferred response that failed, from the
+	// goroutine that sent it.
+	InteractionError func(error)
+	// Ready gets the bot's user ID on READY and on RESUMED.
+	Ready func(selfID string)
+}
+
+// Run is Serve with only messages and the ready callback.
 func (c *Client) Run(ctx context.Context, onMessage func(Message), onReady func(selfID string)) error {
+	return c.Serve(ctx, Handlers{Message: onMessage, Ready: onReady})
+}
+
+// Serve runs one gateway session and returns when it ends. With a session
+// kept from an earlier run it RESUMEs at that session's resume address;
+// otherwise it IDENTIFYs.
+//
+// Serve returns ErrReconnect (wrapped) when it should be called again at
+// once, ErrAuth, ErrIntents or ErrConfig when retrying will not help,
+// ctx.Err() when ctx ends (the session is closed with 1000 and forgotten), and
+// any other error when the caller should back off and call it again, which
+// resumes.
+func (c *Client) Serve(ctx context.Context, h Handlers) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	onMessage, onReady := h.Message, h.Ready
 	if onMessage == nil {
 		onMessage = func(Message) {}
 	}
@@ -118,7 +139,8 @@ func (c *Client) Run(ctx context.Context, onMessage func(Message), onReady func(
 		}
 	}()
 
-	s := &session{c: c, ctx: ctx, conn: conn, resume: resume, onMessage: onMessage, onReady: onReady, acked: true, reads: reads}
+	s := &session{c: c, ctx: ctx, conn: conn, resume: resume, onMessage: onMessage, onReady: onReady,
+		onInteraction: h.Interaction, onInteractionError: h.InteractionError, acked: true, reads: reads}
 	return s.loop(reads)
 }
 
@@ -129,6 +151,9 @@ type session struct {
 	resume    bool
 	onMessage func(Message)
 	onReady   func(string)
+	// onInteraction and onInteractionError may be nil.
+	onInteraction      func(Interaction)
+	onInteractionError func(error)
 	// reads is the reader goroutine's channel, which a failed write asks
 	// for the close the server may have sent.
 	reads <-chan readResult
@@ -397,6 +422,17 @@ func (s *session) dispatch(typ string, raw json.RawMessage) {
 		m.InThread = d.Position != nil || c.threads[d.ChannelID]
 		c.mu.Unlock()
 		s.onMessage(m)
+
+	case "INTERACTION_CREATE":
+		i, ok := c.parseInteraction(raw)
+		if !ok {
+			return
+		}
+		// Answer at once, apart from the handler, which may be slow.
+		go c.answer(s.ctx, i, s.onInteractionError)
+		if s.onInteraction != nil {
+			s.onInteraction(i)
+		}
 	}
 }
 
