@@ -73,7 +73,13 @@ func (s *WorkflowService) processAdvance(ctx context.Context, advance store.Work
 	// rest while the agent is still there to read.
 	continued := advance.Step.Status == "failed"
 	if !continued {
-		s.fillRecordedOutputs(ctx, &advance)
+		goesOn, err := s.fillRecordedOutputs(ctx, &advance)
+		if err != nil || !goesOn {
+			return err
+		}
+		// Outputs it could not fill fail the step; continued, it goes on
+		// as a failed step, its agent already stopped.
+		continued = advance.Step.Status == "failed"
 	}
 	if !keepsAgent(advance.Step) && !continued && !endedSignal(advance.Step) {
 		if executor, ok := s.executors[advance.Attempt.ExecutorType].(interface {

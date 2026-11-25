@@ -479,7 +479,7 @@ steps:
 `)
 	reportStage(t, f.store, "LEG-7", "finished", "built")
 	view = f.check(t, f.workflows, view.Run.ID)
-	if view.Run.Status != "failed" || !strings.Contains(view.Steps[0].Error, "github: 502") {
+	if view.Run.Status != "failed" || !strings.Contains(view.Steps[0].Error, "github: 502") || view.Steps[0].ErrorCode != WorkflowErrorOutputsUnavailable {
 		t.Fatalf("run = %s, step = %+v", view.Run.Status, view.Steps[0])
 	}
 }
@@ -599,5 +599,181 @@ steps:
 	view = f.check(t, f.workflows, view.Run.ID)
 	if view.Run.Status != "succeeded" || waitOutputs(t, view, "build")["session_id"] != float64(resumed.ID) {
 		t.Fatalf("run = %s, outputs = %s", view.Run.Status, view.Steps[0].OutputsJSON)
+	}
+}
+
+// A GitHub error while the host fills a completed step's outputs fails the
+// step too, with error code outputs_unavailable: a later if: on prs would
+// otherwise skip a review on stale pull requests. Continued, the run goes on
+// with the failure as the step's outputs.
+func TestAGitHubErrorFillingACompletedStepFailsItAndFollowsOnFailure(t *testing.T) {
+	ctx := context.Background()
+	f, _, _, prs := newCloneFixture(t)
+	prs.err = errors.New("github: 502")
+	view := f.start(t, `
+schema_version: 2
+name: build
+title: Build
+inputs:
+  task: {type: task, required: true}
+steps:
+ - id: build
+   title: Build
+   type: agent.run
+   with: {on: "${{ workflow.inputs.task }}", prompt: Build it, repo: acme/widget, branch: one}
+   on_failure: continue
+   outputs:
+     pr_number: {type: integer}
+ - {id: after, title: After, type: gate, with: {title: "Build: ${{ steps.build.outputs.error_code }}"}}
+`)
+	if _, err := f.workflows.Complete(ctx, view.Run.ID, "build", view.Attempts[0].ID, map[string]string{"pr_number": "12"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	view, err := f.store.GetWorkflowRun(ctx, view.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := stepByPath(view, "build")
+	outputs := waitOutputs(t, view, "build")
+	if build.Status != "failed" || outputs["error_code"] != WorkflowErrorOutputsUnavailable || !strings.Contains(build.Error, "github: 502") {
+		t.Fatalf("build = %+v, outputs = %v", build, outputs)
+	}
+	if view.Run.Status == "failed" || stepByPath(view, "after").Status != WorkflowStepWaiting {
+		t.Fatalf("run = %s, after = %+v; on_failure: continue should go on", view.Run.Status, stepByPath(view, "after"))
+	}
+}
+
+// The host that advances a step its agent recorded from the pane fails it
+// when GitHub errors (the default on_failure fails the run), and a Retry
+// once GitHub answers completes it with its pull requests. The step is
+// Ship's implement step: a workflow's own agent on the task, kept.
+func TestAStepFailedFillingItsOutputsSucceedsOnRetry(t *testing.T) {
+	ctx := context.Background()
+	f, _, _, prs := newCloneFixture(t)
+	pane := NewWorkflowService(f.store, nil)
+	pane.SetRecordOnly()
+	prs.err = errors.New("github: 502")
+	view := f.start(t, `
+schema_version: 2
+name: build
+title: Build
+inputs:
+  task: {type: task, required: true}
+steps:
+ - id: build
+   title: Build
+   type: agent.run
+   with: {task: "${{ workflow.inputs.task }}", prompt: Build it, repo: acme/widget, branch: one, keep_agent: true}
+   outputs:
+     pr_number: {type: integer}
+ - {id: after, title: After, type: gate, with: {title: Next}}
+`)
+	if _, err := pane.Complete(ctx, view.Run.ID, "build", view.Attempts[0].ID, map[string]string{"pr_number": "12"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.workflows.AdvanceDue(ctx); err != nil {
+		t.Fatal(err)
+	}
+	view, err := f.store.GetWorkflowRun(ctx, view.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := stepByPath(view, "build")
+	if view.Run.Status != "failed" || view.Run.CurrentStepID != "build" || build.Status != "failed" || build.ErrorCode != WorkflowErrorOutputsUnavailable {
+		t.Fatalf("run = %+v, build = %+v", view.Run, build)
+	}
+	if after := stepByPath(view, "after"); after.Status != "pending" {
+		t.Fatalf("after = %+v; the next step must not start", after)
+	}
+	// A second host finds nothing left to do.
+	if moved, err := f.workflows.AdvanceDue(ctx); err != nil || len(moved) != 0 {
+		t.Fatalf("moved %v, %v", moved, err)
+	}
+
+	prs.err = nil
+	view, err = f.workflows.Retry(ctx, view.Run.ID, "build", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := view.Attempts[len(view.Attempts)-1]
+	if attempt.Path != "build" || attempt.Status != "waiting_agent" {
+		t.Fatalf("attempts = %+v", view.Attempts)
+	}
+	view, err = f.workflows.Complete(ctx, view.Run.ID, "build", attempt.ID, map[string]string{"pr_number": "12"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputs := waitOutputs(t, view, "build")
+	if stepByPath(view, "build").Status != "succeeded" || outputs["signal"] != "complete" || len(outputs["prs"].([]any)) == 0 {
+		t.Fatalf("build = %+v, outputs = %v", stepByPath(view, "build"), outputs)
+	}
+	if stepByPath(view, "after").Status != WorkflowStepWaiting {
+		t.Fatalf("after = %+v", stepByPath(view, "after"))
+	}
+}
+
+// When the agent service cannot read what a step waits for as its agent
+// ends, it leaves the step to the workflow host, which reads the tables
+// again, rather than failing a step that may wait for exactly that end.
+func TestAnUnreadableWaitIsLeftToTheHostWhenTheAgentEnds(t *testing.T) {
+	ctx := context.Background()
+	f := newPlaceFixture(t)
+	if err := f.agents.SpawnAgent(ctx, "LEG-7", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	view := f.start(t, `
+schema_version: 2
+name: chat
+title: Chat
+inputs:
+  task: {type: task, required: true}
+steps:
+ - {id: talk, title: Talk, type: agent.run, with: {on: "${{ workflow.inputs.task }}", prompt: Help the operator, reuse: true}}
+`)
+	if _, err := f.store.DB().ExecContext(ctx, `UPDATE workflow_steps SET wait_signals = '["ended"' WHERE run_id = ?`, view.Run.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.tmux.mu.Lock()
+	delete(f.tmux.sessions, "legato-LEG-7")
+	f.tmux.mu.Unlock()
+	if err := f.agents.ReconcileSessions(ctx); err != nil {
+		t.Fatal(err)
+	}
+	view, err := f.store.GetWorkflowRun(ctx, view.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Steps[0].Status != "waiting_agent" {
+		t.Fatalf("talk = %+v; want it left waiting for the host", view.Steps[0])
+	}
+}
+
+// The last step's completion has ended its run, and nothing reads its
+// outputs: a GitHub error leaves its prs out rather than undo the end.
+func TestAGitHubErrorFillingTheLastStepLeavesItsPRsOut(t *testing.T) {
+	ctx := context.Background()
+	f, _, _, prs := newCloneFixture(t)
+	prs.err = errors.New("github: 502")
+	view := f.start(t, `
+schema_version: 2
+name: build
+title: Build
+inputs:
+  task: {type: task, required: true}
+steps:
+ - id: build
+   title: Build
+   type: agent.run
+   with: {on: "${{ workflow.inputs.task }}", prompt: Build it, repo: acme/widget, branch: one}
+   outputs:
+     pr_number: {type: integer}
+`)
+	done, err := f.workflows.Complete(ctx, view.Run.ID, "build", view.Attempts[0].ID, map[string]string{"pr_number": "12"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputs := waitOutputs(t, done, "build")
+	if _, has := outputs["prs"]; has || done.Run.Status != "succeeded" || outputs["signal"] != "complete" {
+		t.Fatalf("run = %s, outputs = %v", done.Run.Status, outputs)
 	}
 }

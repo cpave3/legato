@@ -41,6 +41,12 @@ const lastMessageLimit = 4 << 10
 // WorkflowErrorTimeout is the error code of a step its timeout ended.
 const WorkflowErrorTimeout = "timeout"
 
+// WorkflowErrorOutputsUnavailable is the error code of a step whose
+// outputs Legato could not fill at its signal: GitHub did not say which
+// pull requests its branches have, and stale ones would mislead a later
+// step.
+const WorkflowErrorOutputsUnavailable = "outputs_unavailable"
+
 // AgentOutputSources are what fills an agent step's outputs at its signal.
 // Each is optional: without one, its outputs are left empty.
 type AgentOutputSources struct {
@@ -288,7 +294,7 @@ func (s *WorkflowService) waitedAgent(ctx context.Context, step store.WorkflowSt
 func (s *WorkflowService) resolveAgentWait(ctx context.Context, step store.WorkflowStep, attempt store.WorkflowStepAttempt, signal string) error {
 	outputs, err := s.agentOutputs(ctx, step, attempt, signal)
 	if err != nil {
-		if failErr := s.failRecorded(ctx, step.RunID, step.Path, attempt.ID, fmt.Errorf("filling the step's outputs: %w", err)); failErr != nil {
+		if failErr := s.failRecorded(ctx, step.RunID, step.Path, attempt.ID, outputsUnavailable(err)); failErr != nil {
 			if errors.Is(failErr, store.ErrWorkflowStateConflict) {
 				return nil
 			}
@@ -375,6 +381,10 @@ func (s *WorkflowService) agentOutputs(ctx context.Context, step store.WorkflowS
 	out["clone_id"] = clone.ID
 	var stack []TaskStackBranch
 	if s.agentOutputSources.Stacks != nil {
+		// Only logged: recording reads the clone's own files (a stack it
+		// cannot read is recorded with its problem, not returned), so its
+		// errors are writes to Legato's database, and the HEAD branch's pull
+		// request is still looked up below.
 		if err := s.agentOutputSources.Stacks.Record(ctx, *clone); err != nil {
 			log.Printf("workflow run %s step %s: recording the stack of %s: %v", step.RunID, step.Path, clone.Path, err)
 		}
@@ -451,11 +461,16 @@ func capBytes(text string, limit int) string {
 
 // fillRecordedOutputs fills the outputs of a step its agent completed from
 // its pane, which recorded only what the agent declared: the host does it
-// before it moves the run on. A GitHub error leaves prs out, so a later
-// step that reads it fails rather than reading stale pull requests.
-func (s *WorkflowService) fillRecordedOutputs(ctx context.Context, advance *store.WorkflowAdvance) {
+// before it moves the run on. When they cannot be filled (GitHub did not
+// say which pull requests the branches have), the step fails as at any
+// other signal, with error code WorkflowErrorOutputsUnavailable, since a
+// later step reading stale pull requests could skip a review; its
+// on_failure decides. It says whether the advance goes on: not when the
+// step failed and its run stopped at it (fail, pause), nor when another
+// host changed it first. A continued step goes on as a failed one.
+func (s *WorkflowService) fillRecordedOutputs(ctx context.Context, advance *store.WorkflowAdvance) (bool, error) {
 	if !waitRecorded(advance.Step) {
-		return
+		return true, nil
 	}
 	var declared map[string]any
 	_ = json.Unmarshal([]byte(advance.Step.OutputsJSON), &declared)
@@ -463,11 +478,15 @@ func (s *WorkflowService) fillRecordedOutputs(ctx context.Context, advance *stor
 		declared = map[string]any{}
 	}
 	if _, filled := declared["signal"]; filled {
-		return
+		return true, nil
 	}
 	outputs, err := s.agentOutputs(ctx, advance.Step, advance.Attempt, workflowengine.SignalComplete)
 	if err != nil {
-		log.Printf("workflow run %s step %s: %v; its prs output is left out", advance.Step.RunID, advance.Step.Path, err)
+		failed, goesOn, failErr := s.failUnfilled(ctx, advance, err)
+		if failed || failErr != nil {
+			return goesOn, failErr
+		}
+		log.Printf("workflow run %s step %s: %v; no later step will read it, so its prs output is left out", advance.Step.RunID, advance.Step.Path, err)
 		delete(outputs, "prs")
 	}
 	for key, value := range declared {
@@ -476,9 +495,71 @@ func (s *WorkflowService) fillRecordedOutputs(ctx context.Context, advance *stor
 	encoded, _ := json.Marshal(outputs)
 	if err := s.store.MergeWorkflowStepOutputs(ctx, advance.Step.RunID, advance.Step.Path, string(encoded)); err != nil {
 		log.Printf("workflow run %s step %s: filling its outputs: %v", advance.Step.RunID, advance.Step.Path, err)
-		return
+		return true, nil
 	}
 	advance.Step.OutputsJSON = string(encoded)
+	return true, nil
+}
+
+// outputsUnavailable is the failure of a step whose outputs could not be
+// filled.
+func outputsUnavailable(cause error) *WorkflowStepError {
+	return &WorkflowStepError{Code: WorkflowErrorOutputsUnavailable, Message: "filling the step's outputs: " + cause.Error(), Err: cause}
+}
+
+// failUnfilled fails a recorded step whose outputs could not be filled
+// (fillRecordedOutputs), stopping its agent as Fail does, and says whether
+// the step failed (here or by another host) and whether the advance goes
+// on. It does not fail the last step of a run, whose record ended the run,
+// nor one whose run has left the step after it (cancelled, say): no step
+// will read its outputs, so they are recorded without prs.
+func (s *WorkflowService) failUnfilled(ctx context.Context, advance *store.WorkflowAdvance, cause error) (failed, goesOn bool, err error) {
+	step := advance.Step
+	_, definition, _, _, index, err := s.loadExecution(ctx, step.RunID, step.Path)
+	if err != nil {
+		return false, false, err
+	}
+	if index+1 >= len(definition.Steps) {
+		return false, true, nil
+	}
+	failure := outputsUnavailable(cause)
+	mode, err := s.store.FailRecordedWorkflowStep(ctx, step.RunID, step.Path, advance.Attempt.ID, stepFailure(failure))
+	if errors.Is(err, store.ErrWorkflowStateConflict) {
+		// Another host failed it first, or the run has moved on.
+		view, err := s.store.GetWorkflowRun(ctx, step.RunID)
+		if err != nil {
+			return false, false, err
+		}
+		for _, current := range view.Steps {
+			if current.Path == step.Path && current.Status != "succeeded" {
+				return true, false, nil
+			}
+		}
+		return false, true, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	if executor := s.executors[advance.Attempt.ExecutorType]; executor != nil {
+		stop := executor.Cancel
+		if failer, ok := executor.(WorkflowStepFailer); ok {
+			stop = failer.FailStep
+		}
+		if err := stop(ctx, advance.Attempt); err != nil {
+			log.Printf("workflow run %s step %s: stopping the failed step's agent: %v", step.RunID, step.Path, err)
+		}
+	}
+	if mode == store.FailurePaused {
+		s.changed(ctx, step.RunID, step.Path, WorkflowChangeStepPaused)
+		return true, false, nil
+	}
+	s.changed(ctx, step.RunID, step.Path, WorkflowChangeStepFailed)
+	if mode != store.FailureContinued {
+		return true, false, nil
+	}
+	encoded, _ := json.Marshal(store.FailureOutputs(stepFailure(failure)))
+	advance.Step.Status, advance.Step.Error, advance.Step.OutputsJSON = "failed", failure.Message, string(encoded)
+	return true, true, nil
 }
 
 // endedSignal says whether a recorded step ended because its agent did:

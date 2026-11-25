@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -137,5 +138,60 @@ func TestATimedOutStepIsClaimedOnce(t *testing.T) {
 	}
 	if second, err := s.ClaimWorkflowStepTimeout(ctx, runID, "build", *late[0].DeadlineAt); err != nil || second {
 		t.Fatalf("second claim = %v, %v", second, err)
+	}
+}
+
+// A step recorded from the pane whose run has not moved on yet can be
+// failed once: the run goes back to it (on_failure fail), and a second host
+// finds nothing to fail.
+func TestARecordedStepFailsOnceAndTheRunGoesBackToIt(t *testing.T) {
+	for _, tc := range []struct {
+		onFailure, mode, runStatus, current string
+		due                                 bool
+	}{
+		{"", FailureFailed, "failed", "build", false},
+		{FailurePaused, FailurePaused, "waiting", "build", false},
+		{FailureContinued, FailureContinued, "running", "after", true},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			ctx := context.Background()
+			s := newTestStore(t)
+			if err := s.CreateTask(ctx, Task{ID: "wf-task", Title: "Run", Status: "Backlog", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"}); err != nil {
+				t.Fatal(err)
+			}
+			run := WorkflowRun{ID: "wr-1", WorkflowName: "w", WorkflowTitle: "W", DefinitionJSON: "{}", InputsJSON: "{}", Status: "running", CurrentStepID: "build", TaskID: "wf-task"}
+			steps := []WorkflowStep{
+				{RunID: "wr-1", Path: "build", StepID: "build", StepOrder: 0, ExecutorType: "agent.run", Status: "pending", DefinitionJSON: `{"on_failure":"` + tc.onFailure + `"}`},
+				{RunID: "wr-1", Path: "after", StepID: "after", StepOrder: 1, ExecutorType: "gate", Status: "pending", DefinitionJSON: "{}"},
+			}
+			if err := s.CreateWorkflowRun(ctx, run, steps); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.StartWorkflowStepAttempt(ctx, WorkflowStepAttempt{ID: "wa-1", RunID: "wr-1", Path: "build", StepID: "build", AttemptNumber: 1, ExecutorType: "agent.run", TaskID: "wf-task", Status: "waiting_agent"}, "{}"); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.RecordWorkflowStepCompletion(ctx, "wr-1", "build", "wa-1", `{"pr_number":12}`, "after"); err != nil {
+				t.Fatal(err)
+			}
+			failure := StepFailure{Message: "github: 502", Code: "outputs_unavailable"}
+			mode, err := s.FailRecordedWorkflowStep(ctx, "wr-1", "build", "wa-1", failure)
+			if err != nil || mode != tc.mode {
+				t.Fatalf("mode = %q, %v; want %q", mode, err, tc.mode)
+			}
+			view, err := s.GetWorkflowRun(ctx, "wr-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if view.Run.Status != tc.runStatus || view.Run.CurrentStepID != tc.current {
+				t.Fatalf("run = %s at %s; want %s at %s", view.Run.Status, view.Run.CurrentStepID, tc.runStatus, tc.current)
+			}
+			build := view.Steps[0]
+			if build.ErrorCode != "outputs_unavailable" || build.Error != "github: 502" || build.AdvanceDue != tc.due || view.Attempts[0].Status != "failed" {
+				t.Fatalf("build = %+v, attempt = %+v", build, view.Attempts[0])
+			}
+			if _, err := s.FailRecordedWorkflowStep(ctx, "wr-1", "build", "wa-1", failure); !errors.Is(err, ErrWorkflowStateConflict) {
+				t.Fatalf("second fail = %v; want a conflict", err)
+			}
+		})
 	}
 }

@@ -2283,8 +2283,15 @@ func (a *agentService) endGoneSessionFor(ctx context.Context, s store.AgentSessi
 		// A step that waits for its agent to end (wait_for: ended) ends on
 		// the workflow host's check; one on an agent no workflow owns waits
 		// through an interruption, and binds again when it is resumed
-		// (LEG-485).
-		if signals, _ := a.store.WorkflowStepWaitSignals(ctx, attempt.RunID, attempt.Path); slices.Contains(signals, "ended") ||
+		// (LEG-485). A wait that cannot be read is left to the host too,
+		// which reads the tables again: failing or suspending it here could
+		// end a step that waits for exactly this.
+		signals, err := a.store.WorkflowStepWaitSignals(ctx, attempt.RunID, attempt.Path)
+		unreadable := err != nil && !errors.Is(err, store.ErrNotFound)
+		if unreadable {
+			log.Printf("workflow run %s step %s: reading what it waits for as its agent ended: %v; left to the workflow host", attempt.RunID, attempt.Path, err)
+		}
+		if unreadable || slices.Contains(signals, "ended") ||
 			(status == store.AgentSessionInterrupted && len(signals) > 0 && (plainTaskAgent(s) || attempt.ExecutorType != "agent.run")) {
 			if a.bus != nil {
 				a.bus.PublishWorkflowChanged(attempt.RunID)

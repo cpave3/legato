@@ -180,3 +180,71 @@ func (s *Store) MergeWorkflowStepOutputs(ctx context.Context, runID, path, outpu
 	_, err := s.db.ExecContext(ctx, `UPDATE workflow_steps SET outputs_json = ? WHERE run_id = ? AND path = ?`, outputsJSON, runID, path)
 	return err
 }
+
+// FailRecordedWorkflowStep fails a step recorded as completed whose run has
+// not moved on yet (advance due, the run at the step after it, which has
+// not started): the host could not fill the outputs Legato owes it. The
+// attempt and the step fail as FailWorkflowStepWith fails them, and the
+// step's on_failure decides: fail sends the run back to the step, failed;
+// pause sends it back waiting; continue leaves it at the next step, with
+// the step still due its advance (the caller holds that claim and goes on).
+// Each update is a compare-and-swap, so of two hosts one fails the step and
+// the other gets ErrWorkflowStateConflict, as does a run that has ended.
+func (s *Store) FailRecordedWorkflowStep(ctx context.Context, runID, path, attemptID string, failure StepFailure) (string, error) {
+	encoded, _ := json.Marshal(FailureOutputs(failure))
+	mode := FailureFailed
+	err := withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		var step struct {
+			ParentPath     string `db:"parent_path"`
+			StepOrder      int    `db:"step_order"`
+			DefinitionJSON string `db:"definition_json"`
+		}
+		if err := tx.GetContext(ctx, &step, `SELECT parent_path, step_order, definition_json FROM workflow_steps
+			WHERE run_id = ? AND path = ? AND status = 'succeeded' AND advance_due = 1`, runID, path); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrWorkflowStateConflict
+			}
+			return err
+		}
+		var definition struct {
+			OnFailure string `json:"on_failure"`
+		}
+		_ = json.Unmarshal([]byte(step.DefinitionJSON), &definition)
+		if definition.OnFailure == FailureContinued || definition.OnFailure == FailurePaused {
+			mode = definition.OnFailure
+		}
+		next, err := nextStepPath(ctx, tx, runID, step.ParentPath, step.StepOrder)
+		if err != nil {
+			return err
+		}
+		if next == "" {
+			// The record ended the run: there is nothing to send it back to.
+			return ErrWorkflowStateConflict
+		}
+		if err := execOne(ctx, tx, `UPDATE workflow_step_attempts SET status = 'failed', error = ?, ended_at = datetime('now')
+			WHERE id = ? AND run_id = ? AND path = ? AND status = 'succeeded'`, failure.Message, attemptID, runID, path); err != nil {
+			return err
+		}
+		stepStatus := "failed"
+		if mode == FailurePaused {
+			stepStatus = WorkflowStepPaused
+		}
+		// A continued step stays due and claimed: its caller moves the run on.
+		if err := execOne(ctx, tx, `UPDATE workflow_steps SET status = ?, error = ?, outputs_json = ?, completed_at = datetime('now'),
+			advance_due = ?, advance_claimed_at = CASE WHEN ? THEN advance_claimed_at END
+			WHERE run_id = ? AND path = ? AND status = 'succeeded' AND advance_due = 1`,
+			stepStatus, failure.Message, string(encoded), mode == FailureContinued, mode == FailureContinued, runID, path); err != nil {
+			return err
+		}
+		atNext := ` WHERE id = ? AND current_step_id = ? AND status = 'running'
+			AND EXISTS (SELECT 1 FROM workflow_steps WHERE run_id = ? AND path = ? AND status = 'pending')`
+		switch mode {
+		case FailureContinued:
+			return execOne(ctx, tx, `UPDATE workflow_runs SET error = ''`+atNext, runID, next, runID, next)
+		case FailurePaused:
+			return execOne(ctx, tx, `UPDATE workflow_runs SET status = 'waiting', current_step_id = ?, error = ''`+atNext, path, runID, next, runID, next)
+		}
+		return execOne(ctx, tx, `UPDATE workflow_runs SET status = 'failed', current_step_id = ?, error = ?`+atNext, path, failure.Message, runID, next, runID, next)
+	})
+	return mode, err
+}
