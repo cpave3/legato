@@ -125,3 +125,19 @@ func TestAMentionCarriesItsShares(t *testing.T) {
 		t.Fatalf("events = %+v", events)
 	}
 }
+
+func TestAttachmentsWithNumericTimestampsDropNothing(t *testing.T) {
+	events := runEnvelopes(t, `{"type":"events_api","envelope_id":"e1","payload":{"event":{
+	  "type":"message","subtype":"bot_message","bot_id":"B9","channel":"C1","text":"alert","ts":"6.1",
+	  "attachments":[{"color":"danger","text":"cpu high","ts":123456789},
+	    {"is_share":true,"author_name":"al","text":"down","ts":1724898240},
+	    {"is_share":true,"text":{"unexpected":"shape"}},
+	    {"is_share":true,"text":"up","ts":"1.5"}]}}}`)
+	if len(events) != 1 || events[0].Text != "alert" {
+		t.Fatalf("events = %+v", events)
+	}
+	want := []Share{{AuthorName: "al", Text: "down", TS: "1724898240"}, {Text: "up", TS: "1.5"}}
+	if !reflect.DeepEqual(events[0].Shares, want) {
+		t.Fatalf("shares = %+v, want %+v", events[0].Shares, want)
+	}
+}

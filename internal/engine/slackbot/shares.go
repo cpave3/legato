@@ -19,16 +19,16 @@ type Share struct {
 }
 
 type rawAttachment struct {
-	IsShare       bool   `json:"is_share"`
-	IsMsgUnfurl   bool   `json:"is_msg_unfurl"`
-	AuthorID      string `json:"author_id"`
-	AuthorName    string `json:"author_name"`
-	ChannelID     string `json:"channel_id"`
-	ChannelName   string `json:"channel_name"`
-	FromURL       string `json:"from_url"`
-	TS            string `json:"ts"`
-	Text          string `json:"text"`
-	Fallback      string `json:"fallback"`
+	IsShare       bool      `json:"is_share"`
+	IsMsgUnfurl   bool      `json:"is_msg_unfurl"`
+	AuthorID      string    `json:"author_id"`
+	AuthorName    string    `json:"author_name"`
+	ChannelID     string    `json:"channel_id"`
+	ChannelName   string    `json:"channel_name"`
+	FromURL       string    `json:"from_url"`
+	TS            timestamp `json:"ts"`
+	Text          string    `json:"text"`
+	Fallback      string    `json:"fallback"`
 	MessageBlocks []struct {
 		Message struct {
 			Blocks []richBlock `json:"blocks"`
@@ -48,11 +48,32 @@ type richBlock struct {
 	Elements  []richBlock     `json:"elements"`
 }
 
-// shares are the attachments that share a message.
-func shares(attachments []rawAttachment) []Share {
+// timestamp is an attachment's ts, which Slack writes as a string in a
+// share and as a number in an integration's attachment.
+type timestamp string
+
+func (t *timestamp) UnmarshalJSON(data []byte) error {
+	var n json.Number
+	if err := json.Unmarshal(data, &n); err == nil {
+		*t = timestamp(n.String())
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	*t = timestamp(s)
+	return nil
+}
+
+// shares are the attachments that share a message. Each is decoded on its
+// own, so one Slack writes in a shape this does not read is left out
+// rather than losing the message.
+func shares(attachments []json.RawMessage) []Share {
 	var out []Share
-	for _, a := range attachments {
-		if !a.IsShare && !a.IsMsgUnfurl {
+	for _, raw := range attachments {
+		var a rawAttachment
+		if json.Unmarshal(raw, &a) != nil || (!a.IsShare && !a.IsMsgUnfurl) {
 			continue
 		}
 		text := a.Text
@@ -71,7 +92,7 @@ func shares(attachments []rawAttachment) []Share {
 			text = a.Fallback
 		}
 		out = append(out, Share{AuthorID: a.AuthorID, AuthorName: a.AuthorName, ChannelID: a.ChannelID, ChannelName: a.ChannelName,
-			FromURL: a.FromURL, TS: a.TS, Text: text})
+			FromURL: a.FromURL, TS: string(a.TS), Text: text})
 	}
 	return out
 }

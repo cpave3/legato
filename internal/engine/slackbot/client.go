@@ -273,17 +273,17 @@ type envelope struct {
 }
 
 type rawEvent struct {
-	Type        string          `json:"type"`
-	Subtype     string          `json:"subtype"`
-	Channel     string          `json:"channel"`
-	ChannelType string          `json:"channel_type"`
-	User        string          `json:"user"`
-	BotID       string          `json:"bot_id"`
-	Text        string          `json:"text"`
-	TS          string          `json:"ts"`
-	ThreadTS    string          `json:"thread_ts"`
-	EventTS     string          `json:"event_ts"`
-	Attachments []rawAttachment `json:"attachments"`
+	Type        string            `json:"type"`
+	Subtype     string            `json:"subtype"`
+	Channel     string            `json:"channel"`
+	ChannelType string            `json:"channel_type"`
+	User        string            `json:"user"`
+	BotID       string            `json:"bot_id"`
+	Text        string            `json:"text"`
+	TS          string            `json:"ts"`
+	ThreadTS    string            `json:"thread_ts"`
+	EventTS     string            `json:"event_ts"`
+	Attachments []json.RawMessage `json:"attachments"`
 }
 
 // Run opens one Socket Mode session: Open, dial, wait for hello (then call
