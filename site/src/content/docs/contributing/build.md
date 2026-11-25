@@ -121,7 +121,7 @@ In a GitHub stack of pull requests, only the top pull request runs `go`, `web`, 
 To open a stack so that only its top builds:
 
 1. Open its pull requests as drafts.
-2. Link them into a stack with `gh stack link`.
+2. Link them into a stack with `gh stack link`. The bottom pull request must be based on `main`.
 3. Mark them ready for review.
 
 Linking starts no workflow. Marking a pull request ready does, and by then GitHub knows the stack.
