@@ -42,9 +42,13 @@ type Definition struct {
 	On            Triggers         `yaml:"on,omitempty" json:"on,omitempty"`
 	// ChatHelp lists the workflow in ${{ event.commands }} of the chat
 	// triggers on the bots its own chat triggers run on.
-	ChatHelp bool   `yaml:"chat_help,omitempty" json:"chat_help,omitempty"`
-	Steps    []Step `yaml:"steps" json:"steps"`
-	Source   string `yaml:"-" json:"source"`
+	ChatHelp bool `yaml:"chat_help,omitempty" json:"chat_help,omitempty"`
+	// Outputs are the run's own outputs, computed from its steps when it
+	// succeeds (ResolveOutputs), which a workflow.run step that calls it
+	// returns (LEG-489).
+	Outputs map[string]WorkflowOutput `yaml:"outputs,omitempty" json:"outputs,omitempty" legato:"v2"`
+	Steps   []Step                    `yaml:"steps" json:"steps"`
+	Source  string                    `yaml:"-" json:"source"`
 	// fromFile is set while a file just decoded is checked: only then is
 	// start in a version 1 file the file's own key, and refused.
 	fromFile bool
@@ -304,7 +308,7 @@ func (d *Definition) problems() []*PathError {
 		seen[step.ID] = true
 		availableOutputs[step.ID] = readableOutputs(*step)
 	}
-	return problems
+	return append(problems, d.outputProblems(availableOutputs)...)
 }
 
 // validateStep checks one step against the steps before it: its first
@@ -535,6 +539,10 @@ func pathType(path []PathPart, inputs map[string]Input, current map[string]Outpu
 			return "", fmt.Errorf("step %q is not an earlier step", parts[1])
 		}
 		outputType, ok := outputs[parts[3]]
+		if !ok {
+			// A workflow.run step's outputs are its child's: any name.
+			outputType, ok = outputs[anyOutput]
+		}
 		if !ok {
 			return "", fmt.Errorf("step %q output %q is not declared", parts[1], parts[3])
 		}
@@ -950,6 +958,9 @@ func readableOutputs(step Step) map[string]string {
 		for _, output := range spec.Outputs {
 			readable[output.Name] = output.Type
 		}
+	}
+	if step.Type == WorkflowRunStepType {
+		readable[anyOutput] = "json"
 	}
 	for key, output := range step.Outputs {
 		readable[key] = output.Type

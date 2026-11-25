@@ -615,6 +615,28 @@
           "if": {
             "properties": {
               "type": {
+                "const": "workflow.run"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.workflow.run"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "gate"
               }
             },
@@ -809,6 +831,7 @@
             "chat.reaction.remove",
             "chat.thread.read",
             "github.pr.wait",
+            "workflow.run",
             "gate",
             "worktree.remove",
             "file.remove",
@@ -4046,6 +4069,60 @@
         "type": "ticket.create"
       }
     },
+    "with.workflow.run": {
+      "additionalProperties": false,
+      "description": "Run another workflow as a child run, and wait for it to end. The step's outputs are the child's declared outputs, with status and run_id. A child that fails, stops or is cancelled fails the step; a gate in the child keeps it waiting. Retry resumes the same child.",
+      "properties": {
+        "inputs": {
+          "description": "The child's inputs by name, as typed values: a repository input is passed as the resolved repository, and one that resolves to missing is not passed",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "json",
+            "label": "Its inputs",
+            "order": 2
+          }
+        },
+        "workflow": {
+          "description": "The workflow's name, or ${{ workflow.inputs.\u003cname\u003e }} of an input with choices",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Workflow",
+            "order": 1
+          }
+        }
+      },
+      "required": [
+        "workflow"
+      ],
+      "title": "Run a workflow",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Control",
+        "outputs": [
+          {
+            "description": "The child run's status: succeeded; with on_failure: continue, failed, cancelled or stopped",
+            "name": "status",
+            "type": "string"
+          },
+          {
+            "description": "The child run",
+            "name": "run_id",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "workflow"
+        ],
+        "type": "workflow.run"
+      }
+    },
     "with.worktree.remove": {
       "additionalProperties": false,
       "description": "Remove the workflow task's Yggdrasil worktree, when it is at the path expected.",
@@ -4735,6 +4812,25 @@
         ],
         "title": "Wait for a pull request to merge",
         "type": "github.pr.wait"
+      },
+      {
+        "description": "Run another workflow as a child run, and wait for it to end. The step's outputs are the child's declared outputs, with status and run_id. A child that fails, stops or is cancelled fails the step; a gate in the child keeps it waiting. Retry resumes the same child.",
+        "group": "Control",
+        "outputs": [
+          {
+            "name": "status",
+            "type": "string"
+          },
+          {
+            "name": "run_id",
+            "type": "string"
+          }
+        ],
+        "summary": [
+          "workflow"
+        ],
+        "title": "Run a workflow",
+        "type": "workflow.run"
       },
       {
         "description": "Hold the run until the operator chooses one of the options, from a needs-you item or the run page. The step's choice output is the option chosen; Stop ends the run as stopped.",

@@ -214,6 +214,9 @@ func validateStepContract(step Step, inputs map[string]Input) error {
 			return within("with", fmt.Errorf("with requires %s", field.Name))
 		}
 	}
+	if err := checkWorkflowRunStep(step, inputs); err != nil {
+		return err
+	}
 	return checkAgentStep(step)
 }
 
@@ -696,6 +699,7 @@ var catalog = []ExecutorSpec{
 			{Name: "url", Type: "string", Description: "The pull request's address"},
 		},
 	},
+	workflowRunSpec,
 	{
 		Type: GateStepType, Group: "Control", Title: "Ask the operator",
 		Description: "Hold the run until the operator chooses one of the options, from a needs-you item or the run page. The step's choice output is the option chosen; Stop ends the run as stopped.",
