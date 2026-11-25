@@ -34,7 +34,7 @@ func TestReviewPassesAreOffWithTheDecidedDefaults(t *testing.T) {
 	if rp.Enabled {
 		t.Fatal("review_passes.enabled defaults to false")
 	}
-	if rp.MaxPasses != 3 || rp.MaxConcurrent != 2 || rp.ReviewColumn != "Review" {
+	if rp.MaxPasses != 3 || rp.MaxConcurrent != 2 || rp.ReviewColumn != "Review" || rp.MaxReentries != 5 {
 		t.Fatalf("defaults = %+v", rp)
 	}
 	if rp.PassTimeoutDuration() != 45*time.Minute || rp.PollIntervalDuration() != time.Minute || rp.QuietTimeDuration() != 2*time.Minute {
@@ -51,6 +51,7 @@ review_passes:
   max_passes: 4
   pass_timeout: 30m
   max_concurrent: 1
+  max_reentries: 2
   review_column: Review
   poll_interval: 90s
   quiet_time: 5m
@@ -64,7 +65,7 @@ review_passes:
 	}
 	rp := cfg.ReviewPasses
 	if !rp.Enabled || rp.Reviewer.Agent != "codex" || rp.Reviewer.Tier != "careful" || rp.Reviewer.Skill != "3-tier-review" ||
-		rp.GitHubCredential != "reviewer-app" || rp.MaxPasses != 4 || rp.MaxConcurrent != 1 ||
+		rp.GitHubCredential != "reviewer-app" || rp.MaxPasses != 4 || rp.MaxConcurrent != 1 || rp.MaxReentries != 2 ||
 		rp.PassTimeoutDuration() != 30*time.Minute || rp.PollIntervalDuration() != 90*time.Second || rp.QuietTimeDuration() != 5*time.Minute ||
 		strings.Join(rp.CountedBots, ",") != "cubic-dev-ai[bot]" || strings.Join(rp.RequiredChecks, ",") != "build,test" {
 		t.Fatalf("review_passes = %+v", rp)
@@ -82,6 +83,7 @@ func TestInvalidReviewPassSettingsFailToLoad(t *testing.T) {
 		{"the author's credential", "enabled: true\n  reviewer: {agent: codex}\n  github_credential: author-app", `review_passes.github_credential "author-app" is on the github profile, not github-reviewer`},
 		{"zero passes", "max_passes: 0", "review_passes.max_passes must be positive"},
 		{"negative concurrency", "max_concurrent: -1", "review_passes.max_concurrent must be positive"},
+		{"zero re-entries", "max_reentries: 0", "review_passes.max_reentries must be positive"},
 		{"bad duration", "pass_timeout: soon", "review_passes.pass_timeout must be a positive duration"},
 		{"zero quiet time", "quiet_time: 0s", "review_passes.quiet_time must be a positive duration"},
 		{"unknown column", "enabled: true\n  reviewer: {agent: codex}\n  github_credential: reviewer-app\n  review_column: Reviewing", `review_passes.review_column "Reviewing" is not a board column`},

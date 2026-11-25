@@ -1180,6 +1180,33 @@ The loop step's own outputs are `results` (every pass's result, in order), `last
 
 On the run's page, each pass's steps are listed under the loop, pass by pass; a `next:` loop's query is the pass's first step, `next`. Legato keeps where a loop is in its database, so a loop goes on after a restart.
 
+### Review loop steps
+
+A review loop can be built from steps, each acting on one loop that Legato keeps in its database. `github.pr.review.open` opens the loop and gives its ID as `loop_id`; the steps after it take that ID as `loop`. Like the inline `github.pr.review_passes` step, they need review passes turned on, and they wait for the Legato that runs the review engine (the one serving the broker) rather than for an agent. A loop belongs to the run that opened it: a step given another run's loop fails with `loop_not_owned`.
+
+`github.pr.review.open` takes:
+
+- `repo`, and either `pr_number` (with `scope`: `stack`, the default, for every open pull request of its stack, or `pr` for that pull request alone) or `prs`, a list of at most 20 pull request numbers, bottom of the stack first. Give one of them, not both.
+- `agent_author`: the agent of the board task each pull request belongs to fixes and answers the findings.
+- `reviewer` (`tool` or `tool:tier`) and `skill`, from those this Legato offers, and `max_passes` (0, the default, for this Legato's setting).
+- `max_reentries`: how many times a stewarded pull request may go back to review after its approval. It may lower `review_passes.max_reentries`, never raise it.
+- `ready` and `steward` (`steward` needs `agent_author: true`).
+
+Its outputs are `loop_id`, `linked_task` (the board task the pull requests belong to, or empty), `prs` (number, url, branch, base and author_task of each) and `warnings`, such as a reviewer that runs the author's own agent tool. A refusal fails the step with an `error_code` you can read with `on_failure: continue`: `review_loop_active` or `author_loop_active` (another loop holds the pull request or its author; the error names that loop and links to its run), `invalid_subject`, `pr_not_open`, `no_author`, `review_passes_off`, `reviewer_app_missing`, `reviewer_not_advertised`, `skill_not_advertised`, `steward_needs_agent_author` or `max_reentries_raised`.
+
+`github.pr.review.close` closes the loop, which frees its pull requests for another loop, and writes a summary of every pass. Its outputs are `outcome` (`approved`, `closed`, `stuck` or `ended` for a loop closed before it finished), `passes` (the passes posted), `clean_pass`, `confirmed_at`, `findings` (`total`, `blocking`, `nits` and `open`), `prs` (each pull request's number, url, state, draft, author_task, approved, head_sha and review_url), `approval_withheld`, `summary_path`, `linked_task` and `loop_id`. Closing a closed loop changes nothing. A loop also closes by itself when its run succeeds, is cancelled or stops; a failed run keeps its loop, and its pull requests, for **Retry**.
+
+```yaml
+- id: open
+  type: github.pr.review.open
+  with: {repo: acme/widget, pr_number: "${{ workflow.inputs.pr_number }}", agent_author: true}
+- id: close
+  type: github.pr.review.close
+  with: {loop: "${{ steps.open.outputs.loop_id }}"}
+```
+
+A workflow file may not set the `handoff` input, which only Legato's handoff service sets; the editor marks it, `steward` without `agent_author`, and a `max_reentries` above this Legato's setting as errors.
+
 ## Agent completion
 
 Workflow agents receive these environment variables:

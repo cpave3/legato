@@ -19,6 +19,9 @@ type ReviewRuns struct {
 	w         *Worker
 	Workflows *service.WorkflowService
 	Caller    *service.ReviewRunCaller
+	// Steps are the review loop steps (github.pr.review.open and the
+	// rest), run on the same caller.
+	Steps *service.ReviewLoopSteps
 	Clones    *FakeRunClones
 	// Discover is the PR tracking a run asks to look again when no task
 	// is linked to an agent-authored loop's pull request.
@@ -60,7 +63,10 @@ func StartReviewRuns(t *testing.T, w *Worker) *ReviewRuns {
 	}
 	clones := &FakeRunClones{repos: w.Repos, checkout: w.Checkout, removed: map[int64]bool{}}
 	step := service.NewReviewPassesStep()
-	workflows := service.NewWorkflowService(w.Store, []service.WorkflowExecutor{step, service.NewTaskNoteExecutor(w.Store)})
+	steps := service.NewReviewLoopSteps()
+	steps.SetMaxReentries(func() int { return 5 })
+	executors := append([]service.WorkflowExecutor{step, service.NewTaskNoteExecutor(w.Store)}, steps.Executors()...)
+	workflows := service.NewWorkflowService(w.Store, executors)
 	discover := &FakeDiscover{}
 	caller := service.NewReviewRunCaller(w.Reviews, service.ReviewRunOptions{
 		GitHub: w.ReviewGitHub, Clones: clones, Owners: service.NewOwnerLookupService(w.Store, w.Agents, ""), Discover: discover,
@@ -68,7 +74,8 @@ func StartReviewRuns(t *testing.T, w *Worker) *ReviewRuns {
 	})
 	caller.SetWorkflows(workflows)
 	step.Attach(caller)
-	return &ReviewRuns{w: w, Workflows: workflows, Caller: caller, Clones: clones, Discover: discover}
+	steps.Attach(caller)
+	return &ReviewRuns{w: w, Workflows: workflows, Caller: caller, Steps: steps, Clones: clones, Discover: discover}
 }
 
 // Start runs review-pr-passes with inputs, and opens its review step as
@@ -79,6 +86,21 @@ func (r *ReviewRuns) Start(ctx context.Context, inputs map[string]string) (*stor
 		return nil, fmt.Errorf("no review-pr-passes example")
 	}
 	definition, err := workflowengine.Parse("review-pr-passes.workflow.yaml", example.YAML)
+	if err != nil {
+		return nil, err
+	}
+	view, err := r.Workflows.Start(ctx, definition, inputs)
+	if err != nil || view.Run.Status != "running" {
+		return view, err
+	}
+	r.Open(ctx)
+	return r.Workflows.Show(ctx, view.Run.ID)
+}
+
+// StartFile runs a workflow file with inputs, and opens its review steps as
+// the broker holder's tick does at once (Open).
+func (r *ReviewRuns) StartFile(ctx context.Context, yaml string, inputs map[string]string) (*store.WorkflowRunView, error) {
+	definition, err := workflowengine.Parse("steps.workflow.yaml", []byte(yaml))
 	if err != nil {
 		return nil, err
 	}

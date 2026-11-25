@@ -363,6 +363,14 @@ func (s *ReviewPassService) Tick(ctx context.Context) {
 	// did.
 	s.openWaiting(ctx)
 	s.sweepClosed(ctx)
+	s.moveLoops(ctx)
+	// Then the steps waiting on loops (close, and the rest): outside the
+	// lock, since ending one runs the workflow on.
+	s.settleSteps(ctx)
+}
+
+// moveLoops moves every caller's loops on, under the engine's lock.
+func (s *ReviewPassService) moveLoops(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	loops := s.loops(ctx)

@@ -82,6 +82,7 @@ func (s *Server) definitionWithGraph(ctx context.Context, definition *workflowen
 			if parsed != nil && parsed.Calls() {
 				out.Warnings = append(out.Warnings, workflowengine.CallDiagnostics(data, parsed, all)...)
 			}
+			out.Warnings = append(out.Warnings, s.reviewLoopDiagnostics(data, parsed)...)
 		}
 	}
 	return out

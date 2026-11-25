@@ -217,6 +217,9 @@ func validateStepContract(step Step, inputs map[string]Input) error {
 	if err := checkWorkflowRunStep(step, inputs); err != nil {
 		return err
 	}
+	if err := checkReviewLoopStep(step); err != nil {
+		return err
+	}
 	return checkAgentStep(step)
 }
 
@@ -585,6 +588,8 @@ var catalog = []ExecutorSpec{
 			{Name: "linked_task", Type: "string", Description: "The board task the pull request belongs to, or empty"},
 		},
 	},
+	reviewOpenSpec,
+	reviewCloseSpec,
 	{
 		Type: "burnlite.task.close", Group: "Board", Title: "Close the Burnlite ticket",
 		Description: "Close the Burnlite ticket a task was imported from, with a reason and a summary. Needs Legato connected to Burnlite with write access.",

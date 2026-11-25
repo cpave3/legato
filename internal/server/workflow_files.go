@@ -78,6 +78,7 @@ func (s *Server) checked(ctx context.Context, data string) (*workflowengine.Defi
 	if definition != nil && definition.Calls() {
 		diagnostics = append(diagnostics, workflowengine.CallDiagnostics([]byte(data), definition, s.discoverWorkflowsIn(ctx).Definitions)...)
 	}
+	diagnostics = append(diagnostics, s.reviewLoopDiagnostics([]byte(data), definition)...)
 	if diagnostics == nil {
 		diagnostics = []workflowengine.Diagnostic{}
 	}
@@ -427,4 +428,13 @@ func schedulePreview(schedule *workflowengine.ScheduleTrigger, now time.Time) ma
 		after = due
 	}
 	return map[string]any{"description": schedule.Describe(), "timezone": loc.String(), "next": next}
+}
+
+// reviewLoopDiagnostics checks a file's review loop steps against this
+// Legato's review settings; none when they are not wired.
+func (s *Server) reviewLoopDiagnostics(data []byte, definition *workflowengine.Definition) []workflowengine.Diagnostic {
+	if s.reviewMaxReentries == nil || definition == nil {
+		return nil
+	}
+	return workflowengine.ReviewLoopDiagnostics(data, definition, s.reviewMaxReentries())
 }

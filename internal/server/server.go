@@ -99,6 +99,7 @@ type Server struct {
 	reviewBriefingDomains    []string
 	report                   service.ReportService
 	reflectionWorkflows      ReflectionWorkflowService
+	reviewMaxReentries       func() int
 	workflowGlobalDir        string
 	workflowProjectDir       string
 	workflowRepositories     []workflowengine.RepositoryPreset
@@ -491,6 +492,13 @@ func (s *Server) SetWorkflowService(svc WorkflowService, globalDir, projectDir s
 	s.workflowGlobalDir = globalDir
 	s.workflowProjectDir = projectDir
 	s.workflowRepositories = append([]workflowengine.RepositoryPreset(nil), repositories...)
+}
+
+// SetReviewMaxReentries gives the editor this Legato's
+// review_passes.max_reentries, which a workflow's review loop may lower but
+// never raise (workflowengine.ReviewLoopDiagnostics).
+func (s *Server) SetReviewMaxReentries(max func() int) {
+	s.reviewMaxReentries = max
 }
 
 func (s *Server) SetWorkflowTriggerCoordinator(coordinator *service.WorkflowTriggerCoordinator) {

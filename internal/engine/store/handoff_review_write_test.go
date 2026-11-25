@@ -154,3 +154,55 @@ func TestTheLoopOfAClosedHandoffIsClosedAndFreesItsClaims(t *testing.T) {
 		t.Fatal("the open handoff's loop lost its claim on #8")
 	}
 }
+
+// openedRun is a run whose github.pr.review.open step opened a loop and
+// succeeded, handing it to the run's later steps.
+func openedRun(t *testing.T) *Store {
+	t.Helper()
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "run-task")
+	if err := s.CreateWorkflowRun(ctx, WorkflowRun{ID: "wr-1", WorkflowName: "review-loop", WorkflowTitle: "Review", DefinitionSource: "test",
+		DefinitionDigest: "1", DefinitionJSON: `{}`, InputsJSON: `{}`, Status: "running", CurrentStepID: "open", TaskID: "run-task"},
+		[]WorkflowStep{{RunID: "wr-1", StepID: "open", Title: "Open", ExecutorType: ReviewLoopOpenStepType, DefinitionJSON: `{}`, Status: "pending"},
+			{RunID: "wr-1", StepID: "close", Title: "Close", ExecutorType: "github.pr.review.close", DefinitionJSON: `{}`, Status: "pending", StepOrder: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.StartWorkflowStepAttempt(ctx, WorkflowStepAttempt{ID: "wa-1", RunID: "wr-1", StepID: "open", AttemptNumber: 1,
+		ExecutorType: ReviewLoopOpenStepType, TaskID: "run-task", Status: "running"}, `{}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.OpenReviewLoop(ctx, ReviewLoopOpen{Loop: ReviewLoop{OwnerKind: ReviewLoopOwnerRun, RunID: "wr-1", StepPath: "open",
+		AttemptID: "wa-1", HostTask: "run-task", Repo: "acme/widget"}, PRs: []ReviewLoopPR{{Number: 7}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CompleteWorkflowStep(ctx, "wr-1", "open", "wa-1", `{}`, "close"); err != nil {
+		t.Fatal(err)
+	}
+	reviewing(t, s, "run-task")
+	return s
+}
+
+func TestALoopAnOpenStepHandedOnIsOwnedWhileItsRunRuns(t *testing.T) {
+	s := openedRun(t)
+	ctx := context.Background()
+	if !s.ReviewLoopOpenedByStep(ctx, "wa-1") {
+		t.Fatal("the loop's attempt is an open step's")
+	}
+	if err := s.CheckHandoffReviewWrite(ctx, "run-task", 1, runOwner); err != nil {
+		t.Fatalf("check = %v; want the write allowed while the run runs", err)
+	}
+	if err := s.CancelWorkflowRun(ctx, "wr-1", "not needed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CheckHandoffReviewWrite(ctx, "run-task", 1, runOwner); !errors.Is(err, ErrReviewLoopNotOwned) {
+		t.Fatalf("check after the run was cancelled = %v; want not owned", err)
+	}
+}
+
+func TestAnInlineStepsLoopIsNotOpenedByStep(t *testing.T) {
+	s := reviewedRun(t)
+	if s.ReviewLoopOpenedByStep(context.Background(), "wa-1") {
+		t.Fatal("the inline step owns its loop while it waits")
+	}
+}

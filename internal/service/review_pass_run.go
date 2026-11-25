@@ -70,6 +70,9 @@ type ReviewRunWorkflows interface {
 	WaitingAttempts(ctx context.Context, executorType string) ([]store.WorkflowStepAttempt, error)
 	CompleteWaiting(ctx context.Context, runID, stepID, attemptID string, outputs map[string]any) (*store.WorkflowRunView, error)
 	FailWaiting(ctx context.Context, runID, stepID, attemptID, reason string) (*store.WorkflowRunView, error)
+	// FailWaitingError fails it with an error that may carry a code
+	// (WorkflowStepError).
+	FailWaitingError(ctx context.Context, runID, stepID, attemptID string, failure error) (*store.WorkflowRunView, error)
 }
 
 // ReviewRunOptions are what the run caller uses.
@@ -99,6 +102,8 @@ type ReviewRunCaller struct {
 	workflows ReviewRunWorkflows
 	// opening keeps two ticks from opening one step twice.
 	opening sync.Mutex
+	// maxReentries is review_passes.max_reentries (ReviewLoopSteps.Attach).
+	maxReentries func() int
 }
 
 // NewReviewRunCaller registers the run caller with the engine. It is also the
@@ -173,7 +178,12 @@ func readReviewRun(ctx context.Context, db *store.Store, taskID string) (*review
 	if err != nil {
 		return nil, err
 	}
-	run := reviewRun{RunID: l.RunID, StepID: l.StepPath, AttemptID: l.AttemptID, Repo: l.Repo, PR: l.SubjectPR,
+	subject := l.SubjectPR
+	if subject == 0 && len(layers) > 0 {
+		// A loop on a list of pull requests: its clone is at the top's.
+		subject = layers[len(layers)-1].Number
+	}
+	run := reviewRun{RunID: l.RunID, StepID: l.StepPath, AttemptID: l.AttemptID, Repo: l.Repo, PR: subject,
 		CloneID: l.CloneID, Dir: l.CloneDir, LinkedTask: l.LinkedTask, SeenHead: l.SeenHead, SeenAt: l.SeenAt,
 		Scope: l.Scope, closed: l.State != store.ReviewLoopOpenState}
 	if l.AgentAuthor {
@@ -316,6 +326,7 @@ func (c *ReviewRunCaller) OpenWaiting(ctx context.Context) {
 	c.opening.Lock()
 	defer c.opening.Unlock()
 	c.closeEnded(ctx)
+	defer c.openSteps(ctx)
 	attempts, err := c.workflows.WaitingAttempts(ctx, ReviewPassesStepType)
 	if err != nil {
 		log.Printf("review passes: the steps waiting to open: %v", err)
@@ -327,7 +338,7 @@ func (c *ReviewRunCaller) OpenWaiting(ctx context.Context) {
 		}
 		step, err := c.waitingStep(ctx, attempt)
 		if err == nil {
-			err = c.open(ctx, step)
+			err = c.openInline(ctx, step)
 		}
 		if err == nil {
 			if !c.stillWaiting(ctx, attempt) {
@@ -336,7 +347,7 @@ func (c *ReviewRunCaller) OpenWaiting(ctx context.Context) {
 			}
 			continue
 		}
-		if _, failErr := c.workflows.FailWaiting(ctx, attempt.RunID, attempt.Path, attempt.ID, err.Error()); failErr != nil && !errors.Is(failErr, store.ErrWorkflowStateConflict) {
+		if _, failErr := c.workflows.FailWaitingError(ctx, attempt.RunID, attempt.Path, attempt.ID, reviewStepError(err)); failErr != nil && !errors.Is(failErr, store.ErrWorkflowStateConflict) {
 			log.Printf("review passes: failing %s: %v", attempt.RunID, failErr)
 		}
 	}
@@ -364,7 +375,9 @@ func (c *ReviewRunCaller) closeEnded(ctx context.Context) {
 		if ended && !closesLoop(end) {
 			continue
 		}
-		if ended || c.stepEnded(ctx, l.RunID, l.StepPath) {
+		// A loop an open step handed on outlives that step: its run's end
+		// closes it, or a close step.
+		if ended || (!c.engine.db.ReviewLoopOpenedByStep(ctx, l.AttemptID) && c.stepEnded(ctx, l.RunID, l.StepPath)) {
 			c.closeRunLoop(ctx, l)
 		}
 	}
@@ -499,6 +512,9 @@ func (c *ReviewRunCaller) waitingToOpenOn(ctx context.Context, repo string, numb
 	if err != nil {
 		return nil
 	}
+	refusal := func(attempt store.WorkflowStepAttempt) *ReviewLoopActiveError {
+		return &ReviewLoopActiveError{Repo: repo, PR: number, Name: "run " + attempt.RunID, Link: "/workflows/runs/" + attempt.RunID}
+	}
 	for _, attempt := range attempts {
 		if attempt.TaskID == except || c.opened(ctx, attempt) != nil {
 			continue
@@ -508,16 +524,36 @@ func (c *ReviewRunCaller) waitingToOpenOn(ctx context.Context, repo string, numb
 			continue
 		}
 		if r, n, err := reviewStepPR(step.With); err == nil && n == number && strings.EqualFold(r, repo) {
-			return &ReviewLoopActiveError{Repo: repo, PR: number, Name: "run " + attempt.RunID, Link: "/workflows/runs/" + attempt.RunID}
+			return refusal(attempt)
+		}
+	}
+	// Open steps still waiting to open hold their pull requests too.
+	opens, err := c.workflows.WaitingAttempts(ctx, ReviewOpenStepType)
+	if err != nil {
+		return nil
+	}
+	for _, attempt := range opens {
+		if attempt.TaskID == except {
+			continue
+		}
+		step, err := c.waitingStep(ctx, attempt)
+		if err != nil {
+			continue
+		}
+		in, err := parseReviewOpen(step.With, 0)
+		if err != nil || !strings.EqualFold(in.Repo, repo) {
+			continue
+		}
+		if slices.Contains(in.numbers(), number) {
+			return refusal(attempt)
 		}
 	}
 	return nil
 }
 
-// open checks the run can review the pull request, makes the job clone at
-// its head, and begins the loop: pass 1 starts on the tick. GitHub work, so
-// only the holder's tick runs it.
-func (c *ReviewRunCaller) open(ctx context.Context, step ResolvedWorkflowStep) error {
+// openInline opens an inline github.pr.review_passes step's loop: the one
+// its failed attempt kept (a Retry), else a new one (open).
+func (c *ReviewRunCaller) openInline(ctx context.Context, step ResolvedWorkflowStep) error {
 	repo, number, err := reviewStepPR(step.With)
 	if err != nil {
 		return err
@@ -530,36 +566,62 @@ func (c *ReviewRunCaller) open(ctx context.Context, step ResolvedWorkflowStep) e
 	if err != nil {
 		return err
 	}
+	in := reviewOpenInput{Repo: repo, Number: number, Scope: scope, AgentAuthor: agentAuthor}
+	in.Reviewer, _ = step.With["reviewer"].(string)
+	in.Reviewer = strings.TrimSpace(in.Reviewer)
+	if raw, ok := step.With["max_passes"]; ok && raw != nil && raw != "" {
+		n, err := workflowInt(raw)
+		if err != nil || n < 0 {
+			return fmt.Errorf("max_passes must be a number of passes, not %v", raw)
+		}
+		in.MaxPasses = n
+	}
+	_, err = c.open(ctx, step, in)
+	return err
+}
+
+// open checks the run can review the pull requests, makes the job clone at
+// their heads, and begins the loop: pass 1 starts on the tick. It returns
+// what it warns of. A refusal carries its code. GitHub work, so only the
+// holder's tick runs it.
+func (c *ReviewRunCaller) open(ctx context.Context, step ResolvedWorkflowStep, in reviewOpenInput) ([]string, error) {
+	repo, agentAuthor, scope := in.Repo, in.AgentAuthor, in.Scope
 	cfg := c.engine.config()
 	if !cfg.Enabled {
-		return errors.New("review passes are off on this Legato: turn on review_passes, with a reviewer App credential, to run a review loop")
+		return nil, reviewRefused(ReviewRefusalPassesOff, "review passes are off on this Legato: turn on review_passes, with a reviewer App credential, to run a review loop")
 	}
 	if c.opts.GitHub == nil || c.opts.Clones == nil {
-		return errors.New("review loops are not wired on this Legato")
+		return nil, reviewRefused(ReviewRefusalPassesOff, "review loops are not wired on this Legato")
 	}
-	settings, err := c.settings(cfg, step.With)
+	settings, err := c.settings(cfg, in)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := c.opts.GitHub.Installed(ctx, repo); err != nil {
-		return fmt.Errorf("%w: Legato's reviewer App cannot read %s (%v). Either the App is not installed on the account, %s is not among the repositories the installation selects, or there is no such repository. Install the App on %s, or run the find-only review-pr workflow instead", ErrReviewAppMissing, repo, err, repo, repo)
+		return nil, &WorkflowStepError{Code: ReviewRefusalAppMissing, Err: ErrReviewAppMissing, Message: fmt.Sprintf("%v: Legato's reviewer App cannot read %s (%v). Either the App is not installed on the account, %s is not among the repositories the installation selects, or there is no such repository. Install the App on %s, or run the find-only review-pr workflow instead", ErrReviewAppMissing, repo, err, repo, repo)}
 	}
-	pr, state, err := c.opts.GitHub.PullRequest(ctx, repo, number)
-	if err != nil {
-		return fmt.Errorf("reading pull request #%d of %s: %w", number, repo, err)
+	var prs []ReviewGitHubPR
+	for _, n := range in.numbers() {
+		pr, state, err := c.opts.GitHub.PullRequest(ctx, repo, n)
+		if err != nil {
+			return nil, fmt.Errorf("reading pull request #%d of %s: %w", n, repo, err)
+		}
+		if state != "open" {
+			return nil, reviewRefused(ReviewRefusalPRNotOpen, "pull request #%d of %s is %s: a review loop needs an open pull request", n, repo, state)
+		}
+		pr.Number = n
+		prs = append(prs, pr)
 	}
-	if state != "open" {
-		return fmt.Errorf("pull request #%d of %s is %s: a review loop needs an open pull request", number, repo, state)
-	}
-	pr.Number = number
-	prs, err := c.runStack(ctx, repo, pr, scope)
-	if err != nil {
-		return err
+	pr, number := prs[len(prs)-1], prs[len(prs)-1].Number
+	if len(in.PRs) == 0 {
+		if prs, err = c.runStack(ctx, repo, pr, scope); err != nil {
+			return nil, err
+		}
 	}
 	for _, p := range prs {
 		// Not its own step, which waits to open.
 		if active := c.engine.heldLoopOn(ctx, repo, p.Number, step.TaskID); active != nil {
-			return active
+			return nil, active
 		}
 	}
 	findLinked := func() string {
@@ -589,7 +651,7 @@ func (c *ReviewRunCaller) open(ctx context.Context, step ResolvedWorkflowStep) e
 		if c.opts.Discover != nil {
 			looked = ", even after Legato looked again,"
 		}
-		return fmt.Errorf("pull request #%d of %s is not linked to any board task yet%s "+
+		return nil, reviewRefused(ReviewRefusalNoAuthor, "pull request #%d of %s is not linked to any board task yet%s "+
 			"and agent_author needs the task whose agent wrote it: Legato starts no fresh author. "+
 			"Link it to its task with legato task link <task-id> --repo %s --branch %s, or p on the task's card on the board, then run again; "+
 			"or run without agent_author, and the branch's owner is the author", number, repo, looked, repo, head)
@@ -599,12 +661,12 @@ func (c *ReviewRunCaller) open(ctx context.Context, step ResolvedWorkflowStep) e
 		author = linked
 		// One loop per author: its feedback commands find one loop.
 		if other := c.authoredLoop(ctx, author); other != nil {
-			return other
+			return nil, other
 		}
 	}
 	for _, p := range prs {
 		if err := c.opts.Clones.PullHead(ctx, repo, p.Number); err != nil {
-			return fmt.Errorf("fetching the head of #%d: %w", p.Number, err)
+			return nil, fmt.Errorf("fetching the head of #%d: %w", p.Number, err)
 		}
 	}
 	local := reviewRunBranches(repo, prs)
@@ -615,7 +677,7 @@ func (c *ReviewRunCaller) open(ctx context.Context, step ResolvedWorkflowStep) e
 	clone, err := c.opts.Clones.JobClone(ctx, JobCloneRequest{ExecutionID: step.AttemptID, TaskID: step.TaskID, Repo: repo, Ref: pr.HeadSHA,
 		FreshBranch: local[number], Own: true, Slot: SlotReviewer})
 	if err != nil {
-		return fmt.Errorf("cloning %s at the head of #%d: %w", repo, number, err)
+		return nil, fmt.Errorf("cloning %s at the head of #%d: %w", repo, number, err)
 	}
 	run := reviewRun{RunID: step.RunID, StepID: step.StepID, AttemptID: step.AttemptID, Repo: repo, PR: number, Branch: clone.Branch,
 		CloneID: clone.ID, Dir: clone.Path, LinkedTask: linked, AuthorTask: author, Scope: scope}
@@ -636,15 +698,20 @@ func (c *ReviewRunCaller) open(ctx context.Context, step ResolvedWorkflowStep) e
 	// The loop and its record, which names this attempt, are written in
 	// one transaction, so a holder that exits here leaves the step to open
 	// again.
-	_, created, err := c.engine.Open(ctx, reviewRunOpen(step.TaskID, run, settings, prs))
+	open := reviewRunOpen(step.TaskID, run, settings, prs)
+	if len(in.PRs) > 0 {
+		open.Loop.SubjectPR = 0 // a list, not one pull request and its stack
+	}
+	open.Loop.MaxReentries, open.Loop.Ready, open.Loop.Steward = in.MaxReentries, in.Ready, in.Steward
+	_, created, err := c.engine.Open(ctx, open)
 	if err == nil && !created {
 		err = fmt.Errorf("run %s's step %s has opened its review loop already", run.RunID, run.StepID)
 	}
 	if err != nil {
 		c.removeClone(ctx, &run)
-		return err
+		return nil, err
 	}
-	return nil
+	return c.sameToolWarning(ctx, author, settings), nil
 }
 
 // earlierLoop is the loop an earlier attempt of the step opened, which a
@@ -777,34 +844,58 @@ func (c *ReviewRunCaller) Cancel(ctx context.Context, attempt store.WorkflowStep
 }
 
 // settings are a run's loop settings: this Legato's review-pass settings,
-// with the step's max_passes and reviewer (an agent tool, or tool:tier) on
-// them when they are set. A reviewer this Legato does not offer is refused.
-func (c *ReviewRunCaller) settings(cfg ReviewPassConfig, with map[string]any) (ReviewPassSettings, error) {
+// with the step's max_passes, reviewer (an agent tool, or tool:tier) and
+// skill on them when they are set. A reviewer or a skill this Legato does
+// not offer is refused with its code.
+func (c *ReviewRunCaller) settings(cfg ReviewPassConfig, in reviewOpenInput) (ReviewPassSettings, error) {
 	var o ReviewPassOverride
-	if raw, ok := with["max_passes"]; ok && raw != nil && raw != "" {
-		n, err := workflowInt(raw)
-		if err != nil || n < 0 {
-			return ReviewPassSettings{}, fmt.Errorf("max_passes must be a number of passes, not %v", raw)
-		}
-		o.MaxPasses = n
+	o.MaxPasses = in.MaxPasses
+	if in.Reviewer != "" {
+		o.Agent, o.Tier, _ = strings.Cut(in.Reviewer, ":")
 	}
-	if reviewer, _ := with["reviewer"].(string); strings.TrimSpace(reviewer) != "" {
-		o.Agent, o.Tier, _ = strings.Cut(strings.TrimSpace(reviewer), ":")
-	}
-	if o.MaxPasses == 0 && o.Agent == "" {
+	if o.MaxPasses == 0 && o.Agent == "" && in.Skill == "" {
 		return cfg.Defaults, nil
 	}
 	settings, err := c.engine.Override(o)
-	if err != nil && o.Agent != "" && c.engine.opts.Advert != nil {
-		if advert := c.engine.opts.Advert(); advert != nil {
-			var names []string
-			for _, a := range advert.Adapters {
-				names = append(names, a.Name)
+	if err != nil && o.Agent != "" {
+		message := err.Error()
+		if c.engine.opts.Advert != nil {
+			if advert := c.engine.opts.Advert(); advert != nil {
+				var names []string
+				for _, a := range advert.Adapters {
+					names = append(names, a.Name)
+				}
+				message = fmt.Sprintf("%v; this Legato's reviewers: %s", err, strings.Join(names, ", "))
 			}
-			return ReviewPassSettings{}, fmt.Errorf("%v; this Legato's reviewers: %s", err, strings.Join(names, ", "))
+		}
+		return ReviewPassSettings{}, reviewRefused(ReviewRefusalReviewerNotAdvertised, "%s", message)
+	}
+	if err != nil {
+		return ReviewPassSettings{}, err
+	}
+	if in.Skill != "" {
+		o.Skill = in.Skill
+		if settings, err = c.engine.Override(o); err != nil {
+			return ReviewPassSettings{}, reviewRefused(ReviewRefusalSkillNotAdvertised, "%v", err)
 		}
 	}
-	return settings, err
+	return settings, nil
+}
+
+// sameToolWarning warns when the reviewer runs the agent tool the author's
+// agent last ran: its review is not independent by model (spec LEG-559
+// story 28). A warning, never a refusal.
+func (c *ReviewRunCaller) sameToolWarning(ctx context.Context, author string, settings ReviewPassSettings) []string {
+	if author == "" || settings.Agent == "" {
+		return nil
+	}
+	last, err := c.engine.db.LatestAgentSessionForTask(ctx, author)
+	if err != nil || last == nil || last.AgentKind != settings.Agent {
+		return nil
+	}
+	warning := fmt.Sprintf("the reviewer runs %s, the tool %s's agent authored with: pick another tool or model for an independent review", settings.Agent, author)
+	log.Printf("review passes: %s", warning)
+	return []string{warning}
 }
 
 // linkedTask is the board task the pull request belongs to, or "": a task
@@ -900,7 +991,7 @@ func (c *ReviewRunCaller) Loops(ctx context.Context) ([]ReviewLoop, error) {
 			out = append(out, l)
 		}
 	}
-	return out, nil
+	return append(out, c.stepLoops(ctx)...), nil
 }
 
 // Loop is a run task's loop: the person who owns the branch is its author,
@@ -1213,6 +1304,10 @@ func (c *ReviewRunCaller) stepWaits(ctx context.Context, l *store.ReviewLoop) bo
 	if c.workflows == nil {
 		return false
 	}
+	if c.engine.db.ReviewLoopOpenedByStep(ctx, l.AttemptID) {
+		// An open step's loop is its run's while the run runs.
+		return c.runRunning(ctx, l.RunID)
+	}
 	attempts, err := c.workflows.WaitingAttempts(ctx, ReviewPassesStepType)
 	if err != nil {
 		return false
@@ -1313,6 +1408,10 @@ func (c *ReviewRunCaller) finish(ctx context.Context, taskID, outcome string) {
 	run, err := c.run(ctx, taskID)
 	if err != nil {
 		log.Printf("review passes: ending %s: %v", taskID, err)
+		return
+	}
+	if c.stepOwned(ctx, taskID) {
+		c.finishStepLoop(ctx, taskID, outcome)
 		return
 	}
 	if outcome != ReviewOutcomeApproved && c.engine.opts.Agents != nil {
@@ -1796,4 +1895,18 @@ func (c *ReviewRunCaller) approved(ctx context.Context, l ReviewLoop) {
 		}
 	}
 	c.finish(ctx, l.TaskID, ReviewOutcomeApproved)
+}
+
+// finishStepLoop is finish for a loop an open step handed to its run, which
+// no single step waits on: an approved loop stays open, confirmed, for the
+// run's next steps (ready, the steward, close); a loop whose pull requests
+// closed, or that the operator ended while stuck, closes with that outcome,
+// and the steps waiting on it read it from the record.
+func (c *ReviewRunCaller) finishStepLoop(ctx context.Context, taskID, outcome string) {
+	if outcome == ReviewOutcomeApproved {
+		return
+	}
+	if err := c.engine.endLoop(ctx, taskID, outcome); err != nil {
+		log.Printf("review passes: ending %s: %v", taskID, err)
+	}
 }

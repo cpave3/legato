@@ -261,6 +261,7 @@ var registry = []Setting{
 	{Key: "review_passes.github_credential", Title: "Reviewer's GitHub credential", Help: "The credential of the reviewer's GitHub App, on the github-reviewer profile, that posts reviews. Needed while on.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "review_passes.max_passes", Title: "Passes before asking", Help: "Passes before a review is stuck and the main instance is asked.", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
 	{Key: "review_passes.pass_timeout", Title: "Time for one pass", Help: "How long a reviewer has for one pass.", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart},
+	{Key: "review_passes.max_reentries", Title: "Re-entries after approval", Help: "Times a stewarded pull request may go back to review after it was approved. A workflow may set fewer, never more.", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
 	{Key: "review_passes.max_concurrent", Title: "Reviewers at once", Help: "Reviewers that run at once on this worker; more wait.", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
 	{Key: "review_passes.review_column", Title: "Review column", Help: "The column a card is in while it is reviewed.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "review_passes.poll_interval", Title: "Check for new reviews every", Help: "How often pull requests are checked for new comments.", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart},

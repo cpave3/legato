@@ -1750,6 +1750,17 @@
       "mode": "restart"
     },
     {
+      "key": "review_passes.max_reentries",
+      "title": "Re-entries after approval",
+      "section": "review-passes",
+      "group": "Limits",
+      "help": "Times a stewarded pull request may go back to review after it was approved. A workflow may set fewer, never more.",
+      "description": "Times a stewarded pull request may go back to review after it was approved. A workflow may set fewer, never more.",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
       "key": "review_passes.max_concurrent",
       "title": "Reviewers at once",
       "section": "review-passes",
