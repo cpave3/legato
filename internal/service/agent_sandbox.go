@@ -56,6 +56,11 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 	// Without overlays, a throwaway checkout is the plain read-only one.
 	in.ThrowawayCheckout = readOnly && throwaway && a.CheckoutOverlayAvailable()
 	in.BrokerSocket = env["LEGATO_BROKER_SOCKET"]
+	if in.RuntimeDir != "" {
+		// The options then go through a private file (argsFileCommand),
+		// so a placeholder never reaches bwrap's command line.
+		in.SessionEnv = sessionEnvValues(env)
+	}
 	if file := env["LEGATO_CHIMERA_SECRET_FILE"]; file != "" {
 		in.ChimeraSecretDir = filepath.Dir(file)
 	}
@@ -412,4 +417,16 @@ func (a *agentService) taskJobClone(ctx context.Context, dataDir, workDir string
 		}
 	}
 	return "", nil
+}
+
+// sessionEnvValues are the variables of a session's environment that Legato
+// gives a value: SandboxPlanInput.SessionEnv.
+func sessionEnvValues(env map[string]string) map[string]string {
+	out := map[string]string{}
+	for name, value := range env {
+		if value != "" {
+			out[name] = value
+		}
+	}
+	return out
 }

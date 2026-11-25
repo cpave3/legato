@@ -3,6 +3,7 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -861,5 +862,37 @@ func TestTheSandboxSeesItsOwnWorkflowScratchFolderOnly(t *testing.T) {
 	in.WorkDir = "/home/me/.local/share/legato/workflow-scratch"
 	if _, err := BuildSandboxPlan(in); err == nil {
 		t.Fatal("the folder of every scratch folder was allowed as a working directory")
+	}
+}
+
+// The operator's own JIRA_API_TOKEN, inherited by the pane, never reaches
+// the sandbox; a jira credential's placeholder of that name, which Legato
+// sets for the session itself, does, with Legato's value whatever the pane
+// holds by then.
+func TestAVariableLegatoSetsForTheSessionIsNotUnsetAsAnInheritedSecret(t *testing.T) {
+	plan, err := BuildSandboxPlan(baseInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(plan.Unsetenv, "JIRA_API_TOKEN") {
+		t.Fatalf("the operator's JIRA_API_TOKEN is kept: %v", plan.Unsetenv)
+	}
+
+	in := baseInput()
+	in.SessionEnv = map[string]string{"JIRA_API_TOKEN": "lgk_jira", "JIRA_EMAIL": "bot@example.com", "JIRA_BASE_URL": "http://127.0.0.1:7788/c/jira"}
+	plan, err = BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(plan.Unsetenv, "JIRA_API_TOKEN") {
+		t.Errorf("the session's JIRA_API_TOKEN is unset: %v", plan.Unsetenv)
+	}
+	if plan.Setenv["JIRA_API_TOKEN"] != "lgk_jira" {
+		t.Errorf("JIRA_API_TOKEN is %q, not Legato's value", plan.Setenv["JIRA_API_TOKEN"])
+	}
+	for _, still := range []string{"GITHUB_TOKEN", "OP_SERVICE_ACCOUNT_TOKEN", "LEGATO_JIRA_TOKEN", "TMUX"} {
+		if !slices.Contains(plan.Unsetenv, still) {
+			t.Errorf("%s is no longer unset: %v", still, plan.Unsetenv)
+		}
 	}
 }

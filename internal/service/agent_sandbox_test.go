@@ -798,3 +798,49 @@ steps:
 		t.Fatalf("the curator works in %s, want %s", got, clone)
 	}
 }
+
+// A credential's variables reach the sandboxed tool even when their names
+// are on the list of the operator's secrets the sandbox drops, whatever the
+// profile (jira's JIRA_API_TOKEN, or an operator's own profile's NPM_TOKEN).
+// A variable Legato hides by setting it empty is still dropped.
+func TestASandboxKeepsTheCredentialVariablesLegatoSetsForTheSession(t *testing.T) {
+	backend := &fakeBackend{}
+	svc, s, _ := sandboxedService(t, backend)
+	svc.(interface{ SetSessionEnv(SessionEnvProvider) }).SetSessionEnv(fixedSessionEnv{
+		"JIRA_API_TOKEN": "lgk_jira", "JIRA_EMAIL": "bot@example.com", "JIRA_BASE_URL": "http://127.0.0.1:7788/c/jira",
+		"NPM_TOKEN": "lgk_npm", "GITHUB_TOKEN": "",
+	})
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	plan := backend.plans[0]
+	unset := plan.Unsetenv
+	for name, value := range map[string]string{"JIRA_API_TOKEN": "lgk_jira", "NPM_TOKEN": "lgk_npm"} {
+		if slices.Contains(unset, name) || plan.Setenv[name] != value {
+			t.Errorf("%s = %q, unset %v", name, plan.Setenv[name], unset)
+		}
+	}
+	for _, dropped := range []string{"GITHUB_TOKEN", "LEGATO_JIRA_TOKEN", "OP_SERVICE_ACCOUNT_TOKEN"} {
+		if !slices.Contains(unset, dropped) {
+			t.Errorf("%s is no longer unset: %v", dropped, unset)
+		}
+	}
+}
+
+// Without a runtime folder the sandbox's options are typed on its command
+// line, where any host user can read them: a placeholder is not put there,
+// and the name stays unset as before.
+func TestASandboxWithoutARuntimeFolderPutsNoPlaceholderOnItsCommandLine(t *testing.T) {
+	backend := &fakeBackend{}
+	svc, s, _ := sandboxedService(t, backend, func(settings *SandboxSettings) { settings.Base.RuntimeDir = "" })
+	svc.(interface{ SetSessionEnv(SessionEnvProvider) }).SetSessionEnv(fixedSessionEnv{"JIRA_API_TOKEN": "lgk_jira"})
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	plan := backend.plans[0]
+	if _, set := plan.Setenv["JIRA_API_TOKEN"]; set || !slices.Contains(plan.Unsetenv, "JIRA_API_TOKEN") {
+		t.Fatalf("setenv %v unset %v", plan.Setenv, plan.Unsetenv)
+	}
+}
