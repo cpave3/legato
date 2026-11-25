@@ -193,7 +193,7 @@ func (s LegatoStore) Get(ctx context.Context, ref Ref) (Secret, error) {
 	}
 	plain, err := Open(s.MasterKey, record.Name, record.Type, record.Nonce, record.Ciphertext)
 	if err != nil {
-		return Secret{}, fmt.Errorf("legato://%s cannot be opened with this master key", ref.Path)
+		return Secret{}, fmt.Errorf("legato://%s %w", ref.Path, ErrWrongMasterKey)
 	}
 	return Secret{Type: record.Type, Value: plain}, nil
 }
