@@ -57,6 +57,11 @@ type TemplateRequest struct {
 	// use the key can never be given is refused before anyone is asked
 	// (lookup only; optional).
 	Granted string `yaml:"granted"`
+	// Actor is where the response names who the key's tokens act as, by
+	// JSON path ($.app_slug: a GitHub App, whose posts are its bot's,
+	// <slug>[bot]), so what they posted can be told from what others did
+	// (lookup only; optional).
+	Actor string `yaml:"actor"`
 	// Token and ExpiresAt are where the response holds them (exchange only).
 	Token     string `yaml:"token"`
 	ExpiresAt string `yaml:"expires_at"`
@@ -234,6 +239,7 @@ type JWTExchange struct {
 type lookedUp struct {
 	values  map[string]any
 	granted map[string]string
+	actor   string
 	at      time.Time
 }
 
@@ -388,6 +394,9 @@ func (j *JWTExchange) lookUp(ctx context.Context, key *rsa.PrivateKey, values ma
 			}
 		}
 	}
+	if j.Template.Lookup.Actor != "" {
+		found.actor, _ = jsonAt(resp, j.Template.Lookup.Actor).(string)
+	}
 	j.mu.Lock()
 	if j.lookups == nil {
 		j.lookups = map[string]lookedUp{}
@@ -414,6 +423,24 @@ func (j *JWTExchange) Granted(ctx context.Context, secret Secret, values map[str
 		return nil, false, err
 	}
 	return found.granted, found.granted != nil, nil
+}
+
+// Actor is who the lookup says the key's tokens act as for a repository
+// (values owner and repo): a GitHub App's slug. ok is false when the
+// template reads none, or the response held none.
+func (j *JWTExchange) Actor(ctx context.Context, secret Secret, values map[string]any) (string, bool, error) {
+	if j.Template.Lookup == nil || j.Template.Lookup.Actor == "" {
+		return "", false, nil
+	}
+	key, err := rsaKey(secret.Value)
+	if err != nil {
+		return "", false, err
+	}
+	found, err := j.lookUp(ctx, key, values)
+	if err != nil {
+		return "", false, err
+	}
+	return found.actor, found.actor != "", nil
 }
 
 // Forget drops what was looked up for a repository, so the next use looks

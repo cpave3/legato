@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -70,6 +71,38 @@ type reviewGitHub struct {
 	replyRefuse int
 	// replyPosts counts the POSTs of replies and conversation comments.
 	replyPosts int
+	// apps are the logins of the Apps each token was made for (the
+	// author App is legato-author, the reviewer App legato-reviews), and
+	// replyBy, replyTo, commentBy and reviewBy who posted each reply (in
+	// which thread), comment and review.
+	apps      map[string]string
+	replyBy   []string
+	replyTo   []int64
+	commentBy []string
+	reviewBy  []string
+	// others are comments and reviews already on the pull request that
+	// Legato did not post: review comments, conversation comments, reviews.
+	otherReplies  []map[string]any
+	otherComments []map[string]any
+	otherReviews  []map[string]any
+}
+
+// fakeAppSlugs are the Apps of the fixture, by the client ID their JWTs
+// are issued by.
+var fakeAppSlugs = map[string]string{"Iv1.author": "legato-author", "Iv1.reviewer": "legato-reviews"}
+
+// jwtApp is the App whose JWT r carries: its slug.
+func jwtApp(r *http.Request) string {
+	parts := strings.Split(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	data, _ := base64.RawURLEncoding.DecodeString(parts[1])
+	var claims struct {
+		Iss string `json:"iss"`
+	}
+	_ = json.Unmarshal(data, &claims)
+	return fakeAppSlugs[claims.Iss]
 }
 
 // answerAfterAccept answers a reply or a comment GitHub has recorded:
@@ -94,7 +127,7 @@ const reviewPatch = "@@ -1,3 +1,4 @@\n package main\n-import \"fmt\"\n+import \"
 
 func newReviewGitHub(t *testing.T) *reviewGitHub {
 	t.Helper()
-	g := &reviewGitHub{tokens: map[string]map[string]any{}}
+	g := &reviewGitHub{tokens: map[string]map[string]any{}, apps: map[string]string{}}
 	g.srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		g.mu.Lock()
 		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -107,7 +140,7 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 		}
 		switch {
 		case r.URL.Path == "/repos/cpave3/legato/installation":
-			_, _ = io.WriteString(w, `{"id": 7}`)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 7, "app_slug": jwtApp(r)})
 		case r.URL.Path == "/app/installations/7/access_tokens":
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
@@ -118,6 +151,7 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			}
 			token := fmt.Sprintf("ghs_%d", len(g.tokens)+len(g.revoked)+1)
 			g.tokens[token], _ = body["permissions"].(map[string]any)
+			g.apps[token] = jwtApp(r) + "[bot]"
 			w.WriteHeader(201)
 			_ = json.NewEncoder(w).Encode(map[string]string{"token": token, "expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339)})
 		case r.Method == "DELETE" && r.URL.Path == "/installation/token":
@@ -184,9 +218,10 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/check-runs/77/annotations":
 			_, _ = io.WriteString(w, `[{"path":"login_test.go","start_line":40,"message":"expected 3, got 4"}]`)
 		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/pulls/12/reviews":
-			out := []map[string]any{}
+			out := append([]map[string]any{}, g.otherReviews...)
 			for i, review := range g.reviews {
-				out = append(out, map[string]any{"id": 100 + i, "body": review["body"], "commit_id": review["commit_id"], "state": review["event"], "html_url": fmt.Sprintf("https://github.com/r/%d", 100+i)})
+				out = append(out, map[string]any{"id": 100 + i, "body": review["body"], "commit_id": review["commit_id"], "state": review["event"], "html_url": fmt.Sprintf("https://github.com/r/%d", 100+i),
+					"user": map[string]any{"login": g.reviewBy[i]}})
 			}
 			_ = json.NewEncoder(w).Encode(out)
 		case r.Method == "POST" && r.URL.Path == "/repos/cpave3/legato/pulls/12/reviews":
@@ -206,6 +241,7 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			g.reviews = append(g.reviews, body)
+			g.reviewBy = append(g.reviewBy, g.apps[bearer])
 			if g.acceptThenStall > 0 {
 				stall := g.acceptThenStall
 				g.mu.Unlock()
@@ -223,6 +259,8 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			var body map[string]string
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			g.replies = append(g.replies, body["body"])
+			g.replyBy = append(g.replyBy, g.apps[bearer])
+			g.replyTo = append(g.replyTo, map[bool]int64{true: 555, false: 600}[strings.Contains(r.URL.Path, "/555/")])
 			g.answerAfterAccept(w, fmt.Sprintf(`{"id": %d}`, 900+len(g.replies)))
 		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/pulls/12/comments":
 			// The review comments: the threads' first comments, then the
@@ -231,9 +269,11 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			fmt.Sscan(r.URL.Query().Get("page"), &page)
 			out := []map[string]any{}
 			if page == 1 {
-				out = append(out, map[string]any{"id": 555, "body": "Name the import."}, map[string]any{"id": 600, "body": "Bound the loop."})
+				reviewer := map[string]any{"login": "legato-reviews[bot]"}
+				out = append(out, map[string]any{"id": 555, "body": "Name the import.", "user": reviewer}, map[string]any{"id": 600, "body": "Bound the loop.", "user": reviewer})
+				out = append(out, g.otherReplies...)
 				for i, reply := range g.replies {
-					out = append(out, map[string]any{"id": 901 + i, "in_reply_to_id": 555, "body": reply})
+					out = append(out, map[string]any{"id": 901 + i, "in_reply_to_id": g.replyTo[i], "body": reply, "user": map[string]any{"login": g.replyBy[i]}})
 				}
 			}
 			_ = json.NewEncoder(w).Encode(out)
@@ -247,15 +287,17 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			var body map[string]string
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			g.comments = append(g.comments, fmt.Sprintf("%s|%v", body["body"], perms["contents"]))
+			g.commentBy = append(g.commentBy, g.apps[bearer])
 			g.answerAfterAccept(w, fmt.Sprintf(`{"id": %d, "html_url": "https://github.com/c/%d"}`, 776+len(g.comments), 776+len(g.comments)))
 		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/issues/12/comments":
 			page := 1
 			fmt.Sscan(r.URL.Query().Get("page"), &page)
 			out := []map[string]any{}
 			if page == 1 {
+				out = append(out, g.otherComments...)
 				for i, c := range g.comments {
 					body, _, _ := strings.Cut(c, "|")
-					out = append(out, map[string]any{"id": 777 + i, "body": body})
+					out = append(out, map[string]any{"id": 777 + i, "body": body, "user": map[string]any{"login": g.commentBy[i]}})
 				}
 			}
 			_ = json.NewEncoder(w).Encode(out)
@@ -326,11 +368,12 @@ func newPublisherFixture(t *testing.T) publisherFixture {
 	if err := db.CreateExecution(context.Background(), store.Execution{ID: "ex-1", Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: "task-1", ExecutionTaskID: "task-1", StartedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
-	settings := config.CredentialSettings{ClientID: "Iv1.test", Repositories: []string{"cpave3/legato"}}
+	author := config.CredentialSettings{ClientID: "Iv1.author", Repositories: []string{"cpave3/legato"}}
+	reviewer := config.CredentialSettings{ClientID: "Iv1.reviewer", Repositories: []string{"cpave3/legato"}}
 	broker, err := NewCredentialBroker(db, approvals, CredentialBrokerOptions{
 		Credentials: []config.CredentialConfig{
-			{Name: "gh", Secret: "env://GH_APP_KEY", Profile: "github", Type: "keypair", Settings: settings},
-			{Name: "reviewer-app", Secret: "env://GH_APP_KEY", Profile: "github-reviewer", Type: "keypair", Settings: settings},
+			{Name: "gh", Secret: "env://GH_APP_KEY", Profile: "github", Type: "keypair", Settings: author},
+			{Name: "reviewer-app", Secret: "env://GH_APP_KEY", Profile: "github-reviewer", Type: "keypair", Settings: reviewer},
 		},
 		ProfileDirs: []string{reviewProfiles(t, g.srv.URL)},
 		Messenger:   &recordingMessenger{}, WaitTimeout: 100 * time.Millisecond, HTTPClient: g.srv.Client(),
@@ -608,6 +651,57 @@ func TestIdenticalAnswersToTwoFindingsArePostedEach(t *testing.T) {
 	// A comment needs a marker.
 	if err := f.publisher.Reply(ctx, AsAuthor, "cpave3/legato", 12, 555, "Fixed.", CommentMarker{}); err == nil {
 		t.Fatal("a reply with no marker was posted")
+	}
+}
+
+// A comment or a review is taken for one Legato posted only when the App
+// it was posted as posted it, and a reply only in its own thread: a marker
+// anyone can copy is not enough.
+func TestOnlyTheAppsOwnPostWithTheMarkerIsTakenForIt(t *testing.T) {
+	f := newPublisherFixture(t)
+	ctx := context.Background()
+	g := f.github
+	user := func(login string) map[string]any { return map[string]any{"login": login} }
+	ruling := CommentMarker{Kind: MarkerRuling, Key: "t1/pass-2/f-1"}
+	g.otherReplies = []map[string]any{
+		// An outsider, and a person named as the App is without [bot].
+		{"id": 701, "in_reply_to_id": 555, "body": "ok " + ruling.hidden(), "user": user("mallory")},
+		{"id": 702, "in_reply_to_id": 555, "body": "ok " + ruling.hidden(), "user": user("legato-reviews")},
+		// The author App, which never posts rulings.
+		{"id": 703, "in_reply_to_id": 555, "body": "ok " + ruling.hidden(), "user": user("legato-author[bot]")},
+		// The reviewer App itself, but in another thread.
+		{"id": 704, "in_reply_to_id": 600, "body": "ok " + ruling.hidden(), "user": user("legato-reviews[bot]")},
+	}
+	answer := answerKey("t1/n-1/n1")
+	g.otherComments = []map[string]any{{"id": 705, "body": "ok " + answer.hidden(), "user": user("mallory")}}
+	g.otherReviews = []map[string]any{{"id": 706, "body": "ok " + reviewMarker("pass-1/pr-12"), "user": user("mallory"), "html_url": "https://github.com/r/706"}}
+
+	if err := f.publisher.Reply(ctx, AsReviewer, "cpave3/legato", 12, 555, "Still open in pass 2.", ruling); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.publisher.PostIssueComment(ctx, AsAuthor, "cpave3/legato", 12, "Skipped.", answer); err != nil {
+		t.Fatal(err)
+	}
+	review, err := f.publisher.PostReview(ctx, cleanReview())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.replies) != 1 || len(g.comments) != 1 || g.posts != 1 || review.Existed || review.ID == 706 {
+		t.Fatalf("replies %v, comments %v, %d review posts, review %+v", g.replies, g.comments, g.posts, review)
+	}
+
+	// The App's own, in its thread, is found: nothing is posted again.
+	if err := f.publisher.Reply(ctx, AsReviewer, "cpave3/legato", 12, 555, "Still open in pass 2.", ruling); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.publisher.PostIssueComment(ctx, AsAuthor, "cpave3/legato", 12, "Skipped.", answer); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := f.publisher.PostReview(ctx, cleanReview()); err != nil || !again.Existed || again.ID != review.ID {
+		t.Fatalf("review again %+v, %v", again, err)
+	}
+	if len(g.replies) != 1 || len(g.comments) != 1 || g.posts != 1 || g.replyBy[0] != "legato-reviews[bot]" || g.commentBy[0] != "legato-author[bot]" {
+		t.Fatalf("replies %v by %v, comments %v by %v, %d review posts", g.replies, g.replyBy, g.comments, g.commentBy, g.posts)
 	}
 }
 

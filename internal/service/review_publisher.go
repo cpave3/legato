@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -120,6 +121,10 @@ type ReviewPublisher struct {
 	learnLogin func(login string)
 	// Timeout bounds each request to GitHub.
 	Timeout time.Duration
+	// logins are the bot logins each credential's App posts as, by
+	// credential name, once read.
+	mu     sync.Mutex
+	logins map[string]string
 }
 
 // NewReviewPublisher posts with the reviewer credential named reviewer.
@@ -167,6 +172,46 @@ func (p *ReviewPublisher) open(ctx context.Context, who GitHubIdentity, repo str
 		release = func() {}
 	}
 	return &githubCall{p: p, bc: bc, token: token}, release, nil
+}
+
+// login is the login the call's posts are made as on GitHub: its App's
+// bot, <slug>[bot], the slug read with the installation. A comment or a
+// review is taken for one Legato posted only when this login posted it;
+// no person's login has the [bot] suffix.
+func (c *githubCall) login(ctx context.Context, repo string) (string, error) {
+	name := c.bc.config.Name
+	c.p.mu.Lock()
+	login, ok := c.p.logins[name]
+	c.p.mu.Unlock()
+	if ok {
+		return login, nil
+	}
+	secret, err := c.p.channels.broker.readSecret(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	owner, repoName, _ := strings.Cut(repo, "/")
+	slug, known, err := c.bc.jwt.Actor(ctx, secret, map[string]any{"owner": owner, "repo": repoName})
+	if err != nil {
+		return "", err
+	}
+	if !known {
+		return "", fmt.Errorf("the %s profile of %s names no App (jwt_exchange.lookup.actor), so what its App posted cannot be told from a copy", c.bc.profile.Name, name)
+	}
+	login = slug + "[bot]"
+	c.p.mu.Lock()
+	if c.p.logins == nil {
+		c.p.logins = map[string]string{}
+	}
+	c.p.logins[name] = login
+	c.p.mu.Unlock()
+	return login, nil
+}
+
+// postedBy says whether a comment's or a review's author is login: GitHub
+// gives an App's bot as <slug>[bot] in REST, in any case.
+func postedBy(author, login string) bool {
+	return login != "" && strings.EqualFold(author, login)
 }
 
 // do sends one request and decodes a 2xx answer into out.
@@ -263,7 +308,11 @@ func (p *ReviewPublisher) PostReview(ctx context.Context, post ReviewPost) (Post
 		return PostedReview{}, err
 	}
 	defer releaseRead()
-	if found, ok, err := p.findReview(ctx, read, post); err != nil {
+	login, err := read.login(ctx, post.Repo)
+	if err != nil {
+		return PostedReview{}, err
+	}
+	if found, ok, err := p.findReview(ctx, read, post, login); err != nil {
 		return PostedReview{}, err
 	} else if ok {
 		return found, nil
@@ -301,7 +350,7 @@ func (p *ReviewPublisher) PostReview(ctx context.Context, post ReviewPost) (Post
 		return PostedReview{}, err // GitHub saw it and said no
 	}
 	// No answer, or a server error: GitHub may have taken it.
-	if found, ok, findErr := p.findReview(context.WithoutCancel(ctx), read, post); findErr == nil && ok {
+	if found, ok, findErr := p.findReview(context.WithoutCancel(ctx), read, post, login); findErr == nil && ok {
 		found.Inline = inline
 		return found, nil
 	}
@@ -400,20 +449,23 @@ func openPulls(ctx context.Context, call *githubCall, repo string, q PullQuery) 
 }
 
 // findReview looks among the pull request's reviews for one with the post's
-// marker.
-func (p *ReviewPublisher) findReview(ctx context.Context, call *githubCall, post ReviewPost) (PostedReview, bool, error) {
+// marker that the reviewer App (login) posted.
+func (p *ReviewPublisher) findReview(ctx context.Context, call *githubCall, post ReviewPost, login string) (PostedReview, bool, error) {
 	marker := reviewMarker(post.Marker)
 	for page := 1; page <= 50; page++ {
 		var reviews []struct {
 			ID      int64  `json:"id"`
 			Body    string `json:"body"`
 			HTMLURL string `json:"html_url"`
+			User    struct {
+				Login string `json:"login"`
+			} `json:"user"`
 		}
 		if err := call.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d/reviews?per_page=100&page=%d", post.Repo, post.Number, page), nil, &reviews); err != nil {
 			return PostedReview{}, false, err
 		}
 		for _, review := range reviews {
-			if strings.Contains(review.Body, marker) {
+			if strings.Contains(review.Body, marker) && postedBy(review.User.Login, login) {
 				return PostedReview{ID: review.ID, URL: review.HTMLURL, Existed: true}, true, nil
 			}
 		}
@@ -597,25 +649,27 @@ func (m CommentMarker) valid() error {
 }
 
 // Reply answers in the review thread whose first comment is commentID, once:
-// a reply with the same marker already on the pull request is taken for it.
+// a reply in that thread with the same marker, by the App who posts it, is
+// taken for it.
 func (p *ReviewPublisher) Reply(ctx context.Context, who GitHubIdentity, repo string, number int, commentID int64, body string, marker CommentMarker) error {
 	_, err := p.postComment(ctx, who, repo, marker, fmt.Sprintf("/repos/%s/pulls/%d/comments", repo, number),
-		fmt.Sprintf("/repos/%s/pulls/%d/comments/%d/replies", repo, number, commentID), body)
+		fmt.Sprintf("/repos/%s/pulls/%d/comments/%d/replies", repo, number, commentID), body, commentID)
 	return err
 }
 
 // PostIssueComment comments on the pull request's conversation once, and
-// returns the comment's ID: a comment with the same marker already there is
-// taken for it.
+// returns the comment's ID: a comment with the same marker already there,
+// by the App who posts it, is taken for it.
 func (p *ReviewPublisher) PostIssueComment(ctx context.Context, who GitHubIdentity, repo string, number int, body string, marker CommentMarker) (int64, error) {
 	list := fmt.Sprintf("/repos/%s/issues/%d/comments", repo, number)
-	return p.postComment(ctx, who, repo, marker, list, list, body)
+	return p.postComment(ctx, who, repo, marker, list, list, body, 0)
 }
 
 // postComment posts body with its hidden marker to create, unless a comment
-// in list has the marker. After a timeout or a 5xx, GitHub may have taken
-// it: list is read again, and a comment found there is the answer.
-func (p *ReviewPublisher) postComment(ctx context.Context, who GitHubIdentity, repo string, marker CommentMarker, list, create, body string) (int64, error) {
+// in list has the marker and was posted as who (in the thread of thread,
+// for a reply). After a timeout or a 5xx, GitHub may have taken it: list
+// is read again, and a comment found there is the answer.
+func (p *ReviewPublisher) postComment(ctx context.Context, who GitHubIdentity, repo string, marker CommentMarker, list, create, body string, thread int64) (int64, error) {
 	if err := marker.valid(); err != nil {
 		return 0, err
 	}
@@ -624,7 +678,11 @@ func (p *ReviewPublisher) postComment(ctx context.Context, who GitHubIdentity, r
 		return 0, err
 	}
 	defer release()
-	if id, ok, err := findComment(ctx, call, list, marker); err != nil {
+	login, err := call.login(ctx, repo)
+	if err != nil {
+		return 0, err
+	}
+	if id, ok, err := findComment(ctx, call, list, marker, login, thread); err != nil {
 		return 0, err
 	} else if ok {
 		return id, nil
@@ -640,25 +698,31 @@ func (p *ReviewPublisher) postComment(ctx context.Context, who GitHubIdentity, r
 	if errors.As(err, &refused) && refused.Status < 500 {
 		return 0, err // GitHub saw it and said no
 	}
-	if id, ok, findErr := findComment(context.WithoutCancel(ctx), call, list, marker); findErr == nil && ok {
+	if id, ok, findErr := findComment(context.WithoutCancel(ctx), call, list, marker, login, thread); findErr == nil && ok {
 		return id, nil
 	}
 	return 0, err
 }
 
-// findComment looks through a list of comments for one with the marker.
-func findComment(ctx context.Context, call *githubCall, list string, marker CommentMarker) (int64, bool, error) {
+// findComment looks through a list of comments for one with the marker
+// that login posted, and, when thread is set, posted as a reply in the
+// thread whose first comment is thread.
+func findComment(ctx context.Context, call *githubCall, list string, marker CommentMarker, login string, thread int64) (int64, bool, error) {
 	hidden := marker.hidden()
 	for page := 1; page <= 50; page++ {
 		var comments []struct {
-			ID   int64  `json:"id"`
-			Body string `json:"body"`
+			ID        int64  `json:"id"`
+			Body      string `json:"body"`
+			InReplyTo int64  `json:"in_reply_to_id"`
+			User      struct {
+				Login string `json:"login"`
+			} `json:"user"`
 		}
 		if err := call.do(ctx, http.MethodGet, fmt.Sprintf("%s?per_page=100&page=%d", list, page), nil, &comments); err != nil {
 			return 0, false, err
 		}
 		for _, c := range comments {
-			if strings.Contains(c.Body, hidden) {
+			if strings.Contains(c.Body, hidden) && postedBy(c.User.Login, login) && (thread == 0 || c.InReplyTo == thread) {
 				return c.ID, true, nil
 			}
 		}
