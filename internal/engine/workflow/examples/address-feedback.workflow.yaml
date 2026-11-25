@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 name: address-feedback
 title: Address feedback
 run_title: Address feedback on ${{ workflow.inputs.repo }}#${{ workflow.inputs.pr_number }}

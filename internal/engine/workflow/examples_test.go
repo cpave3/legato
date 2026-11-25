@@ -61,7 +61,8 @@ func TestTheBundledTemplatesArePausedAndNeedNoExtraTools(t *testing.T) {
 			if step.Type == "github.pr.prepare" || step.Type == "worktree.remove" {
 				t.Errorf("%s: step %s needs Yggdrasil", name, step.ID)
 			}
-			if _, ok := step.With["agent"]; ok {
+			// agent: {from: <step>} names an earlier step's agent, not a tool.
+			if _, from := AgentFrom(step.With["agent"]); step.With["agent"] != nil && !from {
 				t.Errorf("%s: step %s names an agent tool; templates use the default", name, step.ID)
 			}
 			if _, ok := step.With["tier"]; ok {

@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,14 +25,27 @@ var updateSchema = flag.Bool("update", false, "rewrite the generated workflow JS
 // The web UI's copy of the schema is generated from Go; this fails when it
 // is stale.
 // The docs site publishes it at its $id, for editors of the operator's own.
+// Version 2 has its own (LEG-484); version 1's stays published.
 var generatedSchemas = []string{
 	"../../../web/src/generated/workflow.schema.json",
 	"../../../site/public/schemas/workflow-v1.schema.json",
 }
 
+var generatedSchemasV2 = []string{
+	"../../../web/src/generated/workflow-v2.schema.json",
+	"../../../site/public/schemas/workflow-v2.schema.json",
+}
+
+func generatedSchemaFiles() []string {
+	return append(append([]string{}, generatedSchemas...), generatedSchemasV2...)
+}
+
 func TestTheGeneratedSchemaIsCurrent(t *testing.T) {
-	want := workflow.JSONSchema()
-	for _, path := range generatedSchemas {
+	for _, path := range generatedSchemaFiles() {
+		want := workflow.JSONSchema()
+		if slices.Contains(generatedSchemasV2, path) {
+			want = workflow.JSONSchemaFor(workflow.SchemaVersion2)
+		}
 		if *updateSchema {
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
@@ -112,7 +126,7 @@ func asJSON(t *testing.T, data []byte) any {
 }
 
 func TestEveryExampleAndBuiltInMatchesTheSchema(t *testing.T) {
-	schema := resolvedSchema(t)
+	schemas := map[float64]*jsonschema.Resolved{1: resolvedSchema(t), 2: resolveSchemaFor(t, workflow.SchemaVersion2, false)}
 	examples, err := filepath.Glob("examples/*.yaml")
 	if err != nil || len(examples) == 0 {
 		t.Fatalf("examples: %v %v", examples, err)
@@ -122,7 +136,9 @@ func TestEveryExampleAndBuiltInMatchesTheSchema(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := schema.Validate(asJSON(t, data)); err != nil {
+		value := asJSON(t, data)
+		schema := schemas[value.(map[string]any)["schema_version"].(float64)]
+		if err := schema.Validate(value); err != nil {
 			t.Errorf("%s: %v", path, err)
 		}
 	}
@@ -137,7 +153,8 @@ func TestEveryValidTestDefinitionMatchesTheSchema(t *testing.T) {
 	for _, text := range parsedTestDefinitions(t) {
 		definition, err := workflow.Parse("case.yaml", []byte(text))
 		if err != nil || definition.SchemaVersion != workflow.SchemaVersion {
-			// The published schema is version 1's (LEG-484 adds 2's).
+			// Version 2's are checked against its own schema
+			// (TestEveryValidV2TestDefinitionMatchesTheV2Schema).
 			continue
 		}
 		checked++
