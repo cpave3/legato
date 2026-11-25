@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -364,4 +366,98 @@ steps:
 	if view.Run.Status != "succeeded" || len(note.starts) != 1 || note.starts[0].With["note"] != "the agent's session ended" {
 		t.Fatalf("run %s, note starts %+v", view.Run.Status, note.starts)
 	}
+}
+
+const gateBodyControl = `schema_version: 2
+name: gate-body
+title: Gate body
+steps:
+  - id: write
+    type: agent.run
+    with: {prompt: write}
+    outputs:
+      report: {type: file, path: report.md}
+  - id: ask
+    type: gate
+    with: {title: "Go on?", body_path: "%s"}
+`
+
+// A gate reads body_path only from a file the run's own steps output, which
+// Legato copied into its data folder: never a path in an agent's checkout,
+// which the agent could make a link to a file its sandbox hides (LEG-486
+// review).
+func TestAGateReadsBodyPathOnlyFromTheRunsOwnFileOutputs(t *testing.T) {
+	ctx := context.Background()
+	start := func(t *testing.T, bodyPath string) (*WorkflowService, *store.WorkflowRunView, string) {
+		t.Helper()
+		db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { db.Close() })
+		workDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(workDir, "report.md"), []byte("# Report"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		agent := &fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent", WorkingDir: workDir}}
+		svc := NewWorkflowServiceWithOutputs(db, []WorkflowExecutor{agent}, t.TempDir())
+		if bodyPath == "" {
+			bodyPath = "${{ steps.write.outputs.report.path }}"
+		} else {
+			bodyPath = strings.ReplaceAll(bodyPath, "WORKDIR", workDir)
+		}
+		view, err := svc.Start(ctx, parseControlWorkflow(t, fmt.Sprintf(gateBodyControl, bodyPath)), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		runID := view.Run.ID
+		// A gate that refuses its body_path fails as it starts, which the
+		// completion reports: the run is read back either way.
+		_, _ = svc.Complete(ctx, runID, "write", view.Attempts[0].ID, nil, map[string]string{"report": "report.md"})
+		view, err = svc.Show(ctx, runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return svc, view, workDir
+	}
+
+	t.Run("an earlier step's file output", func(t *testing.T) {
+		svc, view, workDir := start(t, "")
+		// The agent's own copy changes later: the gate shows what was
+		// collected.
+		if err := os.WriteFile(filepath.Join(workDir, "report.md"), []byte("changed"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		shown, err := svc.Show(ctx, view.Run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if gate, ok := shown.Details["ask"].(GateDetails); !ok || gate.Body != "# Report" {
+			t.Fatalf("gate details = %#v", shown.Details["ask"])
+		}
+	})
+
+	t.Run("a path in the agent's checkout, linked to a hidden file", func(t *testing.T) {
+		secret := filepath.Join(t.TempDir(), "secret")
+		if err := os.WriteFile(secret, []byte("SENTINEL"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		svc, view, workDir := start(t, "WORKDIR/report.md")
+		if err := os.Remove(filepath.Join(workDir, "report.md")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(secret, filepath.Join(workDir, "report.md")); err != nil {
+			t.Fatal(err)
+		}
+		shown, err := svc.Show(ctx, view.Run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(fmt.Sprintf("%#v", shown.Details), "SENTINEL") {
+			t.Fatalf("the gate showed a file outside the run's outputs: %#v", shown.Details)
+		}
+		if got := stepOf(t, shown, "ask"); got.Status != "failed" || !strings.Contains(got.Error, "body_path") {
+			t.Fatalf("ask = %s %q, want failed over body_path", got.Status, got.Error)
+		}
+	})
 }

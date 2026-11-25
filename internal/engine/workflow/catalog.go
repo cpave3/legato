@@ -684,7 +684,7 @@ var catalog = []ExecutorSpec{
 		With: []Field{
 			{Name: "title", Kind: KindString, Label: "Question", Description: "What the operator is asked, the needs-you item's title", Required: true, Essential: true, Order: 1},
 			{Name: "body", Kind: KindText, Label: "Details", Description: "More for the operator to read before choosing: Markdown", Essential: true, Order: 2},
-			{Name: "body_path", Kind: KindPath, Label: "Details from a file", Description: "A file whose Markdown is the details, by its absolute path, such as an earlier step's ${{ steps.<id>.outputs.<file>.path }}; at most 64 KiB is read", Order: 3},
+			{Name: "body_path", Kind: KindPath, Label: "Details from a file", Description: "A file whose Markdown is the details: an earlier step's file output, ${{ steps.<id>.outputs.<file>.path }}; at most 64 KiB is read", Order: 3},
 			{Name: "options", Kind: KindJSON, Label: "Options", Description: "The choices, a list of names; Continue and Stop when empty. Stop, in any case, ends the run as stopped", Order: 4,
 				Checked: true, Invalid: "must be a list of different, non-empty names"},
 		},

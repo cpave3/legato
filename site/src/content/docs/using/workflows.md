@@ -989,7 +989,7 @@ Legato reads a version 1 file into the same model: `trigger: manual` is `start: 
   with: {prompt: Open the pull request}
 ```
 
-- `title` is the question. `body` is more to read, in Markdown; or `body_path` names a file to read it from, by its absolute path, such as an earlier step's `${{ steps.<id>.outputs.<file>.path }}`.
+- `title` is the question. `body` is more to read, in Markdown; or `body_path` names a file to read it from: an earlier step's file output, `${{ steps.<id>.outputs.<file>.path }}`. Any other path fails the gate, since a file in an agent's checkout could be a link to one its sandbox hides.
 - `options` are the choices; **Continue** and **Stop** when you give none. The step's `choice` output is the one you chose.
 - **Stop**, in any case, ends the run as **Stopped** instead of going on.
 

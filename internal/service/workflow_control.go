@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -170,14 +169,18 @@ type gateExecutor struct {
 // Type is workflowengine.GateStepType, spelt out for the catalog test.
 func (g *gateExecutor) Type() string { return "gate" }
 
-func (g *gateExecutor) Start(_ context.Context, step ResolvedWorkflowStep) (WorkflowExecutionResult, error) {
+func (g *gateExecutor) Start(ctx context.Context, step ResolvedWorkflowStep) (WorkflowExecutionResult, error) {
 	if _, err := gateOptions(step.With["options"]); err != nil {
 		return WorkflowExecutionResult{}, err
 	}
 	if title, _ := step.With["title"].(string); strings.TrimSpace(title) == "" {
 		return WorkflowExecutionResult{}, fmt.Errorf("gate needs a title")
 	}
-	if _, err := gateBody(step.With); err != nil {
+	view, err := g.workflows.store.GetWorkflowRun(ctx, step.RunID)
+	if err != nil {
+		return WorkflowExecutionResult{}, err
+	}
+	if _, err := gateBody(step.With, view.Artifacts); err != nil {
 		return WorkflowExecutionResult{}, err
 	}
 	return WorkflowExecutionResult{Status: WorkflowStepWaiting}, nil
@@ -211,9 +214,12 @@ func gateOptions(value any) ([]string, error) {
 	return options, nil
 }
 
-// gateBody is a gate's details: body, or the file at body_path (an absolute
-// path, at most gateBodyLimit read).
-func gateBody(with map[string]any) (string, error) {
+// gateBody is a gate's details: body, or the file at body_path (at most
+// gateBodyLimit read). body_path must be one of the run's own file outputs,
+// the copy Legato collected into its data folder, which no agent's sandbox
+// sees: a path in an agent's checkout could be made a link to a file the
+// sandbox hides, and the gate would show it (LEG-486 review).
+func gateBody(with map[string]any, artifacts []store.WorkflowArtifact) (string, error) {
 	if body, ok := with["body"].(string); ok {
 		return body, nil
 	}
@@ -221,8 +227,12 @@ func gateBody(with map[string]any) (string, error) {
 	if path == "" {
 		return "", nil
 	}
-	if !filepath.IsAbs(path) {
-		return "", fmt.Errorf("gate body_path must be an absolute path, such as an earlier step's file output's path: %q", path)
+	managed := false
+	for _, artifact := range artifacts {
+		managed = managed || artifact.ManagedPath == path
+	}
+	if !managed {
+		return "", fmt.Errorf("gate body_path must be an earlier step's file output, ${{ steps.<id>.outputs.<file>.path }}: %q", path)
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -252,7 +262,7 @@ func (g *gateExecutor) details(ctx context.Context, attempt store.WorkflowStepAt
 		}
 		details := GateDetails{}
 		details.Title, _ = with["title"].(string)
-		details.Body, _ = gateBody(with)
+		details.Body, _ = gateBody(with, view.Artifacts)
 		details.Options, _ = gateOptions(with["options"])
 		if step.Status == "succeeded" {
 			var outputs map[string]any

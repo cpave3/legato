@@ -2624,7 +2624,7 @@
           }
         },
         "body_path": {
-          "description": "A file whose Markdown is the details, by its absolute path, such as an earlier step's ${{ steps.\u003cid\u003e.outputs.\u003cfile\u003e.path }}; at most 64 KiB is read",
+          "description": "A file whose Markdown is the details: an earlier step's file output, ${{ steps.\u003cid\u003e.outputs.\u003cfile\u003e.path }}; at most 64 KiB is read",
           "type": "string",
           "x-legato": {
             "context": "with",
@@ -4371,6 +4371,28 @@
       {
         "description": "Create a Jira issue or a Burnlite task, with Legato's own Jira settings (jira.base_url, jira.email, jira.api_token) or its Burnlite connection: no agent sees the token. A retry returns the ticket the step already created instead of creating another.",
         "group": "Board",
+        "outputs": [
+          {
+            "name": "key",
+            "type": "string"
+          },
+          {
+            "name": "url",
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "provider",
+            "type": "string"
+          },
+          {
+            "name": "created",
+            "type": "boolean"
+          }
+        ],
         "summary": [
           "summary"
         ],
@@ -4380,6 +4402,20 @@
       {
         "description": "Add a Markdown comment to a Jira issue, or a Note to a Burnlite task, with Legato's own settings or connection. A retry does not comment twice.",
         "group": "Board",
+        "outputs": [
+          {
+            "name": "url",
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "key",
+            "type": "string"
+          }
+        ],
         "summary": [
           "key"
         ],
