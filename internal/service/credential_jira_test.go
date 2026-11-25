@@ -258,3 +258,31 @@ func TestAJiraCredentialSavedInTheSettingsListUsesTheJiraIntegration(t *testing.
 		t.Fatalf("proxy credential = %+v", c)
 	}
 }
+
+// legato credential get and exec, and the broker's credential.value, read a
+// credential's value through Value. A credential that reaches agents only
+// through the proxy (or the SSH agent) has no value to give, whatever the
+// operation and whatever its rules allow.
+func TestTheValueOfAProxiedCredentialIsNeverGivenToAnAgent(t *testing.T) {
+	f, _ := jiraFixture(t, JiraDefaults{}, jiraCredential(config.CredentialSettings{Upstream: "https://acme.atlassian.net", Username: "bot@example.com"}))
+	ctx := context.Background()
+	for _, operation := range []string{"read", "search", "create"} {
+		secret, decision, err := f.broker.Value(ctx, CredentialUse{TaskID: "task-1", ExecutionID: "ex-1", Credential: "jira", Operation: operation})
+		if err == nil || decision.Allowed || len(secret.Value) != 0 {
+			t.Fatalf("%s: secret %q, decision %+v, err %v; want it refused", operation, secret.Value, decision, err)
+		}
+	}
+	refused, _ := f.store.ListCredentialAudit(ctx, store.CredentialAuditFilter{Event: "refuse"})
+	if len(refused) != 3 {
+		t.Fatalf("audit refusals = %+v", refused)
+	}
+	pending, _ := f.approvals.List(ctx, store.ApprovalFilter{Status: store.ApprovalPending})
+	if len(pending) != 0 {
+		t.Fatalf("asked the operator: %+v", pending)
+	}
+
+	eleven, _ := channelsFixture(t, elevenProxied())
+	if _, decision, err := eleven.broker.Value(ctx, CredentialUse{TaskID: "task-1", ExecutionID: "ex-1", Credential: "eleven", Operation: "voices.read"}); err == nil || decision.Allowed {
+		t.Fatalf("elevenlabs: decision %+v, err %v; want it refused", decision, err)
+	}
+}

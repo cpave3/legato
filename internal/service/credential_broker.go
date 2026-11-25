@@ -1364,11 +1364,23 @@ func (b *CredentialBroker) readSecret(ctx context.Context, name string) (credent
 	return secret, nil
 }
 
-// Value is a use that also reads the credential, through its issuer.
+// Value is a use that also reads the credential, through its issuer. Only
+// a credential of the helper channel has a value an agent may read: one
+// that reaches agents through the proxy or the SSH agent is refused, since
+// its value would let the agent skip that channel's checks.
 func (b *CredentialBroker) Value(ctx context.Context, use CredentialUse) (credential.Secret, UseDecision, error) {
-	if c, ok := b.lookup(ctx, use.Credential); ok && c.profile.Brokered {
-		b.audit(ctx, use.TaskID, use.ExecutionID, store.CredentialAuditEntry{Event: "refuse", Credential: use.Credential, Operation: use.Operation, Resource: use.Resource, Detail: brokeredError(use.Credential).Error()})
-		return credential.Secret{}, UseDecision{Reason: brokeredError(use.Credential).Error()}, brokeredError(use.Credential)
+	if c, ok := b.lookup(ctx, use.Credential); ok {
+		var refusal error
+		switch {
+		case c.profile.Brokered:
+			refusal = brokeredError(use.Credential)
+		case !listHas(c.profile.Channels, ChannelHelper) && (listHas(c.profile.Channels, ChannelHTTPProxy) || listHas(c.profile.Channels, ChannelSSHAgent)):
+			refusal = channelOnlyError(use.Credential, c.profile.Channels)
+		}
+		if refusal != nil {
+			b.audit(ctx, use.TaskID, use.ExecutionID, store.CredentialAuditEntry{Event: "refuse", Credential: use.Credential, Operation: use.Operation, Resource: use.Resource, Detail: refusal.Error()})
+			return credential.Secret{}, UseDecision{Reason: refusal.Error()}, refusal
+		}
 	}
 	decision, err := b.Authorize(ctx, use)
 	if err != nil || !decision.Allowed {
@@ -1649,6 +1661,12 @@ func (b *CredentialBroker) VerifyAudit(ctx context.Context) (int64, error) {
 // brokeredError refuses the value of a credential the broker uses itself.
 func brokeredError(name string) error {
 	return fmt.Errorf("%s has no value an agent can read: the broker calls the MCP server for the agent", name)
+}
+
+// channelOnlyError refuses the value of a credential agents use only
+// through the proxy or the SSH agent.
+func channelOnlyError(name string, channels []string) error {
+	return fmt.Errorf("%s has no value an agent can read: use it through %s, as Legato's guidance says", name, strings.Join(channels, " and "))
 }
 
 // hostOnlyReason refuses an agent a credential only Legato uses.

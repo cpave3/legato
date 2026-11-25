@@ -98,7 +98,7 @@ The agent gets `JIRA_BASE_URL`, `JIRA_EMAIL` and `JIRA_API_TOKEN`, after the cre
 | `search` | JQL search, the issue picker | `auto` |
 | `read` | An issue with its comments and transitions, and any other `GET` (projects, issue types, fields) | `auto` |
 | `comment` | Adding a comment to an issue | `request` |
-| `create` | Creating issues. The agent must name the project by key, so a rule can name `project/AG`. | `request` |
+| `create` | Creating issues. The agent must name the project by key, so a rule can name `example.atlassian.net/project/AG`, after your site's host. | `request` |
 | `transition` | Moving an issue to another status | `request` |
 | `write` | Anything else that changes Jira | `request` |
 
@@ -120,7 +120,7 @@ For a credential with the `secret` profile, the agent runs one command with the 
 legato credential exec openai --env OPENAI_API_KEY -- ./script.sh
 ```
 
-The value never passes through the agent's own output. `legato credential get <name>` prints it. Both check the use against your rules first, and wait for you when they need to.
+The value never passes through the agent's own output. `legato credential get <name>` prints it. Both check the use against your rules first, and wait for you when they need to. Neither gives the value of a credential that agents use through the proxy or the SSH agent (`elevenlabs`, `api-key`, `jira`, `github`, `ssh`), whatever your rules allow: that would let the agent go around the proxy's checks.
 
 ## Asking for access
 
