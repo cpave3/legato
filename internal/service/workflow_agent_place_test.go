@@ -183,6 +183,31 @@ func TestARunningAgentOnTheTaskIsRefusedUnlessReused(t *testing.T) {
 	}
 }
 
+// The step's placement, not its first session, says the agent is the
+// card's: once the operator has replaced the card's agent (restarted it, or
+// stopped it and started another), a cancel still leaves the new one.
+func TestCancellingAnOnTaskStepLeavesTheCardsReplacementAgent(t *testing.T) {
+	ctx := context.Background()
+	f := newPlaceFixture(t)
+	view := f.start(t, implementWith(""))
+	if view.Attempts[0].Status != "waiting_agent" {
+		t.Fatalf("attempt = %+v", view.Attempts[0])
+	}
+	if err := f.agents.KillAgent(ctx, "LEG-7"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.agents.SpawnAgent(ctx, "LEG-7", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	replacement := f.cardAgent(t)
+	if _, err := f.workflows.Cancel(ctx, view.Run.ID, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if again := f.cardAgent(t); again == nil || again.ID != replacement.ID || !f.tmux.sessionAlive("legato-LEG-7") {
+		t.Fatalf("the card's agent after the cancel = %+v; want %d kept", again, replacement.ID)
+	}
+}
+
 func TestAMacroToAReusedAgentIsSentUntaggedAndTheContractTagged(t *testing.T) {
 	settings, db := newSettingsFixture(t, "")
 	ctx := context.Background()

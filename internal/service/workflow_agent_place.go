@@ -47,8 +47,18 @@ func (r *WorkflowAgentRunner) AgentSessionInSlot(ctx context.Context, taskID, sl
 }
 
 // AttemptHasTaskAgent says whether an attempt waits on a plain task agent
-// (on: <task>), which the workflow never stops on a cancel.
+// (on: <task>), which the workflow never stops on a cancel. The step's
+// recorded with says so, so it holds after the operator has replaced the
+// agent the attempt started (a restart, or a stop and a new spawn).
 func (r *WorkflowAgentRunner) AttemptHasTaskAgent(ctx context.Context, attempt store.WorkflowStepAttempt) bool {
+	if view, err := r.store.GetWorkflowRun(ctx, attempt.RunID); err == nil {
+		for _, step := range view.Steps {
+			var with map[string]any
+			if step.Path == attempt.Path && json.Unmarshal([]byte(step.ResolvedInputsJSON), &with) == nil && with != nil {
+				return workflowengine.AgentOnTask(with)
+			}
+		}
+	}
 	if attempt.AgentSessionID == nil {
 		return false
 	}
