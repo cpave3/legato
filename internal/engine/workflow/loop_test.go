@@ -337,3 +337,28 @@ func TestABodyStepMayShadowAnEnclosingID(t *testing.T) {
 		t.Fatal("the body's before has no output name: the enclosing one is hidden")
 	}
 }
+
+// Version 1 allowed a slash in a step ID: its paths are its IDs, read
+// whole, not split into a loop's pass.
+func TestAVersion1StepIDWithASlashIsItsOwnPath(t *testing.T) {
+	definition, err := workflow.Parse("v1.yaml", []byte(`schema_version: 1
+name: slashes
+title: Slashes
+steps:
+  - {id: build/test, type: task.context, with: {task: "${{ workflow.task }}"}, outputs: {done: {type: string}}}
+  - {id: after, type: task.context, with: {task: "${{ workflow.task }}", done: "${{ steps.build/test.outputs.done }}"}}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	step, err := definition.StepAt("build/test")
+	if err != nil || step.ID != "build/test" {
+		t.Fatalf("StepAt = %+v, %v", step, err)
+	}
+	if next, err := definition.NextPath("build/test"); err != nil || next != "after" {
+		t.Fatalf("NextPath = %q, %v", next, err)
+	}
+	if path, _, err := definition.Nearest("after", "build/test"); err != nil || path != "build/test" {
+		t.Fatalf("Nearest = %q, %v", path, err)
+	}
+}

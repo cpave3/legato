@@ -389,9 +389,13 @@ type pathLevel struct {
 	Step  *Step
 }
 
-// walk follows a step instance's path through the definition.
+// walk follows a step instance's path through the definition. Version 1
+// has no loops and allowed a slash in an ID: its paths are read whole.
 func (d *Definition) walk(path string) ([]pathLevel, error) {
 	segments := strings.Split(path, "/")
+	if d.SchemaVersion == SchemaVersion {
+		segments = []string{path}
+	}
 	steps, scope, loopPath, pass := d.Steps, "", "", 0
 	var loopStep *Step
 	var levels []pathLevel
