@@ -42,6 +42,12 @@ describe("a trigger as a sentence", () => {
     expect(plain(triggerSentence("chat.mention", { bot: "slack", fallback: true }))).toBe("A mention of **slack** · when no other trigger matched")
   })
 
+  it("says which button click starts a run", () => {
+    expect(plain(triggerSentence("chat.button", { bot: "slack" }))).toBe("A button click on **slack**")
+    expect(plain(triggerSentence("chat.button", { bot: "slack", channel: "C1", user: "U7", value: { contains: "fix:" } }))).toBe("A button click in **C1** on **slack** by **U7** · value containing **fix:**")
+    expect(plain(triggerSentence("chat.button", { bot: "discord", value: { regex: "^fix:(?P<task>.+)$" } }))).toBe("A button click on **discord** · value matching **^fix:(?P<task>.+)$**")
+  })
+
   it("names a kind it doesn't know", () => {
     expect(plain(triggerSentence("something.new", {}))).toBe("**something.new**")
   })
@@ -52,11 +58,13 @@ describe("a new trigger", () => {
     expect(newTrigger("chat.message", { ...noOptions, bots: ["discord", "slack"] })).toEqual({ bot: "discord", enabled: false })
     expect(newTrigger("chat.mention", { ...noOptions, bots: ["slack"] })).toEqual({ bot: "slack", enabled: false })
     expect(newTrigger("chat.mention", noOptions)).toEqual({ bot: "", enabled: false })
+    expect(newTrigger("chat.button", { ...noOptions, bots: ["slack"] })).toEqual({ bot: "slack", enabled: false })
   })
 
   it("has a title for every kind in the schema", () => {
     for (const { kind } of triggerKinds) expect(KIND_TITLES[kind], kind).toBeTruthy()
     expect(KIND_TITLES["chat.message"]).toBe("When a chat message arrives")
     expect(KIND_TITLES["chat.mention"]).toBe("When the bot is mentioned")
+    expect(KIND_TITLES["chat.button"]).toBe("When a chat button is clicked")
   })
 })

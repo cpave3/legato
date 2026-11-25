@@ -43,7 +43,7 @@ export function stepForm(type: string): { fields: FieldSpec[]; groups: Group[]; 
 
 /** The kinds a with field may be; a test fails when the schema has one the
  * form can't draw. */
-export const FIELD_KINDS = ["string", "text", "integer", "boolean", "task", "task_or_id", "repository", "path", "column", "macro", "agent", "tier", "chat_bot", "json"]
+export const FIELD_KINDS = ["string", "text", "integer", "boolean", "task", "task_or_id", "repository", "path", "column", "macro", "agent", "tier", "chat_bot", "chat_buttons", "json"]
 
 // stepReferences are the steps.<id>.outputs references in a step.
 export function stepReferences(step: StepValue): { id: string; expression: string }[] {

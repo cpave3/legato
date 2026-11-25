@@ -81,9 +81,41 @@ describe("the catalog's metadata", () => {
 
 describe("a chat message step", () => {
   it("asks for the bot, the channel, the message and what it replies to, in that order", () => {
-    expect(stepForm("chat.message.send")!.fields.map(f => [f.name, f.kind])).toEqual([["bot", "chat_bot"], ["channel", "string"], ["text", "text"], ["thread_id", "string"]])
+    expect(stepForm("chat.message.send")!.fields.map(f => [f.name, f.kind])).toEqual([["bot", "chat_bot"], ["channel", "string"], ["text", "text"], ["thread_id", "string"], ["buttons", "chat_buttons"]])
     expect(FIELD_KINDS).toContain("chat_bot")
+    expect(FIELD_KINDS).toContain("chat_buttons")
     expect(stepForm("chat.thread.read")!.fields.map(f => [f.name, f.kind])).toEqual([["bot", "chat_bot"], ["channel", "string"], ["thread_id", "string"], ["limit", "integer"], ["include_bots", "boolean"]])
+  })
+
+  it("adds, edits and removes buttons, at most five", () => {
+    renderBuilder(head + "steps:\n  - id: say\n    title: Say\n    type: chat.message.send\n    with: {bot: slack, text: Findings}\n")
+    const card = within(stepCard(1))
+    const add = () => fireEvent.click(card.getByRole("button", { name: "Add a button to step say" }))
+    add()
+    expect(parse(latest).steps[0].with.buttons).toEqual([{ label: "", value: "" }])
+    commit(card.getByRole("textbox", { name: "Button 1 label of step say" }), "🛠 Fix it")
+    commit(card.getByRole("textbox", { name: "Button 1 value of step say" }), "fix:${{ workflow.task.id }}")
+    fireEvent.change(card.getByRole("combobox", { name: "Button 1 style of step say" }), { target: { value: "primary" } })
+    add()
+    commit(card.getByRole("textbox", { name: "Button 2 label of step say" }), "Dismiss")
+    commit(card.getByRole("textbox", { name: "Button 2 value of step say" }), "dismiss")
+    expect(parse(latest).steps[0].with.buttons).toEqual([
+      { label: "🛠 Fix it", value: "fix:${{ workflow.task.id }}", style: "primary" },
+      { label: "Dismiss", value: "dismiss" },
+    ])
+    fireEvent.change(card.getByRole("combobox", { name: "Button 1 style of step say" }), { target: { value: "" } })
+    expect(parse(latest).steps[0].with.buttons[0]).toEqual({ label: "🛠 Fix it", value: "fix:${{ workflow.task.id }}" })
+    add(); add(); add()
+    expect(parse(latest).steps[0].with.buttons).toHaveLength(5)
+    expect(card.queryByRole("button", { name: "Add a button to step say" })).toBeNull()
+    for (let i = 5; i >= 2; i--) fireEvent.click(card.getByRole("button", { name: `Remove button ${i} of step say` }))
+    fireEvent.click(card.getByRole("button", { name: "Remove button 1 of step say" }))
+    expect(parse(latest).steps[0].with.buttons).toBeUndefined()
+  })
+
+  it("shows buttons given by an expression as text", () => {
+    renderBuilder(head + "inputs:\n  b: {type: json}\nsteps:\n  - id: say\n    title: Say\n    type: chat.message.send\n    with: {bot: slack, text: hi, buttons: \"${{ workflow.inputs.b }}\"}\n")
+    expect((within(stepCard(1)).getByLabelText("buttons of step say") as HTMLInputElement).value).toBe("${{ workflow.inputs.b }}")
   })
 
   it("offers the bots and writes the step", () => {
