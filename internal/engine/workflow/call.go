@@ -40,12 +40,34 @@ var workflowRunSpec = ExecutorSpec{
 
 // Calls says whether a step of the definition runs another workflow.
 func (d *Definition) Calls() bool {
-	for _, step := range d.Steps {
-		if step.Type == WorkflowRunStepType {
-			return true
+	calls := false
+	eachStep(d.Steps, "steps", func(step Step, _ string, _ []Step, _ map[string]any) {
+		calls = calls || step.Type == WorkflowRunStepType
+	})
+	return calls
+}
+
+// eachStep calls f with every executor step of a steps: list, a loop's
+// body's included, with its path in the file (steps[1].steps[0]), the
+// steps after it in its list, and what else reads its outputs there: the
+// workflow's outputs' values at the top, a loop's pass outputs' in a body.
+func eachStep(steps []Step, at string, f func(step Step, where string, later []Step, reads map[string]any)) {
+	var visit func(steps []Step, at string, reads map[string]any)
+	visit = func(steps []Step, at string, reads map[string]any) {
+		for i, step := range steps {
+			where := fmt.Sprintf("%s[%d]", at, i)
+			if step.Loop != nil {
+				values := map[string]any{}
+				for key, output := range step.Outputs {
+					values[key] = output.Value
+				}
+				visit(step.Steps, where+".steps", values)
+				continue
+			}
+			f(step, where, steps[i+1:], reads)
 		}
 	}
-	return false
+	visit(steps, at, nil)
 }
 
 // checkWorkflowRunStep checks what a workflow.run step names: the

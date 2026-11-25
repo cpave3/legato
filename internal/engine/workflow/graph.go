@@ -168,8 +168,13 @@ func BuildGraph(d *Definition) *Graph {
 		if trigger == GateManual || trigger == GateAgentEnded {
 			gate = trigger
 		}
+		stepType := step.Type
+		if step.Loop != nil {
+			// One node until graph version 2 draws its passes (LEG-484).
+			stepType = LoopStepType
+		}
 		graph.Nodes = append(graph.Nodes, GraphNode{ID: id, Kind: NodeStep, Step: &GraphStep{
-			ID: step.ID, Title: step.Title, Type: step.Type, Trigger: trigger, Gate: gate, Key: stepKey(step), Definition: step,
+			ID: step.ID, Title: step.Title, Type: stepType, Trigger: trigger, Gate: gate, Key: stepKey(step), Definition: step,
 		}})
 		if step.Type == "github.pr.review_passes" {
 			graph.Nodes[len(graph.Nodes)-1].Step.Group = GroupReviewLoop
@@ -187,11 +192,17 @@ func BuildGraph(d *Definition) *Graph {
 			graph.Edges = append(graph.Edges, edge(EdgeOrder, stepNodeID(d.Steps[i-1].ID), id))
 		}
 	}
+	steps := map[string]bool{}
+	for _, step := range d.Steps {
+		steps[step.ID] = true
+	}
 	for _, step := range d.Steps {
 		uses := stepOutputsUsed(step)
 		sources := make([]string, 0, len(uses))
 		for source := range uses {
-			sources = append(sources, source)
+			if steps[source] {
+				sources = append(sources, source)
+			}
 		}
 		sort.Strings(sources)
 		for _, source := range sources {
@@ -259,6 +270,38 @@ func stepOutputsUsed(step Step) map[string]map[string]bool {
 				use(path)
 			}
 		})
+	}
+	if step.Loop != nil {
+		// A loop reads what its over, query, key, until, pass outputs and
+		// body read from outside it: its body's own steps are its own.
+		walk(step.Loop.Over)
+		walk(step.Loop.Key)
+		for _, output := range step.Outputs {
+			walk(output.Value)
+		}
+		if step.Loop.Next != nil {
+			walk(step.Loop.Next.With)
+		}
+		if step.Loop.Until != nil {
+			step.Loop.Until.eachField(func(field string) {
+				if path, err := ParsePath(field); err == nil {
+					use(path)
+				}
+			})
+		}
+		for _, inner := range step.Steps {
+			for source, keys := range stepOutputsUsed(inner) {
+				if uses[source] == nil {
+					uses[source] = map[string]bool{}
+				}
+				for key := range keys {
+					uses[source][key] = true
+				}
+			}
+		}
+		for _, inner := range step.Steps {
+			delete(uses, inner.ID)
+		}
 	}
 	return uses
 }

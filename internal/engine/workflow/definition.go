@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -87,7 +88,12 @@ type Step struct {
 	WaitFor []string `yaml:"wait_for,omitempty" json:"wait_for,omitempty" legato:"v2"`
 	// Timeout is how long the step may take once it starts, as a duration
 	// such as 12h or 30m (§5.5).
-	Timeout string            `yaml:"timeout,omitempty" json:"timeout,omitempty" legato:"v2"`
+	Timeout string `yaml:"timeout,omitempty" json:"timeout,omitempty" legato:"v2"`
+	// Loop makes the step a loop (LEG-490): it runs Steps pass after
+	// pass, and has no type or with. Its Outputs are each pass's result,
+	// mapped from the pass's steps with value expressions.
+	Loop    *Loop             `yaml:"loop,omitempty" json:"loop,omitempty" legato:"v2"`
+	Steps   []Step            `yaml:"steps,omitempty" json:"steps,omitempty" legato:"v2"`
 	With    map[string]any    `yaml:"with" json:"with"`
 	Outputs map[string]Output `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 }
@@ -139,8 +145,15 @@ func (s *Step) UnmarshalJSON(data []byte) error {
 func (d Definition) MarshalYAML() (any, error) {
 	type plain Definition
 	out := plain(d)
-	out.Steps = make([]Step, len(d.Steps))
-	for i, step := range d.Steps {
+	out.Steps = marshalledSteps(d.Steps, d.SchemaVersion)
+	return out, nil
+}
+
+// marshalledSteps are steps as a file of the version says how each starts,
+// a loop's body included.
+func marshalledSteps(steps []Step, version int) []Step {
+	out := make([]Step, len(steps))
+	for i, step := range steps {
 		start := step.Start
 		if start == "" {
 			start = step.Trigger
@@ -149,14 +162,17 @@ func (d Definition) MarshalYAML() (any, error) {
 			start = ""
 		}
 		step.Trigger, step.Start = "", ""
-		if d.SchemaVersion == SchemaVersion {
+		if version == SchemaVersion {
 			step.Trigger = start
 		} else {
 			step.Start = start
 		}
-		out.Steps[i] = step
+		if len(step.Steps) > 0 {
+			step.Steps = marshalledSteps(step.Steps, version)
+		}
+		out[i] = step
 	}
-	return out, nil
+	return out
 }
 
 // StepPath is the path of the step id in the scope at parent ("" for the
@@ -182,6 +198,9 @@ type Output struct {
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 	Path        string `yaml:"path,omitempty" json:"path,omitempty"`
 	MediaType   string `yaml:"media_type,omitempty" json:"media_type,omitempty"`
+	// Value is, on a loop step's output, what each pass's result holds
+	// under its name: an expression over the pass's steps (LEG-490).
+	Value any `yaml:"value,omitempty" json:"value,omitempty" legato:"v2"`
 }
 
 type ResolvedStep struct {
@@ -292,31 +311,71 @@ func (d *Definition) problems() []*PathError {
 	if err := validateReferences(d.RunTitle, d.Inputs, nil, nil); err != nil {
 		add("run_title", fmt.Errorf("run_title: %w", err))
 	}
-	seen := make(map[string]bool, len(d.Steps))
-	availableOutputs := make(map[string]map[string]string, len(d.Steps))
-	agentSteps := make(map[string]bool, len(d.Steps))
-	for i := range d.Steps {
-		step := &d.Steps[i]
-		if err := validateStep(step, i, d.SchemaVersion, d.fromFile, seen, d.Inputs, availableOutputs); err != nil {
-			problems = append(problems, err)
-		} else if err := checkAgentFrom(*step, agentSteps); err != nil {
-			problems = append(problems, within(fmt.Sprintf("steps[%d]", i), fmt.Errorf("step %q: %w", step.ID, err)))
-		} else if err := checkCloneFrom(*step, agentSteps); err != nil {
-			problems = append(problems, within(fmt.Sprintf("steps[%d]", i), fmt.Errorf("step %q: %w", step.ID, err)))
-		}
-		agentSteps[step.ID] = agentStepTypes[step.Type]
-		seen[step.ID] = true
-		availableOutputs[step.ID] = readableOutputs(*step)
-	}
+	scope := stepScope{version: d.SchemaVersion, fromFile: d.fromFile, inputs: d.Inputs, outputs: map[string]map[string]string{}, agents: map[string]bool{}}
+	stepProblems, availableOutputs := scope.check(d.Steps, "steps")
+	problems = append(problems, stepProblems...)
 	return append(problems, d.outputProblems(availableOutputs)...)
+}
+
+// stepScope is what the steps of one steps: list are checked against: the
+// file's version and inputs, and what the steps before them may be read
+// for (the steps before, nearest first by ID, and in a loop's body the
+// loop's context).
+type stepScope struct {
+	version  int
+	fromFile bool
+	inputs   map[string]Input
+	outputs  map[string]map[string]string
+	agents   map[string]bool
+}
+
+// check checks a steps: list at the path at (steps, or a loop's
+// steps[i].steps), one problem at most per step, a loop's body's included.
+// It returns the readable outputs after the list: the scope's and its
+// steps', nearest first.
+func (scope stepScope) check(steps []Step, at string) ([]*PathError, map[string]map[string]string) {
+	var problems []*PathError
+	seen := make(map[string]bool, len(steps))
+	outputs := maps.Clone(scope.outputs)
+	agents := maps.Clone(scope.agents)
+	for i := range steps {
+		step := &steps[i]
+		where := fmt.Sprintf("%s[%d]", at, i)
+		inner := scope
+		inner.outputs, inner.agents = outputs, agents
+		if step.Loop != nil || len(step.Steps) > 0 {
+			problems = append(problems, inner.checkLoop(step, where, seen)...)
+		} else if err := validateStep(step, where, scope.version, scope.fromFile, seen, scope.inputs, outputs); err != nil {
+			problems = append(problems, err)
+		} else if err := checkAgentFrom(*step, agents); err != nil {
+			problems = append(problems, within(where, fmt.Errorf("step %q: %w", step.ID, err)))
+		} else if err := checkCloneFrom(*step, agents); err != nil {
+			problems = append(problems, within(where, fmt.Errorf("step %q: %w", step.ID, err)))
+		}
+		agents[step.ID] = agentStepTypes[step.Type]
+		seen[step.ID] = true
+		outputs[step.ID] = readableOutputs(*step)
+	}
+	return problems, outputs
+}
+
+// checkID refuses an empty ID, one the list has already, and from version
+// 2 one with a slash, which step paths use.
+func checkID(step Step, at string, version int, seen map[string]bool) *PathError {
+	if step.ID == "" || seen[step.ID] {
+		return within(at+".id", fmt.Errorf("step IDs must be non-empty and unique"))
+	}
+	if version >= SchemaVersion2 && strings.Contains(step.ID, "/") {
+		return within(at+".id", fmt.Errorf("step %q: an ID may not have a / in it", step.ID))
+	}
+	return nil
 }
 
 // validateStep checks one step against the steps before it: its first
 // problem, or nil.
-func validateStep(step *Step, index, version int, fromFile bool, seen map[string]bool, inputs map[string]Input, availableOutputs map[string]map[string]string) *PathError {
-	at := fmt.Sprintf("steps[%d]", index)
-	if step.ID == "" || seen[step.ID] {
-		return within(at+".id", fmt.Errorf("step IDs must be non-empty and unique"))
+func validateStep(step *Step, at string, version int, fromFile bool, seen map[string]bool, inputs map[string]Input, availableOutputs map[string]map[string]string) *PathError {
+	if err := checkID(*step, at, version, seen); err != nil {
+		return err
 	}
 	if err := normalizeStart(step, version, fromFile); err != nil {
 		return within(at+"."+err.key, err.err)
@@ -340,6 +399,9 @@ func validateStep(step *Step, index, version int, fromFile bool, seen map[string
 	}
 	for _, key := range sortedKeys(step.Outputs) {
 		output := step.Outputs[key]
+		if output.Value != nil {
+			return within(at+".outputs."+key+".value", fmt.Errorf("step %q output %q: only a loop's outputs take a value", step.ID, key))
+		}
 		if !validValueType(output.Type, true) {
 			return within(at+".outputs."+key+".type", fmt.Errorf("step %q output %q has unsupported type %q", step.ID, key, output.Type))
 		}
@@ -561,6 +623,8 @@ func pathType(path []PathPart, inputs map[string]Input, current map[string]Outpu
 			return "", fmt.Errorf("file output %q is not declared", parts[1])
 		}
 		return "string", nil
+	case len(parts) >= 1 && parts[0] == "loop":
+		return loopPathType(path, previous)
 	}
 	return "", fmt.Errorf("unsupported expression %q", expr)
 }
@@ -673,22 +737,20 @@ func (d *Definition) ResolveRunTitle(inputs map[string]any) (string, error) {
 	return title, nil
 }
 
-// step is the step of that ID, or nil.
-func (d *Definition) step(stepID string) *Step {
-	for i := range d.Steps {
-		if d.Steps[i].ID == stepID {
-			return &d.Steps[i]
-		}
-	}
-	return nil
+// ResolveStep resolves one of the run's own steps (ResolveStepAt).
+func (d *Definition) ResolveStep(stepID string, inputs, workflowTask map[string]any, outputs map[string]map[string]any) (*ResolvedStep, error) {
+	return d.ResolveStepAt(stepID, Scope{Inputs: inputs, Task: workflowTask, Steps: outputs})
 }
 
-func (d *Definition) ResolveStep(stepID string, inputs, workflowTask map[string]any, outputs map[string]map[string]any) (*ResolvedStep, error) {
-	selected := d.step(stepID)
-	if selected == nil {
-		return nil, fmt.Errorf("workflow step %q not found", stepID)
+// ResolveStepAt resolves the step at a step instance's path (StepAt) in
+// its scope: its file outputs' paths, then its with.
+func (d *Definition) ResolveStepAt(path string, in Scope) (*ResolvedStep, error) {
+	selected, err := d.StepAt(path)
+	if err != nil {
+		return nil, err
 	}
-	scope := resolveScope{inputs: inputs, task: workflowTask, outputs: outputs}
+	stepID := selected.ID
+	scope := in.resolver()
 	resolvedOutputs := make(map[string]Output, len(selected.Outputs))
 	for key, output := range selected.Outputs {
 		if output.Type == "file" {
@@ -720,30 +782,25 @@ func (d *Definition) ResolveStep(stepID string, inputs, workflowTask map[string]
 	return &ResolvedStep{ID: selected.ID, Title: selected.Title, Type: selected.Type, With: with, Outputs: resolvedOutputs}, nil
 }
 
-// StepRuns checks a step's if: against the run so far: false when the
-// step is to be skipped. A step with no if: runs.
+// StepRuns checks one of the run's own steps' if: (StepRunsAt).
 func (d *Definition) StepRuns(stepID string, inputs, workflowTask map[string]any, outputs map[string]map[string]any) (bool, error) {
-	selected := d.step(stepID)
-	if selected == nil {
-		return false, fmt.Errorf("workflow step %q not found", stepID)
+	return d.StepRunsAt(stepID, Scope{Inputs: inputs, Task: workflowTask, Steps: outputs})
+}
+
+// StepRunsAt checks the if: of the step at a step instance's path against
+// the run so far: false when the step is to be skipped. A step with no
+// if: runs.
+func (d *Definition) StepRunsAt(path string, scope Scope) (bool, error) {
+	selected, err := d.StepAt(path)
+	if err != nil {
+		return false, err
 	}
 	if selected.If == nil {
 		return true, nil
 	}
-	scope := resolveScope{inputs: inputs, task: workflowTask, outputs: outputs}
-	runs, err := selected.If.evaluate(func(field string) (any, bool, error) {
-		path, err := ParsePath(field)
-		if err != nil {
-			return nil, false, err
-		}
-		value, err := scope.path(path)
-		if errors.Is(err, errMissing) {
-			return nil, false, nil
-		}
-		return value, err == nil, err
-	})
+	runs, err := conditionHolds(*selected.If, scope.resolver())
 	if err != nil {
-		return false, fmt.Errorf("step %q if: %w", stepID, err)
+		return false, fmt.Errorf("step %q if: %w", selected.ID, err)
 	}
 	return runs, nil
 }
@@ -759,6 +816,9 @@ type resolveScope struct {
 	inputs  map[string]any
 	task    map[string]any
 	outputs map[string]map[string]any
+	// loop is the loop context inside a loop's pass (LoopContext), nil
+	// elsewhere.
+	loop map[string]any
 }
 
 // value resolves a with value: a whole ${{ }} keeps its value's type, one
@@ -889,6 +949,15 @@ func (s resolveScope) path(path []PathPart) (any, error) {
 			return nil, fmt.Errorf("file output %q is not declared", parts[1])
 		}
 		return output.Path, nil
+	case len(parts) >= 2 && parts[0] == "loop":
+		if s.loop == nil {
+			return nil, fmt.Errorf("%s: loop is read only inside a loop", pathString(path))
+		}
+		value, ok := s.loop[parts[1]]
+		if !ok {
+			return nil, errMissing
+		}
+		return reachOrMissing(value, path[2:])
 	}
 	return nil, fmt.Errorf("unsupported expression %q", pathString(path))
 }
@@ -953,6 +1022,9 @@ func normalizeStart(step *Step, version int, fromFile bool) *startProblem {
 // count as declared without repeating them, and with on_failure: continue
 // the failure's (FailureOutputs).
 func readableOutputs(step Step) map[string]string {
+	if step.Loop != nil {
+		return loopReadableOutputs(step)
+	}
 	readable := make(map[string]string, len(step.Outputs))
 	if spec, ok := catalogByType[step.Type]; ok {
 		for _, output := range spec.Outputs {

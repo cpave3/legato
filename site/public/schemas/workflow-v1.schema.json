@@ -5562,6 +5562,76 @@
           }
         ]
       },
+      "pass": {
+        "location": "pass",
+        "description": "A loop's pass's steps (their with and if:) and the loop's outputs' values: as with, the earlier steps the nearest of each ID (the pass's own, then those before the loop), and the loop's context. A loop's until reads loop.last too: the result of the pass that just ended",
+        "roots": [
+          {
+            "pattern": "workflow.inputs.\u003cinput\u003e",
+            "description": "A workflow input"
+          },
+          {
+            "pattern": "workflow.inputs.\u003ctask input\u003e.\u003ctask field\u003e",
+            "description": "A field of a task input"
+          },
+          {
+            "pattern": "workflow.inputs.\u003ctask input\u003e.metadata.\u003cpath\u003e",
+            "description": "A metadata value of a task input"
+          },
+          {
+            "pattern": "workflow.inputs.\u003crepository input\u003e.\u003crepository field\u003e",
+            "description": "A field of a repository input"
+          },
+          {
+            "pattern": "workflow.task",
+            "description": "The workflow task, whole"
+          },
+          {
+            "pattern": "workflow.task.\u003ctask field\u003e",
+            "description": "A field of the workflow task"
+          },
+          {
+            "pattern": "workflow.task.metadata.\u003cpath\u003e",
+            "description": "A metadata value of the workflow task"
+          },
+          {
+            "pattern": "steps.\u003cearlier step\u003e.outputs.\u003coutput\u003e",
+            "description": "An output of an earlier step"
+          },
+          {
+            "pattern": "steps.\u003cearlier step\u003e.outputs.\u003coutput\u003e.path",
+            "description": "Where an earlier step's file output is"
+          },
+          {
+            "pattern": "outputs.\u003cfile output\u003e.path",
+            "description": "Where this step's own file output goes"
+          },
+          {
+            "pattern": "loop.index",
+            "description": "The pass's number, from 0"
+          },
+          {
+            "pattern": "loop.item",
+            "description": "The pass's item (none in a repeat loop)"
+          },
+          {
+            "pattern": "loop.item.\u003cpath\u003e",
+            "description": "A field of the pass's item"
+          },
+          {
+            "pattern": "loop.previous.\u003cloop output\u003e",
+            "description": "A result of the newest pass that succeeded; missing in the first"
+          },
+          {
+            "pattern": "loop.results",
+            "description": "The results of the passes that have ended"
+          },
+          {
+            "pattern": "loop.results.\u003cpath\u003e",
+            "description": "A pass's result, as loop.results[0].\u003coutput\u003e"
+          }
+        ]
+      },
       "run_title": {
         "location": "run_title",
         "description": "The run's title: the inputs only, as the workflow task does not exist yet",

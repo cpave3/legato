@@ -34,12 +34,19 @@ func CallDiagnostics(data []byte, d *Definition, others []*Definition) []Diagnos
 		diagnostic.Severity = severity
 		out = append(out, diagnostic)
 	}
-	for i, step := range d.Steps {
+	outputs := map[string]any{}
+	for key, output := range d.Outputs {
+		outputs[key] = output.Value
+	}
+	eachStep(d.Steps, "steps", func(step Step, where string, later []Step, reads map[string]any) {
 		called, ok := CalledWorkflows(step, d.Inputs)
 		if step.Type != WorkflowRunStepType || !ok {
-			continue
+			return
 		}
-		at := fmt.Sprintf("steps[%d].with.workflow", i)
+		if reads == nil {
+			reads = outputs
+		}
+		at := where + ".with.workflow"
 		for _, name := range called {
 			child, found := byName[name]
 			if !found {
@@ -53,23 +60,22 @@ func CallDiagnostics(data []byte, d *Definition, others []*Definition) []Diagnos
 			if depth := 1 + callDepth(name, byName, nil); depth > MaxCallDepth {
 				add(SeverityError, at, fmt.Sprintf("step %q: calls through %q nest deeper than %d", step.ID, name, MaxCallDepth))
 			}
-			out = append(out, callInputDiagnostics(&root, i, step, child)...)
-			out = append(out, callOutputDiagnostics(&root, d, i, step, child)...)
+			out = append(out, callInputDiagnostics(&root, where, step, child)...)
+			out = append(out, callOutputDiagnostics(&root, where, step, later, reads, child)...)
 		}
-	}
+	})
 	return out
 }
 
 // callsOf are the workflows any of a definition's steps may run.
 func callsOf(d *Definition) []string {
 	var calls []string
-	for _, step := range d.Steps {
-		if step.Type != WorkflowRunStepType {
-			continue
+	eachStep(d.Steps, "steps", func(step Step, _ string, _ []Step, _ map[string]any) {
+		if step.Type == WorkflowRunStepType {
+			called, _ := CalledWorkflows(step, d.Inputs)
+			calls = append(calls, called...)
 		}
-		called, _ := CalledWorkflows(step, d.Inputs)
-		calls = append(calls, called...)
-	}
+	})
 	return calls
 }
 
@@ -105,7 +111,7 @@ func callDepth(name string, byName map[string]*Definition, visiting []string) in
 	return deepest
 }
 
-func callInputDiagnostics(root *yaml.Node, index int, step Step, child *Definition) []Diagnostic {
+func callInputDiagnostics(root *yaml.Node, at string, step Step, child *Definition) []Diagnostic {
 	var out []Diagnostic
 	given, _ := step.With["inputs"].(map[string]any)
 	warn := func(path, message string) {
@@ -115,19 +121,22 @@ func callInputDiagnostics(root *yaml.Node, index int, step Step, child *Definiti
 	}
 	for _, key := range sortedKeys(given) {
 		if _, declared := child.Inputs[key]; !declared {
-			warn(fmt.Sprintf("steps[%d].with.inputs.%s", index, key), fmt.Sprintf("step %q passes input %q, which workflow %q does not declare", step.ID, key, child.Name))
+			warn(fmt.Sprintf("%s.with.inputs.%s", at, key), fmt.Sprintf("step %q passes input %q, which workflow %q does not declare", step.ID, key, child.Name))
 		}
 	}
 	for _, key := range sortedKeys(child.Inputs) {
 		input := child.Inputs[key]
 		if _, passed := given[key]; !passed && input.Required && input.Default == nil {
-			warn(fmt.Sprintf("steps[%d].with", index), fmt.Sprintf("step %q does not pass input %q, which workflow %q requires", step.ID, key, child.Name))
+			warn(at+".with", fmt.Sprintf("step %q does not pass input %q, which workflow %q requires", step.ID, key, child.Name))
 		}
 	}
 	return out
 }
 
-func callOutputDiagnostics(root *yaml.Node, d *Definition, index int, step Step, child *Definition) []Diagnostic {
+// callOutputDiagnostics warns of each output of a call the steps after it
+// in its list, or reads (the workflow's or a loop's outputs), read and
+// its child does not declare.
+func callOutputDiagnostics(root *yaml.Node, at string, step Step, later []Step, reads map[string]any, child *Definition) []Diagnostic {
 	known := map[string]bool{}
 	for name := range child.Outputs {
 		known[name] = true
@@ -136,16 +145,12 @@ func callOutputDiagnostics(root *yaml.Node, d *Definition, index int, step Step,
 		known[name] = true
 	}
 	read := map[string]bool{}
-	for _, later := range d.Steps[index+1:] {
-		for name := range stepOutputsUsed(later)[step.ID] {
+	for _, after := range later {
+		for name := range stepOutputsUsed(after)[step.ID] {
 			read[name] = true
 		}
 	}
-	outputs := map[string]any{}
-	for key, output := range d.Outputs {
-		outputs[key] = output.Value
-	}
-	for name := range stepOutputsUsed(Step{With: outputs})[step.ID] {
+	for name := range stepOutputsUsed(Step{With: reads})[step.ID] {
 		read[name] = true
 	}
 	var out []Diagnostic
@@ -153,7 +158,7 @@ func callOutputDiagnostics(root *yaml.Node, d *Definition, index int, step Step,
 		if known[name] {
 			continue
 		}
-		diagnostic := diagnosticAt(root, fmt.Sprintf("steps[%d].with.workflow", index), fmt.Sprintf("output %q of step %q is read, and workflow %q does not declare it", name, step.ID, child.Name))
+		diagnostic := diagnosticAt(root, at+".with.workflow", fmt.Sprintf("output %q of step %q is read, and workflow %q does not declare it", name, step.ID, child.Name))
 		diagnostic.Severity = SeverityWarning
 		out = append(out, diagnostic)
 	}
