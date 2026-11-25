@@ -13,7 +13,7 @@ The bot connects with Slack's Socket Mode, an outbound connection from Legato to
 
 1. Go to [api.slack.com/apps](https://api.slack.com/apps) and create an app from scratch in your workspace.
 2. Under **Socket Mode**, turn Socket Mode on. Slack asks you to make an app-level token: give it the `connections:write` scope. The token starts `xapp-`.
-3. Under **OAuth & Permissions › Bot Token Scopes**, add `chat:write`, `reactions:write`, `channels:history`, `groups:history`, `im:history` and `app_mentions:read`. `reactions:write` is for the reaction steps; if you add it to an app that is already installed, reinstall the app (step 5) so the bot token gets it.
+3. Under **OAuth & Permissions › Bot Token Scopes**, add `chat:write`, `reactions:write`, `channels:history`, `groups:history`, `im:history` and `app_mentions:read`. `reactions:write` is for the reaction steps; if you add it to an app that is already installed, reinstall the app (step 5) so the bot token gets it. Add `users:read` too if you want a [thread read](#read-a-thread) to name people; without it they appear as user IDs, and adding it later also means reinstalling.
 4. Under **Event Subscriptions**, turn events on and subscribe to the bot events `message.channels`, `message.groups` and `message.im`.
 5. Install the app to your workspace. Copy the **Bot User OAuth Token**, which starts `xoxb-`.
 6. In Slack, invite the bot to each channel it should read or post in: `/invite @your-bot`.
@@ -101,10 +101,28 @@ steps:
 
 Pass `${{ event.channel }}` and `${{ event.message_id }}` in from the trigger to react to the message that started the run, or give an earlier `chat.message.send` step's `channel` and `message_id` outputs to react to a message the run posted. `emoji` is a name without colons (`eyes`, `white_check_mark`, your workspace's custom emoji), or the emoji itself for the common ones. `chat.reaction.remove` takes the same fields and removes the bot's reaction. A reaction already there, or already gone, is fine. Without the `reactions:write` scope the step fails and says to add it and reinstall the app. See [Workflows](/legato/using/workflows/#react-to-the-message-that-started-a-run).
 
+## Read a thread
+
+A mention in a thread comes to a run as that one message. To give a later step the whole thread, such as an alert forwarded at the top and the questions under it, read it with a `chat.thread.read` step:
+
+```yaml
+steps:
+  - id: thread
+    title: Read the thread
+    type: chat.thread.read
+    with:
+      bot: slack
+      channel: ${{ workflow.inputs.channel }}
+      thread_id: ${{ workflow.inputs.thread }}
+```
+
+`${{ steps.thread.outputs.transcript }}` is then the thread's parent and replies, oldest first, with forwarded messages quoted as in `event.text`. A message in no thread gives that message alone. The step reads with `conversations.replies`, which needs the `*:history` scopes the app already has. It names people with `users.info`, which needs `users:read`; without that scope the transcript names them as `<@U0123456789>`, and the step still succeeds. Bots are named by their own name. See [Reading the thread](/legato/using/workflows/#reading-the-thread) for what the step keeps.
+
 ## Limits
 
 - Slash commands, buttons and other interactive messages are not supported.
 - A message's text is kept with its trigger request, cut to 8 KiB, a forwarded message's part first.
 - A link to a message pasted into a message is not read as a forward: Slack adds its preview later, as an edit, and edits do not start runs.
-- Channels and users are named by their IDs, not their names.
+- Channels and users are named by their IDs, not their names, except the authors of a thread read with `users:read`.
+- A thread read reads at most 1,000 messages: a longer thread ends at the 1,000th.
 - A message longer than 40,000 characters is refused.
