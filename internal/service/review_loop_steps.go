@@ -28,8 +28,11 @@ import (
 // rest; TestEveryWorkflowExecutorHasACatalogEntry holds them to the
 // catalog).
 const (
-	ReviewOpenStepType  = "github.pr.review.open"
-	ReviewCloseStepType = "github.pr.review.close"
+	ReviewOpenStepType    = "github.pr.review.open"
+	ReviewPassStepType    = "github.pr.review.pass"
+	ReviewWaitStepType    = "github.pr.review.wait"
+	ReviewConfirmStepType = "github.pr.review.confirm"
+	ReviewCloseStepType   = "github.pr.review.close"
 )
 
 // Refusal codes of the review loop steps (error_code), beside
@@ -309,7 +312,8 @@ func (s *ReviewLoopSteps) instanceReentries() int {
 
 // Executors are the step executors, one per step type.
 func (s *ReviewLoopSteps) Executors() []WorkflowExecutor {
-	return []WorkflowExecutor{reviewOpenExecutor{s}, reviewCloseExecutor{s}}
+	return []WorkflowExecutor{reviewOpenExecutor{s}, reviewPassExecutor{reviewObserver{s, ReviewPassStepType}},
+		reviewWaitExecutor{reviewObserver{s, ReviewWaitStepType}}, reviewConfirmExecutor{reviewObserver{s, ReviewConfirmStepType}}, reviewCloseExecutor{s}}
 }
 
 // reviewOpenExecutor is github.pr.review.open.
@@ -327,6 +331,7 @@ func ReviewLoopStepsOf(executor WorkflowExecutor) *ReviewLoopSteps {
 
 func (e reviewOpenExecutor) loopSteps() *ReviewLoopSteps  { return e.steps }
 func (e reviewCloseExecutor) loopSteps() *ReviewLoopSteps { return e.steps }
+func (e reviewObserver) loopSteps() *ReviewLoopSteps      { return e.steps }
 
 func (e reviewOpenExecutor) Type() string { return ReviewOpenStepType }
 
@@ -563,6 +568,9 @@ func (c *ReviewRunCaller) SettleSteps(ctx context.Context) {
 	if c.workflows == nil {
 		return
 	}
+	for _, kind := range []string{ReviewPassStepType, ReviewWaitStepType, ReviewConfirmStepType} {
+		c.settleObservers(ctx, kind)
+	}
 	attempts, err := c.workflows.WaitingAttempts(ctx, ReviewCloseStepType)
 	if err != nil {
 		log.Printf("review passes: the close steps waiting: %v", err)
@@ -737,4 +745,279 @@ func (c *ReviewRunCaller) writeSummary(ctx context.Context, rec *store.ReviewLoo
 		return "", err
 	}
 	return path, nil
+}
+
+// reviewObserver is github.pr.review.pass, .wait (mode author) or .confirm:
+// a step that waits until its loop gets where it says, which the holder's
+// tick moves the loop to (Tick: a pass pinned, reviewed and posted; the
+// author's round; Confirm at GitHub's heads). Its outputs come from the
+// record (SettleSteps), so it is tied to no session: a Retry, a restart or
+// another process finds the same loop where it stands.
+type reviewObserver struct {
+	steps *ReviewLoopSteps
+	kind  string
+}
+
+// The observer steps, each its own type so its Type names it.
+type (
+	reviewPassExecutor    struct{ reviewObserver }
+	reviewWaitExecutor    struct{ reviewObserver }
+	reviewConfirmExecutor struct{ reviewObserver }
+)
+
+func (reviewPassExecutor) Type() string    { return ReviewPassStepType }
+func (reviewWaitExecutor) Type() string    { return ReviewWaitStepType }
+func (reviewConfirmExecutor) Type() string { return ReviewConfirmStepType }
+
+// Start checks the step's loop is its run's and open, and the wait's mode,
+// and waits.
+func (e reviewObserver) Start(ctx context.Context, step ResolvedWorkflowStep) (WorkflowExecutionResult, error) {
+	if e.kind == ReviewWaitStepType {
+		mode, _ := step.With["mode"].(string)
+		if mode = strings.TrimSpace(mode); mode != "" && mode != ReviewWaitModeAuthor {
+			return WorkflowExecutionResult{}, reviewRefused(ReviewRefusalInvalidSettings, "mode %q is not built yet: a wait takes mode author", mode)
+		}
+	}
+	if db := e.steps.store(); db != nil {
+		if _, err := ownedStepLoop(ctx, db, step, false); err != nil {
+			return WorkflowExecutionResult{}, err
+		}
+	}
+	return WorkflowExecutionResult{Status: WorkflowStepWaiting}, nil
+}
+
+// Cancel leaves the loop to its run, whose end closes it.
+func (e reviewObserver) Cancel(context.Context, store.WorkflowStepAttempt) error { return nil }
+
+// Details is where the step's loop stands, as the run page shows it.
+func (e reviewObserver) Details(ctx context.Context, attempt store.WorkflowStepAttempt) any {
+	if caller := e.steps.current(); caller != nil {
+		return caller.loopDetails(ctx, attempt.TaskID)
+	}
+	return nil
+}
+
+// Attention is why the step's loop needs the operator: stuck (it offers
+// another_pass, message and end), or waiting for an author that will not
+// move it alone.
+func (e reviewObserver) Attention(ctx context.Context, attempt store.WorkflowStepAttempt) (string, []string) {
+	caller := e.steps.current()
+	if caller == nil {
+		return "", nil
+	}
+	return caller.loopAttention(ctx, attempt.TaskID)
+}
+
+// Act takes the operator's action on the step's loop by its ID: Another
+// pass, Message the author, or End (outcome stuck).
+func (e reviewObserver) Act(ctx context.Context, attempt store.WorkflowStepAttempt, action, text string) error {
+	caller := e.steps.current()
+	if caller == nil {
+		return errors.New("review passes are off on this Legato")
+	}
+	step, err := caller.waitingStep(ctx, attempt)
+	if err != nil {
+		return err
+	}
+	rec, err := ownedStepLoop(ctx, caller.engine.db, step, false)
+	if err != nil {
+		return err
+	}
+	return caller.engine.ActOnLoop(ctx, rec.ID, action, text)
+}
+
+// The modes of github.pr.review.wait.
+const (
+	ReviewWaitModeAuthor = "author"
+)
+
+// settleObservers ends the waiting steps of one observer kind whose loop
+// got where they wait for; a loop no longer the run's fails its step.
+func (c *ReviewRunCaller) settleObservers(ctx context.Context, kind string) {
+	attempts, err := c.workflows.WaitingAttempts(ctx, kind)
+	if err != nil {
+		log.Printf("review passes: the %s steps waiting: %v", kind, err)
+		return
+	}
+	for _, attempt := range attempts {
+		step, err := c.waitingStep(ctx, attempt)
+		if err != nil {
+			continue
+		}
+		rec, err := ownedStepLoop(ctx, c.engine.db, step, true)
+		var outputs map[string]any
+		if err == nil {
+			outputs, err = c.observe(ctx, kind, step, rec)
+		}
+		if err != nil {
+			if _, failErr := c.workflows.FailWaitingError(ctx, attempt.RunID, attempt.Path, attempt.ID, reviewStepError(err)); failErr != nil && !errors.Is(failErr, store.ErrWorkflowStateConflict) {
+				log.Printf("review passes: failing %s: %v", attempt.RunID, failErr)
+			}
+			continue
+		}
+		if outputs == nil {
+			continue // not there yet
+		}
+		if _, err := c.workflows.CompleteWaiting(ctx, attempt.RunID, attempt.Path, attempt.ID, outputs); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
+			log.Printf("review passes: completing %s's %s: %v", attempt.RunID, kind, err)
+		}
+	}
+}
+
+// observe is an observer step's outputs once its loop got where it waits
+// for, nil while it has not.
+func (c *ReviewRunCaller) observe(ctx context.Context, kind string, step ResolvedWorkflowStep, rec *store.ReviewLoop) (map[string]any, error) {
+	switch kind {
+	case ReviewPassStepType:
+		return c.observePass(ctx, step, rec)
+	case ReviewWaitStepType:
+		return c.observeWait(ctx, rec)
+	case ReviewConfirmStepType:
+		return c.observeConfirm(ctx, step, rec)
+	}
+	return nil, nil
+}
+
+// endedState is what a loop closed under a waiting step says to it: stuck
+// (the operator ended it while stuck), closed (its pull requests closed),
+// or, for a loop approved and closed, approved. A loop cancelled with its
+// run says nothing: the run is ending.
+func endedState(rec *store.ReviewLoop) string {
+	switch rec.Outcome {
+	case ReviewOutcomeStuck, ReviewOutcomeClosed, ReviewOutcomeApproved:
+		return rec.Outcome
+	}
+	return ""
+}
+
+// consumedPass is the newest pass an earlier github.pr.review.pass step of
+// the run already reported: a pass step reports only a later one, so a
+// clean pass that checks sent back to its author is never read twice.
+func (c *ReviewRunCaller) consumedPass(ctx context.Context, runID, loopID string) int {
+	view, err := c.engine.db.GetWorkflowRun(ctx, runID)
+	if err != nil {
+		return 0
+	}
+	newest := 0
+	for _, step := range view.Steps {
+		if step.ExecutorType != ReviewPassStepType || step.Status != "succeeded" || step.OutputsJSON == "" {
+			continue
+		}
+		var out struct {
+			Pass int    `json:"pass"`
+			Loop string `json:"loop_id"`
+		}
+		if json.Unmarshal([]byte(step.OutputsJSON), &out) == nil && out.Loop == loopID && out.Pass > newest {
+			newest = out.Pass
+		}
+	}
+	return newest
+}
+
+// observePass completes a pass step once a pass later than the run's last
+// is posted (verdict clean or changes, state posted), or the loop ended
+// (state stuck or closed). While the loop is stuck the step waits, with
+// Another pass, Message the author and End.
+func (c *ReviewRunCaller) observePass(ctx context.Context, step ResolvedWorkflowStep, rec *store.ReviewLoop) (map[string]any, error) {
+	consumed := c.consumedPass(ctx, step.RunID, rec.ID)
+	out := func(state, verdict string, pass int) map[string]any {
+		return map[string]any{"state": state, "verdict": verdict, "pass": pass, "loop_id": rec.ID}
+	}
+	if rec.State != store.ReviewLoopOpenState {
+		if state := endedState(rec); state != "" {
+			return out(state, "", rec.Pass), nil
+		}
+		return nil, nil
+	}
+	result, err := c.engine.Pass(ctx, rec.ID)
+	if err != nil {
+		return nil, err
+	}
+	switch result.State {
+	case ReviewPassStatePosted:
+		if result.Pass <= consumed {
+			return nil, nil // the run read this one already: the next one
+		}
+		return out(ReviewPassStatePosted, result.Verdict, result.Pass), nil
+	case ReviewPassStateNone:
+		return out(ReviewOutcomeClosed, "", result.Pass), nil
+	}
+	return nil, nil // pending, or stuck for the operator
+}
+
+// observeWait completes a wait (mode author) once the author is done (state
+// ready), the pull requests closed (closed), or the operator ended the loop
+// while stuck (stuck). It waits while the author works, and while the loop
+// is stuck.
+func (c *ReviewRunCaller) observeWait(ctx context.Context, rec *store.ReviewLoop) (map[string]any, error) {
+	out := func(state string) map[string]any { return map[string]any{"state": state, "loop_id": rec.ID} }
+	if rec.State != store.ReviewLoopOpenState {
+		if state := endedState(rec); state != "" {
+			if state == ReviewOutcomeApproved {
+				state = ReviewWaitReady
+			}
+			return out(state), nil
+		}
+		return nil, nil
+	}
+	result, err := c.engine.Wait(ctx, rec.ID)
+	if err != nil {
+		return nil, err
+	}
+	switch result.State {
+	case ReviewWaitReady, ReviewWaitClosed:
+		return out(result.State), nil
+	}
+	return nil, nil
+}
+
+// observeConfirm completes a confirm once the holder's Confirm read
+// GitHub's heads after the run's last clean pass: approved (confirmed at
+// them), or moved (a head moved, or a counted check sent it back to its
+// author: the loop goes on to a new pass); a loop that closed says closed
+// or stuck.
+func (c *ReviewRunCaller) observeConfirm(ctx context.Context, step ResolvedWorkflowStep, rec *store.ReviewLoop) (map[string]any, error) {
+	out := func(state string) map[string]any {
+		o := map[string]any{"state": state, "loop_id": rec.ID, "confirmed_at": "", "pass": rec.Pass}
+		if state == ReviewConfirmApproved {
+			o["confirmed_at"], o["pass"] = rec.ConfirmedAt, rec.CleanPass
+		}
+		return o
+	}
+	if rec.State != store.ReviewLoopOpenState {
+		if state := endedState(rec); state != "" {
+			return out(state), nil
+		}
+		return nil, nil
+	}
+	loop, err := c.engine.db.GetHandoffReview(ctx, rec.HostTask)
+	if err != nil || loop == nil || loop.LoopID != rec.ID {
+		return nil, err
+	}
+	consumed := c.consumedPass(ctx, step.RunID, rec.ID)
+	switch {
+	case confirmed(loop) && loop.Pass == consumed:
+		return out(ReviewConfirmApproved), nil
+	case loop.Phase == ReviewPhaseClean, loop.Phase == ReviewPhaseStuck:
+		return nil, nil // GitHub's heads not read yet, or the operator decides
+	case loop.Pass > consumed:
+		return out(ReviewConfirmMoved), nil // a later pass already
+	}
+	switch loop.Phase {
+	case ReviewPhaseReady, ReviewPhaseWaitingForReviewer, ReviewPhaseReviewing, ReviewPhaseWaitingForAuthor, ReviewPhaseAuthor:
+		return out(ReviewConfirmMoved), nil
+	}
+	return nil, nil
+}
+
+// loopDetails is where the loop a run task hosts stands, for the run page:
+// as the inline step's, once it has a loop.
+func (c *ReviewRunCaller) loopDetails(ctx context.Context, taskID string) any {
+	return c.details(ctx, taskID)
+}
+
+// loopAttention is the inline step's attention, for the loop a run task
+// hosts.
+func (c *ReviewRunCaller) loopAttention(ctx context.Context, taskID string) (string, []string) {
+	return c.attention(ctx, taskID)
 }

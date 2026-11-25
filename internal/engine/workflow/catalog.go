@@ -589,6 +589,9 @@ var catalog = []ExecutorSpec{
 		},
 	},
 	reviewOpenSpec,
+	reviewPassSpec,
+	reviewWaitSpec,
+	reviewConfirmSpec,
 	reviewCloseSpec,
 	{
 		Type: "burnlite.task.close", Group: "Board", Title: "Close the Burnlite ticket",

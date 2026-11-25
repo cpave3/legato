@@ -595,8 +595,11 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 		}
 		// Two passes in a row that each found new problems: the author fixes
 		// these, then the person decides whether another pass is worth it.
-		if notConverging(all, pass.Pass) && (settings.MaxPasses == 0 || settings.MaxPasses > pass.Pass) {
-			settings.MaxPasses = pass.Pass
+		// The limit counts the current pass window (spec LEG-559: it
+		// resets at each approval).
+		inWindow := pass.Pass - s.windowStart(ctx, loop.LoopID)
+		if notConverging(all, pass.Pass) && (settings.MaxPasses == 0 || settings.MaxPasses > inWindow) {
+			settings.MaxPasses = inWindow
 			if loop.Settings, err = encodeJSON(settings); err != nil {
 				return err
 			}

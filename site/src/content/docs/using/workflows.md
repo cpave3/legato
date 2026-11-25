@@ -1194,6 +1194,25 @@ A review loop can be built from steps, each acting on one loop that Legato keeps
 
 Its outputs are `loop_id`, `linked_task` (the board task the pull requests belong to, or empty), `prs` (number, url, branch, base and author_task of each) and `warnings`, such as a reviewer that runs the author's own agent tool. A refusal fails the step with an `error_code` you can read with `on_failure: continue`: `review_loop_active` or `author_loop_active` (another loop holds the pull request or its author; the error names that loop and links to its run), `invalid_subject`, `pr_not_open`, `no_author`, `review_passes_off`, `reviewer_app_missing`, `reviewer_not_advertised`, `skill_not_advertised`, `steward_needs_agent_author` or `max_reentries_raised`.
 
+Between them, three steps run the review itself. Each takes the loop and waits until the loop gets where it says, which Legato's review engine moves it to:
+
+- `github.pr.review.pass` runs one pass: Legato pins every open pull request's head, a read-only reviewer reviews them, and the pass is posted as one GitHub review per pull request. Its outputs are `verdict` (`clean` or `changes`), `state` (`posted`) and `pass`. A reviewer that exits without submitting runs the same pass once more, at the same heads, without using up a pass; a second time, the loop is stuck.
+- `github.pr.review.confirm`, after a clean pass, reads GitHub's heads: `state` is `approved` when each is the head the pass reviewed, or `moved` when another pass is needed.
+- `github.pr.review.wait` (`mode: author`), after a pass with changes, waits for the author's round: `state` is `ready` once the author pushed or disputed a blocking finding, or `closed`.
+
+When the loop is stuck (its pass limit, a reviewer that died twice, an author that cannot be resumed), the step waiting on it waits for you, in Attention and on the run's page, with **Run another pass** (one more pass, only this once), **Message the author** and **End**. **End** ends that step, and every later one on the loop, with `state: stuck`. Put the three in a `repeat` loop that ends on `approved`, `closed` or `stuck`:
+
+```yaml
+- id: review
+  loop: {repeat: true, max: 100, until: {field: loop.last.state, in: [approved, closed, stuck]}}
+  outputs:
+    state: {type: string, value: "${{ steps.confirm.outputs.state ?? steps.author.outputs.state ?? steps.pass.outputs.state }}"}
+  steps:
+    - {id: pass, type: github.pr.review.pass, with: {loop: "${{ steps.open.outputs.loop_id }}"}}
+    - {id: confirm, if: {field: steps.pass.outputs.verdict, equals: clean}, type: github.pr.review.confirm, with: {loop: "${{ steps.open.outputs.loop_id }}"}}
+    - {id: author, if: {field: steps.pass.outputs.verdict, equals: changes}, type: github.pr.review.wait, with: {loop: "${{ steps.open.outputs.loop_id }}", mode: author}}
+```
+
 `github.pr.review.close` closes the loop, which frees its pull requests for another loop, and writes a summary of every pass. Its outputs are `outcome` (`approved`, `closed`, `stuck` or `ended` for a loop closed before it finished), `passes` (the passes posted), `clean_pass`, `confirmed_at`, `findings` (`total`, `blocking`, `nits` and `open`), `prs` (each pull request's number, url, state, draft, author_task, approved, head_sha and review_url), `approval_withheld`, `summary_path`, `linked_task` and `loop_id`. Closing a closed loop changes nothing. A loop also closes by itself when its run succeeds, is cancelled or stops; a failed run keeps its loop, and its pull requests, for **Retry**.
 
 ```yaml

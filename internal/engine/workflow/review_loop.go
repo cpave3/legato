@@ -14,8 +14,11 @@ import (
 
 // The review loop step types.
 const (
-	ReviewOpenStepType  = "github.pr.review.open"
-	ReviewCloseStepType = "github.pr.review.close"
+	ReviewOpenStepType    = "github.pr.review.open"
+	ReviewPassStepType    = "github.pr.review.pass"
+	ReviewWaitStepType    = "github.pr.review.wait"
+	ReviewConfirmStepType = "github.pr.review.confirm"
+	ReviewCloseStepType   = "github.pr.review.close"
 )
 
 // MaxReviewLoopPRs is the most pull requests one review loop takes.
@@ -55,6 +58,46 @@ var reviewOpenSpec = ExecutorSpec{
 		{Name: "linked_task", Type: "string", Description: "The board task the pull requests belong to, or empty"},
 		{Name: "prs", Type: "json", Description: "The pull requests the loop reviews, bottom first: number, url, branch, base, author_task"},
 		{Name: "warnings", Type: "json", Description: "What Legato warns of, such as a reviewer on the author's own tool"},
+	},
+}
+
+var reviewPassSpec = ExecutorSpec{
+	Type: ReviewPassStepType, Group: "Code", Title: "Run a review pass",
+	Description: "Run one review pass of a loop: Legato pins every open pull request's head, a read-only reviewer reviews them, and the pass is posted as one GitHub review per pull request from the reviewer App: APPROVE when clean, else COMMENT. A pass whose head changed on GitHub before it posted is pinned again; a reviewer that dies runs the pass once more. When the loop is stuck the step waits with Run another pass, Message the author and End.",
+	With:        []Field{reviewLoopField},
+	Summary:     []string{"loop"},
+	Outputs: []OutputSpec{
+		{Name: "verdict", Type: "string", Description: "clean or changes; empty when the loop ended"},
+		{Name: "state", Type: "string", Description: "posted; stuck when the operator ended the stuck loop; closed when its pull requests closed"},
+		{Name: "pass", Type: "integer", Description: "The pass's number"},
+		{Name: "loop_id", Type: "string", Description: "The loop's ID"},
+	},
+}
+
+var reviewWaitSpec = ExecutorSpec{
+	Type: ReviewWaitStepType, Group: "Code", Title: "Wait for the author",
+	Description: "Wait while the author works on a pass's findings: Legato tells an agent author of them once it is idle (resuming it when it has stopped), and the wait ends when the author pushes, disputes a blocking finding, or the pull requests close. A person author gets a quiet time after a push.",
+	With: []Field{
+		reviewLoopField,
+		{Name: "mode", Kind: KindString, Label: "Waits for", Description: "author: the author's round", Default: "author", Enum: []string{"author"}, Checked: true, Invalid: "must be author", Order: 2},
+	},
+	Summary: []string{"loop"},
+	Outputs: []OutputSpec{
+		{Name: "state", Type: "string", Description: "ready (the author is done), closed, or stuck when the operator ended the stuck loop"},
+		{Name: "loop_id", Type: "string", Description: "The loop's ID"},
+	},
+}
+
+var reviewConfirmSpec = ExecutorSpec{
+	Type: ReviewConfirmStepType, Group: "Code", Title: "Confirm the clean pass",
+	Description: "Read GitHub's heads after a clean pass: when each is the head the pass reviewed, the loop is approved; when one changed, the loop goes on to a new pass. It does not wait for pending checks.",
+	With:        []Field{reviewLoopField},
+	Summary:     []string{"loop"},
+	Outputs: []OutputSpec{
+		{Name: "state", Type: "string", Description: "approved, or moved (another pass is needed); closed or stuck when the loop ended"},
+		{Name: "pass", Type: "integer", Description: "The clean pass confirmed, else the loop's last pass"},
+		{Name: "confirmed_at", Type: "string", Description: "When the heads were confirmed (RFC 3339), or empty"},
+		{Name: "loop_id", Type: "string", Description: "The loop's ID"},
 	},
 }
 

@@ -106,7 +106,7 @@ A review is stuck when:
 
 - the passes reached their limit with a finding still open;
 - two passes in a row each found new blocking problems in the author's fixes;
-- the reviewer could not review, ran past its time, or exited without submitting;
+- the reviewer could not review, ran past its time, or exited twice without submitting (when a reviewer exits without submitting, a crash or Legato restarting mid-pass, Legato runs the same pass once more at the same pull request heads, and that does not count as a pass);
 - the author's checkout still did not match GitHub after it was told to push;
 - the author ended and could not be brought back to hear its feedback;
 - GitHub refused a post;
@@ -114,7 +114,7 @@ A review is stuck when:
 
 A stuck review is in [Attention](/legato/using/attention/), and the row, its panel and the Attention item offer:
 
-- **Run another pass**: one more pass past the limit, or another try after a reviewer failed. When GitHub did not confirm a post, it tries that post again instead (finding it on GitHub if it landed), and starts no new pass.
+- **Run another pass**: one more pass past the limit (only this once: the limit itself stays as it was), or another try after a reviewer failed. When GitHub did not confirm a post, it tries that post again instead (finding it on GitHub if it landed), and starts no new pass.
 - **Message the author**: your words reach the author on the worker, marked as from you. Use it to settle a dispute ("the reviewer is right, bound the retries") or to unblock it.
 - **Return as is**: bring the task home with its pull requests as they are, and review them yourself.
 - **Recall**: stop the agents and bring the task home now.

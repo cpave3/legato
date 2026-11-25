@@ -14,7 +14,7 @@ var acceptedStepTypes = []string{
 	"agent.compact", "agent.dispatch", "agent.interview", "agent.message", "agent.run", "agent.stop",
 	"burnlite.task.close", "chat.message.send", "chat.reaction.add", "chat.reaction.remove", "chat.thread.read", "chimera.session.remove", "file.remove",
 	"gate",
-	"github.pr.prepare", "github.pr.review.close", "github.pr.review.open", "github.pr.review_passes", "github.pr.wait",
+	"github.pr.prepare", "github.pr.review.close", "github.pr.review.confirm", "github.pr.review.open", "github.pr.review.pass", "github.pr.review.wait", "github.pr.review_passes", "github.pr.wait",
 	"learning.packet.prepare", "learning.proposals.submit",
 	"repo.ensure", "task.context", "task.metadata.set", "task.move", "task.note",
 	"task.working_dir.resolve", "tasks.list", "ticket.comment", "ticket.create", "ticket.import", "tickets.list", "workflow.run", "worktree.remove",

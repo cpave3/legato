@@ -1658,6 +1658,12 @@ func (c *ReviewRunCaller) Details(ctx context.Context, attempt store.WorkflowSte
 	if attempt.Status == WorkflowStepWaiting && c.opened(ctx, attempt) == nil {
 		return ReviewRunDetails{Phase: ReviewPhaseOpening, Summary: reviewOpeningSummary, Reviews: []ReviewRunReview{}}
 	}
+	return c.details(ctx, attempt.TaskID)
+}
+
+// details is where the loop a run task hosts stands; nil when it hosts none.
+func (c *ReviewRunCaller) details(ctx context.Context, taskID string) any {
+	attempt := store.WorkflowStepAttempt{TaskID: taskID}
 	loop, err := c.engine.db.GetHandoffReview(ctx, attempt.TaskID)
 	if err != nil || loop == nil {
 		return nil
@@ -1740,6 +1746,13 @@ func (c *ReviewRunCaller) Attention(ctx context.Context, attempt store.WorkflowS
 	if c.opened(ctx, attempt) == nil {
 		return "", nil
 	}
+	return c.attention(ctx, attempt.TaskID)
+}
+
+// attention is why the loop a run task hosts needs the person, and the
+// actions beyond another_pass it offers.
+func (c *ReviewRunCaller) attention(ctx context.Context, taskID string) (string, []string) {
+	attempt := store.WorkflowStepAttempt{TaskID: taskID}
 	loop, err := c.engine.db.GetHandoffReview(ctx, attempt.TaskID)
 	if err != nil || loop == nil {
 		return "", nil
