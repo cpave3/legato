@@ -147,7 +147,13 @@ func (s *ReviewPassService) ReviewBlock(ctx context.Context, taskID string) *Rev
 	case ReviewPhaseWaitingForReviewer:
 		block.WaitingOn = ReviewWaitingOnReviewerSlot
 	case ReviewPhaseClean:
-		if !confirmed(loop) {
+		switch {
+		case confirmed(loop):
+		case loop.Closed:
+			// Closed clean before Confirm read GitHub's heads: it ended,
+			// never approved (invariant 9).
+			block.Phase = ReviewPhaseEnded
+		default:
 			// Clean, and not approved until GitHub confirms the heads
 			// (invariant 9): the pass is still under way, as a main reads
 			// it.

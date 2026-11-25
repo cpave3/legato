@@ -1592,6 +1592,15 @@ func (c *ReviewRunCaller) Details(ctx context.Context, attempt store.WorkflowSte
 			d.Summary += fmt.Sprintf(" · %d blocking", d.BlockingOpen)
 		}
 	case ReviewPhaseClean:
+		if !approved && loop.Closed {
+			// Closed clean before Confirm read GitHub's heads: it ended
+			// otherwise (cancelled, closed), never approved.
+			d.Phase, d.Summary = ReviewPhaseEnded, "Closed"
+			if rec, err := c.engine.db.CurrentReviewLoop(ctx, attempt.TaskID); err == nil && rec != nil && rec.Outcome == ReviewOutcomeCancelled {
+				d.Summary = "Cancelled"
+			}
+			break
+		}
 		if !approved {
 			// Clean, and not approved until GitHub confirms the heads.
 			d.Phase, d.Summary = ReviewPhaseReviewing, "Clean · waiting for GitHub to confirm the heads"

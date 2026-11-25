@@ -290,14 +290,13 @@ func (s *ReviewPassService) confirm(ctx context.Context, loopID string) (ReviewC
 }
 
 // confirmed says a loop is clean and confirmed at GitHub's heads: approved
-// (invariant 9). Only then may a caller report it approved. A closed loop
-// that kept phase clean ended approved, one closed before Confirm recorded
-// its heads included.
+// (invariant 9). Only then may a caller report it approved. The record
+// says so (Confirm's confirmed_at at this pass), closed or not: a loop
+// closed while clean is not approved unless Confirm found its heads first
+// (a run cancelled, or a handoff closed, between the clean post and
+// Confirm; a loop the conversion closed so).
 func confirmed(loop *store.HandoffReview) bool {
-	if loop == nil || loop.Phase != ReviewPhaseClean {
-		return false
-	}
-	return loop.Closed || (!loop.ConfirmClean && loop.ConfirmedAt != "" && loop.CleanPass == loop.Pass)
+	return loop != nil && loop.Phase == ReviewPhaseClean && !loop.ConfirmClean && loop.ConfirmedAt != "" && loop.CleanPass == loop.Pass
 }
 
 // confirmLoop runs Confirm on a clean loop in the tick and tells its caller
