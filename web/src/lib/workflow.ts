@@ -78,6 +78,3 @@ export const resumeWorkflowAgent=(baseUrl:string,id:string,macro:string)=>apiFet
 // or retry, skip or stop on a step paused after a failure.
 export const workflowStepAction=(baseUrl:string,id:string,step:string,action:string,text?:string)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/steps/${encodeURIComponent(step)}/action`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,text})}).then(decode<WorkflowRunView>)
 export const anotherReviewPass=(baseUrl:string,id:string,step:string)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/steps/${encodeURIComponent(step)}/another-pass`,{method:"POST"}).then(decode<WorkflowRunView>)
-// The review loop already running on a pull request, as a run of
-// review-pr-passes, or null.
-export async function activeReviewLoop(baseUrl:string,repo:string,pr:number):Promise<WorkflowRun|null>{const query=new URLSearchParams({workflow_name:"review-pr-passes","input.repo":repo,"input.pr_number":String(pr)});const runs=await apiFetch(baseUrl,`/api/workflow-runs?${query}`).then(decode<WorkflowRun[]|null>);return (runs??[]).find(run=>run.status==="running"||run.status==="waiting")??null}
