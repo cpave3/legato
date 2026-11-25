@@ -78,7 +78,7 @@ Version 1 executes steps in declaration order and supports these executors. Lega
     outputs:
       digest: {type: string}
   ```
-- `agent.run` with `with.task` (a task input or a task ID) runs the agent as that task's own agent instead of the workflow's: it shows on the task's card, reads that task's context, keeps its stage on the card, and its conversation can be resumed like any agent on the card. With `with.repo` it works in a fresh clone on the task's branch (`legato/<task>`), as an agent started on the card would; a live clone of the task is used again. A macro is sent as one started on the card is: the task's key and title, then the macro's text. The step still waits for the agent to complete it with its outputs, and removes the agent then unless `keep_agent` is set. A step whose task already has an agent running fails without touching it: stop that agent first, or message it with `agent.dispatch`. `task` cannot be given with `working_dir`, `scratch` or `name`.
+- `agent.run` with `with.task` (a task input or a task ID) runs the agent as that task's own agent instead of the workflow's: it shows on the task's card, reads that task's context, keeps its stage on the card, and its conversation can be resumed like any agent on the card. With `with.repo` it works in a fresh clone on the task's branch (`legato/<task>`), as an agent started on the card would; a live clone of the task is used again. A macro is sent as one started on the card is: the task's key and title, then the macro's text. The step still waits for the agent to complete it with its outputs, and removes the agent then unless `keep_agent` is set. A step whose task already has an agent running fails without touching it: stop that agent first, or use `on:` with `reuse: true` (below). `task` cannot be given with `working_dir`, `scratch` or `name`.
 - `agent.run` with `with.task` and `with.slot` runs the agent in a named slot of that task's card, such as `triage`, `plan` or `review`, beside the card's own agent instead of in its place. It shows on the card and in the agents list and graph as "<card> · triage", keeps its stage there, and is removed after its step like any other, unless `keep_agent` is set. With `with.repo` it gets a fresh clone of its own on the branch `legato/<task>-<slot>`, so it never works in the card's agent's clone or pushes the card's branch, and the card's next agent never works in its clone. It leaves the card's repository and branch as they were. A step whose slot already has an agent running fails without touching it. A slot is named with lowercase letters, digits and dashes, starts with a letter, and is at most 32 characters long. It is written as it is, with no `${{ }}`, and is checked when the file loads. `main`, the default, is the card's own agent, and `reviewer` is kept for review passes. `slot` needs `task`. For example:
 
   ```yaml
@@ -104,8 +104,38 @@ Version 1 executes steps in declaration order and supports these executors. Lega
     outputs:
       pr_number: {type: integer}
   ```
-- `agent.dispatch`: send a prompt to the selected task's ordinary durable agent, or spawn that task-linked agent in `with.working_dir` (where agents start by default when empty) when none is active. With a macro, `with.repo` and `with.pr_number` name the pull request in the message. The workflow does not own or tear down this session. Outputs include `agent_session_id`, `created`, and `working_dir`.
-- Both `agent.run` and `agent.dispatch` take what to ask either as `with.prompt` or as `with.macro`, the name of one of your [macros](/legato/using/agents/#macros), not both. A macro is read when the step runs, so an edit applies to the next run. A step that names no `agent` or `tier` uses the macro's. `agent.dispatch` sends it as a macro started on the task would be: the task's key and title, then the macro's text.
+- `agent.run` with `with.on` says where its agent lives. `on: run`, the default, is an agent of the workflow, as above; `keep: true` (the same as `keep_agent: true`) leaves it running once its outputs are in. `on:` with a task, or a task ID, is that task's own agent, in its main slot: an ordinary agent on its card, started as you would start it, which keeps running after its step completes, for you or a later step to go on with. `stop: true` stops it once its outputs are in instead. The step still waits for the agent to complete it with the outputs it declares. A task whose agent is running already fails the step, unless `reuse: true`, which sends that agent the step's work instead: a prompt, or a macro as one started on the card is, and the completion contract. Cancelling the run never stops a task's own agent. `on:` with a task takes no `task`, `slot`, `working_dir`, `scratch`, `name` or `keep`; `reuse` and `stop` need it. A workflow that takes a ticket to a pull request can run the card's own agent and stop it at the end:
+
+  ```yaml
+  - id: implement
+    title: Implement the ticket
+    type: agent.run
+    with:
+      on: ${{ workflow.inputs.task }}
+      macro: Implement
+      repo: acme/widget
+    outputs:
+      pr_number: {type: integer}
+  # … review and wait for the merge …
+  - id: stop
+    title: Stop the agent
+    type: agent.stop
+    with:
+      agent: {from: implement}
+  ```
+- `agent.message`: send a prompt or a macro to a running agent: the one an earlier step used, `agent: {from: <step>}`, or a task's own agent, `task: …`. A prompt reaches the agent opening with `[legato workflow]`, so it reads as Legato's; a macro is sent as your own words, as when you send it yourself. The step does not wait for the agent, and fails when the agent is not running. Outputs: `task` and `session_id`.
+
+  ```yaml
+  - id: push
+    title: Push the stack
+    type: agent.message
+    with:
+      agent: {from: implement}
+      prompt: Push every branch of the stack and open its pull requests.
+  ```
+- `agent: {from: <step>}` names the agent an earlier `agent.run`, `agent.message` or `agent.dispatch` step used: for an `agent.run` step the agent it started or reused, for the others the agent they reached. It is checked when the file loads: the step must come before, and run an agent.
+- `agent.dispatch`: send a prompt to the selected task's ordinary durable agent, or spawn that task-linked agent in `with.working_dir` (where agents start by default when empty) when none is active. It is read as `agent.run` with `on:` the task and `reuse: true` that does not wait, so workflows that use it run as before; a prompt to a running agent now opens with `[legato workflow]`. New workflows use `agent.run` with `on:` or `agent.message`. With a macro, `with.repo` and `with.pr_number` name the pull request in the message. The workflow does not own or tear down this session. Outputs include `agent_session_id`, `created`, and `working_dir`.
+- `agent.run`, `agent.message` and `agent.dispatch` take what to ask either as `with.prompt` or as `with.macro`, the name of one of your [macros](/legato/using/agents/#macros), not both. A macro is read when the step runs, so an edit applies to the next run. A step that names no `agent` or `tier` uses the macro's. A step that reaches a task's own agent sends it as a macro started on the task would be: the task's key and title, then the macro's text.
 
   ```yaml
   - id: review
@@ -116,7 +146,7 @@ Version 1 executes steps in declaration order and supports these executors. Lega
       macro: Review
       working_dir: ${{ steps.clone.outputs.working_dir }}
   ```
-- `agent.stop`: idempotently stop the active agent for the resolved `with.task`. The `learn` template does not use it, because its interview borrows the card's own agent; its curator and critic run under the run's own task.
+- `agent.stop`: idempotently stop the active agent of `with.task` (the task's own agent, in its main slot), or the agent an earlier step used, `with.agent: {from: <step>}`. The `learn` template does not use it, because its interview borrows the card's own agent; its curator and critic run under the run's own task.
 - `agent.compact`: compact the running agent of `with.task` with its tool's own compaction, as `/compact` in its panel does (see [Compacting an agent](/legato/using/agents/#compacting-an-agent)). `${{ workflow.task }}` is the agent an `agent.run` step with `keep_agent: true` left running. `with.instructions` says what the summary must keep; only Claude Code takes them. An agent still in its turn is compacted when the turn ends, which is the usual case right after an `agent.run` step, since the agent completes that step from inside its turn. The step then waits for the compaction to finish. Outputs: `tokens_before` and `tokens_after`, when the tool reports them. The step fails at once when the task has no agent running, when Legato cannot compact the agent's tool or shows the agent only in its terminal, or when a Codex or Chimera agent is given instructions. It fails when the compaction fails, and when 15 minutes after the step started the agent is still working or Legato has seen no end to the compaction (for example because Legato restarted meanwhile); **Retry step** compacts again.
 
   ```yaml
@@ -919,7 +949,9 @@ LEGATO_WORKFLOW_ATTEMPT_ID
 
 `LEGATO_TASK_ID` is the generated workflow execution task ID and is also printed in the assignment completion contract.
 
-The step's brief ends with a completion contract: the run, step and attempt, the outputs the step declares, and where its result must go. What the agent writes in its conversation is not kept once Legato removes it, so the result belongs in the declared outputs. When a step declares no outputs, the contract says that nothing it writes in the conversation is kept, so that it does not report a result as "delivered in chat". `legato workflow validate` and the editor warn of an `agent.run` step that declares no outputs and has no `keep_agent`. It is a warning, not an error: a step whose work is its side effects (a commit, a note, a moved card) needs no output.
+A task's own agent (`on:` a task) has none of the workflow's variables, since it outlives the step: its contract names the run, step and attempt in the commands instead (`legato workflow step complete --run … --step … --attempt …`).
+
+The step's brief ends with a completion contract: the run, step and attempt, the outputs the step declares, and where its result must go. What the agent writes in its conversation is not kept once Legato removes it, so the result belongs in the declared outputs. When a step declares no outputs, the contract says that nothing it writes in the conversation is kept, so that it does not report a result as "delivered in chat". `legato workflow validate` and the editor warn of an `agent.run` step that declares no outputs and does not keep its agent (`keep`, `keep_agent`, or `on:` a task without `stop`). It is a warning, not an error: a step whose work is its side effects (a commit, a note, a moved card) needs no output.
 
 Complete a step using declared output names:
 
