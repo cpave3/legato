@@ -1,0 +1,10 @@
+{
+  "name": "legato-plan-validator",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "mermaid": "11.16.0",
+    "@wiremark/core": "0.1.0",
+    "jsdom": "29.0.1"
+  }
+}

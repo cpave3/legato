@@ -184,6 +184,27 @@ describe("ReportsPage", () => {
     expect(screen.getByText("workflow agent")).toBeTruthy()
   })
 
+  it("keeps a sort chosen the moment the breakdown appears", async () => {
+    // The click lands in the microtask after the table's commit, before
+    // React's scheduler has run that commit's effects (it yields first, since
+    // a breakdown this long takes more than its 5 ms slice): as on a loaded CI
+    // runner, where findBy resolved in that gap. Nothing may undo the click.
+    const tasks = Array.from({ length: 1500 }, (_, i) => ({ task_id: `task-${i}`, display_id: `LEG-${i}`, title: `Task ${i}`, workspace_name: "Legato", provider: "", working_seconds: i, waiting_seconds: 1500 - i, error_seconds: 0 }))
+    mockedApiFetch.mockResolvedValue(jsonResponse(reportFixture({ by_task: tasks })))
+    renderPage()
+    await new Promise<void>(resolve => {
+      const observer = new MutationObserver(() => {
+        const table = screen.queryByRole("table", { name: "Tasks breakdown" })
+        if (!table) return
+        observer.disconnect()
+        fireEvent.click(within(table).getByRole("button", { name: /Waiting/ }))
+        resolve()
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
+    })
+    await waitFor(() => expect(within(screen.getByRole("table", { name: "Tasks breakdown" })).getByRole("columnheader", { name: /Waiting/ }).getAttribute("aria-sort")).toBe("descending"))
+  })
+
   it("copies server-rendered Markdown and announces success", async () => {
     mockedApiFetch
       .mockResolvedValueOnce(jsonResponse(reportFixture()))

@@ -131,8 +131,10 @@ const th = "whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-zinc-
 const td = "whitespace-nowrap px-3 py-2 text-sm text-zinc-300"
 
 function BreakdownTable({ active, envelope }: { active: Breakdown; envelope: ReportEnvelope }) {
+  // Each tab mounts its own table (keyed on the tab), so it starts on the
+  // default sort. An effect that reset the sort ran after mount and could
+  // overwrite a sort clicked before it ran.
   const [sort, setSort] = useState({ field: "working_seconds", direction: "desc" as SortDirection })
-  useEffect(() => setSort({ field: "working_seconds", direction: "desc" }), [active])
   const onSort = (field: string) => setSort(current => ({ field, direction: current.field === field && current.direction === "desc" ? "asc" : "desc" }))
   const rows = active === "tasks" ? envelope.report.by_task : active === "workspaces" ? envelope.report.by_workspace : active === "projects" ? envelope.report.by_directory : active === "swarms" ? envelope.report.by_swarm : envelope.report.by_execution
   const sorted = [...rows].sort((a, b) => {
@@ -242,7 +244,7 @@ export function ReportsPage() {
         {data.report.by_day.length > 0 && <DailyActivity days={data.report.by_day} />}
         <section className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
           <div role="tablist" aria-label="Report breakdowns" className="mb-4 flex gap-1 overflow-x-auto border-b border-zinc-800">{tabs.map(tab => <button key={tab.id} role="tab" aria-selected={active === tab.id} onClick={() => setActive(tab.id)} className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm ${active === tab.id ? "border-indigo-400 text-indigo-300" : "border-transparent text-zinc-500"}`}>{tab.label} <span className="ml-1 rounded bg-zinc-800 px-1.5 py-0.5 text-xs">{tab.count}</span></button>)}</div>
-          <BreakdownTable active={active} envelope={data} />
+          <BreakdownTable key={active} active={active} envelope={data} />
         </section>
       </>}
     </div>

@@ -96,19 +96,22 @@ func TestTheMainTracksAnAwayTasksPRsFromTheBranchesItsWorkerPushes(t *testing.T)
 	gh := NewFakeGitHub(t)
 	main, _, taskID, _, clone := prMain(t, gh)
 	base := "legato/" + strings.ToLower(taskID)
+	// A passing check is the sentinel: a listing has no checks, so "pass"
+	// shows only once discovery's refresh of the PR has finished, and nothing
+	// from GitHub is still in flight when the test changes it below.
 	gh.Set("acme/widget",
-		FakePR{Number: 7, Head: base + "-api", Draft: true},
-		FakePR{Number: 8, Head: base + "-ui", Base: base + "-api", Draft: true})
+		FakePR{Number: 7, Head: base + "-api", Draft: true, Check: "success"},
+		FakePR{Number: 8, Head: base + "-ui", Base: base + "-api", Draft: true, Check: "success"})
 
 	// The first branch is pushed: the main finds its PR at once, with no
 	// poll.
 	stackOn(t, clone, base+"-api", base+"-ui")
 	pushBranches(t, clone, base+"-api")
-	eventuallyTracked(t, main, taskID, []string{base + "-api (api) #7 draft"})
+	eventuallyTracked(t, main, taskID, []string{base + "-api (api) #7 draft pass"})
 
 	// The next one in the stack: found too, after the first.
 	pushBranches(t, clone, base+"-ui")
-	eventuallyTracked(t, main, taskID, []string{base + "-api (api) #7 draft", base + "-ui (api) #8 draft"})
+	eventuallyTracked(t, main, taskID, []string{base + "-api (api) #7 draft pass", base + "-ui (api) #8 draft pass"})
 	detail, err := main.Board.GetCard(ctx, taskID)
 	if err != nil {
 		t.Fatal(err)
@@ -126,12 +129,12 @@ func TestTheMainTracksAnAwayTasksPRsFromTheBranchesItsWorkerPushes(t *testing.T)
 	// From then on the main's normal polling follows them, away or not: the
 	// top one is marked ready, fails CI and gets changes requested.
 	gh.Set("acme/widget",
-		FakePR{Number: 7, Head: base + "-api", Draft: true},
+		FakePR{Number: 7, Head: base + "-api", Draft: true, Check: "success"},
 		FakePR{Number: 8, Head: base + "-ui", Base: base + "-api", Check: "failure", Review: "CHANGES_REQUESTED"})
 	if err := main.PRs.PollAll(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := trackedPRs(t, main, taskID), []string{base + "-api (api) #7 draft", base + "-ui (api) #8 fail CHANGES_REQUESTED"}; !reflect.DeepEqual(got, want) {
+	if got, want := trackedPRs(t, main, taskID), []string{base + "-api (api) #7 draft pass", base + "-ui (api) #8 fail CHANGES_REQUESTED"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("after a poll\n got %q\nwant %q", got, want)
 	}
 	items, err := prAttention.Snapshot(ctx)
@@ -148,7 +151,7 @@ func TestTheMainTracksAnAwayTasksPRsFromTheBranchesItsWorkerPushes(t *testing.T)
 	if err != nil || len(added) != 0 {
 		t.Fatalf("adding the returned branches: %v, %v", added, err)
 	}
-	if got, want := trackedPRs(t, main, taskID), []string{base + "-api (api) #7 draft", base + "-ui (api) #8 fail CHANGES_REQUESTED"}; !reflect.DeepEqual(got, want) {
+	if got, want := trackedPRs(t, main, taskID), []string{base + "-api (api) #7 draft pass", base + "-ui (api) #8 fail CHANGES_REQUESTED"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("after Return's branches\n got %q\nwant %q", got, want)
 	}
 }
