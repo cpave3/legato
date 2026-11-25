@@ -54,12 +54,13 @@ type AgentOutputSources struct {
 	Stacks interface {
 		Record(ctx context.Context, clone store.JobClone) error
 	}
-	// PRs tracks the clone's branches on the task and finds their pull
-	// requests; an error there fails the step.
+	// PRs tracks the clone's branches on the task, finds their pull
+	// requests and fetches those found before again (a later step marked
+	// one ready, or merged it); an error there fails the step.
 	PRs interface {
 		AddTaskBranches(ctx context.Context, taskID, repo string, branches []string) ([]string, error)
 		TrackedBranches(ctx context.Context, taskID string) ([]store.TaskBranch, error)
-		DiscoverPRs(ctx context.Context, taskID string) error
+		DiscoverAndRefreshPRs(ctx context.Context, taskID string) error
 	}
 	// LastMessage is an agent's newest message, by agent ID; "" when its
 	// conversation cannot be read.
@@ -334,7 +335,8 @@ func (s *WorkflowService) resolveAgentWait(ctx context.Context, step store.Workf
 // agentOutputs are what Legato fills on an agent step at its signal (spec
 // LEG-482 §5.6): the signal, the agent's stage and last message, its
 // session, task and folder, and for a job clone its branch, its stack
-// (recorded now) and the pull requests of its branches (found now). A
+// (recorded now) and the pull requests of its branches (found or fetched
+// again now). A
 // GitHub error is returned with what was filled, without prs.
 func (s *WorkflowService) agentOutputs(ctx context.Context, step store.WorkflowStep, attempt store.WorkflowStepAttempt, signal string) (map[string]any, error) {
 	taskID := firstNonEmpty(step.WaitTaskID, attempt.TaskID)
@@ -412,7 +414,7 @@ func (s *WorkflowService) agentOutputs(ctx context.Context, step store.WorkflowS
 	if _, err := prs.AddTaskBranches(ctx, taskID, clone.Repo, names); err != nil {
 		return out, fmt.Errorf("tracking the clone's branches: %w", err)
 	}
-	if err := prs.DiscoverPRs(ctx, taskID); err != nil {
+	if err := prs.DiscoverAndRefreshPRs(ctx, taskID); err != nil {
 		return out, fmt.Errorf("finding the pull requests of the clone's branches: %w", err)
 	}
 	task, err := s.store.GetTask(ctx, taskID)

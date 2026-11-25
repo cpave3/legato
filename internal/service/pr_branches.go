@@ -39,6 +39,11 @@ type PRBranchActions interface {
 	// with one listing per repository, leaving the PRs found before as they
 	// are.
 	DiscoverPRs(ctx context.Context, taskID string) error
+	// DiscoverAndRefreshPRs is DiscoverPRs that also fetches the PRs found
+	// before again, by number, in the same pass: their state now, for a
+	// reader that must not act on a stale one. Any GitHub error is
+	// returned.
+	DiscoverAndRefreshPRs(ctx context.Context, taskID string) error
 }
 
 // AddTaskBranches records branches for a task without GitHub: the form a
@@ -81,6 +86,16 @@ func (p *prTrackingService) DiscoverPRs(ctx context.Context, taskID string) erro
 		return err
 	}
 	changed, err := p.syncTask(ctx, task, cc, syncMode{discover: true}, newPRListings(p.gh))
+	p.publishIfChanged(changed)
+	return err
+}
+
+func (p *prTrackingService) DiscoverAndRefreshPRs(ctx context.Context, taskID string) error {
+	task, cc, err := p.taskContext(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	changed, err := p.syncTask(ctx, task, cc, syncMode{discover: true, refresh: true}, newPRListings(p.gh))
 	p.publishIfChanged(changed)
 	return err
 }

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/github"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -369,7 +370,7 @@ func (f *fakeStackPRs) TrackedBranches(_ context.Context, taskID string) ([]stor
 	return out, nil
 }
 
-func (f *fakeStackPRs) DiscoverPRs(context.Context, string) error { return f.err }
+func (f *fakeStackPRs) DiscoverAndRefreshPRs(context.Context, string) error { return f.err }
 
 func newCloneFixture(t *testing.T) (placeFixture, *fileCloner, *recordedGrant, *fakeStackPRs) {
 	t.Helper()
@@ -515,6 +516,59 @@ steps:
 	view = f.check(t, f.workflows, view.Run.ID)
 	if view.Run.Status != "failed" || !strings.Contains(view.Steps[0].Error, "github: 502") || view.Steps[0].ErrorCode != WorkflowErrorOutputsUnavailable {
 		t.Fatalf("run = %s, step = %+v", view.Run.Status, view.Steps[0])
+	}
+}
+
+// prsAtTwoSignals runs a step that finds its branch's draft PR, then a
+// message to the same agent, with the real PR tracking over a GitHub where
+// change happens between the two signals; it returns the second step.
+func prsAtTwoSignals(t *testing.T, change func(gh *mockGitHub)) store.WorkflowStep {
+	t.Helper()
+	f, _, _, stacks := newCloneFixture(t)
+	gh := &mockGitHub{repositoryPRs: map[string][]github.PRStatus{"acme/widget": {
+		{HasPR: true, Number: 40, URL: "https://github.com/acme/widget/pull/40", State: "open", IsDraft: true, HeadBranch: "legato/leg-7-one", HeadRepo: "acme/widget"},
+	}}}
+	tracking := newTestPRTrackingService(t, f.store, nil, gh, time.Hour, time.Hour)
+	f.workflows.SetAgentOutputs(AgentOutputSources{Stacks: stacks, PRs: tracking.(PRBranchActions)})
+	view := f.start(t, `
+schema_version: 2
+name: build
+title: Build
+inputs:
+  task: {type: task, required: true}
+steps:
+ - {id: build, title: Build, type: agent.run, with: {on: "${{ workflow.inputs.task }}", prompt: Build it, repo: acme/widget, branch: one}, wait_for: [finished]}
+ - {id: ready, title: Ready, type: agent.message, with: {agent: {from: build}, prompt: Mark it ready}, wait_for: [finished]}
+`)
+	reportStage(t, f.store, "LEG-7", "finished", "built")
+	view = f.check(t, f.workflows, view.Run.ID)
+	if prs, _ := json.Marshal(waitOutputs(t, view, "build")["prs"]); !strings.Contains(string(prs), `"draft":true`) {
+		t.Fatalf("build's prs = %s", prs)
+	}
+	change(gh)
+	reportStage(t, f.store, "LEG-7", "finished", "ready")
+	return stepByPath(f.check(t, f.workflows, view.Run.ID), "ready")
+}
+
+// A PR found by an earlier step is fetched again at the next signal: the
+// agent marked it ready since, and a later step must not read it as a
+// draft.
+func TestAPRFoundBeforeIsFetchedAgainAtTheSignal(t *testing.T) {
+	ready := prsAtTwoSignals(t, func(gh *mockGitHub) { gh.repositoryPRs["acme/widget"][0].IsDraft = false })
+	var outputs map[string]any
+	_ = json.Unmarshal([]byte(ready.OutputsJSON), &outputs)
+	prs, _ := json.Marshal(outputs["prs"])
+	if ready.Status != "succeeded" || !strings.Contains(string(prs), `"number":40`) || !strings.Contains(string(prs), `"draft":false`) {
+		t.Fatalf("ready = %s, prs = %s", ready.Status, prs)
+	}
+}
+
+// A GitHub error fetching a PR found before fails the step as a discovery
+// error does: its stale state would mislead a later step.
+func TestAGitHubErrorFetchingAPRFoundBeforeFailsTheStep(t *testing.T) {
+	ready := prsAtTwoSignals(t, func(gh *mockGitHub) { gh.fetchErr = errors.New("github: 502") })
+	if ready.Status != "failed" || ready.ErrorCode != WorkflowErrorOutputsUnavailable || !strings.Contains(ready.Error, "github: 502") {
+		t.Fatalf("ready = %+v", ready)
 	}
 }
 
