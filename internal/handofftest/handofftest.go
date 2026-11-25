@@ -198,6 +198,9 @@ func (w *Worker) start() {
 	sandbox := !w.opts.NoSandbox
 	srv.SetSandboxAvailable(func() bool { return sandbox })
 	w.Credentials = w.credentialBroker(db)
+	// As the runtime's learningPublisher: the login each review is posted
+	// as is kept as one of Legato's Apps.
+	w.ReviewGitHub.SetLoginRecorder(func(login string) { _ = db.RecordGitHubAppLogin(context.Background(), login) })
 	var reviews *service.ReviewPassService
 	var reviewAdvert func() *service.ReviewPassesAdvert
 	if rp := w.opts.ReviewPasses; rp != nil {

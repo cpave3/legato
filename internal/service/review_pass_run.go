@@ -738,22 +738,15 @@ func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *revie
 	}
 	// Legato is known by who posted: the authors of the threads' roots,
 	// which are the findings' comments whose IDs Legato recorded when it
-	// posted them, and the App logins it learned posting. Never by a
-	// marker in a comment's text, which anyone can write.
-	legato, _ := c.engine.db.GitHubAppLogins(ctx)
+	// posted them, and its Apps' logins (learned posting, or configured).
+	// Never by a marker in a comment's text, which anyone can write.
+	legato := c.engine.legatoLogins(ctx)
 	for _, comment := range poll.Comments {
 		if _, ok := threads[comment.ID]; ok && comment.Kind == "inline" && comment.ThreadRoot == comment.ID {
 			legato = append(legato, comment.Author)
 		}
 	}
-	isLegato := func(comment PRComment) bool {
-		for _, login := range legato {
-			if sameLogin(comment.Author, login) {
-				return true
-			}
-		}
-		return false
-	}
+	isLegato := func(comment PRComment) bool { return anyLogin(legato, comment.Author) }
 	// The newest of Legato's comments in each thread: a reply before it
 	// came before the finding was last raised.
 	raised := map[int64]int64{}

@@ -73,6 +73,21 @@ type FakeReviewGitHub struct {
 	tried     []service.ReviewPost
 	failPosts int
 	failTaken bool
+	// learnLogin is told the login each review is posted as, as the
+	// publisher's login recorder is.
+	learnLogin func(login string)
+}
+
+// ReviewerLogin is the login the fake posts reviews as: the reviewer
+// App's, as GitHub's REST reads name it.
+const ReviewerLogin = "legato-reviewer[bot]"
+
+// SetLoginRecorder is told the login each review is posted as, as
+// ReviewPublisher.SetLoginRecorder is.
+func (f *FakeReviewGitHub) SetLoginRecorder(record func(login string)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.learnLogin = record
 }
 
 type fakePush struct {
@@ -305,6 +320,9 @@ func (f *FakeReviewGitHub) PostReview(_ context.Context, post service.ReviewPost
 		lost = true
 	}
 	f.posted = append(f.posted, post)
+	if f.learnLogin != nil {
+		f.learnLogin(ReviewerLogin)
+	}
 	posted := service.PostedReview{ID: int64(len(f.posted)), URL: fmt.Sprintf("https://github.com/review/%d", len(f.posted))}
 	for i, finding := range post.Findings {
 		if finding.Place != nil {

@@ -67,6 +67,10 @@ type ReviewPassConfig struct {
 	// RequiredChecks count when branch protection on a pull request's
 	// base names none.
 	RequiredChecks []string
+	// AppLogins are the bot logins of Legato's own GitHub Apps that the
+	// configuration names (github.app_logins), beside those learned from
+	// Legato's own posts.
+	AppLogins []string
 }
 
 // ReviewGitHubPR is an open pull request of a loop's branch.

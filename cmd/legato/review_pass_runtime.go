@@ -56,7 +56,7 @@ func reviewPassConfig(cfg *config.Config) func() service.ReviewPassConfig {
 		return service.ReviewPassConfig{
 			Enabled: rp.Enabled, PassTimeout: rp.PassTimeoutDuration(), MaxConcurrent: rp.MaxConcurrent, ReviewColumn: rp.ReviewColumn,
 			PollInterval: rp.PollIntervalDuration(), QuietTime: rp.QuietTimeDuration(), CountedBots: rp.CountedBots,
-			RequiredChecks: rp.RequiredChecks,
+			RequiredChecks: rp.RequiredChecks, AppLogins: cfg.GitHub.AppLogins,
 			Defaults: service.ReviewPassSettings{Enabled: rp.Enabled, Agent: rp.Reviewer.Agent, Model: rp.Reviewer.Model,
 				Tier: rp.Reviewer.Tier, Skill: rp.Reviewer.Skill, MaxPasses: rp.MaxPasses},
 		}

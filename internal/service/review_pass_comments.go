@@ -101,17 +101,13 @@ func (s *ReviewPassService) pollComments(ctx context.Context, l ReviewLoop) {
 			failed[fmt.Sprintf("%s#%d", pr.Repo, pr.Number)] = true
 			continue
 		}
-		legato := map[string]bool{}
-		if pr.Author != "" {
-			legato[strings.ToLower(pr.Author)] = true
-		}
+		// Legato's own comments are known by who posted them: the pull
+		// request's author (the author App's on a handoff) and the Apps'
+		// logins Legato knows. Never by a marker in a comment's text,
+		// which anyone can copy.
+		legato := append(s.legatoLogins(ctx), pr.Author)
 		for _, c := range poll.Comments {
-			if c.Kind == "review" && strings.Contains(c.Body, "<!-- legato-review-pass ") {
-				legato[strings.ToLower(c.Author)] = true
-			}
-		}
-		for _, c := range poll.Comments {
-			if legato[strings.ToLower(c.Author)] || (c.Kind == "review" && (strings.TrimSpace(c.Body) == "" || c.State == "PENDING")) {
+			if anyLogin(legato, c.Author) || (c.Kind == "review" && (strings.TrimSpace(c.Body) == "" || c.State == "PENDING")) {
 				continue
 			}
 			if !countedAssociations[c.Association] && !s.countedBot(c.Author) {
@@ -190,6 +186,25 @@ func (s *ReviewPassService) pollTargets(ctx context.Context, l ReviewLoop, loop 
 		out = append(out, store.HandoffReviewPR{TaskID: l.TaskID, Repo: l.Repo, Number: pr.Number, Branch: pr.Branch, HeadSHA: pr.HeadSHA, Author: pr.Author})
 	}
 	return out, nil
+}
+
+// legatoLogins are the logins of Legato's own GitHub Apps: those learned
+// from Legato's own posts (the login GitHub answered each review it posted
+// with) and those the configuration names. A login is never learned from
+// a comment's text.
+func (s *ReviewPassService) legatoLogins(ctx context.Context) []string {
+	learned, _ := s.db.GitHubAppLogins(ctx)
+	return append(learned, s.config().AppLogins...)
+}
+
+// anyLogin says whether login is one of logins (sameLogin).
+func anyLogin(logins []string, login string) bool {
+	for _, l := range logins {
+		if sameLogin(l, login) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *ReviewPassService) countedBot(login string) bool {
