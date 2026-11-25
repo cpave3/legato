@@ -35,6 +35,7 @@ export const runStateWords: Record<NodeRunState, string> = { waiting: "Waiting",
 const stepTypeLabels: Record<string, string> = {
   "agent.run": "Agent",
   "agent.dispatch": "Send to agent",
+  "agent.message": "Message agent",
   "agent.interview": "Interview",
   "agent.stop": "Stop agent",
   "agent.compact": "Compact agent",

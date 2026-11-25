@@ -9,7 +9,7 @@ describe("the step picker's list", () => {
     expect(groups.find(g => g.group === "Chat")?.entries.map(e => e.type)).toEqual(["chat.message.send", "chat.reaction.add", "chat.reaction.remove", "chat.thread.read"])
     const listed = groups.flatMap(g => g.entries.map(e => e.type)).sort()
     expect(listed).toEqual(executors.map(e => e.type).sort())
-    expect(groups[0].entries.map(e => e.type)).toEqual(["agent.run", "agent.dispatch", "agent.stop", "agent.compact"])
+    expect(groups[0].entries.map(e => e.type)).toEqual(["agent.run", "agent.message", "agent.dispatch", "agent.stop", "agent.compact"])
   })
 
   it("offers Learn's steps for any workflow", () => {
@@ -38,6 +38,6 @@ describe("the step picker's list", () => {
     const run = pickerGroups("").flatMap(g => g.entries).find(e => e.type === "agent.run")!
     expect(run.phrase).toBe("Start an agent of the workflow on a prompt or a macro, and wait for it to complete the step with the outputs the step declares")
     const stop = pickerGroups("").flatMap(g => g.entries).find(e => e.type === "agent.stop")!
-    expect(stop.phrase).toBe("Stop a task's agent")
+    expect(stop.phrase).toBe("Stop a task's agent: the one an earlier step used (agent: {from: <step>}), or a task's own (its main slot)")
   })
 })
