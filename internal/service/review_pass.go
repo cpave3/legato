@@ -704,6 +704,17 @@ func passReviewMarker(pass store.HandoffReviewPass, number int) string {
 	return fmt.Sprintf("%s/pass-%d/pr-%d", pass.TaskID, pass.Pass, number)
 }
 
+// rulingMarker is the marker of a pass's ruling replied in a finding's
+// thread. Like passReviewMarker, a pass pinned again after a discard has
+// markers of its own, so a reply a discarded attempt left is never taken
+// for the ruling of the attempt that replaced it.
+func rulingMarker(pass store.HandoffReviewPass, findingID string) CommentMarker {
+	if pass.Attempt > 0 {
+		return CommentMarker{Kind: MarkerRuling, Key: fmt.Sprintf("%s/pass-%d.%d/%s", pass.TaskID, pass.Pass, pass.Attempt, findingID)}
+	}
+	return CommentMarker{Kind: MarkerRuling, Key: fmt.Sprintf("%s/pass-%d/%s", pass.TaskID, pass.Pass, findingID)}
+}
+
 // pinRef is the ref a pass's pinned head is kept under.
 func pinRef(taskID string, pass, number int) string {
 	return fmt.Sprintf("refs/legato/review/%s/%d/%d", taskID, pass, number)

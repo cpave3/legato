@@ -3,6 +3,7 @@ package handofftest
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/internal/service"
@@ -101,5 +102,56 @@ func TestTheMainSeesADiscardedPassReviewedAgainAsTheSamePass(t *testing.T) {
 	eventually(t, "approved", func() bool { return r.away(t).Review.Phase == service.ReviewPhaseClean })
 	if got := r.away(t).Review.Pass; got != 1 {
 		t.Fatalf("the main sees pass %d", got)
+	}
+}
+
+// A pass posts its ruling in a lower layer's thread, then an upper layer's
+// head moves and the pass is discarded. The pass pinned again rules
+// otherwise: its explanation is posted in the thread, not taken for the
+// discarded attempt's reply, which has a marker of its own.
+func TestARulingOfAPassPinnedAgainIsRepliedThoughTheDiscardedOneWasPosted(t *testing.T) {
+	r := newReviewed(t, ReviewPassOptions{})
+	branches := r.threeLayers(t)
+	r.finish(t)
+	result, err := r.submit(t, service.ReviewSubmission{Summary: "The bottom layer has a bug.", Findings: []service.SubmittedFinding{
+		{PR: 137, Severity: "blocking", Title: "Retries never stop", Body: "No bound.", FailureScenario: "A login while the server is down never returns.", Place: &service.ReviewPlace{Path: "login.go", Line: 20}},
+	}})
+	if err != nil || result.Verdict != service.VerdictChanges {
+		t.Fatalf("submit = %+v, %v", result, err)
+	}
+	finding := result.Findings[0]
+	r.tick()
+	r.answer(t, finding, service.AnswerFixed, "bounded")
+	r.worker.Checkout.Commit(branches[0], "sha137b")
+	r.worker.ReviewGitHub.OpenStackedPR(137, branches[0], "main", "sha137b")
+	r.tick()
+	r.finish(t)
+	if loop := r.loop(t); loop.Pass != 2 || loop.Phase != service.ReviewPhaseReviewing {
+		t.Fatalf("loop %+v", loop)
+	}
+
+	// Pass 2 posts #137 with its ruling, then #138's head moves before
+	// #138's review (a nit) is posted.
+	r.worker.ReviewGitHub.PushAfterPost(137, 138, "sha138b")
+	nit := service.SubmittedFinding{PR: 138, Severity: service.SeverityNit, Title: "Name the constant", Body: "A bare 3."}
+	if _, err := r.submit(t, service.ReviewSubmission{Summary: "Not yet.", Findings: []service.SubmittedFinding{nit},
+		Rulings: []service.SubmittedRuling{{Finding: finding, Status: "open", Reason: "still unbounded"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(postedEvents(r.worker.ReviewGitHub.Posted())); got != "[#137 COMMENT #138 APPROVE #139 APPROVE #137 COMMENT]" {
+		t.Fatalf("posted %s", got)
+	}
+	r.worker.Checkout.Commit(branches[1], "sha138b")
+	r.tick()
+	if loop := r.loop(t); loop.Pass != 2 || loop.Phase != service.ReviewPhaseReviewing {
+		t.Fatalf("after the discard: loop %+v", loop)
+	}
+
+	if _, err := r.submit(t, service.ReviewSubmission{Summary: "Fixed.", Findings: []service.SubmittedFinding{nit}, Rulings: []service.SubmittedRuling{{Finding: finding, Status: "resolved", Reason: "bounded now"}}}); err != nil {
+		t.Fatal(err)
+	}
+	replies := fmt.Sprint(r.worker.ReviewGitHub.Replies())
+	if !strings.Contains(replies, "Still open in pass 2: still unbounded") || !strings.Contains(replies, "Resolved in pass 2: bounded now") {
+		t.Fatalf("replies %s", replies)
 	}
 }

@@ -55,6 +55,26 @@ type FakeReviewGitHub struct {
 	// hearing back.
 	markers map[string]bool
 	lose    int
+	// pushAfter moves a pull request's head once a review of another is
+	// posted: posted number -> the pull request and its new head.
+	pushAfter map[int]fakePush
+}
+
+type fakePush struct {
+	number int
+	head   string
+}
+
+// PushAfterPost moves pull request number's head to head as soon as a
+// review of pull request posted is posted, as an owner pushing while a
+// pass posts layer by layer.
+func (f *FakeReviewGitHub) PushAfterPost(posted, number int, head string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.pushAfter == nil {
+		f.pushAfter = map[int]fakePush{}
+	}
+	f.pushAfter[posted] = fakePush{number: number, head: head}
 }
 
 // LoseAnswers makes GitHub take the next n replies and conversation
@@ -186,6 +206,15 @@ func (f *FakeReviewGitHub) PostReview(_ context.Context, post service.ReviewPost
 			f.comment++
 			posted.Inline = append(posted.Inline, i)
 			posted.CommentIDs = append(posted.CommentIDs, f.comment)
+		}
+	}
+	if push, ok := f.pushAfter[post.Number]; ok {
+		delete(f.pushAfter, post.Number)
+		for branch, pr := range f.prs {
+			if pr.Number == push.number {
+				pr.HeadSHA = push.head
+				f.prs[branch] = pr
+			}
 		}
 	}
 	return posted, nil
