@@ -272,16 +272,22 @@ function ChatButtonsField({ name, stepId, value, refs, onChange }: { name: strin
   return <div role="group" aria-label={name} className="flex flex-col gap-2">
     {rows.map((row, i) => {
       const n = i + 1
-      return <div key={i} role="group" aria-label={`Button ${n} of step ${stepId}`} className="grid items-center gap-2 sm:grid-cols-[1fr_1fr_7rem_auto]">
-        <CommitField aria-label={`Button ${n} label of step ${stepId}`} placeholder="Label" value={valueText(row.label)} onCommit={raw => update(i, "label", raw)} />
-        <span className="flex items-center gap-1">
-          <CommitField aria-label={`Button ${n} value of step ${stepId}`} placeholder="Value, such as fix:…" value={valueText(row.value)} onCommit={raw => update(i, "value", raw)} />
-          <ReferencePicker name={`button ${n} value of step ${stepId}`} options={refs} onPick={expression => update(i, "value", `${valueText(row.value)}\${{ ${expression} }}`)} />
-        </span>
-        <select aria-label={`Button ${n} style of step ${stepId}`} className={fieldClass} value={valueText(row.style)} onChange={event => update(i, "style", event.target.value)}>
-          <option value="">Default</option><option value="primary">Primary</option><option value="danger">Danger</option>
-        </select>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove button ${n} of step ${stepId}`} onClick={() => write(rows.filter((_, j) => j !== i))}><Trash2 size={13} /></Button>
+      // A card per button: the inspector is narrow, so label and value
+      // share a line and the style and Remove go under them.
+      return <div key={i} role="group" aria-label={`Button ${n} of step ${stepId}`} className="flex flex-col gap-2 rounded-lg border border-lw-line p-2">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <CommitField aria-label={`Button ${n} label of step ${stepId}`} placeholder="Label" value={valueText(row.label)} onCommit={raw => update(i, "label", raw)} />
+          <span className="flex min-w-0 items-center gap-1">
+            <CommitField aria-label={`Button ${n} value of step ${stepId}`} placeholder="Value, such as fix:…" value={valueText(row.value)} onCommit={raw => update(i, "value", raw)} />
+            <ReferencePicker name={`button ${n} value of step ${stepId}`} options={refs} onPick={expression => update(i, "value", `${valueText(row.value)}\${{ ${expression} }}`)} />
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <select aria-label={`Button ${n} style of step ${stepId}`} className={`${fieldClass} w-auto`} value={valueText(row.style)} onChange={event => update(i, "style", event.target.value)}>
+            <option value="">Default style</option><option value="primary">Primary</option><option value="danger">Danger</option>
+          </select>
+          <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove button ${n} of step ${stepId}`} onClick={() => write(rows.filter((_, j) => j !== i))}><Trash2 size={13} /></Button>
+        </div>
       </div>
     })}
     {rows.length < MAX_CHAT_BUTTONS && <Button type="button" size="sm" variant="outline" className="self-start" aria-label={`Add a button to step ${stepId}`} onClick={() => write([...rows, { label: "", value: "" }])}><Plus size={13} />Add a button</Button>}
