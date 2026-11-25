@@ -42,8 +42,11 @@ type Definition struct {
 	AfterStart    string           `yaml:"after_start,omitempty" json:"after_start,omitempty"`
 	Inputs        map[string]Input `yaml:"inputs,omitempty" json:"inputs,omitempty"`
 	On            Triggers         `yaml:"on,omitempty" json:"on,omitempty"`
-	Steps         []Step           `yaml:"steps" json:"steps"`
-	Source        string           `yaml:"-" json:"source"`
+	// ChatHelp lists the workflow in ${{ event.commands }} of the chat
+	// triggers on the bots its own chat triggers run on.
+	ChatHelp bool   `yaml:"chat_help,omitempty" json:"chat_help,omitempty"`
+	Steps    []Step `yaml:"steps" json:"steps"`
+	Source   string `yaml:"-" json:"source"`
 	// fromFile is set while a file just decoded is checked: only then is
 	// start in a version 1 file the file's own key, and refused.
 	fromFile bool

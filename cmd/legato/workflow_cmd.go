@@ -190,6 +190,9 @@ func runWorkflowValidate(positional []string, jsonMode bool) int {
 		return encodeWorkflowOutput(definition, true)
 	}
 	definition, diagnostics := workflowengine.Check(name, data)
+	if definition != nil && definition.HasChatFallback() {
+		diagnostics = append(diagnostics, validateChatFallbacks(data, definition)...)
+	}
 	if definition != nil {
 		for _, d := range diagnostics {
 			fmt.Fprintf(os.Stderr, "%s:%d:%d: %s: %s\n", name, d.Line, d.Column, d.Severity, d.Message)
@@ -206,6 +209,25 @@ func runWorkflowValidate(positional []string, jsonMode bool) int {
 		fmt.Fprintf(os.Stderr, "%s:%s\n", name, d)
 	}
 	return exitUsage
+}
+
+// validateChatFallbacks warns of the file's fallback chat triggers that a
+// discovered workflow's unfiltered trigger leaves nothing to answer. With
+// no database, a trigger is on as its file says.
+func validateChatFallbacks(data []byte, definition *workflowengine.Definition) []workflowengine.Diagnostic {
+	var repositories []workflowengine.RepositoryPreset
+	if cfg, err := config.Load(); err == nil {
+		repositories = workflowRepositoryPresets(cfg)
+	}
+	others := workflowengine.DiscoverFolders(workflowFolders(repositories)).Definitions
+	return workflowengine.ChatFallbackDiagnostics(data, definition, others, func(d *workflowengine.Definition, kind string) bool {
+		for _, trigger := range d.On.List() {
+			if trigger.Kind == kind {
+				return trigger.EnabledByDefault
+			}
+		}
+		return false
+	})
 }
 
 func resolveWorkflowDefinition(name string, repositories []workflowengine.RepositoryPreset) (*workflowengine.Definition, error) {

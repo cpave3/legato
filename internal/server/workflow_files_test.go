@@ -344,3 +344,52 @@ func TestCheckingAScheduleGivesItsNextTimes(t *testing.T) {
 		t.Fatalf("a workflow with no schedule: %v", body["schedule"])
 	}
 }
+
+const (
+	helpFallbackFile  = "schema_version: 1\nname: help\ntitle: Help\non:\n  chat.mention:\n    bot: slack\n    fallback: true\nsteps:\n  - {id: a, title: A, type: chat.message.send, with: {bot: slack, text: hi}}\n"
+	logEverythingFile = "schema_version: 1\nname: log\ntitle: Log\non:\n  chat.message:\n    bot: slack\nsteps:\n  - {id: a, title: A, type: chat.message.send, with: {bot: slack, text: hi}}\n"
+)
+
+func TestTheCheckWarnsOfAFallbackThatCanNeverFire(t *testing.T) {
+	f := newFilesFixture(t)
+	f.withSwitches(t)
+	f.write(t, f.global, "log.yaml", logEverythingFile)
+	check := func() string {
+		code, out := f.call(t, http.MethodPost, "/api/workflow-files/check", map[string]string{"yaml": helpFallbackFile})
+		if code != http.StatusOK {
+			t.Fatalf("check = %d %v", code, out)
+		}
+		data, _ := json.Marshal(out["diagnostics"])
+		return string(data)
+	}
+	if got := check(); !strings.Contains(got, "can never fire") || !strings.Contains(got, `"path":"on.chat.mention.fallback"`) {
+		t.Fatalf("diagnostics = %s", got)
+	}
+	if err := f.s.workflowTriggers.SetTriggerEnabled(context.Background(), "log", workflowengine.TriggerChatMessage, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := check(); strings.Contains(got, "can never fire") {
+		t.Fatalf("a paused trigger still hides the fallback: %s", got)
+	}
+}
+
+func TestTheWorkflowListWarnsOfAFallbackThatCanNeverFire(t *testing.T) {
+	f := newFilesFixture(t)
+	f.withSwitches(t)
+	f.write(t, f.global, "log.yaml", logEverythingFile)
+	f.write(t, f.global, "help.yaml", helpFallbackFile)
+	code, out := f.call(t, http.MethodGet, "/api/workflows", nil)
+	if code != http.StatusOK {
+		t.Fatalf("list = %d %v", code, out)
+	}
+	for _, item := range out["definitions"].([]any) {
+		definition := item.(map[string]any)
+		warnings, _ := json.Marshal(definition["warnings"])
+		if definition["name"] == "help" && !strings.Contains(string(warnings), "can never fire") {
+			t.Fatalf("help's warnings = %s", warnings)
+		}
+		if definition["name"] == "log" && strings.Contains(string(warnings), "can never fire") {
+			t.Fatalf("log's warnings = %s", warnings)
+		}
+	}
+}

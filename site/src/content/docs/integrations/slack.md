@@ -59,7 +59,7 @@ on:
       thread: ${{ event.thread_id }}
 ```
 
-`chat.message` starts a run for each message the bot can see; `chat.mention` only for messages that mention the bot, and for direct messages to it. The bot's own messages never start a run, and other bots' messages start one only with `include_bots: true`. See [Workflows](/legato/using/workflows/#chat-messages-and-mentions) for every filter and the values a trigger can pass on.
+`chat.message` starts a run for each message the bot can see; `chat.mention` only for messages that mention the bot, and for direct messages to it. The bot's own messages never start a run, and other bots' messages start one only with `include_bots: true`. To send mentions to different workflows by what they ask, give each trigger a `text` filter, and let a trigger with `fallback: true` answer the rest. See [Workflows](/legato/using/workflows/#chat-messages-and-mentions) for every filter, the fallback, and the values a trigger can pass on.
 
 ### Forwarding a message to the bot
 

@@ -69,9 +69,12 @@ func (s *Server) writeWorkflowError(w http.ResponseWriter, status int, code, mes
 
 // checked is a file as the editor sends it, checked: its definition when
 // it has no errors, and its diagnostics.
-func (s *Server) checked(data string) (*workflowengine.Definition, []workflowengine.Diagnostic) {
+func (s *Server) checked(ctx context.Context, data string) (*workflowengine.Definition, []workflowengine.Diagnostic) {
 	definition, diagnostics := workflowengine.Check("workflow.yaml", []byte(data))
 	diagnostics = append(diagnostics, s.chatBotDiagnostics([]byte(data), definition)...)
+	if definition != nil && definition.HasChatFallback() {
+		diagnostics = append(diagnostics, s.chatFallbackDiagnostics(ctx, []byte(data), definition, s.discoverWorkflowsIn(ctx).Definitions)...)
+	}
 	if diagnostics == nil {
 		diagnostics = []workflowengine.Diagnostic{}
 	}
@@ -83,22 +86,7 @@ func (s *Server) checked(data string) (*workflowengine.Definition, []workfloweng
 // file's enabled.
 func (s *Server) newlyActiveTriggers(ctx context.Context, before, after *workflowengine.Definition) ([]string, error) {
 	active := func(definition *workflowengine.Definition, kind string) (bool, error) {
-		if definition == nil {
-			return false, nil
-		}
-		for _, trigger := range definition.On.List() {
-			if trigger.Kind != kind {
-				continue
-			}
-			if s.workflowTriggers != nil {
-				enabled, ok, err := s.workflowTriggers.TriggerSwitch(ctx, definition.Name, kind)
-				if err != nil || ok {
-					return enabled, err
-				}
-			}
-			return trigger.EnabledByDefault, nil
-		}
-		return false, nil
+		return s.triggerActive(ctx, definition, kind)
 	}
 	triggers := []string{}
 	for _, trigger := range after.On.List() {
@@ -115,6 +103,38 @@ func (s *Server) newlyActiveTriggers(ctx context.Context, before, after *workflo
 		}
 	}
 	return triggers, nil
+}
+
+// triggerActive says whether a definition's trigger of a kind starts runs
+// here: this Legato's switch if it has one, else the file's enabled.
+func (s *Server) triggerActive(ctx context.Context, definition *workflowengine.Definition, kind string) (bool, error) {
+	if definition == nil {
+		return false, nil
+	}
+	for _, trigger := range definition.On.List() {
+		if trigger.Kind != kind {
+			continue
+		}
+		if s.workflowTriggers != nil {
+			enabled, ok, err := s.workflowTriggers.TriggerSwitch(ctx, definition.Name, kind)
+			if err != nil || ok {
+				return enabled, err
+			}
+		}
+		return trigger.EnabledByDefault, nil
+	}
+	return false, nil
+}
+
+// chatFallbackDiagnostics warn of the definition's fallback chat triggers
+// that another workflow's (or its own) unfiltered trigger leaves nothing
+// to answer, among the workflows here and with their triggers as they are
+// switched here.
+func (s *Server) chatFallbackDiagnostics(ctx context.Context, data []byte, definition *workflowengine.Definition, others []*workflowengine.Definition) []workflowengine.Diagnostic {
+	return workflowengine.ChatFallbackDiagnostics(data, definition, others, func(d *workflowengine.Definition, kind string) bool {
+		on, err := s.triggerActive(ctx, d, kind)
+		return err == nil && on
+	})
 }
 
 // confirmTriggers refuses a save that would start triggers without the
@@ -197,7 +217,7 @@ func (s *Server) saveWorkflowFile(w http.ResponseWriter, r *http.Request, before
 		s.writeWorkflowError(w, http.StatusForbidden, "not_editable", info.Reason, nil)
 		return
 	}
-	after, diagnostics := s.checked(body.YAML)
+	after, diagnostics := s.checked(r.Context(), body.YAML)
 	if after == nil {
 		s.writeWorkflowError(w, http.StatusUnprocessableEntity, "invalid", diagnostics[0].Message, map[string]any{"diagnostics": diagnostics})
 		return
@@ -280,7 +300,7 @@ func (s *Server) workflowFilesHandler() http.HandlerFunc {
 			s.writeWorkflowError(w, http.StatusBadRequest, "folder", "no workflows folder "+body.Folder+" to write to", nil)
 			return
 		}
-		definition, diagnostics := s.checked(body.YAML)
+		definition, diagnostics := s.checked(r.Context(), body.YAML)
 		if definition == nil {
 			s.writeWorkflowError(w, http.StatusUnprocessableEntity, "invalid", diagnostics[0].Message, map[string]any{"diagnostics": diagnostics})
 			return
@@ -329,7 +349,7 @@ func (s *Server) workflowFileCheckHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusBadRequest, `want {"yaml": "…"}`)
 			return
 		}
-		definition, diagnostics := s.checked(body.YAML)
+		definition, diagnostics := s.checked(r.Context(), body.YAML)
 		out := map[string]any{"definition": nil, "graph": nil, "diagnostics": diagnostics, "schedule": nil}
 		if definition != nil {
 			out["definition"], out["graph"] = definition, workflowengine.BuildGraph(definition)
@@ -379,7 +399,7 @@ func (s *Server) workflowCopyHandler() http.HandlerFunc {
 			return
 		}
 		data = append([]byte("# A copy of Legato's built-in "+name+" workflow, which this file replaces.\n"), data...)
-		copied, diagnostics := s.checked(string(data))
+		copied, diagnostics := s.checked(r.Context(), string(data))
 		if copied == nil {
 			s.writeWorkflowError(w, http.StatusInternalServerError, "invalid", "the built-in does not make a valid file: "+diagnostics[0].Message, nil)
 			return

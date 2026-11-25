@@ -109,15 +109,35 @@ export function triggerSentence(kind: string, trigger: Record<string, unknown> |
   return [{ text: kind, strong: true }]
 }
 
-/** TextMatch is a chat trigger's text: contains or regex, exactly one. */
-export type TextMatch = { contains?: string; regex?: string }
+/** TextMatch is a chat trigger's text: contains or regex, at most one, and
+ * not_contains or not_regex, which the text must not match. */
+export type TextMatch = { contains?: string; regex?: string; not_contains?: string; not_regex?: string }
+
+const textOf = (value: unknown) => (value && typeof value === "object" ? value : {}) as TextMatch
 
 /** textMatchOf is how a chat trigger matches text: its mode and pattern. */
 export function textMatchOf(value: unknown): { mode: "" | "contains" | "regex"; pattern: string } {
-  const match = (value && typeof value === "object" ? value : {}) as TextMatch
+  const match = textOf(value)
   if ("regex" in match) return { mode: "regex", pattern: scalarText(match.regex) }
   if ("contains" in match) return { mode: "contains", pattern: scalarText(match.contains) }
   return { mode: "", pattern: "" }
+}
+
+/** textExclusionOf is the text a chat trigger refuses: its mode and pattern. */
+export function textExclusionOf(value: unknown): { mode: "" | "not_contains" | "not_regex"; pattern: string } {
+  const match = textOf(value)
+  if ("not_regex" in match) return { mode: "not_regex", pattern: scalarText(match.not_regex) }
+  if ("not_contains" in match) return { mode: "not_contains", pattern: scalarText(match.not_contains) }
+  return { mode: "", pattern: "" }
+}
+
+/** withTextTest is a chat trigger's text with the test from (a key of it,
+ * or "" for none) replaced by to set to pattern, or taken out for to "";
+ * every other test is kept. undefined when nothing is left. */
+export function withTextTest(value: unknown, from: string, to: string, pattern: string): TextMatch | undefined {
+  const next: Record<string, unknown> = Object.fromEntries(Object.entries(textOf(value)).filter(([key]) => key !== from))
+  if (to) next[to] = pattern
+  return Object.keys(next).length > 0 ? next as TextMatch : undefined
 }
 
 // chatSentence is a chat trigger in words: "A message in C123 on slack ·
@@ -131,5 +151,8 @@ function chatSentence(kind: string, t: Record<string, unknown>): SentencePart[] 
   if (t.user) parts.push({ text: " from " }, { text: String(t.user), strong: true })
   const match = textMatchOf(t.text)
   if (match.mode) parts.push({ text: match.mode === "regex" ? " · matching " : " · containing " }, { text: match.pattern, strong: true })
+  const exclusion = textExclusionOf(t.text)
+  if (exclusion.mode) parts.push({ text: exclusion.mode === "not_regex" ? " · not matching " : " · not containing " }, { text: exclusion.pattern, strong: true })
+  if (t.fallback === true) parts.push({ text: " · when no other trigger matched" })
   return parts
 }

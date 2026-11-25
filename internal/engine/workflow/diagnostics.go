@@ -121,7 +121,19 @@ func Check(source string, data []byte) (*Definition, []Diagnostic) {
 		return nil, diagnostics
 	}
 	diagnostics = append(diagnostics, outputlessAgentSteps(&root, &definition)...)
+	diagnostics = append(diagnostics, unlistedChatHelp(&root, &definition)...)
 	return &definition, diagnostics
+}
+
+// unlistedChatHelp warns of chat_help on a workflow with no chat trigger:
+// ${{ event.commands }} lists a workflow only on the bots it runs on.
+func unlistedChatHelp(root *yaml.Node, definition *Definition) []Diagnostic {
+	if !definition.ChatHelp || definition.On.Chat(TriggerChatMessage) != nil || definition.On.Chat(TriggerChatMention) != nil {
+		return nil
+	}
+	d := diagnosticAt(root, "chat_help", "chat_help: true lists the workflow in ${{ event.commands }} on the bots it runs on, and it has no chat trigger, so it is listed nowhere")
+	d.Severity = SeverityWarning
+	return []Diagnostic{d}
 }
 
 // unknownWithKeys warns of each with key a step's executor does not read.

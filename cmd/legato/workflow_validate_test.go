@@ -104,3 +104,26 @@ func TestWorkflowValidateWarnsAndSucceeds(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr)
 	}
 }
+
+func TestWorkflowValidateWarnsOfAFallbackThatCanNeverFire(t *testing.T) {
+	path := writeWorkflowFile(t, "schema_version: 1\nname: help\ntitle: Help\non:\n  chat.mention:\n    bot: slack\n    fallback: true\nsteps:\n  - {id: a, title: A, type: chat.message.send, with: {bot: slack, text: hi}}\n")
+	configDir := t.TempDir()
+	t.Setenv("LEGATO_CONFIG", filepath.Join(configDir, "config.yaml"))
+	if err := os.MkdirAll(filepath.Join(configDir, "workflows"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	log := "schema_version: 1\nname: log\ntitle: Log\non:\n  chat.message:\n    bot: slack\nsteps:\n  - {id: a, title: A, type: chat.message.send, with: {bot: slack, text: hi}}\n"
+	if err := os.WriteFile(filepath.Join(configDir, "workflows", "log.yaml"), []byte(log), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var code int
+	stderr := captureStderr(t, func() {
+		captureStdout(t, func() int {
+			code = runCLI([]string{"workflow", "validate", path})
+			return code
+		})
+	})
+	if code != 0 || !strings.Contains(stderr, ":7:15: warning: this fallback can never fire: log's chat.message trigger") {
+		t.Fatalf("exit %d, stderr = %q", code, stderr)
+	}
+}

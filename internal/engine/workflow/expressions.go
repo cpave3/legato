@@ -56,6 +56,7 @@ var chatEventRoots = []ExpressionRoot{
 	{"event.thread_id", "What chat.message.send's thread_id takes to reply to the message, and chat.thread.read's to read its thread"},
 	{"event.forwarded", "true when the message forwards or shares another"},
 	{"event.forwarded_url", "The forwarded message's link; empty otherwise"},
+	{"event.commands", "The workflows with chat_help: true that run on this bot, one per line"},
 }
 
 // ExpressionContexts lists, for each place that takes ${{ }}, what it may
