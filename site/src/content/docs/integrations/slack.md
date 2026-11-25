@@ -1,6 +1,6 @@
 ---
 title: Slack
-description: Start workflows from Slack messages and mentions, and post and react in Slack from a workflow step.
+description: Start workflows from Slack messages, mentions and button clicks, and post and react in Slack from a workflow step.
 sidebar:
   order: 55
 ---
@@ -13,10 +13,11 @@ The bot connects with Slack's Socket Mode, an outbound connection from Legato to
 
 1. Go to [api.slack.com/apps](https://api.slack.com/apps) and create an app from scratch in your workspace.
 2. Under **Socket Mode**, turn Socket Mode on. Slack asks you to make an app-level token: give it the `connections:write` scope. The token starts `xapp-`.
-3. Under **OAuth & Permissions › Bot Token Scopes**, add `chat:write`, `reactions:write`, `channels:history`, `groups:history`, `im:history` and `app_mentions:read`. `reactions:write` is for the reaction steps; if you add it to an app that is already installed, reinstall the app (step 5) so the bot token gets it. Add `users:read` too if you want a [thread read](#read-a-thread) to name people; without it they appear as user IDs, and adding it later also means reinstalling.
+3. Under **OAuth & Permissions › Bot Token Scopes**, add `chat:write`, `reactions:write`, `channels:history`, `groups:history`, `im:history` and `app_mentions:read`. `reactions:write` is for the reaction steps; if you add it to an app that is already installed, reinstall the app (step 6) so the bot token gets it. Add `users:read` too if you want a [thread read](#read-a-thread) to name people; without it they appear as user IDs, and adding it later also means reinstalling.
 4. Under **Event Subscriptions**, turn events on and subscribe to the bot events `message.channels`, `message.groups` and `message.im`.
-5. Install the app to your workspace. Copy the **Bot User OAuth Token**, which starts `xoxb-`.
-6. In Slack, invite the bot to each channel it should read or post in: `/invite @your-bot`.
+5. Under **Interactivity & Shortcuts**, turn **Interactivity** on, so clicks on the buttons a workflow posts reach Legato. With Socket Mode, Slack asks for no request URL.
+6. Install the app to your workspace. Copy the **Bot User OAuth Token**, which starts `xoxb-`.
+7. In Slack, invite the bot to each channel it should read or post in: `/invite @your-bot`.
 
 ## Set it up in Legato
 
@@ -118,9 +119,26 @@ steps:
 
 `${{ steps.thread.outputs.transcript }}` is then the thread's parent and replies, oldest first, with forwarded messages quoted as in `event.text`. A message in no thread gives that message alone. The step reads with `conversations.replies`, which needs the `*:history` scopes the app already has. It names people with `users.info`, which needs `users:read`; without that scope the transcript names them as `<@U0123456789>`, and the step still succeeds. Bots are named by their own name. See [Reading the thread](/legato/using/workflows/#reading-the-thread) for what the step keeps.
 
+## Buttons
+
+A `chat.message.send` step can end its message with up to five buttons, and a `chat.button` trigger starts a workflow when someone clicks one:
+
+```yaml
+    with:
+      bot: slack
+      text: Found the cause.
+      buttons:
+        - {label: "🛠 Fix it", value: "fix:${{ workflow.task.id }}", style: primary}
+        - {label: "✖ Dismiss", value: "dismiss:${{ workflow.task.id }}", style: danger}
+```
+
+Clicks reach Legato only with **Interactivity** on (step 5 of [Create the Slack app](#create-the-slack-app)); they come over the same Socket Mode connection and need no other scope. An app made before buttons existed needs Interactivity turned on, and no reinstall.
+
+When a workflow takes a click, Legato edits the message: the buttons go, and a line such as **🛠 Fix it — chosen by @alice** takes their place, since Slack's buttons cannot be greyed out. A long message is split into several blocks, as Slack keeps each to 3,000 characters. See [Chat buttons](/legato/using/workflows/#chat-buttons) for the trigger.
+
 ## Limits
 
-- Slash commands, buttons and other interactive messages are not supported.
+- Slash commands, menus, modals and other interactive messages are not supported. Buttons are: see [Buttons](#buttons).
 - A message's text is kept with its trigger request, cut to 8 KiB, a forwarded message's part first.
 - A link to a message pasted into a message is not read as a forward: Slack adds its preview later, as an edit, and edits do not start runs.
 - Channels and users are named by their IDs, not their names, except the authors of a thread read with `users:read`.

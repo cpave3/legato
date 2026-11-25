@@ -1,4 +1,4 @@
-import { ArrowRightLeft, AtSign, BookOpen, Bot, CircleStop, Clock, Columns3, FileText, FileX, FolderSearch, FolderX, GitBranch, GitPullRequest, Hand, MessageCircle, MessageSquareQuote, MessageSquareShare, MessageSquareWarning, MessagesSquare, Repeat, Send, Shrink, Smile, SmilePlus, StickyNote, Tag, Trash2, Workflow, type LucideIcon } from "lucide-react"
+import { ArrowRightLeft, AtSign, BookOpen, Bot, CircleStop, Clock, Columns3, FileText, FileX, FolderSearch, FolderX, GitBranch, GitPullRequest, Hand, MessageCircle, MessageSquareQuote, MessageSquareShare, MessageSquareWarning, MessagesSquare, MousePointerClick, Repeat, Send, Shrink, Smile, SmilePlus, StickyNote, Tag, Trash2, Workflow, type LucideIcon } from "lucide-react"
 
 // The icon of each step type and trigger kind, as the graph's nodes draw
 // them; one it does not know gets Workflow's.
@@ -35,6 +35,7 @@ export const triggerIcons: Record<string, LucideIcon> = {
   "pr.changes_requested": MessageSquareWarning,
   "chat.message": MessageCircle,
   "chat.mention": AtSign,
+  "chat.button": MousePointerClick,
 }
 
 export function stepIcon(type: string): LucideIcon {

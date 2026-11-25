@@ -68,6 +68,7 @@ const triggerNames: Record<string, string> = {
   "pr.changes_requested": "Changes requested on a PR",
   "chat.message": "Chat message",
   "chat.mention": "Bot mentioned",
+  "chat.button": "Chat button",
 }
 
 export function triggerName(kind: string): string {

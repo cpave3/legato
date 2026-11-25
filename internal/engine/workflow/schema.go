@@ -182,6 +182,21 @@ func fieldSchema(field Field) schemaObject {
 		}
 	case KindMacro:
 		value = schemaObject{"type": "string", "minLength": 1}
+	case KindChatButtons:
+		text := func(max int) schemaObject {
+			return schemaObject{"type": "string", "minLength": 1, "anyOf": []any{
+				schemaObject{"maxLength": max}, schemaObject{"pattern": expressionPatternJSON}}}
+		}
+		value = schemaObject{"type": "array", "minItems": 1, "maxItems": MaxChatButtons, "items": schemaObject{
+			"type": "object", "additionalProperties": false, "required": []string{"label", "value"},
+			"properties": schemaObject{
+				"label": text(MaxChatButtonLabel),
+				"value": text(MaxChatButtonValue),
+				"style": schemaObject{"anyOf": []any{
+					schemaObject{"enum": []string{ChatButtonStylePrimary, ChatButtonStyleDanger}},
+					schemaObject{"type": "string", "pattern": expressionPatternJSON}}},
+			},
+		}}
 	default:
 		value = schemaObject{"type": "string"}
 	}
@@ -236,6 +251,7 @@ var schemaNames = map[reflect.Type]string{
 	reflect.TypeOf(PRTrigger{}):                "trigger." + TriggerPRChangesRequested,
 	reflect.TypeOf(ChatMessageTrigger{}):       "trigger." + TriggerChatMessage,
 	reflect.TypeOf(ChatMentionTrigger{}):       "trigger." + TriggerChatMention,
+	reflect.TypeOf(ChatButtonTrigger{}):        "trigger." + TriggerChatButton,
 	reflect.TypeOf(ChatTextMatch{}):            "chat_text_match",
 	reflect.TypeOf(Condition{}):                "condition",
 }
@@ -279,6 +295,16 @@ var fieldSchemas = map[string]schemaObject{
 	"Triggers.pr.changes_requested": {"description": "Start a run when a review requests changes on a pull request a task owns"},
 	"Triggers.chat.message":         {"description": "Start a run when a chat bot set up in Settings › Integrations receives a message"},
 	"Triggers.chat.mention":         {"description": "Start a run when a message mentions a chat bot set up in Settings › Integrations, or is sent to it directly"},
+	"Triggers.chat.button":          {"description": "Start a run when someone clicks a button a chat bot posted with chat.message.send's buttons"},
+
+	"ChatButtonTrigger.bot":              {"description": "The bot, by name: slack or discord", "required": true, "pattern": ChatBotNamePattern},
+	"ChatButtonTrigger.channel":          {"description": "Only clicks in this channel, by the platform's ID"},
+	"ChatButtonTrigger.user":             {"description": "Only clicks by this user, by the platform's ID; anyone in the channel when empty. A click by someone else starts nothing"},
+	"ChatButtonTrigger.value":            {"description": "Only clicks on a button whose value matches; a regex's named groups are ${{ event.match.<name> }}"},
+	"ChatButtonTrigger.enabled":          {"description": "false makes the trigger start paused, until a Legato switches it on"},
+	"ChatButtonTrigger.confirm":          {"description": "Ask the operator before each run"},
+	"ChatButtonTrigger.max_runs_per_day": {"description": "Most runs for one message's buttons in a day before the loop stop asks; 0 for 3", "minimum": 0},
+	"ChatButtonTrigger.inputs":           {"description": "The run's inputs, by name: literals, or ${{ event.* }}", "context": "trigger." + TriggerChatButton},
 
 	"TaskEnteredColumnTrigger.column":           {"description": "The column, by name", "required": true, "pattern": `\S`},
 	"TaskEnteredColumnTrigger.enabled":          {"description": "false makes the trigger start paused, until a Legato switches it on"},

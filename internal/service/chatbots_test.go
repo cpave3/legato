@@ -39,7 +39,10 @@ func (f *fakeChatConnection) ReadThread(ctx context.Context, channel, threadID s
 	return append([]ChatThreadMessage(nil), f.thread...), nil
 }
 
-type fakeSent struct{ Channel, Text, ThreadID string }
+type fakeSent struct {
+	Channel, Text, ThreadID string
+	Buttons                 []ChatButton
+}
 
 type fakeReaction struct {
 	Channel, MessageID, Emoji string
@@ -77,9 +80,9 @@ func (f *fakeChatConnection) Run(ctx context.Context, emit func(ChatEvent), conn
 	return run(ctx, emit, connected)
 }
 
-func (f *fakeChatConnection) Send(ctx context.Context, channel, text, threadID string) (SentMessage, error) {
+func (f *fakeChatConnection) Send(ctx context.Context, channel, text, threadID string, buttons ...ChatButton) (SentMessage, error) {
 	f.mu.Lock()
-	f.sent = append(f.sent, fakeSent{channel, text, threadID})
+	f.sent = append(f.sent, fakeSent{channel, text, threadID, buttons})
 	send := f.send
 	f.mu.Unlock()
 	if send != nil {

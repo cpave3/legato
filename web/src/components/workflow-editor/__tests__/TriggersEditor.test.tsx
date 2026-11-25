@@ -155,6 +155,26 @@ it("edits a chat message trigger's bot, channel, user, text match, loop item and
   expect(card.queryByRole("textbox", { name: "Text of the chat.message trigger" })).toBeNull()
 })
 
+it("edits a chat button trigger's bot, channel, who may click and value", () => {
+  renderBuilder("schema_version: 1\nname: s\ntitle: S\ninputs:\n  task: {type: string}\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}}\n")
+  fireEvent.click(screen.getByRole("button", { name: "Add trigger" }))
+  fireEvent.click(within(screen.getByRole("group", { name: "Trigger kinds" })).getByRole("button", { name: /When a chat button is clicked/ }))
+  expect(parse(latest).on).toEqual({ "chat.button": { bot: "slack", enabled: false } })
+  const card = within(screen.getByRole("article", { name: "When a chat button is clicked" }))
+  expect(card.getByRole("textbox", { name: "User of the chat.button trigger" }).getAttribute("placeholder")).toBe("Anyone in the channel")
+  expect(card.queryByRole("combobox", { name: "Loop stop of the chat.button trigger counts runs by" })).toBeNull()
+  expect(card.queryByRole("checkbox", { name: "The chat.button trigger also runs on other bots' messages" })).toBeNull()
+  commit(card.getByRole("textbox", { name: "Channel of the chat.button trigger" }), "C1")
+  commit(card.getByRole("textbox", { name: "User of the chat.button trigger" }), "U7")
+  fireEvent.change(card.getByRole("combobox", { name: "Value match of the chat.button trigger" }), { target: { value: "regex" } })
+  commit(card.getByRole("textbox", { name: "Value of the chat.button trigger" }), "^fix:(?P<task>.+)$")
+  fireEvent.click(card.getByRole("button", { name: "Insert a reference into input task from the chat.button trigger" }))
+  fireEvent.click(screen.getByRole("option", { name: "event.match." }))
+  commit(card.getByRole("textbox", { name: "Input task from the chat.button trigger" }), "${{ event.match.task }}")
+  expect(parse(latest).on["chat.button"]).toEqual({ bot: "slack", enabled: false, channel: "C1", user: "U7", value: { regex: "^fix:(?P<task>.+)$" }, inputs: { task: "${{ event.match.task }}" } })
+  expect(errors(latest)).toEqual([])
+})
+
 it("makes a chat trigger a fallback, and shows why it can never fire", () => {
   const text = "schema_version: 1\nname: s\ntitle: S\non:\n  chat.mention:\n    bot: slack\nsteps:\n  - {id: a, title: A, type: agent.run, with: {prompt: hi}}\n"
   const never = "this fallback can never fire: log's chat.message trigger on slack has no channel, user or text filter, so it matches every message this one would see"

@@ -62,7 +62,7 @@ export function operandOf(raw: string, kind: OperandKind): unknown {
 /** newTrigger is a trigger of a kind as it is added: paused, so the
  * operator switches it on (LEG-459). */
 export function newTrigger(kind: string, options: BuilderOptions): Record<string, unknown> {
-  if (kind === "chat.message" || kind === "chat.mention") return { bot: options.bots?.[0] ?? "", enabled: false }
+  if (isChatKind(kind)) return { bot: options.bots?.[0] ?? "", enabled: false }
   return kind === "task.entered_column" ? { column: options.columns[0] ?? "", enabled: false } : kind === "schedule" ? { every: "weekdays", at: "09:00", enabled: false } : { enabled: false }
 }
 
@@ -106,7 +106,25 @@ export function triggerSentence(kind: string, trigger: Record<string, unknown> |
   }
   if (kind === "pr.changes_requested") return [{ text: "A PR gets changes requested" }]
   if (kind === "chat.message" || kind === "chat.mention") return chatSentence(kind, t)
+  if (kind === "chat.button") return buttonSentence(t)
   return [{ text: kind, strong: true }]
+}
+
+/** isChatKind is a chat trigger's kind: a message, a mention or a click. */
+export function isChatKind(kind: string): boolean {
+  return kind === "chat.message" || kind === "chat.mention" || kind === "chat.button"
+}
+
+// buttonSentence is a chat.button trigger in words: "A button click in C1
+// on slack by U7 · value containing fix:".
+function buttonSentence(t: Record<string, unknown>): SentencePart[] {
+  const parts: SentencePart[] = [{ text: "A button click" }]
+  if (t.channel) parts.push({ text: " in " }, { text: String(t.channel), strong: true })
+  parts.push({ text: " on " }, { text: String(t.bot || "a bot"), strong: true })
+  if (t.user) parts.push({ text: " by " }, { text: String(t.user), strong: true })
+  const match = textMatchOf(t.value)
+  if (match.mode) parts.push({ text: match.mode === "regex" ? " · value matching " : " · value containing " }, { text: match.pattern, strong: true })
+  return parts
 }
 
 /** TextMatch is a chat trigger's text: contains or regex, at most one, and

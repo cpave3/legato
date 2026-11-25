@@ -1,7 +1,8 @@
 // Package slackbot is a thin client for a Slack bot: one Socket Mode session
 // at a time, and the Web API methods auth.test, apps.connections.open,
-// chat.postMessage, reactions.add, reactions.remove, and conversations.replies
-// and users.info for reading a thread. It knows nothing of Legato.
+// chat.postMessage, chat.update, reactions.add, reactions.remove, and
+// conversations.replies and users.info for reading a thread. It knows nothing
+// of Legato.
 //
 // Protocol facts it relies on:
 //
@@ -20,7 +21,8 @@
 //     envelope_id must be acknowledged with {"envelope_id": id} within a few
 //     seconds or Slack redelivers it, so the ack goes out before the event is
 //     handled. Event subscriptions arrive as "events_api" envelopes whose
-//     payload.event is the event.
+//     payload.event is the event; button clicks (with the app's
+//     Interactivity on) as "interactive" envelopes, see Click.
 //   - {"type":"disconnect"} asks the client to reconnect (refresh_requested,
 //     warning, too_many_websockets, ...); reason "link_disabled" means the
 //     app's Socket Mode was turned off, which is treated as an auth failure.
@@ -247,17 +249,26 @@ func (c *Client) Open(ctx context.Context) (string, error) {
 	return out.URL, nil
 }
 
-// PostMessage posts text to channel, in the thread threadTS when set. A rate
-// limit with a Retry-After of at most 5 seconds is waited out and retried once.
-func (c *Client) PostMessage(ctx context.Context, channel, text, threadTS string) (Posted, error) {
+// PostMessage posts text to channel, in the thread threadTS when set, with
+// buttons under it when there are any (see Button). A rate limit with a
+// Retry-After of at most 5 seconds is waited out and retried once.
+func (c *Client) PostMessage(ctx context.Context, channel, text, threadTS string, buttons ...Button) (Posted, error) {
 	if utf8.RuneCountInString(text) > MaxTextLength {
 		return Posted{}, ErrTooLong
 	}
 	body := struct {
-		Channel  string `json:"channel"`
-		Text     string `json:"text"`
-		ThreadTS string `json:"thread_ts,omitempty"`
-	}{channel, text, threadTS}
+		Channel  string  `json:"channel"`
+		Text     string  `json:"text"`
+		ThreadTS string  `json:"thread_ts,omitempty"`
+		Blocks   []block `json:"blocks,omitempty"`
+	}{Channel: channel, Text: text, ThreadTS: threadTS}
+	if len(buttons) > 0 {
+		blocks, err := messageBlocks(text, buttons)
+		if err != nil {
+			return Posted{}, err
+		}
+		body.Blocks = blocks
+	}
 	var out struct {
 		Channel string `json:"channel"`
 		TS      string `json:"ts"`
@@ -334,14 +345,29 @@ type rawEvent struct {
 	Attachments []json.RawMessage `json:"attachments"`
 }
 
-// Run opens one Socket Mode session: Open, dial, wait for hello (then call
-// onConnected if non-nil), then read envelopes, acknowledging each before
-// handing its event to onEvent, until ctx ends or the session drops.
+// Handlers are what a Socket Mode session calls; any may be nil.
+type Handlers struct {
+	// Event is a message or a mention.
+	Event func(Event)
+	// Click is a click on a button of a message the bot posted.
+	Click func(Click)
+	// Connected is called once Slack's hello arrives.
+	Connected func()
+}
+
+// Run is Serve with only messages and the connected callback.
+func (c *Client) Run(ctx context.Context, onEvent func(Event), onConnected func()) error {
+	return c.Serve(ctx, Handlers{Event: onEvent, Connected: onConnected})
+}
+
+// Serve opens one Socket Mode session: Open, dial, wait for hello (then call
+// h.Connected), then read envelopes, acknowledging each before handing its
+// event or click on, until ctx ends or the session drops.
 //
 // It returns ctx.Err() on cancellation (closing the socket normally),
 // ErrReconnect when Slack asks for a new connection, ErrAuth for
 // authentication failures and other errors otherwise.
-func (c *Client) Run(ctx context.Context, onEvent func(Event), onConnected func()) error {
+func (c *Client) Serve(ctx context.Context, h Handlers) error {
 	wsURL, err := c.Open(ctx)
 	if err != nil {
 		return err
@@ -391,8 +417,8 @@ func (c *Client) Run(ctx context.Context, onEvent func(Event), onConnected func(
 		}
 		switch env.Type {
 		case "hello":
-			if onConnected != nil {
-				onConnected()
+			if h.Connected != nil {
+				h.Connected()
 			}
 		case "disconnect":
 			_ = conn.Close(websocket.StatusNormalClosure, "")
@@ -401,8 +427,12 @@ func (c *Client) Run(ctx context.Context, onEvent func(Event), onConnected func(
 			}
 			return fmt.Errorf("%w (%s)", ErrReconnect, env.Reason)
 		case "events_api":
-			if ev, ok := parseEvent(env.Payload); ok && onEvent != nil {
-				onEvent(ev)
+			if ev, ok := parseEvent(env.Payload); ok && h.Event != nil {
+				h.Event(ev)
+			}
+		case "interactive":
+			if click, ok := parseClick(env.Payload); ok && h.Click != nil {
+				h.Click(click)
 			}
 		}
 	}

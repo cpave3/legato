@@ -35,7 +35,7 @@ func TestCatalogEntriesAreWellFormed(t *testing.T) {
 		workflow.KindString, workflow.KindText, workflow.KindInteger, workflow.KindBoolean,
 		workflow.KindTask, workflow.KindTaskOrID, workflow.KindRepository, workflow.KindPath,
 		workflow.KindColumn, workflow.KindMacro, workflow.KindAgent, workflow.KindTier, workflow.KindJSON,
-		workflow.KindChatBot,
+		workflow.KindChatBot, workflow.KindChatButtons,
 	}
 	outputTypes := []string{"string", "integer", "boolean", "json"}
 	for _, spec := range workflow.Catalog() {

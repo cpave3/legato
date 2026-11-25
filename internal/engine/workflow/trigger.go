@@ -13,11 +13,12 @@ type Triggers struct {
 	PRChangesRequested *PRTrigger                `yaml:"pr.changes_requested,omitempty" json:"pr.changes_requested,omitempty"`
 	ChatMessage        *ChatMessageTrigger       `yaml:"chat.message,omitempty" json:"chat.message,omitempty"`
 	ChatMention        *ChatMentionTrigger       `yaml:"chat.mention,omitempty" json:"chat.mention,omitempty"`
+	ChatButton         *ChatButtonTrigger        `yaml:"chat.button,omitempty" json:"chat.button,omitempty"`
 }
 
 // TriggerKinds is every kind of trigger a definition's on: may declare, in
 // the order lists and the graph give them.
-var TriggerKinds = []string{TriggerTaskEnteredColumn, TriggerSchedule, TriggerPRChangesRequested, TriggerChatMessage, TriggerChatMention}
+var TriggerKinds = []string{TriggerTaskEnteredColumn, TriggerSchedule, TriggerPRChangesRequested, TriggerChatMessage, TriggerChatMention, TriggerChatButton}
 
 // The kinds of trigger, as a definition's on: names them.
 const (
@@ -72,6 +73,10 @@ func (t Triggers) Common(kind string) (TriggerCommon, bool) {
 		}
 	case TriggerChatMessage, TriggerChatMention:
 		if c := t.Chat(kind); c != nil {
+			return c.common(), true
+		}
+	case TriggerChatButton:
+		if c := t.ChatButton; c != nil {
 			return c.common(), true
 		}
 	}

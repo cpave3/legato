@@ -2,4 +2,4 @@
 // name a trigger without loading the workflow schema.
 
 /** KIND_TITLES are the trigger kinds in plain words. */
-export const KIND_TITLES: Record<string, string> = { "task.entered_column": "When a card enters a column", schedule: "On a schedule", "pr.changes_requested": "When changes are requested on a pull request", "chat.message": "When a chat message arrives", "chat.mention": "When the bot is mentioned" }
+export const KIND_TITLES: Record<string, string> = { "task.entered_column": "When a card enters a column", schedule: "On a schedule", "pr.changes_requested": "When changes are requested on a pull request", "chat.message": "When a chat message arrives", "chat.mention": "When the bot is mentioned", "chat.button": "When a chat button is clicked" }

@@ -188,7 +188,8 @@ export function WithField({ spec, stepId, value, onChange, refs, taskRefs, optio
   const isExpression = typeof value === "string" && value.includes("${{")
   const listId = `options-${stepId}-${spec.name}`
   const set = (raw: string) => onChange(raw === "" && !spec.required ? undefined : raw)
-  const picker = spec.expressions && !rich && <ReferencePicker name={name} options={refs} onPick={expression => onChange(`${text}\${{ ${expression} }}`)} />
+  // Buttons take references row by row, in each value.
+  const picker = spec.expressions && !rich && spec.kind !== "chat_buttons" && <ReferencePicker name={name} options={refs} onPick={expression => onChange(`${text}\${{ ${expression} }}`)} />
   let control: React.ReactNode
   const suggestions = spec.kind === "macro" ? options.macros : spec.kind === "agent" ? options.agents : spec.kind === "tier" ? (options.tiers[agent] ?? Object.values(options.tiers).flat()) : spec.kind === "column" ? options.columns : spec.kind === "repository" ? options.repositories ?? [] : spec.kind === "chat_bot" ? options.bots ?? [] : []
   const groups = reads && spec.expressions ? valueGroups(reads.values, reads.location, spec.kind) : null
@@ -219,6 +220,11 @@ export function WithField({ spec, stepId, value, onChange, refs, taskRefs, optio
     case "json":
       control = <CommitField aria-label={name} multiline value={value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value, null, 2)} onCommit={raw => { if (raw.trim() === "") { onChange(undefined); return } try { onChange(JSON.parse(raw)) } catch { onChange(raw) } }} />
       break
+    case "chat_buttons":
+      control = isExpression
+        ? <CommitField aria-label={name} value={text} onCommit={set} />
+        : <ChatButtonsField name={name} stepId={stepId} value={value} refs={refs} onChange={onChange} />
+      break
     case "task":
       control = <select aria-label={name} className={fieldClass} value={text} onChange={event => onChange(event.target.value)}>
         {!taskRefs.includes(text) && <option value={text}>{text || "Choose a task"}</option>}
@@ -244,6 +250,47 @@ export function WithField({ spec, stepId, value, onChange, refs, taskRefs, optio
     <span className="text-[11px] text-lw-faint">{spec.description}</span>
     {notANumber && <p className="text-xs text-lw-danger">{spec.name} must be a whole number or a {"${{ }}"} expression</p>}
     <Problems diagnostics={problems} />
+  </div>
+}
+
+type ChatButtonValue = { label?: unknown; value?: unknown; style?: unknown }
+
+// MAX_CHAT_BUTTONS is what a message takes on every platform.
+const MAX_CHAT_BUTTONS = 5
+
+// ChatButtonsField is chat.message.send's buttons as rows of a label, a
+// value and a style, up to five; with none left, the field goes.
+function ChatButtonsField({ name, stepId, value, refs, onChange }: { name: string; stepId: string; value: unknown; refs: string[]; onChange: (value: unknown) => void }) {
+  const rows: ChatButtonValue[] = Array.isArray(value) ? value.map(row => (row && typeof row === "object" ? row : {}) as ChatButtonValue) : []
+  const write = (next: ChatButtonValue[]) => onChange(next.length === 0 ? undefined : next)
+  const update = (i: number, key: "label" | "value" | "style", raw: string) => write(rows.map((row, j) => {
+    if (j !== i) return row
+    const next: ChatButtonValue = { ...row, [key]: raw }
+    if (key === "style" && raw === "") delete next.style
+    return next
+  }))
+  return <div role="group" aria-label={name} className="flex flex-col gap-2">
+    {rows.map((row, i) => {
+      const n = i + 1
+      // A card per button: the inspector is narrow, so label and value
+      // share a line and the style and Remove go under them.
+      return <div key={i} role="group" aria-label={`Button ${n} of step ${stepId}`} className="flex flex-col gap-2 rounded-lg border border-lw-line p-2">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <CommitField aria-label={`Button ${n} label of step ${stepId}`} placeholder="Label" value={valueText(row.label)} onCommit={raw => update(i, "label", raw)} />
+          <span className="flex min-w-0 items-center gap-1">
+            <CommitField aria-label={`Button ${n} value of step ${stepId}`} placeholder="Value, such as fix:…" value={valueText(row.value)} onCommit={raw => update(i, "value", raw)} />
+            <ReferencePicker name={`button ${n} value of step ${stepId}`} options={refs} onPick={expression => update(i, "value", `${valueText(row.value)}\${{ ${expression} }}`)} />
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <select aria-label={`Button ${n} style of step ${stepId}`} className={`${fieldClass} w-auto`} value={valueText(row.style)} onChange={event => update(i, "style", event.target.value)}>
+            <option value="">Default style</option><option value="primary">Primary</option><option value="danger">Danger</option>
+          </select>
+          <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove button ${n} of step ${stepId}`} onClick={() => write(rows.filter((_, j) => j !== i))}><Trash2 size={13} /></Button>
+        </div>
+      </div>
+    })}
+    {rows.length < MAX_CHAT_BUTTONS && <Button type="button" size="sm" variant="outline" className="self-start" aria-label={`Add a button to step ${stepId}`} onClick={() => write([...rows, { label: "", value: "" }])}><Plus size={13} />Add a button</Button>}
   </div>
 }
 

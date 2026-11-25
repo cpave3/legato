@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 	"strings"
 	"sync"
@@ -81,16 +82,37 @@ func (c *slackConnection) Run(ctx context.Context, emit func(ChatEvent), connect
 	if err != nil {
 		return slackError(err)
 	}
-	err = c.client.Run(ctx, func(e slackbot.Event) {
-		if event, ok := slackChatEvent(c.name, self, e); ok {
-			emit(event)
-		}
-	}, connected)
+	err = c.client.Serve(ctx, slackbot.Handlers{
+		Event: func(e slackbot.Event) {
+			if event, ok := slackChatEvent(c.name, self, e); ok {
+				emit(event)
+			}
+		},
+		// Serve has acknowledged the click already, within Slack's 3s.
+		Click:     func(click slackbot.Click) { emit(slackClickEvent(c.name, click, c.client)) },
+		Connected: connected,
+	})
 	return slackError(err)
 }
 
-func (c *slackConnection) Send(ctx context.Context, channel, text, threadID string) (SentMessage, error) {
-	posted, err := c.client.PostMessage(ctx, channel, text, threadID)
+// slackClickEvent is a click as a ChatEvent: it replies in the message's
+// thread, or starts one under it.
+func slackClickEvent(name string, click slackbot.Click, client *slackbot.Client) ChatEvent {
+	thread := click.ThreadTS
+	if thread == "" {
+		thread = click.TS
+	}
+	e := ChatEvent{Bot: name, Platform: "slack", Channel: click.Channel, User: click.User, MessageID: click.TS,
+		ThreadID: thread, At: time.Now().UTC(),
+		Click: &ChatClick{Value: click.Value, Label: click.Label, InteractionID: click.InteractionID}}
+	if client != nil {
+		e.Click.settle = func(ctx context.Context, line string) error { return slackError(client.Settle(ctx, click, line)) }
+	}
+	return e
+}
+
+func (c *slackConnection) Send(ctx context.Context, channel, text, threadID string, buttons ...ChatButton) (SentMessage, error) {
+	posted, err := c.client.PostMessage(ctx, channel, text, threadID, slackButtons(buttons)...)
 	if err != nil {
 		return SentMessage{}, slackError(err)
 	}
@@ -101,6 +123,14 @@ func (c *slackConnection) Send(ctx context.Context, channel, text, threadID stri
 		threadID = posted.TS
 	}
 	return SentMessage{MessageID: posted.TS, Channel: channel, ThreadID: threadID}, nil
+}
+
+func slackButtons(buttons []ChatButton) []slackbot.Button {
+	out := make([]slackbot.Button, len(buttons))
+	for i, b := range buttons {
+		out[i] = slackbot.Button{Label: b.Label, Value: b.Value, Style: b.Style}
+	}
+	return out
 }
 
 func (c *slackConnection) React(ctx context.Context, channel, messageID, emoji string, remove bool) error {
@@ -178,11 +208,20 @@ func (c *discordConnection) Platform() string { return "discord" }
 func (c *discordConnection) Run(ctx context.Context, emit func(ChatEvent), connected func()) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	err := c.client.Run(ctx, func(m discordbot.Message) {
-		if event, ok := discordChatEvent(c.name, c.client.SelfID(), m); ok {
-			emit(event)
-		}
-	}, func(string) { connected() })
+	err := c.client.Serve(ctx, discordbot.Handlers{
+		Message: func(m discordbot.Message) {
+			if event, ok := discordChatEvent(c.name, c.client.SelfID(), m); ok {
+				emit(event)
+			}
+		},
+		// Serve has started the deferred response already, within
+		// Discord's 3s, so the queue may take its time.
+		Interaction: func(i discordbot.Interaction) { emit(discordClickEvent(c.name, i, c.client)) },
+		InteractionError: func(err error) {
+			log.Printf("chat bots: %s: answering a button click: %v", c.name, err)
+		},
+		Ready: func(string) { connected() },
+	})
 	switch {
 	case err == nil, errors.Is(err, context.Canceled):
 		return err
@@ -194,11 +233,31 @@ func (c *discordConnection) Run(ctx context.Context, emit func(ChatEvent), conne
 	return err
 }
 
+// discordClickEvent is a click as a ChatEvent: in a thread it replies
+// there, elsewhere to the message with the buttons.
+func discordClickEvent(name string, i discordbot.Interaction, client *discordbot.Client) ChatEvent {
+	thread := i.MessageID
+	if i.InThread {
+		thread = i.ChannelID
+	}
+	e := ChatEvent{Bot: name, Platform: "discord", Channel: i.ChannelID, User: i.UserID, MessageID: i.MessageID,
+		ThreadID: thread, At: time.Now().UTC(),
+		Click: &ChatClick{Value: i.Value, Label: i.Label, InteractionID: i.ID}}
+	if client != nil {
+		e.Click.settle = func(ctx context.Context, line string) error { return client.Settle(ctx, i, line) }
+	}
+	return e
+}
+
 // Send posts text with the :names: Legato knows as their emoji, since
 // Discord shows a bot's :eyes: as it is.
-func (c *discordConnection) Send(ctx context.Context, channel, text, threadID string) (SentMessage, error) {
+func (c *discordConnection) Send(ctx context.Context, channel, text, threadID string, buttons ...ChatButton) (SentMessage, error) {
 	replyTo := discordReplyTo(channel, threadID)
-	id, err := c.client.CreateMessage(ctx, channel, expandEmojiShortcodes(text), replyTo)
+	discordButtons := make([]discordbot.Button, len(buttons))
+	for i, b := range buttons {
+		discordButtons[i] = discordbot.Button{Label: b.Label, Value: b.Value, Style: b.Style}
+	}
+	id, err := c.client.CreateMessage(ctx, channel, expandEmojiShortcodes(text), replyTo, discordButtons...)
 	if err != nil {
 		return SentMessage{}, err
 	}

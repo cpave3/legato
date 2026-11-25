@@ -117,22 +117,25 @@ func (t *ChatTrigger) Validate(kind string, inputs map[string]Input) error {
 	return validateTriggerInputs(t.Inputs, inputs)
 }
 
-func (m *ChatTextMatch) validate() error {
+func (m *ChatTextMatch) validate() error { return m.validateAs("text") }
+
+// validateAs checks the match, naming it as the trigger's field name.
+func (m *ChatTextMatch) validateAs(name string) error {
 	switch {
 	case m.Contains != "" && m.Regex != "":
-		return fmt.Errorf("text takes contains or regex, not both")
+		return fmt.Errorf("%s takes contains or regex, not both", name)
 	case m.Contains == "" && m.Regex == "" && m.NotContains == "" && m.NotRegex == "":
-		return fmt.Errorf("text needs contains, regex, not_contains or not_regex")
+		return fmt.Errorf("%s needs contains, regex, not_contains or not_regex", name)
 	}
 	for _, field := range []struct{ name, pattern string }{{"regex", m.Regex}, {"not_regex", m.NotRegex}} {
 		if field.pattern == "" {
 			continue
 		}
 		if len(field.pattern) > MaxChatRegexLength {
-			return fmt.Errorf("text %s is longer than %d characters", field.name, MaxChatRegexLength)
+			return fmt.Errorf("%s %s is longer than %d characters", name, field.name, MaxChatRegexLength)
 		}
 		if _, err := regexp.Compile(field.pattern); err != nil {
-			return fmt.Errorf("text %s: %w", field.name, err)
+			return fmt.Errorf("%s %s: %w", name, field.name, err)
 		}
 	}
 	return nil
@@ -155,8 +158,12 @@ func (t ChatTrigger) Matches(e ChatEventFields) bool {
 	return t.Text == nil || t.Text.matches(e.Text)
 }
 
-// matches says whether text passes every test given.
+// matches says whether text passes every test given; a nil match passes
+// everything.
 func (m *ChatTextMatch) matches(text string) bool {
+	if m == nil {
+		return true
+	}
 	lower := strings.ToLower(text)
 	if m.Contains != "" && !strings.Contains(lower, strings.ToLower(m.Contains)) {
 		return false

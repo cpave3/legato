@@ -728,6 +728,56 @@
       ],
       "type": "object"
     },
+    "trigger.chat.button": {
+      "additionalProperties": false,
+      "properties": {
+        "bot": {
+          "description": "The bot, by name: slack or discord",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "type": "string"
+        },
+        "channel": {
+          "description": "Only clicks in this channel, by the platform's ID",
+          "type": "string"
+        },
+        "confirm": {
+          "description": "Ask the operator before each run",
+          "type": "boolean"
+        },
+        "enabled": {
+          "description": "false makes the trigger start paused, until a Legato switches it on",
+          "type": "boolean"
+        },
+        "inputs": {
+          "description": "The run's inputs, by name: literals, or ${{ event.* }}",
+          "type": "object",
+          "x-legato": {
+            "context": "trigger.chat.button"
+          }
+        },
+        "max_runs_per_day": {
+          "description": "Most runs for one message's buttons in a day before the loop stop asks; 0 for 3",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "user": {
+          "description": "Only clicks by this user, by the platform's ID; anyone in the channel when empty. A click by someone else starts nothing",
+          "type": "string"
+        },
+        "value": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/chat_text_match"
+            }
+          ],
+          "description": "Only clicks on a button whose value matches; a regex's named groups are ${{ event.match.\u003cname\u003e }}"
+        }
+      },
+      "required": [
+        "bot"
+      ],
+      "type": "object"
+    },
     "trigger.chat.mention": {
       "additionalProperties": false,
       "properties": {
@@ -1013,6 +1063,14 @@
     "triggers": {
       "additionalProperties": false,
       "properties": {
+        "chat.button": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/trigger.chat.button"
+            }
+          ],
+          "description": "Start a run when someone clicks a button a chat bot posted with chat.message.send's buttons"
+        },
         "chat.mention": {
           "allOf": [
             {
@@ -1729,6 +1787,75 @@
             "kind": "chat_bot",
             "label": "Bot",
             "order": 1
+          }
+        },
+        "buttons": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "label": {
+                    "anyOf": [
+                      {
+                        "maxLength": 75
+                      },
+                      {
+                        "pattern": "\\$\\{\\{[^}]*\\}\\}"
+                      }
+                    ],
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "style": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "primary",
+                          "danger"
+                        ]
+                      },
+                      {
+                        "pattern": "\\$\\{\\{[^}]*\\}\\}",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "value": {
+                    "anyOf": [
+                      {
+                        "maxLength": 100
+                      },
+                      {
+                        "pattern": "\\$\\{\\{[^}]*\\}\\}"
+                      }
+                    ],
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "label",
+                  "value"
+                ],
+                "type": "object"
+              },
+              "maxItems": 5,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "description": "Up to 5 buttons under the message, each a label (at most 75 characters), a value (at most 100, its own) and a style (primary or danger); a click starts the workflows whose chat.button trigger matches",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "chat_buttons",
+            "label": "Buttons",
+            "order": 5
           }
         },
         "channel": {
@@ -3523,6 +3650,48 @@
           {
             "pattern": "workflow.inputs.\u003crepository input\u003e.\u003crepository field\u003e",
             "description": "A field of a repository input"
+          }
+        ]
+      },
+      "trigger.chat.button": {
+        "location": "trigger.chat.button",
+        "description": "The inputs of a chat button trigger",
+        "roots": [
+          {
+            "pattern": "event.bot",
+            "description": "The bot that posted the buttons"
+          },
+          {
+            "pattern": "event.platform",
+            "description": "slack or discord"
+          },
+          {
+            "pattern": "event.channel",
+            "description": "The channel's ID"
+          },
+          {
+            "pattern": "event.user",
+            "description": "The ID of who clicked"
+          },
+          {
+            "pattern": "event.value",
+            "description": "The clicked button's value"
+          },
+          {
+            "pattern": "event.label",
+            "description": "The clicked button's label"
+          },
+          {
+            "pattern": "event.match.\u003cpath\u003e",
+            "description": "A named group of the value regex: event.match.task for ^fix:(?P\u003ctask\u003e.+)$"
+          },
+          {
+            "pattern": "event.message_id",
+            "description": "The ID of the message with the buttons"
+          },
+          {
+            "pattern": "event.thread_id",
+            "description": "What chat.message.send's thread_id takes to reply to that message"
           }
         ]
       },
