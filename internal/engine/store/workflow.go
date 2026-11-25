@@ -797,9 +797,14 @@ func (s *Store) attachStepSummaries(ctx context.Context, runs []WorkflowRun) err
 	return nil
 }
 
+// CancelWorkflowRun cancels a run that has not ended, or one that failed:
+// a failed run keeps what it holds (a review loop and its claims) for
+// Retry, and Cancel is how the operator gives it up. A failed step keeps
+// its error; ErrWorkflowStateConflict for a run that succeeded, was
+// stopped or was cancelled.
 func (s *Store) CancelWorkflowRun(ctx context.Context, runID, reason string) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		result, err := tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE id = ? AND status IN ('running','waiting','suspended')`, reason, runID)
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE id = ? AND status IN ('running','waiting','suspended','failed')`, reason, runID)
 		if err != nil {
 			return err
 		}

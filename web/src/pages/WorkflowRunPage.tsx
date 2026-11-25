@@ -535,7 +535,8 @@ export function WorkflowRunPage() {
             {when}
           </p>
         </div>
-        {live && <Button variant="ghost" size="sm" className="self-start" onClick={async () => { await cancelWorkflow(baseUrl, runId); await refresh() }}>Cancel run</Button>}
+        {/* A failed run keeps what it holds for Retry; Cancel gives it up. */}
+        {(live || run.status === "failed") && <Button variant="ghost" size="sm" className="self-start" onClick={async () => { await cancelWorkflow(baseUrl, runId); await refresh() }}>Cancel run</Button>}
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-lw-text-2"><StatePill tone={state.tone} label={state.label} />{where && <span>{where}</span>}</div>
       {steps.length > 0 && <StepBar segments={stepSegments(run, stepLikes)} label={where || state.label} className="mt-2" />}

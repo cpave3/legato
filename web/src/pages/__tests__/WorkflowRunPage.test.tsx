@@ -6,10 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { WorkflowRunView } from "../../lib/workflow"
 import { WorkflowRunPage } from "../WorkflowRunPage"
 
-const { fetchArtifact, fetchRun, triggerStep, retryStep, resumeStep, promptStep, anotherPass } = vi.hoisted(() => ({ fetchArtifact: vi.fn(), fetchRun: vi.fn(), triggerStep: vi.fn(), retryStep: vi.fn(), resumeStep: vi.fn(), promptStep: vi.fn(), anotherPass: vi.fn() }))
+const { fetchArtifact, fetchRun, triggerStep, retryStep, resumeStep, promptStep, anotherPass, cancelRun } = vi.hoisted(() => ({ fetchArtifact: vi.fn(), fetchRun: vi.fn(), triggerStep: vi.fn(), retryStep: vi.fn(), resumeStep: vi.fn(), promptStep: vi.fn(), anotherPass: vi.fn(), cancelRun: vi.fn() }))
 
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
-vi.mock("../../lib/workflow", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/workflow")>()), fetchWorkflowRun: fetchRun, fetchWorkflowArtifact: fetchArtifact, triggerWorkflowStep: triggerStep, retryWorkflowStep: retryStep, resumeWorkflowStep: resumeStep, promptWorkflowStep: promptStep, anotherReviewPass: anotherPass }))
+vi.mock("../../lib/workflow", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/workflow")>()), fetchWorkflowRun: fetchRun, fetchWorkflowArtifact: fetchArtifact, triggerWorkflowStep: triggerStep, retryWorkflowStep: retryStep, resumeWorkflowStep: resumeStep, promptWorkflowStep: promptStep, anotherReviewPass: anotherPass, cancelWorkflow: cancelRun }))
 
 const run = { id: "wr-1", workflow_name: "plan-task", workflow_title: "Plan jgek1vt3", definition_source: "/w/plan-task.yaml", definition_digest: "d", definition_json: JSON.stringify({ title: "Plan a task" }), inputs_json: '{"task":"jgek1vt3"}', related_task_id: "jgek1vt3", related_task_title: "Sync retries hammer Jira", created_at: "2026-07-28T10:00:00Z", started_at: "2026-07-28T10:00:00Z" }
 const stepRun = (step_id: string, step_order: number, title: string, executor_type: string, status: string, extra = {}) => ({ run_id: "wr-1", step_id, step_order, title, executor_type, definition_json: "{}", resolved_inputs_json: "{}", outputs_json: "{}", status, latest_attempt: status === "pending" ? 0 : 1, ...extra })
@@ -25,7 +25,7 @@ function show(data: unknown) {
 const now = () => screen.getByRole("region", { name: "Now" })
 
 describe("WorkflowRunPage", () => {
-  beforeEach(() => { cleanup(); fetchRun.mockReset(); fetchArtifact.mockReset(); triggerStep.mockReset(); retryStep.mockReset(); resumeStep.mockReset(); promptStep.mockReset(); anotherPass.mockReset(); vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn(() => "blob:test"), revokeObjectURL: vi.fn() }) })
+  beforeEach(() => { cleanup(); fetchRun.mockReset(); fetchArtifact.mockReset(); triggerStep.mockReset(); retryStep.mockReset(); resumeStep.mockReset(); promptStep.mockReset(); anotherPass.mockReset(); cancelRun.mockReset(); vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn(() => "blob:test"), revokeObjectURL: vi.fn() }) })
 
   it("keeps the run and expanded steps on refresh failure, then retries", async () => {
     const data = { run: { ...run, status: "succeeded" }, steps: [stepRun("plan", 0, "Write the plan", "agent.run", "succeeded", { outputs_json: '{"risk":"low"}' })], attempts: [], artifacts: [] }
@@ -149,12 +149,20 @@ describe("WorkflowRunPage", () => {
     expect(document.body.textContent).toContain("Failed")
     expect(within(now()).getByText("Move to Shipped failed")).toBeTruthy()
     expect(within(now()).getByText("column \"Shipped\" not found")).toBeTruthy()
-    expect(screen.queryByRole("button", { name: "Cancel run" })).toBeNull()
     fireEvent.click(within(now()).getByRole("button", { name: "Retry step" }))
     await waitFor(() => expect(retryStep).toHaveBeenCalledWith("", "wr-1", "move", false))
     const failed = within(screen.getByRole("list", { name: "Steps" })).getAllByRole("listitem")[1]
     expect(within(failed).getByRole("button", { name: /Move to Shipped/ }).getAttribute("aria-expanded")).toBe("true")
     expect(failed.textContent).toContain("Shipped")
+  })
+
+  // A failed run keeps what it holds (a review loop and its pull requests)
+  // for Retry: Cancel run is how the operator gives it up instead.
+  it("cancels a failed run", async () => {
+    cancelRun.mockResolvedValue({})
+    show({ run: { ...run, status: "failed", current_step_id: "review", error: "the operator failed it", completed_at: "2026-07-28T10:00:01Z" }, steps: [stepRun("review", 0, "Review in passes", "github.pr.review_passes", "failed", { error: "the operator failed it" })], attempts: [], artifacts: [] })
+    fireEvent.click(screen.getByRole("button", { name: "Cancel run" }))
+    await waitFor(() => expect(cancelRun).toHaveBeenCalledWith("", "wr-1"))
   })
 
   it("says a step whose agent Legato stopped with is suspended, and resumes it", async () => {

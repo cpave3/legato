@@ -98,6 +98,40 @@ func TestRetryAfterAFailureResumesTheSameReviewLoop(t *testing.T) {
 	}
 }
 
+// A failed run keeps its loop, and the loop's claim, for Retry; the
+// operator who gives up on it cancels it instead: the run is cancelled, the
+// holder's next tick closes its loop, and the pull request is free for
+// another review (LEG-605 review).
+func TestCancellingAFailedReviewRunFreesItsPullRequest(t *testing.T) {
+	r, view := afterPassOne(t, ReviewPassOptions{})
+	ctx := context.Background()
+	attempt := latestAttempt(t, r.show(t, view.Run.ID), "review")
+	if _, err := r.runs.Workflows.Fail(ctx, view.Run.ID, "review", attempt.ID, "the operator failed it"); err != nil {
+		t.Fatal(err)
+	}
+	r.tick()
+	if held, _ := r.worker.Store.ActiveReviewLoop(ctx, "acme/widget", 12); held == nil {
+		t.Fatal("the failed run's loop gave up its claim on #12 before Retry or Cancel")
+	}
+
+	cancelled, err := r.runs.Workflows.Cancel(ctx, view.Run.ID, "not needed")
+	if err != nil {
+		t.Fatalf("cancel a failed run: %v", err)
+	}
+	if cancelled.Run.Status != "cancelled" {
+		t.Fatalf("run %q after cancel", cancelled.Run.Status)
+	}
+	r.tick()
+	loop, _ := r.worker.Store.CurrentReviewLoop(ctx, view.Run.TaskID)
+	if loop == nil || loop.State != store.ReviewLoopClosedState || loop.Outcome != service.ReviewOutcomeCancelled {
+		t.Fatalf("loop = %+v; want it closed cancelled", loop)
+	}
+	again := r.start(t, pr12)
+	if again.Run.Status != "running" || again.Steps[0].Status != service.WorkflowStepWaiting {
+		t.Fatalf("another run on #12: %q: %s", again.Run.Status, again.Run.Error)
+	}
+}
+
 // A step that failed while its pass 2 was in flight resumes on Retry with
 // that pass pinned again under its number, 2, following the last posted
 // pass: no primary-key error, and no pass 3.
