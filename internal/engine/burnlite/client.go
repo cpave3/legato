@@ -109,6 +109,7 @@ type Project struct {
 
 // TaskRow is a Task as list_tasks gives it: no text.
 type TaskRow struct {
+	ID                string
 	Key               string
 	URL               string
 	Name              string
@@ -176,6 +177,7 @@ type wireClaim struct {
 }
 
 type wireRow struct {
+	ID                string     `json:"id"`
 	Key               string     `json:"key"`
 	URL               string     `json:"url"`
 	TaskName          string     `json:"taskName"`
@@ -246,7 +248,7 @@ func (c *Client) ListMilestones(ctx context.Context, project string) ([]Mileston
 func readRows(wire []wireRow) []TaskRow {
 	rows := make([]TaskRow, len(wire))
 	for i, w := range wire {
-		rows[i] = TaskRow{Key: w.Key, URL: w.URL, Name: w.TaskName, Kind: w.Kind, MilestoneKey: deref(w.MilestoneKey),
+		rows[i] = TaskRow{ID: w.ID, Key: w.Key, URL: w.URL, Name: w.TaskName, Kind: w.Kind, MilestoneKey: deref(w.MilestoneKey),
 			MilestoneName: deref(w.MilestoneName), State: w.State, CloseReason: deref(w.CloseReason),
 			ResolutionSummary: deref(w.ResolutionSummary), Labels: w.Labels, Blocked: w.Blocked, OpenBlockers: w.OpenBlockers,
 			Frontier: w.Frontier, UpdatedAt: parseTime(w.UpdatedAt)}
