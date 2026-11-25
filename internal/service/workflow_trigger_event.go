@@ -30,6 +30,9 @@ type TriggerEvent struct {
 	Context map[string]any
 	// At is when it fired; the coordinator's clock when zero.
 	At time.Time
+	// Skip, when set, records the request as skipped with this reason
+	// and starts nothing: a chat fallback another trigger answered.
+	Skip string
 }
 
 type triggerEventRecord struct {
@@ -61,6 +64,12 @@ func (c *WorkflowTriggerCoordinator) Fire(ctx context.Context, event TriggerEven
 	}
 	if err != nil {
 		return nil, err
+	}
+	if event.Skip != "" {
+		if err := c.update(ctx, request.ID, "skipped", "", "{}", "[]", event.Skip); err != nil {
+			return nil, err
+		}
+		return c.store.GetWorkflowTriggerRequest(ctx, request.ID)
 	}
 	c.changed(request.ID)
 	if err := c.processEvent(ctx, definition, request, nil, false, false); err != nil {
