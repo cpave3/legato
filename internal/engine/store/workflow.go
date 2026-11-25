@@ -707,6 +707,14 @@ type StepFailure struct {
 	// Outputs are more outputs the failure has, such as the child run's
 	// run_id; they never replace status, error or error_code.
 	Outputs map[string]any
+	// LoopState is a failing loop's state, written over the one read in
+	// the failure's own transaction (LEG-490).
+	LoopState *LoopStateWrite
+}
+
+// LoopStateWrite is a loop's state as read (Old) and as it is to be (New).
+type LoopStateWrite struct {
+	Old, New string
 }
 
 // FailureOutputs are the outputs a failed step has: status (failed unless
@@ -746,6 +754,11 @@ func (s *Store) FailWorkflowStepWith(ctx context.Context, runID, path, attemptID
 	encoded, _ := json.Marshal(FailureOutputs(failure))
 	mode := FailureFailed
 	err := withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		if write := failure.LoopState; write != nil {
+			if err := setLoopState(ctx, tx, runID, path, write.Old, write.New); err != nil {
+				return err
+			}
+		}
 		var step struct {
 			ParentPath     string `db:"parent_path"`
 			StepOrder      int    `db:"step_order"`

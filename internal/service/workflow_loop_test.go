@@ -766,3 +766,93 @@ steps:
 		t.Fatalf("run %s, each %s: %s", view.Run.Status, stepOf(t, view, "each").Status, stepOf(t, view, "each").Error)
 	}
 }
+
+// A host that died after starting a loop's step, before writing its
+// state, leaves the loop running with no state: the reconcile starts it
+// (an over: loop reads its list then), rather than end it with no passes.
+func TestTheReconcileStartsALoopLeftWithNoState(t *testing.T) {
+	waits := &funcExecutor{typeName: "github.pr.wait", run: func(ResolvedWorkflowStep, int) (WorkflowExecutionResult, error) {
+		return WorkflowExecutionResult{Status: WorkflowStepWaiting}, nil
+	}}
+	svc, s := controlService(t, waits)
+	ctx := context.Background()
+	view, err := svc.Start(ctx, loopDefinition(t, `schema_version: 2
+name: crash
+title: Crash
+steps:
+  - id: first
+    type: github.pr.wait
+    with: {repo: o/r, pr_number: 1}
+  - id: each
+    loop: {over: [a, b], key: "${{ loop.item }}"}
+    steps:
+      - {id: wait, type: github.pr.wait, with: {repo: o/r, pr_number: 1, item: "${{ loop.item }}"}}
+`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CompleteWorkflowStep(ctx, view.Run.ID, "first", view.Attempts[0].ID, "{}", "each"); err != nil {
+		t.Fatal(err)
+	}
+	// The loop's step is started, and nothing more.
+	attempt := store.WorkflowStepAttempt{ID: "wa-loop", RunID: view.Run.ID, Path: "each", StepID: "each", AttemptNumber: 1, ExecutorType: workflowengine.LoopStepType, TaskID: view.Run.TaskID, Status: "running"}
+	if err := s.StartWorkflowStepAttempt(ctx, attempt, "{}"); err != nil {
+		t.Fatal(err)
+	}
+	NewWorkflowService(s, []WorkflowExecutor{waits}).ReconcileLoops(ctx)
+	if view, err = s.GetWorkflowRun(ctx, view.Run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if view.Run.Status != "running" || view.Run.CurrentStepID != "each/0/wait" {
+		t.Fatalf("run %s at %s; each = %s", view.Run.Status, view.Run.CurrentStepID, stepOf(t, view, "each").OutputsJSON)
+	}
+	if starts := waits.startsOf("wait"); len(starts) != 1 || starts[0].With["item"] != "a" {
+		t.Fatalf("pass starts = %+v", starts)
+	}
+}
+
+// A loop's failure writes its state with the step's failure, or neither:
+// a host that dies between them leaves a loop the reconcile fails, not a
+// loop whose failed pass is closed and that goes on to the next.
+func TestALoopsFailureAndItsStateAreWrittenTogether(t *testing.T) {
+	steps := &funcExecutor{typeName: "task.context", run: func(_ ResolvedWorkflowStep, count int) (WorkflowExecutionResult, error) {
+		if count == 0 {
+			return WorkflowExecutionResult{}, errors.New("broke")
+		}
+		return succeeded(map[string]any{})
+	}}
+	svc, s := controlService(t, steps)
+	ctx := context.Background()
+	crash := `CREATE TRIGGER crash_loop_fail BEFORE UPDATE OF status ON workflow_step_attempts
+		WHEN NEW.executor_type = 'loop' AND NEW.status = 'failed' BEGIN SELECT RAISE(ABORT, 'crash between writes'); END`
+	if _, err := s.DB().Exec(crash); err != nil {
+		t.Fatal(err)
+	}
+	view, _ := svc.Start(ctx, loopDefinition(t, `schema_version: 2
+name: failing
+title: Failing
+steps:
+  - id: each
+    loop: {repeat: true, max: 3, on_failure: fail}
+    steps:
+      - {id: work, type: task.context, with: {task: "${{ workflow.task }}"}}
+`), nil)
+	if view == nil {
+		runs, err := s.ListWorkflowRuns(ctx, store.WorkflowRunFilter{})
+		if err != nil || len(runs) != 1 {
+			t.Fatalf("runs = %+v, %v", runs, err)
+		}
+		view = &store.WorkflowRunView{Run: runs[0]}
+	}
+	if _, err := s.DB().Exec(`DROP TRIGGER crash_loop_fail`); err != nil {
+		t.Fatal(err)
+	}
+	NewWorkflowService(s, []WorkflowExecutor{steps}).ReconcileLoops(ctx)
+	view, err := s.GetWorkflowRun(ctx, view.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if each := stepOf(t, view, "each"); view.Run.Status != "failed" || each.Status != "failed" || len(steps.startsOf("work")) != 1 {
+		t.Fatalf("run %s at %s, each %s, work started %d times", view.Run.Status, view.Run.CurrentStepID, each.Status, len(steps.startsOf("work")))
+	}
+}

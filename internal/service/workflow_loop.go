@@ -336,22 +336,32 @@ func (s *WorkflowService) startLoop(ctx context.Context, at *runAt, scope workfl
 	}
 	s.changed(ctx, runID, path, WorkflowChangeStepStarted)
 	state, err := workflowengine.ParseLoopState(at.row.LoopStateJSON)
-	if err == nil && !state.Started {
-		state.Started = true
-		if at.step.Loop.Over != nil {
-			state.Items, err = at.definition.LoopItems(path, scope)
-		}
+	if err == nil {
+		state, err = s.loopStarted(at, scope, state)
 	}
 	if err != nil {
 		// A loop that cannot start fails; its on_failure applies.
-		moved, failErr := s.failLoop(ctx, runID, path, attempt.ID, err, nil)
+		moved, failErr := s.failLoop(ctx, runID, path, attempt.ID, err, nil, nil)
 		return !moved, failErr
 	}
-	state.EndedBy = ""
 	if err := s.store.SetWorkflowLoopState(ctx, runID, path, at.row.LoopStateJSON, state.Encode()); err != nil {
-		return true, err
+		return true, conflictIsNotMoved(err)
 	}
 	return false, nil
+}
+
+// loopStarted is a loop's state as its step starts: the first time, an
+// over: loop's list is read; a Retry goes on from its passes.
+func (s *WorkflowService) loopStarted(at *runAt, scope workflowengine.Scope, state workflowengine.LoopState) (workflowengine.LoopState, error) {
+	var err error
+	if !state.Started {
+		state.Started = true
+		if at.step.Loop.Over != nil {
+			state.Items, err = at.definition.LoopItems(at.path, scope)
+		}
+	}
+	state.EndedBy = ""
+	return state, err
 }
 
 // loopTick moves a run that is at its running loop on: it ends the pass
@@ -370,6 +380,18 @@ func (s *WorkflowService) loopTick(ctx context.Context, at *runAt) (bool, error)
 	if err != nil {
 		return false, err
 	}
+	if !state.Started {
+		// A host stopped between starting the loop's step and writing its
+		// state: the loop starts now.
+		started, err := s.loopStarted(at, scope, state)
+		if err != nil {
+			return s.failLoop(ctx, runID, path, attemptID, err, nil, nil)
+		}
+		if err := s.store.SetWorkflowLoopState(ctx, runID, path, old, started.Encode()); err != nil {
+			return false, conflictIsNotMoved(err)
+		}
+		return true, nil
+	}
 	if open := state.Open(); open != nil {
 		query := at.rows[workflowengine.StepPath(workflowengine.PassPath(path, open.Index), workflowengine.NextStepID)]
 		if !open.Body && query.Status == "succeeded" {
@@ -384,16 +406,14 @@ func (s *WorkflowService) loopTick(ctx context.Context, at *runAt) (bool, error)
 		open.Open = false
 		if open.Result["status"] == workflowengine.PassFailed && loop.Failure() != workflowengine.OnFailureContinue {
 			// Under fail, or a result too big under pause (there is no
-			// step to hold the run at), the loop fails.
+			// step to hold the run at), the loop fails, its state written
+			// with the failure.
 			state.EndedBy = workflowengine.LoopEndedFailure
-			if err := s.store.SetWorkflowLoopState(ctx, runID, path, old, state.Encode()); err != nil {
-				return false, conflictIsNotMoved(err)
-			}
-			return s.failLoop(ctx, runID, path, attemptID, fmt.Errorf("pass %d failed: %v", open.Index, open.Result["error"]), state.Outputs())
+			return s.failLoop(ctx, runID, path, attemptID, fmt.Errorf("pass %d failed: %v", open.Index, open.Result["error"]), state.Outputs(), &store.LoopStateWrite{Old: old, New: state.Encode()})
 		}
 		scope.Loop = workflowengine.UntilContext(state)
 		if done, err := at.definition.LoopUntil(path, scope); err != nil {
-			return s.failLoop(ctx, runID, path, attemptID, err, state.Outputs())
+			return s.failLoop(ctx, runID, path, attemptID, err, state.Outputs(), nil)
 		} else if done {
 			return s.endLoop(ctx, at, old, state, workflowengine.LoopEndedUntil)
 		}
@@ -412,7 +432,7 @@ func (s *WorkflowService) loopTick(ctx context.Context, at *runAt) (bool, error)
 			key, err := s.itemKey(at, scope, state, index, item)
 			if err != nil {
 				// An item the loop cannot tell apart fails it.
-				return s.failLoop(ctx, runID, path, attemptID, err, state.Outputs())
+				return s.failLoop(ctx, runID, path, attemptID, err, state.Outputs(), nil)
 			}
 			if loop.Key != "" && state.HasSeen(key) {
 				continue
@@ -467,17 +487,14 @@ func (s *WorkflowService) pickNext(ctx context.Context, at *runAt, scope workflo
 		open.Result = map[string]any{"status": workflowengine.PassFailed, "error": "the next: query's items output is not a list"}
 		if at.step.Loop.Failure() != workflowengine.OnFailureContinue {
 			state.EndedBy = workflowengine.LoopEndedFailure
-			if err := s.store.SetWorkflowLoopState(ctx, at.view.Run.ID, at.path, old, state.Encode()); err != nil {
-				return false, conflictIsNotMoved(err)
-			}
-			return s.failLoop(ctx, at.view.Run.ID, at.path, s.latestAttemptID(at.view, at.path, at.row.LatestAttempt), fmt.Errorf("pass %d: %v", open.Index, open.Result["error"]), state.Outputs())
+			return s.failLoop(ctx, at.view.Run.ID, at.path, s.latestAttemptID(at.view, at.path, at.row.LatestAttempt), fmt.Errorf("pass %d: %v", open.Index, open.Result["error"]), state.Outputs(), &store.LoopStateWrite{Old: old, New: state.Encode()})
 		}
 		return s.startNextPassAfter(ctx, at, old, state)
 	}
 	for _, item := range items {
 		key, err := s.itemKey(at, scope, state, open.Index, item)
 		if err != nil {
-			return s.failLoop(ctx, at.view.Run.ID, at.path, s.latestAttemptID(at.view, at.path, at.row.LatestAttempt), err, state.Outputs())
+			return s.failLoop(ctx, at.view.Run.ID, at.path, s.latestAttemptID(at.view, at.path, at.row.LatestAttempt), err, state.Outputs(), nil)
 		}
 		if state.HasSeen(key) {
 			continue
@@ -575,10 +592,11 @@ func (s *WorkflowService) endLoop(ctx context.Context, at *runAt, old string, st
 	return true, nil
 }
 
-// failLoop fails a loop step with its outputs so far; the step's own
-// on_failure decides what becomes of the run.
-func (s *WorkflowService) failLoop(ctx context.Context, runID, path, attemptID string, cause error, outputs map[string]any) (bool, error) {
-	mode, err := s.store.FailWorkflowStepWith(ctx, runID, path, attemptID, store.StepFailure{Message: cause.Error(), InProcess: true, Outputs: outputs})
+// failLoop fails a loop step with its outputs so far, and with it writes
+// the loop's state when state is set; the step's own on_failure decides
+// what becomes of the run.
+func (s *WorkflowService) failLoop(ctx context.Context, runID, path, attemptID string, cause error, outputs map[string]any, state *store.LoopStateWrite) (bool, error) {
+	mode, err := s.store.FailWorkflowStepWith(ctx, runID, path, attemptID, store.StepFailure{Message: cause.Error(), InProcess: true, Outputs: outputs, LoopState: state})
 	if err != nil {
 		return false, conflictIsNotMoved(err)
 	}
