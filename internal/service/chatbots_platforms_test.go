@@ -107,3 +107,63 @@ func TestChatBotSpecsFromSettings(t *testing.T) {
 		t.Fatalf("slack set up but off = %+v", ok[1])
 	}
 }
+
+func TestSlackSharesBecomeAQuotedForward(t *testing.T) {
+	self := slackbot.Identity{UserID: "UBOT", BotID: "BBOT"}
+	alert := slackbot.Share{AuthorID: "UALICE", AuthorName: "alice", ChannelID: "C0ALERTS", ChannelName: "alerts",
+		FromURL: "https://example.slack.com/archives/C0ALERTS/p1", Text: "checkout is returning 500s\nsince 10:00"}
+	cases := []struct {
+		name  string
+		event slackbot.Event
+		want  ChatEvent
+	}{
+		{"to the bot's DM, with no note",
+			slackbot.Event{Type: "message", Channel: "D1", ChannelType: "im", User: "UCAMERON", TS: "9.1", Shares: []slackbot.Share{alert}},
+			ChatEvent{Bot: "slack", Platform: "slack", Channel: "D1", User: "UCAMERON", MessageID: "9.1", ThreadID: "9.1", Mention: true,
+				Forwarded: true, ForwardedURL: "https://example.slack.com/archives/C0ALERTS/p1",
+				ForwardedText: "> Forwarded from alice in #alerts:\n> checkout is returning 500s\n> since 10:00"}},
+		{"into a channel, a forwarded mention is not one",
+			slackbot.Event{Type: "message", Channel: "C1", ChannelType: "channel", User: "UCAMERON", Text: "fyi", TS: "9.2",
+				Shares: []slackbot.Share{{AuthorID: "UALICE", FromURL: "https://x/p2", Text: "<@UBOT> help"}}},
+			ChatEvent{Bot: "slack", Platform: "slack", Channel: "C1", User: "UCAMERON", Text: "fyi", MessageID: "9.2", ThreadID: "9.2",
+				Forwarded: true, ForwardedURL: "https://x/p2", ForwardedText: "> Forwarded from <@UALICE> in https://x/p2:\n> <@UBOT> help"}},
+		{"into a channel, with a note that mentions the bot",
+			slackbot.Event{Type: "message", Channel: "C1", ChannelType: "channel", User: "UCAMERON", Text: "<@UBOT> look", TS: "9.3",
+				Shares: []slackbot.Share{{Text: "down"}, {AuthorName: "bob", Text: "", FromURL: "https://x/p4"}}},
+			ChatEvent{Bot: "slack", Platform: "slack", Channel: "C1", User: "UCAMERON", Text: "<@UBOT> look", MessageID: "9.3", ThreadID: "9.3", Mention: true,
+				Forwarded: true, ForwardedURL: "https://x/p4", ForwardedText: "> Forwarded message:\n> down\n\n> Forwarded from bob in https://x/p4:"}},
+	}
+	for _, tc := range cases {
+		got, ok := slackChatEvent("slack", self, tc.event)
+		got.At = time.Time{}
+		if !ok || got != tc.want {
+			t.Errorf("%s:\n got %+v\nwant %+v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestDiscordSnapshotsBecomeAQuotedForward(t *testing.T) {
+	forward := discordbot.Forward{Content: "checkout is returning 500s <@self>", ChannelID: "alerts", GuildID: "g7", MessageID: "orig1"}
+	cases := []struct {
+		name    string
+		message discordbot.Message
+		want    ChatEvent
+	}{
+		{"to the bot's DM",
+			discordbot.Message{ID: "m1", ChannelID: "dm", AuthorID: "cameron", Forwards: []discordbot.Forward{{Content: "hi", ChannelID: "dm2", MessageID: "o2"}}},
+			ChatEvent{Bot: "discord", Platform: "discord", Channel: "dm", User: "cameron", MessageID: "m1", ThreadID: "m1", Mention: true,
+				Forwarded: true, ForwardedURL: "https://discord.com/channels/@me/dm2/o2",
+				ForwardedText: "> Forwarded message from https://discord.com/channels/@me/dm2/o2:\n> hi"}},
+		{"into a server channel, a forwarded mention is not one",
+			discordbot.Message{ID: "m2", ChannelID: "c1", GuildID: "g7", AuthorID: "cameron", Forwards: []discordbot.Forward{forward}},
+			ChatEvent{Bot: "discord", Platform: "discord", Channel: "c1", User: "cameron", MessageID: "m2", ThreadID: "m2",
+				Forwarded: true, ForwardedURL: "https://discord.com/channels/g7/alerts/orig1",
+				ForwardedText: "> Forwarded message from https://discord.com/channels/g7/alerts/orig1:\n> checkout is returning 500s <@self>"}},
+	}
+	for _, tc := range cases {
+		got, ok := discordChatEvent("discord", "self", tc.message)
+		if !ok || got != tc.want {
+			t.Errorf("%s:\n got %+v\nwant %+v", tc.name, got, tc.want)
+		}
+	}
+}

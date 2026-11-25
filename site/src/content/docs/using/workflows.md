@@ -422,9 +422,24 @@ on:
 - `include_bots: true` also starts runs on messages from other bots. The bot's own messages never start a run.
 - `loop_item` is what the [loop stop](#the-loop-stop) counts runs by: `channel` (the default) or `thread`.
 
-The inputs may read `${{ event.bot }}`, `${{ event.platform }}`, `${{ event.channel }}`, `${{ event.user }}`, `${{ event.text }}`, `${{ event.message_id }}` and `${{ event.thread_id }}`. `event.thread_id` is what a `chat.message.send` step's `thread_id` takes to reply to the message. Each message starts at most one run per trigger. A mention is a message too, so a workflow with both triggers gets a run from each.
+The inputs may read `${{ event.bot }}`, `${{ event.platform }}`, `${{ event.channel }}`, `${{ event.user }}`, `${{ event.text }}`, `${{ event.message_id }}`, `${{ event.thread_id }}`, `${{ event.forwarded }}` and `${{ event.forwarded_url }}`. `event.thread_id` is what a `chat.message.send` step's `thread_id` takes to reply to the message. Each message starts at most one run per trigger. A mention is a message too, so a workflow with both triggers gets a run from each.
 
-Message text is stored with the trigger request, cut to 8 KiB.
+Message text is stored with the trigger request, cut to 8 KiB. When a message forwards another, the forwarded part is cut first, and a final `> …` line shows where.
+
+#### Forwarded and shared messages
+
+When someone forwards or shares a message to the bot, `event.text` is their own text, if they wrote any, then the forwarded message as a quote:
+
+```text
+can you look at this?
+
+> Forwarded from alice in #alerts:
+> checkout is returning 500s
+```
+
+The `text` filter matches all of it, so `{contains: "500"}` matches a forwarded alert. `event.forwarded` is `true` for such a message and `false` for any other, and `event.forwarded_url` is the forwarded message's link (empty otherwise). `event.message_id`, `event.channel` and `event.thread_id` are those of the forwarding message, in the bot's channel, not of the original: a reply goes under the forward.
+
+A forward to the bot's direct messages is a mention, as every direct message is. In a channel, a forward is a mention only when the sender's own text mentions the bot. A mention inside the forwarded message does not count.
 
 A workflow that both listens to and posts in a channel cannot start itself, since the bot ignores its own messages. Two bots answering each other can still loop: the loop stop holds the fourth run in a day for one channel and asks you.
 

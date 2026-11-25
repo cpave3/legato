@@ -32,7 +32,8 @@ const ChatBotNamePattern = `^[a-z][a-z0-9_-]*$`
 // ChatTrigger starts a workflow on a chat message a bot receives. Its
 // inputs may read ${{ event.bot }}, ${{ event.platform }},
 // ${{ event.channel }}, ${{ event.user }}, ${{ event.text }},
-// ${{ event.message_id }} and ${{ event.thread_id }}.
+// ${{ event.message_id }}, ${{ event.thread_id }}, ${{ event.forwarded }}
+// and ${{ event.forwarded_url }}.
 type ChatTrigger struct {
 	// Bot is the bot's name: slack or discord.
 	Bot string `yaml:"bot" json:"bot"`

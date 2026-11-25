@@ -35,6 +35,15 @@ type ChatEvent struct {
 	// FromBot is a message another bot posted. The bot's own messages
 	// never become events.
 	FromBot bool
+	// Forwarded is a message that forwards or shares others. Text is then
+	// only the sender's own words, and ForwardedText the forwarded
+	// messages quoted, each under a "> Forwarded from …:" line; triggers
+	// see the two together. ForwardedURL is the first forwarded message's
+	// link that is known. Whether a message mentions the bot is decided
+	// from Text alone, never from what it forwards.
+	Forwarded     bool
+	ForwardedURL  string
+	ForwardedText string
 }
 
 // SentMessage is a message a bot sent.

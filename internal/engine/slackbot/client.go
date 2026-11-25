@@ -110,6 +110,9 @@ type Event struct {
 	ThreadTS    string // "" when not in a thread
 	EventTS     string
 	Subtype     string
+	// Shares are the messages this one forwards or shares, in order; Text
+	// is then only the sender's own note.
+	Shares []Share
 }
 
 // Posted is where chat.postMessage put a message.
@@ -270,16 +273,17 @@ type envelope struct {
 }
 
 type rawEvent struct {
-	Type        string `json:"type"`
-	Subtype     string `json:"subtype"`
-	Channel     string `json:"channel"`
-	ChannelType string `json:"channel_type"`
-	User        string `json:"user"`
-	BotID       string `json:"bot_id"`
-	Text        string `json:"text"`
-	TS          string `json:"ts"`
-	ThreadTS    string `json:"thread_ts"`
-	EventTS     string `json:"event_ts"`
+	Type        string            `json:"type"`
+	Subtype     string            `json:"subtype"`
+	Channel     string            `json:"channel"`
+	ChannelType string            `json:"channel_type"`
+	User        string            `json:"user"`
+	BotID       string            `json:"bot_id"`
+	Text        string            `json:"text"`
+	TS          string            `json:"ts"`
+	ThreadTS    string            `json:"thread_ts"`
+	EventTS     string            `json:"event_ts"`
+	Attachments []json.RawMessage `json:"attachments"`
 }
 
 // Run opens one Socket Mode session: Open, dial, wait for hello (then call
@@ -391,6 +395,7 @@ func parseEvent(payload json.RawMessage) (Event, bool) {
 		ThreadTS:    e.ThreadTS,
 		EventTS:     e.EventTS,
 		Subtype:     e.Subtype,
+		Shares:      shares(e.Attachments),
 	}, true
 }
 

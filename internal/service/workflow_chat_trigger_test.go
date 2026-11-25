@@ -13,6 +13,12 @@ import (
 
 func chatTriggerFixture(t *testing.T, on string) (*store.Store, *WorkflowTriggerCoordinator, *fakeWorkflowExecutor) {
 	t.Helper()
+	return chatTriggerFixtureWithInputs(t, "", on)
+}
+
+// chatTriggerFixtureWithInputs is chatTriggerFixture with more inputs.
+func chatTriggerFixtureWithInputs(t *testing.T, inputs, on string) (*store.Store, *WorkflowTriggerCoordinator, *fakeWorkflowExecutor) {
+	t.Helper()
 	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -25,7 +31,7 @@ title: Ops
 inputs:
   text: {type: string}
   thread: {type: string}
-on:
+` + inputs + `on:
 ` + on + `steps:
   - {id: say, title: Say, type: chat.message.send, with: {bot: slack, text: "${{ workflow.inputs.text }}", thread_id: "${{ workflow.inputs.thread }}"}}
 `
