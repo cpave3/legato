@@ -160,6 +160,41 @@ func TestResumingAnInterruptedAgentGivesItItsResourcesAgain(t *testing.T) {
 	}
 }
 
+// Launch messages are delivered in the background, after the call that
+// started the agent returns. A test that closes the store under a delivery
+// still writing to it fails its TempDir cleanup (LEG-630), so the fixture
+// waits for them: once waitLaunchDeliveries returns, the resumed agent's
+// note has been typed and acknowledged.
+func TestWaitLaunchDeliveriesReturnsOnceTheResumedAgentsNoteIsDelivered(t *testing.T) {
+	f := newRestartFixture(t)
+	ctx := context.Background()
+	f.interruptedAgent(t, "task-i", t.TempDir(), true)
+	f.clearSent()
+	if err := f.interrupted().ResumeInterruptedAgent(ctx, "task-i", false); err != nil {
+		t.Fatal(err)
+	}
+
+	f.svc.(*agentService).waitLaunchDeliveries()
+
+	lines := f.tmux.sentLinesFor("legato-task-i")
+	if len(lines) < 2 || !strings.HasPrefix(lines[1], "[legato interrupted] ") {
+		t.Fatalf("lines = %q, want the note typed", lines)
+	}
+	session, err := f.store.GetAgentSessionByTaskID(ctx, "task-i")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept, err := f.store.ListLaunchMessages(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range kept {
+		if m.ExecutionID == session.ExecutionID {
+			t.Fatalf("launch message %d of the resumed agent still kept", m.Position)
+		}
+	}
+}
+
 func TestAnInterruptedAgentWithNoConversationCanOnlyStartANewOne(t *testing.T) {
 	f := newRestartFixture(t)
 	ctx := context.Background()

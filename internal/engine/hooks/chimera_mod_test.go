@@ -95,7 +95,13 @@ func TestChimeraModNative(t *testing.T) {
 	}
 	help, err := exec.Command(chimera, "--help").CombinedOutput()
 	if err != nil {
-		t.Fatalf("chimera help: %v\n%s", err, help)
+		if pinned {
+			t.Fatalf("CHIMERA_MOD_TEST_BIN %s: --help: %v\n%s", chimera, err, help)
+		}
+		// A chimera on PATH that cannot run (a pnpm link to a checkout that
+		// is not built, say) is this machine's, not a failure of the mod.
+		t.Skipf("chimera at %s is not usable (--help: %v: %s; is it built?): set CHIMERA_MOD_TEST_BIN to a working chimera to run this test",
+			chimera, err, errorLine(string(help)))
 	}
 	if !strings.Contains(string(help), "mod ") && !strings.Contains(string(help), "mod\n") {
 		if pinned {
@@ -158,4 +164,16 @@ func TestInstallChimeraModToolsManifest(t *testing.T) {
 			t.Fatal("unchanged MCP manifest rewritten")
 		}
 	}
+}
+
+// errorLine is the line of a command's output that says what went wrong:
+// for Node, the error in its long stack trace.
+func errorLine(output string) string {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "Error") {
+			return strings.TrimSpace(line)
+		}
+	}
+	return strings.TrimSpace(lines[0])
 }

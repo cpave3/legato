@@ -444,6 +444,9 @@ type agentService struct {
 	// messages it keeps in launch_messages (launch_messages.go).
 	launchOwner      string
 	launchDeliveries sync.Map
+	// launchWG counts the deliveries running in the background, so tests
+	// can wait for them before closing the store (waitLaunchDeliveries).
+	launchWG         sync.WaitGroup
 	foregroundAgents sync.Map
 
 	sendKeysAdapter AgentInteraction

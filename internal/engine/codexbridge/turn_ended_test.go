@@ -36,24 +36,21 @@ func TestATurnThatDidNotCompleteIsReported(t *testing.T) {
 
 	h.begin("turn-1")
 	h.finish("turn-1", "completed")
+	// A turn that ends as the next begins is not reported (see the test
+	// below), so each turn's report is awaited before the next one starts.
 	for _, turn := range []struct{ id, status string }{{"turn-2", "interrupted"}, {"turn-3", "failed"}} {
 		h.codex.notify("turn/started", map[string]any{"threadId": threadID, "turn": map[string]any{"id": turn.id, "status": "inProgress", "items": []any{}}})
 		h.finish(turn.id, turn.status)
-	}
-
-	// Each report runs on its own, so they may arrive in either order.
-	got := map[string]bool{}
-	for range 2 {
 		select {
 		case status := <-ended:
-			got[status] = true
+			if status != turn.status {
+				t.Fatalf("reported %q for %s, want %q", status, turn.id, turn.status)
+			}
 		case <-time.After(2 * time.Second):
-			t.Fatalf("reported only %v, want interrupted and failed", got)
+			t.Fatalf("%s (%s) was not reported", turn.id, turn.status)
 		}
 	}
-	if !got["interrupted"] || !got["failed"] {
-		t.Fatalf("reported %v, want interrupted and failed", got)
-	}
+	// turn-1 completed, so it is not reported.
 	select {
 	case got := <-ended:
 		t.Fatalf("also reported %q", got)

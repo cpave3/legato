@@ -491,6 +491,11 @@ func TestWorkflowAgentWhoseBridgeNeverBindsFailsItsStep(t *testing.T) {
 	if err := s.StartWorkflowStepAttempt(ctx, attempt, `{}`); err != nil {
 		t.Fatal(err)
 	}
+	// In a run the step is waiting before the bind deadline matters. Here
+	// the delivery waits on a clone setup that ends only once the step is
+	// marked waiting, so a slow write cannot use up the deadline first.
+	setupStatus := filepath.Join(t.TempDir(), "legato-setup.status")
+	svc.(*agentService).waitForCloneSetup("wf-task", setupStatus)
 	if err := svc.SpawnAgent(ctx, "wf-task", 0, 0, AgentSpawnOptions{ExecutionKind: store.ExecutionWorkflowAgent, WorkflowRunID: run.ID, WorkflowAttemptID: attempt.ID, Brief: "write the digest"}); err != nil {
 		t.Fatal(err)
 	}
@@ -501,6 +506,9 @@ func TestWorkflowAgentWhoseBridgeNeverBindsFailsItsStep(t *testing.T) {
 	if err := s.MarkWorkflowStepWaiting(ctx, run.ID, "agent", attempt.ID, session, "", ""); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(setupStatus, []byte("0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	var view *store.WorkflowRunView
 	deadline := time.Now().Add(3 * time.Second)
@@ -509,7 +517,13 @@ func TestWorkflowAgentWhoseBridgeNeverBindsFailsItsStep(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if view.Steps[0].Status == "failed" || time.Now().After(deadline) {
+		// The step fails first and the prompt is dropped after it, so wait
+		// for both.
+		kept, err := s.ListLaunchMessages(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (view.Steps[0].Status == "failed" && len(kept) == 0) || time.Now().After(deadline) {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)

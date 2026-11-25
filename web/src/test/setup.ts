@@ -1,9 +1,13 @@
 import { cleanup, configure } from "@testing-library/react"
 import { afterEach } from "vitest"
 
-// findBy and waitFor give up after 1s by default, which a loaded machine (a CI
-// runner, or the Go tests running beside these) can miss on a large page.
-configure({ asyncUtilTimeout: 5000 })
+// findBy and waitFor give up after 1s by default. What they wait for here is a
+// mocked fetch and the first render of a page into jsdom, which has no
+// deadline of its own: a loaded machine (a CI runner, or the Go tests running
+// beside these) took over 5s for large pages such as ReportsPage and
+// WorkflowOutline (LEG-630). 15s stays under vitest's 20s test timeout, so a
+// real miss still reports the query that failed.
+configure({ asyncUtilTimeout: 15000 })
 
 // Testing Library unmounts after each test only when vitest's globals are on,
 // and they are off here. Without this a test's components stay mounted into

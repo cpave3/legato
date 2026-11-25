@@ -94,6 +94,13 @@ func observer(t *testing.T, address, topic string) (*paho.Client, <-chan *paho.P
 	if _, err := c.Subscribe(testContext(t), &paho.Subscribe{Subscriptions: []paho.SubscribeOptions{{Topic: topic, QoS: 1}}}); err != nil {
 		t.Fatal(err)
 	}
+	// Mochi sends SUBACK before it looks up the retained messages for the new
+	// subscription. A publication made in between would arrive twice: live,
+	// and again as retained. Mochi handles one connection's packets in order,
+	// so a second SUBACK means that lookup has finished.
+	if _, err := c.Subscribe(testContext(t), &paho.Subscribe{Subscriptions: []paho.SubscribeOptions{{Topic: "test/subscribe-barrier", QoS: 0}}}); err != nil {
+		t.Fatal(err)
+	}
 	return c, messages
 }
 
