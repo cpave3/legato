@@ -140,8 +140,20 @@ A comment on a pull request that the author must answer: from the repository's o
 _Avoid_: feedback comment, external feedback
 
 **Counted check**:
-A check a pull request must pass before its handoff's review loop ends: one branch protection requires on its base, else one the worker lists.
+A check a review loop holds a pull request to: one branch protection requires on its base, else one the instance lists. In any loop whose author is an agent or a handoff's, a failing one is a feedback item; after approval, the steward sends it to the author.
 _Avoid_: required CI, gate
+
+**Steward**:
+The part of a review loop that looks after an agent-authored pull request from approval until it is merged, closed, idle or ended. It sends the author what GitHub reports (failing counted checks, new counted comments and reviews) and re-enters review on each push. It never changes the pull request.
+_Avoid_: PR Steward, babysitter, watcher, shepherd
+
+**Re-entry**:
+One return of an approved, stewarded pull request to review because a watched head moved: one however many layers moved, counted against the loop's limit.
+_Avoid_: re-review, round
+
+**Watch**:
+The steward's waiting between re-entries.
+_Avoid_: poll, monitor
 
 **Feedback item**:
 One thing the author must handle after a review pass: a finding, a counted comment or a failing counted check, each with its ID and the author's answer.
