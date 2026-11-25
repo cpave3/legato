@@ -3,6 +3,7 @@ package planvalidate
 import (
 	"bytes"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -10,13 +11,22 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
-const (
-	mermaidVersion  = "11.16.0"
-	wiremarkVersion = "0.1.0"
-	jsdomVersion    = "29.0.1"
+// The plan validator's npm packages: package.json pins the parsers, and
+// package-lock.json pins every package of their tree with its integrity hash,
+// installed with npm ci. Without the lockfile each install took the newest
+// release of every transitive dependency, and a release published before its
+// own dependency (tldts 7.5.6 before tldts-core 7.5.6) failed the install with
+// ETARGET. Regenerate the lockfile after changing package.json with
+// go test ./internal/engine/planvalidate -run TestLockfile -update.
+var (
+	//go:embed node/package.json
+	packageJSON []byte
+	//go:embed node/package-lock.json
+	packageLock []byte
 )
 
 var nodeHelper = []byte(`import { JSDOM } from "jsdom";
@@ -149,8 +159,12 @@ func ensureNodeCache(options Options) (string, error) {
 		}
 		root = filepath.Join(userCache, "legato", "plan-validator")
 	}
-	hash := sha256.Sum256(nodeHelper)
-	key := fmt.Sprintf("v1-mermaid-%s-wiremark-%s-jsdom-%s-%s", mermaidVersion, wiremarkVersion, jsdomVersion, hex.EncodeToString(hash[:6]))
+	hash := sha256.New()
+	for _, file := range [][]byte{nodeHelper, packageJSON, packageLock} {
+		hash.Write(file)
+		hash.Write([]byte{0})
+	}
+	key := "v2-" + hex.EncodeToString(hash.Sum(nil)[:8])
 	cacheDir := filepath.Join(root, key)
 	if cacheComplete(cacheDir) {
 		return cacheDir, nil
@@ -163,9 +177,10 @@ func ensureNodeCache(options Options) (string, error) {
 		return "", fmt.Errorf("create plan validator cache: %w", err)
 	}
 	defer os.RemoveAll(temporary)
-	packageJSON := fmt.Sprintf(`{"private":true,"type":"module","dependencies":{"mermaid":"%s","@wiremark/core":"%s","jsdom":"%s"}}`, mermaidVersion, wiremarkVersion, jsdomVersion)
-	if err := os.WriteFile(filepath.Join(temporary, "package.json"), []byte(packageJSON), 0o644); err != nil {
-		return "", err
+	for name, content := range map[string][]byte{"package.json": packageJSON, "package-lock.json": packageLock} {
+		if err := os.WriteFile(filepath.Join(temporary, name), content, 0o644); err != nil {
+			return "", err
+		}
 	}
 	if err := os.WriteFile(filepath.Join(temporary, "validate.mjs"), nodeHelper, 0o644); err != nil {
 		return "", err
@@ -174,8 +189,8 @@ func ensureNodeCache(options Options) (string, error) {
 	if npm == "" {
 		npm = "npm"
 	}
-	if _, err := runCommand(options, npm, []string{"install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false"}, temporary, nil); err != nil {
-		return "", fmt.Errorf("install mermaid@%s, @wiremark/core@%s, and jsdom@%s with npm: %w", mermaidVersion, wiremarkVersion, jsdomVersion, err)
+	if _, err := runCommand(options, npm, []string{"ci", "--ignore-scripts", "--no-audit", "--no-fund"}, temporary, nil); err != nil {
+		return "", fmt.Errorf("install %s with npm: %w", pinnedPackages(), err)
 	}
 	if !cacheComplete(temporary) {
 		return "", errors.New("npm completed without installing the plan validator packages")
@@ -187,6 +202,22 @@ func ensureNodeCache(options Options) (string, error) {
 		return "", fmt.Errorf("publish plan validator cache: %w", err)
 	}
 	return cacheDir, nil
+}
+
+// pinnedPackages names the parsers package.json pins, for an install error.
+func pinnedPackages() string {
+	var manifest struct {
+		Dependencies map[string]string `json:"dependencies"`
+	}
+	if err := json.Unmarshal(packageJSON, &manifest); err != nil || len(manifest.Dependencies) == 0 {
+		return "the plan validator packages"
+	}
+	names := make([]string, 0, len(manifest.Dependencies))
+	for name, version := range manifest.Dependencies {
+		names = append(names, name+"@"+version)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 func cacheComplete(path string) bool {
