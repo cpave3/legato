@@ -47,7 +47,7 @@ The config parser SHALL expand environment variable references in the YAML file 
 
 The config parser SHALL apply default values for optional fields when they are not specified in the config file. The following defaults SHALL apply:
 - `jira.sync_interval_seconds`: 60
-- `board.columns`: the five default columns (Backlog, Ready, Doing, Review, Done) with their standard Jira status mappings as defined in spec.md section 4.2
+- `board.columns`: the five default columns (Backlog, Ready, Doing, Review, Done) with their standard Jira status mappings as defined in docs/history/spec.md section 4.2
 - `theme`: "default"
 - `keybindings.vim_mode`: true
 

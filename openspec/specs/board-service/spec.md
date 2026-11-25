@@ -12,7 +12,7 @@ The system SHALL define a `BoardService` interface in `internal/service/interfac
 #### Scenario: Interface matches spec contract
 
 - **WHEN** a developer inspects the `BoardService` interface
-- **THEN** it SHALL match the signatures defined in spec.md section 3.4, including return types `[]Column`, `[]Card`, `*CardDetail`, and `error`
+- **THEN** it SHALL match the signatures defined in docs/history/spec.md section 3.4, including return types `[]Column`, `[]Card`, `*CardDetail`, and `error`
 
 #### Scenario: Card type reflects task schema
 
@@ -140,7 +140,7 @@ The `GetCard` method SHALL return full detail for a task, including provider met
 #### Scenario: Full structured block format
 
 - **WHEN** `ExportCardContext` is called with `ExportFormatFull`
-- **THEN** it SHALL return a markdown string containing metadata (title, type, priority, epic, labels, URL) followed by a separator and the full description, matching the format defined in spec.md section 8.1
+- **THEN** it SHALL return a markdown string containing metadata (title, type, priority, epic, labels, URL) followed by a separator and the full description, matching the format defined in docs/history/spec.md section 8.1
 
 #### Scenario: Card not found
 

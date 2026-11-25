@@ -17,6 +17,14 @@ browser-extension/coverage/
 # Scratch plan files at repo root
 /plan.yaml
 /fix-plan.yaml
+/swarm-plan.yaml
+/swarm-*-plan.yaml
+/plan-test-*.yaml
+
+# Working outputs agents and workflows write at the root (task-triage reports,
+# swarm summaries); they belong in the task's notes, not the tree
+/task-triage-*.md
+/summary-*.md
 
 # pnpm makes its store here because the repo is its own mount
 /.pnpm-store/
