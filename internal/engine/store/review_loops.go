@@ -167,8 +167,10 @@ type ReviewLoop struct {
 	ChecksPolledAt  string `db:"checks_polled_at"`
 	ChecksHeads     string `db:"checks_heads"`
 	ChecksPending   int    `db:"checks_pending"`
-	// MarkerKey keys markers and pin refs: the loop ID, or the old task ID
-	// of a converted loop.
+	// MarkerKey keys the markers of what the loop leaves on GitHub: the
+	// loop ID, so two loops on one task never share one, or the old task
+	// ID of a converted loop, whose earlier posts are found by it. Pin refs
+	// keep the host task's ID.
 	MarkerKey string `db:"marker_key"`
 	CloneID   int64  `db:"clone_id"`
 	CloneDir  string `db:"clone_dir"`

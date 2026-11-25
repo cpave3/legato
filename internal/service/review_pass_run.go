@@ -237,9 +237,10 @@ func openReviewRun(ctx context.Context, db *store.Store, taskID string, run revi
 		PassesOff: !settings.Enabled, MaxPasses: settings.MaxPasses, Reviewer: settings.Agent, ReviewerModel: settings.Model,
 		ReviewerTier: settings.Tier, Skill: settings.Skill, SkillManaged: settings.SkillManaged,
 		ConfirmClean: run.ConfirmClean, SeenHead: run.SeenHead, SeenAt: run.SeenAt,
-		// Markers and pin refs keep the task's ID, as before the loop
-		// record, so what a loop left on GitHub is found again.
-		MarkerKey: taskID, CloneID: run.CloneID, CloneDir: run.Dir}}
+		// No marker key: OpenReviewLoop gives the loop's own ID, so a
+		// later step's loop on this task never finds this one's reviews
+		// on GitHub for its own (LEG-605 review).
+		CloneID: run.CloneID, CloneDir: run.Dir}}
 	for _, p := range run.prs() {
 		pr := read[p.Number]
 		open.PRs = append(open.PRs, store.ReviewLoopPR{Number: p.Number, Branch: pr.Branch, Base: pr.Base, Title: pr.Title, URL: pr.URL,

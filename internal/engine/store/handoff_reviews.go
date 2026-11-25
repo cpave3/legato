@@ -21,8 +21,10 @@ import (
 // HandoffReview is one task's review loop, as the engine reads and writes
 // it: the loop record's phase, counters and settings.
 type HandoffReview struct {
-	// LoopID is the loop record's ID; it is not written.
+	// LoopID is the loop record's ID, and MarkerKey its marker_key, which
+	// names what the loop leaves on GitHub; neither is written.
 	LoopID               string `db:"-"`
+	MarkerKey            string `db:"-"`
 	TaskID               string `db:"task_id"`
 	Settings             string `db:"settings"`
 	Phase                string `db:"phase"`
@@ -52,7 +54,10 @@ type HandoffReview struct {
 
 // HandoffReviewPass is one review pass.
 type HandoffReviewPass struct {
-	TaskID      string `db:"task_id"`
+	TaskID string `db:"task_id"`
+	// MarkerKey is its loop's marker_key, which its markers start with; it
+	// is not written.
+	MarkerKey   string `db:"-"`
 	Pass        int    `db:"pass"`
 	State       string `db:"state"`
 	Verdict     string `db:"verdict"`
@@ -255,8 +260,9 @@ func hostedLoop(ctx context.Context, tx *sqlx.Tx, taskID string, create bool) (*
 // newHostedReviewLoop opens a loop on a task that has none: a handed-off
 // card's (owned by its handoff, the open one else the newest), with no
 // pull requests and no claims yet. A workflow run's loop is opened with
-// OpenReviewLoop instead. Its markers and pin refs keep the task ID, as
-// they did before the loop record.
+// OpenReviewLoop instead. Its markers start with its own ID, as a new run
+// loop's do, so a later loop on the same card never finds this one's
+// reviews for its own (LEG-605 review).
 func newHostedReviewLoop(ctx context.Context, tx *sqlx.Tx, taskID string) (*ReviewLoop, error) {
 	var h struct {
 		MainInstanceID string `db:"main_instance_id"`
@@ -269,9 +275,10 @@ func newHostedReviewLoop(ctx context.Context, tx *sqlx.Tx, taskID string) (*Revi
 		return nil, err
 	}
 	now := reviewLoopNow()
-	l := ReviewLoop{ID: NewReviewLoopID(), Rev: 1, OwnerKind: ReviewLoopOwnerHandoff, HandoffID: h.HandoffID,
+	id := NewReviewLoopID()
+	l := ReviewLoop{ID: id, Rev: 1, OwnerKind: ReviewLoopOwnerHandoff, HandoffID: h.HandoffID,
 		MainInstanceID: h.MainInstanceID, HostTask: taskID, Repo: h.Repo, State: ReviewLoopOpenState,
-		Replies: "[]", MarkerKey: taskID, CreatedAt: now, UpdatedAt: now}
+		Replies: "[]", MarkerKey: id, CreatedAt: now, UpdatedAt: now}
 	if h.HandoffID != "" {
 		l.AuthorTask, l.LinkedTask = taskID, taskID
 	}
@@ -315,7 +322,7 @@ func setLoopSettings(l *ReviewLoop, settings string) {
 }
 
 func handoffReviewOf(l *ReviewLoop) *HandoffReview {
-	return &HandoffReview{LoopID: l.ID, TaskID: l.HostTask, Settings: loopSettingsJSON(l), Phase: l.Phase, Pass: l.Pass,
+	return &HandoffReview{LoopID: l.ID, MarkerKey: l.MarkerKey, TaskID: l.HostTask, Settings: loopSettingsJSON(l), Phase: l.Phase, Pass: l.Pass,
 		Mismatches: l.Mismatches, NudgedAt: l.NudgedAt, AuthorBusySinceNudge: l.AuthorBusySinceNudge, Reason: l.Reason,
 		QueuedAt: l.QueuedAt, UpdatedAt: l.UpdatedAt, DeliveredPass: l.DeliveredPass, PolledAt: l.PolledAt,
 		LastNewAt: l.LastNewAt, SkippedComments: l.SkippedComments, ChecksPolledAt: l.ChecksPolledAt,
@@ -519,7 +526,7 @@ func (s *Store) CloseHostedReviewLoop(ctx context.Context, taskID, phase, reason
 }
 
 func passOf(l *ReviewLoop, p ReviewLoopPass) HandoffReviewPass {
-	return HandoffReviewPass{TaskID: l.HostTask, Pass: p.Pass, State: p.State, Verdict: p.Verdict, Summary: p.Summary, Reason: p.Reason,
+	return HandoffReviewPass{TaskID: l.HostTask, MarkerKey: l.MarkerKey, Pass: p.Pass, State: p.State, Verdict: p.Verdict, Summary: p.Summary, Reason: p.Reason,
 		ExecutionID: p.ExecutionID, Checkout: p.Checkout, HeadSHA: p.HeadSHA, StartedAt: p.StartedAt, EndedAt: p.EndedAt,
 		Attempt: p.Attempt, PostingStartedAt: p.PostingStartedAt, PostAttempts: p.Attempts}
 }

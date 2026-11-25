@@ -737,14 +737,16 @@ func (s *ReviewPassService) changed(taskID string) {
 	}
 }
 
-// passReviewMarker is the marker of a pass's review of a pull request. A pass
+// passReviewMarker is the marker of a pass's review of a pull request,
+// keyed by its loop's marker key: the loop's own ID, or a converted loop's
+// old task ID, so two loops on one task never share a marker. A pass
 // pinned again after a discard (Attempt > 0) has markers of its own, so a
 // review a discarded attempt left on GitHub is never taken for its own.
 func passReviewMarker(pass store.HandoffReviewPass, number int) string {
 	if pass.Attempt > 0 {
-		return fmt.Sprintf("%s/pass-%d.%d/pr-%d", pass.TaskID, pass.Pass, pass.Attempt, number)
+		return fmt.Sprintf("%s/pass-%d.%d/pr-%d", pass.MarkerKey, pass.Pass, pass.Attempt, number)
 	}
-	return fmt.Sprintf("%s/pass-%d/pr-%d", pass.TaskID, pass.Pass, number)
+	return fmt.Sprintf("%s/pass-%d/pr-%d", pass.MarkerKey, pass.Pass, number)
 }
 
 // rulingMarker is the marker of a pass's ruling replied in a finding's
@@ -753,9 +755,9 @@ func passReviewMarker(pass store.HandoffReviewPass, number int) string {
 // for the ruling of the attempt that replaced it.
 func rulingMarker(pass store.HandoffReviewPass, findingID string) CommentMarker {
 	if pass.Attempt > 0 {
-		return CommentMarker{Kind: MarkerRuling, Key: fmt.Sprintf("%s/pass-%d.%d/%s", pass.TaskID, pass.Pass, pass.Attempt, findingID)}
+		return CommentMarker{Kind: MarkerRuling, Key: fmt.Sprintf("%s/pass-%d.%d/%s", pass.MarkerKey, pass.Pass, pass.Attempt, findingID)}
 	}
-	return CommentMarker{Kind: MarkerRuling, Key: fmt.Sprintf("%s/pass-%d/%s", pass.TaskID, pass.Pass, findingID)}
+	return CommentMarker{Kind: MarkerRuling, Key: fmt.Sprintf("%s/pass-%d/%s", pass.MarkerKey, pass.Pass, findingID)}
 }
 
 // Later reviews of a pass's pull request, each with a marker of its own in
