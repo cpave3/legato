@@ -151,7 +151,8 @@ Version 1 executes steps in declaration order and supports these executors. Lega
       pr_number: ${{ steps.implement.outputs.pr_number }}
       task: ${{ workflow.inputs.task }}
   ```
-- `chat.message.send`: post a message as a chat bot. `with.bot` is `slack` or `discord`; `with.channel` is a channel ID (empty: the bot's default channel); `with.text` is the message; `with.thread_id`, such as `${{ event.thread_id }}` from a chat trigger, replies in that thread. Outputs: `message_id`, `channel` and `thread_id` (what replies in the same thread). The step fails at once when the bot is not set up, is switched off, or its platform refused it. See [Slack](/legato/integrations/slack/) and [Discord](/legato/integrations/discord/).
+- `chat.message.send`: post a message as a chat bot. `with.bot` is `slack` or `discord`; `with.channel` is a channel ID (empty: the bot's default channel); `with.text` is the message; `with.thread_id` replies to a message: a chat trigger's `${{ event.thread_id }}` or `${{ event.message_id }}`, an earlier step's `message_id` or `thread_id` output, or any message's ID in the channel. On Slack the reply goes into that message's thread (give a thread's parent, which `event.thread_id` is); on Discord it is a reply to that message. The text can carry emoji: Slack shows `:eyes:` names itself, and on Discord Legato turns the common names (`:eyes:`, `:white_check_mark:`, `:tada:` and so on) into the emoji, outside code; an emoji written as itself works on both. Outputs: `message_id`, `channel` and `thread_id` (what replies in the same thread). The step fails at once when the bot is not set up, is switched off, or its platform refused it. See [Slack](/legato/integrations/slack/) and [Discord](/legato/integrations/discord/).
+- `chat.reaction.add` and `chat.reaction.remove`: add the bot's emoji reaction to a message, or remove it. `with.bot` and `with.channel` are as in `chat.message.send`; `with.message_id` is the message: a chat trigger's `${{ event.message_id }}` (with its `${{ event.channel }}`), an earlier `chat.message.send`'s `message_id` output, or any message's ID in the channel; `with.emoji` is an emoji's name without colons, such as `eyes` or `white_check_mark`, or the emoji itself (`👀`), and on Discord also a custom emoji as `name:id`. Slack takes any name it knows, its custom emoji too; Discord takes any emoji written as itself, and the common names. A reaction that is already there, or already gone, is not an error. Output: `ok`. A missing Slack scope (`reactions:write`) or Discord permission (**Add Reactions**, **Read Message History**) fails the step, naming it. See [React to a message](#react-to-the-message-that-started-a-run).
 - `burnlite.task.close`: close the Burnlite ticket a task was imported from (`with.task`), as `completed` (the default) or `not_planned` (`with.reason`), with a one-line `with.summary`. With `optional: true`, a task that is not a Burnlite ticket is skipped (`skipped: true`) instead of failing the step. Outputs: `key`, `closed` and `skipped`. Legato must be connected to Burnlite with write access; see [Burnlite](/legato/integrations/burnlite/#close-a-ticket-from-a-workflow).
 - `repo.ensure`: prepare what a job works in. With an empty `with.repo` it does nothing and outputs `working_dir` as given in `with.working_dir`. With a repository (`owner/name`) it makes Legato's cache of it ready (cloning or fetching with the `github` credential, so a repository Legato cannot read fails here) and outputs `repo`, `ref` and `branch` for the agent step; giving both `repo` and `working_dir` is refused. `agent.run` with `with.repo` (and `with.ref`, `with.branch`) starts its agent in a fresh clone made for the agent's execution, on its own branch.
 - `agent.interview`, `learning.packet.prepare` and `learning.proposals.submit`: the steps of [Legato Learn](/legato/using/learn/), for your own workflows too. See [Learn steps](#learn-steps) below.
@@ -422,7 +423,7 @@ on:
 - `include_bots: true` also starts runs on messages from other bots. The bot's own messages never start a run.
 - `loop_item` is what the [loop stop](#the-loop-stop) counts runs by: `channel` (the default) or `thread`.
 
-The inputs may read `${{ event.bot }}`, `${{ event.platform }}`, `${{ event.channel }}`, `${{ event.user }}`, `${{ event.text }}`, `${{ event.message_id }}`, `${{ event.thread_id }}`, `${{ event.forwarded }}` and `${{ event.forwarded_url }}`. `event.thread_id` is what a `chat.message.send` step's `thread_id` takes to reply to the message. Each message starts at most one run per trigger. A mention is a message too, so a workflow with both triggers gets a run from each.
+The inputs may read `${{ event.bot }}`, `${{ event.platform }}`, `${{ event.channel }}`, `${{ event.user }}`, `${{ event.text }}`, `${{ event.message_id }}`, `${{ event.thread_id }}`, `${{ event.forwarded }}` and `${{ event.forwarded_url }}`. `event.thread_id` is what a `chat.message.send` step's `thread_id` takes to reply to the message. `event.message_id` with `event.channel` names the message itself, for a reaction step. Each message starts at most one run per trigger. A mention is a message too, so a workflow with both triggers gets a run from each.
 
 Message text is stored with the trigger request, cut to 8 KiB. When a message forwards another, the forwarded part is cut first, and a final `> …` line shows where.
 
@@ -442,6 +443,38 @@ The `text` filter matches all of it, so `{contains: "500"}` matches a forwarded 
 A forward to the bot's direct messages is a mention, as every direct message is. In a channel, a forward is a mention only when the sender's own text mentions the bot. A mention inside the forwarded message does not count.
 
 A workflow that both listens to and posts in a channel cannot start itself, since the bot ignores its own messages. Two bots answering each other can still loop: the loop stop holds the fourth run in a day for one channel and asks you.
+
+#### React to the message that started a run
+
+Pass the message's channel and ID in as inputs, and a reaction step can show that the run picked it up. This one reacts 👀 as the run starts and swaps it for ✅ when it is done:
+
+```yaml
+inputs:
+  channel: {type: string}
+  message: {type: string}
+on:
+  chat.mention:
+    bot: slack
+    inputs:
+      channel: ${{ event.channel }}
+      message: ${{ event.message_id }}
+steps:
+  - id: seen
+    title: Show the request was picked up
+    type: chat.reaction.add
+    with: {bot: slack, channel: "${{ workflow.inputs.channel }}", message_id: "${{ workflow.inputs.message }}", emoji: eyes}
+  # ... the work ...
+  - id: unseen
+    title: Take the eyes off
+    type: chat.reaction.remove
+    with: {bot: slack, channel: "${{ workflow.inputs.channel }}", message_id: "${{ workflow.inputs.message }}", emoji: eyes}
+  - id: done
+    title: Mark it done
+    type: chat.reaction.add
+    with: {bot: slack, channel: "${{ workflow.inputs.channel }}", message_id: "${{ workflow.inputs.message }}", emoji: white_check_mark}
+```
+
+The emoji are the workflow's choice: any emoji works, on any message the bot can see. To react to a message the run posted, give the `chat.message.send` step's `channel` and `message_id` outputs.
 
 If a workflow names a bot that is not set up on this Legato, or is switched off, the editor warns you; a bot name Legato does not know is an error.
 

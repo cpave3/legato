@@ -693,18 +693,18 @@ integrations:
 
 ### Slack and Discord
 
-Chat bots that [workflows](/legato/using/workflows/) start on and post as. Each holds one outbound connection (Slack's Socket Mode, Discord's Gateway), so Legato needs no public address. The tokens are names of secrets, never the tokens themselves. All of these apply at restart. See [Slack](/legato/integrations/slack/) and [Discord](/legato/integrations/discord/).
+Chat bots that [workflows](/legato/using/workflows/) start on, post as and react as. Each holds one outbound connection (Slack's Socket Mode, Discord's Gateway), so Legato needs no public address. The tokens are names of secrets, never the tokens themselves. All of these apply at restart. See [Slack](/legato/integrations/slack/) and [Discord](/legato/integrations/discord/).
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `integrations.slack.enabled` | bool | `false` | Keeps the Slack bot connected. |
 | `integrations.slack.app_token` | secret | none | The name of a secret holding the app-level token (`xapp-…`), with `connections:write`. |
 | `integrations.slack.bot_token` | secret | none | The name of a secret holding the bot token (`xoxb-…`). |
-| `integrations.slack.default_channel` | string | none | The channel ID a `chat.message.send` step posts to when it names none. |
+| `integrations.slack.default_channel` | string | none | The channel ID a `chat.message.send` step posts to, and a `chat.reaction.add` or `chat.reaction.remove` step reacts in, when it names none. |
 | `integrations.discord.enabled` | bool | `false` | Keeps the Discord bot connected. |
 | `integrations.discord.token` | secret | none | The name of a secret holding the bot's token. |
 | `integrations.discord.intents` | list of strings | all four | The gateway intents: `guilds`, `guild_messages`, `direct_messages`, `message_content`. Without `message_content`, a server message's text arrives only when it mentions the bot. |
-| `integrations.discord.default_channel` | string | none | The channel ID a `chat.message.send` step posts to when it names none. |
+| `integrations.discord.default_channel` | string | none | The channel ID a `chat.message.send` step posts to, and a `chat.reaction.add` or `chat.reaction.remove` step reacts in, when it names none. |
 
 ```yaml
 integrations:
