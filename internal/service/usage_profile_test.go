@@ -191,3 +191,24 @@ func TestUsagePolicyExpiresPinsOnPollWithReadersOff(t *testing.T) {
 		t.Fatalf("readers-off poll = %+v", snap)
 	}
 }
+
+func TestUsagePolicyRecordsTheFirstReadingAboveAThresholdAsASwitch(t *testing.T) {
+	f := newUsageFixture(t)
+	ctx := context.Background()
+	order := 1
+	notifier := &usageTestNotifier{}
+	cfg := config.UsageConfig{Profiles: []config.UsageProfile{{Name: "normal", Agent: "claude-code"}, {Name: "save", Agent: "chimera"}}, FallbackProfile: "normal", Rules: []config.UsageRule{{Name: "limit", Order: &order, Meter: "claude.weekly", AtLeast: 90, Profile: "save"}}}
+	policy := NewUsagePolicyService(UsagePolicyOptions{Store: f.db, Config: func(context.Context) (config.UsageConfig, error) { return cfg, nil }, Readings: f.svc.ReadingsSnapshot, Now: func() time.Time { return f.now }, OnSwitch: func(_ context.Context, state UsageProfileState, id int64) {
+		NotifyUsageProfileSwitch(state, id, true, notifier)
+	}})
+	f.svc.SetPolicy(policy, policy.Pin)
+	f.claude.set(ProviderUsage{Windows: claudeWindows(91)}, nil)
+	f.svc.Poll(ctx)
+	snap, err := f.svc.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Policy.Switches) != 1 || snap.Policy.Switches[0].From != "normal" || snap.Policy.Switches[0].To != "save" || notifier.count != 1 {
+		t.Fatalf("startup threshold switch=%+v notifications=%d", snap.Policy, notifier.count)
+	}
+}
