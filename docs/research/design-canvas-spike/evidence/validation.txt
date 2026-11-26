@@ -1,0 +1,23 @@
+2026-11-26T10:02:25Z
+Python 3.12.13
+Playwright 1.65.1
+Google Chrome for Testing 155.0.8059.12
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.511s
+
+OK
+{
+  "passed": [
+    "interactive document JS",
+    "host DOM access blocked",
+    "document network blocked",
+    "pin saved through API",
+    "feedback survives reload",
+    "same core in embedded harness",
+    "stale revision rejected (409)",
+    "old revision retrievable",
+    "frame navigation",
+    "390px host no overflow"
+  ]
+}
