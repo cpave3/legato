@@ -285,7 +285,18 @@ The **Workflows** tab lists each workflow with its steps (✋ marks one that wai
 
 ### A workflow's page
 
-Select a workflow's title on the **Workflows** tab to open its page. It shows the workflow's title, description and file, and its **workflow graph**: the workflow drawn as nodes, built from its YAML. The graph is read-only: **Edit** opens the workflow's file in the editor (see [Create and edit in the web UI](#create-and-edit-in-the-web-ui)).
+Select a workflow's title on the **Workflows** tab to open its page. Its **workflow graph** fills the page: the workflow drawn as nodes, built from its YAML, laid out as a run's page lays out a run. The header above it has the workflow's title, its name and file, what its triggers are doing here (such as **2 triggers on**, **1 on · 1 paused** or **Run by hand only**), and its actions: **Edit** opens the workflow's file in the editor (see [Create and edit in the web UI](#create-and-edit-in-the-web-ui)), **Copy to my workflows** makes your own copy of a built-in one, and **Run** opens the form for its inputs. The graph itself is read-only.
+
+The rest of the workflow floats over the graph as cards in a column on the left:
+
+- **Triggers**: each trigger with its switch, which turns it on or pauses it on this Legato. Choose a trigger to select its node.
+- **Inputs**: what a run asks for, with each input's type, whether it is required, its default and its description. A secret input's default is never shown.
+- **Outputs**: what a run gives back (see [A workflow's outputs](#a-workflows-outputs)), with the expression each comes from.
+- **Steps**: the steps in order. Choose one to select its node and centre the graph on it.
+- **Recent runs**: the workflow's last ten runs, each a link to its run's page.
+- **About**: the description, the file, the file it replaces and why it is read-only here, when it is.
+
+Click a card's title to fold it to that line, or open it again; the page remembers which cards you folded, apart from a run's page. **Inputs** starts open on a large screen and folded on a smaller one; **Outputs**, **Steps** and **About** start folded. A file's warnings float over the graph.
 
 - **Run by hand** is the node every workflow starts from when you run it yourself.
 - Each trigger the workflow declares is a node too, leading into the first step: when it fires (**Card enters Triage**, **Every weekday at 09:00**, **Changes requested on a PR**), whether it is **on here** or **paused here**, and its loop stop (**3/day**).
@@ -295,13 +306,15 @@ Select a workflow's title on the **Workflows** tab to open its page. It shows th
 - A **gate** is a step that does not start by itself. It carries a mark: **you** (✋) for a step that waits for you to start it, **agent ends** (⏳) for one that waits for the agent before it to end.
 - Select a step to see which steps feed it: dashed arrows, labelled with the outputs used, lead from each step whose outputs it uses, and from it to each step that uses its own. They are hidden while nothing is selected, so the graph stays readable.
 
-Drag to pan, scroll or use the buttons at the bottom left to zoom, and the frame button to fit the whole graph. The overview at the bottom right shows where you are in a long workflow. Click a node, or move to it with Tab and press Enter, to select it. On a phone the graph runs top to bottom, and what the side panel shows opens in a sheet from the bottom of the screen.
+Drag to pan and scroll to zoom. A small workflow opens fitted to the page; a long one opens at its triggers, at a readable size. The buttons at the bottom left zoom (− and +), and **Fit** shows the whole flow. **Panels** (or the `.` key) hides every card for an unobstructed view, and brings them back. Zoomed out below 60%, each step shows only its title, kept a readable size. The overview at the bottom right shows where you are in a long workflow. Click a node, or move to it with Tab and press Enter, to select it.
 
-Select a step to see its own YAML in the panel beside the graph, with **Copy** and the file it is in, to find and reuse its exact definition. The values of secret inputs are hidden there too.
+Select a step to see its own YAML in a panel on the right of the graph, with **Copy** and the file it is in, to find and reuse its exact definition. The values of secret inputs are hidden there too. Close the panel with ✕ or Escape.
 
-Select a trigger to see its settings in the panel beside the graph: whether it asks before each run, its loop stop, what its file says, and the trigger as its YAML declares it. Its switch turns it on or pauses it on this Legato, as on the **Workflows** tab; a schedule also lists its next due times and its missed runs.
+Select a trigger to see its settings in that panel: whether it asks before each run, its loop stop, what its file says, and the trigger as its YAML declares it. Its switch turns it on or pauses it on this Legato, as on the **Workflows** tab; a schedule also lists its next due times and its missed runs.
 
-**Run** opens the form for its inputs, and **Recent runs** lists that workflow's last ten runs. A file that can't be parsed shows its error instead of a graph.
+On a phone the graph fills the screen, drawn top to bottom, with the cards in a sheet at the bottom and the zoom buttons, **Fit** and **Panels** at the top right. A node's details open in a sheet from the bottom of the screen; close it with ✕ or a tap outside.
+
+A file that can't be parsed shows its error instead of a graph.
 
 ### Create and edit in the web UI
 

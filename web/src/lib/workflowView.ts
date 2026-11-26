@@ -297,3 +297,15 @@ export function inputText(value: unknown): string {
 export function fileWorkflowName(path: string): string {
   return (path.split("/").pop() ?? path).replace(/(\.workflow)?\.ya?ml$/, "")
 }
+
+// triggersState is what a workflow's own triggers (not Run by hand) are
+// doing here, for a page's header: "2 triggers on", "1 on · 1 paused",
+// "Run by hand only".
+export function triggersState(on: boolean[]): string {
+  if (on.length === 0) return "Run by hand only"
+  const count = on.filter(Boolean).length
+  const noun = (n: number) => `${n} ${n === 1 ? "trigger" : "triggers"}`
+  if (count === on.length) return `${noun(count)} on`
+  if (count === 0) return `${noun(on.length)} paused`
+  return `${count} on · ${on.length - count} paused`
+}
