@@ -2,6 +2,7 @@ import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } fr
 import { useMainWidth } from "../hooks/useMainWidth"
 import { PreparingAgents } from "../components/PreparingAgents"
 import { InterruptedAgents } from "../components/InterruptedAgents"
+import { UsageStrip } from "../components/UsageStrip"
 import { SessionHistoryLink } from "../components/SessionHistoryLink"
 import { Link, useSearchParams } from "react-router-dom"
 import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "../hooks/useWebSocket"
@@ -880,8 +881,10 @@ export function AgentsPage() {
           onStageFilter={stageFilter.setStage}
           preparing={<><InterruptedAgents /><PreparingAgents /><SessionHistoryLink /></>}
           reeve={<ReeveEntry baseUrl={baseUrl} agent={runningAgents.find((a) => a.reeve)} selected={Boolean(selectedAgent?.reeve)} onSelect={handleSelect} />}
+          usage={<UsageStrip className="px-1.5 pb-1" />}
         />
       )}
+      {isMobile && <UsageStrip className="border-b border-lw-line px-2 py-1" />}
       {isMobile && <InterruptedAgents className="border-b border-lw-line px-2 pb-2" />}
       {isMobile && <PreparingAgents className="border-b border-lw-line px-2 pb-2" />}
       {isMobile && <SessionHistoryLink className="border-b border-lw-line" />}
