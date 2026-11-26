@@ -155,6 +155,10 @@ _Avoid_: re-review, round
 The steward's waiting between re-entries.
 _Avoid_: poll, monitor
 
+**Held**:
+A steward the operator told to stop watching: it sends the author nothing and starts no review pass, but a merge, a close or idleness still ends its loop. Watch again resumes it, and a push made while it was held re-enters review once.
+_Avoid_: paused, stopped, gated
+
 **Feedback item**:
 One thing the author must handle after a review pass: a finding, a counted comment or a failing counted check, each with its ID and the author's answer.
 

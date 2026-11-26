@@ -207,11 +207,17 @@ With `steward: true` (which needs `agent_author: true`), `review-loop` does not 
 
 - sends the agent each counted check that fails after approval, and each new comment or review that counts, as feedback items it reads with `legato review-pass feedback --json`. The line that tells it opens `[legato steward]`, not `[legato review pass]`. Each item names what a fix may need: a push to the branch (`git.push`, or `git.push-workflows` for a change under `.github/workflows`), or, for a job that failed before its tests ran, one re-run with `gh run rerun` (`actions.write`). Nothing is granted ahead: your credential rules decide each, as they always do. A reply alone starts no pass;
 - goes back to review on any push: one **re-entry**, however many layers of the stack moved, so a restack counts once. The next pass reviews what changed since the last one, and the pull requests are approved again only after a clean pass that Legato confirms at the new heads. A re-entry's pass does not wait for answers to checks or comments, only to blocking findings; disputing a blocking finding with a reply starts the next pass without a push;
-- ends the run **closed** when a pull request is closed without merging.
+- ends the run **closed** when a pull request is closed without merging, and **idle** after seven days with no push, comment, review or check change.
 
 While an `agent_author` loop holds the pull requests, before approval or after, a workflow's [`pr.changes_requested` trigger](/legato/using/workflows/#when-changes-are-requested) skips them and records why, "held by review loop rl-…": a review requesting changes reaches the agent through the loop instead.
 
-The loop record counts re-entries against `max_reentries` (`review_passes.max_reentries`, 5 by default, which a workflow may lower but never raise).
+The loop record counts re-entries against `max_reentries` (`review_passes.max_reentries`, 5 by default, which a workflow may lower but never raise). A push after the last re-entry allowed makes the loop **stuck**: no pass starts, no new agent is started, and the run waits for you.
+
+While the steward watches, its waiting step takes three actions (through the run's step action, `POST /api/workflow-runs/{run_id}/steps/{step_id}/action` with `stop_watching`, `watch_again` or `end`):
+
+- **Stop watching** holds the steward: it sends the agent nothing and starts no pass. A pull request closed without merging still ends the run, and so do seven quiet days. You can take over the pull request meanwhile.
+- **Watch again** lets a held steward watch again. If anything was pushed while it was held, the pull requests go back to review once, however many pushes there were. On a steward stuck at its last re-entry, Watch again allows exactly one more re-entry.
+- **End** ends the steward, and the run ends **ended**. The author's agent is left running.
 
 To find the author, Legato looks for the board task linked to the pull request. When an agent opens a pull request through Legato's GitHub credential, its task is linked at once, so a run started right after works. When no task is linked yet, Legato looks again in the repository (by branch, commit and ticket key, as its poll does) before it refuses. If it still finds none, the run says so: link the pull request to its task with `legato task link <task-id> --repo owner/name --branch <head branch>`, or `p` on the task's card on the board, and run again. Or run without `agent_author`, and the branch's owner is the author.
 
