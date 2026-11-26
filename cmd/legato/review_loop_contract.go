@@ -18,7 +18,9 @@ import (
 // The operator steers a review loop by its ID from the host, outside any
 // session (LEG-583, story 24): `legato review-pass another-pass --loop` and
 // `message --loop`, the actions a stuck or waiting loop offers on the run
-// page and in Attention. They are refused inside a session.
+// page and in Attention, and a steward's `stop-watching`, `watch-again` and
+// `end` (LEG-593), the run step action route's stop_watching, watch_again
+// and end. They are refused inside a session.
 
 // reviewLoopAgents is the agents `review-pass message` tells; tests replace
 // it.
@@ -40,6 +42,9 @@ var reviewLoopAgents = func(cfg *config.Config, db *store.Store) (service.Review
 type reviewLoopSteerer interface {
 	AnotherPass(ctx context.Context, loopID string) error
 	MessageAuthor(ctx context.Context, loopID, text string) error
+	StopWatching(ctx context.Context, loopID string) error
+	WatchAgain(ctx context.Context, loopID string) error
+	End(ctx context.Context, loopID string) error
 }
 
 // newReviewLoopSteerer builds the steering for this command's store. The
@@ -97,6 +102,54 @@ func runReviewLoopAnotherPassContract(args []string) int {
 	reviewLoopChanged(db, loop)
 	return writeCommandSuccess(command, map[string]any{"loop_id": loop, "action": "another_pass"},
 		fmt.Sprintf("Another pass of %s: the review engine starts it on its next tick.", loop), jsonMode)
+}
+
+// runReviewLoopStewardContract runs one of a steward's actions (or End) on
+// the loop named: verb is the command's word, action the run step action
+// route's.
+func runReviewLoopStewardContract(args []string, verb, action, done string, act func(reviewLoopSteerer, context.Context, string) error) int {
+	command := "review-pass." + verb
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("review-pass", verb))
+	jsonMode := parsed.Present["json"]
+	if parseErr != nil {
+		return renderCommandError(command, parseErr, jsonMode)
+	}
+	loop, refusal := reviewLoopOperator(verb, parsed)
+	if refusal != nil {
+		return renderCommandError(command, refusal, jsonMode)
+	}
+	cfg, db, code := openCommandStoreWithConfig(command, jsonMode)
+	if db == nil {
+		return code
+	}
+	defer db.Close()
+	steer, err := newReviewLoopSteerer(cfg, db, false)
+	if err == nil {
+		err = act(steer, context.Background(), loop)
+	}
+	if err != nil {
+		return renderCommandError(command, reviewLoopError(err, loop), jsonMode)
+	}
+	reviewLoopChanged(db, loop)
+	return writeCommandSuccess(command, map[string]any{"loop_id": loop, "action": action}, fmt.Sprintf(done, loop), jsonMode)
+}
+
+// runReviewLoopStopWatchingContract holds the named loop's steward.
+func runReviewLoopStopWatchingContract(args []string) int {
+	return runReviewLoopStewardContract(args, "stop-watching", service.ReviewLoopActionStopWatching,
+		"Stopped watching %s: its steward sends nothing and starts no pass until watch-again.", reviewLoopSteerer.StopWatching)
+}
+
+// runReviewLoopWatchAgainContract lets the named loop's steward watch again.
+func runReviewLoopWatchAgainContract(args []string) int {
+	return runReviewLoopStewardContract(args, "watch-again", service.ReviewLoopActionWatchAgain,
+		"Watching %s again: the review engine picks it up on its next tick.", reviewLoopSteerer.WatchAgain)
+}
+
+// runReviewLoopEndContract ends the named loop: its steward, or a stuck loop.
+func runReviewLoopEndContract(args []string) int {
+	return runReviewLoopStewardContract(args, "end", service.ReviewLoopActionEnd,
+		"Ended %s: the review engine finishes its steps on its next tick.", reviewLoopSteerer.End)
 }
 
 // runReviewLoopMessageContract is Message the author of the loop named.

@@ -412,6 +412,15 @@ func commandTree() *commandDef {
 		leaf("message", "The operator on the host: send the loop's author agent a message, as its next turn", runReviewLoopMessageContract, nil,
 			[]commandFlag{valueFlag("loop", "loop-id", "The review loop by its ID (rl-…)"), valueFlag("text", "text", "The message"), valueFlag("file", "path|-", "The message, from a file or stdin"), jsonFlag},
 			"legato review-pass message --loop rl-1a2b3c4d5e6f --text \"Rebase on main first\""),
+		leaf("stop-watching", "The operator on the host: hold a loop's steward, which then sends nothing and starts no pass (a merge, a close or idleness still ends it)", runReviewLoopStopWatchingContract, nil,
+			[]commandFlag{valueFlag("loop", "loop-id", "The review loop by its ID (rl-…)"), jsonFlag},
+			"legato review-pass stop-watching --loop rl-1a2b3c4d5e6f"),
+		leaf("watch-again", "The operator on the host: let a held steward watch again, or give one stuck at its re-entry budget one more re-entry", runReviewLoopWatchAgainContract, nil,
+			[]commandFlag{valueFlag("loop", "loop-id", "The review loop by its ID (rl-…)"), jsonFlag},
+			"legato review-pass watch-again --loop rl-1a2b3c4d5e6f"),
+		leaf("end", "The operator on the host: end a loop's steward (outcome ended), or a stuck loop (outcome stuck)", runReviewLoopEndContract, nil,
+			[]commandFlag{valueFlag("loop", "loop-id", "The review loop by its ID (rl-…)"), jsonFlag},
+			"legato review-pass end --loop rl-1a2b3c4d5e6f"),
 	)
 
 	mcp := group("mcp", "Give an agent Legato's tools over the Model Context Protocol", []string{"legato mcp serve"},
