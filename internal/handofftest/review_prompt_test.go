@@ -31,7 +31,7 @@ func newPrompted(t *testing.T, reviewsOn bool) prompted {
 // stacks: no scope input.
 func beforeStacks(t *testing.T) []byte {
 	t.Helper()
-	example, _ := workflowengine.ExampleNamed("review-pr-passes")
+	example := workflowengine.OldReviewPassesCopy()
 	var kept []string
 	lines := strings.Split(string(example.YAML), "\n")
 	for i := 0; i < len(lines); i++ {
@@ -164,7 +164,7 @@ func (p prompted) loopOn(t *testing.T, number int) *store.ReviewLoop {
 func TestAnActiveLoopOrAHandoffCardRaisesNothing(t *testing.T) {
 	p := newPrompted(t, true)
 	p.move(t, "Review")
-	p.r.start(t, map[string]string{"repo": "acme/widget", "pr_number": "32", "scope": "pr"})
+	p.r.startLoop(t, map[string]string{"repo": "acme/widget", "pr_number": "32", "scope": "pr"})
 	if items := p.items(t); len(items) != 0 {
 		t.Fatalf("with a loop on #32: %+v", items)
 	}
@@ -227,7 +227,7 @@ func TestAnAwayCardRaisesNothing(t *testing.T) {
 // review-loop is built in, so the item never asks for a workflow to be
 // added, and an old review-pr-passes copy is not what it starts (LEG-597).
 func TestTheItemStartsTheBuiltInReviewLoopNeverAnAddedCopy(t *testing.T) {
-	example, _ := workflowengine.ExampleNamed("review-pr-passes")
+	example := workflowengine.OldReviewPassesCopy()
 	for name, yaml := range map[string][]byte{"no copy": nil, "an old copy": example.YAML, "a copy from before stacks": beforeStacks(t)} {
 		t.Run(name, func(t *testing.T) {
 			p := newPromptedWith(t, true, yaml)
@@ -256,7 +256,7 @@ func TestOnAPRALoopHoldsTheActionOpensTheHolder(t *testing.T) {
 	if items := p.items(t); len(items) != 1 {
 		t.Fatalf("items %+v", items)
 	}
-	holder := p.r.start(t, map[string]string{"repo": "acme/widget", "pr_number": "32", "scope": "pr"})
+	holder := p.r.startLoop(t, map[string]string{"repo": "acme/widget", "pr_number": "32", "scope": "pr"})
 
 	err := p.adapter.Execute(context.Background(), service.AttentionActionRequest{SourceKey: p.card, ActionID: "start_review"})
 	var elsewhere *service.AttentionElsewhereError
@@ -264,7 +264,7 @@ func TestOnAPRALoopHoldsTheActionOpensTheHolder(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	runs, _ := p.r.worker.Store.ListWorkflowRuns(context.Background(), store.WorkflowRunFilter{WorkflowName: "review-loop"})
-	if len(runs) != 0 {
+	if len(runs) != 1 || runs[0].ID != holder.Run.ID {
 		t.Fatalf("it started %+v", runs)
 	}
 }
@@ -361,9 +361,11 @@ func TestTheAuthorIsTheCardsAgentOnlyForPRsLegatosAuthorAppOpened(t *testing.T) 
 func TestARunLoopThatApprovedTheCardsPRsRaisesNothing(t *testing.T) {
 	p := newPrompted(t, true)
 	p.move(t, "Done")
-	view := p.r.start(t, map[string]string{"repo": "acme/widget", "pr_number": "31"})
+	view := p.r.startLoop(t, map[string]string{"repo": "acme/widget", "pr_number": "31"})
 	p.r.tick()
 	p.r.submit(t, view.Run.TaskID, service.ReviewSubmission{Summary: "All good."})
+	p.r.tick()
+	p.r.tick()
 	if shown := p.r.show(t, view.Run.ID); shown.Run.Status != "succeeded" {
 		t.Fatalf("run %q", shown.Run.Status)
 	}
@@ -382,9 +384,11 @@ func TestARunLoopThatApprovedTheCardsPRsRaisesNothing(t *testing.T) {
 // has its one pass approve it.
 func (p prompted) approve(t *testing.T, number int) {
 	t.Helper()
-	view := p.r.start(t, map[string]string{"repo": "acme/widget", "pr_number": fmt.Sprint(number), "scope": "pr"})
+	view := p.r.startLoop(t, map[string]string{"repo": "acme/widget", "pr_number": fmt.Sprint(number), "scope": "pr"})
 	p.r.tick()
 	p.r.submit(t, view.Run.TaskID, service.ReviewSubmission{Summary: "All good."})
+	p.r.tick()
+	p.r.tick()
 	if shown := p.r.show(t, view.Run.ID); shown.Run.Status != "succeeded" {
 		t.Fatalf("run %q", shown.Run.Status)
 	}
@@ -397,7 +401,7 @@ func TestALaterCommentAtTheApprovedHeadAsksAgain(t *testing.T) {
 	p.move(t, "Done")
 	p.approve(t, 31)
 
-	view := p.r.start(t, map[string]string{"repo": "acme/widget", "pr_number": "31", "scope": "pr"})
+	view := p.r.startLoop(t, map[string]string{"repo": "acme/widget", "pr_number": "31", "scope": "pr"})
 	p.r.tick()
 	p.r.submit(t, view.Run.TaskID, service.ReviewSubmission{Summary: "One problem.", Findings: []service.SubmittedFinding{
 		{PR: 31, Severity: "blocking", Title: "Breaks", Body: "It breaks.", FailureScenario: "Run it and it breaks."},

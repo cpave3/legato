@@ -15,8 +15,10 @@ import (
 )
 
 // ReviewRuns is a worker's workflows with review loops on any pull request:
-// the review-pr-passes example, run on the worker's review-pass engine as the
-// run caller, against its fake GitHub and checkout.
+// the built-in review-loop and an operator's old review-pr-passes copy (the
+// deprecated inline step, which still runs unchanged: LEG-599), run on the
+// worker's review-pass engine as the run caller, against its fake GitHub and
+// checkout.
 type ReviewRuns struct {
 	w         *Worker
 	Workflows *service.WorkflowService
@@ -119,14 +121,13 @@ func newReviewRunsOn(w *Worker, engine *service.ReviewPassService) *ReviewRuns {
 	caller.SetWorkflows(workflows)
 	step.Attach(caller)
 	steps.Attach(caller)
-	// workflow.run finds the built-ins, review-loop among them, and the
-	// review-pr-passes example, as Legato's discovery does.
+	// workflow.run finds the built-ins, review-loop among them, and an old
+	// review-pr-passes copy in the operator's folder, as Legato's discovery
+	// does.
 	workflows.SetDefinitions(func() workflowengine.DiscoveryResult {
 		var found workflowengine.DiscoveryResult
-		if example, ok := workflowengine.ExampleNamed("review-pr-passes"); ok {
-			if definition, err := workflowengine.Parse("review-pr-passes.workflow.yaml", example.YAML); err == nil {
-				found.Definitions = append(found.Definitions, definition)
-			}
+		if definition, err := oldReviewPassesCopy(); err == nil {
+			found.Definitions = append(found.Definitions, definition)
 		}
 		return workflowengine.WithBuiltIns(found, service.BuiltInWorkflows()...)
 	})
@@ -146,14 +147,19 @@ func (r *ReviewRuns) OtherProcess() *ReviewRuns {
 	return newReviewRunsOn(w, engine)
 }
 
-// Start runs review-pr-passes with inputs, and opens its review step as
-// the broker holder's tick does at once (Open).
+// oldReviewPassesCopy is an operator's old review-pr-passes copy, as
+// legato workflow add wrote it before the built-in review-loop replaced it.
+func oldReviewPassesCopy() (*workflowengine.Definition, error) {
+	return workflowengine.Parse(workflowengine.ReviewPassesWorkflowName+".workflow.yaml", workflowengine.OldReviewPassesCopy().YAML)
+}
+
+// Start runs an old review-pr-passes copy with inputs, and opens its
+// review step as the broker holder's tick does at once (Open). Its inline
+// step, github.pr.review_passes, is deprecated but runs unchanged through
+// v1 (AC 23): the tests through it are that step's own; StartReviewLoop
+// runs the built-in every caller now starts.
 func (r *ReviewRuns) Start(ctx context.Context, inputs map[string]string) (*store.WorkflowRunView, error) {
-	example, ok := workflowengine.ExampleNamed("review-pr-passes")
-	if !ok {
-		return nil, fmt.Errorf("no review-pr-passes example")
-	}
-	definition, err := workflowengine.Parse("review-pr-passes.workflow.yaml", example.YAML)
+	definition, err := oldReviewPassesCopy()
 	if err != nil {
 		return nil, err
 	}

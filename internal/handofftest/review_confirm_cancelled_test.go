@@ -29,10 +29,7 @@ func olderLegatoCleanThenCancelled(t testing.TB, path string) (runID, task strin
 		t.Fatal(err)
 	}
 	defer db.Close()
-	example, ok := workflowengine.ExampleNamed("review-pr-passes")
-	if !ok {
-		t.Fatal("no review-pr-passes example")
-	}
+	example := workflowengine.OldReviewPassesCopy()
 	definition, err := workflowengine.Parse("review-pr-passes.workflow.yaml", example.YAML)
 	if err != nil {
 		t.Fatal(err)

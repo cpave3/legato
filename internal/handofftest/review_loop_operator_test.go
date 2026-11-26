@@ -52,7 +52,7 @@ func TestTheOperatorCannotActOnAnUnknownOrClosedLoop(t *testing.T) {
 		t.Fatalf("unknown loop: %v", err)
 	}
 
-	view := r.start(t, pr12)
+	view := r.startLoop(t, pr12)
 	id := loopID(t, r.worker, view.Run.TaskID)
 	if _, err := r.runs.Workflows.Cancel(ctx, view.Run.ID, ""); err != nil {
 		t.Fatal(err)
@@ -144,9 +144,9 @@ func TestTheOperatorMessagesALoopsAuthorByItsID(t *testing.T) {
 	}
 
 	r.worker.ReviewGitHub.OpenPR(13, "feature/other", "ddd444")
-	person := r.start(t, map[string]string{"repo": "acme/widget", "pr_number": "13"})
+	person := r.startLoop(t, map[string]string{"repo": "acme/widget", "pr_number": "13"})
 	if person.Run.Status != "running" {
-		t.Fatalf("run %q: %s", person.Run.Status, person.Steps[0].Error)
+		t.Fatalf("run %q: %s", person.Run.Status, person.Run.Error)
 	}
 	if err := steering.MessageAuthor(ctx, loopID(t, r.worker, person.Run.TaskID), "Hello"); !errors.Is(err, service.ErrReviewAuthorNotAgent) {
 		t.Fatalf("message to a person: %v", err)

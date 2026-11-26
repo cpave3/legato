@@ -23,7 +23,7 @@ func TestTwoStartsOnOnePullRequestAtOnceGiveOneLoopAndOneRefusalNamingIt(t *test
 	r := newReviewRun(t, ReviewPassOptions{})
 	ctx := context.Background()
 	other := otherProcess(r.worker)
-	example, _ := workflowengine.ExampleNamed("review-pr-passes")
+	example := workflowengine.OldReviewPassesCopy()
 	definition, err := workflowengine.Parse("review-pr-passes.workflow.yaml", example.YAML)
 	if err != nil {
 		t.Fatal(err)

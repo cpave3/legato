@@ -19,7 +19,7 @@ import (
 // would, without opening it.
 func startReviewIn(t *testing.T, workflows *service.WorkflowService, inputs map[string]string) *store.WorkflowRunView {
 	t.Helper()
-	example, _ := workflowengine.ExampleNamed("review-pr-passes")
+	example := workflowengine.OldReviewPassesCopy()
 	definition, err := workflowengine.Parse("review-pr-passes.workflow.yaml", example.YAML)
 	if err != nil {
 		t.Fatal(err)
