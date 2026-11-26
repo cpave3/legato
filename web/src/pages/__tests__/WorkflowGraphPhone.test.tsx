@@ -57,7 +57,7 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe("workflow graphs at phone width", () => {
-  it("keep the run's step list, with a Graph toggle that shows the graph top to bottom", async () => {
+  it("keep the run's step list, with a Graph toggle that shows the graph top to bottom and List back", async () => {
     renderAt("/workflows/runs/wr-1")
     expect(screen.getByRole("list", { name: "Steps" })).toBeTruthy()
     expect(screen.queryByRole("button", { name: /^Step:/ })).toBeNull()
@@ -67,7 +67,9 @@ describe("workflow graphs at phone width", () => {
     const node = await screen.findByRole("button", { name: "Step: Write the report, Running" })
     expect(topDown(node)).toBe(true)
     expect(screen.queryByRole("list", { name: "Steps" })).toBeNull()
-    fireEvent.click(screen.getByRole("button", { name: "Graph" }))
+    // The graph fills the screen, with List and Graph in its header (LEG-651).
+    expect(screen.getByRole("button", { name: "Graph" }).getAttribute("aria-pressed")).toBe("true")
+    fireEvent.click(screen.getByRole("button", { name: "List" }))
     expect(screen.getByRole("list", { name: "Steps" })).toBeTruthy()
   })
 

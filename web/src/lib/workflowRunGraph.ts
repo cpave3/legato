@@ -1,6 +1,6 @@
 // What a run says of each node of its workflow graph: the run state of each
 // step, the trigger that started it. The graph component draws it.
-import type { ReviewRunDetails, WorkflowRunView, WorkflowStepRun } from "./workflow"
+import type { ReviewRunDetails, WorkflowCallDetails, WorkflowRunView, WorkflowStepRun } from "./workflow"
 import type { GraphNodeExtra, NodeRunState, WorkflowGraphModel } from "./workflowGraph"
 import { elapsed } from "./workflowView"
 import { stepPathOf } from "./workflowRunTree"
@@ -87,6 +87,10 @@ export function runNodeExtras(view: WorkflowRunView & { trigger_kind?: string },
     const extra: GraphNodeExtra = { state: instanceState(view, step), attempts: attempts.length, agent }
     if (step?.started_at) extra.elapsed = elapsed(step.started_at, step.completed_at ?? now)
     if (step && step.pass != null) extra.pass = `Pass ${step.pass + 1}`
+    if (step?.child_run_id && (step.status === "waiting" || step.status === "running")) {
+      const call = view.details?.[path] as WorkflowCallDetails | undefined
+      extra.childRun = { id: step.child_run_id, label: call ? `${call.title || call.workflow}, ${call.status.replaceAll("_", " ")}` : step.child_run_id }
+    }
     if (node.step.group === "review_loop") {
       const details = view.details?.[path] as ReviewRunDetails | undefined
       const most = Number(parse(step?.resolved_inputs_json).max_passes)

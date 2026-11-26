@@ -35,6 +35,9 @@ export type GraphNodeExtra = {
   // passes is, on a loop, how each of its passes went, oldest first.
   passes?: { pass: number; state: NodeRunState }[]
   trigger?: "started" | "other"
+  // childRun is the run a workflow.run step waits on, with what it is
+  // ("Autopilot one-off, running"), linked under its node.
+  childRun?: { id: string; label: string }
 }
 
 export type NodeRunState = "waiting" | "running" | "needs" | "failed" | "done" | "skipped" | "suspended"

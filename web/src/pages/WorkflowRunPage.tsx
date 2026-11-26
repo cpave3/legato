@@ -1,6 +1,6 @@
-import { useState, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
 import { Link, useParams } from "react-router-dom"
-import { ChevronDown, ChevronRight, Download, FileText } from "lucide-react"
+import { ChevronDown, ChevronRight, Download, FileText, X } from "lucide-react"
 import { useWorkflowRun } from "../hooks/useWorkflow"
 import { useServer } from "../hooks/useServer"
 import { useNow } from "../hooks/useNow"
@@ -22,7 +22,7 @@ import { StepYaml } from "../components/StepYaml"
 import { redactSecrets, runStateWords, stepTypeLabel, triggerName, yamlText, type GraphNode } from "../lib/workflowGraph"
 import { type RunNeedsYouRow, type RunRowStep } from "../lib/runNeedsYou"
 import { isTopStep, runStepTree, stepPathOf, type RunStepNode } from "../lib/workflowRunTree"
-import { instancesOf } from "../lib/workflowRunGraph"
+import { instancesOf, templatePath } from "../lib/workflowRunGraph"
 import { useApprovals } from "../hooks/useApprovals"
 import { agentLink, graphLink, secretValues, useRunGraphExtras } from "../hooks/useRunGraph"
 import { useQueryClient } from "@tanstack/react-query"
@@ -32,6 +32,7 @@ import { NeedsYouRow } from "../components/needsYou/NeedsYouRow"
 import { MacroPickerButton } from "../components/MacroPicker"
 import { ApprovalCard } from "../components/ApprovalTray"
 import { NodeSheet } from "../components/NodeSheet"
+import type { Insets } from "../lib/graphViewport"
 
 function parseJSON(raw: string | undefined): unknown {
   try { return JSON.parse(raw ?? "") } catch { return raw }
@@ -70,14 +71,53 @@ function formatValue(value: unknown, secrets: string[]): string {
   return redact(inputText(value), secrets)
 }
 
-function ValueList({ values, secrets, className }: { values: [string, unknown][]; secrets: string[]; className?: string }) {
+// A value longer than this, or of more lines, is cut to three lines with
+// Show all where a list clamps.
+const longValue = (text: string) => text.length > 160 || text.split("\n").length > 3
+
+function ValueList({ values, secrets, className, clamp = false }: { values: [string, unknown][]; secrets: string[]; className?: string; clamp?: boolean }) {
   return <dl className={cn("grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-[13px]", className)}>
-    {values.map(([key, value]) => <div key={key} className="contents">
-      <dt className="pt-px font-lw-mono text-xs text-lw-faint">{key.replaceAll("_", " ")}</dt>
-      <dd className={cn("min-w-0 whitespace-pre-wrap break-words", inputText(value).startsWith("{") && "max-h-48 overflow-auto font-lw-mono text-xs")}>{formatValue(value, secrets)}</dd>
-    </div>)}
+    {values.map(([key, value]) => {
+      const text = formatValue(value, secrets)
+      const json = inputText(value).startsWith("{")
+      return <div key={key} className="contents">
+        <dt className="pt-px font-lw-mono text-xs text-lw-faint">{key.replaceAll("_", " ")}</dt>
+        {clamp && !json && longValue(text) ? <dd className="min-w-0"><ClampedValue text={text} /></dd>
+          : <dd className={cn("min-w-0 whitespace-pre-wrap break-words", json && "max-h-48 overflow-auto font-lw-mono text-xs")}>{text}</dd>}
+      </div>
+    })}
   </dl>
 }
+
+function ClampedValue({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  return <>
+    <span className={cn("block whitespace-pre-wrap break-words", !open && "line-clamp-3")}>{text}</span>
+    <button type="button" className="mt-0.5 text-xs text-lw-link hover:underline" onClick={() => setOpen(!open)}>{open ? "Show less" : "Show all"}</button>
+  </>
+}
+
+// RunCard is one of the cards over a run's graph (LEG-651): a title row
+// that folds it to that row, and what it holds.
+function RunCard({ label, heading, folded, onFold, tone, children }: { label: string; heading: ReactNode; folded: boolean; onFold: () => void; tone?: Tone; children?: ReactNode }) {
+  return <section aria-label={label} className={cn("shrink-0 rounded-xl border shadow-[var(--shadow-lw-panel)]", tone ? panelLook[tone] : "border-lw-line bg-lw-surface")}>
+    {/* The row folds the card; its button is the control the keyboard and
+        screen readers reach. */}
+    <div className="flex min-h-10 cursor-pointer items-center gap-2 py-1.5 pl-4 pr-1.5" onClick={onFold}>
+      <div className="min-w-0 flex-1">{heading}</div>
+      <button type="button" aria-expanded={!folded} aria-label={label} className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-lw-text-2 hover:bg-lw-selected">
+        {folded ? <ChevronRight size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+      </button>
+    </div>
+    {!folded && children}
+  </section>
+}
+
+const cardTitle = "flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide text-lw-text-2"
+
+// NowFold is set over a run's graph, where the Now panel is a card that
+// folds; the step list's page draws it as it always has.
+const NowFold = createContext<{ folded: boolean; toggle: () => void } | null>(null)
 
 const panelLook: Record<Tone, string> = {
   live: "border-lw-live/30 bg-lw-live-soft",
@@ -88,6 +128,14 @@ const panelLook: Record<Tone, string> = {
 }
 
 function NowPanel({ tone, heading, children, actions }: { tone: Tone; heading: ReactNode; children?: ReactNode; actions?: ReactNode }) {
+  const fold = useContext(NowFold)
+  if (fold) return <RunCard label="Now" tone={tone} folded={fold.folded} onFold={fold.toggle}
+    heading={<h2 className="flex items-start gap-2 py-1 text-[14px] font-semibold leading-snug"><span aria-hidden="true" className={toneText[tone]}>{toneGlyph[tone]}</span>{heading}</h2>}>
+    {(children || actions) && <div className="px-4 pb-4 pl-10">
+      {children && <div className="text-[13px] text-lw-text-2">{children}</div>}
+      {actions && <div className="mt-3 flex flex-wrap items-center gap-2">{actions}</div>}
+    </div>}
+  </RunCard>
   return <section aria-label="Now" className={cn("mt-5 rounded-xl border p-4", panelLook[tone])}>
     <h2 className="flex items-center gap-2 text-[15px] font-semibold"><span aria-hidden="true" className={toneText[tone]}>{toneGlyph[tone]}</span>{heading}</h2>
     {children && <div className="mt-1 text-[13px] text-lw-text-2">{children}</div>}
@@ -455,7 +503,7 @@ function CleanupControl({ run, steps, runId, refresh }: { run: RunRowStep; steps
 // NeedsYouList is everything the run waits on the operator for, drawn with
 // the needs-you rail's own approval card and row, above the graph. A click
 // on a row shows its node.
-function NeedsYouList({ rows, steps, runId, refresh, onFocus }: { rows: RunNeedsYouRow[]; steps: WorkflowStepRun[]; runId: string; refresh: () => Promise<void>; onFocus: (node: string | null) => void }) {
+function NeedsYouList({ rows, steps, runId, refresh, onFocus, card }: { rows: RunNeedsYouRow[]; steps: WorkflowStepRun[]; runId: string; refresh: () => Promise<void>; onFocus: (node: string | null) => void; card?: { folded: boolean; onFold: () => void } }) {
   const { baseUrl } = useServer()
   const queryClient = useQueryClient()
   const approvals = useApprovals(false)
@@ -502,10 +550,7 @@ function NeedsYouList({ rows, steps, runId, refresh, onFocus }: { rows: RunNeeds
     if (item.producer === "run") { setHidden(current => new Set(current).add(item.id)); return }
     void act(item, () => dismissAttentionItem(baseUrl, item.id, item.source_revision))
   }
-  return <section aria-label="Needs you" className="mt-5">
-    <h2 className="mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide text-lw-needs">Needs you<span className="font-medium text-lw-faint">{shown.length}</span></h2>
-    {error && <p role="alert" className="mb-2 text-[13px] text-lw-error">{error}</p>}
-    <div className="grid gap-2 md:grid-cols-2">
+  const list = <div className={cn("grid gap-2", !card && "md:grid-cols-2")}>
       {shown.map(row => <div key={row.kind === "approval" ? row.approval.id : row.item.id} data-run-row="" className="cursor-pointer" onClick={event => {
         // A tap on the row shows its step; one on a control in it (a button,
         // a link, Reply…'s field) is that control's alone.
@@ -518,6 +563,15 @@ function NeedsYouList({ rows, steps, runId, refresh, onFocus }: { rows: RunNeeds
         {row.kind === "item" && row.run?.control && <CleanupControl run={row.run} steps={steps} runId={runId} refresh={refresh} />}
       </div>)}
     </div>
+  const errorLine = error && <p role="alert" className="mb-2 text-[13px] text-lw-error">{error}</p>
+  if (card) return <RunCard label="Needs you" folded={card.folded} onFold={card.onFold}
+    heading={<h2 className={cn(cardTitle, "text-lw-needs")}>Needs you<span className="font-medium text-lw-faint">{shown.length}</span></h2>}>
+    <div className="px-3 pb-3">{errorLine}{list}</div>
+  </RunCard>
+  return <section aria-label="Needs you" className="mt-5">
+    <h2 className="mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide text-lw-needs">Needs you<span className="font-medium text-lw-faint">{shown.length}</span></h2>
+    {errorLine}
+    {list}
   </section>
 }
 
@@ -528,7 +582,15 @@ function clock(time?: string): string {
 // RunStepPanel is one step of a run, beside its graph: what went in and
 // came out, every attempt, its artifacts, a review loop's passes, and its
 // YAML from the run's own copy, with the run's secrets hidden.
-function RunStepPanel({ view, node, runId, secrets, state }: { view: WorkflowRunView; node: GraphNode; runId: string; secrets: string[]; state?: string }) {
+// PanelClose is the side panel's own close button over a run's graph.
+function PanelClose({ onClose }: { onClose?: () => void }) {
+  if (!onClose) return null
+  return <button type="button" aria-label="Close" onClick={onClose} className="-mr-1.5 -mt-1.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md text-lw-text-2 hover:bg-lw-selected hover:text-lw-text"><X size={16} aria-hidden="true" /></button>
+}
+
+const floatingPanel = "max-h-full overflow-y-auto shadow-[var(--shadow-lw-panel)]"
+
+function RunStepPanel({ view, node, runId, secrets, state, onClose }: { view: WorkflowRunView; node: GraphNode; runId: string; secrets: string[]; state?: string; onClose?: () => void }) {
   const graphStep = node.step!
   // A loop's body's step is shown at its newest pass (graph version 2).
   const instances = instancesOf(view, graphStep.path || graphStep.id)
@@ -540,17 +602,22 @@ function RunStepPanel({ view, node, runId, secrets, state }: { view: WorkflowRun
   const outputs = step ? objectEntries(step.outputs_json).filter(([key]) => !artifacts.some(artifact => artifact.output_key === key)) : []
   const details = view.details?.[path] as ReviewRunDetails | undefined
   const yaml = redact(yamlText(redactSecrets(graphStep.definition, new Set(secrets))), secrets)
-  return <aside aria-label={graphStep.title} className="flex min-w-0 flex-col gap-4 rounded-xl border border-lw-line bg-lw-surface p-4 text-[13px]">
+  return <aside aria-label={graphStep.title} className={cn("flex min-w-0 flex-col gap-4 rounded-xl border border-lw-line bg-lw-surface p-4 text-[13px]", onClose && floatingPanel)}>
     <div>
-      <p className="text-[11px] font-medium uppercase tracking-wide text-lw-text-2">Step · {stepTypeLabel(graphStep.type)}{state && <> · {state}</>}</p>
-      <h2 className="mt-0.5 text-[15px] font-semibold">{graphStep.title}</h2>
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-lw-text-2">Step · {stepTypeLabel(graphStep.type)}{state && <> · {state}</>}</p>
+          <h2 className="mt-0.5 text-[15px] font-semibold">{graphStep.title}</h2>
+        </div>
+        <PanelClose onClose={onClose} />
+      </div>
       {step?.pass != null && <p className="text-lw-text-2">Pass {step.pass + 1}{instances.length > 1 && <> of the {instances.length} it ran in</>}</p>}
       {step?.error && <p className="mt-1 whitespace-pre-wrap break-words text-lw-error">{redact(step.error, secrets)}</p>}
       {step?.output_warning && <p className="mt-1 text-lw-needs">{step.output_warning}</p>}
       {step?.child_run_id && <p className="mt-1 text-lw-text-2">Child run <Link className="font-lw-mono text-xs text-lw-link" to={runLink(step.child_run_id)}>{step.child_run_id}</Link></p>}
     </div>
-    {inputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Inputs</h3><ValueList values={inputs} secrets={secrets} /></div>}
-    {outputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Outputs</h3><ValueList values={outputs} secrets={secrets} /></div>}
+    {inputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Inputs</h3><ValueList values={inputs} secrets={secrets} clamp={Boolean(onClose)} /></div>}
+    {outputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Outputs</h3><ValueList values={outputs} secrets={secrets} clamp={Boolean(onClose)} /></div>}
     {attempts.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Attempts</h3>
       <ul aria-label="Attempts" className="space-y-2">{attempts.map(attempt => <li key={attempt.id} className="rounded-lg border border-lw-line p-2.5 text-lw-text-2">
         <p className="text-lw-text">Attempt {attempt.attempt_number} · {attempt.status.replaceAll("_", " ")}</p>
@@ -573,34 +640,108 @@ function RunStepPanel({ view, node, runId, secrets, state }: { view: WorkflowRun
   </aside>
 }
 
-function RunTriggerPanel({ node, started }: { node: GraphNode; started: boolean }) {
+function RunTriggerPanel({ node, started, onClose }: { node: GraphNode; started: boolean; onClose?: () => void }) {
   const trigger = node.trigger!
   const summary = trigger.summary || triggerName(trigger.kind)
-  return <aside aria-label={summary} className="flex flex-col gap-2 rounded-xl border border-lw-line bg-lw-surface p-4 text-[13px]">
-    <p className="text-[11px] font-medium uppercase tracking-wide text-lw-text-2">Trigger · {triggerName(trigger.kind)}</p>
-    <h2 className="text-[15px] font-semibold">{summary}</h2>
+  return <aside aria-label={summary} className={cn("flex flex-col gap-2 rounded-xl border border-lw-line bg-lw-surface p-4 text-[13px]", onClose && floatingPanel)}>
+    <div className="flex items-start gap-2">
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-lw-text-2">Trigger · {triggerName(trigger.kind)}</p>
+        <h2 className="text-[15px] font-semibold">{summary}</h2>
+      </div>
+      <PanelClose onClose={onClose} />
+    </div>
     <p className="text-lw-text-2">{started ? "This trigger started this run." : "This run was not started by this trigger."}</p>
     {trigger.definition && <pre className="overflow-x-auto rounded-lg border border-lw-line bg-lw-ground p-3 font-lw-mono text-xs">{yamlText(trigger.definition)}</pre>}
   </aside>
 }
+
+// StepOutline is the run's steps as a list over its graph: each one's
+// state, title and time; choosing one selects its node and centres it.
+function StepOutline({ steps, run, now, selected, onPick }: { steps: WorkflowStepRun[]; run: WorkflowRunView["run"]; now: number; selected: string | null; onPick: (node: string) => void }) {
+  const rows: ReactNode[] = []
+  const walk = (nodes: RunStepNode<WorkflowStepRun>[], depth: number) => {
+    for (const { step, passes } of nodes) {
+      const node = `step:${templatePath(stepPathOf(step))}`
+      const mark = stepMark(asStepLike(step), run)
+      rows.push(<li key={stepPathOf(step)}>
+        <button type="button" onClick={() => onPick(node)} style={{ paddingLeft: `${0.5 + depth}rem` }} className={cn("grid min-h-8 w-full grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-2 rounded-md py-1 pr-2 text-left text-[13px] hover:bg-lw-raised", node === selected && "bg-lw-selected", step.status === "pending" && "text-lw-text-2")}>
+          <span aria-hidden="true" className={cn("text-center", mark.tone ? toneText[mark.tone] : "text-lw-faint")}>{mark.glyph}</span>
+          <span className="truncate">{step.title || step.step_id}</span>
+          <span className="font-lw-mono text-[11px] text-lw-faint">{step.status === "skipped" ? "skipped" : stepDuration(step, now)}</span>
+        </button>
+      </li>)
+      for (const pass of passes) {
+        rows.push(<li key={`${stepPathOf(step)}/${pass.pass}`} style={{ paddingLeft: `${1.5 + depth}rem` }} className="pt-1 text-xs text-lw-text-2">Pass {pass.pass + 1}</li>)
+        walk(pass.steps, depth + 1)
+      }
+    }
+  }
+  walk(runStepTree(steps), 0)
+  return <ul aria-label="Steps outline" className="max-h-[50vh] overflow-y-auto px-1.5 pb-2">{rows}</ul>
+}
+
+// The cards over a run's graph are folded or open as the operator last
+// left them, in this browser.
+const FOLDS_KEY = "legato:run-page:folds"
+
+function useCardFolds(large: boolean) {
+  const [saved, setSaved] = useState<Record<string, boolean>>(() => {
+    try { const value = JSON.parse(localStorage.getItem(FOLDS_KEY) ?? "{}"); return value && typeof value === "object" ? value : {} } catch { return {} }
+  })
+  // Inputs is open by default on a large screen only (LEG-651); Steps
+  // starts folded, as the graph already shows them.
+  const defaults: Record<string, boolean> = { inputs: !large, steps: true }
+  const folded = (card: string) => saved[card] ?? defaults[card] ?? false
+  const toggle = (card: string) => setSaved(current => {
+    const next = { ...current, [card]: !(current[card] ?? defaults[card] ?? false) }
+    try { localStorage.setItem(FOLDS_KEY, JSON.stringify(next)) } catch { /* kept for this visit only */ }
+    return next
+  })
+  return { folded, toggle }
+}
+
+// The widths of the cards' column and the side panel over a run's graph,
+// in pixels, with the space round each.
+const dockWidth = 360, panelWidth = 380, gap = 16
 
 export function WorkflowRunPage() {
   const { runId = "" } = useParams()
   const { data, loading, refreshing, error, refresh } = useWorkflowRun(runId)
   const { baseUrl } = useServer()
   const now = useNow(15_000)
-  // At phone width the step list stays, with a Graph toggle; the graph then
-  // runs top to bottom and details open in a sheet.
+  // On a wide screen the run's graph is the page, with the run's details as
+  // cards over it (LEG-651). At phone width the step list stays, with a
+  // Graph toggle to the graph, which then runs top to bottom with the run's
+  // cards in a sheet and a node's details in another.
   const narrow = useMediaQuery("(max-width: 767px)")
+  const large = useMediaQuery("(min-width: 1280px) and (min-height: 800px)")
   const [graphOn, setGraphOn] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
   const [centerOn, setCenterOn] = useState<{ id: string; n: number } | null>(null)
+  const [panelsOn, setPanelsOn] = useState(true)
+  const folds = useCardFolds(large)
   const { graph, needsYou, extras } = useRunGraphExtras(runId, data, now)
+  const canvas = Boolean(graph) && (!narrow || graphOn)
   const focusNode = (node: string | null) => {
     if (!node) return
     setSelected(node)
     setCenterOn(current => ({ id: node, n: (current?.n ?? 0) + 1 }))
   }
+  // Escape closes a node's details; . shows or hides every card.
+  useEffect(() => {
+    if (!canvas) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
+      if ((event.target as Element | null)?.closest?.("input, textarea, select, [contenteditable=true], [role=dialog]")) return
+      if (event.key === "Escape" && selected) setSelected(null)
+      else if (event.key === ".") setPanelsOn(on => !on)
+      else return
+      event.preventDefault()
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [canvas, selected])
   if (loading) return <main className="flex min-h-0 flex-1 flex-col"><LoadingState label="Loading the workflow run…" /></main>
   if (!data) return <main className="p-6 font-lw text-lw-text">
     <Link to="/workflows?tab=runs" className="text-sm text-lw-link">← Runs</Link>
@@ -626,55 +767,115 @@ export function WorkflowRunPage() {
   else if (position) where = `${run.status === "failed" ? "at step" : "Step"} ${position.number} of ${position.total} · ${position.title}`
   const inputs = objectEntries(run.inputs_json).filter(([, value]) => value !== "" && value !== null)
   const secrets = secretValues(data)
-  const showGraph = Boolean(graph) && (!narrow || graphOn)
   const selectedNode = graph?.nodes.find(node => node.id === selected)
+  const close = canvas ? () => setSelected(null) : undefined
   const panel = selectedNode?.kind === "step"
-    ? <RunStepPanel view={data} node={selectedNode} runId={runId} secrets={secrets} state={extras?.[selectedNode.id]?.state && runStateWords[extras[selectedNode.id].state!]} />
-    : selectedNode?.kind === "trigger" ? <RunTriggerPanel node={selectedNode} started={extras?.[selectedNode.id]?.trigger === "started"} /> : null
+    ? <RunStepPanel view={data} node={selectedNode} runId={runId} secrets={secrets} state={extras?.[selectedNode.id]?.state && runStateWords[extras[selectedNode.id].state!]} onClose={narrow ? undefined : close} />
+    : selectedNode?.kind === "trigger" ? <RunTriggerPanel node={selectedNode} started={extras?.[selectedNode.id]?.trigger === "started"} onClose={narrow ? undefined : close} /> : null
+  const subtitle = <>
+    {workflow && workflow !== run.workflow_title && <>{workflow} · </>}
+    {run.parent_run_id && <span>called by <Link to={runLink(run.parent_run_id)} className="text-lw-link">{run.parent_run_id}</Link>{run.parent_step_path && <> at <span className="font-lw-mono text-xs">{run.parent_step_path}</span></>} · </span>}
+    {run.related_task_id && <>for <Link to={`/board?highlight_task=${encodeURIComponent(run.related_task_id)}`} className="text-lw-link">{run.related_task_id}</Link>{run.related_task_title && ` ${run.related_task_title}`} · </>}
+    {subject && <>{subject}{when && " · "}</>}
+    {when}
+  </>
+  // A failed run keeps what it holds for Retry; Cancel gives it up.
+  const cancel = (live || run.status === "failed") && <Button variant="ghost" size="sm" className="shrink-0 self-start sm:self-center" onClick={async () => { await cancelWorkflow(baseUrl, runId); await refresh() }}>Cancel run</Button>
+  const refreshFailed = error && <div role="alert" className="rounded-lg border border-lw-line bg-lw-surface p-3 text-sm shadow-[var(--shadow-lw-panel)]">
+    <p className="text-lw-needs">Showing saved run. Refresh failed: {error}</p>
+    <Button variant="outline" size="sm" className="mt-2" disabled={refreshing} onClick={() => { void refresh() }}>Retry</Button>
+  </div>
+  const changed = (data.definition_changed || data.definition_missing) && <p role="note" className="rounded-lg border border-lw-line bg-lw-surface px-3 py-2 text-[13px] text-lw-text-2">
+    {data.definition_missing ? "This workflow's file is gone" : "This workflow has changed since this run"}<span className="text-lw-faint"> · the graph is the run's own copy</span>
+  </p>
+  const ended = (run.status === "cancelled" || run.status === "stopped") && run.error && <p className="text-[13px] text-lw-text-2">{redact(run.error, secrets)}</p>
+  const nowPanel = <Now key={`${baseUrl}:${runId}`} view={data} runId={runId} refresh={refresh} now={now} secrets={secrets} />
+
+  if (canvas && graph) {
+    const current = run.current_step_id ? `step:${templatePath(run.current_step_id)}` : null
+    const focusId = current && graph.nodes.some(node => node.id === current) ? current : null
+    const showPanel = panelsOn && Boolean(panel) && !narrow
+    const insets: Insets = narrow
+      ? { top: 0, left: 0, right: 0, bottom: panelsOn ? 220 : 0 }
+      : { top: 0, bottom: 0, left: panelsOn ? dockWidth + 2 * gap : 0, right: showPanel ? panelWidth + 2 * gap : 0 }
+    const nowFold = { folded: folds.folded("now"), toggle: () => folds.toggle("now") }
+    const cards = <>
+      <NowFold.Provider value={nowFold}>{nowPanel}</NowFold.Provider>
+      <NeedsYouList rows={needsYou.rows} steps={steps} runId={runId} refresh={refresh} onFocus={focusNode} card={{ folded: folds.folded("needs"), onFold: () => folds.toggle("needs") }} />
+      {inputs.length > 0 && <RunCard label="Inputs" folded={folds.folded("inputs")} onFold={() => folds.toggle("inputs")} heading={<h2 className={cardTitle}>Inputs<span className="font-medium text-lw-faint">{inputs.length}</span></h2>}>
+        <ValueList secrets={secrets} values={inputs} clamp className="px-4 pb-3" />
+      </RunCard>}
+      {!narrow && <RunCard label="Steps" folded={folds.folded("steps")} onFold={() => folds.toggle("steps")} heading={<h2 className={cardTitle}>Steps<span className="font-medium text-lw-faint">{steps.length}</span></h2>}>
+        <StepOutline steps={steps} run={run} now={now} selected={selected} onPick={focusNode} />
+      </RunCard>}
+    </>
+    const panelsButton = <button type="button" aria-pressed={panelsOn} title="Show or hide the panels (.)" onClick={() => setPanelsOn(!panelsOn)} className="inline-flex h-8 items-center justify-center rounded-md px-2 text-xs text-lw-text hover:bg-lw-selected aria-pressed:bg-lw-selected">Panels</button>
+    return <main className="flex min-h-0 flex-1 flex-col overflow-hidden font-lw text-lw-text">
+      <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-lw-line bg-lw-surface px-4 py-2.5">
+        <Link to="/workflows?tab=runs" className="text-sm text-lw-link">← Runs</Link>
+        <span aria-hidden="true" className="hidden h-7 w-px bg-lw-line sm:block" />
+        <div className="min-w-0 flex-1 basis-56">
+          <h1 className="truncate text-base font-semibold leading-snug" title={run.workflow_title}>{run.workflow_title}</h1>
+          <p className="truncate text-xs text-lw-text-2">{subtitle} · <span className="font-lw-mono text-[11px] text-lw-faint">{run.id} · <span title={run.definition_source}>{sourceLabel(run.definition_source ?? "")}</span></span></p>
+        </div>
+        {/* The run's state keeps its words: on a narrow window it wraps under
+            the title rather than being cut. */}
+        <div className="flex min-w-0 max-w-full shrink-0 items-center gap-3 text-[13px] text-lw-text-2">
+          <StatePill tone={state.tone} label={state.label} />
+          {where && <span className="min-w-0 max-w-[18rem] truncate" title={where}>{where}</span>}
+          {topSteps.length > 0 && <StepBar segments={stepSegments(run, stepLikes)} label={where || state.label} className="w-32 shrink-0 lg:w-44" />}
+        </div>
+        {narrow && <div role="group" aria-label="View" className="flex rounded-lg border border-lw-line bg-lw-ground p-0.5">
+          <button type="button" aria-pressed={false} onClick={() => setGraphOn(false)} className="h-8 rounded-md px-3 text-xs text-lw-text-2">List</button>
+          <button type="button" aria-pressed={true} className="h-8 rounded-md bg-lw-selected px-3 text-xs font-medium text-lw-text">Graph</button>
+        </div>}
+        {cancel}
+      </header>
+      <section aria-label="Run graph" className="relative min-h-0 flex-1 overflow-hidden bg-lw-ground">
+        <div className="absolute inset-0">
+          <LazyWorkflowGraph graph={graph} extras={extras} run selectedId={selected} onSelect={setSelected} centerOn={centerOn} direction={narrow ? "TB" : "LR"} canvas={{ insets, focusId, tools: panelsButton }} />
+        </div>
+        {(refreshFailed || changed || ended) && <div className="pointer-events-none absolute top-4 z-10 flex justify-center px-4" style={{ left: insets.left, right: insets.right }}>
+          <div className="pointer-events-auto w-full max-w-md space-y-2">{refreshFailed}{changed}{ended && <div className="rounded-lg border border-lw-line bg-lw-surface px-3 py-2">{ended}</div>}</div>
+        </div>}
+        {!panelsOn && <button type="button" onClick={() => setPanelsOn(true)} className="absolute left-4 top-4 z-10 inline-flex h-9 items-center gap-2 rounded-full border border-lw-line-strong bg-lw-surface px-3 text-[13px] text-lw-text shadow-[var(--shadow-lw-panel)] hover:bg-lw-raised">
+          <span aria-hidden="true" className={toneText[state.tone]}>{toneGlyph[state.tone]}</span>{state.label}<span className="text-lw-text-2">· Show panels</span>
+        </button>}
+        {panelsOn && (narrow
+          ? <div className="absolute inset-x-0 bottom-0 z-10 max-h-[50%] space-y-2 overflow-y-auto rounded-t-2xl border-t border-lw-line bg-lw-rail p-3 shadow-[var(--shadow-lw-panel)]">{cards}</div>
+          : <div className="pointer-events-none absolute bottom-20 left-4 top-4 z-10 flex flex-col gap-2 overflow-y-auto [&>*]:pointer-events-auto" style={{ width: dockWidth, maxWidth: "calc(100% - 2rem)" }}>{cards}</div>)}
+        {showPanel && <div className="pointer-events-none absolute bottom-4 right-4 top-4 z-10 flex flex-col" style={{ width: panelWidth, maxWidth: "calc(100% - 2rem)" }}>
+          <div className="pointer-events-auto flex min-h-0 flex-col">{panel}</div>
+        </div>}
+      </section>
+      {narrow && panel && <NodeSheet title={selectedNode?.step?.title ?? selectedNode?.trigger?.summary ?? ""} onClose={() => setSelected(null)}>{panel}</NodeSheet>}
+    </main>
+  }
+
   return <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 font-lw text-lw-text sm:px-6 md:py-6">
-    <div className={cn("mx-auto", showGraph ? "max-w-6xl" : "max-w-3xl")}>
+    <div className="mx-auto max-w-3xl">
       <Link to="/workflows?tab=runs" className="text-sm text-lw-link">← Runs</Link>
       <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h1 className="break-words text-xl font-semibold">{run.workflow_title}</h1>
-          <p className="mt-1 text-[13px] text-lw-text-2">
-            {workflow && workflow !== run.workflow_title && <>{workflow} · </>}
-            {run.parent_run_id && <span>called by <Link to={runLink(run.parent_run_id)} className="text-lw-link">{run.parent_run_id}</Link>{run.parent_step_path && <> at <span className="font-lw-mono text-xs">{run.parent_step_path}</span></>} · </span>}
-            {run.related_task_id && <>for <Link to={`/board?highlight_task=${encodeURIComponent(run.related_task_id)}`} className="text-lw-link">{run.related_task_id}</Link>{run.related_task_title && ` ${run.related_task_title}`} · </>}
-            {subject && <>{subject}{when && " · "}</>}
-            {when}
-          </p>
+          <p className="mt-1 text-[13px] text-lw-text-2">{subtitle}</p>
         </div>
-        {/* A failed run keeps what it holds for Retry; Cancel gives it up. */}
-        {(live || run.status === "failed") && <Button variant="ghost" size="sm" className="self-start" onClick={async () => { await cancelWorkflow(baseUrl, runId); await refresh() }}>Cancel run</Button>}
+        {cancel}
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-lw-text-2"><StatePill tone={state.tone} label={state.label} />{where && <span>{where}</span>}</div>
       {topSteps.length > 0 && <StepBar segments={stepSegments(run, stepLikes)} label={where || state.label} className="mt-2" />}
-      {(run.status === "cancelled" || run.status === "stopped") && run.error && <p className="mt-3 text-[13px] text-lw-text-2">{redact(run.error, secrets)}</p>}
-      {error && <div role="alert" className="mt-4 rounded-lg border border-lw-line bg-lw-surface p-3 text-sm">
-        <p className="text-lw-needs">Showing saved run. Refresh failed: {error}</p>
-        <Button variant="outline" size="sm" className="mt-2" disabled={refreshing} onClick={() => { void refresh() }}>Retry</Button>
-      </div>}
-      {(data.definition_changed || data.definition_missing) && <p role="note" className="mt-4 rounded-lg border border-lw-line bg-lw-surface px-3 py-2 text-[13px] text-lw-text-2">
-        {data.definition_missing ? "This workflow's file is gone" : "This workflow has changed since this run"}<span className="text-lw-faint"> · the graph is the run's own copy</span>
-      </p>}
-      <Now key={`${baseUrl}:${runId}`} view={data} runId={runId} refresh={refresh} now={now} secrets={secrets} />
+      {ended && <div className="mt-3">{ended}</div>}
+      {refreshFailed && <div className="mt-4">{refreshFailed}</div>}
+      {changed && <div className="mt-4">{changed}</div>}
+      {nowPanel}
       {graph && <NeedsYouList rows={needsYou.rows} steps={steps} runId={runId} refresh={refresh} onFocus={focusNode} />}
-      {graph && narrow && <div className="mt-7 flex justify-end">
-        <Button variant="outline" size="sm" aria-pressed={graphOn} onClick={() => setGraphOn(!graphOn)}>Graph</Button>
+      {graph && <div className="mt-7 flex justify-end">
+        <Button variant="outline" size="sm" aria-pressed={graphOn} onClick={() => setGraphOn(true)}>Graph</Button>
       </div>}
-      {showGraph && graph ? <div className={cn(narrow ? "mt-3" : "mt-7", "grid gap-4", selectedNode && !narrow && "lg:grid-cols-[minmax(0,1fr)_24rem]")}>
-        <section aria-label="Run graph" className={cn("overflow-hidden rounded-xl border border-lw-line bg-lw-ground", narrow ? "h-[34rem]" : "h-[30rem]")}>
-          <LazyWorkflowGraph graph={graph} extras={extras} run selectedId={selected} onSelect={setSelected} centerOn={centerOn} direction={narrow ? "TB" : "LR"} />
-        </section>
-        {!narrow && panel}
-      </div> : <>
-        <h2 className="mb-2 mt-7 text-xs font-semibold uppercase tracking-wide text-lw-text-2">Steps</h2>
-        <ul aria-label="Steps" className="overflow-hidden rounded-xl border border-lw-line bg-lw-surface">
-          <StepRows nodes={runStepTree(steps)} keyPrefix={`${baseUrl}:${runId}`} run={run} attempts={attempts} artifacts={artifacts} now={now} secrets={secrets} />
-        </ul>
-      </>}
-      {showGraph && narrow && panel && <NodeSheet title={selectedNode?.step?.title ?? selectedNode?.trigger?.summary ?? ""} onClose={() => setSelected(null)}>{panel}</NodeSheet>}
+      <h2 className="mb-2 mt-7 text-xs font-semibold uppercase tracking-wide text-lw-text-2">Steps</h2>
+      <ul aria-label="Steps" className="overflow-hidden rounded-xl border border-lw-line bg-lw-surface">
+        <StepRows nodes={runStepTree(steps)} keyPrefix={`${baseUrl}:${runId}`} run={run} attempts={attempts} artifacts={artifacts} now={now} secrets={secrets} />
+      </ul>
       {inputs.length > 0 && <>
         <h2 className="mb-2 mt-7 text-xs font-semibold uppercase tracking-wide text-lw-text-2">Inputs</h2>
         <ValueList secrets={secrets} values={inputs} />

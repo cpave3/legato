@@ -1,14 +1,16 @@
 // The workflow graph, drawn with React Flow and laid out by dagre. Loaded
 // only through LazyWorkflowGraph, so neither library is in the bundle of any
 // other page.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import dagre from "@dagrejs/dagre"
-import { Background, BaseEdge, MarkerType, Controls, EdgeLabelRenderer, getBezierPath, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type EdgeProps, type EdgeTypes, type NodeProps, type NodeTypes, type ReactFlowInstance, useReactFlow } from "@xyflow/react"
+import { Background, BaseEdge, MarkerType, Controls, EdgeLabelRenderer, getBezierPath, Handle, MiniMap, Panel, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type EdgeProps, type EdgeTypes, type NodeProps, type NodeTypes, type ReactFlowInstance, useReactFlow, useViewportStore } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
-import { CircleAlert, CircleCheck, CircleDashed, CircleDot, CirclePause, CircleX, SkipForward, Hand, Hourglass, Repeat, Workflow, type LucideIcon } from "lucide-react"
+import { Link } from "react-router-dom"
+import { CircleAlert, CircleCheck, CircleDashed, CircleDot, CirclePause, CircleX, CornerDownRight, SkipForward, Hand, Hourglass, Repeat, Workflow, type LucideIcon } from "lucide-react"
 import { stepIcons, triggerIcons } from "./graphIcons"
 import { dataEdgeName, gateLabel, keyValueText, nodeName, runStateWords, stepTypeLabel, triggerName, triggerOn, type GraphNode, type GraphNodeExtra, type NodeRunState, type WorkflowGraphModel } from "../../lib/workflowGraph"
-import { toneText } from "../../lib/workflowTones"
+import { toneGlyph, toneText } from "../../lib/workflowTones"
+import { centerOn as centerView, fitView as fitAll, focusZoom, inView, noInsets, openingView, type Insets, type Rect } from "../../lib/graphViewport"
 import type { Tone } from "../../lib/workflowView"
 import { cn } from "../../lib/utils"
 
@@ -24,8 +26,19 @@ export type WorkflowGraphProps = {
   run?: boolean
   // centerOn moves the view to a node, each time n changes.
   centerOn?: { id: string; n: number } | null
+  // canvas makes the graph a page's background (LEG-651): every fit and
+  // centring keeps to the free area the page's panels leave (insets); it
+  // opens on focusId (where a run is) when the whole graph would be too
+  // small to read; its toolbar has zoom, Fit, Where it is and the page's
+  // tools; the minimap colours nodes by state; zoomed out, nodes turn
+  // compact.
+  canvas?: { insets: Insets; focusId?: string | null; tools?: ReactNode }
   className?: string
 }
+
+// Below this zoom a canvas draws its nodes compact: the state and a title
+// that keeps one size on screen.
+const compactBelow = 0.6
 
 // Node sizes come from fixed classes, so the layout never waits for the
 // nodes to be measured.
@@ -81,18 +94,44 @@ function StepNode({ data, selected }: NodeProps<FlowNode>) {
   const step = data.node.step!
   const Icon = stepIcons[step.type] ?? Workflow
   const state = data.extra?.state
-  return <div style={state ? sizes.runStep : sizes.step} className={cn("flex flex-col justify-center gap-0.5 rounded-lg border bg-lw-surface px-3 py-2 text-left font-lw text-lw-text shadow-sm", selected ? "border-lw-accent ring-2 ring-lw-accent-ring" : state ? stateBorders[state] : "border-lw-line-strong", state === "skipped" && "opacity-60")}>
+  return <div style={state ? sizes.runStep : sizes.step} className={cn("relative flex flex-col justify-center gap-0.5 rounded-lg border bg-lw-surface px-3 py-2 text-left font-lw text-lw-text shadow-sm group-data-[compact]/flow:justify-start", selected ? "border-lw-accent ring-2 ring-lw-accent-ring" : state ? stateBorders[state] : "border-lw-line-strong", state === "skipped" && "opacity-60")}>
     <Handles direction={data.direction} />
-    <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-lw-text-2">
+    <CompactTitle title={step.title} state={state} />
+    <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-lw-text-2 group-data-[compact]/flow:hidden">
       <Icon size={13} aria-hidden="true" />{stepTypeLabel(step.type)}
       {step.gate && <span role="img" aria-label={gateLabel(step.gate)} title={gateLabel(step.gate)} className="ml-auto inline-flex items-center gap-1 rounded-full bg-lw-needs-soft px-1.5 py-px normal-case tracking-normal text-lw-needs">
         {step.gate === "manual" ? <Hand size={11} /> : <Hourglass size={11} />}{step.gate === "manual" ? "you" : "agent ends"}
       </span>}
     </span>
-    <span className="truncate text-[13px] font-semibold" title={step.title}>{step.title}</span>
-    {step.key.value && <span className="truncate font-lw-mono text-[11px] text-lw-text-2" title={step.key.value}>{keyValueText(step.key.value)}</span>}
-    <RunLine extra={data.extra} />
+    <span className="truncate text-[13px] font-semibold group-data-[compact]/flow:hidden" title={step.title}>{step.title}</span>
+    {step.key.value && <span className="truncate font-lw-mono text-[11px] text-lw-text-2 group-data-[compact]/flow:hidden" title={step.key.value}>{keyValueText(step.key.value)}</span>}
+    <span className="contents group-data-[compact]/flow:hidden"><RunLine extra={data.extra} /></span>
+    {data.extra?.childRun && <ChildRunLink run={data.extra.childRun} />}
   </div>
+}
+
+// ChildRunLink hangs under a workflow.run step that waits on its child run,
+// and opens that run; it never selects the node.
+function ChildRunLink({ run }: { run: { id: string; label: string } }) {
+  return <Link to={`/workflows/runs/${encodeURIComponent(run.id)}`} aria-label={`Child run: ${run.label}`} onClick={event => event.stopPropagation()}
+    className="nodrag nopan absolute inset-x-0 top-full mt-2 flex items-center gap-1.5 rounded-md border border-lw-live/35 bg-lw-live-soft px-2.5 py-1.5 text-xs text-lw-text hover:border-lw-live group-data-[compact]/flow:hidden">
+    <CornerDownRight size={13} aria-hidden="true" className="shrink-0 text-lw-live" />
+    <span className="min-w-0 flex-1 truncate"><span className="font-semibold">Child run</span> · {run.label}</span>
+    <span className="text-lw-link">Open</span>
+  </Link>
+}
+
+// The size of a compact node's text on screen, whatever the zoom, up to
+// what a node holds.
+const compactText = { fontSize: "min(calc(12px / var(--lw-zoom, 1)), 30px)" }
+
+// CompactTitle is a node's state and title as a zoomed-out canvas draws
+// them, at one size on screen; hidden otherwise.
+function CompactTitle({ title, state, pass }: { title: string; state?: NodeRunState; pass?: string }) {
+  return <span aria-hidden="true" style={compactText} className="hidden items-start gap-[0.4em] leading-tight group-data-[compact]/flow:flex">
+    {state && <span className={toneText[stateTones[state]]}>{toneGlyph[stateTones[state]]}</span>}
+    <span className="line-clamp-2 font-semibold">{title}{pass && <span className="font-normal text-lw-text-2"> · {pass}</span>}</span>
+  </span>
 }
 
 function TriggerNode({ data, selected }: NodeProps<FlowNode>) {
@@ -103,8 +142,9 @@ function TriggerNode({ data, selected }: NodeProps<FlowNode>) {
   const inRun = Boolean(data.extra?.trigger)
   return <div style={sizes.trigger} className={cn("flex items-center gap-2.5 rounded-2xl border border-dashed bg-lw-raised px-3.5 font-lw text-[13px] text-lw-text", selected ? "border-lw-accent ring-2 ring-lw-accent-ring" : data.extra?.trigger === "started" ? "border-lw-accent" : "border-lw-line-strong", !manual && !on && !inRun && "opacity-70")}>
     <Handles direction={data.direction} />
-    <Icon size={15} aria-hidden="true" className="shrink-0 text-lw-text-2" />
-    <span className="flex min-w-0 flex-col">
+    <Icon size={15} aria-hidden="true" className="shrink-0 text-lw-text-2 group-data-[compact]/flow:hidden" />
+    <span aria-hidden="true" style={compactText} className="hidden truncate font-medium group-data-[compact]/flow:block">{trigger.summary || triggerName(trigger.kind)}</span>
+    <span className="flex min-w-0 flex-col group-data-[compact]/flow:hidden">
       <span className="truncate font-medium" title={trigger.summary}>{trigger.summary || triggerName(trigger.kind)}</span>
       {data.extra?.trigger === "started" && <span className="text-[11px] font-medium text-lw-accent-text">Started this run</span>}
       {!manual && !inRun && <span className="flex items-center gap-1.5 text-[11px] text-lw-text-2">
@@ -123,12 +163,13 @@ function LoopNode({ data, selected }: NodeProps<FlowNode>) {
   const state = data.extra?.state
   return <div style={state ? sizes.runLoop : sizes.loop} className={cn("relative flex flex-col gap-0.5 rounded-xl border border-dashed bg-lw-surface/60 px-3 py-2 text-left font-lw text-lw-text", selected ? "border-lw-accent ring-2 ring-lw-accent-ring" : state ? stateBorders[state] : "border-lw-line-strong")}>
     <Handles direction={data.direction} />
-    <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-lw-text-2">
+    <CompactTitle title={step.title} state={state} />
+    <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-lw-text-2 group-data-[compact]/flow:hidden">
       <Repeat size={13} aria-hidden="true" />{stepTypeLabel(step.type)}
     </span>
-    <span className="truncate text-[13px] font-semibold" title={step.title}>{step.title}</span>
-    {step.key.value && <span className="truncate font-lw-mono text-[11px] text-lw-text-2" title={step.key.value}>{keyValueText(step.key.value)}</span>}
-    <RunLine extra={data.extra} />
+    <span className="truncate text-[13px] font-semibold group-data-[compact]/flow:hidden" title={step.title}>{step.title}</span>
+    {step.key.value && <span className="truncate font-lw-mono text-[11px] text-lw-text-2 group-data-[compact]/flow:hidden" title={step.key.value}>{keyValueText(step.key.value)}</span>}
+    <span className="contents group-data-[compact]/flow:hidden"><RunLine extra={data.extra} /></span>
     {data.extra?.pass && <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 rounded border border-lw-line bg-lw-surface px-1.5 py-px font-lw-mono text-[10px] text-lw-text">{data.extra.pass}</span>}
   </div>
 }
@@ -140,19 +181,20 @@ function RepeatNode({ data, selected, width, height }: NodeProps<FlowNode>) {
   const state = data.extra?.state
   return <div style={{ width, height }} className={cn("flex flex-col gap-0.5 rounded-xl border border-dashed bg-lw-surface/40 px-3 py-2 text-left font-lw text-lw-text", selected ? "border-lw-accent ring-2 ring-lw-accent-ring" : state ? stateBorders[state] : "border-lw-line-strong", state === "skipped" && "opacity-60")}>
     <Handles direction={data.direction} />
-    <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-lw-text-2">
+    <CompactTitle title={step.title} state={state} pass={data.extra?.pass} />
+    <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-lw-text-2 group-data-[compact]/flow:hidden">
       <Repeat size={13} aria-hidden="true" />{stepTypeLabel(step.type)}
       {step.loop && <span className="normal-case tracking-normal">· at most {step.loop.max}</span>}
       {(data.extra?.passes?.length ?? 0) > 0 && <span className="ml-auto flex items-center gap-1">
         {data.extra!.passes!.map(pass => <span key={pass.pass} role="img" aria-label={`Pass ${pass.pass + 1}: ${runStateWords[pass.state]}`} title={`Pass ${pass.pass + 1}: ${runStateWords[pass.state]}`} className={cn("h-2 w-2 rounded-full border bg-current", toneText[stateTones[pass.state]])} />)}
       </span>}
     </span>
-    <span className="truncate text-[13px] font-semibold" title={step.title}>{step.title}</span>
-    {(step.loop?.summary || step.loop?.until) && <span className="truncate font-lw-mono text-[11px] text-lw-text-2" title={[step.loop?.summary, step.loop?.until && `until ${step.loop.until}`].filter(Boolean).join(", ")}>
+    <span className="truncate text-[13px] font-semibold group-data-[compact]/flow:hidden" title={step.title}>{step.title}</span>
+    {(step.loop?.summary || step.loop?.until) && <span className="truncate font-lw-mono text-[11px] text-lw-text-2 group-data-[compact]/flow:hidden" title={[step.loop?.summary, step.loop?.until && `until ${step.loop.until}`].filter(Boolean).join(", ")}>
       {keyValueText([step.loop?.summary, step.loop?.until && `until ${step.loop.until}`].filter(Boolean).join(", "))}
     </span>}
-    <RunLine extra={data.extra} />
-    {data.extra?.pass && <span className="text-[11px] text-lw-text-2">{data.extra.pass}</span>}
+    <span className="contents group-data-[compact]/flow:hidden"><RunLine extra={data.extra} /></span>
+    {data.extra?.pass && <span className="text-[11px] text-lw-text-2 group-data-[compact]/flow:hidden">{data.extra.pass}</span>}
   </div>
 }
 
@@ -342,7 +384,12 @@ function edgesOf(graph: WorkflowGraphModel, selected: string | null): Edge[] {
   })), ...branches, ...data]
 }
 
-function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, run = false, centerOn, className }: WorkflowGraphProps) {
+// The colour each run state gives a node in a canvas's minimap.
+const miniColors: Record<NodeRunState, string> = { waiting: "var(--color-lw-line-strong)", running: "var(--color-lw-live)", needs: "var(--color-lw-needs)", failed: "var(--color-lw-error)", done: "color-mix(in srgb, var(--color-lw-done) 70%, transparent)", skipped: "var(--color-lw-line)", suspended: "var(--color-lw-line-strong)" }
+
+const toolButton = "inline-flex h-8 min-w-8 items-center justify-center rounded-md px-2 text-xs text-lw-text hover:bg-lw-selected aria-pressed:bg-lw-selected"
+
+function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, run = false, centerOn, canvas, className }: WorkflowGraphProps) {
   const flow = useReactFlow()
   // The layout is computed once per graph and direction; a new graph with
   // the same shape keeps its places.
@@ -361,31 +408,50 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, r
   }, [placed, graph, selected, extras])
   const edges = useMemo(() => edgesOf(graph, selected), [graph, selected])
   const frame = useRef<HTMLDivElement>(null)
+  const insets = canvas?.insets ?? noInsets
+  const insetsRef = useRef(insets)
+  insetsRef.current = insets
+  // A node's place on the graph: a loop body's is its loop's plus its own.
+  const rectOf = useCallback((id: string): Rect | null => {
+    const node = placed.find(item => item.id === id)
+    if (!node) return null
+    const parent = node.parentId ? placed.find(item => item.id === node.parentId) : undefined
+    return { x: node.position.x + (parent?.position.x ?? 0), y: node.position.y + (parent?.position.y ?? 0), width: node.width ?? 0, height: node.height ?? 0 }
+  }, [placed])
+  const frameSize = () => ({ width: frame.current?.clientWidth ?? 0, height: frame.current?.clientHeight ?? 0 })
+  const topRects = useMemo(() => placed.filter(node => !node.parentId).map(node => ({ x: node.position.x, y: node.position.y, width: node.width ?? 0, height: node.height ?? 0 })), [placed])
   useEffect(() => {
     if (!centerOn) return
-    const node = placed.find(item => item.id === centerOn.id)
-    if (!node) return
+    const rect = rectOf(centerOn.id)
+    if (!rect) return
     // At once, not animated: no motion to sit through, and React Flow 13's
     // animated move never settled under the tests' jsdom.
-    void flow.setCenter(node.position.x + (node.width ?? 0) / 2, node.position.y + (node.height ?? 0) / 2, { zoom: Math.max(flow.getZoom(), 0.9) })
+    if (canvas) { void flow.setViewport(centerView(rect, frameSize(), insetsRef.current, Math.max(flow.getZoom(), focusZoom))); return }
+    void flow.setCenter(rect.x + rect.width / 2, rect.y + rect.height / 2, { zoom: Math.max(flow.getZoom(), 0.9) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerOn?.n])
+  // On a canvas, a node selected where a panel covers it (the side panel
+  // opening over it) is brought into the free area, at the same zoom.
+  useEffect(() => {
+    if (!canvas || !selected) return
+    const rect = rectOf(selected)
+    const size = frameSize()
+    if (!rect || size.width === 0) return
+    const view = flow.getViewport()
+    if (!inView(rect, view, size, insets)) void flow.setViewport(centerView(rect, size, insets, view.zoom))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, insets.left, insets.right])
   // startView fits the graph when it fits at a readable size, else shows it
-  // from its start (the triggers) at that size, for the operator to pan.
+  // from where the run is (a canvas's focusId) or from its start (the
+  // triggers) at that size, for the operator to pan.
+  // Top to bottom (a phone) the width is what must fit, so it may shrink
+  // further; a long chain still scrolls down.
+  const floor = direction === "TB" ? 0.6 : 0.75
   const startView = useCallback((flow: Pick<ReactFlowInstance, "setViewport">) => {
-    const width = frame.current?.clientWidth ?? 0, height = frame.current?.clientHeight ?? 0
-    const xs = placed.flatMap(node => [node.position.x, node.position.x + (node.width ?? 0)])
-    const ys = placed.flatMap(node => [node.position.y, node.position.y + (node.height ?? 0)])
-    const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
-    const pad = 24, boundsW = maxX - minX, boundsH = maxY - minY
-    // Top to bottom (a phone) the width is what must fit, so it may shrink
-    // further; a long chain still scrolls down.
-    const floor = direction === "TB" ? 0.6 : 0.75
-    const zoom = Math.min(1, Math.max(floor, Math.min((width - 2 * pad) / boundsW, (height - 2 * pad) / boundsH)))
-    const x = boundsW * zoom <= width - 2 * pad ? (width - boundsW * zoom) / 2 - minX * zoom : pad - minX * zoom
-    const y = boundsH * zoom <= height - 2 * pad ? (height - boundsH * zoom) / 2 - minY * zoom : pad - minY * zoom
-    void flow.setViewport({ x, y, zoom })
-  }, [placed, direction])
+    if (topRects.length === 0) return
+    const focus = canvas?.focusId ? rectOf(canvas.focusId) : null
+    void flow.setViewport(openingView(topRects, frameSize(), { insets: insetsRef.current, floor, focus }))
+  }, [topRects, floor, rectOf, canvas?.focusId])
   const choose = useCallback((id: string | null) => {
     setSelected(id)
     onSelect?.(id)
@@ -402,7 +468,12 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, r
     const node = graph.nodes.find(item => item.id === id)
     choose(node?.kind === "inner" && node.parent ? node.parent : id)
   }, [choose, graph])
-  return <div ref={frame} onKeyDown={onKeyDown} className={cn("h-full min-h-[18rem] w-full", className)} style={{ "--xy-background-color": "var(--color-lw-ground)", "--xy-edge-stroke": "var(--color-lw-line-strong)", "--xy-minimap-background-color": "var(--color-lw-surface)", "--xy-minimap-mask-background-color": "color-mix(in srgb, var(--color-lw-ground) 70%, transparent)", "--xy-minimap-mask-stroke-color": "var(--color-lw-line-strong)", "--xy-minimap-node-background-color": "var(--color-lw-line-strong)", "--xy-controls-button-background-color": "var(--color-lw-surface)", "--xy-controls-button-color": "var(--color-lw-text)", "--xy-controls-button-border-color": "var(--color-lw-line)" } as React.CSSProperties}>
+  const zoom = useViewportStore(state => state.transform[2])
+  const compact = Boolean(canvas) && zoom < compactBelow
+  const look = { "--xy-background-color": "var(--color-lw-ground)", "--xy-edge-stroke": "var(--color-lw-line-strong)", "--xy-minimap-background-color": "var(--color-lw-surface)", "--xy-minimap-mask-background-color": "color-mix(in srgb, var(--color-lw-ground) 70%, transparent)", "--xy-minimap-mask-stroke-color": "var(--color-lw-line-strong)", "--xy-minimap-node-background-color": "var(--color-lw-line-strong)", "--xy-controls-button-background-color": "var(--color-lw-surface)", "--xy-controls-button-color": "var(--color-lw-text)", "--xy-controls-button-border-color": "var(--color-lw-line)" } as Record<string, string | number>
+  // Zoomed out, edges keep about a pixel and a half on screen.
+  if (canvas) Object.assign(look, { "--lw-zoom": zoom, "--xy-edge-stroke-width": compact ? Math.min(6, 1.2 / zoom) : 1 })
+  return <div ref={frame} onKeyDown={onKeyDown} data-compact={compact || undefined} className={cn("group/flow h-full min-h-[18rem] w-full", className)} style={look as React.CSSProperties}>
     <ReactFlow
       nodes={nodes}
       edges={edges}
@@ -423,8 +494,20 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, r
       onPaneClick={() => choose(null)}
     >
       <Background gap={20} size={1} />
-      <Controls showInteractive={false} />
-      {direction === "LR" && <MiniMap pannable zoomable ariaLabel="Workflow graph overview" style={{ width: 160, height: 90 }} className="!rounded-md !border !border-lw-line" />}
+      {canvas ? <Panel position="bottom-left" className="!m-4">
+        <div role="toolbar" aria-label="View" className="flex items-center gap-0.5 rounded-lg border border-lw-line bg-lw-surface p-0.5 font-lw text-lw-text shadow-[var(--shadow-lw-panel)]">
+          <button type="button" aria-label="Zoom out" className={toolButton} onClick={() => { void flow.zoomOut() }}>−</button>
+          <span className="w-11 text-center font-lw-mono text-xs text-lw-text-2">{Math.round(zoom * 100)}%</span>
+          <button type="button" aria-label="Zoom in" className={toolButton} onClick={() => { void flow.zoomIn() }}>+</button>
+          <span aria-hidden="true" className="mx-1 h-5 w-px bg-lw-line" />
+          <button type="button" aria-label="Fit the whole flow" title="Fit the whole flow" className={toolButton} onClick={() => { void flow.setViewport(fitAll(topRects, frameSize(), insets)) }}>Fit</button>
+          {canvas.focusId && <button type="button" title="Centre on the step the run is at" className={toolButton} onClick={() => { const rect = rectOf(canvas.focusId!); if (rect) void flow.setViewport(centerView(rect, frameSize(), insets, focusZoom)) }}>Where it is</button>}
+          {canvas.tools && <><span aria-hidden="true" className="mx-1 h-5 w-px bg-lw-line" />{canvas.tools}</>}
+        </div>
+      </Panel> : <Controls showInteractive={false} />}
+      {direction === "LR" && <MiniMap pannable zoomable ariaLabel="Workflow graph overview"
+        nodeColor={canvas ? node => { const state = (node.data as FlowData | undefined)?.extra?.state; return state ? miniColors[state] : "var(--color-lw-line-strong)" } : undefined}
+        style={canvas ? { width: 200, height: 72, marginRight: 16 + insets.right, marginBottom: 16 } : { width: 160, height: 90 }} className="!rounded-md !border !border-lw-line" />}
     </ReactFlow>
   </div>
 }
