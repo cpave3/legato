@@ -81,6 +81,20 @@ describe("workflow graphs at phone width", () => {
     expect(within(toolbar).getByRole("button", { name: "Panels" })).toBeTruthy()
   })
 
+  it("put a run's notices above the graph, not over its toolbar (LEG-651)", async () => {
+    const changed = { ...run, definition_changed: true }
+    calls.fetchRun.mockResolvedValue(changed)
+    const client = createQueryClient()
+    client.setQueryData(queryKeys.workflowRun("", "wr-1"), changed as unknown as WorkflowRunView)
+    render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/workflows/runs/wr-1"]}><Routes><Route path="/workflows/runs/:runId" element={<WorkflowRunPage />} /></Routes></MemoryRouter></QueryClientProvider>)
+    fireEvent.click(screen.getByRole("button", { name: "Graph" }))
+    const canvas = await screen.findByRole("region", { name: "Run graph" })
+    expect(within(canvas).getByRole("toolbar", { name: "View" })).toBeTruthy()
+    const note = screen.getByRole("note")
+    expect(note.textContent).toContain("This workflow has changed since this run")
+    expect(canvas.contains(note)).toBe(false)
+  })
+
   it("open a run step's details in a bottom sheet that closes", async () => {
     renderAt("/workflows/runs/wr-1")
     fireEvent.click(screen.getByRole("button", { name: "Graph" }))

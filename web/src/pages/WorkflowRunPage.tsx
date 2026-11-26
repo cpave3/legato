@@ -809,6 +809,7 @@ export function WorkflowRunPage() {
         <StepOutline steps={steps} run={run} now={now} selected={selected} onPick={focusNode} />
       </RunCard>}
     </>
+    const notices = (refreshFailed || changed || ended) && <>{refreshFailed}{changed}{ended && <div className="rounded-lg border border-lw-line bg-lw-surface px-3 py-2">{ended}</div>}</>
     const panelsButton = <button type="button" aria-pressed={panelsOn} title="Show or hide the panels (.)" onClick={() => setPanelsOn(!panelsOn)} className="inline-flex h-8 items-center justify-center rounded-md px-2 text-xs text-lw-text hover:bg-lw-selected aria-pressed:bg-lw-selected">Panels</button>
     return <main className="flex min-h-0 flex-1 flex-col overflow-hidden font-lw text-lw-text">
       <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-lw-line bg-lw-surface px-4 py-2.5">
@@ -831,12 +832,15 @@ export function WorkflowRunPage() {
         </div>}
         {cancel}
       </header>
+      {/* On a phone the graph's toolbar is at its top, so the run's notices
+          go above the graph instead of over it. */}
+      {narrow && notices && <div className="shrink-0 space-y-2 border-b border-lw-line bg-lw-rail px-3 py-2">{notices}</div>}
       <section aria-label="Run graph" className="relative min-h-0 flex-1 overflow-hidden bg-lw-ground">
         <div className="absolute inset-0">
           <LazyWorkflowGraph graph={graph} extras={extras} run selectedId={selected} onSelect={setSelected} centerOn={centerOn} direction={narrow ? "TB" : "LR"} canvas={{ insets, focusId, tools: panelsButton }} />
         </div>
-        {(refreshFailed || changed || ended) && <div className="pointer-events-none absolute top-4 z-10 flex justify-center px-4" style={{ left: insets.left, right: insets.right }}>
-          <div className="pointer-events-auto w-full max-w-md space-y-2">{refreshFailed}{changed}{ended && <div className="rounded-lg border border-lw-line bg-lw-surface px-3 py-2">{ended}</div>}</div>
+        {!narrow && notices && <div className="pointer-events-none absolute top-4 z-10 flex justify-center px-4" style={{ left: insets.left, right: insets.right }}>
+          <div className="pointer-events-auto w-full max-w-md space-y-2">{notices}</div>
         </div>}
         {!panelsOn && <button type="button" onClick={() => setPanelsOn(true)} className="absolute left-4 top-4 z-10 inline-flex h-9 items-center gap-2 rounded-full border border-lw-line-strong bg-lw-surface px-3 text-[13px] text-lw-text shadow-[var(--shadow-lw-panel)] hover:bg-lw-raised">
           <span aria-hidden="true" className={toneText[state.tone]}>{toneGlyph[state.tone]}</span>{state.label}<span className="text-lw-text-2">· Show panels</span>
