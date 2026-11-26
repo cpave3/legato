@@ -433,6 +433,9 @@ func commandTree() *commandDef {
 		leaf("doctor", "Check what Legato needs from this machine, and say how to fix what is missing", runDoctorCmd, nil,
 			[]commandFlag{boolFlag("online", "Also ask GitHub whether gh's token works (uses the network)"), jsonFlag},
 			"legato doctor", "legato doctor --online --json"),
+		leaf("usage", "Show how much of the Claude and Codex subscriptions' usage limits is used", runUsageCmd, nil,
+			[]commandFlag{boolFlag("refresh", "Read the usage now instead of showing the last reading"), jsonFlag},
+			"legato usage", "legato usage --refresh --json"),
 		leaf("version", "Print the version of this Legato", runVersionCmd, nil, []commandFlag{jsonFlag}, "legato version", "legato version --json"),
 		leaf("pair", "Pair a device, or a main instance, with the Legato web UI", runPairContract, nil, []commandFlag{valueFlag("host", "host|ip", "Address this device uses to reach this specific Legato instance"), valueFlag("port", "port", "Server port"), boolFlag("main", "Pair a main instance that hands tasks to this Legato, instead of a phone"), jsonFlag}, "legato pair --host 192.168.1.20", "legato pair --main"),
 	)

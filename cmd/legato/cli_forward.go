@@ -43,6 +43,8 @@ var forwardedCommands = map[string][]string{
 	// doctor has no second word: "" forwards it with only flags, so an
 	// agent sees the host's tools, which its sandbox hides by design.
 	"doctor": {""},
+	// usage too: the subscriptions' usage is read on the host only.
+	"usage": {""},
 }
 
 // forwardedEnv is what the host takes of the agent's environment: values

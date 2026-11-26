@@ -428,3 +428,56 @@ func (s *SubscriptionUsageService) lastKept(ctx context.Context, provider string
 func (u ProviderUsage) String() string {
 	return fmt.Sprintf("%s %s %s %d windows", u.Provider, u.State, u.Reason, len(u.Windows))
 }
+
+// UsageReasonText says a reason in the operator's words, for the TUI and the
+// CLI (the web UI keeps its own copy in web/src/lib/usage.ts).
+func UsageReasonText(reason string) string {
+	switch reason {
+	case UsageReasonNotRead:
+		return "not read yet"
+	case UsageReasonNotSignedIn:
+		return "sign in to it on this machine"
+	case UsageReasonLoginExpired:
+		return "its login has expired; using it signs in again"
+	case UsageReasonNoSubscription:
+		return "this login has no subscription limits"
+	case UsageReasonCodexMissing:
+		return "the codex command is not installed"
+	case UsageReasonNoData:
+		return "nothing reported yet"
+	case UsageReasonEndpointChanged:
+		return "its usage report changed; Legato cannot read it"
+	case UsageReasonRateLimited:
+		return "asked too often; waiting"
+	case UsageReasonUnreachable:
+		return "could not reach it"
+	default:
+		return "could not read it"
+	}
+}
+
+// UsageProviderName is a provider's name as the operator knows it.
+func UsageProviderName(provider string) string {
+	switch provider {
+	case UsageProviderClaude:
+		return "Claude"
+	case UsageProviderCodex:
+		return "Codex"
+	}
+	return provider
+}
+
+// UsageMeterLabel is a meter's short label.
+func UsageMeterLabel(meter string) string {
+	switch meter {
+	case UsageMeterFiveHour:
+		return "5-hour"
+	case UsageMeterWeekly:
+		return "weekly"
+	case UsageMeterWeeklyOpus:
+		return "weekly Opus"
+	case UsageMeterWeeklySonnet:
+		return "weekly Sonnet"
+	}
+	return meter
+}
