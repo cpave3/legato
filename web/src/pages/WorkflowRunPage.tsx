@@ -554,6 +554,8 @@ function NeedsYouList({ rows, steps, runId, refresh, onFocus, card }: { rows: Ru
         skip: () => workflowStepAction(baseUrl, runId, step, "skip"),
         stop: () => workflowStepAction(baseUrl, runId, step, "stop"),
       }
+      // A review-loop step's actions all go through the step's action route.
+      if (row?.kind === "item" && row.run?.stepActions) { void act(item, () => workflowStepAction(baseUrl, runId, step, actionId, text)); return }
       if (actionId.startsWith("choose:")) { void act(item, () => workflowStepAction(baseUrl, runId, step, actionId)); return }
       if (calls[actionId]) void act(item, calls[actionId])
       return

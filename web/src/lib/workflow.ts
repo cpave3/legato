@@ -27,7 +27,7 @@ export type WorkflowStepRun = { run_id:string; step_id:string; path?:string; par
 export type GateDetails = { title:string; body?:string; options:string[]; choice?:string }
 /** WorkflowCallDetails is a workflow.run step's child run (LEG-489). */
 export type WorkflowCallDetails = { run_id:string; workflow:string; title:string; status:string }
-export type WorkflowAttempt = { id:string; run_id:string; step_id:string; path?:string; attempt_number:number; executor_type:string; agent_session_id?:number; task_id?:string; agent_id?:string; tmux_session?:string; agent_kind?:string; tier?:string; working_dir?:string; status:string; error?:string; agent_activity?:string; needs_attention?:boolean; attention_reason?:string; resumable?:boolean; started_at:string; ended_at?:string }
+export type WorkflowAttempt = { id:string; run_id:string; step_id:string; path?:string; attempt_number:number; executor_type:string; agent_session_id?:number; task_id?:string; agent_id?:string; tmux_session?:string; agent_kind?:string; tier?:string; working_dir?:string; status:string; error?:string; agent_activity?:string; needs_attention?:boolean; attention_reason?:string; attention_signal?:string; attention_actions?:string[]; attention_steward?:boolean; resumable?:boolean; started_at:string; ended_at?:string }
 export type WorkflowArtifact = { id:string; run_id:string; step_id:string; path?:string; attempt_id:string; output_key:string; original_path?:string; media_type:string; size_bytes:number; digest:string; created_at:string }
 // needs_you is the server's word on whether the loop waits on the operator:
 // stuck, or waiting for an author that will not move it alone. An agent

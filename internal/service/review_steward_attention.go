@@ -176,11 +176,11 @@ func (s *ReviewPassService) waitingForAuthor(ctx context.Context, loop *store.Ha
 	return joinAnd(parts)
 }
 
-// approvalStandsText says which of a stewarded loop's approvals still
-// stand on GitHub: legato-reviews' APPROVE (or the approval a pass kept) of
-// each open layer at the head Confirm approved it at, unless a person
-// dismissed it. "legato-reviews' approval at <sha> still stands" for one
-// layer; "" when none stands. LEG-594's run page says the same.
+// approvalStandsText is approvalStandsLine (review_approval_line.go, the
+// run page's wording) of the layers whose approval still stands on GitHub:
+// open by the newest watch read, with legato-reviews' APPROVE (or the
+// approval a pass kept) at the head Confirm approved, and not dismissed by
+// a person. "" when none stands.
 func (s *ReviewPassService) approvalStandsText(ctx context.Context, rec *store.ReviewLoop) string {
 	if rec.CleanPass == 0 {
 		return ""
@@ -198,39 +198,20 @@ func (s *ReviewPassService) approvalStandsText(ctx context.Context, rec *store.R
 	w, read := s.freshWatch(rec.ID)
 	var stands []store.ReviewLoopPR
 	for _, layer := range layers {
-		state := layer.State
-		var live *PRWatch
+		dismissed := false
 		if read {
-			for i := range w.Layers {
-				if w.Layers[i].Number == layer.Number {
-					live = &w.Layers[i]
-					state = live.State
+			for _, live := range w.Layers {
+				if live.Number == layer.Number {
+					layer.State = live.State
+					dismissed = layer.ReviewID != 0 && slices.Contains(live.DismissedReviews, layer.ReviewID)
 				}
 			}
 		}
-		event := events[layer.Number]
-		switch {
-		case layer.CleanHead == "" || state != "open":
-		case event != ReviewApprove && event != ReviewKept:
-		case live != nil && layer.ReviewID != 0 && slices.Contains(live.DismissedReviews, layer.ReviewID):
-		default:
+		if event := events[layer.Number]; (event == ReviewApprove || event == ReviewKept) && !dismissed {
 			stands = append(stands, layer)
 		}
 	}
-	switch len(stands) {
-	case 0:
-		return ""
-	case 1:
-		if len(layers) == 1 {
-			return fmt.Sprintf("legato-reviews' approval at %s still stands", short(stands[0].CleanHead))
-		}
-		return fmt.Sprintf("legato-reviews' approval of #%d at %s still stands", stands[0].Number, short(stands[0].CleanHead))
-	}
-	names := make([]string, 0, len(stands))
-	for _, layer := range stands {
-		names = append(names, fmt.Sprintf("#%d at %s", layer.Number, short(layer.CleanHead)))
-	}
-	return "legato-reviews' approvals of " + joinAnd(names) + " still stand"
+	return approvalStandsLine(stands)
 }
 
 // dismissedApprovals names the open layers of a stewarded loop whose
