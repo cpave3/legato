@@ -16,6 +16,8 @@ import { cn } from "../lib/utils"
 import { useMediaQuery } from "../hooks/useMediaQuery"
 import { useServer } from "../hooks/useServer"
 import { copyBuiltInWorkflow } from "../lib/workflowFiles"
+import { WorkflowTagLine } from "../components/workflows/WorkflowTagsDialog"
+import { knownTags } from "../lib/workflowList"
 import { DockCard, PanelClose } from "../components/workflow-canvas/DockCard"
 import { cardTitle, floatingPanel } from "../components/workflow-canvas/canvasStyles"
 import { useCardFolds, useLargeScreen } from "../components/workflow-canvas/useCardFolds"
@@ -262,6 +264,7 @@ export function WorkflowPage() {
   return <main className="flex min-h-0 flex-1 flex-col overflow-hidden font-lw text-lw-text">
     <CanvasHeader back={{ to: "/workflows?tab=workflows", label: "Workflows" }} title={definition.title}
       subtitle={<span className="font-lw-mono text-[11px] text-lw-faint">{definition.name} · <span title={definition.source}>{sourceLabel(definition.source)}</span></span>}>
+      <WorkflowTagLine definition={definition} known={knownTags(definitions.data?.definitions ?? [])} onChanged={definitions.refresh} className="shrink-0" />
       <span className="shrink-0 text-[13px] text-lw-text-2">{state}</span>
       <div className="flex flex-wrap gap-2">
         {definition.editable && <Button asChild variant="outline" size="sm"><Link to={`/workflows/${encodeURIComponent(definition.name)}/edit`}><Pencil size={13} />Edit</Link></Button>}

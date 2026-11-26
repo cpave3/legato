@@ -1,6 +1,7 @@
 schema_version: 1
 name: review-pr-passes
 title: Review pull request in passes
+tags: [reviews]
 run_title: Review loop on ${{ workflow.inputs.repo }}#${{ workflow.inputs.pr_number }}
 description: >-
   Review an open pull request in passes (with scope stack, every open pull

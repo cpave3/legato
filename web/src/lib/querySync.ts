@@ -61,6 +61,7 @@ export function invalidationsFor(message: WSMessage, baseUrl: string): Invalidat
       break
     case "workflow_changed":
       exact(queryKeys.workflowRuns(baseUrl))
+      exact(queryKeys.workflowStats(baseUrl))
       prefix([baseUrl, "workflow-runs-of"])
       // A run's change refreshes that run's page, never every run's.
       if (message.workflow_run_id) exact(queryKeys.workflowRun(baseUrl, message.workflow_run_id))

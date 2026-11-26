@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { useServer } from "../hooks/useServer"
-import { Play, RefreshCw } from "lucide-react"
-import { useWorkflows, useWorkflowRuns } from "../hooks/useWorkflow"
+import { ChevronRight, Plus, RefreshCw } from "lucide-react"
+import { useWorkflows, useWorkflowRuns, useWorkflowStats } from "../hooks/useWorkflow"
 import { useNow } from "../hooks/useNow"
-import { fetchWorkflowTemplates, stepStart, type WorkflowDefinition, type WorkflowRun, type WorkflowTemplate } from "../lib/workflow"
-import { ago, inputsLabel, runState, runSubject, runSummary, sourceLabel, stepPosition, stepSegments, triggerText } from "../lib/workflowView"
+import { fetchWorkflowTemplates, type WorkflowDefinition, type WorkflowRun, type WorkflowTemplate } from "../lib/workflow"
+import { ago, elapsed, parseTime, runState, runSubject, runSummary, sourceLabel, stepPosition, stepSegments } from "../lib/workflowView"
 import { RunWorkflowDialog } from "../components/RunWorkflowDialog"
 import { LazyWorkflowStart } from "../components/workflow-editor/LazyWorkflowStart"
-import { TriggerSwitch } from "../components/WorkflowTriggerSwitch"
+import { WorkflowList } from "../components/workflows/WorkflowList"
 import { StatePill, StepBar } from "../components/WorkflowRunStatus"
 import { toneText } from "../lib/workflowTones"
 import { Button } from "../components/ui/Button"
@@ -52,38 +52,78 @@ function PageFrame({ tab, setTab, needsYou, refresh, children }: { tab: Workflow
   </main>
 }
 
-function SectionHeading({ children, count }: { children: React.ReactNode; count?: number }) {
-  return <h2 className="mb-2 mt-6 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide text-lw-text-2">{children}{count !== undefined && <span className="font-medium text-lw-faint">{count}</span>}</h2>
+function SectionHeading({ children, count, tone }: { children: React.ReactNode; count?: number; tone?: "needs" }) {
+  return <h2 className={cn("mb-2 mt-6 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide", tone === "needs" ? "text-lw-needs" : "text-lw-text-2")}>{children}{count !== undefined && <span className={cn("font-medium", tone === "needs" ? "text-lw-needs" : "text-lw-faint")}>{count}</span>}</h2>
 }
 
-function RunRow({ run, now }: { run: WorkflowRun; now: number }) {
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+// dayOf is the local date a run started on, and how the list heads it:
+// Today, Yesterday, else "Tue 28 Jul".
+function dayOf(time: string, now: number): { key: string; label: string } {
+  const date = new Date(parseTime(time))
+  const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+  const today = new Date(now)
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
+  if (key === `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`) return { key, label: "Today" }
+  if (key === `${yesterday.getFullYear()}-${yesterday.getMonth()}-${yesterday.getDate()}`) return { key, label: "Yesterday" }
+  return { key, label: `${WEEKDAYS[date.getDay()]} ${date.getDate()} ${MONTHS[date.getMonth()]}` }
+}
+
+// duration is how long a run has run, or ran.
+function duration(run: WorkflowRun, now: number): string {
+  const start = run.started_at || run.created_at
+  if (run.completed_at) return elapsed(start, run.completed_at)
+  return active(run) ? elapsed(start, now) : ""
+}
+
+function RunRow({ run, now, children = [], child = false }: { run: WorkflowRun; now: number; children?: WorkflowRun[]; child?: boolean }) {
+  const [open, setOpen] = useState(() => children.some(active))
   const state = runState(run)
   const steps = run.steps ?? []
-  const summary = runSummary(run)
+  // A finished run's duration has its own column, so its line says only
+  // what it left to note.
+  const summary = run.status === "succeeded" ? { text: run.output_warning ?? "", tone: undefined } : runSummary(run)
   const position = stepPosition(run, steps)
   const subject = runSubject(run)
   const where = position ? `${position.number} of ${position.total}` : steps.length ? `${steps.length} ${steps.length === 1 ? "step" : "steps"}` : ""
-  return <li className="border-t border-lw-line first:border-t-0">
-    <Link to={`/workflows/runs/${encodeURIComponent(run.id)}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 px-4 py-3 hover:bg-lw-raised md:grid-cols-[6.5rem_minmax(0,1fr)_8rem_3rem] md:items-center md:gap-4">
+  const took = duration(run, now)
+  const failed = children.filter(item => item.status === "failed").length
+  const inside = `${children.length} ${children.length === 1 ? "run" : "runs"} inside${failed ? ` · ${failed} failed` : ""}`
+  return <li className={cn("border-t border-lw-line first:border-t-0", child && "bg-lw-ground/40")}>
+    <Link to={`/workflows/runs/${encodeURIComponent(run.id)}`} className={cn("grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 px-4 py-3 hover:bg-lw-raised md:grid-cols-[6.5rem_minmax(0,1fr)_8rem_4.5rem_3rem] md:items-center md:gap-4", child && "pl-10")}>
       <StatePill tone={state.tone} label={state.label} className="justify-self-start" />
       <span className="col-span-2 row-start-2 min-w-0 md:col-span-1 md:row-start-auto">
         <span className="block truncate font-semibold">{run.workflow_title}{subject && <span className="hidden font-normal text-lw-text-2 md:inline"> · {subject}</span>}</span>
         {subject && <span className="block truncate text-lw-text-2 md:hidden">{subject}</span>}
         {summary.text && <span className={cn("mt-0.5 block text-[13px] md:truncate", summary.tone ? toneText[summary.tone] : "text-lw-text-2")}>{summary.text}</span>}
       </span>
-      {steps.length > 0 && <span className="col-span-2 row-start-3 flex items-center gap-2.5 md:col-span-1 md:row-start-auto md:flex-col md:items-stretch md:gap-1">
+      {steps.length > 0 ? <span className="col-span-2 row-start-3 flex items-center gap-2.5 md:col-span-1 md:row-start-auto md:flex-col md:items-stretch md:gap-1">
         <StepBar segments={stepSegments(run, steps)} label={position ? `Step ${position.number} of ${position.total}` : where} className="flex-1 md:flex-none" />
         <span aria-hidden="true" className="font-lw-mono text-[11px] text-lw-faint">{where}</span>
-      </span>}
-      <span className="col-start-2 row-start-1 text-right font-lw-mono text-xs text-lw-faint md:col-start-auto md:row-start-auto" title={run.created_at}>{ago(run.created_at, now)}</span>
+      </span> : <span className="hidden md:block" />}
+      <span className="hidden text-right font-lw-mono text-xs text-lw-text md:block" title={active(run) ? "How long it has run" : "How long it ran"}>{took}</span>
+      <span className="col-start-2 row-start-1 text-right font-lw-mono text-xs text-lw-faint md:col-start-auto md:row-start-auto" title={run.created_at}>
+        <span className="md:hidden">{took && `${took} · `}</span>{ago(run.created_at, now)}
+      </span>
     </Link>
+    {children.length > 0 && <>
+      <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}
+        className="flex min-h-10 w-full items-center gap-2 border-t border-dashed border-lw-line px-4 text-left text-xs text-lw-text-2 hover:text-lw-text md:pl-[8.5rem]">
+        <ChevronRight size={12} aria-hidden="true" className={cn("transition-transform motion-reduce:transition-none", open && "rotate-90")} />{inside}
+      </button>
+      {open && <ul aria-label={`Runs inside ${run.workflow_title}`} className="border-t border-lw-line">
+        {children.map(item => <RunRow key={item.id} run={item} now={now} child />)}
+      </ul>}
+    </>}
   </li>
 }
 
-function RunList({ label, runs }: { label: string; runs: WorkflowRun[] }) {
+function RunList({ label, runs, children, tone }: { label: string; runs: WorkflowRun[]; children: Map<string, WorkflowRun[]>; tone?: "needs" }) {
   const now = useNow(30_000)
-  return <ul aria-label={label} className="overflow-hidden rounded-xl border border-lw-line bg-lw-surface">
-    {runs.map(run => <RunRow key={run.id} run={run} now={now} />)}
+  return <ul aria-label={label} className={cn("overflow-hidden rounded-xl border bg-lw-surface", tone === "needs" ? "border-lw-needs/40" : "border-lw-line")}>
+    {runs.map(run => <RunRow key={run.id} run={run} now={now} children={children.get(run.id)} />)}
   </ul>
 }
 
@@ -94,80 +134,93 @@ function LoadFailure({ error, saved, label, refreshing, refresh }: { error: stri
   </div>
 }
 
+type StatusFilter = "all" | "needs" | "running" | "failed" | "done"
+const statusFilters: { value: StatusFilter; label: string; test: (run: WorkflowRun) => boolean }[] = [
+  { value: "all", label: "All", test: () => true },
+  { value: "needs", label: "Needs you", test: run => Boolean(run.needs_attention) },
+  { value: "running", label: "Running", test: run => active(run) && !run.needs_attention },
+  { value: "failed", label: "Failed", test: run => run.status === "failed" },
+  { value: "done", label: "Done", test: run => run.status === "succeeded" },
+]
+
 function RunsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
   const runs = useWorkflowRuns()
+  const now = useNow(30_000)
+  const [status, setStatus] = useState<StatusFilter>("all")
+  const [workflow, setWorkflow] = useState("")
   const all = runs.data ?? []
-  const inProgress = all.filter(active).sort((a, b) => Number(Boolean(b.needs_attention)) - Number(Boolean(a.needs_attention)))
-  const finished = all.filter(run => !active(run))
+  // A child run is listed under its parent when the parent is listed too.
+  const ids = new Set(all.map(run => run.id))
+  const children = new Map<string, WorkflowRun[]>()
+  for (const run of [...all].reverse()) {
+    if (run.parent_run_id && ids.has(run.parent_run_id)) children.set(run.parent_run_id, [...(children.get(run.parent_run_id) ?? []), run])
+  }
+  const top = all.filter(run => !(run.parent_run_id && ids.has(run.parent_run_id)))
+  const workflows = [...new Set(top.map(run => run.workflow_name))].sort()
+  const filter = statusFilters.find(item => item.value === status)!
+  const shown = top.filter(run => filter.test(run) && (!workflow || run.workflow_name === workflow))
+  const needs = shown.filter(run => run.needs_attention)
+  const inProgress = shown.filter(run => active(run) && !run.needs_attention)
+  const days: { key: string; label: string; runs: WorkflowRun[] }[] = []
+  for (const run of shown.filter(run => !active(run))) {
+    const day = dayOf(run.created_at, now)
+    const last = days[days.length - 1]
+    if (last?.key === day.key) last.runs.push(run)
+    else days.push({ ...day, runs: [run] })
+  }
   const needsYou = all.filter(run => run.needs_attention).length
   return <PageFrame tab="runs" setTab={setTab} needsYou={needsYou} refresh={runs.refresh}>
     {runs.loading && <LoadingState label="Loading runs…" size="inline" className="mt-6" />}
     {runs.error && <LoadFailure error={runs.error} saved={runs.data !== null} label="runs" refreshing={runs.refreshing} refresh={runs.refresh} />}
-    {inProgress.length > 0 && <><SectionHeading count={inProgress.length}>In progress</SectionHeading><RunList label="Runs in progress" runs={inProgress} /></>}
-    {finished.length > 0 && <><SectionHeading>Finished</SectionHeading><RunList label="Finished runs" runs={finished} /></>}
+    {top.length > 0 && <div className="mt-4 flex flex-wrap items-center gap-2">
+      <div role="group" aria-label="Status" className="flex flex-wrap gap-2">
+        {statusFilters.map(item => {
+          const count = top.filter(item.test).length
+          return <button key={item.value} type="button" aria-pressed={status === item.value} onClick={() => setStatus(item.value)}
+            className={cn("inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-[13px]", status === item.value ? "border-lw-accent bg-lw-selected text-lw-text" : "border-lw-line-strong bg-lw-surface text-lw-text-2 hover:text-lw-text")}>
+            {item.label} <span className={cn("font-lw-mono text-xs", item.value === "needs" && count > 0 && "text-lw-needs")}>{count}</span>
+          </button>
+        })}
+      </div>
+      {workflows.length > 1 && <select aria-label="Workflow" value={workflow} onChange={event => setWorkflow(event.target.value)}
+        className="min-h-9 rounded-md border border-lw-line-strong bg-lw-surface px-2.5 text-[13px] text-lw-text md:ml-auto">
+        <option value="">Any workflow</option>
+        {workflows.map(name => <option key={name} value={name}>{name}</option>)}
+      </select>}
+    </div>}
+    {needs.length > 0 && <><SectionHeading count={needs.length} tone="needs">Needs you</SectionHeading><RunList label="Runs that need you" runs={needs} children={children} tone="needs" /></>}
+    {inProgress.length > 0 && <><SectionHeading count={inProgress.length}>In progress</SectionHeading><RunList label="Runs in progress" runs={inProgress} children={children} /></>}
+    {days.length > 0 && <><SectionHeading>Finished</SectionHeading>
+      <div className="flex flex-col gap-3">
+        {days.map(day => <div key={day.key}>
+          <h3 className="mb-1.5 flex items-baseline gap-2 text-xs font-medium text-lw-text-2">{day.label}<span className="font-lw-mono text-lw-faint">{day.runs.length}</span></h3>
+          <RunList label={`Finished runs, ${day.label}`} runs={day.runs} children={children} />
+        </div>)}
+      </div>
+    </>}
+    {top.length > 0 && shown.length === 0 && <p className="mt-6 text-sm text-lw-text-2">No runs match. <button onClick={() => { setStatus("all"); setWorkflow("") }} className="text-lw-link">Show all runs</button></p>}
     {!runs.loading && !runs.error && all.length === 0 && <p className="mt-6 text-sm text-lw-text-2">No runs yet. <button onClick={() => setTab("workflows")} className="text-lw-link">Run a workflow</button></p>}
   </PageFrame>
-}
-
-function StepTitles({ definition }: { definition: WorkflowDefinition }) {
-  return <p className="text-[13px]">
-    {definition.steps.map((step, index) => <span key={step.id}>
-      {index > 0 && <span aria-hidden="true" className="px-1.5 text-lw-faint">→</span>}
-      {step.title}
-      {stepStart(step) !== "automatic" && <span role="img" aria-label="waits for you" className="ml-1">✋</span>}
-    </span>)}
-  </p>
-}
-
-function LastRun({ run, now }: { run?: WorkflowRun; now: number }) {
-  if (!run) return <span className="text-xs text-lw-faint">No recent runs</span>
-  const state = runState(run)
-  return <Link to={`/workflows/runs/${encodeURIComponent(run.id)}`} className="flex items-center gap-2 text-xs text-lw-faint hover:text-lw-text-2">
-    <StatePill tone={state.tone} label={state.label} /><span className="font-lw-mono">{ago(run.created_at, now)}</span>
-  </Link>
 }
 
 function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
   const definitions = useWorkflows()
   const runs = useWorkflowRuns()
+  const stats = useWorkflowStats()
   const [selected, setSelected] = useState<WorkflowDefinition | null>(null)
   const now = useNow(30_000)
   const list = definitions.data?.definitions ?? []
-  const lastRun = new Map<string, WorkflowRun>()
-  for (const run of runs.data ?? []) if (!lastRun.has(run.workflow_name)) lastRun.set(run.workflow_name, run)
   const needsYou = (runs.data ?? []).filter(run => run.needs_attention).length
-  return <PageFrame tab="workflows" setTab={setTab} needsYou={needsYou} refresh={async () => { await Promise.all([definitions.refresh(), runs.refresh()]) }}>
-    <div className="mt-4 flex justify-end gap-2"><Link to="/workflows/new" className="inline-flex min-h-9 items-center rounded-md border border-zinc-700 px-3 text-xs font-medium text-zinc-300 hover:bg-zinc-800">New workflow</Link></div>
+  const refreshAll = async () => { await Promise.all([definitions.refresh(), runs.refresh(), stats.refresh()]) }
+  const newWorkflow = <Link to="/workflows/new" className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-lw-accent px-3 text-xs font-medium text-[var(--theme-canvas,white)] hover:opacity-90"><Plus size={14} aria-hidden="true" />New workflow</Link>
+  return <PageFrame tab="workflows" setTab={setTab} needsYou={needsYou} refresh={refreshAll}>
     {definitions.loading && <LoadingState label="Loading workflows…" size="inline" className="mt-6" />}
     {definitions.error && <LoadFailure error={definitions.error} saved={definitions.data !== null} label="workflows" refreshing={definitions.refreshing} refresh={definitions.refresh} />}
-    {runs.error && <LoadFailure error={runs.error} saved={runs.data !== null} label="runs" refreshing={runs.refreshing} refresh={runs.refresh} />}
+    {stats.error && list.length > 0 && <LoadFailure error={stats.error} saved={stats.data !== null} label="run counts" refreshing={stats.refreshing} refresh={stats.refresh} />}
     {(definitions.data?.errors ?? []).map(error => <p key={error.path} className="mt-4 break-words rounded-lg border border-lw-danger-line bg-lw-error-soft p-3 text-sm text-lw-danger"><span className="font-lw-mono">{sourceLabel(error.path)}</span>: {error.error}</p>)}
-    {list.length > 0 && <ul aria-label="Workflows" className="mt-5 overflow-hidden rounded-xl border border-lw-line bg-lw-surface">
-      {list.map(definition => {
-        const takes = inputsLabel(definition.inputs)
-        const trigger = triggerText(definition.on)
-        return <li key={definition.name} className="grid gap-x-5 gap-y-1.5 border-t border-lw-line p-4 first:border-t-0 md:grid-cols-[minmax(0,1fr)_auto]">
-          <div className="flex flex-wrap items-baseline gap-x-2.5">
-            <h2 className="text-[15px] font-semibold"><Link to={`/workflows/${encodeURIComponent(definition.name)}`} className="hover:text-lw-link hover:underline">{definition.title}</Link></h2>
-            <span title={definition.source} className="font-lw-mono text-xs text-lw-faint">{sourceLabel(definition.source)}</span>
-          </div>
-          <div className="flex items-center justify-between gap-3 md:col-start-2 md:row-span-4 md:row-start-1 md:flex-col md:items-end md:justify-start">
-            <Button variant="outline" size="sm" aria-label={`Run ${definition.title}`} onClick={() => setSelected(definition)} className="order-2 md:order-1"><Play size={13} />Run</Button>
-            {runs.data && <span className="order-1 md:order-2"><LastRun run={lastRun.get(definition.name)} now={now} /></span>}
-          </div>
-          {definition.description && <p className="text-[13px] text-lw-text-2">{definition.description}</p>}
-          <StepTitles definition={definition} />
-          {(takes || trigger) && <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-lw-text-2">
-            {takes && <span><span className="text-lw-faint">Takes</span> {takes}</span>}
-            {trigger && <span className="text-lw-link">↳ {trigger}</span>}
-          </p>}
-          {(definitions.data?.trigger_states?.[definition.name] ?? []).length > 0 && <div className="flex flex-wrap gap-2">
-            {(definitions.data?.trigger_states?.[definition.name] ?? []).map(state => <TriggerSwitch key={state.trigger} definition={definition} state={state} onChanged={definitions.refresh} />)}
-          </div>}
-        </li>
-      })}
-    </ul>}
+    {list.length > 0 && <WorkflowList definitions={list} triggerStates={definitions.data?.trigger_states} stats={stats.data} now={now} onRun={setSelected} refresh={refreshAll} actions={newWorkflow} />}
     {!definitions.loading && !definitions.error && list.length === 0 && <section aria-label="Start a workflow" className="mt-6 flex flex-col gap-3 text-sm">
+      <div className="flex justify-end">{newWorkflow}</div>
       <p className="text-lw-text-2">No workflow definitions found</p>
       <p className="text-lw-text-2">A workflow is a YAML file of steps. <a href="https://cpave3.github.io/legato/using/workflows/" target="_blank" rel="noreferrer" className="text-lw-link hover:underline">Write your first workflow</a>, or start from one of these.</p>
       <EmptyStart />

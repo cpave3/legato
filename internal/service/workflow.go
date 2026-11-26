@@ -475,6 +475,14 @@ func (s *WorkflowService) ListRuns(ctx context.Context, filter store.WorkflowRun
 	if err != nil {
 		return nil, err
 	}
+	s.describeListedRuns(ctx, runs)
+	return runs, nil
+}
+
+// describeListedRuns fills what a listed run shows beyond its row: output
+// warnings, the related task's key, and whether a run in progress needs
+// the operator.
+func (s *WorkflowService) describeListedRuns(ctx context.Context, runs []store.WorkflowRun) {
 	s.addRunOutputWarnings(ctx, runs)
 	for i := range runs {
 		if runs[i].RelatedTaskID != "" {
@@ -505,7 +513,6 @@ func (s *WorkflowService) ListRuns(ctx context.Context, filter store.WorkflowRun
 			}
 		}
 	}
-	return runs, nil
 }
 
 func (s *WorkflowService) TriggerStep(ctx context.Context, runID, stepID string, force bool) (*store.WorkflowRunView, error) {

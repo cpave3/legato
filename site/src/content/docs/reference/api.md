@@ -305,6 +305,8 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `PUT` | `/api/workflows/{name}/file` | change | Save a workflow's file over the version it was read at | `{"yaml": "schema_version: 2\nname: …", "digest": "sha256:…", "confirm_triggers": false}` |
 | `DELETE` | `/api/workflows/{name}/file` | change | Delete a workflow's file | `{"digest": "sha256:…"}` |
 | `POST` | `/api/workflows/{name}/copy` | change | Copy a built-in workflow to a workflows folder | `{"folder": "global"}` |
+| `PUT` | `/api/workflows/{name}/tags` | change | Write a workflow's tags into its file |  |
+| `GET` | `/api/workflow-stats` | read | Each workflow's newest run and its runs and failures on each of the last 7 days, by the dates of ?tz= |  |
 | `POST` | `/api/workflow-files` | change | Create a workflow file in a workflows folder | `{"yaml": "schema_version: 2\nname: …", "folder": "global", "confirm_triggers": false}` |
 | `POST` | `/api/workflow-files/check` | read | Check a workflow file's text, writing nothing | `{"yaml": "schema_version: 2\nname: …"}` |
 | `POST` | `/api/workflow-files/upgrade` | read | Upgrade a schema_version 1 workflow file's text to version 2, writing nothing | `{"yaml": "schema_version: 1\nname: …"}` |

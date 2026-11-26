@@ -11,7 +11,7 @@ export type WorkflowStepStart = "automatic"|"manual"|"agent_ended"
 // the server reads into start but a file being edited may still say.
 export type WorkflowStepDefinition = { id:string; title:string; type:string; start?:WorkflowStepStart; trigger?:WorkflowStepStart; with:Record<string,unknown>; outputs?:Record<string,WorkflowOutput> }
 export const stepStart=(step:Pick<WorkflowStepDefinition,"start"|"trigger">):WorkflowStepStart=>step.start??step.trigger??"automatic"
-export type WorkflowDefinition = { schema_version:number; name:string; title:string; run_title?:string; description?:string; after_start?:"workflow"|"agent"|"stay"; inputs?:Record<string,WorkflowInput>; outputs?:Record<string,WorkflowRunOutput> | null; on?:Record<string,unknown>; steps:WorkflowStepDefinition[]; source:string; graph?:WorkflowGraphModel | null; folder?:string; editable?:boolean; read_only_reason?:string; shadows?:string[] | null; warnings?:{severity:string;message:string;path?:string;line:number;column:number}[] | null }
+export type WorkflowDefinition = { schema_version:number; name:string; title:string; run_title?:string; description?:string; tags?:string[] | null; called_by?:string[] | null; after_start?:"workflow"|"agent"|"stay"; inputs?:Record<string,WorkflowInput>; outputs?:Record<string,WorkflowRunOutput> | null; on?:Record<string,unknown>; steps:WorkflowStepDefinition[]; source:string; graph?:WorkflowGraphModel | null; folder?:string; editable?:boolean; read_only_reason?:string; shadows?:string[] | null; warnings?:{severity:string;message:string;path?:string;line:number;column:number}[] | null }
 export type WorkflowRepositoryPreset = { name:string; repo:string; primary_dir:string; base_branch?:string }
 // A trigger as this Legato runs it: on or paused here (enabled), what its
 // file says (file_enabled), and whether this Legato switched it (overridden).
@@ -40,6 +40,14 @@ export type WorkflowRunView = { run:WorkflowRun; steps:WorkflowStepRun[] | null;
 async function decode<T>(response:Response):Promise<T> { if (!response.ok) throw new Error(await response.text()); return response.json() }
 export const fetchWorkflows=(baseUrl:string)=>apiFetch(baseUrl,"/api/workflows").then(decode<WorkflowDiscovery>)
 export const fetchWorkflowRuns=(baseUrl:string)=>apiFetch(baseUrl,"/api/workflow-runs").then(decode<WorkflowRun[]>)
+// WorkflowStats is each workflow's newest run and its runs and failures on
+// each of days, the last 7 dates of the viewer's zone, oldest first.
+export type WorkflowDayCount = { runs:number; failed:number }
+export type WorkflowStats = { days:string[]; workflows:Record<string,{ last?:WorkflowRun; days:WorkflowDayCount[] }> }
+export const viewerTimeZone=()=>{try{return Intl.DateTimeFormat().resolvedOptions().timeZone||""}catch{return ""}}
+export const fetchWorkflowStats=(baseUrl:string)=>{const zone=viewerTimeZone();return apiFetch(baseUrl,`/api/workflow-stats${zone?`?${new URLSearchParams({tz:zone})}`:""}`).then(decode<WorkflowStats>)}
+// setWorkflowTags writes a workflow's tags into its file.
+export const setWorkflowTags=(baseUrl:string,name:string,tags:string[])=>apiFetch(baseUrl,`/api/workflows/${encodeURIComponent(name)}/tags`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({tags})}).then(decode<{name:string;tags:string[]}>)
 // fetchWorkflowRunsOf is one workflow's newest runs, filtered and limited by
 // the server: filtering the whole list here would miss them once other
 // workflows had made the server's default limit of newer runs.

@@ -198,8 +198,9 @@ export function AgentChatHeader({ state, time, title, taskId, agentKind, engram,
   )
 }
 
-// The ⋯ button and the menu of an agent's other actions.
-export function AgentMoreMenu({ entries }: { entries: AgentMenuEntry[] }) {
+// The ⋯ button and the menu of an agent's other actions, or of another
+// row's, named by label.
+export function AgentMoreMenu({ entries, label = "More actions" }: { entries: AgentMenuEntry[]; label?: string }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
@@ -232,8 +233,8 @@ export function AgentMoreMenu({ entries }: { entries: AgentMenuEntry[] }) {
       <button
         type="button"
         ref={trigger}
-        aria-label="More actions"
-        title="More actions"
+        aria-label={label}
+        title={label}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}

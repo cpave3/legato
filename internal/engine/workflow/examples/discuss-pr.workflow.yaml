@@ -1,6 +1,7 @@
 schema_version: 2
 name: discuss-pr
 title: Discuss pull request
+tags: [reviews]
 run_title: Discuss ${{ workflow.inputs.repo }}#${{ workflow.inputs.pr_number }}
 description: >-
   Start an agent in a fresh clone that gets across a pull request's change

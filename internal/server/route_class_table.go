@@ -242,6 +242,8 @@ var routeClassTable = []routeClassEntry{
 	{"PUT", "/api/workflows/{name}/file", ClassChange, "Save a workflow's file over the version it was read at"},
 	{"DELETE", "/api/workflows/{name}/file", ClassChange, "Delete a workflow's file"},
 	{"POST", "/api/workflows/{name}/copy", ClassChange, "Copy a built-in workflow to a workflows folder"},
+	{"PUT", "/api/workflows/{name}/tags", ClassChange, "Write a workflow's tags into its file"},
+	{"GET", "/api/workflow-stats", ClassRead, "Each workflow's newest run and its runs and failures on each of the last 7 days, by the dates of ?tz="},
 	{"POST", "/api/workflow-files", ClassChange, "Create a workflow file in a workflows folder"},
 	{"POST", "/api/workflow-files/check", ClassRead, "Check a workflow file's text, writing nothing"},
 	{"POST", "/api/workflow-files/upgrade", ClassRead, "Upgrade a schema_version 1 workflow file's text to version 2, writing nothing"},

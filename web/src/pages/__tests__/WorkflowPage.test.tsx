@@ -31,10 +31,13 @@ let runs: WorkflowRun[]
 vi.mock("../../hooks/useWorkflow", () => ({
   useWorkflows: () => ({ data: discovery, loading: false, error: null, refresh: vi.fn() }),
   useWorkflowRuns: () => ({ data: runs, loading: false, error: null, refresh: vi.fn() }),
+  useWorkflowStats: () => ({ data: null, loading: false, error: null, refresh: vi.fn() }),
   // The server filters by workflow; this stands in for it.
   useWorkflowRunsOf: (name: string) => ({ data: runs.filter(run => run.workflow_name === name), loading: false, error: null, refresh: vi.fn() }),
 }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
+const apiFetch = vi.hoisted(() => vi.fn())
+vi.mock("../../lib/api", async importOriginal => ({ ...(await importOriginal<object>()), apiFetch }))
 const copyBuiltInWorkflow = vi.fn()
 vi.mock("../../lib/workflowFiles", async importOriginal => ({ ...(await importOriginal<object>()), copyBuiltInWorkflow: (...args: unknown[]) => copyBuiltInWorkflow(...args) }))
 
@@ -113,5 +116,27 @@ describe("WorkflowPage", () => {
     renderAt("/workflows?tab=workflows")
     fireEvent.click(screen.getByRole("link", { name: "Triage a task" }))
     expect(await screen.findByRole("button", { name: "Step: Investigate the task" })).toBeTruthy()
+  })
+
+  it("shows a workflow's tags under its title, and removes one from its file", async () => {
+    discovery = { definitions: [{ ...triage, tags: ["autopilot", "ops"], editable: true }] as unknown as WorkflowDiscovery["definitions"], errors: [] }
+    apiFetch.mockResolvedValue(new Response(JSON.stringify({ name: "triage", tags: ["ops"] })))
+    renderAt("/workflows/triage")
+    const tags = screen.getByRole("list", { name: "Tags" })
+    expect(within(tags).getAllByRole("listitem").map(item => item.textContent)).toEqual(["autopilot", "ops"])
+    expect(screen.getByRole("button", { name: "Add tag" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Remove tag autopilot" }))
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalled())
+    const [, path, init] = apiFetch.mock.calls.at(-1)!
+    expect(path).toBe("/api/workflows/triage/tags")
+    expect(JSON.parse(init.body)).toEqual({ tags: ["ops"] })
+  })
+
+  it("shows a built-in's tags without a way to change them here", () => {
+    discovery = { definitions: [{ ...triage, name: "review-loop", title: "Review loop", source: "builtin:review-loop", tags: ["reviews"], editable: false }] as unknown as WorkflowDiscovery["definitions"], errors: [] }
+    renderAt("/workflows/review-loop")
+    expect(within(screen.getByRole("list", { name: "Tags" })).getByText("reviews")).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /Remove tag/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Add tag" })).toBeNull()
   })
 })

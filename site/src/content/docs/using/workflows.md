@@ -261,7 +261,7 @@ Workflow definitions do not support `notify_on_complete`. Successful runs remain
 
 ### Runs and workflows in the web UI
 
-**Flows** opens on **Runs**, with the number of runs that need you on its tab. Runs in progress come first, those that need you at the top, then finished runs, newest first. Each run says its state (**Running**, **Needs you**, **Done**, **Failed** or **Cancelled**), the task it is for, what it is doing in a sentence, and a bar with one segment per step that shows how far through it is and where it stopped.
+**Flows** opens on **Runs**, with the number of runs that need you on its tab. The runs that need you come first, under **Needs you**, then the runs in progress, then the finished runs under the day they started (**Today**, **Yesterday**, then the date), newest first. Each run says its state (**Running**, **Needs you**, **Done**, **Failed** or **Cancelled**), the task it is for, what it is doing in a sentence, a bar with one segment per step that shows how far through it is and where it stopped, and how long it has run or ran. The chips above the list show only the runs that need you, those running, failed or done, each with its count, and **Any workflow** narrows the list to one workflow's runs. A run that a `workflow.run` step started sits folded under its parent's run (**1 run inside**, with how many failed) instead of in the list on its own.
 
 A run's page says the same in its header, with the run's ID and file, and under it, in the **Now** card, what you can do now:
 
@@ -288,11 +288,35 @@ On a wide screen the run's **workflow graph** fills the page under the header, a
 
 The graph updates as the run moves while its nodes stay in place. Each step says its state in a word with an icon and a colour (**Waiting**, **Running**, **Needs you**, **Failed**, **Done** or **Skipped**), how long it has run, its attempts folded into a count (**×3**) and the agent tool. The review loop shows its pass (**Pass 2 of 5**). A loop is a box with its pass's steps inside it, each in the state of its newest pass with its pass number; the box has a dot for each pass so far, coloured by how it went, and says **Pass 2 of 5**. A step with `if:` is reached by an arrow labelled with its condition, and a dashed arrow labelled **skipped** goes past it. Selecting a step of a loop shows it at its newest pass. The trigger that started the run is marked **Started this run**, and the others are dimmed. Select a step to see, in a panel on the right of the graph (close it with ✕ or Escape), its inputs and outputs, every attempt with its times, error, agent tool and tier, folder and **Open agent**, its files, a review loop's passes with a link to each review, and the step's YAML. The graph is the run's own copy of the workflow: when the file has changed since, the page says **This workflow has changed since this run**, or **This workflow's file is gone**. On a phone the steps are listed one to a line with how long each took; open one to see its inputs, outputs and agent. **Graph** above the list shows the graph full screen instead, drawn top to bottom, with **Now**, **Needs you** and **Inputs** in a sheet at the bottom and the zoom buttons, **Fit** and **Panels** at the top right (**List** goes back), and a step's details open in a sheet from the bottom of the screen; close it with ✕ or a tap outside. **Cancel run** stops a run in progress, or gives up a failed one: a failed run keeps what it holds (a review loop and its pull requests) for **Retry step** until you cancel it.
 
-The **Workflows** tab lists each workflow with its steps (✋ marks one that waits for you or for its agent to end), what it takes, when it starts on its own (a column trigger), and how its last run went. The values of secret inputs are never shown. **Run** opens the form for its inputs. Flows remembers the tab you used last.
+The **Workflows** tab lists the workflows in a table, one row each:
+
+- the workflow's title and name, **built in** for one of Legato's own, and its other tags; hover over the title for its description
+- **Starts**: what starts it on its own and when, such as **Every 15 minutes** with its next time, **Card enters Ready** with **asks first**, a chat mention, a chat button or a pull request; **Run by hand** for a workflow with no trigger
+- **Triggers**: **On**, **Paused**, or **1 of 2 on** for a workflow whose triggers differ. Select it to switch a workflow's only trigger on or off here; for several, it opens the row to switch each
+- **Last run**: how its newest run ended and when, linked to the run, or **Never run**
+- **Last 7 days**: a bar for each day, red on a day a run failed, with how many runs there were and how many failed
+- **Run**, which opens the form for its inputs, and ⋯ for **Open**, **Edit**, **Tags…** and, for a built-in, **Copy to my workflows**
+
+The arrow at the start of a row opens it: the workflow's description, its steps (✋ marks one that waits for you or for its agent to end), what it takes, each trigger's switch with a schedule's next and missed runs, and its file. The values of secret inputs are never shown. Sort by **Workflow** or by **Last run**. Search finds a workflow by its title, its name or a tag. **Starts** keeps the workflows a manual run, a schedule, a chat message, a chat button, a board column or a pull request starts, and **Triggers** those with a trigger on, or one paused. **Clear search and filters** brings every workflow back.
+
+The rows are grouped by tag, a group to each tag in name order with **Untagged** last; select a group's heading to fold it. A workflow with two tags is listed in both groups. A workflow that has no trigger of its own and that other workflows run with `workflow.run`, such as `review-loop`, is folded at the end of its group under **Run by other workflows**, and its row says which workflows run it. **Group: None** lists every workflow once, without groups. Flows remembers the tab you used last and how you grouped the list. On a phone each workflow is two lines: its title and its triggers, then what starts it and its last run; **Filter** shows the filters, and Run is in the ⋯ menu.
+
+### Tags
+
+Tags group workflows on the **Workflows** tab. They are a list in the workflow's file:
+
+```yaml
+schema_version: 2
+name: prod-health-check
+title: Prod health check
+tags: [autopilot, ops]
+```
+
+A tag is lower-case letters, digits and `-`, starting with a letter or digit, at most 32 characters; a workflow has at most eight, none twice. **Tags…** in a row's ⋯ menu, or **Add tag** in the header of the workflow's page, offers the tags other workflows have and adds a new one; **Save** writes the `tags:` line into the file and leaves every other line, comments included, as it was. On the workflow's page ✕ beside a tag removes it. A built-in workflow, or a file this Legato does not edit, shows its tags without a way to change them: copy a built-in to your workflows to give the copy its own. The built-ins come tagged: `review-loop` is `reviews`, and the learning workflows are `learning`. So are the templates: the pull request ones are `reviews`, **Ticket to merged pull request** and **Triage a task** are `tickets`, and **Learn from a task** is `learning`.
 
 ### A workflow's page
 
-Select a workflow's title on the **Workflows** tab to open its page. Its **workflow graph** fills the page: the workflow drawn as nodes, built from its YAML, laid out as a run's page lays out a run. The header above it has the workflow's title, its name and file, what its triggers are doing here (such as **2 triggers on**, **1 on · 1 paused** or **Run by hand only**), and its actions: **Edit** opens the workflow's file in the editor (see [Create and edit in the web UI](#create-and-edit-in-the-web-ui)), **Copy to my workflows** makes your own copy of a built-in one, and **Run** opens the form for its inputs. The graph itself is read-only.
+Select a workflow's title on the **Workflows** tab to open its page. Its **workflow graph** fills the page: the workflow drawn as nodes, built from its YAML, laid out as a run's page lays out a run. The header above it has the workflow's title, its name and file, its [tags](#tags), what its triggers are doing here (such as **2 triggers on**, **1 on · 1 paused** or **Run by hand only**), and its actions: **Edit** opens the workflow's file in the editor (see [Create and edit in the web UI](#create-and-edit-in-the-web-ui)), **Copy to my workflows** makes your own copy of a built-in one, and **Run** opens the form for its inputs. The graph itself is read-only.
 
 The rest of the workflow floats over the graph as cards in a column on the left:
 
@@ -709,7 +733,7 @@ on:
     enabled: false
 ```
 
-On the **Workflows** tab, each trigger has a switch that says **on here** or **paused here**. It turns the trigger on or off in this Legato only and never changes the file; another Legato that reads the same file keeps its own switch. A trigger you have not switched follows its file. A paused trigger makes no requests while it is paused, and moves made then are not caught up later.
+On the **Workflows** tab, each trigger has a switch that says **on here** or **paused here**, in the row opened with its arrow; a workflow with one trigger can also be switched from its row. It turns the trigger on or off in this Legato only and never changes the file; another Legato that reads the same file keeps its own switch. A trigger you have not switched follows its file. A paused trigger makes no requests while it is paused, and moves made then are not caught up later.
 
 ### The loop stop
 

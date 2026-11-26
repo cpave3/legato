@@ -1,6 +1,7 @@
 schema_version: 2
 name: learn
 title: Learn from a task
+tags: [learning]
 run_title: Learn from ${{ workflow.inputs.task.title }}
 description: >-
   When a card enters Review, its running agent is asked what it learned. A

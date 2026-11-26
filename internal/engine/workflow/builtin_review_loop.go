@@ -23,6 +23,7 @@ const builtInSourcePrefix = "builtin:"
 const reviewLoopYAML = `schema_version: 2
 name: review-loop
 title: Review loop
+tags: [reviews]
 run_title: Review loop on ${{ workflow.inputs.repo }}
 description: >-
   Review open pull requests in passes, each posted as GitHub reviews from

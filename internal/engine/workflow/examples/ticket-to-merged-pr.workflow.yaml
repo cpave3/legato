@@ -1,6 +1,7 @@
 schema_version: 2
 name: ticket-to-merged-pr
 title: Ticket to merged pull request
+tags: [tickets]
 run_title: ${{ workflow.inputs.task.id }} to a merged pull request
 description: >-
   Start the task's own agent on a macro in a fresh clone of the repository,

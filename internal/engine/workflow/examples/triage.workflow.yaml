@@ -1,6 +1,7 @@
 schema_version: 2
 name: triage
 title: Triage a task
+tags: [tickets]
 run_title: Triage ${{ workflow.inputs.task.title }}
 description: >-
   When a card enters Triage, an agent investigates it in the repository's
