@@ -95,6 +95,21 @@ _Avoid_: section, bucket
 The column on the right of every web page that shows Attention, filtered by the rail settings, with approvals first.
 _Avoid_: sidebar, inbox, tray
 
+### Delivery and review
+
+**Ship**:
+The initiative shorthand for workflow delivery, review loops and optional post-approval stewardship. It is not a separate command or screen, and does not mean automatic merge.
+
+**Review tour**:
+An agent-authored reading route through a change for the operator, with chapters, narration and questions. Completing it records that reading, not a GitHub approval. Its numbered passes and operator findings are separate from review-loop passes and findings.
+
+**Chapter**:
+A group of changes in a review tour, with a title and explanation, arranged in reading order.
+
+**Review handoff**:
+An optional, revision-bound packet beside a review tour that explains behaviour, decisions, evidence and maintenance risks. It is not a task handoff to a worker, and is not a GitHub review.
+_Avoid_: handoff (without review, when referring to the packet)
+
 ### Review passes
 
 **Review loop**:
@@ -144,7 +159,7 @@ A check a review loop holds a pull request to: one branch protection requires on
 _Avoid_: required CI, gate
 
 **Steward**:
-The part of a review loop that looks after an agent-authored pull request from approval until it is merged, closed, idle or ended. It sends the author what GitHub reports (failing counted checks, new counted comments and reviews) and re-enters review on each push. It never changes the pull request.
+The part of a review loop that looks after an agent-authored pull request from approval until it is merged, closed, idle or ended. It sends the author what GitHub reports (failing counted checks, new counted comments and reviews) and re-enters review on each push. It never merges the pull request or enables auto-merge. The author makes fixes; review and ready actions remain part of the loop.
 _Avoid_: PR Steward, babysitter, watcher, shepherd
 
 **Re-entry**:
@@ -163,7 +178,7 @@ _Avoid_: paused, stopped, gated
 One thing the author must handle after a review pass: a finding, a counted comment or a failing counted check, each with its ID and the author's answer.
 
 **Reviewer App**:
-The second GitHub App a worker posts reviews as. Only Legato holds its credential; no agent is given it.
+The second GitHub App a Legato instance posts review passes as. Only Legato holds its credential; no agent is given it.
 
 ### Running Legato
 

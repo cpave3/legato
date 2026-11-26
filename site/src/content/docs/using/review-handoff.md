@@ -11,6 +11,8 @@ Use one for a change you will have to explain to someone else, or maintain later
 
 A review handoff is optional. It does not change whether the review is ready or complete, and it is not an approval on GitHub. The agent writes it; nothing in it is verified by Legato beyond the source it points at.
 
+A review handoff packet is not a [task handoff to a worker](/legato/using/handoff/), and it does not start or advance [review passes](/legato/using/review-passes/).
+
 ## Reading a review handoff
 
 Open the tour in the web UI (`/review`) and switch from **Diff review** to **Handoff**. Use **Diff review** to inspect the change yourself, and **Handoff** for its behaviour, decisions, evidence and maintenance context.

@@ -1,6 +1,6 @@
 # Legato docs site
 
-The documentation site at <https://cpave3.github.io/legato/>, built with [Starlight](https://starlight.astro.build). `.github/workflows/docs.yml` builds it on every pull request and publishes it from `main`.
+The documentation site at <https://cpave3.github.io/legato/>, built with [Starlight](https://starlight.astro.build). The docs job in `.github/workflows/ci.yml` builds it on affected pull requests (the top PR for a stack); `.github/workflows/docs.yml` publishes it from `main`.
 
 ```bash
 task docs:dev     # serve the site with live reload at http://localhost:4321/legato/
@@ -24,7 +24,7 @@ task docs:build   # build it into site/dist; fails on a broken link
 | --- | --- |
 | `start` | `what-is-legato`, `install`, `tour` |
 | `running` | `workstation`, `web-server`, `devices`, `desktop-app`, `agent-server`, `instances`, `updates` |
-| `using` | `board`, `agents`, `usage`, `web-ui`, `handoff`, `attention`, `plans`, `reviews`, `review-handoff`, `workflows`, `scope`, `swarms`, `reports`, `learn` |
+| `using` | `board`, `agents`, `usage`, `web-ui`, `handoff`, `attention`, `plans`, `reviews`, `review-handoff`, `delivery`, `review-passes`, `workflows`, `scope`, `swarms`, `reports`, `learn` |
 | `agent-tools` | `claude-code`, `codex`, `chimera`, `model-settings`, `mcp-tools`, `resources`, `skills`, `engrams` |
 | `integrations` | `jira`, `github`, `staccato`, `yggdrasil`, `argus`, `slack`, `discord`, `home-assistant`, `notifications`, `manticore`, `tmux-status`, `stream-deck`, `even-g2`, `browser-extension` |
 | `security` | `credentials-setup`, `credential-broker`, `sandbox`, `web-auth` |
