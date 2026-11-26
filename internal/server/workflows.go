@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -28,6 +29,7 @@ func legacyWorkflowDirPath() string {
 type WorkflowService interface {
 	Start(context.Context, *workflowengine.Definition, map[string]string) (*store.WorkflowRunView, error)
 	ListRuns(context.Context, store.WorkflowRunFilter) ([]store.WorkflowRun, error)
+	Stats(ctx context.Context, now time.Time, loc *time.Location, days int) (*service.WorkflowStats, error)
 	Show(context.Context, string) (*store.WorkflowRunView, error)
 	Cancel(context.Context, string, string) (*store.WorkflowRunView, error)
 	Retry(context.Context, string, string, bool) (*store.WorkflowRunView, error)
@@ -61,11 +63,13 @@ type definitionWithGraph struct {
 	// Where its file is and whether the web UI may write it, the files of
 	// the same name it replaces, and the warnings its file has (such as a
 	// with key its step's executor does not read).
-	Folder         string                      `json:"folder,omitempty"`
-	Editable       bool                        `json:"editable"`
-	ReadOnlyReason string                      `json:"read_only_reason,omitempty"`
-	Shadows        []string                    `json:"shadows,omitempty"`
-	Warnings       []workflowengine.Diagnostic `json:"warnings,omitempty"`
+	Folder         string   `json:"folder,omitempty"`
+	Editable       bool     `json:"editable"`
+	ReadOnlyReason string   `json:"read_only_reason,omitempty"`
+	Shadows        []string `json:"shadows,omitempty"`
+	// CalledBy are the workflows whose workflow.run steps may run it.
+	CalledBy []string                    `json:"called_by,omitempty"`
+	Warnings []workflowengine.Diagnostic `json:"warnings,omitempty"`
 }
 
 func (s *Server) definitionWithGraph(ctx context.Context, definition *workflowengine.Definition, folders []workflowengine.Folder, all []*workflowengine.Definition, shadows map[string][]string) definitionWithGraph {
@@ -145,8 +149,11 @@ func (s *Server) workflowsHandler() http.HandlerFunc {
 			}
 		}
 		definitions := make([]definitionWithGraph, 0, len(result.Definitions))
+		callers := workflowengine.Callers(result.Definitions)
 		for _, definition := range result.Definitions {
-			definitions = append(definitions, s.definitionWithGraph(r.Context(), definition, folders, result.Definitions, result.Shadows))
+			out := s.definitionWithGraph(r.Context(), definition, folders, result.Definitions, result.Shadows)
+			out.CalledBy = callers[definition.Name]
+			definitions = append(definitions, out)
 		}
 		s.writeJSON(w, http.StatusOK, struct {
 			workflowengine.DiscoveryResult

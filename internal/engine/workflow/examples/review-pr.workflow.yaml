@@ -1,6 +1,7 @@
 schema_version: 2
 name: review-pr
 title: Review pull request
+tags: [reviews]
 run_title: Review ${{ workflow.inputs.repo }}#${{ workflow.inputs.pr_number }}
 description: >-
   Review a pull request in a fresh clone with your Review macro, then keep

@@ -37,14 +37,17 @@ const (
 )
 
 type Definition struct {
-	SchemaVersion int              `yaml:"schema_version" json:"schema_version"`
-	Name          string           `yaml:"name" json:"name"`
-	Title         string           `yaml:"title" json:"title"`
-	RunTitle      string           `yaml:"run_title,omitempty" json:"run_title,omitempty"`
-	Description   string           `yaml:"description,omitempty" json:"description,omitempty"`
-	AfterStart    string           `yaml:"after_start,omitempty" json:"after_start,omitempty"`
-	Inputs        map[string]Input `yaml:"inputs,omitempty" json:"inputs,omitempty"`
-	On            Triggers         `yaml:"on,omitempty" json:"on,omitempty"`
+	SchemaVersion int    `yaml:"schema_version" json:"schema_version"`
+	Name          string `yaml:"name" json:"name"`
+	Title         string `yaml:"title" json:"title"`
+	RunTitle      string `yaml:"run_title,omitempty" json:"run_title,omitempty"`
+	Description   string `yaml:"description,omitempty" json:"description,omitempty"`
+	// Tags group the workflow on the Workflows page (LEG-657): short
+	// lower-case words, such as autopilot.
+	Tags       []string         `yaml:"tags,omitempty" json:"tags,omitempty"`
+	AfterStart string           `yaml:"after_start,omitempty" json:"after_start,omitempty"`
+	Inputs     map[string]Input `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	On         Triggers         `yaml:"on,omitempty" json:"on,omitempty"`
 	// ChatHelp lists the workflow in ${{ event.commands }} of the chat
 	// triggers on the bots its own chat triggers run on.
 	ChatHelp bool `yaml:"chat_help,omitempty" json:"chat_help,omitempty"`
@@ -256,6 +259,9 @@ func (d *Definition) problems() []*PathError {
 			path = "title"
 		}
 		add(path, fmt.Errorf("name and title are required"))
+	}
+	if err := ValidateTags(d.Tags); err != nil {
+		add("tags", err)
 	}
 	if err := d.reservedNameProblem(); err != nil {
 		add("name", err)

@@ -324,6 +324,7 @@ var fieldSchemas = map[string]schemaObject{
 	"Definition.title":          {"description": "The workflow's title", "required": true, "pattern": `\S`},
 	"Definition.run_title":      {"description": "Each run's title; may read the inputs", "context": "run_title"},
 	"Definition.description":    {"description": "What the workflow does"},
+	"Definition.tags":           {"description": "Tags that group the workflow on the Workflows page, such as autopilot", "maxItems": MaxTags, "uniqueItems": true, "items": schemaObject{"type": "string", "pattern": tagPattern.String()}},
 	"Definition.after_start":    {"description": "What the web UI opens once a run starts: the run (workflow), its agent (agent, with one required task input), or nothing (stay)", "enum": []string{"workflow", "agent", "stay"}},
 	"Definition.inputs":         {"description": "The inputs a run takes, by name"},
 	"Definition.on":             {"description": "What starts runs by itself, besides starting one by hand: one trigger of each kind"},

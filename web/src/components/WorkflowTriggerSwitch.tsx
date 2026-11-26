@@ -24,10 +24,10 @@ export function TriggerSwitch({ definition, state, onChanged }: { definition: Wo
       setBusy(false)
     }
   }
-  return <span className="inline-flex items-center gap-2">
+  return <span className="inline-flex flex-wrap items-center gap-2">
     <button type="button" role="switch" aria-checked={state.enabled} aria-label={label} disabled={busy} onClick={() => void toggle()}
       title={state.overridden ? `Switched here; the file says ${state.file_enabled ? "on" : "paused"}` : "As its file says"}
-      className={cn("inline-flex min-h-8 items-center gap-2 rounded-full border px-2.5 text-xs", state.enabled ? "border-lw-live/50 text-lw-live" : "border-lw-line-strong text-lw-text-2")}>
+      className={cn("inline-flex min-h-8 shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-2.5 text-xs", state.enabled ? "border-lw-live/50 text-lw-live" : "border-lw-line-strong text-lw-text-2")}>
       <span aria-hidden="true" className={cn("h-2 w-2 rounded-full", state.enabled ? "bg-lw-live" : "bg-lw-faint")} />
       {state.enabled ? "on here" : "paused here"}
     </button>

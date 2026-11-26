@@ -25,6 +25,7 @@ func BuiltInLearningWorkflow(options LearningWorkflowOptions) (*workflowengine.D
 		Name:          "legato-learning",
 		Title:         "Curate task learning",
 		Description:   "Built-in task reflection and learning curation workflow.",
+		Tags:          []string{"learning"},
 		Source:        "builtin:legato-learning",
 		Inputs: map[string]workflowengine.Input{
 			"task":          {Type: "task", Required: true},
@@ -63,6 +64,7 @@ func BuiltInConsolidationWorkflow(scope, projectKey, projectLabel string, option
 		Name:          "legato-learning-consolidation",
 		Title:         "Consolidate " + scope + " learnings",
 		Description:   "Built-in manual learning consolidation workflow.",
+		Tags:          []string{"learning"},
 		Source:        "builtin:legato-learning-consolidation",
 		Steps: []workflowengine.Step{
 			learningPacketStep(options, map[string]any{"id": "manual-consolidation"}, map[string]any{"key": projectKey, "label": projectLabel}),

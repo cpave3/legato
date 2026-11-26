@@ -1,7 +1,8 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
-import { fetchWorkflowRun, fetchWorkflowRuns, fetchWorkflowRunsOf, fetchWorkflows, type WorkflowDiscovery, type WorkflowRun, type WorkflowRunView } from "../lib/workflow"
+import { fetchWorkflowRun, fetchWorkflowRuns, fetchWorkflowRunsOf, fetchWorkflowStats, fetchWorkflows, type WorkflowDiscovery, type WorkflowRun, type WorkflowRunView, type WorkflowStats } from "../lib/workflow"
 import { queryKeys } from "../lib/query"
 import { useServer } from "./useServer"
+import { useNow } from "./useNow"
 
 function queryState<T>(query: UseQueryResult<T, Error>) {
   return {
@@ -26,6 +27,17 @@ export function useWorkflowRuns() {
   return queryState(useQuery<WorkflowRun[], Error>({
     queryKey: queryKeys.workflowRuns(baseUrl),
     queryFn: () => fetchWorkflowRuns(baseUrl),
+  }))
+}
+
+// useWorkflowStats is each workflow's newest run and its last 7 days.
+export function useWorkflowStats() {
+  const { baseUrl } = useServer()
+  const now = new Date(useNow(60_000))
+  const day = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`
+  return queryState(useQuery<WorkflowStats, Error>({
+    queryKey: queryKeys.workflowStats(baseUrl, day),
+    queryFn: () => fetchWorkflowStats(baseUrl),
   }))
 }
 

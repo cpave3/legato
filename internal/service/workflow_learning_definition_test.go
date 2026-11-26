@@ -3,6 +3,8 @@ package service
 import (
 	"strings"
 	"testing"
+
+	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
 
 func TestBuiltInLearningWorkflowUsesInterviewAndConfiguredAgentRun(t *testing.T) {
@@ -100,5 +102,21 @@ func TestBuiltInConsolidationWorkflowValidatesScope(t *testing.T) {
 	}
 	if _, err := BuiltInConsolidationWorkflow("project", "", "", options); err == nil {
 		t.Fatal("expected missing project error")
+	}
+}
+
+func TestTheLearningBuiltInsAreTaggedLearning(t *testing.T) {
+	curate, err := BuiltInLearningWorkflow(LearningWorkflowOptions{Adapter: "chimera", PacketMaxItems: 25, PacketMaxBytes: 8192})
+	if err != nil {
+		t.Fatal(err)
+	}
+	consolidate, err := BuiltInConsolidationWorkflow("project", "repo:github.com/acme/widget", "acme/widget", LearningWorkflowOptions{Adapter: "chimera", PacketMaxItems: 50, PacketMaxBytes: 16384})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, definition := range []*workflowengine.Definition{curate, consolidate} {
+		if strings.Join(definition.Tags, ",") != "learning" {
+			t.Fatalf("%s tags = %v, want [learning]", definition.Name, definition.Tags)
+		}
 	}
 }

@@ -9,6 +9,7 @@ describe("invalidationsFor", () => {
   it("refreshes a run's own page and the run lists for a change of that run", () => {
     expect(keysOf({ type: "workflow_changed", workflow_run_id: "wr-1", workflow_step_id: "implement", kind: "step_started" })).toEqual([
       { queryKey: [base, "workflow-runs"], exact: true },
+      { queryKey: [base, "workflow-stats"], exact: false },
       { queryKey: [base, "workflow-runs-of"], exact: false },
       { queryKey: [base, "workflow-run", "wr-1"], exact: true },
       { queryKey: [base, "navigation-summary"], exact: true },
@@ -27,6 +28,7 @@ describe("invalidationsFor", () => {
     for (const kind of ["definitions", "trigger"]) {
       expect(keysOf({ type: "workflow_changed", kind })).toEqual([
         { queryKey: [base, "workflow-runs"], exact: true },
+        { queryKey: [base, "workflow-stats"], exact: false },
         { queryKey: [base, "workflow-runs-of"], exact: false },
         { queryKey: [base, "navigation-summary"], exact: true },
         { queryKey: [base, "workflow-definitions"], exact: true },

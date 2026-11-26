@@ -6,14 +6,15 @@ import { createQueryClient, queryKeys } from "../../lib/query"
 import { WorkflowRunPage } from "../WorkflowRunPage"
 import { WorkflowsPage } from "../WorkflowsPage"
 
-const api = vi.hoisted(() => ({ definitions: vi.fn(), runs: vi.fn(), run: vi.fn(), server: "" }))
+const api = vi.hoisted(() => ({ definitions: vi.fn(), runs: vi.fn(), run: vi.fn(), stats: vi.fn(), server: "" }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: api.server }) }))
-vi.mock("../../lib/workflow", async original => ({ ...await original<typeof import("../../lib/workflow")>(), fetchWorkflows: api.definitions, fetchWorkflowRuns: api.runs, fetchWorkflowRun: api.run }))
+vi.mock("../../lib/workflow", async original => ({ ...await original<typeof import("../../lib/workflow")>(), fetchWorkflows: api.definitions, fetchWorkflowRuns: api.runs, fetchWorkflowRun: api.run, fetchWorkflowStats: api.stats }))
 
 beforeEach(() => {
   api.server = ""
   api.definitions.mockReset().mockResolvedValue({ definitions: [], errors: [] })
   api.runs.mockReset().mockResolvedValue([])
+  api.stats.mockReset().mockResolvedValue({ days: [], workflows: {} })
   api.run.mockReset()
   localStorage.clear()
 })

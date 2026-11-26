@@ -349,6 +349,8 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/workflows/{name}/runs", s.workflowStartHandler())
 	mux.HandleFunc("/api/workflows/{name}/file", s.workflowFileHandler())
 	mux.HandleFunc("/api/workflows/{name}/copy", s.workflowCopyHandler())
+	mux.HandleFunc("/api/workflows/{name}/tags", s.workflowTagsHandler())
+	mux.HandleFunc("/api/workflow-stats", s.workflowStatsHandler())
 	mux.HandleFunc("/api/workflow-files", s.workflowFilesHandler())
 	mux.HandleFunc("/api/workflow-files/check", s.workflowFileCheckHandler())
 	mux.HandleFunc("/api/workflow-files/upgrade", s.workflowFileUpgradeHandler())

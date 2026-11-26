@@ -17,13 +17,14 @@ vi.mock("../../hooks/useWorkflow", () => ({
       missed: [{ due_time: "2026-11-19T09:00:00+11:00", status: "missed", error: "Legato was not running at 2026-11-19 09:00 AEDT (catch_up: once)" }],
     } }] },
   }, refresh: vi.fn() }),
-  useWorkflowRuns: () => ({ data: [], refresh: vi.fn() }),
+  useWorkflowStats: () => ({ data: null, refresh: vi.fn() }), useWorkflowRuns: () => ({ data: [], refresh: vi.fn() }),
 }))
 afterEach(cleanup)
 
 it("shows a schedule's next runs and its last one", () => {
   render(<MemoryRouter><WorkflowsPage /></MemoryRouter>)
   fireEvent.click(screen.getByRole("tab", { name: "Workflows" }))
+  fireEvent.click(screen.getByRole("button", { name: "Details of Standup" }))
   const row = within(screen.getByRole("list", { name: "Workflows" })).getAllByRole("listitem")[0]
   expect(within(row).getByRole("switch", { name: "Every weekday at 09:00" }).getAttribute("aria-checked")).toBe("true")
   const next = within(row).getByLabelText("Next runs of Standup")

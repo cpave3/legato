@@ -30,6 +30,8 @@ export const queryKeys = {
   devices: (baseUrl: string) => [baseUrl, "devices"] as const,
   workflowDefinitions: (baseUrl: string) => [baseUrl, "workflow-definitions"] as const,
   workflowRuns: (baseUrl: string) => [baseUrl, "workflow-runs"] as const,
+  // day is the viewer's local date, so the 7 days move on at midnight.
+  workflowStats: (baseUrl: string, day: string) => [baseUrl, "workflow-stats", day] as const,
   // One workflow's runs, as its page lists them; every one refreshes on
   // workflow_changed through the prefix.
   workflowRunsOf: (baseUrl: string, name: string) => [baseUrl, "workflow-runs-of", name] as const,

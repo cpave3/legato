@@ -13,6 +13,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
+	"github.com/cpave3/legato/internal/service"
 )
 
 type forceWorkflowService struct {
@@ -28,6 +29,9 @@ func (f *forceWorkflowService) Start(context.Context, *workflowengine.Definition
 }
 func (f *forceWorkflowService) ListRuns(context.Context, store.WorkflowRunFilter) ([]store.WorkflowRun, error) {
 	return nil, nil
+}
+func (f *forceWorkflowService) Stats(context.Context, time.Time, *time.Location, int) (*service.WorkflowStats, error) {
+	return &service.WorkflowStats{}, nil
 }
 func (f *forceWorkflowService) ActiveAgentAttemptsByTask(_ context.Context, taskID string) ([]store.WorkflowStepAttempt, error) {
 	f.lookupTaskID = taskID
