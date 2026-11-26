@@ -280,3 +280,27 @@ export async function decideApproval(
   if (!response.ok) return await failed(response)
   return { ok: true }
 }
+
+// Answers an agent's question request: each question's answer (the labels
+// chosen, or the operator's own words) by the question's ID, all at once.
+export async function answerQuestions(
+  phone: Phone,
+  instance: string,
+  id: string,
+  answers: Record<string, string[]>,
+  fetchFn: typeof fetch = fetch,
+): Promise<SendResult> {
+  const answer = await call(phone, `${instancePath(instance)}/api/approvals/${encodeURIComponent(id)}/decision`, fetchFn, CALL_TIMEOUT_MS, {
+    decision: "answer",
+    answers,
+  })
+  if (!("response" in answer)) return answer
+  const { response } = answer
+  if (response.status === 409) return { ok: false, problem: "It is no longer waiting: answered elsewhere, or its agent moved on." }
+  // A Legato app from before answering, whose glasses link allows or denies only.
+  if (response.status === 400 && (await errorOf(response.clone())) === "decision must be allow or deny") {
+    return { ok: false, problem: "Update the Legato app on this phone to answer questions from the glasses." }
+  }
+  if (!response.ok) return await failed(response)
+  return { ok: true }
+}

@@ -215,9 +215,53 @@ class GlassesHttpTest {
     }
 
     @Test
-    fun `refuses a decision that is neither allow nor deny, or an option that is not a string`() {
+    fun `answers a question with its answers alone, rebuilt from question IDs and strings, marked as from the glasses`() {
+        legatos.answer = { _, _, _ -> 200 to """{"id":"ap-q"}""" }
+        val body = """{"decision":"answer","answers":{"q1":["Beside the plan (Recommended)"],"q2":["A","B"]},""" +
+            """"option":"once","by":"web","Answers":{"q1":["typed"]},"signature":{"device":"x"}}"""
+
+        val answer = answer(request("POST", "/v1/instances/0b7a-desk/api/approvals/ap-q/decision", body = body))
+
+        assertEquals(200, answer.status)
+        val asked = legatos.asked.single()
+        assertEquals("/api/approvals/ap-q/decision", asked.path)
+        assertEquals(setOf("decision", "answers", "by"), asked.body!!.keys().asSequence().toSet())
+        assertEquals("answer", asked.body!!.getString("decision"))
+        assertEquals("glasses", asked.body!!.getString("by"))
+        val answers = asked.body!!.getJSONObject("answers")
+        assertEquals(setOf("q1", "q2"), answers.keys().asSequence().toSet())
+        assertEquals("""["Beside the plan (Recommended)"]""", answers.getJSONArray("q1").toString())
+        assertEquals("""["A","B"]""", answers.getJSONArray("q2").toString())
+    }
+
+    @Test
+    fun `refuses answers that are not question IDs to short lists of strings`() {
+        val many = (1..9).joinToString(",") { "\"q$it\":[\"a\"]" }
+        val long = "x".repeat(4001)
         val refused = listOf(
             """{"decision":"answer"}""",
+            """{"decision":"answer","answers":["a"]}""",
+            """{"decision":"answer","answers":{}}""",
+            """{"decision":"answer","answers":{"q1":"a"}}""",
+            """{"decision":"answer","answers":{"q1":[]}}""",
+            """{"decision":"answer","answers":{"q1":[1]}}""",
+            """{"decision":"answer","answers":{"q1":["a",null]}}""",
+            """{"decision":"answer","answers":{$many}}""",
+            """{"decision":"answer","answers":{"q1":["$long"]}}""",
+            """{"decision":"answer","answers":{"${"q".repeat(201)}":["a"]}}""",
+            """{"decision":"answer","answers":{"q1":[${(1..33).joinToString(",") { "\"a\"" }}]}}""",
+        )
+
+        for (body in refused) {
+            assertEquals(body.take(80), 400, answer(request("POST", "/v1/instances/0b7a-desk/api/approvals/ap-q/decision", body = body)).status)
+        }
+        assertEquals(emptyList<Legatos.Asked>(), legatos.asked)
+    }
+
+    @Test
+    fun `refuses a decision that is not allow, deny or answer, or an option that is not a string`() {
+        val refused = listOf(
+            """{"decision":"ANSWER","answers":{"q1":["a"]}}""",
             """{"decision":"ALLOW"}""",
             """{"option":"once"}""",
             """{"decision":"allow","option":1}""",

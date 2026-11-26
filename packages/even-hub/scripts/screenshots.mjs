@@ -9,7 +9,8 @@
 // first one's active tab, the idle tab, an agent's feed, one entry in full,
 // and a message dictated to it (held to talk) (the fixtures transcribe any
 // recording to one sentence); then the Reeve's chat, a message sent to it
-// while it thinks, the approvals waiting, and background mode's row.
+// while it thinks, the questions agents ask and their options, the
+// approvals waiting, and background mode's row.
 import { spawn } from "node:child_process"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
@@ -161,9 +162,46 @@ try {
   await shot("reeve.png")
   await step("double_click")
 
-  // The approvals, under the Reeve: the list, one in full with its options,
-  // the confirmation an option asks for, and one that must be signed. The
-  // fake phone only logs a decision; none is made here.
+  // The questions agents ask, under the Reeve: one per screen, and inside
+  // one, one option per screen, both moved by swipes; the operator's own
+  // answer last; a request of two parts, the second "choose any"; Send?,
+  // then Sent. The fake phone only logs the answers.
+  await step("down")
+  await step("click")
+  await shot("questions.png")
+  await step("click")
+  await shot("question-option.png")
+  await step("down")
+  await shot("question-option-2.png")
+  await step("up")
+  await step("up")
+  await shot("question-own.png")
+  await step("double_click")
+  await step("down")
+  await shot("question-part.png")
+  await step("click")
+  await step("click")
+  await step("click")
+  await step("click")
+  await step("down")
+  await step("click")
+  await shot("question-choose-any.png")
+  await step("up")
+  await step("up")
+  await shot("question-done.png")
+  await step("click")
+  await shot("question-send.png")
+  // "Sent" stays up for a moment only.
+  await step("click", { still: false })
+  await shot("question-sent.png")
+  // Then the next question; a double tap goes back to the list.
+  await sleep(2500)
+  await step("double_click")
+
+  // The approvals, under the questions: the list, one in full with its
+  // options, the confirmation an option asks for, and one that must be
+  // signed. The fake phone only logs a decision; none is made here.
+  await step("down")
   await step("down")
   await step("click")
   await shot("approvals.png")
@@ -186,8 +224,9 @@ try {
   await shot("idle.png")
   await step("double_click")
 
-  // The first agent's feed (the Reeve and the approvals are pinned above
-  // it), one entry in full, then a message to it, held to talk.
+  // The first agent's feed (the Reeve, the questions and the approvals are
+  // pinned above it), one entry in full, then a message to it, held to talk.
+  await step("down")
   await step("down")
   await step("down")
   await step("click")
@@ -217,7 +256,9 @@ try {
   const errors = (await console_()).filter((e) => e.level === "error" || /^\[(uncaught|unhandledrejection|fetch)\]/.test(e.message))
   if (errors.length) throw new Error(`the app logged errors:\n${errors.map((e) => e.message).join("\n")}`)
 
-  console.log(`Saved picker, agents, idle, agent, entry, listening, message, reeve, reeve-sent, approvals, approval, approval-confirm, approval-signed, background and phone screenshots to ${out}`)
+  console.log(
+    `Saved picker, agents, idle, agent, entry, listening, message, reeve, reeve-sent, questions, question-*, approvals, approval, approval-confirm, approval-signed, background and phone screenshots to ${out}`,
+  )
 } catch (err) {
   console.error(String(err))
   process.exitCode = 1

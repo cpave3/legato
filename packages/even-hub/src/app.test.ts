@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { OsEventTypeList, StartUpPageCreateResult, type EvenHubEvent } from "@evenrealities/even_hub_sdk"
 import { BACKGROUND_POLL_MS, startGlance, type GlassesBridge, type LegatoClient, POLL_MS } from "./app"
 import type { Agent, AgentsResult, Approval, Conversation, Instance, InstancesResult } from "./legato"
+import { images, twoParts } from "./questions.fixtures"
 import { screenOffMs } from "./settings"
 
 const agent = (task_id: string, activity: string, title = ""): Agent => ({
@@ -113,6 +114,7 @@ function fakeLegato(...answers: AgentsResult[]) {
     reeve: [] as string[],
     limits: [] as (number | undefined)[],
     decide: [] as [string, string, string | undefined][],
+    answer: [] as [string, Record<string, string[]>][],
   }
   let pending: Approval[] = []
   let listed: InstancesResult = { ok: true, instances: [only] }
@@ -155,6 +157,11 @@ function fakeLegato(...answers: AgentsResult[]) {
     approvals: async () => ({ ok: true, approvals: pending }),
     decide: async (_instance, id, decision, option) => {
       calls.decide.push([id, decision, option])
+      pending = pending.filter((a) => a.id !== id)
+      return { ok: true }
+    },
+    answer: async (_instance, id, answers) => {
+      calls.answer.push([id, answers])
       pending = pending.filter((a) => a.id !== id)
       return { ok: true }
     },
@@ -1611,5 +1618,412 @@ describe("an open page kept live", () => {
     legato.conversation.entries = [{ kind: "assistant", text: "Something else." }]
     await vi.advanceTimersByTimeAsync(POLL_MS)
     expect(bridge.text("body")).toBe("Agent\n\nWorking on it.")
+  })
+})
+
+// A swipe on a text box that takes the touchpad and whose text fits it:
+// down is SCROLL_BOTTOM, up is SCROLL_TOP (simulator 0.9.5).
+const swipe = (way: "up" | "down", name = "option"): EvenHubEvent =>
+  ({
+    textEvent: {
+      containerID: 4,
+      containerName: name,
+      eventType: way === "down" ? OsEventTypeList.SCROLL_BOTTOM_EVENT : OsEventTypeList.SCROLL_TOP_EVENT,
+    },
+  }) as EvenHubEvent
+
+describe("questions on the glasses", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 10, 13, 9, 5))
+  })
+  afterEach(() => vi.useRealTimers())
+
+  async function openQuestions(waiting: Approval[]) {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    legato.waiting(waiting)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    const row = bridge.items()?.find((i) => i.startsWith("● Questions")) ?? ""
+    bridge.send(select(1, row))
+    await settle()
+    return { bridge, legato }
+  }
+  const press = async (bridge: ReturnType<typeof fakeBridge>, ...events: EvenHubEvent[]) => {
+    for (const e of events) {
+      bridge.send(e)
+      await settle()
+    }
+  }
+  const option = (bridge: ReturnType<typeof fakeBridge>) => bridge.text("option")?.replace(/\s+/g, " ").trim()
+
+  it("puts the questions in a row of their own above the approvals, which keep the permissions", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    legato.waiting([push, images, twoParts])
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+
+    expect(bridge.items()?.slice(1, 3)).toEqual(["● Questions (3) →", "● To approve (1) →"])
+    bridge.send(select(2, "● To approve (1) →"))
+    await settle()
+    expect(bridge.feed()).toEqual(["● ASK-1 Bash: git push"])
+  })
+
+  it("shows one question per screen, and a swipe moves between them, round from the last to the first", async () => {
+    const { bridge } = await openQuestions([images, twoParts])
+    expect(bridge.text("badge")).toBe("● question")
+    expect(bridge.text("count")?.trim()).toBe("1 of 3")
+    expect(bridge.text("question")).toBe("Where should Legato keep its copies of a plan's image files?")
+    expect(bridge.text("facts")).toBe("Image files · 3 options or your own")
+
+    await press(bridge, swipe("down", "question"))
+    expect(bridge.text("count")?.trim()).toBe("2 of 3")
+    expect(bridge.text("facts")).toBe("Polling · part 1 of 2 · 3 options or your own")
+    await press(bridge, swipe("down", "question"), swipe("down", "question"))
+    expect(bridge.text("count")?.trim()).toBe("1 of 3")
+    await press(bridge, swipe("up", "question"))
+    expect(bridge.text("count")?.trim()).toBe("3 of 3")
+  })
+
+  it("moves between questions and options by updating the text in place, without rebuilding the page", async () => {
+    const { bridge } = await openQuestions([images, twoParts])
+    const rebuilt = bridge.rebuilt
+    await press(bridge, swipe("down", "question"), swipe("up", "question"))
+    expect(bridge.rebuilt).toBe(rebuilt)
+
+    await press(bridge, click)
+    const options = bridge.rebuilt
+    await press(bridge, swipe("down"), swipe("down"))
+    expect(bridge.rebuilt).toBe(options)
+  })
+
+  it("answers a single choice: one option per screen, a tap chooses, a second tap sends, then the next question", async () => {
+    const { bridge, legato } = await openQuestions([images, twoParts])
+    await press(bridge, click)
+    expect(bridge.text("badge")).toBe("● answer?")
+    expect(bridge.text("ask")).toBe("Where should Legato keep its copies of a plan's image files?")
+    expect(option(bridge)).toBe("★ Beside the plan 1/4")
+    expect(bridge.text("description")).toBe("In the plan's own folder, so the files move and are removed with it.")
+
+    await press(bridge, swipe("down"))
+    expect(option(bridge)).toBe("In a shared cache 2/4")
+    await press(bridge, swipe("up"), swipe("up"))
+    expect(option(bridge)).toBe("Your own answer… 4/4")
+    await press(bridge, swipe("down"), swipe("down"))
+    expect(option(bridge)).toBe("In a shared cache 2/4")
+
+    await press(bridge, click)
+    expect(bridge.text("badge")).toBe("Send?")
+    expect(bridge.text("body")).toBe("In a shared cache\n\nWhere should Legato keep its copies of a plan's image files?")
+    expect(legato.calls.answer).toEqual([])
+
+    await press(bridge, click)
+    expect(legato.calls.answer).toEqual([["ap-q1", { q1: ["In a shared cache"] }]])
+    expect(bridge.text("badge")).toBe("Sent")
+    expect(bridge.text("body")).toBe("Answered LEG-157.\n\nNext, LEG-163 asks: How often should the glasses read Legato while the screen is on?")
+
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(bridge.text("badge")).toBe("● question")
+    expect(bridge.text("count")?.trim()).toBe("1 of 2")
+    expect(bridge.text("facts")).toBe("Polling · part 1 of 2 · 3 options or your own")
+  })
+
+  it("goes back to where it came from once no question is left", async () => {
+    const { bridge } = await openQuestions([images])
+    await press(bridge, click, click, click)
+    expect(bridge.text("badge")).toBe("Sent")
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(bridge.items()?.[1]).toBe("● needs you  ASK-1 Approve")
+  })
+
+  it("answers a request of two parts: each on its own card, ticks for choose any, Done, then both sent together", async () => {
+    const { bridge, legato } = await openQuestions([twoParts])
+    await press(bridge, click, click)
+    // Part 1 chosen: on to part 2's card.
+    expect(bridge.text("badge")).toBe("● question")
+    expect(bridge.text("facts")).toBe("Background · part 2 of 2 · 4 options or your own · choose any")
+
+    await press(bridge, click)
+    expect(bridge.text("badge")).toBe("● choose any")
+    expect(option(bridge)).toBe("□ Who needs you 1/6")
+    await press(bridge, click)
+    expect(option(bridge)).toBe("■ Who needs you 1/6")
+    await press(bridge, swipe("down"), click)
+    expect(option(bridge)).toBe("■ Agent counts 2/6")
+
+    // Done, the last card, is one swipe up from the first.
+    await press(bridge, swipe("up"), swipe("up"))
+    expect(option(bridge)).toBe("Done · 2 ticked 6/6")
+    expect(bridge.text("description")).toBe("Who needs you, Agent counts")
+    await press(bridge, click)
+    expect(bridge.text("badge")).toBe("Send?")
+    expect(bridge.text("body")).toBe("Polling: Every 5 seconds\nBackground: Who needs you, Agent counts\n\nBoth answers go to LEG-163 together.")
+
+    await press(bridge, click)
+    expect(legato.calls.answer).toEqual([["ap-q2", { poll: ["Every 5 seconds"], bg: ["Who needs you", "Agent counts"] }]])
+  })
+
+  it("takes no tap on Done while nothing is ticked", async () => {
+    const { bridge, legato } = await openQuestions([twoParts])
+    await press(bridge, click, click, click, swipe("up"))
+    expect(option(bridge)).toBe("Done · none ticked 6/6")
+    await press(bridge, click)
+    expect(option(bridge)).toBe("Done · none ticked 6/6")
+    expect(legato.calls.answer).toEqual([])
+  })
+
+  it("keeps an answer while the operator swipes to other questions, and shows it on the card", async () => {
+    const { bridge } = await openQuestions([twoParts, images])
+    await press(bridge, click, click)
+    expect(bridge.text("facts")).toContain("part 2 of 2")
+    await press(bridge, swipe("up", "question"))
+    expect(bridge.text("facts")).toBe("Polling · part 1 of 2 · your answer: Every 5 seconds")
+    await press(bridge, click)
+    expect(option(bridge)).toBe("● Every 5 seconds 1/4")
+  })
+
+  it("takes the operator's own answer by dictation on the last card, and sends the words in place of an option", async () => {
+    const { bridge, legato } = await openQuestions([images])
+    await press(bridge, click)
+    // A hold on an option does nothing.
+    await press(bridge, hold)
+    expect(bridge.mic).toEqual([])
+
+    await press(bridge, swipe("up"))
+    expect(option(bridge)).toBe("Your own answer… 4/4")
+    await press(bridge, hold)
+    expect(bridge.text("badge")).toBe("● Listening")
+    expect(bridge.text("body")).toContain("Say your answer to:\nWhere should Legato keep")
+    bridge.send(audio(1, 2))
+    await press(bridge, release)
+    expect(bridge.text("badge")).toBe("Your answer")
+    expect(bridge.text("body")).toBe("“Run the tests again.”")
+    expect(legato.calls.answer).toEqual([])
+
+    await press(bridge, click)
+    expect(bridge.text("badge")).toBe("Send?")
+    expect(bridge.text("body")).toBe("Run the tests again.\n\nWhere should Legato keep its copies of a plan's image files?")
+    await press(bridge, click)
+    expect(legato.calls.answer).toEqual([["ap-q1", { q1: ["Run the tests again."] }]])
+  })
+
+  it("answers a question whose ID is a name every object has, such as constructor", async () => {
+    const odd: Approval = {
+      ...images,
+      details: { questions: [{ ...(images.details!.questions as Record<string, unknown>[])[0], id: "constructor" }, { ...(twoParts.details!.questions as Record<string, unknown>[])[0], id: "__proto__" }] },
+    }
+    const { bridge, legato } = await openQuestions([odd])
+    expect(bridge.text("facts")).toBe("Image files · part 1 of 2 · 3 options or your own")
+    await press(bridge, click)
+    expect(option(bridge)).toBe("★ Beside the plan 1/4")
+    await press(bridge, click, click)
+    expect(option(bridge)).toBe("Every 5 seconds 1/4")
+    await press(bridge, swipe("down"), click, click)
+    const [[id, answers]] = legato.calls.answer
+    expect(id).toBe("ap-q1")
+    expect(JSON.parse(JSON.stringify(answers))).toEqual(JSON.parse('{"constructor":["Beside the plan (Recommended)"],"__proto__":["Every 15 seconds"]}'))
+  })
+
+  it("drops the operator's own words on a tap of their card, so a choose-any answer can go back to the ticks alone", async () => {
+    const { bridge, legato } = await openQuestions([twoParts])
+    await press(bridge, click, click, click, click)
+    expect(option(bridge)).toBe("■ Who needs you 1/6")
+    await press(bridge, swipe("up"), swipe("up"), hold)
+    bridge.send(audio(1))
+    await press(bridge, release, click)
+    expect(bridge.text("body")).toContain("Background: Who needs you, Run the tests again.")
+
+    await press(bridge, doubleClick)
+    expect(option(bridge)).toBe("■ Who needs you 1/6")
+    await press(bridge, swipe("up"), swipe("up"))
+    expect(option(bridge)).toBe("Your own answer… 5/6")
+    expect(bridge.text("description")).toBe("Yours: “Run the tests again.”. Tap to drop it, or hold to say it again.")
+    await press(bridge, click)
+    expect(bridge.text("description")).toBe("Hold the touchpad and say it. You see the words before anything is sent.")
+    await press(bridge, swipe("down"), click)
+    expect(bridge.text("body")).toContain("Background: Who needs you\n")
+    await press(bridge, click)
+    expect(legato.calls.answer).toEqual([["ap-q2", { poll: ["Every 5 seconds"], bg: ["Who needs you"] }]])
+  })
+
+  it("says why the question an agent's feed asks could not be read, and tries again on a tap", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    legato.conversation.question = { text: "Which?", options: ["A"] }
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    await press(bridge, select(1, "● needs you  ASK-1 Approve"))
+
+    const approvals = legato.client.approvals
+    legato.client.approvals = async () => ({ ok: false, problem: "The Legato app took too long to answer" })
+    await press(bridge, pick(0, "● Asks: Which?"))
+    expect(bridge.text("badge")).toBe("▲ Problem")
+    expect(bridge.text("body")).toBe("Can't read the question: The Legato app took too long to answer")
+
+    legato.client.approvals = approvals
+    legato.waiting([{ ...images, task_id: "ASK-1" }])
+    await press(bridge, click)
+    expect(bridge.text("badge")).toBe("● question")
+    await press(bridge, doubleClick)
+    expect(bridge.feed()?.[0]).toBe("● Asks: Which?")
+  })
+
+  it("drops the words on a double tap, and says them again on a hold", async () => {
+    const { bridge, legato } = await openQuestions([images])
+    await press(bridge, click, swipe("up"), hold)
+    bridge.send(audio(1))
+    await press(bridge, release, hold)
+    expect(bridge.text("badge")).toBe("● Listening")
+    bridge.send(audio(2))
+    await press(bridge, release, doubleClick)
+    expect(option(bridge)).toBe("Your own answer… 4/4")
+    expect(bridge.text("description")).toBe("Hold the touchpad and say it. You see the words before anything is sent.")
+    expect(legato.calls.answer).toEqual([])
+  })
+
+  it("goes back a step on a double tap: from Send? to the options with the choice kept, then the card, then the list", async () => {
+    const { bridge, legato } = await openQuestions([images])
+    await press(bridge, click, swipe("down"), click)
+    expect(bridge.text("badge")).toBe("Send?")
+    await press(bridge, doubleClick)
+    expect(option(bridge)).toBe("● In a shared cache 2/4")
+    await press(bridge, doubleClick)
+    expect(bridge.text("badge")).toBe("● question")
+    expect(bridge.text("facts")).toBe("Image files · your answer: In a shared cache")
+    await press(bridge, doubleClick)
+    expect(bridge.items()?.[1]).toBe("● Questions (1) →")
+    expect(legato.calls.answer).toEqual([])
+  })
+
+  it("takes every swipe of a quick run, on the questions and on the options", async () => {
+    const { bridge } = await openQuestions([images, twoParts])
+    bridge.send(swipe("down", "question"))
+    bridge.send(swipe("down", "question"))
+    await settle()
+    expect(bridge.text("count")?.trim()).toBe("3 of 3")
+
+    await press(bridge, swipe("down", "question"), click)
+    bridge.send(swipe("down"))
+    bridge.send(swipe("down"))
+    await settle()
+    expect(option(bridge)).toBe("Leave them where they are 3/4")
+  })
+
+  it("leaves a sending answer be on a double tap, and shows Sent when it went", async () => {
+    const { bridge, legato } = await openQuestions([images])
+    let answered: (result: { ok: true }) => void = () => {}
+    legato.client.answer = (_instance, id, answers) => {
+      legato.calls.answer.push([id, answers])
+      return new Promise((done) => (answered = done))
+    }
+    await press(bridge, click, click, click)
+    expect(bridge.text("badge")).toBe("Sending")
+    bridge.send(doubleClick)
+    answered({ ok: true })
+    await settle()
+    expect(bridge.text("badge")).toBe("Sent")
+    expect(legato.calls.answer).toHaveLength(1)
+  })
+
+  it("does not take a tap made on one option for a tap on the next one a swipe brought", async () => {
+    const { bridge, legato } = await openQuestions([images])
+    await press(bridge, click)
+    bridge.send(swipe("down"))
+    bridge.send(click)
+    await settle()
+    expect(option(bridge)).toBe("In a shared cache 2/4")
+    expect(bridge.text("badge")).toBe("● answer?")
+    expect(legato.calls.answer).toEqual([])
+  })
+
+  it("says a question is gone when it leaves the list while open, and sends nothing", async () => {
+    const { bridge, legato } = await openQuestions([images, twoParts])
+    await press(bridge, click)
+    legato.waiting([twoParts])
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.text("badge")).toBe("○ gone")
+    expect(bridge.text("body")).toBe("No longer waiting.\n\nIt was answered elsewhere, or its agent moved on. Nothing was sent.")
+
+    await press(bridge, click)
+    expect(bridge.text("badge")).toBe("● question")
+    expect(bridge.text("count")?.trim()).toBe("1 of 2")
+    expect(legato.calls.answer).toEqual([])
+  })
+
+  it("stops listening when the question goes while the operator speaks", async () => {
+    const { bridge, legato } = await openQuestions([images])
+    await press(bridge, click, swipe("up"), hold)
+    legato.waiting([])
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.mic).toEqual([true, false])
+    expect(bridge.text("badge")).toBe("○ gone")
+    expect(bridge.text("hint")?.trim()).toBe("Double tap: back")
+  })
+
+  it("keeps the answers when they were not sent, and sends them again on a tap", async () => {
+    const { bridge, legato } = await openQuestions([images])
+    let fails = true
+    const answer = legato.client.answer
+    legato.client.answer = async (instance, id, answers) => (fails ? { ok: false, problem: "The Legato app took too long to answer" } : answer(instance, id, answers))
+    await press(bridge, click, click, click)
+    expect(bridge.text("badge")).toBe("▲ Not sent")
+    expect(bridge.text("body")).toBe("The Legato app took too long to answer\n\nYour answer is kept: Beside the plan")
+
+    fails = false
+    await press(bridge, click)
+    expect(legato.calls.answer).toEqual([["ap-q1", { q1: ["Beside the plan (Recommended)"] }]])
+    expect(bridge.text("badge")).toBe("Sent")
+  })
+
+  it("says so when no question is left while the list is open", async () => {
+    const { bridge, legato } = await openQuestions([images])
+    legato.client.answer = async () => ({ ok: false, problem: "It is no longer waiting: answered elsewhere, or its agent moved on." })
+    legato.waiting([])
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.text("badge")).toBe("○ gone")
+    await press(bridge, doubleClick)
+    expect(bridge.items()?.[1]).toBe("● needs you  ASK-1 Approve")
+  })
+
+  it("opens the question an agent's feed asks, and goes back to the feed", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    const asks = { ...images, task_id: "ASK-1" }
+    legato.waiting([twoParts, asks])
+    legato.conversation.question = { text: "Where should Legato keep its copies of a plan's image files?", options: ["Beside the plan"] }
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    await press(bridge, select(3, "● needs you  ASK-1 Approve"))
+
+    const asksLine = bridge.feed()![0]
+    expect(asksLine.startsWith("● Asks: Where should Legato")).toBe(true)
+    await press(bridge, pick(0, asksLine))
+    expect(bridge.text("badge")).toBe("● question")
+    expect(bridge.text("title")).toBe("ASK-1 Approve")
+    expect(bridge.text("count")?.trim()).toBe("3 of 3")
+
+    await press(bridge, doubleClick)
+    expect(bridge.feed()?.[0]).toBe(asksLine)
+  })
+
+  it("opens what the feed's line asks: a permission's approval, not the agent's question", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    legato.waiting([{ ...images, task_id: "ASK-1" }, push])
+    legato.conversation.permission = { tool: "Bash", command: "git push" }
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    await press(bridge, select(3, "● needs you  ASK-1 Approve"), pick(0, "● Asks: Bash git push"))
+    expect(bridge.text("badge")).toBe("● approve?")
+  })
+
+  it("reads the question when the feed asks one the approvals read has not caught", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    legato.conversation.question = { text: "Which?", options: ["A"] }
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    await press(bridge, select(1, "● needs you  ASK-1 Approve"))
+
+    legato.waiting([{ ...images, task_id: "ASK-1" }])
+    await press(bridge, pick(0, "● Asks: Which?"))
+    expect(bridge.text("badge")).toBe("● question")
+    expect(bridge.text("question")).toBe("Where should Legato keep its copies of a plan's image files?")
   })
 })

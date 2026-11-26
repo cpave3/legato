@@ -20,6 +20,7 @@ import {
   BADGE_WIDTH,
   BORDER,
   CANVAS_WIDTH,
+  COUNT_WIDTH,
   FRAME_HEIGHT_WITH_HINT,
   FRAME_WIDTH,
   FRAME_X,
@@ -29,9 +30,11 @@ import {
   HEADER_Y,
   HINT_HEIGHT,
   HINT_Y,
+  LINE_HEIGHT,
   MARGIN,
   PADDING,
   TITLE_WIDTH,
+  TITLE_WIDTH_COUNTED,
   TITLE_X,
   boxHeight,
   center,
@@ -40,6 +43,29 @@ import {
 } from "./layout"
 import { REEVE_ENTRIES, type Agent, type AgentsResult, type Approval, type ApprovalsResult, type ConversationResult, type Instance, type InstancesResult, type SendResult, type TranscriptResult } from "./legato"
 import { picker, type PickerScreen } from "./picker"
+import {
+  ASK_LINES,
+  DESCRIPTION_LINES,
+  QUESTION_LINES,
+  answerOf,
+  askedQuestions,
+  cardsOf,
+  gonePage,
+  isQuestion,
+  noQuestionsPage,
+  optionPage,
+  ownAnswerPage,
+  questionPage,
+  questionsOf,
+  readingPage,
+  sendPage,
+  type Asked,
+  type Draft,
+  type Drafts,
+  type OptionPage,
+  type QuestionPage,
+  type Sending,
+} from "./questions"
 import { heard, reeveChat, reeveDictation, type ChatPage } from "./reeve"
 
 // How often the app reads Legato while it is in front, and while it is not.
@@ -92,6 +118,8 @@ export type LegatoClient = {
   // The approvals waiting, and a decision on one (never one that must be signed).
   approvals(instance: string): Promise<ApprovalsResult>
   decide(instance: string, id: string, decision: "allow" | "deny", option?: string): Promise<SendResult>
+  // The answers to an agent's question request, by question ID.
+  answer(instance: string, id: string, answers: Record<string, string[]>): Promise<SendResult>
 }
 
 // A text container on a page.
@@ -302,6 +330,61 @@ function approvalLayout(page: ApprovalPage): Layout {
   }
 }
 
+// A question: the question framed (bright; it takes the touchpad and always
+// fits, so each swipe is an event), its facts dim under it, and where it is
+// among those waiting at the right of the header.
+const FACTS_HEIGHT = boxHeight(0)
+const FACTS_Y = HINT_Y - GAP - FACTS_HEIGHT
+const questionBoxes = {
+  badge: agentBoxes.badge,
+  title: { ...agentBoxes.title, width: TITLE_WIDTH_COUNTED },
+  count: { id: 3, name: "count", x: CANVAS_WIDTH - MARGIN - COUNT_WIDTH, y: HEADER_Y, width: COUNT_WIDTH, height: HEADER_HEIGHT, padding: PADDING, brightness: 2 },
+  question: {
+    id: 4,
+    name: "question",
+    x: FRAME_X,
+    y: FRAME_Y,
+    width: FRAME_WIDTH,
+    height: FACTS_Y - GAP - FRAME_Y,
+    padding: PADDING,
+    brightness: 4,
+    border: true,
+    capture: true,
+  },
+  // In line with the text in the frame above it.
+  facts: { id: 5, name: "facts", x: FRAME_X + PADDING + BORDER, y: FACTS_Y, width: FRAME_WIDTH - 2 * (PADDING + BORDER), height: FACTS_HEIGHT, padding: 0, brightness: 2 },
+  hint: { ...agentBoxes.hint, id: 6 },
+} satisfies Record<string, TextBox>
+
+// An option: the question dim above, the option's label framed (bright; it
+// takes the touchpad, on one line), its description under it. The frame
+// stays where it is from option to option; only the words change.
+const ASK_HEIGHT = ASK_LINES * LINE_HEIGHT + 2 * PADDING + 1
+const OPTION_Y = FRAME_Y + ASK_HEIGHT + GAP
+const DESCRIPTION_Y = OPTION_Y + HEADER_HEIGHT + GAP
+const optionBoxes = {
+  badge: agentBoxes.badge,
+  title: agentBoxes.title,
+  ask: { id: 3, name: "ask", x: FRAME_X, y: FRAME_Y, width: FRAME_WIDTH, height: ASK_HEIGHT, padding: PADDING, brightness: 2 },
+  option: { id: 4, name: "option", x: FRAME_X, y: OPTION_Y, width: FRAME_WIDTH, height: HEADER_HEIGHT, padding: PADDING, brightness: 4, border: true, capture: true },
+  description: { id: 5, name: "description", x: FRAME_X, y: DESCRIPTION_Y, width: FRAME_WIDTH, height: HINT_Y - GAP - DESCRIPTION_Y, padding: PADDING, brightness: 3 },
+  hint: { ...agentBoxes.hint, id: 6 },
+} satisfies Record<string, TextBox>
+
+// Each box holds its lines without a scrollbar: a box that scrolls takes
+// swipes for itself.
+const holds = (box: TextBox, lines: number) => lines * LINE_HEIGHT + 2 * (box.padding + (box.border ? BORDER : 0)) + 1 <= box.height
+if (!holds(questionBoxes.question, QUESTION_LINES) || !holds(optionBoxes.ask, ASK_LINES) || !holds(optionBoxes.description, DESCRIPTION_LINES)) {
+  throw new Error("a question's boxes are too small for their lines")
+}
+
+const boxesLayout = (boxes: Record<string, TextBox>, texts: Record<string, string>): Layout => ({
+  textObject: Object.entries(boxes).map(([name, box]) => textBox(box, texts[name] ?? "")),
+  listObject: [],
+})
+const questionLayout = (page: QuestionPage) => boxesLayout(questionBoxes, page)
+const optionLayout = (page: OptionPage) => boxesLayout(optionBoxes, page)
+
 function backgroundLayout(page: BackgroundPage): Layout {
   return { textObject: [textBox(backgroundBoxes.alert, page.alert), textBox(backgroundBoxes.counts, page.counts)], listObject: [] }
 }
@@ -327,7 +410,8 @@ function textLayout(page: TextPage): Layout {
   }
 }
 
-type Click = "click" | "double" | "hold" | "release" | undefined
+type Click = "click" | "double" | "hold" | "release" | "up" | "down" | undefined
+type Press = Exclude<Click, "release" | undefined>
 
 // A touchpad press, wherever the SDK put it: a list's or a text container's
 // event, or a system event. A click is type 0, which the SDK may leave out;
@@ -339,6 +423,10 @@ function press(event: EvenHubEvent): Click {
   if (type === OsEventTypeList.DOUBLE_CLICK_EVENT) return "double"
   if (type === OsEventTypeList.LONG_PRESS_EVENT) return "hold"
   if (type === OsEventTypeList.LONG_PRESS_RELEASE_EVENT) return "release"
+  // A swipe on a text box whose text fits it (one that overflows scrolls
+  // itself and says nothing until its end).
+  if (type === OsEventTypeList.SCROLL_TOP_EVENT) return "up"
+  if (type === OsEventTypeList.SCROLL_BOTTOM_EVENT) return "down"
   return undefined
 }
 
@@ -365,11 +453,39 @@ type AgentView = Reading & {
 // agent's feed (`back`), with a decision on it under way.
 type ApprovalsView = { kind: "approvals" }
 type ApprovalView = { kind: "approval"; approval: Approval; decision?: Decision; back: ApprovalsView | AgentView }
-type View = { kind: "picker" } | { kind: "list" } | { kind: "background" } | ReeveView | AgentView | ApprovalsView | ApprovalView
-// The views a message is dictated from.
+// The questions agents ask, one per screen: the `part`th question of
+// `approval` (none while none waits), and inside it the `card`th card of its
+// options, an answer being dictated, or its request's answers being sent.
+// `gone` once the request left Legato's list while open; `reading` (the
+// task) while the question an agent's feed asks (`entry`) is read, with
+// `problem` when that read failed. A double tap on a question goes `back`,
+// to the list or to the feed it was opened from.
+type QuestionsView = {
+  kind: "questions"
+  back: { kind: "list" } | AgentView
+  approval?: Approval
+  part: number
+  card?: number
+  dictation?: Dictation
+  sending?: Sending
+  gone?: true
+  reading?: string
+  entry?: FeedItem
+  problem?: string
+}
+type View = { kind: "picker" } | { kind: "list" } | { kind: "background" } | ReeveView | AgentView | ApprovalsView | ApprovalView | QuestionsView
+// The views a message is dictated from, and those an answer is too.
 type Talking = ReeveView | AgentView
+type Speaking = Talking | QuestionsView
 const talking = (v: View): v is Talking => v.kind === "agent" || v.kind === "reeve"
-const listening = (v: View): v is Talking => talking(v) && v.dictation?.step === "listening"
+const listening = (v: View): v is Speaking => (talking(v) || v.kind === "questions") && v.dictation?.step === "listening"
+
+// What a questions view is showing, to judge a press against.
+function questionStep(v: QuestionsView): string {
+  if (v.reading) return v.problem ? "reading failed" : "reading"
+  if (v.gone) return "gone"
+  return v.sending?.step ?? v.dictation?.step ?? (v.card === undefined ? "question" : "options")
+}
 
 // Keeps an answer in a view, holding on to the last one that worked when
 // this one failed.
@@ -446,6 +562,9 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
 
   let agents: Agent[] = []
   let approvals: Approval[] = []
+  // What the operator has given each question request so far, by its ID:
+  // kept while they swipe elsewhere, until it is sent or leaves the list.
+  const drafts = new Map<string, Drafts>()
   let updatedAt: Date | undefined
   let problem: string | undefined
   let tab: Tab = "active"
@@ -503,6 +622,49 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
   // The Reeve's running agent, if any.
   const reeveAgent = () => agents.find((a) => a.reeve && a.status === "running")
 
+  // The questions agents ask, one each; and the rest of the approvals (a
+  // question request the glasses cannot read stays with them).
+  const asked = () => askedQuestions(approvals)
+  const permissions = () => approvals.filter((a) => !isQuestion(a) || !questionsOf(a).length)
+  // A task as a header names it: its ID and its agent's title.
+  const named = (task: string | undefined) => {
+    const title = agents.find((a) => a.task_id === task)?.title.trim()
+    return [task, title].filter(Boolean).join(" ") || "Legato"
+  }
+  // The question a questions view shows, and where it is among those waiting.
+  function shownQuestion(v: QuestionsView): Asked | undefined {
+    if (!v.approval) return undefined
+    const questions = questionsOf(v.approval)
+    const question = questions[v.part]
+    return question ? { approval: v.approval, question, part: v.part, parts: questions.length } : undefined
+  }
+  const placeOf = (list: Asked[], approval: string | undefined, part: number) =>
+    list.findIndex((a) => a.approval.id === approval && a.part === part)
+  const draftsOf = (approval: Approval): Drafts => drafts.get(approval.id) ?? new Map()
+  const draftOf = (a: Asked): Draft => draftsOf(a.approval).get(a.question.id) ?? { chosen: [], other: "" }
+  function setDraft(a: Asked, draft: Draft): void {
+    drafts.set(a.approval.id, new Map(draftsOf(a.approval)).set(a.question.id, draft))
+  }
+
+  async function showQuestions(v: QuestionsView): Promise<void> {
+    const shown = shownQuestion(v)
+    const who = named(shown?.approval.task_id ?? v.reading)
+    const text = (page: TextPage) => draw("text questions", textLayout(page), page)
+    if (v.reading) return text(readingPage(who, v.problem))
+    if (!shown) return text(noQuestionsPage(instance?.name ?? ""))
+    if (v.gone) return text(gonePage(who, asked().length > 0))
+    if (v.sending) return text(sendPage(shown.approval, who, draftsOf(shown.approval), v.sending))
+    if (v.dictation) return text(ownAnswerPage(shown, who, v.dictation))
+    if (v.card !== undefined) {
+      const page = optionPage(shown, who, v.card, draftOf(shown))
+      return draw("option", optionLayout(page), page)
+    }
+    const list = asked()
+    const at = Math.max(0, placeOf(list, shown.approval.id, shown.part))
+    const page = questionPage(shown, who, at, Math.max(list.length, 1), draftOf(shown))
+    return draw("question", questionLayout(page), page)
+  }
+
   async function show(first = false): Promise<void> {
     if (view.kind === "picker") {
       pickerScreen = picker(instances, { problem: pickerProblem ?? leftBecause, read: instancesRead, updatedAt: instancesAt })
@@ -512,13 +674,13 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
       const texts = { title: pickerScreen.title, status: pickerScreen.status, clock: pickerScreen.clock, hint }
       await draw(`picker ${JSON.stringify(pickerScreen.items)}`, pickerLayout(pickerScreen, hint), texts, first)
     } else if (view.kind === "list") {
-      if (!first) screen = glance(agents, { tab, updatedAt, now: new Date(), problem, approvals: approvals.length })
+      if (!first) screen = glance(agents, { tab, updatedAt, now: new Date(), problem, approvals: permissions().length, questions: asked().length })
       screen = { ...screen, clock: right(screen.clock, inner(CLOCK_WIDTH)) }
       const hint = keys(`Tap: open · Hold: background · Double tap: ${tab === "idle" || picked ? "back" : "exit"}`)
       const texts = { "tab-active": screen.tabs.active, "tab-idle": screen.tabs.idle, status: screen.status, clock: screen.clock, hint }
       await draw(`list ${JSON.stringify([screen.tab, screen.items])}`, listLayout(screen, hint), texts, first)
     } else if (view.kind === "approvals") {
-      const page = approvalsPage(approvals, instance?.name ?? "")
+      const page = approvalsPage(permissions(), instance?.name ?? "")
       feed = page.items
       await draw(`approvals ${JSON.stringify(feed)}`, feedLayout(page), page)
     } else if (view.kind === "approval") {
@@ -531,6 +693,8 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
         if (page.options.length) await draw(`approval ${approval.id}`, approvalLayout(page), page)
         else await draw(`text approval ${approval.id}`, textLayout(page), page)
       }
+    } else if (view.kind === "questions") {
+      await showQuestions(view)
     } else if (view.kind === "background") {
       const page = background(agents, { problem, battery: glasses.battery, charging: glasses.charging })
       await draw("background", backgroundLayout(page), page)
@@ -648,6 +812,9 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
     if (view.kind === "approval" && step !== "deciding" && step !== "done" && !approvals.some((a) => a.id === (view as ApprovalView).approval.id)) {
       view = view.back
     }
+    // Answers given to a request that has left the list go with it.
+    if (waiting.ok) for (const id of drafts.keys()) if (!approvals.some((a) => a.id === id)) drafts.delete(id)
+    if (view.kind === "questions") await settleQuestions(view)
     // The open agent as listed now; one Legato no longer lists as running
     // has ended, and says so rather than the state it had.
     if (view.kind === "agent" && answer.ok) {
@@ -681,6 +848,34 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
     if (open.pending && heard(open.read, open.pending)) open.pending = undefined
   }
 
+  // A questions view after a read: the question open is gone once its
+  // request leaves the list, unless the glasses' own answer to it is being
+  // sent or was; with none open, the first that came is shown.
+  async function settleQuestions(v: QuestionsView): Promise<void> {
+    if (v.reading) return
+    if (!v.approval) {
+      const first = asked()[0]
+      if (first) {
+        v.approval = first.approval
+        v.part = first.part
+      }
+      return
+    }
+    const id = v.approval.id
+    const now = approvals.find((a) => a.id === id)
+    if (now) {
+      v.approval = now
+      return
+    }
+    const step = v.sending?.step
+    if (v.gone || step === "sending" || step === "sent") return
+    if (listening(v)) await stopMicrophone()
+    v.gone = true
+    v.card = undefined
+    v.dictation = undefined
+    v.sending = undefined
+  }
+
   async function refresh(): Promise<void> {
     clearTimeout(timer)
     readAt = Date.now()
@@ -705,7 +900,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
     await bridge.audioControl(false)
   }
 
-  async function listen(open: Talking): Promise<void> {
+  async function listen(open: Speaking): Promise<void> {
     recording = []
     recorded = 0
     open.dictation = { step: "listening", seconds: 0 }
@@ -728,7 +923,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
     )
   }
 
-  async function finishListening(open: Talking): Promise<void> {
+  async function finishListening(open: Speaking): Promise<void> {
     await stopMicrophone()
     const length = recording.reduce((n, chunk) => n + chunk.length, 0)
     if (!length) {
@@ -799,9 +994,12 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
     items: Screen["items"]
     feed: FeedItem[]
     legatos: PickerScreen["items"]
+    // A questions view's question, card and step.
+    question?: { approval?: string; part: number; card?: number; step: string }
   }
   const seen = (): Seen => ({
     view,
+    question: view.kind === "questions" ? { approval: view.approval?.id, part: view.part, card: view.card, step: questionStep(view) } : undefined,
     step: talking(view) ? view.dictation?.step : view.kind === "approval" ? view.decision?.step : undefined,
     entry: view.kind === "agent" && view.entry ? view.opened : undefined,
     items: screen.items,
@@ -809,8 +1007,12 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
     legatos: pickerScreen.items,
   })
 
-  async function onPress(kind: "click" | "double" | "hold", event: EvenHubEvent, at: Seen): Promise<void> {
+  async function onPress(kind: Press, event: EvenHubEvent, at: Seen): Promise<void> {
     if (view !== at.view) return
+    if (view.kind === "questions") return onQuestionsPress(view, kind, at)
+    // Only a question takes swipes: elsewhere a list moves its own highlight,
+    // and a text box scrolls itself.
+    if (kind === "up" || kind === "down") return
     // An entry a read followed since is still the entry the press was made on.
     if (view.kind === "agent" && (view.dictation?.step !== at.step || (view.entry ? view.opened : undefined) !== at.entry)) return
     if (view.kind === "reeve" && view.dictation?.step !== at.step) return
@@ -871,6 +1073,11 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
       }
       if (item?.approvals) {
         view = { kind: "approvals" }
+        return show()
+      }
+      if (item?.questions) {
+        const first = asked()[0]
+        view = { kind: "questions", back: { kind: "list" }, approval: first?.approval, part: first?.part ?? 0 }
         return show()
       }
       if (item?.reeve) {
@@ -949,19 +1156,225 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
           ? at.feed.find((i) => i.text === chosen.currentSelectItemName)
           : at.feed[chosen.currentSelectItemIndex ?? 0]
         if (!entry?.detail) return
-        // What the agent asks opens its approval, when Legato has one.
-        const asked = entry.asks
-          ? approvals.find((a) => a.task_id === open.agent.task_id && a.source.startsWith("agent_"))
-          : undefined
-        if (asked) {
-          view = { kind: "approval", approval: asked, back: open }
+        return openAsks(open, entry)
+      }
+    }
+  }
+
+  // A line of a feed: what the agent asks opens its approval, or its
+  // question, when Legato has one; a question the approvals read has not
+  // caught yet is read now, and a failed read says why and is tried again on
+  // a tap. Any other line, or what Legato has no request for, opens in full.
+  async function openAsks(open: AgentView, entry: FeedItem): Promise<void> {
+    if (entry.asks) {
+      const task = open.agent.task_id
+      const asking = () => approvals.find((a) => a.task_id === task && a.source === `agent_${entry.asks}`)
+      let request = asking()
+      if (!request && entry.asks === "question") {
+        const reading: QuestionsView = { kind: "questions", back: open, part: 0, reading: task, entry }
+        view = reading
+        await show()
+        const waiting = await legato.approvals(instance?.id ?? "")
+        if (view !== reading) return
+        if (!waiting.ok) {
+          reading.problem = waiting.problem
           return show()
         }
-        open.entry = entry
-        open.opened = ++openings
+        approvals = waiting.approvals
+        request = asking()
+        view = open
+      }
+      if (request && isQuestion(request) && questionsOf(request).length) {
+        const firstOpen = questionsOf(request).findIndex((q) => !answerOf(q, draftsOf(request!).get(q.id)).length)
+        view = { kind: "questions", back: open, approval: request, part: Math.max(0, firstOpen) }
+        return show()
+      }
+      if (request) {
+        view = { kind: "approval", approval: request, back: open }
         return show()
       }
     }
+    open.entry = entry
+    open.opened = ++openings
+    return show()
+  }
+
+  // Questions. On a question, a swipe moves to the next or the one before
+  // (round from the last to the first), a tap opens its options and a
+  // double tap goes back. On the options, a swipe moves between them; a tap
+  // chooses one (or ticks it, when any may be chosen), a hold on the last
+  // dictates the operator's own answer, and a double tap goes back to the
+  // question. Once a request's questions are all answered, a tap on Send?
+  // sends them together. Nothing is sent on one tap.
+  async function onQuestionsPress(v: QuestionsView, kind: Press, at: Seen): Promise<void> {
+    const was = at.question!
+    const step = questionStep(v)
+    // A swipe moves on from wherever the last one left it; anything else
+    // is on the question, the card and the step shown when it came.
+    const swipe = kind === "up" || kind === "down"
+    if (was.step !== step) return
+    if (!(swipe && step === "question") && (was.approval !== v.approval?.id || was.part !== v.part)) return
+    if (!swipe && was.card !== v.card) return
+    const by = kind === "up" ? -1 : 1
+    const shown = shownQuestion(v)
+
+    if (kind === "double") {
+      // Answers on their way are not stopped.
+      if (step === "sending" || step === "sent") return
+      if (listening(v)) await stopMicrophone()
+      if (v.dictation) v.dictation = undefined
+      else if (v.sending) {
+        v.sending = undefined
+        if (shown) v.card = cardOf(shown)
+      } else if (v.card !== undefined && !v.gone) v.card = undefined
+      else return goBack(v)
+      return show()
+    }
+    if (v.reading) {
+      if (kind === "click" && v.problem && v.entry && v.back.kind === "agent") return openAsks(v.back, v.entry)
+      return
+    }
+    if (!shown) return
+    if (v.gone) {
+      const first = asked()[0]
+      if (kind !== "click" || !first) return
+      v.gone = undefined
+      v.approval = first.approval
+      v.part = first.part
+      return show()
+    }
+    if (v.sending) {
+      if (kind === "click" && (step === "confirm" || step === "problem")) return sendAnswers(v, shown.approval)
+      return
+    }
+    if (v.dictation) {
+      const d = v.dictation
+      if (kind === "hold" && (d.step === "review" || d.step === "problem")) return listen(v)
+      if (kind !== "click") return
+      if (d.step === "listening") return finishListening(v)
+      if (d.step !== "review") return
+      setDraft(shown, { ...draftOf(shown), other: d.text })
+      v.dictation = undefined
+      return answered(v, shown)
+    }
+    if (v.card === undefined) {
+      if (swipe) {
+        const list = asked()
+        if (!list.length) return
+        const here = placeOf(list, shown.approval.id, shown.part)
+        const next = list[(Math.max(here, 0) + by + list.length) % list.length]
+        v.approval = next.approval
+        v.part = next.part
+        return show()
+      }
+      if (kind !== "click") return
+      v.card = cardOf(shown)
+      return show()
+    }
+    const cards = cardsOf(shown.question)
+    if (swipe) {
+      v.card = (v.card + by + cards.length) % cards.length
+      return show()
+    }
+    const card = cards[v.card]
+    if (kind === "hold") {
+      if (card?.kind === "other") return listen(v)
+      return
+    }
+    if (kind !== "click" || !card) return
+    const draft = draftOf(shown)
+    if (card.kind === "option") {
+      const label = shown.question.options[card.index].label
+      if (!shown.question.multiSelect) {
+        setDraft(shown, { chosen: [label], other: "" })
+        return answered(v, shown)
+      }
+      const chosen = draft.chosen.includes(label) ? draft.chosen.filter((l) => l !== label) : [...draft.chosen, label]
+      setDraft(shown, { ...draft, chosen })
+      return show()
+    }
+    // A tap on the operator's own words drops them (a hold says new ones).
+    if (card.kind === "other" && draft.other.trim()) {
+      setDraft(shown, { ...draft, other: "" })
+      return show()
+    }
+    if (card.kind === "done" && answerOf(shown.question, draft).length) return answered(v, shown)
+  }
+
+  // The card a question's options open on: the option chosen before, the
+  // operator's own words, or the first.
+  function cardOf(a: Asked): number {
+    const draft = draftOf(a)
+    const cards = cardsOf(a.question)
+    if (a.question.multiSelect) return 0
+    if (draft.other.trim()) return Math.max(0, cards.findIndex((c) => c.kind === "other"))
+    return Math.max(0, cards.findIndex((c) => c.kind === "option" && draft.chosen.includes(a.question.options[c.index].label)))
+  }
+
+  // A question answered: on to the next of its request still unanswered, or
+  // to Send? once none is.
+  function answered(v: QuestionsView, a: Asked): Promise<void> {
+    const questions = questionsOf(a.approval)
+    const later = [...questions.keys()].map((i) => (a.part + 1 + i) % questions.length)
+    const open = later.find((i) => !answerOf(questions[i], draftsOf(a.approval).get(questions[i].id)).length)
+    if (open !== undefined) {
+      v.part = open
+      v.card = undefined
+    } else {
+      v.sending = { step: "confirm" }
+    }
+    return show()
+  }
+
+  function goBack(v: QuestionsView): Promise<void> {
+    view = v.back
+    if (view.kind !== "agent") return show()
+    const feed = view
+    feed.entry = undefined
+    return (async () => {
+      took(feed, await legato.conversation(instance?.id ?? "", feed.agent.task_id))
+      if (view === feed) await show()
+    })()
+  }
+
+  async function sendAnswers(v: QuestionsView, approval: Approval): Promise<void> {
+    v.sending = { step: "sending" }
+    await show()
+    const answers = Object.fromEntries(questionsOf(approval).map((q) => [q.id, answerOf(q, draftsOf(approval).get(q.id))]))
+    const done = await legato.answer(instance?.id ?? "", approval.id, answers)
+    if (view !== v) return
+    if (!done.ok) {
+      v.sending = { step: "problem", problem: done.problem }
+      return show()
+    }
+    // The next question is the one that followed this request.
+    const before = asked()
+    const from = Math.max(0, before.findIndex((a) => a.approval.id === approval.id))
+    drafts.delete(approval.id)
+    approvals = approvals.filter((a) => a.id !== approval.id)
+    const after = asked()
+    const next = after.length ? after[from % after.length] : undefined
+    v.sending = { step: "sent", next }
+    await show()
+    setTimeout(
+      () =>
+        void enqueue(async () => {
+          if (view !== v || v.sending?.step !== "sent") return
+          v.sending = undefined
+          const left = asked().filter((a) => a.approval.id !== approval.id)
+          const to = (next && left.find((a) => a.approval.id === next.approval.id && a.part === next.part)) ?? left[0]
+          if (!to) {
+            view = v.back
+            await readInstance()
+            return show()
+          }
+          v.approval = to.approval
+          v.part = to.part
+          v.card = undefined
+          return show()
+        }),
+      SENT_MS,
+    )
   }
 
   // The approvals list: a tap opens one, by its line as shown; double tap

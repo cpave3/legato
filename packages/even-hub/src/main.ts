@@ -1,6 +1,6 @@
 import { waitForEvenAppBridge } from "@evenrealities/even_hub_sdk"
 import { startGlance, type LegatoClient } from "./app"
-import { decideApproval, fetchAgents, fetchApprovals, fetchConversation, fetchInstances, PHONE_URL, messageReeve, sendMessage, transcribe, type Phone } from "./legato"
+import { answerQuestions, decideApproval, fetchAgents, fetchApprovals, fetchConversation, fetchInstances, PHONE_URL, messageReeve, sendMessage, transcribe, type Phone } from "./legato"
 import { loadCode, loadScreenOff, saveCode, saveScreenOff, screenOffMs } from "./settings"
 
 // The app reads Legato through the Legato Android app's glasses link on this
@@ -66,6 +66,7 @@ const legato: LegatoClient = {
   reeve: (instance, text) => messageReeve(phone, instance, text, fetchFn),
   approvals: (instance) => fetchApprovals(phone, instance, fetchFn),
   decide: (instance, id, decision, option) => decideApproval(phone, instance, id, decision, option, fetchFn),
+  answer: (instance, id, answers) => answerQuestions(phone, instance, id, answers, fetchFn),
 }
 
 await startGlance(bridge, legato, { screenOffReadMs: () => screenOffMs(screenOff) })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { decideApproval, fetchAgents, fetchApprovals, fetchConversation, messageReeve, sendMessage, transcribe, type Agent, type Phone, fetchInstances } from "./legato"
+import { answerQuestions, decideApproval, fetchAgents, fetchApprovals, fetchConversation, messageReeve, sendMessage, transcribe, type Agent, type Phone, fetchInstances } from "./legato"
 
 const running: Agent = {
   task_id: "LEG-163",
@@ -372,5 +372,44 @@ describe("a call that never answers", () => {
       new Promise<Response>((_, fail) => init?.signal?.addEventListener("abort", () => fail(init.signal!.reason)))) as typeof fetch
 
     expect(await fetchAgents(phone, "inst-1", hang, 20)).toEqual({ ok: false, problem: "The Legato app took too long to answer" })
+  })
+})
+
+describe("answerQuestions", () => {
+  it("answers a question request, each question's answer by its ID", async () => {
+    const fake = fakeFetch(() => Response.json({ id: "ap-q" }))
+
+    expect(await answerQuestions(phone, "inst-1", "ap-q", { q1: ["Beside the plan (Recommended)"], q2: ["A", "B"] }, fake.fn)).toEqual({ ok: true })
+    expect(fake.sent.map(({ url, method, body }) => ({ url, method, body }))).toEqual([
+      {
+        url: `${at}/api/approvals/ap-q/decision`,
+        method: "POST",
+        body: { decision: "answer", answers: { q1: ["Beside the plan (Recommended)"], q2: ["A", "B"] } },
+      },
+    ])
+  })
+
+  it("says when the question is no longer waiting", async () => {
+    const fake = fakeFetch(() => Response.json({ error: "approval is no longer pending" }, { status: 409 }))
+
+    expect(await answerQuestions(phone, "inst-1", "ap-q", { q1: ["A"] }, fake.fn)).toEqual({
+      ok: false,
+      problem: "It is no longer waiting: answered elsewhere, or its agent moved on.",
+    })
+  })
+
+  it("says to update the Legato app when the phone's glasses link only allows or denies", async () => {
+    const fake = fakeFetch(() => Response.json({ error: "decision must be allow or deny" }, { status: 400 }))
+
+    expect(await answerQuestions(phone, "inst-1", "ap-q", { q1: ["A"] }, fake.fn)).toEqual({
+      ok: false,
+      problem: "Update the Legato app on this phone to answer questions from the glasses.",
+    })
+  })
+
+  it("passes on why Legato refused it", async () => {
+    const fake = fakeFetch(() => Response.json({ error: "the agent refused the answer" }, { status: 502 }))
+
+    expect(await answerQuestions(phone, "inst-1", "ap-q", { q1: ["A"] }, fake.fn)).toEqual({ ok: false, problem: "the agent refused the answer" })
   })
 })

@@ -133,8 +133,19 @@ export async function answerPhone(request: PhoneRequest, phone: FakePhone): Prom
     const value = (sent as Record<string, unknown> | null)?.[name]
     if (typeof value !== "string") return json(400, { error: `${name} must be a string` })
     field = value
-    if (call.route === "decide" && value !== "allow" && value !== "deny") return json(400, { error: "decision must be allow or deny" })
-    if (call.route === "decide") {
+    if (call.route === "decide" && value === "answer") {
+      // As the Legato app does: question IDs to lists of strings, nothing else.
+      const answers = (sent as Record<string, unknown>).answers
+      const valid =
+        typeof answers === "object" &&
+        answers !== null &&
+        !Array.isArray(answers) &&
+        Object.keys(answers).length > 0 &&
+        Object.values(answers).every((a) => Array.isArray(a) && a.every((s) => typeof s === "string"))
+      if (!valid) return json(400, { error: "answers must map question IDs to lists of strings" })
+      field = `answer ${JSON.stringify(answers)}`
+    } else if (call.route === "decide" && value !== "allow" && value !== "deny") return json(400, { error: "decision must be allow, deny or answer" })
+    else if (call.route === "decide") {
       const option = (sent as Record<string, unknown>).option
       field = typeof option === "string" ? `${value} ${JSON.stringify(option)}` : value
     }
@@ -160,6 +171,10 @@ export async function answerPhone(request: PhoneRequest, phone: FakePhone): Prom
       if (instance !== phone.instances[0]) return json(200, { approvals: [] })
       return { ...json(200, null), body: await readFile(phone.approvals, "utf8") }
     case "decide": {
+      if (field.startsWith("answer ")) {
+        phone.log(`would answer ${call.id} on ${instance.name} with ${field.slice("answer ".length)}, from the glasses`)
+        return json(200, { id: call.id })
+      }
       const [decision, option] = field.split(" ")
       phone.log(`would ${decision} ${call.id} on ${instance.name}${option ? ` with ${option}` : ""}, from the glasses`)
       return json(200, { id: call.id })
