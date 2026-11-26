@@ -198,16 +198,6 @@ func (s *ReviewPassService) messageAuthor(ctx context.Context, taskID, text stri
 	return s.tellAuthor(ctx, l, MainTag+" "+text)
 }
 
-// setSettings writes a loop's settings.
-func (s *ReviewPassService) setSettings(ctx context.Context, loop *store.HandoffReview, settings ReviewPassSettings) error {
-	data, err := encodeJSON(settings)
-	if err != nil {
-		return err
-	}
-	loop.Settings = data
-	return s.save(ctx, loop)
-}
-
 // ErrReviewNotWaiting refuses another pass to a loop that does not wait for
 // its author.
 var ErrReviewNotWaiting = errors.New("the review loop is not waiting for its author")

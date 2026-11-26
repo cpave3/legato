@@ -38,6 +38,41 @@ describe("List forms", () => {
   })
   afterEach(() => cleanup())
 
+  it("saves a usage profile with adapter tiers and nested reviewer intent", async () => {
+    show([list({ key: "usage.profiles", title: "Usage profiles", mode: "live" }), list({ key: "adapters", title: "Adapters", entries: [
+      { name: "codex", value: { tiers: { fast: {} } }, source: "database", pinned: false },
+      { name: "chimera", value: { tiers: { review: {} } }, source: "database", pinned: false },
+    ] })], ["usage.profiles"])
+    fireEvent.click(await screen.findByRole("button", { name: "New profile" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Economy" } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "codex" } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Tier" }), { target: { value: "fast" } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Reviewer agent" }), { target: { value: "chimera" } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Reviewer tier" }), { target: { value: "review" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "usage.profiles", "Economy", { agent: "codex", tier: "fast", reviewer: { agent: "chimera", tier: "review" } }))
+  })
+
+  it("orders usage rules lower first and retains numeric rule intent on a refused save", async () => {
+    mockSave.mockRejectedValue(new Error("Choose an existing profile"))
+    show([list({ key: "usage.rules", title: "Usage rules", mode: "live", entries: [
+      { name: "Late", value: { order: 20 }, source: "database", pinned: false },
+      { name: "First", value: { order: 1 }, source: "config.yaml", pinned: true },
+    ] }), list({ key: "usage.profiles", title: "Usage profiles", entries: [{ name: "Economy", value: { agent: "codex" }, source: "database", pinned: false }] })], ["usage.rules"])
+    const rules = await screen.findByRole("list", { name: "Usage rules" })
+    expect(within(rules).getAllByRole("listitem")[0]).toHaveTextContent("First")
+    fireEvent.click(screen.getByRole("button", { name: "New rule" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Busy" } })
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Order" }), { target: { value: "2" } })
+    fireEvent.change(screen.getByRole("spinbutton", { name: "At least (%)" }), { target: { value: "90" } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Meter" }), { target: { value: "claude.weekly" } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Profile" }), { target: { value: "Economy" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("Choose an existing profile")
+    expect(mockSave).toHaveBeenCalledWith("http://legato", "usage.rules", "Busy", { order: 2, at_least: 90, meter: "claude.weekly", profile: "Economy" })
+    expect(screen.getByRole("spinbutton", { name: "Order" })).toHaveValue(2)
+  })
+
   it("shows a config.yaml entry read-only with a lock, and removes one kept here", async () => {
     show([workspaces])
     const work = await screen.findByTestId("entry-workspaces-Work")

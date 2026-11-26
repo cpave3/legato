@@ -37,3 +37,39 @@ func TestUsageRuleHoldsUntilAFreshLowReadingAfterReset(t *testing.T) {
 		}
 	}
 }
+
+func TestUsageRulesOrderMissingDataAndPolicyEdits(t *testing.T) {
+	now := time.Now().UTC()
+	reset := now.Add(time.Hour)
+	order := 1
+	profiles := []config.UsageProfile{{Name: "base", Agent: "claude-code"}, {Name: "save", Agent: "chimera"}, {Name: "reserve", Agent: "codex"}}
+	rules := []config.UsageRule{{Name: "z", Order: &order, Meter: "claude.weekly", AtLeast: 90, Profile: "save"}, {Name: "a", Order: &order, Meter: "codex.weekly", AtLeast: 80, Profile: "reserve"}}
+	readings := []ProviderUsage{{Provider: "claude", State: UsageOK, AsOf: &now, Windows: []UsageWindow{{Meter: "weekly", UsedPercent: 95, ResetsAt: reset}}}, {Provider: "codex", State: UsageOK, AsOf: &now, Windows: []UsageWindow{{Meter: "weekly", UsedPercent: 85, ResetsAt: reset}}}}
+	selected, _, latch := EvaluateUsageRules(rules, profiles, "base", readings, UsageRuleLatch{Current: "base"}, now)
+	if selected != "reserve" {
+		t.Fatalf("tie order selected %s", selected)
+	}
+	readings[1].State = UsageUnavailable
+	selected, _, _ = EvaluateUsageRules(rules, profiles, "base", readings, UsageRuleLatch{Current: "base"}, now)
+	if selected != "save" {
+		t.Fatalf("valid match with another unavailable meter = %s", selected)
+	}
+	readings[0].Windows[0].UsedPercent = 5
+	selected, _, _ = EvaluateUsageRules(rules, profiles, "base", readings, UsageRuleLatch{Current: "save"}, now)
+	if selected != "save" {
+		t.Fatalf("missing data fell back to %s", selected)
+	}
+	// Editing the latched rule invalidates it, rather than interpreting old
+	// evidence with a new threshold/profile. Fresh low data selects fallback.
+	rules[1].AtLeast = 99
+	readings[1].State = UsageOK
+	readings[1].Windows[0].UsedPercent = 5
+	selected, _, latch = EvaluateUsageRules(rules, profiles, "base", readings, latch, now)
+	if selected != "base" || latch.Rule != "" {
+		t.Fatalf("edited rule kept old latch: %s %+v", selected, latch)
+	}
+	selected, _, _ = EvaluateUsageRules(rules, profiles, "", readings, latch, now)
+	if selected != "" {
+		t.Fatalf("no fallback did not return static defaults: %s", selected)
+	}
+}

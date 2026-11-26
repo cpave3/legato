@@ -1,3 +1,4 @@
+import { qualifiedUsageMeters } from "./usage"
 import { dump, load } from "js-yaml"
 
 // The forms that edit the entries of Settings' lists, in place of JSON.
@@ -9,8 +10,10 @@ export interface FormField {
   label: string
   help?: string
   optional?: boolean
-  kind: "text" | "lines" | "bool" | "check" | "choice" | "swatches" | "textarea" | "tiers" | "pairs"
+  kind: "text" | "lines" | "bool" | "check" | "choice" | "swatches" | "textarea" | "tiers" | "pairs" | "number"
   choices?: [string, string][]
+  optionsFrom?: "profiles" | "tiers"
+  agentKey?: string
   placeholder?: string
   // bool: what unset means.
   unsetLabel?: string
@@ -61,6 +64,28 @@ export const workspaceColors: [string, string][] = [
 ]
 
 export const listForms: Record<string, ListForm> = {
+  "usage.profiles": {
+    name: { label: "Name" },
+    fields: [
+      { key: "agent", label: "Agent", kind: "choice", choices: Object.entries(agentLabels) },
+      { key: "tier", label: "Tier", kind: "choice", optional: true, unsetLabel: "Agent default", optionsFrom: "tiers", agentKey: "agent" },
+      { key: "reviewer.agent", label: "Reviewer agent", kind: "choice", optional: true, unsetLabel: "Usual reviewer", choices: Object.entries(agentLabels) },
+      { key: "reviewer.tier", label: "Reviewer tier", kind: "choice", optional: true, unsetLabel: "Reviewer default", optionsFrom: "tiers", agentKey: "reviewer.agent" },
+    ],
+    empty: "No usage profiles.", add: "New profile",
+    summary: (_name, value) => [value.agent, value.tier].filter(Boolean).join(" · "),
+  },
+  "usage.rules": {
+    name: { label: "Name" },
+    fields: [
+      { key: "order", label: "Order", kind: "number", help: "Lower numbers match first; names break ties." },
+      { key: "meter", label: "Meter", kind: "choice", choices: qualifiedUsageMeters.map((m) => [m, m]) },
+      { key: "at_least", label: "At least (%)", kind: "number" },
+      { key: "profile", label: "Profile", kind: "choice", optionsFrom: "profiles" },
+    ],
+    empty: "No usage rules.", add: "New rule",
+    ordered: "Lower order matches first; names break ties. The first matching rule chooses the profile. With no match, the fallback profile applies.",
+  },
   workspaces: {
     name: { label: "Name", placeholder: "infra" },
     fields: [

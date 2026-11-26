@@ -106,7 +106,7 @@ describe("invalidationsFor", () => {
       { queryKey: [base, "macros"], exact: true },
     ])
     expect(keysOf({ type: "update_changed" })).toEqual([{ queryKey: [base, "settings"], exact: true }])
-    expect(keysOf({ type: "usage_changed" })).toEqual([{ queryKey: [base, "subscription-usage"], exact: true }])
+    expect(keysOf({ type: "usage_changed" })).toEqual([{ queryKey: [base, "subscription-usage"], exact: true }, { queryKey: [base, "adapters"], exact: true }])
   })
 
   it("asks for nothing again for messages that carry their own state", () => {

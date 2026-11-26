@@ -22,8 +22,24 @@ const ipcUsagePin = "usage_pin"
 const ipcUsagePinReply = "usage_pin_reply"
 
 type usagePolicyHost struct {
-	policy *service.UsagePolicyService
-	owner  atomic.Bool
+	writers sync.RWMutex
+	policy  *service.UsagePolicyService
+	owner   atomic.Bool
+}
+
+// setOwner(false) waits for accepted pin writes before usage.lock is released.
+func (h *usagePolicyHost) setOwner(owned bool) {
+	h.writers.Lock()
+	defer h.writers.Unlock()
+	h.owner.Store(owned)
+}
+func (h *usagePolicyHost) pin(ctx context.Context, pin *service.UsagePinRequest) (bool, error) {
+	h.writers.RLock()
+	defer h.writers.RUnlock()
+	if !h.owner.Load() {
+		return false, nil
+	}
+	return true, h.policy.Pin(ctx, pin)
 }
 
 var usagePolicyHosts sync.Map
@@ -91,8 +107,10 @@ func usageOSNotifier(cfg *config.Config) service.Notifier {
 }
 
 func requestUsagePin(ctx context.Context, dir string, policy *service.UsagePolicyService, pin *service.UsagePinRequest) error {
-	if host, ok := usagePolicyHosts.Load(dir); ok && host.(*usagePolicyHost).policy == policy && host.(*usagePolicyHost).owner.Load() {
-		return policy.Pin(ctx, pin)
+	if host, ok := usagePolicyHosts.Load(dir); ok && host.(*usagePolicyHost).policy == policy {
+		if handled, err := host.(*usagePolicyHost).pin(ctx, pin); handled {
+			return err
+		}
 	}
 	if release, err := claimUsagePoller(dir); err == nil {
 		defer release()
@@ -124,7 +142,11 @@ func handleUsagePinIPC(msg ipc.Message) {
 	var pin *service.UsagePinRequest
 	err := json.Unmarshal([]byte(msg.Content), &pin)
 	if err == nil {
-		err = host.policy.Pin(context.Background(), pin)
+		handled, pinErr := host.pin(context.Background(), pin)
+		if !handled {
+			return
+		}
+		err = pinErr
 	}
 	reply := ipc.Message{Type: ipcUsagePinReply, Status: "ok"}
 	if err != nil {

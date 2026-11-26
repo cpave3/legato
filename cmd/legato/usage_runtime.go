@@ -108,8 +108,8 @@ func startSubscriptionUsage(cfg *config.Config, usage *service.SubscriptionUsage
 		defer release()
 		if value, ok := usagePolicyHosts.Load(usageDirectory(cfg)); ok {
 			host := value.(*usagePolicyHost)
-			host.owner.Store(true)
-			defer host.owner.Store(false)
+			host.setOwner(true)
+			defer host.setOwner(false)
 		}
 		pollSubscriptionUsage(ctx, usage, bus)
 	}()

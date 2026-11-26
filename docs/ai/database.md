@@ -289,3 +289,9 @@ Migration `117_agent_docker_host_network.sql` (skipped, like 075, for a database
 Migration `120_worker_advert.sql` adds `workers.advert` (JSON, `NULL` until read) and `workers.advert_at` on a main: what each paired worker last advertised it can do for a handoff (`service.HandoffAdvert`, read from its capabilities route at pairing, after each pull and on Sync). `SetWorkerAdvert` writes both; `ClearWorkerAdvert` forgets them when the worker no longer has the route. See [Integrations](integrations.md) § What a worker advertises.
 
 Migration `121_handoff_base.sql` adds `handoffs.base` (default `''`) on a worker: the branch a new-branch handoff starts from, the main's preset `base_branch` for the repository, or `''` for GitHub's default branch. See [Integrations](integrations.md) § Handing off a task.
+
+### Usage policy and captured work defaults (LEG-660)
+
+Migration 158 adds the `active_usage_profile` singleton (service-owned JSON state) and `usage_profile_switches`. `SaveUsageProfile` commits a selection, its latch/pin, and the optional history row together. History retains at most 200 switches; ordinary snapshots read the latest 20. Only the process holding `usage.lock` writes this state; every process can read defaults without polling a provider. See [Subscription usage](usage.md).
+
+Migration 159 adds `handoffs.agent_tier`, captured with the agent at acceptance; `review_loops.reviewer_override`, which keeps explicit override provenance (`''` means legacy frozen settings, `'{}'` means live defaults); and `review_loop_passes.reviewer_settings`, the resolved per-pass JSON snapshot. Pass retries and attribution use that snapshot, not the current usage profile. `NewestTaskNativeSessionInSlot` selects resumes by saved update time and owner identity within a slot, independent of new-work defaults; the older main-slot listing keeps its provider ordering.

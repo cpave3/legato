@@ -32,7 +32,7 @@ func (s *ReviewPassService) newPassSettings(ctx context.Context, loop *store.Han
 	}
 	settings.Agent, settings.Model, settings.Tier = defaults.Agent, defaults.Model, defaults.Tier
 	o := settings.ReviewerOverride
-	if o.Agent != "" {
+	if o.Agent != "" && o.Agent != settings.Agent {
 		settings.Agent, settings.Model, settings.Tier = o.Agent, "", ""
 	}
 	if o.Model != "" {

@@ -156,6 +156,7 @@ func (s *UsagePolicyService) evaluate(ctx context.Context, request *UsagePinRequ
 	if next.Pin != nil && next.Pin.Until != nil && !now.Before(*next.Pin.Until) {
 		next.Pin = nil
 	}
+	next.Latch.Current = before.Profile.Name
 	profile, reason, latch := EvaluateUsageRules(cfg.Rules, cfg.Profiles, cfg.FallbackProfile, snap.Providers, next.Latch, now)
 	next.Latch = latch
 	if next.Pin != nil {

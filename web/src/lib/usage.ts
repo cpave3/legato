@@ -25,22 +25,50 @@ export interface ProviderUsage {
   source?: string
 }
 
+export interface UsageProfile {
+  name: string
+  agent: string
+  tier?: string
+  reviewer?: { agent: string; tier?: string }
+}
+
+export interface UsageReason { text: string; rule?: string; meter?: string; reset?: string }
+export interface UsagePin { profile: string; until?: string; until_reset?: string }
+export interface UsagePolicy {
+  active: { profile: UsageProfile; reason: UsageReason; since: string; pin?: UsagePin; error?: string }
+  profiles: UsageProfile[]
+  switches: { id: number; from_profile: string; to_profile: string; since: string; reason: string }[]
+}
+
+export const qualifiedUsageMeters = ["claude.five_hour", "claude.weekly", "claude.weekly_opus", "claude.weekly_sonnet", "codex.five_hour", "codex.weekly"]
+
+export async function setUsagePin(baseUrl: string, pin?: UsagePin): Promise<void> {
+  const response = await apiFetch(baseUrl, "/api/usage/pin", pin
+    ? { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pin) }
+    : { method: "DELETE" })
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}))
+    throw new Error(body?.error || `Pin change failed (${response.status})`)
+  }
+}
+
 export interface SubscriptionUsage {
+  policy?: UsagePolicy
   providers: ProviderUsage[]
   poll_interval_seconds: number
 }
 
-// The usage; none from an older server or one that cannot say.
+// Older servers have no usage route; other refusals reach the card.
 export async function fetchSubscriptionUsage(baseUrl: string): Promise<SubscriptionUsage> {
-  const empty = { providers: [], poll_interval_seconds: 0 }
-  try {
-    const response = await apiFetch(baseUrl, "/api/usage")
-    if (!response.ok) return empty
-    const body = await response.json()
-    return Array.isArray(body?.providers) ? body : empty
-  } catch {
-    return empty
+  const response = await apiFetch(baseUrl, "/api/usage")
+  if (response.status === 404) return { providers: [], poll_interval_seconds: 0 }
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}))
+    throw new Error(body?.error || `Usage read failed (${response.status})`)
   }
+  const usage = await response.json() as SubscriptionUsage
+  if (usage.policy) usage.policy.profiles ??= []
+  return usage
 }
 
 // Asks the server to read the usage now; it arrives as usage_changed.

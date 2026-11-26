@@ -1,6 +1,12 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import { QueryClientProvider } from "@tanstack/react-query"
+import { createQueryClient, queryKeys } from "../../lib/query"
+import type { ReactNode } from "react"
+import { cleanup, fireEvent, render as rtlRender, screen, within, act } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { SpawnEphemeralModal } from "../SpawnEphemeralModal"
+
+let queryClient = createQueryClient()
+const render = (ui: ReactNode) => rtlRender(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>)
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 
@@ -75,6 +81,7 @@ function pathField() {
 
 describe("SpawnEphemeralModal", () => {
   beforeEach(() => {
+    queryClient = createQueryClient()
     apiFetch.mockReset()
     serve()
   })
@@ -120,6 +127,20 @@ describe("SpawnEphemeralModal", () => {
 
     expect(agents.map((agent) => agent.textContent)).toEqual(["Chimera default", "Claude Code", "Codex", "Shell"])
     expect(agents[0].getAttribute("aria-checked")).toBe("true")
+  })
+
+  it("keeps an explicit adapter selected when a usage switch makes it the default", async () => {
+    let defaultAgent = "chimera"
+    serve({ "GET /api/adapters": () => json({ adapters: ["chimera", "codex"], default: defaultAgent }) })
+    await openModal()
+    fireEvent.click(screen.getByRole("radio", { name: "Codex" }))
+    defaultAgent = "codex"
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.adapters("") }) })
+    expect((await screen.findByRole("radio", { name: "Codex default" })).getAttribute("aria-checked")).toBe("false")
+    expect(screen.getByRole("radio", { name: "Codex" }).getAttribute("aria-checked")).toBe("true")
+    fireEvent.click(screen.getByRole("button", { name: /^Spawn in/ }))
+    await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+    expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body).agent_kind).toBe("codex")
   })
 
   it("suggests directories for a typed path and completes it with tab", async () => {

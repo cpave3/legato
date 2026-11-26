@@ -15,6 +15,19 @@ function asObject(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
+function fieldValue(value: unknown, key: string): unknown {
+  return key.split(".").reduce<unknown>((v, part) => asObject(v)[part], value)
+}
+
+function writeField(object: Record<string, unknown>, key: string, value: unknown): Record<string, unknown> {
+  const [head, ...tail] = key.split(".")
+  const next = { ...object }
+  const out = tail.length ? writeField(asObject(next[head]), tail.join("."), value) : value
+  if (out === undefined || (typeof out === "object" && out !== null && Object.keys(out).length === 0)) delete next[head]
+  else next[head] = out
+  return next
+}
+
 type Tier = { description?: string; launch_args?: string[] } & Record<string, unknown>
 
 // unusedName is base-N for the first N no row has.
@@ -97,6 +110,8 @@ function PairsInput({ field, value, onChange, onError }: { field: FormField; val
 // FieldInput edits one field of an entry by its kind.
 function FieldInput({ field, value, onChange, onError = () => {} }: { field: FormField; value: unknown; onChange: (next: unknown) => void; onError?: (message: string) => void }) {
   switch (field.kind) {
+    case "number":
+      return <input type="number" aria-label={field.label} className={fieldClass} value={typeof value === "number" ? value : ""} onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))} />
     case "tiers":
       return <TiersInput value={value} onChange={onChange} onError={onError} />
     case "pairs":
@@ -112,6 +127,7 @@ function FieldInput({ field, value, onChange, onError = () => {} }: { field: For
     case "choice":
       return <select aria-label={field.label} className={fieldClass} value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value)}>
         {field.optional ? <option value="">{field.unsetLabel ?? "Default"}</option> : value === undefined && <option value="" disabled>Choose…</option>}
+        {typeof value === "string" && value && !field.choices?.some(([v]) => v === value) && <option value={value}>{value}</option>}
         {(field.choices ?? []).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
       </select>
     case "bool":
@@ -143,7 +159,7 @@ function Labelled({ field, children }: { field: Pick<FormField, "label" | "help"
 
 // EntryForm edits one entry with its list's form, or as YAML. Fields the
 // form does not know are kept as they are.
-export function EntryForm({ list, form, entry, onSave, onCancel }: { list: ConfigList; form: ListForm; entry?: ConfigListEntry; onSave: (name: string, value: unknown) => Promise<void>; onCancel: () => void }) {
+export function EntryForm({ list, form, entry, onSave, onCancel, lists = [] }: { lists?: ConfigList[]; list: ConfigList; form: ListForm; entry?: ConfigListEntry; onSave: (name: string, value: unknown) => Promise<void>; onCancel: () => void }) {
   const initial: Value = form.scalar ? (typeof entry?.value === "string" ? entry.value : "") : asObject(entry?.value)
   const [name, setName] = useState(entry?.name ?? "")
   const [draft, setDraft] = useState<Value>(initial)
@@ -174,15 +190,23 @@ export function EntryForm({ list, form, entry, onSave, onCancel }: { list: Confi
   }
   const conflict = Boolean(entry) && theirs !== baseline && dirty
   const setField = (key: string, next: unknown) => {
-    const object = { ...(draft as Record<string, unknown>) }
-    if (next === undefined) delete object[key]
-    else object[key] = next
+    let object = writeField(asObject(draft), key, next)
+    if (list.key === "usage.profiles" && (key === "agent" || key === "reviewer.agent")) {
+      object = writeField(object, key === "agent" ? "tier" : "reviewer.tier", undefined)
+    }
     // A field that no longer applies (a draft rule's option on a rule
     // that is not draft) leaves the entry.
     for (const field of form.fields) if (field.when && !fieldApplies(field, name, object)) delete object[field.key]
     setDraft(object)
     setError("")
   }
+  const resolvedFields = form.fields.map((field): FormField => {
+    if (!field.optionsFrom) return field
+    const names = field.optionsFrom === "profiles"
+      ? lists.find((l) => l.key === "usage.profiles")?.entries.map((e) => e.name) ?? []
+      : Object.keys(asObject(asObject(lists.find((l) => l.key === "adapters")?.entries.find((e) => e.name === fieldValue(draft, field.agentKey ?? "agent"))?.value).tiers))
+    return { ...field, choices: names.map((name) => [name, name]) }
+  })
   const toYaml = () => { setYaml(entryYaml(name, draft, list.name_field)); setError("") }
   const fromYaml = (): { name: string; value: unknown } | null => {
     try {
@@ -224,8 +248,8 @@ export function EntryForm({ list, form, entry, onSave, onCancel }: { list: Confi
           <input aria-label={form.name.label} value={name} disabled={Boolean(entry)} placeholder={form.name.placeholder} onChange={(e) => setName(e.target.value)} className={fieldClass} />
         </Labelled>
         {form.scalar && <Labelled field={form.scalar}><FieldInput field={form.scalar} value={draft} onChange={(v) => { setDraft(typeof v === "string" ? v : ""); setError("") }} /></Labelled>}
-        {form.fields.filter((field) => fieldApplies(field, name, draft as Record<string, unknown>)).map((field) => <Labelled key={field.key} field={field}>
-          <FieldInput key={`${field.key}:${generation}`} field={field} value={(draft as Record<string, unknown>)[field.key]} onChange={(v) => setField(field.key, v)}
+        {resolvedFields.filter((field) => fieldApplies(field, name, draft as Record<string, unknown>)).map((field) => <Labelled key={field.key} field={field}>
+          <FieldInput key={`${field.key}:${generation}`} field={field} value={fieldValue(draft, field.key)} onChange={(v) => setField(field.key, v)}
             onError={(message) => setFieldErrors((e) => ({ ...e, [field.key]: message }))} />
         </Labelled>)}
       </> : <Labelled field={{ label: "As in config.yaml", help: "The whole entry, fields the form shows and those it does not." }}>
@@ -252,7 +276,7 @@ function summary(form: ListForm, entry: ConfigListEntry): string {
   if (form.scalar) return typeof entry.value === "string" ? entry.value : ""
   const object = asObject(entry.value)
   return form.fields.map((f) => {
-    const v = object[f.key]
+    const v = fieldValue(object, f.key)
     if (v === undefined || v === "") return ""
     if (f.kind === "choice") return f.choices?.find(([c]) => c === v)?.[1] ?? String(v)
     if (f.kind === "swatches") return ""
@@ -263,9 +287,10 @@ function summary(form: ListForm, entry: ConfigListEntry): string {
 
 // ListCard is one list: config.yaml's entries, read-only with a lock, and
 // those kept here, which can be edited and removed; and its Add.
-export function ListCard({ list, baseUrl }: { list: ConfigList; baseUrl: string }) {
+export function ListCard({ list, baseUrl, lists = [] }: { list: ConfigList; baseUrl: string; lists?: ConfigList[] }) {
   const queryClient = useQueryClient()
   const form = formFor(list.key, list.name_field)
+  const entries = list.key === "usage.rules" ? [...list.entries].sort((a, b) => Number(asObject(a.value).order) - Number(asObject(b.value).order) || a.name.localeCompare(b.name)) : list.entries
   const add = listFormsAdd(form, list)
   const [editing, setEditing] = useState<string | null>(null)
   const [error, setError] = useState("")
@@ -295,7 +320,7 @@ export function ListCard({ list, baseUrl }: { list: ConfigList; baseUrl: string 
   return (
     <SettingsCard id={`list-${list.key}`} icon={List} title={list.title} description={form.ordered}>
       {list.entries.length > 0 && <ul className={form.cards ? "flex flex-col gap-2" : "flex flex-col divide-y divide-lw-line"} aria-label={list.title}>
-        {list.entries.map((entry, index) => {
+        {entries.map((entry, index) => {
           const color = list.key === "workspaces" ? asObject(entry.value).color : undefined
           return <li key={entry.name} className={form.cards ? "rounded-lg border border-lw-line px-3 py-2.5" : "py-2"} data-testid={`entry-${list.key}-${entry.name}`}>
             <div className="flex flex-wrap items-center gap-2">
@@ -314,14 +339,14 @@ export function ListCard({ list, baseUrl }: { list: ConfigList; baseUrl: string 
                 </span>
               )}
             </div>
-            {editing === entry.name && <EntryForm list={list} form={form} entry={entry} onSave={save} onCancel={() => setEditing(null)} />}
+            {editing === entry.name && <EntryForm list={list} lists={lists} form={form} entry={entry} onSave={save} onCancel={() => setEditing(null)} />}
           </li>
         })}
       </ul>}
       {list.entries.length === 0 && editing !== "" && <p className="text-sm text-lw-text-2">{form.empty}</p>}
       {notice && <p role="status" className="mt-1 text-xs text-lw-text-2">{notice}</p>}
       {error && <p role="alert" className="mt-1 text-xs text-lw-error">{error}</p>}
-      {editing === "" ? <EntryForm list={list} form={form} onSave={save} onCancel={() => setEditing(null)} />
+      {editing === "" ? <EntryForm list={list} lists={lists} form={form} onSave={save} onCancel={() => setEditing(null)} />
         : <button type="button" className={`${quietButton} mt-2 min-h-9`} onClick={() => { setNotice(""); setEditing("") }}>{add}</button>}
     </SettingsCard>
   )
@@ -341,6 +366,6 @@ export function ListSettings({ baseUrl, lists }: { baseUrl: string; lists?: stri
       <p>{query.error.message}{query.data ? " Showing previously loaded lists; they may be out of date." : ""}</p>
       <button type="button" className={quietButton} disabled={query.isFetching} onClick={() => void query.refetch()}>Retry</button>
     </div>}
-    {query.data?.filter((list) => lists === undefined || lists.includes(list.key)).map((list) => <ListCard key={`${baseUrl}:${list.key}`} list={list} baseUrl={baseUrl} />)}
+    {query.data?.filter((list) => lists === undefined || lists.includes(list.key)).map((list) => <ListCard key={`${baseUrl}:${list.key}`} list={list} lists={query.data} baseUrl={baseUrl} />)}
   </>
 }

@@ -149,7 +149,6 @@ func TestUsageChangesAreBroadcast(t *testing.T) {
 }
 
 func TestUsagePinAPIKeepsAndClearsAnOperatorPin(t *testing.T) {
-	ctx := context.Background()
 	db, err := store.New(filepath.Join(t.TempDir(), "pin.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -178,12 +177,21 @@ func TestUsagePinAPIKeepsAndClearsAnOperatorPin(t *testing.T) {
 		if rec.Code != step.want {
 			t.Fatalf("%s %s = %d %s", step.method, step.body, rec.Code, rec.Body.String())
 		}
-		snap, err := usage.Snapshot(ctx)
-		if err != nil {
+
+		code, body := getUsage(t, srv)
+		if code != 200 {
+			t.Fatalf("GET policy: %d %+v", code, body)
+		}
+		data, _ := json.Marshal(body)
+		var snap service.SubscriptionUsage
+		if err := json.Unmarshal(data, &snap); err != nil {
 			t.Fatal(err)
 		}
-		if (snap.Policy.Active.Pin != nil) != step.pin {
-			t.Fatalf("pin = %+v", snap.Policy.Active.Pin)
+		if snap.Policy == nil || (snap.Policy.Active.Pin != nil) != step.pin {
+			t.Fatalf("HTTP policy = %+v", snap.Policy)
+		}
+		if step.pin && snap.Policy.Active.Pin.Profile != "save" {
+			t.Fatalf("HTTP pin = %+v", snap.Policy.Active.Pin)
 		}
 	}
 }
