@@ -86,6 +86,8 @@ func (s *fakeWatchSession) PollComments(_ context.Context, number int, _ PollPag
 	return CommentPoll{}, nil
 }
 
+func (s *fakeWatchSession) Stacked(context.Context, string) ([]ReviewGitHubPR, error) { return nil, nil }
+
 func (s *fakeWatchSession) Close() { s.closed = true }
 
 // tickSessions ticks once and returns the sessions the tick opened.

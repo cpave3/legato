@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/stackgraph"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -213,6 +215,10 @@ func (s *ReviewPassService) routeWatch(ctx context.Context, l ReviewLoop, rec *s
 	if !w.ReadAt.After(routed) {
 		return false
 	}
+	if err := s.addStacked(ctx, l, rec, w); err != nil {
+		log.Printf("review passes: %s: adding the layers stacked since: %v", l.TaskID, err)
+		return false
+	}
 	if err := s.routeItems(ctx, l, rec, w); err != nil {
 		log.Printf("review passes: %s: routing what the steward read: %v", l.TaskID, err)
 		return false
@@ -325,6 +331,81 @@ func (s *ReviewPassService) routeItems(ctx context.Context, l ReviewLoop, rec *s
 	if len(gone) > 0 {
 		_ = s.tellAuthor(ctx, l, fmt.Sprintf("%s %s was deleted on GitHub; you need not answer it.", StewardTag, strings.Join(gone, ", ")))
 	}
+	return nil
+}
+
+// addStacked adds to a stewarded loop the layers its author stacked on the
+// top since the loop opened (the watch's Stacked), each claimed as it is
+// added (spec LEG-559 § Claims): the author's own (its login, the loop's
+// repository), in one transaction. An approved loop re-enters review for
+// them; one already back in review takes them into its next pass. A layer
+// another loop holds adds nothing and makes the loop stuck, naming that
+// loop.
+func (s *ReviewPassService) addStacked(ctx context.Context, l ReviewLoop, rec *store.ReviewLoop, w ReviewLoopWatch) error {
+	if len(w.Stacked) == 0 {
+		return nil
+	}
+	loop, err := s.db.GetHandoffReview(ctx, l.TaskID)
+	if err != nil || loop == nil || loop.Phase == ReviewPhaseStuck {
+		return err
+	}
+	layers, err := s.db.ListReviewLoopPRs(ctx, rec.ID)
+	if err != nil || len(layers) == 0 {
+		return err
+	}
+	top := layers[len(layers)-1]
+	used := map[string]bool{}
+	numbers := []int{}
+	for _, layer := range layers {
+		branch := layer.LocalBranch
+		if branch == "" {
+			branch = layer.Branch
+		}
+		used[branch] = true
+		numbers = append(numbers, layer.Number)
+	}
+	var add []store.ReviewLoopPR
+	for _, pr := range w.Stacked {
+		if (pr.HeadRepo != "" && !strings.EqualFold(pr.HeadRepo, rec.Repo)) || !sameLogin(pr.Author, top.Author) {
+			continue // not the author's own layer
+		}
+		local := pr.Branch
+		if used[local] || !stackgraph.ValidBranchName(local) {
+			local = reviewRunBranch(pr.Number)
+		}
+		used[local] = true
+		numbers = append(numbers, pr.Number)
+		add = append(add, store.ReviewLoopPR{Number: pr.Number, Branch: pr.Branch, Base: pr.Base, Title: pr.Title, URL: pr.URL, HeadRepo: pr.HeadRepo,
+			State: "open", Draft: pr.Draft, Author: pr.Author, AuthorAssociation: pr.AuthorAssociation, AuthorTask: rec.AuthorTask, LocalBranch: local})
+	}
+	if len(add) == 0 {
+		return nil
+	}
+	_, err = s.db.UpdateReviewLoop(ctx, rec.ID, rec.Rev, func(t *store.ReviewLoopTx) error {
+		for _, pr := range add {
+			if err := t.AddPR(pr); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	var conflict *store.ReviewLoopConflictError
+	if errors.As(err, &conflict) {
+		return s.stuck(ctx, l, loop, fmt.Sprintf("A layer was stacked on #%d while the steward watched, but it cannot join this review loop: %v", top.Number, err))
+	}
+	if err != nil {
+		return err
+	}
+	if rec.RunID != "" {
+		if err := s.db.RetitleWorkflowRun(ctx, rec.RunID, "Review loop on "+reviewStackName(rec.Repo, numbers)); err != nil {
+			log.Printf("review passes: naming run %s after its stack: %v", rec.RunID, err)
+		}
+	}
+	s.watchSchedule.Changed(rec.ID, s.opts.Now())
+	if loop.Phase == ReviewPhaseClean {
+		return s.reenter(ctx, l)
+	}
+	s.changed(l.TaskID)
 	return nil
 }
 

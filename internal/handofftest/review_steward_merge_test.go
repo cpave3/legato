@@ -226,3 +226,80 @@ func TestEveryLayerMergingDuringAReEntryIsMerged(t *testing.T) {
 		t.Fatalf("run %q (%s), outputs %s: %s", view.Run.Status, view.Run.Error, view.Run.OutputsJSON, stepStates(view))
 	}
 }
+
+// A draft layer the author stacks on top while the steward watches is
+// claimed when it is added and re-enters review; with ready, it is marked
+// ready after its re-entry's confirm (AC 26).
+func TestADraftLayerAddedWhileStewardingFlipsAfterItsReEntrysConfirm(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	withBoardAuthor(t, r)
+	ctx := context.Background()
+	view := r.stewarded(t, map[string]string{"repo": "acme/widget", "pr_number": "12", "agent_author": "true", "steward": "true", "ready": "true"})
+	task := view.Run.TaskID
+	if got := r.worker.ReviewGitHub.Readied(); len(got) != 0 {
+		t.Fatalf("readied %v before the new layer", got)
+	}
+
+	r.worker.ReviewGitHub.OpenStackedPR(13, "feature/greeting-fr", "feature/greeting", "eee555")
+	r.worker.ReviewGitHub.Draft(13, true)
+	r.watchTick()
+
+	rec := r.record(t, view)
+	if held, _ := r.worker.Store.ActiveReviewLoop(ctx, "acme/widget", 13); held == nil || held.ID != rec.ID {
+		t.Fatalf("#13 is held by %+v, want the loop %s", held, rec.ID)
+	}
+	if rec.Reentries != 1 || rec.LastWake != "pushed" {
+		t.Fatalf("re-entries %d, last wake %q", rec.Reentries, rec.LastWake)
+	}
+	r.tick()
+	prs, err := r.worker.Store.ListHandoffReviewPRs(ctx, task, 2)
+	if err != nil || len(prs) != 2 || prs[0].Number != 12 || prs[1].Number != 13 {
+		t.Fatalf("pass 2 reviews %+v, %v", prs, err)
+	}
+	if got := r.worker.ReviewGitHub.Readied(); len(got) != 0 {
+		t.Fatalf("readied %v before the pass", got)
+	}
+
+	r.submit(t, task, service.ReviewSubmission{Summary: "Both right."})
+	r.tick()
+	r.tick()
+	if got := r.worker.ReviewGitHub.Readied(); len(got) != 1 || got[0] != 13 {
+		t.Fatalf("readied %v; want #13 after its re-entry's confirm", got)
+	}
+	view = r.show(t, view.Run.ID)
+	if !r.watching(t, view) {
+		t.Fatalf("not watching again: %s", stepStates(view))
+	}
+}
+
+// A layer stacked on top that another loop holds cannot be claimed: the
+// stewarded loop goes stuck, naming the loop that holds it.
+func TestAStackedLayerAnotherLoopHoldsMakesTheLoopStuckNamingIt(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	withBoardAuthor(t, r)
+	ctx := context.Background()
+	view := r.stewarded(t, stewardInputs)
+
+	r.worker.ReviewGitHub.OpenStackedPR(13, "feature/greeting-fr", "feature/greeting", "eee555")
+	other, err := r.runs.StartReviewLoop(ctx, map[string]string{"repo": "acme/widget", "pr_number": "13", "scope": "pr"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.tick()
+	holder, _ := r.worker.Store.ActiveReviewLoop(ctx, "acme/widget", 13)
+	if holder == nil || holder.RunID != other.Run.ID {
+		t.Fatalf("#13 is held by %+v, want run %s's loop", holder, other.Run.ID)
+	}
+
+	r.watchTick()
+	loop := r.loopPhase(t, view.Run.TaskID)
+	if loop.Phase != service.ReviewPhaseStuck || !strings.Contains(loop.Reason, holder.ID) {
+		t.Fatalf("loop %q: %q; want stuck naming %s", loop.Phase, loop.Reason, holder.ID)
+	}
+	if rec := r.record(t, view); rec.Reentries != 0 {
+		t.Fatalf("%d re-entries for a layer it could not claim", rec.Reentries)
+	}
+	if held, _ := r.worker.Store.ActiveReviewLoop(ctx, "acme/widget", 13); held == nil || held.ID != holder.ID {
+		t.Fatalf("#13 changed hands: %+v", held)
+	}
+}

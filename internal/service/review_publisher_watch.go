@@ -68,6 +68,9 @@ type ReviewWatchSession interface {
 	// PollComments reads a pull request's comments by ETag, as
 	// ReviewPublisher.PollComments does.
 	PollComments(ctx context.Context, number int, pages PollPages) (CommentPoll, error)
+	// Stacked lists the open pull requests onto base: a layer stacked on
+	// the loop's top since it opened.
+	Stacked(ctx context.Context, base string) ([]ReviewGitHubPR, error)
 	Close()
 }
 
@@ -109,6 +112,14 @@ func (s *reviewWatchSession) PollComments(ctx context.Context, number int, pages
 		return CommentPoll{}, err
 	}
 	return s.p.pollComments(ctx, call, s.repo, number, pages)
+}
+
+func (s *reviewWatchSession) Stacked(ctx context.Context, base string) ([]ReviewGitHubPR, error) {
+	call, err := s.open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return openPulls(ctx, call, s.repo, PullQuery{Base: base})
 }
 
 // watchFields are what the watch reads of each pull request.

@@ -193,6 +193,10 @@ type ReviewLoopWatch struct {
 	Layers []PRWatch
 	// Comments are each open layer's comments, by number, as last read.
 	Comments map[int]CommentPoll
+	// Stacked are the open pull requests onto the top open layer's branch
+	// that are not the loop's: layers stacked since it opened (a loop of
+	// scope stack only).
+	Stacked []ReviewGitHubPR
 	// Changed says the last read found a change since the one before.
 	Changed bool
 	// Err is the last read's error, nil once one succeeds; the layers and
@@ -335,11 +339,18 @@ func (s *ReviewPassService) watchLoop(ctx context.Context, github ReviewWatchGit
 			comments[layer.Number] = poll
 			commentsChanged = commentsChanged || poll.Changed
 		}
-		next.Changed = seen && !prev.ReadAt.IsZero() && (commentsChanged || !sameWatch(prev.Layers, layers))
+		var stacked []ReviewGitHubPR
+		if l.Scope == ReviewScopeStack {
+			if stacked, err = readStacked(ctx, session, numbers, layers); err != nil {
+				return err
+			}
+		}
+		next.Changed = seen && !prev.ReadAt.IsZero() && (commentsChanged || !sameWatch(prev.Layers, layers) || len(stacked) > 0)
 		// Activity is what the steward's idle end counts: a layer or a
-		// comment that differs, which a list's new ETag alone is not.
-		active = seen && !prev.ReadAt.IsZero() && (!sameWatch(prev.Layers, layers) || !sameComments(prev.Comments, comments))
-		next.Layers, next.Comments, next.ReadAt = layers, comments, now
+		// comment that differs, which a list's new ETag alone is not, or
+		// a layer stacked on the top.
+		active = seen && !prev.ReadAt.IsZero() && (!sameWatch(prev.Layers, layers) || !sameComments(prev.Comments, comments) || len(stacked) > 0)
+		next.Layers, next.Comments, next.Stacked, next.ReadAt = layers, comments, stacked, now
 		return nil
 	}()
 	next.Err = err
@@ -382,6 +393,32 @@ func sameComments(a, b map[int]CommentPoll) bool {
 		}
 	}
 	return true
+}
+
+// readStacked lists the open pull requests onto the top open layer's
+// branch that are not the loop's own layers.
+func readStacked(ctx context.Context, session ReviewWatchSession, numbers []int, layers []PRWatch) ([]ReviewGitHubPR, error) {
+	top := ""
+	for _, layer := range layers {
+		if layer.State == "open" {
+			top = layer.HeadBranch
+		}
+	}
+	if top == "" {
+		return nil, nil
+	}
+	pulls, err := session.Stacked(ctx, top)
+	if err != nil {
+		return nil, err
+	}
+	var out []ReviewGitHubPR
+	for _, pr := range pulls {
+		if !slices.Contains(numbers, pr.Number) {
+			out = append(out, pr)
+		}
+	}
+	slices.SortFunc(out, func(a, b ReviewGitHubPR) int { return a.Number - b.Number })
+	return out, nil
 }
 
 // mergeabilityUnknown says whether GitHub has yet to work out an open

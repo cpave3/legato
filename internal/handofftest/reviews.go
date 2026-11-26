@@ -967,4 +967,8 @@ func (s *fakeWatchSession) PollComments(ctx context.Context, number int, pages s
 	return s.f.PollComments(ctx, s.repo, number, pages)
 }
 
+func (s *fakeWatchSession) Stacked(ctx context.Context, base string) ([]service.ReviewGitHubPR, error) {
+	return s.f.OpenPulls(ctx, s.repo, service.PullQuery{Base: base})
+}
+
 func (s *fakeWatchSession) Close() {}

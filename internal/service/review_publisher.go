@@ -511,6 +511,7 @@ func openPulls(ctx context.Context, call *githubCall, repo string, q PullQuery) 
 		Title       string `json:"title"`
 		Body        string `json:"body"`
 		HTMLURL     string `json:"html_url"`
+		Draft       bool   `json:"draft"`
 		Association string `json:"author_association"`
 		User        struct {
 			Login string `json:"login"`
@@ -544,7 +545,7 @@ func openPulls(ctx context.Context, call *githubCall, repo string, q PullQuery) 
 			headRepo = pr.Head.Repo.FullName
 		}
 		out = append(out, ReviewGitHubPR{Number: pr.Number, Branch: pr.Head.Ref, Base: pr.Base.Ref, Title: pr.Title, Body: pr.Body,
-			URL: pr.HTMLURL, HeadSHA: pr.Head.SHA, Author: pr.User.Login, AuthorAssociation: pr.Association, HeadRepo: headRepo})
+			URL: pr.HTMLURL, HeadSHA: pr.Head.SHA, Author: pr.User.Login, AuthorAssociation: pr.Association, HeadRepo: headRepo, Draft: pr.Draft})
 	}
 	return out, nil
 }
