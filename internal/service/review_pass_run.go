@@ -158,6 +158,9 @@ type reviewRun struct {
 	// closed says the loop record is closed: history, which nothing
 	// moves on.
 	closed bool
+	// handoff says the loop is a handoff's, under its review-loop run's
+	// binding: the handoff caller moves it on, not the run caller.
+	handoff bool
 }
 
 func (c *ReviewRunCaller) run(ctx context.Context, taskID string) (*reviewRun, error) {
@@ -185,7 +188,7 @@ func readReviewRun(ctx context.Context, db *store.Store, taskID string) (*review
 	}
 	run := reviewRun{RunID: l.RunID, StepID: l.StepPath, AttemptID: l.AttemptID, Repo: l.Repo, PR: subject,
 		CloneID: l.CloneID, Dir: l.CloneDir, LinkedTask: l.LinkedTask, SeenHead: l.SeenHead, SeenAt: l.SeenAt,
-		Scope: l.Scope, closed: l.State != store.ReviewLoopOpenState}
+		Scope: l.Scope, closed: l.State != store.ReviewLoopOpenState, handoff: handoffBound(l)}
 	if l.AgentAuthor {
 		run.AuthorTask = l.AuthorTask
 	}
@@ -373,6 +376,14 @@ func (c *ReviewRunCaller) closeEnded(ctx context.Context) {
 			continue
 		}
 		if ended && !closesLoop(end) {
+			continue
+		}
+		if handoffBound(&l) {
+			// A handoff's loop outlives its open step: only its run's end
+			// (or its close step) closes it.
+			if ended {
+				c.closeRunLoop(ctx, l)
+			}
 			continue
 		}
 		// A loop an open step handed on outlives that step: its run's end
@@ -998,12 +1009,15 @@ func (c *ReviewRunCaller) Loops(ctx context.Context) ([]ReviewLoop, error) {
 // and only findings count.
 func (c *ReviewRunCaller) Loop(ctx context.Context, taskID string) (ReviewLoop, bool) {
 	run, err := c.run(ctx, taskID)
-	if err != nil {
-		return ReviewLoop{}, false
+	if err != nil || run.handoff {
+		return ReviewLoop{}, false // a handoff's loop is the handoff caller's
 	}
-	// An agent author handles failing checks too (LEG-305); a person's
+	// An agent author handles failing checks (LEG-305), and counted
+	// comments and reviews from pass 1 (spec LEG-559 § The steward,
+	// reversing LEG-255 for agent-authored run loops only); a person's
 	// loop is findings only (LEG-255).
-	return ReviewLoop{TaskID: taskID, Repo: run.Repo, PR: run.PR, PRs: run.numbers(), AuthorTaskID: run.AuthorTask, CountChecks: run.AuthorTask != "",
+	agent := run.AuthorTask != ""
+	return ReviewLoop{TaskID: taskID, Repo: run.Repo, PR: run.PR, PRs: run.numbers(), AuthorTaskID: run.AuthorTask, CountChecks: agent, CountComments: agent,
 		Name: "run " + run.RunID, Link: "/workflows/runs/" + run.RunID, Owner: store.HandoffReviewOwner{AttemptID: run.AttemptID}}, true
 }
 
@@ -1056,16 +1070,34 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 		return false
 	}
 	c.noteAuthor(ctx, l.TaskID, run)
-	open, err := c.openRunPRs(ctx, run)
-	if err != nil {
-		return false // GitHub may answer next time
+	open, polls, watched := c.watchedPRs(ctx, l)
+	if watched && open == nil {
+		return false // no watch read yet: the next one tells
+	}
+	if !watched {
+		if open, err = c.openRunPRs(ctx, run); err != nil {
+			return false // GitHub may answer next time
+		}
 	}
 	if len(open) == 0 {
-		c.finish(ctx, l.TaskID, ReviewOutcomeClosed)
+		outcome := ReviewOutcomeClosed
+		if rec := c.engine.stewardRecord(ctx, l.TaskID); rec != nil {
+			if w, ok := c.engine.freshWatch(rec.ID); ok && watchEnd(w) == ReviewStageMerged {
+				outcome = ReviewOutcomeMerged
+			}
+		}
+		c.finish(ctx, l.TaskID, outcome)
 		return false
 	}
 	pushed := moved(open, c.pinnedHeads(ctx, l.TaskID))
 	now := c.engine.opts.Now()
+	disputed := false
+	if watched {
+		// The watch read the threads already, at no cost: replies to
+		// blocking findings answer them whether or not a head moved, so
+		// the answers the next pass waits for are there.
+		disputed = c.disputed(ctx, l, run, open, polls)
+	}
 	if l.AuthorTaskID != "" && c.agentDone(ctx, l, pushed) {
 		return true
 	}
@@ -1080,11 +1112,43 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 		seen, err := time.Parse(time.RFC3339, run.SeenAt)
 		return err == nil && now.Sub(seen) >= c.engine.config().QuietTime
 	}
-	return c.disputed(ctx, l, run, open)
+	return disputed || c.disputed(ctx, l, run, open, polls)
+}
+
+// watchedPRs are a stewarding loop's open pull requests and their comments
+// as its newest watch read found them (spec LEG-559 C7: while the steward
+// watches, GitHub is read only through the watch, one token per loop per
+// tick, at the watch's cadence). watched is false for a loop no steward
+// watches; open is nil while it has no good read yet.
+func (c *ReviewRunCaller) watchedPRs(ctx context.Context, l ReviewLoop) (open []ReviewGitHubPR, polls map[int]CommentPoll, watched bool) {
+	rec := c.engine.stewardRecord(ctx, l.TaskID)
+	if rec == nil {
+		return nil, nil, false
+	}
+	w, ok := c.engine.freshWatch(rec.ID)
+	if !ok {
+		return nil, nil, true
+	}
+	authors := map[int]string{}
+	if layers, err := c.engine.db.ListReviewLoopPRs(ctx, rec.ID); err == nil {
+		for _, layer := range layers {
+			authors[layer.Number] = layer.Author
+		}
+	}
+	open = []ReviewGitHubPR{}
+	for _, layer := range w.Layers {
+		if layer.State == "open" {
+			open = append(open, ReviewGitHubPR{Number: layer.Number, Branch: layer.HeadBranch, Base: layer.BaseBranch,
+				HeadSHA: layer.HeadSHA, Author: authors[layer.Number]})
+		}
+	}
+	return open, w.Comments, true
 }
 
 // agentDone says an agent author finished its round: idle, every finding
-// that needs an answer answered, and it pushed or disputed one.
+// that needs an answer answered, and it pushed or disputed one. While the
+// steward watches, only blocking findings wait for answers: a re-entry's
+// pass never waits for checks or comments.
 func (c *ReviewRunCaller) agentDone(ctx context.Context, l ReviewLoop, pushed bool) bool {
 	if !c.engine.authorIdle(ctx, l.AuthorTaskID) {
 		return false
@@ -1096,6 +1160,19 @@ func (c *ReviewRunCaller) agentDone(ctx context.Context, l ReviewLoop, pushed bo
 	items, err := currentItems(ctx, c.engine.db, loop)
 	if err != nil {
 		return false
+	}
+	if c.engine.stewardRecord(ctx, l.TaskID) != nil {
+		disputed := false
+		for _, item := range items {
+			if item.Kind != ItemBlocking {
+				continue
+			}
+			if item.Answer == "" {
+				return false
+			}
+			disputed = disputed || item.Answer == AnswerReplied
+		}
+		return pushed || disputed
 	}
 	disputed := false
 	// Only failing checks, each answered by a reply: nothing to review
@@ -1123,7 +1200,7 @@ func (c *ReviewRunCaller) agentDone(ctx context.Context, l ReviewLoop, pushed bo
 // again: after Legato's last comment in the thread
 // (the finding, or its "still open" ruling), and not before that pass
 // started by GitHub's clock.
-func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *reviewRun, open []ReviewGitHubPR) bool {
+func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *reviewRun, open []ReviewGitHubPR, watched map[int]CommentPoll) bool {
 	loop, err := c.engine.db.GetHandoffReview(ctx, l.TaskID)
 	if err != nil || loop == nil {
 		return false
@@ -1144,9 +1221,14 @@ func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *revie
 	var poll CommentPoll
 	authors := map[int]string{}
 	for _, pr := range open {
-		got, err := c.engine.opts.GitHub.PollComments(ctx, run.Repo, pr.Number, storePollPages{db: c.engine.db, taskID: l.TaskID, pr: pr.Number})
-		if err != nil {
-			return false
+		got, ok := watched[pr.Number]
+		if watched == nil {
+			var err error
+			if got, err = c.engine.opts.GitHub.PollComments(ctx, run.Repo, pr.Number, storePollPages{db: c.engine.db, taskID: l.TaskID, pr: pr.Number}); err != nil {
+				return false
+			}
+		} else if !ok {
+			continue // not read yet: the next watch reads it
 		}
 		poll.Comments = append(poll.Comments, got.Comments...)
 		authors[pr.Number] = pr.Author
@@ -1295,7 +1377,7 @@ func (c *ReviewRunCaller) openedLoopID(ctx context.Context, attempt store.Workfl
 // only while the step that owns the loop waits on it.
 
 func (c *ReviewRunCaller) ownsLoop(l *store.ReviewLoop) bool {
-	return l.OwnerKind == store.ReviewLoopOwnerRun
+	return l.OwnerKind == store.ReviewLoopOwnerRun && !handoffBound(l)
 }
 
 // stepWaits says the step attempt that owns the loop waits on it (a failed
@@ -1334,11 +1416,16 @@ func (c *ReviewRunCaller) messageAuthorOn(ctx context.Context, l *store.ReviewLo
 	return c.messageAuthor(ctx, l.HostTask, text)
 }
 
-// endOn ends a stuck loop with outcome stuck: the step completes with its
-// outputs, and the workflow goes on.
+// endOn ends a stuck loop with outcome stuck, or a stewarding one with
+// outcome ended (LEG-592): the step completes with its outputs, and the
+// workflow goes on.
 func (c *ReviewRunCaller) endOn(ctx context.Context, l *store.ReviewLoop) error {
 	if !c.stepWaits(ctx, l) {
 		return ErrReviewNotStuck
+	}
+	if stewarding(l) {
+		c.finish(ctx, l.HostTask, ReviewOutcomeEnded)
+		return nil
 	}
 	loop, err := c.engine.db.GetHandoffReview(ctx, l.HostTask)
 	if err != nil || loop == nil || loop.Phase != ReviewPhaseStuck {
@@ -1354,8 +1441,10 @@ func (c *ReviewRunCaller) Stage(ctx context.Context, l ReviewLoop, stage string)
 	switch stage {
 	case ReviewStageClean:
 		c.approved(ctx, l)
-	case ReviewStageNone:
+	case ReviewStageNone, ReviewStageClosed:
 		c.finish(ctx, l.TaskID, ReviewOutcomeClosed)
+	case ReviewStageMerged:
+		c.finish(ctx, l.TaskID, ReviewOutcomeMerged)
 	}
 }
 
@@ -1639,6 +1728,81 @@ type ReviewRunDetails struct {
 	// ApprovalWithheld: the loop is clean, and a pull request got the
 	// outside-author COMMENT in place of an APPROVE.
 	ApprovalWithheld bool `json:"approval_withheld,omitempty"`
+	// The loop on its record (LEG-594): its ID and outcome once closed, the
+	// reviewer (tool, :tier) and its model, the findings counted, and each
+	// layer as the record keeps it.
+	LoopID        string               `json:"loop_id,omitempty"`
+	Outcome       string               `json:"outcome,omitempty"`
+	Reviewer      string               `json:"reviewer,omitempty"`
+	ReviewerModel string               `json:"reviewer_model,omitempty"`
+	Findings      *ReviewFindingCounts `json:"findings,omitempty"`
+	Layers        []ReviewRunLayer     `json:"layers,omitempty"`
+	// Steward is the steward's state while it watches, nil otherwise.
+	Steward *ReviewStewardView `json:"steward,omitempty"`
+	// ApprovalStands is "legato-reviews' approval at <sha> still stands"
+	// while the steward is held or stuck at its watch.
+	ApprovalStands string `json:"approval_stands,omitempty"`
+	// Actions are what the step's loop takes now, by the waiting-step
+	// action route: another_pass, message, end, stop_watching,
+	// watch_again.
+	Actions []string `json:"actions,omitempty"`
+	// AuthorTask is the agent author's board task; AuthorLeftRunning says
+	// its agent still runs after the loop went stuck and was ended, was
+	// ended, cancelled, or its run failed (spec LEG-559: left running, with
+	// Stop offered).
+	AuthorTask        string `json:"author_task,omitempty"`
+	AuthorLeftRunning bool   `json:"author_left_running,omitempty"`
+}
+
+// ReviewFindingCounts are a loop's findings: all of them, the blocking
+// ones, the nits, and the blocking ones still open.
+type ReviewFindingCounts struct {
+	Total    int `json:"total"`
+	Blocking int `json:"blocking"`
+	Nits     int `json:"nits"`
+	Open     int `json:"open"`
+}
+
+// countFindings counts a loop's findings.
+func countFindings(findings []store.ReviewLoopFinding) ReviewFindingCounts {
+	counts := ReviewFindingCounts{Total: len(findings)}
+	for _, f := range findings {
+		switch f.Severity {
+		case SeverityBlocking:
+			counts.Blocking++
+			if f.Status == "open" {
+				counts.Open++
+			}
+		case SeverityNit:
+			counts.Nits++
+		}
+	}
+	return counts
+}
+
+// ReviewRunLayer is one pull request of a loop as its record keeps it:
+// State (open, closed, merged) and Mergeable (GitHub's MERGEABLE,
+// CONFLICTING or UNKNOWN, or BEHIND when its merge state says so) as the
+// steward's watch last read them.
+type ReviewRunLayer struct {
+	Number    int    `json:"number"`
+	URL       string `json:"url,omitempty"`
+	Title     string `json:"title,omitempty"`
+	State     string `json:"state,omitempty"`
+	Draft     bool   `json:"draft"`
+	Mergeable string `json:"mergeable,omitempty"`
+}
+
+// ReviewStewardView is a watching steward as the run page shows it: held,
+// what last woke it and when, re-entries used of those allowed, and the
+// idle deadline.
+type ReviewStewardView struct {
+	Held         bool   `json:"held"`
+	LastWake     string `json:"last_wake,omitempty"`
+	LastWakeAt   string `json:"last_wake_at,omitempty"`
+	Reentries    int    `json:"reentries"`
+	MaxReentries int    `json:"max_reentries"`
+	IdleDeadline string `json:"idle_deadline,omitempty"`
 }
 
 // ReviewRunReview is one review a pass posted: its event as posted
@@ -1722,6 +1886,7 @@ func (c *ReviewRunCaller) details(ctx context.Context, taskID string) any {
 	case ReviewPhaseEnded:
 		d.Summary = map[string]string{ReviewOutcomeClosed: "Closed", ReviewOutcomeCancelled: "Cancelled", ReviewOutcomeStuck: "Ended while stuck"}[loop.Reason]
 	}
+	c.recordDetails(ctx, &d, attempt.TaskID, loop)
 	return d
 }
 
@@ -1737,48 +1902,14 @@ func (s *ReviewPassesStep) Details(ctx context.Context, attempt store.WorkflowSt
 // publishes; the web server forwards those to open run pages.
 const ReviewLoopChangedKind = "review_loop"
 
-// Attention is why a run's loop needs the person: it is stuck, which offers
-// end, or it waits for an author that will not move it alone (a person, or
-// an agent author waiting on the operator, stopped or ended). A loop with an
-// agent author also offers message. An agent author at work is the agent's
-// wait, not the person's.
-func (c *ReviewRunCaller) Attention(ctx context.Context, attempt store.WorkflowStepAttempt) (string, []string) {
+// Need is why a run's loop needs the operator (review_steward_attention.go):
+// stuck, waiting for an author that will not move it alone, or, while its
+// steward watches, held or its approval dismissed.
+func (c *ReviewRunCaller) Need(ctx context.Context, attempt store.WorkflowStepAttempt) WorkflowStepNeed {
 	if c.opened(ctx, attempt) == nil {
-		return "", nil
+		return WorkflowStepNeed{}
 	}
-	return c.attention(ctx, attempt.TaskID)
-}
-
-// attention is why the loop a run task hosts needs the person, and the
-// actions beyond another_pass it offers.
-func (c *ReviewRunCaller) attention(ctx context.Context, taskID string) (string, []string) {
-	attempt := store.WorkflowStepAttempt{TaskID: taskID}
-	loop, err := c.engine.db.GetHandoffReview(ctx, attempt.TaskID)
-	if err != nil || loop == nil {
-		return "", nil
-	}
-	run, err := c.run(ctx, attempt.TaskID)
-	if err != nil {
-		return "", nil
-	}
-	var actions []string
-	var reason string
-	switch loop.Phase {
-	case ReviewPhaseStuck:
-		reason, actions = "Review loop stuck: "+loop.Reason, []string{"end"}
-	case ReviewPhaseWaitingForAuthor:
-		state := c.authorState(ctx, run, loop)
-		if !c.authorNeedsYou(ctx, attempt.TaskID, run, state) {
-			return "", nil
-		}
-		reason = authorReason(state)
-	default:
-		return "", nil
-	}
-	if run.AuthorTask != "" {
-		actions = append(actions, "message")
-	}
-	return reason, actions
+	return c.need(ctx, attempt.TaskID)
 }
 
 // Act takes a stuck loop's actions on the step's loop by its ID (the
@@ -1803,12 +1934,12 @@ func (c *ReviewRunCaller) anotherPass(ctx context.Context, taskID string) error 
 	return c.engine.NextPass(ctx, taskID)
 }
 
-// Attention is the run caller's, once it is attached.
-func (s *ReviewPassesStep) Attention(ctx context.Context, attempt store.WorkflowStepAttempt) (string, []string) {
+// Need is the run caller's, once it is attached.
+func (s *ReviewPassesStep) Need(ctx context.Context, attempt store.WorkflowStepAttempt) WorkflowStepNeed {
 	if caller := s.current(); caller != nil {
-		return caller.Attention(ctx, attempt)
+		return caller.Need(ctx, attempt)
 	}
-	return "", nil
+	return WorkflowStepNeed{}
 }
 
 // Act is the run caller's, once it is attached.
@@ -1851,6 +1982,9 @@ func reviewLoopTask(ctx context.Context, db *store.Store, taskID string) string 
 		return taskID
 	}
 	for _, l := range loops {
+		if stewarding(&l) {
+			return l.HostTask // approved, and its steward watches
+		}
 		if loop, err := db.GetHandoffReview(ctx, l.HostTask); err == nil && loop != nil && loop.Phase != ReviewPhaseEnded && loop.Phase != ReviewPhaseClean {
 			return l.HostTask
 		}
@@ -1887,7 +2021,11 @@ func (c *ReviewRunCaller) authoredLoop(ctx context.Context, author string) *Auth
 // APPROVE. Until that APPROVE is on GitHub the run is not approved: the
 // loop is confirmed again, and the APPROVE tried again, on the next tick.
 func (c *ReviewRunCaller) approved(ctx context.Context, l ReviewLoop) {
-	if l.CountChecks {
+	// A re-entry's approval while the steward watches does not wait on
+	// checks: the steward sends the author a failing one, and a layer the
+	// clean pass left at a COMMENT for it gets its APPROVE once it settles
+	// (watching).
+	if l.CountChecks && c.engine.stewardRecord(ctx, l.TaskID) == nil {
 		loop, err := c.engine.db.GetHandoffReview(ctx, l.TaskID)
 		if err != nil || loop == nil {
 			return

@@ -11,10 +11,11 @@ import (
 
 // reviewRunCard is the board card a workflow run's loop on taskID reviews for (its
 // linked task, else its author's), or nil for a handoff's loop or a run's
-// with no card; the run's loop record too, nil for a handoff's.
+// with no card; the run's loop record too, nil for a handoff's (its own, or
+// its review-loop run's, which reviews the card it is kept on).
 func reviewRunCard(ctx context.Context, db *store.Store, taskID string) (*store.Task, *reviewRun) {
 	run, err := readReviewRun(ctx, db, taskID)
-	if err != nil {
+	if err != nil || run.handoff {
 		return nil, nil
 	}
 	id := run.LinkedTask

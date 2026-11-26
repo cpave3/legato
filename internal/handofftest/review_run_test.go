@@ -26,9 +26,24 @@ func newReviewRun(t *testing.T, opts ReviewPassOptions) reviewRun {
 	return reviewRun{worker: worker, runs: StartReviewRuns(t, worker)}
 }
 
+// start runs an operator's old review-pr-passes copy with inputs: the
+// deprecated inline step github.pr.review_passes, which still runs
+// unchanged through v1 (LEG-599, AC 23).
 func (r reviewRun) start(t *testing.T, inputs map[string]string) *store.WorkflowRunView {
 	t.Helper()
 	view, err := r.runs.Start(context.Background(), inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return view
+}
+
+// startLoop runs the built-in review-loop with inputs, as every caller now
+// starts a review loop. start runs an operator's old review-pr-passes copy,
+// the deprecated inline step, for the tests that are that step's own.
+func (r reviewRun) startLoop(t *testing.T, inputs map[string]string) *store.WorkflowRunView {
+	t.Helper()
+	view, err := r.runs.StartReviewLoop(context.Background(), inputs)
 	if err != nil {
 		t.Fatal(err)
 	}

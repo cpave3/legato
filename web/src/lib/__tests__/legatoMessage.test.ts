@@ -8,6 +8,10 @@ describe("parseLegatoMessage", () => {
     ["[legato plan] Revision 2 was approved.", "plan", "Revision 2 was approved."],
     ["[legato] new swarm event #4 (question) — run `legato swarm inbox p1` to read.", "notice", "new swarm event #4 (question) — run `legato swarm inbox p1` to read."],
     ["[swarm event] worker \"API\" built", "swarm event", "worker \"API\" built"],
+    // The steward's wakes after approval (spec LEG-559 Q5): a full bubble
+    // labelled steward, never a one-line event.
+    ["[legato steward] 1 failing check on #12. Run legato review-pass feedback --json to read it.", "steward", "1 failing check on #12. Run legato review-pass feedback --json to read it."],
+    ["[legato review pass] Pass 1 has 1 blocking finding.", "review pass", "Pass 1 has 1 blocking finding."],
   ])("recognises %s", (text, label, body) => {
     expect(parseLegatoMessage(text)).toEqual({ label, body })
   })

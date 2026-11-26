@@ -191,8 +191,13 @@ func (s *Server) enrichPRMeta(ctx context.Context, taskID string, card *CardResp
 	if err != nil || detail == nil {
 		return
 	}
+	stewards, _ := s.reviewLoops.(ReviewStewardStates)
 	for _, pr := range detail.PullRequests {
-		card.PullRequests = append(card.PullRequests, prMetaResponse(pr))
+		row := prMetaResponse(pr)
+		if stewards != nil && pr.Repo != "" && pr.PRNumber > 0 {
+			row.Steward = stewards.StewardState(ctx, pr.Repo, pr.PRNumber)
+		}
+		card.PullRequests = append(card.PullRequests, row)
 	}
 }
 

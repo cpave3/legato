@@ -37,6 +37,17 @@ type AgentBranches struct {
 	db  *store.Store
 	prs PRBranchActions
 	run *awayPRs
+	// learnApp learns the App a repository's credential reaches GitHub as
+	// (ReviewPublisher.LearnAuthorApp), nil for none.
+	learnApp func(ctx context.Context, repo string) error
+}
+
+// SetAppLearner has the App each branch reaches GitHub as learned before the
+// branch is tracked: the agent's pull requests are opened as Legato's author
+// App, and are the agent's only when Legato knows that App's login (spec
+// LEG-559 D8). Its failure is logged; the branch is tracked all the same.
+func (a *AgentBranches) SetAppLearner(learn func(ctx context.Context, repo string) error) {
+	a.learnApp = learn
 }
 
 // NewAgentBranches tracks agents' branches; prs nil records them only, for
@@ -57,6 +68,11 @@ func (a *AgentBranches) Track(b AgentBranch) {
 	ctx := context.Background()
 	if task, err := a.db.GetTask(ctx, b.TaskID); err == nil && task.Ephemeral {
 		return // an ephemeral task links no PRs (LEG-519)
+	}
+	if a.learnApp != nil {
+		if err := a.learnApp(ctx, b.Repo); err != nil {
+			log.Printf("task %s: learning the App %s is reached as: %v", b.TaskID, b.Repo, err)
+		}
 	}
 	a.trackContextBranch(ctx, b)
 	added, err := a.db.TrackTaskBranches(ctx, b.TaskID, []store.BranchRef{{Repo: b.Repo, Branch: b.Branch}}, BranchSourceAgent)

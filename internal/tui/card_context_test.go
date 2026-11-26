@@ -95,7 +95,7 @@ func TestCardContextLaunchErrorRemainsVisible(t *testing.T) {
 func TestCardContextStartsReviewPassesOnTheCardsPullRequest(t *testing.T) {
 	app := NewApp(&fakeBoardService{}, nil, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
 	launcher := &fakeTaskWorkflowLauncher{options: []service.TaskWorkflowOption{{
-		Name: "review-pr-passes", Title: "Review passes · #12",
+		Name: "review-loop", Title: "Review passes · #12 · agent",
 		Values: map[string]string{"repo": "acme/widget", "pr_number": "12", "agent_author": "true"},
 	}}}
 	app.SetTaskWorkflowLauncher(launcher)
@@ -109,7 +109,7 @@ func TestCardContextStartsReviewPassesOnTheCardsPullRequest(t *testing.T) {
 	app, cmd = updateApp(app, tea.KeyMsg{Type: tea.KeyEnter})
 	app, cmd = updateApp(app, cmd())
 	app, _ = updateApp(app, cmd())
-	if view := app.activeOverlay.View(); !strings.Contains(view, "Review passes · #12") {
+	if view := app.activeOverlay.View(); !strings.Contains(view, "Review passes · #12 · agent") {
 		t.Fatalf("the menu does not offer review passes: %s", view)
 	}
 	app, cmd = updateApp(app, tea.KeyMsg{Type: tea.KeyEnter})
@@ -120,8 +120,63 @@ func TestCardContextStartsReviewPassesOnTheCardsPullRequest(t *testing.T) {
 		}
 		app, cmd = updateApp(app, cmd())
 	}
-	if launcher.startedName != "review-pr-passes" || launcher.startedInputs["agent_author"] != "true" || launcher.startedInputs["pr_number"] != "12" {
+	if launcher.startedName != "review-loop" || launcher.startedInputs["agent_author"] != "true" || launcher.startedInputs["pr_number"] != "12" {
 		t.Fatalf("start = %q %#v", launcher.startedName, launcher.startedInputs)
+	}
+}
+
+// pickFirstWorkflow presses Enter on the first item of the Workflows list,
+// and on its form, running what each emits.
+func pickFirstWorkflow(app App) App {
+	app, cmd := updateApp(app, tea.KeyMsg{Type: tea.KeyEnter})
+	for i := 0; i < 6; i++ {
+		if cmd == nil {
+			if app.overlayType == overlayNone {
+				return app
+			}
+			app, cmd = updateApp(app, tea.KeyMsg{Type: tea.KeyEnter})
+			continue
+		}
+		app, cmd = updateApp(app, cmd())
+	}
+	return app
+}
+
+// A pull request a loop holds, whatever started it, opens that loop in the
+// web UI instead of starting another (spec LEG-559 AC 2).
+func TestCardContextOpensTheLoopThatHoldsThePullRequest(t *testing.T) {
+	launcher := &fakeTaskWorkflowLauncher{options: []service.TaskWorkflowOption{{
+		Name: "review-loop", Title: "Open review loop · #12",
+		Loop: &service.FoundReviewLoop{LoopID: "rl-1", Kind: service.ReviewLoopKindHandoff, Link: "/board?highlight_task=t-9"},
+	}}}
+	app := openCardWorkflows(t, launcher)
+	app.SetWebURL("http://localhost:3080")
+	var opened []string
+	app.openURL = func(url string) error { opened = append(opened, url); return nil }
+	app = pickFirstWorkflow(app)
+	if launcher.startedName != "" {
+		t.Fatalf("started %q on a held pull request", launcher.startedName)
+	}
+	if len(opened) != 1 || opened[0] != "http://localhost:3080/board?highlight_task=t-9" || app.overlayType != overlayNone {
+		t.Fatalf("opened %v, overlay %v", opened, app.overlayType)
+	}
+}
+
+// A refused start names the loop that holds the pull request and links to
+// it (spec LEG-559 story 8).
+func TestCardContextRefusedReviewNamesTheHoldingLoopWithItsLink(t *testing.T) {
+	launcher := &fakeTaskWorkflowLauncher{
+		options: []service.TaskWorkflowOption{{Name: "review-loop", Title: "Review passes · #12 · agent",
+			Values: map[string]string{"repo": "acme/widget", "pr_number": "12", "agent_author": "true"}}},
+		startErr: &service.WorkflowStepError{Code: service.ReviewRefusalLoopActive, Link: "/workflows/runs/wr-7",
+			Message: "review_loop_active: pull request #12 of acme/widget already has an active review loop: run wr-7 (/workflows/runs/wr-7), loop rl-7"},
+	}
+	app := openCardWorkflows(t, launcher)
+	app.SetWebURL("http://localhost:3080")
+	app = pickFirstWorkflow(app)
+	view := app.activeOverlay.View()
+	if !strings.Contains(view, "run wr-7") || !strings.Contains(view, "Open http://localhost:3080/workflows/runs/wr-7") {
+		t.Fatalf("view: %s", view)
 	}
 }
 

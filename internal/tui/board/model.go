@@ -142,6 +142,7 @@ func (m Model) loadData() Model {
 				WorkspaceName:  c.WorkspaceName,
 				WorkspaceColor: c.WorkspaceColor,
 				Away:           c.Away,
+				Steward:        c.Steward,
 			}
 		}
 		m.cards[col.Name] = cardData

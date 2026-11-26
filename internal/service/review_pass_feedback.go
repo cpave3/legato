@@ -19,6 +19,14 @@ const (
 	ItemNit      = "nit"
 	ItemComment  = "comment"
 	ItemCheck    = "check"
+	// ItemMergeability is a steward's: a pull request GitHub cannot merge
+	// (CONFLICTING) or that is behind a base requiring an up-to-date
+	// branch (BEHIND). One per pull request; it closes by itself once
+	// GitHub reports the pull request mergeable.
+	ItemMergeability = "mergeability"
+	// ItemMergedLayer is a steward's: a lower layer of the stack merged,
+	// so the layers above it are to be restacked.
+	ItemMergedLayer = "merged"
 
 	AnswerFixed   = "fixed"
 	AnswerReplied = "replied"
@@ -141,6 +149,13 @@ func ReviewFeedback(ctx context.Context, db *store.Store, taskID string, opts ..
 	if err != nil {
 		return ReviewFeedbackView{}, err
 	}
+	steward := false
+	if rec, err := db.CurrentReviewLoop(ctx, taskID); err == nil && stewarding(rec) {
+		steward = true
+		for i := range items {
+			items[i].Operation = stewardOperation(items[i].Kind)
+		}
+	}
 	view := ReviewFeedbackView{TaskID: taskID, Pass: loop.Pass, Phase: loop.Phase, Items: items, How: feedbackHow}
 	if card, run := reviewRunCard(ctx, db, taskID); run != nil {
 		view.Run = &ReviewFeedbackRun{RunID: run.RunID, TaskID: taskID}
@@ -173,7 +188,21 @@ func ReviewFeedback(ctx context.Context, db *store.Store, taskID string, opts ..
 			view.How += stackHow(graph, skill, view.Run != nil)
 		}
 	}
+	if steward {
+		view.How += stewardHow
+	}
 	return view, nil
+}
+
+// routedItem says whether items of a kind come from GitHub rather than
+// from a pass: comments, checks, and the steward's mergeability and merged
+// layers. They stay from round to round until answered (or closed).
+func routedItem(kind string) bool {
+	switch kind {
+	case ItemComment, ItemCheck, ItemMergeability, ItemMergedLayer:
+		return true
+	}
+	return false
 }
 
 // currentItems are the open items of a loop's round.
@@ -186,7 +215,7 @@ func currentItems(ctx context.Context, db *store.Store, loop *store.HandoffRevie
 	for _, item := range all {
 		// A comment or check stays until it is answered, from round to
 		// round; a finding belongs to its pass's round.
-		carried := (item.Kind == ItemComment || item.Kind == ItemCheck) && item.Answer == ""
+		carried := routedItem(item.Kind) && item.Answer == ""
 		if !item.Closed && (item.Pass == loop.Pass || carried) {
 			items = append(items, item)
 		}
@@ -254,7 +283,7 @@ func RefuseUnansweredReview(ctx context.Context, db *store.Store, taskID string)
 	for _, item := range items {
 		// A failing check holds the handoff's done, not the author's
 		// move: a pass runs without waiting for CI.
-		if item.Kind != ItemNit && item.Kind != ItemCheck && item.Answer == "" {
+		if (item.Kind == ItemBlocking || item.Kind == ItemComment) && item.Answer == "" {
 			open++
 		}
 	}
@@ -308,19 +337,36 @@ func (s *ReviewPassService) feedback(ctx context.Context, l ReviewLoop, loop *st
 	if !inDone {
 		return nil
 	}
-	if err := RefuseUnansweredReview(ctx, s.db, l.TaskID); l.CountComments && err != nil {
-		return nil // moved by hand, past the refusal: wait for the answers
+	steward := s.stewardRecord(ctx, l.TaskID) != nil
+	items, _ := currentItems(ctx, s.db, loop)
+	if steward {
+		// A re-entry's pass waits only for its blocking findings, never
+		// for checks or comments.
+		for _, item := range items {
+			if item.Kind == ItemBlocking && item.Answer == "" {
+				return nil
+			}
+		}
+	} else if err := RefuseUnansweredReview(ctx, s.db, l.TaskID); l.CountComments && err != nil {
+		// Moved by hand, past the refusal: wait for the answers.
+		return nil
 	}
 	pushed, err := s.pushedSince(ctx, l, loop)
 	if err != nil {
 		return err
 	}
 	disputed := false
-	items, _ := currentItems(ctx, s.db, loop)
 	for _, item := range items {
 		disputed = disputed || (item.Kind == ItemBlocking && item.Answer == AnswerReplied)
 	}
 	if pushed || disputed {
+		if steward {
+			wake := StewardWokePushed
+			if !pushed {
+				wake = StewardWokeDisputed
+			}
+			s.woke(ctx, l.TaskID, wake)
+		}
 		loop.Phase = ReviewPhaseReady
 		return s.ready(ctx, l, loop)
 	}
@@ -369,7 +415,7 @@ func (s *ReviewPassService) deliver(ctx context.Context, l ReviewLoop, loop *sto
 		loop.DeliveredPass = loop.Pass
 		return s.save(ctx, loop)
 	}
-	message := fmt.Sprintf("%s Pass %d has %s. Run legato review-pass feedback --json to read them.", ReviewTag, loop.Pass, joinAnd(parts))
+	message := fmt.Sprintf("%s Pass %d has %s. Run legato review-pass feedback --json to read them.", s.authorTag(ctx, l.TaskID), loop.Pass, joinAnd(parts))
 	if rec, err := s.db.GetReviewLoop(ctx, loop.LoopID); err == nil && rec.Ready {
 		// The run's ready step marks the stack ready once it is approved.
 		message += " Do not mark your pull requests ready: this run marks them ready once the review approves them."
@@ -403,6 +449,9 @@ func (s *ReviewPassService) pushedSince(ctx context.Context, l ReviewLoop, loop 
 // author App: a reply in the item's thread, else a comment on the pull
 // request. Call with s.mu held.
 func (s *ReviewPassService) postAnswers(ctx context.Context, l ReviewLoop) {
+	if rec := s.stewardRecord(ctx, l.TaskID); rec != nil && s.stewardHolds(ctx, rec) {
+		return // a held or stuck steward posts nothing; its answers wait (LEG-592)
+	}
 	loop, err := s.db.GetHandoffReview(ctx, l.TaskID)
 	if err != nil || loop == nil {
 		return
@@ -421,6 +470,11 @@ func (s *ReviewPassService) postAnswers(ctx context.Context, l ReviewLoop) {
 	var pushed map[int]string
 	for _, item := range items {
 		if item.Answer == "" || item.Posted || item.Closed || item.PR == 0 {
+			continue
+		}
+		if item.Kind == ItemMergeability || item.Kind == ItemMergedLayer {
+			// Nothing on GitHub to answer: the steward read these from
+			// the pull requests' state.
 			continue
 		}
 		body := answerText(item)

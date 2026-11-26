@@ -13,7 +13,7 @@ vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ data: { repositories: [], working_dir: "", worktrees_enabled: false } }) }))
 vi.mock("../../hooks/useBoard", () => ({ useBoard: () => ({ columns: [{ name: "Doing", cards: [card] }], workspaces: [], loading: false, error: null, refresh: vi.fn() }) }))
 vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast: vi.fn() }) }))
-vi.mock("../../hooks/useWorkflow", () => ({ useWorkflows: () => ({ data: { definitions: [{ schema_version: 1, name: "review-pr-passes", title: "Review passes", source: "review-pr-passes.yaml", inputs: { repo: { type: "repository" }, pr_number: { type: "integer" }, agent_author: { type: "boolean" } }, steps: [] }], errors: [], repositories: [] }, loading: false, error: null }) }))
+vi.mock("../../hooks/useWorkflow", () => ({ useWorkflows: () => ({ data: { definitions: [{ schema_version: 2, name: "review-loop", title: "Review loop", source: "builtin:review-loop", inputs: { repo: { type: "string" }, pr_number: { type: "integer" }, scope: { type: "string" }, agent_author: { type: "boolean" } }, steps: [] }], errors: [], repositories: [] }, loading: false, error: null }) }))
 
 afterEach(cleanup)
 
@@ -27,6 +27,7 @@ describe("Board card menu and the review engine", () => {
       const url = String(input)
       if (url.endsWith("/api/review-engine")) return new Response(JSON.stringify(engine))
       if (url.endsWith("/api/macros")) return new Response(JSON.stringify({ macros: [] }))
+      if (url.includes("/api/review-loops?")) return new Response(JSON.stringify({ loop: null, agent_author: true }))
       throw new Error(`unexpected fetch: ${url}`)
     })
   })
@@ -54,7 +55,7 @@ describe("Board card menu and the review engine", () => {
   it("offers the review when the engine runs in another process", async () => {
     engine = { running: true }
     openMenu()
-    expect(await screen.findByRole("menuitem", { name: "Review passes · #12" })).toBeTruthy()
+    expect(await screen.findByRole("menuitem", { name: "Review passes · #12 · agent" })).toBeTruthy()
     expect(screen.queryByText(/legato serve/)).toBeNull()
   })
 })

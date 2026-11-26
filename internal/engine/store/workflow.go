@@ -159,9 +159,15 @@ type WorkflowStepAttempt struct {
 	// agent can still be resumed. The service fills it.
 	Resumable bool `db:"-" json:"resumable,omitempty"`
 	// AttentionActions are the actions a step waiting on its service
-	// offers beyond the usual, such as message for a stuck review loop
-	// with an agent author.
+	// offers: a gate's options, or a review loop's (another_pass,
+	// watch_again, message, end...), the first the primary.
 	AttentionActions []string `db:"-" json:"attention_actions,omitempty"`
+	// AttentionSignal is the Attention signal kind of a step waiting on
+	// its service that needs the operator, "" for the producer's own;
+	// AttentionSteward says its loop's steward watches, so End ends the
+	// steward (outcome ended) rather than a stuck review.
+	AttentionSignal  string `db:"-" json:"attention_signal,omitempty"`
+	AttentionSteward bool   `db:"-" json:"attention_steward,omitempty"`
 }
 
 type WorkflowArtifact struct {

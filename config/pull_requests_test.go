@@ -84,3 +84,51 @@ func TestUnsetPullRequestModeIsEmpty(t *testing.T) {
 		t.Fatalf("mode = %q", got)
 	}
 }
+
+// ready_after_review marks a draft repository's approved handoff stack ready
+// (LEG-456): it belongs to a draft rule alone.
+func TestReadyAfterReviewIsParsedOnADraftRule(t *testing.T) {
+	cfg, err := LoadBytes([]byte(`
+pull_requests:
+  rules:
+    - match: acme/*
+      mode: draft
+      ready_after_review: true
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := cfg.PullRequests.Rules[0]; !r.ReadyAfterReview {
+		t.Fatalf("rule = %+v", r)
+	}
+}
+
+func TestReadyAfterReviewOnARuleThatIsNotDraftIsAnError(t *testing.T) {
+	for _, mode := range []string{PullRequestsReady, PullRequestsAgent} {
+		_, err := LoadBytes([]byte("pull_requests:\n  rules:\n    - {match: a/b, mode: " + mode + ", ready_after_review: true}\n"))
+		if err == nil || !strings.Contains(err.Error(), "pull_requests.rules[0].ready_after_review") {
+			t.Fatalf("%s: err = %v", mode, err)
+		}
+	}
+}
+
+// The most specific rule decides: a pattern's ready_after_review does not
+// reach a repository an exact draft rule without it names.
+func TestReadyAfterReviewOfARepository(t *testing.T) {
+	prs := PullRequestsConfig{Rules: []PullRequestRule{
+		{Match: "acme/*", Mode: PullRequestsDraft, ReadyAfterReview: true},
+		{Match: "acme/plain", Mode: PullRequestsDraft},
+		{Match: "acme/open", Mode: PullRequestsReady},
+	}}
+	for repo, want := range map[string]bool{
+		"acme/widget":                    true,
+		"git@github.com:ACME/widget.git": true,
+		"acme/plain":                     false,
+		"acme/open":                      false,
+		"other/thing":                    false,
+	} {
+		if got := prs.ReadyAfterReview(repo); got != want {
+			t.Errorf("ReadyAfterReview(%q) = %v, want %v", repo, got, want)
+		}
+	}
+}

@@ -5,10 +5,13 @@ tags: [tickets]
 run_title: ${{ workflow.inputs.task.id }} to a merged pull request
 description: >-
   Start the task's own agent on a macro in a fresh clone of the repository,
-  and keep it once it reports its pull request. Review the pull request in
-  passes while that agent fixes and answers the findings, wait for the pull
-  request to merge, close the task's Burnlite ticket (a task that is not
-  from Burnlite is skipped), then stop the agent.
+  and keep it once it reports its pull request. Run review-loop on that
+  pull request and its stack: review in passes while the agent fixes and
+  answers the findings, mark the drafts ready once approved, and look after
+  them until they merge. On merged, close the task's Burnlite ticket (a task
+  that is not from Burnlite is skipped) and stop the agent. Otherwise note
+  the task and leave the ticket open: closed or idle stops the agent, stuck
+  or ended leaves it running for the operator to take over.
 inputs:
   task:
     type: task
@@ -38,36 +41,58 @@ steps:
     title: Implement the task and open a pull request
     type: agent.run
     with:
-      task: ${{ workflow.inputs.task }}
+      on: ${{ workflow.inputs.task }}
       macro: ${{ workflow.inputs.macro }}
       repo: ${{ workflow.inputs.repo }}
-      keep: true
     outputs:
       pr_number: {type: integer, description: The number of the pull request the agent opened}
   - id: review
-    title: Review in passes
-    type: github.pr.review_passes
+    title: Review, mark ready and look after it to the merge
+    type: workflow.run
+    # A refused, failed or stopped review-loop waits for the operator:
+    # Retry (the same child and loop), Skip or Stop.
+    on_failure: pause
     with:
-      repo: ${{ workflow.inputs.repo }}
-      pr_number: ${{ steps.implement.outputs.pr_number }}
-      reviewer: ${{ workflow.inputs.reviewer }}
-      agent_author: true
-  - id: merged
-    title: Wait for the merge
-    type: github.pr.wait
-    with:
-      repo: ${{ workflow.inputs.repo }}
-      pr_number: ${{ steps.implement.outputs.pr_number }}
-      task: ${{ workflow.inputs.task }}
+      workflow: review-loop
+      inputs:
+        repo: ${{ workflow.inputs.repo }}
+        pr_number: ${{ steps.implement.outputs.pr_number }}
+        scope: stack
+        agent_author: true
+        ready: true
+        steward: true
+        reviewer: ${{ workflow.inputs.reviewer }}
   - id: close-ticket
     title: Close the Burnlite ticket
+    if: {field: steps.review.outputs.outcome, equals: merged}
     type: burnlite.task.close
     with:
       task: ${{ workflow.inputs.task }}
-      summary: Merged in ${{ steps.merged.outputs.url }}
+      summary: Merged in https://github.com/${{ workflow.inputs.repo }}/pull/${{ steps.implement.outputs.pr_number }}
       optional: true
+  - id: note-stopped
+    title: Note the task
+    if: {field: steps.review.outputs.outcome, in: [closed, idle]}
+    type: task.note
+    with:
+      task: ${{ workflow.inputs.task }}
+      body: >-
+        The review loop on ${{ workflow.inputs.repo }}#${{ steps.implement.outputs.pr_number }}
+        ended ${{ steps.review.outputs.outcome }} without a merge. The ticket
+        stays open and the agent was stopped.
+  - id: note-running
+    title: Note the task
+    if: {field: steps.review.outputs.outcome, in: [stuck, ended]}
+    type: task.note
+    with:
+      task: ${{ workflow.inputs.task }}
+      body: >-
+        The review loop on ${{ workflow.inputs.repo }}#${{ steps.implement.outputs.pr_number }}
+        ended ${{ steps.review.outputs.outcome }} without a merge. The ticket
+        stays open and the agent keeps running for the operator to take over.
   - id: stop
     title: Stop the agent
+    if: {field: steps.review.outputs.outcome, in: [merged, closed, idle]}
     type: agent.stop
     with:
       task: ${{ workflow.inputs.task }}

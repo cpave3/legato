@@ -61,35 +61,68 @@ describe("CardContextMenu", () => {
     expect(onManageMacros).toHaveBeenCalled()
   })
 
-  it("offers review passes for each of a card's pull requests, and none for a card without", () => {
+  // Each pull request's lookup: no loop, a person's unless agent lists it.
+  const lookups = (numbers: number[], agent: number[] = numbers, held: Record<number, string> = {}) => Object.fromEntries(numbers.map(n => [`acme/widget#${n}`, {
+    loop: held[n] ? { loop_id: `rl-${n}`, kind: "run" as const, run_id: held[n], step_path: "review", phase: "waiting", state: "open", held: false, outcome: "", link: `/workflows/runs/${held[n]}` } : null,
+    agent_author: agent.includes(n),
+  }]))
+
+  it("offers a review of each of a card's pull requests, saying whether it is an agent's or a person's", () => {
     const onReviewPasses = vi.fn()
     const pr = (n: number) => ({ repo: "acme/widget", branch: `b${n}`, pr_number: n, pr_url: "", state: "OPEN" }) as never
-    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(12), pr(13)]} onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
-    expect(screen.getByRole("menuitem", { name: "Review passes · #12" })).toBeTruthy()
-    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · #13" }))
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(12), pr(13)]} reviewLoops={lookups([12, 13], [12])} onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
+    expect(screen.getByRole("menuitem", { name: "Review passes · #12 · agent" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · #13 · person" }))
     expect(onReviewPasses).toHaveBeenCalledWith(expect.objectContaining({ pr_number: 13 }))
+    cleanup()
+    // Until the pull requests are looked up, no review is offered.
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(12)]} onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
+    expect(screen.queryByRole("menuitem", { name: /Review passes/ })).toBeNull()
     cleanup()
     render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} onAction={() => {}} onClose={() => {}} />)
     expect(screen.queryByRole("menuitem", { name: /Review passes/ })).toBeNull()
   })
 
+  it("opens the loop that holds a pull request instead of offering another", () => {
+    const onReviewPasses = vi.fn()
+    const onOpenReviewLoop = vi.fn()
+    const pr = (n: number) => ({ repo: "acme/widget", branch: `b${n}`, pr_number: n, pr_url: "", state: "OPEN" }) as never
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(137), pr(138)]} reviewStack reviewLoops={lookups([137, 138], [137, 138], { 138: "wr-9" })} onReviewPasses={onReviewPasses} onOpenReviewLoop={onOpenReviewLoop} onAction={() => {}} onClose={() => {}} />)
+    // A held layer offers no stack review.
+    expect(screen.getAllByRole("menuitem", { name: /review/i }).map(item => item.textContent)).toEqual(["Review passes · #137 · agent", "Open review loop · #138"])
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open review loop · #138" }))
+    expect(onOpenReviewLoop).toHaveBeenCalledWith(expect.objectContaining({ loop_id: "rl-138", link: "/workflows/runs/wr-9" }))
+    expect(onReviewPasses).not.toHaveBeenCalled()
+    cleanup()
+    // The layer no loop holds is reviewed alone, not with the held one.
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(137), pr(138)]} reviewStack reviewLoops={lookups([137, 138], [137, 138], { 138: "wr-9" })} onReviewPasses={onReviewPasses} onOpenReviewLoop={onOpenReviewLoop} onAction={() => {}} onClose={() => {}} />)
+    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · #137 · agent" }))
+    expect(onReviewPasses).toHaveBeenCalledWith(expect.objectContaining({ pr_number: 137 }), "pr")
+  })
+
   it("offers the whole stack first when the card's pull requests are a stack", () => {
     const onReviewPasses = vi.fn()
     const pr = (n: number) => ({ repo: "acme/widget", branch: `b${n}`, pr_number: n, pr_url: "", state: "OPEN" }) as never
-    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(137), pr(138), pr(139)]} reviewStack onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(137), pr(138), pr(139)]} reviewLoops={lookups([137, 138, 139])} reviewStack onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
     const items = screen.getAllByRole("menuitem", { name: /Review passes/ }).map(item => item.textContent)
-    expect(items).toEqual(["Review passes · stack #137–#139", "Review passes · #137", "Review passes · #138", "Review passes · #139"])
-    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · stack #137–#139" }))
-    expect(onReviewPasses).toHaveBeenCalledWith(expect.objectContaining({ pr_number: 137 }), "stack")
+    expect(items).toEqual(["Review passes · stack #137–#139 · agent", "Review passes · #137 · agent", "Review passes · #138 · agent", "Review passes · #139 · agent"])
+    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · stack #137–#139 · agent" }))
+    expect(onReviewPasses).toHaveBeenCalledWith(expect.objectContaining({ pr_number: 137 }), "stack", true)
     cleanup()
-    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(137), pr(138)]} reviewStack onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
-    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · #138" }))
+    // A stack with a person's pull request in it is a person's, and is
+    // started as one.
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(137), pr(138)]} reviewLoops={lookups([137, 138], [137])} reviewStack onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
+    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · stack #137–#138 · person" }))
+    expect(onReviewPasses).toHaveBeenLastCalledWith(expect.objectContaining({ pr_number: 137 }), "stack", false)
+    cleanup()
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(137), pr(138)]} reviewLoops={lookups([137, 138], [137])} reviewStack onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
+    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · #138 · person" }))
     expect(onReviewPasses).toHaveBeenLastCalledWith(expect.objectContaining({ pr_number: 138 }), "pr")
     cleanup()
     // One pull request: unchanged.
-    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(12)]} reviewStack onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
-    expect(screen.getAllByRole("menuitem", { name: /Review passes/ }).map(item => item.textContent)).toEqual(["Review passes · #12"])
-    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · #12" }))
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(12)]} reviewLoops={lookups([12])} reviewStack onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
+    expect(screen.getAllByRole("menuitem", { name: /Review passes/ }).map(item => item.textContent)).toEqual(["Review passes · #12 · agent"])
+    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · #12 · agent" }))
     expect(onReviewPasses).toHaveBeenLastCalledWith(expect.objectContaining({ pr_number: 12 }))
   })
 

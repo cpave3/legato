@@ -118,6 +118,34 @@ it("upgrades a version 1 file to version 2 in the editor", async () => {
   expect(screen.queryByText(/the step has no extra/)).toBeNull()
 })
 
+// The deprecated inline review step's warning offers its quick fix in the
+// problems: the server's upgrade rewrites it to call review-loop, as one
+// change Undo takes back (LEG-599).
+it("rewrites the deprecated inline review step from its warning's quick fix", async () => {
+  const inline = "schema_version: 2\nname: review\ntitle: Review\nsteps:\n  - id: r\n    title: R\n    type: github.pr.review_passes\n    with: {repo: a/b, pr_number: 1}\n"
+  const rewritten = inline.replace("type: github.pr.review_passes\n    with: {repo: a/b, pr_number: 1}", "type: workflow.run\n    with:\n      workflow: review-loop\n      inputs: {repo: a/b, pr_number: 1}")
+  const deprecated = { severity: "warning", message: "github.pr.review_passes is deprecated: call the built-in review-loop with workflow.run instead. `legato workflow upgrade <file>` makes the change.", path: "steps[0].type", line: 7, column: 11, end_line: 7, end_column: 34, fix: "upgrade" }
+  fileReply = () => json({ name: "review", yaml: inline, path: "/g/review.yaml", folder: "global", digest: "sha256:old", editable: true })
+  const upgrades: string[] = []
+  const reply = apiFetch.getMockImplementation()!
+  apiFetch.mockImplementation((baseUrl: string, path: string, init?: RequestInit) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : {}
+    if (path === "/api/workflow-files/check") return json({ definition: { name: "review" }, graph: { nodes: [], edges: [] }, diagnostics: String(body.yaml).includes("review_passes") ? [deprecated] : [] })
+    if (path === "/api/workflow-files/upgrade") { upgrades.push(body.yaml); return json({ yaml: rewritten, changed: true, notes: [] }) }
+    return reply(baseUrl, path, init)
+  })
+  renderAt("/workflows/review/edit")
+  await waitFor(() => expect(editor().value).toBe(inline))
+  const problems = await screen.findByRole("list", { name: "Problems" })
+  expect(problems.textContent).toContain("github.pr.review_passes is deprecated")
+  fireEvent.click(within(problems).getByRole("button", { name: "Rewrite to call review-loop" }))
+  await waitFor(() => expect(editor().value).toBe(rewritten))
+  expect(upgrades).toEqual([inline])
+  await waitFor(() => expect(screen.queryByText(/github.pr.review_passes is deprecated/)).toBeNull())
+  fireEvent.keyDown(editor(), { key: "z", ctrlKey: true })
+  expect(editor().value).toBe(inline)
+})
+
 it("saves the file's text over the version it opened, and offers a reload when it changed on disk", async () => {
   putReply = () => json({ error: "the file changed", code: "stale", yaml: "# changed on disk\n" + fileText, digest: "sha256:disk" }, 409)
   renderAt("/workflows/review/edit")

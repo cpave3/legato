@@ -191,9 +191,16 @@ type ReviewLoopPR struct {
 	URL      string `db:"url"`
 	HeadRepo string `db:"head_repo"`
 	// State is open, closed or merged.
-	State     string `db:"state"`
-	Draft     bool   `db:"draft"`
+	State string `db:"state"`
+	Draft bool   `db:"draft"`
+	// Mergeable is the steward's word for whether it can merge, as its
+	// watch last read it: MERGEABLE, CONFLICTING, UNKNOWN or BEHIND;
+	// "" before a watch read it.
 	Mergeable string `db:"mergeable"`
+	// ApprovalDismissed says a person dismissed legato-reviews' approval
+	// of this layer at its clean head, with no push since, as the watch
+	// last read it (migration 157).
+	ApprovalDismissed bool `db:"approval_dismissed"`
 	// Author is its author on GitHub, AuthorAssociation GitHub's word for
 	// them, AuthorTask the board task whose agent wrote it.
 	Author            string `db:"author"`
@@ -560,6 +567,15 @@ func (s *Store) ListOpenReviewLoops(ctx context.Context) ([]ReviewLoop, error) {
 	return out, err
 }
 
+// ListReviewLoopsClosedSince returns the run loops closed with outcome at
+// or after since (RFC 3339), oldest closed first.
+func (s *Store) ListReviewLoopsClosedSince(ctx context.Context, outcome, since string) ([]ReviewLoop, error) {
+	var out []ReviewLoop
+	err := s.db.SelectContext(ctx, &out, `SELECT * FROM review_loops WHERE state = 'closed' AND outcome = ? AND closed_at >= ?
+		AND owner_kind = 'run' AND run_id != '' ORDER BY closed_at, id`, outcome, since)
+	return out, err
+}
+
 // CheckReviewLoopOwner is the re-check before a GitHub write: the loop as
 // it stands, ErrNotFound, ErrReviewLoopClosed or ErrReviewLoopNotOwned.
 func (s *Store) CheckReviewLoopOwner(ctx context.Context, id string, owner ReviewLoopOwner) (*ReviewLoop, error) {
@@ -637,11 +653,12 @@ func writeReviewLoop(ctx context.Context, tx *sqlx.Tx, read, next ReviewLoop) er
 	if n, _ := result.RowsAffected(); n != 1 {
 		return fmt.Errorf("%w: review loop %s moved on", ErrConflict, read.ID)
 	}
-	if next.OwnerKind == ReviewLoopOwnerHandoff && handoffLoopLetsGo(next) {
-		// A handoff's loop that approved, had nothing to review or ended
-		// lets go of its pull requests while its card stays open; a later
-		// pass claims them again (holdReviewLoopLayer). A clean pass
-		// Confirm has yet to record approved still holds them.
+	if (next.OwnerKind == ReviewLoopOwnerHandoff || next.HandoffID != "") && handoffLoopLetsGo(next) {
+		// A handoff's loop (its own, or a review-loop run's bound to it)
+		// that approved, had nothing to review or ended lets go of its
+		// pull requests while its card stays open; a later pass claims
+		// them again (holdReviewLoopLayer). A clean pass Confirm has yet
+		// to record approved still holds them.
 		if _, err := tx.ExecContext(ctx, `DELETE FROM review_loop_claims WHERE loop_id = ?`, read.ID); err != nil {
 			return err
 		}
@@ -919,6 +936,38 @@ func (s *Store) ListReviewLoopPRs(ctx context.Context, loopID string) ([]ReviewL
 	var out []ReviewLoopPR
 	err := s.db.SelectContext(ctx, &out, `SELECT * FROM review_loop_prs WHERE loop_id = ? ORDER BY position`, loopID)
 	return out, err
+}
+
+// ReviewLoopPRStatus is what GitHub last reported of a layer: its state,
+// whether it is a draft, and its mergeability (ReviewLoopPR.Mergeable).
+type ReviewLoopPRStatus struct {
+	Number    int
+	State     string
+	Draft     bool
+	Mergeable string
+	// ApprovalDismissed: a person dismissed its approval at the clean
+	// head (ReviewLoopPR.ApprovalDismissed).
+	ApprovalDismissed bool
+}
+
+// SetReviewLoopPRStatus writes what the steward's watch read of an open
+// loop's layers, for the run page. It is GitHub's word, not a transition,
+// so the loop's rev does not move; a closed loop and a number that is not
+// one of its layers are left as they are.
+func (s *Store) SetReviewLoopPRStatus(ctx context.Context, loopID string, layers []ReviewLoopPRStatus) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, layer := range layers {
+		if _, err := tx.ExecContext(ctx, `UPDATE review_loop_prs SET state = ?, draft = ?, mergeable = ?, approval_dismissed = ?
+			WHERE loop_id = ? AND number = ? AND EXISTS (SELECT 1 FROM review_loops WHERE id = ? AND state = ?)`,
+			layer.State, layer.Draft, layer.Mergeable, layer.ApprovalDismissed, loopID, layer.Number, loopID, ReviewLoopOpenState); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // GetReviewLoopPass returns one pass, ErrNotFound when there is none.

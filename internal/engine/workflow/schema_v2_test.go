@@ -115,18 +115,18 @@ func TestTheBundledExamplesAreVersion2(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// review-pr-passes is left for LEG-599 to withdraw: no release ships
-		// a v2 copy built on a deprecated step.
-		want, schema := workflow.SchemaVersion2, v2
-		if example.Name == "review-pr-passes" {
-			want, schema = workflow.SchemaVersion, v1
+		if definition.SchemaVersion != workflow.SchemaVersion2 {
+			t.Errorf("%s is schema_version %d, want %d", example.Name, definition.SchemaVersion, workflow.SchemaVersion2)
 		}
-		if definition.SchemaVersion != want {
-			t.Errorf("%s is schema_version %d, want %d", example.Name, definition.SchemaVersion, want)
-		}
-		if err := schema.Validate(asJSON(t, example.YAML)); err != nil {
+		if err := v2.Validate(asJSON(t, example.YAML)); err != nil {
 			t.Errorf("%s: %v", example.Name, err)
 		}
+	}
+	// The withdrawn review-pr-passes stays as operators' copies have it:
+	// version 1, on the deprecated inline step (LEG-599).
+	old := workflow.OldReviewPassesCopy()
+	if err := v1.Validate(asJSON(t, old.YAML)); err != nil {
+		t.Errorf("review-pr-passes: %v", err)
 	}
 }
 

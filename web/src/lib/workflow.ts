@@ -27,12 +27,22 @@ export type WorkflowStepRun = { run_id:string; step_id:string; path?:string; par
 export type GateDetails = { title:string; body?:string; options:string[]; choice?:string }
 /** WorkflowCallDetails is a workflow.run step's child run (LEG-489). */
 export type WorkflowCallDetails = { run_id:string; workflow:string; title:string; status:string }
-export type WorkflowAttempt = { id:string; run_id:string; step_id:string; path?:string; attempt_number:number; executor_type:string; agent_session_id?:number; task_id?:string; agent_id?:string; tmux_session?:string; agent_kind?:string; tier?:string; working_dir?:string; status:string; error?:string; agent_activity?:string; needs_attention?:boolean; attention_reason?:string; resumable?:boolean; started_at:string; ended_at?:string }
+export type WorkflowAttempt = { id:string; run_id:string; step_id:string; path?:string; attempt_number:number; executor_type:string; agent_session_id?:number; task_id?:string; agent_id?:string; tmux_session?:string; agent_kind?:string; tier?:string; working_dir?:string; status:string; error?:string; agent_activity?:string; needs_attention?:boolean; attention_reason?:string; attention_signal?:string; attention_actions?:string[]; attention_steward?:boolean; resumable?:boolean; started_at:string; ended_at?:string }
 export type WorkflowArtifact = { id:string; run_id:string; step_id:string; path?:string; attempt_id:string; output_key:string; original_path?:string; media_type:string; size_bytes:number; digest:string; created_at:string }
 // needs_you is the server's word on whether the loop waits on the operator:
 // stuck, or waiting for an author that will not move it alone. An agent
 // author at work is the agent's wait (LEG-543).
-export type ReviewRunDetails = { phase:string; pass:number; summary:string; blocking_open:number; reason?:string; needs_you?:boolean; reviews:{pass:number;pr:number;url:string}[] | null }
+// The loop on its record (LEG-594): its layers (mergeable is MERGEABLE,
+// CONFLICTING, UNKNOWN or BEHIND as the steward's watch last read it), the
+// steward while it watches, the actions its waiting step takes, the line
+// saying legato-reviews' approval still stands (held or stuck), and whether
+// the author agent was left running after the loop ended.
+export type ReviewRunLayer = { number:number; url?:string; title?:string; state?:string; draft:boolean; mergeable?:string }
+export type ReviewStewardView = { held:boolean; last_wake?:string; last_wake_at?:string; reentries:number; max_reentries:number; idle_deadline?:string }
+export type ReviewLoopAction = "another_pass"|"message"|"end"|"stop_watching"|"watch_again"
+export type ReviewRunDetails = { phase:string; pass:number; summary:string; blocking_open:number; reason?:string; needs_you?:boolean; reviews:{pass:number;pr:number;url:string}[] | null
+  loop_id?:string; outcome?:string; reviewer?:string; reviewer_model?:string; findings?:{total:number;blocking:number;nits:number;open:number}; layers?:ReviewRunLayer[]
+  steward?:ReviewStewardView; approval_stands?:string; actions?:ReviewLoopAction[]; author_task?:string; author_left_running?:boolean }
 // graph is the workflow graph of the run's own copy of its definition;
 // definition_changed and definition_missing compare that copy with the file.
 export type WorkflowRunView = { run:WorkflowRun; steps:WorkflowStepRun[] | null; attempts:WorkflowAttempt[] | null; artifacts:WorkflowArtifact[] | null; details?:Record<string,unknown> | null; trigger_kind?:string; resume_task_id?:string; resume_agent_state?:"" | "running" | "waiting"; can_resume_agent?:boolean; graph?:WorkflowGraphModel | null; definition_changed?:boolean; definition_missing?:boolean; output_warnings?:string[] | null }
@@ -78,6 +88,6 @@ export const resumeWorkflowAgent=(baseUrl:string,id:string,macro:string)=>apiFet
 // or retry, skip or stop on a step paused after a failure.
 export const workflowStepAction=(baseUrl:string,id:string,step:string,action:string,text?:string)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/steps/${encodeURIComponent(step)}/action`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,text})}).then(decode<WorkflowRunView>)
 export const anotherReviewPass=(baseUrl:string,id:string,step:string)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/steps/${encodeURIComponent(step)}/another-pass`,{method:"POST"}).then(decode<WorkflowRunView>)
-// The review loop already running on a pull request, as a run of
-// review-pr-passes, or null.
-export async function activeReviewLoop(baseUrl:string,repo:string,pr:number):Promise<WorkflowRun|null>{const query=new URLSearchParams({workflow_name:"review-pr-passes","input.repo":repo,"input.pr_number":String(pr)});const runs=await apiFetch(baseUrl,`/api/workflow-runs?${query}`).then(decode<WorkflowRun[]|null>);return (runs??[]).find(run=>run.status==="running"||run.status==="waiting")??null}
+// stopTaskAgent stops a task's agent, as the agents page's Stop does: the
+// author agent a review loop left running.
+export const stopTaskAgent=(baseUrl:string,taskId:string)=>apiFetch(baseUrl,"/api/agents/kill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({task_id:taskId})}).then(decode<{status:string}>)

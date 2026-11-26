@@ -1088,6 +1088,7 @@ func runServeCmd(args []string) int {
 	approvalsRT := startApprovals(context.Background(), cfg, db, bus, agentSvc)
 	approvalsRT.giveRepositories(repos, repoPresets)
 	sessionHistory := newSessionHistory(cfg, db)
+	srv.SetReviewAuthors(reviewAuthors(cfg, db))
 	grantWorkflowBranches(workflowSvc, approvalsRT)
 	approvalsRT.sweepSessionHistory(sessionHistory)
 	approvalsRT.recoverSessionHistory(sessionHistory, bus)
@@ -1489,6 +1490,7 @@ func runTUI() int {
 	approvalsRT := startApprovals(context.Background(), cfg, db, bus, agentSvc)
 	approvalsRT.giveRepositories(repos, repoPresets)
 	sessionHistory := newSessionHistory(cfg, db)
+	tuiReviewAuthors := reviewAuthors(cfg, db)
 	grantWorkflowBranches(tuiWorkflowSvc, approvalsRT)
 	approvalsRT.sweepSessionHistory(sessionHistory)
 	approvalsRT.recoverSessionHistory(sessionHistory, bus)
@@ -1571,6 +1573,7 @@ func runTUI() int {
 			webSrv.SetTaskStackService(taskStacks)
 			webSrv.SetRelatedAgentsService(service.NewRelatedAgentsService(db))
 			webSrv.SetReviewLoops(service.NewReviewLoopLookup(db))
+			webSrv.SetReviewAuthors(tuiReviewAuthors)
 			if graph := agentGraphFor(db, agentSvc, tuiWorkflowSvc); graph != nil {
 				webSrv.SetAgentGraphService(graph)
 			}
@@ -1681,7 +1684,10 @@ func runTUI() int {
 		// Review passes are offered only while a Legato on the data folder
 		// runs the review engine.
 		launcher.SetReviewEngine(reviewEngineStatus(cfg))
+		launcher.SetReviewAuthors(tuiReviewAuthors)
 		app.SetTaskWorkflowLauncher(launcher)
+		// A card's running review loop opens in the web UI.
+		app.SetWebURL(localWebURL(cfg))
 	}
 	if triggerCoordinator != nil {
 		triggerAdapter := service.NewWorkflowTriggerAttentionAdapter(triggerCoordinator, db)

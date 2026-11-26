@@ -23,6 +23,13 @@ const (
 	ReviewReadyStepType = "github.pr.ready"
 )
 
+// The modes of github.pr.review.wait: the author's round, or the
+// steward's watch after approval.
+const (
+	ReviewWaitModeAuthor = "author"
+	ReviewWaitModeWatch  = "watch"
+)
+
 // MaxReviewLoopPRs is the most pull requests one review loop takes.
 const MaxReviewLoopPRs = 20
 
@@ -78,14 +85,15 @@ var reviewPassSpec = ExecutorSpec{
 
 var reviewWaitSpec = ExecutorSpec{
 	Type: ReviewWaitStepType, Group: "Code", Title: "Wait for the author",
-	Description: "Wait while the author works on a pass's findings: Legato tells an agent author of them once it is idle (resuming it when it has stopped), and the wait ends when the author pushes, disputes a blocking finding, or the pull requests close. A person author gets a quiet time after a push.",
+	Description: "Wait while the author works on a pass's findings: Legato tells an agent author of them once it is idle (resuming it when it has stopped), and the wait ends when the author pushes, disputes a blocking finding, or the pull requests close. A person author gets a quiet time after a push. In mode watch (the steward, after approval of a loop opened with steward), Legato sends the author agent the failing counted checks and the new counted comments and reviews, each naming the operation a fix may need, and the wait ends when the author pushes (pushed: review again), disputes a blocking finding (disputed), or a pull request closes unmerged (closed).",
 	With: []Field{
 		reviewLoopField,
-		{Name: "mode", Kind: KindString, Label: "Waits for", Description: "author: the author's round", Default: "author", Enum: []string{"author"}, Checked: true, Invalid: "must be author", Order: 2},
+		{Name: "mode", Kind: KindString, Label: "Waits for", Description: "author: the author's round; watch: the steward's watch after approval", Default: "author", Enum: []string{ReviewWaitModeAuthor, ReviewWaitModeWatch}, Checked: true, Invalid: "must be author or watch", Order: 2},
 	},
 	Summary: []string{"loop"},
 	Outputs: []OutputSpec{
-		{Name: "state", Type: "string", Description: "ready (the author is done), closed, or stuck when the operator ended the stuck loop"},
+		{Name: "state", Type: "string", Description: "Mode author: ready (the author is done), closed, or stuck when the operator ended the stuck loop"},
+		{Name: "woke", Type: "string", Description: "Mode watch: what woke the steward: pushed or disputed (review again), closed (a pull request closed unmerged), merged, idle or ended"},
 		{Name: "loop_id", Type: "string", Description: "The loop's ID"},
 	},
 }

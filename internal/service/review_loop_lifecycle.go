@@ -79,10 +79,14 @@ func ReviewRefusalCode(err error) string {
 
 // reviewLoopName says whose a loop is and where to see it.
 func reviewLoopName(l *store.ReviewLoop) (name, link string) {
-	switch l.OwnerKind {
-	case store.ReviewLoopOwnerRun:
+	switch {
+	case l.HandoffID != "" && l.HostTask != "":
+		// A handoff's loop, its own or its review-loop run's: the card is
+		// where the main and the worker see it.
+		return "handed-off task " + l.HostTask, "/board?highlight_task=" + l.HostTask
+	case l.OwnerKind == store.ReviewLoopOwnerRun:
 		return "run " + l.RunID, "/workflows/runs/" + l.RunID
-	case store.ReviewLoopOwnerHandoff:
+	case l.OwnerKind == store.ReviewLoopOwnerHandoff:
 		return "handed-off task " + l.HostTask, "/board?highlight_task=" + l.HostTask
 	}
 	return "review loop " + l.ID, ""
@@ -182,6 +186,19 @@ func (s *ReviewPassService) Close(ctx context.Context, loopID, outcome string) (
 	if outcome == ReviewOutcomeApproved {
 		phase, reason = "", ""
 	}
+	return s.closeLoop(ctx, loopID, phase, reason, outcome)
+}
+
+// closeKeepingPhase is Close keeping the loop's phase whatever the outcome:
+// a handoff's loop that found nothing to review stays skipped, which its
+// Done reads (DoneAllowed).
+func (s *ReviewPassService) closeKeepingPhase(ctx context.Context, loopID, outcome string) (bool, error) {
+	return s.closeLoop(ctx, loopID, "", "", outcome)
+}
+
+// closeLoop closes a loop with outcome, its phase set to phase with reason
+// first unless phase is "".
+func (s *ReviewPassService) closeLoop(ctx context.Context, loopID, phase, reason, outcome string) (bool, error) {
 	loop, closed, err := s.db.EndReviewLoop(ctx, loopID, phase, reason, outcome, s.now())
 	if err != nil {
 		return false, err

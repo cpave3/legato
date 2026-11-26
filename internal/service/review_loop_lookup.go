@@ -35,8 +35,7 @@ type FoundReviewLoop struct {
 	StepPath string `json:"step_path"`
 	Phase    string `json:"phase"`
 	State    string `json:"state"`
-	// Held is a steward the operator stopped watching (slice 3); false
-	// until then.
+	// Held is a steward the operator stopped watching.
 	Held    bool   `json:"held"`
 	Outcome string `json:"outcome"`
 	// Link is where the web UI shows the loop: the run's page, or the
@@ -81,16 +80,22 @@ func (l *ReviewLoopLookup) ActiveReviewLoop(ctx context.Context, repo string, pr
 		return nil, err
 	}
 	_, link := reviewLoopName(loop)
-	return &FoundReviewLoop{
+	found := &FoundReviewLoop{
 		LoopID: loop.ID, Kind: kind, RunID: loop.RunID, StepPath: loop.StepPath,
 		Phase: loop.Phase, State: loop.State, Held: loop.Held, Outcome: loop.Outcome, Link: link,
-	}, nil
+	}
+	if kind == ReviewLoopKindHandoff {
+		// A handoff's loop is seen on its card, whichever run moves it.
+		found.RunID, found.StepPath = "", ""
+	}
+	return found, nil
 }
 
-// kindOf says whose a loop is: a handoff's, or a run's, which is a child
-// run when a workflow.run step started it.
+// kindOf says whose a loop is: a handoff's (its own, or its review-loop
+// run's under the handoff binding), or a run's, which is a child run when a
+// workflow.run step started it.
 func (l *ReviewLoopLookup) kindOf(ctx context.Context, loop *store.ReviewLoop) (string, error) {
-	if loop.OwnerKind == store.ReviewLoopOwnerHandoff {
+	if loop.OwnerKind == store.ReviewLoopOwnerHandoff || loop.HandoffID != "" {
 		return ReviewLoopKindHandoff, nil
 	}
 	run, err := l.db.GetWorkflowRun(ctx, loop.RunID)
@@ -103,4 +108,29 @@ func (l *ReviewLoopLookup) kindOf(ctx context.Context, loop *store.ReviewLoop) (
 		return ReviewLoopKindChildRun, nil
 	}
 	return ReviewLoopKindRun, nil
+}
+
+// What the board's PR chip says of a stewarded pull request (spec LEG-559
+// story 13): its loop's steward watches it, or the operator stopped
+// watching.
+const (
+	StewardStateStewarding = "stewarding"
+	StewardStateHeld       = "held"
+)
+
+// StewardState is StewardStateStewarding or StewardStateHeld when the loop
+// that holds repo's pull request pr is stewarding it, "" otherwise (no
+// loop, one still in its first review, or a bad query).
+func (l *ReviewLoopLookup) StewardState(ctx context.Context, repo string, pr int) string {
+	if CheckReviewLoopQuery(repo, pr) != nil {
+		return ""
+	}
+	loop, err := l.db.ActiveReviewLoop(ctx, repo, pr)
+	if err != nil || !stewarding(loop) {
+		return ""
+	}
+	if loop.Held {
+		return StewardStateHeld
+	}
+	return StewardStateStewarding
 }

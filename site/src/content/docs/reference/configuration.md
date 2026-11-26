@@ -412,7 +412,7 @@ How Legato reads pull requests for your tasks. Legato only reads from GitHub her
 | --- | --- | --- | --- |
 | `github.auth` | string | `auto` | Where the token comes from: `auto` (`github.token` if set, else `gh auth token`), `gh` (only `gh auth token`) or `token` (only `github.token`). |
 | `github.token` | string | none | A GitHub token. Use `${VAR}` to keep it out of the file. |
-| `github.app_logins` | list of strings | none | The bot logins of your Legato's own GitHub Apps, such as `my-legato-reviewer[bot]`. Their reviews never start a workflow, and review passes never take their comments for feedback; Legato also learns them from the reviews it posts. A name without the `[bot]` suffix is given it. |
+| `github.app_logins` | list of strings | none | The bot logins of your Legato's own GitHub Apps, such as `my-legato-reviewer[bot]`. Their reviews never start a workflow, and review passes never take their comments for feedback; Legato also learns them as its Apps post. A pull request is reviewed as an agent's only when one of these opened it. A name without the `[bot]` suffix is given it. |
 | `github.poll_interval_seconds` | integer | `600` | How often Legato looks for a pull request on a task's branch that has none yet. |
 | `github.resolved_poll_interval_seconds` | integer | `600` | How often Legato refreshes pull requests it already knows. |
 
@@ -470,12 +470,16 @@ pull_requests:
       mode: draft
     - match: acme/web-app    # an exact name beats a pattern
       mode: ready
+    - match: acme/infra
+      mode: draft
+      ready_after_review: true  # handed-off drafts marked ready once approved
 ```
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `pull_requests.rules[].match` | string | none | A GitHub repository, `owner/name`, or a pattern with `*`: `owner/*`, `*/name`, or `*` for every repository. A leading `github.com/` is dropped. Case is ignored. When several rules match, an exact name wins, then the pattern with more of the name written out. One rule per match. |
 | `pull_requests.rules[].mode` | `draft`, `ready` or `agent` | none | `draft`: agents are told to open drafts, and Legato's credential broker refuses a pull request that is not a draft. `ready`: agents are told to open pull requests ready for review, and a [handoff](/legato/using/handoff/) may open them from its own branches without asking. `agent`: the agent chooses, and a handoff may open either. |
+| `pull_requests.rules[].ready_after_review` | bool | `false` | On a `draft` rule only (on any other rule it is an error). Once [review passes](/legato/using/review-passes/#drafts-marked-ready-after-review) approve a handed-off task's stack in a matching repository, the worker marks each of its draft pull requests ready for review, bottom first, as your GitHub App. A pull request GitHub will not mark ready pauses the task's review run. Legato never merges and never turns on auto-merge. In Settings, **Mark ready once reviewed**. |
 
 A repository no rule matches keeps the behaviour from before there were rules: a handoff opens drafts, and other agents choose. A handoff follows the rules of the worker it runs on. See [Pull requests that are not drafts](/legato/security/credential-broker/#pull-requests-drafts-or-ready).
 
@@ -747,7 +751,7 @@ Topic roots must have nonempty segments, without MQTT wildcards, NUL, or a trail
 
 ## Review passes
 
-A reviewer on another model reviews pull requests in passes until a pass is clean: on a worker instance, those of each make-a-change handoff when its author finishes; on any instance, any pull request a `review-pr-passes` workflow run names. Settings alone start nothing; `review_passes.enabled` turns it on. The main instance can change the reviewer, the skill and the number of passes for one handoff in the Hand off dialog. See [Handing off a task](/legato/using/handoff/) and [Review passes](/legato/using/review-passes/).
+A reviewer on another model reviews pull requests in passes until a pass is clean: on a worker instance, those of each make-a-change handoff when its author finishes; on any instance, any pull request a `review-loop` workflow run names (or an old `review-pr-passes` copy's). Settings alone start nothing; `review_passes.enabled` turns it on. The main instance can change the reviewer, the skill and the number of passes for one handoff in the Hand off dialog. See [Handing off a task](/legato/using/handoff/) and [Review passes](/legato/using/review-passes/).
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |

@@ -161,6 +161,30 @@ func TestAnAgentsBranchIsTrackedOnItsTaskAndItsPullRequestFoundAtOnce(t *testing
 	}
 }
 
+// The App an agent's branch reaches GitHub as is learned before its pull
+// request is looked for, so PR tracking's author for it is known as
+// Legato's own (spec LEG-559 D8).
+func TestTheAppAnAgentsBranchGoesThroughIsLearnedBeforeItsPullRequestIsFound(t *testing.T) {
+	gh := newFakeGitHub(t)
+	s, svc, _ := newBranchTracking(t, gh)
+	createPRTask(t, s, "task-1")
+	branches := NewAgentBranches(s, svc)
+	var learned []string
+	branches.SetAppLearner(func(_ context.Context, repo string) error {
+		learned = append(learned, repo)
+		if rows, _ := s.ListTaskBranches(context.Background(), "task-1"); len(rows) > 0 {
+			t.Errorf("the branch was tracked before its App was learned: %+v", rows)
+		}
+		return nil
+	})
+	gh.set("acme/widget", fakePR{Number: 210, Head: "legato/task-1-rail"})
+	branches.Track(AgentBranch{TaskID: "task-1", ExecutionID: "ex-1", Repo: "acme/widget", Branch: "legato/task-1-rail", Opened: true})
+	branches.Wait()
+	if !reflect.DeepEqual(learned, []string{"acme/widget"}) {
+		t.Fatalf("learned %v", learned)
+	}
+}
+
 func hasBranch(rows []store.TaskBranch, branch, source string) bool {
 	for _, row := range rows {
 		if row.Branch == branch && row.Source == source {

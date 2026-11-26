@@ -1,6 +1,6 @@
 import { prepareGitHubWorkflow, pullRequestInputs, type GitHubPullRequestContext, type PreparedWorkflow, type PullRequestPurpose } from "./actions"
 import type { ExtensionConfig } from "./config"
-import { LegatoClient, type WorkflowDiscovery, type WorkflowRun, type WorkflowRunView } from "./legato"
+import { LegatoClient, type ActiveReviewLoop, type WorkflowDiscovery, type WorkflowRun, type WorkflowRunView } from "./legato"
 import { hasOriginPermission } from "./permissions"
 import { cacheReviewContext, clearReviewContext, loadReviewContext, parseGitHubPullRequestUrl, saveDiscussionDraft, savePanelView, saveReviewContext, type PanelView } from "./review-context"
 import type { DiscussionRef } from "./discussion-panel"
@@ -30,6 +30,9 @@ type Dependencies = {
   getTabUrl: (tabId: number) => Promise<string | undefined>
   saveReviewContext: (tabId: number, context: GitHubPullRequestContext) => Promise<void>
   listRuns: (config: ExtensionConfig, workflow: string, inputs: Record<string, string>) => Promise<WorkflowRun[]>
+  // The review loop that holds a pull request (null: none; undefined: an
+  // older Legato that cannot say).
+  activeLoop: (config: ExtensionConfig, repo: string, pr: number) => Promise<ActiveReviewLoop | null | undefined>
   syncTicketSites: () => Promise<TicketSitesResult>
 }
 
@@ -45,6 +48,7 @@ const defaultDependencies: Dependencies = {
   getTabUrl: async (tabId) => (await chrome.tabs.get(tabId)).url,
   saveReviewContext,
   listRuns: (config, workflow, inputs) => new LegatoClient(config.baseUrl, config.token).listWorkflowRuns(workflow, inputs),
+  activeLoop: (config, repo, pr) => new LegatoClient(config.baseUrl, config.token).activeReviewLoop(repo, pr),
   syncTicketSites: () => syncTicketSites(),
 }
 
@@ -195,11 +199,18 @@ export function createMessageHandler(deps: Dependencies = defaultDependencies) {
         if (request.type === "detectGitHubDiscussion") return { ok: true, discussion: await findDiscussion(deps, config, context) }
         const prepared = prepareGitHubWorkflow(config, context, await deps.discover(config), purpose)
         if (request.type === "prepareGitHubWorkflow") return { ok: true, prepared }
-        // One review loop per pull request: the one going is opened instead.
+        // One review loop per pull request: the one going is opened instead,
+        // whichever caller started it (a run, a workflow it called, a
+        // handoff). An older Legato that cannot say is asked for this
+        // workflow's runs on the pull request.
         const loop = purpose === "passes" || purpose === "passes-pr"
         if (loop) {
-          const live = (await deps.listRuns(config, prepared.workflowName, pullRequestInputs(config, prepared))).find((run) => run.status === "running" || run.status === "waiting")
-          if (live) return openActiveLoop(deps, `${config.baseUrl}/workflows/runs/${encodeURIComponent(live.id)}`)
+          const holder = await deps.activeLoop(config, prepared.repository, prepared.pullRequestNumber)
+          if (holder?.link) return openActiveLoop(deps, `${config.baseUrl}${holder.link}`)
+          if (holder === undefined) {
+            const live = (await deps.listRuns(config, prepared.workflowName, pullRequestInputs(config, prepared))).find((run) => run.status === "running" || run.status === "waiting")
+            if (live) return openActiveLoop(deps, `${config.baseUrl}/workflows/runs/${encodeURIComponent(live.id)}`)
+          }
         }
         const view = await deps.start(config, prepared)
         if (loop && view.run.status === "failed") {

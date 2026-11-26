@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen, waitFor, fireEvent, cleanup, within } from "@testing-library/react"
-import { MemoryRouter } from "react-router-dom"
+import { MemoryRouter, Route, Routes } from "react-router-dom"
 
 const mockExecute = vi.fn().mockResolvedValue(undefined)
 const mockDismiss = vi.fn().mockResolvedValue(undefined)
@@ -261,6 +261,27 @@ describe("AttentionPage", () => {
     const review = screen.getByRole("region", { name: /Ready for review/ })
     expect(within(review).getByText("local-1 has 2 open PRs not reviewed")).toBeTruthy()
     expect(within(screen.getByRole("region", { name: /Needs intervention/ })).queryByText("local-1 has 2 open PRs not reviewed")).toBeNull()
+  })
+
+  it("opens the review loop that holds a pull request instead of starting another", async () => {
+    mockData = [item({
+      id: "att-prompt", producer: "review_prompt", signal_kind: "prs_unreviewed", category: "review", urgency: "normal",
+      title: "local-1 has 2 open PRs not reviewed", reason: "Its work is done, and no review loop reviews its pull requests", task_id: "local-1",
+      source_revision: "acme/widget#31:sha31", navigation: { kind: "task", target: "local-1" },
+      actions: [{ id: "start_review", label: "Start review passes", kind: "execute", intent: "primary" }],
+    })]
+    mockExecute.mockRejectedValueOnce(Object.assign(new Error("review_loop_active: pull request #32 of acme/widget already has an active review loop"), { href: "/workflows/runs/wr-held" }))
+    const { AttentionPage } = await import("../AttentionPage")
+    render(
+      <MemoryRouter initialEntries={["/attention"]}>
+        <Routes>
+          <Route path="/attention" element={<AttentionPage />} />
+          <Route path="/workflows/runs/:id" element={<p>the holder's run</p>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Start review passes" }))
+    expect(await screen.findByText("the holder's run")).toBeTruthy()
   })
 
   it("asks before an action that says what it confirms, and does nothing when the person declines", async () => {

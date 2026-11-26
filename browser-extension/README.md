@@ -2,7 +2,7 @@
 
 A local Manifest V3 extension that:
 
-- adds **Prepare Legato review**, **View review** and **Discuss PR** actions to GitHub pull-request pages;
+- adds **Prepare Legato review**, **View review**, **Discuss PR** and **Review passes** actions to GitHub pull-request pages;
 - adds an **Import to Legato** action to the ticket pages of the providers Legato syncs (Jira and Burnlite), on the sites Legato reports;
 - lets you pin comments on elements of your own site (**Scope**) and send them to Legato for an agent to act on;
 - resolves a configured user workflow and local repository preset;
@@ -34,6 +34,7 @@ Open the extension's **Options** page and enter:
 - **Bearer token**: the token from Legato's data directory when server authentication is enabled;
 - **Review workflow name**: defaults to `review-pr`;
 - **Discussion workflow name**: defaults to `discuss-pr` (see Discussing a pull request);
+- **Review passes workflow name**: defaults to `review-loop`, Legato's built-in (see Review loops);
 - **Input names**: default to `repo`, `pr_number`, and `primary_dir`;
 - **Review artifact output key**: defaults to `review`.
 
@@ -84,6 +85,14 @@ It uses a user workflow with the same three inputs as the review one, which the 
 ### Asking about lines of the diff
 
 Each inline comment form in a pull request's diff (click a line number, or drag across several) gets an **Ask Legato** button beside **Cancel**. It opens the side panel on **Discussion** and puts the file and the lines in the message box, ready for the question: ``In `path/to/file.cs`, lines 104–109: ``. Lines on the base side say so (`of the base (before this PR)`). The file comes from the diff table's `aria-label`; the range from the address GitHub keeps for a selection (`#diff-<file>R104-R109`), or the form's own line when the address names no range ending there. The text waits in the tab's session storage until a discussion shows, so it also works when the panel was closed or the discussion is still starting. The comment form is left as it was.
+
+### Review loops
+
+**Review passes** starts a review loop on the pull request and the rest of its stack (`scope: stack`), and **This PR only** on the pull request alone (`scope: pr`), with the repository and number only: Legato reviews from a clone of its own, so no repository preset is needed. The loop runs as a person's (no `agent_author`): the extension cannot tell that Legato's author App opened the pull request, and a coworker's must never be handed to an agent.
+
+The workflow is `reviewLoopWorkflowName` (`src/actions.ts`): the built-in `review-loop` whenever Legato's discovery lists it, even when the stored **Review passes workflow name** is `review-pr-passes` (the old default); `review-pr-passes` on an older Legato without `review-loop`, which says how to add it when it has neither; and any other name as it is. `scope` is sent only to a workflow that declares it (`review-pr-passes` from before stacks does not).
+
+Before starting, the extension asks Legato for the loop that holds the pull request (`GET /api/review-loops?repo=<owner/name>&pr=<n>`, `LegatoClient.activeReviewLoop`), which reads the loop record's claim and so finds a loop whatever started it: a workflow run, a child run of a `workflow.run` step, or a handoff. It opens that loop's `link` (a run's page or the handed-off card) instead of starting another, and the button reads **Open review loop**. An older Legato without the lookup (`404`, or a body that is not its JSON) is asked for running or waiting runs of the workflow on the pull request, as before. A start Legato refuses with `review_loop_active` (another loop took the pull request first) opens the holder its message links; any other refusal is shown in Legato's words.
 
 ### Review side panel
 

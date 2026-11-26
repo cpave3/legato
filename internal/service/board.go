@@ -105,6 +105,7 @@ func (b *boardService) ListCardsByWorkspace(ctx context.Context, column string, 
 	if err != nil {
 		return nil, err
 	}
+	stewards := cardStewards(ctx, b.store)
 
 	cards := make([]Card, len(tasks))
 	for i, t := range tasks {
@@ -139,6 +140,7 @@ func (b *boardService) ListCardsByWorkspace(ctx context.Context, column string, 
 			WorkspaceID:   t.WorkspaceID,
 			HandedOffFrom: origins[t.ID],
 			Away:          away[t.ID],
+			Steward:       stewards[t.ID],
 		}
 		if provider == "burnlite" {
 			cards[i].BlockedBy = splitList(meta["blocked_by"])
@@ -185,6 +187,39 @@ func (b *boardService) handoffMarks(ctx context.Context) (map[string]*HandoffOri
 		away[a.TaskID] = &task
 	}
 	return origins, away, nil
+}
+
+// cardStewards is how each card's steward stands: the open run loops whose
+// steward watches, by the task whose agent authors them (else the task
+// they link). A read that fails marks nothing.
+func cardStewards(ctx context.Context, db *store.Store) map[string]string {
+	loops, err := db.ListOpenReviewLoops(ctx)
+	if err != nil {
+		return nil
+	}
+	out := map[string]string{}
+	for i := range loops {
+		l := &loops[i]
+		if !stewarding(l) {
+			continue
+		}
+		card := l.AuthorTask
+		if card == "" {
+			card = l.LinkedTask
+		}
+		if card == "" {
+			continue
+		}
+		switch {
+		case l.Phase == ReviewPhaseStuck:
+			out[card] = CardStewardStuck
+		case l.Held:
+			out[card] = CardStewardHeld
+		default:
+			out[card] = CardStewarding
+		}
+	}
+	return out
 }
 
 func (b *boardService) TaskActivity(ctx context.Context, id string) (*TaskActivity, error) {

@@ -29,8 +29,16 @@ func newReviewed(t *testing.T, opts ReviewPassOptions) reviewed {
 // (none when nil).
 func newReviewedWith(t *testing.T, opts ReviewPassOptions, gh *FakeGitHub) reviewed {
 	t.Helper()
+	return newReviewedOn(t, WorkerOptions{ReviewPasses: &opts}, gh)
+}
+
+// newReviewedOn is newReviewedWith on a worker with more options (its
+// name, GitHub repositories and review passes are the harness's).
+func newReviewedOn(t *testing.T, wopts WorkerOptions, gh *FakeGitHub) reviewed {
+	t.Helper()
 	ctx := context.Background()
-	worker := StartWorker(t, WorkerOptions{Name: "vm-1", GitHubRepositories: []string{"acme/*"}, ReviewPasses: &opts})
+	wopts.Name, wopts.GitHubRepositories = "vm-1", []string{"acme/*"}
+	worker := StartWorker(t, wopts)
 	main := liveMain(t, worker)
 	if gh != nil {
 		main = NewMain(t, MainOptions{Clock: worker.Clock, GitHub: gh})

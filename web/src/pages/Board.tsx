@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { activeReviewLoop } from "../lib/workflow"
+import { lookupReviewLoop, useReviewLoops } from "../lib/reviewLoops"
 import { useReviewEngine } from "../lib/reviewEngine"
 import { BoardMacrosContext, macroPR } from "../components/board/PRMacros"
 import { cardMacroPRs } from "../lib/cardMacros"
@@ -215,15 +215,18 @@ export function BoardPage() {
   const [recalling, setRecalling] = useState<BoardCard | null>(null)
   const [cardWorkflow, setCardWorkflow] = useState<{ card: BoardCard; workflow: CardWorkflowOption } | null>(null)
   // A review loop to start on a card's pull request, its agent the author.
-  const [reviewLoop, setReviewLoop] = useState<{ card: BoardCard; pr: PRMetaView; scope?: "stack" | "pr" } | null>(null)
+  const [reviewLoop, setReviewLoop] = useState<{ card: BoardCard; pr: PRMetaView; scope?: "stack" | "pr"; agentAuthor: boolean } | null>(null)
   const navigateTo = useNavigate()
-  const reviewPassesDefinition = workflowDiscovery.data?.definitions?.find(definition => definition.name === "review-pr-passes")
-  const startReviewLoop = useCallback(async (card: BoardCard, pr: PRMetaView, scope?: "stack" | "pr") => {
-    // The loop already running on the pull request is shown, not a second.
-    // One on another layer of a stack refuses the start, naming itself.
-    const active = await activeReviewLoop(baseUrl, pr.repo, pr.pr_number).catch(() => null)
-    if (active) navigateTo(`/workflows/runs/${encodeURIComponent(active.id)}`)
-    else setReviewLoop({ card, pr, scope })
+  // The built-in review-loop every review starts (spec LEG-559).
+  const reviewLoopDefinition = workflowDiscovery.data?.definitions?.find(definition => definition.name === "review-loop")
+  const startReviewLoop = useCallback(async (card: BoardCard, pr: PRMetaView, scope?: "stack" | "pr", stackAgent?: boolean) => {
+    // Looked up again: a loop started since the menu opened is shown, not a
+    // second. With none, the review is an agent's only when Legato's author
+    // App opened the pull request, and a stack's only when it opened every
+    // layer (the menu's mode for the stack).
+    const found = await lookupReviewLoop(baseUrl, pr.repo, pr.pr_number).catch(() => null)
+    if (found?.loop) navigateTo(found.loop.link)
+    else setReviewLoop({ card, pr, scope, agentAuthor: found?.agent_author === true && (scope !== "stack" || stackAgent === true) })
   }, [baseUrl, navigateTo])
   // Read as each card menu opens, so an edit shows, and on load only when
   // a card has a pull request line to put them on.
@@ -231,6 +234,10 @@ export function BoardPage() {
   const macros = useMacros(baseUrl, contextMenu ? `menu:${contextMenu.card.id}` : showsPullRequests ? "page" : null)
   // Whether a review can start: read as each card menu opens.
   const reviewEngine = useReviewEngine(baseUrl, contextMenu)
+  // The menu card's open pull requests, each looked up as the menu opens
+  // while the engine runs: the loop that holds it, or whose it is.
+  const reviewPRs = useMemo(() => contextMenu && reviewLoopDefinition ? (contextMenu.card.pull_requests ?? []).filter(pr => pr.repo && !["MERGED", "CLOSED"].includes(pr.state.toUpperCase())) : [], [contextMenu, reviewLoopDefinition])
+  const reviewLoops = useReviewLoops(baseUrl, reviewEngine?.running ? reviewPRs : [], reviewEngine?.running ? contextMenu : null)
   // A macro on a card, or on one of its pull requests: it starts the task's
   // agent, or is queued to the one running.
   const runMacro = useCallback(async (card: BoardCard, macro: Macro, pr?: MacroPR) => {
@@ -1153,10 +1160,12 @@ export function BoardPage() {
         canHandOff={canHandOff}
         onAction={handleContextAction}
         onWorkflow={workflow => { setCardWorkflow({ card: contextMenu.card, workflow }); setContextMenu(null) }}
-        reviewPasses={reviewPassesDefinition && reviewEngine ? (contextMenu.card.pull_requests ?? []).filter(pr => pr.repo && !["MERGED", "CLOSED"].includes(pr.state.toUpperCase())) : []}
+        reviewPasses={reviewEngine ? reviewPRs : []}
         reviewUnavailable={reviewEngine && !reviewEngine.running ? reviewEngine.reason : undefined}
-        reviewStack={Boolean(reviewPassesDefinition?.inputs?.scope)}
-        onReviewPasses={(pr, scope) => { void startReviewLoop(contextMenu.card, pr, scope) }}
+        reviewStack={Boolean(reviewLoopDefinition?.inputs?.scope)}
+        reviewLoops={reviewLoops}
+        onReviewPasses={(pr, scope, agentAuthor) => { void startReviewLoop(contextMenu.card, pr, scope, agentAuthor) }}
+        onOpenReviewLoop={loop => navigateTo(loop.link)}
         macros={macros.macros}
         suggested={macros.suggested}
         onMacro={macro => { void runMacro(contextMenu.card, macro) }}
@@ -1166,7 +1175,7 @@ export function BoardPage() {
         onClose={() => setContextMenu(null)}
       />}
       {recalling && <RecallDialog baseUrl={baseUrl} card={recalling} onClose={() => setRecalling(null)} onNotice={awayNotice} />}
-      {reviewLoop && reviewPassesDefinition && <RunWorkflowDialog definition={reviewPassesDefinition} repositories={workflowDiscovery.data?.repositories ?? []} initialValues={{ repo: reviewLoop.pr.repo, pr_number: String(reviewLoop.pr.pr_number), agent_author: "true", ...(reviewLoop.scope ? { scope: reviewLoop.scope } : {}) }} readOnlyInputs={["repo", "pr_number", "agent_author", ...(reviewLoop.scope ? ["scope"] : [])]} onClose={() => setReviewLoop(null)} />}
+      {reviewLoop && reviewLoopDefinition && <RunWorkflowDialog definition={reviewLoopDefinition} repositories={workflowDiscovery.data?.repositories ?? []} initialValues={{ repo: reviewLoop.pr.repo, pr_number: String(reviewLoop.pr.pr_number), agent_author: String(reviewLoop.agentAuthor), ...(reviewLoop.scope ? { scope: reviewLoop.scope } : {}) }} readOnlyInputs={["repo", "pr_number", "agent_author", "scope"]} hiddenInputs={["prs", "ready", "max_reentries"]} onClose={() => setReviewLoop(null)} />}
       {cardWorkflow && <RunWorkflowDialog definition={cardWorkflow.workflow.definition} repositories={workflowDiscovery.data?.repositories ?? []} initialValues={{ [cardWorkflow.workflow.taskInput]: cardWorkflow.card.id }} readOnlyInputs={[cardWorkflow.workflow.taskInput]} onClose={() => setCardWorkflow(null)} />}
 
       {/* Overlays */}

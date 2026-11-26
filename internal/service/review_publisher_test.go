@@ -111,6 +111,7 @@ type reviewGitHub struct {
 	watched    map[int]string
 	watchReads int
 	watchVars  map[string]any
+	watchQuery string
 	bearers    []string
 }
 
@@ -393,6 +394,7 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			case strings.Contains(body.Query, "mergeStateStatus"):
 				g.watchReads++
 				g.watchVars = body.Variables
+				g.watchQuery = body.Query
 				var parts []string
 				for k, v := range body.Variables {
 					if !strings.HasPrefix(k, "n") || k == "name" {
@@ -716,6 +718,38 @@ func TestTheAuthorsAnswersArePostedAsTheAuthorApp(t *testing.T) {
 	// The author App's token writes pull requests and reads code only.
 	if len(f.github.comments) != 1 || !strings.HasPrefix(f.github.comments[0], "Fixed in abc124.") || !strings.HasSuffix(f.github.comments[0], "|read") {
 		t.Fatalf("comments = %v", f.github.comments)
+	}
+}
+
+// The author App's login is learned once Legato resolves it to post, so
+// its pull requests read as the agent's (D8) without github.app_logins.
+func TestTheAuthorAppsLoginIsLearnedWhenItPosts(t *testing.T) {
+	f := newPublisherFixture(t)
+	var learned []string
+	f.publisher.SetLoginRecorder(func(login string) { learned = append(learned, login) })
+	if _, err := f.publisher.PostIssueComment(context.Background(), AsAuthor, "cpave3/legato", 12, "Fixed in abc124.", answerKey("t1/b-1/n1")); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(learned, "legato-author[bot]") {
+		t.Fatalf("learned %v; want the author App's login", learned)
+	}
+}
+
+// The author App's login is learned from its credential before it has
+// posted anything (an agent's first pull request goes through the proxy,
+// not the publisher), so that pull request reads as the agent's (D8).
+func TestTheAuthorAppsLoginIsLearnedBeforeItPostsAnything(t *testing.T) {
+	f := newPublisherFixture(t)
+	var learned []string
+	f.publisher.SetLoginRecorder(func(login string) { learned = append(learned, login) })
+	if err := f.publisher.LearnAuthorApp(context.Background(), "cpave3/legato"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(learned, "legato-author[bot]") {
+		t.Fatalf("learned %v; want the author App's login", learned)
+	}
+	if len(f.github.comments) != 0 || len(f.github.reviews) != 0 {
+		t.Fatalf("learning posted: comments %v, reviews %v", f.github.comments, f.github.reviews)
 	}
 }
 

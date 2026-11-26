@@ -11,7 +11,7 @@ import { AlertTriangle, ArrowLeft, Redo2, Save, Trash2, Undo2 } from "lucide-rea
 import { useServer } from "../hooks/useServer"
 import { useWorkflows } from "../hooks/useWorkflow"
 import { queryKeys } from "../lib/query"
-import { checkWorkflowFile, createWorkflowFile, deleteWorkflowFile, fetchWorkflowFile, offsetOf, saveWorkflowFile, upgradeWorkflowFile, WorkflowFileError, type WorkflowCheck, type WorkflowDiagnostic, type WorkflowFile } from "../lib/workflowFiles"
+import { checkWorkflowFile, createWorkflowFile, deleteWorkflowFile, fetchWorkflowFile, fixLabel, offsetOf, saveWorkflowFile, upgradeWorkflowFile, WorkflowFileError, type WorkflowCheck, type WorkflowDiagnostic, type WorkflowDiagnosticFix, type WorkflowFile } from "../lib/workflowFiles"
 import { LazyWorkflowYamlEditor } from "../components/workflow-editor/LazyWorkflowYamlEditor"
 import { LazyWorkflowOutline } from "../components/workflow-editor/LazyWorkflowOutline"
 import type { HeldYaml } from "../components/workflow-editor/WorkflowOutline"
@@ -148,11 +148,14 @@ function storedMode(): EditorMode {
   try { return localStorage.getItem(MODE_KEY) === "yaml" ? "yaml" : "visual" } catch { return "visual" }
 }
 
-function Problems({ diagnostics }: { diagnostics: WorkflowDiagnostic[] }) {
+// Problems lists the diagnostics; one Legato can fix offers its quick fix
+// (onFix), such as the deprecated inline review step's rewrite (LEG-599).
+function Problems({ diagnostics, onFix }: { diagnostics: WorkflowDiagnostic[]; onFix?: (fix: WorkflowDiagnosticFix) => void }) {
   if (diagnostics.length === 0) return <p className="text-sm text-lw-text-2">No problems</p>
   return <ul aria-label="Problems" className="flex flex-col gap-1 text-[13px]">
     {diagnostics.map((d, i) => <li key={i} className={d.severity === "error" ? "text-lw-danger" : "text-lw-needs"}>
       <span className="font-lw-mono text-xs text-lw-faint">{d.line}:{d.column}</span> {d.severity === "warning" ? "Warning: " : ""}{d.message}
+      {d.fix && onFix && <> <button type="button" className="text-lw-link hover:underline" onClick={() => onFix(d.fix!)}>{fixLabel(d.fix)}</button></>}
     </li>)}
   </ul>
 }
@@ -314,12 +317,12 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   // the text as legato workflow upgrade does, keeping comments, and it goes
   // into the editor as one change, which Undo takes back.
   const versionOne = text !== null && /^schema_version:[ \t]*1[ \t]*(#.*)?$/m.test(text)
-  const upgrade = async () => {
+  const upgrade = async (label = "Upgrade to v2") => {
     if (text === null) return
     setUpgrading(true)
     try {
       const result = await upgradeWorkflowFile(baseUrl, text)
-      if (result.changed) history.push(result.yaml, "Upgrade to v2")
+      if (result.changed) history.push(result.yaml, label)
       setUpgradeNotes(result.notes.length > 0 ? { text: result.yaml, notes: result.notes } : null)
     } catch (err) {
       setError(`Could not upgrade the file: ${err instanceof Error ? err.message : String(err)}`)
@@ -328,6 +331,10 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
     }
   }
   const editable = mode === "new" || Boolean(file?.editable)
+  // A diagnostic's quick fix: "upgrade" is the server's upgrade, which
+  // rewrites the deprecated inline review step to call review-loop (and, on
+  // a version 1 file, upgrades the file to version 2).
+  const fix = editable && !upgrading ? (made: WorkflowDiagnosticFix) => { if (made === "upgrade") void upgrade(fixLabel(made)) } : undefined
   const canSave = editable && !busy && checked !== null && errors.length === 0 && (mode === "new" || dirty)
   const folders = workflows.data?.folders ?? []
   // y switches between Visual and YAML, Mod-s saves, outside text fields.
@@ -497,7 +504,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   const canvas = visual && !narrow
   const problemsCard = canvas && showProblems && <DockCard label="Problems" folded={false} onFold={() => setShowProblems(false)}
     heading={<h2 className={cardTitle}>{checked ? "Problems" : "Checking…"}<span className="font-medium text-lw-faint">{problemCount}</span></h2>}>
-    <div className="max-h-60 overflow-y-auto px-4 pb-3"><Problems diagnostics={diagnostics} /></div>
+    <div className="max-h-60 overflow-y-auto px-4 pb-3"><Problems diagnostics={diagnostics} onFix={fix} /></div>
   </DockCard>
   const outlineProps = { text, onEdit: (change: { text: string; undo: { label: string } }, how?: { typing?: boolean }) => history.push(change.text, change.undo.label, how?.typing), diagnostics, nameFixed: mode === "edit", onEditYaml: (line?: number) => { switchMode("yaml"); if (line) { const at = offsetOf(text, line, 1); jumpTo({ from: at, to: at }) } }, options, schedule: checked?.schedule, onPending: setPendingEdits,
     savedText: mode === "edit" ? saved : null, pausedHere, lastGood, onGood: setLastGood, graph, selection, onSelect: select, narrow, sheet: narrow && selection !== null, onCloseSheet: closeSheet, onUndo: history.undo, onRedo: history.redo, held: heldYaml, onHeld: setHeldYaml }
@@ -518,12 +525,12 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
             options={options} selection={null} onSelect={() => {}} narrow={narrow} pausedHere={pausedHere} lastGood={lastGood} onGood={setLastGood} graph={graph} />
         </section>}
         <section aria-label="YAML" className="min-h-0 flex-1 overflow-hidden rounded-xl border border-lw-line">
-          <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} readOnly={!editable} onUndo={editable ? history.undo : undefined} onRedo={editable ? history.redo : undefined} jumpTo={jump} onCursor={setCursor} />
+          <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} onFix={fix} readOnly={!editable} onUndo={editable ? history.undo : undefined} onRedo={editable ? history.redo : undefined} jumpTo={jump} onCursor={setCursor} />
         </section>
       </div>
       <section aria-label="Check" className="max-h-40 shrink-0 overflow-y-auto rounded-xl border border-lw-line bg-lw-surface p-3">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-lw-text-2">{checked ? "Problems" : "Checking…"}</h2>
-        {checked && <Problems diagnostics={diagnostics} />}
+        {checked && <Problems diagnostics={diagnostics} onFix={fix} />}
       </section>
     </div>
   } else {
@@ -533,7 +540,7 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
       {noticeList && <div className="mb-3 space-y-2">{noticeList}</div>}
       {visual
         ? <>
-          {showProblems && <section aria-label="Check" className="mb-3 rounded-xl border border-lw-line bg-lw-surface p-3"><Problems diagnostics={diagnostics} /></section>}
+          {showProblems && <section aria-label="Check" className="mb-3 rounded-xl border border-lw-line bg-lw-surface p-3"><Problems diagnostics={diagnostics} onFix={fix} /></section>}
           <section aria-label="Visual" className="pb-16"><LazyWorkflowOutline {...outlineProps} /></section>
         </>
         : <div className="flex flex-col gap-4">
@@ -543,12 +550,12 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
                 options={options} selection={null} onSelect={() => {}} narrow={narrow} pausedHere={pausedHere} lastGood={lastGood} onGood={setLastGood} graph={graph} />
             </section>}
             <section aria-label="YAML" className="h-[70vh] overflow-hidden rounded-xl border border-lw-line">
-              <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} readOnly={!editable} onUndo={editable ? history.undo : undefined} onRedo={editable ? history.redo : undefined} jumpTo={jump} onCursor={setCursor} />
+              <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} onFix={fix} readOnly={!editable} onUndo={editable ? history.undo : undefined} onRedo={editable ? history.redo : undefined} jumpTo={jump} onCursor={setCursor} />
             </section>
           </div>
           <section aria-label="Check" className="rounded-xl border border-lw-line bg-lw-surface p-3">
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-lw-text-2">{checked ? "Problems" : "Checking…"}</h2>
-            {checked && <Problems diagnostics={diagnostics} />}
+            {checked && <Problems diagnostics={diagnostics} onFix={fix} />}
           </section>
         </div>}
     </div>

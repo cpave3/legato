@@ -82,7 +82,15 @@ type Diagnostic struct {
 	Column    int      `json:"column"`
 	EndLine   int      `json:"end_line"`
 	EndColumn int      `json:"end_column"`
+	// Fix names a change Legato can make for the operator: FixUpgrade is
+	// what legato workflow upgrade does, which the editor offers as a
+	// quick fix.
+	Fix string `json:"fix,omitempty"`
 }
+
+// FixUpgrade is the fix a Diagnostic offers when legato workflow upgrade
+// (the editor's /api/workflow-files/upgrade) makes the change.
+const FixUpgrade = "upgrade"
 
 func (d Diagnostic) String() string {
 	return fmt.Sprintf("%d:%d: %s", d.Line, d.Column, d.Message)
@@ -121,6 +129,7 @@ func Check(source string, data []byte) (*Definition, []Diagnostic) {
 		return nil, diagnostics
 	}
 	diagnostics = append(diagnostics, outputlessAgentSteps(&root, &definition)...)
+	diagnostics = append(diagnostics, deprecatedSteps(&root, &definition)...)
 	diagnostics = append(diagnostics, chatButtonsWithoutUser(&root, &definition)...)
 	diagnostics = append(diagnostics, unlistedChatHelp(&root, &definition)...)
 	return &definition, diagnostics

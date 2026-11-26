@@ -15,14 +15,32 @@ type ReviewLoopLookup interface {
 	ActiveReviewLoop(ctx context.Context, repo string, pr int) (*service.FoundReviewLoop, error)
 }
 
+// ReviewStewardStates says whether a review loop's steward watches a pull
+// request: "stewarding", "held" or "" (service.ReviewLoopLookup). A lookup
+// that has it gives the board's PR rows their steward chip.
+type ReviewStewardStates interface {
+	StewardState(ctx context.Context, repo string, pr int) string
+}
+
 // SetReviewLoops serves GET /api/review-loops.
 func (s *Server) SetReviewLoops(lookup ReviewLoopLookup) { s.reviewLoops = lookup }
 
+// ReviewAuthors derives a review's agent_author (service.ReviewAuthors).
+type ReviewAuthors interface {
+	AgentAuthor(ctx context.Context, repo string, pr int) bool
+}
+
+// SetReviewAuthors says, in GET /api/review-loops for a pull request no loop
+// holds, whether a review started on it treats it as an agent's.
+func (s *Server) SetReviewAuthors(authors ReviewAuthors) { s.reviewAuthors = authors }
+
 // reviewLoopsHandler serves GET /api/review-loops?repo=<owner/name>&pr=<n>:
 // {loop: {...}} for the loop that holds the pull request, whichever caller
-// opened it, or {loop: null} (spec LEG-559 § API contract). A launcher reads
-// it to open a running loop instead of starting another. A missing or
-// invalid parameter is a 400; a server not given the lookup finds none.
+// opened it, or {loop: null, agent_author} (spec LEG-559 § API contract).
+// A launcher reads it to open a running loop instead of starting another,
+// and otherwise to start review-loop with agent_author: true only when
+// Legato's author App opened the pull request (D8). A missing or invalid
+// parameter is a 400; a server not given the lookup finds none.
 func (s *Server) reviewLoopsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -50,6 +68,11 @@ func (s *Server) reviewLoopsHandler() http.HandlerFunc {
 				return
 			}
 		}
-		s.writeJSON(w, http.StatusOK, map[string]any{"loop": loop})
+		if loop != nil {
+			s.writeJSON(w, http.StatusOK, map[string]any{"loop": loop})
+			return
+		}
+		agent := s.reviewAuthors != nil && s.reviewAuthors.AgentAuthor(r.Context(), repo, pr)
+		s.writeJSON(w, http.StatusOK, map[string]any{"loop": nil, "agent_author": agent})
 	}
 }

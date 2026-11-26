@@ -50,7 +50,7 @@ func TestReviewLoopsReportsTheLoopThatHoldsAPullRequest(t *testing.T) {
 	}
 
 	lookup.loop = nil
-	if rec := getReviewLoops(t, srv, "repo=acme/widget&pr=13"); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"loop":null}` {
+	if rec := getReviewLoops(t, srv, "repo=acme/widget&pr=13"); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"agent_author":false,"loop":null}` {
 		t.Fatalf("none: %d %s", rec.Code, rec.Body)
 	}
 
@@ -60,12 +60,37 @@ func TestReviewLoopsReportsTheLoopThatHoldsAPullRequest(t *testing.T) {
 	}
 }
 
+type fakeReviewAuthors struct{ agent map[int]bool }
+
+func (f fakeReviewAuthors) AgentAuthor(_ context.Context, _ string, pr int) bool { return f.agent[pr] }
+
+// With no loop on a pull request, the answer says whether a review started
+// now would treat it as an agent's: only when Legato's author App opened it
+// (spec LEG-559 D8). A held one says nothing of it.
+func TestReviewLoopsSaysWhoseAPullRequestIsWhenNoLoopHoldsIt(t *testing.T) {
+	srv := New(nil, nil, nil, ":0")
+	srv.SetAuthToken("secret")
+	lookup := &fakeReviewLoops{}
+	srv.SetReviewLoops(lookup)
+	srv.SetReviewAuthors(fakeReviewAuthors{agent: map[int]bool{12: true}})
+	if rec := getReviewLoops(t, srv, "repo=acme/widget&pr=12"); strings.TrimSpace(rec.Body.String()) != `{"agent_author":true,"loop":null}` {
+		t.Fatalf("agent's: %d %s", rec.Code, rec.Body)
+	}
+	if rec := getReviewLoops(t, srv, "repo=acme/widget&pr=13"); strings.TrimSpace(rec.Body.String()) != `{"agent_author":false,"loop":null}` {
+		t.Fatalf("person's: %d %s", rec.Code, rec.Body)
+	}
+	lookup.loop = &service.FoundReviewLoop{LoopID: "rl-1", Kind: "handoff", Link: "/board?highlight_task=t1"}
+	if rec := getReviewLoops(t, srv, "repo=acme/widget&pr=12"); strings.Contains(rec.Body.String(), "agent_author") {
+		t.Fatalf("held: %d %s", rec.Code, rec.Body)
+	}
+}
+
 // A bad query is a 400 before any lookup, wired or not; a server not given
 // the lookup finds no loop.
 func TestReviewLoopsRefusesABadQuery(t *testing.T) {
 	srv := New(nil, nil, nil, ":0")
 	srv.SetAuthToken("secret")
-	if rec := getReviewLoops(t, srv, "repo=acme/widget&pr=12"); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"loop":null}` {
+	if rec := getReviewLoops(t, srv, "repo=acme/widget&pr=12"); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"agent_author":false,"loop":null}` {
 		t.Fatalf("unwired: %d %s", rec.Code, rec.Body)
 	}
 	lookup := &fakeReviewLoops{}

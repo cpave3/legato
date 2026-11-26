@@ -111,8 +111,9 @@ func (e *GitHubError) Error() string {
 type ReviewPublisher struct {
 	channels *CredentialChannels
 	reviewer string
-	// learnLogin is told the login a review was posted as: one of
-	// Legato's own Apps, whose reviews never fire a trigger.
+	// learnLogin is told the login a review was posted as, and each
+	// App's login once GitHub names it: Legato's own Apps, whose reviews
+	// never fire a trigger and whose pull requests are the agent's.
 	learnLogin func(login string)
 	// Timeout bounds each request to GitHub.
 	Timeout time.Duration
@@ -173,6 +174,20 @@ func (p *ReviewPublisher) open(ctx context.Context, who GitHubIdentity, repo str
 	return &githubCall{p: p, bc: bc, repo: repo, token: token}, release, nil
 }
 
+// LearnAuthorApp learns the login of the author App that holds repo's
+// credential (the login recorder is told it), with no token and no post: an
+// agent's first pull request is opened through the proxy as that App, before
+// the publisher has posted anything as it, and is the agent's only when
+// Legato knows the App that opened it (spec LEG-559 D8).
+func (p *ReviewPublisher) LearnAuthorApp(ctx context.Context, repo string) error {
+	bc, err := p.channels.githubCredentialFor(repo)
+	if err != nil {
+		return err
+	}
+	_, err = (&githubCall{p: p, bc: bc, repo: repo}).login(ctx, repo)
+	return err
+}
+
 // login is the login the call's posts are made as on GitHub: its App's
 // bot, <slug>[bot], the slug read with the installation. A comment or a
 // review is taken for one Legato posted only when this login posted it;
@@ -208,7 +223,13 @@ func (c *githubCall) login(ctx context.Context, repo string) (string, error) {
 		c.p.logins = map[string]string{}
 	}
 	c.p.logins[name] = login
+	learn := c.p.learnLogin
 	c.p.mu.Unlock()
+	if learn != nil {
+		// GitHub named the App itself: its login is Legato's own, the
+		// author App's as well as the reviewer's (D8).
+		learn(login)
+	}
 	return login, nil
 }
 
@@ -490,6 +511,7 @@ func openPulls(ctx context.Context, call *githubCall, repo string, q PullQuery) 
 		Title       string `json:"title"`
 		Body        string `json:"body"`
 		HTMLURL     string `json:"html_url"`
+		Draft       bool   `json:"draft"`
 		Association string `json:"author_association"`
 		User        struct {
 			Login string `json:"login"`
@@ -523,7 +545,7 @@ func openPulls(ctx context.Context, call *githubCall, repo string, q PullQuery) 
 			headRepo = pr.Head.Repo.FullName
 		}
 		out = append(out, ReviewGitHubPR{Number: pr.Number, Branch: pr.Head.Ref, Base: pr.Base.Ref, Title: pr.Title, Body: pr.Body,
-			URL: pr.HTMLURL, HeadSHA: pr.Head.SHA, Author: pr.User.Login, AuthorAssociation: pr.Association, HeadRepo: headRepo})
+			URL: pr.HTMLURL, HeadSHA: pr.Head.SHA, Author: pr.User.Login, AuthorAssociation: pr.Association, HeadRepo: headRepo, Draft: pr.Draft})
 	}
 	return out, nil
 }

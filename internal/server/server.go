@@ -110,6 +110,7 @@ type Server struct {
 	taskStacks               TaskStackService
 	relatedAgents            RelatedAgentsService
 	reviewLoops              ReviewLoopLookup
+	reviewAuthors            ReviewAuthors
 	agentGraph               AgentGraphService
 	preparing                preparingAgents
 	tints                    TintService

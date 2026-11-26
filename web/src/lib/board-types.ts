@@ -274,6 +274,9 @@ export interface PRMetaView {
   match_method: string
   sync_outcome: string
   sync_error: string
+  // While a review loop's steward looks after it: stewarding, or held once
+  // the operator stopped it watching. Absent otherwise.
+  steward?: "stewarding" | "held"
 }
 
 export interface RemoteSearchResult {

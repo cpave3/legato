@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { AlertTriangle, Bell, Check, CheckCircle, ChevronRight, ExternalLink, GitPullRequest, ScanEye, type LucideIcon } from "lucide-react"
 import { useState } from "react"
 import { useAttention } from "../hooks/useAttention"
@@ -276,6 +276,7 @@ export function AttentionPage() {
   const setupIncomplete = useSettings().data?.setup_incomplete === true
   const [actionError, setActionError] = useState<string | null>(null)
   const [pending, setPending] = useState<string | null>(null)
+  const navigate = useNavigate()
 
   async function handleAction(item: AttentionItem, actionId: string, confirmed: boolean, text?: string) {
     setPending(item.id)
@@ -284,6 +285,13 @@ export function AttentionPage() {
       await executeAttentionAction(baseUrl, item.id, actionId, item.source_revision, text === undefined ? { confirmed } : { confirmed, text })
       await refresh()
     } catch (cause) {
+      // What it would start is going already (a review loop on the pull
+      // request): open that instead.
+      const href = (cause as { href?: unknown } | null)?.href
+      if (typeof href === "string" && href.startsWith("/")) {
+        navigate(href)
+        return
+      }
       setActionError(cause instanceof Error ? cause.message : String(cause))
     } finally {
       setPending(null)

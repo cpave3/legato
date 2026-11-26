@@ -4,7 +4,7 @@ import { List, Lock } from "lucide-react"
 import { fetchConfigLists, removeConfigListEntry, saveConfigListEntry, type ConfigList, type ConfigListEntry } from "../../lib/configSettings"
 import { queryKeys } from "../../lib/query"
 import { cn } from "../../lib/utils"
-import { agentLabel, entryYaml, formFor, parseEntryYaml, type FormField, type ListForm } from "../../lib/listForms"
+import { agentLabel, entryYaml, fieldApplies, formFor, parseEntryYaml, type FormField, type ListForm } from "../../lib/listForms"
 import { SettingsCard, primaryButton, quietButton } from "./SettingsUI"
 
 const fieldClass = "min-h-9 min-w-0 w-full rounded-lg border border-lw-line-strong bg-lw-ground px-2.5 py-1 text-sm text-lw-text placeholder:text-lw-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lw-accent-ring disabled:opacity-60"
@@ -118,6 +118,8 @@ function FieldInput({ field, value, onChange, onError = () => {} }: { field: For
       return <select aria-label={field.label} className={fieldClass} value={typeof value === "boolean" ? String(value) : ""} onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value === "true")}>
         <option value="">{field.unsetLabel ?? "Default"}</option><option value="true">On</option><option value="false">Off</option>
       </select>
+    case "check":
+      return <input type="checkbox" aria-label={field.label} className="h-4 w-4 self-start" checked={value === true} onChange={(e) => onChange(e.target.checked ? true : undefined)} />
     case "lines":
       return <textarea aria-label={field.label} rows={3} className={fieldClass} placeholder={field.placeholder}
         value={Array.isArray(value) ? (value as string[]).join("\n") : ""}
@@ -175,6 +177,9 @@ export function EntryForm({ list, form, entry, onSave, onCancel }: { list: Confi
     const object = { ...(draft as Record<string, unknown>) }
     if (next === undefined) delete object[key]
     else object[key] = next
+    // A field that no longer applies (a draft rule's option on a rule
+    // that is not draft) leaves the entry.
+    for (const field of form.fields) if (field.when && !fieldApplies(field, name, object)) delete object[field.key]
     setDraft(object)
     setError("")
   }
@@ -219,7 +224,7 @@ export function EntryForm({ list, form, entry, onSave, onCancel }: { list: Confi
           <input aria-label={form.name.label} value={name} disabled={Boolean(entry)} placeholder={form.name.placeholder} onChange={(e) => setName(e.target.value)} className={fieldClass} />
         </Labelled>
         {form.scalar && <Labelled field={form.scalar}><FieldInput field={form.scalar} value={draft} onChange={(v) => { setDraft(typeof v === "string" ? v : ""); setError("") }} /></Labelled>}
-        {form.fields.filter((field) => !field.only || field.only.includes(name.trim())).map((field) => <Labelled key={field.key} field={field}>
+        {form.fields.filter((field) => fieldApplies(field, name, draft as Record<string, unknown>)).map((field) => <Labelled key={field.key} field={field}>
           <FieldInput key={`${field.key}:${generation}`} field={field} value={(draft as Record<string, unknown>)[field.key]} onChange={(v) => setField(field.key, v)}
             onError={(message) => setFieldErrors((e) => ({ ...e, [field.key]: message }))} />
         </Labelled>)}
@@ -251,6 +256,7 @@ function summary(form: ListForm, entry: ConfigListEntry): string {
     if (v === undefined || v === "") return ""
     if (f.kind === "choice") return f.choices?.find(([c]) => c === v)?.[1] ?? String(v)
     if (f.kind === "swatches") return ""
+    if (f.kind === "check") return v === true ? f.label : ""
     return Array.isArray(v) ? v.join(" ") : String(v)
   }).filter(Boolean).join(" · ")
 }

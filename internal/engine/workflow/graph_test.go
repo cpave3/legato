@@ -165,8 +165,16 @@ func TestGraphOfEveryBundledTemplate(t *testing.T) {
 					t.Fatalf("no node for step %s", step.ID)
 				}
 			}
-			if got := len(edgesOfKind(graph, EdgeOrder)); got != len(definition.Steps)-1 {
-				t.Fatalf("%d order edges for %d steps", got, len(definition.Steps))
+			// Each step but the first is reached in order, or through a
+			// branch into its if: (ticket-to-merged-pr's outcomes).
+			into := len(edgesOfKind(graph, EdgeOrder))
+			for _, edge := range graph.Edges {
+				if edge.Kind == EdgeBranch && !edge.Skip {
+					into++
+				}
+			}
+			if into != len(definition.Steps)-1 {
+				t.Fatalf("%d order and branch edges for %d steps", into, len(definition.Steps))
 			}
 			ids := map[string]bool{}
 			for _, node := range graph.Nodes {
@@ -341,7 +349,7 @@ func TestGraphDataEdgesFromOutputPathsSkipSteps(t *testing.T) {
 }
 
 func TestGraphDrawsTheReviewLoopAsAGroup(t *testing.T) {
-	example, _ := ExampleNamed("review-pr-passes")
+	example := OldReviewPassesCopy()
 	definition, err := Parse("review-pr-passes.workflow.yaml", example.YAML)
 	if err != nil {
 		t.Fatal(err)

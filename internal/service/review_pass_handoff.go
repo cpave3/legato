@@ -32,6 +32,23 @@ type HandoffReviewCallerOptions struct {
 	// from: a layer of the stack the author's clone has no branch of is
 	// reviewed at its pinned head. Nil fetches nothing.
 	FetchPR func(ctx context.Context, repo string, number int) error
+	// Runs starts and cancels each reviewed handoff's review-loop run
+	// (WorkflowService; spec LEG-559 D10). A handoff's review runs only in
+	// one: without Runs, review passes apply to no handoff.
+	Runs HandoffReviewRuns
+	// PullRequests says, from this worker's pull_requests.rules, whether a
+	// handoff's repository marks its approved stack ready (a draft rule
+	// with ready_after_review): the run's ready input (LEG-456). Nil leaves
+	// every stack a draft.
+	PullRequests ReadyAfterReviewSource
+}
+
+// HandoffReviewRuns are the workflow runs a handoff's review runs in: the
+// built-in review-loop, started with the handoff binding, and cancelled when
+// the handoff ends (WorkflowService).
+type HandoffReviewRuns interface {
+	StartHandoffReviewLoop(ctx context.Context, req HandoffReviewLoopStart) (*store.WorkflowRunView, error)
+	Cancel(ctx context.Context, runID, reason string) (*store.WorkflowRunView, error)
 }
 
 // HandoffReviewCaller is the review-pass engine's caller for a worker's
@@ -42,6 +59,14 @@ type HandoffReviewCallerOptions struct {
 // review (DoneAllowed). Comments from people and bots and counted checks are
 // items the author handles too. It is what the handoff side asks of review
 // passes (HandoffReviews).
+//
+// Each handoff's loop belongs to a review-loop run the caller starts
+// (startRun, LEG-600): the run's steps follow the loop, and this caller
+// moves it on as a handoff's, under the binding the run carries. No loop
+// moves on outside such a run: one its handoff owns (every handoff loop
+// opened before LEG-600, converted or not) is adopted by a review-loop run
+// in the holder's first tick (sweepLoops, LEG-601), and a record a handoff
+// owns otherwise only keeps a main's "review passes off" for it.
 type HandoffReviewCaller struct {
 	*ReviewPassService
 	opts HandoffReviewCallerOptions
@@ -58,9 +83,10 @@ func NewHandoffReviewCaller(engine *ReviewPassService, opts HandoffReviewCallerO
 }
 
 // applies says whether a handoff runs review passes: a make-a-change one,
-// unless its main turned them off for it.
+// unless its main turned them off for it, on a worker that runs review-loop
+// (Runs).
 func (c *HandoffReviewCaller) applies(h *store.Handoff) bool {
-	if !c.config().Enabled || h.Purpose != HandoffMakeChange || h.ClosedAt != nil {
+	if c.opts.Runs == nil || !c.config().Enabled || h.Purpose != HandoffMakeChange || h.ClosedAt != nil {
 		return false
 	}
 	loop, err := c.db.GetHandoffReview(context.Background(), h.TaskID)
@@ -70,36 +96,110 @@ func (c *HandoffReviewCaller) applies(h *store.Handoff) bool {
 	return loopSettings(loop, c.config().Defaults).Enabled
 }
 
-func handoffLoop(h *store.Handoff) ReviewLoop {
+// handoffLoop is a handoff's loop as the engine moves it on: rec is the
+// card's loop record, which a review-loop run owns under the handoff
+// binding, so it writes to GitHub for that run (and its handoff,
+// CheckReviewLoopWrite).
+func handoffLoop(h *store.Handoff, rec *store.ReviewLoop) ReviewLoop {
 	return ReviewLoop{TaskID: h.TaskID, Repo: h.Repo, AuthorTaskID: h.TaskID, CountComments: true, CountChecks: true,
 		Name: "handed-off task " + h.TaskID, Link: "/board?highlight_task=" + h.TaskID,
-		Owner: store.HandoffReviewOwner{MainInstanceID: h.MainInstanceID, HandoffID: h.HandoffID}}
+		Owner: store.HandoffReviewOwner{RunID: rec.RunID}}
 }
 
-// openLoop opens the loop of a card's handoff with the engine's Open: owned
-// by the handoff, hosted by the card, with no pull requests yet; each pass
-// claims those it pins. A handoff that has its loop gets it back, and
-// another handoff of the same card gets one of its own.
-func (c *HandoffReviewCaller) openLoop(ctx context.Context, h *store.Handoff) (*store.ReviewLoop, error) {
-	loop, _, err := c.Open(ctx, store.HandoffReviewLoopOpen(h.TaskID, store.HandoffOfCard{
-		MainInstanceID: h.MainInstanceID, HandoffID: h.HandoffID, Repo: h.Repo}))
-	return loop, err
+// openLoop opens the loop of a card's handoff when review passes are on for
+// it: its review-loop run (startRun). With them off it opens nothing; the
+// card's record that keeps them off is written with the settings.
+func (c *HandoffReviewCaller) openLoop(ctx context.Context, h *store.Handoff, enabled bool) error {
+	if !enabled || c.opts.Runs == nil {
+		return nil
+	}
+	return c.startRun(ctx, h)
+}
+
+// startRun starts the handoff's review-loop run with its binding (spec
+// LEG-559 D10): a top-level run of the built-in, related to the card, no
+// steward, and a loop record the run's open step adopts, which names the
+// handoff and the card's columns. Its ready input is the worker's rule for
+// the repository (ready_after_review on a draft rule, LEG-456). A handoff
+// that has a loop already (its run's, or one it owns, which adoptLoops
+// gives a run) starts none.
+func (c *HandoffReviewCaller) startRun(ctx context.Context, h *store.Handoff) error {
+	if l, err := c.db.CurrentReviewLoop(ctx, h.TaskID); err != nil {
+		return err
+	} else if l != nil && (l.State == store.ReviewLoopOpenState || (l.HandoffID == h.HandoffID && l.MainInstanceID == h.MainInstanceID)) {
+		return nil
+	}
+	columns := handoffColumnsJSON(c.config())
+	of := store.HandoffOfCard{MainInstanceID: h.MainInstanceID, HandoffID: h.HandoffID, Repo: h.Repo}
+	ready := c.ready(ctx, h)
+	_, err := c.opts.Runs.StartHandoffReviewLoop(ctx, c.runStart(ctx, h, func(ctx context.Context, runID string) error {
+		open := store.HandoffRunReviewLoopOpen(h.TaskID, of, runID, ReviewLoopOpenStepID, columns)
+		// As the open step records a run's ready: the author is told the
+		// run marks its pull requests ready.
+		open.Loop.Ready = ready
+		_, _, err := c.Open(ctx, open)
+		return err
+	}))
+	return err
+}
+
+// ready says whether the handoff's repository marks its approved stack
+// ready: this worker's pull_requests.rules, a draft rule with
+// ready_after_review (LEG-456).
+func (c *HandoffReviewCaller) ready(ctx context.Context, h *store.Handoff) bool {
+	return c.opts.PullRequests != nil && c.opts.PullRequests.ReadyAfterReview(ctx, h.Repo)
+}
+
+// runStart is the review-loop run of a handoff, with bind writing its
+// binding: what a new handoff's run (startRun) and an adopting one
+// (adoptLoop) both start. Its ready input is the worker's rule (ready).
+func (c *HandoffReviewCaller) runStart(ctx context.Context, h *store.Handoff, bind func(ctx context.Context, runID string) error) HandoffReviewLoopStart {
+	return HandoffReviewLoopStart{Repo: h.Repo, Card: h.TaskID, Ready: c.ready(ctx, h), Bind: bind}
+}
+
+// adoptLoop gives a loop the handoff owns (opened before LEG-600) to a new
+// review-loop run of the handoff (spec LEG-559 § Handoffs, adoption): the
+// run's binding is the loop itself, its owner changed from the handoff to
+// the run in one transaction (store.AdoptHandoffReviewLoop), its claims,
+// passes, rulings and items kept. A pass in flight goes on, and the run's
+// pass step reads it when it is posted.
+func (c *HandoffReviewCaller) adoptLoop(ctx context.Context, h *store.Handoff, l *store.ReviewLoop) error {
+	columns := handoffColumnsJSON(c.config())
+	_, err := c.opts.Runs.StartHandoffReviewLoop(ctx, c.runStart(ctx, h, func(ctx context.Context, runID string) error {
+		_, err := c.db.AdoptHandoffReviewLoop(ctx, l.ID, runID, ReviewLoopOpenStepID, columns)
+		return err
+	}))
+	return err
+}
+
+// StartReview starts the review of a card's handoff when review passes
+// apply to it: at accept, so its comments and checks count from then on.
+func (c *HandoffReviewCaller) StartReview(ctx context.Context, taskID string) error {
+	h, err := c.db.OpenHandoffForTask(ctx, taskID)
+	if err != nil || !c.applies(h) {
+		return err
+	}
+	return c.openLoop(ctx, h, true)
 }
 
 // SetSettings opens the loop of a card's handoff (openLoop) and keeps its
 // review settings (a main's override, or the worker's defaults) on it.
 func (c *HandoffReviewCaller) SetSettings(ctx context.Context, taskID string, settings ReviewPassSettings) error {
 	if h, err := c.db.OpenHandoffForTask(ctx, taskID); err == nil {
-		if _, err := c.openLoop(ctx, h); err != nil {
+		if err := c.openLoop(ctx, h, settings.Enabled && c.config().Enabled && h.Purpose == HandoffMakeChange); err != nil {
 			return err
 		}
 	}
 	return c.ReviewPassService.SetSettings(ctx, taskID, settings)
 }
 
-// OpenWaiting opens the loop of each reviewed handoff whose card has none
-// of its own yet, in the holder's tick.
+// OpenWaiting, in the holder's tick: the loops handoffs own are adopted by
+// review-loop runs, and those of ended handoffs closed, and the review-loop
+// run of a handoff that ended where its end never reached a run cancelled
+// (sweepLoops); then each reviewed handoff whose card has no loop of its
+// own yet gets its run.
 func (c *HandoffReviewCaller) OpenWaiting(ctx context.Context) {
+	c.sweepLoops(ctx)
 	open, err := c.db.ListOpenHandoffs(ctx)
 	if err != nil {
 		log.Printf("review passes: %v", err)
@@ -117,8 +217,76 @@ func (c *HandoffReviewCaller) OpenWaiting(ctx context.Context) {
 		if err != nil || (l != nil && (l.State == store.ReviewLoopOpenState || (l.HandoffID == h.HandoffID && l.MainInstanceID == h.MainInstanceID))) {
 			continue
 		}
-		if _, err := c.openLoop(ctx, h); err != nil {
+		if err := c.openLoop(ctx, h, true); err != nil {
 			log.Printf("review passes: opening the loop of handoff %s: %v", h.HandoffID, err)
+		}
+	}
+}
+
+// StopReview ends a card's review (the engine's StopReview: the reviewer
+// stops, a pass in flight is discarded) and cancels the review-loop run its
+// loop belongs to: Recall, Drop, Leave, unpair and an allowed Return. The
+// run's end closes the loop and lets go of its pull requests. A run that
+// ended already (approved) changes nothing.
+func (c *HandoffReviewCaller) StopReview(ctx context.Context, taskID string) {
+	c.ReviewPassService.StopReview(ctx, taskID)
+	l, err := c.db.CurrentReviewLoop(ctx, taskID)
+	if err != nil || !handoffBound(l) || l.State != store.ReviewLoopOpenState {
+		return
+	}
+	c.cancelRun(ctx, l, "its handoff ended")
+}
+
+// cancelRun cancels the review-loop run of a handoff's loop.
+func (c *HandoffReviewCaller) cancelRun(ctx context.Context, l *store.ReviewLoop, why string) {
+	if c.opts.Runs == nil {
+		return
+	}
+	if _, err := c.opts.Runs.Cancel(ctx, l.RunID, why); err != nil {
+		log.Printf("review passes: cancelling review run %s of %s: %v", l.RunID, l.HostTask, err)
+	}
+}
+
+// sweepLoops goes through the open loops of handoffs. A review-loop run's
+// whose handoff has closed, is gone or is on its way back has its run
+// cancelled: the sweep behind StopReview, for an end in a process that
+// could not cancel the run. One its handoff owns is adopted by a review-loop
+// run while its handoff is open, reviewed and not on its way back
+// (adoptLoop: at the holder's start, the loops an upgrade found), and is
+// closed, ended, once its handoff has closed or is gone, freeing its pull
+// requests. Nothing else moves a loop a handoff owns.
+func (c *HandoffReviewCaller) sweepLoops(ctx context.Context) {
+	if c.opts.Runs == nil {
+		return
+	}
+	loops, err := c.db.ListOpenReviewLoops(ctx)
+	if err != nil {
+		return
+	}
+	for i := range loops {
+		l := &loops[i]
+		if l.HandoffID == "" || (l.OwnerKind != store.ReviewLoopOwnerHandoff && !handoffBound(l)) {
+			continue
+		}
+		h, err := c.db.OpenHandoffForTask(ctx, l.HostTask)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		ended := err != nil || h.HandoffID != l.HandoffID || (l.MainInstanceID != "" && h.MainInstanceID != l.MainInstanceID)
+		switch {
+		case handoffBound(l):
+			if ended || h.State == store.HandoffReturning {
+				c.ReviewPassService.StopReview(ctx, l.HostTask)
+				c.cancelRun(ctx, l, "its handoff ended")
+			}
+		case ended:
+			if _, _, err := c.db.CloseReviewLoop(ctx, l.ID, ReviewOutcomeEnded, c.now()); err != nil {
+				log.Printf("review passes: closing loop %s of an ended handoff: %v", l.ID, err)
+			}
+		case h.State != store.HandoffReturning && c.applies(h):
+			if err := c.adoptLoop(ctx, h, l); err != nil {
+				log.Printf("review passes: adopting loop %s of handoff %s: %v", l.ID, l.HandoffID, err)
+			}
 		}
 	}
 }
@@ -135,7 +303,7 @@ func (c *HandoffReviewCaller) reviewed(h *store.Handoff) bool {
 }
 
 // Loops are the open handoffs whose review passes are on and whose agent
-// has started.
+// has started, each with the open loop of its review-loop run.
 func (c *HandoffReviewCaller) Loops(ctx context.Context) ([]ReviewLoop, error) {
 	open, err := c.db.ListOpenHandoffs(ctx)
 	if err != nil {
@@ -148,18 +316,34 @@ func (c *HandoffReviewCaller) Loops(ctx context.Context) ([]ReviewLoop, error) {
 		if !c.reviewed(h) {
 			continue
 		}
-		out = append(out, handoffLoop(h))
+		rec, err := c.db.CurrentReviewLoop(ctx, h.TaskID)
+		if err != nil || !c.movesOn(rec) {
+			continue
+		}
+		out = append(out, handoffLoop(h, rec))
 	}
 	return out, nil
 }
 
-// Loop is the loop of a card's open handoff.
+// movesOn says a handoff's loop record moves on here: an open one a
+// review-loop run owns under the handoff binding. A run's loop that closed
+// (approved, or its run ended) is history; a card with no record yet waits
+// for its run, and one its handoff owns for adoption (sweepLoops).
+func (c *HandoffReviewCaller) movesOn(rec *store.ReviewLoop) bool {
+	return handoffBound(rec) && rec.State == store.ReviewLoopOpenState
+}
+
+// Loop is the loop of a card's open handoff: its review-loop run's.
 func (c *HandoffReviewCaller) Loop(ctx context.Context, taskID string) (ReviewLoop, bool) {
 	h, err := c.db.OpenHandoffForTask(ctx, taskID)
 	if err != nil {
 		return ReviewLoop{}, false
 	}
-	return handoffLoop(h), true
+	rec, err := c.db.CurrentReviewLoop(ctx, taskID)
+	if err != nil || !handoffBound(rec) {
+		return ReviewLoop{}, false
+	}
+	return handoffLoop(h, rec), true
 }
 
 // stack is the card's job clone, its local stack (a Staccato graph's
@@ -245,13 +429,22 @@ func (c *HandoffReviewCaller) Pushed(ctx context.Context, l ReviewLoop, prs []st
 	return false, nil
 }
 
+// columns are the card's columns: its loop's binding's, else this Legato's.
+func (c *HandoffReviewCaller) columns(ctx context.Context, taskID string) reviewHandoffColumns {
+	raw := ""
+	if rec, err := c.db.CurrentReviewLoop(ctx, taskID); err == nil && rec != nil {
+		raw = rec.HandoffColumns
+	}
+	return handoffColumns(raw, c.config())
+}
+
 // AuthorDone says whether the card is in the Done column.
 func (c *HandoffReviewCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 	task, err := c.db.GetTask(ctx, l.TaskID)
 	if err != nil {
 		return false
 	}
-	return strings.EqualFold(task.Status, c.config().DoneColumn)
+	return strings.EqualFold(task.Status, c.columns(ctx, l.TaskID).Done)
 }
 
 // Stage moves the card: to the review column for a pass, the work column
@@ -261,9 +454,9 @@ func (c *HandoffReviewCaller) Stage(ctx context.Context, l ReviewLoop, stage str
 	if c.opts.Board == nil {
 		return
 	}
-	cfg := c.config()
-	column := map[string]string{ReviewStagePass: cfg.ReviewColumn, ReviewStageAuthor: cfg.WorkColumn, ReviewStageClean: cfg.DoneColumn,
-		ReviewStageNone: cfg.DoneColumn}[stage]
+	cols := c.columns(ctx, l.TaskID)
+	column := map[string]string{ReviewStagePass: cols.Review, ReviewStageAuthor: cols.Work, ReviewStageClean: cols.Done,
+		ReviewStageNone: cols.Done}[stage]
 	if column == "" {
 		return
 	}
@@ -298,7 +491,7 @@ func (c *HandoffReviewCaller) Subject() string { return "a handed-off task's pul
 // with its handoff (Return, Recall, Drop), so End is refused.
 
 func (c *HandoffReviewCaller) ownsLoop(l *store.ReviewLoop) bool {
-	return l.OwnerKind == store.ReviewLoopOwnerHandoff
+	return handoffBound(l)
 }
 
 func (c *HandoffReviewCaller) anotherPassOn(ctx context.Context, l *store.ReviewLoop) error {

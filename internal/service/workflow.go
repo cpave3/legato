@@ -202,10 +202,11 @@ type createdRun struct {
 // createRun records a run of definition with its inputs normalized (a
 // task input resolved to its task, a repository to the preset or the
 // object), and its task, without starting any step. link carries what the
-// run is linked to: its trigger request, or for a child run its parent's
-// step and attempt.
+// run is linked to: its trigger request, for a child run its parent's
+// step and attempt, or the card a handoff's review-loop run is for
+// (RelatedTaskID).
 func (s *WorkflowService) createRun(ctx context.Context, definition *workflowengine.Definition, inputs map[string]any, link store.WorkflowRun) (createdRun, error) {
-	relatedTaskID, relatedKey := "", ""
+	relatedTaskID, relatedKey := link.RelatedTaskID, ""
 	for key, spec := range definition.Inputs {
 		switch spec.Type {
 		case "task":

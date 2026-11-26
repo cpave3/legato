@@ -38,6 +38,10 @@ type CardData struct {
 	SlotAgents []service.SlotAgentSummary
 	// Engram is the engram the task's running agent runs as, "" for none.
 	Engram string
+	// Steward is how the steward of the review loop the task's agent
+	// authors stands (service.CardStewarding, CardStewardHeld,
+	// CardStewardStuck), "" for none: a chip on the strip.
+	Steward string
 }
 
 // AwayRefusal is what the TUI says when the person tries to change a task
@@ -121,15 +125,25 @@ type agentStrip struct {
 // report: no agent now and none before.
 func stripFor(card CardData, icons theme.Icons) (agentStrip, bool) {
 	strip, ok := mainStripFor(card, icons)
-	if len(card.SlotAgents) == 0 || card.Away != nil {
+	if (len(card.SlotAgents) == 0 && card.Steward == "") || card.Away != nil {
 		return strip, ok
 	}
-	chips := make([]string, 0, len(card.SlotAgents))
+	chips := make([]string, 0, len(card.SlotAgents)+1)
 	for _, slot := range card.SlotAgents {
 		chips = append(chips, slot.Slot+" · "+slotStateText(slot.State))
 	}
+	switch card.Steward {
+	case service.CardStewarding:
+		chips = append(chips, "stewarding")
+	case service.CardStewardHeld, service.CardStewardStuck:
+		chips = append(chips, "steward · "+card.Steward)
+	}
 	if !ok {
 		strip = agentStrip{state: "", mark: icons.AgentIdle}
+	}
+	if card.Steward == service.CardStewardStuck && (strip.state == "" || strip.state == "working" || strip.state == "background") {
+		// A stuck steward waits on the operator (its Attention item).
+		strip.state, strip.mark = "waiting", icons.AgentWaiting
 	}
 	if strip.text != "" {
 		strip.text += "  "

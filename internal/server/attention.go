@@ -119,6 +119,13 @@ func (s *Server) attentionDismissHandler() http.HandlerFunc {
 }
 
 func (s *Server) writeAttentionError(w http.ResponseWriter, err error) {
+	// What the action would start is going already: say where, so the
+	// web UI opens it instead.
+	var elsewhere *service.AttentionElsewhereError
+	if errors.As(err, &elsewhere) {
+		s.writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error(), "href": elsewhere.Href})
+		return
+	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		s.writeError(w, http.StatusNotFound, "attention item not found")

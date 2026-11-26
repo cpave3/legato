@@ -2,6 +2,7 @@ package handofftest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,15 +24,14 @@ type prompted struct {
 
 func newPrompted(t *testing.T, reviewsOn bool) prompted {
 	t.Helper()
-	example, _ := workflowengine.ExampleNamed("review-pr-passes")
-	return newPromptedWith(t, reviewsOn, example.YAML)
+	return newPromptedWith(t, reviewsOn, nil)
 }
 
 // beforeStacks is the review-pr-passes workflow as it was added before
 // stacks: no scope input.
 func beforeStacks(t *testing.T) []byte {
 	t.Helper()
-	example, _ := workflowengine.ExampleNamed("review-pr-passes")
+	example := workflowengine.OldReviewPassesCopy()
 	var kept []string
 	lines := strings.Split(string(example.YAML), "\n")
 	for i := 0; i < len(lines); i++ {
@@ -51,6 +51,8 @@ func beforeStacks(t *testing.T) []byte {
 	return []byte(out)
 }
 
+// newPromptedWith is newPrompted with a review-pr-passes file beside the
+// built-ins when workflowYAML is given: an operator's old copy.
 func newPromptedWith(t *testing.T, reviewsOn bool, workflowYAML []byte) prompted {
 	t.Helper()
 	ctx := context.Background()
@@ -71,10 +73,16 @@ func newPromptedWith(t *testing.T, reviewsOn bool, workflowYAML []byte) prompted
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "review-pr-passes.workflow.yaml"), workflowYAML, 0o600); err != nil {
-		t.Fatal(err)
+	if workflowYAML != nil {
+		if err := os.WriteFile(filepath.Join(dir, "review-pr-passes.workflow.yaml"), workflowYAML, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	launcher := service.NewTaskWorkflowLauncher(db, r.runs.Workflows, func() workflowengine.DiscoveryResult { return workflowengine.DiscoverPaths(dir) })
+	// Legato's discovery: the files, then the built-ins, review-loop
+	// among them.
+	launcher := service.NewTaskWorkflowLauncher(db, r.runs.Workflows, func() workflowengine.DiscoveryResult {
+		return workflowengine.WithBuiltIns(workflowengine.DiscoverPaths(dir), service.BuiltInWorkflows()...)
+	})
 	adapter := service.NewReviewPromptAttentionAdapter(db, launcher)
 	if reviewsOn {
 		adapter.SetReviews(r.worker.Reviews)
@@ -125,9 +133,17 @@ func TestALocalCardInDoneWithOpenPRsPromptsOneStackReview(t *testing.T) {
 		t.Fatalf("after starting: %+v", items)
 	}
 	p.r.runs.Open(context.Background())
-	runs, err := p.r.worker.Store.ListWorkflowRuns(context.Background(), store.WorkflowRunFilter{WorkflowName: "review-pr-passes"})
-	if err != nil || len(runs) != 1 || !strings.Contains(runs[0].WorkflowTitle, "#31–#32") {
+	runs, err := p.r.worker.Store.ListWorkflowRuns(context.Background(), store.WorkflowRunFilter{WorkflowName: "review-loop"})
+	if err != nil || len(runs) != 1 || runs[0].Status != "running" {
 		t.Fatalf("runs %+v, %v", runs, err)
+	}
+	// One loop record holds the whole stack, the card's agent its author.
+	loop := p.loopOn(t, 31)
+	if !strings.HasPrefix(loop.ID, "rl-") || loop.RunID != runs[0].ID || loop.Scope != service.ReviewScopeStack || !loop.AgentAuthor || loop.AuthorTask != p.card {
+		t.Fatalf("loop %+v", loop)
+	}
+	if other := p.loopOn(t, 32); other.ID != loop.ID {
+		t.Fatalf("#32 is held by %s, not %s", other.ID, loop.ID)
 	}
 	// The loop it started clears the item.
 	if items := p.items(t); len(items) != 0 {
@@ -135,10 +151,20 @@ func TestALocalCardInDoneWithOpenPRsPromptsOneStackReview(t *testing.T) {
 	}
 }
 
+// loopOn is the loop that holds a pull request of the card's repository.
+func (p prompted) loopOn(t *testing.T, number int) *store.ReviewLoop {
+	t.Helper()
+	loop, err := p.r.worker.Store.ActiveReviewLoop(context.Background(), "acme/widget", number)
+	if err != nil || loop == nil {
+		t.Fatalf("no loop holds #%d: %v", number, err)
+	}
+	return loop
+}
+
 func TestAnActiveLoopOrAHandoffCardRaisesNothing(t *testing.T) {
 	p := newPrompted(t, true)
 	p.move(t, "Review")
-	p.r.start(t, map[string]string{"repo": "acme/widget", "pr_number": "32", "scope": "pr"})
+	p.r.startLoop(t, map[string]string{"repo": "acme/widget", "pr_number": "32", "scope": "pr"})
 	if items := p.items(t); len(items) != 0 {
 		t.Fatalf("with a loop on #32: %+v", items)
 	}
@@ -198,19 +224,135 @@ func TestAnAwayCardRaisesNothing(t *testing.T) {
 	}
 }
 
-func TestAWorkflowAddedBeforeStacksIsNotOfferedButNamed(t *testing.T) {
-	p := newPromptedWith(t, true, beforeStacks(t))
-	p.move(t, "Done")
+// review-loop is built in, so the item never asks for a workflow to be
+// added, and an old review-pr-passes copy is not what it starts (LEG-597).
+func TestTheItemStartsTheBuiltInReviewLoopNeverAnAddedCopy(t *testing.T) {
+	example := workflowengine.OldReviewPassesCopy()
+	for name, yaml := range map[string][]byte{"no copy": nil, "an old copy": example.YAML, "a copy from before stacks": beforeStacks(t)} {
+		t.Run(name, func(t *testing.T) {
+			p := newPromptedWith(t, true, yaml)
+			p.move(t, "Done")
+			items := p.items(t)
+			if len(items) != 1 || items[0].Actions[0].ID != "start_review" || strings.Contains(items[0].Detail, "workflow add") {
+				t.Fatalf("items %+v", items)
+			}
+			if err := p.adapter.Execute(context.Background(), service.AttentionActionRequest{SourceKey: p.card, ActionID: "start_review"}); err != nil {
+				t.Fatal(err)
+			}
+			runs, err := p.r.worker.Store.ListWorkflowRuns(context.Background(), store.WorkflowRunFilter{})
+			if err != nil || len(runs) != 1 || runs[0].WorkflowName != "review-loop" {
+				t.Fatalf("runs %+v, %v", runs, err)
+			}
+		})
+	}
+}
 
-	items := p.items(t)
-	if len(items) != 1 || !strings.Contains(items[0].Detail, "legato workflow add review-pr-passes --force") {
+// A loop that took one of the card's pull requests after the item was raised
+// is opened instead of a second (AC 2): the action refuses, naming where the
+// loop is, and starts nothing.
+func TestOnAPRALoopHoldsTheActionOpensTheHolder(t *testing.T) {
+	p := newPrompted(t, true)
+	p.move(t, "Done")
+	if items := p.items(t); len(items) != 1 {
 		t.Fatalf("items %+v", items)
 	}
-	for _, a := range items[0].Actions {
-		if a.ID == "start_review" {
-			t.Fatal("it offers a start that cannot work")
-		}
+	holder := p.r.startLoop(t, map[string]string{"repo": "acme/widget", "pr_number": "32", "scope": "pr"})
+
+	err := p.adapter.Execute(context.Background(), service.AttentionActionRequest{SourceKey: p.card, ActionID: "start_review"})
+	var elsewhere *service.AttentionElsewhereError
+	if !errors.As(err, &elsewhere) || elsewhere.Href != "/workflows/runs/"+holder.Run.ID || !strings.Contains(err.Error(), "review_loop_active") {
+		t.Fatalf("err = %v", err)
 	}
+	runs, _ := p.r.worker.Store.ListWorkflowRuns(context.Background(), store.WorkflowRunFilter{WorkflowName: "review-loop"})
+	if len(runs) != 1 || runs[0].ID != holder.Run.ID {
+		t.Fatalf("it started %+v", runs)
+	}
+}
+
+// The card's agent is the author only of pull requests it opened through
+// Legato, as Legato's author App (D8): a branch the operator linked by hand,
+// or a pull request a person opened, is reviewed as a person's.
+func TestTheAuthorIsTheCardsAgentOnlyForPRsLegatosAuthorAppOpened(t *testing.T) {
+	ctx := context.Background()
+	t.Run("linked by hand", func(t *testing.T) {
+		p := newPrompted(t, true)
+		db := p.r.worker.Store
+		if err := db.CreateTask(ctx, store.Task{ID: "local-2", Title: "Linked", Status: "Done"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.TrackTaskBranches(ctx, "local-2", []store.BranchRef{{Repo: "acme/widget", Branch: "local/one"}}, service.BranchSourceManual); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.SetTaskBranchPR(ctx, "local-2", "acme/widget", "local/one", &store.PRMeta{Repo: "acme/widget", Branch: "local/one", PRNumber: 31, State: "OPEN", Head: "sha31"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := p.adapter.Execute(ctx, service.AttentionActionRequest{SourceKey: "local-2", ActionID: "start_review"}); err != nil {
+			t.Fatal(err)
+		}
+		p.r.runs.Open(ctx)
+		if loop := p.loopOn(t, 31); loop.AgentAuthor || loop.AuthorTask != "" {
+			t.Fatalf("loop %+v", loop)
+		}
+	})
+	t.Run("opened by a person", func(t *testing.T) {
+		p := newPrompted(t, true)
+		db := p.r.worker.Store
+		for _, pr := range []struct {
+			branch string
+			number int
+		}{{"local/one", 31}, {"local/two", 32}} {
+			if err := db.SetTaskBranchPR(ctx, p.card, "acme/widget", pr.branch, &store.PRMeta{Repo: "acme/widget", Branch: pr.branch, PRNumber: pr.number, State: "OPEN", Head: fmt.Sprintf("sha%d", pr.number), Author: "alice"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		p.move(t, "Done")
+		if err := p.adapter.Execute(ctx, service.AttentionActionRequest{SourceKey: p.card, ActionID: "start_review"}); err != nil {
+			t.Fatal(err)
+		}
+		p.r.runs.Open(ctx)
+		if loop := p.loopOn(t, 31); loop.AgentAuthor {
+			t.Fatalf("loop %+v", loop)
+		}
+	})
+	// openedBy starts a review of the card's two pull requests, which
+	// author opened; Legato knows its author App's login (it learns it
+	// when the App posts).
+	openedBy := func(t *testing.T, author string) *store.ReviewLoop {
+		t.Helper()
+		p := newPrompted(t, true)
+		db := p.r.worker.Store
+		if err := db.RecordGitHubAppLogin(ctx, "legato-author[bot]"); err != nil {
+			t.Fatal(err)
+		}
+		for _, pr := range []struct {
+			branch string
+			number int
+		}{{"local/one", 31}, {"local/two", 32}} {
+			if err := db.SetTaskBranchPR(ctx, p.card, "acme/widget", pr.branch, &store.PRMeta{Repo: "acme/widget", Branch: pr.branch, PRNumber: pr.number, State: "OPEN", Head: fmt.Sprintf("sha%d", pr.number), Author: author}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		p.move(t, "Done")
+		if err := p.adapter.Execute(ctx, service.AttentionActionRequest{SourceKey: p.card, ActionID: "start_review"}); err != nil {
+			t.Fatal(err)
+		}
+		p.r.runs.Open(ctx)
+		loop := p.loopOn(t, 31)
+		if loop.AgentAuthor && loop.AuthorTask != p.card {
+			t.Fatalf("loop %+v", loop)
+		}
+		return loop
+	}
+	t.Run("opened by the author App", func(t *testing.T) {
+		if loop := openedBy(t, "legato-author[bot]"); !loop.AgentAuthor {
+			t.Fatalf("loop %+v", loop)
+		}
+	})
+	t.Run("opened by another App", func(t *testing.T) {
+		if loop := openedBy(t, "dependabot[bot]"); loop.AgentAuthor {
+			t.Fatalf("loop %+v", loop)
+		}
+	})
 }
 
 // A workflow run's loop that approved the card's pull requests counts as
@@ -219,9 +361,11 @@ func TestAWorkflowAddedBeforeStacksIsNotOfferedButNamed(t *testing.T) {
 func TestARunLoopThatApprovedTheCardsPRsRaisesNothing(t *testing.T) {
 	p := newPrompted(t, true)
 	p.move(t, "Done")
-	view := p.r.start(t, map[string]string{"repo": "acme/widget", "pr_number": "31"})
+	view := p.r.startLoop(t, map[string]string{"repo": "acme/widget", "pr_number": "31"})
 	p.r.tick()
 	p.r.submit(t, view.Run.TaskID, service.ReviewSubmission{Summary: "All good."})
+	p.r.tick()
+	p.r.tick()
 	if shown := p.r.show(t, view.Run.ID); shown.Run.Status != "succeeded" {
 		t.Fatalf("run %q", shown.Run.Status)
 	}
@@ -240,9 +384,11 @@ func TestARunLoopThatApprovedTheCardsPRsRaisesNothing(t *testing.T) {
 // has its one pass approve it.
 func (p prompted) approve(t *testing.T, number int) {
 	t.Helper()
-	view := p.r.start(t, map[string]string{"repo": "acme/widget", "pr_number": fmt.Sprint(number), "scope": "pr"})
+	view := p.r.startLoop(t, map[string]string{"repo": "acme/widget", "pr_number": fmt.Sprint(number), "scope": "pr"})
 	p.r.tick()
 	p.r.submit(t, view.Run.TaskID, service.ReviewSubmission{Summary: "All good."})
+	p.r.tick()
+	p.r.tick()
 	if shown := p.r.show(t, view.Run.ID); shown.Run.Status != "succeeded" {
 		t.Fatalf("run %q", shown.Run.Status)
 	}
@@ -255,7 +401,7 @@ func TestALaterCommentAtTheApprovedHeadAsksAgain(t *testing.T) {
 	p.move(t, "Done")
 	p.approve(t, 31)
 
-	view := p.r.start(t, map[string]string{"repo": "acme/widget", "pr_number": "31", "scope": "pr"})
+	view := p.r.startLoop(t, map[string]string{"repo": "acme/widget", "pr_number": "31", "scope": "pr"})
 	p.r.tick()
 	p.r.submit(t, view.Run.TaskID, service.ReviewSubmission{Summary: "One problem.", Findings: []service.SubmittedFinding{
 		{PR: 31, Severity: "blocking", Title: "Breaks", Body: "It breaks.", FailureScenario: "Run it and it breaks."},
@@ -288,18 +434,12 @@ func TestStartingAfterAnApprovalLeavesTheApprovedPROut(t *testing.T) {
 	if err := p.adapter.Execute(context.Background(), service.AttentionActionRequest{SourceKey: p.card, ActionID: "start_review"}); err != nil {
 		t.Fatal(err)
 	}
-	runs, err := p.r.worker.Store.ListWorkflowRuns(context.Background(), store.WorkflowRunFilter{WorkflowName: "review-pr-passes"})
-	if err != nil {
-		t.Fatal(err)
+	p.r.runs.Open(context.Background())
+	if loop := p.loopOn(t, 32); loop.Scope != service.ReviewScopePR || loop.SubjectPR != 32 {
+		t.Fatalf("loop %+v", loop)
 	}
-	var started []string
-	for _, run := range runs {
-		if run.Status == "running" {
-			started = append(started, run.WorkflowTitle)
-		}
-	}
-	if len(started) != 1 || !strings.Contains(started[0], "acme/widget#32") || strings.Contains(started[0], "#31") {
-		t.Fatalf("started %v", started)
+	if held, _ := p.r.worker.Store.ActiveReviewLoop(context.Background(), "acme/widget", 31); held != nil {
+		t.Fatalf("the approved #31 is reviewed again by %s", held.ID)
 	}
 	if items := p.items(t); len(items) != 0 {
 		t.Fatalf("after starting: %+v", items)

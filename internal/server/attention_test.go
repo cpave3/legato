@@ -30,6 +30,9 @@ func (p *testAttentionProducer) Execute(_ context.Context, request service.Atten
 	if request.ActionID == "resolve" {
 		p.items = nil
 	}
+	if request.ActionID == "start" {
+		return &service.AttentionElsewhereError{Err: fmt.Errorf("review_loop_active: held"), Href: "/workflows/runs/wr-1"}
+	}
 	return nil
 }
 
@@ -303,5 +306,49 @@ func TestAttentionAPIAndCountShareHighSignalPolicy(t *testing.T) {
 		if kinds[signal] {
 			t.Errorf("excluded signal %q present in response", signal)
 		}
+	}
+}
+
+// An action refused because what it would start is going already answers
+// 409 with where it is, which the web UI opens instead (LEG-597).
+func TestAttentionAPIAnswersARefusalElsewhereWithWhereItIs(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "attention-elsewhere.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	attention := service.NewAttentionService(db, nil)
+	producer := &testAttentionProducer{items: []service.AttentionInput{{
+		SignalKind: service.AttentionSignalPRsUnreviewed,
+		SourceKey:  "local-1", SourceRevision: "1", Title: "Not reviewed", Reason: "Done",
+		Category: "review", Urgency: "normal",
+		Navigation: service.AttentionNavigation{Kind: "task", Target: "local-1"},
+		Actions:    []service.AttentionAction{{ID: "start", Label: "Start review passes", Kind: "execute"}},
+	}}}
+	if err := attention.RegisterProducer(producer); err != nil {
+		t.Fatal(err)
+	}
+	if err := attention.RegisterHandler(producer.Producer(), producer); err != nil {
+		t.Fatal(err)
+	}
+	if err := attention.Reconcile(context.Background(), producer.Producer()); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(nil, nil, nil, "")
+	srv.SetAttentionService(attention)
+	items, err := attention.List(context.Background(), service.AttentionFilter{})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("items %+v, %v", items, err)
+	}
+
+	action := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(action, httptest.NewRequest(http.MethodPost, "/api/attention/"+items[0].ID+"/actions/start", strings.NewReader(`{"expected_revision":"1"}`)))
+	var body struct {
+		Error string `json:"error"`
+		Href  string `json:"href"`
+	}
+	_ = json.Unmarshal(action.Body.Bytes(), &body)
+	if action.Code != http.StatusConflict || body.Href != "/workflows/runs/wr-1" || !strings.Contains(body.Error, "review_loop_active") {
+		t.Fatalf("status %d, body %s", action.Code, action.Body.String())
 	}
 }

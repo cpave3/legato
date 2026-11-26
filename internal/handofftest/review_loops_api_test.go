@@ -52,11 +52,11 @@ func reviewLoopOn(t *testing.T, w *Worker, query string) *foundLoop {
 	return got.Loop
 }
 
-// An inline-step run's loop: found by its pull request, the repository's
+// A review-loop run's loop: found by its pull request, the repository's
 // case ignored, pointing at the run's page.
 func TestThePullRequestOfARunsLoopFindsThatLoop(t *testing.T) {
 	r := newReviewRun(t, ReviewPassOptions{})
-	view := r.start(t, map[string]string{"repo": "acme/widget", "pr_number": "12"})
+	view := r.startLoop(t, map[string]string{"repo": "acme/widget", "pr_number": "12"})
 	r.tick()
 	held, err := r.worker.Store.ActiveReviewLoop(context.Background(), "acme/widget", 12)
 	if err != nil || held == nil {

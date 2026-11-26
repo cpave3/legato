@@ -44,6 +44,9 @@ func workflowExamples() []workflowExampleInfo {
 // unless force.
 func addWorkflowExample(name, global, projectDir string, project, force bool) (addedWorkflow, error) {
 	example, ok := workflowengine.ExampleNamed(name)
+	if !ok && name == workflowengine.ReviewPassesWorkflowName {
+		return addedWorkflow{}, fmt.Errorf("the built-in review-loop replaces review-pr-passes, and every Legato has it with nothing to add: legato workflow run review-loop --input repo=<owner/name> --input pr_number=<n>. An old review-pr-passes copy still runs; legato workflow upgrade <file> rewrites it to call review-loop")
+	}
 	if !ok {
 		var names []string
 		for _, e := range workflowengine.Examples() {

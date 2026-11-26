@@ -132,6 +132,29 @@ describe("List forms", () => {
     await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "pull_requests.rules", "cpave3/legato", { mode: "ready" }))
   })
 
+  it("offers a draft rule to mark a handoff's stack ready once reviewed, and drops it from a rule that is not draft", async () => {
+    show([list({ key: "pull_requests.rules", title: "Pull requests", mode: "live", name_field: "match", entries: [] })])
+    fireEvent.click(await screen.findByRole("button", { name: "Add a rule" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Repository" }), { target: { value: "acme/*" } })
+    expect(screen.queryByRole("checkbox", { name: "Mark ready once reviewed" })).toBeNull()
+    fireEvent.change(screen.getByRole("combobox", { name: "Pull requests" }), { target: { value: "draft" } })
+    fireEvent.click(screen.getByRole("checkbox", { name: "Mark ready once reviewed" }))
+    fireEvent.change(screen.getByRole("combobox", { name: "Pull requests" }), { target: { value: "ready" } })
+    expect(screen.queryByRole("checkbox", { name: "Mark ready once reviewed" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "pull_requests.rules", "acme/*", { mode: "ready" }))
+  })
+
+  it("saves a draft rule that marks a handoff's stack ready once reviewed", async () => {
+    show([list({ key: "pull_requests.rules", title: "Pull requests", mode: "live", name_field: "match", entries: [{ name: "acme/*", value: { mode: "draft" }, source: "database", pinned: false }] })])
+    fireEvent.click(await screen.findByRole("button", { name: "Edit acme/*" }))
+    const box = screen.getByRole("checkbox", { name: "Mark ready once reviewed" })
+    expect(box).not.toBeChecked()
+    fireEvent.click(box)
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "pull_requests.rules", "acme/*", { mode: "draft", ready_after_review: true }))
+  })
+
   it("adds and removes a credential source by vault and profile", async () => {
     show([list({ key: "credential_sources", title: "Credential sources", name_field: "vault", entries: [{ name: "Old", value: { profile: "ssh" }, source: "database", pinned: false }] })])
     fireEvent.click(await screen.findByRole("button", { name: "Add a vault" }))

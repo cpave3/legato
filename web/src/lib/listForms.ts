@@ -9,13 +9,16 @@ export interface FormField {
   label: string
   help?: string
   optional?: boolean
-  kind: "text" | "lines" | "bool" | "choice" | "swatches" | "textarea" | "tiers" | "pairs"
+  kind: "text" | "lines" | "bool" | "check" | "choice" | "swatches" | "textarea" | "tiers" | "pairs"
   choices?: [string, string][]
   placeholder?: string
   // bool: what unset means.
   unsetLabel?: string
   // Only for the entries of these names (a field one agent alone reads).
   only?: string[]
+  // Only while another field of the entry has this value; dropped from the
+  // entry when that field changes to another.
+  when?: { key: string; is: string }
   // pairs: what the key and the value of a pair are called.
   pairLabels?: [string, string]
 }
@@ -79,7 +82,10 @@ export const listForms: Record<string, ListForm> = {
   },
   "pull_requests.rules": {
     name: { label: "Repository", placeholder: "owner/name or owner/*", help: "A GitHub repository, or a pattern with *: owner/*, */name, or * for all. An exact name beats a pattern, then the pattern with more of the name; case is ignored." },
-    fields: [{ key: "mode", label: "Pull requests", kind: "choice", choices: [["draft", "As drafts"], ["ready", "Ready for review"], ["agent", "The agent chooses"]], help: "As drafts: Legato refuses any other. Ready for review: a handoff may open them without asking. Agents are told which." }],
+    fields: [
+      { key: "mode", label: "Pull requests", kind: "choice", choices: [["draft", "As drafts"], ["ready", "Ready for review"], ["agent", "The agent chooses"]], help: "As drafts: Legato refuses any other. Ready for review: a handoff may open them without asking. Agents are told which." },
+      { key: "ready_after_review", label: "Mark ready once reviewed", kind: "check", optional: true, when: { key: "mode", is: "draft" }, help: "A handed-off task's drafts are marked ready for review, bottom first, once review passes approve them. Legato never merges." },
+    ],
     empty: "No rules: handoffs open drafts and other agents choose.", add: "Add a rule",
   },
   credential_sources: {
@@ -125,6 +131,13 @@ export const listForms: Record<string, ListForm> = {
 }
 
 // A form for a list it does not know: its name, and YAML.
+// fieldApplies says whether a field belongs to an entry of this name and
+// value (FormField.only, FormField.when).
+export function fieldApplies(field: FormField, name: string, value: Record<string, unknown>): boolean {
+  if (field.only && !field.only.includes(name.trim())) return false
+  return !field.when || value[field.when.key] === field.when.is
+}
+
 export function formFor(listKey: string, nameField?: string): ListForm {
   return listForms[listKey] ?? {
     name: { label: nameField === "pattern" ? "Pattern" : nameField === "vault" ? "Vault" : nameField === "path" ? "Path" : "Name" },

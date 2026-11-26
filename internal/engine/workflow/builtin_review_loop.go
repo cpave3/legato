@@ -18,8 +18,10 @@ const builtInSourcePrefix = "builtin:"
 // reviewLoopYAML is the built-in review-loop: open, a repeat loop of a pass
 // then, when clean, a confirm or, with changes, a wait for the author,
 // until approved, closed or stuck; then, with ready, mark the approved
-// stack ready (LEG-588); then close. The steward is a later addition
-// (LEG-590).
+// stack ready (LEG-588); then, with steward, the steward (LEG-590): a
+// repeat loop that watches the approved pull requests and reviews them
+// again after each push or dispute, until they merge, close, go idle or the
+// operator ends it; then close.
 const reviewLoopYAML = `schema_version: 2
 name: review-loop
 title: Review loop
@@ -70,8 +72,12 @@ inputs:
     type: boolean
     default: false
     description: Once the stack is approved, mark its draft pull requests ready for review, bottom first
+  steward:
+    type: boolean
+    default: false
+    description: "After approval, look after the pull requests until they merge: send the author agent what GitHub reports, and review again after each push; needs agent_author"
 outputs:
-  outcome: {type: string, value: "${{ steps.close.outputs.outcome }}", description: "approved, closed or stuck (ended when the loop stopped otherwise)"}
+  outcome: {type: string, value: "${{ steps.close.outputs.outcome }}", description: "approved, closed, stuck, merged, idle or ended"}
   loop_id: {type: string, value: "${{ steps.close.outputs.loop_id }}", description: The review loop's ID}
   passes: {type: integer, value: "${{ steps.close.outputs.passes }}", description: The passes posted}
   clean_pass: {type: integer, value: "${{ steps.close.outputs.clean_pass }}", description: "The clean pass that approved the loop, or 0"}
@@ -97,6 +103,7 @@ steps:
       max_passes: ${{ workflow.inputs.max_passes }}
       max_reentries: ${{ workflow.inputs.max_reentries }}
       ready: ${{ workflow.inputs.ready }}
+      steward: ${{ workflow.inputs.steward }}
   - id: review
     title: Review in passes
     # A failed step fails review-loop, so the caller's workflow.run step
@@ -127,6 +134,35 @@ steps:
     on_failure: pause
     type: github.pr.ready
     with: {loop: "${{ steps.open.outputs.loop_id }}"}
+  - id: steward
+    title: Look after the pull requests
+    if: {all: [{field: workflow.inputs.steward, equals: true}, {field: steps.review.outputs.last.state, equals: approved}]}
+    # The record counts re-entries against max_reentries; max is only a
+    # runaway cap.
+    loop: {repeat: true, max: 100, until: {field: loop.last.woke, in: [merged, closed, idle, ended]}, on_failure: fail}
+    outputs:
+      woke: {type: string, value: "${{ steps.watch.outputs.woke }}"}
+    steps:
+      - id: watch
+        title: Watch
+        type: github.pr.review.wait
+        with: {loop: "${{ steps.open.outputs.loop_id }}", mode: watch}
+      - id: pass
+        title: Review pass
+        if: {field: steps.watch.outputs.woke, in: [pushed, disputed]}
+        type: github.pr.review.pass
+        with: {loop: "${{ steps.open.outputs.loop_id }}"}
+      - id: confirm
+        title: Confirm at GitHub's heads
+        if: {field: steps.pass.outputs.verdict, equals: clean}
+        type: github.pr.review.confirm
+        with: {loop: "${{ steps.open.outputs.loop_id }}"}
+      - id: ready
+        title: Mark the stack ready
+        if: {all: [{field: workflow.inputs.ready, equals: true}, {field: steps.confirm.outputs.state, equals: approved}]}
+        on_failure: pause
+        type: github.pr.ready
+        with: {loop: "${{ steps.open.outputs.loop_id }}"}
   - id: close
     title: Close the review loop
     type: github.pr.review.close

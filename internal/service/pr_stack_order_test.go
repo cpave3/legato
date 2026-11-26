@@ -139,3 +139,44 @@ func TestAPRsBaseIsKeptAndFilledOnRefresh(t *testing.T) {
 		t.Fatalf("bases after refresh = %v", got)
 	}
 }
+
+// A tracked PR keeps who opened it, filled on refresh for one tracked
+// before it was kept: the review prompt reads an App's PR as an agent's and a
+// person's as theirs (LEG-597, D8).
+func TestAPRsAuthorIsKeptAndFilledOnRefresh(t *testing.T) {
+	gh := newFakeGitHub(t)
+	gh.set("acme/widget", fakePR{Number: 21, Head: "legato/task-1-a", Author: "legato-author[bot]"})
+	s, svc, _ := newBranchTracking(t, gh)
+	ctx := context.Background()
+	createPRTask(t, s, "task-1")
+	setRepoContext(t, s, "task-1", "acme/widget", "")
+	if _, err := svc.AddTaskBranches(ctx, "task-1", "acme/widget", []string{"legato/task-1-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.PollAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	author := func() string {
+		rows, err := s.ListTaskBranches(ctx, "task-1")
+		if err != nil || len(rows) != 1 || rows[0].PR == nil {
+			t.Fatalf("rows %+v, %v", rows, err)
+		}
+		return rows[0].PR.Author
+	}
+	if got := author(); got != "legato-author[bot]" {
+		t.Fatalf("author = %q", got)
+	}
+
+	rows, _ := s.ListTaskBranches(ctx, "task-1")
+	old := *rows[0].PR
+	old.Author = ""
+	if err := s.SetTaskBranchPR(ctx, "task-1", "acme/widget", "legato/task-1-a", &old); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.PollAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := author(); got != "legato-author[bot]" {
+		t.Fatalf("author after refresh = %q", got)
+	}
+}

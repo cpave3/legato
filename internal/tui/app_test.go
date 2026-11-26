@@ -2434,3 +2434,19 @@ func TestAnAttentionItemOpensItsAgent(t *testing.T) {
 		t.Fatalf("view = %v, cmd = %v; want the agents view", model.(App).active, cmd)
 	}
 }
+
+// An Attention change reloads the board in front, so a card's steward
+// chip (held, stuck) follows its Attention item (spec LEG-559 story 22).
+func TestAnAttentionChangeReloadsTheBoardInFront(t *testing.T) {
+	app := newTestApp()
+	_, cmd := updateApp(app, attentionUpdateMsg{})
+	loaded := false
+	for _, msg := range messagesOf(cmd) {
+		if _, ok := msg.(board.DataLoadedMsg); ok {
+			loaded = true
+		}
+	}
+	if !loaded {
+		t.Fatal("an Attention change did not reload the board")
+	}
+}

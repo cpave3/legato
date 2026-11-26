@@ -3,7 +3,7 @@
 // knows, built in the same item shape. A run's Needs you list draws them
 // with the rail's own row and approval card.
 import type { Approval } from "./approvals"
-import type { AttentionItem } from "./attention"
+import type { AttentionAction, AttentionItem } from "./attention"
 import type { GateDetails, MergeWaitDetails, ReviewRunDetails, WorkflowRunView } from "./workflow"
 import { stepPathOf } from "./workflowRunTree"
 import { templatePath } from "./workflowRunGraph"
@@ -14,12 +14,16 @@ const topNode = (path: string) => `step:${templatePath(path)}`
 
 // The actions of the rows only the run knows; the run page carries them out.
 // skip and stop are a paused step's; choose:<option> a gate's.
-export type RunActionId = "start" | "end_now" | "prompt" | "retry" | "another_pass" | "resume_agent" | "skip" | "stop" | `choose:${string}`
+// A review loop's waiting step also takes watch_again, stop_watching, end
+// and message (with its text).
+export type RunActionId = "start" | "end_now" | "prompt" | "retry" | "another_pass" | "resume_agent" | "skip" | "stop" | "watch_again" | "stop_watching" | "end" | "message" | `choose:${string}`
 
 // The step a run row acts on. A worktree removal has no plain button in the
 // row: control names the page's existing control for it (trigger or
 // retry), which asks first, shows the path and offers force.
-export type RunRowStep = { step: string; control?: "trigger" | "retry"; label?: string }
+// stepActions says every action of the row goes through the step's action
+// route (a review-loop step's).
+export type RunRowStep = { step: string; control?: "trigger" | "retry"; label?: string; stepActions?: boolean }
 
 export type RunNeedsYouRow =
   | { kind: "item"; item: AttentionItem; node: string | null; run?: RunRowStep }
@@ -39,6 +43,27 @@ function runItem(view: WorkflowRunView, step: string, signal: string, key: strin
 }
 
 const execute = (id: RunActionId, label: string, intent?: string) => ({ id, label, kind: "execute" as const, intent })
+
+// The steps of review-loop that wait on their loop, whose attempt names
+// what the loop needs of the operator (LEG-593).
+const reviewLoopSteps = new Set(["github.pr.review.pass", "github.pr.review.wait", "github.pr.review.confirm"])
+
+// reviewLoopAction is how a row offers one of a review loop's actions. End
+// asks first: a stewarded loop's ends the steward (outcome ended), any
+// other's ends a stuck review (outcome stuck).
+function reviewLoopAction(id: string, steward: boolean, primary: boolean): AttentionAction {
+  const intent = primary ? "primary" : undefined
+  switch (id) {
+    case "another_pass": return execute("another_pass", "Run another pass", intent)
+    case "watch_again": return execute("watch_again", "Watch again", intent)
+    case "stop_watching": return execute("stop_watching", "Stop watching", intent)
+    case "message": return { id, label: "Message the author", kind: "execute", requires_text: true }
+    case "end": return { ...execute("end", "End", intent), requires_confirmation: true, confirmation: steward
+      ? "End the steward? The review loop ends with outcome ended: nothing watches the pull requests after, legato-reviews' approval stays on GitHub as it is, and the run goes on to its next step."
+      : "End the review loop as stuck? The run goes on to its next step." }
+  }
+  return { id, label: id, kind: "execute", intent }
+}
 
 // runNeedsYou gathers the rows of a run's Needs you list, each with the
 // node of the graph it belongs to (step:<id>), and the nodes an open
@@ -86,6 +111,13 @@ export function runNeedsYou(view: WorkflowRunView, attention: AttentionItem[], a
       rows.push({ kind: "item", node, run: { step: path }, item: runItem(view, path, stuck ? "workflow_review_stuck" : "workflow_review_author", "review",
         stuck ? `${step.title} is stuck` : `${step.title} waits on its author`,
         hide(details.summary || (stuck ? details.reason ?? "" : `${details.blocking_open} blocking findings to fix or answer.`)), [execute("another_pass", "Run another pass")]) })
+    }
+    if (step.status === "waiting" && reviewLoopSteps.has(step.executor_type) && latest?.needs_attention && latest.attention_signal) {
+      const ids = latest.attention_actions ?? []
+      const stuck = latest.attention_signal === "workflow_review_stuck"
+      rows.push({ kind: "item", node, run: { step: path, stepActions: true }, item: runItem(view, path, latest.attention_signal, "review",
+        latest.attention_steward ? (stuck ? "The steward is stuck" : "The steward needs you") : stuck ? `${step.title} is stuck` : `${step.title} waits on its author`,
+        hide(latest.attention_reason || ""), ids.map((id, i) => reviewLoopAction(id, latest.attention_steward ?? false, i === 0))) })
     }
     const merge = step.executor_type === "github.pr.wait" && step.status === "waiting" ? details as unknown as MergeWaitDetails | undefined : undefined
     if (merge?.notify && latest?.needs_attention) {

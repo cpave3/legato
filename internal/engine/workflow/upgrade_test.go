@@ -165,8 +165,8 @@ func TestUpgradeRefusesAFileThatDoesNotLoad(t *testing.T) {
 
 // A step rewrite (LEG-599 adds the inline review step's) replaces its step
 // and says where each of its outputs went: a later reference to one it
-// maps is rewritten, and one it cannot map is flagged at that reference's
-// line and column.
+// maps is rewritten, and one it cannot map is flagged, as an error, at that
+// reference's line and column.
 func TestAStepRewriteFlagsAReferenceItCannotMap(t *testing.T) {
 	in := `schema_version: 1
 name: f
@@ -225,7 +225,7 @@ steps:
 	}
 	// "        Extra: ${{ steps.ctx.outputs.extra }}" is line 19 of the
 	// upgraded file; the reference starts at column 20.
-	if flagged.Line != 19 || flagged.Column != 20 || flagged.EndColumn != 20+len("steps.ctx.outputs.extra") || flagged.Severity != SeverityWarning {
+	if flagged.Line != 19 || flagged.Column != 20 || flagged.EndColumn != 20+len("steps.ctx.outputs.extra") || flagged.Severity != SeverityError {
 		t.Fatalf("note = %+v\n%s", *flagged, text)
 	}
 	if !strings.Contains(flagged.Message, "steps.ctx.outputs.extra") {

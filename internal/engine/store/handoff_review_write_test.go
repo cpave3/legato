@@ -114,44 +114,67 @@ func TestAGitHubWriteOfAHandoffsLoopNeedsTheHandoffStillOpenHere(t *testing.T) {
 	}
 }
 
-// A handoff's loop that holds claims (converted from before the loop
-// record) closes once its handoff has, so its pull requests are free; the
-// loop of a handoff still open keeps them.
-func TestTheLoopOfAClosedHandoffIsClosedAndFreesItsClaims(t *testing.T) {
+// Adoption (LEG-601): a loop its handoff owns becomes a review-loop run's
+// in one transaction, keeping its claim, its pass in flight, its findings
+// and its items; adopting it again for the same run changes nothing, and a
+// closed loop or another run's is refused.
+func TestAHandoffOwnedLoopIsAdoptedByARunKeepingItsClaimPassesAndItems(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	for _, id := range []string{"h-1", "h-2"} {
-		card := "card-" + id
-		h := Handoff{MainInstanceID: "main-1", HandoffID: id, TaskID: card, Purpose: "make_change", State: HandoffInProgress,
-			CreatedAt: "2024-01-01T00:00:00Z", UpdatedAt: "2024-01-01T00:00:00Z"}
-		if err := s.CreateHandoffCard(ctx, Task{ID: card, Title: card, Status: "Doing", CreatedAt: "2024-01-01", UpdatedAt: "2024-01-01"}, nil, h); err != nil {
-			t.Fatal(err)
-		}
-		pr := 7
-		if id == "h-2" {
-			pr = 8
-		}
-		if _, _, err := s.OpenReviewLoop(ctx, ReviewLoopOpen{Loop: ReviewLoop{OwnerKind: ReviewLoopOwnerHandoff, HandoffID: id, MainInstanceID: "main-1",
-			HostTask: card, Repo: "acme/widget", Phase: "waiting_for_author"}, PRs: []ReviewLoopPR{{Number: pr}}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := s.CloseHandoffAndArchive(ctx, "main-1", "h-1", "2024-01-02T00:00:00Z"); err != nil {
+	h := Handoff{MainInstanceID: "main-1", HandoffID: "h-1", TaskID: "card", Purpose: "make_change", State: HandoffInProgress,
+		CreatedAt: "2024-01-01T00:00:00Z", UpdatedAt: "2024-01-01T00:00:00Z"}
+	if err := s.CreateHandoffCard(ctx, Task{ID: "card", Title: "card", Status: "Doing", CreatedAt: "2024-01-01", UpdatedAt: "2024-01-01"}, nil, h); err != nil {
 		t.Fatal(err)
 	}
-	closed, err := s.CloseReviewLoopsOfClosedHandoffs(ctx, "2024-01-02T00:00:01Z")
-	if err != nil || closed != 1 {
-		t.Fatalf("closed %d, %v; want 1", closed, err)
+	l, _, err := s.OpenReviewLoop(ctx, ReviewLoopOpen{Loop: ReviewLoop{OwnerKind: ReviewLoopOwnerHandoff, HandoffID: "h-1", MainInstanceID: "main-1",
+		HostTask: "card", Repo: "acme/widget", MarkerKey: "card"}, PRs: []ReviewLoopPR{{Number: 7}}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if held, _ := s.ActiveReviewLoop(ctx, "acme/widget", 7); held != nil {
-		t.Fatalf("#7 is still claimed by %s", held.ID)
+	reviewing(t, s, "card")
+	if err := s.ReplaceHandoffReviewFindings(ctx, "card", 1, []HandoffReviewFinding{{ID: "f-1", TaskID: "card", Pass: 1, PR: 7, Severity: "blocking", Title: "Bug", Status: "open"}}); err != nil {
+		t.Fatal(err)
 	}
-	loop, _ := s.CurrentReviewLoop(ctx, "card-h-1")
-	if loop.State != ReviewLoopClosedState || loop.Phase != "waiting_for_author" {
-		t.Fatalf("loop = %+v; want it closed, its phase kept", loop)
+	if err := s.UpsertHandoffReviewItem(ctx, HandoffReviewItem{ID: "f-1", TaskID: "card", Kind: "blocking", Pass: 1, PR: 7, Version: 1, Answer: "fixed"}); err != nil {
+		t.Fatal(err)
 	}
-	if held, _ := s.ActiveReviewLoop(ctx, "acme/widget", 8); held == nil {
-		t.Fatal("the open handoff's loop lost its claim on #8")
+
+	adopted, err := s.AdoptHandoffReviewLoop(ctx, l.ID, "wr-9", "open", `{"done":"Done"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adopted.ID != l.ID || adopted.OwnerKind != ReviewLoopOwnerRun || adopted.RunID != "wr-9" || adopted.StepPath != "open" || adopted.AttemptID != "" ||
+		adopted.HandoffID != "h-1" || adopted.MainInstanceID != "main-1" || adopted.HandoffColumns != `{"done":"Done"}` ||
+		adopted.MarkerKey != "card" || adopted.Pass != 1 || adopted.Phase != "reviewing" || adopted.State != ReviewLoopOpenState {
+		t.Fatalf("adopted = %+v", adopted)
+	}
+	if held, _ := s.ActiveReviewLoop(ctx, "acme/widget", 7); held == nil || held.ID != l.ID {
+		t.Fatalf("#7 is held by %+v; want the adopted loop", held)
+	}
+	if passes, err := s.ListHandoffReviewPasses(ctx, "card"); err != nil || len(passes) != 1 || passes[0].State != "submitted" {
+		t.Fatalf("passes = %+v, %v; want pass 1 still in flight", passes, err)
+	}
+	if findings, err := s.ListHandoffReviewFindings(ctx, "card"); err != nil || len(findings) != 1 || findings[0].ID != "f-1" {
+		t.Fatalf("findings = %+v, %v", findings, err)
+	}
+	if items, err := s.ListHandoffReviewItems(ctx, "card"); err != nil || len(items) != 1 || items[0].Answer != "fixed" {
+		t.Fatalf("items = %+v, %v", items, err)
+	}
+	if found, err := s.ReviewLoopForStep(ctx, "wr-9", "open"); err != nil || found == nil || found.ID != l.ID {
+		t.Fatalf("the run's open step's loop = %+v, %v", found, err)
+	}
+
+	if again, err := s.AdoptHandoffReviewLoop(ctx, l.ID, "wr-9", "open", `{}`); err != nil || again.Rev != adopted.Rev {
+		t.Fatalf("adopting again = %+v, %v; want it unchanged", again, err)
+	}
+	if _, err := s.AdoptHandoffReviewLoop(ctx, l.ID, "wr-10", "open", `{}`); !errors.Is(err, ErrReviewLoopNotOwned) {
+		t.Fatalf("adopting another run's loop = %v; want not owned", err)
+	}
+	if _, _, err := s.CloseReviewLoop(ctx, l.ID, "ended", "2024-01-02T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AdoptHandoffReviewLoop(ctx, l.ID, "wr-10", "open", `{}`); !errors.Is(err, ErrReviewLoopClosed) {
+		t.Fatalf("adopting a closed loop = %v; want closed", err)
 	}
 }
 

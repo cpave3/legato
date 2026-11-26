@@ -10,7 +10,9 @@ import (
 
 // runWorkflowUpgrade upgrades a schema_version 1 workflow file to version 2
 // in place (LEG-484), as the web editor's Upgrade to v2 does: only what
-// changes is rewritten, so comments stay. --stdout prints the upgraded file
+// changes is rewritten, so comments stay. In a file of either version it
+// rewrites the deprecated inline review step to call the built-in
+// review-loop (LEG-599). --stdout prints the upgraded file
 // and writes nothing. What the upgrade could not do is printed as
 // file:line:col: severity: message, and exits 2: the file needs editing by
 // hand. A file that does not load is refused, as validate prints it.
@@ -52,6 +54,8 @@ func runWorkflowUpgrade(positional []string, flags map[string]string) int {
 		_, _ = os.Stdout.Write(result.YAML)
 	case !result.Changed:
 		fmt.Fprintf(os.Stderr, "%s is schema_version %d already\n", path, workflowengine.LatestSchemaVersion)
+	case wasVersion2(path, data):
+		fmt.Fprintf(os.Stderr, "%s: deprecated steps rewritten (github.pr.review_passes now calls the built-in review-loop)\n", path)
 	default:
 		fmt.Fprintf(os.Stderr, "%s upgraded to schema_version %d\n", path, workflowengine.LatestSchemaVersion)
 	}
@@ -64,4 +68,10 @@ func runWorkflowUpgrade(positional []string, flags map[string]string) int {
 		return exitUsage
 	}
 	return 0
+}
+
+// wasVersion2 says whether the file was version 2 before the upgrade.
+func wasVersion2(path string, data []byte) bool {
+	definition, err := workflowengine.Parse(path, data)
+	return err == nil && definition.SchemaVersion == workflowengine.SchemaVersion2
 }

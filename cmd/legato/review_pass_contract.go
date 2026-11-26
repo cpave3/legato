@@ -125,6 +125,12 @@ func reviewPassError(err error) *commandError {
 		return &commandError{Code: "loop_closed", Message: err.Error(), Exit: exitNotFound}
 	case errors.Is(err, service.ErrReviewNotStuck):
 		return &commandError{Code: "loop_not_stuck", Message: err.Error(), Exit: exitInternal}
+	case errors.Is(err, service.ErrStewardNotWatching):
+		return &commandError{Code: "steward_not_watching", Message: err.Error(), Exit: exitInternal}
+	case errors.Is(err, service.ErrStewardNotHeld):
+		return &commandError{Code: "steward_not_held", Message: err.Error(), Exit: exitInternal}
+	case errors.Is(err, service.ErrReviewNotWaiting):
+		return &commandError{Code: "loop_not_waiting", Message: err.Error(), Exit: exitInternal}
 	}
 	return commandDomainError(err)
 }

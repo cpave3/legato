@@ -23,6 +23,8 @@ function dependencies() {
     getTabUrl: vi.fn().mockResolvedValue("https://github.com/cpave3/legato/pull/7"),
     saveReviewContext: vi.fn().mockResolvedValue(undefined),
     listRuns: vi.fn().mockResolvedValue([]),
+    // GET /api/review-loops: none holds the pull request.
+    activeLoop: vi.fn().mockResolvedValue(null),
     syncTicketSites: vi.fn().mockResolvedValue({ sites: [] }),
   }
 }
@@ -365,8 +367,9 @@ describe("review passes on a pull request", () => {
     expect(response).toEqual({ ok: true, runUrl: "http://localhost:3080/workflows/runs/run-5" })
   })
 
-  it("opens the review loop already running on the pull request instead of starting another", async () => {
+  it("opens the review loop already running on the pull request instead of starting another, on a Legato without the loop lookup", async () => {
     const deps = passes()
+    deps.activeLoop.mockResolvedValue(undefined)
     deps.listRuns.mockResolvedValue([{ ...discussionRun("live", "running"), workflow_name: "review-pr-passes" }])
     const response = await createMessageHandler(deps)(start, { tab: { id: 4 } })
 
@@ -403,6 +406,7 @@ describe("review passes on a pull request", () => {
 
   it("reviews the pull request's whole stack by default", async () => {
     const deps = passes()
+    deps.activeLoop.mockResolvedValue(undefined)
     deps.discover.mockResolvedValue(withScope)
     deps.start.mockResolvedValue({ run: { id: "run-8", status: "running" } })
     await createMessageHandler(deps)(start, { tab: { id: 4 } })
@@ -434,5 +438,70 @@ describe("review passes on a pull request", () => {
     deps.discover.mockResolvedValue({ ...passesDiscovery, definitions: [{ name: "deep-review", inputs: { repo: { type: "string" }, pr_number: { type: "integer" } } }] })
     const response = await createMessageHandler(deps)({ ...start, type: "prepareGitHubWorkflow" }, { tab: { id: 4 } })
     expect(response).toMatchObject({ ok: true, prepared: { workflowName: "deep-review" } })
+  })
+})
+
+describe("the built-in review-loop", () => {
+  const reviewLoop = { name: "review-loop", inputs: { repo: { type: "string" }, pr_number: { type: "integer", default: 0 }, scope: { type: "string", default: "" }, agent_author: { type: "boolean", default: false } } }
+  const oldCopy = { name: "review-pr-passes", inputs: { repo: { type: "string" }, pr_number: { type: "integer" }, scope: { type: "string", default: "stack" } } }
+  const loops = (definitions: WorkflowDiscovery["definitions"] & object = [reviewLoop, oldCopy]) => {
+    const deps = dependencies()
+    deps.discover.mockResolvedValue({ ...discovery, definitions: [...discovery.definitions!, ...definitions] })
+    deps.start.mockResolvedValue({ run: { id: "run-20", status: "running" } })
+    return deps
+  }
+  const start = { type: "startPreparedWorkflow", purpose: "passes", context: pr }
+
+  it("is started whenever Legato lists it, though the options still name review-pr-passes", async () => {
+    const deps = loops()
+    deps.loadConfig.mockResolvedValue({ ...DEFAULT_CONFIG, reviewPassesWorkflowName: "review-pr-passes" })
+    const response = await createMessageHandler(deps)(start, { tab: { id: 4 } })
+
+    expect(deps.start).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ workflowName: "review-loop", inputs: { repo: "cpave3/legato", pr_number: "7", scope: "stack" } }))
+    expect(response).toEqual({ ok: true, runUrl: "http://localhost:3080/workflows/runs/run-20" })
+  })
+
+  it("is the default", async () => {
+    const deps = loops()
+    await createMessageHandler(deps)({ ...start, purpose: "passes-pr" }, { tab: { id: 4 } })
+
+    expect(DEFAULT_CONFIG.reviewPassesWorkflowName).toBe("review-loop")
+    expect(deps.start).toHaveBeenCalledWith(DEFAULT_CONFIG, expect.objectContaining({ workflowName: "review-loop", inputs: { repo: "cpave3/legato", pr_number: "7", scope: "pr" } }))
+  })
+
+  it("gives way to review-pr-passes on an older Legato that has no review-loop", async () => {
+    const deps = loops([oldCopy])
+    await createMessageHandler(deps)(start, { tab: { id: 4 } })
+
+    expect(deps.start).toHaveBeenCalledWith(DEFAULT_CONFIG, expect.objectContaining({ workflowName: "review-pr-passes" }))
+  })
+
+  it("leaves a workflow of the operator's own naming alone", async () => {
+    const deps = loops([reviewLoop, { name: "deep-review", inputs: { repo: { type: "string" }, pr_number: { type: "integer" } } }])
+    deps.loadConfig.mockResolvedValue({ ...DEFAULT_CONFIG, reviewPassesWorkflowName: "deep-review" })
+    await createMessageHandler(deps)(start, { tab: { id: 4 } })
+
+    expect(deps.start).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ workflowName: "deep-review" }))
+  })
+
+  it("opens the loop Legato says holds the pull request, whichever caller started it", async () => {
+    const deps = loops()
+    deps.activeLoop.mockResolvedValue({ loop_id: "rl-0123456789ab", kind: "handoff", run_id: "", step_path: "", phase: "reviewing", state: "open", held: false, outcome: "", link: "/board?highlight_task=card-1" })
+    const response = await createMessageHandler(deps)(start, { tab: { id: 4 } })
+
+    expect(deps.activeLoop).toHaveBeenCalledWith(DEFAULT_CONFIG, "cpave3/legato", 7)
+    expect(deps.start).not.toHaveBeenCalled()
+    expect(deps.listRuns).not.toHaveBeenCalled()
+    expect(response).toMatchObject({ ok: true, runUrl: "http://localhost:3080/board?highlight_task=card-1", activeLoop: true })
+    expect(deps.openRun).toHaveBeenCalledWith("http://localhost:3080/board?highlight_task=card-1")
+  })
+
+  it("opens the holder Legato names when a loop took the pull request first", async () => {
+    const deps = loops()
+    deps.start.mockResolvedValue({ run: { id: "run-21", status: "failed" }, steps: [{ step_id: "open", title: "Open the review loop", status: "failed",
+      error: "review_loop_active: pull request #7 of cpave3/legato already has an active review loop: run wr-9 (/workflows/runs/wr-9), loop rl-0123456789ab" }] })
+    const response = await createMessageHandler(deps)(start, { tab: { id: 4 } })
+
+    expect(response).toMatchObject({ ok: true, runUrl: "http://localhost:3080/workflows/runs/wr-9", activeLoop: true })
   })
 })

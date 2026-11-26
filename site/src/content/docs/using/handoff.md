@@ -96,6 +96,8 @@ On a worker that runs [review passes](/legato/using/review-passes/), a task is n
 - **Review done · approved** once a pass is clean, the reviewer approved the pull requests and their required checks passed (with "1 check answered by reply" when the agent explained a failure, a flaky test say, instead of fixing it);
 - **Review stuck after pass 3:** with why, in full, on an amber edge, when it needs you: the passes reached their limit, the reviewer could not review or ran out of time, or the agent could not be brought back.
 
+The worker runs the review as a run of the built-in `review-loop` workflow, which it starts when it takes the task: comments and failing checks count from then on, the card in Done starts the first pass, and the run ends once the pull requests are approved. Recalling, dropping or returning the task cancels it, and nothing more is posted. On the worker the run is on the **Workflows** page, linked to the card.
+
 The required checks are those branch protection requires on each pull request's base branch, or the worker's `review_passes.required_checks` when it requires none. A failing one goes to the agent like a review comment, with its summary and a link; the agent fixes it on a new commit or replies. Reviews do not wait for the checks; only the task's done does.
 
 The panel links to Legato's latest review of each pull request. When the review is stuck, the card, its panel and its Attention item offer **Return as is**, **Run another pass** (one more pass past the limit, or another try), **Message the author** (your words reach the agent on the worker, marked as from you) and **Recall** (on the card, in its menu). They are offered only while the worker can be reached: an unreachable worker's task offers only **Take back**.

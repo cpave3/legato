@@ -93,6 +93,48 @@ type FakeReviewGitHub struct {
 	// refuseReady the one GitHub refuses to mark ready.
 	readied     []int
 	refuseReady int
+	// watches counts the steward's watch sessions.
+	watches int
+	// reads counts PullRequest calls.
+	reads int
+	// mergeable is each pull request's mergeable and mergeStateStatus as
+	// the watch reads them (MERGEABLE and CLEAN when not set).
+	mergeable map[int][2]string
+	// dismissed are the reviews a person dismissed, by ID (the posted
+	// review's: its place in posted, from 1).
+	dismissed map[int64]bool
+}
+
+// DismissReview dismisses the newest review posted on a pull request, as a
+// person with write access does on GitHub (no push): the watch reads it
+// among the pull request's dismissed reviews. It returns the review's ID,
+// 0 when none was posted.
+func (f *FakeReviewGitHub) DismissReview(number int) int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := len(f.posted) - 1; i >= 0; i-- {
+		if f.posted[i].Number == number {
+			if f.dismissed == nil {
+				f.dismissed = map[int64]bool{}
+			}
+			id := int64(i + 1)
+			f.dismissed[id] = true
+			return id
+		}
+	}
+	return 0
+}
+
+// SetMergeable gives a pull request GitHub's mergeable (MERGEABLE,
+// CONFLICTING, UNKNOWN) and mergeStateStatus (CLEAN, BEHIND, DIRTY...), as
+// the steward's watch reads them.
+func (f *FakeReviewGitHub) SetMergeable(number int, mergeable, mergeState string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.mergeable == nil {
+		f.mergeable = map[int][2]string{}
+	}
+	f.mergeable[number] = [2]string{mergeable, mergeState}
 }
 
 // Draft makes an open pull request a draft, or ready.
@@ -832,6 +874,7 @@ func (f *FakeReviewGitHub) PullRequest(_ context.Context, _ string, number int) 
 	f.beforeRead()
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.reads++
 	if f.readFails() {
 		return service.ReviewGitHubPR{}, "", &service.GitHubError{Status: 503, Message: "Service Unavailable"}
 	}
@@ -871,3 +914,89 @@ func (f *FakeReviewGitHub) OpenForkPR(number int, branch, head, headRepo string)
 	f.prs[headRepo+":"+branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: "main", Title: fmt.Sprintf("PR %d", number), HeadSHA: head,
 		Author: "someone", AuthorAssociation: "NONE", HeadRepo: headRepo}
 }
+
+// WatchSession is the steward's reads of a loop in one tick (spec LEG-559
+// C7): its pull requests' state, heads and counted checks, as one read, and
+// their comments. Every check the fake has is one branch protection
+// requires.
+func (f *FakeReviewGitHub) WatchSession(repo string) service.ReviewWatchSession {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.watches++
+	return &fakeWatchSession{f: f, repo: repo}
+}
+
+// Reads counts the reads of one pull request (PullRequest).
+func (f *FakeReviewGitHub) Reads() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.reads
+}
+
+// Watches counts the steward's watch sessions opened.
+func (f *FakeReviewGitHub) Watches() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.watches
+}
+
+type fakeWatchSession struct {
+	f    *FakeReviewGitHub
+	repo string
+}
+
+func (s *fakeWatchSession) Watch(_ context.Context, numbers []int) ([]service.PRWatch, error) {
+	f := s.f
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]service.PRWatch, 0, len(numbers))
+	for _, n := range numbers {
+		var pr *service.ReviewGitHubPR
+		for _, p := range f.prs {
+			if p.Number == n {
+				p := p
+				pr = &p
+			}
+		}
+		if pr == nil {
+			return nil, fmt.Errorf("GitHub has no pull request %s#%d", s.repo, n)
+		}
+		state := "open"
+		if closed, ok := f.closed[n]; ok {
+			state = closed
+		}
+		w := service.PRWatch{Number: n, State: state, Draft: pr.Draft, HeadSHA: pr.HeadSHA, HeadBranch: pr.Branch, BaseBranch: pr.Base,
+			Mergeable: "MERGEABLE", MergeState: "CLEAN"}
+		if m, ok := f.mergeable[n]; ok {
+			w.Mergeable, w.MergeState = m[0], m[1]
+		}
+		for i, post := range f.posted {
+			if post.Number == n && f.dismissed[int64(i+1)] {
+				w.DismissedReviews = append(w.DismissedReviews, int64(i+1))
+			}
+		}
+		for _, c := range f.checks[pr.HeadSHA] {
+			w.Checks = append(w.Checks, service.WatchCheck{Name: c.Name, State: c.State, Conclusion: c.Conclusion, URL: c.URL, Required: true})
+			switch {
+			case c.State == service.CheckFailing:
+				w.Rollup = service.CheckFailing
+			case c.State == service.CheckPending && w.Rollup != service.CheckFailing:
+				w.Rollup = service.CheckPending
+			case w.Rollup == "":
+				w.Rollup = service.CheckPassing
+			}
+		}
+		out = append(out, w)
+	}
+	return out, nil
+}
+
+func (s *fakeWatchSession) PollComments(ctx context.Context, number int, pages service.PollPages) (service.CommentPoll, error) {
+	return s.f.PollComments(ctx, s.repo, number, pages)
+}
+
+func (s *fakeWatchSession) Stacked(ctx context.Context, base string) ([]service.ReviewGitHubPR, error) {
+	return s.f.OpenPulls(ctx, s.repo, service.PullQuery{Base: base})
+}
+
+func (s *fakeWatchSession) Close() {}

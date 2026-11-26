@@ -110,3 +110,31 @@ func TestWorkflowUpgradeRefusesAFileThatDoesNotLoad(t *testing.T) {
 		t.Fatal("a file that does not load was changed")
 	}
 }
+
+// A version 2 file's inline review step is rewritten to call review-loop
+// (LEG-599); the file says so rather than that it was upgraded.
+func TestWorkflowUpgradeRewritesTheInlineReviewStepOfAVersion2File(t *testing.T) {
+	path := writeWorkflowFile(t, `schema_version: 2
+name: review
+title: Review
+steps:
+  - id: review
+    title: Review
+    type: github.pr.review_passes
+    with: {repo: acme/widget, pr_number: 12}
+`)
+	var code int
+	stderr := captureStderr(t, func() {
+		captureStdout(t, func() int {
+			code = runCLI([]string{"workflow", "upgrade", path})
+			return code
+		})
+	})
+	got, _ := os.ReadFile(path)
+	if code != 0 || !strings.Contains(string(got), "type: workflow.run") || !strings.Contains(string(got), "workflow: review-loop") {
+		t.Fatalf("exit %d, stderr %q, file:\n%s", code, stderr, got)
+	}
+	if !strings.Contains(stderr, "deprecated steps rewritten") || strings.Contains(stderr, "upgraded to schema_version") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+}

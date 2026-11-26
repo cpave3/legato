@@ -412,6 +412,15 @@ func commandTree() *commandDef {
 		leaf("message", "The operator on the host: send the loop's author agent a message, as its next turn", runReviewLoopMessageContract, nil,
 			[]commandFlag{valueFlag("loop", "loop-id", "The review loop by its ID (rl-…)"), valueFlag("text", "text", "The message"), valueFlag("file", "path|-", "The message, from a file or stdin"), jsonFlag},
 			"legato review-pass message --loop rl-1a2b3c4d5e6f --text \"Rebase on main first\""),
+		leaf("stop-watching", "The operator on the host: hold a loop's steward, which then sends nothing and starts no pass (a merge, a close or idleness still ends it)", runReviewLoopStopWatchingContract, nil,
+			[]commandFlag{valueFlag("loop", "loop-id", "The review loop by its ID (rl-…)"), jsonFlag},
+			"legato review-pass stop-watching --loop rl-1a2b3c4d5e6f"),
+		leaf("watch-again", "The operator on the host: let a held steward watch again, or give one stuck at its re-entry budget one more re-entry", runReviewLoopWatchAgainContract, nil,
+			[]commandFlag{valueFlag("loop", "loop-id", "The review loop by its ID (rl-…)"), jsonFlag},
+			"legato review-pass watch-again --loop rl-1a2b3c4d5e6f"),
+		leaf("end", "The operator on the host: end a loop's steward (outcome ended), or a stuck loop (outcome stuck)", runReviewLoopEndContract, nil,
+			[]commandFlag{valueFlag("loop", "loop-id", "The review loop by its ID (rl-…)"), jsonFlag},
+			"legato review-pass end --loop rl-1a2b3c4d5e6f"),
 	)
 
 	mcp := group("mcp", "Give an agent Legato's tools over the Model Context Protocol", []string{"legato mcp serve"},
@@ -623,9 +632,9 @@ func configureWorkflowCommands(workflow *commandDef) {
 	}
 	applyCommandShapes(workflow, map[string]commandShape{
 		"list":     {flags: []commandFlag{jsonFlag}, examples: []string{"legato workflow list --json"}},
-		"add":      {arguments: []argumentDef{optionalArg("name", "Example workflow to add; lists them when left out")}, flags: []commandFlag{boolFlag("project", "Add it to .legato/workflows in this project instead of your global folder"), boolFlag("force", "Replace a workflow file of that name"), jsonFlag}, examples: []string{"legato workflow add", "legato workflow add review-pr-passes"}},
+		"add":      {arguments: []argumentDef{optionalArg("name", "Example workflow to add; lists them when left out")}, flags: []commandFlag{boolFlag("project", "Add it to .legato/workflows in this project instead of your global folder"), boolFlag("force", "Replace a workflow file of that name"), jsonFlag}, examples: []string{"legato workflow add", "legato workflow add triage"}},
 		"validate": {arguments: []argumentDef{arg("name-or-file", "Workflow name or definition file")}, flags: []commandFlag{jsonFlag}, examples: []string{"legato workflow validate deploy.yaml --json"}},
-		"upgrade":  {arguments: []argumentDef{arg("file", "Workflow definition file")}, flags: []commandFlag{boolFlag("stdout", "Print the upgraded file instead of rewriting it"), jsonFlag}, examples: []string{"legato workflow upgrade deploy.workflow.yaml", "legato workflow upgrade deploy.workflow.yaml --stdout"}},
+		"upgrade":  {arguments: []argumentDef{arg("file", "Workflow definition file")}, flags: []commandFlag{boolFlag("stdout", "Print the upgraded file instead of rewriting it"), jsonFlag}, examples: []string{"legato workflow upgrade deploy.workflow.yaml", "legato workflow upgrade deploy.workflow.yaml --stdout", "legato workflow upgrade review-pr-passes.workflow.yaml"}},
 		"run":      {arguments: []argumentDef{arg("name", "Workflow name")}, flags: []commandFlag{{Name: "input", Value: "key=value", Description: "Workflow input", Repeatable: true}, jsonFlag}, examples: []string{"legato workflow run deploy --input environment=staging --json"}},
 		"runs":     {flags: []commandFlag{valueFlag("status", "status", "Filter runs"), valueFlag("limit", "count", "Maximum runs"), jsonFlag}, examples: []string{"legato workflow runs --status running --limit 20 --json"}},
 		"show":     {arguments: []argumentDef{arg("run-id", "Workflow run ID")}, flags: []commandFlag{jsonFlag}, examples: []string{"legato workflow show <run-id> --json"}},

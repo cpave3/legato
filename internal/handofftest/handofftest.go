@@ -92,6 +92,10 @@ type WorkerOptions struct {
 	// GitHub and the author's checkout faked (Worker.ReviewGitHub,
 	// Worker.Checkout).
 	ReviewPasses *ReviewPassOptions
+	// PullRequests are the worker's pull_requests.rules: the handoff
+	// brief's pull request line, and ready_after_review on a draft rule
+	// (a handoff's review-loop run's ready input, LEG-456).
+	PullRequests []config.PullRequestRule
 	// Database, when set, is given the worker's database path before the
 	// worker first opens it, to leave there what an older Legato wrote
 	// (store.NewBefore): the worker's open migrates it.
@@ -127,6 +131,9 @@ type Worker struct {
 	Reviews      *service.ReviewPassService
 	ReviewGitHub *FakeReviewGitHub
 	Checkout     *FakeCheckout
+	// ReviewRuns are the worker's workflows and run caller, with review
+	// passes: workflow review loops and its handoffs' review-loop runs.
+	ReviewRuns *ReviewRuns
 
 	// HTTP is the TLS server; URL its address (https://127.0.0.1:port),
 	// which stays the same across restarts.
@@ -226,10 +233,16 @@ func (w *Worker) start() {
 		reviewAdvert = opts.Advert
 	}
 	w.Reviews = reviews
+	w.ReviewRuns = nil
+	if reviews != nil {
+		// As a worker's runtime does: workflows and the run caller, which
+		// the handoffs' review-loop runs run on.
+		w.ReviewRuns = newReviewRuns(w)
+	}
 	w.Handoffs = service.NewHandoffWorkerService(db, service.HandoffWorkerOptions{
 		Agents: w.Agents.(service.HandoffAgents), Repositories: w.Repos, Sandbox: func() bool { return sandbox },
 		Grants: w.Credentials, Bus: w.Bus, Run: w.run, Now: w.Clock.Now, StreamRescan: 50 * time.Millisecond,
-		Stacks: service.NewTaskStackService(db, w.Clock.Now),
+		Stacks: service.NewTaskStackService(db, w.Clock.Now), PullRequests: w.pullRequests(),
 	})
 	if reviews != nil {
 		// As a worker's runtime does: the handoff caller registers when
@@ -237,6 +250,7 @@ func (w *Worker) start() {
 		w.Handoffs.SetReviews(service.NewHandoffReviewCaller(reviews, service.HandoffReviewCallerOptions{
 			Board: w.Board, Bus: w.Bus, Now: w.Clock.Now, FetchPR: w.ReviewGitHub.PullHead,
 			ResumeAuthor: func(ctx context.Context, taskID string) error { return w.Handoffs.ResumeAuthor(ctx, taskID) },
+			Runs:         w.ReviewRuns.Workflows, PullRequests: w.pullRequests(),
 		}))
 	}
 	if setter, ok := w.Agents.(interface{ SetHandedOffAgents(service.HandedOffAgents) }); ok {
@@ -273,6 +287,14 @@ func (w *Worker) start() {
 	w.HTTP.StartTLS()
 	w.addr = w.HTTP.Listener.Addr().String()
 	w.URL = "https://" + w.addr
+}
+
+// pullRequests are the worker's pull_requests.rules, read at each ask as a
+// worker's runtime reads its effective configuration.
+func (w *Worker) pullRequests() service.PullRequestModes {
+	return func(context.Context) (config.PullRequestsConfig, error) {
+		return config.PullRequestsConfig{Rules: w.opts.PullRequests}, nil
+	}
 }
 
 // credentialBroker is the worker's credential broker: a GitHub App

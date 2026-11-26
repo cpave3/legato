@@ -23,7 +23,7 @@ func TestTwoStartsOnOnePullRequestAtOnceGiveOneLoopAndOneRefusalNamingIt(t *test
 	r := newReviewRun(t, ReviewPassOptions{})
 	ctx := context.Background()
 	other := otherProcess(r.worker)
-	example, _ := workflowengine.ExampleNamed("review-pr-passes")
+	example := workflowengine.OldReviewPassesCopy()
 	definition, err := workflowengine.Parse("review-pr-passes.workflow.yaml", example.YAML)
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +86,9 @@ func TestAStartOnAPullRequestAHandoffHoldsIsRefusedNamingItsLoop(t *testing.T) {
 	h.finish(t) // pass 1 of the handoff's loop pins #7
 	ctx := context.Background()
 	held, err := h.worker.Store.ActiveReviewLoop(ctx, "ACME/widget", 7)
-	if err != nil || held == nil || held.HostTask != h.card || held.OwnerKind != store.ReviewLoopOwnerHandoff {
+	// The handoff's loop: since LEG-600 its review-loop run owns it, under
+	// the handoff binding.
+	if err != nil || held == nil || held.HostTask != h.card || held.HandoffID == "" {
 		t.Fatalf("the claim on #7: %+v, %v", held, err)
 	}
 	runs := StartReviewRuns(t, h.worker)

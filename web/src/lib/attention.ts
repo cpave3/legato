@@ -32,13 +32,38 @@ export async function fetchAttention(baseUrl: string): Promise<AttentionItem[]> 
   return body.items ?? []
 }
 
+// An action Legato refused because what it would start is going already,
+// with where (href, a path of this web UI), which the page opens instead:
+// Start review passes on a pull request a review loop holds.
+export class AttentionElsewhereError extends Error {
+  readonly href: string
+
+  constructor(message: string, href: string) {
+    super(message)
+    this.name = "AttentionElsewhereError"
+    this.href = href
+  }
+}
+
 export async function executeAttentionAction(baseUrl: string, id: string, actionId: string, revision: string, opts?: { confirmed?: boolean; text?: string }): Promise<void> {
   const resp = await apiFetch(baseUrl, `/api/attention/${encodeURIComponent(id)}/actions/${encodeURIComponent(actionId)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ expected_revision: revision, confirmed: opts?.confirmed ?? false, text: opts?.text ?? "" }),
   })
-  if (!resp.ok && resp.status !== 204) throw new Error(await resp.text())
+  if (resp.ok || resp.status === 204) return
+  const body = await resp.text()
+  if (resp.status === 409) {
+    try {
+      const parsed = JSON.parse(body) as { error?: unknown; href?: unknown }
+      if (typeof parsed.href === "string" && parsed.href.startsWith("/")) {
+        throw new AttentionElsewhereError(typeof parsed.error === "string" ? parsed.error : body, parsed.href)
+      }
+    } catch (error) {
+      if (error instanceof AttentionElsewhereError) throw error
+    }
+  }
+  throw new Error(body)
 }
 
 export async function dismissAttentionItem(baseUrl: string, id: string, revision: string): Promise<void> {

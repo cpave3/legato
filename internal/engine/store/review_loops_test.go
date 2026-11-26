@@ -447,3 +447,56 @@ func TestCheckReviewLoopOwner(t *testing.T) {
 		t.Fatalf("closed loop: %v", err)
 	}
 }
+
+// The steward's watch writes what GitHub reports of each layer, without
+// moving the loop's rev (a transition in flight is not refused for it), and
+// writes nothing to a closed loop or to a layer that is not the loop's.
+func TestSetReviewLoopPRStatusWritesTheLayersWithoutMovingTheRev(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	loop := mustOpen(t, s, runLoop(t, s, "run-1", "o/r", 1, 2))
+	if err := s.SetReviewLoopPRStatus(ctx, loop.ID, []ReviewLoopPRStatus{{Number: 1, State: "merged", Mergeable: "UNKNOWN"}, {Number: 2, State: "open", Draft: true, Mergeable: "CONFLICTING"}, {Number: 9, State: "open"}}); err != nil {
+		t.Fatal(err)
+	}
+	layers, _ := s.ListReviewLoopPRs(ctx, loop.ID)
+	if layers[0].State != "merged" || layers[0].Mergeable != "UNKNOWN" || layers[1].State != "open" || !layers[1].Draft || layers[1].Mergeable != "CONFLICTING" {
+		t.Fatalf("layers = %+v", layers)
+	}
+	if got, _ := s.GetReviewLoop(ctx, loop.ID); got.Rev != loop.Rev {
+		t.Fatalf("rev moved from %d to %d", loop.Rev, got.Rev)
+	}
+	if _, _, err := s.CloseReviewLoop(ctx, loop.ID, "closed", loopAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetReviewLoopPRStatus(ctx, loop.ID, []ReviewLoopPRStatus{{Number: 2, State: "closed", Mergeable: "MERGEABLE"}}); err != nil {
+		t.Fatal(err)
+	}
+	if layers, _ := s.ListReviewLoopPRs(ctx, loop.ID); layers[1].State != "open" {
+		t.Fatalf("a closed loop's layer was written: %+v", layers[1])
+	}
+}
+
+// The steward's idle-end notice reads the run loops that closed with an
+// outcome since a time (spec LEG-559 AC 35).
+func TestListReviewLoopsClosedSince(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	idle := mustOpen(t, s, runLoop(t, s, "run-1", "o/r", 1))
+	old := mustOpen(t, s, runLoop(t, s, "run-2", "o/r", 2))
+	merged := mustOpen(t, s, runLoop(t, s, "run-3", "o/r", 3))
+	mustOpen(t, s, runLoop(t, s, "run-4", "o/r", 4)) // still open
+	for _, c := range []struct{ id, outcome, at string }{
+		{idle.ID, "idle", "2026-11-25T10:00:00Z"}, {old.ID, "idle", "2026-11-10T10:00:00Z"}, {merged.ID, "merged", "2026-11-25T11:00:00Z"},
+	} {
+		if _, _, err := s.CloseReviewLoop(ctx, c.id, c.outcome, c.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.ListReviewLoopsClosedSince(ctx, "idle", "2026-11-20T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != idle.ID || got[0].RunID != "run-1" {
+		t.Fatalf("closed idle since: %+v", got)
+	}
+}

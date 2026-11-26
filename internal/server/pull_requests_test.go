@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,5 +70,49 @@ func TestTaskDetailListsEveryPRAndTrackedBranch(t *testing.T) {
 	}
 	if resp.PRMeta == nil || resp.PRMeta.PRNumber != 11 {
 		t.Fatalf("pr_meta = %+v", resp.PRMeta)
+	}
+}
+
+// stewardStates is a review loop lookup that says which pull requests a
+// steward watches (service.ReviewLoopLookup.StewardState).
+type stewardStates struct {
+	fakeReviewLoops
+	states map[int]string
+}
+
+func (s *stewardStates) StewardState(_ context.Context, repo string, pr int) string {
+	if repo != "acme/app" {
+		return ""
+	}
+	return s.states[pr]
+}
+
+// The board's PR chip says stewarding or held (spec LEG-559 story 13, AC
+// 39), from the loop that holds each pull request.
+func TestBoardPullRequestsSayWhetherAStewardWatchesThem(t *testing.T) {
+	svc := &mockBoardService{
+		columns:    []service.Column{{Name: "Doing"}},
+		cards:      map[string][]service.Card{"Doing": {{ID: "t1", Title: "Task one", Status: "Doing"}}},
+		cardDetail: stackedCardDetail(),
+	}
+	srv := New(svc, nil, nil, ":0")
+	srv.SetReviewLoops(&stewardStates{states: map[int]string{11: service.StewardStateHeld, 12: service.StewardStateStewarding}})
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/board", nil))
+	var resp BoardResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	prs := resp.Columns[0].Cards[0].PullRequests
+	if len(prs) != 2 || prs[0].Steward != "held" || prs[1].Steward != "stewarding" {
+		t.Fatalf("pull_requests = %+v", prs)
+	}
+
+	// A lookup that cannot say leaves the chip out.
+	srv.SetReviewLoops(&fakeReviewLoops{})
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/board", nil))
+	if strings.Contains(w.Body.String(), `"steward"`) {
+		t.Fatalf("body %s", w.Body.String())
 	}
 }

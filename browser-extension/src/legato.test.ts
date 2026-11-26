@@ -128,4 +128,20 @@ describe("LegatoClient", () => {
     expect(error.message).toContain("Could not reach Legato at http://localhost:3080")
     expect(error.message).not.toContain("certificate")
   })
+
+  it("finds the review loop that holds a pull request", async () => {
+    const loop = { loop_id: "rl-0123456789ab", kind: "run", run_id: "wr-1", step_path: "open", phase: "reviewing", state: "open", held: false, outcome: "", link: "/workflows/runs/wr-1" }
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ loop }), { status: 200 }))
+    const client = new LegatoClient("http://localhost:3080", "top-secret", fetcher)
+
+    await expect(client.activeReviewLoop("cpave3/legato", 42)).resolves.toEqual(loop)
+    expect(fetcher.mock.calls[0][0]).toBe("http://localhost:3080/api/review-loops?repo=cpave3%2Flegato&pr=42")
+  })
+
+  it("says none holds it, and that an older Legato cannot say", async () => {
+    const none = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ loop: null }), { status: 200 }))
+    await expect(new LegatoClient("http://localhost:3080", "", none).activeReviewLoop("cpave3/legato", 42)).resolves.toBeNull()
+    const older = vi.fn<typeof fetch>().mockResolvedValue(new Response("404 page not found", { status: 404 }))
+    await expect(new LegatoClient("http://localhost:3080", "", older).activeReviewLoop("cpave3/legato", 42)).resolves.toBeUndefined()
+  })
 })

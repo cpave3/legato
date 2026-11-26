@@ -63,6 +63,11 @@ const (
 	// on an author who will not move it alone: a person, or an agent
 	// author that waits on the operator, stopped or ended (LEG-543).
 	AttentionSignalWorkflowReviewAuthor = "workflow_review_author"
+	// AttentionSignalWorkflowReviewSteward is a run's stewarded review
+	// loop that needs the operator without being stuck: held (Stop
+	// watching), a person dismissed legato-reviews' approval with no push,
+	// or the notice that it ended idle (LEG-593).
+	AttentionSignalWorkflowReviewSteward = "workflow_review_steward"
 	// AttentionSignalWorkflowMergeWaiting is a run's github.pr.wait step
 	// waiting for the operator to review and merge its pull request
 	// (LEG-614).
@@ -87,6 +92,7 @@ var defaultAttentionSignals = []string{
 	AttentionSignalWorkflowFailed,
 	AttentionSignalWorkflowReviewStuck,
 	AttentionSignalWorkflowReviewAuthor,
+	AttentionSignalWorkflowReviewSteward,
 	AttentionSignalWorkflowMergeWaiting,
 	AttentionSignalWorkflowGate,
 	AttentionSignalWorkflowTriggerInput,
@@ -131,6 +137,7 @@ var knownAttentionSignals = map[string]bool{
 	AttentionSignalWorkflowFailed:              true,
 	AttentionSignalWorkflowReviewStuck:         true,
 	AttentionSignalWorkflowReviewAuthor:        true,
+	AttentionSignalWorkflowReviewSteward:       true,
 	AttentionSignalWorkflowMergeWaiting:        true,
 	AttentionSignalWorkflowGate:                true,
 	AttentionSignalWorkflowTriggerInput:        true,
@@ -221,6 +228,18 @@ type AttentionActionRequest struct {
 	Text             string `json:"text,omitempty"`
 	Confirmed        bool   `json:"confirmed,omitempty"`
 }
+
+// AttentionElsewhereError refuses an action because what it would start
+// is going already, elsewhere: Href is where (a path of the web UI), which a
+// client opens instead. The review prompt's Start review passes refuses so
+// on a pull request a review loop holds (LEG-597).
+type AttentionElsewhereError struct {
+	Err  error
+	Href string
+}
+
+func (e *AttentionElsewhereError) Error() string { return e.Err.Error() }
+func (e *AttentionElsewhereError) Unwrap() error { return e.Err }
 
 type AttentionActionHandler interface {
 	Execute(context.Context, AttentionActionRequest) error

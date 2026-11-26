@@ -40,6 +40,20 @@ export type WorkflowRunView = {
   artifacts?: WorkflowArtifact[] | null
 }
 export type ImportedTask = { id: string }
+/** The review loop that holds a pull request, as GET /api/review-loops reports it. */
+export type ActiveReviewLoop = {
+  loop_id: string
+  /** Whose the loop is: run, child_run or handoff. */
+  kind: string
+  run_id: string
+  step_path: string
+  phase: string
+  state: string
+  held: boolean
+  outcome: string
+  /** Where the web UI shows the loop: a path of it. */
+  link: string
+}
 
 // What to say when the browser could not reach Legato at all. The browser does
 // not say why (Legato not running, or a certificate it does not trust look the
@@ -122,6 +136,26 @@ export class LegatoClient {
     const query = new URLSearchParams({ workflow_name: workflowName, limit: String(limit) })
     for (const [key, value] of Object.entries(inputs)) query.set(`input.${key}`, value)
     return (await this.request<WorkflowRun[] | null>(`/api/workflow-runs?${query}`)) ?? []
+  }
+
+  // The review loop that holds a pull request, whichever caller started it:
+  // null when none does, undefined from an older Legato, which has no such
+  // lookup (it answers 404, or its web UI's page).
+  async activeReviewLoop(repo: string, pr: number): Promise<ActiveReviewLoop | null | undefined> {
+    const query = new URLSearchParams({ repo, pr: String(pr) })
+    let response: Response
+    try {
+      response = await this.fetch(`/api/review-loops?${query}`)
+    } catch (error) {
+      if (error instanceof LegatoRequestError && error.status === 404) return undefined
+      throw error
+    }
+    try {
+      const body = (await response.json()) as { loop?: ActiveReviewLoop | null }
+      return "loop" in body ? body.loop ?? null : undefined
+    } catch {
+      return undefined
+    }
   }
 
   workflowRun(id: string): Promise<WorkflowRunView> {

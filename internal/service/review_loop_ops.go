@@ -270,20 +270,42 @@ func (s *ReviewPassService) confirm(ctx context.Context, loopID string) (ReviewC
 		out.Heads[pin.Number] = pr.HeadSHA
 		moved = moved || pr.HeadSHA != pin.HeadSHA
 	}
+	if !moved {
+		// A layer the loop took after this pass pinned its heads (one
+		// stacked while stewarding, LEG-591) was never reviewed: it is
+		// a moved head, so the next pass reviews it before approval.
+		unreviewed, err := s.unreviewedLayer(ctx, rec, pins)
+		if err != nil {
+			return ReviewConfirmResult{}, err
+		}
+		moved = unreviewed
+	}
 	switch {
-	case len(out.Heads) == 0:
+	case len(out.Heads) == 0 && !moved:
 		out.State = ReviewConfirmClosed
 		loop.ConfirmClean = false
 		return out, s.save(ctx, loop)
 	case moved:
 		// A push between the clean pass's posts and now: a new pass reviews
-		// it (the moved-head rule, D2).
+		// it (the moved-head rule, D2), which a steward's watch reads as a
+		// push.
 		out.State = ReviewConfirmMoved
 		loop.Phase, loop.Reason, loop.ConfirmClean = ReviewPhaseReady, "", false
-		return out, s.saveChanged(ctx, loop)
+		if err := s.saveChanged(ctx, loop); err != nil {
+			return out, err
+		}
+		if stewarding(rec) {
+			s.woke(ctx, rec.HostTask, StewardWokePushed)
+		}
+		return out, nil
 	}
 	if err := s.db.ConfirmReviewLoop(ctx, rec.ID, loop.Pass, out.Heads, s.now()); err != nil {
 		return ReviewConfirmResult{}, err
+	}
+	if rec.Steward {
+		// The steward compares only a watch read taken after this
+		// approval with its heads.
+		s.forgetWatch(rec.ID)
 	}
 	out.State = ReviewConfirmApproved
 	return out, nil
@@ -304,6 +326,32 @@ func confirmed(loop *store.HandoffReview) bool {
 // is skipped, ReviewStageNone), or moved (the next pass starts on the
 // tick). GitHub not answering is logged once and tried again next tick.
 // Call with s.mu held.
+// unreviewedLayer says whether the loop has an open layer that no pass ever
+// pinned and that pins does not hold: a layer added after the pass started.
+func (s *ReviewPassService) unreviewedLayer(ctx context.Context, rec *store.ReviewLoop, pins []store.HandoffReviewPR) (bool, error) {
+	layers, err := s.db.ListReviewLoopPRs(ctx, rec.ID)
+	if err != nil {
+		return false, err
+	}
+	pinned := map[int]bool{}
+	for _, pin := range pins {
+		pinned[pin.Number] = true
+	}
+	for _, layer := range layers {
+		if pinned[layer.Number] || layer.PinnedHead != "" || layer.CleanHead != "" {
+			continue
+		}
+		_, state, err := s.opts.GitHub.PullRequest(ctx, rec.Repo, layer.Number)
+		if err != nil {
+			return false, fmt.Errorf("reading #%d: %w", layer.Number, err)
+		}
+		if state == "open" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (s *ReviewPassService) confirmLoop(ctx context.Context, l ReviewLoop, loopID string) error {
 	result, err := s.confirm(ctx, loopID)
 	if err != nil {
@@ -398,7 +446,8 @@ func (s *ReviewPassService) actorFor(l *store.ReviewLoop) (reviewLoopActor, erro
 }
 
 // ActOnLoop takes an operator's action on a loop by its ID: another_pass,
-// message (with text) or end.
+// message (with text) or end, and a steward's stop_watching and
+// watch_again.
 func (s *ReviewPassService) ActOnLoop(ctx context.Context, loopID, action, text string) error {
 	switch action {
 	case ReviewLoopActionAnotherPass:
@@ -407,6 +456,10 @@ func (s *ReviewPassService) ActOnLoop(ctx context.Context, loopID, action, text 
 		return s.MessageAuthorOn(ctx, loopID, text)
 	case ReviewLoopActionEnd:
 		return s.EndOn(ctx, loopID)
+	case ReviewLoopActionStopWatching:
+		return s.StopWatchingOn(ctx, loopID)
+	case ReviewLoopActionWatchAgain:
+		return s.WatchAgainOn(ctx, loopID)
 	}
 	return fmt.Errorf("a review loop takes no action %q", action)
 }
@@ -443,8 +496,9 @@ func (s *ReviewPassService) MessageAuthorOn(ctx context.Context, loopID, text st
 	return actor.messageAuthorOn(ctx, l, text)
 }
 
-// EndOn ends a stuck loop by its ID with outcome stuck: a run's step
-// completes, and the workflow goes on. A handoff's loop ends with its
+// EndOn ends a stuck loop by its ID with outcome stuck, or a stewarding
+// one (held, stuck or not) with outcome ended: a run's step completes, and
+// the workflow goes on. A handoff's loop ends with its
 // handoff (Return or Recall), not here.
 func (s *ReviewPassService) EndOn(ctx context.Context, loopID string) error {
 	l, err := s.openLoopByID(ctx, loopID)

@@ -32,6 +32,28 @@ func (m PullRequestModes) PullRequestMode(ctx context.Context, repo string) stri
 	return prs.ModeFor(repo)
 }
 
+// ReadyAfterReviewSource says whether a repository's handed-off stacks are
+// marked ready once review passes approve them: a draft rule with
+// ready_after_review (LEG-456).
+type ReadyAfterReviewSource interface {
+	ReadyAfterReview(ctx context.Context, repo string) bool
+}
+
+// ReadyAfterReview implements ReadyAfterReviewSource. A nil
+// PullRequestModes, or rules that cannot be read, give false: the stack is
+// left a draft.
+func (m PullRequestModes) ReadyAfterReview(ctx context.Context, repo string) bool {
+	if m == nil {
+		return false
+	}
+	prs, err := m(ctx)
+	if err != nil {
+		log.Printf("reading pull_requests.rules: %v", err)
+		return false
+	}
+	return prs.ReadyAfterReview(repo)
+}
+
 // pullRequestModePrompt is the launch prompt section for a repository's
 // pull request mode; "" when the agent chooses.
 func pullRequestModePrompt(repo, mode string) string {

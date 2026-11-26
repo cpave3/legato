@@ -169,6 +169,10 @@ type HandoffReviewItem struct {
 	CreatedAt    string `db:"created_at" json:"-"`
 	// Delivered says the author was told of this version of the item.
 	Delivered bool `db:"delivered" json:"-"`
+	// Operation names what a fix of the item may need of the author's
+	// credential rules (a steward's items; spec LEG-559). Not stored: the
+	// feedback view says it.
+	Operation string `db:"-" json:"operation,omitempty"`
 }
 
 // currentReviewLoop is a task's loop: its open one, else its newest; nil
@@ -315,6 +319,62 @@ func HandoffReviewLoopOpen(taskID string, h HandoffOfCard) ReviewLoopOpen {
 	return ReviewLoopOpen{Loop: l, YieldAuthor: true}
 }
 
+// HandoffRunReviewLoopOpen is the loop of a card's handoff that a review-loop
+// run owns (spec LEG-559 D10; LEG-600): the run's open step (stepPath) owns
+// it, the card hosts it, and the handoff binding (the handoff and its card's
+// columns, JSON) says the card in Done is the author's signal, Done waits for
+// it, and a pass moves the card. Only the handoff service opens one; the
+// run's open step adopts it. The card's agent authors it, as with
+// HandoffReviewLoopOpen.
+func HandoffRunReviewLoopOpen(taskID string, h HandoffOfCard, runID, stepPath, columns string) ReviewLoopOpen {
+	open := HandoffReviewLoopOpen(taskID, h)
+	open.Loop.OwnerKind, open.Loop.RunID, open.Loop.StepPath, open.Loop.HandoffColumns = ReviewLoopOwnerRun, runID, stepPath, columns
+	return open
+}
+
+// AdoptHandoffReviewLoop gives an open loop its handoff owns to a review-loop
+// run (spec LEG-559 § Handoffs, adoption; LEG-601), in one compare-and-swap
+// transaction: the owner becomes the run's step (runID, stepPath, no attempt
+// yet: the run's open step takes it), with the handoff binding's card columns
+// (JSON), as HandoffRunReviewLoopOpen would have opened it. Everything else
+// stays: the claims, the passes (one in flight too), the findings and their
+// rulings, the items and their answers, the marker key. A loop the run owns
+// already is returned as it is; a closed one, or one another owner has, is
+// ErrReviewLoopClosed or ErrReviewLoopNotOwned, and nothing is written.
+func (s *Store) AdoptHandoffReviewLoop(ctx context.Context, loopID, runID, stepPath, columns string) (*ReviewLoop, error) {
+	var out *ReviewLoop
+	err := withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		l, err := getReviewLoop(ctx, tx, loopID)
+		if err != nil {
+			return err
+		}
+		switch {
+		case l.OwnerKind == ReviewLoopOwnerRun && l.RunID == runID && l.StepPath == stepPath:
+			out = l
+			return nil
+		case l.State != ReviewLoopOpenState:
+			return ErrReviewLoopClosed
+		case l.OwnerKind != ReviewLoopOwnerHandoff || l.HandoffID == "":
+			return ErrReviewLoopNotOwned
+		}
+		var other string
+		switch err := tx.GetContext(ctx, &other, `SELECT id FROM review_loops WHERE run_id = ? AND owner_kind = 'run' AND state = 'open'`, runID); {
+		case err == nil:
+			return &ReviewLoopConflictError{Err: ErrRunLoopActive, LoopID: other}
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		}
+		next := *l
+		next.OwnerKind, next.RunID, next.StepPath, next.AttemptID, next.HandoffColumns = ReviewLoopOwnerRun, runID, stepPath, "", columns
+		if err := writeReviewLoop(ctx, tx, *l, next); err != nil {
+			return err
+		}
+		out, err = getReviewLoop(ctx, tx, loopID)
+		return err
+	})
+	return out, err
+}
+
 // newHostedReviewLoop opens the loop of a card's handoff on the loop record
 // (HandoffReviewLoopOpen) in the transaction. A workflow run's loop is
 // opened with OpenReviewLoop instead.
@@ -414,10 +474,12 @@ func (s *Store) DeleteHandoffReview(ctx context.Context, taskID string) error {
 }
 
 // HandoffReviewOwner is who a task's review loop writes to GitHub for: the
-// workflow step attempt that opened it (AttemptID), or the handoff the card
-// is (MainInstanceID and HandoffID).
+// workflow step attempt that opened it (AttemptID), the review-loop run a
+// handoff's loop belongs to (RunID), or the handoff the card is
+// (MainInstanceID and HandoffID).
 type HandoffReviewOwner struct {
 	AttemptID      string
+	RunID          string
 	MainInstanceID string
 	HandoffID      string
 }
@@ -438,8 +500,11 @@ func (s *Store) CheckHandoffReviewWrite(ctx context.Context, taskID string, pass
 		return ErrReviewLoopClosed
 	}
 	o := ReviewLoopOwner{Kind: ReviewLoopOwnerHandoff, HandoffID: owner.HandoffID, MainInstanceID: owner.MainInstanceID}
-	if owner.AttemptID != "" {
+	switch {
+	case owner.AttemptID != "":
 		o = ReviewLoopOwner{Kind: ReviewLoopOwnerRun, RunID: l.RunID, AttemptID: owner.AttemptID}
+	case owner.RunID != "":
+		o = ReviewLoopOwner{Kind: ReviewLoopOwnerRun, RunID: owner.RunID}
 	}
 	return s.CheckReviewLoopWrite(ctx, l.ID, pass, o)
 }
@@ -504,15 +569,24 @@ func (s *Store) CheckReviewLoopWrite(ctx context.Context, loopID string, pass in
 		return ErrReviewLoopNotOwned
 	}
 	var live int
-	switch owner.Kind {
-	case ReviewLoopOwnerRun:
+	switch {
+	case owner.Kind == ReviewLoopOwnerRun && l.HandoffID != "":
+		// A review-loop run bound to a handoff (LEG-600): owned while the
+		// run runs and the handoff is still open on this worker and not
+		// returning, so a Return, Recall or Drop that lands before the
+		// run is cancelled stops the write too.
+		err = tx.GetContext(ctx, &live, `SELECT COUNT(*) FROM workflow_runs r JOIN handoffs h
+			ON h.main_instance_id = ? AND h.handoff_id = ? AND h.task_id = ? AND h.closed_at IS NULL AND h.state IN (?, ?)
+			WHERE r.id = ? AND r.status IN ('running', 'waiting')`,
+			l.MainInstanceID, l.HandoffID, l.HostTask, HandoffInProgress, HandoffDone, l.RunID)
+	case owner.Kind == ReviewLoopOwnerRun:
 		// The inline step owns its loop while it waits; a loop an open step
 		// opened is handed on to the run's later steps, and is owned while
 		// the run runs.
 		err = tx.GetContext(ctx, &live, `SELECT COUNT(*) FROM workflow_step_attempts a JOIN workflow_runs r ON r.id = a.run_id
 			WHERE a.id = ? AND a.task_id = ? AND r.status IN ('running', 'waiting')
 			AND (a.status = 'waiting' OR (a.executor_type = ? AND a.status = 'succeeded'))`, l.AttemptID, l.HostTask, ReviewLoopOpenStepType)
-	case ReviewLoopOwnerHandoff:
+	case owner.Kind == ReviewLoopOwnerHandoff:
 		err = tx.GetContext(ctx, &live, `SELECT COUNT(*) FROM handoffs
 			WHERE main_instance_id = ? AND handoff_id = ? AND task_id = ? AND closed_at IS NULL AND state IN (?, ?)`,
 			owner.MainInstanceID, owner.HandoffID, l.HostTask, HandoffInProgress, HandoffDone)
@@ -1222,30 +1296,4 @@ func (s *Store) ListRunReviewLoopsAuthoredBy(ctx context.Context, authorTask str
 	err := s.db.SelectContext(ctx, &out, `SELECT * FROM review_loops WHERE owner_kind = 'run' AND agent_author = 1 AND author_task = ?
 		ORDER BY state = 'open' DESC, created_at DESC, rowid DESC`, authorTask)
 	return out, err
-}
-
-// CloseReviewLoopsOfClosedHandoffs closes the open loops owned by a handoff
-// that has closed, or is gone, here (CloseReviewLoop: claims released, a
-// pass in flight discarded, the phase kept), outcome ended, as the
-// conversion closes them. It says how many it closed.
-func (s *Store) CloseReviewLoopsOfClosedHandoffs(ctx context.Context, at string) (int, error) {
-	var ids []string
-	if err := s.db.SelectContext(ctx, &ids, `SELECT l.id FROM review_loops l
-		WHERE l.state = 'open' AND l.owner_kind = 'handoff' AND l.handoff_id != ''
-		AND NOT EXISTS (SELECT 1 FROM handoffs h WHERE h.handoff_id = l.handoff_id AND h.task_id = l.host_task
-			AND (l.main_instance_id = '' OR h.main_instance_id = l.main_instance_id) AND h.closed_at IS NULL)
-		ORDER BY l.created_at, l.id`); err != nil {
-		return 0, err
-	}
-	n := 0
-	for _, id := range ids {
-		_, closed, err := s.CloseReviewLoop(ctx, id, "ended", at)
-		if err != nil {
-			return n, err
-		}
-		if closed {
-			n++
-		}
-	}
-	return n, nil
 }

@@ -13,6 +13,20 @@ it("turns the server's lines and columns into offsets", () => {
   expect(text.slice(d.from, d.to)).toBe("agent.nope")
 })
 
+// A diagnostic Legato can fix (the deprecated inline review step, LEG-599)
+// carries the fix as the editor's quick fix.
+it("offers a fixable diagnostic's fix as a quick fix", () => {
+  const fixes: string[] = []
+  const [fixable, plain] = toDiagnostics(text, [
+    { severity: "warning", message: "deprecated", line: 6, column: 11, end_line: 6, end_column: 21, fix: "upgrade" },
+    { severity: "error", message: "bad type", line: 6, column: 11, end_line: 6, end_column: 21 },
+  ], fix => fixes.push(fix))
+  expect(fixable.actions?.map(a => a.name)).toEqual(["Rewrite to call review-loop"])
+  fixable.actions![0].apply({} as EditorView, fixable.from, fixable.to)
+  expect(fixes).toEqual(["upgrade"])
+  expect(plain.actions).toBeUndefined()
+})
+
 it("lets the server's diagnostics win on their lines", () => {
   const server = toDiagnostics(text, [{ severity: "error", message: "server", line: 6, column: 11, end_line: 6, end_column: 21 }])
   const lineSix = text.indexOf("agent.nope")

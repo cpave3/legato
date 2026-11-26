@@ -35,9 +35,11 @@ func (c *watchClock) Advance(d time.Duration) {
 // head, and the sessions opened, by repository, with the reads each made.
 type fakeWatchGitHub struct {
 	ReviewGitHub
-	mu       sync.Mutex
-	heads    map[int]string
-	sessions []*fakeWatchSession
+	mu    sync.Mutex
+	heads map[int]string
+	// mergeable is each pull request's mergeable, MERGEABLE when unset.
+	mergeable map[int]string
+	sessions  []*fakeWatchSession
 	// limit refuses every watch with it while set.
 	limit *GitHubRateLimit
 }
@@ -68,7 +70,11 @@ func (s *fakeWatchSession) Watch(_ context.Context, numbers []int) ([]PRWatch, e
 	}
 	var out []PRWatch
 	for _, n := range numbers {
-		out = append(out, PRWatch{Number: n, State: "open", HeadSHA: s.g.heads[n]})
+		mergeable := s.g.mergeable[n]
+		if mergeable == "" {
+			mergeable = "MERGEABLE"
+		}
+		out = append(out, PRWatch{Number: n, State: "open", HeadSHA: s.g.heads[n], Mergeable: mergeable})
 	}
 	return out, nil
 }
@@ -78,6 +84,10 @@ func (s *fakeWatchSession) PollComments(_ context.Context, number int, _ PollPag
 	defer s.g.mu.Unlock()
 	s.comments = append(s.comments, number)
 	return CommentPoll{}, nil
+}
+
+func (s *fakeWatchSession) Stacked(context.Context, string) ([]ReviewGitHubPR, error) {
+	return nil, nil
 }
 
 func (s *fakeWatchSession) Close() { s.closed = true }
@@ -222,6 +232,35 @@ func TestTheWatchFollowsItsCadence(t *testing.T) {
 	f.clock.Advance(time.Minute)
 	if polls() != 0 {
 		t.Fatal("read a minute apart past the hour after the change")
+	}
+}
+
+// A layer whose mergeability GitHub has not worked out (UNKNOWN) is read
+// again after a minute, even past the hour of minute polls (AC 31).
+func TestAnUnknownMergeabilityIsReadAgainAfterAMinute(t *testing.T) {
+	f := newStewardWatchFixture(t)
+	f.github.mergeable = map[int]string{13: "UNKNOWN"}
+	f.openLoop(t, "wr-1", "cpave3/legato", true, 12, 13)
+	polls := func() int { return len(f.github.tickSessions(t, f.svc)) }
+
+	if polls() != 1 {
+		t.Fatal("a new loop is not read on its first tick")
+	}
+	f.clock.Advance(time.Hour)
+	if polls() != 1 {
+		t.Fatal("not read after an hour away")
+	}
+	f.clock.Advance(30 * time.Second)
+	if polls() != 0 {
+		t.Fatal("read again 30 s later")
+	}
+	f.clock.Advance(30 * time.Second)
+	if polls() != 1 {
+		t.Fatal("UNKNOWN not read again a minute later, past the hour")
+	}
+	f.clock.Advance(time.Minute)
+	if polls() != 1 {
+		t.Fatal("still UNKNOWN, not read again a minute later")
 	}
 }
 
