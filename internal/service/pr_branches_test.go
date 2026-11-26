@@ -33,6 +33,9 @@ type fakePR struct {
 	Check string
 	// Reviews, when set, are served in place of Review, a hundred to a page.
 	Reviews []fakeReview
+	// Unlisted leaves it out of the repository's listing, as GitHub does a
+	// PR older than the newest hundred; it is still served by number.
+	Unlisted bool
 }
 
 // fakeReview is one review of a fake PR.
@@ -102,6 +105,9 @@ func (f *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 	case len(parts) == 4 && parts[3] == "pulls":
 		list := make([]any, 0, len(prs))
 		for i := len(prs) - 1; i >= 0; i-- { // newest first
+			if prs[i].Unlisted {
+				continue
+			}
 			list = append(list, apiJSON(repo, prs[i]))
 		}
 		write(list)
@@ -626,5 +632,40 @@ func TestRefreshingBranchStatesOfAnEphemeralTaskAsksNothing(t *testing.T) {
 	}
 	if n := gh.countWhere(func(string) bool { return true }); n != 0 {
 		t.Fatalf("made %d GitHub calls for an ephemeral task", n)
+	}
+}
+
+// A task linked before branches were tracked holds its PR in the single
+// field only. When that PR is on a branch being refreshed and too old for
+// the listing, it is adopted onto its branch and its state fetched, rather
+// than the single field's stale state read as the branch's.
+func TestRefreshingBranchStatesAdoptsALegacyPROfTheRepository(t *testing.T) {
+	gh := newFakeGitHub(t)
+	gh.set("acme/widget", fakePR{Number: 7, Head: "feature/task-1", Unlisted: true})
+	s, svc, _ := newBranchTracking(t, gh)
+	ctx := context.Background()
+	createPRTask(t, s, "task-1")
+	setRepoContext(t, s, "task-1", "acme/widget", "feature/task-1")
+	legacy := `{"branch":"","pr_number":7,"pr_url":"https://github.com/acme/widget/pull/7","state":"OPEN","is_draft":true,"review_decision":"APPROVED","pinned":true,"match_method":"manual","sync_outcome":"linked"}`
+	if err := s.UpdatePRMeta(ctx, "task-1", &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddTaskBranches(ctx, "task-1", "acme/widget", []string{"feature/task-1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.RefreshBranchStates(ctx, "task-1", "acme/widget", []string{"feature/task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	branches, err := svc.TrackedBranches(ctx, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(branches) != 1 || branches[0].PR == nil || branches[0].PR.PRNumber != 7 || branches[0].PR.IsDraft ||
+		!branches[0].PR.Pinned || branches[0].PR.ReviewDecision != "APPROVED" {
+		t.Fatalf("branches = %+v; want #7 adopted, ready, still pinned and approved", branches)
+	}
+	if n := gh.countWhere(func(path string) bool { return strings.HasSuffix(path, "/reviews") }); n != 0 {
+		t.Fatalf("read reviews %d times, want none", n)
 	}
 }

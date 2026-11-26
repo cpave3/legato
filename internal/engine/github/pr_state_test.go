@@ -1,9 +1,12 @@
 package github
 
 import (
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // FetchPRState reads whether a pull request is open, closed or merged with
@@ -75,5 +78,27 @@ func TestFetchPRWaitStateReadsNoChecksOnceMerged(t *testing.T) {
 	}
 	if status.State != "MERGED" || status.Mergeable != nil || requests != 1 {
 		t.Fatalf("status = %+v after %d requests", status, requests)
+	}
+}
+
+// A response whose body stalls past the client's timeout is a timeout to
+// the caller, not an invalid response: a caller may try a timeout again
+// (LEG-650).
+func TestABodyThatStallsIsATimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"number":42,`))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	httpClient := server.Client()
+	httpClient.Timeout = 100 * time.Millisecond
+	client, _ := New(Options{Token: "token", BaseURL: server.URL, HTTPClient: httpClient})
+	_, err := client.FetchPRState("acme", "widget", 42)
+	var netErr net.Error
+	if !errors.As(err, &netErr) || !netErr.Timeout() {
+		t.Fatalf("err = %#v; want a timeout", err)
 	}
 }

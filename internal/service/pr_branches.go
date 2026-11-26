@@ -94,7 +94,7 @@ func (p *prTrackingService) DiscoverPRs(ctx context.Context, taskID string) erro
 }
 
 func (p *prTrackingService) RefreshBranchStates(ctx context.Context, taskID, repo string, branches []string) error {
-	task, err := p.store.GetTask(ctx, taskID)
+	task, cc, err := p.taskContext(ctx, taskID)
 	if err != nil {
 		return err
 	}
@@ -105,8 +105,24 @@ func (p *prTrackingService) RefreshBranchStates(ctx context.Context, taskID, rep
 	if err != nil {
 		return err
 	}
-	listings := newPRListings(p.gh)
 	changed := false
+	// A PR of this repository held in the single field only (linked before
+	// branches were tracked) is moved onto its branch first, state only:
+	// read from the single field, a branch with no PR would be its stale
+	// state, and the PR may be too old for the listing.
+	if legacy, _ := store.ParsePRMeta(task.PRMeta); legacy != nil && legacy.PRNumber > 0 && !holdsPR(rows, legacy.PRNumber) && cc != nil && cc.Repo == repo {
+		adopted, err := p.adoptLegacyPR(ctx, taskID, cc, legacy, true)
+		if err != nil {
+			p.publishIfChanged(p.applyDiscoveryOutcome(ctx, taskID, "error", err.Error()))
+			return fmt.Errorf("refresh %s PR #%d: %w", taskID, legacy.PRNumber, err)
+		}
+		changed = adopted
+		if rows, err = p.store.ListTaskBranches(ctx, taskID); err != nil {
+			return err
+		}
+		rows = slices.DeleteFunc(rows, func(row store.TaskBranch) bool { return row.PR != nil && row.PR.PRNumber == legacy.PRNumber })
+	}
+	listings := newPRListings(p.gh)
 	var errs []error
 	for _, row := range rows {
 		if row.Repo != repo || !slices.Contains(branches, row.Branch) {
@@ -148,11 +164,17 @@ func (p *prTrackingService) refreshBranchState(ctx context.Context, row store.Ta
 	if err != nil {
 		return p.setBranchPR(ctx, row, withOutcome(row.PR, "error", err.Error())), err
 	}
-	pr := *row.PR
+	return p.setBranchPR(ctx, row, withState(row.PR, status)), nil
+}
+
+// withState is a PR with the state FetchPRState read, keeping its review
+// decision, check status, pin, match method, head SHA and link time.
+func withState(known *store.PRMeta, status *github.PRStatus) *store.PRMeta {
+	pr := *known
 	pr.PRURL, pr.State, pr.IsDraft = status.URL, status.State, status.IsDraft
 	pr.Base, pr.Head, pr.CommentCount, pr.CreatedAt = status.BaseBranch, status.HeadSHA, status.CommentCount, status.CreatedAt
 	pr.SyncOutcome, pr.SyncError = "linked", ""
-	return p.setBranchPR(ctx, row, &pr), nil
+	return &pr
 }
 
 // discoverBranchPR looks for the PR of a branch that has none in its
@@ -369,7 +391,7 @@ func (p *prTrackingService) syncTask(ctx context.Context, task *store.Task, cc *
 		if !mode.refresh || cc == nil || cc.Repo == "" {
 			return changed, nil
 		}
-		adopted, err := p.adoptLegacyPR(ctx, taskID, cc, legacy)
+		adopted, err := p.adoptLegacyPR(ctx, taskID, cc, legacy, false)
 		if err != nil {
 			if p.applyDiscoveryOutcome(ctx, taskID, "error", err.Error()) {
 				changed = true
@@ -483,13 +505,18 @@ func (p *prTrackingService) forgetPRs(ctx context.Context, taskID string) error 
 }
 
 // adoptLegacyPR moves a PR held only in the single field onto the branch
-// it is on, keeping its pin and how it was matched.
-func (p *prTrackingService) adoptLegacyPR(ctx context.Context, taskID string, cc *store.CodeContext, legacy *store.PRMeta) (bool, error) {
+// it is on, keeping its pin and how it was matched. stateOnly fetches its
+// state alone (FetchPRState) and keeps the reviews and checks it had.
+func (p *prTrackingService) adoptLegacyPR(ctx context.Context, taskID string, cc *store.CodeContext, legacy *store.PRMeta, stateOnly bool) (bool, error) {
 	owner, name, ok := splitRepo(cc.Repo)
 	if !ok {
 		return false, fmt.Errorf("repository must be owner/name")
 	}
-	status, err := p.gh.FetchPRByNumber(owner, name, legacy.PRNumber)
+	fetch := p.gh.FetchPRByNumber
+	if stateOnly {
+		fetch = p.gh.FetchPRState
+	}
+	status, err := fetch(owner, name, legacy.PRNumber)
 	if err != nil {
 		return false, err
 	}
@@ -512,6 +539,10 @@ func (p *prTrackingService) adoptLegacyPR(ctx context.Context, taskID string, cc
 	}
 	pr := prFromStatus(status, legacy.MatchMethod, legacy.Pinned)
 	pr.HeadSHA, pr.LinkedAt = legacy.HeadSHA, legacy.LinkedAt
+	if stateOnly {
+		pr = withState(legacy, status)
+		pr.Repo, pr.Branch = "", ""
+	}
 	return true, p.store.SetTaskBranchPR(ctx, taskID, cc.Repo, branch, pr)
 }
 
