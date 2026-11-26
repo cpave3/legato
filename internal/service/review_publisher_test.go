@@ -733,6 +733,24 @@ func TestTheAuthorAppsLoginIsLearnedWhenItPosts(t *testing.T) {
 	}
 }
 
+// The author App's login is learned from its credential before it has
+// posted anything (an agent's first pull request goes through the proxy,
+// not the publisher), so that pull request reads as the agent's (D8).
+func TestTheAuthorAppsLoginIsLearnedBeforeItPostsAnything(t *testing.T) {
+	f := newPublisherFixture(t)
+	var learned []string
+	f.publisher.SetLoginRecorder(func(login string) { learned = append(learned, login) })
+	if err := f.publisher.LearnAuthorApp(context.Background(), "cpave3/legato"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(learned, "legato-author[bot]") {
+		t.Fatalf("learned %v; want the author App's login", learned)
+	}
+	if len(f.github.comments) != 0 || len(f.github.reviews) != 0 {
+		t.Fatalf("learning posted: comments %v, reviews %v", f.github.comments, f.github.reviews)
+	}
+}
+
 // An override of a GitHub profile copied before Legato needed the App's
 // name fails closed, and the error says which file needs which line.
 func TestAProfileThatNamesNoAppCannotPostAndTheErrorNamesItsFileAndTheLine(t *testing.T) {

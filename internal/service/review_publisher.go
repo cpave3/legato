@@ -174,6 +174,20 @@ func (p *ReviewPublisher) open(ctx context.Context, who GitHubIdentity, repo str
 	return &githubCall{p: p, bc: bc, repo: repo, token: token}, release, nil
 }
 
+// LearnAuthorApp learns the login of the author App that holds repo's
+// credential (the login recorder is told it), with no token and no post: an
+// agent's first pull request is opened through the proxy as that App, before
+// the publisher has posted anything as it, and is the agent's only when
+// Legato knows the App that opened it (spec LEG-559 D8).
+func (p *ReviewPublisher) LearnAuthorApp(ctx context.Context, repo string) error {
+	bc, err := p.channels.githubCredentialFor(repo)
+	if err != nil {
+		return err
+	}
+	_, err = (&githubCall{p: p, bc: bc, repo: repo}).login(ctx, repo)
+	return err
+}
+
 // login is the login the call's posts are made as on GitHub: its App's
 // bot, <slug>[bot], the slug read with the installation. A comment or a
 // review is taken for one Legato posted only when this login posted it;

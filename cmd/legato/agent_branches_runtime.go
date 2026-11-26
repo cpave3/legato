@@ -16,5 +16,8 @@ func (rt *approvalRuntime) trackAgentBranches(db *store.Store, prSvc service.PRT
 	}
 	actions, _ := prSvc.(service.PRBranchActions)
 	branches := service.NewAgentBranches(db, actions)
+	// The author App's login, learned from its credential before its first
+	// pull request is classified (spec LEG-559 D8).
+	branches.SetAppLearner(learningPublisher(db, service.NewReviewPublisher(rt.channels, "")).LearnAuthorApp)
 	rt.channels.SetBranchListener(func(b service.AgentBranch) { go branches.Track(b) })
 }
