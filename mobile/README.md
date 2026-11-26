@@ -664,7 +664,7 @@ asked.
 | `POST /v1/instances/{id}/api/agents/{task}/chimera/send` | body rebuilt as `{"content": <string>}` |
 | `POST /v1/instances/{id}/api/reeve/message` | body rebuilt as `{"text": <string>, "from": "glasses"}`, so the Reeve keeps its reply to what the glasses show |
 | `GET /v1/instances/{id}/api/approvals?status=pending` | passed on |
-| `POST /v1/instances/{id}/api/approvals/{approval}/decision` | body rebuilt as `{"decision": "allow"\|"deny", "option"?: <string>, "by": "glasses"}`: no answers, note or signature; any other `decision` is `400`. Legato refuses to allow a signed approval without a signature |
+| `POST /v1/instances/{id}/api/approvals/{approval}/decision` | body rebuilt as `{"decision": "allow"\|"deny", "option"?: <string>, "by": "glasses"}`, or, to answer an agent's questions, `{"decision": "answer", "answers": {<question id>: [<string>, …]}, "by": "glasses"}` (1–8 question IDs of up to 200 characters, each with 1–32 strings of up to 4000 characters; anything else is `400`): no note or signature; any other `decision` is `400`. Legato refuses to allow a signed approval without a signature |
 
 - `{task}` and `{approval}` are one path segment each, decoded and encoded again; a slash or a step up
   in it is `404`. The query must be exactly the one shown.

@@ -100,17 +100,25 @@ object GlassesHttp {
                 Call.Transcribe -> JSONObject().put("transcription_only", true).put("pcm", value)
                 // Always from the glasses, so the Reeve keeps its reply short.
                 Call.Reeve -> JSONObject().put("text", value).put("from", "glasses")
-                // Allow or deny, with one of the approval's options, and
-                // nothing else: no answers, feedback or signature. Legato
-                // refuses to allow a signed approval without a signature.
-                is Call.Decide -> {
-                    if (value != "allow" && value != "deny") return error(400, "decision must be allow or deny")
-                    val decision = JSONObject().put("decision", value)
-                    if (sent.has("option")) {
-                        val option = sent.opt("option") as? String ?: return error(400, "option must be a string")
-                        decision.put("option", option)
+                // Allow or deny, with one of the approval's options; or the
+                // answers to an agent's questions. Nothing else: no feedback
+                // or signature. Legato refuses to allow a signed approval
+                // without a signature.
+                is Call.Decide -> when (value) {
+                    "allow", "deny" -> {
+                        val decision = JSONObject().put("decision", value)
+                        if (sent.has("option")) {
+                            val option = sent.opt("option") as? String ?: return error(400, "option must be a string")
+                            decision.put("option", option)
+                        }
+                        decision.put("by", "glasses")
                     }
-                    decision.put("by", "glasses")
+                    "answer" -> {
+                        val answers = answers(sent.opt("answers"))
+                            ?: return error(400, "answers must map question IDs to lists of strings")
+                        JSONObject().put("decision", "answer").put("answers", answers).put("by", "glasses")
+                    }
+                    else -> return error(400, "decision must be allow, deny or answer")
                 }
                 else -> JSONObject().put("content", value)
             }
@@ -138,6 +146,36 @@ object GlassesHttp {
         val trimmed = text.trimStart()
         val type = if (trimmed.startsWith("{") || trimmed.startsWith("[")) "application/json" else "text/plain; charset=utf-8"
         return GlassesResponse(status, COMMON + ("Content-Type" to type), text.toByteArray(Charsets.UTF_8))
+    }
+
+    // An agent asks one to four questions at a time, each answered with the
+    // labels chosen or the operator's own words; these bounds leave room
+    // for that and keep the body small.
+    private const val MAX_QUESTIONS = 8
+    private const val MAX_QUESTION_ID = 200
+    private const val MAX_ANSWERS = 32
+    private const val MAX_ANSWER = 4000
+
+    // The answers rebuilt as question IDs to lists of strings, or null when
+    // they are anything else.
+    private fun answers(sent: Any?): JSONObject? {
+        val given = sent as? JSONObject ?: return null
+        val ids = given.keys().asSequence().toList()
+        if (ids.isEmpty() || ids.size > MAX_QUESTIONS) return null
+        val rebuilt = JSONObject()
+        for (id in ids) {
+            if (id.isEmpty() || id.length > MAX_QUESTION_ID) return null
+            val list = given.opt(id) as? JSONArray ?: return null
+            if (list.length() == 0 || list.length() > MAX_ANSWERS) return null
+            val strings = JSONArray()
+            for (i in 0 until list.length()) {
+                val answer = list.opt(i) as? String ?: return null
+                if (answer.length > MAX_ANSWER) return null
+                strings.put(answer)
+            }
+            rebuilt.put(id, strings)
+        }
+        return rebuilt
     }
 
     // The call a method, Legato path (as segments) and query make, or null
