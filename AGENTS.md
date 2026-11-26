@@ -99,6 +99,7 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 - `docs/ai/integrations.md` — Argus: scoped tokens, owner lookup, delegations, replies, the OAuth connection, cases in Attention
 - `docs/ai/resources.md` — named file/folder resources given to agents
 - `docs/ai/skills.md` — Legato-managed skills: the skills folder, on/off state, Settings › Skills, per-execution injection (Claude Code plugin, Chimera mod), the sandbox, and the capability seams profiles and MCP tools reuse
+- `docs/ai/usage.md` — subscription usage: the Claude and Codex readers, the cache, the poller's lock, `/api/usage`, the Usage strip, `legato usage`
 - `docs/ai/engram.md` — engram sessions: the engram client, the setting and probe, bindings, the spawn as an engram
 - `docs/ai/sandbox.md` — bubblewrap sandbox: what agents see and what is hidden
 - `docs/ai/updates.md` — the version, the release workflow, and the self-updater
@@ -142,6 +143,7 @@ The documentation for people who use Legato is the Starlight site in `site/`, pu
 | `docs/ai/compaction.md` | `using/agents`, `agent-tools/*`, `reference/configuration` |
 | `docs/ai/credentials.md`, `docs/ai/sandbox.md` | `security/*`, `running/agent-server` |
 | `docs/ai/engram.md` | `agent-tools/engrams` |
+| `docs/ai/usage.md` | `using/usage`, `reference/configuration`, `reference/cli` |
 | `docs/ai/integrations.md` | `integrations/argus` |
 | `docs/ai/updates.md` | `running/updates`, `start/install` |
 | `docs/ai/desktop.md` | `running/desktop-app` |

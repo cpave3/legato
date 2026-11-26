@@ -179,6 +179,10 @@ _Avoid_: bootstrap setting, static setting
 One thing `legato doctor` verifies about the machine Legato runs on, with its result (ok, missing, not signed in, failed) and the fix. A **required** check failing means part of Legato cannot work.
 _Avoid_: prerequisite, health check, probe
 
+**Subscription usage**:
+How much of a Claude or Codex subscription's usage limits the operator has used: each window (5-hour, weekly) with its percent and when it resets, as Legato last read it on its own machine. Not the token counts Manticore records.
+_Avoid_: quota, usage alone, tokens
+
 ### Engrams
 
 **Engram**:
