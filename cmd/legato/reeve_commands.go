@@ -36,12 +36,12 @@ func classifyLegatoCommand(args []string) (class, description string) {
 	if len(node.Children) > 0 {
 		parsed, err := parseCommandArgs(rest, commandFlagSpecs(path...))
 		if err != nil || len(parsed.Positionals) > 0 {
-			return "never", "Not a legato command: legato " + strings.Join(args, " ")
+			return "never", "Not a legato command: legato " + strings.Join(args, " ") + ". " + legatoInstead(args, path, node)
 		}
 	}
 	entry, ok := legatoCommandClasses[strings.Join(path, " ")]
 	if !ok {
-		return "never", "A legato command the Reeve has no class for: " + strings.Join(path, " ")
+		return "never", "A legato command the Reeve has no class for: " + strings.Join(path, " ") + ". " + legatoInstead(args, path, node)
 	}
 	if key := strings.Join(path, " "); key == "task note" {
 		if err := cli.CheckTaskNoteArgs(positionalArgs(rest)...); err != nil {
