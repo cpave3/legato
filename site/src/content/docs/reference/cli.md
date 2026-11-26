@@ -228,6 +228,10 @@ Outside any session, on the machine Legato runs on, you can read, answer and ste
 - `legato review-pass another-pass --loop <loop-id>`: **Another pass**. A stuck loop runs one more pass, past its limit or after a failed one; a workflow run's loop that waits for its author starts its next pass now. Anything else is refused (`loop_not_stuck`). The Legato that runs the review engine starts the pass on its next tick, within 15 seconds.
 - `legato review-pass message --loop <loop-id> --text <text>` (or `--file <path|->`): **Message the author**. Your words reach the author's agent as its next message, opening with `[legato review pass] From the operator:`. A person author reads GitHub instead, and an author agent that is not running is refused: start it first.
 
+- `legato review-pass stop-watching --loop <loop-id>`: **Stop watching**. The loop's [steward](/legato/using/review-passes/#after-approval-the-steward) holds: it sends nothing and starts no pass, but a merge, a close or seven quiet days still end it. Only while it watches an approved pull request (`steward_not_watching` otherwise).
+- `legato review-pass watch-again --loop <loop-id>`: **Watch again**. A held steward watches again (a push made while it was held goes back to review once); a steward stuck at its re-entry limit gets one more re-entry. Anything else is refused (`steward_not_held`).
+- `legato review-pass end --loop <loop-id>`: **End**. A steward ends with the outcome `ended`; a stuck review loop that a `review-loop` run started ends as `stuck`. The run goes on to its next step once the Legato that runs the review engine picks it up. A handed-off task's loop ends with its handoff, and a loop whose run no longer runs is refused (`loop_not_waiting`).
+
 An ID that names no loop is `loop_not_found` (exit 3), a closed loop `loop_closed` (exit 3).
 
 Moving the task to Done is refused while a blocking finding or a comment is unanswered. A failing check does not refuse the move, but the task is not done until the check passes on a commit you push or you reply to it; `--fixed` alone does not handle it.
