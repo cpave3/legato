@@ -144,6 +144,7 @@ func TestADefaultLabelIsWhatTheRuntimeUses(t *testing.T) {
 		"reeve.idle_timeout":         cfg.Reeve.ReeveIdleTimeout().String(),
 		"web.rail.snooze":            cfg.Web.Rail.SnoozeDuration().String(),
 		"integrations.argus.agent":   "claude-code",
+		"usage.poll_interval":        cfg.Usage.PollIntervalDuration().String(),
 	}
 	for key, want := range runtime {
 		s, _ := LookupSetting(key)
