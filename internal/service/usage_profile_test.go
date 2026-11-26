@@ -11,6 +11,15 @@ import (
 
 func TestUsagePolicyPersistsTwoSwitchesAndPinExpiry(t *testing.T) {
 	f := newUsageFixture(t)
+	f.now = time.Now().UTC().Add(-2 * time.Hour)
+	reset := f.now.Add(time.Hour)
+	windows := func(value float64) []UsageWindow {
+		result := claudeWindows(value)
+		for i := range result {
+			result[i].ResetsAt = reset
+		}
+		return result
+	}
 	ctx := context.Background()
 	order := 1
 	cfg := config.UsageConfig{Profiles: []config.UsageProfile{{Name: "claude", Agent: "claude-code"}, {Name: "codex", Agent: "chimera"}}, Rules: []config.UsageRule{{Name: "save", Order: &order, Meter: "claude.weekly", AtLeast: 90, Profile: "codex"}}, FallbackProfile: "claude"}
@@ -24,7 +33,7 @@ func TestUsagePolicyPersistsTwoSwitchesAndPinExpiry(t *testing.T) {
 		NotifyUsageProfileSwitch(state, id, notificationsEnabled, notifier)
 	}})
 	f.svc.SetPolicy(policy, policy.Pin)
-	f.claude.set(ProviderUsage{Windows: claudeWindows(50)}, nil)
+	f.claude.set(ProviderUsage{Windows: windows(50)}, nil)
 	f.svc.Poll(ctx)
 	if err := policy.Evaluate(ctx); err != nil {
 		t.Fatal(err)
@@ -37,7 +46,7 @@ func TestUsagePolicyPersistsTwoSwitchesAndPinExpiry(t *testing.T) {
 		t.Fatalf("fallback baseline=%+v notifications=%d", baseline, notifier.count)
 	}
 	f.now = f.now.Add(5 * time.Minute)
-	f.claude.set(ProviderUsage{Windows: claudeWindows(91)}, nil)
+	f.claude.set(ProviderUsage{Windows: windows(91)}, nil)
 	f.svc.Poll(ctx)
 	if err := policy.Evaluate(ctx); err != nil {
 		t.Fatal(err)
@@ -58,8 +67,8 @@ func TestUsagePolicyPersistsTwoSwitchesAndPinExpiry(t *testing.T) {
 	// Recreate the coordinator to prove that the reset latch is durable.
 	policy = NewUsagePolicyService(policy.opts)
 	f.svc.SetPolicy(policy, policy.Pin)
-	f.now = time.Date(2026, 12, 1, 9, 1, 0, 0, time.UTC)
-	f.claude.set(ProviderUsage{Windows: claudeWindows(3)}, nil)
+	f.now = reset.Add(time.Minute)
+	f.claude.set(ProviderUsage{Windows: windows(3)}, nil)
 	f.svc.Poll(ctx)
 	if err := policy.Evaluate(ctx); err != nil {
 		t.Fatal(err)
