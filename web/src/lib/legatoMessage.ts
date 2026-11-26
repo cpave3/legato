@@ -16,13 +16,13 @@ export interface LegatoMessage {
   // a sender that did not name itself.
   peer?: string
   // Set for a message that tells of something that happened rather than
-  // asking anything: a change set's result, a restart. The conversation
+  // asking anything: a change set's result, a restart, an agent update. The conversation
   // draws it as one line, like a tool call, which opens to the whole text.
   event?: true
 }
 
 // The kinds of Legato message that are events, not words to the agent.
-const eventLabels = new Set(["change set", "restart"])
+const eventLabels = new Set(["change set", "restart", "agent"])
 
 const tagPattern = /^\[(legato|swarm event)([^\]]*)\]\s*/
 const peerPattern = /^ peer(?: (\S+))?$/
@@ -60,6 +60,15 @@ const changeSetDenied = /^The operator denied change set (cs-[0-9a-z]+)\b/
 export function legatoEventSummary(label: string, body: string): string {
   const lines = body.split("\n")
   const first = lines[0]?.trim() ?? ""
+  if (label === "agent") {
+    // WatchMessage keeps each event on one top-level bullet; quoted details
+    // cannot introduce another line. Titles may contain parentheses.
+    const events = [...body.matchAll(/^- (\S+) /gm)]
+    if (!events.length) return "Agent update"
+    const agents = new Set(events.map(event => event[1]))
+    const source = agents.size === 1 ? events[0][1] : `${agents.size} agents`
+    return `${source} · ${events.length} ${events.length === 1 ? "event" : "events"}`
+  }
   if (label === "change set") {
     const report = changeSetReport.exec(first)
     if (report) {

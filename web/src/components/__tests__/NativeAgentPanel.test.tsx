@@ -433,6 +433,27 @@ describe("NativeAgentPanel", () => {
     expect(screen.getByText(/hello from the host/)).not.toBeNull()
   })
 
+  it("collapses a watched-agent notification and keeps its full source on expansion", async () => {
+    const body = 'An agent you watch:\n- T-1 (Build (sandbox)) sent you a message (message_reeve): "Ready: https://example.test/pr/42"\nRead the agent reply before you act.'
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "task-1", status: "idle", toolCalls: [], messages: [
+          { role: "system", content: "" },
+          { role: "user", content: `[legato agent] ${body}` },
+        ] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+    render(<NativeAgentPanel agentId="task-1" agentKind="chimera" />)
+    const row = await screen.findByRole("button", { name: /Legato · agent/ })
+    expect(row.textContent).toContain("T-1 · 1 event")
+    expect(row.getAttribute("aria-expanded")).toBe("false")
+    expect(screen.queryByText(/Read the agent reply/)).toBeNull()
+    fireEvent.click(row)
+    expect(row.getAttribute("aria-expanded")).toBe("true")
+    expect(screen.getByText(/Read the agent reply/).textContent).toBe(body)
+    fireEvent.click(row)
+    expect(row.getAttribute("aria-expanded")).toBe("false")
+    expect(screen.queryByText(/Read the agent reply/)).toBeNull()
+  })
+
   it("shows another instance's Reeve's message as its own block, marked with the instance", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({
