@@ -152,7 +152,7 @@ describe("a board step", () => {
   it("takes a task or a task ID, and starts on the run's task", () => {
     for (const type of ["task.move", "task.context", "task.working_dir.resolve"]) {
       expect(stepForm(type)!.fields.find(f => f.name === "task")!.kind, type).toBe("task_or_id")
-      expect(newStep(type, []).with.task, type).toBe("${{ workflow.task }}")
+      expect(newStep(type, []).with?.task, type).toBe("${{ workflow.task }}")
     }
   })
 })
