@@ -366,3 +366,46 @@ outputs:
 		t.Fatalf("upgraded file:\n%s\nnotes %+v", text, result.Notes)
 	}
 }
+
+// A loop's own fields (until, next, key) read the steps before the loop, as
+// the engine reads them; only its outputs read its pass. A body step that
+// reuses an earlier step's ID does not change what until reads.
+func TestUpgradeMapsALoopsUntilInTheScopeBeforeIt(t *testing.T) {
+	in := `schema_version: 2
+name: r
+title: R
+steps:
+  - id: review
+    title: Count
+    type: agent.run
+    with:
+      prompt: Count them.
+    outputs:
+      findings:
+        type: integer
+  - id: again
+    title: Again
+    loop:
+      repeat: true
+      max: 3
+      until: {field: steps.review.outputs.findings, equals: 0}
+    steps:
+      - id: review
+        title: Review
+        type: github.pr.review_passes
+        with:
+          repo: acme/widget
+          pr_number: 12
+`
+	result, err := Upgrade("r.workflow.yaml", []byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(result.YAML)
+	if !strings.Contains(text, "until: {field: steps.review.outputs.findings, equals: 0}") || len(result.Notes) != 0 {
+		t.Fatalf("upgraded file:\n%s\nnotes %+v", text, result.Notes)
+	}
+	if _, diagnostics := Check("r.workflow.yaml", result.YAML); len(diagnostics) != 0 {
+		t.Fatalf("upgraded file: %+v", diagnostics)
+	}
+}

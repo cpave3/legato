@@ -462,8 +462,8 @@ func (u *upgrader) list(i int) *yaml.Node { return u.steps[i] }
 // the engine reads it: the nearest step of its ID before it, in its own
 // list, then in each list around it. visible is what the list's steps see
 // before their own (an ID a later step reuses shadows it). It returns the
-// list's last scope, which a loop's until, next and outputs and the
-// workflow's outputs read.
+// list's last scope, which a loop's outputs and the workflow's outputs
+// read.
 func (u *upgrader) mapScope(steps []Step, list *yaml.Node, visible map[string]map[string]outputMapping, end int) map[string]map[string]outputMapping {
 	scope := make(map[string]map[string]outputMapping, len(visible))
 	for id, mapping := range visible {
@@ -480,23 +480,15 @@ func (u *upgrader) mapScope(steps []Step, list *yaml.Node, visible map[string]ma
 		}
 		if step.Loop != nil {
 			_, body := pairOf(node, "steps")
-			_, loop := pairOf(node, "loop")
 			inner := u.mapScope(step.Steps, body, scope, u.valueEnd(node, "steps", stepEnd))
-			// The loop's if: and over read the scope before it; its
-			// until, next and outputs read its pass's.
+			// The loop's own fields (if:, over, until, next, key) read
+			// the steps before it, as checkLoop and the engine read them;
+			// only its outputs read its pass's.
 			for _, pair := range u.pairs(node, stepEnd) {
 				switch pair.key {
 				case "steps":
 				case "outputs":
 					u.mapText(pair.start, pair.end, inner, nil)
-				case "loop":
-					for _, sub := range u.pairs(loop, pair.end) {
-						if sub.key == "over" {
-							u.mapText(sub.start, sub.end, scope, nil)
-						} else {
-							u.mapText(sub.start, sub.end, inner, nil)
-						}
-					}
 				default:
 					u.mapText(pair.start, pair.end, scope, nil)
 				}
