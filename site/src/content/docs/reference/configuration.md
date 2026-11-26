@@ -751,7 +751,7 @@ Topic roots must have nonempty segments, without MQTT wildcards, NUL, or a trail
 
 ## Review passes
 
-A reviewer on another model reviews pull requests in passes until a pass is clean: on a worker instance, those of each make-a-change handoff when its author finishes; on any instance, any pull request a `review-pr-passes` workflow run names. Settings alone start nothing; `review_passes.enabled` turns it on. The main instance can change the reviewer, the skill and the number of passes for one handoff in the Hand off dialog. See [Handing off a task](/legato/using/handoff/) and [Review passes](/legato/using/review-passes/).
+A reviewer on another model reviews pull requests in passes until a pass is clean: on a worker instance, those of each make-a-change handoff when its author finishes; on any instance, any pull request a `review-loop` workflow run names (or an old `review-pr-passes` copy's). Settings alone start nothing; `review_passes.enabled` turns it on. The main instance can change the reviewer, the skill and the number of passes for one handoff in the Hand off dialog. See [Handing off a task](/legato/using/handoff/) and [Review passes](/legato/using/review-passes/).
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |

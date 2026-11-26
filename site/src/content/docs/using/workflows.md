@@ -20,8 +20,8 @@ Legato discovers YAML definitions from:
 Legato ships example workflows; `legato workflow add` lists them, and `legato workflow add <name>` writes one to your global folder (or `.legato/workflows` with `--project`), keeping a file of that name unless you add `--force`:
 
 ```bash
-legato workflow add review-pr-passes
-legato workflow run review-pr-passes --input repo=acme/widget --input pr_number=12
+legato workflow add review-pr
+legato workflow run review-pr --input repo=acme/widget --input pr_number=12
 ```
 
 The templates Legato ships use your default agent tool and your [macros](/legato/using/agents/#macros), need no extra tools, and arrive with every trigger paused (`enabled: false`), so nothing runs until you switch it on:
@@ -32,9 +32,10 @@ The templates Legato ships use your default agent tool and your [macros](/legato
 | `review-pr` | Reviews a pull request (`repo`, `pr_number`) in a fresh clone with your **Review** macro, then stays open for your questions. The run ends when the agent does. |
 | `discuss-pr` | An agent in a fresh clone gets across a pull request's change set and answers your questions about it. |
 | `address-feedback` | When someone requests changes on a pull request one of your tasks owns, gives the task's agent your **Address feedback** macro, starting it if none is running. |
-| `review-pr-passes` | Reviews a pull request in passes posted to GitHub; see [Review passes](/legato/using/review-passes/). |
 | `learn` | When a card enters **Review**, asks the card's running agent what it learned; a curator and a critic agent turn that into candidate learnings on the **Learning** page. See [Legato Learn](/legato/using/learn/#setting-it-up). |
 | `ticket-to-merged-pr` | Takes a card (`task`) from its ticket to a merged pull request: the card's own agent works in a fresh clone of `repo` on your `macro` (**Implement** unless you give another; it must open a pull request) and stays. Then it runs `review-loop` on that pull request and its whole stack: reviewed in passes while the agent fixes the findings, its drafts marked ready once approved, and looked after until they merge. When they merge, it closes the card's Burnlite ticket (a card not from Burnlite is skipped) and stops the agent. Otherwise it notes the card and leaves the ticket open: a closed pull request, or seven idle days, also stops the agent; a stuck review, or one you end, leaves the agent running for you to take over. If the review loop cannot start or fails, the run pauses for you: **Retry**, **Skip** or **Stop**. A paused trigger offers to start it when a card enters **Doing**. Needs review passes, GitHub access, and Burnlite connected with write access for the close. |
+
+To review pull requests in passes posted to GitHub, run the built-in `review-loop`, which every Legato has with nothing to add (see [Reviewing pull requests: review-loop](#reviewing-pull-requests-review-loop)). It replaces the `review-pr-passes` template, which `legato workflow add` no longer offers. A `review-pr-passes` copy you added earlier still runs unchanged, but its review step is deprecated: the **Workflows** tab says so and links to each workflow that uses it, and [Moving off the inline review step](#moving-off-the-inline-review-step) shows the one-command change.
 
 In the web UI, **New workflow** on the **Workflows** tab (and the tab itself when you have no workflows) shows the templates: each says what starts it, what it asks for and what it does. Choose one to see its outline, then **Use this template** to open it in the editor. Nothing is written until you press **Create**, in the folder you pick (yours, the project's, or a repository's checkout). If a workflow already has the template's name, the new one gets another.
 
@@ -165,7 +166,7 @@ Version 1 executes steps in declaration order and supports these executors. Lega
 - `task.note`: add Markdown to a selected task. Pass a resolved `task` input plus either inline `body` or a managed/file `body_path`. Notes are stored locally in Legato and shown in task detail, including for provider-backed tasks; they are not published to Jira. On a task that is away on a worker, the note is kept here and the step still succeeds, but its outputs say so (`away_on`, `warning`): the worker's agent will not see it. `task` may also be a task ID as text, such as another step's output. With `optional: true`, a step whose task is empty adds no note and succeeds, with `skipped: true` in its outputs; without it, an empty task fails the step.
 - `task.metadata.set`: atomically set one or more dotted local metadata paths on a task. Provider sync preserves this metadata. A task that is away on a worker is read-only, so the step fails with "away on <worker>". `task` may also be a task ID as text, such as another step's output (`${{ steps.card.outputs.task }}` after a `ticket.import` step `card`).
 - `task.move`: move the required `with.task` (a task, or a task ID as text, such as another step's output) to the required non-empty, exact case-sensitive configured column named by `with.column`. A real move appends the task to the end of that column and uses normal transitions, events, and column-entry triggers; use trigger conditions to avoid authoring loops. Moving to the current column is an idempotent local no-op with no new transition or event. With a ticket provider such as Jira configured, Legato may still queue the mapped Jira transition, so a remote push that failed earlier can recover. A successful step means the move is saved locally and queued, not that Jira has accepted it.
-- `github.pr.review_passes`: run a [review loop](/legato/using/review-passes/#review-any-pull-request) on an open pull request (`with.repo`, `with.pr_number`): passes posted as GitHub reviews from the reviewer App until a clean one approves it. The step waits on the loop rather than on an agent, and outputs `outcome`, `passes`, `findings`, `reviews`, `approval_withheld` (true when the loop is approved but a pull request whose author is outside the repository got a comment instead of an approval), `summary_path` and `linked_task`. It is the one step that publishes to an outside service. The `review-pr-passes` example uses it. `with.max_passes` and `with.reviewer` (`tool` or `tool:tier`) override this Legato's review-pass settings for the loop; empty, the setting holds. `with.scope` is `stack` (the default: every open pull request of the stack the named one is in, in one loop) or `pr` (that pull request alone).
+- `github.pr.review_passes` (**deprecated**: call `review-loop` with `workflow.run` instead; see [Moving off the inline review step](#moving-off-the-inline-review-step)): run a [review loop](/legato/using/review-passes/#review-any-pull-request) on an open pull request (`with.repo`, `with.pr_number`): passes posted as GitHub reviews from the reviewer App until a clean one approves it. The step waits on the loop rather than on an agent, and outputs `outcome`, `passes`, `findings`, `reviews`, `approval_withheld` (true when the loop is approved but a pull request whose author is outside the repository got a comment instead of an approval), `summary_path` and `linked_task`. It is the one step that publishes to an outside service. The old `review-pr` example used it. `with.max_passes` and `with.reviewer` (`tool` or `tool:tier`) override this Legato's review-pass settings for the loop; empty, the setting holds. `with.scope` is `stack` (the default: every open pull request of the stack the named one is in, in one loop) or `pr` (that pull request alone).
 - `github.pr.wait`: wait until a pull request (`with.repo`, `with.pr_number`) merges. Legato reads the pull request from GitHub when the step starts, so one that merged already goes straight on, then after each refresh of a card's pull requests and every 2 minutes while the board or `legato serve` runs. With `until: merged` (the default), a pull request closed without merging fails the step. With `until: closed`, a merge or a close completes it. Outputs: `state` (`merged` or `closed`), `merged`, `merged_at` and `url`. The step needs Legato's GitHub access (see [GitHub](/legato/integrations/github/)). A pull request that Legato cannot read when the step starts fails the step, and **Retry step** reads it again. A read that fails later, while the step waits, is tried again at the next check.
 
   While it waits, the step asks you to merge. [Attention](/legato/using/attention/) and the needs-you rail show **Review and merge PR #n** on the card, with **Open PR** and **Resume agent…**, and the run counts toward the Workflows badge. When the pull request conflicts with its base or its CI fails, the item says so (**PR #n conflicts with main**, **CI failing**) and comes back if you had dismissed it. The item goes away when the pull request merges or closes. `with.task` names the card (a task input, or a task ID); without it, the card is the run's task input. `with.notify: false` turns the item off.
@@ -998,7 +999,7 @@ A run that an older Legato failed with **agent exited before step completion**, 
 
 ## Schema version 2
 
-Legato writes version 2: the bundled templates (but for `review-pr-passes`, which stays version 1 until it is withdrawn), a new workflow in the web UI, and the Reeve's drafts. A version 2 file is a version 1 file with these differences:
+Legato writes version 2: the bundled templates, a new workflow in the web UI, and the Reeve's drafts. A version 2 file is a version 1 file with these differences:
 
 - A step says how it starts with `start: automatic` (the default) or `start: manual`. `trigger:` is a version 1 key, and a version 2 file refuses it. A version 2 file has no `agent_ended`: wait for an agent to end with an `agent.stop` step that has `wait_for: [ended]`.
 - A later step can read any output its executor's catalog lists, such as `${{ steps.prep.outputs.branch }}` after `repo.ensure`, without the step declaring it. This also holds in version 1 files.
@@ -1090,7 +1091,7 @@ Open a version 1 file in the web UI's editor and select **Upgrade to v2**, or ru
   with: {agent: {from: review}}
 ```
 
-Any other step that started when the agent ended gets such an `agent.stop` before it. Where the upgrade cannot map something, such as a later step reading an output a rewritten step no longer has, it says so at that line: in the editor's problems, or as `file:line:col: warning: …` from the command, which then exits with status 2. Change those by hand before you save.
+Any other step that started when the agent ended gets such an `agent.stop` before it. The upgrade also rewrites the deprecated inline review step (below). Where the upgrade cannot map something, such as a later step reading an output a rewritten step no longer has, it says so at that line: in the editor's problems, or as `file:line:col: error: …` (or `warning`) from the command, which then exits with status 2. Change those by hand before you save.
 
 ### Expressions
 
@@ -1288,7 +1289,35 @@ With `ready: true`, once the stack is approved `review-loop` marks its draft pul
 
 With `steward: true` (and `agent_author: true`), `review-loop` goes on after approval: a second `repeat` loop watches the pull requests (`github.pr.review.wait`, `mode: watch`), sends the author agent failing checks and new comments, and after each push runs another pass and confirms it at the new heads (marking any new draft ready again with `ready`), until a pull request closes without merging (`closed`). See [After approval: the steward](/legato/using/review-passes/#after-approval-the-steward). When the review is stuck, it waits for you (**Run another pass**, **Message the author** or **End**); **End** gives `stuck`, and your workflow goes on. A refused review (another loop already reviews the pull request: `review_loop_active`), or one that fails, fails your `workflow.run` step with its `error_code`, and the step's `on_failure` decides; **Retry** resumes the same review.
 
-`review-loop` is reserved: a file of yours may not take the name. To change it, use **Copy to my workflows** on its page, which makes `review-loop-copy` (rename it as you like) and opens it for editing, while `review-loop` stays Legato's; it is built from the steps below.
+`review-loop` is reserved: a file of yours may not take the name. To change it, use **Copy to my workflows** on its page, which makes `review-loop-copy` (rename it as you like) and opens it for editing, while `review-loop` stays Legato's; it is built from the [review loop steps](#review-loop-steps).
+
+### Moving off the inline review step
+
+The `github.pr.review_passes` step, which the old `review-pr-passes` template ran, is deprecated. It still runs as it always has, but each file that uses it gets this warning:
+
+> github.pr.review_passes is deprecated: call the built-in review-loop with workflow.run instead. `legato workflow upgrade <file>` makes the change.
+
+On a version 1 file the warning ends "makes the change (it upgrades the file to v2)". Run `legato workflow upgrade <file>`, or take the warning's quick fix in the web UI's editor (**Rewrite to call review-loop**, in the problems and on the line). Either rewrites the step in place, comments kept, into a `workflow.run` of `review-loop` with the same inputs, and upgrades a version 1 file to version 2 at the same time:
+
+```yaml
+# Before
+- id: review
+  type: github.pr.review_passes
+  with:
+    repo: ${{ workflow.inputs.repo }}
+    pr_number: ${{ workflow.inputs.pr_number }}
+
+# After
+- id: review
+  type: workflow.run
+  with:
+    workflow: review-loop
+    inputs:
+      repo: ${{ workflow.inputs.repo }}
+      pr_number: ${{ workflow.inputs.pr_number }}
+```
+
+`repo`, `pr_number`, `scope`, `agent_author`, `max_passes` and `reviewer` mean the same to `review-loop`. A later step's reads of the step's outputs mostly keep working: `outcome`, `passes`, `approval_withheld`, `summary_path` and `linked_task` keep their names, and `findings`, a count on the old step, becomes `findings.total`. `reviews` has nothing to match it (each pull request's review is in `prs`, and every review is on the run's page), so each read of it is an error at its line for you to change. `review-loop`'s `outcome` is never `cancelled`: a cancelled review fails the `workflow.run` step instead.
 
 ### Review loop steps
 
