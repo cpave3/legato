@@ -1732,6 +1732,10 @@ func runTUI() int {
 		// it has recorded.
 		app.SetUsageService(service.NewUsageService(manticore.New(cfg.Manticore.URL)))
 	}
+	if subscriptionUsage != nil {
+		// The subscriptions' usage, as the process that polls last kept it.
+		app.SetSubscriptionUsage(subscriptionUsage)
+	}
 	if worktreeSvc != nil {
 		app.SetWorktreeService(worktreeSvc)
 	}

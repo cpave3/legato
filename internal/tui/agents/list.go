@@ -269,6 +269,9 @@ func (m Model) renderSidebar() string {
 	}
 	head = append(head, "")
 	var foot []string
+	for _, r := range m.subscriptionRows() {
+		foot = append(foot, "  "+theme.Spread(colored(theme.TextSecondary, r.label), colored(r.color, r.value), text))
+	}
 	if m.usage != nil {
 		// The total, and under it the two parts it is made of.
 		row := func(label string, tokens int64, labelColor, valueColor lipgloss.Color) {
