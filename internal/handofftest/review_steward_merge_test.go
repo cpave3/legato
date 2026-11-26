@@ -302,4 +302,37 @@ func TestAStackedLayerAnotherLoopHoldsMakesTheLoopStuckNamingIt(t *testing.T) {
 	if held, _ := r.worker.Store.ActiveReviewLoop(ctx, "acme/widget", 13); held == nil || held.ID != holder.ID {
 		t.Fatalf("#13 changed hands: %+v", held)
 	}
+
+	// Stuck at its watch, the steward still ends merged when its layer
+	// merges.
+	r.worker.ReviewGitHub.MergePR(12)
+	r.watchTick()
+	r.tick()
+	view = r.show(t, view.Run.ID)
+	if view.Run.Status != "succeeded" || runOutputs(t, view)["outcome"] != "merged" {
+		t.Fatalf("run %q (%s), outputs %s: %s", view.Run.Status, view.Run.Error, view.Run.OutputsJSON, stepStates(view))
+	}
+}
+
+// A held steward (Stop watching) sends nothing, but still ends merged when
+// every layer merges.
+func TestAHeldStewardStillEndsMergedWhenEveryLayerMerges(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	withBoardAuthor(t, r)
+	view := r.stewarded(t, stewardInputs)
+	if err := r.stewardAct(t, view, "stop_watching"); err != nil {
+		t.Fatal(err)
+	}
+
+	r.worker.ReviewGitHub.MergePR(12)
+	r.watchTick()
+	r.tick()
+
+	view = r.show(t, view.Run.ID)
+	if view.Run.Status != "succeeded" || runOutputs(t, view)["outcome"] != "merged" {
+		t.Fatalf("run %q (%s), outputs %s: %s", view.Run.Status, view.Run.Error, view.Run.OutputsJSON, stepStates(view))
+	}
+	if watches := stewardSteps(view, "watch"); stepOutputs(t, watches[len(watches)-1])["woke"] != "merged" {
+		t.Fatalf("watch steps: %s", stepStates(view))
+	}
 }
