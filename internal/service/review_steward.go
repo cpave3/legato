@@ -542,7 +542,9 @@ func (s *ReviewPassService) stillActive(ctx context.Context, loopID string) {
 		return nil
 	}); err != nil {
 		log.Printf("review passes: %s: %v", loopID, err)
+		return
 	}
+	s.changed(rec.HostTask) // the run page shows the deadline
 }
 
 // watching moves an approved, stewarding loop on: a later APPROVE for a

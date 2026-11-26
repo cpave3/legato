@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -257,3 +258,29 @@ func waitingPath(t *testing.T, view *store.WorkflowRunView) string {
 	return ""
 }
 
+// A held steward's run page follows GitHub: a watch read that finds a
+// layer's mergeability changed tells the page, though the held steward
+// routes nothing.
+func TestAHeldStewardsWatchTellsTheRunPageWhatChanged(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	withBoardAuthor(t, r)
+	view := r.stewarded(t, stewardInputs)
+	if err := r.stewardAct(t, view, "stop_watching"); err != nil {
+		t.Fatal(err)
+	}
+	r.watchTick()
+	sub := r.worker.Bus.Subscribe(events.EventWorkflowChanged)
+	defer r.worker.Bus.Unsubscribe(sub)
+	r.worker.ReviewGitHub.SetMergeable(12, "CONFLICTING", "DIRTY")
+	r.watchTick()
+	for {
+		select {
+		case e := <-sub:
+			if p, ok := e.Payload.(events.WorkflowChangedPayload); ok && p.RunID == view.Run.ID && p.Kind == service.ReviewLoopChangedKind {
+				return
+			}
+		default:
+			t.Fatal("the run page was not told the layer's mergeability changed")
+		}
+	}
+}

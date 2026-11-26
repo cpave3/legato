@@ -360,6 +360,10 @@ func (s *ReviewPassService) watchLoop(ctx context.Context, github ReviewWatchGit
 		// page of any process.
 		if err := s.db.SetReviewLoopPRStatus(ctx, l.ID, layerStatuses(next.Layers)); err != nil {
 			log.Printf("review passes: %s: keeping the layers read: %v", l.ID, err)
+		} else if !seen || !sameWatch(prev.Layers, next.Layers) {
+			// What the run page shows of the layers changed: an open page
+			// reads it again (a held steward routes nothing that would).
+			s.changed(l.HostTask)
 		}
 	}
 	if err != nil {
