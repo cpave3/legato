@@ -280,6 +280,9 @@ func (m Model) renderEnsembleHeader() string {
 	}
 
 	var trailing []string
+	for _, r := range m.subscriptionRows() {
+		trailing = append(trailing, colored(theme.TextSecondary, r.label)+" "+colored(r.color, r.value))
+	}
 	if m.usage != nil {
 		tokens := colored(theme.TextSecondary, formatTokens(m.usage.TokensToday)+" tokens today")
 		if m.usage.hasParts() {

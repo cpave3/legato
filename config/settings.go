@@ -107,6 +107,11 @@ var registry = []Setting{
 	{Key: "agents.sandbox.docker.cap_add", Title: "Capabilities containers may add", Help: "Capabilities a container may add, such as SYS_PTRACE. Ones that reach the host, such as SYS_ADMIN, are refused. Empty, none.", Kind: KindStrings, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "agents.sandbox.docker.publish", Title: "Published ports bind to", Help: "loopback puts every published port on 127.0.0.1, which agents still reach; any binds what the agent asks for.", Kind: KindEnum, Enum: []string{"loopback", "any"}, Class: ClassRisky, Mode: ModeRestart},
 
+	// Subscription usage.
+	{Key: "usage.claude.enabled", Title: "Claude", Help: "Reads how much of your Claude subscription's 5-hour and weekly limits you have used, with Claude Code's login. Off, Legato never asks.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "usage.codex.enabled", Title: "Codex", Help: "Reads how much of your ChatGPT account's Codex limits you have used, through the codex command or its session logs. Off, Legato never asks.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "usage.poll_interval", Title: "Read usage every", Help: "How often Legato reads each subscription's usage. At least 2m.", DefaultLabel: "5m", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart, Check: checkUsagePollInterval},
+
 	// Notifications.
 	{Key: "notifications.ntfy.url", Title: "ntfy server", Help: "The ntfy server that relays notifications to your phone.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "notifications.ntfy.topic", Title: "Topic", Help: "The topic to publish to; pick one nobody could guess. Empty, no phone notifications are sent.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
@@ -620,7 +625,7 @@ func pointerDefault(key string, field reflect.Value) any {
 	}
 	switch key {
 	case "notifications.approvals", "notifications.handoff", "agents.sandbox.default_mounts", "reeve.host_operations", "reeve.voice.partials", "reeve.watch.started",
-		"web.discovery", "credential_channels.gh.isolate_login":
+		"web.discovery", "credential_channels.gh.isolate_login", "usage.claude.enabled", "usage.codex.enabled":
 		return true
 	}
 	return reflect.Zero(field.Type().Elem()).Interface()

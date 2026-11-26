@@ -356,6 +356,10 @@ Legato keeps who messaged whom and when (never what was said) for a day, so the 
 
 See [Keyboard shortcuts](/legato/reference/keyboard/) for the rest.
 
+## Subscription usage
+
+The head of the agents list shows how much of your Claude and Codex subscriptions' usage limits you have used, and when each resets. In the TUI it is at the foot of the agent list. See [Subscription usage](/legato/using/usage/).
+
 ## Token usage
 
 With [Manticore](/legato/integrations/manticore/) set up, the agents view shows how many tokens were used today, with what went in and what came out. The ensemble draws the tokens of each of the last 24 hours. The numbers cover everything your Manticore instance records, not only this Legato.

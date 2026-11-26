@@ -473,6 +473,10 @@ Empty pages offer the next step: the board, when every column is empty, shows **
 
 `UpdateNotice` (in `Layout`, from `updates` in `/api/settings`) is a bar along the top: in ask mode "Legato vX is available" with **Update and restart** (`POST /api/updates/apply`) and **Later**, which hides it in this browser until the next release (`legato:update-later`); "Updating Legato to vX" while it installs and restarts, whatever the mode; "vX is installed. Restart Legato to use it" where Legato cannot restart itself; and why an update failed, with **Try again**. `update_changed` refetches the settings. See [Releases and updates](updates.md).
 
+### Usage strip
+
+`UsageStrip` (`web/src/components/UsageStrip.tsx`, `web/src/lib/usage.ts`) sits at the head of the agents list (`AgentSidebar`'s `usage`), under the phone's picker bar, and on the Agents page with no agents, under "No active agents". It is each provider's windows in brief, opening to the Usage card: a bar per window (amber from 75%, red from 90%), when it resets, "as of", why a reading is stale or unavailable, and **Read now** (`POST /api/usage/refresh`). It reads `GET /api/usage` (`queryKeys.subscriptionUsage`, refetched each minute and on `usage_changed`) and renders nothing without providers. See [Subscription usage](usage.md).
+
 ### The Reeve on the Agents page
 
 The Reeve is pinned first in the Agents list and leads the phone's picker (`ReeveEntry`, violet wash and border); the conversation's status bar names it with the sandbox, the instance's role and its engram, or `no engram` (`ReeveStatus`). Settings › Reeve has **The Reeve's engram** (`ReeveEngramSettings`, `#reeve-engram`): its seed, changed with a signature, and its memories and open threads, each with **Remove**. See [The Reeve](reeve.md) § Its engram. See [The Reeve](reeve.md) § On the Agents page and the phone.

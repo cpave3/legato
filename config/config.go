@@ -66,6 +66,9 @@ type Config struct {
 	ReviewPasses ReviewPassesConfig `yaml:"review_passes"`
 	// Updates is how this Legato takes new releases.
 	Updates UpdatesConfig `yaml:"updates"`
+	// Usage is reading the Claude and Codex subscriptions' usage limits.
+	// See docs/ai/usage.md.
+	Usage UsageConfig `yaml:"usage"`
 	// Reeve is the agent of this Legato itself.
 	Reeve ReeveConfig `yaml:"reeve"`
 	// Engram is whether agents can be started as engrams. See
@@ -669,6 +672,9 @@ func validate(cfg *Config) error {
 	if err := checkAgentHistoryKeep(cfg.Agents.History.Keep); err != nil {
 		return err
 	}
+	if err := checkUsagePollInterval(cfg.Usage.PollInterval); err != nil {
+		return fmt.Errorf("usage.poll_interval: %w", err)
+	}
 	if err := ValidateLearningConfig(cfg); err != nil {
 		return err
 	}
@@ -1207,6 +1213,55 @@ type EngramConfig struct {
 type UpdatesConfig struct {
 	// Mode is auto, ask (the default when empty) or off.
 	Mode string `yaml:"mode"`
+}
+
+// UsageConfig is reading the subscriptions' usage limits.
+type UsageConfig struct {
+	Claude UsageProviderConfig `yaml:"claude"`
+	Codex  UsageProviderConfig `yaml:"codex"`
+	// PollInterval is how often each is read: a Go duration of at least
+	// MinUsagePollInterval, DefaultUsagePollInterval when empty.
+	PollInterval string `yaml:"poll_interval"`
+}
+
+// UsageProviderConfig is whether one provider's usage is read.
+type UsageProviderConfig struct {
+	// Enabled is true when unset.
+	Enabled *bool `yaml:"enabled"`
+}
+
+// IsEnabled says whether the provider's usage is read.
+func (p UsageProviderConfig) IsEnabled() bool { return p.Enabled == nil || *p.Enabled }
+
+// Subscription usage polling bounds.
+const (
+	DefaultUsagePollInterval = 5 * time.Minute
+	MinUsagePollInterval     = 2 * time.Minute
+)
+
+// PollIntervalDuration is the poll interval: DefaultUsagePollInterval when
+// unset or not a duration.
+func (u UsageConfig) PollIntervalDuration() time.Duration {
+	if d, err := time.ParseDuration(u.PollInterval); err == nil && d > 0 {
+		return max(d, MinUsagePollInterval)
+	}
+	return DefaultUsagePollInterval
+}
+
+// checkUsagePollInterval refuses an interval under two minutes.
+func checkUsagePollInterval(v any) error {
+	s := strings.TrimSpace(v.(string))
+	if s == "" {
+		return nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return fmt.Errorf("must be a duration such as 5m")
+	}
+	if d < MinUsagePollInterval {
+		return fmt.Errorf("must be at least %s", MinUsagePollInterval)
+	}
+	return nil
 }
 
 // ReeveConfig is the Reeve's defaults: the agent tool a session runs, its

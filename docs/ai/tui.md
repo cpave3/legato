@@ -137,6 +137,10 @@ Agents are listed in the glance groups every surface shares (`sectionOf` reads `
 
 A running agent's mark is a spinner (`theme.Spinner(frame)`, ten frames). The app advances the frame every 100 ms (`app_spinner.go`) and passes it to the board and the agents view. It ticks only while the view in front shows a running agent and no overlay is open, and one tick at a time, so the app does not redraw between events when nothing moves. `Icons.AgentWorked` is the still mark for time an agent spent working.
 
+## Subscription usage
+
+The agents view lists each subscription's usage (`Claude  5h 42% wk 91%`, `Codex (stale)  wk 5%`, `unavailable`) at the foot of the agent list, above the tokens, and on the ensemble's top line. Amber from 75%, red from 90%, faint when stale. `App.SetSubscriptionUsage` (`app_subscription_usage.go`) reads the kept readings at start and every minute, never a provider; `agents.Model.SetSubscriptionUsage` draws them (`agents/subscription_usage.go`). See [Subscription usage](usage.md).
+
 ## Token usage
 
 With a `manticore:` block in the config, the agents view shows how many tokens were used today: the total, and under it what went in and what came out. The ensemble's header has the same, and its activity panel draws the tokens of each of the last 24 hours.

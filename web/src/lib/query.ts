@@ -42,6 +42,8 @@ export const queryKeys = {
   // Agents being started in the background while their clone is made.
   preparingAgents: (baseUrl: string) => [baseUrl, "preparing-agents"] as const,
   interruptedAgents: (baseUrl: string) => [baseUrl, "interrupted-agents"] as const,
+  // The Claude and Codex subscriptions' usage; usage_changed refreshes it.
+  subscriptionUsage: (baseUrl: string) => [baseUrl, "subscription-usage"] as const,
   // The session history: a page of it for some filters, and one entry.
   sessions: (baseUrl: string, filters: object) => [baseUrl, "sessions", filters] as const,
   session: (baseUrl: string, id: number) => [baseUrl, "session", id] as const,

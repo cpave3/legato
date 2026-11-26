@@ -192,6 +192,7 @@ type App struct {
 	sessionHistory      SessionHistory
 	sessionHistoryQuery string
 	usageSvc            service.UsageService
+	subscriptionUsage   SubscriptionUsageSource
 	dirSvc              DirectoryService
 	engramSvc           EngramPickerService
 	// sandbox: agents run in Legato's sandbox unless their spawn opts out.
@@ -481,6 +482,9 @@ func (a App) Init() tea.Cmd {
 		cmds = append(cmds, a.loadReviewBadges())
 	}
 	if cmd := a.loadUsage(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := a.loadSubscriptionUsage(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	// Clipboard availability check
@@ -859,6 +863,12 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case usageTickMsg:
 		return a, a.loadUsage()
+
+	case subscriptionUsageLoadedMsg:
+		return a.handleSubscriptionUsageLoaded(msg)
+
+	case subscriptionUsageTickMsg:
+		return a, a.loadSubscriptionUsage()
 
 	case agents.OpenShownMsg:
 		return a.handleOpenShown(msg)

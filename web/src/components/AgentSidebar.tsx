@@ -33,6 +33,8 @@ interface AgentSidebarProps {
   preparing?: ReactNode;
   // Pinned first, above the groups: the Reeve (ReeveEntry).
   reeve?: ReactNode;
+  // Shown under the header, before anything else: the subscriptions' usage.
+  usage?: ReactNode;
   // Lists the agents by group (useAgentGroups); without it, by status.
   grouping?: AgentGrouping;
   // The stage the list is filtered to (null for all), and how it changes;
@@ -66,6 +68,7 @@ export function AgentSidebar({
   contexts,
   preparing,
   reeve,
+  usage,
   grouping,
   stageFilter = null,
   onStageFilter,
@@ -151,6 +154,8 @@ export function AgentSidebar({
           </button>
         </div>
       </div>
+
+      {usage}
 
       {outside > 0 && (
         <div role="status" className="mx-3 mb-2 flex items-center justify-between gap-2 rounded-md border border-lw-line bg-lw-raised px-2.5 py-1.5 text-xs text-lw-needs">

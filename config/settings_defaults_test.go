@@ -27,6 +27,8 @@ func TestANilSettingReportsTheDefaultTheRuntimeUses(t *testing.T) {
 		"web.rail.review": false, "web.rail.merge": false, "web.rail.legato": true,
 		// GHChannelConfig.IsolateLogin: nil is on.
 		"credential_channels.gh.isolate_login": true,
+		// UsageProviderConfig.IsEnabled: nil is on.
+		"usage.claude.enabled": true, "usage.codex.enabled": true,
 	}
 	cfg := Defaults()
 	for _, s := range Settings() {

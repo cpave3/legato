@@ -394,6 +394,16 @@ How this Legato takes new releases. Usually set in Settings › System › Updat
 | --- | --- | --- | --- |
 | `updates.mode` | string | `ask` | `auto` installs a new release once no agent is in the middle of a turn, and restarts; `ask` offers it; `off` never looks. |
 
+## Subscription usage
+
+Reading how much of your Claude and Codex subscriptions' usage limits you have used. Usually set in Settings › Agents › Subscription usage. See [Subscription usage](/legato/using/usage/).
+
+| Setting | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `usage.claude.enabled` | bool | `true` | Reads your Claude subscription's 5-hour and weekly limits with Claude Code's login, on the machine Legato runs on. Off, Legato never asks. |
+| `usage.codex.enabled` | bool | `true` | Reads your ChatGPT account's Codex limits through the `codex` command, else from Codex's session logs. Off, Legato never asks. |
+| `usage.poll_interval` | duration | `5m` | How often each subscription's usage is read. At least `2m`. |
+
 ## GitHub
 
 How Legato reads pull requests for your tasks. Legato only reads from GitHub here; it never writes. See [GitHub](/legato/integrations/github/).

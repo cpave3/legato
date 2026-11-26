@@ -114,6 +114,7 @@ type Server struct {
 	preparing                preparingAgents
 	tints                    TintService
 	themes                   ThemePreferenceService
+	usage                    SubscriptionUsageSource
 	mcpConnections           MCPConnectionService
 	mcpTester                MCPTester
 	mcpOAuth                 MCPOAuth
@@ -244,6 +245,8 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("PUT /api/settings/skills/{name}", s.skillHandler())
 	mux.HandleFunc("/api/settings/updates", s.updateModeHandler())
 	mux.HandleFunc("/api/updates", s.updatesHandler())
+	mux.HandleFunc("/api/usage", s.usageHandler())
+	mux.HandleFunc("/api/usage/refresh", s.usageRefreshHandler())
 	mux.HandleFunc("/api/updates/check", s.updateCheckHandler())
 	mux.HandleFunc("/api/updates/apply", s.updateApplyHandler())
 	mux.HandleFunc("/api/restart", s.restartHandler())

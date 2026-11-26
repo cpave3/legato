@@ -79,6 +79,15 @@ const (
 	// a review pass started, feedback delivered, a pass submitted).
 	// Payload: WorkMilestonePayload.
 	EventWorkMilestone
+	// EventSubscriptionUsageChanged: this process kept a new subscription
+	// usage reading (docs/ai/usage.md). No payload.
+	EventSubscriptionUsageChanged
+	// EventSubscriptionUsageInvalidated: another process kept one (IPC
+	// usage_changed). No payload; never sent on over IPC again.
+	EventSubscriptionUsageInvalidated
+	// EventSubscriptionUsageRefreshRequested: a process that does not poll
+	// asked the one that does to read now (IPC usage_refresh). No payload.
+	EventSubscriptionUsageRefreshRequested
 )
 
 // WorkMilestonePayload is a stage milestone for one agent place: a task's

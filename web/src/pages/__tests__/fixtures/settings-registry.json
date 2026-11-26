@@ -292,6 +292,40 @@
       "mode": "restart"
     },
     {
+      "key": "usage.claude.enabled",
+      "title": "Claude",
+      "section": "agents",
+      "group": "Subscription usage",
+      "help": "Reads how much of your Claude subscription's 5-hour and weekly limits you have used, with Claude Code's login. Off, Legato never asks.",
+      "description": "Reads how much of your Claude subscription's 5-hour and weekly limits you have used, with Claude Code's login. Off, Legato never asks.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "usage.codex.enabled",
+      "title": "Codex",
+      "section": "agents",
+      "group": "Subscription usage",
+      "help": "Reads how much of your ChatGPT account's Codex limits you have used, through the codex command or its session logs. Off, Legato never asks.",
+      "description": "Reads how much of your ChatGPT account's Codex limits you have used, through the codex command or its session logs. Off, Legato never asks.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "usage.poll_interval",
+      "title": "Read usage every",
+      "section": "agents",
+      "group": "Subscription usage",
+      "help": "How often Legato reads each subscription's usage. At least 2m.",
+      "description": "How often Legato reads each subscription's usage. At least 2m.",
+      "default_label": "5m",
+      "kind": "duration",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
       "key": "notifications.ntfy.url",
       "title": "ntfy server",
       "section": "attention",
