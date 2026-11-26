@@ -36,6 +36,11 @@ type HandoffReviewCallerOptions struct {
 	// (WorkflowService; spec LEG-559 D10). Nil runs the handoff's loop on
 	// its own, as before review-loop.
 	Runs HandoffReviewRuns
+	// PullRequests says, from this worker's pull_requests.rules, whether a
+	// handoff's repository marks its approved stack ready (a draft rule
+	// with ready_after_review): the run's ready input (LEG-456). Nil leaves
+	// every stack a draft.
+	PullRequests ReadyAfterReviewSource
 }
 
 // HandoffReviewRuns are the workflow runs a handoff's review runs in: the
@@ -119,8 +124,9 @@ func (c *HandoffReviewCaller) openLoop(ctx context.Context, h *store.Handoff, en
 // startRun starts the handoff's review-loop run with its binding (spec
 // LEG-559 D10): a top-level run of the built-in, related to the card, no
 // steward, and a loop record the run's open step adopts, which names the
-// handoff and the card's columns. A handoff that has a loop already (its
-// run's, or one it owns) starts none.
+// handoff and the card's columns. Its ready input is the worker's rule for
+// the repository (ready_after_review on a draft rule, LEG-456). A handoff
+// that has a loop already (its run's, or one it owns) starts none.
 func (c *HandoffReviewCaller) startRun(ctx context.Context, h *store.Handoff) error {
 	if l, err := c.db.CurrentReviewLoop(ctx, h.TaskID); err != nil {
 		return err
@@ -129,9 +135,14 @@ func (c *HandoffReviewCaller) startRun(ctx context.Context, h *store.Handoff) er
 	}
 	columns := handoffColumnsJSON(c.config())
 	of := store.HandoffOfCard{MainInstanceID: h.MainInstanceID, HandoffID: h.HandoffID, Repo: h.Repo}
-	_, err := c.opts.Runs.StartHandoffReviewLoop(ctx, HandoffReviewLoopStart{Repo: h.Repo, Card: h.TaskID,
+	ready := c.opts.PullRequests != nil && c.opts.PullRequests.ReadyAfterReview(ctx, h.Repo)
+	_, err := c.opts.Runs.StartHandoffReviewLoop(ctx, HandoffReviewLoopStart{Repo: h.Repo, Card: h.TaskID, Ready: ready,
 		Bind: func(ctx context.Context, runID string) error {
-			_, _, err := c.Open(ctx, store.HandoffRunReviewLoopOpen(h.TaskID, of, runID, ReviewLoopOpenStepID, columns))
+			open := store.HandoffRunReviewLoopOpen(h.TaskID, of, runID, ReviewLoopOpenStepID, columns)
+			// As the open step records a run's ready: the author is told
+			// the run marks its pull requests ready.
+			open.Loop.Ready = ready
+			_, _, err := c.Open(ctx, open)
 			return err
 		}})
 	return err

@@ -470,12 +470,16 @@ pull_requests:
       mode: draft
     - match: acme/web-app    # an exact name beats a pattern
       mode: ready
+    - match: acme/infra
+      mode: draft
+      ready_after_review: true  # handed-off drafts marked ready once approved
 ```
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `pull_requests.rules[].match` | string | none | A GitHub repository, `owner/name`, or a pattern with `*`: `owner/*`, `*/name`, or `*` for every repository. A leading `github.com/` is dropped. Case is ignored. When several rules match, an exact name wins, then the pattern with more of the name written out. One rule per match. |
 | `pull_requests.rules[].mode` | `draft`, `ready` or `agent` | none | `draft`: agents are told to open drafts, and Legato's credential broker refuses a pull request that is not a draft. `ready`: agents are told to open pull requests ready for review, and a [handoff](/legato/using/handoff/) may open them from its own branches without asking. `agent`: the agent chooses, and a handoff may open either. |
+| `pull_requests.rules[].ready_after_review` | bool | `false` | On a `draft` rule only (on any other rule it is an error). Once [review passes](/legato/using/review-passes/#drafts-marked-ready-after-review) approve a handed-off task's stack in a matching repository, the worker marks each of its draft pull requests ready for review, bottom first, as your GitHub App. A pull request GitHub will not mark ready pauses the task's review run. Legato never merges and never turns on auto-merge. In Settings, **Mark ready once reviewed**. |
 
 A repository no rule matches keeps the behaviour from before there were rules: a handoff opens drafts, and other agents choose. A handoff follows the rules of the worker it runs on. See [Pull requests that are not drafts](/legato/security/credential-broker/#pull-requests-drafts-or-ready).
 

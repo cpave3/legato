@@ -34,6 +34,10 @@ type PullRequestRule struct {
 	Match string `yaml:"match" json:"match"`
 	// Mode is draft, ready or agent.
 	Mode string `yaml:"mode" json:"mode"`
+	// ReadyAfterReview, on a draft rule only, marks a handed-off task's
+	// stack ready once its review passes approve it (the handoff's
+	// review-loop run's ready input, LEG-456). Legato never merges.
+	ReadyAfterReview bool `yaml:"ready_after_review,omitempty" json:"ready_after_review,omitempty"`
 }
 
 // pullRequestMatchPart is one part of a match: a name, or a pattern of one.
@@ -63,6 +67,9 @@ func normalizePullRequests(cfg *Config) error {
 		default:
 			return fmt.Errorf("pull_requests.rules[%d].mode must be draft, ready or agent, got %q", i, r.Mode)
 		}
+		if r.ReadyAfterReview && r.Mode != PullRequestsDraft {
+			return fmt.Errorf("pull_requests.rules[%d].ready_after_review is for a draft rule only, and %s is %s", i, r.Match, r.Mode)
+		}
 		key := strings.ToLower(r.Match)
 		if seen[key] {
 			return fmt.Errorf("pull_requests.rules: %s is matched twice", r.Match)
@@ -76,12 +83,29 @@ func normalizePullRequests(cfg *Config) error {
 // Git remote address on GitHub): the mode of the most specific rule that
 // matches it, "" when none does.
 func (c PullRequestsConfig) ModeFor(repo string) string {
+	if r, ok := c.ruleFor(repo); ok {
+		return r.Mode
+	}
+	return ""
+}
+
+// ReadyAfterReview says whether a repository's handed-off stacks are marked
+// ready once review passes approve them: its most specific rule is a draft
+// rule with ready_after_review.
+func (c PullRequestsConfig) ReadyAfterReview(repo string) bool {
+	r, ok := c.ruleFor(repo)
+	return ok && r.Mode == PullRequestsDraft && r.ReadyAfterReview
+}
+
+// ruleFor is the most specific rule that matches a repository.
+func (c PullRequestsConfig) ruleFor(repo string) (PullRequestRule, bool) {
 	name, ok := NormalizeRepository(repo)
 	if !ok || !strings.HasPrefix(name, "github.com/") {
-		return ""
+		return PullRequestRule{}, false
 	}
 	name = strings.TrimPrefix(name, "github.com/")
-	best, bestScore := "", -1
+	var best PullRequestRule
+	bestScore := -1
 	for _, r := range c.Rules {
 		match := strings.ToLower(r.Match)
 		if match == "*" {
@@ -97,8 +121,8 @@ func (c PullRequestsConfig) ModeFor(repo string) string {
 			score = 1 << 20
 		}
 		if score > bestScore {
-			best, bestScore = r.Mode, score
+			best, bestScore = r, score
 		}
 	}
-	return best
+	return best, bestScore >= 0
 }

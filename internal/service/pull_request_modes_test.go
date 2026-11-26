@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -74,5 +75,27 @@ func TestThePullRequestModeReadsTheRulesEachTime(t *testing.T) {
 	var none PullRequestModes
 	if got := none.PullRequestMode(context.Background(), "cpave3/legato"); got != "" {
 		t.Fatalf("mode = %q", got)
+	}
+}
+
+func TestReadyAfterReviewReadsTheRulesEachTime(t *testing.T) {
+	ctx := context.Background()
+	rules := []config.PullRequestRule{{Match: "acme/*", Mode: config.PullRequestsDraft}}
+	modes := PullRequestModes(func(context.Context) (config.PullRequestsConfig, error) {
+		return config.PullRequestsConfig{Rules: rules}, nil
+	})
+	if modes.ReadyAfterReview(ctx, "acme/widget") {
+		t.Fatal("a draft rule without ready_after_review marks stacks ready")
+	}
+	rules[0].ReadyAfterReview = true
+	if !modes.ReadyAfterReview(ctx, "acme/widget") {
+		t.Fatal("the saved ready_after_review is not read")
+	}
+	failing := PullRequestModes(func(context.Context) (config.PullRequestsConfig, error) {
+		return config.PullRequestsConfig{}, errors.New("unreadable")
+	})
+	var none PullRequestModes
+	if failing.ReadyAfterReview(ctx, "acme/widget") || none.ReadyAfterReview(ctx, "acme/widget") {
+		t.Fatal("rules that cannot be read mark stacks ready")
 	}
 }

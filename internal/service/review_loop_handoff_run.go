@@ -32,8 +32,10 @@ type HandoffReviewLoopStart struct {
 	Repo string
 	// Card is the handed-off card: the run is related to it.
 	Card string
-	// Ready marks the approved stack ready (a worker's draft rule with
-	// ready_after_review, LEG-456); false for now.
+	// Ready marks the approved stack ready: the worker's draft rule for
+	// the repository has ready_after_review (LEG-456). github.pr.ready then
+	// flips each open draft layer bottom up as the author App; a layer
+	// that will not flip pauses the run. Legato never merges.
 	Ready bool
 	// Steward is refused: a handoff's loop ends at approval
 	// (handoff_input_refused).

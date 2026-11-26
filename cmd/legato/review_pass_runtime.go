@@ -176,6 +176,9 @@ func wireHandoffReviewCaller(deps integrationDeps, reviews *service.ReviewPassSe
 		// A dead author is resumed, with everything it had, to hear of its
 		// feedback.
 		ResumeAuthor: handoffs.ResumeAuthor,
+		// A draft rule with ready_after_review marks the approved stack
+		// ready (LEG-456), read from the effective rules at each start.
+		PullRequests: pullRequestModes(deps.cfg, deps.db),
 	}
 	if runs && deps.workflows != nil {
 		opts.Runs = deps.workflows
