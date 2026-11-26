@@ -73,6 +73,14 @@ describe("workflow graphs at phone width", () => {
     expect(screen.getByRole("list", { name: "Steps" })).toBeTruthy()
   })
 
+  it("keep the graph's toolbar at the top, clear of the run's sheet at the bottom (LEG-651)", async () => {
+    renderAt("/workflows/runs/wr-1")
+    fireEvent.click(screen.getByRole("button", { name: "Graph" }))
+    const toolbar = await screen.findByRole("toolbar", { name: "View" })
+    expect(toolbar.closest(".react-flow__panel")?.classList.contains("top")).toBe(true)
+    expect(within(toolbar).getByRole("button", { name: "Panels" })).toBeTruthy()
+  })
+
   it("open a run step's details in a bottom sheet that closes", async () => {
     renderAt("/workflows/runs/wr-1")
     fireEvent.click(screen.getByRole("button", { name: "Graph" }))

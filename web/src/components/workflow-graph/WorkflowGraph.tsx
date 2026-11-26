@@ -411,12 +411,17 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, r
   const insets = canvas?.insets ?? noInsets
   const insetsRef = useRef(insets)
   insetsRef.current = insets
-  // A node's place on the graph: a loop body's is its loop's plus its own.
+  // A node's place on the graph: a loop body's position is relative to its
+  // loop, so every loop it is in adds its own.
   const rectOf = useCallback((id: string): Rect | null => {
     const node = placed.find(item => item.id === id)
     if (!node) return null
-    const parent = node.parentId ? placed.find(item => item.id === node.parentId) : undefined
-    return { x: node.position.x + (parent?.position.x ?? 0), y: node.position.y + (parent?.position.y ?? 0), width: node.width ?? 0, height: node.height ?? 0 }
+    let { x, y } = node.position
+    for (let parent = placed.find(item => item.id === node.parentId); parent; parent = placed.find(item => item.id === parent!.parentId)) {
+      x += parent.position.x
+      y += parent.position.y
+    }
+    return { x, y, width: node.width ?? 0, height: node.height ?? 0 }
   }, [placed])
   const frameSize = () => ({ width: frame.current?.clientWidth ?? 0, height: frame.current?.clientHeight ?? 0 })
   const topRects = useMemo(() => placed.filter(node => !node.parentId).map(node => ({ x: node.position.x, y: node.position.y, width: node.width ?? 0, height: node.height ?? 0 })), [placed])
@@ -461,6 +466,8 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, r
   // never feeds back into it, so the two cannot chase each other.
   const onKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (event.key !== "Enter" && event.key !== " ") return
+    // A control inside a node (the child run's link) keeps its own keys.
+    if ((event.target as HTMLElement).closest("a, button, input, select, textarea")) return
     const element = (event.target as HTMLElement).closest<HTMLElement>(".react-flow__node")
     const id = element?.dataset.id
     if (!id) return
@@ -494,7 +501,9 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, r
       onPaneClick={() => choose(null)}
     >
       <Background gap={20} size={1} />
-      {canvas ? <Panel position="bottom-left" className="!m-4">
+      {/* On a phone the run's cards are a sheet along the bottom, so the
+          toolbar goes to the top. */}
+      {canvas ? <Panel position={direction === "TB" ? "top-right" : "bottom-left"} className="!m-4">
         <div role="toolbar" aria-label="View" className="flex items-center gap-0.5 rounded-lg border border-lw-line bg-lw-surface p-0.5 font-lw text-lw-text shadow-[var(--shadow-lw-panel)]">
           <button type="button" aria-label="Zoom out" className={toolButton} onClick={() => { void flow.zoomOut() }}>−</button>
           <span className="w-11 text-center font-lw-mono text-xs text-lw-text-2">{Math.round(zoom * 100)}%</span>

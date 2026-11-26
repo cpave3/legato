@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createQueryClient, queryKeys } from "../../lib/query"
@@ -158,6 +158,55 @@ describe("the run page as a canvas", () => {
     render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/workflows/runs/wr-1"]}><Routes><Route path="/workflows/runs/:runId" element={<WorkflowRunPage />} /></Routes></MemoryRouter></QueryClientProvider>)
     const chip = await screen.findByRole("link", { name: "Child run: Autopilot one-off, running" })
     expect(chip.getAttribute("href")).toBe("/workflows/runs/wr-child")
+  })
+
+  it("lets Enter open the child run from its link, without selecting the step", async () => {
+    const waiting = { ...data, steps: [stepRun(0, "succeeded"), stepRun(1, "waiting", { executor_type: "workflow.run", child_run_id: "wr-child" }), stepRun(2, "pending")], details: { write: { run_id: "wr-child", workflow: "autopilot-one-off", title: "Autopilot one-off", status: "running" } } }
+    fetchRun.mockResolvedValue(waiting)
+    const client = createQueryClient()
+    client.setQueryData(queryKeys.workflowRun("", "wr-1"), waiting as unknown as WorkflowRunView)
+    render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/workflows/runs/wr-1"]}><Routes><Route path="/workflows/runs/:runId" element={<WorkflowRunPage />} /></Routes></MemoryRouter></QueryClientProvider>)
+    const chip = await screen.findByRole("link", { name: "Child run: Autopilot one-off, running" })
+    // fireEvent returns false when a handler cancelled the key's default.
+    expect(fireEvent.keyDown(chip, { key: "Enter" })).toBe(true)
+    expect(screen.queryByRole("complementary", { name: "Write the ticket" })).toBeNull()
+  })
+
+  it("opens on a step inside nested loops, centred in the free area", async () => {
+    const loop = (path: string, title: string, parent?: string) => ({ id: `step:${path}`, kind: "step", ...(parent ? { parent } : {}), step: { id: path.split("/").pop(), path, title, type: "loop", group: "loop", start: "automatic", key: {}, loop: { form: "over", max: 5 }, definition: { id: path.split("/").pop(), title } } })
+    const step = (path: string, title: string, parent?: string) => ({ id: `step:${path}`, kind: "step", ...(parent ? { parent } : {}), step: { id: path.split("/").pop(), path, title, type: "task.note", start: "automatic", key: {}, definition: { id: path.split("/").pop(), title } } })
+    const before = ["one", "two", "three", "four", "five"]
+    const nested = {
+      version: 2,
+      nodes: [
+        { id: "trigger:manual", kind: "trigger", trigger: { kind: "manual", summary: "Run by hand", enabled: true } },
+        ...before.map(id => step(id, `Step ${id}`)),
+        loop("outer", "Each milestone"),
+        loop("outer/inner", "Each ticket", "step:outer"),
+        step("outer/inner/prep", "Prepare", "step:outer/inner"),
+        step("outer/inner/build", "Build it", "step:outer/inner"),
+      ],
+      edges: [
+        { id: "start:trigger:manual>step:one", kind: "start", source: "trigger:manual", target: "step:one" },
+        ...before.slice(1).map((id, i) => ({ id: `order:${before[i]}>${id}`, kind: "order", source: `step:${before[i]}`, target: `step:${id}` })),
+        { id: "order:five>outer", kind: "order", source: "step:five", target: "step:outer" },
+        { id: "order:prep>build", kind: "order", source: "step:outer/inner/prep", target: "step:outer/inner/build" },
+      ],
+    }
+    const view = { ...data, run: { ...data.run, current_step_id: "outer/0/inner/1/build" }, steps: [], graph: nested }
+    fetchRun.mockResolvedValue(view)
+    const client = createQueryClient()
+    client.setQueryData(queryKeys.workflowRun("", "wr-1"), view as unknown as WorkflowRunView)
+    render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/workflows/runs/wr-1"]}><Routes><Route path="/workflows/runs/:runId" element={<WorkflowRunPage />} /></Routes></MemoryRouter></QueryClientProvider>)
+    const node = (await screen.findByRole("button", { name: /^Step: Build it/ })).closest<HTMLElement>(".react-flow__node")!
+    const viewport = document.querySelector<HTMLElement>(".react-flow__viewport")!
+    await waitFor(() => expect(viewport.style.transform).toContain("scale(0.8)"))
+    const [tx, ty] = [...viewport.style.transform.matchAll(/(-?[\d.]+)px/g)].map(match => Number(match[1]))
+    const [ax, ay] = [...node.style.transform.matchAll(/(-?[\d.]+)px/g)].map(match => Number(match[1]))
+    // jsdom measures no frame, so the free area is one pixel wide, just past
+    // the cards' column and its padding (392 + 24).
+    expect(tx + (ax + parseFloat(node.style.width) / 2) * 0.8).toBeCloseTo(416.5, 0)
+    expect(ty + (ay + parseFloat(node.style.height) / 2) * 0.8).toBeCloseTo(24.5, 0)
   })
 
   it("offers Fit and Where it is under the graph", async () => {
