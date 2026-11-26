@@ -17,6 +17,7 @@ import { Button } from "../components/ui/Button"
 import { LoadingState } from "../components/ui/LoadingState"
 import { cn } from "../lib/utils"
 import { useMediaQuery } from "../hooks/useMediaQuery"
+import { useConfirm } from "../hooks/useConfirm"
 import { StepYaml } from "../components/StepYaml"
 import { redactSecrets, runStateWords, stepTypeLabel, triggerName, yamlText, type GraphNode } from "../lib/workflowGraph"
 import { type RunNeedsYouRow, type RunRowStep } from "../lib/runNeedsYou"
@@ -318,8 +319,17 @@ function ReviewLoopNow({ view, step, runId, refresh, now }: { view: WorkflowRunV
   const [busy, setBusy] = useState(false)
   const [writing, setWriting] = useState(false)
   const [message, setMessage] = useState("")
+  const { confirm, dialog } = useConfirm()
   const path = stepPathOf(step)
   const details = view.details?.[path] as ReviewRunDetails | undefined
+  // End asks first, in the words Attention's End uses.
+  async function end() {
+    const steward = Boolean(details?.steward)
+    const ok = await confirm(steward
+      ? { title: "End the steward?", message: "The review loop ends with outcome ended: nothing watches the pull requests after, legato-reviews' approval stays on GitHub as it is, and the run goes on to its next step.", confirmLabel: "End", destructive: true }
+      : { title: "End the review loop as stuck?", message: "The run goes on to its next step.", confirmLabel: "End", destructive: true })
+    if (ok) await act("end")
+  }
   async function act(action: ReviewLoopAction, text?: string) {
     setError("")
     setBusy(true)
@@ -339,7 +349,7 @@ function ReviewLoopNow({ view, step, runId, refresh, now }: { view: WorkflowRunV
   const needs = details?.needs_you || details?.steward?.held || stuck
   return <NowPanel tone={needs ? "needs" : "live"} heading={details?.summary || step.title}
     actions={actions.length > 0 && <>{actions.map((action, i) => <Button key={action} variant={action === "end" ? "ghost" : i === 0 ? "primary" : "outline"} disabled={busy}
-      onClick={() => { if (action === "message") setWriting(!writing); else void act(action) }}>{actionLabels[action] ?? action}</Button>)}</>}>
+      onClick={() => { if (action === "message") setWriting(!writing); else if (action === "end") void end(); else void act(action) }}>{actionLabels[action] ?? action}</Button>)}</>}>
     {waiting && <p>The next pass starts when the author pushes, or replies to a blocking finding.</p>}
     {details?.loop_id && <ReviewLoopFacts details={details} now={now} />}
     {details?.reviews && details.reviews.length > 0 && <ul aria-label="Reviews posted" className="mt-1 space-y-0.5">
@@ -353,6 +363,7 @@ function ReviewLoopNow({ view, step, runId, refresh, now }: { view: WorkflowRunV
       </div>
     </div>}
     {error && <p role="alert" className="mt-1 text-lw-error">{error}</p>}
+    {dialog}
   </NowPanel>
 }
 

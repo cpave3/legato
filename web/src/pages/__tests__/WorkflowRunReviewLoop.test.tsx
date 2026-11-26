@@ -66,6 +66,12 @@ describe("WorkflowRunPage review loop", () => {
     await click(within(now()).getByRole("button", { name: "Stop watching" }))
     expect(stepAction).toHaveBeenCalledWith("", "wr-1", "steward/0/watch", "stop_watching", undefined)
     await click(within(now()).getByRole("button", { name: "End" }))
+    // End asks first, as Attention's End does, saying the approval stays.
+    const confirmation = screen.getByRole("dialog")
+    expect(confirmation.textContent).toContain("End the steward?")
+    expect(confirmation.textContent).toContain("approval stays on GitHub")
+    expect(stepAction).not.toHaveBeenCalledWith("", "wr-1", "steward/0/watch", "end", undefined)
+    await click(within(confirmation).getByRole("button", { name: "End" }))
     expect(stepAction).toHaveBeenCalledWith("", "wr-1", "steward/0/watch", "end", undefined)
     expect(within(now()).queryByRole("button", { name: "Watch again" })).toBeNull()
   })
@@ -93,6 +99,9 @@ describe("WorkflowRunPage review loop", () => {
     await click(panel.getByRole("button", { name: "Send" }))
     expect(stepAction).toHaveBeenCalledWith("", "wr-1", "review/2/pass", "message", "Split the refactor out.")
     await click(panel.getByRole("button", { name: "End" }))
+    const confirmation = screen.getByRole("dialog")
+    expect(confirmation.textContent).toContain("End the review loop as stuck?")
+    await click(within(confirmation).getByRole("button", { name: "End" }))
     expect(stepAction).toHaveBeenCalledWith("", "wr-1", "review/2/pass", "end", undefined)
   })
 
