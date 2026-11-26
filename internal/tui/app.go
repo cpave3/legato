@@ -1568,6 +1568,10 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.openAgentView(msg.TaskID)
 
 	case attentionUpdateMsg:
+		if a.active == viewBoard {
+			// A card's steward chip follows its Attention item.
+			cmds = append(cmds, a.board.Init())
+		}
 		if a.active == viewAttention {
 			var cmd tea.Cmd
 			a.attentionView, cmd = a.attentionView.Update(attention.ChangedMsg{})

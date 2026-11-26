@@ -91,7 +91,18 @@ type Card struct {
 	HandedOffFrom *HandoffOrigin
 	// Away is set on a main for a task away on a worker.
 	Away *AwayTask
+	// Steward is how the steward of a review loop the task's agent authors
+	// stands: CardStewarding, CardStewardHeld, CardStewardStuck, or "" when
+	// no steward watches its pull requests.
+	Steward string
 }
+
+// A card's steward (Card.Steward), for the TUI's card strip.
+const (
+	CardStewarding   = "stewarding"
+	CardStewardHeld  = "held"
+	CardStewardStuck = "stuck"
+)
 
 // HandoffOrigin is where a handed-off card came from: the main instance's
 // name and its own ID for the task.

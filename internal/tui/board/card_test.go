@@ -509,6 +509,24 @@ func TestACardShowsAChipForEachRunningNamedSlot(t *testing.T) {
 	}
 }
 
+// A card whose pull requests a steward watches has a chip for it, and a
+// stuck steward makes the strip need you (spec LEG-559 story 22).
+func TestACardShowsItsStewardOnTheStrip(t *testing.T) {
+	card := CardData{Key: "task1", Title: "Test task", AgentActive: true, AgentState: "working", Steward: service.CardStewardHeld}
+	if out := RenderCard(card, 60, false, "Doing", testIcons); !strings.Contains(out, "running") || !strings.Contains(out, "steward · held") {
+		t.Fatalf("card = %q; want the author's state and a steward chip", out)
+	}
+	card = CardData{Key: "task1", Title: "Test task", Steward: service.CardStewardStuck}
+	strip, ok := stripFor(card, testIcons)
+	if !ok || strip.state != "waiting" || !strings.Contains(strip.text, "steward · stuck") {
+		t.Fatalf("strip = %+v, %v; want a stuck steward that needs you", strip, ok)
+	}
+	card = CardData{Key: "task1", Title: "Test task", Steward: service.CardStewarding}
+	if strip, ok := stripFor(card, testIcons); !ok || !strings.Contains(strip.text, "stewarding") {
+		t.Fatalf("strip = %+v, %v", strip, ok)
+	}
+}
+
 func TestAnAwayCardInReviewShowsTheReviewPhase(t *testing.T) {
 	away := &service.AwayTask{WorkerName: "vm-1", State: "in_progress", View: service.AwayViewInReview,
 		Review: &service.HandoffReviewBlock{Pass: 2, Phase: service.ReviewPhaseWaitingForAuthor, BlockingOpen: 3, CommentsOpen: 1}}
