@@ -129,14 +129,16 @@ type TaskRow struct {
 
 // Task is one Task with its text.
 type Task struct {
-	ID                string
-	Key               string
-	URL               string
-	Name              string
-	Kind              string
-	Size              string
-	Uncertainty       string
-	State             string
+	ID          string
+	Key         string
+	URL         string
+	Name        string
+	Kind        string
+	Size        string
+	Uncertainty string
+	State       string
+	// Stage is idea, exploring, ready, building, done or dropped.
+	Stage             string
 	CloseReason       string
 	ResolutionSummary string
 	Description       string
@@ -383,6 +385,7 @@ func (c *Client) GetTask(ctx context.Context, key string) (*Task, error) {
 			Size              *string    `json:"size"`
 			UncertaintyLevel  *string    `json:"uncertaintyLevel"`
 			State             string     `json:"state"`
+			Stage             string     `json:"stage"`
 			CloseReason       *string    `json:"closeReason"`
 			ResolutionSummary *string    `json:"resolutionSummary"`
 			Description       *string    `json:"description"`
@@ -409,7 +412,7 @@ func (c *Client) GetTask(ctx context.Context, key string) (*Task, error) {
 	}
 	w := out.Task
 	task := &Task{ID: w.ID, CreatedAt: parseTime(w.CreatedAt), Key: w.Key, URL: w.URL, Name: w.TaskName, Kind: w.Kind, Size: deref(w.Size), Uncertainty: deref(w.UncertaintyLevel),
-		State: w.State, CloseReason: deref(w.CloseReason), ResolutionSummary: deref(w.ResolutionSummary),
+		State: w.State, Stage: w.Stage, CloseReason: deref(w.CloseReason), ResolutionSummary: deref(w.ResolutionSummary),
 		Description: deref(w.Description), Plan: deref(w.Plan), Labels: w.Labels, Blocked: w.Blocked, UpdatedAt: parseTime(w.UpdatedAt)}
 	if w.Claim != nil {
 		task.ClaimHolder = w.Claim.Holder

@@ -19,7 +19,10 @@ type IssueDraft struct {
 	Description string
 	Labels      []string
 	Priority    string
-	Fields      map[string]any
+	// AssigneeID is the account ID to assign the issue to; unassigned when
+	// empty.
+	AssigneeID string
+	Fields     map[string]any
 }
 
 // CreatedIssue is an issue Jira created.
@@ -101,6 +104,9 @@ func (c *Client) CreateIssue(ctx context.Context, draft IssueDraft) (CreatedIssu
 	}
 	if draft.Priority != "" {
 		fields["priority"] = map[string]string{"name": draft.Priority}
+	}
+	if draft.AssigneeID != "" {
+		fields["assignee"] = map[string]string{"accountId": draft.AssigneeID}
 	}
 	payload, err := json.Marshal(map[string]any{"fields": fields})
 	if err != nil {

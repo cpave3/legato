@@ -85,6 +85,7 @@ type IssueTypeField struct {
 
 // UserField represents a Jira user.
 type UserField struct {
+	AccountID    string `json:"accountId"`
 	DisplayName  string `json:"displayName"`
 	EmailAddress string `json:"emailAddress"`
 }
