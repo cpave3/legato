@@ -16,8 +16,9 @@ vi.mock("../../components/InterruptedAgents", () => ({ InterruptedAgents: () => 
 
 // The socket's functions keep their identity between renders, as the real
 // ones do: the page reloads its agents whenever subscribe changes.
-const { mockFetch, socket, voice, selection } = vi.hoisted(() => ({
+const { mockFetch, socket, voice, selection, activity } = vi.hoisted(() => ({
   mockFetch: vi.fn(),
+  activity: { byTask: {} as Record<string, unknown[]> },
   voice: { enabled: false, start: vi.fn() },
   selection: { initial: "TASK-1" as string | null },
   socket: { send: vi.fn(), subscribe: () => () => {}, connected: true },
@@ -38,7 +39,7 @@ vi.mock("../../hooks/useSettings", () => ({
   useSettings: () => ({ data: { ntfy_configured: false, voice_enabled: voice.enabled } }),
 }))
 vi.mock("../../hooks/useSwarmEvents", () => ({ useSwarmEvents: () => ({ fetchState: vi.fn(), states: {} }) }))
-vi.mock("../../hooks/useTaskActivity", () => ({ useTaskActivity: () => ({ items: [] }) }))
+vi.mock("../../hooks/useTaskActivity", () => ({ useTaskActivity: (taskId: string) => ({ items: activity.byTask[taskId] ?? [] }) }))
 vi.mock("../../hooks/useAgentUI", () => ({
   useAgentUIItems: () => ({ items: [], loading: false, error: null }),
   useAgentUIItem: () => ({ item: null, loading: false, error: null }),
@@ -96,6 +97,7 @@ const address = () => screen.getByTestId("location").textContent
 
 beforeEach(() => {
   selection.initial = "TASK-1"
+  activity.byTask = {}
   voice.enabled = false
   voice.start.mockReset()
   mockFetch.mockReset()
@@ -273,6 +275,31 @@ it("opens the work related to the agent beside its chat, with a way to its card"
   expect(within(panel).getByRole("link", { name: /Pull request · #12/ })).toBeTruthy()
   fireEvent.click(within(panel).getByRole("link", { name: /Card · TASK-1/ }))
   await waitFor(() => expect(address()).toBe("/board?highlight_task=TASK-1"))
+})
+
+it("lists the workflow run of the card a workflow's agent works on, beside what it made on the task it runs on", async () => {
+  selection.initial = "wf-run-task"
+  activity.byTask = {
+    "CARD-9": [{ kind: "workflow_run", id: "wr-1", title: "One-off", status: "running", href: "/workflows/runs/wr-1" }],
+    // What the agent itself made is kept on the task it runs on, as
+    // legato plan submit saves to LEGATO_TASK_ID; the run is on both.
+    "wf-run-task": [
+      { kind: "plan", id: "pl-1", title: "Triage plan", status: "proposed", href: "/plans/pl-1" },
+      { kind: "workflow_run", id: "wr-1", title: "One-off", status: "running", href: "/workflows/runs/wr-1" },
+    ],
+  }
+  mockFetch.mockImplementation((input: RequestInfo | URL) => {
+    const path = String(input)
+    if (path === "/api/agents") return Promise.resolve({ ok: true, status: 200, json: async () => [{ ...agent("wf-run-task"), attribution_task_id: "CARD-9", workflow_run_id: "wr-1", execution_kind: "workflow_agent" }] })
+    return Promise.resolve({ ok: true, status: 200, json: async () => ({}), text: async () => "" })
+  })
+  open("/agents")
+  await screen.findByText("Terminal of wf-run-task")
+
+  fireEvent.click(within(screen.getByRole("banner")).getByRole("button", { name: /Related work/ }))
+  const panel = screen.getByRole("complementary", { name: "Related work" })
+  expect(within(panel).getByRole("link", { name: /One-off/ }).getAttribute("href")).toBe("/workflows/runs/wr-1")
+  expect(within(panel).getByRole("link", { name: /Triage plan/ }).getAttribute("href")).toBe("/plans/pl-1")
 })
 
 it("closes the related work when Related is pressed again", async () => {

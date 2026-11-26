@@ -5,7 +5,7 @@ The user guide, with the YAML schema, executors, templates, triggers and CLI, is
 ### Runs and tasks
 
 - A run creates one local execution task in the reserved **Workflows** workspace (`ViewAll` excludes it; `ViewWorkspace(id)` opts in). A succeeded run moves it to **Done** and archives it at once.
-- A `task` input's selected task is stored on the run as `related_task_id`. Agent sessions use the execution task, so an existing task's active agent session is not replaced, except for an `agent.run` step with `with.task`, whose agent is that task's own (below). `GET /api/tasks/{id}/activity` lists related runs and their managed artifacts.
+- A `task` input's selected task is stored on the run as `related_task_id`. Agent sessions use the execution task, so an existing task's active agent session is not replaced, except for an `agent.run` step with `with.task`, whose agent is that task's own (below). `GET /api/tasks/{id}/activity` lists the runs a task takes part in and their managed artifacts (`store.ListWorkflowRunsForTask`, LEG-662): related to it, its own run (the run's `task_id`), a run with a step attempt whose `task_id` is the task (`agent.run` with `task` or `on:`, so a card made by `ticket.import` too) or whose agent session's task it is (an interview's borrowed agent), and every ancestor of those through `parent_run_id`. `agent.dispatch` records no task on its attempt, so it does not link a run.
 - Deterministic steps execute synchronously until an agent step starts; the run then advances when that agent completes or fails its step through the CLI callback (§ Agent completion).
 
 ### The run-ended hook

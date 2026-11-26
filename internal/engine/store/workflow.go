@@ -1027,9 +1027,22 @@ func (s *Store) InsertWorkflowArtifact(ctx context.Context, artifact WorkflowArt
 	return err
 }
 
-func (s *Store) ListWorkflowRunsByRelatedTask(ctx context.Context, taskID string) ([]WorkflowRun, error) {
+// ListWorkflowRunsForTask lists the runs a task takes part in, newest first:
+// those related to it (a task input), the one whose own task it is, those
+// with a step whose agent worked on it (agent.run with task or on:, a card
+// the run made with ticket.import, an interview's borrowed agent), and every
+// run above those through workflow.run (LEG-662).
+func (s *Store) ListWorkflowRunsForTask(ctx context.Context, taskID string) ([]WorkflowRun, error) {
 	var runs []WorkflowRun
-	err := s.db.SelectContext(ctx, &runs, workflowRunSelect+" WHERE related_task_id = ? ORDER BY created_at DESC", taskID)
+	err := s.db.SelectContext(ctx, &runs, `WITH RECURSIVE linked(id) AS (
+			SELECT id FROM workflow_runs WHERE related_task_id = ? OR task_id = ?
+			UNION SELECT run_id FROM workflow_step_attempts WHERE task_id = ?
+			UNION SELECT a.run_id FROM workflow_step_attempts a
+				JOIN agent_sessions s ON s.id = a.agent_session_id WHERE s.task_id = ?
+			UNION SELECT r.parent_run_id FROM workflow_runs r JOIN linked ON r.id = linked.id
+				WHERE COALESCE(r.parent_run_id, '') <> ''
+		)
+		`+workflowRunSelect+` WHERE id IN (SELECT id FROM linked) ORDER BY created_at DESC, id DESC`, taskID, taskID, taskID, taskID)
 	return runs, err
 }
 
