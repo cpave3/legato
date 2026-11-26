@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -39,11 +40,13 @@ type PRBranchActions interface {
 	// with one listing per repository, leaving the PRs found before as they
 	// are.
 	DiscoverPRs(ctx context.Context, taskID string) error
-	// DiscoverAndRefreshPRs is DiscoverPRs that also fetches the PRs found
-	// before again, by number, in the same pass: their state now, for a
-	// reader that must not act on a stale one. Any GitHub error is
-	// returned.
-	DiscoverAndRefreshPRs(ctx context.Context, taskID string) error
+	// RefreshBranchStates brings the PRs of some of a task's branches in one
+	// repository up to date, and no others: a branch with none is looked for
+	// in one listing, and a PR found before is fetched again by number,
+	// state only (no reviews or checks, which it keeps), unless it is
+	// merged. It is for a reader that must not act on a stale state, such
+	// as a workflow step's prs output. Any GitHub error is returned.
+	RefreshBranchStates(ctx context.Context, taskID, repo string, branches []string) error
 }
 
 // AddTaskBranches records branches for a task without GitHub: the form a
@@ -90,14 +93,109 @@ func (p *prTrackingService) DiscoverPRs(ctx context.Context, taskID string) erro
 	return err
 }
 
-func (p *prTrackingService) DiscoverAndRefreshPRs(ctx context.Context, taskID string) error {
+func (p *prTrackingService) RefreshBranchStates(ctx context.Context, taskID, repo string, branches []string) error {
 	task, cc, err := p.taskContext(ctx, taskID)
 	if err != nil {
 		return err
 	}
-	changed, err := p.syncTask(ctx, task, cc, syncMode{discover: true, refresh: true}, newPRListings(p.gh))
+	if task.Ephemeral {
+		return nil // as syncTask: an ephemeral task links no PRs (LEG-519)
+	}
+	rows, err := p.store.ListTaskBranches(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	changed := false
+	// A PR held in the single field only (linked before branches were
+	// tracked) on one of these branches is moved onto it first, state only:
+	// read from the single field, a branch with no PR would be its stale
+	// state, and the PR may be too old for the listing. One on another
+	// branch is left alone, as TaskPullRequests names it under that branch.
+	if legacy, _ := store.ParsePRMeta(task.PRMeta); legacy != nil && legacy.PRNumber > 0 && !holdsPR(rows, legacy.PRNumber) &&
+		cc != nil && cc.Repo == repo && slices.Contains(branches, firstNonEmpty(legacy.Branch, cc.Branch)) {
+		adopted, err := p.adoptLegacyPR(ctx, taskID, cc, legacy, true)
+		if err != nil {
+			p.publishIfChanged(p.applyDiscoveryOutcome(ctx, taskID, "error", err.Error()))
+			return fmt.Errorf("refresh %s PR #%d: %w", taskID, legacy.PRNumber, err)
+		}
+		changed = adopted
+		if rows, err = p.store.ListTaskBranches(ctx, taskID); err != nil {
+			return err
+		}
+		rows = slices.DeleteFunc(rows, func(row store.TaskBranch) bool { return row.PR != nil && row.PR.PRNumber == legacy.PRNumber })
+	}
+	listings := newPRListings(p.gh)
+	var errs []error
+	for _, row := range rows {
+		if row.Repo != repo || !slices.Contains(branches, row.Branch) {
+			continue
+		}
+		if row.PR == nil || row.PR.PRNumber == 0 {
+			c, _, err := p.discoverBranchPR(ctx, row, listings)
+			changed = changed || c
+			if err != nil {
+				errs = append(errs, err)
+			}
+			continue
+		}
+		if strings.EqualFold(row.PR.State, "MERGED") {
+			continue // a merge is final
+		}
+		c, err := p.refreshBranchState(ctx, row)
+		changed = changed || c
+		if err != nil {
+			errs = append(errs, fmt.Errorf("refresh %s PR #%d: %w", taskID, row.PR.PRNumber, err))
+		}
+	}
+	if p.writeSummary(ctx, taskID, "", "") {
+		changed = true
+	}
 	p.publishIfChanged(changed)
-	return err
+	return errors.Join(errs...)
+}
+
+// refreshBranchState fetches a branch's PR again by number, its state only,
+// keeping the reviews and checks it had. A failure keeps the last PR it had
+// and records the error.
+func (p *prTrackingService) refreshBranchState(ctx context.Context, row store.TaskBranch) (bool, error) {
+	owner, name, ok := splitRepo(row.Repo)
+	if !ok {
+		return false, fmt.Errorf("repository must be owner/name")
+	}
+	status, err := p.gh.FetchPRState(owner, name, row.PR.PRNumber)
+	if err != nil {
+		return p.setBranchPR(ctx, row, withOutcome(row.PR, "error", err.Error())), err
+	}
+	return p.setBranchPR(ctx, row, withState(row.PR, status)), nil
+}
+
+// withState is a PR with the state FetchPRState read, keeping its review
+// decision, check status, pin, match method, head SHA and link time.
+func withState(known *store.PRMeta, status *github.PRStatus) *store.PRMeta {
+	pr := *known
+	pr.PRURL, pr.State, pr.IsDraft = status.URL, status.State, status.IsDraft
+	pr.Base, pr.Head, pr.CommentCount, pr.CreatedAt = status.BaseBranch, status.HeadSHA, status.CommentCount, status.CreatedAt
+	pr.SyncOutcome, pr.SyncError = "linked", ""
+	return &pr
+}
+
+// discoverBranchPR looks for the PR of a branch that has none in its
+// repository's listing, and stores what it finds (the PR, no_match, or the
+// listing's error). It reports whether the branch changed and whether a PR
+// was found.
+func (p *prTrackingService) discoverBranchPR(ctx context.Context, row store.TaskBranch, listings *prListings) (changed, found bool, err error) {
+	prs, err := listings.get(row.Repo)
+	if err != nil {
+		return p.setBranchPR(ctx, row, withOutcome(row.PR, "error", err.Error())), false, err
+	}
+	matches := filterPRs(prs, func(pr github.PRStatus) bool {
+		return pr.HeadBranch == row.Branch && (pr.HeadRepo == "" || pr.HeadRepo == row.Repo)
+	})
+	if len(matches) == 0 {
+		return p.setBranchPR(ctx, row, withOutcome(row.PR, "no_match", "")), false, nil
+	}
+	best := pickServicePR(matches)
+	return p.setBranchPR(ctx, row, prFromStatus(&best, "branch", false)), true, nil
 }
 
 // syncMode says what one pass over a task does.
@@ -295,7 +393,7 @@ func (p *prTrackingService) syncTask(ctx context.Context, task *store.Task, cc *
 		if !mode.refresh || cc == nil || cc.Repo == "" {
 			return changed, nil
 		}
-		adopted, err := p.adoptLegacyPR(ctx, taskID, cc, legacy)
+		adopted, err := p.adoptLegacyPR(ctx, taskID, cc, legacy, false)
 		if err != nil {
 			if p.applyDiscoveryOutcome(ctx, taskID, "error", err.Error()) {
 				changed = true
@@ -330,29 +428,15 @@ func (p *prTrackingService) syncTask(ctx context.Context, task *store.Task, cc *
 				linked = true
 				continue
 			}
-			prs, err := listings.get(row.Repo)
+			c, found, err := p.discoverBranchPR(ctx, row, listings)
+			changed = changed || c
 			if err != nil {
 				errs = append(errs, err)
-				if p.setBranchPR(ctx, row, withOutcome(row.PR, "error", err.Error())) {
-					changed = true
-				}
-				continue
 			}
-			matches := filterPRs(prs, func(pr github.PRStatus) bool {
-				return pr.HeadBranch == row.Branch && (pr.HeadRepo == "" || pr.HeadRepo == row.Repo)
-			})
-			if len(matches) == 0 {
-				if p.setBranchPR(ctx, row, withOutcome(row.PR, "no_match", "")) {
-					changed = true
-				}
-				continue
+			if found {
+				newly = append(newly, row)
+				linked = true
 			}
-			best := pickServicePR(matches)
-			if p.setBranchPR(ctx, row, prFromStatus(&best, "branch", false)) {
-				changed = true
-			}
-			newly = append(newly, row)
-			linked = true
 		}
 
 		// Nothing found by branch: look by commit, then by the task's key in
@@ -423,13 +507,18 @@ func (p *prTrackingService) forgetPRs(ctx context.Context, taskID string) error 
 }
 
 // adoptLegacyPR moves a PR held only in the single field onto the branch
-// it is on, keeping its pin and how it was matched.
-func (p *prTrackingService) adoptLegacyPR(ctx context.Context, taskID string, cc *store.CodeContext, legacy *store.PRMeta) (bool, error) {
+// it is on, keeping its pin and how it was matched. stateOnly fetches its
+// state alone (FetchPRState) and keeps the reviews and checks it had.
+func (p *prTrackingService) adoptLegacyPR(ctx context.Context, taskID string, cc *store.CodeContext, legacy *store.PRMeta, stateOnly bool) (bool, error) {
 	owner, name, ok := splitRepo(cc.Repo)
 	if !ok {
 		return false, fmt.Errorf("repository must be owner/name")
 	}
-	status, err := p.gh.FetchPRByNumber(owner, name, legacy.PRNumber)
+	fetch := p.gh.FetchPRByNumber
+	if stateOnly {
+		fetch = p.gh.FetchPRState
+	}
+	status, err := fetch(owner, name, legacy.PRNumber)
 	if err != nil {
 		return false, err
 	}
@@ -452,6 +541,10 @@ func (p *prTrackingService) adoptLegacyPR(ctx context.Context, taskID string, cc
 	}
 	pr := prFromStatus(status, legacy.MatchMethod, legacy.Pinned)
 	pr.HeadSHA, pr.LinkedAt = legacy.HeadSHA, legacy.LinkedAt
+	if stateOnly {
+		pr = withState(legacy, status)
+		pr.Repo, pr.Branch = "", ""
+	}
 	return true, p.store.SetTaskBranchPR(ctx, taskID, cc.Repo, branch, pr)
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os/exec"
@@ -484,6 +485,13 @@ func (c *Client) get(path string, query url.Values, target any) error {
 		return decodeAPIError(response)
 	}
 	if err := json.NewDecoder(response.Body).Decode(target); err != nil {
+		// A body cut off by the connection or the client's timeout is a
+		// transport failure, which a caller may try again; only bad JSON is
+		// an invalid response.
+		var netErr net.Error
+		if errors.As(err, &netErr) {
+			return fmt.Errorf("GitHub API response: %w", err)
+		}
 		return &APIError{Kind: ErrorResponse, StatusCode: response.StatusCode, Message: "invalid JSON response"}
 	}
 	return nil

@@ -21,6 +21,9 @@ type GitHubClient interface {
 	BatchFetchPRStatus(branches []string) (map[string]*github.PRStatus, error)
 	BatchFetchPRStatusWithRepo(queries []github.BranchQuery) (map[string]*github.PRStatus, error)
 	FetchPRByNumber(owner, repo string, prNumber int) (*github.PRStatus, error)
+	// FetchPRState is FetchPRByNumber without the reviews and checks: one
+	// request.
+	FetchPRState(owner, repo string, prNumber int) (*github.PRStatus, error)
 	FetchPRsForCommit(owner, repo, sha string) (*github.PRStatus, error)
 	DetectBranch() (string, error)
 	DetectRepo() (owner, repo string, err error)

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -413,7 +415,9 @@ func (f *fakeStackPRs) TrackedBranches(_ context.Context, taskID string) ([]stor
 	return out, nil
 }
 
-func (f *fakeStackPRs) DiscoverAndRefreshPRs(context.Context, string) error { return f.err }
+func (f *fakeStackPRs) RefreshBranchStates(context.Context, string, string, []string) error {
+	return f.err
+}
 
 func newCloneFixture(t *testing.T) (placeFixture, *fileCloner, *recordedGrant, *fakeStackPRs) {
 	t.Helper()
@@ -562,17 +566,25 @@ steps:
 	}
 }
 
+// trackedCloneFixture is newCloneFixture with the real PR tracking over gh,
+// and no wait between tries of a brief GitHub failure.
+func trackedCloneFixture(t *testing.T, gh *mockGitHub) placeFixture {
+	t.Helper()
+	f, _, _, stacks := newCloneFixture(t)
+	tracking := newTestPRTrackingService(t, f.store, nil, gh, time.Hour, time.Hour)
+	f.workflows.SetAgentOutputs(AgentOutputSources{Stacks: stacks, PRs: tracking.(PRBranchActions), Backoff: []time.Duration{0, 0}})
+	return f
+}
+
 // prsAtTwoSignals runs a step that finds its branch's draft PR, then a
 // message to the same agent, with the real PR tracking over a GitHub where
 // change happens between the two signals; it returns the second step.
 func prsAtTwoSignals(t *testing.T, change func(gh *mockGitHub)) store.WorkflowStep {
 	t.Helper()
-	f, _, _, stacks := newCloneFixture(t)
 	gh := &mockGitHub{repositoryPRs: map[string][]github.PRStatus{"acme/widget": {
 		{HasPR: true, Number: 40, URL: "https://github.com/acme/widget/pull/40", State: "open", IsDraft: true, HeadBranch: "legato/leg-7-one", HeadRepo: "acme/widget"},
 	}}}
-	tracking := newTestPRTrackingService(t, f.store, nil, gh, time.Hour, time.Hour)
-	f.workflows.SetAgentOutputs(AgentOutputSources{Stacks: stacks, PRs: tracking.(PRBranchActions)})
+	f := trackedCloneFixture(t, gh)
 	view := f.start(t, `
 schema_version: 2
 name: build
@@ -954,5 +966,156 @@ steps:
 	}
 	if next := stepByPath(view, "each/1/build"); next.Path != "" {
 		t.Fatalf("a second pass started: %+v", next)
+	}
+}
+
+const buildStep = `
+schema_version: 2
+name: build
+title: Build
+inputs:
+  task: {type: task, required: true}
+steps:
+ - {id: build, title: Build, type: agent.run, with: {on: "${{ workflow.inputs.task }}", prompt: Build it, repo: acme/widget, branch: one}, wait_for: [finished], on_failure: pause}
+ - {id: after, title: After, type: gate, with: {title: Next}}
+`
+
+// A step's prs are its clone's, and filling them asks GitHub about the
+// clone's branches only, never the task's PRs from earlier work (LEG-650).
+func TestFillingPRsAsksOnlyAboutTheClonesBranches(t *testing.T) {
+	ctx := context.Background()
+	gh := &mockGitHub{repositoryPRs: map[string][]github.PRStatus{"acme/widget": {
+		{HasPR: true, Number: 40, URL: "https://github.com/acme/widget/pull/40", State: "OPEN", HeadBranch: "legato/leg-7-one", HeadRepo: "acme/widget"},
+		{HasPR: true, Number: 41, URL: "https://github.com/acme/widget/pull/41", State: "OPEN", HeadBranch: "legato/leg-7-two", HeadRepo: "acme/widget"},
+	}}}
+	f := trackedCloneFixture(t, gh)
+	var refs []store.BranchRef
+	for i := range 30 {
+		refs = append(refs, store.BranchRef{Repo: "acme/widget", Branch: "legato/leg-7-old-" + string(rune('a'+i))})
+	}
+	if _, err := f.store.TrackTaskBranches(ctx, "LEG-7", refs, BranchSourceAPI); err != nil {
+		t.Fatal(err)
+	}
+	for i, ref := range refs {
+		if err := f.store.SetTaskBranchPR(ctx, "LEG-7", ref.Repo, ref.Branch, &store.PRMeta{PRNumber: 100 + i, State: "CLOSED", SyncOutcome: "linked"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The first signal finds the clone's two PRs; the second fetches them
+	// again, by number.
+	view := f.start(t, `
+schema_version: 2
+name: build
+title: Build
+inputs:
+  task: {type: task, required: true}
+steps:
+ - {id: build, title: Build, type: agent.run, with: {on: "${{ workflow.inputs.task }}", prompt: Build it, repo: acme/widget, branch: one}, wait_for: [finished]}
+ - {id: again, title: Again, type: agent.message, with: {agent: {from: build}, prompt: Again}, wait_for: [finished]}
+`)
+	reportStage(t, f.store, "LEG-7", "finished", "built")
+	view = f.check(t, f.workflows, view.Run.ID)
+	reportStage(t, f.store, "LEG-7", "finished", "again")
+	view = f.check(t, f.workflows, view.Run.ID)
+	for _, n := range gh.fetched {
+		if n >= 100 {
+			t.Fatalf("fetched %v; the task's old PRs are not the clone's", gh.fetched)
+		}
+	}
+	if !slices.Contains(gh.fetched, 40) || !slices.Contains(gh.fetched, 41) {
+		t.Fatalf("fetched %v; want the clone's PRs fetched again at the second signal", gh.fetched)
+	}
+	for _, path := range []string{"build", "again"} {
+		prs, _ := json.Marshal(waitOutputs(t, view, path)["prs"])
+		if !strings.Contains(string(prs), `"number":40`) || !strings.Contains(string(prs), `"number":41`) || strings.Count(string(prs), `"number"`) != 2 {
+			t.Fatalf("%s's prs = %s", path, prs)
+		}
+	}
+}
+
+// A GitHub server error while filling prs is tried again, so one 502 does
+// not pause the step (LEG-650).
+func TestABriefGitHubFailureFillingPRsIsTriedAgain(t *testing.T) {
+	gh := &mockGitHub{
+		repositoryPRs: map[string][]github.PRStatus{"acme/widget": {
+			{HasPR: true, Number: 40, URL: "https://github.com/acme/widget/pull/40", State: "OPEN", HeadBranch: "legato/leg-7-one", HeadRepo: "acme/widget"},
+		}},
+		listErrs: []error{&github.APIError{Kind: github.ErrorServer, StatusCode: 502, Message: "We couldn't respond to your request in time"}},
+	}
+	f := trackedCloneFixture(t, gh)
+	view := f.start(t, buildStep)
+	reportStage(t, f.store, "LEG-7", "finished", "built")
+	view = f.check(t, f.workflows, view.Run.ID)
+	build := stepByPath(view, "build")
+	prs, _ := json.Marshal(waitOutputs(t, view, "build")["prs"])
+	if build.Status != "succeeded" || !strings.Contains(string(prs), `"number":40`) {
+		t.Fatalf("build = %+v, prs = %s", build, prs)
+	}
+	if after := stepByPath(view, "after"); after.Status != WorkflowStepWaiting {
+		t.Fatalf("after = %+v; the run should have moved on", after)
+	}
+	if n := gh.repositoryCalls["acme/widget"]; n != 2 {
+		t.Fatalf("listed %d times, want 2", n)
+	}
+}
+
+// A GitHub failure that lasts, or one a retry cannot help, still fails the
+// step with outputs_unavailable: after three tries for a server error, at
+// once for the rest.
+func TestAGitHubFailureFillingPRsThatATryCannotFixFailsTheStep(t *testing.T) {
+	server := &github.APIError{Kind: github.ErrorServer, StatusCode: 502}
+	for name, tc := range map[string]struct {
+		errs  []error
+		tries int
+	}{
+		"server error that lasts": {[]error{server, server, server, server}, 3},
+		"not found":               {[]error{&github.APIError{Kind: github.ErrorNotFound, StatusCode: 404}}, 1},
+		"authentication":          {[]error{&github.APIError{Kind: github.ErrorAuthentication, StatusCode: 401}}, 1},
+		"rate limit":              {[]error{&github.APIError{Kind: github.ErrorRateLimit, StatusCode: 429}}, 1},
+		"plain error":             {[]error{errors.New("github: 502")}, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			gh := &mockGitHub{repositoryPRs: map[string][]github.PRStatus{}, listErrs: tc.errs}
+			f := trackedCloneFixture(t, gh)
+			view := f.start(t, buildStep)
+			reportStage(t, f.store, "LEG-7", "finished", "built")
+			view = f.check(t, f.workflows, view.Run.ID)
+			build := stepByPath(view, "build")
+			if build.Status != WorkflowStepPaused || build.ErrorCode != WorkflowErrorOutputsUnavailable {
+				t.Fatalf("build = %+v", build)
+			}
+			if n := gh.repositoryCalls["acme/widget"]; n != tc.tries {
+				t.Fatalf("listed %d times, want %d", n, tc.tries)
+			}
+		})
+	}
+}
+
+type timeoutError struct{}
+
+func (timeoutError) Error() string   { return "i/o timeout" }
+func (timeoutError) Timeout() bool   { return true }
+func (timeoutError) Temporary() bool { return true }
+
+func TestOnlyABriefGitHubFailureIsTriedAgain(t *testing.T) {
+	server := &github.APIError{Kind: github.ErrorServer, StatusCode: 502}
+	for name, tc := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"server error":         {server, true},
+		"server error wrapped": {fmt.Errorf("refresh PR #1: %w", server), true},
+		"server error joined":  {errors.Join(errors.New("other"), fmt.Errorf("list: %w", server)), true},
+		"timeout":              {&url.Error{Op: "Get", URL: "https://api.github.com", Err: timeoutError{}}, true},
+		"authentication":       {&github.APIError{Kind: github.ErrorAuthentication, StatusCode: 401}, false},
+		"authorization":        {&github.APIError{Kind: github.ErrorAuthorization, StatusCode: 403}, false},
+		"not found":            {&github.APIError{Kind: github.ErrorNotFound, StatusCode: 404}, false},
+		"rate limit":           {&github.APIError{Kind: github.ErrorRateLimit, StatusCode: 429}, false},
+		"cancelled":            {context.Canceled, false},
+		"plain":                {errors.New("github: 502"), false},
+	} {
+		if got := transientGitHubError(tc.err); got != tc.want {
+			t.Errorf("%s: transient = %v, want %v", name, got, tc.want)
+		}
 	}
 }

@@ -33,6 +33,9 @@ type fakePR struct {
 	Check string
 	// Reviews, when set, are served in place of Review, a hundred to a page.
 	Reviews []fakeReview
+	// Unlisted leaves it out of the repository's listing, as GitHub does a
+	// PR older than the newest hundred; it is still served by number.
+	Unlisted bool
 }
 
 // fakeReview is one review of a fake PR.
@@ -102,6 +105,9 @@ func (f *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 	case len(parts) == 4 && parts[3] == "pulls":
 		list := make([]any, 0, len(prs))
 		for i := len(prs) - 1; i >= 0; i-- { // newest first
+			if prs[i].Unlisted {
+				continue
+			}
 			list = append(list, apiJSON(repo, prs[i]))
 		}
 		write(list)
@@ -510,5 +516,185 @@ func TestAPushIsKeptAsTheTrackedPRsHeadOnRefresh(t *testing.T) {
 	}
 	if got := head(); got != "bbb222" {
 		t.Fatalf("head after a push %q", got)
+	}
+}
+
+// countWhere is the number of calls to paths that match.
+func (f *fakeGitHub) countWhere(match func(path string) bool) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for path, calls := range f.calls {
+		if match(path) {
+			n += calls
+		}
+	}
+	return n
+}
+
+// Filling a step's prs looks up only the clone's branches (LEG-650): a task
+// with forty merged PRs from earlier work and a clone of four branches asks
+// GitHub about those four, reads each PR's state alone (no reviews or
+// checks), and keeps the review and check state it had.
+func TestRefreshingBranchStatesLooksUpOnlyThoseBranches(t *testing.T) {
+	gh := newFakeGitHub(t)
+	var old []fakePR
+	var oldBranches []string
+	for i := range 40 {
+		branch := "legato/task-1-old-" + strconv.Itoa(i)
+		old = append(old, fakePR{Number: 100 + i, Head: branch, State: "closed", Merged: true, Review: "APPROVED"})
+		oldBranches = append(oldBranches, branch)
+	}
+	clone := []string{"legato/task-1-a", "legato/task-1-b", "legato/task-1-c", "legato/task-1-d"}
+	gh.set("acme/widget", append(old,
+		fakePR{Number: 201, Head: clone[0], Draft: true, Review: "APPROVED", Check: "success"},
+		fakePR{Number: 202, Head: clone[1], Base: clone[0], State: "closed", Merged: true},
+	)...)
+	s, svc, _ := newBranchTracking(t, gh)
+	ctx := context.Background()
+	createPRTask(t, s, "task-1")
+	setRepoContext(t, s, "task-1", "acme/widget", "")
+	if _, err := svc.AddTaskBranches(ctx, "task-1", "acme/widget", append(oldBranches, clone[:2]...)); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.PollAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Since: #201 is marked ready, and c and d get PRs.
+	gh.set("acme/widget", append(old,
+		fakePR{Number: 201, Head: clone[0], Review: "APPROVED", Check: "success"},
+		fakePR{Number: 202, Head: clone[1], Base: clone[0], State: "closed", Merged: true},
+		fakePR{Number: 203, Head: clone[2], Base: clone[1]},
+		fakePR{Number: 204, Head: clone[3], Base: clone[2], Draft: true},
+	)...)
+	if _, err := svc.AddTaskBranches(ctx, "task-1", "acme/widget", clone); err != nil {
+		t.Fatal(err)
+	}
+	before := map[string]int{}
+	for _, path := range []string{"/repos/acme/widget/pulls", "/repos/acme/widget/pulls/201", "/repos/acme/widget/pulls/202"} {
+		before[path] = gh.count(path)
+	}
+	oldFetches := func() int {
+		return gh.countWhere(func(path string) bool {
+			n, err := strconv.Atoi(strings.TrimPrefix(path, "/repos/acme/widget/pulls/"))
+			return err == nil && n >= 100 && n < 140
+		})
+	}
+	extras := func() int {
+		return gh.countWhere(func(path string) bool {
+			return strings.HasSuffix(path, "/reviews") || strings.HasSuffix(path, "/check-runs") || strings.HasSuffix(path, "/status")
+		})
+	}
+	oldBefore, extrasBefore := oldFetches(), extras()
+
+	if err := svc.RefreshBranchStates(ctx, "task-1", "acme/widget", clone); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := oldFetches() - oldBefore; n != 0 {
+		t.Errorf("fetched the task's old PRs %d times, want none", n)
+	}
+	if n := extras() - extrasBefore; n != 0 {
+		t.Errorf("read reviews, checks or statuses %d times, want none", n)
+	}
+	if n := gh.count("/repos/acme/widget/pulls") - before["/repos/acme/widget/pulls"]; n > 1 {
+		t.Errorf("listed the repository's PRs %d times, want at most once", n)
+	}
+	if n := gh.count("/repos/acme/widget/pulls/201") - before["/repos/acme/widget/pulls/201"]; n != 1 {
+		t.Errorf("fetched #201 %d times, want once", n)
+	}
+	if n := gh.count("/repos/acme/widget/pulls/202") - before["/repos/acme/widget/pulls/202"]; n != 0 {
+		t.Errorf("fetched the merged #202 %d times, want none: a merge is final", n)
+	}
+	got := prList(t, svc, "task-1")
+	want := []string{"legato/task-1-a:#201:pass:APPROVED", "legato/task-1-b:#202", "legato/task-1-c:#203", "legato/task-1-d:#204:draft"}
+	if len(got) < 4 || !reflect.DeepEqual(got[len(got)-4:], want) {
+		t.Fatalf("clone branches = %v, want %v", got, want)
+	}
+}
+
+// A refresh of some branches leaves an ephemeral task alone, as polls do.
+func TestRefreshingBranchStatesOfAnEphemeralTaskAsksNothing(t *testing.T) {
+	gh := newFakeGitHub(t)
+	gh.set("acme/widget", fakePR{Number: 1, Head: "legato/x"})
+	s, svc, _ := newBranchTracking(t, gh)
+	ctx := context.Background()
+	id, err := s.CreateEphemeralTask(ctx, "quick look")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddTaskBranches(ctx, id, "acme/widget", []string{"legato/x"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RefreshBranchStates(ctx, id, "acme/widget", []string{"legato/x"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := gh.countWhere(func(string) bool { return true }); n != 0 {
+		t.Fatalf("made %d GitHub calls for an ephemeral task", n)
+	}
+}
+
+// A task linked before branches were tracked holds its PR in the single
+// field only. When that PR is on a branch being refreshed and too old for
+// the listing, it is adopted onto its branch and its state fetched, rather
+// than the single field's stale state read as the branch's.
+func TestRefreshingBranchStatesAdoptsALegacyPROfTheRepository(t *testing.T) {
+	gh := newFakeGitHub(t)
+	gh.set("acme/widget", fakePR{Number: 7, Head: "feature/task-1", Unlisted: true})
+	s, svc, _ := newBranchTracking(t, gh)
+	ctx := context.Background()
+	createPRTask(t, s, "task-1")
+	setRepoContext(t, s, "task-1", "acme/widget", "feature/task-1")
+	legacy := `{"branch":"","pr_number":7,"pr_url":"https://github.com/acme/widget/pull/7","state":"OPEN","is_draft":true,"review_decision":"APPROVED","pinned":true,"match_method":"manual","sync_outcome":"linked"}`
+	if err := s.UpdatePRMeta(ctx, "task-1", &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddTaskBranches(ctx, "task-1", "acme/widget", []string{"feature/task-1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.RefreshBranchStates(ctx, "task-1", "acme/widget", []string{"feature/task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	branches, err := svc.TrackedBranches(ctx, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(branches) != 1 || branches[0].PR == nil || branches[0].PR.PRNumber != 7 || branches[0].PR.IsDraft ||
+		!branches[0].PR.Pinned || branches[0].PR.ReviewDecision != "APPROVED" {
+		t.Fatalf("branches = %+v; want #7 adopted, ready, still pinned and approved", branches)
+	}
+	if n := gh.countWhere(func(path string) bool { return strings.HasSuffix(path, "/reviews") }); n != 0 {
+		t.Fatalf("read reviews %d times, want none", n)
+	}
+}
+
+// A legacy PR on a branch that is not being refreshed is left alone: it
+// cannot reach the reader, and a failure fetching it must not fail the
+// branches asked about.
+func TestRefreshingBranchStatesLeavesALegacyPROfAnotherBranchAlone(t *testing.T) {
+	gh := newFakeGitHub(t)
+	gh.set("acme/widget", fakePR{Number: 8, Head: "new-feature"}) // #7 is not served: fetching it fails
+	s, svc, _ := newBranchTracking(t, gh)
+	ctx := context.Background()
+	createPRTask(t, s, "task-1")
+	setRepoContext(t, s, "task-1", "acme/widget", "new-feature")
+	legacy := `{"branch":"old-feature","pr_number":7,"state":"OPEN","sync_outcome":"linked"}`
+	if err := s.UpdatePRMeta(ctx, "task-1", &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddTaskBranches(ctx, "task-1", "acme/widget", []string{"new-feature"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.RefreshBranchStates(ctx, "task-1", "acme/widget", []string{"new-feature"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := gh.count("/repos/acme/widget/pulls/7"); n != 0 {
+		t.Fatalf("fetched the legacy PR of old-feature %d times, want none", n)
+	}
+	if got, want := prList(t, svc, "task-1"), []string{"new-feature:#8"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("tracked = %v, want %v", got, want)
 	}
 }

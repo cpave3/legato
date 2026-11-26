@@ -30,6 +30,12 @@ type mockGitHub struct {
 	repositoryPRs   map[string][]github.PRStatus
 	repositoryErr   error
 	repositoryCalls map[string]int
+	// listErrs fail the next listings, one each, before repositoryErr.
+	listErrs []error
+	// stateErrs fail the next FetchPRState calls, one each, before fetchErr.
+	stateErrs []error
+	// fetched are the PR numbers asked for by number, in order.
+	fetched []int
 }
 
 func (m *mockGitHub) ListRepositoryPRs(owner, repo string) ([]github.PRStatus, error) {
@@ -38,6 +44,11 @@ func (m *mockGitHub) ListRepositoryPRs(owner, repo string) ([]github.PRStatus, e
 		m.repositoryCalls = make(map[string]int)
 	}
 	m.repositoryCalls[key]++
+	if len(m.listErrs) > 0 {
+		err := m.listErrs[0]
+		m.listErrs = m.listErrs[1:]
+		return nil, err
+	}
 	if m.repositoryErr != nil {
 		return nil, m.repositoryErr
 	}
@@ -65,7 +76,18 @@ func (m *mockGitHub) FetchPRStatus(branch string, repo ...string) (*github.PRSta
 	return &github.PRStatus{HasPR: false}, nil
 }
 
+func (m *mockGitHub) FetchPRState(owner, repo string, prNumber int) (*github.PRStatus, error) {
+	if len(m.stateErrs) > 0 {
+		m.fetched = append(m.fetched, prNumber)
+		err := m.stateErrs[0]
+		m.stateErrs = m.stateErrs[1:]
+		return nil, err
+	}
+	return m.FetchPRByNumber(owner, repo, prNumber)
+}
+
 func (m *mockGitHub) FetchPRByNumber(owner, repo string, prNumber int) (*github.PRStatus, error) {
+	m.fetched = append(m.fetched, prNumber)
 	if m.fetchErr != nil {
 		return nil, m.fetchErr
 	}
