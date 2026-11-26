@@ -73,6 +73,8 @@ A GitHub App cannot approve a pull request it opened, so the reviewer posts as a
 
 The `github-reviewer` profile is Legato's own. No agent is given the credential, whatever it asks: Legato makes a token for each post and revokes it after. That is why the reviewer's approval can be trusted. An agent cannot approve its own work with it, or anyone else's.
 
+If you copied custom `github` or `github-reviewer` profiles from an older installation, run `legato doctor`: review posting needs App identity metadata (`actor: "$.app_slug"` under `jwt_exchange.lookup`). The shipped profiles include it; doctor names a custom profile and the required repair when it is missing.
+
 ### 2. The settings
 
 Review passes need Legato's agent tools (`agents.mcp.enabled`, on by default): the reviewer reports its findings through the `submit_review` tool, so Legato refuses to start with review passes on and the tools off.
@@ -192,6 +194,8 @@ The run is refused at once, with the reason, when:
 - the pull request is not open;
 - the pull request already has an active review loop, from another run or from a handoff: one loop runs per pull request. The refusal starts with its code, `review_loop_active`, and names that loop by its ID (`rl-` and 12 characters) with a link to it (the run's page, or the handed-off card), for example "review_loop_active: pull request #12 of acme/widget already has an active review loop: run wr-1 (/workflows/runs/wr-1), loop rl-0f3a9c2d81e4". A handoff's loop holds each pull request from the pass that first reviews it until it is approved, which is only once Legato has read the heads from GitHub after its clean pass. A loop that ended, approved, closed or was cancelled does not count. When two runs on one pull request start at the same moment, the first that Legato opens reviews it and the other is refused naming its loop;
 - `agent_author` is asked for on a pull request no board task links, even after Legato looked again (below).
+
+A loop outcome is not an undo log or a live approval report. A loop that ends `closed`, `stuck`, `idle` or `ended` can already have posted approvals on clean lower layers, and these remain on GitHub. Even `merged` does not make every `prs[].approved` output true: inspect the current PRs and their review links when taking over.
 
 ### An agent as the author
 
