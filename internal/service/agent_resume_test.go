@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,7 +53,10 @@ func TestSpawnAgentResumesNativeConversationWithoutFreshKickoff(t *testing.T) {
 				codex.SetNativeBridge(true)
 				adapter, want, storageKey = codex, "legato agent codex -- resume saved-conversation", "CODEX_HOME"
 			}
-			svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{Adapter: adapter, DisablePeerAwareness: true, BriefKickoffDelay: time.Millisecond})
+			svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{Adapter: hooks.NewChimeraAdapter("legato"), Adapters: map[string]AIToolAdapter{kind: adapter}, NewWorkDefaults: func(context.Context) (NewWorkDefaults, error) {
+				t.Fatal("resume consulted new-work defaults")
+				return NewWorkDefaults{}, nil
+			}, DisablePeerAwareness: true, BriefKickoffDelay: time.Millisecond})
 			svc.(*agentService).nativeBindTimeout = time.Millisecond
 			if err := svc.SpawnAgent(context.Background(), "task-resume", 0, 0, AgentSpawnOptions{SessionPolicy: "resume", Brief: "fresh kickoff must not be sent"}); err != nil {
 				t.Fatal(err)
@@ -184,6 +188,56 @@ func TestSpawnAgentRejectsConfiguredNativeSessionOverride(t *testing.T) {
 					t.Fatal("invalid resume launched a terminal")
 				}
 			})
+		}
+	}
+}
+
+func TestSpawnAgentResumeUsesNewestConversationInItsOwnSlot(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ctx := context.Background()
+	db, err := store.New(filepath.Join(t.TempDir(), "slots.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	createTask(t, db, "task-slots")
+	cwd := t.TempDir()
+	for i, record := range []struct{ kind, slot string }{{"claude-code", "main"}, {"codex", "main"}, {"chimera", "reviewer"}} {
+		ex := fmt.Sprintf("ex-%d", i)
+		id, err := db.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: "task-slots", Slot: record.slot, AgentKind: record.kind, ExecutionID: ex, TmuxSession: ex, Status: "running"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.CreateExecution(ctx, store.Execution{ID: ex, Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: "task-slots", ExecutionTaskID: "task-slots", AgentKind: record.kind, AgentSessionID: &id, StartedAt: time.Now().UTC()}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.RecordTaskNativeSession(ctx, "task-slots", id, ex, record.kind, "saved-"+record.kind, cwd, ""); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.FinishAgentSession(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mt := newMockTmux()
+	claude := hooks.NewClaudeCodeAdapter("legato")
+	svc := NewAgentService(db, mt, cwd, AgentServiceOptions{Adapter: claude, Adapters: map[string]AIToolAdapter{"claude-code": claude, "codex": hooks.NewCodexAdapter("legato"), "chimera": hooks.NewChimeraAdapter("legato")}, NewWorkDefaults: func(context.Context) (NewWorkDefaults, error) {
+		return NewWorkDefaults{}, errors.New("resume must not read profile")
+	}, DisablePeerAwareness: true})
+	for _, tc := range []struct{ slot, kind string }{{"main", "codex"}, {"reviewer", "chimera"}} {
+		saved, err := svc.(SlotAgents).GetTaskResumeSessionInSlot(ctx, "task-slots", tc.slot, "")
+		if err != nil || saved == nil || saved.AgentKind != tc.kind {
+			t.Fatalf("saved %s = %+v, %v", tc.slot, saved, err)
+		}
+		if err := svc.SpawnAgent(ctx, "task-slots", 0, 0, AgentSpawnOptions{Slot: tc.slot, SessionPolicy: "resume"}); err != nil {
+			t.Fatal(err)
+		}
+		session, err := db.GetAgentSessionInSlot(ctx, "task-slots", tc.slot)
+		if err != nil || session.AgentKind != tc.kind {
+			t.Fatalf("slot %s = %+v, %v", tc.slot, session, err)
+		}
+		lines := mt.sentLinesFor(session.TmuxSession)
+		if len(lines) != 1 || !strings.Contains(lines[0], "saved-"+tc.kind) {
+			t.Fatalf("slot %s launch = %q", tc.slot, lines)
 		}
 	}
 }

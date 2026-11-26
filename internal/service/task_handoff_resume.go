@@ -66,9 +66,6 @@ func (s *HandoffWorkerService) resumeAuthor(ctx context.Context, taskID string, 
 		}
 	}
 	kind := h.AgentKind
-	if kind == "" {
-		kind = s.opts.Agents.DefaultAdapter()
-	}
 	saved, err := s.opts.Agents.GetTaskResumeSession(ctx, taskID, kind)
 	if err != nil {
 		return fmt.Errorf("%w: reading its saved conversation: %v", ErrAuthorNotResumable, err)
@@ -76,6 +73,7 @@ func (s *HandoffWorkerService) resumeAuthor(ctx context.Context, taskID string, 
 	if saved == nil {
 		return fmt.Errorf("%w: it has no saved conversation (its %s session never reported one)", ErrAuthorNotResumable, kind)
 	}
+	kind = saved.AgentKind
 	// A restart stops the running agent only once it is known it can be
 	// resumed as the handoff resumes it.
 	if r.Stop != nil {
@@ -83,7 +81,7 @@ func (s *HandoffWorkerService) resumeAuthor(ctx context.Context, taskID string, 
 			return err
 		}
 	}
-	opts := AgentSpawnOptions{AgentKind: kind, Repo: h.Repo, Unattended: true, Branches: handoffSessionBranches(h),
+	opts := AgentSpawnOptions{AgentKind: kind, Tier: h.AgentTier, Repo: h.Repo, Unattended: true, Branches: handoffSessionBranches(h),
 		SessionPolicy: "resume", ResumeSessionID: saved.ID, Prompt: note, Holder: h.MainTaskID}
 	opts.Resources = r.Resources
 	if err := s.opts.Agents.SpawnAgent(ctx, taskID, 0, 0, opts); err != nil {

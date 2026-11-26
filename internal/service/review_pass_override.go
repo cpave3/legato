@@ -31,6 +31,7 @@ func (o ReviewPassOverride) OnlyOff() bool {
 // does not have is an error, as is a pass limit below one.
 func (a ReviewPassesAdvert) Apply(o ReviewPassOverride) (ReviewPassSettings, error) {
 	settings := a.Defaults
+	settings.ReviewerOverride = &ReviewPassOverride{Agent: o.Agent, Model: o.Model, Tier: o.Tier}
 	if o.Enabled != nil {
 		settings.Enabled = *o.Enabled
 	}
@@ -195,16 +196,6 @@ func (s *ReviewPassService) messageAuthor(ctx context.Context, taskID, text stri
 		return err
 	}
 	return s.tellAuthor(ctx, l, MainTag+" "+text)
-}
-
-// setSettings writes a loop's settings.
-func (s *ReviewPassService) setSettings(ctx context.Context, loop *store.HandoffReview, settings ReviewPassSettings) error {
-	data, err := encodeJSON(settings)
-	if err != nil {
-		return err
-	}
-	loop.Settings = data
-	return s.save(ctx, loop)
 }
 
 // ErrReviewNotWaiting refuses another pass to a loop that does not wait for

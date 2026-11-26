@@ -8,9 +8,13 @@ import (
 // Every leaf of the CLI has a class for the Reeve's legato tool.
 func TestEveryLegatoSubcommandHasAClass(t *testing.T) {
 	leaves := map[string]bool{}
+	runnable := map[string]bool{}
 	var walk func(prefix []string, c *commandDef)
 	walk = func(prefix []string, c *commandDef) {
 		path := append(append([]string{}, prefix...), c.Name)
+		if c.Run != nil {
+			runnable[strings.Join(path[1:], " ")] = true
+		}
 		if len(c.Children) == 0 {
 			leaves[strings.Join(path[1:], " ")] = true
 			return
@@ -36,7 +40,7 @@ func TestEveryLegatoSubcommandHasAClass(t *testing.T) {
 		}
 	}
 	for path := range legatoCommandClasses {
-		if !leaves[path] {
+		if !runnable[path] {
 			t.Errorf("legato %s is classed but is not a command", path)
 		}
 	}

@@ -2,18 +2,19 @@ package service
 
 import (
 	"context"
-
 	"errors"
 	"fmt"
-	"github.com/cpave3/legato/internal/engine/store"
 	"os"
 	"path/filepath"
+
+	"github.com/cpave3/legato/internal/engine/store"
 )
 
 var ErrTaskResumeConflict = errors.New("task session cannot be resumed")
 
 // TaskResumeSession is a durable conversation selector, not a native panel binding.
 type TaskResumeSession struct {
+	AgentKind  string
 	ID         string
 	CWD        string
 	StorageDir string
@@ -32,20 +33,23 @@ func (a *agentService) GetTaskResumeSession(ctx context.Context, taskID, agentKi
 // resumes: each slot keeps its own, so a reviewer never replaces the
 // author's.
 func (a *agentService) GetTaskResumeSessionInSlot(ctx context.Context, taskID, slot, agentKind string) (*TaskResumeSession, error) {
-	if agentKind == "" {
-		agentKind = a.DefaultAdapter()
-	}
-	if !SupportsTaskResume(agentKind) {
+	if agentKind != "" && !SupportsTaskResume(agentKind) {
 		return nil, nil
 	}
 	if _, err := a.store.GetTask(ctx, taskID); err != nil {
 		return nil, err
 	}
-	saved, err := a.store.GetTaskNativeSessionInSlot(ctx, taskID, slot, agentKind)
+	var saved *store.TaskNativeSession
+	var err error
+	if agentKind == "" {
+		saved, err = a.store.NewestTaskNativeSessionInSlot(ctx, taskID, slot)
+	} else {
+		saved, err = a.store.GetTaskNativeSessionInSlot(ctx, taskID, slot, agentKind)
+	}
 	if err != nil || saved == nil {
 		return nil, err
 	}
-	return &TaskResumeSession{ID: saved.ProviderSessionID, CWD: saved.CWD, StorageDir: saved.StorageDir}, nil
+	return &TaskResumeSession{AgentKind: saved.AgentKind, ID: saved.ProviderSessionID, CWD: saved.CWD, StorageDir: saved.StorageDir}, nil
 }
 
 func (a *agentService) prepareTaskResume(ctx context.Context, taskID string, opt *AgentSpawnOptions) error {
@@ -53,8 +57,22 @@ func (a *agentService) prepareTaskResume(ctx context.Context, taskID string, opt
 		return nil
 	}
 	kind := opt.AgentKind
+	if kind == "" && opt.SessionPolicy == "resume" {
+		saved, err := a.GetTaskResumeSessionInSlot(ctx, taskID, opt.Slot, "")
+		if err != nil {
+			return err
+		}
+		if saved == nil {
+			return fmt.Errorf("%w: no saved conversation", ErrTaskResumeConflict)
+		}
+		kind = saved.AgentKind
+		opt.AgentKind = kind
+		if kind == "chimera" && opt.ResumeSessionID == "" {
+			opt.ResumeSessionID = saved.ID
+		}
+	}
 	if kind == "" {
-		kind = a.DefaultAdapter()
+		kind = a.baseDefaultAdapter()
 	}
 	adapter := a.resolveAdapter(kind)
 	if adapter == nil || adapter.Name() != kind {
@@ -141,5 +159,5 @@ func (a *agentService) historyConversation(ctx context.Context, taskID, slot, ki
 	if err != nil || c == nil || c.CWD == "" {
 		return nil, err
 	}
-	return &TaskResumeSession{ID: c.ProviderSessionID, CWD: c.CWD, StorageDir: c.StorageDir}, nil
+	return &TaskResumeSession{AgentKind: c.AgentKind, ID: c.ProviderSessionID, CWD: c.CWD, StorageDir: c.StorageDir}, nil
 }

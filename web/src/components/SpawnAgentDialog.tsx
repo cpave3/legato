@@ -1,3 +1,6 @@
+import { useQuery } from "@tanstack/react-query"
+import { fetchAdapters } from "../lib/adapters"
+import { queryKeys } from "../lib/query"
 import { useModalLayer } from "../hooks/useModalLayer"
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
 import { ChevronDown, X } from "lucide-react"
@@ -5,7 +8,6 @@ import { accessLabel, listResources, type Resource } from "../lib/resources"
 import { macroMessage, pickerMacros, useMacros } from "../lib/macros"
 import { useServer } from "../hooks/useServer"
 import { useSettings } from "../hooks/useSettings"
-import { apiFetch } from "../lib/api"
 import { agentKindLabel } from "../lib/agentKind"
 import { cloneChoices, listJobClones, type JobClone } from "../lib/jobClones"
 import { engramMarkLabel, fetchEngramPicker, takesEngram, type EngramPicker } from "../lib/engrams"
@@ -66,11 +68,6 @@ type Place = "folder" | "clone"
 
 // The clone choice that means a new clone.
 const newClone = 0
-
-interface AdapterInfo {
-  adapters: string[]
-  default: string
-}
 
 // How long the path rests before its suggestions are asked for.
 const suggestDelayMs = 120
@@ -149,10 +146,11 @@ export function SpawnAgentDialog({
   const [title, setTitle] = useState("")
   // Kept from one opening to the next: the person's last choice of tool.
   const [agentKind, setAgentKind] = useState("")
-  const [adapters, setAdapters] = useState<AdapterInfo | null>(null)
+  const adapterQuery = useQuery({ queryKey: queryKeys.adapters(baseUrl), queryFn: () => fetchAdapters(baseUrl), enabled: open, staleTime: 0, retry: false })
+  const adapters = adapterQuery.data
   // False until the adapters are known, since the default one decides
   // whether there is a session to resume.
-  const [ready, setReady] = useState(false)
+  const ready = adapterQuery.isFetched
   const [sessionPolicy, setSessionPolicy] = useState<SessionPolicy>("resume")
   const [presets, setPresets] = useState<DirectoryPreset[]>([])
   // False for a server with no directory service: its presets are the
@@ -230,7 +228,6 @@ export function SpawnAgentDialog({
     let current = true
     setError("")
     setLoading(false)
-    setReady(false)
     setTitle("")
     setSessionPolicy("resume")
     setFound(null)
@@ -269,15 +266,6 @@ export function SpawnAgentDialog({
           if (current) setJobClonesError(`Could not load clones: ${reason instanceof Error ? reason.message : String(reason)}`)
         })
     }
-
-    apiFetch(baseUrl, "/api/adapters")
-      .then(async (response) => {
-        if (!response.ok) return
-        const data = await response.json()
-        if (current) setAdapters({ adapters: data.adapters ?? [], default: data.default ?? "" })
-      })
-      .catch(() => {})
-      .finally(() => { if (current) setReady(true) })
 
     setPicked([])
     listResources(baseUrl)
@@ -386,8 +374,8 @@ export function SpawnAgentDialog({
   const defaultAdapter = adapters?.default ?? ""
   const agentOptions = [
     { value: "", label: defaultAdapter ? agentKindLabel(defaultAdapter) : "Default", note: defaultAdapter ? "default" : "" },
-    ...(adapters?.adapters ?? [])
-      .filter((adapter) => adapter !== defaultAdapter)
+    ...[...new Set([...(adapters?.adapters ?? []), ...(agentKind && agentKind !== "shell" ? [agentKind] : [])])]
+      .filter((adapter) => adapter !== defaultAdapter || adapter === agentKind)
       .map((adapter) => ({ value: adapter, label: agentKindLabel(adapter), note: "" })),
     { value: "shell", label: agentKindLabel("shell"), note: "" },
   ]

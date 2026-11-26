@@ -165,6 +165,8 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | Method | Route | Class | What it does | Body |
 | --- | --- | --- | --- | --- |
 | `GET` | `/api/usage` | read | Read how much of the Claude and Codex subscriptions' usage limits is used |  |
+| `PUT` | `/api/usage/pin` | change | Pin usage defaults to a profile |  |
+| `DELETE` | `/api/usage/pin` | change | Remove the usage profile pin |  |
 | `POST` | `/api/usage/refresh` | read | Read the subscriptions' usage again now |  |
 | `GET` | `/api/navigation-summary` | read | Read the navigation counts |  |
 | `GET` | `/api/attention` | read | List what needs attention |  |

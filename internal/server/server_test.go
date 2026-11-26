@@ -416,8 +416,11 @@ func (p *promptAgentService) SpawnEphemeralAgent(context.Context, string, int, i
 }
 func (p *promptAgentService) LastSpawnConflicts() []service.AgentSpawnConflict { return nil }
 func (p *promptAgentService) RegisteredAdapters() []string                     { return nil }
-func (p *promptAgentService) DefaultAdapter() string                           { return "" }
-func (p *promptAgentService) AdapterFor(string) service.AIToolAdapter          { return nil }
+func (p *promptAgentService) NewWorkDefaults(context.Context) (service.NewWorkDefaults, error) {
+	return service.NewWorkDefaults{Agent: p.DefaultAdapter()}, nil
+}
+func (p *promptAgentService) DefaultAdapter() string                  { return "" }
+func (p *promptAgentService) AdapterFor(string) service.AIToolAdapter { return nil }
 func (p *promptAgentService) GetStateTimeline(context.Context, string, time.Duration, int) ([]string, error) {
 	return nil, nil
 }

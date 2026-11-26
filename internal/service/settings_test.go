@@ -438,3 +438,30 @@ func TestAnOrderedListIsListedInTheOrderItApplies(t *testing.T) {
 	}
 	t.Fatal("reeve.rules not listed")
 }
+
+func TestUsagePolicySettingsRejectRemovingReferencedOrActiveProfiles(t *testing.T) {
+	settings, db := newSettingsFixture(t, "")
+	ctx := context.Background()
+	if err := settings.SetEntry(ctx, "usage.profiles", "save", json.RawMessage(`{"agent":"chimera"}`), "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.SetEntry(ctx, "usage.rules", "limit", json.RawMessage(`{"order":1,"meter":"claude.weekly","at_least":90,"profile":"save"}`), "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.DeleteEntry(ctx, "usage.profiles", "save"); err == nil {
+		t.Fatal("deleted a referenced profile")
+	}
+	if err := settings.RenameEntry(ctx, "usage.profiles", "save", "renamed", "test"); err == nil {
+		t.Fatal("renamed a referenced profile")
+	}
+	if err := settings.DeleteEntry(ctx, "usage.rules", "limit"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(UsageProfileState{Profile: config.UsageProfile{Name: "save", Agent: "chimera"}, Initialized: true})
+	if err := db.SaveUsageProfile(ctx, string(data), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.DeleteEntry(ctx, "usage.profiles", "save"); err == nil {
+		t.Fatal("deleted the active profile")
+	}
+}

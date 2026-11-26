@@ -30,6 +30,7 @@ ntfy delivers a message posted to a topic to every phone subscribed to that topi
 | `notifications.ntfy.topic` | The topic to post to. Without it, Legato sends nothing to ntfy. | none |
 | `notifications.ntfy.token` | An access token for a protected topic. | none |
 | `notifications.approvals` | Send a notification for each new approval. | `true` |
+| `notifications.usage` | Notify when the active usage profile changes. | `true` |
 | `notifications.os.enabled` | Show desktop notifications. | `false` |
 
 ### Choose which agents notify you
@@ -56,6 +57,10 @@ Set `web.public_url` if your phone reaches Legato by another address. See [Devic
 ### Away tasks
 
 On a main instance that [hands tasks off](/legato/using/handoff/), Legato sends one ntfy notification when an away task fails or is lost on its worker, when a worker no longer accepts your main, and when a worker that holds your tasks has been unreachable for 15 minutes (once for each outage). Tapping it opens the task, or Settings › Connections › Workers, in your browser. A task done on the worker, or one whose agent asks you something, sends nothing from your main: the worker's own notifications cover those. To turn them off, set `notifications.handoff: false`.
+
+### Usage profiles
+
+Each [usage profile](/legato/using/usage/) switch sends one notification through each configured ntfy or desktop transport. A return to fallback also notifies you. Set `notifications.usage: false` to disable these notifications. Switch history and Attention items remain available.
 
 ## Desktop notifications
 

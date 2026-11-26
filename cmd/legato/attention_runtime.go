@@ -15,6 +15,7 @@ import (
 // registered and reconciled, then attaches it to the server.
 func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *server.Server, planSvc *service.PlanService, reviewSvc *service.ReviewService, agentSvc service.AgentService, workflowSvc *service.WorkflowService, approvals *approvalRuntime, updates *service.UpdateService, handoffs *mainHandoffs, reviewPrompt *service.ReviewPromptAttentionAdapter, triggerCoordinator ...*service.WorkflowTriggerCoordinator) *service.AttentionService {
 	attention := service.NewAttentionService(db, bus)
+	registerUsageAttention(attention, db)
 	if planSvc != nil {
 		adapter := service.NewPlanAttentionAdapter(planSvc)
 		mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventPlanChanged))

@@ -969,7 +969,8 @@ func runServeCmd(args []string) int {
 			Sandbox:        sandboxSettings(cfg),
 			SandboxScratch: sandboxScratch(cfg),
 			Adapter:        defaultAdapter, Adapters: adapters,
-			Notifier: notifier, OSNotifier: osNotifier,
+			NewWorkDefaults: usageNewWorkDefaults(db),
+			Notifier:        notifier, OSNotifier: osNotifier,
 			// Agents starting and ending reach the swarm, attention and
 			// workflow loops of this process, as they do in the TUI's.
 			EventBus:               service.AgentDiedPublisher{Bus: bus},
@@ -1380,6 +1381,7 @@ func runTUI() int {
 			Sandbox:           sandboxSettings(cfg),
 			SandboxScratch:    sandboxScratch(cfg),
 			Adapter:           defaultAdapter,
+			NewWorkDefaults:   usageNewWorkDefaults(db),
 			Adapters:          adapters,
 			SocketPath:        socketPath,
 			TmuxOptions:       cfg.Agents.TmuxOptions,
@@ -1658,6 +1660,7 @@ func runTUI() int {
 	app.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 	app.SetPlanService(planSvc)
 	attentionSvc := service.NewAttentionService(db, bus)
+	registerUsageAttention(attentionSvc, db)
 	if planSvc != nil {
 		planAdapter := service.NewPlanAttentionAdapter(planSvc)
 		_ = attentionSvc.RegisterProducerWithEvents(planAdapter, events.EventPlanChanged)

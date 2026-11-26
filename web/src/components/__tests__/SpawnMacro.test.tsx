@@ -1,6 +1,11 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { QueryClientProvider } from "@tanstack/react-query"
+import { createQueryClient } from "../../lib/query"
+import type { ReactNode } from "react"
+import { cleanup, fireEvent, render as rtlRender, screen } from "@testing-library/react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { SpawnEphemeralModal } from "../SpawnEphemeralModal"
+
+const render = (ui: ReactNode) => rtlRender(<QueryClientProvider client={createQueryClient()}>{ui}</QueryClientProvider>)
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 

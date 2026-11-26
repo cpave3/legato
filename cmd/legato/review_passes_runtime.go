@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"os"
 	"slices"
 	"sort"
@@ -31,6 +32,14 @@ func reviewPassesAdvert(cfg *config.Config, db *store.Store) func() *service.Rev
 				Skill: rp.Reviewer.Skill, MaxPasses: rp.MaxPasses,
 			},
 			Skills: []string{},
+		}
+		if db != nil {
+			defaults, err := usageReviewerDefaults(context.Background(), db, advert.Defaults)
+			if err != nil {
+				log.Printf("usage reviewer defaults: %v", err)
+				return nil
+			}
+			advert.Defaults = defaults
 		}
 		for _, name := range []string{"chimera", "claude-code", "codex"} {
 			adapter := service.ReviewAdapter{Name: name}

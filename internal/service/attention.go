@@ -82,6 +82,7 @@ const (
 )
 
 var defaultAttentionSignals = []string{
+	AttentionSignalUsageProfileSwitched,
 	AttentionSignalPlanDecision,
 	AttentionSignalReviewReady,
 	AttentionSignalPRMergeBlocked,
@@ -127,6 +128,7 @@ var defaultAttentionSignals = []string{
 }
 
 var knownAttentionSignals = map[string]bool{
+	AttentionSignalUsageProfileSwitched:        true,
 	AttentionSignalPlanDecision:                true,
 	AttentionSignalReviewReady:                 true,
 	AttentionSignalPRMergeBlocked:              true,

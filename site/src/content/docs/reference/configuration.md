@@ -396,13 +396,53 @@ How this Legato takes new releases. Usually set in Settings › System › Updat
 
 ## Subscription usage
 
-Reading how much of your Claude and Codex subscriptions' usage limits you have used. Usually set in Settings › Agents › Subscription usage. See [Subscription usage](/legato/using/usage/).
+Read your Claude and Codex subscriptions' usage limits and select defaults for new work. Set these in Settings › Usage. See [Subscription usage](/legato/using/usage/).
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `usage.claude.enabled` | bool | `true` | Reads your Claude subscription's 5-hour and weekly limits with Claude Code's login, on the machine Legato runs on. Off, Legato never asks. |
 | `usage.codex.enabled` | bool | `true` | Reads your ChatGPT account's Codex limits through the `codex` command, else from Codex's session logs. Off, Legato never asks. |
 | `usage.poll_interval` | duration | `5m` | How often each subscription's usage is read. At least `2m`. |
+| `usage.fallback_profile` | string | none | A usage profile to use when no rule matches. Empty keeps your usual defaults. Applies without a restart. |
+
+`usage.profiles` and `usage.rules` are named entry lists. File entries are pinned; entries saved in Settings apply without a restart. Names must be nonempty and unique within each list, ignoring case.
+
+| Profile field | What it does |
+| --- | --- |
+| `usage.profiles[].name` | The profile's name. |
+| `usage.profiles[].agent` | The agent for new work: `claude-code`, `codex` or `chimera`. |
+| `usage.profiles[].tier` | Optional tier from `adapters.<agent>.tiers`. Raw `model` fields are not allowed. |
+| `usage.profiles[].reviewer.agent` | Optional reviewer override: `claude-code`, `codex` or `chimera`. Required when a reviewer override is present. |
+| `usage.profiles[].reviewer.tier` | Optional tier configured for the reviewer agent. Raw `model` fields are not allowed. |
+
+| Rule field | What it does |
+| --- | --- |
+| `usage.rules[].name` | The rule's name. |
+| `usage.rules[].order` | Required integer, including zero. Lower values run first; names break ties. List position does not set priority. |
+| `usage.rules[].meter` | One of `claude.five_hour`, `claude.weekly`, `claude.weekly_opus`, `claude.weekly_sonnet`, `codex.five_hour` or `codex.weekly`. |
+| `usage.rules[].at_least` | Usage percentage from 1 to 100, inclusive. Fractions are allowed. |
+| `usage.rules[].profile` | A configured usage profile, matched by name ignoring case. |
+
+The fallback must also name a configured profile, ignoring case. A profile changes defaults for new work, not agents already running. For example, with the `careful` tier configured for Chimera:
+
+```yaml
+usage:
+  profiles:
+    - name: Claude
+      agent: claude-code
+    - name: Economy
+      agent: chimera
+      tier: careful
+      reviewer:
+        agent: codex
+  rules:
+    - name: Claude almost full
+      order: 10
+      meter: claude.weekly
+      at_least: 90
+      profile: Economy
+  fallback_profile: Claude
+```
 
 ## GitHub
 
@@ -428,6 +468,7 @@ Push notifications through ntfy, and desktop notifications. See [Notifications](
 | `notifications.ntfy.topic` | string | none | The topic to publish to. Without it, Legato sends no push notifications. Pick a name nobody could guess. |
 | `notifications.ntfy.token` | string | none | An access token for a protected topic. |
 | `notifications.approvals` | bool | `true` | Sends a notification for each new approval request. Tapping it opens the request in the Legato app. |
+| `notifications.usage` | bool | `true` | Sends a notification when the active usage profile changes. Applies without a restart. |
 | `notifications.handoff` | bool | `true` | On a main instance, sends a notification when an away task fails or is lost on its worker, and when a worker no longer accepts this main or has been unreachable for 15 minutes. See [Hand off tasks](/legato/using/handoff/#attention-and-notifications). |
 | `notifications.os.enabled` | bool | `false` | Shows desktop notifications too, through `notify-send` on Linux and `osascript` on macOS. |
 

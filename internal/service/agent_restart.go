@@ -266,7 +266,7 @@ func (a *agentService) restartConversation(ctx context.Context, task *store.Task
 	kind := session.AgentKind
 	// A Chimera agent's native binding is its Chimera session.
 	if kind == "chimera" && session.ChimeraSessionID != nil && *session.ChimeraSessionID != "" {
-		return &TaskResumeSession{ID: *session.ChimeraSessionID}, nil
+		return &TaskResumeSession{AgentKind: kind, ID: *session.ChimeraSessionID}, nil
 	}
 	saved, err := a.GetTaskResumeSession(ctx, task.ID, kind)
 	if err != nil {

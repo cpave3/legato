@@ -5,6 +5,8 @@
     "resources",
     "agents.guidance",
     "board.columns",
+    "usage.profiles",
+    "usage.rules",
     "workspaces",
     "macros",
     "adapters",
@@ -29,6 +31,20 @@
     "agents.repository_resources"
   ],
   "lists": [
+    {
+      "key": "usage.profiles",
+      "title": "Usage profiles",
+      "class": "change",
+      "mode": "live",
+      "name_field": "name"
+    },
+    {
+      "key": "usage.rules",
+      "title": "Usage rules",
+      "class": "change",
+      "mode": "live",
+      "name_field": "name"
+    },
     {
       "key": "workspaces",
       "title": "Workspaces",
@@ -292,9 +308,20 @@
       "mode": "restart"
     },
     {
+      "key": "usage.fallback_profile",
+      "title": "Fallback profile",
+      "section": "usage",
+      "group": "Profiles and rules",
+      "help": "The usage profile for new work when no usage rule matches. Empty keeps the usual defaults.",
+      "description": "The usage profile for new work when no usage rule matches. Empty keeps the usual defaults.",
+      "kind": "string",
+      "class": "change",
+      "mode": "live"
+    },
+    {
       "key": "usage.claude.enabled",
       "title": "Claude",
-      "section": "agents",
+      "section": "usage",
       "group": "Subscription usage",
       "help": "Reads how much of your Claude subscription's 5-hour and weekly limits you have used, with Claude Code's login. Off, Legato never asks.",
       "description": "Reads how much of your Claude subscription's 5-hour and weekly limits you have used, with Claude Code's login. Off, Legato never asks.",
@@ -305,7 +332,7 @@
     {
       "key": "usage.codex.enabled",
       "title": "Codex",
-      "section": "agents",
+      "section": "usage",
       "group": "Subscription usage",
       "help": "Reads how much of your ChatGPT account's Codex limits you have used, through the codex command or its session logs. Off, Legato never asks.",
       "description": "Reads how much of your ChatGPT account's Codex limits you have used, through the codex command or its session logs. Off, Legato never asks.",
@@ -316,7 +343,7 @@
     {
       "key": "usage.poll_interval",
       "title": "Read usage every",
-      "section": "agents",
+      "section": "usage",
       "group": "Subscription usage",
       "help": "How often Legato reads each subscription's usage. At least 2m.",
       "description": "How often Legato reads each subscription's usage. At least 2m.",
@@ -324,6 +351,17 @@
       "kind": "duration",
       "class": "change",
       "mode": "restart"
+    },
+    {
+      "key": "notifications.usage",
+      "title": "Usage profile switches",
+      "section": "attention",
+      "group": "What notifies",
+      "help": "Notifies you when the active usage profile changes.",
+      "description": "Notifies you when the active usage profile changes.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "live"
     },
     {
       "key": "notifications.ntfy.url",

@@ -12,6 +12,7 @@ import (
 
 // macroAgentsSpy records what a macro start asks of the agent service.
 type macroAgentsSpy struct {
+	defaults NewWorkDefaults
 	running  map[string]bool
 	spawned  []AgentSpawnOptions
 	queued   []string
@@ -35,7 +36,12 @@ func (m *macroAgentsSpy) SpawnAgent(_ context.Context, _ string, _, _ int, opts 
 	m.spawned = append(m.spawned, opts...)
 	return nil
 }
-func (m *macroAgentsSpy) DefaultAdapter() string { return "claude-code" }
+func (m *macroAgentsSpy) NewWorkDefaults(context.Context) (NewWorkDefaults, error) {
+	if m.defaults.Agent != "" {
+		return m.defaults, nil
+	}
+	return NewWorkDefaults{Agent: "claude-code"}, nil
+}
 func (m *macroAgentsSpy) GetTaskResumeSession(context.Context, string, string) (*TaskResumeSession, error) {
 	return m.saved, nil
 }
@@ -81,15 +87,15 @@ func TestAMacroStartsTheTasksAgentWithItsToolAndTier(t *testing.T) {
 	}
 }
 
-func TestAMacroWithNoToolStartsTheDefaultOneAndResumesItsConversation(t *testing.T) {
+func TestAMacroWithNoToolResumesTheSavedToolNotTheNewDefault(t *testing.T) {
 	svc, spy := newMacroStartFixture(t)
-	spy.saved = &TaskResumeSession{ID: "sess-1", CWD: "/work"}
+	spy.saved = &TaskResumeSession{AgentKind: "codex", ID: "sess-1", CWD: "/work"}
 	if _, err := svc.Start(context.Background(), MacroStart{Name: "plan", TaskID: "local01"}); err != nil {
 		t.Fatal(err)
 	}
 	opts := spy.spawned[0]
-	if opts.AgentKind != "" || opts.Tier != "" {
-		t.Fatalf("spawned %q tier %q, want the default tool", opts.AgentKind, opts.Tier)
+	if opts.AgentKind != "codex" || opts.Tier != "" {
+		t.Fatalf("spawned %q tier %q, want the saved tool", opts.AgentKind, opts.Tier)
 	}
 	if opts.SessionPolicy != "resume" || opts.ResumeSessionID != "sess-1" || opts.WorkingDir != "/work" {
 		t.Fatalf("resume = %+v", opts)
@@ -153,5 +159,17 @@ func TestAMacroOnAPullRequestWithoutAURLLinksToGitHub(t *testing.T) {
 	}
 	if got != "Task local01: Test local01\nPull request acme/web#7: https://github.com/acme/web/pull/7\n\nLook." {
 		t.Fatalf("message = %q", got)
+	}
+}
+
+func TestAMacroCapturesProfileAgentAndTierTogether(t *testing.T) {
+	svc, spy := newMacroStartFixture(t)
+	spy.defaults = NewWorkDefaults{Agent: "codex", Tier: "profile"}
+	result, err := svc.Start(context.Background(), MacroStart{Name: "plan", TaskID: "local01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AgentKind != "codex" || len(spy.spawned) != 1 || spy.spawned[0].AgentKind != "codex" || spy.spawned[0].Tier != "profile" {
+		t.Fatalf("result=%+v spawn=%+v", result, spy.spawned)
 	}
 }

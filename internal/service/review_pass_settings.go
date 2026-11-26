@@ -9,12 +9,15 @@ import (
 // ReviewPassSettings are the review settings of one handoff: the worker's
 // defaults, or what a main's override made of them.
 type ReviewPassSettings struct {
-	Enabled   bool   `json:"enabled"`
-	Agent     string `json:"agent"`
-	Model     string `json:"model,omitempty"`
-	Tier      string `json:"tier,omitempty"`
-	Skill     string `json:"skill,omitempty"`
-	MaxPasses int    `json:"max_passes"`
+	// ReviewerOverride is nil for legacy frozen settings. New loops keep
+	// only explicit reviewer choices here, resolving defaults at each pass.
+	ReviewerOverride *ReviewPassOverride `json:"reviewer_override,omitempty"`
+	Enabled          bool                `json:"enabled"`
+	Agent            string              `json:"agent"`
+	Model            string              `json:"model,omitempty"`
+	Tier             string              `json:"tier,omitempty"`
+	Skill            string              `json:"skill,omitempty"`
+	MaxPasses        int                 `json:"max_passes"`
 	// SkillManaged says Skill is one of the worker's Legato-managed skills
 	// (and not also the agent tools' own), which Claude Code names
 	// legato-skills:<name>.

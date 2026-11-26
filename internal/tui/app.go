@@ -2756,9 +2756,6 @@ func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model,
 	}
 
 	agentKind := msg.AgentKind
-	if agentKind == "" {
-		agentKind = svc.DefaultAdapter()
-	}
 	session, err := svc.GetTaskResumeSession(context.Background(), msg.TaskID, agentKind)
 	if err != nil {
 		return a, func() tea.Msg {
@@ -2766,7 +2763,7 @@ func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model,
 		}
 	}
 	if session != nil {
-		model := overlay.NewAgentSession(msg, session.ID, agentKind)
+		model := overlay.NewAgentSession(msg, session.ID, session.AgentKind)
 		model.ResumeWorkingDir = session.CWD
 		sized, _ := model.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 		a.activeOverlay = sized

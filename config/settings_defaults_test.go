@@ -13,6 +13,7 @@ func TestANilSettingReportsTheDefaultTheRuntimeUses(t *testing.T) {
 	runtimeDefault := map[string]any{
 		"notifications.approvals":       true,
 		"notifications.handoff":         true,
+		"notifications.usage":           true,
 		"agents.sandbox.default_mounts": true,
 		"reeve.host_operations":         true,
 		"reeve.host_operations_auto":    false,

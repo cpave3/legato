@@ -753,36 +753,36 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		effectiveAdapter := req.AgentKind
-		if effectiveAdapter == "" {
-			effectiveAdapter = agents.DefaultAdapter()
-		}
 		if req.SessionPolicy != "" && req.SessionPolicy != "resume" && req.SessionPolicy != "new" {
 			http.Error(w, "session_policy must be resume or new", http.StatusBadRequest)
 			return
 		}
-		if req.SessionPolicy != "" && !service.SupportsTaskResume(effectiveAdapter) {
+		saved, err := agents.GetTaskResumeSession(r.Context(), taskID, req.AgentKind)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		opts.SessionPolicy = req.SessionPolicy
+		if saved != nil && opts.SessionPolicy == "" {
+			opts.SessionPolicy = "resume"
+		}
+		effectiveAdapter := req.AgentKind
+		if opts.SessionPolicy == "resume" && saved != nil {
+			effectiveAdapter = saved.AgentKind
+			opts.AgentKind = saved.AgentKind
+		} else if effectiveAdapter == "" {
+			effectiveAdapter = agents.DefaultAdapter()
+		}
+		if opts.SessionPolicy != "" && !service.SupportsTaskResume(effectiveAdapter) {
 			http.Error(w, "session_policy requires a resumable adapter", http.StatusBadRequest)
 			return
 		}
-		if service.SupportsTaskResume(effectiveAdapter) {
-			saved, err := agents.GetTaskResumeSession(r.Context(), taskID, effectiveAdapter)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			if saved == nil && (req.SessionPolicy == "resume" || (req.SessionPolicy == "new" && effectiveAdapter == "chimera")) {
-				http.Error(w, "the task no longer has a "+effectiveAdapter+" session to "+req.SessionPolicy, http.StatusConflict)
-				return
-			}
-			opts.SessionPolicy = req.SessionPolicy
-			if saved != nil {
-				if opts.SessionPolicy == "" {
-					opts.SessionPolicy = "resume"
-				}
-				opts.ResumeSessionID = saved.ID
-				opts.ResumeWorkingDir = saved.CWD
-			}
+		if saved == nil && (opts.SessionPolicy == "resume" || (opts.SessionPolicy == "new" && effectiveAdapter == "chimera")) {
+			http.Error(w, "the task no longer has a "+effectiveAdapter+" session to "+opts.SessionPolicy, http.StatusConflict)
+			return
+		}
+		if saved != nil {
+			opts.ResumeSessionID, opts.ResumeWorkingDir = saved.ID, saved.CWD
 		}
 		if opts.WorkingDir == "" && opts.Repo == "" && opts.Clone == 0 {
 			opts.WorkingDir = s.workDir

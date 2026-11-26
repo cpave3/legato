@@ -54,8 +54,8 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function renderIt() {
-  render(<QueryClientProvider client={createQueryClient()}><MemoryRouter><UsageStrip /></MemoryRouter></QueryClientProvider>)
+function renderIt(path = "/agents") {
+  render(<QueryClientProvider client={createQueryClient()}><MemoryRouter initialEntries={[path]}><UsageStrip /></MemoryRouter></QueryClientProvider>)
 }
 
 describe("UsageStrip", () => {
@@ -126,4 +126,123 @@ describe("UsageStrip", () => {
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled())
     expect(screen.queryByRole("button", { name: /subscription usage/i })).toBeNull()
   })
+})
+
+it("shows a policy with readers off, including its reason and bounded recent switches", async () => {
+  usage = { providers: [], poll_interval_seconds: 0, policy: {
+    active: { profile: { name: "Economy", agent: "codex", tier: "fast" }, reason: { text: "Claude weekly reached 90%" }, since: "2026-11-26T07:00:00Z", error: "Restart to apply the new tier" },
+    profiles: [{ name: "Economy", agent: "codex", tier: "fast" }],
+    switches: Array.from({ length: 12 }, (_, i) => ({ id: i, from_profile: `Old ${i}`, to_profile: "Economy", since: "2026-11-26T07:00:00Z", reason: "Threshold reached" })),
+  } }
+  renderIt()
+  fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
+  const card = screen.getByRole("region", { name: "Subscription usage" })
+  expect(within(card).getByText("Economy")).toBeTruthy()
+  expect(within(card).getByText("codex · fast")).toBeTruthy()
+  expect(within(card).getByText("Claude weekly reached 90%")).toBeTruthy()
+  expect(within(card).getByText("Usage readers are off.")).toBeTruthy()
+  expect(within(card).getByRole("alert").textContent).toBe("Restart to apply the new tier")
+  fireEvent.click(within(card).getByText("Recent switches"))
+  expect(within(card).getAllByRole("listitem")).toHaveLength(5)
+})
+
+it("opens pin controls from the address, sends the expiry intent, and keeps a rejected draft", async () => {
+  usage = { providers: [], poll_interval_seconds: 0, policy: {
+    active: { profile: { name: "Economy", agent: "codex" }, reason: { text: "Fallback" }, since: NOW.toISOString() },
+    profiles: [{ name: "Economy", agent: "codex" }, { name: "Quality", agent: "claude-code" }], switches: [],
+  } }
+  const requests: unknown[] = []
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+    if (init?.method === "PUT") { requests.push(JSON.parse(String(init.body))); return json({ error: "Meter has no known reset" }, 400) }
+    return json(usage)
+  }))
+  renderIt("/agents?usage=open&pin=Quality")
+  const profile = await screen.findByRole("combobox", { name: "Pin profile" })
+  expect((profile as HTMLSelectElement).value).toBe("Quality")
+  fireEvent.change(screen.getByRole("combobox", { name: "Pin expires" }), { target: { value: "reset" } })
+  fireEvent.change(screen.getByRole("combobox", { name: "Until meter resets" }), { target: { value: "claude.weekly" } })
+  fireEvent.click(screen.getByRole("button", { name: "Pin profile" }))
+  expect((await screen.findByRole("alert")).textContent).toBe("Meter has no known reset")
+  expect(requests).toEqual([{ profile: "Quality", until_reset: "claude.weekly" }])
+  expect((profile as HTMLSelectElement).value).toBe("Quality")
+})
+
+it.each(["indefinite", "time"])("pins a profile with %s expiry and can unpin it", async (expiry) => {
+  const policy = {
+    active: { profile: { name: "Economy", agent: "codex" }, reason: { text: "Fallback" }, since: NOW.toISOString(), pin: { profile: "Economy" } },
+    profiles: [{ name: "Economy", agent: "codex" }], switches: [],
+  }
+  usage = { providers: [], poll_interval_seconds: 0, policy }
+  const requests: { method: string; body?: unknown }[] = []
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+    if (init?.method === "PUT" || init?.method === "DELETE") {
+      requests.push({ method: init.method, ...(init.body ? { body: JSON.parse(String(init.body)) } : {}) })
+      return json({ status: "ok" })
+    }
+    return json(usage)
+  }))
+  renderIt("/agents?usage=open&pin=Economy")
+  await screen.findByRole("combobox", { name: "Pin profile" })
+  if (expiry === "time") {
+    fireEvent.change(screen.getByRole("combobox", { name: "Pin expires" }), { target: { value: "time" } })
+    fireEvent.change(screen.getByLabelText("Until (local time)"), { target: { value: "2026-11-27T12:00" } })
+  }
+  fireEvent.click(screen.getByRole("button", { name: "Pin profile" }))
+  expect((await screen.findByRole("status")).textContent).toBe("Profile pinned.")
+  expect(requests[0]).toEqual({ method: "PUT", body: { profile: "Economy", ...(expiry === "time" ? { until: new Date("2026-11-27T12:00").toISOString() } : {}) } })
+  fireEvent.click(screen.getByRole("button", { name: "Unpin" }))
+  await waitFor(() => expect(requests[1]).toEqual({ method: "DELETE" }))
+})
+
+it("surfaces usage read errors and can retry", async () => {
+  let failed = true
+  vi.stubGlobal("fetch", vi.fn(async () => failed ? json({ error: "Policy cache unavailable" }, 500) : json(usage)))
+  renderIt()
+  expect((await screen.findByRole("alert")).textContent).toContain("Policy cache unavailable")
+  failed = false
+  fireEvent.click(screen.getByRole("button", { name: "Retry usage" }))
+  expect(await screen.findByRole("button", { name: /subscription usage/i })).toBeTruthy()
+})
+
+it("can unpin with an incomplete expiry draft and surfaces a refusal", async () => {
+  usage = { providers: [], poll_interval_seconds: 0, policy: {
+    active: { profile: { name: "Economy", agent: "codex" }, reason: { text: "Pinned" }, since: NOW.toISOString(), pin: { profile: "Economy" } },
+    profiles: [{ name: "Economy", agent: "codex" }], switches: [],
+  } }
+  const deleted = vi.fn()
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+    if (init?.method === "DELETE") { deleted(); return json({ error: "Policy owner unavailable" }, 400) }
+    return json(usage)
+  }))
+  renderIt("/agents?usage=open&pin=Economy")
+  fireEvent.change(await screen.findByRole("combobox", { name: "Pin expires" }), { target: { value: "time" } })
+  fireEvent.click(screen.getByRole("button", { name: "Unpin" }))
+  expect((await screen.findByRole("alert")).textContent).toBe("Policy owner unavailable")
+  expect(deleted).toHaveBeenCalledOnce()
+})
+
+it("offers profile setup when no profiles are configured", async () => {
+  usage = { providers: [], poll_interval_seconds: 0, policy: {
+    active: { profile: { name: "", agent: "" }, reason: { text: "Usual defaults" }, since: "0001-01-01T00:00:00Z" },
+    profiles: null, switches: [],
+  } }
+  renderIt("/agents?usage=open&pin=1")
+  expect((await screen.findByRole("link", { name: "Configure profiles" })).getAttribute("href")).toBe("/settings#usage")
+  expect(screen.queryByRole("button", { name: "Pin a profile" })).toBeNull()
+})
+
+it("keeps an existing reset expiry when changing its pinned profile", async () => {
+  usage = { providers: [], poll_interval_seconds: 0, policy: {
+    active: { profile: { name: "Economy", agent: "codex" }, reason: { text: "Pinned" }, since: NOW.toISOString(), pin: { profile: "Economy", until_reset: "codex.weekly" } },
+    profiles: [{ name: "Economy", agent: "codex" }, { name: "Quality", agent: "claude-code" }], switches: [],
+  } }
+  let body: unknown
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+    if (init?.method === "PUT") { body = JSON.parse(String(init.body)); return json({ status: "ok" }) }
+    return json(usage)
+  }))
+  renderIt("/agents?usage=open&pin=Quality")
+  await screen.findByRole("button", { name: "Pin profile" })
+  fireEvent.click(screen.getByRole("button", { name: "Pin profile" }))
+  await waitFor(() => expect(body).toEqual({ profile: "Quality", until_reset: "codex.weekly" }))
 })

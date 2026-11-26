@@ -97,6 +97,7 @@ export function invalidationsFor(message: WSMessage, baseUrl: string): Invalidat
     case "usage_changed":
       // The process that reads the subscriptions' usage kept a reading.
       exact(queryKeys.subscriptionUsage(baseUrl))
+      exact(queryKeys.adapters(baseUrl))
       break
     case "server_theme_changed":
       prefix(queryKeys.meta(baseUrl))

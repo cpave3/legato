@@ -1,6 +1,6 @@
 # Subscription usage
 
-How much of the Claude and Codex subscriptions' usage limits the operator has used (LEG-659). It is not `service.Usage` / `UsageService`, which are Manticore's token counts (see [TUI](tui.md) § Token usage). Site page: `using/usage`. Switching the default agents by usage is LEG-660 (usage profiles and rules), not built yet.
+How much of the Claude and Codex subscriptions' usage limits the operator has used (LEG-659). It is not `service.Usage` / `UsageService`, which are Manticore's token counts (see [TUI](tui.md) § Token usage). Site page: `using/usage`. Usage profiles and rules (LEG-660) switch defaults for new work, without changing the provider readers or accounts.
 
 ## Sources
 
@@ -77,22 +77,59 @@ Neither source is a published API. Every answer the readers do not understand is
 ## Runtime: `cmd/legato/usage_runtime.go`
 
 - `usageReaders` follows `usage.claude.enabled` and `usage.codex.enabled` (both on when unset).
-- `subscriptionUsageFor` builds the service on a store. It returns nil with both providers off.
+- `subscriptionUsageFor` builds the service and attaches the usage policy on a store, even with both readers off: policy state and pin controls remain available without provider readings.
 - `startSubscriptionUsage` runs the poller in the one process of a data folder that holds `<data_dir>/usage.lock` (flock, like `mqtt.lock`). A process that cannot take the lock serves the cache and tries again every `usageClaimRetry` (a minute), so it takes the poller over when the holder ends (`awaitUsagePoller`).
 - A kept reading publishes `EventSubscriptionUsageChanged` and broadcasts the IPC message `usage_changed`. Other processes publish `EventSubscriptionUsageInvalidated` for it. Both reach the web as the WebSocket message `usage_changed`.
 - A refresh asked in a process that does not poll broadcasts `usage_refresh`. That becomes `EventSubscriptionUsageRefreshRequested`, which only the poller listens to.
 - Serve and the TUI wire it. `legato usage` (`usage_cmd.go`) reads the cache.
   - `--refresh` reads in the command itself when it can take `usage.lock`; otherwise it broadcasts `usage_refresh` and waits 3 s.
-  - It is forwarded from the sandbox like `doctor`, so the logins are only read on the host. The Reeve's class for it is `read`.
+  - It is forwarded from the sandbox like `doctor`, so the logins are only read on the host. The Reeve's class for reading is `read`; `usage pin` and `usage unpin` are `change`.
+
+## Profiles, rules and pins
+
+- `usage.profiles` entries are `{name, agent, tier?, reviewer?: {agent, tier?}}`. Agents are `claude-code`, `codex` or `chimera`. Both selections use configured `adapters.<agent>.tiers`, never raw models; `model` is rejected. Names are unique ignoring case.
+- `usage.rules` entries are `{name, order, meter, at_least, profile}`. `order` must be explicit: lower first, ties by name. `at_least` is 1–100 inclusive. The six qualified meters are `claude.five_hour`, `claude.weekly`, `claude.weekly_opus`, `claude.weekly_sonnet`, `codex.five_hour` and `codex.weekly`. Unknown agents, tiers, meters or profile references are refused on save.
+- `usage.fallback_profile` names the profile when no rule matches; empty means the usual configured defaults. Profiles, rules and fallback are live settings, edited in Settings › Usage with typed entry forms.
+- `EvaluateUsageRules` (`internal/service/usage_policy.go`) is pure. The first matching rule wins, using only an `ok` reading at or above its threshold. Missing or stale evidence holds the current defaults rather than forcing a fallback when no rule matches.
+- The latch captures the triggering rule's identity and reset time. It releases only after that captured reset has passed and an `ok` reading with `AsOf` at or after it is below the threshold. Passing wall-clock time or rereading an old low value is not enough. A changed rule invalidates its latch.
+- A pin beats rules: indefinitely, until a future RFC3339 instant, or until a qualified meter's reset. An until-reset pin requires a fresh reading with a known future reset and captures that instant; it does not follow later reset dates. Expiry removes the pin and evaluates policy again; it does not bypass a rule's latch.
+- `UsagePolicyService` (`usage_profile.go`) keeps `active_usage_profile` and appends `usage_profile_switches` atomically (migration 158). History is bounded to 200 rows; the policy snapshot returns the latest 20. Reads of defaults never evaluate policy or contact providers.
+- Only the `usage.lock` holder evaluates and writes policy, including pins. `cmd/legato/usage_policy_runtime.go` lets a short-lived command take an unheld lock; otherwise pin/unpin uses acknowledged IPC (`usage_pin` / `usage_pin_reply`), returning the owner's refusal or a timeout, not a false success.
+- A profile that needs a tier not installed in this process is not applied. The Usage card shows a restart-required error and retains the previous defaults. Saving an adapter tier does not install it into a running adapter; Legato never restarts automatically for policy.
+
+### New work and review passes
+
+`AgentServiceOptions.NewWorkDefaults` reads the committed profile only for a new spawn with no explicit agent. It supplies the agent and, only if omitted, its tier. An explicit agent ignores the profile entirely, including its tier; an explicit tier without an agent is retained. `DefaultAdapter()` follows the active profile for new-work selectors. This covers web, TUI, CLI, MCP, macros, handoff workers and workflow `agent.run` calls that omit an agent.
+
+Resume uses the kind of the slot's newest saved native session, not the current profile. Main and named slots are independent. Running agents, started runs and in-flight passes are not migrated. Swarm roles, the learning curator, the Reeve and doctor are outside this policy.
+
+A profile's optional reviewer replaces the live reviewer agent/tier defaults for each new pass (clearing a raw-model default). Explicit loop/handoff reviewer overrides still win. The resolved selection is persisted per pass: retries, reviewer respawns and repinning the same pass use that snapshot. Legacy loops without explicit-override metadata retain their frozen settings rather than being reinterpreted as live defaults. See [Integrations](integrations.md) § Review passes.
+
+### Switch visibility
+
+Each committed switch, including a return to fallback, creates an informational `usage_profile_switched` Attention item from producer `usage`, in rail group `legato`, revision `profile:since`. **Open Usage** opens the Usage card; the pin action opens its pin controls. `notifications.usage` (live, default true) gates one notification per switch through the configured ntfy/OS transports, independently of Attention. The card shows the active profile, reason, since time, pin, errors and recent switches, even when readers are off.
+
+### Deployment follow-up (operator only)
+
+After installing this feature, the operator should:
+
+1. Configure the profiles, rules and fallback, with their tiers already installed; inspect the active selection and reason in Usage.
+2. Remove **only temporary explicit Chimera choices** added to workflows or macros to work around missing usage policy, and the corresponding unwanted tool-specific tier. Keep intentional explicit selections.
+3. Check remembered input defaults for those workflows too: a saved explicit agent or tier can still bypass the intended defaults. Clear only the temporary choices.
+4. Leave started runs and agents unchanged. If Usage reports a tier needing a restart, choose when to restart; policy does not do so.
+
+This is an operator checklist, not an automatic settings migration. No live settings, provider sources or account choices are changed by this documentation.
 
 ## Surfaces
 
-- `GET /api/usage` returns `{providers: [ProviderUsage], poll_interval_seconds}`.
+- `GET /api/usage` returns `{providers: [ProviderUsage], poll_interval_seconds, policy?}`. Policy holds `active` (profile, reason, since, latch, pin and any error), configured `profiles` and recent `switches`.
   - Each `ProviderUsage` has `provider`, `state`, `stale`, `reason`, `windows` (`meter`, `used_percent`, `resets_at`, `window_minutes`), `credits`, `plan`, `as_of`, `checked_at` and `source` (`endpoint`, `app_server` or `logs`).
   - Without a usage service it is `200` with no providers, never an error.
 - `POST /api/usage/refresh` answers `202` and the reading follows as `usage_changed`.
+- `PUT /api/usage/pin` takes `{profile, until?, until_reset?}`; `until` is RFC3339 and is mutually exclusive with `until_reset`. Neither expiry means indefinite. `DELETE /api/usage/pin` removes the pin. Both acknowledge the owner's committed change; refusals reach the caller.
+- `legato usage pin <profile> [--until <RFC3339>|--until-reset <meter>] [--json]` and `legato usage unpin [--json]` use the same policy controls, forwarded to the host from a sandbox.
 - Web: `UsageStrip` (`web/src/components/UsageStrip.tsx`) sits at the head of `AgentSidebar` (prop `usage`), under the picker bar on a phone, and on the empty Agents page.
   - It shows each provider in brief and opens to the Usage card: a bar per window, its reset time, as-of, stale and unavailable states, and **Read now**.
-  - It renders nothing with no providers.
+  - Policy remains visible when readers are off; without providers or policy there is nothing to draw.
   - Tests of the Agents page stub it, as they stub `InterruptedAgents`.
 - TUI: `App.SetSubscriptionUsage` reads `Snapshot` at start and every minute. `agents.Model.SetSubscriptionUsage` draws a row per provider at the foot of the list and on the ensemble's top line.

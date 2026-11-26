@@ -134,6 +134,11 @@ func (c *HandoffReviewCaller) startRun(ctx context.Context, h *store.Handoff) er
 	ready := c.ready(ctx, h)
 	_, err := c.opts.Runs.StartHandoffReviewLoop(ctx, c.runStart(ctx, h, func(ctx context.Context, runID string) error {
 		open := store.HandoffRunReviewLoopOpen(h.TaskID, of, runID, ReviewLoopOpenStepID, columns)
+		settings := c.config().Defaults
+		open.Loop.PassesOff, open.Loop.MaxPasses = !settings.Enabled, settings.MaxPasses
+		open.Loop.Reviewer, open.Loop.ReviewerModel, open.Loop.ReviewerTier = settings.Agent, settings.Model, settings.Tier
+		open.Loop.Skill, open.Loop.SkillManaged = settings.Skill, settings.SkillManaged
+		open.Loop.ReviewerOverride = "{}"
 		// As the open step records a run's ready: the author is told the
 		// run marks its pull requests ready.
 		open.Loop.Ready = ready

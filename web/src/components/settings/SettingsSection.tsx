@@ -46,7 +46,7 @@ export function SettingsSectionView({ section, content }: { section: SettingsSec
         {groupCards.filter((card) => !card.after).map((card) => <div key={card.id}>{cards[card.id]}</div>)}
         <RegistrySettings settings={rows} baseUrl={baseUrl} prefixes={rows.map((s) => s.key)} showMode={modes.size > 1 && !groupApplies[`${section.id}/${group}`]} />
         {groupCards.filter((card) => card.after).map((card) => <div key={card.id}>{cards[card.id]}</div>)}
-        {groupLists.map((list) => <ListCard key={`${baseUrl}:${list.key}`} list={list} baseUrl={baseUrl} />)}
+        {groupLists.map((list) => <ListCard key={`${baseUrl}:${list.key}`} list={list} lists={lists} baseUrl={baseUrl} />)}
         {files.length > 0 && <SettingsRows>{files.map((key) => <FileOnlyRow key={key} keyName={key} title={fileOnlyTitle(key)} value={fileOnlyValues[key]} />)}</SettingsRows>}
       </div></GroupTitleContext.Provider>
       if (group === leadGroup) return <div key={group} id={groupElementId(section.id, group)}>{body}</div>

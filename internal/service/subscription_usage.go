@@ -105,8 +105,9 @@ type ProviderUsage struct {
 
 // SubscriptionUsage is every provider's usage, in reader order.
 type SubscriptionUsage struct {
-	Providers    []ProviderUsage `json:"providers"`
-	PollInterval time.Duration   `json:"-"`
+	Providers    []ProviderUsage      `json:"providers"`
+	PollInterval time.Duration        `json:"-"`
+	Policy       *UsagePolicySnapshot `json:"policy,omitempty"`
 }
 
 // MarshalJSON gives the poll interval in seconds.
@@ -169,14 +170,17 @@ type SubscriptionUsageOptions struct {
 	OnChange func()
 	// Forward asks the process that polls to refresh, when this one does
 	// not (RequestRefresh).
-	Forward func()
+	Forward   func()
+	AfterPoll func(context.Context) error
 }
 
 // SubscriptionUsageService reads each provider's usage, keeps the newest
 // reading in the database and serves it. Every process can serve it; only
 // the one that runs Run reads providers (cmd/legato holds usage.lock for it).
 type SubscriptionUsageService struct {
-	opts SubscriptionUsageOptions
+	opts   SubscriptionUsageOptions
+	policy *UsagePolicyService
+	pin    func(context.Context, *UsagePinRequest) error
 
 	mu       sync.Mutex
 	polling  bool
@@ -219,6 +223,30 @@ func (s *SubscriptionUsageService) PollInterval() time.Duration { return s.opts.
 // Snapshot is every provider's newest reading from the database. It never
 // reads a provider.
 func (s *SubscriptionUsageService) Snapshot(ctx context.Context) (SubscriptionUsage, error) {
+	out, err := s.ReadingsSnapshot(ctx)
+	if err != nil || s.policy == nil {
+		return out, err
+	}
+	policy, err := s.policy.Snapshot(ctx)
+	out.Policy = &policy
+	return out, err
+}
+
+// SetPolicy connects policy visibility and the owner-acknowledged pin route.
+func (s *SubscriptionUsageService) SetPolicy(policy *UsagePolicyService, pin func(context.Context, *UsagePinRequest) error) {
+	s.policy = policy
+	s.pin = pin
+	s.opts.AfterPoll = policy.Evaluate
+}
+func (s *SubscriptionUsageService) Pin(ctx context.Context, pin *UsagePinRequest) error {
+	if s.pin == nil {
+		return errors.New("usage policy is unavailable")
+	}
+	return s.pin(ctx, pin)
+}
+
+// ReadingsSnapshot is the cache without policy, used by the evaluator.
+func (s *SubscriptionUsageService) ReadingsSnapshot(ctx context.Context) (SubscriptionUsage, error) {
 	rows, err := s.opts.Store.ListSubscriptionUsage(ctx)
 	if err != nil {
 		return SubscriptionUsage{}, err
@@ -329,6 +357,11 @@ func (s *SubscriptionUsageService) read(ctx context.Context, refresh bool) {
 		}()
 	}
 	wg.Wait()
+	if s.opts.AfterPoll != nil {
+		if err := s.opts.AfterPoll(ctx); err != nil {
+			log.Printf("usage policy: %v", err)
+		}
+	}
 	if changed && s.opts.OnChange != nil {
 		s.opts.OnChange()
 	}

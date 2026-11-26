@@ -189,12 +189,12 @@ describe("SettingsPage layout", () => {
     vi.unstubAllGlobals()
   })
 
-  it("lists 16 sections in six groups, Macros as a link to its page", () => {
+  it("lists 17 sections in six groups, Macros as a link to its page", () => {
     renderPage()
     const groups = within(nav()).getAllByRole("group")
     expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual(["You", "Agents", "Features", "Services", "Access", "System"])
     const titles = within(nav()).getAllByRole("link").map((link) => link.textContent?.replace(/(On|Off)$/, ""))
-    expect(titles).toEqual(expect.arrayContaining(["Appearance", "Attention", "Input and terminal", "Agents", "Repositories", "Sandbox", "Macros", "Reeve", "Swarms", "Review passes", "Learn", "Board and tickets", "Integrations", "Security", "Connections", "System"]))
+    expect(titles).toEqual(expect.arrayContaining(["Appearance", "Attention", "Input and terminal", "Agents", "Usage", "Repositories", "Sandbox", "Macros", "Reeve", "Swarms", "Review passes", "Learn", "Board and tickets", "Integrations", "Security", "Connections", "System"]))
     expect(within(nav()).getByRole("link", { name: "Macros" })).toHaveAttribute("href", "/macros")
   })
 
@@ -262,6 +262,17 @@ describe("SettingsPage layout", () => {
     expect(await screen.findByRole("region", { name: findSection(section)!.title })).toBeTruthy()
     expect(document.getElementById(`section-${section}`)).toBeTruthy()
     if (element !== `section-${section}`) await waitFor(() => expect(document.getElementById(element)).toBeTruthy())
+  })
+
+  it("opens Usage profile forms with the tiers from Settings' adapter lists", async () => {
+    serveRegistry({}, (path) => path === "/api/config/lists" ? Response.json({ lists: [
+      { key: "usage.profiles", title: "Usage profiles", name_field: "name", entries: [] },
+      { key: "adapters", title: "Adapters", entries: [{ name: "codex", value: { tiers: { fast: {} } }, source: "database", pinned: false }] },
+    ] }) : undefined)
+    renderPage("/settings#list-usage.profiles")
+    fireEvent.click(await screen.findByRole("button", { name: "New profile" }))
+    fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "codex" } })
+    expect(within(screen.getByRole("combobox", { name: "Tier" })).getByRole("option", { name: "fast" })).toBeTruthy()
   })
 
   it("opens a group by its fragment", async () => {

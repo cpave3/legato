@@ -323,3 +323,44 @@ func TestTaskNativeSessionPinsProviderStorageDirectory(t *testing.T) {
 		}
 	}
 }
+
+func TestNewestTaskNativeSessionIsSlotScopedAndDeterministic(t *testing.T) {
+	ctx := context.Background()
+	s, err := New(filepath.Join(t.TempDir(), "native.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	createTestTask(t, s, "task")
+	if got, err := s.NewestTaskNativeSessionInSlot(ctx, "task", ""); err != nil || got != nil {
+		t.Fatalf("empty = %+v, %v", got, err)
+	}
+	for i, record := range []struct{ kind, slot string }{{"claude-code", SlotMain}, {"codex", SlotMain}, {"chimera", "reviewer"}} {
+		ex := fmt.Sprintf("ex-%d", i)
+		id := nativeSessionOwner(t, s, "task", record.kind, ex, func(a *AgentSession, _ *Execution) { a.Slot = record.slot })
+		if _, err := s.RecordTaskNativeSession(ctx, "task", id, ex, record.kind, ex, "/repo", ""); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.FinishAgentSession(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// All records tie on time; the newer owning session wins, never provider order.
+	if _, err := s.db.ExecContext(ctx, `UPDATE task_native_sessions SET updated_at = '2026-01-01 00:00:00' WHERE task_id = 'task'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ slot, want string }{{"", "codex"}, {SlotMain, "codex"}, {"reviewer", "chimera"}} {
+		saved, err := s.NewestTaskNativeSessionInSlot(ctx, "task", tc.slot)
+		if err != nil || saved == nil || saved.AgentKind != tc.want {
+			t.Fatalf("slot %q = %+v, %v", tc.slot, saved, err)
+		}
+	}
+	// Timestamp precedes the session tie-breaker.
+	if _, err := s.db.ExecContext(ctx, `UPDATE task_native_sessions SET updated_at = '2026-01-02 00:00:00' WHERE task_id = 'task' AND agent_kind = 'claude-code'`); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.NewestTaskNativeSessionInSlot(ctx, "task", SlotMain)
+	if err != nil || saved == nil || saved.AgentKind != "claude-code" {
+		t.Fatalf("newest = %+v, %v", saved, err)
+	}
+}

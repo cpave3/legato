@@ -55,13 +55,12 @@ func runUsageCmd(args []string) int {
 // bus, and a kept reading announced to the running processes.
 func cliSubscriptionUsage(cfg *config.Config, db *store.Store) *service.SubscriptionUsageService {
 	readers := usageReaders(cfg)
-	if len(readers) == 0 {
-		return nil
-	}
-	return service.NewSubscriptionUsageService(service.SubscriptionUsageOptions{
+	usage := service.NewSubscriptionUsageService(service.SubscriptionUsageOptions{
 		Store: db, Readers: readers, PollInterval: cfg.Usage.PollIntervalDuration(),
 		OnChange: func() { ipc.Broadcast(ipc.Message{Type: ipcUsageChanged}) },
 	})
+	attachUsagePolicy(cfg, db, usage, func() { ipc.Broadcast(ipc.Message{Type: ipcUsageChanged}) })
+	return usage
 }
 
 // refreshUsageFromCLI reads here while no process polls (holding its lock
@@ -79,10 +78,32 @@ func refreshUsageFromCLI(cfg *config.Config, usage *service.SubscriptionUsageSer
 // formatSubscriptionUsage is the usage for a person: each provider with how
 // fresh its reading is, then its windows.
 func formatSubscriptionUsage(snap service.SubscriptionUsage, now time.Time) string {
-	if len(snap.Providers) == 0 {
-		return "Subscription usage is off (usage.claude.enabled and usage.codex.enabled).\n"
-	}
 	var b strings.Builder
+	if snap.Policy != nil && (snap.Policy.Active.Initialized || len(snap.Policy.Profiles) > 0) {
+		active := snap.Policy.Active
+		name := active.Profile.Name
+		if name == "" {
+			name = "configured defaults"
+		}
+		fmt.Fprintf(&b, "Usage profile: %s\n%s\n", name, active.Reason.Text)
+		if active.Error != "" {
+			fmt.Fprintf(&b, "Policy error: %s\n", active.Error)
+		}
+		if active.Pin != nil {
+			expiry := "until unpin"
+			if active.Pin.Until != nil {
+				expiry = "until " + active.Pin.Until.Format(time.RFC3339)
+			}
+			fmt.Fprintf(&b, "Pinned: %s (%s)\n", active.Pin.Profile, expiry)
+		}
+		for _, change := range snap.Policy.Switches {
+			fmt.Fprintf(&b, "  %s: %s → %s — %s\n", change.Since, change.From, change.To, change.Reason)
+		}
+	}
+	if len(snap.Providers) == 0 {
+		b.WriteString("Subscription usage is off (usage.claude.enabled and usage.codex.enabled).\n")
+		return b.String()
+	}
 	for _, p := range snap.Providers {
 		name := service.UsageProviderName(p.Provider)
 		if p.State == service.UsageUnavailable {
@@ -144,4 +165,52 @@ func spanText(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%dm", max(mins, 1))
 	}
+}
+
+func runUsagePinCmd(action string, args []string) int {
+	command := "usage " + action
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("usage", action))
+	jsonMode := parsed.Present["json"]
+	if parseErr != nil {
+		return renderCommandError(command, parseErr, jsonMode)
+	}
+	want := 0
+	if action == "pin" {
+		want = 1
+	}
+	if len(parsed.Positionals) != want {
+		return renderCommandError(command, usageError("invalid_arguments", "usage pin needs one profile; usage unpin needs none"), jsonMode)
+	}
+	var pin *service.UsagePinRequest
+	if action == "pin" {
+		pin = &service.UsagePinRequest{Profile: parsed.Positionals[0], UntilReset: parsed.Values["until-reset"]}
+		if parsed.Present["until"] {
+			until, err := time.Parse(time.RFC3339, parsed.Values["until"])
+			if err != nil {
+				return renderCommandError(command, usageError("invalid_time", "--until needs an RFC3339 time with a time zone"), jsonMode)
+			}
+			pin.Until = &until
+		}
+		if pin.Until != nil && pin.UntilReset != "" {
+			return renderCommandError(command, usageError("invalid_expiry", "choose --until or --until-reset, not both"), jsonMode)
+		}
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return renderCommandError(command, &commandError{Code: "config_failed", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+	}
+	db, err := openStore(cfg)
+	if err != nil {
+		return renderCommandError(command, &commandError{Code: "database_failed", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+	}
+	defer db.Close()
+	usage := cliSubscriptionUsage(cfg, db)
+	if err := usage.Pin(context.Background(), pin); err != nil {
+		return renderCommandError(command, &commandError{Code: "pin_failed", Message: err.Error(), Exit: exitUsage}, jsonMode)
+	}
+	snap, err := usage.Snapshot(context.Background())
+	if err != nil {
+		return renderCommandError(command, &commandError{Code: "usage_failed", Message: err.Error(), Exit: exitInternal}, jsonMode)
+	}
+	return writeCommandSuccess(command, snap, formatSubscriptionUsage(snap, time.Now()), jsonMode)
 }

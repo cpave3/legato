@@ -748,6 +748,9 @@ func (s *SettingsService) RenameEntry(ctx context.Context, list, from, to, by st
 	if cfg.PinnedEntry(list, from) || cfg.PinnedEntry(list, to) {
 		return fmt.Errorf("%s %q: %w", list, from, config.ErrEntryPinned)
 	}
+	if err := s.checkUsageEntryRemoval(ctx, list, from, strings.TrimSpace(to)); err != nil {
+		return err
+	}
 	if err := s.db.RenameSettingEntry(ctx, list, from, strings.TrimSpace(to), by); err != nil {
 		return err
 	}
@@ -769,6 +772,9 @@ func (s *SettingsService) DeleteEntry(ctx context.Context, list, name string) er
 	}
 	if cfg.PinnedEntry(list, name) {
 		return fmt.Errorf("%s %q: %w", list, name, config.ErrEntryPinned)
+	}
+	if err := s.checkUsageEntryRemoval(ctx, list, name, ""); err != nil {
+		return err
 	}
 	if err := s.db.DeleteSettingEntry(ctx, list, name); err != nil {
 		return err
@@ -819,4 +825,49 @@ func (s *SettingsService) FileOnlyValues(ctx context.Context) (map[string]string
 		"approval_devices.android_app_digests": count(len(cfg.ApprovalDevices.AndroidAppDigests)),
 		"agents.repository_resources":          count(len(cfg.Agents.RepositoryResources)),
 	}, nil
+}
+
+// checkUsageEntryRemoval prevents a settings edit from leaving broken policy
+// references. Existing generic list semantics remain unchanged elsewhere.
+func (s *SettingsService) checkUsageEntryRemoval(ctx context.Context, list, name, rename string) error {
+	if list != "usage.profiles" && list != "usage.rules" && list != "adapters" {
+		return nil
+	}
+	if list == "usage.profiles" {
+		text, err := s.db.ActiveUsageProfile(ctx)
+		if err != nil {
+			return err
+		}
+		var state UsageProfileState
+		if text != "" {
+			if err := json.Unmarshal([]byte(text), &state); err != nil {
+				return err
+			}
+		}
+		if strings.EqualFold(state.Profile.Name, name) || (state.Pin != nil && strings.EqualFold(state.Pin.Profile, name)) {
+			return fmt.Errorf("usage profile %q is active or pinned; switch away before removing or renaming it", name)
+		}
+	}
+	cfg, err := s.load()
+	if err != nil {
+		return err
+	}
+	values, err := s.db.SettingValues(ctx)
+	if err != nil {
+		return err
+	}
+	entries, err := s.db.SettingEntries(ctx)
+	if err != nil {
+		return err
+	}
+	for key, raw := range entries[list] {
+		if strings.EqualFold(key, name) {
+			delete(entries[list], key)
+			if rename != "" {
+				entries[list][rename] = raw
+			}
+			break
+		}
+	}
+	return overlayAll(cfg, values, entries)
 }

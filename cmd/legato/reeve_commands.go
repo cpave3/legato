@@ -30,8 +30,14 @@ func classifyLegatoCommand(args []string) (class, description string) {
 		return "never", "No command"
 	}
 	node, path, rest, err := resolveCommand(commandTree(), args)
-	if err != nil || node == nil || len(node.Children) > 0 {
+	if err != nil || node == nil || node.Run == nil {
 		return "never", "Not a legato command: legato " + strings.Join(args, " ") + ". " + legatoInstead(args, path, node)
+	}
+	if len(node.Children) > 0 {
+		parsed, err := parseCommandArgs(rest, commandFlagSpecs(path...))
+		if err != nil || len(parsed.Positionals) > 0 {
+			return "never", "Not a legato command: legato " + strings.Join(args, " ")
+		}
 	}
 	entry, ok := legatoCommandClasses[strings.Join(path, " ")]
 	if !ok {
@@ -135,12 +141,11 @@ func (legatoCommands) Commands() []cli.LegatoCommand {
 	var walk func(prefix []string, c *commandDef)
 	walk = func(prefix []string, c *commandDef) {
 		path := append(append([]string{}, prefix...), c.Name)
-		if len(c.Children) == 0 {
+		if c.Run != nil {
 			key := strings.Join(path[1:], " ")
 			if entry, ok := legatoCommandClasses[key]; ok && entry.Class != "never" {
 				out = append(out, cli.LegatoCommand{Path: key, Class: entry.Class, Description: entry.Description})
 			}
-			return
 		}
 		for _, child := range c.Children {
 			walk(path, child)

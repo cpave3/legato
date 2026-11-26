@@ -67,17 +67,18 @@ type HandoffReviewPass struct {
 	TaskID string `db:"task_id"`
 	// MarkerKey is its loop's marker_key, which its markers start with; it
 	// is not written.
-	MarkerKey   string `db:"-"`
-	Pass        int    `db:"pass"`
-	State       string `db:"state"`
-	Verdict     string `db:"verdict"`
-	Summary     string `db:"summary"`
-	Reason      string `db:"reason"`
-	ExecutionID string `db:"execution_id"`
-	Checkout    string `db:"checkout"`
-	HeadSHA     string `db:"head_sha"`
-	StartedAt   string `db:"started_at"`
-	EndedAt     string `db:"ended_at"`
+	MarkerKey        string `db:"-"`
+	Pass             int    `db:"pass"`
+	State            string `db:"state"`
+	Verdict          string `db:"verdict"`
+	Summary          string `db:"summary"`
+	Reason           string `db:"reason"`
+	ExecutionID      string `db:"execution_id"`
+	ReviewerSettings string `db:"reviewer_settings"`
+	Checkout         string `db:"checkout"`
+	HeadSHA          string `db:"head_sha"`
+	StartedAt        string `db:"started_at"`
+	EndedAt          string `db:"ended_at"`
 	// Attempt is how many times this pass's number was pinned before: a
 	// pass discarded because a head moved is pinned again under the same
 	// number (InsertHandoffReviewPass).
@@ -385,23 +386,24 @@ func newHostedReviewLoop(ctx context.Context, tx *sqlx.Tx, taskID string, h Hand
 
 // reviewSettings are a loop's settings as the engine keeps them (JSON).
 type reviewSettings struct {
-	Enabled      bool   `json:"enabled"`
-	Agent        string `json:"agent"`
-	Model        string `json:"model,omitempty"`
-	Tier         string `json:"tier,omitempty"`
-	Skill        string `json:"skill,omitempty"`
-	MaxPasses    int    `json:"max_passes"`
-	SkillManaged bool   `json:"skill_managed,omitempty"`
+	Enabled          bool            `json:"enabled"`
+	Agent            string          `json:"agent"`
+	Model            string          `json:"model,omitempty"`
+	Tier             string          `json:"tier,omitempty"`
+	Skill            string          `json:"skill,omitempty"`
+	MaxPasses        int             `json:"max_passes"`
+	SkillManaged     bool            `json:"skill_managed,omitempty"`
+	ReviewerOverride json.RawMessage `json:"reviewer_override,omitempty"`
 }
 
 // loopSettingsJSON is a loop's settings columns as the engine's JSON: ""
 // when none was set (the engine then uses its defaults).
 func loopSettingsJSON(l *ReviewLoop) string {
-	if !l.PassesOff && l.Reviewer == "" && l.ReviewerModel == "" && l.ReviewerTier == "" && l.Skill == "" && l.MaxPasses == 0 && !l.SkillManaged {
+	if !l.PassesOff && l.Reviewer == "" && l.ReviewerModel == "" && l.ReviewerTier == "" && l.Skill == "" && l.MaxPasses == 0 && !l.SkillManaged && l.ReviewerOverride == "" {
 		return ""
 	}
 	data, _ := json.Marshal(reviewSettings{Enabled: !l.PassesOff, Agent: l.Reviewer, Model: l.ReviewerModel, Tier: l.ReviewerTier,
-		Skill: l.Skill, MaxPasses: l.MaxPasses, SkillManaged: l.SkillManaged})
+		Skill: l.Skill, MaxPasses: l.MaxPasses, SkillManaged: l.SkillManaged, ReviewerOverride: json.RawMessage(l.ReviewerOverride)})
 	return string(data)
 }
 
@@ -414,6 +416,7 @@ func setLoopSettings(l *ReviewLoop, settings string) {
 	}
 	l.PassesOff, l.Reviewer, l.ReviewerModel, l.ReviewerTier = !v.Enabled, v.Agent, v.Model, v.Tier
 	l.Skill, l.MaxPasses, l.SkillManaged = v.Skill, v.MaxPasses, v.SkillManaged
+	l.ReviewerOverride = string(v.ReviewerOverride)
 }
 
 func handoffReviewOf(l *ReviewLoop) *HandoffReview {
@@ -658,7 +661,7 @@ func (s *Store) CloseHostedReviewLoop(ctx context.Context, taskID, phase, reason
 
 func passOf(l *ReviewLoop, p ReviewLoopPass) HandoffReviewPass {
 	return HandoffReviewPass{TaskID: l.HostTask, MarkerKey: l.MarkerKey, Pass: p.Pass, State: p.State, Verdict: p.Verdict, Summary: p.Summary, Reason: p.Reason,
-		ExecutionID: p.ExecutionID, Checkout: p.Checkout, HeadSHA: p.HeadSHA, StartedAt: p.StartedAt, EndedAt: p.EndedAt,
+		ExecutionID: p.ExecutionID, ReviewerSettings: p.ReviewerSettings, Checkout: p.Checkout, HeadSHA: p.HeadSHA, StartedAt: p.StartedAt, EndedAt: p.EndedAt,
 		Attempt: p.Attempt, PostingStartedAt: p.PostingStartedAt, PostAttempts: p.Attempts}
 }
 
@@ -715,7 +718,7 @@ func insertReviewLoopPass(ctx context.Context, tx *sqlx.Tx, l *ReviewLoop, p Han
 		return err
 	}
 	record := ReviewLoopPass{LoopID: l.ID, Pass: p.Pass, StepPath: l.StepPath, State: p.State, Verdict: p.Verdict, Summary: p.Summary,
-		Reason: p.Reason, ExecutionID: p.ExecutionID, Checkout: p.Checkout, HeadSHA: p.HeadSHA, Pins: pinsOf(prs),
+		Reason: p.Reason, ExecutionID: p.ExecutionID, ReviewerSettings: p.ReviewerSettings, Checkout: p.Checkout, HeadSHA: p.HeadSHA, Pins: pinsOf(prs),
 		PostingStartedAt: p.PostingStartedAt, Attempts: p.PostAttempts, Attempt: p.Attempt, StartedAt: p.StartedAt, EndedAt: p.EndedAt}
 	if _, err := tx.NamedExecContext(ctx, `INSERT INTO review_loop_passes (`+reviewLoopPassColumns+`) VALUES (`+reviewLoopPassValues+`)`, record); err != nil {
 		return err
@@ -876,8 +879,8 @@ func (s *Store) UpdateHandoffReviewPassWithLoop(ctx context.Context, p HandoffRe
 
 func updateReviewLoopPass(ctx context.Context, tx *sqlx.Tx, loopID string, p HandoffReviewPass) error {
 	_, err := tx.ExecContext(ctx, `UPDATE review_loop_passes SET state = ?, verdict = ?, summary = ?, reason = ?,
-		execution_id = ?, ended_at = ? WHERE loop_id = ? AND pass = ?`,
-		p.State, p.Verdict, p.Summary, p.Reason, p.ExecutionID, p.EndedAt, loopID, p.Pass)
+		execution_id = ?, reviewer_settings = ?, ended_at = ? WHERE loop_id = ? AND pass = ?`,
+		p.State, p.Verdict, p.Summary, p.Reason, p.ExecutionID, p.ReviewerSettings, p.EndedAt, loopID, p.Pass)
 	return err
 }
 

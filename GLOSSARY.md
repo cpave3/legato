@@ -199,6 +199,14 @@ _Avoid_: prerequisite, health check, probe
 How much of a Claude or Codex subscription's usage limits the operator has used: each window (5-hour, weekly) with its percent and when it resets, as Legato last read it on its own machine. Not the token counts Manticore records.
 _Avoid_: quota, usage alone, tokens
 
+**Usage profile**:
+A named choice of agent and optional tier for new work, with an optional reviewer agent and tier for new review passes. Selected by usage rules, a fallback or an operator's pin; it never changes running work. Tiers, not raw models, define its model choices.
+_Avoid_: model profile, account profile
+
+**Usage rule**:
+A named threshold on one qualified Claude or Codex subscription meter that selects a usage profile. Lower explicit order wins, with names breaking ties. Its match holds until the captured reset has passed and a fresh post-reset reading is below the threshold.
+_Avoid_: routing rule, quota rule
+
 ### Engrams
 
 **Engram**:

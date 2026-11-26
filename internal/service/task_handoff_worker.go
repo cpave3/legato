@@ -23,6 +23,7 @@ type HandoffAgents interface {
 	SpawnAgent(ctx context.Context, taskID string, width, height int, opts ...AgentSpawnOptions) error
 	RegisteredAdapters() []string
 	DefaultAdapter() string
+	NewWorkDefaults(context.Context) (NewWorkDefaults, error)
 	AdapterFor(kind string) AIToolAdapter
 	GetAgentSession(ctx context.Context, taskID string) (*store.AgentSession, error)
 	// KillAgent stops a card's agent, when a return or recall takes the
@@ -204,7 +205,18 @@ func (s *HandoffWorkerService) Accept(ctx context.Context, main HandoffMain, cal
 	if s.mcpToolsOff() {
 		return HandoffAccepted{}, false, handoffErr("no_mcp_tools", "this worker's agents get no Legato tools (add_task_note, submit_review), which a handed-off agent needs: turn on agents.mcp.enabled here")
 	}
-	agentKind, err := s.agentKind(call.AgentKind)
+	if s.opts.Agents == nil {
+		return HandoffAccepted{}, false, handoffErr("unknown_agent", "this worker cannot start agents")
+	}
+	var err error
+	defaults := NewWorkDefaults{Agent: call.AgentKind}
+	if defaults.Agent == "" {
+		defaults, err = s.opts.Agents.NewWorkDefaults(ctx)
+		if err != nil {
+			return HandoffAccepted{}, false, err
+		}
+	}
+	agentKind, err := s.agentKind(defaults.Agent)
 	if err != nil {
 		return HandoffAccepted{}, false, err
 	}
@@ -252,7 +264,7 @@ func (s *HandoffWorkerService) Accept(ctx context.Context, main HandoffMain, cal
 		notes = append(notes, store.TaskNote{ID: workflowID("tn-"), TaskID: task.ID, Body: n.Body, Source: NoteSourceMain, RemoteID: n.ID})
 	}
 	record := store.Handoff{MainInstanceID: main.InstanceID, HandoffID: call.HandoffID, MainName: main.Name, MainTaskID: call.MainTaskID,
-		TaskID: task.ID, Purpose: call.Purpose, Kind: call.Kind, Repo: call.Repo, Branch: call.Branch, Base: call.Base, AgentKind: agentKind,
+		TaskID: task.ID, Purpose: call.Purpose, Kind: call.Kind, Repo: call.Repo, Branch: call.Branch, Base: call.Base, AgentKind: agentKind, AgentTier: defaults.Tier,
 		State: store.HandoffPending, RequestHash: hash, CreatedAt: now, UpdatedAt: now}
 	if err := s.db.CreateHandoffCard(ctx, task, notes, record); errors.Is(err, store.ErrConflict) {
 		// The same handoff arrived twice at once; the first one stands.
@@ -307,16 +319,14 @@ const (
 )
 
 // agentKind is the agent tool a handoff names, checked: one this worker
-// knows (the default when empty) and can start with its own permission
+// knows and can start with its own permission
 // prompts off. It never falls back to another tool.
 func (s *HandoffWorkerService) agentKind(kind string) (string, error) {
 	if s.opts.Agents == nil {
 		return "", handoffErr("unknown_agent", "this worker cannot start agents")
 	}
-	if kind == "" {
-		kind = s.opts.Agents.DefaultAdapter()
-	}
-	known := kind != "" && kind == s.opts.Agents.DefaultAdapter()
+	adapter := s.opts.Agents.AdapterFor(kind)
+	known := kind != "" && adapter != nil && adapter.Name() == kind
 	for _, name := range s.opts.Agents.RegisteredAdapters() {
 		known = known || name == kind
 	}
@@ -462,7 +472,7 @@ func (s *HandoffWorkerService) start(ctx context.Context, mainInstanceID, handof
 		in.PullRequests = s.opts.PullRequests.PullRequestMode(ctx, h.Repo)
 	}
 	brief := HandoffBrief(in)
-	opts := AgentSpawnOptions{AgentKind: h.AgentKind, Repo: h.Repo, Branch: h.Branch, Assignment: brief, Unattended: true,
+	opts := AgentSpawnOptions{AgentKind: h.AgentKind, Tier: h.AgentTier, Repo: h.Repo, Branch: h.Branch, Assignment: brief, Unattended: true,
 		Branches: handoffSessionBranches(h), PushedBranch: h.Kind == HandoffPushedBranch, Holder: h.MainTaskID}
 	if h.Kind == HandoffNewBranch {
 		opts.Ref = h.Base

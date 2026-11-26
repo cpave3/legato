@@ -21,12 +21,13 @@ const (
 )
 
 // The sections of Settings that hold registry settings, in nav order.
-// Macros, the sixteenth, is a page of its own with no settings.
+// Macros is a page of its own with no settings.
 const (
 	SectionAppearance   = "appearance"
 	SectionAttention    = "attention"
 	SectionInput        = "input"
 	SectionAgents       = "agents"
+	SectionUsage        = "usage"
 	SectionRepositories = "repositories"
 	SectionSandbox      = "sandbox"
 	SectionReeve        = "reeve"
@@ -42,7 +43,7 @@ const (
 
 var settingSections = []string{
 	SectionAppearance, SectionAttention, SectionInput,
-	SectionAgents, SectionRepositories, SectionSandbox,
+	SectionAgents, SectionUsage, SectionRepositories, SectionSandbox,
 	SectionReeve, SectionSwarms, SectionReviewPasses, SectionLearn,
 	SectionBoard, SectionIntegrations,
 	SectionSecurity, SectionConnections,
@@ -76,6 +77,7 @@ var settingLayout = map[string]settingPlace{
 	"notifications.ntfy.":     {SectionAttention, "Notify me", ""},
 	"notifications.approvals": {SectionAttention, "What notifies", ""},
 	"notifications.handoff":   {SectionAttention, "What notifies", ""},
+	"notifications.usage":     {SectionAttention, "What notifies", ""},
 
 	// Input and terminal.
 	"agents.escape_key":    {SectionInput, "TUI and tmux", ""},
@@ -92,7 +94,8 @@ var settingLayout = map[string]settingPlace{
 	"agents.mcp.resource_domains": {SectionAgents, "What agents get", ""},
 	"agents.history.keep":         {SectionAgents, "Session history", ""},
 	"agents.compact.auto_percent": {SectionAgents, "Compaction", ""},
-	"usage.":                      {SectionAgents, "Subscription usage", ""},
+	"usage.":                      {SectionUsage, "Subscription usage", ""},
+	"usage.fallback_profile":      {SectionUsage, "Profiles and rules", ""},
 	"skills.dir":                  {SectionAgents, "Skills", ""},
 	"engram.":                     {SectionAgents, "Engrams", ""},
 

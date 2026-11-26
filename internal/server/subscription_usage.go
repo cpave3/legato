@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"sync"
 
@@ -82,4 +84,40 @@ func (s *Server) StartSubscriptionUsageEvents(bus *events.Bus) func() {
 	}()
 	var once sync.Once
 	return func() { once.Do(func() { close(stop); <-done; unsubscribe() }) }
+}
+
+// usagePinHandler changes policy only after its owner acknowledges the write.
+func (s *Server) usagePinHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		control, ok := s.usage.(interface {
+			Pin(context.Context, *service.UsagePinRequest) error
+		})
+		if !ok {
+			s.writeError(w, http.StatusServiceUnavailable, "usage policy is unavailable")
+			return
+		}
+		var pin *service.UsagePinRequest
+		if r.Method == http.MethodPut {
+			var input service.UsagePinRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil {
+				s.writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			if err := decoder.Decode(&struct{}{}); err != io.EOF {
+				s.writeError(w, http.StatusBadRequest, "expected one pin object")
+				return
+			}
+			pin = &input
+		} else if r.Method != http.MethodDelete {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if err := control.Pin(r.Context(), pin); err != nil {
+			s.writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
 }

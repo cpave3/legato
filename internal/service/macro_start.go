@@ -43,7 +43,7 @@ type MacroAgents interface {
 	CaptureOutput(ctx context.Context, taskID string) (string, error)
 	QueueMessage(ctx context.Context, taskID, message string) error
 	SpawnAgent(ctx context.Context, taskID string, width, height int, opts ...AgentSpawnOptions) error
-	DefaultAdapter() string
+	NewWorkDefaults(context.Context) (NewWorkDefaults, error)
 	GetTaskResumeSession(ctx context.Context, taskID, agentKind string) (*TaskResumeSession, error)
 }
 
@@ -91,22 +91,31 @@ func (s *MacroService) Start(ctx context.Context, req MacroStart) (MacroStartRes
 	}
 	opts := AgentSpawnOptions{AgentKind: macro.Agent, Tier: macro.Tier, Prompt: message, WorkingDir: s.macroWorkingDir(ctx, req)}
 	kind := macro.Agent
-	if kind == "" {
-		kind = s.agents.DefaultAdapter()
-	}
-	if SupportsTaskResume(kind) {
+	if kind == "" || SupportsTaskResume(kind) {
 		saved, err := s.agents.GetTaskResumeSession(ctx, req.TaskID, kind)
 		if err != nil {
 			return MacroStartResult{}, err
 		}
 		if saved != nil {
+			kind, opts.AgentKind = saved.AgentKind, saved.AgentKind
 			opts.SessionPolicy, opts.ResumeSessionID, opts.ResumeWorkingDir = "resume", saved.ID, saved.CWD
 			opts.WorkingDir = saved.CWD
 		}
 	}
 	if gone := opts.WorkingDir; gone != "" && !s.folderExists(gone) {
+		opts.AgentKind, kind = macro.Agent, macro.Agent
 		if err := s.freshClone(ctx, req, &opts); err != nil {
 			return MacroStartResult{}, err
+		}
+	}
+	if opts.AgentKind == "" {
+		defaults, err := s.agents.NewWorkDefaults(ctx)
+		if err != nil {
+			return MacroStartResult{}, err
+		}
+		opts.AgentKind, kind = defaults.Agent, defaults.Agent
+		if opts.Tier == "" {
+			opts.Tier = defaults.Tier
 		}
 	}
 	if err := s.agents.SpawnAgent(ctx, req.TaskID, 0, 0, opts); err != nil {
