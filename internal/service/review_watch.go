@@ -345,11 +345,12 @@ func (s *ReviewPassService) watchLoop(ctx context.Context, github ReviewWatchGit
 				return err
 			}
 		}
-		next.Changed = seen && !prev.ReadAt.IsZero() && (commentsChanged || !sameWatch(prev.Layers, layers) || len(stacked) > 0)
+		stackedChanged := !sameStacked(prev.Stacked, stacked)
+		next.Changed = seen && !prev.ReadAt.IsZero() && (commentsChanged || !sameWatch(prev.Layers, layers) || stackedChanged)
 		// Activity is what the steward's idle end counts: a layer or a
 		// comment that differs, which a list's new ETag alone is not, or
 		// a layer stacked on the top.
-		active = seen && !prev.ReadAt.IsZero() && (!sameWatch(prev.Layers, layers) || !sameComments(prev.Comments, comments) || len(stacked) > 0)
+		active = seen && !prev.ReadAt.IsZero() && (!sameWatch(prev.Layers, layers) || !sameComments(prev.Comments, comments) || stackedChanged)
 		next.Layers, next.Comments, next.Stacked, next.ReadAt = layers, comments, stacked, now
 		return nil
 	}()
@@ -389,6 +390,25 @@ func sameComments(a, b map[int]CommentPoll) bool {
 	for number, x := range a {
 		y, ok := b[number]
 		if !ok || !reflect.DeepEqual(x.Comments, y.Comments) {
+			return false
+		}
+	}
+	return true
+}
+
+// sameStacked says whether two reads found the same pull requests stacked
+// on the top layer, at the same heads: a layer that is still there (one a
+// held loop has not taken, or one not the author's) is no change.
+func sameStacked(a, b []ReviewGitHubPR) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	heads := map[int]string{}
+	for _, pr := range a {
+		heads[pr.Number] = pr.HeadSHA
+	}
+	for _, pr := range b {
+		if head, ok := heads[pr.Number]; !ok || head != pr.HeadSHA {
 			return false
 		}
 	}

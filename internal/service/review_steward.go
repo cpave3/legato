@@ -402,9 +402,10 @@ func (s *ReviewPassService) addStacked(ctx context.Context, l ReviewLoop, rec *s
 		}
 	}
 	s.watchSchedule.Changed(rec.ID, s.opts.Now())
-	if loop.Phase == ReviewPhaseClean {
-		return s.reenter(ctx, l)
-	}
+	// The new layer was never approved: an approved loop's watching reads
+	// it as moved and re-enters within the re-entry budget, as for a push
+	// (movedSinceApproval); a loop in a re-entry's review has its confirm
+	// read it as moved, so the next pass reviews it (confirm).
 	s.changed(l.TaskID)
 	return nil
 }
@@ -572,7 +573,8 @@ func (s *ReviewPassService) watching(ctx context.Context, l ReviewLoop, loop *st
 }
 
 // movedSinceApproval says whether a watch read finds an open layer's head
-// past the head Confirm approved it at.
+// past the head Confirm approved it at, or an open layer Confirm never
+// approved (one stacked while stewarding, LEG-591).
 func (s *ReviewPassService) movedSinceApproval(ctx context.Context, rec *store.ReviewLoop, w ReviewLoopWatch) bool {
 	layers, err := s.db.ListReviewLoopPRs(ctx, rec.ID)
 	if err != nil {
@@ -580,10 +582,14 @@ func (s *ReviewPassService) movedSinceApproval(ctx context.Context, rec *store.R
 	}
 	approved := map[int]string{}
 	for _, layer := range layers {
+		if layer.State == "open" && layer.CleanHead == "" && layer.PinnedHead == "" {
+			return true // taken since approval, never reviewed
+		}
 		approved[layer.Number] = layer.CleanHead
 	}
 	for _, layer := range w.Layers {
-		if head := approved[layer.Number]; layer.State == "open" && head != "" && layer.HeadSHA != head {
+		head, known := approved[layer.Number]
+		if known && layer.State == "open" && layer.HeadSHA != head {
 			return true
 		}
 	}

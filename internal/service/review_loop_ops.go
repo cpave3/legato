@@ -270,6 +270,16 @@ func (s *ReviewPassService) confirm(ctx context.Context, loopID string) (ReviewC
 		out.Heads[pin.Number] = pr.HeadSHA
 		moved = moved || pr.HeadSHA != pin.HeadSHA
 	}
+	if !moved {
+		// A layer the loop took after this pass pinned its heads (one
+		// stacked while stewarding, LEG-591) was never reviewed: it is
+		// a moved head, so the next pass reviews it before approval.
+		unreviewed, err := s.unreviewedLayer(ctx, rec, pins)
+		if err != nil {
+			return ReviewConfirmResult{}, err
+		}
+		moved = unreviewed
+	}
 	switch {
 	case len(out.Heads) == 0:
 		out.State = ReviewConfirmClosed
@@ -316,6 +326,32 @@ func confirmed(loop *store.HandoffReview) bool {
 // is skipped, ReviewStageNone), or moved (the next pass starts on the
 // tick). GitHub not answering is logged once and tried again next tick.
 // Call with s.mu held.
+// unreviewedLayer says whether the loop has an open layer that no pass ever
+// pinned and that pins does not hold: a layer added after the pass started.
+func (s *ReviewPassService) unreviewedLayer(ctx context.Context, rec *store.ReviewLoop, pins []store.HandoffReviewPR) (bool, error) {
+	layers, err := s.db.ListReviewLoopPRs(ctx, rec.ID)
+	if err != nil {
+		return false, err
+	}
+	pinned := map[int]bool{}
+	for _, pin := range pins {
+		pinned[pin.Number] = true
+	}
+	for _, layer := range layers {
+		if pinned[layer.Number] || layer.PinnedHead != "" || layer.CleanHead != "" {
+			continue
+		}
+		_, state, err := s.opts.GitHub.PullRequest(ctx, rec.Repo, layer.Number)
+		if err != nil {
+			return false, fmt.Errorf("reading #%d: %w", layer.Number, err)
+		}
+		if state == "open" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (s *ReviewPassService) confirmLoop(ctx context.Context, l ReviewLoop, loopID string) error {
 	result, err := s.confirm(ctx, loopID)
 	if err != nil {

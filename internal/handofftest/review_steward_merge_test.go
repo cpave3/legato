@@ -336,3 +336,95 @@ func TestAHeldStewardStillEndsMergedWhenEveryLayerMerges(t *testing.T) {
 		t.Fatalf("watch steps: %s", stepStates(view))
 	}
 }
+
+// A stacked layer re-enters within the re-entry budget, as a push does:
+// past it, the loop is stuck and no pass starts.
+func TestAStackedLayerPastTheReEntryBudgetMakesTheLoopStuck(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	withBoardAuthor(t, r)
+	view := r.stewarded(t, map[string]string{"repo": "acme/widget", "pr_number": "12", "agent_author": "true", "steward": "true", "max_reentries": "1"})
+	task := view.Run.TaskID
+	r.reenterClean(t, task, "ccc333")
+	if rec := r.record(t, view); rec.Reentries != 1 {
+		t.Fatalf("re-entries %d after one push", rec.Reentries)
+	}
+
+	r.worker.ReviewGitHub.OpenStackedPR(13, "feature/greeting-fr", "feature/greeting", "eee555")
+	r.watchTick()
+	r.tick()
+	rec := r.record(t, view)
+	if loop := r.loopPhase(t, task); loop.Phase != service.ReviewPhaseStuck || loop.Pass != 2 {
+		t.Fatalf("a stacked layer past the budget: loop %+v", loop)
+	}
+	if rec.Reentries != 1 {
+		t.Fatalf("re-entries %d; the budget is 1", rec.Reentries)
+	}
+}
+
+// A layer stacked while a re-entry's pass runs is reviewed before the loop
+// is approved again: its confirm reads it as moved, and the next pass pins
+// it.
+func TestALayerStackedDuringAPassIsReviewedBeforeApproval(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	withBoardAuthor(t, r)
+	ctx := context.Background()
+	view := r.stewarded(t, stewardInputs)
+	task := view.Run.TaskID
+	r.worker.ReviewGitHub.Push(12, "ccc333")
+	r.worker.Checkout.Change("ccc333", "greet.go", 3, 5)
+	r.watchTick()
+	r.tick()
+	if loop := r.loopPhase(t, task); loop.Pass != 2 || loop.Phase != service.ReviewPhaseReviewing {
+		t.Fatalf("after the push: loop %+v", loop)
+	}
+
+	r.worker.ReviewGitHub.OpenStackedPR(13, "feature/greeting-fr", "feature/greeting", "eee555")
+	r.watchTick()
+	r.submit(t, task, service.ReviewSubmission{Summary: "Still right."})
+	for range 3 {
+		r.tick()
+	}
+	if loop := r.loopPhase(t, task); loop.Pass != 3 {
+		t.Fatalf("the stacked layer got no pass: loop %+v", loop)
+	}
+	prs, err := r.worker.Store.ListHandoffReviewPRs(ctx, task, 3)
+	if err != nil || len(prs) != 2 || prs[1].Number != 13 {
+		t.Fatalf("pass 3 reviews %+v, %v", prs, err)
+	}
+	r.submit(t, task, service.ReviewSubmission{Summary: "Both right."})
+	r.tick()
+	r.tick()
+	rec := r.record(t, view)
+	layers, _ := r.worker.Store.ListReviewLoopPRs(ctx, rec.ID)
+	for _, layer := range layers {
+		if layer.CleanHead == "" {
+			t.Fatalf("#%d approved at no head: %+v", layer.Number, layers)
+		}
+	}
+	if rec.Reentries != 1 {
+		t.Fatalf("re-entries %d; the push was one", rec.Reentries)
+	}
+	if view = r.show(t, view.Run.ID); !r.watching(t, view) {
+		t.Fatalf("not watching again: %s", stepStates(view))
+	}
+}
+
+// A layer stacked on a held steward's top that stays as it is moves no
+// idle deadline: seven quiet days still end the loop idle.
+func TestAnUnchangedStackedLayerDoesNotKeepAHeldStewardAwake(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	withBoardAuthor(t, r)
+	view := r.stewarded(t, stewardInputs)
+	if err := r.stewardAct(t, view, "stop_watching"); err != nil {
+		t.Fatal(err)
+	}
+	r.worker.ReviewGitHub.OpenStackedPR(13, "feature/greeting-fr", "feature/greeting", "eee555")
+	for range 8 * 24 {
+		r.worker.Clock.Advance(time.Hour)
+		r.tick()
+	}
+	view = r.show(t, view.Run.ID)
+	if view.Run.Status != "succeeded" || runOutputs(t, view)["outcome"] != "idle" {
+		t.Fatalf("run %q, outputs %s: %s", view.Run.Status, view.Run.OutputsJSON, stepStates(view))
+	}
+}
