@@ -411,7 +411,8 @@ func (s *SubscriptionUsageService) readOne(ctx context.Context, r SubscriptionUs
 
 // seed starts each provider's schedule from its kept reading, so a
 // restarted Legato waits out the interval since the last read instead of
-// asking every provider again at once. A refresh still reads at once.
+// asking every provider again at once, and the minute between refreshes
+// holds across processes (each `legato usage --refresh` is a new service).
 func (s *SubscriptionUsageService) seed(ctx context.Context) {
 	rows, err := s.opts.Store.ListSubscriptionUsage(ctx)
 	if err != nil {
@@ -427,6 +428,7 @@ func (s *SubscriptionUsageService) seed(ctx context.Context) {
 			continue
 		}
 		poll.reading.Lock()
+		poll.lastRead = *usage.CheckedAt
 		poll.nextRead = usage.CheckedAt.Add(s.opts.PollInterval)
 		poll.reading.Unlock()
 	}

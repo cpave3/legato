@@ -307,3 +307,27 @@ func TestARestartedPollerWaitsOutTheKeptReadingsInterval(t *testing.T) {
 		t.Fatalf("reads = %d at the interval, want 1", restarted.count())
 	}
 }
+
+// Each `legato usage --refresh` is a new service: the minute between two
+// reads holds across them too.
+func TestRefreshFromAnotherServiceHoldsTheMinute(t *testing.T) {
+	f := newUsageFixture(t)
+	f.claude.set(ProviderUsage{Windows: claudeWindows(10)}, nil)
+	f.svc.Refresh(context.Background())
+
+	again := &fakeUsageReader{provider: UsageProviderClaude, usage: ProviderUsage{Windows: claudeWindows(20)}}
+	svc := NewSubscriptionUsageService(SubscriptionUsageOptions{
+		Store: f.db, Readers: []SubscriptionUsageReader{again},
+		PollInterval: 5 * time.Minute, Now: func() time.Time { return f.now },
+	})
+	f.now = f.now.Add(5 * time.Second)
+	svc.Refresh(context.Background())
+	if again.count() != 0 {
+		t.Fatalf("reads = %d five seconds after another service's read", again.count())
+	}
+	f.now = f.now.Add(time.Minute)
+	svc.Refresh(context.Background())
+	if again.count() != 1 {
+		t.Fatalf("reads = %d a minute later, want 1", again.count())
+	}
+}

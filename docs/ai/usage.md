@@ -60,7 +60,7 @@ Neither source is a published API. Every answer the readers do not understand is
   - `RequestRefresh` refreshes in the background in the process that polls; elsewhere it calls `Forward`.
   - `Run` polls once a minute for whatever is due.
   - One read per provider is in flight at a time.
-  - The first `Poll` or `Refresh` in a process takes each provider's next read from its kept reading's `checked_at` (`seed`), so a restarted Legato (a hot reload, an update) does not ask every provider again at once. A back-off is not kept across a restart.
+  - The first `Poll` or `Refresh` in a process takes each provider's last and next read from its kept reading's `checked_at` (`seed`), so a restarted Legato (a hot reload, an update) does not ask every provider again at once, and the once-a-minute refresh limit holds across processes, such as successive `legato usage --refresh` runs. A back-off is not kept across a restart.
 - **Back-off:** after `rate_limited`, `endpoint_changed`, `unreachable` or `error`, the next read waits `interval << failures`, capped at 30 minutes, or the provider's `Retry-After`. The other reasons keep the normal interval, since their checks are local and cheap (no request is made without a live login).
 - **Kept state:**
   - Each provider's newest reading is kept as JSON in `subscription_usage` (migration 156; `store.PutSubscriptionUsage`, `ListSubscriptionUsage`). That table is the cache every process serves.
