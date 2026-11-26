@@ -410,7 +410,8 @@ func (s *ReviewPassService) actorFor(l *store.ReviewLoop) (reviewLoopActor, erro
 }
 
 // ActOnLoop takes an operator's action on a loop by its ID: another_pass,
-// message (with text) or end.
+// message (with text) or end, and a steward's stop_watching and
+// watch_again.
 func (s *ReviewPassService) ActOnLoop(ctx context.Context, loopID, action, text string) error {
 	switch action {
 	case ReviewLoopActionAnotherPass:
@@ -419,6 +420,10 @@ func (s *ReviewPassService) ActOnLoop(ctx context.Context, loopID, action, text 
 		return s.MessageAuthorOn(ctx, loopID, text)
 	case ReviewLoopActionEnd:
 		return s.EndOn(ctx, loopID)
+	case ReviewLoopActionStopWatching:
+		return s.StopWatchingOn(ctx, loopID)
+	case ReviewLoopActionWatchAgain:
+		return s.WatchAgainOn(ctx, loopID)
 	}
 	return fmt.Errorf("a review loop takes no action %q", action)
 }
@@ -455,8 +460,9 @@ func (s *ReviewPassService) MessageAuthorOn(ctx context.Context, loopID, text st
 	return actor.messageAuthorOn(ctx, l, text)
 }
 
-// EndOn ends a stuck loop by its ID with outcome stuck: a run's step
-// completes, and the workflow goes on. A handoff's loop ends with its
+// EndOn ends a stuck loop by its ID with outcome stuck, or a stewarding
+// one (held, stuck or not) with outcome ended: a run's step completes, and
+// the workflow goes on. A handoff's loop ends with its
 // handoff (Return or Recall), not here.
 func (s *ReviewPassService) EndOn(ctx context.Context, loopID string) error {
 	l, err := s.openLoopByID(ctx, loopID)

@@ -25,6 +25,10 @@ import (
 //     only once Confirm finds GitHub's heads at its pins;
 //   - ends the loop as closed when a pull request closes unmerged.
 //
+// The operator holds it (Stop watching), lets it watch again (Watch again)
+// or ends it (End, outcome ended); re-entries past max_reentries make it
+// stuck, and seven quiet days end it idle (review_steward_hold.go).
+//
 // A reply alone starts no pass; a disputed blocking finding does. A
 // re-entry pass waits only for answers to blocking findings, never to
 // checks or comments.
@@ -160,6 +164,11 @@ func (s *ReviewPassService) routeWatch(ctx context.Context, l ReviewLoop, rec *s
 			return true
 		}
 	}
+	if s.stewardHolds(ctx, rec) {
+		// Held or stuck: nothing is sent. What the reads found is routed
+		// once the steward watches again.
+		return false
+	}
 	s.watchMu.Lock()
 	routed := s.watchRouted[rec.ID]
 	s.watchMu.Unlock()
@@ -288,6 +297,11 @@ func (s *ReviewPassService) stillActive(ctx context.Context, loopID string) {
 // layer whose checks settled, the routed items told to the author once it
 // is idle, and a push to any watched head re-enters review.
 func (s *ReviewPassService) watching(ctx context.Context, l ReviewLoop, loop *store.HandoffReview, rec *store.ReviewLoop) error {
+	if rec.Held {
+		// Stop watching: nothing is sent and nothing is reviewed; a push
+		// made meanwhile re-enters once Watch again lets it.
+		return nil
+	}
 	if err := s.approveSettled(ctx, l, loop); err != nil {
 		log.Printf("review passes: %s: %v", l.TaskID, err)
 	}
@@ -297,6 +311,11 @@ func (s *ReviewPassService) watching(ctx context.Context, l ReviewLoop, loop *st
 	w, ok := s.freshWatch(rec.ID)
 	if !ok || !s.movedSinceApproval(ctx, rec, w) {
 		return nil
+	}
+	if rec.MaxReentries > 0 && rec.Reentries >= rec.MaxReentries {
+		// The re-entry budget is spent: the operator decides (Watch
+		// again allows one more), and no pass starts.
+		return s.stuck(ctx, l, loop, fmt.Sprintf(reentryBudgetReason, rec.Reentries, rec.MaxReentries))
 	}
 	return s.reenter(ctx, l)
 }

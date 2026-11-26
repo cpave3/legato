@@ -1410,11 +1410,16 @@ func (c *ReviewRunCaller) messageAuthorOn(ctx context.Context, l *store.ReviewLo
 	return c.messageAuthor(ctx, l.HostTask, text)
 }
 
-// endOn ends a stuck loop with outcome stuck: the step completes with its
-// outputs, and the workflow goes on.
+// endOn ends a stuck loop with outcome stuck, or a stewarding one with
+// outcome ended (LEG-592): the step completes with its outputs, and the
+// workflow goes on.
 func (c *ReviewRunCaller) endOn(ctx context.Context, l *store.ReviewLoop) error {
 	if !c.stepWaits(ctx, l) {
 		return ErrReviewNotStuck
+	}
+	if stewarding(l) {
+		c.finish(ctx, l.HostTask, ReviewOutcomeEnded)
+		return nil
 	}
 	loop, err := c.engine.db.GetHandoffReview(ctx, l.HostTask)
 	if err != nil || loop == nil || loop.Phase != ReviewPhaseStuck {

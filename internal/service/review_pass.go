@@ -439,8 +439,13 @@ func (s *ReviewPassService) step(ctx context.Context, l ReviewLoop) error {
 		// approved until it does (invariant 9).
 		return s.confirmLoop(ctx, l, loop.LoopID)
 	}
-	if loop.Phase == ReviewPhaseClean {
-		if rec := s.stewardRecord(ctx, l.TaskID); rec != nil {
+	if rec := s.stewardRecord(ctx, l.TaskID); rec != nil && approvalStands(loop) {
+		// The steward's watch, held or stuck there too: seven quiet days
+		// end it idle (LEG-592).
+		if s.idlePast(rec) {
+			return s.endSteward(ctx, rec, StewardWokeIdle)
+		}
+		if loop.Phase == ReviewPhaseClean {
 			return s.watching(ctx, l, loop, rec)
 		}
 	}

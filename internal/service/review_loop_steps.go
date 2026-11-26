@@ -63,8 +63,9 @@ const (
 	ReviewRefusalReadyFailed = "ready_failed"
 )
 
-// ReviewOutcomeEnded is a loop its workflow closed before it was approved,
-// stuck or closed by GitHub.
+// ReviewOutcomeEnded is a loop the operator ended while its steward
+// watched (End), or one its workflow closed before it was approved, stuck
+// or closed by GitHub.
 const ReviewOutcomeEnded = "ended"
 
 // reviewRefused is a step refusal with its code.
@@ -979,11 +980,12 @@ func (c *ReviewRunCaller) observe(ctx context.Context, kind string, step Resolve
 
 // endedState is what a loop closed under a waiting step says to it: stuck
 // (the operator ended it while stuck), closed (its pull requests closed),
+// ended (the operator ended its steward, during a re-entry's review too),
 // or, for a loop approved and closed, approved. A loop cancelled with its
 // run says nothing: the run is ending.
 func endedState(rec *store.ReviewLoop) string {
 	switch rec.Outcome {
-	case ReviewOutcomeStuck, ReviewOutcomeClosed, ReviewOutcomeApproved:
+	case ReviewOutcomeStuck, ReviewOutcomeClosed, ReviewOutcomeApproved, ReviewOutcomeEnded:
 		return rec.Outcome
 	}
 	return ""
@@ -1073,10 +1075,9 @@ func (c *ReviewRunCaller) observeWait(ctx context.Context, rec *store.ReviewLoop
 // observeWatch completes a watch (mode watch, the steward) with what woke
 // it: pushed or disputed once the loop went back to review (a pass is to
 // start), closed when a pull request closed unmerged, and merged, idle or
-// ended as the loop closed so (the operator's End of a stuck loop is
-// ended). It begins the steward's watch on a loop the review approved, and
-// waits while the loop is approved and watched, waits for its author, or
-// is stuck.
+// ended as the loop closed so. It begins the steward's watch on a loop the
+// review approved, and waits while the loop is approved and watched (held
+// too), waits for its author, or is stuck.
 func (c *ReviewRunCaller) observeWatch(ctx context.Context, rec *store.ReviewLoop) (map[string]any, error) {
 	out := func(woke string) map[string]any { return map[string]any{"woke": woke, "loop_id": rec.ID} }
 	if rec.State != store.ReviewLoopOpenState {

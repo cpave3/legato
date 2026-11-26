@@ -293,6 +293,7 @@ func (s *ReviewPassService) watchLoop(ctx context.Context, github ReviewWatchGit
 	s.watchMu.Unlock()
 	next := prev
 	next.LoopID, next.Repo, next.Changed = l.ID, l.Repo, false
+	active := false
 
 	session := github.WatchSession(l.Repo)
 	defer session.Close()
@@ -315,6 +316,9 @@ func (s *ReviewPassService) watchLoop(ctx context.Context, github ReviewWatchGit
 			commentsChanged = commentsChanged || poll.Changed
 		}
 		next.Changed = seen && !prev.ReadAt.IsZero() && (commentsChanged || !sameWatch(prev.Layers, layers))
+		// Activity is what the steward's idle end counts: a layer or a
+		// comment that differs, which a list's new ETag alone is not.
+		active = seen && !prev.ReadAt.IsZero() && (!sameWatch(prev.Layers, layers) || !sameComments(prev.Comments, comments))
 		next.Layers, next.Comments, next.ReadAt = layers, comments, now
 		return nil
 	}()
@@ -335,6 +339,26 @@ func (s *ReviewPassService) watchLoop(ctx context.Context, github ReviewWatchGit
 	}
 	s.watched[l.ID] = next
 	s.watchMu.Unlock()
+	if active {
+		// A push, a comment, a review or a check change: the steward is
+		// not idle (held too, which routes nothing).
+		s.stillActive(ctx, l.ID)
+	}
+}
+
+// sameComments says whether two reads of a loop's comments found the
+// same comments on each layer.
+func sameComments(a, b map[int]CommentPoll) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for number, x := range a {
+		y, ok := b[number]
+		if !ok || !reflect.DeepEqual(x.Comments, y.Comments) {
+			return false
+		}
+	}
+	return true
 }
 
 // sameWatch says whether two reads of a loop's layers found the same:
