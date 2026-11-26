@@ -8,6 +8,7 @@ const { listed } = vi.hoisted(() => ({ listed: { definitions: [] as WorkflowDefi
 vi.mock("../../hooks/useWorkflow", () => ({
   useWorkflows: () => ({ data: { definitions: listed.definitions, errors: [] }, refresh: vi.fn() }),
   useWorkflowRuns: () => ({ data: [], refresh: vi.fn() }),
+  useWorkflowStats: () => ({ data: null, refresh: vi.fn() }),
 }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 afterEach(cleanup)
