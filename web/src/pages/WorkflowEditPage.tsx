@@ -26,6 +26,10 @@ import { addressOf, selectionOf, type Selection } from "../lib/workflowAddress"
 import { Button } from "../components/ui/Button"
 import { LoadingState } from "../components/ui/LoadingState"
 import { useMediaQuery } from "../hooks/useMediaQuery"
+import { triggersState } from "../lib/workflowView"
+import { DockCard } from "../components/workflow-canvas/DockCard"
+import { cardTitle } from "../components/workflow-canvas/canvasStyles"
+import { CanvasHeader } from "../components/workflow-canvas/WorkflowCanvas"
 
 const CHECK_DELAY = 400
 const field = "min-h-9 rounded-md border border-lw-line-strong bg-lw-ground px-2 text-sm text-lw-text"
@@ -434,13 +438,123 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
   }
   if (text === null) return frame(<LoadingState label="Opening the file…" size="inline" />)
 
-  return frame(<>
-    <header className="flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0">
-        <h1 className="text-xl font-semibold">{headerTitle}</h1>
-        <p className="mt-0.5 break-all text-xs text-lw-faint"><span className="font-lw-mono">{fileName}</span>{folderLabel ? ` · ${folderLabel}` : ""}</p>
-        {mode === "edit" && file && !file.editable && <p className="mt-1 text-sm text-lw-text-2">This workflow can't be edited here: {file.reason}</p>}
+  const box = "rounded-lg border bg-lw-surface p-3 text-sm shadow-[var(--shadow-lw-panel)]"
+  const notices = [
+    mode === "edit" && file && !file.editable && <p key="read-only" role="note" className={`${box} border-lw-line text-lw-text-2`}>This workflow can't be edited here: {file.reason}</p>,
+    versionOne && editable && <section key="v1" role="region" aria-label="Schema version 1" className={`${box} flex flex-wrap items-center gap-2 border-lw-line`}>
+      <p className="min-w-0 flex-1"><span className="font-medium">Schema version 1</span> <span className="text-lw-text-2">· Legato writes version 2 now, which adds loops, if: and agent waits. Upgrading keeps your comments; check the result, then save.</span></p>
+      <Button size="sm" variant="outline" disabled={upgrading} onClick={() => void upgrade()}>Upgrade to v2</Button>
+    </section>,
+    savedNotice && mode === "edit" && (pausedTriggers.length > 0 || turningOn === "done") && <section key="saved" role="status" aria-label="Saved" className={`${box} flex flex-wrap items-center gap-2 border-lw-line`}>
+      {turningOn === "done"
+        ? <p className="flex-1">Saved · on: it starts runs by itself.</p>
+        : <>
+          <p className="min-w-0 flex-1"><span className="font-medium">Saved · paused</span> <span className="text-lw-text-2">· {pausedTriggers.map(t => KIND_TITLES[t] ?? t).join(", ")} won't start runs by itself until you turn it on.</span></p>
+          {turningOn === "ask" || turningOn === "busy"
+            ? <span role="alertdialog" aria-label="Turn on" className="flex flex-wrap items-center gap-2 text-xs">
+              <span>It will start runs by itself.</span>
+              <Button size="sm" disabled={turningOn === "busy"} onClick={() => void turnOn()}>Turn on</Button>
+              <Button size="sm" variant="ghost" onClick={() => setTurningOn(null)}>Not now</Button>
+            </span>
+            : <Button size="sm" variant="outline" onClick={() => setTurningOn("ask")}>Turn on</Button>}
+        </>}
+      <Button size="sm" variant="ghost" aria-label="Dismiss" onClick={() => { setSavedNotice(false); setTurningOn(null) }}>×</Button>
+    </section>,
+    draft && <section key="draft" role="alertdialog" aria-label="Unsaved changes" className={`${box} flex flex-wrap items-center gap-2 border-lw-needs`}>
+      <p className="flex-1">You left this workflow with unsaved changes. They were kept in this browser.</p>
+      <Button size="sm" variant="outline" onClick={() => { history.push(draft.text, "Restore unsaved changes"); if (draft.digest) setDigest(draft.digest); setDraft(null) }}>Restore them</Button>
+      <Button size="sm" variant="ghost" onClick={() => { writeDraft(key, null); setDraft(null) }}>Throw them away</Button>
+    </section>,
+    error && <p key="error" role="alert" className="break-words rounded-lg border border-lw-danger-line bg-lw-error-soft p-3 text-sm text-lw-danger shadow-[var(--shadow-lw-panel)]">{error}</p>,
+    checkError && <p key="check" role="alert" className={`${box} border-lw-line text-lw-error`}>Could not check the file: {checkError}</p>,
+    conflict && <section key="conflict" role="alertdialog" aria-label="The file changed" className={`${box} flex flex-col gap-2 border-lw-needs`}>
+      <p>The file changed on disk since you opened it. Reload it to see the change, or keep your edits and save them over it.</p>
+      <pre className="max-h-48 overflow-auto rounded border border-lw-line bg-lw-ground p-2 font-lw-mono text-xs">{conflict.yaml}</pre>
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" onClick={() => { history.reset(conflict.yaml); setSaved(conflict.yaml); setDigest(conflict.digest); setConflict(null) }}>Reload</Button>
+        <Button size="sm" variant="ghost" onClick={() => { setDigest(conflict.digest); setConflict(null) }}>Keep my edits</Button>
       </div>
+    </section>,
+    triggers && <section key="triggers" role="alertdialog" aria-label="Switch on triggers" className={`${box} flex flex-col gap-2 border-lw-needs`}>
+      <p>This save switches on {triggers.join(", ")}: the trigger will start runs by itself.</p>
+      <div className="flex gap-2">
+        <Button size="sm" onClick={() => void save(true)} disabled={busy}>Save and switch on</Button>
+        <Button size="sm" variant="ghost" onClick={() => setTriggers(null)}>Cancel</Button>
+      </div>
+    </section>,
+    deleting && <section key="delete" role="alertdialog" aria-label="Delete the workflow" className={`${box} flex flex-col gap-2 border-lw-danger-line`}>
+      <p>Delete <code className="font-lw-mono text-xs">{file?.path}</code>? Its runs are kept; this Legato forgets its trigger switches.</p>
+      <div className="flex gap-2">
+        <Button size="sm" variant="destructive" onClick={() => void remove()} disabled={busy}>Delete</Button>
+        <Button size="sm" variant="ghost" onClick={() => setDeleting(false)}>Cancel</Button>
+      </div>
+    </section>,
+  ].filter(Boolean)
+  const noticeList = notices.length > 0 ? <>{notices}</> : null
+  const visual = editorMode === "visual" && editable
+  // On a computer Visual is the graph with the outline and the inspector
+  // docked over it (LEG-655); its Problems are a card heading the outline.
+  const canvas = visual && !narrow
+  const problemsCard = canvas && showProblems && <DockCard label="Problems" folded={false} onFold={() => setShowProblems(false)}
+    heading={<h2 className={cardTitle}>{checked ? "Problems" : "Checking…"}<span className="font-medium text-lw-faint">{problemCount}</span></h2>}>
+    <div className="max-h-60 overflow-y-auto px-4 pb-3"><Problems diagnostics={diagnostics} /></div>
+  </DockCard>
+  const outlineProps = { text, onEdit: (change: { text: string; undo: { label: string } }, how?: { typing?: boolean }) => history.push(change.text, change.undo.label, how?.typing), diagnostics, nameFixed: mode === "edit", onEditYaml: (line?: number) => { switchMode("yaml"); if (line) { const at = offsetOf(text, line, 1); jumpTo({ from: at, to: at }) } }, options, schedule: checked?.schedule, onPending: setPendingEdits,
+    savedText: mode === "edit" ? saved : null, pausedHere, lastGood, onGood: setLastGood, graph, selection, onSelect: select, narrow, sheet: narrow && selection !== null, onCloseSheet: closeSheet, onUndo: history.undo, onRedo: history.redo, held: heldYaml, onHeld: setHeldYaml }
+
+  let body: React.ReactNode
+  if (canvas) {
+    body = <section aria-label="Visual" className="flex min-h-0 flex-1 flex-col">
+      <LazyWorkflowOutline {...outlineProps} layout="canvas" notices={noticeList} cards={problemsCard} />
+    </section>
+  } else if (!visual && !narrow) {
+    // YAML fills the page under the header: the navigator beside the
+    // editor, the Problems under it.
+    body = <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4">
+      {noticeList && <div className="max-h-[40%] shrink-0 space-y-2 overflow-y-auto">{noticeList}</div>}
+      <div className={editable ? "grid min-h-0 flex-1 gap-4 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]" : "flex min-h-0 flex-1 flex-col"}>
+        {editable && <section aria-label="Navigator" className="min-h-0 overflow-y-auto rounded-xl border border-lw-line bg-lw-surface p-2">
+          <LazyWorkflowOutline mode="navigate" text={text} cursor={cursor} onJump={jumpTo} onEdit={() => {}} diagnostics={diagnostics} onEditYaml={line => { if (line) { const at = offsetOf(text, line, 1); jumpTo({ from: at, to: at }) } }}
+            options={options} selection={null} onSelect={() => {}} narrow={narrow} pausedHere={pausedHere} lastGood={lastGood} onGood={setLastGood} graph={graph} />
+        </section>}
+        <section aria-label="YAML" className="min-h-0 flex-1 overflow-hidden rounded-xl border border-lw-line">
+          <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} readOnly={!editable} onUndo={editable ? history.undo : undefined} onRedo={editable ? history.redo : undefined} jumpTo={jump} onCursor={setCursor} />
+        </section>
+      </div>
+      <section aria-label="Check" className="max-h-40 shrink-0 overflow-y-auto rounded-xl border border-lw-line bg-lw-surface p-3">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-lw-text-2">{checked ? "Problems" : "Checking…"}</h2>
+        {checked && <Problems diagnostics={diagnostics} />}
+      </section>
+    </div>
+  } else {
+    // A phone keeps the page's flow: the notices, then the outline (or the
+    // YAML) as the screen.
+    body = <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      {noticeList && <div className="mb-3 space-y-2">{noticeList}</div>}
+      {visual
+        ? <section aria-label="Visual" className="pb-16"><LazyWorkflowOutline {...outlineProps} /></section>
+        : <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            {editable && <section aria-label="Navigator">
+              <LazyWorkflowOutline mode="navigate" text={text} cursor={cursor} onJump={jumpTo} onEdit={() => {}} diagnostics={diagnostics} onEditYaml={line => { if (line) { const at = offsetOf(text, line, 1); jumpTo({ from: at, to: at }) } }}
+                options={options} selection={null} onSelect={() => {}} narrow={narrow} pausedHere={pausedHere} lastGood={lastGood} onGood={setLastGood} graph={graph} />
+            </section>}
+            <section aria-label="YAML" className="h-[70vh] overflow-hidden rounded-xl border border-lw-line">
+              <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} readOnly={!editable} onUndo={editable ? history.undo : undefined} onRedo={editable ? history.redo : undefined} jumpTo={jump} onCursor={setCursor} />
+            </section>
+          </div>
+          <section aria-label="Check" className="rounded-xl border border-lw-line bg-lw-surface p-3">
+            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-lw-text-2">{checked ? "Problems" : "Checking…"}</h2>
+            {checked && <Problems diagnostics={diagnostics} />}
+          </section>
+        </div>}
+    </div>
+  }
+
+  return <main className="flex min-h-0 flex-1 flex-col overflow-hidden font-lw text-lw-text">
+    <CanvasHeader back={{ to: back, label: mode === "new" ? "Workflows" : "Back to the workflow" }} title={headerTitle}
+      subtitle={<><span className="font-lw-mono">{fileName}</span>{folderLabel ? ` · ${folderLabel}` : ""}</>}>
+      {mode === "edit" && <span className="shrink-0 text-[13px] text-lw-text-2">{triggersState(triggerStates.map(state => state.enabled))}</span>}
       <div className="flex flex-wrap items-center gap-2">
         {!narrow && problemsButton}
         <div role="radiogroup" aria-label="Editor" className="inline-flex rounded-md border border-lw-line p-0.5">
@@ -460,87 +574,12 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
         {mode === "edit" && file?.editable && <Button variant="outline" size="sm" disabled={busy} onClick={() => setDeleting(true)}><Trash2 size={13} />Delete</Button>}
         {editable && !narrow && saveButton}
       </div>
-    </header>
-    {showProblems && editorMode === "visual" && <section aria-label="Check" className="rounded-xl border border-lw-line bg-lw-surface p-3">
-      <Problems diagnostics={diagnostics} />
-    </section>}
-
-    {versionOne && editable && <section role="region" aria-label="Schema version 1" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-line bg-lw-surface p-3 text-sm">
-      <p className="min-w-0 flex-1"><span className="font-medium">Schema version 1</span> <span className="text-lw-text-2">· Legato writes version 2 now, which adds loops, if: and agent waits. Upgrading keeps your comments; check the result, then save.</span></p>
-      <Button size="sm" variant="outline" disabled={upgrading} onClick={() => void upgrade()}>Upgrade to v2</Button>
-    </section>}
-    {savedNotice && mode === "edit" && (pausedTriggers.length > 0 || turningOn === "done") && <section role="status" aria-label="Saved" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-line bg-lw-surface p-3 text-sm">
-      {turningOn === "done"
-        ? <p className="flex-1">Saved · on: it starts runs by itself.</p>
-        : <>
-          <p className="min-w-0 flex-1"><span className="font-medium">Saved · paused</span> <span className="text-lw-text-2">· {pausedTriggers.map(t => KIND_TITLES[t] ?? t).join(", ")} won't start runs by itself until you turn it on.</span></p>
-          {turningOn === "ask" || turningOn === "busy"
-            ? <span role="alertdialog" aria-label="Turn on" className="flex flex-wrap items-center gap-2 text-xs">
-              <span>It will start runs by itself.</span>
-              <Button size="sm" disabled={turningOn === "busy"} onClick={() => void turnOn()}>Turn on</Button>
-              <Button size="sm" variant="ghost" onClick={() => setTurningOn(null)}>Not now</Button>
-            </span>
-            : <Button size="sm" variant="outline" onClick={() => setTurningOn("ask")}>Turn on</Button>}
-        </>}
-      <Button size="sm" variant="ghost" aria-label="Dismiss" onClick={() => { setSavedNotice(false); setTurningOn(null) }}>×</Button>
-    </section>}
-    {draft && <section role="alertdialog" aria-label="Unsaved changes" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm">
-      <p className="flex-1">You left this workflow with unsaved changes. They were kept in this browser.</p>
-      <Button size="sm" variant="outline" onClick={() => { history.push(draft.text, "Restore unsaved changes"); if (draft.digest) setDigest(draft.digest); setDraft(null) }}>Restore them</Button>
-      <Button size="sm" variant="ghost" onClick={() => { writeDraft(key, null); setDraft(null) }}>Throw them away</Button>
-    </section>}
-        {error && <p role="alert" className="break-words rounded-lg border border-lw-danger-line bg-lw-error-soft p-3 text-sm text-lw-danger">{error}</p>}
-    {checkError && <p role="alert" className="text-sm text-lw-error">Could not check the file: {checkError}</p>}
-
-    {conflict && <section role="alertdialog" aria-label="The file changed" className="flex flex-col gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm">
-      <p>The file changed on disk since you opened it. Reload it to see the change, or keep your edits and save them over it.</p>
-      <pre className="max-h-48 overflow-auto rounded border border-lw-line bg-lw-ground p-2 font-lw-mono text-xs">{conflict.yaml}</pre>
-      <div className="flex gap-2">
-        <Button size="sm" variant="outline" onClick={() => { history.reset(conflict.yaml); setSaved(conflict.yaml); setDigest(conflict.digest); setConflict(null) }}>Reload</Button>
-        <Button size="sm" variant="ghost" onClick={() => { setDigest(conflict.digest); setConflict(null) }}>Keep my edits</Button>
-      </div>
-    </section>}
-
-    {triggers && <section role="alertdialog" aria-label="Switch on triggers" className="flex flex-col gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm">
-      <p>This save switches on {triggers.join(", ")}: the trigger will start runs by itself.</p>
-      <div className="flex gap-2">
-        <Button size="sm" onClick={() => void save(true)} disabled={busy}>Save and switch on</Button>
-        <Button size="sm" variant="ghost" onClick={() => setTriggers(null)}>Cancel</Button>
-      </div>
-    </section>}
-
-    {deleting && <section role="alertdialog" aria-label="Delete the workflow" className="flex flex-col gap-2 rounded-lg border border-lw-danger-line bg-lw-surface p-3 text-sm">
-      <p>Delete <code className="font-lw-mono text-xs">{file?.path}</code>? Its runs are kept; this Legato forgets its trigger switches.</p>
-      <div className="flex gap-2">
-        <Button size="sm" variant="destructive" onClick={() => void remove()} disabled={busy}>Delete</Button>
-        <Button size="sm" variant="ghost" onClick={() => setDeleting(false)}>Cancel</Button>
-      </div>
-    </section>}
-
-    {editorMode === "yaml" || !editable
-      ? <div className="flex flex-col gap-4">
-        <div className={editable && !narrow ? "grid gap-4 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]" : "flex flex-col gap-2"}>
-          {editable && <section aria-label="Navigator" className={narrow ? "" : "max-h-[36rem] overflow-y-auto rounded-xl border border-lw-line bg-lw-surface p-2"}>
-            <LazyWorkflowOutline mode="navigate" text={text} cursor={cursor} onJump={jumpTo} onEdit={() => {}} diagnostics={diagnostics} onEditYaml={line => { if (line) { const at = offsetOf(text, line, 1); jumpTo({ from: at, to: at }) } }}
-              options={options} selection={null} onSelect={() => {}} narrow={narrow} pausedHere={pausedHere} lastGood={lastGood} onGood={setLastGood} graph={graph} />
-          </section>}
-          <section aria-label="YAML" className={narrow ? "h-[70vh] overflow-hidden rounded-xl border border-lw-line" : "h-[36rem] overflow-hidden rounded-xl border border-lw-line"}>
-            <LazyWorkflowYamlEditor value={text} onChange={next => history.push(next, "Edit YAML", true)} serverDiagnostics={diagnostics} readOnly={!editable} onUndo={editable ? history.undo : undefined} onRedo={editable ? history.redo : undefined} jumpTo={jump} onCursor={setCursor} />
-          </section>
-        </div>
-        <section aria-label="Check" className="rounded-xl border border-lw-line bg-lw-surface p-3">
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-lw-text-2">{checked ? "Problems" : "Checking…"}</h2>
-          {checked && <Problems diagnostics={diagnostics} />}
-        </section>
-      </div>
-      : <section aria-label="Visual" className={narrow ? "pb-16" : undefined}>
-        <LazyWorkflowOutline text={text} onEdit={(change, how) => history.push(change.text, change.undo.label, how?.typing)} diagnostics={diagnostics} nameFixed={mode === "edit"} onEditYaml={line => { switchMode("yaml"); if (line) { const at = offsetOf(text, line, 1); jumpTo({ from: at, to: at }) } }} options={options} schedule={checked?.schedule} onPending={setPendingEdits}
-          savedText={mode === "edit" ? saved : null} pausedHere={pausedHere} lastGood={lastGood} onGood={setLastGood} graph={graph} selection={selection} onSelect={select} narrow={narrow} sheet={narrow && selection !== null} onCloseSheet={closeSheet} onUndo={history.undo} onRedo={history.redo} held={heldYaml} onHeld={setHeldYaml} />
-      </section>}
+    </CanvasHeader>
+    {body}
     {text !== null && Object.keys(heldYaml).length > 0 && <Suspense fallback={null}><HeldYamlReconciler text={text} held={heldYaml} onHeld={setHeldYaml} /></Suspense>}
     {narrow && editable && <div role="toolbar" aria-label="Save" className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-between gap-2 border-t border-lw-line bg-lw-surface px-4 py-2">
       {problemsButton}
       {saveButton}
     </div>}
-  </>)
+  </main>
 }

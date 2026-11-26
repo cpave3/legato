@@ -322,8 +322,9 @@ A file that can't be parsed shows its error instead of a graph.
 
 The editor has two sides, **Visual** and **YAML**, and you can switch between them at any time without losing work: both edit the same file. The YAML is coloured in your theme's own syntax colours (Settings › Appearance), so keys, strings and comments read on a dark theme as well as a light one.
 
-- **Visual** shows the workflow as an outline, with the part you choose open beside it.
-  - The outline reads from top to bottom: **When** (running by hand, which every workflow can, then its triggers, a paused one marked), **Asks for** (its inputs), **Then** (its steps in order) and **About** (its name, title, description, run title, and what the web UI opens after a run starts).
+- **Visual** shows the workflow as its graph, filling the page as on the workflow's page, with the outline in cards on the left and the part you choose open on the right.
+  - The outline reads from top to bottom: **Triggers** (running by hand, which every workflow can, then its triggers, a paused one marked), **Inputs**, **Steps** (in order) and **About** (its name, title, description, run title, and what the web UI opens after a run starts). Fold a card by its title; the card of the row you choose opens by itself.
+  - Choose a row, or a node of the graph, to edit it in the panel on the right; choosing a row also centres the graph on its node. ✕ or Escape closes the panel. **Panels** (or the `.` key) hides the cards and the panel for a view of the whole graph. Where the page has no room for the cards and the panel side by side, the cards step aside while the panel is open: **Outline · Show panels** brings them back. The header's problems count opens a **Problems** card above the outline.
   - Choose a row to edit it on the right. A step has three tabs: **Setup** (its ID, how it starts, and the fields of its type), **Outputs** (the outputs it declares) and **YAML** (that step's own YAML). A trigger and an input have **Setup** and **YAML**. A change in the YAML tab changes only that part of the file, and is written once it is valid YAML.
   - The row you have open is in the page's address (such as `#steps/review`), so a reload or Back keeps it.
   - **Add trigger**, **Add input** and **Add step** add one and open it. A new trigger starts paused. Renaming an input changes every `${{ workflow.inputs.<name> }}` that reads it, and the triggers' mappings of it.
@@ -334,21 +335,21 @@ The editor has two sides, **Visual** and **YAML**, and you can switch between th
     - A step's **⋮** menu duplicates, moves or deletes it, and on a computer you can drag a row to move it. A move that would make a step read the outputs of one after it is refused, with the reference named. Deleting a step that others read asks first.
     - Renaming the ID of a step that others read asks whether to change their references too.
     - A field the step's type doesn't know is kept, and named, for you to edit in YAML.
-    - Each trigger in **When** reads as a sentence, such as "A card enters **Review** · priority is **high**" or "Every **weekday** at **09:00**", with **on** or **paused** beside it as this Legato runs it. You can always run a workflow by hand too.
-    - A column-entry trigger offers to add a task input filled from the card that entered the column; that input shows as "from the card" under **Asks for**.
+    - Each trigger in **Triggers** reads as a sentence, such as "A card enters **Review** · priority is **high**" or "Every **weekday** at **09:00**", with **on** or **paused** beside it as this Legato runs it. You can always run a workflow by hand too.
+    - A column-entry trigger offers to add a task input filled from the card that entered the column; that input shows as "from the card" under **Inputs**.
     - After you save a workflow whose trigger is paused, the editor says **Saved · paused** and offers **Turn on**, which asks first, as it will start runs by itself. A new workflow with a paused trigger stays open in the editor after **Create** for this.
     - A trigger maps the workflow's inputs from what it gives, says whether it starts runs by itself in the file, whether it asks you first, and its runs a day at most. A column-entry trigger also takes its column, handed-off cards and conditions; a schedule is **Every** or **Cron**, with its next three runs.
   - A part of the file the forms can't show, such as a step written with a YAML anchor, is marked **Edited as YAML** and opens in its YAML tab. The rest stays as forms. Only a file whose YAML doesn't parse opens in YAML alone.
   - A change touches only what it changes: the rest of the file, comments included, stays as you wrote it.
   - Problems Legato finds show on their fields, and as a count beside each row and in the header.
-  - Keys: **j** and **k** move through the rows, **Enter** opens one, **y** switches between Visual and YAML, and Ctrl+S (⌘S on a Mac) saves.
-  - On a phone, the outline is the screen and Save is at the bottom. Tapping a row opens it full screen; Back returns to the outline.
+  - Keys: **j** and **k** move through the rows, across the cards, **Enter** opens one, Escape closes it, **.** hides or shows the panels, **y** switches between Visual and YAML, and Ctrl+S (⌘S on a Mac) saves.
+  - On a phone, the outline is the screen and Save is at the bottom. Tapping a row opens it full screen; Back returns to the outline. **Graph**, above the outline, shows the graph in its place, top to bottom; tapping a step or a trigger opens its row.
 - **Undo** and **Redo** go back and forth through your changes on both sides. In YAML, Ctrl+Z (⌘Z on a Mac) and Ctrl+Shift+Z (⌘⇧Z) do the same, so they also undo a change made in Visual. A pause in typing starts a new step. A change made in Visual leaves your place in the YAML where it was.
 - The side you used last is remembered on this device.
 
-**Map**, above the outline, shows the workflow as a graph instead, read-only: choosing a step or a trigger in it opens that row. While the file has an error, the map is of the last version Legato could read, and says so.
+The graph is read-only: you change the workflow in the outline and the panel. While the file has an error, the graph is of the last version Legato could read, and says so; until Legato has read the file once, it says the graph will show then.
 
-In YAML, the outline stays beside the text. Choose a row to go to its part of the file; as you move through the file, the row you are in is marked. On a phone it is a **Jump to** menu.
+In YAML, the text fills the page under the header, with the outline beside it and the problems under it. Choose a row to go to its part of the file; as you move through the file, the row you are in is marked. **Graph**, above the outline there, shows the graph in its place. On a phone it is a **Jump to** menu.
 
 If the YAML stops parsing, Visual keeps the outline as it last was, greyed out, and says on which line Legato can't read the YAML; **Show** takes you there. The forms come back once it parses.
 

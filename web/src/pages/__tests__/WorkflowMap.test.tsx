@@ -4,13 +4,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { WorkflowEditPage } from "../WorkflowEditPage"
 
-// The Map (LEG-515): the run graph in the outline's place, read-only,
-// linked to the selection both ways; stale while the file can't be read.
+// The graph (LEG-515): read-only, linked to the selection both ways; stale
+// while the file can't be read. On a computer it is the page, under the
+// outline's cards (LEG-655); on a phone and beside the YAML, Graph shows
+// it in the outline's place.
 
-const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
+const { apiFetch, media } = vi.hoisted(() => ({ apiFetch: vi.fn(), media: { narrow: false } }))
 vi.mock("../../lib/api", () => ({ apiFetch }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
-vi.mock("../../hooks/useMediaQuery", () => ({ useMediaQuery: () => false }))
+vi.mock("../../hooks/useMediaQuery", () => ({ useMediaQuery: (query: string) => query === "(max-width: 767px)" && media.narrow }))
 vi.mock("../../hooks/useWorkflow", () => ({ useWorkflows: () => ({ data: { definitions: [], errors: null, folders: [] }, refresh: vi.fn() }) }))
 vi.mock("../../components/workflow-editor/LazyWorkflowYamlEditor", () => ({
   LazyWorkflowYamlEditor: ({ value, onChange, label = "Workflow YAML" }: { value: string; onChange: (v: string) => void; label?: string }) =>
@@ -41,6 +43,7 @@ const graph = { version: 1, nodes: [{ id: "trigger:manual", kind: "trigger", tri
 const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }))
 
 beforeEach(() => {
+  media.narrow = false
   localStorage.clear()
   localStorage.setItem("legato:workflow-editor-mode", "visual")
   apiFetch.mockReset()
@@ -62,56 +65,70 @@ function renderAt(hash: string) {
   </MemoryRouter></QueryClientProvider>)
 }
 
-const toMap = async () => {
-  const map = await screen.findByRole("radio", { name: "Map" })
-  await waitFor(() => expect(map).toHaveProperty("disabled", false))
-  fireEvent.click(map)
-  return screen.getByRole("region", { name: "Map" })
+const canvas = () => screen.findByRole("region", { name: "Workflow graph" })
+const address = () => screen.getByRole("status", { name: "Address" }).textContent
+// Graph, in the outline's place: on a phone, or beside the YAML.
+const toGraph = async () => {
+  const graph = await screen.findByRole("radio", { name: "Graph" })
+  await waitFor(() => expect(graph).toHaveProperty("disabled", false))
+  fireEvent.click(graph)
+  return screen.findByRole("region", { name: "Graph" })
 }
 
-it("swaps the outline for the graph, the row chosen marked in it", async () => {
+it("draws the graph beside the outline, the row chosen marked in it", async () => {
   renderAt("#steps/run")
-  const map = await toMap()
-  expect(screen.queryByRole("navigation", { name: "Outline" })).toBeNull()
-  expect(within(map).getByRole("button", { name: "step:run" }).getAttribute("aria-pressed")).toBe("true")
-  fireEvent.click(screen.getByRole("radio", { name: "List" }))
+  const graph = await canvas()
+  expect((await within(graph).findByRole("button", { name: "step:run" })).getAttribute("aria-pressed")).toBe("true")
   expect(screen.getByRole("navigation", { name: "Outline" })).toBeTruthy()
+  expect(screen.queryByRole("radio", { name: "Graph" })).toBeNull()
 })
 
 it("chooses a node's row", async () => {
   renderAt("#steps/run")
-  const map = await toMap()
-  fireEvent.click(within(map).getByRole("button", { name: "step:prep" }))
-  await waitFor(() => expect(screen.getByRole("status", { name: "Address" }).textContent).toBe("#steps/prep"))
-  fireEvent.click(within(map).getByRole("button", { name: "trigger:schedule" }))
-  await waitFor(() => expect(screen.getByRole("status", { name: "Address" }).textContent).toBe("#on/schedule"))
+  const graph = await canvas()
+  fireEvent.click(await within(graph).findByRole("button", { name: "step:prep" }))
+  await waitFor(() => expect(address()).toBe("#steps/prep"))
+  fireEvent.click(within(graph).getByRole("button", { name: "trigger:schedule" }))
+  await waitFor(() => expect(address()).toBe("#on/schedule"))
   // Running by hand is no row.
-  fireEvent.click(within(map).getByRole("button", { name: "trigger:manual" }))
-  expect(screen.getByRole("status", { name: "Address" }).textContent).toBe("#on/schedule")
+  fireEvent.click(within(graph).getByRole("button", { name: "trigger:manual" }))
+  expect(address()).toBe("#on/schedule")
 })
 
 it("keeps the last graph, marked stale, while the file can't be read", async () => {
   renderAt("#steps/run")
-  const map = await toMap()
-  expect(within(map).queryByText(/last version Legato could read/)).toBeNull()
+  const graph = await canvas()
+  await within(graph).findByRole("button", { name: "step:run" })
+  expect(within(graph).queryByText(/last version Legato could read/)).toBeNull()
   fireEvent.click(screen.getByRole("radio", { name: "YAML" }))
   fireEvent.change(await screen.findByRole("textbox", { name: "Workflow YAML" }), { target: { value: fileText.replace("title: Run", "title: Run [oops]") } })
-  fireEvent.click(screen.getByRole("radio", { name: "Map" }))
-  const stale = await screen.findByRole("region", { name: "Map" })
+  fireEvent.click(screen.getByRole("radio", { name: "Visual" }))
+  const stale = await canvas()
   await waitFor(() => expect(within(stale).getByText(/last version Legato could read/)).toBeTruthy())
   expect(within(stale).getByRole("button", { name: "step:run" })).toBeTruthy()
 })
 
-it("keeps the last map, marked stale, while the YAML doesn't parse", async () => {
+it("keeps the last graph, marked stale, while the YAML doesn't parse", async () => {
   renderAt("#steps/run")
-  await screen.findByRole("radio", { name: "Map" })
+  await within(await canvas()).findByRole("button", { name: "step:run" })
   fireEvent.click(screen.getByRole("radio", { name: "YAML" }))
-  await toMap()
+  await toGraph()
   fireEvent.change(await screen.findByRole("textbox", { name: "Workflow YAML" }), { target: { value: fileText + "broken: [oops\n" } })
-  const stale = await screen.findByRole("region", { name: "Map" })
+  const stale = await screen.findByRole("region", { name: "Graph" })
   await waitFor(() => expect(within(stale).getByText(/last version Legato could read/)).toBeTruthy())
   expect(within(stale).getByRole("button", { name: "step:run" })).toBeTruthy()
   fireEvent.click(screen.getByRole("radio", { name: "Visual" }))
-  fireEvent.click(await screen.findByRole("radio", { name: "Map" }))
-  expect(within(await screen.findByRole("region", { name: "Map" })).getByText(/last version Legato could read/)).toBeTruthy()
+  const graph = await canvas()
+  expect(within(graph).getByText(/last version Legato could read/)).toBeTruthy()
+  expect(within(graph).getByText(/can't read the YAML/)).toBeTruthy()
+})
+
+it("on a phone, Graph shows the graph in the outline's place, and a node opens its row", async () => {
+  media.narrow = true
+  renderAt("")
+  const graph = await toGraph()
+  expect(screen.queryByRole("navigation", { name: "Outline" })).toBeNull()
+  fireEvent.click(within(graph).getByRole("button", { name: "step:prep" }))
+  await waitFor(() => expect(address()).toBe("#steps/prep"))
+  expect(await screen.findByRole("dialog", { name: "Prepare" })).toBeTruthy()
 })

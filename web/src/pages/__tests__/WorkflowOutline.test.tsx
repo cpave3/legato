@@ -82,7 +82,8 @@ function renderAt(hash = "") {
 const address = () => screen.getByRole("status", { name: "Address" }).textContent
 const outline = () => screen.getByRole("navigation", { name: "Outline" })
 const inspector = () => screen.getByRole("region", { name: "Inspector" })
-const row = (name: RegExp) => within(outline()).getByRole("button", { name })
+// A row is a button with an address; each card's fold button is not one.
+const row = (name: RegExp) => within(outline()).getAllByRole("button", { name }).find(button => button.hasAttribute("data-address"))!
 const commit = (element: HTMLElement, value: string) => { fireEvent.change(element, { target: { value } }); fireEvent.blur(element) }
 const yamlOf = async () => { fireEvent.click(screen.getByRole("radio", { name: "YAML" })); return (await screen.findByRole("textbox", { name: "Workflow YAML" }) as HTMLTextAreaElement).value }
 
@@ -93,13 +94,14 @@ it("says the workflow's title and file in its header", async () => {
   expect(await screen.findByRole("button", { name: "No problems" })).toBeTruthy()
 })
 
-it("lists the workflow as When, Asks for, Then and About", async () => {
+it("lists the workflow as Triggers, Inputs, Steps and About cards over its graph (LEG-655)", async () => {
   renderAt()
   await screen.findByRole("navigation", { name: "Outline" })
   const sections = within(outline()).getAllByRole("region").map(section => section.getAttribute("aria-label"))
-  expect(sections).toEqual(["When", "Asks for", "Then", "About"])
-  expect(within(screen.getByRole("region", { name: "When" })).getAllByRole("button").map(b => b.textContent)).toEqual(["Every weekday at 09:00paused", "Add trigger"])
-  const then = screen.getByRole("region", { name: "Then" })
+  expect(sections).toEqual(["Triggers", "Inputs", "Steps", "About"])
+  // The first button of a card folds it.
+  expect(within(screen.getByRole("region", { name: "Triggers" })).getAllByRole("button").slice(1).map(b => b.textContent)).toEqual(["Every weekday at 09:00paused", "Add trigger"])
+  const then = screen.getByRole("region", { name: "Steps" })
   expect([...then.querySelectorAll("[data-address]")].map(b => b.getAttribute("data-address"))).toEqual(["steps/prep", "steps/run"])
   expect(within(then).getByRole("button", { name: "Add step" })).toBeTruthy()
 })
@@ -173,7 +175,7 @@ it("saves with Mod-S", async () => {
 
 it("adds a step and opens it", async () => {
   renderAt()
-  fireEvent.click(within(await screen.findByRole("region", { name: "Then" })).getByRole("button", { name: "Add step" }))
+  fireEvent.click(within(await screen.findByRole("region", { name: "Steps" })).getByRole("button", { name: "Add step" }))
   fireEvent.click(within(screen.getByRole("dialog", { name: "Add a step" })).getByRole("button", { name: /Move a task/ }))
   await waitFor(() => expect(address()).toBe("#steps/move-a-task"))
   expect((screen.getByRole("textbox", { name: "Step title" }) as HTMLInputElement).value).toBe("Move a task")
@@ -413,7 +415,7 @@ it("finds a step type as you type, and Enter adds the first where the + was", as
 
 it("focuses the first essential field of the step it adds", async () => {
   renderAt()
-  fireEvent.click(within(await screen.findByRole("region", { name: "Then" })).getByRole("button", { name: "Add step" }))
+  fireEvent.click(within(await screen.findByRole("region", { name: "Steps" })).getByRole("button", { name: "Add step" }))
   fireEvent.click(within(screen.getByRole("dialog", { name: "Add a step" })).getByRole("button", { name: /Run an agent/ }))
   await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("prompt of step run-an-agent"))
 })
