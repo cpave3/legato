@@ -9,11 +9,12 @@ import type { Agent, Conversation, ConversationResult } from "./legato"
 // keys centred at the foot.
 export type Header = { badge: string; title: string }
 // A line of the feed, and the entry in full for when it is opened.
-// `asks` marks the line of what the agent asks for, which opens its approval.
+// `asks` marks the line of what the agent asks for, which opens its
+// approval: a permission it asks for, or a question.
 // `key` names what the line shows, the same from one read to the next while
 // its text changes (a reply growing, a call ending), so an opened entry can
 // follow it (followEntry).
-export type FeedItem = { text: string; detail?: string; asks?: true; key?: string }
+export type FeedItem = { text: string; detail?: string; asks?: "permission" | "question"; key?: string }
 export type FeedPage = Header & { items: FeedItem[]; hint: string }
 export type TextPage = Header & { body: string; hint: string }
 
@@ -176,11 +177,11 @@ export function agentPage(agent: Agent, read: ConversationResult | undefined, fr
   if (permission) {
     const what = [permission.tool, permission.command?.trim()].filter(Boolean).join(" ")
     const detail = [`Asks to use ${permission.tool}`, permission.command?.trim(), permission.reason?.trim(), permission.plan?.trim()]
-    items.push({ text: line(`● Asks: ${what}`), detail: detail.filter(Boolean).join("\n\n"), asks: true, key: "asks:permission" })
+    items.push({ text: line(`● Asks: ${what}`), detail: detail.filter(Boolean).join("\n\n"), asks: "permission", key: "asks:permission" })
   }
   if (question) {
     const options = question.options.map((o, i) => `${i + 1}. ${o.trim()}`).join("\n")
-    items.push({ text: line(`● Asks: ${question.text}`), detail: [`Asks: ${question.text.trim()}`, options].filter(Boolean).join("\n\n"), asks: true, key: "asks:question" })
+    items.push({ text: line(`● Asks: ${question.text}`), detail: [`Asks: ${question.text.trim()}`, options].filter(Boolean).join("\n\n"), asks: "question", key: "asks:question" })
   }
   const live = read.conversation.live
   if (live?.thinking?.trim()) items.push({ text: line(`Thinking: ${live.thinking}`), detail: `Thinking\n\n${live.thinking.trim()}`, key: LIVE_THINKING })

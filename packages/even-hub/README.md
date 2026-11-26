@@ -1,6 +1,6 @@
 # Legato on Even Realities G2 glasses
 
-A proof of concept: an [Even Hub](https://hub.evenrealities.com/docs) app for Even Realities G2 glasses. It shows the agents running now, the ones that need you first, gives you a chat with the instance's Reeve for instructions, and lets you allow or deny requests that need no signature. Tap an agent to see what it has been doing, and hold to dictate a message to it. Hold on the list to fold it into one row across the top (background mode).
+A proof of concept: an [Even Hub](https://hub.evenrealities.com/docs) app for Even Realities G2 glasses. It shows the agents running now, the ones that need you first, gives you a chat with the instance's Reeve for instructions, lets you allow or deny requests that need no signature, and answers the questions agents ask, one question and one option per screen, with your own answer by dictation. Tap an agent to see what it has been doing, and hold to dictate a message to it. Hold on the list to fold it into one row across the top (background mode).
 
 It is a companion to the Legato Android app ([`mobile/`](../../mobile/README.md)) on the same phone: it reads Legato only through that app, paired once with a code, and works with every Legato saved there. The glasses hold no Legato address or token.
 
@@ -12,6 +12,8 @@ It is a companion to the Legato Android app ([`mobile/`](../../mobile/README.md)
 | ![The Reeve's chat: its state, what you said last, and its reply](docs/screenshots/reeve.png) | ![A message just sent to the Reeve, which is thinking](docs/screenshots/reeve-sent.png) |
 | ![Background mode: one row across the top](docs/screenshots/background.png) | ![The approvals waiting](docs/screenshots/approvals.png) |
 | ![An approval, with its options](docs/screenshots/approval.png) | ![Confirming the option chosen](docs/screenshots/approval-confirm.png) |
+| ![A question, one per screen](docs/screenshots/questions.png) | ![One option of a question, with its place and what it means](docs/screenshots/question-option.png) |
+| ![Choose any: an option ticked](docs/screenshots/question-choose-any.png) | ![Two answers reviewed before they are sent together](docs/screenshots/question-send.png) |
 
 ## What it shows
 
@@ -21,7 +23,9 @@ It is a companion to the Legato Android app ([`mobile/`](../../mobile/README.md)
 
 **The Reeve.** Its chat: its state in the badge, "Reeve · <Legato>" beside it, what was said to it last on a dim line (`You: …`, or `Legato agent: …` for what Legato told it), and its reply in a frame under that, bright, scrolling when long. While it works with no reply yet, the frame says `Thinking…` and its newest tool call. Hold to dictate to it as to an agent; the message goes through `POST /api/reeve/message` marked as from the glasses, so the Reeve answers in a sentence or two of plain text, and it wakes a Reeve that is asleep. A message just sent shows as `You: …` with `Thinking…` until the conversation has it. Tap for its whole conversation, as an agent's feed; double tap from there comes back to the chat.
 
-**Approvals.** While any wait, `● To approve (N) →` sits under the Reeve. It opens the list, a line each (`●` decidable here, `◇` signed, `○` a question or nothing to choose). One the glasses may decide (options, no signature) shows its title in brief and its options in a frame; a tap on an option opens a page with the whole request and that option, and a tap there sends it (`allow` or `deny` with the option's ID); double tap goes back a step. A signed one, or a question, shows in full with where to decide it. An agent's `● Asks:` line opens its approval. The list is read with the agents, and an approval decided elsewhere meanwhile is left.
+**Approvals.** While any wait, `● To approve (N) →` sits under the Reeve (under Questions when they wait too). It opens the list, a line each (`●` decidable here, `◇` signed, `○` nothing to choose). One the glasses may decide (options, no signature) shows its title in brief and its options in a frame; a tap on an option opens a page with the whole request and that option, and a tap there sends it (`allow` or `deny` with the option's ID); double tap goes back a step. A signed one shows in full with where to decide it. An agent's `● Asks:` line opens its approval. The list is read with the agents, and an approval decided elsewhere meanwhile is left.
+
+**Questions.** While agents ask any (`AskUserQuestion`, which reaches Legato as an approval of source `agent_question`), `● Questions (N) →` sits under the Reeve. It opens them one per screen, every question of every agent in a row: the question framed, and under it, dim, its header, how many options and whether any may be chosen (or the answer chosen so far). A swipe moves to the next or the one before, round from the last to the first; a tap opens its options, one per screen: the question dim at the top, the option's label framed with its place (`2/4`, `★` for the one the agent recommends), and its description. A swipe moves between them; a tap chooses (or ticks `■`, when any may be chosen, then **Done** at the end); on the last, **Your own answer…**, hold to dictate (release, read the words, tap to use them). Every part of a request is answered in turn, then `Send?` (or a review of all of them) sends them together on a second tap, and the next question shows. Answers wait while you swipe elsewhere. A request answered elsewhere, or whose agent stopped, while open says `○ gone` and that nothing was sent. An agent's `● Asks:` line for a question opens it. The swipes are the firmware's `SCROLL_TOP`/`SCROLL_BOTTOM` events on a text box whose text fits it (seen in the simulator; to be seen on real glasses).
 
 **Background mode.** Hold on the list: the page folds into one row across the top. Left, bright: how many need you (`●`) and hit an error (`▲`), and the glasses' battery when it is low (20% or less, not charging). Right, dim: how many are running (`▶`), in the background (`▷`) and idle (`○`), and the battery (`G2 82%`, from the Even app's `getDeviceInfo` and `onDeviceStatusChanged`). It is read every 5 seconds, as the list is. Only a hold brings the list back.
 
@@ -78,7 +82,7 @@ The Legato app keeps each paired Legato's address, web token and pinned certific
 | `POST /v1/instances/{id}/api/agents/{task}/chimera/send`, rebuilt as `{"content": …}` | Sending it; reaches only an agent already running natively, and never starts one |
 | `POST /v1/instances/{id}/api/reeve/message`, rebuilt as `{"text": …, "from": "glasses"}` | A message to the Reeve, which starts or resumes it when none runs |
 | `GET /v1/instances/{id}/api/approvals?status=pending` | The approvals waiting |
-| `POST /v1/instances/{id}/api/approvals/{approval}/decision`, rebuilt as `{"decision": "allow"\|"deny", "option": …, "by": "glasses"}` | A decision; Legato refuses to allow a signed approval without a signature |
+| `POST /v1/instances/{id}/api/approvals/{approval}/decision`, rebuilt as `{"decision": "allow"\|"deny", "option": …, "by": "glasses"}`, or `{"decision": "answer", "answers": {<question id>: [<string>, …]}, "by": "glasses"}` | A decision, or the answers to an agent's questions; Legato refuses to allow a signed approval without a signature |
 
 What the glasses say when the Legato app answers for itself:
 
@@ -91,7 +95,7 @@ What the glasses say when the Legato app answers for itself:
 | `404 not served to the glasses` (an older Legato app) | Update the Legato app on this phone: it can't pass this on yet. |
 | `502` | its reason, such as Legato refusing the app's token, else "Can't reach Legato" |
 
-**The fake phone (dev server).** `pnpm dev` serves the app with a fake phone at `/phone`, which answers the same protocol from `fixtures/` for two Legatos: **Desk** (`fixtures/agents.json`, or `LEGATO_FIXTURE`) and **Laptop** (no agents). It asks for no code, lists `fixtures/approvals.json` as Desk's approvals (and logs a decision), answers the Reeve's conversation from `fixtures/reeve.json` (for the agent marked `reeve` in the list), "transcribes" any recording to one sentence, and logs a message instead of sending it. Nothing reaches a real Legato.
+**The fake phone (dev server).** `pnpm dev` serves the app with a fake phone at `/phone`, which answers the same protocol from `fixtures/` for two Legatos: **Desk** (`fixtures/agents.json`, or `LEGATO_FIXTURE`) and **Laptop** (no agents). It asks for no code, lists `fixtures/approvals.json` as Desk's approvals, questions among them (and logs a decision or answers), answers the Reeve's conversation from `fixtures/reeve.json` (for the agent marked `reeve` in the list), "transcribes" any recording to one sentence, and logs a message instead of sending it. Nothing reaches a real Legato.
 
 ## On real glasses
 
@@ -132,6 +136,7 @@ These come from the SDK's [display docs](https://hub.evenrealities.com/docs/buil
 | `src/reeve.ts` | The Reeve's chat page, and the pages of a message dictated to it |
 | `src/background.ts` | Background mode's row: who needs you, the counts, the battery |
 | `src/approvals.ts` | The approvals list, one approval with its options, and the steps of a decision |
+| `src/questions.ts` | Agents' questions: one per screen, their options one per screen, your own answer, sending the answers |
 | `src/legato.ts` | The calls to the Legato app's glasses link, and what their failures say |
 | `src/app.ts` | The pages on the glasses (the picker, a Legato's list, an agent's), polling, the touchpad and the microphone |
 | `src/settings.ts` | The pairing code, kept on the phone |
@@ -146,4 +151,4 @@ These come from the SDK's [display docs](https://hub.evenrealities.com/docs/buil
 
 ## Not yet
 
-Answering a question from the glasses; approving what needs a signature (that stays on the phone); notifications when an agent needs you. (Ask the Reeve to start agents.) Ideas are in [`docs/ai/even-hub.md`](../../docs/ai/even-hub.md).
+Approving what needs a signature (that stays on the phone); notifications when an agent needs you. (Ask the Reeve to start agents.) Ideas are in [`docs/ai/even-hub.md`](../../docs/ai/even-hub.md).

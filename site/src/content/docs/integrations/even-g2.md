@@ -1,6 +1,6 @@
 ---
 title: Even Realities G2 glasses
-description: See which agents are running and which need you on Even Realities G2 smart glasses, talk to the Reeve, approve requests, read what an agent has been doing, and dictate a message to it.
+description: See which agents are running and which need you on Even Realities G2 smart glasses, talk to the Reeve, approve requests, answer agents' questions, read what an agent has been doing, and dictate a message to it.
 sidebar:
   order: 95
 ---
@@ -21,7 +21,7 @@ The app opens on the Legatos you paired the Legato app with. Tap one to see its 
 
 ![The picker: the Legatos saved in the Legato app](../../../assets/even-g2-picker.png)
 
-A Legato's list of agents has two tabs. **Active**, where the app opens, starts with the **Reeve** (`◆`) and, while approvals wait, **To approve**, then holds every agent that is not idle, the ones that need you first. It ends with **Idle agents**, which opens the **Idle** tab. Each line shows an agent's state, task ID and as much of its title as fits. The Reeve is counted on neither tab.
+A Legato's list of agents has two tabs. **Active**, where the app opens, starts with the **Reeve** (`◆`) and, while they wait, **Questions** and **To approve**, then holds every agent that is not idle, the ones that need you first. It ends with **Idle agents**, which opens the **Idle** tab. Each line shows an agent's state, task ID and as much of its title as fits. The Reeve is counted on neither tab.
 
 | Mark | State |
 | --- | --- |
@@ -59,13 +59,31 @@ While requests wait for you, **To approve (N)** sits under the Reeve on the Acti
 | --- | --- |
 | `●` | you can decide it here |
 | `◇` | signed: it needs your signature, so approve it on your phone |
-| `○` | a question, or a request with nothing to choose: answer it on your phone or in the web UI |
+| `○` | a request with nothing to choose: answer it on your phone or in the web UI |
 
 Open one you can decide: its options are listed under it, such as **Allow once**, **Always allow** and **Deny**. Tap an option, and the next page shows the whole request with what you chose; tap again to send it, or double tap to go back. Nothing is decided on one tap. On an agent's page, the line of what it asks for (`● Asks: …`) opens its approval too.
 
 ![An approval: what it is, and its options](../../../assets/even-g2-approval.png)
 
 If it was decided somewhere else first, the glasses say so. The decision is recorded as made on the glasses.
+
+## Answer an agent's questions
+
+When an agent asks you something, **Questions (N)** sits under the Reeve on the Active tab, above To approve. It opens the questions, one per screen: the question in a frame, and under it its short name, how many options it has, and whether you may choose more than one. Swipe forward or back to move between the questions of all your agents. Tap to answer the one in front of you.
+
+Inside a question, you see one option per screen: the question at the top, the option in a frame with its place (`2/4`), and what it means under it. Swipe to move between the options; after the last, you come back to the first. A `★` marks the option the agent recommends.
+
+- **One answer:** tap the option you want.
+- **Choose any:** tap each option you want, to tick it (`■`). Then swipe to **Done**, at the end, and tap it.
+- **Your own answer:** the last option, **Your own answer…**, takes your own words. Hold the touchpad, say your answer and let go. Read the words: tap to use them, hold to say them again, or double tap to drop them. Legato transcribes them, as it does a message.
+
+![One option of a question: the question, the option in a frame, and what it means](../../../assets/even-g2-question.png)
+
+When an agent asks several questions at once, you answer each in turn. Then the last page shows your answer, or all of them, and a tap sends them. Double tap goes back to change one. Nothing is sent on one tap. Once sent, the next question shows.
+
+Your answers wait while you swipe to other questions, and a question's page shows the answer you chose. If a question is answered somewhere else, or its agent stops, while you have it open, the glasses say it is no longer waiting and that nothing was sent. On an agent's page, the line of what it asks (`● Asks: …`) opens its question too.
+
+To answer from the glasses, the Legato app on your phone must be one that passes answers on. An older one says to update it.
 
 ## Background mode
 
@@ -89,19 +107,22 @@ Legato does the transcription, so it needs `voice.enabled` and `voice.whisper_ur
 | Where | Up, down | Tap | Double tap |
 | --- | --- | --- | --- |
 | The list of Legatos | Move through the list | Open that Legato's agents | Ask to leave the app |
-| Active tab | Move through the list | Open the Reeve's chat, the approvals, an agent, or the Idle tab | Back to the list of Legatos, or ask to leave the app when you have only one |
+| Active tab | Move through the list | Open the Reeve's chat, the questions, the approvals, an agent, or the Idle tab | Back to the list of Legatos, or ask to leave the app when you have only one |
 | Idle tab | Move through the list | Open the agent | Back to Active |
 | The Reeve's chat | Scroll the reply | Open its whole conversation | Back to the list |
-| An agent's feed | Move through the feed | Open the entry (what it asks: its approval) | Back to the list, or to the Reeve's chat |
+| An agent's feed | Move through the feed | Open the entry (what it asks: its approval or its question) | Back to the list, or to the Reeve's chat |
 | The approvals | Move through the list | Open the approval | Back to the list |
 | An approval | Move through its options | Choose the option | Back to the approvals |
 | Confirming | Scroll | Send the decision | Back to the approval |
+| A question | The next or the previous question | Open its options | Back to the list, or to the agent's page |
+| An option | The next or the previous option | Choose it, tick it, or (on **Done**) go on | Back to the question |
+| Send? | | Send the answers | Back to the options |
 | An entry | Scroll | | Back to the feed |
 | Recording | | Stop | Drop it |
 | The transcript | | Send it | Drop it |
 | A problem | | Send it again, if it failed to send | Back to the agent |
 
-On the Reeve's chat, an agent's feed or an entry, hold to record a message; letting go stops the recording. On the list, hold to switch to background mode; in background mode, hold to switch back. Each page says at its foot what the touchpad does there.
+On the Reeve's chat, an agent's feed or an entry, hold to record a message; letting go stops the recording. On **Your own answer…**, hold to say your answer. On the list, hold to switch to background mode; in background mode, hold to switch back. Each page says at its foot what the touchpad does there.
 
 ## Pair the glasses with the Legato app
 
@@ -136,6 +157,6 @@ There are two ways to get the app onto real glasses. Neither has been tried yet.
 
 Either way, pair it with the Legato app as above.
 
-The pairing code lets the glasses make only the calls they need: list your Legatos, read agents and conversations, transcribe, send a message to an agent, send a message to the Reeve, list the approvals waiting, and allow or deny one (never one that needs your signature). The Legato app answers only on the phone itself. Each Legato's web token stays in the Legato app; nothing secret is built into the glasses app.
+The pairing code lets the glasses make only the calls they need: list your Legatos, read agents and conversations, transcribe, send a message to an agent, send a message to the Reeve, list the approvals waiting, allow or deny one (never one that needs your signature), and answer an agent's questions. The Legato app answers only on the phone itself. Each Legato's web token stays in the Legato app; nothing secret is built into the glasses app.
 
 The package's [README](https://github.com/cpave3/legato/blob/main/packages/even-hub/README.md) has the details, and its internals are in [`docs/ai/even-hub.md`](https://github.com/cpave3/legato/blob/main/docs/ai/even-hub.md) on GitHub.

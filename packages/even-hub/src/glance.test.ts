@@ -149,6 +149,17 @@ describe("approvals on the list", () => {
     expect(items[LIST_ITEMS - 1].text).toBe("+13 more")
     expect(glance(many, { approvals: 0 }).items[1].text).toBe("▶ running  RUN-0")
   })
+
+  it("adds the way to the questions above the approvals while any wait", () => {
+    const many = Array.from({ length: 30 }, (_, i) => agent({ task_id: `RUN-${i}`, started_at: at(i) }))
+    const items = glance(many, { approvals: 2, questions: 4 }).items
+
+    expect(items[1]).toEqual({ text: "● Questions (4) →", questions: true })
+    expect(items[2]).toEqual({ text: "● To approve (2) →", approvals: true })
+    expect(items).toHaveLength(LIST_ITEMS)
+    expect(items[LIST_ITEMS - 1].text).toBe("+14 more")
+    expect(glance(many, { questions: 1 }).items.slice(1, 3).map((i) => i.text)).toEqual(["● Questions (1) →", "▶ running  RUN-0"])
+  })
 })
 
 describe("how old the list is", () => {

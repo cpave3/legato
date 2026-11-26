@@ -1,7 +1,6 @@
 import { whole, type FeedPage, type TextPage } from "./agent"
 import { fitItem } from "./glance"
-import { measureTextWrap } from "@evenrealities/pretext"
-import { CANVAS_WIDTH, FRAME_WIDTH, center, inner, TITLE_WIDTH } from "./layout"
+import { CANVAS_WIDTH, FRAME_WIDTH, center, fitLines, inner, TITLE_WIDTH } from "./layout"
 import type { Approval } from "./legato"
 
 // Approvals on the glasses: the requests waiting for the operator, listed;
@@ -57,15 +56,6 @@ function what(a: Approval): string {
 // The lines of an approval above its options: what it is, in brief. All of
 // it shows when an option is chosen, on the page that confirms it.
 export const APPROVAL_BODY_LINES = 2
-
-// Text cut, with an ellipsis, to `lines` lines of `width` px.
-function fitLines(text: string, width: number, lines: number): string {
-  const fits = (t: string) => measureTextWrap(t, width).lineCount <= lines
-  if (fits(text)) return text
-  const chars = Array.from(text)
-  while (chars.length && !fits(`${chars.join("").trimEnd()}…`)) chars.pop()
-  return `${chars.join("").trimEnd()}…`
-}
 
 // One approval: in full when the glasses cannot decide it, else in brief
 // above its options.

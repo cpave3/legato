@@ -1,4 +1,4 @@
-import { getTextWidth } from "@evenrealities/pretext"
+import { getTextWidth, measureTextWrap } from "@evenrealities/pretext"
 
 // One spacing scale for every page on the glasses, so pages line up with
 // each other: an 8 px margin round the canvas, 4 px between boxes, 4 px of
@@ -42,6 +42,19 @@ export const ITEM_TEXT_WIDTH = inner(FRAME_WIDTH, BORDER) - HIGHLIGHT
 export const BADGE_WIDTH = Math.ceil(getTextWidth("▷ background") + 2 * (PADDING + BORDER) + 8)
 export const TITLE_X = MARGIN + BADGE_WIDTH + GAP * 2
 export const TITLE_WIDTH = CANVAS_WIDTH - MARGIN - TITLE_X
+// Where a page counts its place among others ("2 of 4"), at the right of
+// the header, the title beside the badge narrower for it.
+export const COUNT_WIDTH = 80
+export const TITLE_WIDTH_COUNTED = TITLE_WIDTH - COUNT_WIDTH - GAP
+
+// Text cut, with an ellipsis, to `lines` lines of `width` px.
+export function fitLines(text: string, width: number, lines: number): string {
+  const fits = (t: string) => measureTextWrap(t, width).lineCount <= lines
+  if (fits(text)) return text
+  const chars = Array.from(text)
+  while (chars.length && !fits(`${chars.join("").trimEnd()}…`)) chars.pop()
+  return `${chars.join("").trimEnd()}…`
+}
 
 // Text centred in a box of `width` px of text, by leading spaces: the
 // firmware aligns text only to the left.

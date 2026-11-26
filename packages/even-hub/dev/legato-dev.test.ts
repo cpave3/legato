@@ -73,7 +73,20 @@ describe("answerPhone and approvals", () => {
 
     expect(answer.status).toBe(200)
     expect(p.sent).toEqual(['would allow ap-1 on Desk with "once", from the glasses'])
-    expect((await answerPhone(post("/v1/instances/desk/api/approvals/ap-1/decision", JSON.stringify({ decision: "answer" })), p)).status).toBe(400)
+    expect((await answerPhone(post("/v1/instances/desk/api/approvals/ap-1/decision", JSON.stringify({ decision: "maybe" })), p)).status).toBe(400)
+  })
+
+  it("logs answers to a question instead of sending them, and refuses answers that are not lists of strings", async () => {
+    const p = phone()
+    const answers = { q1: ["Beside the plan (Recommended)"], q2: ["A", "B"] }
+    const answer = await answerPhone(post("/v1/instances/desk/api/approvals/ap-q/decision", JSON.stringify({ decision: "answer", answers })), p)
+
+    expect(answer.status).toBe(200)
+    expect(p.sent).toEqual([`would answer ap-q on Desk with ${JSON.stringify(answers)}, from the glasses`])
+    for (const answers of [undefined, ["A"], { q1: "A" }, { q1: [1] }, {}]) {
+      const refused = await answerPhone(post("/v1/instances/desk/api/approvals/ap-q/decision", JSON.stringify({ decision: "answer", answers })), p)
+      expect(refused.status).toBe(400)
+    }
   })
 })
 

@@ -14,7 +14,7 @@ export type Tab = "active" | "idle"
 
 // An item of the list: it opens an agent or the Reeve's chat, goes to the
 // other tab, or only says something.
-export type Item = { text: string; open?: string; go?: Tab; reeve?: true; approvals?: true }
+export type Item = { text: string; open?: string; go?: Tab; reeve?: true; approvals?: true; questions?: true }
 
 // What the list page shows.
 export type Screen = {
@@ -34,8 +34,9 @@ export type GlanceOptions = {
   // The time now, for how old the list is.
   now?: Date
   problem?: string
-  // How many approvals wait for the operator.
+  // How many approvals wait for the operator, and how many questions agents ask.
   approvals?: number
+  questions?: number
 }
 
 // The states in the order they are listed, with the TUI's words for them
@@ -130,8 +131,9 @@ export function glance(agents: Agent[], options: GlanceOptions = {}): Screen {
   if (tab === "active") {
     const nav = idle.length ? { text: `Idle agents (${idle.length}) →`, go: "idle" as const } : undefined
     const rows = active.map((a) => ({ text: label(a, true), open: a.task_id }))
-    // The Reeve first, then the way to the approvals while any wait.
+    // The Reeve first, then the ways to the questions and the approvals while any wait.
     const pinned: Item[] = [reeveItem(reeve)]
+    if (options.questions) pinned.push({ text: `● Questions (${options.questions}) →`, questions: true })
     if (options.approvals) pinned.push({ text: `● To approve (${options.approvals}) →`, approvals: true })
     if (rows.length) items = [...pinned, ...list(rows, nav, LIST_ITEMS - pinned.length)]
     else items = [...pinned, ...(nav ? [{ text: "Nothing running." }, nav] : [{ text: "No agents running." }])]
