@@ -234,7 +234,9 @@ function usesInlineReview(steps: unknown[] | undefined): boolean {
 // review-pr-passes copy (spec LEG-559 story 10; LEG-599), and names each
 // workflow still on the deprecated inline step, with the way to rewrite it.
 function ReviewLoopNotice({ definitions }: { definitions: WorkflowDefinition[] }) {
-  const old = definitions.filter(d => !d.source.startsWith("builtin:") && (d.name === "review-pr-passes" || usesInlineReview(d.steps)))
+  // Only a file still on the inline step: a copy already rewritten, which
+  // keeps its name, has nothing left to do.
+  const old = definitions.filter(d => !d.source.startsWith("builtin:") && usesInlineReview(d.steps))
   if (old.length === 0) return null
   return <section role="note" aria-label="review-loop replaces review-pr-passes" className="mt-4 rounded-lg border border-lw-line bg-lw-surface p-3 text-sm">
     <p><span className="font-medium"><code className="font-lw-mono">review-loop</code> replaces <code className="font-lw-mono">review-pr-passes</code>.</span>{" "}

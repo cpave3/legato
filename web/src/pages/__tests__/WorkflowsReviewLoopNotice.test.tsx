@@ -46,3 +46,9 @@ it("says nothing when no workflow uses the inline step", () => {
   show([reviewLoop, triage])
   expect(screen.queryByRole("note", { name: "review-loop replaces review-pr-passes" })).toBeNull()
 })
+
+it("says nothing of a review-pr-passes copy already rewritten to call review-loop", () => {
+  const rewritten = { ...oldCopy, schema_version: 2, steps: [{ id: "review", title: "Review in passes", type: "workflow.run", with: { workflow: "review-loop", inputs: {} } }] } as WorkflowDefinition
+  show([rewritten, reviewLoop, triage])
+  expect(screen.queryByRole("note", { name: "review-loop replaces review-pr-passes" })).toBeNull()
+})
