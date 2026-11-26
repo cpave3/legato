@@ -457,8 +457,9 @@ type ApprovalView = { kind: "approval"; approval: Approval; decision?: Decision;
 // `approval` (none while none waits), and inside it the `card`th card of its
 // options, an answer being dictated, or its request's answers being sent.
 // `gone` once the request left Legato's list while open; `reading` (the
-// task) while the question an agent's feed asks is read. A double tap on a
-// question goes `back`, to the list or to the feed it was opened from.
+// task) while the question an agent's feed asks (`entry`) is read, with
+// `problem` when that read failed. A double tap on a question goes `back`,
+// to the list or to the feed it was opened from.
 type QuestionsView = {
   kind: "questions"
   back: { kind: "list" } | AgentView
@@ -469,6 +470,8 @@ type QuestionsView = {
   sending?: Sending
   gone?: true
   reading?: string
+  entry?: FeedItem
+  problem?: string
 }
 type View = { kind: "picker" } | { kind: "list" } | { kind: "background" } | ReeveView | AgentView | ApprovalsView | ApprovalView | QuestionsView
 // The views a message is dictated from, and those an answer is too.
@@ -479,7 +482,7 @@ const listening = (v: View): v is Speaking => (talking(v) || v.kind === "questio
 
 // What a questions view is showing, to judge a press against.
 function questionStep(v: QuestionsView): string {
-  if (v.reading) return "reading"
+  if (v.reading) return v.problem ? "reading failed" : "reading"
   if (v.gone) return "gone"
   return v.sending?.step ?? v.dictation?.step ?? (v.card === undefined ? "question" : "options")
 }
@@ -637,17 +640,17 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
   }
   const placeOf = (list: Asked[], approval: string | undefined, part: number) =>
     list.findIndex((a) => a.approval.id === approval && a.part === part)
-  const draftsOf = (approval: Approval) => drafts.get(approval.id) ?? {}
-  const draftOf = (a: Asked): Draft => draftsOf(a.approval)[a.question.id] ?? { chosen: [], other: "" }
+  const draftsOf = (approval: Approval): Drafts => drafts.get(approval.id) ?? new Map()
+  const draftOf = (a: Asked): Draft => draftsOf(a.approval).get(a.question.id) ?? { chosen: [], other: "" }
   function setDraft(a: Asked, draft: Draft): void {
-    drafts.set(a.approval.id, { ...draftsOf(a.approval), [a.question.id]: draft })
+    drafts.set(a.approval.id, new Map(draftsOf(a.approval)).set(a.question.id, draft))
   }
 
   async function showQuestions(v: QuestionsView): Promise<void> {
     const shown = shownQuestion(v)
     const who = named(shown?.approval.task_id ?? v.reading)
     const text = (page: TextPage) => draw("text questions", textLayout(page), page)
-    if (v.reading) return text(readingPage(who))
+    if (v.reading) return text(readingPage(who, v.problem))
     if (!shown) return text(noQuestionsPage(instance?.name ?? ""))
     if (v.gone) return text(gonePage(who, asked().length > 0))
     if (v.sending) return text(sendPage(shown.approval, who, draftsOf(shown.approval), v.sending))
@@ -1153,38 +1156,47 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
           ? at.feed.find((i) => i.text === chosen.currentSelectItemName)
           : at.feed[chosen.currentSelectItemIndex ?? 0]
         if (!entry?.detail) return
-        // What the agent asks opens its approval, or its question, when
-        // Legato has one; a question the approvals read has not caught yet
-        // is read now.
-        if (entry.asks) {
-          const task = open.agent.task_id
-          const asking = () => approvals.find((a) => a.task_id === task && a.source === `agent_${entry.asks}`)
-          let request = asking()
-          if (!request && entry.asks === "question") {
-            const reading: QuestionsView = { kind: "questions", back: open, part: 0, reading: task }
-            view = reading
-            await show()
-            const waiting = await legato.approvals(instance?.id ?? "")
-            if (view !== reading) return
-            if (waiting.ok) approvals = waiting.approvals
-            request = asking()
-            view = open
-          }
-          if (request && isQuestion(request) && questionsOf(request).length) {
-            const firstOpen = questionsOf(request).findIndex((q) => !answerOf(q, draftsOf(request!)[q.id]).length)
-            view = { kind: "questions", back: open, approval: request, part: Math.max(0, firstOpen) }
-            return show()
-          }
-          if (request) {
-            view = { kind: "approval", approval: request, back: open }
-            return show()
-          }
+        return openAsks(open, entry)
+      }
+    }
+  }
+
+  // A line of a feed: what the agent asks opens its approval, or its
+  // question, when Legato has one; a question the approvals read has not
+  // caught yet is read now, and a failed read says why and is tried again on
+  // a tap. Any other line, or what Legato has no request for, opens in full.
+  async function openAsks(open: AgentView, entry: FeedItem): Promise<void> {
+    if (entry.asks) {
+      const task = open.agent.task_id
+      const asking = () => approvals.find((a) => a.task_id === task && a.source === `agent_${entry.asks}`)
+      let request = asking()
+      if (!request && entry.asks === "question") {
+        const reading: QuestionsView = { kind: "questions", back: open, part: 0, reading: task, entry }
+        view = reading
+        await show()
+        const waiting = await legato.approvals(instance?.id ?? "")
+        if (view !== reading) return
+        if (!waiting.ok) {
+          reading.problem = waiting.problem
+          return show()
         }
-        open.entry = entry
-        open.opened = ++openings
+        approvals = waiting.approvals
+        request = asking()
+        view = open
+      }
+      if (request && isQuestion(request) && questionsOf(request).length) {
+        const firstOpen = questionsOf(request).findIndex((q) => !answerOf(q, draftsOf(request!).get(q.id)).length)
+        view = { kind: "questions", back: open, approval: request, part: Math.max(0, firstOpen) }
+        return show()
+      }
+      if (request) {
+        view = { kind: "approval", approval: request, back: open }
         return show()
       }
     }
+    open.entry = entry
+    open.opened = ++openings
+    return show()
   }
 
   // Questions. On a question, a swipe moves to the next or the one before
@@ -1218,7 +1230,11 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
       else return goBack(v)
       return show()
     }
-    if (v.reading || !shown) return
+    if (v.reading) {
+      if (kind === "click" && v.problem && v.entry && v.back.kind === "agent") return openAsks(v.back, v.entry)
+      return
+    }
+    if (!shown) return
     if (v.gone) {
       const first = asked()[0]
       if (kind !== "click" || !first) return
@@ -1277,6 +1293,11 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
       setDraft(shown, { ...draft, chosen })
       return show()
     }
+    // A tap on the operator's own words drops them (a hold says new ones).
+    if (card.kind === "other" && draft.other.trim()) {
+      setDraft(shown, { ...draft, other: "" })
+      return show()
+    }
     if (card.kind === "done" && answerOf(shown.question, draft).length) return answered(v, shown)
   }
 
@@ -1295,7 +1316,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
   function answered(v: QuestionsView, a: Asked): Promise<void> {
     const questions = questionsOf(a.approval)
     const later = [...questions.keys()].map((i) => (a.part + 1 + i) % questions.length)
-    const open = later.find((i) => !answerOf(questions[i], draftsOf(a.approval)[questions[i].id]).length)
+    const open = later.find((i) => !answerOf(questions[i], draftsOf(a.approval).get(questions[i].id)).length)
     if (open !== undefined) {
       v.part = open
       v.card = undefined
@@ -1319,7 +1340,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
   async function sendAnswers(v: QuestionsView, approval: Approval): Promise<void> {
     v.sending = { step: "sending" }
     await show()
-    const answers = Object.fromEntries(questionsOf(approval).map((q) => [q.id, answerOf(q, draftsOf(approval)[q.id])]))
+    const answers = Object.fromEntries(questionsOf(approval).map((q) => [q.id, answerOf(q, draftsOf(approval).get(q.id))]))
     const done = await legato.answer(instance?.id ?? "", approval.id, answers)
     if (view !== v) return
     if (!done.ok) {

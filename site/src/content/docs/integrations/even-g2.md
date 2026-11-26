@@ -75,7 +75,7 @@ Inside a question, you see one option per screen: the question at the top, the o
 
 - **One answer:** tap the option you want.
 - **Choose any:** tap each option you want, to tick it (`■`). Then swipe to **Done**, at the end, and tap it.
-- **Your own answer:** the last option, **Your own answer…**, takes your own words. Hold the touchpad, say your answer and let go. Read the words: tap to use them, hold to say them again, or double tap to drop them. Legato transcribes them, as it does a message.
+- **Your own answer:** the last option, **Your own answer…**, takes your own words. Hold the touchpad, say your answer and let go. Read the words: tap to use them, hold to say them again, or double tap to drop them. Legato transcribes them, as it does a message. To take them back later, tap **Your own answer…** again.
 
 ![One option of a question: the question, the option in a frame, and what it means](../../../assets/even-g2-question.png)
 

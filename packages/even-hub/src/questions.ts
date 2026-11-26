@@ -34,8 +34,9 @@ export type Asked = { approval: Approval; question: Question; part: number; part
 // What the operator has given a question so far: the options chosen, and
 // an answer in their own words (web/src/lib/questionDrafts.ts).
 export type Draft = { chosen: string[]; other: string }
-// A request's drafts, by question ID.
-export type Drafts = Record<string, Draft>
+// A request's drafts, by question ID. A Map, since an agent may name a
+// question anything, `constructor` or `__proto__` included.
+export type Drafts = Map<string, Draft>
 
 // A card in a question's deck, one per screen.
 export type Card = { kind: "option"; index: number } | { kind: "other" } | { kind: "done" }
@@ -176,8 +177,8 @@ export function optionPage(asked: Asked, who: string, card: number, draft: Draft
     }
     case "other": {
       const own = draft.other.trim()
-      const description = own ? `Yours: “${own}”. Hold to say it again.` : "Hold the touchpad and say it. You see the words before anything is sent."
-      return page("Your own answer…", description, "Swipe: options · Hold: say it · Double tap: back")
+      if (own) return page("Your own answer…", `Yours: “${own}”. Tap to drop it, or hold to say it again.`, "Tap: drop it · Hold: say again · Double tap: back")
+      return page("Your own answer…", "Hold the touchpad and say it. You see the words before anything is sent.", "Swipe: options · Hold: say it · Double tap: back")
     }
     case "done": {
       const answer = answerOf(q, draft)
@@ -212,7 +213,7 @@ export function ownAnswerPage(asked: Asked, who: string, d: Dictation): TextPage
 // A request's answers: asked to send, sending, sent, or not sent.
 export function sendPage(approval: Approval, who: string, drafts: Drafts, s: Sending): TextPage {
   const questions = questionsOf(approval)
-  const answers = questions.map((q) => answerOf(q, drafts[q.id]))
+  const answers = questions.map((q) => answerOf(q, drafts.get(q.id)))
   let summary: string
   if (questions.length === 1) summary = `${said(answers[0])}\n\n${flat(questions[0].question)}`
   else {
@@ -256,7 +257,9 @@ export function noQuestionsPage(instance: string): TextPage {
   }
 }
 
-// While the question an agent's feed shows is read from Legato.
-export function readingPage(who: string): TextPage {
+// While the question an agent's feed shows is read from Legato, and why
+// that read failed, if it did.
+export function readingPage(who: string, problem?: string): TextPage {
+  if (problem) return { badge: "▲ Problem", title: titled(who), body: whole(`Can't read the question: ${problem}`), hint: keys("Tap: try again · Double tap: back") }
   return { badge: "● question", title: titled(who), body: "Reading the question…", hint: keys("Double tap: back") }
 }

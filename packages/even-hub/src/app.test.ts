@@ -1807,6 +1807,66 @@ describe("questions on the glasses", () => {
     expect(legato.calls.answer).toEqual([["ap-q1", { q1: ["Run the tests again."] }]])
   })
 
+  it("answers a question whose ID is a name every object has, such as constructor", async () => {
+    const odd: Approval = {
+      ...images,
+      details: { questions: [{ ...(images.details!.questions as Record<string, unknown>[])[0], id: "constructor" }, { ...(twoParts.details!.questions as Record<string, unknown>[])[0], id: "__proto__" }] },
+    }
+    const { bridge, legato } = await openQuestions([odd])
+    expect(bridge.text("facts")).toBe("Image files · part 1 of 2 · 3 options or your own")
+    await press(bridge, click)
+    expect(option(bridge)).toBe("★ Beside the plan 1/4")
+    await press(bridge, click, click)
+    expect(option(bridge)).toBe("Every 5 seconds 1/4")
+    await press(bridge, swipe("down"), click, click)
+    const [[id, answers]] = legato.calls.answer
+    expect(id).toBe("ap-q1")
+    expect(JSON.parse(JSON.stringify(answers))).toEqual(JSON.parse('{"constructor":["Beside the plan (Recommended)"],"__proto__":["Every 15 seconds"]}'))
+  })
+
+  it("drops the operator's own words on a tap of their card, so a choose-any answer can go back to the ticks alone", async () => {
+    const { bridge, legato } = await openQuestions([twoParts])
+    await press(bridge, click, click, click, click)
+    expect(option(bridge)).toBe("■ Who needs you 1/6")
+    await press(bridge, swipe("up"), swipe("up"), hold)
+    bridge.send(audio(1))
+    await press(bridge, release, click)
+    expect(bridge.text("body")).toContain("Background: Who needs you, Run the tests again.")
+
+    await press(bridge, doubleClick)
+    expect(option(bridge)).toBe("■ Who needs you 1/6")
+    await press(bridge, swipe("up"), swipe("up"))
+    expect(option(bridge)).toBe("Your own answer… 5/6")
+    expect(bridge.text("description")).toBe("Yours: “Run the tests again.”. Tap to drop it, or hold to say it again.")
+    await press(bridge, click)
+    expect(bridge.text("description")).toBe("Hold the touchpad and say it. You see the words before anything is sent.")
+    await press(bridge, swipe("down"), click)
+    expect(bridge.text("body")).toContain("Background: Who needs you\n")
+    await press(bridge, click)
+    expect(legato.calls.answer).toEqual([["ap-q2", { poll: ["Every 5 seconds"], bg: ["Who needs you"] }]])
+  })
+
+  it("says why the question an agent's feed asks could not be read, and tries again on a tap", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    legato.conversation.question = { text: "Which?", options: ["A"] }
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    await press(bridge, select(1, "● needs you  ASK-1 Approve"))
+
+    const approvals = legato.client.approvals
+    legato.client.approvals = async () => ({ ok: false, problem: "The Legato app took too long to answer" })
+    await press(bridge, pick(0, "● Asks: Which?"))
+    expect(bridge.text("badge")).toBe("▲ Problem")
+    expect(bridge.text("body")).toBe("Can't read the question: The Legato app took too long to answer")
+
+    legato.client.approvals = approvals
+    legato.waiting([{ ...images, task_id: "ASK-1" }])
+    await press(bridge, click)
+    expect(bridge.text("badge")).toBe("● question")
+    await press(bridge, doubleClick)
+    expect(bridge.feed()?.[0]).toBe("● Asks: Which?")
+  })
+
   it("drops the words on a double tap, and says them again on a hold", async () => {
     const { bridge, legato } = await openQuestions([images])
     await press(bridge, click, swipe("up"), hold)

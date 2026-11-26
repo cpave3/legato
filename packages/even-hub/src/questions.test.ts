@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { getTextWidth, measureTextWrap } from "@evenrealities/pretext"
-import { BORDER, FRAME_WIDTH, inner } from "./layout"
+import { BORDER, CANVAS_WIDTH, FRAME_WIDTH, inner } from "./layout"
 import type { Approval } from "./legato"
 import { images, twoParts } from "./questions.fixtures"
 import {
@@ -156,7 +156,16 @@ describe("optionPage", () => {
     expect(page.option.startsWith("Your own answer…")).toBe(true)
     expect(page.description).toBe("Hold the touchpad and say it. You see the words before anything is sent.")
     expect(page.hint.trim()).toBe("Swipe: options · Hold: say it · Double tap: back")
-    expect(optionPage(image, who, 3, { chosen: [], other: "In the data folder" }).description).toBe("Yours: “In the data folder”. Hold to say it again.")
+    const own = optionPage(image, who, 3, { chosen: [], other: "In the data folder" })
+    expect(own.description).toBe("Yours: “In the data folder”. Tap to drop it, or hold to say it again.")
+    expect(own.hint.trim()).toBe("Tap: drop it · Hold: say again · Double tap: back")
+  })
+
+  it("keeps every hint on the line at the foot", () => {
+    const drafts = [none, { chosen: ["Who needs you"], other: "The weather" }]
+    for (const draft of drafts) {
+      for (let card = 0; card < 6; card++) expect(getTextWidth(optionPage(bg, who, card, draft).hint)).toBeLessThanOrEqual(CANVAS_WIDTH)
+    }
   })
 
   it("ends a choose-any question with Done, which says what is ticked", () => {
@@ -191,7 +200,7 @@ describe("ownAnswerPage", () => {
 })
 
 describe("sendPage", () => {
-  const chosen = { q1: { chosen: ["Beside the plan (Recommended)"], other: "" } }
+  const chosen = new Map([["q1", { chosen: ["Beside the plan (Recommended)"], other: "" }]])
 
   it("asks to send one answer, the answer first, then what it answers", () => {
     const page = sendPage(images, who, chosen, { step: "confirm" })
@@ -201,7 +210,10 @@ describe("sendPage", () => {
   })
 
   it("reviews every part of a request on one page, sent together", () => {
-    const drafts = { poll: { chosen: ["Every 5 seconds"], other: "" }, bg: { chosen: ["Who needs you", "Agent counts"], other: "" } }
+    const drafts = new Map([
+      ["poll", { chosen: ["Every 5 seconds"], other: "" }],
+      ["bg", { chosen: ["Who needs you", "Agent counts"], other: "" }],
+    ])
     expect(sendPage(twoParts, who, drafts, { step: "confirm" }).body).toBe(
       "Polling: Every 5 seconds\nBackground: Who needs you, Agent counts\n\nBoth answers go to LEG-163 together.",
     )
@@ -241,6 +253,9 @@ describe("the other pages", () => {
 
   it("says it is reading the question", () => {
     expect(readingPage(who)).toMatchObject({ badge: "● question", body: "Reading the question…" })
+    const failed = readingPage(who, "The Legato app took too long to answer")
+    expect(failed).toMatchObject({ badge: "▲ Problem", body: "Can't read the question: The Legato app took too long to answer" })
+    expect(failed.hint.trim()).toBe("Tap: try again · Double tap: back")
   })
 
   it("fits every header's title in its box", () => {
