@@ -166,6 +166,7 @@ A [workflow](/legato/using/workflows/) step can create a Jira issue, or comment 
       ```
     labels: [prod, slack]
     priority: High
+    assignee: me
 - id: seen-again
   title: Note it was seen again
   type: ticket.comment
@@ -177,7 +178,30 @@ A [workflow](/legato/using/workflows/) step can create a Jira issue, or comment 
 
 The description and the comment are Markdown. Legato converts them to Jira's rich text, and keeps headings, lists, code blocks, links, tables and bold, italic and struck-through text. A checklist item keeps its `[x]` or `[ ]`. An image becomes a link to it, because Legato does not upload attachments. `type` is `Bug` when you leave it empty. Jira labels cannot hold spaces. `fields` takes more fields as Jira names them, such as `{customfield_10020: 7}`, but not a field the step sets itself. When Jira refuses the issue, the step fails with Jira's reason, for example `issuetype: Specify a valid issue type`.
 
+`assignee: me` assigns the new issue to Legato's own Jira user, the one of `jira.email`. `assignee` also takes an email or an account ID. Do not also set `assignee` in `fields`.
+
 `ticket.create` gives the issue's `key`, `url` and `id`. A retry of the step returns the issue it already created instead of creating another. `ticket.comment` gives the comment's `url`. See [Workflows](/legato/using/workflows/) for both steps.
+
+## Assign a ticket and move it
+
+A `ticket.update` step assigns an issue and moves it to a status by name, with the same Jira settings. Use it when an agent starts work on an issue, so that Jira shows who works on it:
+
+```yaml
+- id: take
+  title: Take the issue
+  type: ticket.update
+  with:
+    provider: jira
+    key: ${{ steps.raise.outputs.key }}
+    assignee: me
+    status: In Progress
+```
+
+- `assignee` is `me` (the `jira.email` user), an email, an account ID, or `none` to unassign. An email must match exactly one Jira user. Jira hides the email of a user who keeps it private: give that user's account ID instead.
+- `status` is the name of the status, in any case. The step reads the issue's transitions and runs the one that leads to that status. An issue already in that status is left alone.
+- When no transition leads there, the step fails and lists the statuses the issue can move to, for example `AG-123 cannot move to "In Review" from "To Do": it can move to In Progress, Done`. A transition that asks for fields on its screen fails with Jira's reason. Legato does not fill in those fields.
+- With `optional: true`, the step does not fail for a missing issue, an unreachable status, an assignee no one matches, or a change Jira refuses. It succeeds and reports each problem in `warnings`. Without `optional`, use `on_failure: continue` to let the run go on.
+- The step gives the `status` and `assignee` after it ran, and `changed`.
 
 ## Image attachments
 
