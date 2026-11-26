@@ -85,6 +85,9 @@ const (
 	// EventSubscriptionUsageInvalidated: another process kept one (IPC
 	// usage_changed). No payload; never sent on over IPC again.
 	EventSubscriptionUsageInvalidated
+	// EventSubscriptionUsageRefreshRequested: a process that does not poll
+	// asked the one that does to read now (IPC usage_refresh). No payload.
+	EventSubscriptionUsageRefreshRequested
 )
 
 // WorkMilestonePayload is a stage milestone for one agent place: a task's

@@ -1056,6 +1056,12 @@ func runServeCmd(args []string) int {
 	srv.SetSkillService(skillService(cfg, db))
 	srv.SetTintService(service.NewTintService(service.StringSetting{Settings: settingsFor(db)}))
 	defer wireServerTheme(srv, db, bus)()
+	usage := subscriptionUsageFor(cfg, db, bus)
+	if usage != nil {
+		srv.SetSubscriptionUsage(usage)
+	}
+	defer srv.StartSubscriptionUsageEvents(bus)()
+	defer startSubscriptionUsage(cfg, usage, bus)()
 	srv.SetEngramService(engramsFor(db))
 	srv.SetJobCloneService(repos)
 	srv.SetTaskStackService(wireTaskStacks(db, bus, repos))
@@ -1282,6 +1288,10 @@ func runTUI() int {
 	defer startServerThemeIPC(bus)()
 	attachmentCache := attachments.NewCache(attachmentRoot(cfg), cfg.Jira.AttachmentMaxSizeBytes)
 	boardSvc := service.NewBoardService(db, bus, attachmentCache)
+	// The subscriptions' usage: served by the web server and the agents
+	// view, read here only while this process holds usage.lock.
+	subscriptionUsage := subscriptionUsageFor(cfg, db, bus)
+	defer startSubscriptionUsage(cfg, subscriptionUsage, bus)()
 
 	// Start IPC server for CLI→TUI communication.
 	// webSrv is set later if web.enabled — the closure captures the pointer.
@@ -1552,6 +1562,10 @@ func runTUI() int {
 			webSrv.SetSkillService(skillService(cfg, db))
 			webSrv.SetTintService(service.NewTintService(service.StringSetting{Settings: settingsFor(db)}))
 			defer wireServerTheme(webSrv, db, bus)()
+			if subscriptionUsage != nil {
+				webSrv.SetSubscriptionUsage(subscriptionUsage)
+			}
+			defer webSrv.StartSubscriptionUsageEvents(bus)()
 			webSrv.SetEngramService(engramsFor(db))
 			webSrv.SetJobCloneService(repos)
 			webSrv.SetTaskStackService(taskStacks)
