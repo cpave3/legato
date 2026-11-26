@@ -25,11 +25,12 @@
     </form>
     <label for="screen-off">While the glasses' screen is off, read Legato</label>
     <select id="screen-off">
+      <option value="5">Every 5 seconds, as while it is on</option>
       <option value="30">Every 30 seconds</option>
       <option value="60">Every 60 seconds</option>
       <option value="off">Not at all</option>
     </select>
-    <p class="note">Waking the screen tells the app nothing, so reading on keeps what it shows fresh. The phone makes the reads; the glasses are sent only what changed. Off saves the phone those reads: hold on the glasses to read again.</p>
+    <p class="note">Waking the screen tells the app nothing, so reading on keeps what it shows fresh. The phone makes the reads; the glasses are sent only what changed. 30, 60 or off save the phone reads, and a page left open can then be that old when you look again; any tap, swipe or hold on the glasses reads at once.</p>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

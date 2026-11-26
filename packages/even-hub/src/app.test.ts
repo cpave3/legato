@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { OsEventTypeList, StartUpPageCreateResult, type EvenHubEvent } from "@evenrealities/even_hub_sdk"
 import { BACKGROUND_POLL_MS, startGlance, type GlassesBridge, type LegatoClient, POLL_MS } from "./app"
 import type { Agent, AgentsResult, Approval, Conversation, Instance, InstancesResult } from "./legato"
+import { screenOffMs } from "./settings"
 
 const agent = (task_id: string, activity: string, title = ""): Agent => ({
   task_id,
@@ -136,7 +137,8 @@ function fakeLegato(...answers: AgentsResult[]) {
     conversation: async (_instance, taskId, limit) => {
       calls.conversation.push(taskId)
       calls.limits.push(limit)
-      return { ok: true, conversation: taskId === "rv1" ? reeveConversation : conversation }
+      // A copy, as each read over the phone link is: the app must read again to see a change.
+      return { ok: true, conversation: structuredClone(taskId === "rv1" ? reeveConversation : conversation) }
     },
     transcribe: async (_instance, pcm) => {
       calls.transcribe.push([...pcm])
@@ -1398,3 +1400,137 @@ describe("startGlance with several Legatos", () => {
   })
 })
 
+
+// LEG-663: a page left open shows what changes in Legato without a press.
+describe("an open page kept live", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 10, 13, 9, 5))
+  })
+  afterEach(() => vi.useRealTimers())
+
+  // What main.ts passes when the phone page has nothing saved.
+  const byDefault = { screenOffReadMs: () => screenOffMs("5") }
+
+  // Waking the screen sends nothing, so someone who only watches never tells
+  // the app they are looking again.
+  it("shows a new message on an agent's feed after the screen went off and woke, with no press", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client, byDefault)
+    bridge.send(select(2, "▶ running  RUN-1 Build"))
+    await settle()
+
+    bridge.send(system(OsEventTypeList.FOREGROUND_EXIT_EVENT))
+    await settle()
+    legato.conversation.entries.push({ kind: "assistant", text: "Done." })
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.feed()?.[0]).toBe("Agent: Done.")
+  })
+
+  it("keeps the Reeve's chat and its history live after the screen went off", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(withReeve(""))
+    legato.reeveConversation.entries.push({ kind: "assistant", text: "Ready." })
+    await startGlance(bridge as unknown as GlassesBridge, legato.client, byDefault)
+    bridge.send(select(0, "◆ Reeve  ready"))
+    await settle()
+
+    bridge.send(system(OsEventTypeList.FOREGROUND_EXIT_EVENT))
+    await settle()
+    legato.reeveConversation.entries.push({ kind: "user", text: "[legato glasses] And now?" }, { kind: "assistant", text: "Still ready." })
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.text("reply")).toBe("Still ready.")
+
+    // Its history, opened with a press, then left to watch with the screen off.
+    bridge.send(click)
+    await settle()
+    bridge.send(system(OsEventTypeList.FOREGROUND_EXIT_EVENT))
+    await settle()
+    legato.reeveConversation.entries.push({ kind: "assistant", text: "Later." })
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.feed()?.[0]).toBe("Agent: Later.")
+  })
+
+  it("says an agent that ended has ended, keeping its last feed, and its state again should it come back", async () => {
+    const gone: AgentsResult = { ok: true, agents: [agent("ASK-1", "waiting", "Approve")] }
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents, gone, someAgents)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(2, "▶ running  RUN-1 Build"))
+    await settle()
+    expect(bridge.text("badge")).toBe("▶ running")
+    const read = legato.client.conversation
+    legato.client.conversation = async () => ({ ok: false, problem: "The agent is no longer running." })
+
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.text("badge")).toBe("○ ended")
+    expect(bridge.feed()).toEqual(["Agent: Working on it."])
+    expect(bridge.text("title")).toBe("RUN-1 ▲ The agent is no longer running.")
+
+    // Also on an entry opened from the feed.
+    bridge.send(pick(0, "Agent: Working on it."))
+    await settle()
+    expect(bridge.text("badge")).toBe("○ ended")
+
+    legato.client.conversation = read
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.text("badge")).toBe("▶ running")
+  })
+
+  it("follows a reply on an entry opened while it was being written, as it grows and once it is whole", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    legato.conversation.live = { reply: "Half a" }
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(2, "▶ running  RUN-1 Build"))
+    await settle()
+    bridge.send(pick(0, "Writing: Half a"))
+    await settle()
+    expect(bridge.text("body")).toBe("Agent, still writing\n\nHalf a")
+    const rebuilt = bridge.rebuilt
+
+    legato.conversation.live = { reply: "Half a reply" }
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.text("body")).toBe("Agent, still writing\n\nHalf a reply")
+
+    legato.conversation.live = undefined
+    legato.conversation.entries.push({ kind: "assistant", text: "Half a reply, now whole." })
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.text("body")).toBe("Agent\n\nHalf a reply, now whole.")
+    // Changed in place, not drawn again.
+    expect(bridge.rebuilt).toBe(rebuilt)
+  })
+
+  it("follows a tool call on an entry opened while it ran, to how it ended", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    const call = { kind: "tool", text: "Run the tests", tool: "Bash", command: "pnpm test", state: "running" }
+    legato.conversation.entries.push(call)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(2, "▶ running  RUN-1 Build"))
+    await settle()
+    bridge.send(pick(0, "▶ Bash: Run the tests"))
+    await settle()
+    expect(bridge.text("body")).toBe("Bash (running)\n\nRun the tests\n\npnpm test")
+
+    call.state = "done"
+    legato.conversation.entries.push({ kind: "assistant", text: "All green." })
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.text("body")).toBe("Bash (done)\n\nRun the tests\n\npnpm test")
+  })
+
+  it("keeps an opened entry as it was once the conversation no longer has it", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(2, "▶ running  RUN-1 Build"))
+    await settle()
+    bridge.send(pick(0, "Agent: Working on it."))
+    await settle()
+
+    legato.conversation.entries = [{ kind: "assistant", text: "Something else." }]
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.text("body")).toBe("Agent\n\nWorking on it.")
+  })
+})

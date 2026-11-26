@@ -13,7 +13,7 @@ import {
   type EvenHubEvent,
 } from "@evenrealities/even_hub_sdk"
 import { APPROVAL_BODY_LINES, approvalPage, approvalsPage, decisionPage, type ApprovalPage, type Decision } from "./approvals"
-import { agentPage, dictationPage, entryPage, type Dictation, type FeedItem, type FeedPage, type TextPage } from "./agent"
+import { ENDED, agentPage, dictationPage, entryPage, followEntry, type Dictation, type FeedItem, type FeedPage, type TextPage } from "./agent"
 import { ALERT_WIDTH, COUNTS_WIDTH, background, type BackgroundPage } from "./background"
 import { glance, type Screen, type Tab } from "./glance"
 import {
@@ -45,8 +45,10 @@ import { heard, reeveChat, reeveDictation, type ChatPage } from "./reeve"
 // How often the app reads Legato while it is in front, and while it is not.
 // On real glasses the screen going off sends FOREGROUND_EXIT, but waking it
 // sends nothing (opening the G2 menu sends FOREGROUND_ENTER), so the app
-// cannot wait for the wake: it reads on, less often, to keep what the
-// glasses show on waking fresh, and to retry a page they refused to draw.
+// cannot wait for the wake: it reads on, as often as the phone page says
+// (settings.ts; every POLL_MS unless the operator saves the phone reads), to
+// keep what the glasses show on waking fresh, and to retry a page they
+// refused to draw. BACKGROUND_POLL_MS is the pace when startGlance is told none.
 export const POLL_MS = 5000
 export const BACKGROUND_POLL_MS = 30_000
 // How often the page in front looks at how old what it shows is: the list
@@ -383,6 +385,14 @@ function took(v: Reading, read: ConversationResult | undefined): void {
 }
 const freshness = (v: Reading) => ({ readAt: v.readAt, problem: v.problem, now: new Date() })
 
+// Keeps an answer in an agent's view, and has an entry opened from its feed
+// follow what it shows (a reply growing, a call ending), so an open entry is
+// as live as the feed.
+function tookFeed(v: AgentView, read: ConversationResult | undefined): void {
+  took(v, read)
+  if (v.entry && read?.ok) v.entry = followEntry(v.entry, agentPage(v.agent, v.read))
+}
+
 // The item a list press chose among the items shown: the one at its index
 // when that is the name pressed (two Legatos may share a name), else the
 // first of that name, else by index when the SDK gave no name.
@@ -629,13 +639,15 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
     if (view.kind === "approval" && step !== "deciding" && step !== "done" && !approvals.some((a) => a.id === (view as ApprovalView).approval.id)) {
       view = view.back
     }
-    if (view.kind === "agent") {
+    // The open agent as listed now; one Legato no longer lists as running
+    // has ended, and says so rather than the state it had.
+    if (view.kind === "agent" && answer.ok) {
       const open = view
-      open.agent = agents.find((a) => a.task_id === open.agent.task_id) ?? open.agent
+      open.agent = agents.find((a) => a.task_id === open.agent.task_id) ?? { ...open.agent, status: ENDED }
     }
     if (feed && read && view === feed) {
       if (!read.ok && read.gone) return toPicker(read.problem)
-      took(feed, read)
+      tookFeed(feed, read)
     }
     if (chat && view === chat) {
       const answer = reeveAgent()?.task_id === rv?.task_id ? chatRead : await reeveRead()
@@ -879,7 +891,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
       if (open.dictation) {
         open.dictation = undefined
         if (open.kind === "reeve") await readReeve(open)
-        else took(open, await legato.conversation(instance?.id ?? "", open.agent.task_id))
+        else tookFeed(open, await legato.conversation(instance?.id ?? "", open.agent.task_id))
       } else if (open.kind === "agent" && open.entry) {
         // Back on the feed at once, then as it is now.
         open.entry = undefined

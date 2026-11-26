@@ -10,7 +10,10 @@ import type { Agent, Conversation, ConversationResult } from "./legato"
 export type Header = { badge: string; title: string }
 // A line of the feed, and the entry in full for when it is opened.
 // `asks` marks the line of what the agent asks for, which opens its approval.
-export type FeedItem = { text: string; detail?: string; asks?: true }
+// `key` names what the line shows, the same from one read to the next while
+// its text changes (a reply growing, a call ending), so an opened entry can
+// follow it (followEntry).
+export type FeedItem = { text: string; detail?: string; asks?: true; key?: string }
 export type FeedPage = Header & { items: FeedItem[]; hint: string }
 export type TextPage = Header & { body: string; hint: string }
 
@@ -41,8 +44,13 @@ export function freshTitle(who: string, name: string, fresh: Freshness = {}): st
   return fitItem(text, inner(TITLE_WIDTH) - getTextWidth(tail), Infinity) + tail
 }
 
+// What an agent's pages say once Legato no longer lists it as running: the
+// app marks it so (status ENDED), and its last state would be stale.
+export const ENDED = "ended"
+const ended = { mark: "○", word: "ended" }
+
 function header(agent: Agent, fresh?: Freshness): Header {
-  const s = stateOf(agent)
+  const s = agent.status === ENDED ? ended : stateOf(agent)
   const name = agent.title.trim()
   return { badge: `${s.mark} ${s.word}`, title: freshTitle(agent.task_id, `${agent.task_id}${name ? ` ${name}` : ""}`, fresh) }
 }
@@ -103,9 +111,28 @@ function item(e: Entry): FeedItem {
   }
 }
 
+// The keys of the conversation's entries: what does not change while an
+// entry updates (its kind, its tool, its text, which for a call says what it
+// is for), and how many entries before it read the same.
+function entryKeys(entries: Entry[]): string[] {
+  const seen = new Map<string, number>()
+  return entries.map((e) => {
+    const same = `${e.kind} ${JSON.stringify([e.tool ?? "", e.text])}`
+    const n = seen.get(same) ?? 0
+    seen.set(same, n + 1)
+    return `${same} #${n}`
+  })
+}
+const SUB = ":sub"
+const THOUGHT = ":thought"
+const LIVE_THINKING = "live:thinking"
+const LIVE_REPLY = "live:reply"
+// Something the agent said, as an entry (not its thought).
+const said = (key: string | undefined) => !!key && key.startsWith("assistant ") && /#\d+$/.test(key)
+
 // An entry's lines, newest first: what a subagent it started does now, the
 // entry, and the thought that led to its step.
-function lines(e: Entry): FeedItem[] {
+function lines(e: Entry, key: string): FeedItem[] {
   const out: FeedItem[] = []
   const sub = e.subagent
   if (sub?.status === "running" && sub.tool) {
@@ -113,10 +140,11 @@ function lines(e: Entry): FeedItem[] {
     out.push({
       text: line(what ? `└ ${sub.tool}: ${what}` : `└ ${sub.tool}`),
       detail: [`Subagent: ${sub.purpose.trim()}`, `Now: ${[sub.tool, sub.text?.trim()].filter(Boolean).join(" ")}`].join("\n\n"),
+      key: key + SUB,
     })
   }
-  out.push(item(e))
-  if (e.thinking?.trim()) out.push({ text: line(`Thought: ${e.thinking}`), detail: `Thought\n\n${e.thinking.trim()}` })
+  out.push({ ...item(e), key })
+  if (e.thinking?.trim()) out.push({ text: line(`Thought: ${e.thinking}`), detail: `Thought\n\n${e.thinking.trim()}`, key: key + THOUGHT })
   return out
 }
 
@@ -133,17 +161,33 @@ export function agentPage(agent: Agent, read: ConversationResult | undefined, fr
   if (permission) {
     const what = [permission.tool, permission.command?.trim()].filter(Boolean).join(" ")
     const detail = [`Asks to use ${permission.tool}`, permission.command?.trim(), permission.reason?.trim(), permission.plan?.trim()]
-    items.push({ text: line(`● Asks: ${what}`), detail: detail.filter(Boolean).join("\n\n"), asks: true })
+    items.push({ text: line(`● Asks: ${what}`), detail: detail.filter(Boolean).join("\n\n"), asks: true, key: "asks:permission" })
   }
   if (question) {
     const options = question.options.map((o, i) => `${i + 1}. ${o.trim()}`).join("\n")
-    items.push({ text: line(`● Asks: ${question.text}`), detail: [`Asks: ${question.text.trim()}`, options].filter(Boolean).join("\n\n"), asks: true })
+    items.push({ text: line(`● Asks: ${question.text}`), detail: [`Asks: ${question.text.trim()}`, options].filter(Boolean).join("\n\n"), asks: true, key: "asks:question" })
   }
   const live = read.conversation.live
-  if (live?.thinking?.trim()) items.push({ text: line(`Thinking: ${live.thinking}`), detail: `Thinking\n\n${live.thinking.trim()}` })
-  if (live?.reply?.trim()) items.push({ text: line(`Writing: ${live.reply}`), detail: `Agent, still writing\n\n${live.reply.trim()}` })
-  items.push(...entries.slice().reverse().flatMap(lines))
+  if (live?.thinking?.trim()) items.push({ text: line(`Thinking: ${live.thinking}`), detail: `Thinking\n\n${live.thinking.trim()}`, key: LIVE_THINKING })
+  if (live?.reply?.trim()) items.push({ text: line(`Writing: ${live.reply}`), detail: `Agent, still writing\n\n${live.reply.trim()}`, key: LIVE_REPLY })
+  const keys = entryKeys(entries)
+  items.push(...entries.map((e, i) => lines(e, keys[i])).reverse().flat())
   return page(items.length ? items.slice(0, LIST_ITEMS) : [{ text: "Nothing said yet." }])
+}
+
+// An entry opened from the feed, as a newer read of the feed has it: the
+// line of the same key; for a subagent's line that has gone (the subagent is
+// done), the call that started it; for a reply being written that has gone,
+// the newest thing the agent said, which it became. Else the entry as it was.
+export function followEntry(opened: FeedItem, page: FeedPage): FeedItem {
+  const key = opened.key
+  if (!key) return opened
+  const find = (k: string) => page.items.find((i) => i.key === k)
+  const found =
+    find(key) ??
+    (key.endsWith(SUB) ? find(key.slice(0, -SUB.length)) : undefined) ??
+    (key === LIVE_REPLY ? page.items.find((i) => said(i.key)) : undefined)
+  return found ?? opened
 }
 
 // One entry of the feed in full.
