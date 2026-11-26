@@ -525,7 +525,11 @@ export function AgentsPage() {
     return Array.from(new Set(ids.filter((id): id is string => Boolean(id))))
       .filter((id) => !agents.find((agent) => agent.task_id === id)?.has_chimera_endpoint)
   }, [agents, conductor?.task_id, ensemble, selectedId, swarmMode])
-  const { items: relatedWork } = useTaskActivity(selectedId ?? "")
+  // The card the agent's work is for: a workflow's agent runs on the run's
+  // own task, and a named slot's on an agent ID, so its related work is the
+  // card's.
+  const cardId = selectedAgent ? selectedAgent.attribution_task_id || selectedAgent.task_id : ""
+  const { items: relatedWork } = useTaskActivity(cardId)
   const relatedAgents = useRelatedAgents(selectedId ?? "")
 
   useEffect(() => {
@@ -651,7 +655,6 @@ export function AgentsPage() {
   const openArtifact = artifacts.openItem
   // The column beside the chat shows either the work related to the agent's
   // task or what the agent has shown; the header switches between them.
-  const cardId = selectedAgent ? selectedAgent.attribution_task_id || selectedAgent.task_id : ""
   const card = useTaskCard(cardId)
   const pullRequest = card?.id === cardId && card.pr_meta?.pr_number ? card.pr_meta.pr_number : undefined
   const [relatedOpen, setRelatedOpen] = useState(false)

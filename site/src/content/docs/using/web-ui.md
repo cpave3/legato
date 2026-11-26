@@ -122,7 +122,7 @@ An agent can show you things through its [MCP tools](/legato/agent-tools/mcp-too
 
 HTML an agent wrote runs in a closed frame that cannot reach the network beyond the hosts in `agents.mcp.resource_domains`. A card can offer text for your message box, but it never sends anything for you.
 
-The **Related** switch beside **Artifacts** shows the task's card, its pull request, and its plans, reviews and workflow runs.
+The **Related** switch beside **Artifacts** shows the task's card, its pull request, and its plans, reviews and workflow runs. An agent a workflow started shows the card it works for, not the run's own task. Its workflow runs are every run the card takes part in: a run given the card as its `task` input, a run whose step started or messaged the card's agent (with `task:` or `on:`, a card the run made with `ticket.import` among them), and the runs above each of those that started it with `workflow.run`.
 
 When the agent takes part in a [review loop](/legato/using/review-passes/), **Related** also lists the agent on the other side under **Agents**. An author sees **Reviewer · pass N** with the loop's state; a reviewer sees **Author**, or **Linked task** for a run that no agent authors. Click a running agent's row to switch to it. A reviewer that has ended stays in the list, marked ended, until its loop ends; its row opens the loop instead.
 
