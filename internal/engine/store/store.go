@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -177,8 +178,35 @@ func (s *Store) enableWAL() error {
 	}
 }
 
+// closeWait bounds how long Close waits for connections still in use: a
+// little longer than a statement may wait for a lock (the busy timeout).
+var closeWait = 2 * time.Duration(sqliteBusyTimeoutMS) * time.Millisecond
+
+// Close closes the database and returns once every connection is closed,
+// waiting at most closeWait for connections still in use to be given back.
 func (s *Store) Close() error {
-	return s.db.Close()
+	return closeDB(s.db)
+}
+
+// closeDB closes db's pool and waits until it has no open connection.
+// database/sql's Close closes only the idle connections: one a goroutine
+// still holds stays open until it is given back, and a statement it runs
+// in the meantime makes SQLite create the -wal and -shm files again, which
+// the idle connection's close had just deleted. Once the last connection
+// closes they are gone, so the caller may remove the folder (LEG-654).
+// It never waits past closeWait, so a connection never given back cannot
+// hang shutdown.
+func closeDB(db *sqlx.DB) error {
+	err := db.Close()
+	deadline := time.Now().Add(closeWait)
+	for db.Stats().OpenConnections > 0 {
+		if time.Now().After(deadline) {
+			log.Printf("store: closed with %d connection(s) still in use after %v", db.Stats().OpenConnections, closeWait)
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	return err
 }
 
 // DB returns the underlying sqlx.DB for advanced queries.

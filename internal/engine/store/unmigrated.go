@@ -41,7 +41,7 @@ func (u *Unmigrated) Close() error {
 	if u.migrated {
 		return nil
 	}
-	return u.db.Close()
+	return closeDB(u.db)
 }
 
 // Migrate runs the pending migrations and returns the Store, which owns the
