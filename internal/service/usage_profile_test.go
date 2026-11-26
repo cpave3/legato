@@ -29,6 +29,13 @@ func TestUsagePolicyPersistsTwoSwitchesAndPinExpiry(t *testing.T) {
 	if err := policy.Evaluate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	baseline, err := policy.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseline.Active.Profile.Name != "claude" || len(baseline.Switches) != 0 || notifier.count != 0 {
+		t.Fatalf("fallback baseline=%+v notifications=%d", baseline, notifier.count)
+	}
 	f.now = f.now.Add(5 * time.Minute)
 	f.claude.set(ProviderUsage{Windows: claudeWindows(91)}, nil)
 	f.svc.Poll(ctx)
