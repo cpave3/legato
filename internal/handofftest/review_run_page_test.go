@@ -3,7 +3,6 @@ package handofftest
 import (
 	"context"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -258,4 +257,3 @@ func waitingPath(t *testing.T, view *store.WorkflowRunView) string {
 	return ""
 }
 
-var _ = strings.Contains

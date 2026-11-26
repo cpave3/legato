@@ -5,8 +5,8 @@ import { cn } from "../lib/utils"
 // What the run page says of a review loop (spec LEG-559 stories 11, 12, 20;
 // LEG-594): its pass and findings, the reviewer, each pull request's state
 // (and, while open, whether it can merge), the steward while it watches,
-// and that legato-reviews' approval still stands. See docs/ai/web-ui.md
-// § Workflow run page.
+// and that legato-reviews' approval still stands. See docs/ai/web-ui.md, the
+// run page under Workflows.
 
 const stateWords: Record<string, string> = { merged: "Merged", closed: "Closed, not merged" }
 
