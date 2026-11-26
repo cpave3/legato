@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/service"
@@ -26,6 +27,29 @@ type ReviewRuns struct {
 	// Discover is the PR tracking a run asks to look again when no task
 	// is linked to an agent-authored loop's pull request.
 	Discover *FakeDiscover
+	// Burnlite is the Burnlite burnlite.task.close closes tickets in.
+	Burnlite *FakeBurnliteClose
+}
+
+// FakeBurnliteClose records each Burnlite ticket closed, as
+// "<key>|<reason>|<summary>".
+type FakeBurnliteClose struct {
+	mu     sync.Mutex
+	closed []string
+}
+
+func (f *FakeBurnliteClose) CloseTask(_ context.Context, key, reason, summary string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closed = append(f.closed, key+"|"+reason+"|"+summary)
+	return nil
+}
+
+// Closed are the tickets closed, oldest first.
+func (f *FakeBurnliteClose) Closed() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.closed...)
 }
 
 // FakeDiscover records each repository a run asked PR tracking to look in
@@ -72,7 +96,15 @@ func newReviewRuns(w *Worker) *ReviewRuns {
 	step := service.NewReviewPassesStep()
 	steps := service.NewReviewLoopSteps()
 	steps.SetMaxReentries(func() int { return 5 })
-	executors := append([]service.WorkflowExecutor{step, service.NewTaskNoteExecutor(w.Store)}, steps.Executors()...)
+	// The steps ticket-to-merged-pr runs around review-loop: the card's
+	// agent (agent.run, agent.stop, on the built-in macros), notes and a
+	// fake Burnlite close.
+	agents := service.NewWorkflowAgentRunner(w.Agents, w.Store)
+	run := service.NewAgentRunExecutor(agents)
+	run.SetMacros(service.NewMacroService(service.NewSettingsService(w.Store, func() (*config.Config, error) { return config.LoadBytes(nil) })))
+	burnlite := &FakeBurnliteClose{}
+	executors := append([]service.WorkflowExecutor{step, service.NewTaskNoteExecutor(w.Store), run, service.NewAgentStopExecutor(agents),
+		service.NewBurnliteCloseExecutor(w.Store, burnlite)}, steps.Executors()...)
 	workflows := service.NewWorkflowService(w.Store, executors)
 	discover := &FakeDiscover{}
 	caller := service.NewReviewRunCaller(w.Reviews, service.ReviewRunOptions{
@@ -93,7 +125,7 @@ func newReviewRuns(w *Worker) *ReviewRuns {
 		}
 		return workflowengine.WithBuiltIns(found, service.BuiltInWorkflows()...)
 	})
-	return &ReviewRuns{w: w, Workflows: workflows, Caller: caller, Steps: steps, Clones: clones, Discover: discover}
+	return &ReviewRuns{w: w, Workflows: workflows, Caller: caller, Steps: steps, Clones: clones, Discover: discover, Burnlite: burnlite}
 }
 
 // Start runs review-pr-passes with inputs, and opens its review step as
@@ -113,6 +145,17 @@ func (r *ReviewRuns) Start(ctx context.Context, inputs map[string]string) (*stor
 	}
 	r.Open(ctx)
 	return r.Workflows.Show(ctx, view.Run.ID)
+}
+
+// StartExample runs a bundled example workflow (legato workflow add's
+// templates, ticket-to-merged-pr among them) with inputs, and opens its
+// review steps as the broker holder's tick does at once.
+func (r *ReviewRuns) StartExample(ctx context.Context, name string, inputs map[string]string) (*store.WorkflowRunView, error) {
+	example, ok := workflowengine.ExampleNamed(name)
+	if !ok {
+		return nil, fmt.Errorf("no %s example", name)
+	}
+	return r.StartFile(ctx, string(example.YAML), inputs)
 }
 
 // StartReviewLoop runs the built-in review-loop with inputs, top level, and

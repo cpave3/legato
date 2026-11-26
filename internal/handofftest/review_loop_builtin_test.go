@@ -12,7 +12,7 @@ import (
 )
 
 // callerFile calls review-loop with workflow.run and branches on its
-// outcome, as ticket-to-merged-pr will.
+// outcome, as ticket-to-merged-pr does (ticket_to_merged_pr_test.go).
 const callerFile = `schema_version: 2
 name: ship-it
 title: Ship it
