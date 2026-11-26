@@ -160,7 +160,8 @@ func startReviewEngine(deps integrationDeps) *reviewEngine {
 // wireHandoffReviewCaller registers the handoff caller with the engine: a
 // worker's reviewed handoffs' Done waits for a clean review. With the run
 // caller attached (runs), each reviewed handoff runs the built-in
-// review-loop (LEG-600); without it, its loop runs on its own as before.
+// review-loop (LEG-600); without it, review passes apply to no handoff
+// (LEG-601: no handoff loop moves on outside review-loop).
 func wireHandoffReviewCaller(deps integrationDeps, reviews *service.ReviewPassService, handoffs *service.HandoffWorkerService, runs bool) {
 	if reviews == nil || deps.board == nil {
 		return
