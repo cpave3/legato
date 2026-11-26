@@ -390,3 +390,37 @@ func TestAReEntryWaitReadsGitHubOnlyThroughTheWatch(t *testing.T) {
 		t.Fatalf("%d comment polls outside the watch", got-polls)
 	}
 }
+
+// A member's reply to a re-entry pass's blocking finding, which the watch
+// read, answers it even after a push moved a head, so the next pass is
+// not held for an answer GitHub already has.
+func TestAWatchedReplyAnswersAReEntryFindingAfterAPush(t *testing.T) {
+	r, view := reenteredWithAFinding(t)
+	task := view.Run.TaskID
+	findings, _ := r.worker.Store.ListHandoffReviewFindings(context.Background(), task)
+	var root int64
+	var id string
+	for _, f := range findings {
+		if f.Pass == 2 {
+			root, id = f.CommentID, f.ID
+		}
+	}
+	if root == 0 {
+		t.Fatalf("pass 2's finding has no thread: %+v", findings)
+	}
+	r.worker.ReviewGitHub.Push(12, "ddd444")
+	r.worker.Checkout.Change("ddd444", "greet.go", 3, 5)
+	r.worker.ReviewGitHub.SetComments(12, threadOf(root,
+		service.PRComment{Kind: "inline", ID: root + 10, ThreadRoot: root, Author: "octocat", Association: "MEMBER", Body: "An empty name never reaches greet."})...)
+	for range 3 {
+		r.watchTick()
+		r.worker.Clock.Advance(3 * time.Minute) // the quiet time
+		r.tick()
+	}
+	if item := r.item(t, task, id); item.Answer != service.AnswerReplied || !strings.Contains(item.AnswerNote, "octocat replied") {
+		t.Fatalf("the member's reply is not the answer: %+v", item)
+	}
+	if loop := r.loopPhase(t, task); loop.Pass != 3 {
+		t.Fatalf("no pass after the push and the reply: loop %+v", loop)
+	}
+}

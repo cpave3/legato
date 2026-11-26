@@ -1074,6 +1074,13 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 	}
 	pushed := moved(open, c.pinnedHeads(ctx, l.TaskID))
 	now := c.engine.opts.Now()
+	disputed := false
+	if watched {
+		// The watch read the threads already, at no cost: replies to
+		// blocking findings answer them whether or not a head moved, so
+		// the answers the next pass waits for are there.
+		disputed = c.disputed(ctx, l, run, open, polls)
+	}
 	if l.AuthorTaskID != "" && c.agentDone(ctx, l, pushed) {
 		return true
 	}
@@ -1088,7 +1095,7 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 		seen, err := time.Parse(time.RFC3339, run.SeenAt)
 		return err == nil && now.Sub(seen) >= c.engine.config().QuietTime
 	}
-	return c.disputed(ctx, l, run, open, polls)
+	return disputed || c.disputed(ctx, l, run, open, polls)
 }
 
 // watchedPRs are a stewarding loop's open pull requests and their comments
