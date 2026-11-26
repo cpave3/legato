@@ -66,6 +66,11 @@ const (
 	stewardCommentOperation = "Answer it with legato review-pass answer, which Legato posts as your reply. " +
 		"A fix is a commit pushed to the pull request's branch (git.push; git.push-workflows when it changes a file under .github/workflows). " +
 		"Nothing is granted ahead: the operator's credential rules decide each."
+	stewardMergeabilityOperation = "A fix is merging the base into the pull request's branch, or restacking it onto the base (st restack, or git rebase --update-refs), " +
+		"then pushing it (git.push, with --force-with-lease after a rebase; git.push-workflows when it changes a file under .github/workflows). " +
+		"The item closes by itself once GitHub reports the pull request mergeable. Nothing is granted ahead: the operator's credential rules decide each."
+	stewardMergedOperation = "A fix is restacking the layers above onto the merged layer's base (st restack, or git rebase --onto), " +
+		"then pushing every branch that moved (git.push, with --force-with-lease). Nothing is granted ahead: the operator's credential rules decide each."
 )
 
 // stewardOperation is the operation a fix of a steward's item of kind may
@@ -76,6 +81,10 @@ func stewardOperation(kind string) string {
 		return stewardCheckOperation
 	case ItemComment:
 		return stewardCommentOperation
+	case ItemMergeability:
+		return stewardMergeabilityOperation
+	case ItemMergedLayer:
+		return stewardMergedOperation
 	}
 	return ""
 }
@@ -214,6 +223,15 @@ func (s *ReviewPassService) routeItems(ctx context.Context, l ReviewLoop, rec *s
 	seen, read := map[string]bool{}, map[int]bool{}
 	fresh, skipped := 0, 0
 	for _, layer := range w.Layers {
+		item, write, isNew := s.applyMergeability(l, loop, rec.Repo, layer, byID)
+		if write {
+			if isNew {
+				fresh++
+			}
+			if err := s.db.UpsertHandoffReviewItem(ctx, item); err != nil {
+				return err
+			}
+		}
 		if layer.State != "open" {
 			continue
 		}
@@ -258,6 +276,68 @@ func (s *ReviewPassService) routeItems(ctx context.Context, l ReviewLoop, rec *s
 		_ = s.tellAuthor(ctx, l, fmt.Sprintf("%s %s was deleted on GitHub; you need not answer it.", StewardTag, strings.Join(gone, ", ")))
 	}
 	return nil
+}
+
+// GitHub's words for whether a pull request can merge (PRWatch.Mergeable,
+// MergeState).
+const (
+	githubMergeable    = "MERGEABLE"
+	githubConflicting  = "CONFLICTING"
+	githubMergeUnknown = "UNKNOWN"
+	githubMergeBehind  = "BEHIND"
+	mergeabilityPrefix = "m-"
+	mergedLayerPrefix  = "ml-"
+)
+
+// applyMergeability is what a watched layer makes of its one mergeability
+// item (spec LEG-559 D14, Q6): CONFLICTING raises it (merge the base or
+// restack), and so does a mergeStateStatus of BEHIND (no branch protection
+// read: GitHub says BEHIND only when the base requires an up-to-date
+// branch); any change to the problem, the head or the base raises it again
+// as a new version. MERGEABLE and not BEHIND closes it by itself, as does
+// the layer merging or closing. UNKNOWN changes nothing: GitHub is still
+// working it out, and the watch reads it again within a minute. It says
+// whether the item is to be written and whether it is new to tell.
+func (s *ReviewPassService) applyMergeability(l ReviewLoop, loop *store.HandoffReview, repo string, layer PRWatch,
+	byID map[string]store.HandoffReviewItem) (store.HandoffReviewItem, bool, bool) {
+	id := fmt.Sprintf("%s%d", mergeabilityPrefix, layer.Number)
+	item, known := byID[id]
+	problem := ""
+	switch {
+	case layer.State != "open":
+	case layer.Mergeable == githubConflicting:
+		problem = githubConflicting
+	case mergeUnknown(layer):
+		return item, false, false
+	case layer.MergeState == githubMergeBehind:
+		problem = githubMergeBehind
+	}
+	if problem == "" {
+		if known && !item.Closed {
+			item.Closed = true
+			return item, true, false
+		}
+		return item, false, false
+	}
+	source := problem + "@" + layer.HeadSHA + "@" + layer.BaseBranch
+	if known && !item.Closed && item.SourceID == source {
+		return item, false, false
+	}
+	if !known {
+		item = store.HandoffReviewItem{ID: id, TaskID: l.TaskID, Kind: ItemMergeability, Repo: repo, PR: layer.Number, Author: "GitHub", CreatedAt: s.now()}
+	}
+	item.Version++
+	item.Closed, item.Pass, item.SourceID = false, loop.Pass, source
+	item.Answer, item.AnswerNote, item.AnsweredAt, item.Posted, item.Delivered = "", "", "", false, false
+	item.URL = fmt.Sprintf("https://github.com/%s/pull/%d", repo, layer.Number)
+	if problem == githubConflicting {
+		item.Title = fmt.Sprintf("#%d conflicts with its base %s at %s: merge %s into it, or restack it", layer.Number, layer.BaseBranch, short(layer.HeadSHA), layer.BaseBranch)
+		item.Body = "GitHub reports this pull request CONFLICTING: it cannot be merged until the conflicts with its base are resolved."
+	} else {
+		item.Title = fmt.Sprintf("#%d is behind its base %s at %s: merge %s into it, or restack it", layer.Number, layer.BaseBranch, short(layer.HeadSHA), layer.BaseBranch)
+		item.Body = "GitHub reports this pull request BEHIND: its base requires branches to be up to date before merging."
+	}
+	return item, true, true
 }
 
 // countedWatchChecks are a watched layer's counted checks: those branch

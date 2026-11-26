@@ -299,15 +299,11 @@ func (s *ReviewPassService) deliverComments(ctx context.Context, l ReviewLoop, l
 		return err
 	}
 	var ids []string
-	comments, checks := 0, 0
+	counts := map[string]int{}
 	for _, item := range items {
-		if (item.Kind == ItemComment || item.Kind == ItemCheck) && !item.Delivered && item.Answer == "" {
+		if routedItem(item.Kind) && !item.Delivered && item.Answer == "" {
 			ids = append(ids, item.ID)
-			if item.Kind == ItemCheck {
-				checks++
-			} else {
-				comments++
-			}
+			counts[item.Kind]++
 		}
 	}
 	if len(ids) == 0 {
@@ -323,11 +319,13 @@ func (s *ReviewPassService) deliverComments(ctx context.Context, l ReviewLoop, l
 		return nil
 	}
 	var parts []string
-	if comments > 0 {
-		parts = append(parts, fmt.Sprintf("%d new %s", comments, plural(comments, "comment", "comments")))
-	}
-	if checks > 0 {
-		parts = append(parts, fmt.Sprintf("%d failing %s", checks, plural(checks, "check", "checks")))
+	for _, kind := range []struct{ key, one, many string }{
+		{ItemComment, "new comment", "new comments"}, {ItemCheck, "failing check", "failing checks"},
+		{ItemMergeability, "mergeability problem", "mergeability problems"}, {ItemMergedLayer, "merged layer", "merged layers"},
+	} {
+		if n := counts[kind.key]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, plural(n, kind.one, kind.many)))
+		}
 	}
 	message := fmt.Sprintf("%s %s on your pull requests. Run legato review-pass feedback --json to read them.", ReviewTag, joinAnd(parts))
 	if s.stewardRecord(ctx, l.TaskID) != nil {

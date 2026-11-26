@@ -19,6 +19,14 @@ const (
 	ItemNit      = "nit"
 	ItemComment  = "comment"
 	ItemCheck    = "check"
+	// ItemMergeability is a steward's: a pull request GitHub cannot merge
+	// (CONFLICTING) or that is behind a base requiring an up-to-date
+	// branch (BEHIND). One per pull request; it closes by itself once
+	// GitHub reports the pull request mergeable.
+	ItemMergeability = "mergeability"
+	// ItemMergedLayer is a steward's: a lower layer of the stack merged,
+	// so the layers above it are to be restacked.
+	ItemMergedLayer = "merged"
 
 	AnswerFixed   = "fixed"
 	AnswerReplied = "replied"
@@ -186,6 +194,17 @@ func ReviewFeedback(ctx context.Context, db *store.Store, taskID string, opts ..
 	return view, nil
 }
 
+// routedItem says whether items of a kind come from GitHub rather than
+// from a pass: comments, checks, and the steward's mergeability and merged
+// layers. They stay from round to round until answered (or closed).
+func routedItem(kind string) bool {
+	switch kind {
+	case ItemComment, ItemCheck, ItemMergeability, ItemMergedLayer:
+		return true
+	}
+	return false
+}
+
 // currentItems are the open items of a loop's round.
 func currentItems(ctx context.Context, db *store.Store, loop *store.HandoffReview) ([]store.HandoffReviewItem, error) {
 	all, err := db.ListHandoffReviewItems(ctx, loop.TaskID)
@@ -196,7 +215,7 @@ func currentItems(ctx context.Context, db *store.Store, loop *store.HandoffRevie
 	for _, item := range all {
 		// A comment or check stays until it is answered, from round to
 		// round; a finding belongs to its pass's round.
-		carried := (item.Kind == ItemComment || item.Kind == ItemCheck) && item.Answer == ""
+		carried := routedItem(item.Kind) && item.Answer == ""
 		if !item.Closed && (item.Pass == loop.Pass || carried) {
 			items = append(items, item)
 		}
@@ -264,7 +283,7 @@ func RefuseUnansweredReview(ctx context.Context, db *store.Store, taskID string)
 	for _, item := range items {
 		// A failing check holds the handoff's done, not the author's
 		// move: a pass runs without waiting for CI.
-		if item.Kind != ItemNit && item.Kind != ItemCheck && item.Answer == "" {
+		if (item.Kind == ItemBlocking || item.Kind == ItemComment) && item.Answer == "" {
 			open++
 		}
 	}
@@ -451,6 +470,11 @@ func (s *ReviewPassService) postAnswers(ctx context.Context, l ReviewLoop) {
 	var pushed map[int]string
 	for _, item := range items {
 		if item.Answer == "" || item.Posted || item.Closed || item.PR == 0 {
+			continue
+		}
+		if item.Kind == ItemMergeability || item.Kind == ItemMergedLayer {
+			// Nothing on GitHub to answer: the steward read these from
+			// the pull requests' state.
 			continue
 		}
 		body := answerText(item)

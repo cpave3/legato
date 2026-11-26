@@ -36,8 +36,16 @@ type ReviewWatchSchedule struct {
 
 type watchSlot struct {
 	polledAt, changedAt, notBefore time.Time
-	forward                        bool
+	// recheckAt is when a read that found something still unsettled
+	// (Recheck) is due again, whatever the cadence.
+	recheckAt time.Time
+	forward   bool
 }
+
+// ReviewWatchUnknownRecheck is how soon a layer whose mergeability GitHub
+// has not worked out yet (UNKNOWN) is read again (spec LEG-559 § The
+// steward).
+const ReviewWatchUnknownRecheck = time.Minute
 
 // NewReviewWatchSchedule makes a schedule; a zero field of cadence is the
 // default's.
@@ -84,6 +92,9 @@ func (s *ReviewWatchSchedule) Due(loopID string, changedAt, now time.Time) bool 
 	if slot.forward && since >= s.cadence.ForwardGap {
 		return true
 	}
+	if !slot.recheckAt.IsZero() && !now.Before(slot.recheckAt) {
+		return true
+	}
 	last := changedAt
 	if slot.changedAt.After(last) {
 		last = slot.changedAt
@@ -100,7 +111,7 @@ func (s *ReviewWatchSchedule) Polled(loopID string, now time.Time, changed bool)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	slot := s.slot(loopID)
-	slot.polledAt, slot.forward = now, false
+	slot.polledAt, slot.forward, slot.recheckAt = now, false, time.Time{}
 	if changed {
 		slot.changedAt = now
 	}
@@ -113,6 +124,15 @@ func (s *ReviewWatchSchedule) Changed(loopID string, at time.Time) {
 	if slot := s.slot(loopID); at.After(slot.changedAt) {
 		slot.changedAt = at
 	}
+}
+
+// Recheck makes a loop's next watch due at at, sooner than its cadence
+// would: a read found something GitHub had not settled. Until the next
+// Polled.
+func (s *ReviewWatchSchedule) Recheck(loopID string, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.slot(loopID).recheckAt = at
 }
 
 // Limited holds a loop's watches until a rate limit's end.
@@ -333,6 +353,9 @@ func (s *ReviewPassService) watchLoop(ctx context.Context, github ReviewWatchGit
 		}
 	}
 	s.watchSchedule.Polled(l.ID, now, next.Changed)
+	if err == nil && mergeabilityUnknown(next.Layers) {
+		s.watchSchedule.Recheck(l.ID, now.Add(ReviewWatchUnknownRecheck))
+	}
 	s.watchMu.Lock()
 	if s.watched == nil {
 		s.watched = map[string]ReviewLoopWatch{}
@@ -359,6 +382,23 @@ func sameComments(a, b map[int]CommentPoll) bool {
 		}
 	}
 	return true
+}
+
+// mergeabilityUnknown says whether GitHub has yet to work out an open
+// layer's mergeability.
+func mergeabilityUnknown(layers []PRWatch) bool {
+	for _, layer := range layers {
+		if layer.State == "open" && mergeUnknown(layer) {
+			return true
+		}
+	}
+	return false
+}
+
+// mergeUnknown says whether GitHub is still working out whether a layer
+// can merge.
+func mergeUnknown(layer PRWatch) bool {
+	return layer.Mergeable == githubMergeUnknown || (layer.Mergeable == "" && layer.MergeState == githubMergeUnknown)
 }
 
 // sameWatch says whether two reads of a loop's layers found the same:

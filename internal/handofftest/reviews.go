@@ -97,6 +97,21 @@ type FakeReviewGitHub struct {
 	watches int
 	// reads counts PullRequest calls.
 	reads int
+	// mergeable is each pull request's mergeable and mergeStateStatus as
+	// the watch reads them (MERGEABLE and CLEAN when not set).
+	mergeable map[int][2]string
+}
+
+// SetMergeable gives a pull request GitHub's mergeable (MERGEABLE,
+// CONFLICTING, UNKNOWN) and mergeStateStatus (CLEAN, BEHIND, DIRTY...), as
+// the steward's watch reads them.
+func (f *FakeReviewGitHub) SetMergeable(number int, mergeable, mergeState string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.mergeable == nil {
+		f.mergeable = map[int][2]string{}
+	}
+	f.mergeable[number] = [2]string{mergeable, mergeState}
 }
 
 // Draft makes an open pull request a draft, or ready.
@@ -929,6 +944,9 @@ func (s *fakeWatchSession) Watch(_ context.Context, numbers []int) ([]service.PR
 		}
 		w := service.PRWatch{Number: n, State: state, Draft: pr.Draft, HeadSHA: pr.HeadSHA, HeadBranch: pr.Branch, BaseBranch: pr.Base,
 			Mergeable: "MERGEABLE", MergeState: "CLEAN"}
+		if m, ok := f.mergeable[n]; ok {
+			w.Mergeable, w.MergeState = m[0], m[1]
+		}
 		for _, c := range f.checks[pr.HeadSHA] {
 			w.Checks = append(w.Checks, service.WatchCheck{Name: c.Name, State: c.State, Conclusion: c.Conclusion, URL: c.URL, Required: true})
 			switch {
