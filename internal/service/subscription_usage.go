@@ -181,6 +181,8 @@ type SubscriptionUsageService struct {
 	mu       sync.Mutex
 	polling  bool
 	provider map[string]*usagePoll
+	// seeded: the schedule was taken from the kept readings.
+	seeded sync.Once
 }
 
 // usagePoll is when a provider was last read and may next be.
@@ -310,6 +312,7 @@ func (s *SubscriptionUsageService) Run(ctx context.Context) {
 }
 
 func (s *SubscriptionUsageService) read(ctx context.Context, refresh bool) {
+	s.seeded.Do(func() { s.seed(ctx) })
 	var wg sync.WaitGroup
 	changed := false
 	var changedMu sync.Mutex
@@ -404,6 +407,29 @@ func (s *SubscriptionUsageService) readOne(ctx context.Context, r SubscriptionUs
 		return false
 	}
 	return true
+}
+
+// seed starts each provider's schedule from its kept reading, so a
+// restarted Legato waits out the interval since the last read instead of
+// asking every provider again at once. A refresh still reads at once.
+func (s *SubscriptionUsageService) seed(ctx context.Context) {
+	rows, err := s.opts.Store.ListSubscriptionUsage(ctx)
+	if err != nil {
+		return
+	}
+	for _, row := range rows {
+		poll, ok := s.provider[row.Provider]
+		if !ok {
+			continue
+		}
+		var usage ProviderUsage
+		if json.Unmarshal([]byte(row.Reading), &usage) != nil || usage.CheckedAt == nil {
+			continue
+		}
+		poll.reading.Lock()
+		poll.nextRead = usage.CheckedAt.Add(s.opts.PollInterval)
+		poll.reading.Unlock()
+	}
 }
 
 // lastKept is a provider's kept reading, or none.

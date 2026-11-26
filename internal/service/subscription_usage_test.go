@@ -281,3 +281,29 @@ func TestRepeatedFailuresBackOffUpToHalfAnHour(t *testing.T) {
 		}
 	}
 }
+
+// A restarted Legato goes on from the kept readings' schedule instead of
+// asking every provider again at once.
+func TestARestartedPollerWaitsOutTheKeptReadingsInterval(t *testing.T) {
+	f := newUsageFixture(t)
+	f.claude.set(ProviderUsage{Windows: claudeWindows(10)}, nil)
+	f.codex.set(ProviderUsage{Windows: claudeWindows(10)}, nil)
+	f.svc.Refresh(context.Background())
+
+	restarted := &fakeUsageReader{provider: UsageProviderClaude, usage: ProviderUsage{Windows: claudeWindows(20)}}
+	newCodex := &fakeUsageReader{provider: UsageProviderCodex, usage: ProviderUsage{Windows: claudeWindows(20)}}
+	svc := NewSubscriptionUsageService(SubscriptionUsageOptions{
+		Store: f.db, Readers: []SubscriptionUsageReader{restarted, newCodex},
+		PollInterval: 5 * time.Minute, Now: func() time.Time { return f.now },
+	})
+	f.now = f.now.Add(2 * time.Minute)
+	svc.Poll(context.Background())
+	if restarted.count() != 0 {
+		t.Fatalf("reads = %d two minutes after the kept reading", restarted.count())
+	}
+	f.now = f.now.Add(3 * time.Minute)
+	svc.Poll(context.Background())
+	if restarted.count() != 1 {
+		t.Fatalf("reads = %d at the interval, want 1", restarted.count())
+	}
+}
