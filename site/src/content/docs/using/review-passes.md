@@ -195,6 +195,8 @@ With `steward: true` (which needs `agent_author: true`), `review-loop` does not 
 - goes back to review on any push: one **re-entry**, however many layers of the stack moved, so a restack counts once. The next pass reviews what changed since the last one, and the pull requests are approved again only after a clean pass that Legato confirms at the new heads. A re-entry's pass does not wait for answers to checks or comments, only to blocking findings; disputing a blocking finding with a reply starts the next pass without a push;
 - ends the run **closed** when a pull request is closed without merging.
 
+While an `agent_author` loop holds the pull requests, before approval or after, a workflow's [`pr.changes_requested` trigger](/legato/using/workflows/#when-changes-are-requested) skips them and records why, "held by review loop rl-…": a review requesting changes reaches the agent through the loop instead.
+
 The loop record counts re-entries against `max_reentries` (`review_passes.max_reentries`, 5 by default, which a workflow may lower but never raise).
 
 To find the author, Legato looks for the board task linked to the pull request. When an agent opens a pull request through Legato's GitHub credential, its task is linked at once, so a run started right after works. When no task is linked yet, Legato looks again in the repository (by branch, commit and ticket key, as its poll does) before it refuses. If it still finds none, the run says so: link the pull request to its task with `legato task link <task-id> --repo owner/name --branch <head branch>`, or `p` on the task's card on the board, and run again. Or run without `agent_author`, and the branch's owner is the author.

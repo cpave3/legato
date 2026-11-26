@@ -481,6 +481,8 @@ on:
 
 With no inputs to map, write `pr.changes_requested: {}`. The inputs may also read `${{ event.pr_url }}` and `${{ event.reviewer }}`. The [loop stop](#the-loop-stop) counts runs by the task.
 
+While a `review-loop` with `agent_author: true` holds the pull request, the trigger starts nothing: the loop sends the review to the author agent itself (and its [steward](/legato/using/review-passes/#after-approval-the-steward) does after approval), so a second workflow never works on the same feedback. The Workflows tab records the request as skipped, "held by review loop rl-…", naming the loop. A pull request with no open review loop, or held by a loop without `agent_author` (a person's pull request), still starts the workflow, as does any once its loop has ended.
+
 In the web UI's editor, the builder's **Triggers** section edits this trigger as a form: see [Create and edit in the web UI](#create-and-edit-in-the-web-ui).
 
 ### Chat messages and mentions
