@@ -1,0 +1,962 @@
+{
+  "snapshot": {
+    "revision": "r3",
+    "document": {
+      "id": "workspace-study",
+      "root": "board",
+      "nodes": {
+        "board": {
+          "id": "board",
+          "kind": "frame",
+          "parent": null,
+          "children": [
+            "title",
+            "body",
+            "cta"
+          ],
+          "text": "",
+          "style": {
+            "x": 0,
+            "y": 0,
+            "width": 760,
+            "height": 420,
+            "fontSize": 16,
+            "color": "#17212b",
+            "background": "#f6f8fa"
+          }
+        },
+        "title": {
+          "id": "title",
+          "kind": "text",
+          "parent": "board",
+          "children": [],
+          "text": "Workspace for the launch team",
+          "style": {
+            "x": 40,
+            "y": 40,
+            "width": 640,
+            "height": 70,
+            "fontSize": 30,
+            "color": "#17212b",
+            "background": "transparent"
+          }
+        },
+        "body": {
+          "id": "body",
+          "kind": "text",
+          "parent": "board",
+          "children": [],
+          "text": "Keep a project and its conversations together.",
+          "style": {
+            "x": 40,
+            "y": 140,
+            "width": 640,
+            "height": 90,
+            "fontSize": 16,
+            "color": "#17212b",
+            "background": "transparent"
+          }
+        },
+        "cta": {
+          "id": "cta",
+          "kind": "button",
+          "parent": "board",
+          "children": [],
+          "text": "Continue",
+          "style": {
+            "x": 130,
+            "y": 315,
+            "width": 220,
+            "height": 50,
+            "fontSize": 16,
+            "color": "#ffffff",
+            "background": "#245e9b"
+          }
+        }
+      }
+    }
+  },
+  "feedback": [
+    {
+      "id": "pin-1",
+      "document": "workspace-study",
+      "revision": "r0",
+      "frame": "board",
+      "node": "cta",
+      "quote": "Continue",
+      "comment": "Use a clearer action label",
+      "status": "historical-target-present"
+    }
+  ],
+  "session": {
+    "schema": 1,
+    "revision": "r3",
+    "serial": 3,
+    "snapshots": {
+      "r0": {
+        "id": "workspace-study",
+        "root": "board",
+        "nodes": {
+          "board": {
+            "id": "board",
+            "kind": "frame",
+            "parent": null,
+            "children": [
+              "title",
+              "body",
+              "cta"
+            ],
+            "text": "",
+            "style": {
+              "x": 0,
+              "y": 0,
+              "width": 760,
+              "height": 420,
+              "fontSize": 16,
+              "color": "#17212b",
+              "background": "#f6f8fa"
+            }
+          },
+          "title": {
+            "id": "title",
+            "kind": "text",
+            "parent": "board",
+            "children": [],
+            "text": "Your next workspace",
+            "style": {
+              "x": 40,
+              "y": 40,
+              "width": 640,
+              "height": 70,
+              "fontSize": 30,
+              "color": "#17212b",
+              "background": "transparent"
+            }
+          },
+          "body": {
+            "id": "body",
+            "kind": "text",
+            "parent": "board",
+            "children": [],
+            "text": "Keep a project and its conversations together.",
+            "style": {
+              "x": 40,
+              "y": 140,
+              "width": 640,
+              "height": 90,
+              "fontSize": 16,
+              "color": "#17212b",
+              "background": "transparent"
+            }
+          },
+          "cta": {
+            "id": "cta",
+            "kind": "button",
+            "parent": "board",
+            "children": [],
+            "text": "Continue",
+            "style": {
+              "x": 40,
+              "y": 280,
+              "width": 220,
+              "height": 50,
+              "fontSize": 16,
+              "color": "#ffffff",
+              "background": "#176350"
+            }
+          }
+        }
+      },
+      "r1": {
+        "id": "workspace-study",
+        "root": "board",
+        "nodes": {
+          "board": {
+            "id": "board",
+            "kind": "frame",
+            "parent": null,
+            "children": [
+              "title",
+              "body",
+              "cta"
+            ],
+            "text": "",
+            "style": {
+              "x": 0,
+              "y": 0,
+              "width": 760,
+              "height": 420,
+              "fontSize": 16,
+              "color": "#17212b",
+              "background": "#f6f8fa"
+            }
+          },
+          "title": {
+            "id": "title",
+            "kind": "text",
+            "parent": "board",
+            "children": [],
+            "text": "Workspace for the launch team",
+            "style": {
+              "x": 40,
+              "y": 40,
+              "width": 640,
+              "height": 70,
+              "fontSize": 30,
+              "color": "#17212b",
+              "background": "transparent"
+            }
+          },
+          "body": {
+            "id": "body",
+            "kind": "text",
+            "parent": "board",
+            "children": [],
+            "text": "Keep a project and its conversations together.",
+            "style": {
+              "x": 40,
+              "y": 140,
+              "width": 640,
+              "height": 90,
+              "fontSize": 16,
+              "color": "#17212b",
+              "background": "transparent"
+            }
+          },
+          "cta": {
+            "id": "cta",
+            "kind": "button",
+            "parent": "board",
+            "children": [],
+            "text": "Continue",
+            "style": {
+              "x": 40,
+              "y": 280,
+              "width": 220,
+              "height": 50,
+              "fontSize": 16,
+              "color": "#ffffff",
+              "background": "#176350"
+            }
+          }
+        }
+      },
+      "r2": {
+        "id": "workspace-study",
+        "root": "board",
+        "nodes": {
+          "board": {
+            "id": "board",
+            "kind": "frame",
+            "parent": null,
+            "children": [
+              "title",
+              "body",
+              "cta"
+            ],
+            "text": "",
+            "style": {
+              "x": 0,
+              "y": 0,
+              "width": 760,
+              "height": 420,
+              "fontSize": 16,
+              "color": "#17212b",
+              "background": "#f6f8fa"
+            }
+          },
+          "title": {
+            "id": "title",
+            "kind": "text",
+            "parent": "board",
+            "children": [],
+            "text": "Workspace for the launch team",
+            "style": {
+              "x": 40,
+              "y": 40,
+              "width": 640,
+              "height": 70,
+              "fontSize": 30,
+              "color": "#17212b",
+              "background": "transparent"
+            }
+          },
+          "body": {
+            "id": "body",
+            "kind": "text",
+            "parent": "board",
+            "children": [],
+            "text": "Keep a project and its conversations together.",
+            "style": {
+              "x": 40,
+              "y": 140,
+              "width": 640,
+              "height": 90,
+              "fontSize": 16,
+              "color": "#17212b",
+              "background": "transparent"
+            }
+          },
+          "cta": {
+            "id": "cta",
+            "kind": "button",
+            "parent": "board",
+            "children": [],
+            "text": "Continue",
+            "style": {
+              "x": 40,
+              "y": 280,
+              "width": 220,
+              "height": 50,
+              "fontSize": 16,
+              "color": "#ffffff",
+              "background": "#245e9b"
+            }
+          }
+        }
+      },
+      "r3": {
+        "id": "workspace-study",
+        "root": "board",
+        "nodes": {
+          "board": {
+            "id": "board",
+            "kind": "frame",
+            "parent": null,
+            "children": [
+              "title",
+              "body",
+              "cta"
+            ],
+            "text": "",
+            "style": {
+              "x": 0,
+              "y": 0,
+              "width": 760,
+              "height": 420,
+              "fontSize": 16,
+              "color": "#17212b",
+              "background": "#f6f8fa"
+            }
+          },
+          "title": {
+            "id": "title",
+            "kind": "text",
+            "parent": "board",
+            "children": [],
+            "text": "Workspace for the launch team",
+            "style": {
+              "x": 40,
+              "y": 40,
+              "width": 640,
+              "height": 70,
+              "fontSize": 30,
+              "color": "#17212b",
+              "background": "transparent"
+            }
+          },
+          "body": {
+            "id": "body",
+            "kind": "text",
+            "parent": "board",
+            "children": [],
+            "text": "Keep a project and its conversations together.",
+            "style": {
+              "x": 40,
+              "y": 140,
+              "width": 640,
+              "height": 90,
+              "fontSize": 16,
+              "color": "#17212b",
+              "background": "transparent"
+            }
+          },
+          "cta": {
+            "id": "cta",
+            "kind": "button",
+            "parent": "board",
+            "children": [],
+            "text": "Continue",
+            "style": {
+              "x": 130,
+              "y": 315,
+              "width": 220,
+              "height": 50,
+              "fontSize": 16,
+              "color": "#ffffff",
+              "background": "#245e9b"
+            }
+          }
+        }
+      }
+    },
+    "history": [
+      {
+        "before": {
+          "id": "workspace-study",
+          "root": "board",
+          "nodes": {
+            "board": {
+              "id": "board",
+              "kind": "frame",
+              "parent": null,
+              "children": [
+                "title",
+                "body",
+                "cta"
+              ],
+              "text": "",
+              "style": {
+                "x": 0,
+                "y": 0,
+                "width": 760,
+                "height": 420,
+                "fontSize": 16,
+                "color": "#17212b",
+                "background": "#f6f8fa"
+              }
+            },
+            "title": {
+              "id": "title",
+              "kind": "text",
+              "parent": "board",
+              "children": [],
+              "text": "Your next workspace",
+              "style": {
+                "x": 40,
+                "y": 40,
+                "width": 640,
+                "height": 70,
+                "fontSize": 30,
+                "color": "#17212b",
+                "background": "transparent"
+              }
+            },
+            "body": {
+              "id": "body",
+              "kind": "text",
+              "parent": "board",
+              "children": [],
+              "text": "Keep a project and its conversations together.",
+              "style": {
+                "x": 40,
+                "y": 140,
+                "width": 640,
+                "height": 90,
+                "fontSize": 16,
+                "color": "#17212b",
+                "background": "transparent"
+              }
+            },
+            "cta": {
+              "id": "cta",
+              "kind": "button",
+              "parent": "board",
+              "children": [],
+              "text": "Continue",
+              "style": {
+                "x": 40,
+                "y": 280,
+                "width": 220,
+                "height": 50,
+                "fontSize": 16,
+                "color": "#ffffff",
+                "background": "#176350"
+              }
+            }
+          }
+        },
+        "after": {
+          "id": "workspace-study",
+          "root": "board",
+          "nodes": {
+            "board": {
+              "id": "board",
+              "kind": "frame",
+              "parent": null,
+              "children": [
+                "title",
+                "body",
+                "cta"
+              ],
+              "text": "",
+              "style": {
+                "x": 0,
+                "y": 0,
+                "width": 760,
+                "height": 420,
+                "fontSize": 16,
+                "color": "#17212b",
+                "background": "#f6f8fa"
+              }
+            },
+            "title": {
+              "id": "title",
+              "kind": "text",
+              "parent": "board",
+              "children": [],
+              "text": "Workspace for the launch team",
+              "style": {
+                "x": 40,
+                "y": 40,
+                "width": 640,
+                "height": 70,
+                "fontSize": 30,
+                "color": "#17212b",
+                "background": "transparent"
+              }
+            },
+            "body": {
+              "id": "body",
+              "kind": "text",
+              "parent": "board",
+              "children": [],
+              "text": "Keep a project and its conversations together.",
+              "style": {
+                "x": 40,
+                "y": 140,
+                "width": 640,
+                "height": 90,
+                "fontSize": 16,
+                "color": "#17212b",
+                "background": "transparent"
+              }
+            },
+            "cta": {
+              "id": "cta",
+              "kind": "button",
+              "parent": "board",
+              "children": [],
+              "text": "Continue",
+              "style": {
+                "x": 40,
+                "y": 280,
+                "width": 220,
+                "height": 50,
+                "fontSize": 16,
+                "color": "#ffffff",
+                "background": "#176350"
+              }
+            }
+          }
+        },
+        "patch": {
+          "baseRevision": "r0",
+          "actor": "human-ui",
+          "label": "Direct text/property/drag edit",
+          "ops": [
+            {
+              "type": "set",
+              "id": "title",
+              "field": "text",
+              "value": "Workspace for the launch team"
+            }
+          ]
+        }
+      },
+      {
+        "before": {
+          "id": "workspace-study",
+          "root": "board",
+          "nodes": {
+            "board": {
+              "id": "board",
+              "kind": "frame",
+              "parent": null,
+              "children": [
+                "title",
+                "body",
+                "cta"
+              ],
+              "text": "",
+              "style": {
+                "x": 0,
+                "y": 0,
+                "width": 760,
+                "height": 420,
+                "fontSize": 16,
+                "color": "#17212b",
+                "background": "#f6f8fa"
+              }
+            },
+            "title": {
+              "id": "title",
+              "kind": "text",
+              "parent": "board",
+              "children": [],
+              "text": "Workspace for the launch team",
+              "style": {
+                "x": 40,
+                "y": 40,
+                "width": 640,
+                "height": 70,
+                "fontSize": 30,
+                "color": "#17212b",
+                "background": "transparent"
+              }
+            },
+            "body": {
+              "id": "body",
+              "kind": "text",
+              "parent": "board",
+              "children": [],
+              "text": "Keep a project and its conversations together.",
+              "style": {
+                "x": 40,
+                "y": 140,
+                "width": 640,
+                "height": 90,
+                "fontSize": 16,
+                "color": "#17212b",
+                "background": "transparent"
+              }
+            },
+            "cta": {
+              "id": "cta",
+              "kind": "button",
+              "parent": "board",
+              "children": [],
+              "text": "Continue",
+              "style": {
+                "x": 40,
+                "y": 280,
+                "width": 220,
+                "height": 50,
+                "fontSize": 16,
+                "color": "#ffffff",
+                "background": "#176350"
+              }
+            }
+          }
+        },
+        "after": {
+          "id": "workspace-study",
+          "root": "board",
+          "nodes": {
+            "board": {
+              "id": "board",
+              "kind": "frame",
+              "parent": null,
+              "children": [
+                "title",
+                "body",
+                "cta"
+              ],
+              "text": "",
+              "style": {
+                "x": 0,
+                "y": 0,
+                "width": 760,
+                "height": 420,
+                "fontSize": 16,
+                "color": "#17212b",
+                "background": "#f6f8fa"
+              }
+            },
+            "title": {
+              "id": "title",
+              "kind": "text",
+              "parent": "board",
+              "children": [],
+              "text": "Workspace for the launch team",
+              "style": {
+                "x": 40,
+                "y": 40,
+                "width": 640,
+                "height": 70,
+                "fontSize": 30,
+                "color": "#17212b",
+                "background": "transparent"
+              }
+            },
+            "body": {
+              "id": "body",
+              "kind": "text",
+              "parent": "board",
+              "children": [],
+              "text": "Keep a project and its conversations together.",
+              "style": {
+                "x": 40,
+                "y": 140,
+                "width": 640,
+                "height": 90,
+                "fontSize": 16,
+                "color": "#17212b",
+                "background": "transparent"
+              }
+            },
+            "cta": {
+              "id": "cta",
+              "kind": "button",
+              "parent": "board",
+              "children": [],
+              "text": "Continue",
+              "style": {
+                "x": 40,
+                "y": 280,
+                "width": 220,
+                "height": 50,
+                "fontSize": 16,
+                "color": "#ffffff",
+                "background": "#245e9b"
+              }
+            }
+          }
+        },
+        "patch": {
+          "baseRevision": "r1",
+          "actor": "human-ui",
+          "label": "Direct text/property/drag edit",
+          "ops": [
+            {
+              "type": "set",
+              "id": "cta",
+              "field": "background",
+              "value": "#245e9b"
+            }
+          ]
+        }
+      },
+      {
+        "before": {
+          "id": "workspace-study",
+          "root": "board",
+          "nodes": {
+            "board": {
+              "id": "board",
+              "kind": "frame",
+              "parent": null,
+              "children": [
+                "title",
+                "body",
+                "cta"
+              ],
+              "text": "",
+              "style": {
+                "x": 0,
+                "y": 0,
+                "width": 760,
+                "height": 420,
+                "fontSize": 16,
+                "color": "#17212b",
+                "background": "#f6f8fa"
+              }
+            },
+            "title": {
+              "id": "title",
+              "kind": "text",
+              "parent": "board",
+              "children": [],
+              "text": "Workspace for the launch team",
+              "style": {
+                "x": 40,
+                "y": 40,
+                "width": 640,
+                "height": 70,
+                "fontSize": 30,
+                "color": "#17212b",
+                "background": "transparent"
+              }
+            },
+            "body": {
+              "id": "body",
+              "kind": "text",
+              "parent": "board",
+              "children": [],
+              "text": "Keep a project and its conversations together.",
+              "style": {
+                "x": 40,
+                "y": 140,
+                "width": 640,
+                "height": 90,
+                "fontSize": 16,
+                "color": "#17212b",
+                "background": "transparent"
+              }
+            },
+            "cta": {
+              "id": "cta",
+              "kind": "button",
+              "parent": "board",
+              "children": [],
+              "text": "Continue",
+              "style": {
+                "x": 40,
+                "y": 280,
+                "width": 220,
+                "height": 50,
+                "fontSize": 16,
+                "color": "#ffffff",
+                "background": "#245e9b"
+              }
+            }
+          }
+        },
+        "after": {
+          "id": "workspace-study",
+          "root": "board",
+          "nodes": {
+            "board": {
+              "id": "board",
+              "kind": "frame",
+              "parent": null,
+              "children": [
+                "title",
+                "body",
+                "cta"
+              ],
+              "text": "",
+              "style": {
+                "x": 0,
+                "y": 0,
+                "width": 760,
+                "height": 420,
+                "fontSize": 16,
+                "color": "#17212b",
+                "background": "#f6f8fa"
+              }
+            },
+            "title": {
+              "id": "title",
+              "kind": "text",
+              "parent": "board",
+              "children": [],
+              "text": "Workspace for the launch team",
+              "style": {
+                "x": 40,
+                "y": 40,
+                "width": 640,
+                "height": 70,
+                "fontSize": 30,
+                "color": "#17212b",
+                "background": "transparent"
+              }
+            },
+            "body": {
+              "id": "body",
+              "kind": "text",
+              "parent": "board",
+              "children": [],
+              "text": "Keep a project and its conversations together.",
+              "style": {
+                "x": 40,
+                "y": 140,
+                "width": 640,
+                "height": 90,
+                "fontSize": 16,
+                "color": "#17212b",
+                "background": "transparent"
+              }
+            },
+            "cta": {
+              "id": "cta",
+              "kind": "button",
+              "parent": "board",
+              "children": [],
+              "text": "Continue",
+              "style": {
+                "x": 130,
+                "y": 315,
+                "width": 220,
+                "height": 50,
+                "fontSize": 16,
+                "color": "#ffffff",
+                "background": "#245e9b"
+              }
+            }
+          }
+        },
+        "patch": {
+          "baseRevision": "r2",
+          "actor": "human-ui",
+          "label": "Direct text/property/drag edit",
+          "ops": [
+            {
+              "type": "set",
+              "id": "cta",
+              "field": "x",
+              "value": 130
+            },
+            {
+              "type": "set",
+              "id": "cta",
+              "field": "y",
+              "value": 315
+            }
+          ]
+        }
+      }
+    ],
+    "cursor": 3,
+    "pins": [
+      {
+        "id": "pin-1",
+        "document": "workspace-study",
+        "revision": "r0",
+        "frame": "board",
+        "node": "cta",
+        "quote": "Continue",
+        "comment": "Use a clearer action label"
+      }
+    ],
+    "audit": [
+      {
+        "outcome": "applied",
+        "previous": "r0",
+        "revision": "r1",
+        "rebased": false,
+        "baseRevision": "r0",
+        "actor": "human-ui",
+        "label": "Direct text/property/drag edit",
+        "ops": [
+          {
+            "type": "set",
+            "id": "title",
+            "field": "text",
+            "value": "Workspace for the launch team"
+          }
+        ]
+      },
+      {
+        "outcome": "applied",
+        "previous": "r1",
+        "revision": "r2",
+        "rebased": false,
+        "baseRevision": "r1",
+        "actor": "human-ui",
+        "label": "Direct text/property/drag edit",
+        "ops": [
+          {
+            "type": "set",
+            "id": "cta",
+            "field": "background",
+            "value": "#245e9b"
+          }
+        ]
+      },
+      {
+        "outcome": "applied",
+        "previous": "r2",
+        "revision": "r3",
+        "rebased": false,
+        "baseRevision": "r2",
+        "actor": "human-ui",
+        "label": "Direct text/property/drag edit",
+        "ops": [
+          {
+            "type": "set",
+            "id": "cta",
+            "field": "x",
+            "value": 130
+          },
+          {
+            "type": "set",
+            "id": "cta",
+            "field": "y",
+            "value": 315
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,54 @@
+2026-11-26T10:53:18Z
+v24.22.3
+TypeScript 5.9.3
+Playwright 1.65.1
+Google Chrome for Testing 155.0.8059.12
+✔ direct edits survive an explicitly rebased structural patch with identity and world layout intact (2.296919ms)
+✔ same-property conflicts reject the entire patch; no inserted node or human intent is lost (0.439222ms)
+✔ global undo and redo survive serialization, preserving human edits and node identity (0.890777ms)
+✔ pins retain original revision/identity; deletion orphans them and IDs cannot be recycled (1.305873ms)
+✔ deleting a concurrently edited subtree conflicts instead of erasing the human edit (0.389047ms)
+✔ HTTP CAS save survives host restart with editable state, pins and undo/redo history (29.013425ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 125.912027
+{
+  "passed": [
+    "actual inline text edit",
+    "property input edit",
+    "pointer drag",
+    "opaque parent-DOM/network denial",
+    "stale patch refusal",
+    "explicit structural rebase preserves text/style/ID/world position",
+    "global undo/redo",
+    "save/reload including history and pins",
+    "same-property conflict refusal",
+    "pin retains original revision",
+    "deletion orphans pin; undo restores target",
+    "same saved session in embedded harness"
+  ],
+  "evidence": "automated UI-driven; authored agent fixtures; not human usability sign-off"
+}
+Second fresh-state UI run after preview readiness fix:
+{
+  "passed": [
+    "actual inline text edit",
+    "property input edit",
+    "pointer drag",
+    "opaque parent-DOM/network denial",
+    "stale patch refusal",
+    "explicit structural rebase preserves text/style/ID/world position",
+    "global undo/redo",
+    "save/reload including history and pins",
+    "same-property conflict refusal",
+    "pin retains original revision",
+    "deletion orphans pin; undo restores target",
+    "same saved session in embedded harness"
+  ],
+  "evidence": "automated UI-driven; authored agent fixtures; not human usability sign-off"
+}
