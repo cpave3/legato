@@ -802,7 +802,7 @@ A reviewer on another model reviews pull requests in passes until a pass is clea
 | `review_passes.reviewer.tier` | string | none | A tier of `adapters.<name>.tiers` for the reviewer. |
 | `review_passes.reviewer.skill` | string | none | The review skill the reviewer is told to use, such as `3-tier-review`. |
 | `review_passes.github_credential` | string | none | The credential of the reviewer's GitHub App, on the `github-reviewer` profile, which no agent is given; like a `github` credential it needs `settings.client_id` and `settings.repositories`. Legato posts reviews and polls pull requests with it. Required when enabled. |
-| `review_passes.max_passes` | number | `3` | Passes before the review is stuck and the main instance is asked. |
+| `review_passes.max_passes` | number | `3` | Passes per approval window before the review is stuck. The count resets at each confirmed approval; Run another pass extends only the current window. |
 | `review_passes.pass_timeout` | duration | `45m` | How long a reviewer has for one pass. |
 | `review_passes.max_concurrent` | number | `2` | Reviewers that run at once on this worker; others wait. |
 | `review_passes.max_reentries` | number | `5` | How many times a stewarded pull request may go back to review after its approval, when a watched head moves. A workflow may set fewer for its own review loops (`max_reentries` of `github.pr.review.open` or `review-loop`), never more. |

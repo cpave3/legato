@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="660" viewBox="0 0 560 660" role="img" aria-labelledby="title desc">
+  <title id="title">Delivery, review and optional stewardship</title>
+  <desc id="desc">Implementation opens a pull request or stack. Review and author fixes repeat until clean, then heads are confirmed. Drafts optionally become ready. Without steward the run ends approved. With steward it watches until merge, close, idle or End. A push returns to incremental review. Merge is the operator's action.</desc>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10Z" fill="#53657a"/></marker></defs>
+  <rect width="560" height="660" rx="12" fill="#f3f6fa"/>
+  <g fill="none" stroke="#53657a" stroke-width="2" marker-end="url(#arrow)">
+    <path d="M245 76V113"/><path d="M245 175V236"/><path d="M245 298V340"/><path d="M245 402V468"/><path d="M245 530V583"/>
+    <path d="M150 144H60V267H150"/><path d="M340 144H425V188"/>
+    <path d="M425 238V317H110V144H150"/>
+    <path d="M340 499H530V144H340"/><path d="M340 371H400"/>
+  </g>
+  <g font-family="system-ui,sans-serif" font-size="15" text-anchor="middle" fill="#1b2c40">
+    <g fill="#e3edf8" stroke="#7794b2"><rect x="150" y="18" width="190" height="58" rx="9"/><rect x="150" y="113" width="190" height="62" rx="9"/><rect x="340" y="188" width="170" height="50" rx="9"/><rect x="150" y="236" width="190" height="62" rx="9"/></g>
+    <g fill="#e0f0e9" stroke="#6a9b85"><rect x="150" y="340" width="190" height="62" rx="9"/><rect x="150" y="468" width="190" height="62" rx="9"/><rect x="150" y="583" width="190" height="58" rx="9"/></g>
+    <text x="245" y="43">Implement and push</text><text x="245" y="63" font-size="13">PR or stack</text>
+    <text x="245" y="138">Review at pinned heads</text><text x="245" y="160" font-size="13">Later passes: changes only</text>
+    <text x="425" y="219">Author fixes / replies</text>
+    <text x="245" y="262">Confirm clean heads</text><text x="245" y="284" font-size="13">Settle counted checks</text>
+    <text x="245" y="366">Optional: mark ready</text><text x="245" y="388" font-size="13">Bottom first, never merge</text>
+    <text x="245" y="493">Optional: steward watch</text><text x="245" y="515" font-size="13">CI, comments, conflicts</text>
+    <text x="245" y="607">Merged / closed / idle</text><text x="245" y="629" font-size="13">or operator End</text>
+    <text x="91" y="213" font-size="13">clean</text><text x="425" y="174" font-size="13">blocking</text>
+    <text x="467" y="317" font-size="13">push:</text><text x="467" y="336" font-size="13">re-entry</text>
+    <text x="445" y="366" font-size="13">No steward:</text><text x="445" y="388" font-size="13">ends approved</text>
+    <text x="245" y="436" font-size="13">Steward enabled</text><text x="245" y="563" font-size="13">Merge is yours, not automatic</text>
+  </g>
+</svg>

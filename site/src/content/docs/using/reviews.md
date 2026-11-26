@@ -1,5 +1,5 @@
 ---
-title: Reviews
+title: Review tours
 description: Read an agent's change as a guided tour of chapters and notes, ask it questions, and flag what must change.
 sidebar:
   order: 60
@@ -8,6 +8,8 @@ sidebar:
 A review tour is an agent's change set out for you to read. The agent groups the diff into chapters in a sensible reading order, explains each one, and marks the parts that carry risk. You read the tour in the web UI or the TUI, ask the agent about any step or any lines, flag changes you want, and mark the review complete. Use a review tour when an agent has made a change you need to understand before you merge it.
 
 A review tour is not the same as a [plan](/legato/using/plans/), which you agree before the work starts. When you use both, the review shows the plan the work was meant to follow.
+
+This is separate from [review passes](/legato/using/review-passes/), where a second agent posts GitHub reviews and an author fixes findings. A tour's findings and numbered passes belong to your reading of the change; they are not a review loop's findings or passes. Completing a tour does not approve a pull request, mark it ready, or start the steward.
 
 ## Turning reviews off
 
@@ -131,7 +133,7 @@ In the web UI, open the agent and its **Artifacts** panel. Each page of the brie
 
 ## Sharing a review on GitHub
 
-Legato does not post reviews to GitHub. To share an agent's explanation of a change, have it write a [review handoff](/legato/using/review-handoff/) and export it as Markdown for a pull request description or comment. GitHub remains the place for the discussion and the verdict.
+Review tours do not post reviews to GitHub. [Review passes](/legato/using/review-passes/) do, through a separate reviewer App. To share an agent's explanation of a change, have it write a [review handoff](/legato/using/review-handoff/) and export it as Markdown for a pull request description or comment. GitHub remains the place for the discussion and the verdict.
 
 ## Task history
 
