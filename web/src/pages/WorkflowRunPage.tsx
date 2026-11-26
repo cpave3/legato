@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, Download, FileText } from "lucide-react"
 import { useWorkflowRun } from "../hooks/useWorkflow"
 import { useServer } from "../hooks/useServer"
 import { useNow } from "../hooks/useNow"
-import { anotherReviewPass, resumeWorkflowAgent, workflowStepAction, type GateDetails, type MergeWaitDetails, type WorkflowCallDetails, cancelWorkflow, retryWorkflowStep, resumeWorkflowStep, triggerWorkflowStep, promptWorkflowStep, fetchWorkflowArtifact, type ReviewRunDetails, type WorkflowArtifact, type WorkflowAttempt, type WorkflowRunView, type WorkflowStepRun } from "../lib/workflow"
+import { anotherReviewPass, resumeWorkflowAgent, stopTaskAgent, workflowStepAction, type ReviewLoopAction, type GateDetails, type MergeWaitDetails, type WorkflowCallDetails, cancelWorkflow, retryWorkflowStep, resumeWorkflowStep, triggerWorkflowStep, promptWorkflowStep, fetchWorkflowArtifact, type ReviewRunDetails, type WorkflowArtifact, type WorkflowAttempt, type WorkflowRunView, type WorkflowStepRun } from "../lib/workflow"
 import { ago, attentionCopy, currentStep, elapsed, runWithAttention, producedValues, runState, runSubject, sourceLabel, stepIntent, stepMark, stepPosition, stepSegments, type StepLike, type Tone } from "../lib/workflowView"
 import { WorkflowMarkdownPreview } from "../components/WorkflowMarkdownPreview"
 import { ManualWorkflowStepAction } from "../components/ManualWorkflowStepAction"
@@ -35,6 +35,7 @@ import { cardLook, cardTitle, floatingPanel, redact } from "../components/workfl
 import { ValueList } from "../components/workflow-canvas/ValueList"
 import { useCardFolds, useLargeScreen } from "../components/workflow-canvas/useCardFolds"
 import { CanvasHeader, WorkflowCanvas } from "../components/workflow-canvas/WorkflowCanvas"
+import { ReviewLoopFacts } from "../components/ReviewLoopFacts"
 
 function parseJSON(raw: string | undefined): unknown {
   try { return JSON.parse(raw ?? "") } catch { return raw }
@@ -175,8 +176,8 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
       <p>{attempt.agent_kind || "The agent"} is working · {elapsed(attempt.started_at, now)}{attempt.working_dir && <> · in <span className="break-all font-lw-mono text-xs">{attempt.working_dir}</span></>}</p>
     </NowPanel>
   }
-  if (current.status === "waiting" && current.executor_type === "github.pr.review_passes") {
-    return <ReviewLoopNow view={view} step={current} runId={runId} refresh={refresh} />
+  if (current.status === "waiting" && reviewLoopSteps.has(current.executor_type)) {
+    return <ReviewLoopNow view={view} step={current} runId={runId} refresh={refresh} now={now} />
   }
   const resume = <ResumeAgentControls view={view} runId={runId} refresh={refresh} />
   if (current.status === "waiting" && current.executor_type === "github.pr.wait") {
@@ -293,31 +294,93 @@ function ResumeAgentControls({ view, runId, refresh }: { view: WorkflowRunView; 
   </>
 }
 
+// The step types whose waiting step is a review loop: the inline step of an
+// old copy, and the steps of review-loop that wait on their loop (LEG-594).
+const reviewLoopSteps = new Set(["github.pr.review_passes", "github.pr.review.pass", "github.pr.review.wait", "github.pr.review.confirm"])
+
+const actionLabels: Record<ReviewLoopAction, string> = {
+  another_pass: "Run another pass",
+  message: "Message the author",
+  stop_watching: "Stop watching",
+  watch_again: "Watch again",
+  end: "End",
+}
+
 // ReviewLoopNow is a run's review loop while its step waits on it: where it
-// stands, the reviews posted, and Run another pass while it waits for its
-// author.
-function ReviewLoopNow({ view, step, runId, refresh }: { view: WorkflowRunView; step: WorkflowStepRun; runId: string; refresh: () => Promise<void> }) {
+// stands, its layers and the steward, the reviews posted, and the actions
+// the server says the step takes now (Run another pass, Message the author,
+// Stop watching, Watch again, End). Details from a server that names no
+// actions offer Run another pass while the loop waits for its author or is
+// stuck.
+function ReviewLoopNow({ view, step, runId, refresh, now }: { view: WorkflowRunView; step: WorkflowStepRun; runId: string; refresh: () => Promise<void>; now: number }) {
   const { baseUrl } = useServer()
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
-  const details = view.details?.[stepPathOf(step)] as ReviewRunDetails | undefined
-  async function another() {
+  const [writing, setWriting] = useState(false)
+  const [message, setMessage] = useState("")
+  const path = stepPathOf(step)
+  const details = view.details?.[path] as ReviewRunDetails | undefined
+  async function act(action: ReviewLoopAction, text?: string) {
     setError("")
     setBusy(true)
-    try { await anotherReviewPass(baseUrl, runId, stepPathOf(step)); await refresh() }
+    try {
+      // The old inline step's another pass has a route of its own.
+      if (action === "another_pass" && step.executor_type === "github.pr.review_passes") await anotherReviewPass(baseUrl, runId, path)
+      else await workflowStepAction(baseUrl, runId, path, action, text)
+      if (action === "message") { setMessage(""); setWriting(false) }
+      await refresh()
+    }
     catch (c) { setError(c instanceof Error ? c.message : String(c)) }
     finally { setBusy(false) }
   }
   const stuck = details?.phase === "stuck"
   const waiting = !details || details.phase === "waiting_for_author"
-  return <NowPanel tone={details?.needs_you ? "needs" : "live"} heading={details?.summary || step.title}
-    actions={(waiting || stuck) && <Button variant="outline" disabled={busy} onClick={another}>Run another pass</Button>}>
+  const actions: ReviewLoopAction[] = details?.actions ?? (waiting || stuck ? ["another_pass"] : [])
+  const needs = details?.needs_you || details?.steward?.held || stuck
+  return <NowPanel tone={needs ? "needs" : "live"} heading={details?.summary || step.title}
+    actions={actions.length > 0 && <>{actions.map((action, i) => <Button key={action} variant={action === "end" ? "ghost" : i === 0 ? "primary" : "outline"} disabled={busy}
+      onClick={() => { if (action === "message") setWriting(!writing); else void act(action) }}>{actionLabels[action] ?? action}</Button>)}</>}>
     {waiting && <p>The next pass starts when the author pushes, or replies to a blocking finding.</p>}
+    {details?.loop_id && <ReviewLoopFacts details={details} now={now} />}
     {details?.reviews && details.reviews.length > 0 && <ul aria-label="Reviews posted" className="mt-1 space-y-0.5">
       {details.reviews.map(review => <li key={`${review.pass}-${review.pr}`}><a className="text-lw-accent underline" href={review.url} target="_blank" rel="noreferrer">Pass {review.pass} review of #{review.pr}</a></li>)}
     </ul>}
+    {writing && <div className="mt-2 flex flex-col gap-2">
+      <textarea aria-label="Message to the author" value={message} onChange={event => setMessage(event.target.value)} rows={3} className="w-full rounded-md border border-lw-line bg-lw-raised p-2 text-sm text-lw-text" />
+      <div className="flex gap-2">
+        <Button size="sm" disabled={busy || message.trim() === ""} onClick={() => { void act("message", message) }}>Send</Button>
+        <Button variant="ghost" size="sm" disabled={busy} onClick={() => setWriting(false)}>Cancel</Button>
+      </div>
+    </div>}
     {error && <p role="alert" className="mt-1 text-lw-error">{error}</p>}
   </NowPanel>
+}
+
+// AuthorLeftRunning says a review loop's author agent still runs after the
+// loop went stuck and was ended, was ended, cancelled, or its run failed
+// (spec LEG-559 story 23): Legato stops it only after a merge, a close or
+// idleness. Stop stops it.
+function AuthorLeftRunning({ view }: { view: WorkflowRunView }) {
+  const { baseUrl } = useServer()
+  const [state, setState] = useState<"" | "busy" | "stopped">("")
+  const [error, setError] = useState("")
+  const loop = Object.values(view.details ?? {}).find(details => (details as ReviewRunDetails | null)?.author_left_running) as ReviewRunDetails | undefined
+  if (!loop?.author_task) return null
+  const task = loop.author_task
+  async function stop() {
+    setError("")
+    setState("busy")
+    try { await stopTaskAgent(baseUrl, task); setState("stopped") }
+    catch (c) { setError(c instanceof Error ? c.message : String(c)); setState("") }
+  }
+  return <section aria-label="Author agent" className="mt-3 rounded-xl border border-lw-line bg-lw-surface p-4 text-[13px] text-lw-text-2">
+    <p><span className="font-medium text-lw-text">{task}'s agent was left running.</span> The review loop ended {loop.outcome === "ended" ? "by End" : loop.outcome === "stuck" ? "stuck" : loop.outcome === "cancelled" ? "cancelled" : "with its run failed"}, so Legato did not stop the author.</p>
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      <Button asChild variant="outline" size="sm"><Link to={agentLink(task, view.run.id)}>Open agent</Link></Button>
+      {state === "stopped" ? <span role="status">Stopped.</span> : <Button variant="ghost" size="sm" disabled={state === "busy"} onClick={() => { void stop() }}>Stop</Button>}
+      {error && <span role="alert" className="text-lw-error">{error}</span>}
+    </div>
+  </section>
 }
 
 function stepDuration(step: WorkflowStepRun, now: number): string {
@@ -524,7 +587,7 @@ function clock(time?: string): string {
 // RunStepPanel is one step of a run, beside its graph: what went in and
 // came out, every attempt, its artifacts, a review loop's passes, and its
 // YAML from the run's own copy, with the run's secrets hidden.
-function RunStepPanel({ view, node, runId, secrets, state, onClose }: { view: WorkflowRunView; node: GraphNode; runId: string; secrets: string[]; state?: string; onClose?: () => void }) {
+function RunStepPanel({ view, node, runId, secrets, state, onClose, now }: { view: WorkflowRunView; node: GraphNode; runId: string; secrets: string[]; state?: string; onClose?: () => void; now: number }) {
   const graphStep = node.step!
   // A loop's body's step is shown at its newest pass (graph version 2).
   const instances = instancesOf(view, graphStep.path || graphStep.id)
@@ -565,7 +628,7 @@ function RunStepPanel({ view, node, runId, secrets, state, onClose }: { view: Wo
     {artifacts.length > 0 && <div className="grid gap-2"><h3 className="text-xs text-lw-text-2">Artifacts</h3>{artifacts.map(artifact => <Artifact key={artifact.id} artifact={artifact} />)}</div>}
     {details && <div><h3 className="mb-1 text-xs text-lw-text-2">Review loop</h3>
       <p>{details.summary || details.phase.replaceAll("_", " ")}</p>
-      <p className="text-lw-text-2">Pass {details.pass} · {details.blocking_open} blocking</p>
+      {details.loop_id ? <div className="text-lw-text-2"><ReviewLoopFacts details={details} now={now} /></div> : <p className="text-lw-text-2">Pass {details.pass} · {details.blocking_open} blocking</p>}
       {details.reviews && details.reviews.length > 0 && <ul aria-label="Reviews posted" className="mt-1 space-y-0.5">
         {details.reviews.map(review => <li key={`${review.pass}-${review.pr}`}><a className="text-lw-link underline" href={review.url} target="_blank" rel="noreferrer">Pass {review.pass} review of #{review.pr}</a></li>)}
       </ul>}
@@ -668,7 +731,7 @@ export function WorkflowRunPage() {
   const closePanel = () => setSelected(null)
   const close = canvas ? closePanel : undefined
   const panel = selectedNode?.kind === "step"
-    ? <RunStepPanel view={data} node={selectedNode} runId={runId} secrets={secrets} state={extras?.[selectedNode.id]?.state && runStateWords[extras[selectedNode.id].state!]} onClose={narrow ? undefined : close} />
+    ? <RunStepPanel view={data} node={selectedNode} runId={runId} secrets={secrets} now={now} state={extras?.[selectedNode.id]?.state && runStateWords[extras[selectedNode.id].state!]} onClose={narrow ? undefined : close} />
     : selectedNode?.kind === "trigger" ? <RunTriggerPanel node={selectedNode} started={extras?.[selectedNode.id]?.trigger === "started"} onClose={narrow ? undefined : close} /> : null
   const subtitle = <>
     {workflow && workflow !== run.workflow_title && <>{workflow} · </>}
@@ -695,6 +758,7 @@ export function WorkflowRunPage() {
     const nowFold = { folded: folds.folded("now"), toggle: () => folds.toggle("now") }
     const cards = <>
       <NowFold.Provider value={nowFold}>{nowPanel}</NowFold.Provider>
+      <AuthorLeftRunning key={`author:${baseUrl}:${runId}`} view={data} />
       <NeedsYouList rows={needsYou.rows} steps={steps} runId={runId} refresh={refresh} onFocus={focusNode} card={{ folded: folds.folded("needs"), onFold: () => folds.toggle("needs") }} />
       {inputs.length > 0 && <DockCard label="Inputs" folded={folds.folded("inputs")} onFold={() => folds.toggle("inputs")} heading={<h2 className={cardTitle}>Inputs<span className="font-medium text-lw-faint">{inputs.length}</span></h2>}>
         <ValueList secrets={secrets} values={inputs} clamp className="px-4 pb-3" />
@@ -743,6 +807,7 @@ export function WorkflowRunPage() {
       {refreshFailed && <div className="mt-4">{refreshFailed}</div>}
       {changed && <div className="mt-4">{changed}</div>}
       {nowPanel}
+      <AuthorLeftRunning key={`author:${baseUrl}:${runId}`} view={data} />
       {graph && <NeedsYouList rows={needsYou.rows} steps={steps} runId={runId} refresh={refresh} onFocus={focusNode} />}
       {graph && <div className="mt-7 flex justify-end">
         <Button variant="outline" size="sm" aria-pressed={graphOn} onClick={() => setGraphOn(true)}>Graph</Button>

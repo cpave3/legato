@@ -1,6 +1,7 @@
 // A message Legato itself sends to an agent opens with a bracketed tag:
-// `[legato coordination]`, `[legato review]`, `[legato plan]`, `[legato]` for a
-// swarm inbox pointer, and `[swarm event]`. It reaches the agent as a user
+// `[legato coordination]`, `[legato review]`, `[legato plan]`, `[legato review
+// pass]` and, after approval, `[legato steward]` (a full bubble labelled
+// steward), `[legato]` for a swarm inbox pointer, and `[swarm event]`. It reaches the agent as a user
 // turn, so the conversation needs the tag to tell it from what a person typed.
 //
 // `[legato peer <task-id>]` opens words another agent wrote and Legato only

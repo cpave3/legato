@@ -17,6 +17,14 @@ function PRNumber({ pr }: { pr: PRMetaView }) {
   return <a href={pr.pr_url} target="_blank" rel="noreferrer" onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()} className={cn(tone, "hover:underline")}>{label}</a>
 }
 
+// StewardChip says a review loop's steward looks after the pull request,
+// or holds it (spec LEG-559 story 13).
+function StewardChip({ steward }: { steward?: PRMetaView["steward"] }) {
+  if (!steward) return null
+  const title = steward === "held" ? "Legato's steward is held: it sends nothing and reviews nothing until Watch again" : "Legato's steward looks after it until it merges"
+  return <span title={title} data-steward={steward} className={cn("rounded border px-1 text-[11px] leading-4", steward === "held" ? "border-lw-needs/40 text-lw-needs" : "border-lw-live/40 text-lw-live")}>{steward}</span>
+}
+
 // One pull request in one line: its number, the word for its state and a
 // detail. One that needs the operator is a box on the wash of its state,
 // with its one action.
@@ -27,6 +35,7 @@ function PullRequestRow({ card, pr, heldBelow = false }: { card: BoardCardType; 
       <div aria-label={`Pull request #${pr.pr_number}`} className="flex flex-wrap items-center gap-x-1.5 pt-0.5 text-xs leading-4 text-lw-text-2">
         <PRNumber pr={pr} />
         <span className={prToneClass(status.tone)}>{status.word}</span>
+        <StewardChip steward={pr.steward} />
         {status.detail.map(text => <span key={text} className="contents"><span aria-hidden="true">·</span><span>{text}</span></span>)}
       </div>
     )
@@ -42,6 +51,7 @@ function PullRequestRow({ card, pr, heldBelow = false }: { card: BoardCardType; 
         <span aria-hidden="true">{error ? "✕" : "◆"}</span>
         <PRNumber pr={pr} />
         <span>{[status.word, ...above].join(" · ")}</span>
+        <StewardChip steward={pr.steward} />
       </div>
       <div className="flex items-center justify-between gap-2 text-lw-text-2">
         <span>{below}</span>
@@ -160,7 +170,7 @@ function PRStack({ card, prs }: { card: BoardCardType; prs: PRMetaView[] }) {
   return (
     <div data-testid="pr-stack" className="mt-1 flex flex-col gap-1.5">
       <div className="flex items-center justify-between gap-2 text-xs leading-4">
-        <span className="inline-flex items-center gap-1.5 font-medium"><Layers size={13} aria-hidden="true" />{summary.title}</span>
+        <span className="inline-flex items-center gap-1.5 font-medium"><Layers size={13} aria-hidden="true" />{summary.title}<StewardChip steward={stackSteward(prs)} /></span>
         <span className="font-lw-mono text-[11px] text-lw-text-2">{summary.counts}</span>
       </div>
       {open ? <StackList summary={summary} /> : <StackBar summary={summary} />}
@@ -173,6 +183,13 @@ function PRStack({ card, prs }: { card: BoardCardType; prs: PRMetaView[] }) {
       </button>
     </div>
   )
+}
+
+// stackSteward is a stack's steward: held when any layer's is, else
+// stewarding when any layer's steward watches.
+function stackSteward(prs: PRMetaView[]): PRMetaView["steward"] {
+  if (prs.some(pr => pr.steward === "held")) return "held"
+  return prs.some(pr => pr.steward === "stewarding") ? "stewarding" : undefined
 }
 
 // A card's pull requests: one line for one, a folded stack for several.
