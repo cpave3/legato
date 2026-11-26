@@ -281,7 +281,7 @@ func (s *ReviewPassService) confirm(ctx context.Context, loopID string) (ReviewC
 		moved = unreviewed
 	}
 	switch {
-	case len(out.Heads) == 0:
+	case len(out.Heads) == 0 && !moved:
 		out.State = ReviewConfirmClosed
 		loop.ConfirmClean = false
 		return out, s.save(ctx, loop)

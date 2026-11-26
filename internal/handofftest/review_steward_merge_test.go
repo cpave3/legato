@@ -428,3 +428,69 @@ func TestAnUnchangedStackedLayerDoesNotKeepAHeldStewardAwake(t *testing.T) {
 		t.Fatalf("run %q, outputs %s: %s", view.Run.Status, view.Run.OutputsJSON, stepStates(view))
 	}
 }
+
+// A layer stacked during a pass whose pinned layers all merge before the
+// confirm is still reviewed: the loop does not end closed with it open.
+func TestALayerStackedDuringAPassIsReviewedWhenThePinnedLayersMerge(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	withBoardAuthor(t, r)
+	view := r.stewarded(t, stewardInputs)
+	task := view.Run.TaskID
+	r.worker.ReviewGitHub.Push(12, "ccc333")
+	r.worker.Checkout.Change("ccc333", "greet.go", 3, 5)
+	r.watchTick()
+	r.tick()
+	r.worker.ReviewGitHub.OpenStackedPR(13, "feature/greeting-fr", "feature/greeting", "eee555")
+	r.watchTick()
+	r.worker.ReviewGitHub.MergePR(12)
+	r.submit(t, task, service.ReviewSubmission{Summary: "Still right."})
+	for range 3 {
+		r.tick()
+	}
+	view = r.show(t, view.Run.ID)
+	if view.Run.Status != "running" {
+		t.Fatalf("run %q, outputs %s: %s", view.Run.Status, view.Run.OutputsJSON, stepStates(view))
+	}
+	if loop := r.loopPhase(t, task); loop.Pass != 3 {
+		t.Fatalf("#13 got no pass: loop %+v", loop)
+	}
+}
+
+// A stacked layer that merges before any pass pins it asks for no more
+// passes: once a pass of the other layers is approved, the steward
+// watches again with no re-entry spent on it.
+func TestAStackedLayerThatMergedUnreviewedStartsNoMorePasses(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	withBoardAuthor(t, r)
+	view := r.stewarded(t, stewardInputs)
+	task := view.Run.TaskID
+	if err := r.stewardAct(t, view, "stop_watching"); err != nil {
+		t.Fatal(err)
+	}
+	r.worker.ReviewGitHub.OpenStackedPR(13, "feature/greeting-fr", "feature/greeting", "eee555")
+	r.watchTick()
+	if err := r.stewardAct(t, r.show(t, view.Run.ID), "watch_again"); err != nil {
+		t.Fatal(err)
+	}
+	r.watchTick() // claims #13
+	r.worker.ReviewGitHub.MergePR(13)
+	for range 3 {
+		r.watchTick()
+	}
+	if loop := r.loopPhase(t, task); loop.Phase == service.ReviewPhaseReviewing {
+		r.submit(t, task, service.ReviewSubmission{Summary: "Still right."})
+		r.tick()
+		r.tick()
+	}
+	reentries := r.record(t, view).Reentries
+	for range 4 {
+		r.watchTick()
+	}
+	rec := r.record(t, view)
+	if rec.Reentries != reentries {
+		t.Fatalf("re-entries went from %d to %d with no push", reentries, rec.Reentries)
+	}
+	if loop := r.loopPhase(t, task); loop.Phase != service.ReviewPhaseClean {
+		t.Fatalf("loop %+v; want it approved and watching", loop)
+	}
+}

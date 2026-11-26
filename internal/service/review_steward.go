@@ -580,10 +580,24 @@ func (s *ReviewPassService) movedSinceApproval(ctx context.Context, rec *store.R
 	if err != nil {
 		return false
 	}
+	live := map[int]string{}
+	for _, layer := range w.Layers {
+		live[layer.Number] = layer.State
+	}
 	approved := map[int]string{}
 	for _, layer := range layers {
-		if layer.State == "open" && layer.CleanHead == "" && layer.PinnedHead == "" {
-			return true // taken since approval, never reviewed
+		if layer.CleanHead == "" && layer.PinnedHead == "" {
+			// Taken since approval, never reviewed: moved while it is
+			// open, by the watch's word when it has read it (the record
+			// keeps the state it had when it was taken).
+			state, read := live[layer.Number]
+			if !read {
+				state = layer.State
+			}
+			if state == "open" {
+				return true
+			}
+			continue
 		}
 		approved[layer.Number] = layer.CleanHead
 	}
