@@ -430,6 +430,9 @@ func (s *ReviewPassService) pushedSince(ctx context.Context, l ReviewLoop, loop 
 // author App: a reply in the item's thread, else a comment on the pull
 // request. Call with s.mu held.
 func (s *ReviewPassService) postAnswers(ctx context.Context, l ReviewLoop) {
+	if rec := s.stewardRecord(ctx, l.TaskID); rec != nil && s.stewardHolds(ctx, rec) {
+		return // a held or stuck steward posts nothing; its answers wait (LEG-592)
+	}
 	loop, err := s.db.GetHandoffReview(ctx, l.TaskID)
 	if err != nil || loop == nil {
 		return

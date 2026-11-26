@@ -313,3 +313,37 @@ func TestAHeldStewardStillEndsIdle(t *testing.T) {
 		t.Fatalf("run %q (%s), outputs %s: %s", view.Run.Status, view.Run.Error, view.Run.OutputsJSON, stepStates(view))
 	}
 }
+
+// A held steward posts nothing either: an answer the author gives while it
+// is held waits, and is posted once it watches again.
+func TestAHeldStewardPostsNoAnswerUntilItWatchesAgain(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	withBoardAuthor(t, r)
+	ctx := context.Background()
+	view := r.stewarded(t, stewardInputs)
+	r.worker.ReviewGitHub.SetComments(12, service.PRComment{Kind: "issue", ID: 501, Author: "octocat", Association: "MEMBER", Body: "Should this greet in French too?"})
+	r.watchTick()
+	r.worker.Clock.Advance(3 * time.Minute)
+	r.tick()
+	if typed := r.worker.typedTo("legato-board-1"); !strings.Contains(typed, "[legato steward] 1 new comment") {
+		t.Fatalf("typed to the author: %q", typed)
+	}
+	if err := r.stewardAct(t, view, "stop_watching"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.AnswerReviewItem(ctx, r.worker.Store, "board-1", "c-c-501", service.AnswerReplied, "Not in this change.", r.worker.Clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+	r.watchTick()
+	r.watchTick()
+	if comments := r.worker.ReviewGitHub.Comments(); len(comments) != 0 {
+		t.Fatalf("a held steward posted %v", comments)
+	}
+	if err := r.stewardAct(t, r.show(t, view.Run.ID), "watch_again"); err != nil {
+		t.Fatal(err)
+	}
+	r.watchTick()
+	if comments := r.worker.ReviewGitHub.Comments(); len(comments) != 1 {
+		t.Fatalf("after Watch again, comments posted %v; want the author's reply", comments)
+	}
+}
