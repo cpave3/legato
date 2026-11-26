@@ -6,7 +6,14 @@ import type { WorkflowGraphModel } from "./workflowGraph"
 // file as its bytes, a check of what is typed, and the writes. A refusal
 // carries a code the editor acts on.
 
-export type WorkflowDiagnostic = { severity: "error" | "warning"; message: string; path?: string; line: number; column: number; end_line: number; end_column: number }
+// fix names a change Legato makes for the operator: "upgrade" is the
+// server's upgrade (upgradeWorkflowFile), as on the deprecated inline review
+// step's warning (LEG-599), which the editor offers as a quick fix.
+export type WorkflowDiagnosticFix = "upgrade"
+export type WorkflowDiagnostic = { severity: "error" | "warning"; message: string; path?: string; line: number; column: number; end_line: number; end_column: number; fix?: WorkflowDiagnosticFix }
+
+/** fixLabel is what a diagnostic's quick fix is called. */
+export const fixLabel = (fix: WorkflowDiagnosticFix) => fix === "upgrade" ? "Rewrite to call review-loop" : fix
 
 export type WorkflowFile = { name: string; yaml: string; path: string; folder: string; digest: string; editable: boolean; reason?: string }
 

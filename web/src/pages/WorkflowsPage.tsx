@@ -221,6 +221,33 @@ function RunsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
   </PageFrame>
 }
 
+// usesInlineReview says whether a workflow runs the deprecated inline
+// review step, github.pr.review_passes, a loop's body's included.
+function usesInlineReview(steps: unknown[] | undefined): boolean {
+  return (steps ?? []).some(step => {
+    const s = step as { type?: string; steps?: unknown[] }
+    return s.type === "github.pr.review_passes" || usesInlineReview(s.steps)
+  })
+}
+
+// ReviewLoopNotice says that the built-in review-loop replaces an old
+// review-pr-passes copy (spec LEG-559 story 10; LEG-599), and names each
+// workflow still on the deprecated inline step, with the way to rewrite it.
+function ReviewLoopNotice({ definitions }: { definitions: WorkflowDefinition[] }) {
+  const old = definitions.filter(d => !d.source.startsWith("builtin:") && (d.name === "review-pr-passes" || usesInlineReview(d.steps)))
+  if (old.length === 0) return null
+  return <section role="note" aria-label="review-loop replaces review-pr-passes" className="mt-4 rounded-lg border border-lw-line bg-lw-surface p-3 text-sm">
+    <p><span className="font-medium"><code className="font-lw-mono">review-loop</code> replaces <code className="font-lw-mono">review-pr-passes</code>.</span>{" "}
+      <span className="text-lw-text-2">The built-in <Link to="/workflows/review-loop" className="text-lw-link hover:underline">Review loop</Link> runs every review loop now, and every Legato has it. {old.length === 1 ? "This workflow still uses" : "These workflows still use"} the deprecated review step, which runs unchanged until a later release removes it. Rewrite {old.length === 1 ? "it" : "each"} to call review-loop: the editor's quick fix, or <code className="font-lw-mono">legato workflow upgrade &lt;file&gt;</code>, makes the change.</span></p>
+    <ul className="mt-2 flex flex-col gap-1">
+      {old.map(d => <li key={d.name} className="flex flex-wrap items-baseline gap-x-2">
+        <span>{d.title}</span><span title={d.source} className="font-lw-mono text-xs text-lw-faint">{sourceLabel(d.source)}</span>
+        {d.editable !== false && <Link to={`/workflows/${encodeURIComponent(d.name)}/edit`} aria-label={`Rewrite ${d.title}`} className="text-xs text-lw-link hover:underline">Rewrite</Link>}
+      </li>)}
+    </ul>
+  </section>
+}
+
 function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
   const definitions = useWorkflows()
   const runs = useWorkflowRuns()
@@ -235,6 +262,7 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
     {definitions.loading && <LoadingState label="Loading workflows…" size="inline" className="mt-6" />}
     {definitions.error && <LoadFailure error={definitions.error} saved={definitions.data !== null} label="workflows" refreshing={definitions.refreshing} refresh={definitions.refresh} />}
     {stats.error && list.length > 0 && <LoadFailure error={stats.error} saved={stats.data !== null} label="run counts" refreshing={stats.refreshing} refresh={stats.refresh} />}
+    <ReviewLoopNotice definitions={list} />
     {(definitions.data?.errors ?? []).map(error => <p key={error.path} className="mt-4 break-words rounded-lg border border-lw-danger-line bg-lw-error-soft p-3 text-sm text-lw-danger"><span className="font-lw-mono">{sourceLabel(error.path)}</span>: {error.error}</p>)}
     {list.length > 0 && <WorkflowList definitions={list} triggerStates={definitions.data?.trigger_states} stats={stats.data} now={now} onRun={setSelected} refresh={refreshAll} actions={newWorkflow} />}
     {!definitions.loading && !definitions.error && list.length === 0 && <section aria-label="Start a workflow" className="mt-6 flex flex-col gap-3 text-sm">

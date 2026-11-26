@@ -9,7 +9,7 @@ import { forceLinting, linter, lintGutter, type Diagnostic } from "@codemirror/l
 import { yaml } from "@codemirror/lang-yaml"
 import { completionsAt, contextAt, describe, lenientValues, schemaDiagnostics } from "../../lib/workflowSchema"
 import { expressionAt, expressionCompletions, expressionDiagnostics } from "../../lib/workflowExpressions"
-import type { WorkflowDiagnostic } from "../../lib/workflowFiles"
+import type { WorkflowDiagnostic, WorkflowDiagnosticFix } from "../../lib/workflowFiles"
 import { textChanges } from "../../lib/textChanges"
 import { mergeDiagnostics, toDiagnostics } from "./editorDiagnostics"
 
@@ -33,6 +33,8 @@ export type WorkflowYamlEditorProps = {
   jumpTo?: { from: number; to: number; seq: number }
   /** onCursor is told where the cursor is when it moves. */
   onCursor?: (offset: number) => void
+  /** onFix makes a server diagnostic's fix, offered as its quick fix. */
+  onFix?: (fix: WorkflowDiagnosticFix) => void
 }
 
 // fromOutside marks a change the value prop made, which is not reported
@@ -99,7 +101,7 @@ const theme = EditorView.theme({
 
 // WorkflowYamlEditor is a workflow file's text in CodeMirror, with the
 // schema's completion, hover and checks, and the server's diagnostics.
-export default function WorkflowYamlEditor({ value, onChange, serverDiagnostics = [], readOnly = false, label = "Workflow YAML", onUndo, onRedo, fragment = false, jumpTo, onCursor }: WorkflowYamlEditorProps) {
+export default function WorkflowYamlEditor({ value, onChange, serverDiagnostics = [], readOnly = false, label = "Workflow YAML", onUndo, onRedo, fragment = false, jumpTo, onCursor, onFix }: WorkflowYamlEditorProps) {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
   const changed = useRef(onChange)
@@ -107,6 +109,8 @@ export default function WorkflowYamlEditor({ value, onChange, serverDiagnostics 
   const undoRedo = useRef({ onUndo, onRedo })
   const cursorMoved = useRef(onCursor)
   cursorMoved.current = onCursor
+  const fixer = useRef(onFix)
+  fixer.current = onFix
   changed.current = onChange
   server.current = serverDiagnostics
   undoRedo.current = { onUndo, onRedo }
@@ -116,7 +120,8 @@ export default function WorkflowYamlEditor({ value, onChange, serverDiagnostics 
     const lint = linter(v => {
       const text = v.state.doc.toString()
       const schema: Diagnostic[] = [...schemaDiagnostics(text), ...expressionDiagnostics(text)].map(d => ({ from: Math.min(d.from, text.length), to: Math.min(d.to, text.length), severity: d.severity, message: d.message, source: "schema" }))
-      return mergeDiagnostics(text, toDiagnostics(text, server.current), schema)
+      const fix = readOnly ? undefined : (made: WorkflowDiagnosticFix) => fixer.current?.(made)
+      return mergeDiagnostics(text, toDiagnostics(text, server.current, fixer.current ? fix : undefined), schema)
     }, { delay: 250 })
     const state = EditorState.create({
       doc: value,
