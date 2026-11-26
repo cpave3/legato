@@ -1541,6 +1541,47 @@ describe("an open page kept live", () => {
     expect(bridge.feed()).toEqual(["Agent: Working on it."])
   })
 
+  it("takes a gesture queued behind a read that slid the window under the opened entry", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    const reply = (i: number) => ({ kind: "assistant", text: `Reply ${i}.` })
+    legato.conversation.entries = Array.from({ length: 20 }, (_, i) => reply(i))
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(2, "▶ running  RUN-1 Build"))
+    await settle()
+    bridge.send(pick(0, "Agent: Reply 19."))
+    await settle()
+
+    const read = legato.client.conversation
+    let answer: () => void = () => {}
+    legato.client.conversation = (...args) => new Promise((done) => (answer = () => done(read(...args))))
+    legato.conversation.entries = Array.from({ length: 20 }, (_, i) => reply(i + 1))
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    bridge.send(doubleClick)
+    await settle()
+    answer()
+    await settle()
+    expect(bridge.feed()?.[0]).toBe("Agent: Reply 20.")
+  })
+
+  it("keeps an opened entry that left the window as it was, on every read after", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    const reply = (i: number) => ({ kind: "assistant", text: `Reply ${i}.` })
+    legato.conversation.entries = Array.from({ length: 20 }, (_, i) => reply(i))
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(2, "▶ running  RUN-1 Build"))
+    await settle()
+    bridge.send(pick(19, "Agent: Reply 0."))
+    await settle()
+
+    legato.conversation.entries = Array.from({ length: 20 }, (_, i) => reply(i + 1))
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.text("body")).toBe("Agent\n\nReply 0.")
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.text("body")).toBe("Agent\n\nReply 0.")
+  })
+
   it("follows an opened call as the conversation's window slides past one that reads the same", async () => {
     const bridge = fakeBridge()
     const legato = fakeLegato(someAgents)

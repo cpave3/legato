@@ -13,7 +13,7 @@ import {
   type EvenHubEvent,
 } from "@evenrealities/even_hub_sdk"
 import { APPROVAL_BODY_LINES, approvalPage, approvalsPage, decisionPage, type ApprovalPage, type Decision } from "./approvals"
-import { ENDED, agentPage, dictationPage, entryPage, entryShift, followEntry, sameEntry, type Dictation, type FeedItem, type FeedPage, type TextPage } from "./agent"
+import { ENDED, agentPage, dictationPage, entryPage, entryShift, followEntry, type Dictation, type FeedItem, type FeedPage, type TextPage } from "./agent"
 import { ALERT_WIDTH, COUNTS_WIDTH, background, type BackgroundPage } from "./background"
 import { glance, type Screen, type Tab } from "./glance"
 import {
@@ -355,6 +355,9 @@ type AgentView = Reading & {
   kind: "agent"
   agent: Agent
   entry?: FeedItem
+  // Which opening of an entry this is: reads change `entry` as it follows
+  // what it shows, so a press is judged against this instead.
+  opened?: number
   dictation?: Dictation
   back?: ReeveView
 }
@@ -454,6 +457,9 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
   // What is on the glasses: the page's layout key and each text's content.
   let drawnKey = ""
   let drawnText = new Map<string, string>()
+
+  // How many times an entry has been opened: each opening's number.
+  let openings = 0
 
   // Everything that changes the state runs in turn, so a tap during a read
   // waits for it rather than racing it.
@@ -789,7 +795,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
   type Seen = {
     view: View
     step?: Dictation["step"] | Decision["step"]
-    entry?: FeedItem
+    entry?: number
     items: Screen["items"]
     feed: FeedItem[]
     legatos: PickerScreen["items"]
@@ -797,7 +803,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
   const seen = (): Seen => ({
     view,
     step: talking(view) ? view.dictation?.step : view.kind === "approval" ? view.decision?.step : undefined,
-    entry: view.kind === "agent" ? view.entry : undefined,
+    entry: view.kind === "agent" && view.entry ? view.opened : undefined,
     items: screen.items,
     feed,
     legatos: pickerScreen.items,
@@ -806,7 +812,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
   async function onPress(kind: "click" | "double" | "hold", event: EvenHubEvent, at: Seen): Promise<void> {
     if (view !== at.view) return
     // An entry a read followed since is still the entry the press was made on.
-    if (view.kind === "agent" && (view.dictation?.step !== at.step || !sameEntry(view.entry, at.entry))) return
+    if (view.kind === "agent" && (view.dictation?.step !== at.step || (view.entry ? view.opened : undefined) !== at.entry)) return
     if (view.kind === "reeve" && view.dictation?.step !== at.step) return
     if (view.kind === "approval" && view.decision?.step !== at.step) return
     if (view.kind === "approvals") return onApprovalsPress(kind, event, at)
@@ -952,6 +958,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
           return show()
         }
         open.entry = entry
+        open.opened = ++openings
         return show()
       }
     }

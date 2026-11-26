@@ -192,16 +192,16 @@ export function agentPage(agent: Agent, read: ConversationResult | undefined, fr
 // An entry opened from the feed, as a newer read of the feed has it: the
 // line of the same key, an entry's index less `shift` (entryShift between the
 // read it was opened from and this one; undefined when they could not be
-// lined up, which leaves entries as they were); for a subagent's line that
-// has gone (the subagent is done), the call that started it; for a reply
-// being written that has gone, the newest thing the agent said, which it
-// became. Else the entry as it was.
+// lined up); for a subagent's line that has gone (the subagent is done), the
+// call that started it; for a reply being written that has gone, the newest
+// thing the agent said, which it became. Else the entry as it was, without
+// its key, so no later read takes it for whatever is then in its place.
 export function followEntry(opened: FeedItem, page: FeedPage, shift: number | undefined): FeedItem {
   let key = opened.key
   if (!key) return opened
   const at = ENTRY_KEY.exec(key)
   if (at) {
-    if (shift === undefined) return opened
+    if (shift === undefined) return detached(opened)
     key = `#${Number(at[1]) - shift} ${at[2]}${at[3] ?? ""}`
   }
   const find = (k: string) => page.items.find((i) => i.key === k)
@@ -209,11 +209,13 @@ export function followEntry(opened: FeedItem, page: FeedPage, shift: number | un
     find(key) ??
     (key.endsWith(SUB) ? find(key.slice(0, -SUB.length)) : undefined) ??
     (key === LIVE_REPLY ? page.items.find((i) => said(i.key)) : undefined)
-  return found ?? opened
+  return found ?? detached(opened)
 }
 
-// Whether two entries opened from the feed are the same line, read again or not.
-export const sameEntry = (a: FeedItem | undefined, b: FeedItem | undefined) => a === b || (!!a?.key && a.key === b?.key)
+const detached = (entry: FeedItem): FeedItem => {
+  const { text, detail, asks } = entry
+  return asks ? { text, detail, asks } : { text, detail }
+}
 
 // One entry of the feed in full.
 export function entryPage(agent: Agent, entry: FeedItem, fresh?: Freshness): TextPage {

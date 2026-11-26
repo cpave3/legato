@@ -295,7 +295,7 @@ describe("followEntry", () => {
     expect(followEntry(opened, page({ entries: after }), shift).detail).toBe("Bash (done)\n\nRun the tests\n\npnpm test")
   })
 
-  it("keeps an opened entry that left the window rather than take a later one that reads the same", () => {
+  it("keeps an opened entry that left the window, for good, rather than take a later one that reads the same", () => {
     const said = { kind: "assistant", text: "Again." }
     const before: Conversation["entries"] = [tests("done"), said, tests("running")]
     const older = page({ entries: before }).items.find((i) => i.text === "· Bash: Run the tests")!
@@ -304,15 +304,18 @@ describe("followEntry", () => {
     const after: Conversation["entries"] = [said, tests("done"), said]
     const shift = entryShift(conversation({ entries: before }), conversation({ entries: after }))
     expect(shift).toBe(1)
-    expect(followEntry(older, page({ entries: after }), shift)).toBe(older)
+    const kept = followEntry(older, page({ entries: after }), shift)
+    expect(kept).toEqual({ text: older.text, detail: older.detail })
+    // Detached: a later read never takes it for what is then in its place.
+    expect(followEntry(kept, page({ entries: after }), 0)).toBe(kept)
   })
 
-  it("keeps entries it cannot place in a newer window as they were", () => {
+  it("keeps entries it cannot place in a newer window as they were, detached", () => {
     const opened = page({ entries: [{ kind: "assistant", text: "Old." }] }).items[0]
     const after = conversation({ entries: [{ kind: "assistant", text: "New." }] })
 
     expect(entryShift(conversation({ entries: [{ kind: "assistant", text: "Old." }] }), after)).toBeUndefined()
-    expect(followEntry(opened, agentPage(agent, { ok: true, conversation: after }), undefined)).toBe(opened)
+    expect(followEntry(opened, agentPage(agent, { ok: true, conversation: after }), undefined)).toEqual({ text: opened.text, detail: opened.detail })
   })
 
   it("goes from a subagent's line to the call that started it once the subagent is done", () => {
@@ -324,13 +327,13 @@ describe("followEntry", () => {
     expect(followEntry(line, after, 0).detail).toBe("Bash (done)\n\nRun the tests\n\npnpm test")
   })
 
-  it("keeps the entry as it was when the newer page no longer has it, or failed", () => {
+  it("keeps the entry as it was, detached, when the newer page no longer has it, or failed", () => {
     const opened = page({ entries: [{ kind: "assistant", text: "Gone soon." }] }).items[0]
 
     const other = conversation({ entries: [{ kind: "assistant", text: "Other." }] })
     const shift = entryShift(conversation({ entries: [{ kind: "assistant", text: "Gone soon." }] }), other)
-    expect(followEntry(opened, agentPage(agent, { ok: true, conversation: other }), shift)).toBe(opened)
-    expect(followEntry(opened, agentPage(agent, { ok: false, problem: "Can't reach Legato" }), 0)).toBe(opened)
+    expect(followEntry(opened, agentPage(agent, { ok: true, conversation: other }), shift)).toEqual({ text: opened.text, detail: opened.detail })
+    expect(followEntry(opened, agentPage(agent, { ok: false, problem: "Can't reach Legato" }), 0)).toEqual({ text: opened.text, detail: opened.detail })
   })
 })
 
