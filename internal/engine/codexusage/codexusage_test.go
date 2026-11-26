@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -197,5 +198,51 @@ func TestLogsWithoutRateLimitsHaveNoData(t *testing.T) {
 	writeRollout(t, root, "2026/11/25", "rollout-x.jsonl", `{"timestamp":"2026-11-25T09:32:00.000Z","type":"response_item","payload":{}}`)
 	if _, err := ReadLogs(root); !errors.Is(err, ErrNoData) {
 		t.Fatalf("no limits: err = %v", err)
+	}
+}
+
+// A session resumed from an earlier day stays in that day's folder; its
+// newer event wins over an older one in today's folder.
+func TestLogsPickTheNewestEventAcrossDayFolders(t *testing.T) {
+	root := t.TempDir()
+	today := writeRollout(t, root, "2026/11/26", "rollout-2026-11-26T08-00-00-new.jsonl",
+		tokenCount("2026-11-26T09:00:00Z", `{"primary":{"used_percent":5.0,"window_minutes":10080,"resets_at":1795252211}}`))
+	resumed := writeRollout(t, root, "2026/11/25", "rollout-2026-11-25T08-00-00-old.jsonl",
+		tokenCount("2026-11-26T10:00:00Z", `{"primary":{"used_percent":85.0,"window_minutes":10080,"resets_at":1795252211}}`))
+	// The resumed file was written last, as it would be.
+	os.Chtimes(today, time.Date(2026, 11, 26, 9, 0, 0, 0, time.UTC), time.Date(2026, 11, 26, 9, 0, 0, 0, time.UTC))
+	os.Chtimes(resumed, time.Date(2026, 11, 26, 10, 0, 0, 0, time.UTC), time.Date(2026, 11, 26, 10, 0, 0, 0, time.UTC))
+
+	reading, err := ReadLogs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reading.Windows) != 1 || reading.Windows[0].UsedPercent != 85 {
+		t.Fatalf("windows = %+v, want the resumed session's 85%%", reading.Windows)
+	}
+	// Even when the older event's file is the newer one, the newer event wins.
+	os.Chtimes(today, time.Date(2026, 11, 26, 11, 0, 0, 0, time.UTC), time.Date(2026, 11, 26, 11, 0, 0, 0, time.UTC))
+	if reading, _ := ReadLogs(root); reading.Windows[0].UsedPercent != 85 {
+		t.Fatalf("windows = %+v, want 85%% by event time", reading.Windows)
+	}
+}
+
+// A rollout FIFO an agent left in the sessions folder must not block.
+func TestARolloutFIFODoesNotBlock(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "2026", "11", "26")
+	os.MkdirAll(dir, 0o700)
+	if err := syscall.Mkfifo(filepath.Join(dir, "rollout-fifo.jsonl"), 0o600); err != nil {
+		t.Skip("no FIFOs here:", err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := ReadLogs(root); done <- err }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrNoData) {
+			t.Fatalf("err = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("reading a FIFO blocked")
 	}
 }

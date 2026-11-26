@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"time"
 )
@@ -28,9 +27,10 @@ type FileCredentials struct {
 	Path string
 }
 
-// Login reads the file's Claude.ai login.
+// Login reads the file's Claude.ai login. The folder is one a sandboxed
+// Claude Code agent can write, so only a regular file is read.
 func (f FileCredentials) Login() (Login, error) {
-	file, err := os.Open(f.Path)
+	file, err := openRegular(f.Path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Login{}, ErrNotSignedIn
 	}

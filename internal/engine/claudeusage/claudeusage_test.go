@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -186,5 +187,24 @@ func TestCredentialsPathFollowsClaudeConfigDir(t *testing.T) {
 	}
 	if got := CredentialsPath(func(string) string { return "" }, "/home/me"); got != "/home/me/.claude/.credentials.json" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// The credentials file is in a folder a sandboxed agent can write: a FIFO
+// put in its place must not block the host.
+func TestACredentialsFIFODoesNotBlock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".credentials.json")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Skip("no FIFOs here:", err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := (FileCredentials{Path: path}).Login(); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a FIFO gave a login")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("reading a FIFO blocked")
 	}
 }

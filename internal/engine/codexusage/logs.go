@@ -28,17 +28,29 @@ func SessionsDir(getenv func(string) string, home string) string {
 	return filepath.Join(home, ".codex", "sessions")
 }
 
+// dayFolders bounds how many day folders are looked through, newest first:
+// a session resumed from an older day is still found by its file's time.
+const dayFolderLimit = 60
+
 // ReadLogs returns the newest rate limits Codex wrote into the rollout
 // files under root (sessions/YYYY/MM/DD/rollout-*.jsonl), as of the event
-// that carried them. It only reads.
+// that carried them. It looks at the most recently written files of every
+// recent day folder, since a resumed session keeps writing to its first
+// day's folder, and takes the newest event among them. It only reads, and
+// only regular files.
 func ReadLogs(root string) (Reading, error) {
-	files := newestRollouts(root, logFiles)
-	for _, path := range files {
-		if reading, ok := lastRateLimits(path); ok {
-			return reading, nil
+	var newest Reading
+	found := false
+	for _, path := range newestRollouts(root, logFiles) {
+		reading, ok := lastRateLimits(path)
+		if ok && (!found || reading.AsOf.After(newest.AsOf)) {
+			newest, found = reading, true
 		}
 	}
-	return Reading{}, ErrNoData
+	if !found {
+		return Reading{}, ErrNoData
+	}
+	return newest, nil
 }
 
 type rollout struct {
@@ -46,19 +58,21 @@ type rollout struct {
 	mod  time.Time
 }
 
-// newestRollouts lists the rollout files of the newest day folders, newest
-// first by day, then by modification time.
+// newestRollouts lists the most recently written rollout files of the
+// newest day folders, newest first.
 func newestRollouts(root string, limit int) []string {
 	days := dayFolders(root)
-	var out []string
+	if len(days) > dayFolderLimit {
+		days = days[:dayFolderLimit]
+	}
+	var files []rollout
 	for _, day := range days {
 		entries, err := os.ReadDir(day)
 		if err != nil {
 			continue
 		}
-		var files []rollout
 		for _, e := range entries {
-			if e.IsDir() || !strings.HasPrefix(e.Name(), "rollout-") || !strings.HasSuffix(e.Name(), ".jsonl") {
+			if !e.Type().IsRegular() || !strings.HasPrefix(e.Name(), "rollout-") || !strings.HasSuffix(e.Name(), ".jsonl") {
 				continue
 			}
 			info, err := e.Info()
@@ -67,12 +81,13 @@ func newestRollouts(root string, limit int) []string {
 			}
 			files = append(files, rollout{filepath.Join(day, e.Name()), info.ModTime()})
 		}
-		sort.Slice(files, func(i, j int) bool { return files[i].mod.After(files[j].mod) })
-		for _, f := range files {
-			out = append(out, f.path)
-			if len(out) == limit {
-				return out
-			}
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].mod.After(files[j].mod) })
+	var out []string
+	for _, f := range files {
+		out = append(out, f.path)
+		if len(out) == limit {
+			break
 		}
 	}
 	return out
@@ -117,7 +132,7 @@ type logLine struct {
 // lastRateLimits reads the tail of a rollout file for its last event with
 // rate limits.
 func lastRateLimits(path string) (Reading, bool) {
-	file, err := os.Open(path)
+	file, err := openRegular(path)
 	if err != nil {
 		return Reading{}, false
 	}
