@@ -5260,14 +5260,13 @@
       "description": "Export a task's full context (title, description, notes, pull requests) as text.",
       "properties": {
         "task": {
-          "description": "The task: ${{ workflow.task }} or a task input",
-          "pattern": "^\\$\\{\\{\\s*workflow\\.(task|inputs\\.[^.}\\s]+)\\s*\\}\\}$",
+          "description": "The task: ${{ workflow.task }}, a task input, or a task ID as text, such as a ticket.import step's task output",
           "type": "string",
           "x-legato": {
             "context": "with",
             "essential": true,
             "expressions": true,
-            "kind": "task",
+            "kind": "task_or_id",
             "label": "Task",
             "order": 1
           }
@@ -5299,13 +5298,13 @@
       "description": "Set values in a task's metadata.",
       "properties": {
         "task": {
-          "description": "The task: ${{ workflow.task }} or a task input",
+          "description": "The task: ${{ workflow.task }}, a task input, or a task ID as text, such as a ticket.import step's task output",
           "type": "string",
           "x-legato": {
             "context": "with",
             "essential": true,
             "expressions": true,
-            "kind": "task",
+            "kind": "task_or_id",
             "label": "Task",
             "order": 1,
             "required_at_run": true
@@ -5353,14 +5352,13 @@
           }
         },
         "task": {
-          "description": "The task: ${{ workflow.task }} or a task input",
-          "pattern": "^\\$\\{\\{\\s*workflow\\.(task|inputs\\.[^.}\\s]+)\\s*\\}\\}$",
+          "description": "The task: ${{ workflow.task }}, a task input, or a task ID as text, such as a ticket.import step's task output",
           "type": "string",
           "x-legato": {
             "context": "with",
             "essential": true,
             "expressions": true,
-            "kind": "task",
+            "kind": "task_or_id",
             "label": "Task",
             "order": 1
           }
@@ -5499,14 +5497,13 @@
           }
         },
         "task": {
-          "description": "The task: ${{ workflow.task }} or a task input",
-          "pattern": "^\\$\\{\\{\\s*workflow\\.(task|inputs\\.[^.}\\s]+)\\s*\\}\\}$",
+          "description": "The task: ${{ workflow.task }}, a task input, or a task ID as text, such as a ticket.import step's task output",
           "type": "string",
           "x-legato": {
             "context": "with",
             "essential": true,
             "expressions": true,
-            "kind": "task",
+            "kind": "task_or_id",
             "label": "Task",
             "order": 1
           }

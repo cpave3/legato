@@ -189,7 +189,7 @@ func TestTheSchemaRefusesInvalidFiles(t *testing.T) {
 		"missing required":    base + step + "    type: task.move\n    with: {task: \"${{ workflow.task }}\"}\n",
 		"unknown with key":    base + step + "    type: agent.run\n    with: {prompt: hi, promt: hi}\n",
 		"literal boolean":     base + step + "    type: task.note\n    with: {task: x, body: b, optional: \"${{ workflow.inputs.x }}\"}\n",
-		"task not a ref":      base + step + "    type: task.context\n    with: {task: abc}\n",
+		"task not a ref":      base + step + "    type: chimera.session.remove\n    with: {task: abc}\n",
 		"bad scope":           base + step + "    type: github.pr.review_passes\n    with: {repo: a/b, pr_number: 1, scope: all}\n",
 		"bad input type":      base + "inputs:\n  x: {type: number}\n" + step + "    type: agent.run\n    with: {prompt: hi}\n",
 		"bad step trigger":    base + step + "    type: agent.run\n    trigger: later\n    with: {prompt: hi}\n",

@@ -128,7 +128,7 @@ func TestCatalogDrivesStepValidation(t *testing.T) {
     with: {}`, `step "s" has unsupported type "agent.nope"`},
 		{"required", `type: task.move
     with: {task: "${{ workflow.inputs.task }}"}`, `step "s": with requires column`},
-		{"whole task", `type: task.context
+		{"whole task", `type: chimera.session.remove
     with: {task: "id-${{ workflow.inputs.task.id }}"}`, `step "s": with task must be a whole task reference`},
 		{"literal boolean", `type: task.note
     with: {task: "${{ workflow.inputs.task }}", body: hi, optional: "${{ workflow.inputs.task.id }}"}`, `step "s": with optional must be true or false`},
@@ -154,6 +154,50 @@ func TestCatalogDrivesStepValidation(t *testing.T) {
 				t.Fatalf("err = %v, want it to end %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// The board steps take a task ID as text, such as ticket.import's task
+// output, as task.note does (LEG-652). The steps that act on the run's own
+// task still take only a whole task reference.
+func TestBoardStepsTakeATaskIDAsText(t *testing.T) {
+	parse := func(stepType, with string) error {
+		_, err := workflow.Parse("c.yaml", []byte(`schema_version: 2
+name: c
+title: C
+steps:
+  - id: card
+    title: Card
+    type: ticket.import
+    with: {key: LEG-1, provider: burnlite}
+  - id: s
+    title: S
+    type: `+stepType+`
+    with: `+with+`
+`))
+		return err
+	}
+	const fromImport = `task: "${{ steps.card.outputs.task }}"`
+	for stepType, rest := range map[string]string{
+		"task.metadata.set":        `, values: {a: 1}`,
+		"task.move":                `, column: Ready`,
+		"task.context":             ``,
+		"task.working_dir.resolve": `, fallback: /tmp`,
+	} {
+		if err := parse(stepType, "{"+fromImport+rest+"}"); err != nil {
+			t.Errorf("%s with a task ID: %v", stepType, err)
+		}
+		if stepType == "task.metadata.set" {
+			continue // its task is required only when the step runs
+		}
+		if err := parse(stepType, "{"+strings.TrimPrefix(rest, ", ")+"}"); err == nil || !strings.HasSuffix(err.Error(), "with requires task") {
+			t.Errorf("%s with no task: err = %v", stepType, err)
+		}
+	}
+	for _, stepType := range []string{"agent.dispatch", "chimera.session.remove"} {
+		if err := parse(stepType, "{"+fromImport+", prompt: hi}"); err == nil || !strings.HasSuffix(err.Error(), "with task must be a whole task reference") {
+			t.Errorf("%s with a task ID: err = %v", stepType, err)
+		}
 	}
 }
 

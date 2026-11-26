@@ -147,6 +147,16 @@ describe("a chat message step", () => {
   })
 })
 
+describe("a board step", () => {
+  // LEG-652: their task may be a task ID as text, and a new one still starts on the run's task.
+  it("takes a task or a task ID, and starts on the run's task", () => {
+    for (const type of ["task.move", "task.context", "task.working_dir.resolve"]) {
+      expect(stepForm(type)!.fields.find(f => f.name === "task")!.kind, type).toBe("task_or_id")
+      expect(newStep(type, []).with?.task, type).toBe("${{ workflow.task }}")
+    }
+  })
+})
+
 describe("a chat reaction step", () => {
   it("asks for the bot, the channel, the message and the emoji, in that order", () => {
     for (const type of ["chat.reaction.add", "chat.reaction.remove"]) {
@@ -179,7 +189,7 @@ describe("fields by kind", () => {
   })
 
   it("offers whole-task references and enums as choices", () => {
-    renderBuilder(head + "inputs:\n  target: {type: task, required: true}\nsteps:\n  - id: s\n    title: S\n    type: task.move\n    with:\n      task: ${{ workflow.task }}\n      column: Doing\n  - id: r\n    title: R\n    type: github.pr.review_passes\n    with: {repo: a/b, pr_number: 1}\n")
+    renderBuilder(head + "inputs:\n  target: {type: task, required: true}\nsteps:\n  - id: s\n    title: S\n    type: chimera.session.remove\n    with:\n      task: ${{ workflow.task }}\n  - id: r\n    title: R\n    type: github.pr.review_passes\n    with: {repo: a/b, pr_number: 1}\n")
     fireEvent.change(screen.getByLabelText("task of step s"), { target: { value: "${{ workflow.inputs.target }}" } })
     fireEvent.change(screen.getByLabelText("scope of step r"), { target: { value: "pr" } })
     const doc = parse(latest)

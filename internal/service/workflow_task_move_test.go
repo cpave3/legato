@@ -189,7 +189,7 @@ func TestWorkflowTaskMoveRejectsInvalidInputsAndUnknownColumns(t *testing.T) {
 	createWorkflowMoveTask(t, db, "stale-1", "Stale", 0)
 	executor := NewTaskMoveExecutor(NewWorkflowTaskMover(NewBoardService(db, events.New()), nil))
 	for name, with := range map[string]map[string]any{
-		"malformed task":       {"task": "subject-1", "column": "Ready"},
+		"malformed task":       {"task": 42, "column": "Ready"},
 		"missing id":           {"task": map[string]any{}, "column": "Ready"},
 		"empty column":         {"task": map[string]any{"id": "subject-1"}, "column": " "},
 		"unknown column":       {"task": map[string]any{"id": "subject-1"}, "column": "Missing"},

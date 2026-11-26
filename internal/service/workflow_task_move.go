@@ -39,13 +39,9 @@ func (e *TaskMoveExecutor) Cancel(context.Context, store.WorkflowStepAttempt) er
 	return nil
 }
 func (e *TaskMoveExecutor) Start(ctx context.Context, step ResolvedWorkflowStep) (WorkflowExecutionResult, error) {
-	task, ok := step.With["task"].(map[string]any)
-	if !ok {
-		return WorkflowExecutionResult{}, fmt.Errorf("task must be a task input")
-	}
-	taskID, _ := task["id"].(string)
-	if strings.TrimSpace(taskID) == "" {
-		return WorkflowExecutionResult{}, fmt.Errorf("task id is required")
+	taskID, err := workflowTaskID(step.With["task"])
+	if err != nil {
+		return WorkflowExecutionResult{}, err
 	}
 	column, ok := step.With["column"].(string)
 	if !ok || strings.TrimSpace(column) == "" {

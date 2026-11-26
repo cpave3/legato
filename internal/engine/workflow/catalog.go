@@ -335,6 +335,7 @@ var (
 	// agentFromField names the agent an earlier step used: {from: <step>}.
 	agentFromField = Field{Name: "agent", Kind: KindJSON, Label: "Or the agent of a step", Description: "{from: <step>}: the agent an earlier agent.run, agent.message or agent.dispatch step used; checked when the file loads"}
 	agentOrTask    = Constraint{Kind: ExactlyOne, Fields: []string{"task", "agent"}, Checked: true}
+	taskOrID       = Field{Name: "task", Kind: KindTaskOrID, Label: "Task", Description: "The task: ${{ workflow.task }}, a task input, or a task ID as text, such as a ticket.import step's task output", Required: true}
 	wholeTask      = Field{Name: "task", Kind: KindTask, Label: "Task", Description: "The task: ${{ workflow.task }} or a task input", Required: true, Checked: true, Invalid: "must be a whole task reference"}
 	// agentFilledOutputs are what Legato fills on an agent step when its
 	// wait ends (spec LEG-482 §5.6, LEG-485), beside the outputs the step
@@ -498,7 +499,7 @@ var catalog = []ExecutorSpec{
 	{
 		Type: "task.context", Group: "Board", Title: "Read a task's context",
 		Description: "Export a task's full context (title, description, notes, pull requests) as text.",
-		With:        []Field{wholeTask.at(1, true)},
+		With:        []Field{taskOrID.at(1, true)},
 		Outputs:     []OutputSpec{{Name: "content", Type: "string", Description: "The task's context"}},
 		Summary:     []string{"task"},
 	},
@@ -506,7 +507,7 @@ var catalog = []ExecutorSpec{
 		Type: "task.working_dir.resolve", Group: "Board", Title: "Find a task's directory",
 		Description: "The task's worktree when it has one, else the fallback.",
 		With: []Field{
-			wholeTask.at(1, true),
+			taskOrID.at(1, true),
 			{Name: "fallback", Kind: KindPath, Label: "Otherwise use", Description: "Directory to use when the task has no worktree", Required: true, Essential: true, Order: 2},
 		},
 		Summary: []string{"task"},
@@ -537,7 +538,7 @@ var catalog = []ExecutorSpec{
 		Type: "task.metadata.set", Group: "Board", Title: "Set task metadata",
 		Description: "Set values in a task's metadata.",
 		With: []Field{
-			{Name: "task", Kind: KindTask, Label: "Task", Description: "The task: ${{ workflow.task }} or a task input", RequiredAtRun: true, Essential: true, Order: 1},
+			{Name: "task", Kind: KindTaskOrID, Label: "Task", Description: taskOrID.Description, RequiredAtRun: true, Essential: true, Order: 1},
 			{Name: "values", Kind: KindJSON, Label: "Values", Description: "A non-empty object of metadata paths and their values", RequiredAtRun: true, Essential: true, Order: 2},
 		},
 		Summary: []string{"values"},
@@ -546,7 +547,7 @@ var catalog = []ExecutorSpec{
 		Type: "task.move", Group: "Board", Title: "Move a task",
 		Description: "Move a task to a column of the board, and its ticket with it.",
 		With: []Field{
-			wholeTask.at(1, true),
+			taskOrID.at(1, true),
 			{Name: "column", Kind: KindColumn, Label: "To column", Description: "The column's name", Required: true, Checked: true, Invalid: "must be a non-empty string", Essential: true, Order: 2},
 		},
 		Summary: []string{"column"},
