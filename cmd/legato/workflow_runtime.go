@@ -154,6 +154,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		service.NewBurnliteCloseExecutor(db, service.ConnectedBurnlite{Connection: burnliteConnections(cfg, db)}),
 		service.NewTicketCreateExecutor(db, ticketWriters(cfg, db)...),
 		service.NewTicketCommentExecutor(db, ticketWriters(cfg, db)...),
+		service.NewTicketUpdateExecutor(db, ticketWriters(cfg, db)...),
 		service.NewChatSendExecutor(chatBots),
 		service.NewChatReactionAddExecutor(chatBots),
 		service.NewChatReactionRemoveExecutor(chatBots),

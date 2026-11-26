@@ -676,6 +676,28 @@
           "if": {
             "properties": {
               "type": {
+                "const": "ticket.update"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.ticket.update"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "ticket.import"
               }
             },
@@ -1036,6 +1058,7 @@
             "burnlite.task.close",
             "ticket.create",
             "ticket.comment",
+            "ticket.update",
             "ticket.import",
             "tickets.list",
             "tasks.list",
@@ -1582,6 +1605,28 @@
           "if": {
             "properties": {
               "type": {
+                "const": "ticket.update"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/with.ticket.update"
+              }
+            },
+            "required": [
+              "with"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "ticket.import"
               }
             },
@@ -2045,6 +2090,7 @@
             "burnlite.task.close",
             "ticket.create",
             "ticket.comment",
+            "ticket.update",
             "ticket.import",
             "tickets.list",
             "tasks.list",
@@ -5708,6 +5754,18 @@
       "additionalProperties": false,
       "description": "Create a Jira issue or a Burnlite task, with Legato's own Jira settings (jira.base_url, jira.email, jira.api_token) or its Burnlite connection: no agent sees the token. A retry returns the ticket the step already created instead of creating another.",
       "properties": {
+        "assignee": {
+          "description": "me (Legato's own Jira user, of jira.email; Burnlite: a claim as legato), an email or a Jira account ID; unassigned when empty",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Assign to",
+            "order": 6
+          }
+        },
         "description": {
           "description": "Markdown; sent to Jira as its rich text, keeping code blocks, lists, links and tables",
           "type": "string",
@@ -5721,13 +5779,13 @@
           }
         },
         "fields": {
-          "description": "Jira only: more fields as Jira names them, such as {customfield_10020: 7}; not the fields above",
+          "description": "Jira only: more fields as Jira names them, such as {customfield_10020: 7}; not the fields above (assignee only when Assign to is empty)",
           "x-legato": {
             "context": "with",
             "expressions": true,
             "kind": "json",
             "label": "More Jira fields",
-            "order": 8
+            "order": 9
           }
         },
         "kind": {
@@ -5750,7 +5808,7 @@
             "expressions": true,
             "kind": "string",
             "label": "Kind",
-            "order": 9
+            "order": 10
           }
         },
         "labels": {
@@ -5771,7 +5829,7 @@
             "expressions": true,
             "kind": "string",
             "label": "Milestone",
-            "order": 12
+            "order": 13
           }
         },
         "priority": {
@@ -5782,7 +5840,7 @@
             "expressions": true,
             "kind": "string",
             "label": "Priority",
-            "order": 7
+            "order": 8
           }
         },
         "project": {
@@ -5843,7 +5901,7 @@
             "expressions": true,
             "kind": "string",
             "label": "Size",
-            "order": 10
+            "order": 11
           }
         },
         "summary": {
@@ -5866,7 +5924,7 @@
             "expressions": true,
             "kind": "string",
             "label": "Issue type",
-            "order": 6
+            "order": 7
           }
         },
         "uncertainty": {
@@ -5891,7 +5949,7 @@
             "expressions": true,
             "kind": "string",
             "label": "Uncertainty",
-            "order": 11
+            "order": 12
           }
         }
       },
@@ -5929,6 +5987,11 @@
             "description": "false when a retry returned the ticket an earlier attempt created",
             "name": "created",
             "type": "boolean"
+          },
+          {
+            "description": "What went wrong after the ticket was made, such as a Burnlite claim another holder has; empty when nothing did",
+            "name": "warnings",
+            "type": "json"
           }
         ],
         "summary": [
@@ -6028,6 +6091,128 @@
           "key"
         ],
         "type": "ticket.import"
+      }
+    },
+    "with.ticket.update": {
+      "additionalProperties": false,
+      "description": "Assign a Jira issue or Burnlite task, or move it to a status by name, with Legato's own Jira settings or Burnlite connection. A ticket already there is left alone, so a retry changes nothing twice.",
+      "properties": {
+        "assignee": {
+          "description": "me (Legato's own Jira user, of jira.email; Burnlite: a claim as legato), an email, a Jira account ID, or none to unassign; left as it is when empty",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Assign to",
+            "order": 3
+          }
+        },
+        "key": {
+          "description": "The ticket's key, such as AG-12",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Ticket",
+            "order": 2
+          }
+        },
+        "optional": {
+          "default": false,
+          "description": "A missing ticket, a status it cannot reach, an assignee no one matches, or a change Jira or Burnlite refuses becomes a warning instead of failing the step; an outage still fails it",
+          "type": "boolean",
+          "x-legato": {
+            "expressions": false,
+            "kind": "boolean",
+            "label": "Carry on if it cannot be changed",
+            "order": 5
+          }
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "enum": [
+                "jira",
+                "burnlite"
+              ],
+              "type": "string"
+            },
+            {
+              "pattern": "\\$\\{\\{[^}]*\\}\\}",
+              "type": "string"
+            }
+          ],
+          "description": "jira or burnlite; the only one set up when empty",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Provider",
+            "order": 1
+          }
+        },
+        "status": {
+          "description": "The status's name, such as In Progress (Jira: the transition that reaches it); Burnlite: idea, exploring, ready, building, done (or closed) or dropped; left as it is when empty",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "essential": true,
+            "expressions": true,
+            "kind": "string",
+            "label": "Move to status",
+            "order": 4
+          }
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "title": "Update a ticket",
+      "type": "object",
+      "x-legato": {
+        "declared_outputs": false,
+        "group": "Board",
+        "outputs": [
+          {
+            "description": "The ticket's key",
+            "name": "key",
+            "type": "string"
+          },
+          {
+            "description": "The ticket's page; empty when optional skipped a missing ticket",
+            "name": "url",
+            "type": "string"
+          },
+          {
+            "description": "The ticket's status after the step, as the provider names it",
+            "name": "status",
+            "type": "string"
+          },
+          {
+            "description": "The display name (Burnlite: the claim holder) it is assigned to after the step; empty when unassigned",
+            "name": "assignee",
+            "type": "string"
+          },
+          {
+            "description": "Whether the step changed the ticket",
+            "name": "changed",
+            "type": "boolean"
+          },
+          {
+            "description": "What optional let the step carry on past; empty when nothing",
+            "name": "warnings",
+            "type": "json"
+          }
+        ],
+        "summary": [
+          "key"
+        ],
+        "type": "ticket.update"
       }
     },
     "with.tickets.list": {
@@ -7041,6 +7226,10 @@
           {
             "name": "created",
             "type": "boolean"
+          },
+          {
+            "name": "warnings",
+            "type": "json"
           }
         ],
         "summary": [
@@ -7071,6 +7260,41 @@
         ],
         "title": "Comment on a ticket",
         "type": "ticket.comment"
+      },
+      {
+        "description": "Assign a Jira issue or Burnlite task, or move it to a status by name, with Legato's own Jira settings or Burnlite connection. A ticket already there is left alone, so a retry changes nothing twice.",
+        "group": "Board",
+        "outputs": [
+          {
+            "name": "key",
+            "type": "string"
+          },
+          {
+            "name": "url",
+            "type": "string"
+          },
+          {
+            "name": "status",
+            "type": "string"
+          },
+          {
+            "name": "assignee",
+            "type": "string"
+          },
+          {
+            "name": "changed",
+            "type": "boolean"
+          },
+          {
+            "name": "warnings",
+            "type": "json"
+          }
+        ],
+        "summary": [
+          "key"
+        ],
+        "title": "Update a ticket",
+        "type": "ticket.update"
       },
       {
         "description": "Put a Burnlite or Jira ticket on the board as a task, or find the task it already is. An existing task stays in its column; an archived one is restored.",

@@ -33,6 +33,158 @@ type fakeJira struct {
 	// found is what search answers: issues as {key, fields: {summary}}.
 	found []map[string]any
 	jql   []string
+
+	// issues are what GET /issue/{key} answers, and what assign and
+	// transitions change (LEG-656); a key not here is a 404.
+	issues map[string]*fakeIssue
+	// users are what user search finds, by a part of the email.
+	users []fakeUser
+	// requests are every request but create, comment and search, as
+	// "METHOD path".
+	requests []string
+	// broken answers every issue read with HTTP 500.
+	broken bool
+}
+
+type fakeIssue struct {
+	status   string
+	assignee *fakeUser
+}
+
+type fakeUser struct{ id, name, email string }
+
+var fakeJiraMe = fakeUser{"acc-me", "Cameron", "bot@example.com"}
+
+// fakeJiraTransitions is the workflow: the transitions from each status.
+var fakeJiraTransitions = map[string][][3]string{
+	"To Do":       {{"11", "Start work", "In Progress"}, {"31", "Close", "Done"}},
+	"In Progress": {{"41", "Stop work", "To Do"}, {"31", "Close", "Done"}},
+	"Done":        {{"51", "Reopen", "To Do"}},
+}
+
+func (f *fakeJira) issue(key, status string, assignee *fakeUser) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.issues == nil {
+		f.issues = map[string]*fakeIssue{}
+	}
+	f.issues[key] = &fakeIssue{status: status, assignee: assignee}
+}
+
+// writes are the requests that change an issue.
+func (f *fakeJira) writes() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for _, r := range f.requests {
+		if !strings.HasPrefix(r, "GET ") {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func (f *fakeJira) count(request string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, r := range f.requests {
+		if r == request {
+			n++
+		}
+	}
+	return n
+}
+
+func (f *fakeJira) serveIssues(w http.ResponseWriter, r *http.Request, raw []byte) bool {
+	user := func(u *fakeUser) any {
+		if u == nil {
+			return nil
+		}
+		return map[string]any{"accountId": u.id, "displayName": u.name, "emailAddress": u.email}
+	}
+	if strings.HasSuffix(r.URL.Path, "/comment") {
+		return false
+	}
+	if r.URL.Path == "/rest/api/3/myself" || r.URL.Path == "/rest/api/3/user/search" || strings.HasPrefix(r.URL.Path, "/rest/api/3/issue/") {
+		f.requests = append(f.requests, r.Method+" "+r.URL.Path)
+	}
+	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/rest/api/3/myself":
+		body, _ := json.Marshal(user(&fakeJiraMe))
+		_, _ = w.Write(body)
+		return true
+	case r.Method == http.MethodGet && r.URL.Path == "/rest/api/3/user/search":
+		found := []any{}
+		for _, u := range f.users {
+			if strings.Contains(strings.ToLower(u.email), strings.ToLower(r.URL.Query().Get("query"))) {
+				found = append(found, user(&u))
+			}
+		}
+		body, _ := json.Marshal(found)
+		_, _ = w.Write(body)
+		return true
+	case strings.HasPrefix(r.URL.Path, "/rest/api/3/issue/"):
+		rest := strings.TrimPrefix(r.URL.Path, "/rest/api/3/issue/")
+		key, action, _ := strings.Cut(rest, "/")
+		if f.broken {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"errorMessages":["Internal server error"]}`))
+			return true
+		}
+		issue, ok := f.issues[key]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"errorMessages":["Issue does not exist or you do not have permission to see it."],"errors":{}}`))
+			return true
+		}
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		switch {
+		case r.Method == http.MethodGet && action == "":
+			out, _ := json.Marshal(map[string]any{"id": "1", "key": key, "fields": map[string]any{
+				"summary": "S", "status": map[string]any{"name": issue.status}, "assignee": user(issue.assignee)}})
+			_, _ = w.Write(out)
+		case r.Method == http.MethodGet && action == "transitions":
+			var list []any
+			for _, t := range fakeJiraTransitions[issue.status] {
+				list = append(list, map[string]any{"id": t[0], "name": t[1], "to": map[string]any{"name": t[2]}})
+			}
+			out, _ := json.Marshal(map[string]any{"transitions": list})
+			_, _ = w.Write(out)
+		case r.Method == http.MethodPost && action == "transitions":
+			id := fmt.Sprint(body["transition"].(map[string]any)["id"])
+			for _, t := range fakeJiraTransitions[issue.status] {
+				if t[0] == id {
+					issue.status = t[2]
+					w.WriteHeader(http.StatusNoContent)
+					return true
+				}
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"errorMessages":["Transition id '` + id + `' is not valid for this issue."]}`))
+		case r.Method == http.MethodPut && action == "assignee":
+			id, _ := body["accountId"].(string)
+			switch id {
+			case "":
+				issue.assignee = nil
+			case fakeJiraMe.id:
+				issue.assignee = &fakeJiraMe
+			default:
+				issue.assignee = &fakeUser{id: id, name: "User " + id}
+				for _, u := range f.users {
+					if u.id == id {
+						issue.assignee = &u
+					}
+				}
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			return false
+		}
+		return true
+	}
+	return false
 }
 
 func newFakeJira(t *testing.T) *fakeJira {
@@ -43,6 +195,9 @@ func newFakeJira(t *testing.T) *fakeJira {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
+		if f.serveIssues(w, r, raw) {
+			return
+		}
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/rest/api/3/issue":
 			if f.refuse != "" {
@@ -94,6 +249,33 @@ type fakeBurnliteWrites struct {
 	// created is when get_task says each Task was created; a Task not
 	// here has no createdAt.
 	created map[string]string
+	// tasks are more of what get_task answers for a key (state, stage,
+	// closeReason, claim), which claim, release, stage and close change.
+	tasks map[string]map[string]any
+	// refuseTool answers one tool with this error code.
+	refuseTool map[string]string
+}
+
+func (f *fakeBurnliteWrites) task(key string, fields map[string]any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.tasks == nil {
+		f.tasks = map[string]map[string]any{}
+	}
+	f.tasks[key] = fields
+}
+
+// writes are the calls that change a Task.
+func (f *fakeBurnliteWrites) writes() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for _, c := range f.calls {
+		if c != "get_task" && c != "list_tasks" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func newFakeBurnliteWrites(t *testing.T) *fakeBurnliteWrites {
@@ -106,7 +288,7 @@ func newFakeBurnliteWrites(t *testing.T) *fakeBurnliteWrites {
 		_ = json.Unmarshal(b, &out)
 		return &mcp.CallToolResult{StructuredContent: out, Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}
 	}
-	for _, name := range []string{"create_task", "create_note", "list_tasks", "get_task"} {
+	for _, name := range []string{"create_task", "create_note", "list_tasks", "get_task", "claim_task", "release_claim", "update_task", "close_task"} {
 		srv.AddTool(&mcp.Tool{Name: name, InputSchema: map[string]any{"type": "object"}}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var args map[string]any
 			_ = json.Unmarshal(req.Params.Arguments, &args)
@@ -118,16 +300,45 @@ func newFakeBurnliteWrites(t *testing.T) *fakeBurnliteWrites {
 				b, _ := json.Marshal(map[string]string{"code": f.refuse, "message": "refused: " + f.refuse})
 				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil
 			}
+			if code := f.refuseTool[name]; code != "" {
+				b, _ := json.Marshal(map[string]string{"code": code, "message": name + " refused: " + code})
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil
+			}
+			key := fmt.Sprint(args["taskId"])
+			if _, known := f.tasks[key]; f.tasks != nil && !known && name != "create_task" && name != "create_note" && name != "list_tasks" {
+				b, _ := json.Marshal(map[string]string{"code": "not_found", "message": "No Task " + key})
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil
+			}
+			switch name {
+			case "claim_task":
+				f.tasks[key]["claim"] = map[string]any{"holder": args["holder"]}
+				return result(map[string]any{"claim": map[string]any{"holder": args["holder"]}}), nil
+			case "release_claim":
+				f.tasks[key]["claim"] = nil
+				return result(map[string]any{"released": true}), nil
+			case "update_task":
+				f.tasks[key]["stage"] = args["stage"]
+				return result(map[string]any{"task": map[string]any{"key": key}}), nil
+			case "close_task":
+				stage := "done"
+				if args["reason"] == "not_planned" {
+					stage = "dropped"
+				}
+				f.tasks[key]["state"], f.tasks[key]["stage"], f.tasks[key]["closeReason"] = "closed", stage, args["reason"]
+				return result(map[string]any{"task": map[string]any{"key": key}}), nil
+			}
 			switch name {
 			case "create_task":
 				return result(map[string]any{"task": map[string]any{"id": "uuid-9", "key": "LEG-9", "url": "/LEG-9"}}), nil
 			case "create_note":
 				return result(map[string]any{"note": map[string]any{"id": "note-1"}}), nil
 			case "get_task":
-				key := fmt.Sprint(args["taskId"])
 				task := map[string]any{"id": "uuid-" + key, "key": key, "url": "/" + key}
 				if at, ok := f.created[key]; ok {
 					task["createdAt"] = at
+				}
+				for k, v := range f.tasks[key] {
+					task[k] = v
 				}
 				return result(map[string]any{"task": task}), nil
 			}
@@ -206,7 +417,7 @@ func TestTicketCreateRaisesAJiraIssue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{"key": "AG-12", "id": "10001", "url": jira.srv.URL + "/browse/AG-12", "provider": "jira", "created": true}
+	want := map[string]any{"key": "AG-12", "id": "10001", "url": jira.srv.URL + "/browse/AG-12", "provider": "jira", "created": true, "warnings": []string{}}
 	if result.Status != "succeeded" || fmt.Sprint(result.Outputs) != fmt.Sprint(want) {
 		t.Fatalf("result = %+v", result)
 	}
@@ -573,5 +784,94 @@ func TestATicketCommentWhoseAnswerWasLostAsksToCheck(t *testing.T) {
 	}
 	if _, err := step.Start(ctx, ticketStep("wa-3", with)); err != nil || len(jira.comments) != 1 {
 		t.Fatalf("err = %v, comments %v", err, jira.comments)
+	}
+}
+
+// ticket.create's assignee (LEG-656) is resolved before the create, so a
+// Jira issue is assigned as it is made.
+func TestTicketCreateAssignsTheJiraIssueAsItIsMade(t *testing.T) {
+	db, ctx := ticketRun(t)
+	jira := newFakeJira(t)
+	with := jiraBug()
+	with["assignee"] = "me"
+	result, err := NewTicketCreateExecutor(db, jira.writer()).Start(ctx, ticketStep("wa-1", with))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := jira.creates[0]["fields"].(map[string]any)
+	if got := fmt.Sprint(fields["assignee"]); got != "map[accountId:acc-me]" {
+		t.Fatalf("fields.assignee = %v", got)
+	}
+	if w, ok := result.Outputs["warnings"].([]string); !ok || len(w) != 0 {
+		t.Fatalf("warnings = %#v", result.Outputs["warnings"])
+	}
+}
+
+func TestTicketCreateTakesFieldsAssigneeOnlyWithoutAssignee(t *testing.T) {
+	db, ctx := ticketRun(t)
+	jira := newFakeJira(t)
+	step := NewTicketCreateExecutor(db, jira.writer())
+	both := map[string]any{"provider": "jira", "project": "AG", "summary": "S", "assignee": "me", "fields": map[string]any{"assignee": map[string]any{"accountId": "x"}}}
+	if _, err := step.Start(ctx, ticketStep("wa-1", both)); err == nil || !strings.Contains(err.Error(), "assignee") {
+		t.Fatalf("err = %v", err)
+	}
+	raw := map[string]any{"provider": "jira", "project": "AG", "summary": "S", "fields": map[string]any{"assignee": map[string]any{"accountId": "x"}}}
+	if _, err := step.Start(ctx, ticketStep("wa-2", raw)); err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(jira.creates[0]["fields"].(map[string]any)["assignee"]); got != "map[accountId:x]" {
+		t.Fatalf("fields.assignee = %v", got)
+	}
+}
+
+// An assignee no one matches fails the step before anything is created.
+func TestTicketCreateWithAnAssigneeNoOneMatchesCreatesNothing(t *testing.T) {
+	db, ctx := ticketRun(t)
+	jira := newFakeJira(t)
+	with := jiraBug()
+	with["assignee"] = "nobody@example.com"
+	if _, err := NewTicketCreateExecutor(db, jira.writer()).Start(ctx, ticketStep("wa-1", with)); err == nil || !strings.Contains(err.Error(), "nobody@example.com") {
+		t.Fatalf("err = %v", err)
+	}
+	record, err := db.GetWorkflowStepEffect(ctx, "wr-t", "raise", TicketCreateStepType)
+	if err != nil || record != nil || len(jira.creates) != 0 {
+		t.Fatalf("record %+v, %v, creates %d", record, err, len(jira.creates))
+	}
+	with["assignee"] = "none"
+	if _, err := NewTicketCreateExecutor(db, jira.writer()).Start(ctx, ticketStep("wa-2", with)); err == nil || !strings.Contains(err.Error(), "none") {
+		t.Fatalf("none: %v", err)
+	}
+}
+
+// create_task cannot claim, so a Burnlite task is claimed after it is made.
+// A claim that fails leaves the ticket made, with a warning; a retry claims
+// again.
+func TestTicketCreateClaimsTheBurnliteTaskAfterMakingIt(t *testing.T) {
+	db, ctx := ticketRun(t)
+	bl := newFakeBurnliteWrites(t)
+	bl.task("LEG-9", map[string]any{"state": "open"})
+	bl.refuseTool = map[string]string{"claim_task": "already_claimed"}
+	with := map[string]any{"provider": "burnlite", "project": "LEG", "summary": "Fix login", "kind": "meta", "assignee": "me"}
+	step := NewTicketCreateExecutor(db, bl.writer())
+	result, err := step.Start(ctx, ticketStep("wa-1", with))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w, _ := result.Outputs["warnings"].([]string); result.Outputs["created"] != true || len(w) != 1 || !strings.Contains(w[0], "LEG-9") {
+		t.Fatalf("outputs = %v", result.Outputs)
+	}
+	bl.mu.Lock()
+	bl.refuseTool = nil
+	bl.mu.Unlock()
+	result, err = step.Start(ctx, ticketStep("wa-2", with))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, args := bl.called("claim_task")
+	if w, _ := result.Outputs["warnings"].([]string); n != 2 || args["holder"] != "legato" || args["taskId"] != "LEG-9" || len(w) != 0 || result.Outputs["created"] != false {
+		t.Fatalf("claims %d %v, outputs %v", n, args, result.Outputs)
+	}
+	if n, _ := bl.called("create_task"); n != 1 {
+		t.Fatalf("created %d", n)
 	}
 }

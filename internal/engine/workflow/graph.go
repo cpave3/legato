@@ -585,7 +585,7 @@ func stepKey(step Step) GraphKey {
 		return first("thread_id", "channel")
 	case "ticket.create":
 		return first("summary", "project")
-	case "ticket.comment":
+	case "ticket.comment", "ticket.update":
 		return first("key")
 	case GateStepType:
 		return first("title")
