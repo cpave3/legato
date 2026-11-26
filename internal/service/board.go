@@ -199,7 +199,7 @@ func (b *boardService) TaskActivity(ctx context.Context, id string) (*TaskActivi
 	if err != nil {
 		return nil, err
 	}
-	runs, err := b.store.ListWorkflowRunsByRelatedTask(ctx, id)
+	runs, err := b.store.ListWorkflowRunsForTask(ctx, id)
 	if err != nil {
 		return nil, err
 	}

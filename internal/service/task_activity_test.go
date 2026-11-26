@@ -79,3 +79,106 @@ func TestTaskActivityListsDelegationsWithTheirReplies(t *testing.T) {
 		t.Fatalf("replies = %+v", d.Replies)
 	}
 }
+
+// activityRunIDs is the IDs of the workflow runs a task's activity lists, in
+// its order.
+func activityRunIDs(t *testing.T, db *store.Store, taskID string) []string {
+	t.Helper()
+	activity, err := NewBoardService(db, nil).(TaskActivityService).TaskActivity(context.Background(), taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(activity.WorkflowRuns))
+	for _, run := range activity.WorkflowRuns {
+		ids = append(ids, run.Run.ID)
+	}
+	return ids
+}
+
+func newActivityStore(t *testing.T, tasks ...string) *store.Store {
+	t.Helper()
+	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, id := range tasks {
+		if err := db.CreateTask(context.Background(), store.Task{ID: id, Title: id, Status: "Backlog", CreatedAt: now, UpdatedAt: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return db
+}
+
+func activityRun(id, taskID, relatedTaskID string) store.WorkflowRun {
+	return store.WorkflowRun{ID: id, WorkflowName: "flow", WorkflowTitle: "Flow " + id, DefinitionSource: "test", DefinitionDigest: "sha", DefinitionJSON: "{}", InputsJSON: "{}", Status: "running", TaskID: taskID, RelatedTaskID: relatedTaskID}
+}
+
+func activitySteps(runID string) []store.WorkflowStep {
+	return []store.WorkflowStep{{RunID: runID, StepID: "work", Title: "Work", ExecutorType: "agent.run", DefinitionJSON: "{}", Status: "pending"}}
+}
+
+// A run that makes its card inside the run (ticket.import) and runs an agent
+// on it (agent.run on: ${{ steps.card.outputs.task }}) has no related task;
+// the card's activity lists it through the step's attempt.
+func TestTaskActivityListsARunWhoseStepRanAnAgentOnTheTask(t *testing.T) {
+	db := newActivityStore(t, "run-task", "card")
+	ctx := context.Background()
+	if err := db.CreateWorkflowRun(ctx, activityRun("wr-1", "run-task", ""), activitySteps("wr-1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.StartWorkflowStepAttempt(ctx, store.WorkflowStepAttempt{ID: "wa-1", RunID: "wr-1", Path: "work", StepID: "work", AttemptNumber: 1, ExecutorType: "agent.run", TaskID: "run-task", Status: "running"}, "{}"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkWorkflowStepWaiting(ctx, "wr-1", "work", "wa-1", nil, "", "card"); err != nil {
+		t.Fatal(err)
+	}
+	if got := activityRunIDs(t, db, "card"); len(got) != 1 || got[0] != "wr-1" {
+		t.Fatalf("runs of card = %v, want [wr-1]", got)
+	}
+}
+
+// A step's agent on the run's own task sees the run it works for.
+func TestTaskActivityListsTheRunWhoseOwnTaskItIs(t *testing.T) {
+	db := newActivityStore(t, "run-task")
+	if err := db.CreateWorkflowRun(context.Background(), activityRun("wr-1", "run-task", ""), activitySteps("wr-1")); err != nil {
+		t.Fatal(err)
+	}
+	if got := activityRunIDs(t, db, "run-task"); len(got) != 1 || got[0] != "wr-1" {
+		t.Fatalf("runs of run-task = %v, want [wr-1]", got)
+	}
+}
+
+// A child run started by workflow.run brings its parent along, and the
+// parent's parent: the Slack fix run above a one-off above its review loop.
+func TestTaskActivityListsAChildRunsParents(t *testing.T) {
+	db := newActivityStore(t, "slack-task", "oneoff-task", "review-task", "card", "other")
+	ctx := context.Background()
+	if err := db.CreateWorkflowRun(ctx, activityRun("wr-slack", "slack-task", ""), activitySteps("wr-slack")); err != nil {
+		t.Fatal(err)
+	}
+	oneOff := activityRun("wr-oneoff", "oneoff-task", "card")
+	oneOff.ParentRunID, oneOff.ParentStepPath, oneOff.ParentAttempt = "wr-slack", "work", 1
+	if _, _, err := db.CreateChildWorkflowRun(ctx, oneOff, activitySteps("wr-oneoff")); err != nil {
+		t.Fatal(err)
+	}
+	review := activityRun("wr-review", "review-task", "card")
+	review.ParentRunID, review.ParentStepPath, review.ParentAttempt = "wr-oneoff", "work", 1
+	if _, _, err := db.CreateChildWorkflowRun(ctx, review, activitySteps("wr-review")); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateWorkflowRun(ctx, activityRun("wr-other", "other", "other"), activitySteps("wr-other")); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, id := range activityRunIDs(t, db, "card") {
+		if got[id] {
+			t.Fatalf("run %s listed twice", id)
+		}
+		got[id] = true
+	}
+	if len(got) != 3 || !got["wr-slack"] || !got["wr-oneoff"] || !got["wr-review"] {
+		t.Fatalf("runs of card = %v, want wr-slack, wr-oneoff and wr-review", got)
+	}
+}
