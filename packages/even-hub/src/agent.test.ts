@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { getTextWidth } from "@evenrealities/pretext"
-import { agentPage, dictationPage, entryPage } from "./agent"
-import { CANVAS_WIDTH, ITEM_TEXT_WIDTH, TITLE_WIDTH, center, inner } from "./layout"
+import { agentPage, dictationPage, entryPage, entryShift, followEntry } from "./agent"
+import { BADGE_WIDTH, BORDER, CANVAS_WIDTH, ITEM_TEXT_WIDTH, TITLE_WIDTH, center, inner } from "./layout"
 import { LIST_ITEM_BYTES, LIST_ITEMS, TEXT_UPDATE_LIMIT } from "./glance"
 import type { Agent, Conversation } from "./legato"
 
@@ -231,6 +231,109 @@ describe("entryPage", () => {
 
     expect(page.body.length).toBeLessThanOrEqual(TEXT_UPDATE_LIMIT)
     expect(page.body.endsWith("…")).toBe(true)
+  })
+})
+
+describe("an agent that ended", () => {
+  it("says so in a badge that fits, instead of the state it had", () => {
+    const page = agentPage({ ...agent, status: "ended" }, { ok: true, conversation: conversation({}) })
+
+    expect(page.badge).toBe("○ ended")
+    expect(getTextWidth(page.badge)).toBeLessThanOrEqual(inner(BADGE_WIDTH, BORDER))
+  })
+})
+
+describe("followEntry", () => {
+  const page = (fields: Partial<Conversation>) => agentPage(agent, { ok: true, conversation: conversation(fields) })
+  const tests = (state: string, subagent?: Conversation["entries"][number]["subagent"]) => ({
+    kind: "tool",
+    text: "Run the tests",
+    tool: "Bash",
+    command: "pnpm test",
+    state,
+    subagent,
+    thinking: "They may fail.",
+  })
+
+  it("finds an opened entry again in a newer page, as it changed", () => {
+    const before = page({ entries: [tests("running")] })
+    const opened = before.items.find((i) => i.text === "▶ Bash: Run the tests")!
+
+    const after = page({ entries: [tests("done"), { kind: "assistant", text: "All green." }] })
+    expect(followEntry(opened, after, 0).detail).toBe("Bash (done)\n\nRun the tests\n\npnpm test")
+  })
+
+  it("follows the thought of an entry and the live lines", () => {
+    const before = page({ entries: [tests("running")], live: { thinking: "Hmm", reply: "Half" } })
+    const thought = before.items.find((i) => i.text.startsWith("Thought:"))!
+    const thinking = before.items.find((i) => i.text.startsWith("Thinking:"))!
+    const writing = before.items.find((i) => i.text.startsWith("Writing:"))!
+
+    const after = page({ entries: [tests("done")], live: { thinking: "Hmm, yes", reply: "Half done" } })
+    expect(followEntry(thought, after, 0).detail).toBe("Thought\n\nThey may fail.")
+    expect(followEntry(thinking, after, 0).detail).toBe("Thinking\n\nHmm, yes")
+    expect(followEntry(writing, after, 0).detail).toBe("Agent, still writing\n\nHalf done")
+  })
+
+  it("takes a reply that was being written to the newest thing the agent said, once it is whole", () => {
+    const writing = page({ entries: [{ kind: "assistant", text: "First." }], live: { reply: "Seco" } }).items[0]
+
+    const after = page({ entries: [{ kind: "assistant", text: "First." }, { kind: "assistant", text: "Second." }] })
+    expect(followEntry(writing, after, 0).detail).toBe("Agent\n\nSecond.")
+  })
+
+  // The feed reads the newest 20 entries, so as the agent goes on the oldest
+  // leave the window and every entry moves up.
+  it("follows an entry as the window of newest entries slides past others that read the same", () => {
+    const others = Array.from({ length: 18 }, (_, i) => ({ kind: "assistant", text: `Step ${i}.` }))
+    const before: Conversation["entries"] = [tests("done"), ...others, tests("running")]
+    const opened = page({ entries: before }).items.find((i) => i.text === "▶ Bash: Run the tests")!
+
+    const after: Conversation["entries"] = [...others, tests("done"), { kind: "assistant", text: "All green." }]
+    const shift = entryShift(conversation({ entries: before }), conversation({ entries: after }))
+    expect(shift).toBe(1)
+    expect(followEntry(opened, page({ entries: after }), shift).detail).toBe("Bash (done)\n\nRun the tests\n\npnpm test")
+  })
+
+  it("keeps an opened entry that left the window, for good, rather than take a later one that reads the same", () => {
+    const said = { kind: "assistant", text: "Again." }
+    const before: Conversation["entries"] = [tests("done"), said, tests("running")]
+    const older = page({ entries: before }).items.find((i) => i.text === "· Bash: Run the tests")!
+    expect(older.detail).toBe("Bash (done)\n\nRun the tests\n\npnpm test")
+
+    const after: Conversation["entries"] = [said, tests("done"), said]
+    const shift = entryShift(conversation({ entries: before }), conversation({ entries: after }))
+    expect(shift).toBe(1)
+    const kept = followEntry(older, page({ entries: after }), shift)
+    expect(kept).toEqual({ text: older.text, detail: older.detail })
+    // Detached: a later read never takes it for what is then in its place.
+    expect(followEntry(kept, page({ entries: after }), 0)).toBe(kept)
+  })
+
+  it("keeps entries it cannot place in a newer window as they were, detached", () => {
+    const opened = page({ entries: [{ kind: "assistant", text: "Old." }] }).items[0]
+    const after = conversation({ entries: [{ kind: "assistant", text: "New." }] })
+
+    expect(entryShift(conversation({ entries: [{ kind: "assistant", text: "Old." }] }), after)).toBeUndefined()
+    expect(followEntry(opened, agentPage(agent, { ok: true, conversation: after }), undefined)).toEqual({ text: opened.text, detail: opened.detail })
+  })
+
+  it("goes from a subagent's line to the call that started it once the subagent is done", () => {
+    const sub = { purpose: "Find the bug", status: "running", tool: "Grep", text: "the error" }
+    const line = page({ entries: [tests("running", sub)] }).items[0]
+    expect(line.text).toBe("└ Grep: the error")
+
+    const after = page({ entries: [tests("done", { ...sub, status: "finished" })] })
+    expect(followEntry(line, after, 0).detail).toBe("Bash (done)\n\nRun the tests\n\npnpm test")
+  })
+
+  it("keeps the entry as it was, detached, when the newer page no longer has it, or failed", () => {
+    const opened = page({ entries: [{ kind: "assistant", text: "Gone soon." }] }).items[0]
+
+    const other = conversation({ entries: [{ kind: "assistant", text: "Other." }] })
+    const shift = entryShift(conversation({ entries: [{ kind: "assistant", text: "Gone soon." }] }), other)
+    expect(followEntry(opened, agentPage(agent, { ok: true, conversation: other }), shift)).toEqual({ text: opened.text, detail: opened.detail })
+    expect(followEntry(opened, agentPage(agent, { ok: false, problem: "Can't reach Legato" }), 0)).toEqual({ text: opened.text, detail: opened.detail })
   })
 })
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { POLL_MS } from "./app"
 import { loadCode, loadScreenOff, saveCode, saveScreenOff, screenOffMs } from "./settings"
 
 function memoryStorage(initial: Record<string, string> = {}) {
@@ -55,19 +56,24 @@ describe("saveCode", () => {
 })
 
 describe("reading while the glasses' screen is off", () => {
-  it("is every 30 seconds unless the operator chose 60 or off", async () => {
+  it("is every 5 seconds, as while it is on, unless the operator chose 30, 60 or off", async () => {
     const storage = memoryStorage()
-    expect(await loadScreenOff(storage)).toBe("30")
+    expect(await loadScreenOff(storage)).toBe("5")
 
     await saveScreenOff(storage, "off")
     expect(storage.data.get("legato.screen-off")).toBe("off")
     expect(await loadScreenOff(storage)).toBe("off")
 
-    expect(await loadScreenOff(memoryStorage({ "legato.screen-off": "5" }))).toBe("30")
-    await expect(saveScreenOff(storage, "5")).rejects.toThrow()
+    // A choice saved before 5 seconds was one stays as it was.
+    expect(await loadScreenOff(memoryStorage({ "legato.screen-off": "30" }))).toBe("30")
+    expect(await loadScreenOff(memoryStorage({ "legato.screen-off": "10" }))).toBe("5")
+    await saveScreenOff(storage, "5")
+    expect(storage.data.get("legato.screen-off")).toBe("5")
+    await expect(saveScreenOff(storage, "10")).rejects.toThrow()
   })
 
   it("comes to milliseconds, or none when off", () => {
+    expect(screenOffMs("5")).toBe(POLL_MS)
     expect(screenOffMs("30")).toBe(30_000)
     expect(screenOffMs("60")).toBe(60_000)
     expect(screenOffMs("off")).toBeUndefined()
