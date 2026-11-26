@@ -240,3 +240,31 @@ func TestAStewardThatEndsIdleLeavesANotice(t *testing.T) {
 		t.Fatalf("items a week on: %+v", items)
 	}
 }
+
+// Another process on the same database (a TUI beside legato serve) sees
+// the dismissal the engine's holder read, so it neither resolves the item
+// nor says the approval still stands.
+func TestADismissedApprovalIsSeenByAProcessWithoutTheEngine(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	withBoardAuthor(t, r)
+	r.stewarded(t, stewardInputs)
+	if id := r.worker.ReviewGitHub.DismissReview(12); id == 0 {
+		t.Fatal("no review to dismiss")
+	}
+	for range 3 {
+		r.watchTick()
+		r.worker.Clock.Advance(3 * time.Minute)
+		r.tick()
+	}
+	other := r.runs.OtherProcess()
+	items, err := service.NewWorkflowAttentionAdapter(other.Workflows).Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].SignalKind != service.AttentionSignalWorkflowReviewSteward || !strings.Contains(items[0].Reason, "dismissed") {
+		t.Fatalf("the other process's items = %+v", items)
+	}
+	if strings.Contains(items[0].Reason, "still stands") {
+		t.Fatalf("a dismissed approval said to stand: %q", items[0].Reason)
+	}
+}

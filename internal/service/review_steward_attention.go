@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -195,19 +194,14 @@ func (s *ReviewPassService) approvalStandsText(ctx context.Context, rec *store.R
 			events[pin.Number] = pin.Event
 		}
 	}
-	w, read := s.freshWatch(rec.ID)
+	// The record's state and dismissal, which the watch keeps, so every
+	// process on the data folder says the same.
 	var stands []store.ReviewLoopPR
 	for _, layer := range layers {
-		dismissed := false
-		if read {
-			for _, live := range w.Layers {
-				if live.Number == layer.Number {
-					layer.State = live.State
-					dismissed = layer.ReviewID != 0 && slices.Contains(live.DismissedReviews, layer.ReviewID)
-				}
-			}
+		if layer.State != "" && layer.State != "open" {
+			continue
 		}
-		if event := events[layer.Number]; (event == ReviewApprove || event == ReviewKept) && !dismissed {
+		if event := events[layer.Number]; (event == ReviewApprove || event == ReviewKept) && !layer.ApprovalDismissed {
 			stands = append(stands, layer)
 		}
 	}
@@ -220,21 +214,16 @@ func (s *ReviewPassService) approvalStandsText(ctx context.Context, rec *store.R
 // Legato posted there among the dismissed ones. A push that dismissed it is
 // a re-entry instead, which a clean pass answers with a fresh APPROVE.
 func (s *ReviewPassService) dismissedApprovals(ctx context.Context, rec *store.ReviewLoop) []string {
-	w, ok := s.freshWatch(rec.ID)
-	if !ok {
-		return nil
-	}
+	// Read from the record, which the watch keeps (approvalDismissed), so
+	// a process without the engine sees what the holder read.
 	layers, err := s.db.ListReviewLoopPRs(ctx, rec.ID)
 	if err != nil {
 		return nil
 	}
 	var out []string
-	for _, live := range w.Layers {
-		for _, layer := range layers {
-			if layer.Number == live.Number && live.State == "open" && layer.CleanHead != "" && live.HeadSHA == layer.CleanHead &&
-				layer.ReviewID != 0 && slices.Contains(live.DismissedReviews, layer.ReviewID) {
-				out = append(out, fmt.Sprintf("#%d at %s", layer.Number, short(layer.CleanHead)))
-			}
+	for _, layer := range layers {
+		if layer.ApprovalDismissed && layer.State == "open" {
+			out = append(out, fmt.Sprintf("#%d at %s", layer.Number, short(layer.CleanHead)))
 		}
 	}
 	return out

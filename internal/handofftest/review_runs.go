@@ -3,6 +3,7 @@ package handofftest
 import (
 	"context"
 	"fmt"
+	"github.com/cpave3/legato/internal/engine/events"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -91,7 +92,11 @@ func StartReviewRuns(t *testing.T, w *Worker) *ReviewRuns {
 
 // newReviewRuns wires a worker's workflows and the run caller on its
 // review-pass engine.
-func newReviewRuns(w *Worker) *ReviewRuns {
+func newReviewRuns(w *Worker) *ReviewRuns { return newReviewRunsOn(w, w.Reviews) }
+
+// newReviewRunsOn wires workflows and a run caller on engine: the worker's
+// own, or another process's on the same database (OtherProcess).
+func newReviewRunsOn(w *Worker, engine *service.ReviewPassService) *ReviewRuns {
 	clones := &FakeRunClones{repos: w.Repos, checkout: w.Checkout, removed: map[int64]bool{}}
 	step := service.NewReviewPassesStep()
 	steps := service.NewReviewLoopSteps()
@@ -107,7 +112,7 @@ func newReviewRuns(w *Worker) *ReviewRuns {
 		service.NewBurnliteCloseExecutor(w.Store, burnlite)}, steps.Executors()...)
 	workflows := service.NewWorkflowService(w.Store, executors)
 	discover := &FakeDiscover{}
-	caller := service.NewReviewRunCaller(w.Reviews, service.ReviewRunOptions{
+	caller := service.NewReviewRunCaller(engine, service.ReviewRunOptions{
 		GitHub: w.ReviewGitHub, Clones: clones, Owners: service.NewOwnerLookupService(w.Store, w.Agents, ""), Discover: discover,
 		SummaryDir: filepath.Join(w.Dir, "review-summaries"),
 	})
@@ -126,6 +131,19 @@ func newReviewRuns(w *Worker) *ReviewRuns {
 		return workflowengine.WithBuiltIns(found, service.BuiltInWorkflows()...)
 	})
 	return &ReviewRuns{w: w, Workflows: workflows, Caller: caller, Steps: steps, Clones: clones, Discover: discover, Burnlite: burnlite}
+}
+
+// OtherProcess is the review runs of another Legato process on the worker's
+// database, a TUI beside legato serve: an engine of its own that never
+// ticks (the broker holder's does), so it knows only what the database
+// holds.
+func (r *ReviewRuns) OtherProcess() *ReviewRuns {
+	w := r.w
+	engine := service.NewReviewPassService(w.Store, service.ReviewPassOptions{
+		Agents: w.Agents.(service.ReviewAgents), GitHub: w.ReviewGitHub, Checkout: w.Checkout, Bus: events.New(), Now: w.Clock.Now,
+		Run: w.run, Overlay: func() bool { return false },
+	})
+	return newReviewRunsOn(w, engine)
 }
 
 // Start runs review-pr-passes with inputs, and opens its review step as

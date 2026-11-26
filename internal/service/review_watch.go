@@ -358,7 +358,7 @@ func (s *ReviewPassService) watchLoop(ctx context.Context, github ReviewWatchGit
 	if err == nil {
 		// The record keeps each layer as GitHub reported it, for the run
 		// page of any process.
-		if err := s.db.SetReviewLoopPRStatus(ctx, l.ID, layerStatuses(next.Layers)); err != nil {
+		if err := s.db.SetReviewLoopPRStatus(ctx, l.ID, layerStatuses(next.Layers, prs)); err != nil {
 			log.Printf("review passes: %s: keeping the layers read: %v", l.ID, err)
 		} else if !seen || !sameWatch(prev.Layers, next.Layers) {
 			// What the run page shows of the layers changed: an open page
@@ -473,12 +473,27 @@ func readStacked(ctx context.Context, session ReviewWatchSession, numbers []int,
 }
 
 // layerStatuses are a watch read's layers as the loop record keeps them.
-func layerStatuses(layers []PRWatch) []store.ReviewLoopPRStatus {
+func layerStatuses(layers []PRWatch, records []store.ReviewLoopPR) []store.ReviewLoopPRStatus {
 	out := make([]store.ReviewLoopPRStatus, 0, len(layers))
 	for _, layer := range layers {
-		out = append(out, store.ReviewLoopPRStatus{Number: layer.Number, State: layer.State, Draft: layer.Draft, Mergeable: layerMergeability(layer)})
+		out = append(out, store.ReviewLoopPRStatus{Number: layer.Number, State: layer.State, Draft: layer.Draft, Mergeable: layerMergeability(layer),
+			ApprovalDismissed: approvalDismissed(layer, records)})
 	}
 	return out
+}
+
+// approvalDismissed says a watched layer's legato-reviews approval was
+// dismissed by a person: the review Confirm's pass posted is among the
+// dismissed ones, at the head it approved (a push since is a re-entry, not
+// a dismissal).
+func approvalDismissed(layer PRWatch, records []store.ReviewLoopPR) bool {
+	for _, record := range records {
+		if record.Number == layer.Number {
+			return layer.State == "open" && record.CleanHead != "" && layer.HeadSHA == record.CleanHead &&
+				record.ReviewID != 0 && slices.Contains(layer.DismissedReviews, record.ReviewID)
+		}
+	}
+	return false
 }
 
 // layerMergeability is one word for whether a layer can merge, as the

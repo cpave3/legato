@@ -197,6 +197,10 @@ type ReviewLoopPR struct {
 	// watch last read it: MERGEABLE, CONFLICTING, UNKNOWN or BEHIND;
 	// "" before a watch read it.
 	Mergeable string `db:"mergeable"`
+	// ApprovalDismissed says a person dismissed legato-reviews' approval
+	// of this layer at its clean head, with no push since, as the watch
+	// last read it (migration 157).
+	ApprovalDismissed bool `db:"approval_dismissed"`
 	// Author is its author on GitHub, AuthorAssociation GitHub's word for
 	// them, AuthorTask the board task whose agent wrote it.
 	Author            string `db:"author"`
@@ -941,6 +945,9 @@ type ReviewLoopPRStatus struct {
 	State     string
 	Draft     bool
 	Mergeable string
+	// ApprovalDismissed: a person dismissed its approval at the clean
+	// head (ReviewLoopPR.ApprovalDismissed).
+	ApprovalDismissed bool
 }
 
 // SetReviewLoopPRStatus writes what the steward's watch read of an open
@@ -954,9 +961,9 @@ func (s *Store) SetReviewLoopPRStatus(ctx context.Context, loopID string, layers
 	}
 	defer tx.Rollback()
 	for _, layer := range layers {
-		if _, err := tx.ExecContext(ctx, `UPDATE review_loop_prs SET state = ?, draft = ?, mergeable = ?
+		if _, err := tx.ExecContext(ctx, `UPDATE review_loop_prs SET state = ?, draft = ?, mergeable = ?, approval_dismissed = ?
 			WHERE loop_id = ? AND number = ? AND EXISTS (SELECT 1 FROM review_loops WHERE id = ? AND state = ?)`,
-			layer.State, layer.Draft, layer.Mergeable, loopID, layer.Number, loopID, ReviewLoopOpenState); err != nil {
+			layer.State, layer.Draft, layer.Mergeable, layer.ApprovalDismissed, loopID, layer.Number, loopID, ReviewLoopOpenState); err != nil {
 			return err
 		}
 	}
