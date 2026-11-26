@@ -1,0 +1,26 @@
+[
+  {
+    "width": 1280,
+    "keyboard": "Tab/Enter/Space passed",
+    "focusOutline": "auto",
+    "noOverflow": true,
+    "fullLiteralDetails": true,
+    "separatePromptsVisible": true
+  },
+  {
+    "width": 390,
+    "keyboard": "Tab/Enter/Space passed",
+    "focusOutline": "auto",
+    "noOverflow": true,
+    "fullLiteralDetails": true,
+    "separatePromptsVisible": true
+  },
+  {
+    "width": 320,
+    "keyboard": "Tab/Enter/Space passed",
+    "focusOutline": "auto",
+    "noOverflow": true,
+    "fullLiteralDetails": true,
+    "separatePromptsVisible": true
+  }
+]

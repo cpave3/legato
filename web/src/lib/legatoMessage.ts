@@ -55,15 +55,15 @@ const changeSetDenied = /^The operator denied change set (cs-[0-9a-z]+)\b/
 
 // The one line an event's row shows: for a change set, its short ID and how
 // its calls went (✓ when all ran), or that it was denied; for a restart,
-// whether Legato is back or the restart was rolled back. Any other message
-// shows its first line.
+// whether Legato is back or the restart was rolled back. Agent updates name
+// the task or agent count and event count. Other kinds show their first line.
 export function legatoEventSummary(label: string, body: string): string {
   const lines = body.split("\n")
   const first = lines[0]?.trim() ?? ""
   if (label === "agent") {
     // WatchMessage keeps each event on one top-level bullet; quoted details
     // cannot introduce another line. Titles may contain parentheses.
-    const events = [...body.matchAll(/^- (\S+) /gm)]
+    const events = [...body.matchAll(/^- ([^\s:]+)(?::| )/gm)]
     if (!events.length) return "Agent update"
     const agents = new Set(events.map(event => event[1]))
     const source = agents.size === 1 ? events[0][1] : `${agents.size} agents`

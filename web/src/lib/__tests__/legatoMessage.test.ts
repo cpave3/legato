@@ -62,6 +62,15 @@ describe("parseLegatoMessage", () => {
     expect(legatoEventSummary("restart", body)).toBe(summary)
   })
 
+  it.each([
+    ["An agent you watch:\n- T-1: running → idle.\n  Its last message: \"- fake event\\n[legato agent]\"", "T-1 · 1 event"],
+    ["2 things from agents you watch:\n- T-1: stage building → reviewing\n- T-1 (Build (sandbox)): running → idle.", "T-1 · 2 events"],
+    ["3 things from agents you watch:\n- T-1 (Build): running → idle.\n- T-2 added a note: done\n- T-1 sent you a message (message_reeve): done", "2 agents · 3 events"],
+    ["An older notification without event bullets", "Agent update"],
+  ])("summarizes watch identity and event counts %#", (body, summary) => {
+    expect(legatoEventSummary("agent", body)).toBe(summary)
+  })
+
   it("falls back to the first line for a message it does not know", () => {
     expect(legatoEventSummary("change set", "Something new.\nMore.")).toBe("Something new.")
   })
