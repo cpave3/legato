@@ -159,6 +159,19 @@ it("where the canvas has no room for both, the cards step aside for the inspecto
   expect(screen.getByRole("region", { name: "Inspector" })).toBeTruthy()
 })
 
+// The rule: the cards stay beside the inspector only where the canvas has
+// room for the cards (360), the inspector (480), the gaps and about 480 of
+// graph: 1384px. A 1440 window with the Needs-you rail open has 1056.
+it.each([[1056, true], [1383, true], [1384, false], [1600, false]])("at a canvas %ipx wide, the cards step aside for the inspector: %s", async (width, aside) => {
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(width)
+  renderAt()
+  fireEvent.click(await node("step:run"))
+  await waitFor(() => expect(address()).toBe("#steps/run"))
+  expect(screen.getByRole("region", { name: "Inspector" })).toBeTruthy()
+  expect(screen.queryByRole("navigation", { name: "Outline" }) === null).toBe(aside)
+  expect(screen.queryByRole("button", { name: /Outline.*Show panels/ }) !== null).toBe(aside)
+})
+
 it("says the graph comes once Legato has read the file", async () => {
   checks = false
   renderAt()

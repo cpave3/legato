@@ -10,8 +10,9 @@ import type { Insets } from "../../lib/graphViewport"
 export const dockWidth = 360
 export const panelWidth = 380
 const gap = 16
-// The least of the graph a dock that yields leaves in view between the docks.
-const graphRoom = 120
+// The graph a dock that yields must leave in view between the docks: with
+// less, the dock folds away while the panel is open (LEG-655).
+const graphRoom = 480
 
 // CanvasHeader is the one row over a workflow's graph (LEG-651): the way
 // back, the title with a line under it, then the page's state and actions.
