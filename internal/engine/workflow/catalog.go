@@ -569,8 +569,8 @@ var catalog = []ExecutorSpec{
 		},
 	},
 	{
-		Type: "github.pr.review_passes", Group: "Code", Title: "Review a pull request in passes",
-		Description: "Review an open pull request (or its stack) in passes posted as GitHub reviews from Legato's reviewer App, until a clean pass approves it. Needs review passes turned on.",
+		Type: "github.pr.review_passes", Group: "Code", Title: "Review a pull request in passes (deprecated)",
+		Description: "Deprecated: call the built-in review-loop with workflow.run instead; legato workflow upgrade makes the change. Review an open pull request (or its stack) in passes posted as GitHub reviews from Legato's reviewer App, until a clean pass approves it. Needs review passes turned on.",
 		With: []Field{
 			{Name: "repo", Kind: KindRepository, Label: "Repository", Description: "GitHub repository (owner/name)", Required: true, Essential: true, Order: 1},
 			{Name: "pr_number", Kind: KindInteger, Label: "Pull request number", Description: "The pull request's number", Required: true, Essential: true, Order: 2},

@@ -3708,7 +3708,7 @@
     },
     "with.github.pr.review_passes": {
       "additionalProperties": false,
-      "description": "Review an open pull request (or its stack) in passes posted as GitHub reviews from Legato's reviewer App, until a clean pass approves it. Needs review passes turned on.",
+      "description": "Deprecated: call the built-in review-loop with workflow.run instead; legato workflow upgrade makes the change. Review an open pull request (or its stack) in passes posted as GitHub reviews from Legato's reviewer App, until a clean pass approves it. Needs review passes turned on.",
       "properties": {
         "agent_author": {
           "anyOf": [
@@ -3823,7 +3823,7 @@
         "repo",
         "pr_number"
       ],
-      "title": "Review a pull request in passes",
+      "title": "Review a pull request in passes (deprecated)",
       "type": "object",
       "x-legato": {
         "declared_outputs": false,
@@ -5892,7 +5892,7 @@
         "type": "github.pr.prepare"
       },
       {
-        "description": "Review an open pull request (or its stack) in passes posted as GitHub reviews from Legato's reviewer App, until a clean pass approves it. Needs review passes turned on.",
+        "description": "Deprecated: call the built-in review-loop with workflow.run instead; legato workflow upgrade makes the change. Review an open pull request (or its stack) in passes posted as GitHub reviews from Legato's reviewer App, until a clean pass approves it. Needs review passes turned on.",
         "group": "Code",
         "outputs": [
           {
@@ -5927,7 +5927,7 @@
         "summary": [
           "repo"
         ],
-        "title": "Review a pull request in passes",
+        "title": "Review a pull request in passes (deprecated)",
         "type": "github.pr.review_passes"
       },
       {

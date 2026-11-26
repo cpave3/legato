@@ -125,7 +125,7 @@ var legatoCommandClasses = map[string]legatoCommandClass{
 	"workflow list":          {"read", "List the workflows"},
 	"workflow add":           {"change", "Add an example workflow to the workflows folder"},
 	"workflow validate":      {"read", "Validate a workflow"},
-	"workflow upgrade":       {"change", "Upgrade a workflow file to schema version 2"},
+	"workflow upgrade":       {"change", "Upgrade a workflow file to schema version 2, and rewrite deprecated steps"},
 	"workflow run":           {"change", "Run a workflow"},
 	"workflow runs":          {"read", "List the workflow runs"},
 	"workflow show":          {"read", "Show a workflow run"},

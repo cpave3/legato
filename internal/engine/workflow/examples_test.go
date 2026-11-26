@@ -19,13 +19,10 @@ func TestEveryEmbeddedExampleValidates(t *testing.T) {
 			t.Fatalf("%s is named %q inside", example.Name, definition.Name)
 		}
 	}
-	if _, ok := ExampleNamed("review-pr-passes"); !ok {
-		t.Fatal("review-pr-passes is not an example")
-	}
 }
 
 func TestAnEmptyNumberOrBooleanInputTakesItsDefault(t *testing.T) {
-	example, _ := ExampleNamed("review-pr-passes")
+	example := OldReviewPassesCopy()
 	definition, err := Parse("review-pr-passes.workflow.yaml", example.YAML)
 	if err != nil {
 		t.Fatal(err)

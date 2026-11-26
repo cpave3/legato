@@ -27,17 +27,22 @@ import (
 //     [ended], agent: {from: <step>}). Any other such step gets that
 //     agent.stop inserted before it;
 //   - runs the step rewrites registered for a step type (stepRewrites),
-//     which may replace their step and say where its outputs went: a later
-//     reference to an output a rewrite maps is rewritten, and one it cannot
-//     map is flagged at that reference's line.
+//     which may replace or edit their step and say where its outputs went:
+//     a later reference to an output a rewrite maps is rewritten, and one it
+//     cannot map is flagged, as an error, at that reference's line.
 //
-// The web editor's Upgrade to v2 and legato workflow upgrade both use it.
+// The step rewrites run on a version 2 file too, a loop's body's steps
+// included, and are all an upgrade changes there: the inline review step's
+// (LEG-599, review_passes_deprecation.go) rewrites it to call review-loop.
+//
+// The web editor's Upgrade to v2 and quick fix, and legato workflow
+// upgrade, use it.
 
 // StepRewrite rewrites a version 1 step of one type for version 2.
 type StepRewrite func(step *UpgradeStep)
 
-// stepRewrites are the step rewrites by step type. LEG-599 adds the inline
-// review step's.
+// stepRewrites are the step rewrites by step type: the inline review
+// step's (LEG-599).
 var stepRewrites = map[string]StepRewrite{}
 
 // UpgradeStep is a version 1 step a StepRewrite rewrites.
@@ -51,6 +56,17 @@ type UpgradeStep struct {
 
 	replacement *string
 	outputs     map[string]outputMapping
+	newType     string
+	wrap        *withWrap
+	drop        []string
+	notes       []string
+}
+
+// withWrap nests a step's with under a key beside one pair (workflow:
+// review-loop, inputs: <the with>), keeping only the keys keep takes.
+type withWrap struct {
+	key, value, under string
+	keep              func(key string) bool
 }
 
 type outputMapping struct{ to, reason string }
@@ -64,6 +80,22 @@ func (s *UpgradeStep) Replace(steps string) {
 	}
 	s.replacement = &steps
 }
+
+// SetType changes the step's type, in place.
+func (s *UpgradeStep) SetType(stepType string) { s.newType = stepType }
+
+// WrapWith nests the step's with under the key under, beside key: value,
+// in place and with its comments; a with key keep refuses is left out.
+func (s *UpgradeStep) WrapWith(key, value, under string, keep func(key string) bool) {
+	s.wrap = &withWrap{key: key, value: value, under: under, keep: keep}
+}
+
+// Drop removes one of the step's keys, such as outputs.
+func (s *UpgradeStep) Drop(key string) { s.drop = append(s.drop, key) }
+
+// Note says what the upgrade could not do for the step, as a warning at
+// its type in the upgraded file.
+func (s *UpgradeStep) Note(message string) { s.notes = append(s.notes, message) }
 
 // MapOutput says that a later reference to the step's output name
 // (steps.<id>.outputs.<name>) reads path in version 2, such as
@@ -86,9 +118,10 @@ func (s *UpgradeStep) output() map[string]outputMapping {
 }
 
 // UpgradeResult is an upgraded file: its text, whether it changed, and
-// notes on what the upgrade could not do, each at its place in YAML (as
-// warnings), with the upgraded file's own problems when it does not load
-// (as errors).
+// notes on what the upgrade could not do, each at its place in YAML: as
+// warnings, but a reference to an output that has no equal, which is an
+// error; with the upgraded file's own problems when it does not load (as
+// errors).
 type UpgradeResult struct {
 	YAML    []byte       `json:"yaml"`
 	Changed bool         `json:"changed"`
@@ -107,7 +140,8 @@ func upgrade(source string, data []byte, rewrites map[string]StepRewrite) (*Upgr
 	if err != nil {
 		return nil, err
 	}
-	if definition.SchemaVersion != SchemaVersion {
+	versionOne := definition.SchemaVersion == SchemaVersion
+	if !versionOne && !rewritesAny(definition.Steps, rewrites) {
 		return &UpgradeResult{YAML: data, Notes: []Diagnostic{}}, nil
 	}
 	var doc yaml.Node
@@ -116,27 +150,82 @@ func upgrade(source string, data []byte, rewrites map[string]StepRewrite) (*Upgr
 	}
 	u := &upgrader{text: newSourceText(data), notes: []Diagnostic{}}
 	root := doc.Content[0]
-	if _, version := pairOf(root, "schema_version"); version != nil {
-		u.replaceScalar(version, "2")
-	}
 	_, list := pairOf(root, "steps")
 	if list == nil || list.Kind != yaml.SequenceNode || len(list.Content) != len(definition.Steps) {
 		return nil, fmt.Errorf("upgrade %s: steps is not a list", source)
 	}
-	u.flowList = list.Style&yaml.FlowStyle != 0
-	u.steps = list.Content
-	ids := map[string]bool{}
-	for _, step := range definition.Steps {
-		ids[step.ID] = true
+	if versionOne {
+		if _, version := pairOf(root, "schema_version"); version != nil {
+			u.replaceScalar(version, "2")
+		}
+		u.flowList = list.Style&yaml.FlowStyle != 0
+		u.steps = list.Content
+		ids := map[string]bool{}
+		for _, step := range definition.Steps {
+			ids[step.ID] = true
+		}
+		for i := range definition.Steps {
+			node := list.Content[i]
+			if node.Kind != yaml.MappingNode {
+				return nil, fmt.Errorf("upgrade %s: step %d is not a mapping", source, i+1)
+			}
+			u.upgradeStep(definition.Steps, i, node, ids)
+		}
 	}
 	mappings := map[string]map[string]outputMapping{}
 	var replaced [][2]int
-	for i, step := range definition.Steps {
-		node := list.Content[i]
-		if node.Kind != yaml.MappingNode {
-			return nil, fmt.Errorf("upgrade %s: step %d is not a mapping", source, i+1)
+	if err := u.rewriteSteps(definition.Steps, list, rewrites, mappings, &replaced); err != nil {
+		return nil, fmt.Errorf("upgrade %s: %v", source, err)
+	}
+	u.mapReferences(mappings, replaced)
+	out := u.apply()
+	result := &UpgradeResult{YAML: out, Changed: !bytes.Equal(out, data), Notes: u.notes}
+	if _, problems := Check(source, out); len(problems) > 0 {
+		for _, problem := range problems {
+			if problem.Severity == SeverityError {
+				result.Notes = append(result.Notes, problem)
+			}
 		}
-		u.upgradeStep(definition.Steps, i, node, ids)
+	}
+	sort.SliceStable(result.Notes, func(i, j int) bool {
+		a, b := result.Notes[i], result.Notes[j]
+		return a.Line < b.Line || (a.Line == b.Line && a.Column < b.Column)
+	})
+	return result, nil
+}
+
+// rewritesAny says whether a step rewrite applies to any of steps, a loop's
+// body's included.
+func rewritesAny(steps []Step, rewrites map[string]StepRewrite) bool {
+	found := false
+	eachStep(steps, "steps", func(step Step, _ string, _ []Step, _ map[string]any) {
+		_, ok := rewrites[step.Type]
+		found = found || ok
+	})
+	return found
+}
+
+// rewriteSteps runs the step rewrites on a steps: list and the bodies of
+// its loops.
+func (u *upgrader) rewriteSteps(steps []Step, list *yaml.Node, rewrites map[string]StepRewrite, mappings map[string]map[string]outputMapping, replaced *[][2]int) error {
+	if list == nil || list.Kind != yaml.SequenceNode || len(list.Content) != len(steps) {
+		return fmt.Errorf("steps is not a list")
+	}
+	flowList := u.flowList
+	defer func() { u.flowList = flowList }()
+	for i, step := range steps {
+		node := list.Content[i]
+		u.flowList = list.Style&yaml.FlowStyle != 0
+		if node.Kind != yaml.MappingNode {
+			return fmt.Errorf("step %d is not a mapping", i+1)
+		}
+		if step.Loop != nil {
+			_, body := pairOf(node, "steps")
+			if err := u.rewriteSteps(step.Steps, body, rewrites, mappings, replaced); err != nil {
+				return err
+			}
+			continue
+		}
 		rewrite, ok := rewrites[step.Type]
 		if !ok {
 			continue
@@ -155,24 +244,103 @@ func upgrade(source string, data []byte, rewrites map[string]StepRewrite) (*Upgr
 			// The step's own edits are dropped: the replacement is the step.
 			u.dropWithin(start, end)
 			u.edit(start, end, indentItem(*rewritten.replacement, prefix))
-			replaced = append(replaced, [2]int{start, end})
+			*replaced = append(*replaced, [2]int{start, end})
+			continue
+		}
+		u.editStep(node, rewritten)
+	}
+	return nil
+}
+
+// editStep makes a rewrite's changes to its step in place: its type, its
+// with, the keys it drops, and its notes at its type.
+func (u *upgrader) editStep(node *yaml.Node, step *UpgradeStep) {
+	_, typeValue := pairOf(node, "type")
+	if node.Style&yaml.FlowStyle != 0 && (step.newType != "" || step.wrap != nil || len(step.drop) > 0) {
+		u.note(node.Line, node.Column, fmt.Sprintf("step %q: write it as a block mapping to upgrade it", step.ID))
+		return
+	}
+	if step.newType != "" && typeValue != nil {
+		u.replaceScalar(typeValue, step.newType)
+	}
+	if step.wrap != nil {
+		u.wrapWith(node, step)
+	}
+	for _, key := range step.drop {
+		if k, v := pairOf(node, key); k != nil {
+			u.removePair(node, k, v)
 		}
 	}
-	u.mapReferences(mappings, replaced)
-	out := u.apply()
-	result := &UpgradeResult{YAML: out, Changed: !bytes.Equal(out, data), Notes: u.notes}
-	if _, problems := Check(source, out); len(problems) > 0 {
-		for _, problem := range problems {
-			if problem.Severity == SeverityError {
-				result.Notes = append(result.Notes, problem)
-			}
+	for _, message := range step.notes {
+		if typeValue == nil {
+			u.note(node.Line, node.Column, message)
+			continue
+		}
+		start := u.text.offset(typeValue)
+		end, ok := u.text.scalarEnd(typeValue, start)
+		if !ok {
+			end = start + 1
+		}
+		u.flags = append(u.flags, flag{start: start, end: end, message: message, severity: SeverityWarning})
+	}
+}
+
+// wrapWith rewrites a step's with pair as with: {key: value, under: <the
+// with, less what keep refuses>}, the with's own styles and comments kept.
+func (u *upgrader) wrapWith(node *yaml.Node, step *UpgradeStep) {
+	key, with := pairOf(node, "with")
+	if key == nil || with == nil || with.Kind != yaml.MappingNode {
+		u.note(node.Line, node.Column, fmt.Sprintf("step %q: write its with as a mapping to upgrade it", step.ID))
+		return
+	}
+	start := u.text.offset(key)
+	if !u.text.startsLine(start) {
+		u.note(key.Line, key.Column, fmt.Sprintf("step %q: put with on a line of its own to upgrade it", step.ID))
+		return
+	}
+	end := u.text.blockEnd(u.text.lineStart(start), key.Column-1)
+	// Blank lines after the with belong between the steps.
+	for end > start {
+		previous := u.text.lineStart(end - 1)
+		if !isBlank(string(u.text.data[previous:end])) || previous <= start {
+			break
+		}
+		end = previous
+	}
+	inputs := *with
+	inputs.Content = nil
+	for i := 0; i+1 < len(with.Content); i += 2 {
+		if step.wrap.keep(with.Content[i].Value) {
+			inputs.Content = append(inputs.Content, with.Content[i], with.Content[i+1])
 		}
 	}
-	sort.SliceStable(result.Notes, func(i, j int) bool {
-		a, b := result.Notes[i], result.Notes[j]
-		return a.Line < b.Line || (a.Line == b.Line && a.Column < b.Column)
-	})
-	return result, nil
+	inputs.Line, inputs.Column = 0, 0
+	wrapped := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
+		{Kind: yaml.ScalarNode, Value: step.wrap.key}, {Kind: yaml.ScalarNode, Value: step.wrap.value},
+		{Kind: yaml.ScalarNode, Value: step.wrap.under}, &inputs,
+	}}
+	var out bytes.Buffer
+	encoder := yaml.NewEncoder(&out)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(wrapped); err != nil {
+		u.note(key.Line, key.Column, fmt.Sprintf("step %q: rewrite its with by hand: %v", step.ID, err))
+		return
+	}
+	_ = encoder.Close()
+	pad := strings.Repeat(" ", key.Column+1)
+	var text strings.Builder
+	text.WriteString("with:\n")
+	for _, line := range strings.SplitAfter(out.String(), "\n") {
+		if line == "" {
+			continue
+		}
+		if isBlank(line) {
+			text.WriteString(line)
+			continue
+		}
+		text.WriteString(pad + line)
+	}
+	u.edit(start, end, text.String())
 }
 
 // upgradeStep makes the version 1 step at i of steps a version 2 one.
@@ -280,7 +448,7 @@ func (u *upgrader) mapReferences(mappings map[string]map[string]outputMapping, r
 					u.edit(start, end, mapping.to)
 					continue
 				}
-				u.flags = append(u.flags, flag{start: start, end: end, message: fmt.Sprintf("%s: %s; change this reference by hand", reference, mapping.reason)})
+				u.flags = append(u.flags, flag{start: start, end: end, message: fmt.Sprintf("%s: %s; change this reference by hand", reference, mapping.reason), severity: SeverityError})
 			}
 		}
 	}
@@ -309,6 +477,7 @@ type textEdit struct {
 type flag struct {
 	start, end int
 	message    string
+	severity   Severity
 }
 
 type upgrader struct {
@@ -369,7 +538,7 @@ func (u *upgrader) apply() []byte {
 	for _, f := range u.flags {
 		line, column := edited.position(shifted(f.start))
 		endLine, endColumn := edited.position(shifted(f.end))
-		u.notes = append(u.notes, Diagnostic{Severity: SeverityWarning, Message: f.message, Line: line, Column: column, EndLine: endLine, EndColumn: endColumn})
+		u.notes = append(u.notes, Diagnostic{Severity: f.severity, Message: f.message, Line: line, Column: column, EndLine: endLine, EndColumn: endColumn})
 	}
 	return out
 }

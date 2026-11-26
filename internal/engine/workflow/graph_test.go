@@ -349,7 +349,7 @@ func TestGraphDataEdgesFromOutputPathsSkipSteps(t *testing.T) {
 }
 
 func TestGraphDrawsTheReviewLoopAsAGroup(t *testing.T) {
-	example, _ := ExampleNamed("review-pr-passes")
+	example := OldReviewPassesCopy()
 	definition, err := Parse("review-pr-passes.workflow.yaml", example.YAML)
 	if err != nil {
 		t.Fatal(err)
