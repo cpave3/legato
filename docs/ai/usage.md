@@ -90,7 +90,7 @@ Neither source is a published API. Every answer the readers do not understand is
   - Each `ProviderUsage` has `provider`, `state`, `stale`, `reason`, `windows` (`meter`, `used_percent`, `resets_at`, `window_minutes`), `credits`, `plan`, `as_of`, `checked_at` and `source` (`endpoint`, `app_server` or `logs`).
   - Without a usage service it is `200` with no providers, never an error.
 - `POST /api/usage/refresh` answers `202` and the reading follows as `usage_changed`.
-- Web: `UsageStrip` (`web/src/components/UsageStrip.tsx`) sits at the head of `AgentSidebar` (prop `usage`), and under the picker bar on a phone.
+- Web: `UsageStrip` (`web/src/components/UsageStrip.tsx`) sits at the head of `AgentSidebar` (prop `usage`), under the picker bar on a phone, and on the empty Agents page.
   - It shows each provider in brief and opens to the Usage card: a bar per window, its reset time, as-of, stale and unavailable states, and **Read now**.
   - It renders nothing with no providers.
   - Tests of the Agents page stub it, as they stub `InterruptedAgents`.

@@ -788,6 +788,7 @@ export function AgentsPage() {
         <InterruptedAgents className="w-full max-w-sm" />
         <PreparingAgents className="w-full max-w-sm" />
         <p className="text-lw-text-2">No active agents</p>
+        <UsageStrip className="w-full max-w-sm" />
         <SessionHistoryLink />
         <button
           onClick={handleSpawn}

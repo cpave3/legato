@@ -11,7 +11,7 @@ Legato reads the usage on the machine it runs on, with the logins Claude Code an
 
 ## Where it shows
 
-- **Web UI:** a strip at the head of the agents list (under the agent picker on a phone) shows each subscription in brief, such as `Claude 5h 42% wk 91%`. Click it to open the Usage card:
+- **Web UI:** a strip at the head of the agents list (under the agent picker on a phone, and on the Agents page when no agent runs) shows each subscription in brief, such as `Claude 5h 42% wk 91%`. Click it to open the Usage card:
   - a bar for each window, with when it resets;
   - how old the reading is ("as of 2m ago");
   - why the usage is stale or unavailable, when it is;

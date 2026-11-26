@@ -475,7 +475,7 @@ Empty pages offer the next step: the board, when every column is empty, shows **
 
 ### Usage strip
 
-`UsageStrip` (`web/src/components/UsageStrip.tsx`, `web/src/lib/usage.ts`) sits at the head of the agents list (`AgentSidebar`'s `usage`) and under the phone's picker bar. It is each provider's windows in brief, opening to the Usage card: a bar per window (amber from 75%, red from 90%), when it resets, "as of", why a reading is stale or unavailable, and **Read now** (`POST /api/usage/refresh`). It reads `GET /api/usage` (`queryKeys.subscriptionUsage`, refetched each minute and on `usage_changed`) and renders nothing without providers. See [Subscription usage](usage.md).
+`UsageStrip` (`web/src/components/UsageStrip.tsx`, `web/src/lib/usage.ts`) sits at the head of the agents list (`AgentSidebar`'s `usage`), under the phone's picker bar, and on the Agents page with no agents, under "No active agents". It is each provider's windows in brief, opening to the Usage card: a bar per window (amber from 75%, red from 90%), when it resets, "as of", why a reading is stale or unavailable, and **Read now** (`POST /api/usage/refresh`). It reads `GET /api/usage` (`queryKeys.subscriptionUsage`, refetched each minute and on `usage_changed`) and renders nothing without providers. See [Subscription usage](usage.md).
 
 ### The Reeve on the Agents page
 
