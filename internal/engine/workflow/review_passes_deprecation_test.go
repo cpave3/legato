@@ -37,9 +37,17 @@ func TestTheInlineReviewStepWarnsThatItIsDeprecatedWithTheUpgradeOnAVersion1File
 	if d.Message != want || d.Severity != SeverityWarning || d.Path != "steps[0].type" || d.Fix != FixUpgrade {
 		t.Fatalf("diagnostic = %+v\nwant %q", d, want)
 	}
-	// "    type: github.pr.review_passes" is the old copy's line 38.
-	if d.Line != 38 || d.Column != 11 {
-		t.Fatalf("at %d:%d", d.Line, d.Column)
+	// At the step's "    type: github.pr.review_passes", wherever the old
+	// copy has it (its header grew a tags line with LEG-657).
+	line := 0
+	for i, text := range strings.Split(string(old.YAML), "\n") {
+		if text == "    type: github.pr.review_passes" {
+			line = i + 1
+			break
+		}
+	}
+	if line == 0 || d.Line != line || d.Column != 11 {
+		t.Fatalf("at %d:%d; want %d:11", d.Line, d.Column, line)
 	}
 }
 
