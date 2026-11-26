@@ -1,8 +1,8 @@
-CREATE TABLE active_usage_profile (
+CREATE TABLE IF NOT EXISTS active_usage_profile (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     state TEXT NOT NULL
 );
-CREATE TABLE usage_profile_switches (
+CREATE TABLE IF NOT EXISTS usage_profile_switches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     from_profile TEXT NOT NULL,
     to_profile TEXT NOT NULL,

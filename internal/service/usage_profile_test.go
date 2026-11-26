@@ -11,6 +11,15 @@ import (
 
 func TestUsagePolicyPersistsTwoSwitchesAndPinExpiry(t *testing.T) {
 	f := newUsageFixture(t)
+	f.now = time.Now().UTC().Add(-2 * time.Hour)
+	reset := f.now.Add(time.Hour)
+	windows := func(value float64) []UsageWindow {
+		result := claudeWindows(value)
+		for i := range result {
+			result[i].ResetsAt = reset
+		}
+		return result
+	}
 	ctx := context.Background()
 	order := 1
 	cfg := config.UsageConfig{Profiles: []config.UsageProfile{{Name: "claude", Agent: "claude-code"}, {Name: "codex", Agent: "chimera"}}, Rules: []config.UsageRule{{Name: "save", Order: &order, Meter: "claude.weekly", AtLeast: 90, Profile: "codex"}}, FallbackProfile: "claude"}
@@ -24,13 +33,20 @@ func TestUsagePolicyPersistsTwoSwitchesAndPinExpiry(t *testing.T) {
 		NotifyUsageProfileSwitch(state, id, notificationsEnabled, notifier)
 	}})
 	f.svc.SetPolicy(policy, policy.Pin)
-	f.claude.set(ProviderUsage{Windows: claudeWindows(50)}, nil)
+	f.claude.set(ProviderUsage{Windows: windows(50)}, nil)
 	f.svc.Poll(ctx)
 	if err := policy.Evaluate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	baseline, err := policy.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseline.Active.Profile.Name != "claude" || len(baseline.Switches) != 0 || notifier.count != 0 {
+		t.Fatalf("fallback baseline=%+v notifications=%d", baseline, notifier.count)
+	}
 	f.now = f.now.Add(5 * time.Minute)
-	f.claude.set(ProviderUsage{Windows: claudeWindows(91)}, nil)
+	f.claude.set(ProviderUsage{Windows: windows(91)}, nil)
 	f.svc.Poll(ctx)
 	if err := policy.Evaluate(ctx); err != nil {
 		t.Fatal(err)
@@ -51,8 +67,8 @@ func TestUsagePolicyPersistsTwoSwitchesAndPinExpiry(t *testing.T) {
 	// Recreate the coordinator to prove that the reset latch is durable.
 	policy = NewUsagePolicyService(policy.opts)
 	f.svc.SetPolicy(policy, policy.Pin)
-	f.now = time.Date(2026, 12, 1, 9, 1, 0, 0, time.UTC)
-	f.claude.set(ProviderUsage{Windows: claudeWindows(3)}, nil)
+	f.now = reset.Add(time.Minute)
+	f.claude.set(ProviderUsage{Windows: windows(3)}, nil)
 	f.svc.Poll(ctx)
 	if err := policy.Evaluate(ctx); err != nil {
 		t.Fatal(err)
@@ -189,5 +205,26 @@ func TestUsagePolicyExpiresPinsOnPollWithReadersOff(t *testing.T) {
 	}
 	if len(snap.Providers) != 0 || snap.Policy.Active.Pin != nil || snap.Policy.Active.Profile.Name != "normal" {
 		t.Fatalf("readers-off poll = %+v", snap)
+	}
+}
+
+func TestUsagePolicyRecordsTheFirstReadingAboveAThresholdAsASwitch(t *testing.T) {
+	f := newUsageFixture(t)
+	ctx := context.Background()
+	order := 1
+	notifier := &usageTestNotifier{}
+	cfg := config.UsageConfig{Profiles: []config.UsageProfile{{Name: "normal", Agent: "claude-code"}, {Name: "save", Agent: "chimera"}}, FallbackProfile: "normal", Rules: []config.UsageRule{{Name: "limit", Order: &order, Meter: "claude.weekly", AtLeast: 90, Profile: "save"}}}
+	policy := NewUsagePolicyService(UsagePolicyOptions{Store: f.db, Config: func(context.Context) (config.UsageConfig, error) { return cfg, nil }, Readings: f.svc.ReadingsSnapshot, Now: func() time.Time { return f.now }, OnSwitch: func(_ context.Context, state UsageProfileState, id int64) {
+		NotifyUsageProfileSwitch(state, id, true, notifier)
+	}})
+	f.svc.SetPolicy(policy, policy.Pin)
+	f.claude.set(ProviderUsage{Windows: claudeWindows(91)}, nil)
+	f.svc.Poll(ctx)
+	snap, err := f.svc.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Policy.Switches) != 1 || snap.Policy.Switches[0].From != "normal" || snap.Policy.Switches[0].To != "save" || notifier.count != 1 {
+		t.Fatalf("startup threshold switch=%+v notifications=%d", snap.Policy, notifier.count)
 	}
 }

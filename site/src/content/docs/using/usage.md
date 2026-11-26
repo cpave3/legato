@@ -121,6 +121,8 @@ When no rule matches, Legato uses the fallback profile. With no fallback set, it
 
 The Usage card shows the active profile, why it was selected, when it took effect and recent switches. A switch, including a return to the fallback, adds an informational [Attention item](/legato/using/attention/). `notifications.usage` is on by default and controls switch notifications through your configured ntfy and desktop notifications; turning it off does not turn off the rules or Attention items.
 
+Starting with the fallback does not send a switch notification. If the first reading already selects a different profile, Legato records and notifies that switch too.
+
 :::note
 If a profile needs a tier saved since Legato started, Usage can show a restart-required error and keep the previous defaults. Choose when to restart Legato to install that tier into its running adapter. Policy never restarts Legato for you.
 :::

@@ -1,5 +1,6 @@
+import { renderWithQueryClient as render } from "../../test/renderWithQueryClient"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { cleanup, createEvent, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { AgentSelectionProvider } from "../../hooks/useAgentSelection"
 import { BoardPage } from "../Board"

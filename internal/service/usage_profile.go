@@ -189,16 +189,25 @@ func (s *UsagePolicyService) evaluate(ctx context.Context, request *UsagePinRequ
 	}
 	next.Profile = selected
 	next.Reason = reason
-	oldDefaults, _ := json.Marshal(before.Profile)
+	previousProfile := before.Profile
+	if !before.Initialized {
+		previousProfile = next.Profile
+		// Seeding fallback is a baseline, but a startup rule or operator pin
+		// still changes defaults and must have history and notification.
+		if reason.Rule != "" || next.Pin != nil {
+			previousProfile, _ = usageProfileNamed(cfg.Profiles, cfg.FallbackProfile)
+		}
+	}
+	oldDefaults, _ := json.Marshal(previousProfile)
 	newDefaults, _ := json.Marshal(next.Profile)
-	switched := before.Initialized && string(oldDefaults) != string(newDefaults)
+	switched := string(oldDefaults) != string(newDefaults)
 	if !before.Initialized || switched {
 		next.Since = now
 	}
 	next.Initialized = true
 	var change *store.UsageProfileSwitch
 	if switched {
-		change = &store.UsageProfileSwitch{From: before.Profile.Name, To: next.Profile.Name, Since: now.Format(time.RFC3339Nano), Reason: reason.Text}
+		change = &store.UsageProfileSwitch{From: previousProfile.Name, To: next.Profile.Name, Since: now.Format(time.RFC3339Nano), Reason: reason.Text}
 	}
 	data, err := json.Marshal(next)
 	if err != nil {

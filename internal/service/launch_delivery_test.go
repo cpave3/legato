@@ -161,6 +161,9 @@ func TestResumedChimeraReviewerBriefWaitsForBindingAndUsesSecretHTTP(t *testing.
 	svc.(*agentService).adapter = adapter
 	ctx := context.Background()
 	createTask(t, s, "review")
+	if err := s.SetChimeraResumeInSlot(ctx, "review", SlotReviewer, "reviewer-id"); err != nil {
+		t.Fatal(err)
+	}
 	brief := "Review pass two.\nCheck the revised diff."
 	if err := svc.SpawnAgent(ctx, "review", 0, 0, AgentSpawnOptions{Slot: SlotReviewer, SessionPolicy: "resume", ResumeSessionID: "reviewer-id", Prompt: brief}); err != nil {
 		t.Fatal(err)

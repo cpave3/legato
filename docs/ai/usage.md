@@ -109,6 +109,8 @@ A profile's optional reviewer replaces the live reviewer agent/tier defaults for
 
 Each committed switch, including a return to fallback, creates an informational `usage_profile_switched` Attention item from producer `usage`, in rail group `legato`, revision `profile:since`. **Open Usage** opens the Usage card; the pin action opens its pin controls. `notifications.usage` (live, default true) gates one notification per switch through the configured ntfy/OS transports, independently of Attention. The card shows the active profile, reason, since time, pin, errors and recent switches, even when readers are off.
 
+Initializing the fallback is a silent baseline. If the first reading already triggers a different profile, that is a switch from the fallback and records history and notifications normally.
+
 ### Deployment follow-up (operator only)
 
 After installing this feature, the operator should:

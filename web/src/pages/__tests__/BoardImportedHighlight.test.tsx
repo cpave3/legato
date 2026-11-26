@@ -1,4 +1,5 @@
-import { act, cleanup, render, screen } from "@testing-library/react"
+import { renderWithQueryClient as render } from "../../test/renderWithQueryClient"
+import { act, cleanup, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter, useLocation } from "react-router-dom"
 import { AgentSelectionProvider } from "../../hooks/useAgentSelection"

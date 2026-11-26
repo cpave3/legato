@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/handofftest"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
@@ -57,9 +58,14 @@ review_passes:
 		t.Fatal(err)
 	}
 
+	defaultsDB, err := store.New(filepath.Join(root, "defaults.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer defaultsDB.Close()
 	worker := handofftest.StartWorker(t, handofftest.WorkerOptions{Name: "vm-1", GitHubRepositories: []string{"acme/*"},
 		ReviewPasses: &handofftest.ReviewPassOptions{Runtime: func(o service.ReviewPassOptions) service.ReviewPassOptions {
-			return workerReviewPassOptions(cfg, nil, o)
+			return workerReviewPassOptions(cfg, defaultsDB, o)
 		}}})
 	main := handofftest.NewMain(t, handofftest.MainOptions{Name: "workstation", Clock: worker.Clock})
 	paired := handofftest.Pair(t, main, worker)
