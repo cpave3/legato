@@ -97,6 +97,8 @@ To let only some of them run, add a rule at `auto` instead (see [What a change n
 
 ### Watching agents
 
+In the web conversation, agent notifications start collapsed, like change-set results. The row shows the task and event count, or agent and event counts for a batch. Select the row to read the full notification, including the agent's words and URL text. Permission and question controls stay separate.
+
 The Reeve can look after agents while you are away: start one on a task, hear back when it needs something, and decide what comes next. It watches every agent it starts or messages, and you can ask it to watch any other.
 
 A watched agent wakes the Reeve with a `[legato agent]` message in its conversation when it:

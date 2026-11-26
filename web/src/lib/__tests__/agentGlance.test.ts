@@ -104,6 +104,14 @@ describe("what a tile shows of a conversation", () => {
     expect(items).toEqual([{ kind: "relayed", from: "Legato change set", text: "cs-816f… · 1 of 1 ran ✓" }])
   })
 
+  it("summarizes watched-agent events but leaves assistant words unchanged", () => {
+    const text = "[legato agent] An agent you watch:\n- T-1: running → idle."
+    expect(glanceItems([{ kind: "user", text }, { kind: "assistant", text }], "")).toEqual([
+      { kind: "relayed", from: "Legato agent", text: "T-1 · 1 event" },
+      { kind: "said", text, newest: true },
+    ])
+  })
+
   it("shows what was said without its markup", () => {
     expect(plainText("## Result\n\n**Done.** Use `yg list --json`:\n\n```sh\nyg list --json\n```\n")).toBe(
       "Result\nDone. Use yg list --json:\nyg list --json",

@@ -5,6 +5,8 @@ import subagentFixture from "../../../../contracts/chimera-subagents.json"
 import recoveryFixture from "../../../../contracts/chimera-recovery/fixture.json"
 import { NativeAgentPanel } from "../NativeAgentPanel"
 
+import { watchBatchBody, watchRequests } from "../../test/watchBatch"
+
 const send = vi.fn()
 let websocketHandler: ((message: unknown) => void) | undefined
 let websocketConnected = true
@@ -431,6 +433,61 @@ describe("NativeAgentPanel", () => {
     fireEvent.click(row)
     expect(row.getAttribute("aria-expanded")).toBe("true")
     expect(screen.getByText(/hello from the host/)).not.toBeNull()
+  })
+
+  it("collapses a watched-agent notification and keeps its full source on expansion", async () => {
+    const body = 'An agent you watch:\n- T-1 (Build (sandbox)) sent you a message (message_reeve): "Ready: https://example.test/pr/42"\nRead the agent reply before you act.'
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "task-1", status: "idle", toolCalls: [], messages: [
+          { role: "system", content: "" },
+          { role: "user", content: `[legato agent] ${body}` },
+        ] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+    render(<NativeAgentPanel agentId="task-1" agentKind="chimera" />)
+    const row = await screen.findByRole("button", { name: /Legato · agent/ })
+    expect(row.textContent).toContain("T-1 · 1 event")
+    expect(row.getAttribute("aria-expanded")).toBe("false")
+    expect(screen.queryByText(/Read the agent reply/)).toBeNull()
+    fireEvent.click(row)
+    expect(row.getAttribute("aria-expanded")).toBe("true")
+    expect(screen.getByText(/Read the agent reply/).textContent).toBe(body)
+    fireEvent.click(row)
+    expect(row.getAttribute("aria-expanded")).toBe("false")
+    expect(screen.queryByText(/Read the agent reply/)).toBeNull()
+  })
+
+  it("collapses a live multi-agent batch without folding ordinary messages or separate requests", async () => {
+    const ordinary = "Explain [legato agent] and An agent you watch"
+    const assistant = "[legato agent] is the notification tag."
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "task-1", status: "idle", toolCalls: [], ...watchRequests, messages: [
+          { role: "system", content: "" },
+          { role: "user", content: ordinary },
+          { role: "assistant", content: assistant },
+        ] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+    render(<NativeAgentPanel agentId="task-1" agentKind="chimera" />)
+    await screen.findByText(ordinary)
+    expect(screen.getByText(assistant)).not.toBeNull()
+    act(() => websocketHandler?.({ type: "chimera_event", agent_id: "task-1", content: JSON.stringify({
+      eventId: "watch-live", type: "user_message", content: `[legato agent] ${watchBatchBody}`,
+    }) }))
+    const row = screen.getByRole("button", { name: /Legato · agent/ })
+    expect(row.textContent).toContain("2 agents · 3 events")
+    expect(row.getAttribute("aria-expanded")).toBe("false")
+    expect(screen.queryByText(/message_reeve/)).toBeNull()
+    const permission = screen.getByRole("region", { name: "Permission request for bash" })
+    fireEvent.click(within(permission).getByRole("button", { name: "Deny" }))
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "agent_permission", request_id: "watch-permission", decision: "deny" }))
+    const question = screen.getByRole("region", { name: "Question from Chimera" })
+    fireEvent.click(within(question).getByRole("radio", { name: "Docs" }))
+    fireEvent.click(within(question).getByRole("button", { name: "Send answer" }))
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "agent_question", request_id: "watch-question", answers: { next: ["Docs"] } }))
+    expect(row.getAttribute("aria-expanded")).toBe("false")
+    fireEvent.click(row)
+    const detail = screen.getByText(/message_reeve/)
+    expect(detail.textContent).toBe(watchBatchBody)
+    expect(detail.querySelector("source, img, a")).toBeNull()
   })
 
   it("shows another instance's Reeve's message as its own block, marked with the instance", async () => {
