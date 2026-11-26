@@ -709,18 +709,8 @@ func (c *ReviewRunCaller) closeOutputs(ctx context.Context, rec *store.ReviewLoo
 	if err != nil {
 		return nil, err
 	}
-	counts := map[string]int{"total": len(findings), "blocking": 0, "nits": 0, "open": 0}
-	for _, f := range findings {
-		switch f.Severity {
-		case SeverityBlocking:
-			counts["blocking"]++
-			if f.Status == "open" {
-				counts["open"]++
-			}
-		case SeverityNit:
-			counts["nits"]++
-		}
-	}
+	n := countFindings(findings)
+	counts := map[string]int{"total": n.Total, "blocking": n.Blocking, "nits": n.Nits, "open": n.Open}
 	layers, err := c.engine.db.ListReviewLoopPRs(ctx, rec.ID)
 	if err != nil {
 		return nil, err

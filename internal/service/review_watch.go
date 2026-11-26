@@ -355,6 +355,13 @@ func (s *ReviewPassService) watchLoop(ctx context.Context, github ReviewWatchGit
 		return nil
 	}()
 	next.Err = err
+	if err == nil {
+		// The record keeps each layer as GitHub reported it, for the run
+		// page of any process.
+		if err := s.db.SetReviewLoopPRStatus(ctx, l.ID, layerStatuses(next.Layers)); err != nil {
+			log.Printf("review passes: %s: keeping the layers read: %v", l.ID, err)
+		}
+	}
 	if err != nil {
 		var limit *GitHubRateLimit
 		if errors.As(err, &limit) {
@@ -439,6 +446,31 @@ func readStacked(ctx context.Context, session ReviewWatchSession, numbers []int,
 	}
 	slices.SortFunc(out, func(a, b ReviewGitHubPR) int { return a.Number - b.Number })
 	return out, nil
+}
+
+// layerStatuses are a watch read's layers as the loop record keeps them.
+func layerStatuses(layers []PRWatch) []store.ReviewLoopPRStatus {
+	out := make([]store.ReviewLoopPRStatus, 0, len(layers))
+	for _, layer := range layers {
+		out = append(out, store.ReviewLoopPRStatus{Number: layer.Number, State: layer.State, Draft: layer.Draft, Mergeable: layerMergeability(layer)})
+	}
+	return out
+}
+
+// layerMergeability is one word for whether a layer can merge, as the
+// steward routes it: GitHub's CONFLICTING, UNKNOWN (while it works it out)
+// or MERGEABLE, and BEHIND when the merge state says the base requires an
+// up-to-date branch.
+func layerMergeability(layer PRWatch) string {
+	switch {
+	case layer.Mergeable == githubConflicting:
+		return githubConflicting
+	case mergeUnknown(layer):
+		return githubMergeUnknown
+	case layer.MergeState == githubMergeBehind:
+		return githubMergeBehind
+	}
+	return layer.Mergeable
 }
 
 // mergeabilityUnknown says whether GitHub has yet to work out an open

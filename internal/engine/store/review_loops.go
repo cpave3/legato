@@ -191,8 +191,11 @@ type ReviewLoopPR struct {
 	URL      string `db:"url"`
 	HeadRepo string `db:"head_repo"`
 	// State is open, closed or merged.
-	State     string `db:"state"`
-	Draft     bool   `db:"draft"`
+	State string `db:"state"`
+	Draft bool   `db:"draft"`
+	// Mergeable is the steward's word for whether it can merge, as its
+	// watch last read it: MERGEABLE, CONFLICTING, UNKNOWN or BEHIND;
+	// "" before a watch read it.
 	Mergeable string `db:"mergeable"`
 	// Author is its author on GitHub, AuthorAssociation GitHub's word for
 	// them, AuthorTask the board task whose agent wrote it.
@@ -920,6 +923,35 @@ func (s *Store) ListReviewLoopPRs(ctx context.Context, loopID string) ([]ReviewL
 	var out []ReviewLoopPR
 	err := s.db.SelectContext(ctx, &out, `SELECT * FROM review_loop_prs WHERE loop_id = ? ORDER BY position`, loopID)
 	return out, err
+}
+
+// ReviewLoopPRStatus is what GitHub last reported of a layer: its state,
+// whether it is a draft, and its mergeability (ReviewLoopPR.Mergeable).
+type ReviewLoopPRStatus struct {
+	Number    int
+	State     string
+	Draft     bool
+	Mergeable string
+}
+
+// SetReviewLoopPRStatus writes what the steward's watch read of an open
+// loop's layers, for the run page. It is GitHub's word, not a transition,
+// so the loop's rev does not move; a closed loop and a number that is not
+// one of its layers are left as they are.
+func (s *Store) SetReviewLoopPRStatus(ctx context.Context, loopID string, layers []ReviewLoopPRStatus) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, layer := range layers {
+		if _, err := tx.ExecContext(ctx, `UPDATE review_loop_prs SET state = ?, draft = ?, mergeable = ?
+			WHERE loop_id = ? AND number = ? AND EXISTS (SELECT 1 FROM review_loops WHERE id = ? AND state = ?)`,
+			layer.State, layer.Draft, layer.Mergeable, loopID, layer.Number, loopID, ReviewLoopOpenState); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // GetReviewLoopPass returns one pass, ErrNotFound when there is none.

@@ -1728,6 +1728,81 @@ type ReviewRunDetails struct {
 	// ApprovalWithheld: the loop is clean, and a pull request got the
 	// outside-author COMMENT in place of an APPROVE.
 	ApprovalWithheld bool `json:"approval_withheld,omitempty"`
+	// The loop on its record (LEG-594): its ID and outcome once closed, the
+	// reviewer (tool, :tier) and its model, the findings counted, and each
+	// layer as the record keeps it.
+	LoopID        string               `json:"loop_id,omitempty"`
+	Outcome       string               `json:"outcome,omitempty"`
+	Reviewer      string               `json:"reviewer,omitempty"`
+	ReviewerModel string               `json:"reviewer_model,omitempty"`
+	Findings      *ReviewFindingCounts `json:"findings,omitempty"`
+	Layers        []ReviewRunLayer     `json:"layers,omitempty"`
+	// Steward is the steward's state while it watches, nil otherwise.
+	Steward *ReviewStewardView `json:"steward,omitempty"`
+	// ApprovalStands is "legato-reviews' approval at <sha> still stands"
+	// while the steward is held or stuck at its watch.
+	ApprovalStands string `json:"approval_stands,omitempty"`
+	// Actions are what the step's loop takes now, by the waiting-step
+	// action route: another_pass, message, end, stop_watching,
+	// watch_again.
+	Actions []string `json:"actions,omitempty"`
+	// AuthorTask is the agent author's board task; AuthorLeftRunning says
+	// its agent still runs after the loop went stuck and was ended, was
+	// ended, cancelled, or its run failed (spec LEG-559: left running, with
+	// Stop offered).
+	AuthorTask        string `json:"author_task,omitempty"`
+	AuthorLeftRunning bool   `json:"author_left_running,omitempty"`
+}
+
+// ReviewFindingCounts are a loop's findings: all of them, the blocking
+// ones, the nits, and the blocking ones still open.
+type ReviewFindingCounts struct {
+	Total    int `json:"total"`
+	Blocking int `json:"blocking"`
+	Nits     int `json:"nits"`
+	Open     int `json:"open"`
+}
+
+// countFindings counts a loop's findings.
+func countFindings(findings []store.ReviewLoopFinding) ReviewFindingCounts {
+	counts := ReviewFindingCounts{Total: len(findings)}
+	for _, f := range findings {
+		switch f.Severity {
+		case SeverityBlocking:
+			counts.Blocking++
+			if f.Status == "open" {
+				counts.Open++
+			}
+		case SeverityNit:
+			counts.Nits++
+		}
+	}
+	return counts
+}
+
+// ReviewRunLayer is one pull request of a loop as its record keeps it:
+// State (open, closed, merged) and Mergeable (GitHub's MERGEABLE,
+// CONFLICTING or UNKNOWN, or BEHIND when its merge state says so) as the
+// steward's watch last read them.
+type ReviewRunLayer struct {
+	Number    int    `json:"number"`
+	URL       string `json:"url,omitempty"`
+	Title     string `json:"title,omitempty"`
+	State     string `json:"state,omitempty"`
+	Draft     bool   `json:"draft"`
+	Mergeable string `json:"mergeable,omitempty"`
+}
+
+// ReviewStewardView is a watching steward as the run page shows it: held,
+// what last woke it and when, re-entries used of those allowed, and the
+// idle deadline.
+type ReviewStewardView struct {
+	Held         bool   `json:"held"`
+	LastWake     string `json:"last_wake,omitempty"`
+	LastWakeAt   string `json:"last_wake_at,omitempty"`
+	Reentries    int    `json:"reentries"`
+	MaxReentries int    `json:"max_reentries"`
+	IdleDeadline string `json:"idle_deadline,omitempty"`
 }
 
 // ReviewRunReview is one review a pass posted: its event as posted
@@ -1811,6 +1886,7 @@ func (c *ReviewRunCaller) details(ctx context.Context, taskID string) any {
 	case ReviewPhaseEnded:
 		d.Summary = map[string]string{ReviewOutcomeClosed: "Closed", ReviewOutcomeCancelled: "Cancelled", ReviewOutcomeStuck: "Ended while stuck"}[loop.Reason]
 	}
+	c.recordDetails(ctx, &d, attempt.TaskID, loop)
 	return d
 }
 
