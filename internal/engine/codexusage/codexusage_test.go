@@ -246,3 +246,28 @@ func TestARolloutFIFODoesNotBlock(t *testing.T) {
 		t.Fatal("reading a FIFO blocked")
 	}
 }
+
+// However many newer day folders there are, a resumed session in an older
+// one is found by its file's time.
+func TestLogsFindAResumedSessionBehindManyNewerDays(t *testing.T) {
+	root := t.TempDir()
+	start := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	old := writeRollout(t, root, start.Format("2006/01/02"), "rollout-old.jsonl",
+		tokenCount("2026-11-26T10:00:00Z", `{"primary":{"used_percent":85.0,"window_minutes":10080,"resets_at":1795252211}}`))
+	at := time.Date(2026, 11, 26, 10, 0, 0, 0, time.UTC)
+	os.Chtimes(old, at, at)
+	for i := 1; i <= 61; i++ {
+		day := start.AddDate(0, 0, i)
+		path := writeRollout(t, root, day.Format("2006/01/02"), "rollout-new.jsonl",
+			tokenCount("2026-11-26T09:00:00Z", `{"primary":{"used_percent":5.0,"window_minutes":10080,"resets_at":1795252211}}`))
+		before := time.Date(2026, 11, 26, 9, 0, 0, 0, time.UTC)
+		os.Chtimes(path, before, before)
+	}
+	reading, err := ReadLogs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reading.Windows[0].UsedPercent != 85 {
+		t.Fatalf("windows = %+v, want the resumed session's 85%%", reading.Windows)
+	}
+}

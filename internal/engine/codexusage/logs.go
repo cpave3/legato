@@ -28,15 +28,11 @@ func SessionsDir(getenv func(string) string, home string) string {
 	return filepath.Join(home, ".codex", "sessions")
 }
 
-// dayFolders bounds how many day folders are looked through, newest first:
-// a session resumed from an older day is still found by its file's time.
-const dayFolderLimit = 60
-
 // ReadLogs returns the newest rate limits Codex wrote into the rollout
 // files under root (sessions/YYYY/MM/DD/rollout-*.jsonl), as of the event
 // that carried them. It looks at the most recently written files of every
-// recent day folder, since a resumed session keeps writing to its first
-// day's folder, and takes the newest event among them. It only reads, and
+// day folder, since a resumed session keeps writing to its first day's
+// folder however old, and takes the newest event among them. It only reads, and
 // only regular files.
 func ReadLogs(root string) (Reading, error) {
 	var newest Reading
@@ -58,15 +54,12 @@ type rollout struct {
 	mod  time.Time
 }
 
-// newestRollouts lists the most recently written rollout files of the
-// newest day folders, newest first.
+// newestRollouts lists the most recently written rollout files of every
+// day folder, newest first. Only their entries are read here (a stat
+// each); the files themselves are opened only for the newest few.
 func newestRollouts(root string, limit int) []string {
-	days := dayFolders(root)
-	if len(days) > dayFolderLimit {
-		days = days[:dayFolderLimit]
-	}
 	var files []rollout
-	for _, day := range days {
+	for _, day := range dayFolders(root) {
 		entries, err := os.ReadDir(day)
 		if err != nil {
 			continue

@@ -38,7 +38,7 @@ Neither source is a published API. Every answer the readers do not understand is
     - no window → `ErrNoData`;
     - no `codex` command → `ErrCodexMissing`.
 - **`ReadLogs(root)`** reads the session logs.
-  - It reads the last `rate_limits` of `event_msg`/`token_count` lines (snake_case: `used_percent`, `window_minutes`, `resets_at`, `credits.has_credits`) in the 10 most recently written `rollout-*.jsonl` files of the newest 60 day folders under `sessions/YYYY/MM/DD`, reading the last 512 KiB of each, and takes the newest event among them: a resumed session keeps writing to its first day's folder.
+  - It reads the last `rate_limits` of `event_msg`/`token_count` lines (snake_case: `used_percent`, `window_minutes`, `resets_at`, `credits.has_credits`) in the 10 most recently written `rollout-*.jsonl` files of every day folder under `sessions/YYYY/MM/DD` (each folder listed and its files stat'ed, never opened), reading the last 512 KiB of each, and takes the newest event among them: a resumed session keeps writing to its first day's folder.
   - `AsOf` is the event's `timestamp`.
   - `SessionsDir` is `$CODEX_HOME/sessions`, else `~/.codex/sessions`.
 - **`Classify(minutes)`** names a window by its length:
