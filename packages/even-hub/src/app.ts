@@ -13,7 +13,7 @@ import {
   type EvenHubEvent,
 } from "@evenrealities/even_hub_sdk"
 import { APPROVAL_BODY_LINES, approvalPage, approvalsPage, decisionPage, type ApprovalPage, type Decision } from "./approvals"
-import { ENDED, agentPage, dictationPage, entryPage, followEntry, type Dictation, type FeedItem, type FeedPage, type TextPage } from "./agent"
+import { ENDED, agentPage, dictationPage, entryPage, entryShift, followEntry, sameEntry, type Dictation, type FeedItem, type FeedPage, type TextPage } from "./agent"
 import { ALERT_WIDTH, COUNTS_WIDTH, background, type BackgroundPage } from "./background"
 import { glance, type Screen, type Tab } from "./glance"
 import {
@@ -389,8 +389,11 @@ const freshness = (v: Reading) => ({ readAt: v.readAt, problem: v.problem, now: 
 // follow what it shows (a reply growing, a call ending), so an open entry is
 // as live as the feed.
 function tookFeed(v: AgentView, read: ConversationResult | undefined): void {
+  const before = v.read
   took(v, read)
-  if (v.entry && read?.ok) v.entry = followEntry(v.entry, agentPage(v.agent, v.read))
+  if (!v.entry || !read?.ok) return
+  const shift = before?.ok ? entryShift(before.conversation, read.conversation) : undefined
+  v.entry = followEntry(v.entry, agentPage(v.agent, v.read), shift)
 }
 
 // The item a list press chose among the items shown: the one at its index
@@ -802,7 +805,8 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient, o
 
   async function onPress(kind: "click" | "double" | "hold", event: EvenHubEvent, at: Seen): Promise<void> {
     if (view !== at.view) return
-    if (view.kind === "agent" && (view.dictation?.step !== at.step || view.entry !== at.entry)) return
+    // An entry a read followed since is still the entry the press was made on.
+    if (view.kind === "agent" && (view.dictation?.step !== at.step || !sameEntry(view.entry, at.entry))) return
     if (view.kind === "reeve" && view.dictation?.step !== at.step) return
     if (view.kind === "approval" && view.decision?.step !== at.step) return
     if (view.kind === "approvals") return onApprovalsPress(kind, event, at)

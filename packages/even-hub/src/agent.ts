@@ -111,24 +111,39 @@ function item(e: Entry): FeedItem {
   }
 }
 
-// The keys of the conversation's entries: what does not change while an
-// entry updates (its kind, its tool, its text, which for a call says what it
-// is for), and how many entries before it read the same.
-function entryKeys(entries: Entry[]): string[] {
-  const seen = new Map<string, number>()
-  return entries.map((e) => {
-    const same = `${e.kind} ${JSON.stringify([e.tool ?? "", e.text])}`
-    const n = seen.get(same) ?? 0
-    seen.set(same, n + 1)
-    return `${same} #${n}`
-  })
-}
+// An entry's key is where it is in the conversation as read (the newest
+// CONVERSATION_ENTRIES of it, so every entry moves up as the oldest leave)
+// and its kind: "#<index> <kind>". entryShift says how far they moved between
+// two reads, which followEntry takes off the index.
+const entryKey = (i: number, e: Entry) => `#${i} ${e.kind}`
+const ENTRY_KEY = /^#(\d+) (\S*?)(:sub|:thought)?$/
 const SUB = ":sub"
 const THOUGHT = ":thought"
 const LIVE_THINKING = "live:thinking"
 const LIVE_REPLY = "live:reply"
 // Something the agent said, as an entry (not its thought).
-const said = (key: string | undefined) => !!key && key.startsWith("assistant ") && /#\d+$/.test(key)
+const said = (key: string | undefined) => !!key && /^#\d+ assistant$/.test(key)
+
+// What does not change while an entry updates: its kind, its tool, its text
+// (which for a call says what it is for) and its command; not a call's state.
+const signature = (e: Entry) => JSON.stringify([e.kind, e.tool ?? "", e.text, e.command ?? ""])
+
+// How many of the oldest entries `before` had are gone from `after`: the
+// least shift at which what is left of `before` reads as the start of
+// `after` (entries are only ever added at the end). Undefined when none
+// does, as when every entry `before` had is gone.
+export function entryShift(before: Conversation, after: Conversation): number | undefined {
+  const old = before.entries.map(signature)
+  const now = after.entries.map(signature)
+  for (let k = 0; k < old.length; k++) {
+    const overlap = Math.min(old.length - k, now.length)
+    if (overlap === 0) break
+    let same = true
+    for (let j = 0; j < overlap && same; j++) same = old[k + j] === now[j]
+    if (same) return k
+  }
+  return old.length === 0 ? 0 : undefined
+}
 
 // An entry's lines, newest first: what a subagent it started does now, the
 // entry, and the thought that led to its step.
@@ -170,18 +185,25 @@ export function agentPage(agent: Agent, read: ConversationResult | undefined, fr
   const live = read.conversation.live
   if (live?.thinking?.trim()) items.push({ text: line(`Thinking: ${live.thinking}`), detail: `Thinking\n\n${live.thinking.trim()}`, key: LIVE_THINKING })
   if (live?.reply?.trim()) items.push({ text: line(`Writing: ${live.reply}`), detail: `Agent, still writing\n\n${live.reply.trim()}`, key: LIVE_REPLY })
-  const keys = entryKeys(entries)
-  items.push(...entries.map((e, i) => lines(e, keys[i])).reverse().flat())
+  items.push(...entries.map((e, i) => lines(e, entryKey(i, e))).reverse().flat())
   return page(items.length ? items.slice(0, LIST_ITEMS) : [{ text: "Nothing said yet." }])
 }
 
 // An entry opened from the feed, as a newer read of the feed has it: the
-// line of the same key; for a subagent's line that has gone (the subagent is
-// done), the call that started it; for a reply being written that has gone,
-// the newest thing the agent said, which it became. Else the entry as it was.
-export function followEntry(opened: FeedItem, page: FeedPage): FeedItem {
-  const key = opened.key
+// line of the same key, an entry's index less `shift` (entryShift between the
+// read it was opened from and this one; undefined when they could not be
+// lined up, which leaves entries as they were); for a subagent's line that
+// has gone (the subagent is done), the call that started it; for a reply
+// being written that has gone, the newest thing the agent said, which it
+// became. Else the entry as it was.
+export function followEntry(opened: FeedItem, page: FeedPage, shift: number | undefined): FeedItem {
+  let key = opened.key
   if (!key) return opened
+  const at = ENTRY_KEY.exec(key)
+  if (at) {
+    if (shift === undefined) return opened
+    key = `#${Number(at[1]) - shift} ${at[2]}${at[3] ?? ""}`
+  }
   const find = (k: string) => page.items.find((i) => i.key === k)
   const found =
     find(key) ??
@@ -189,6 +211,9 @@ export function followEntry(opened: FeedItem, page: FeedPage): FeedItem {
     (key === LIVE_REPLY ? page.items.find((i) => said(i.key)) : undefined)
   return found ?? opened
 }
+
+// Whether two entries opened from the feed are the same line, read again or not.
+export const sameEntry = (a: FeedItem | undefined, b: FeedItem | undefined) => a === b || (!!a?.key && a.key === b?.key)
 
 // One entry of the feed in full.
 export function entryPage(agent: Agent, entry: FeedItem, fresh?: Freshness): TextPage {

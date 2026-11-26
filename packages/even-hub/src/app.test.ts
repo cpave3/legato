@@ -1520,6 +1520,44 @@ describe("an open page kept live", () => {
     expect(bridge.text("body")).toBe("Bash (done)\n\nRun the tests\n\npnpm test")
   })
 
+  it("takes a gesture queued behind a read that left the opened entry as it was", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(2, "▶ running  RUN-1 Build"))
+    await settle()
+    bridge.send(pick(0, "Agent: Working on it."))
+    await settle()
+
+    // The next read is held, and a double tap made meanwhile waits behind it.
+    const read = legato.client.conversation
+    let answer: () => void = () => {}
+    legato.client.conversation = (...args) => new Promise((done) => (answer = () => done(read(...args))))
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    bridge.send(doubleClick)
+    await settle()
+    answer()
+    await settle()
+    expect(bridge.feed()).toEqual(["Agent: Working on it."])
+  })
+
+  it("follows an opened call as the conversation's window slides past one that reads the same", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    const call = (state: string) => ({ kind: "tool", text: "Run the tests", tool: "Bash", command: "pnpm test", state })
+    const others = Array.from({ length: 18 }, (_, i) => ({ kind: "assistant", text: `Step ${i}.` }))
+    legato.conversation.entries = [call("done"), ...others, call("running")]
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(2, "▶ running  RUN-1 Build"))
+    await settle()
+    bridge.send(pick(0, "▶ Bash: Run the tests"))
+    await settle()
+
+    legato.conversation.entries = [...others, call("done"), { kind: "assistant", text: "All green." }]
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    expect(bridge.text("body")).toBe("Bash (done)\n\nRun the tests\n\npnpm test")
+  })
+
   it("keeps an opened entry as it was once the conversation no longer has it", async () => {
     const bridge = fakeBridge()
     const legato = fakeLegato(someAgents)
