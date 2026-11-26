@@ -67,10 +67,7 @@ func usageReaders(cfg *config.Config) []service.SubscriptionUsageReader {
 // processes.
 func subscriptionUsageFor(cfg *config.Config, db *store.Store, bus *events.Bus) *service.SubscriptionUsageService {
 	readers := usageReaders(cfg)
-	if len(readers) == 0 {
-		return nil
-	}
-	return service.NewSubscriptionUsageService(service.SubscriptionUsageOptions{
+	usage := service.NewSubscriptionUsageService(service.SubscriptionUsageOptions{
 		Store:        db,
 		Readers:      readers,
 		PollInterval: cfg.Usage.PollIntervalDuration(),
@@ -80,6 +77,11 @@ func subscriptionUsageFor(cfg *config.Config, db *store.Store, bus *events.Bus) 
 		},
 		Forward: func() { ipc.Broadcast(ipc.Message{Type: ipcUsageRefresh}) },
 	})
+	attachUsagePolicy(cfg, db, usage, func() {
+		bus.Publish(events.Event{Type: events.EventSubscriptionUsageChanged, At: time.Now()})
+		ipc.Broadcast(ipc.Message{Type: ipcUsageChanged})
+	})
+	return usage
 }
 
 // usageClaimRetry is how often a process that does not poll tries to take
@@ -104,6 +106,11 @@ func startSubscriptionUsage(cfg *config.Config, usage *service.SubscriptionUsage
 			return
 		}
 		defer release()
+		if value, ok := usagePolicyHosts.Load(usageDirectory(cfg)); ok {
+			host := value.(*usagePolicyHost)
+			host.owner.Store(true)
+			defer host.owner.Store(false)
+		}
 		pollSubscriptionUsage(ctx, usage, bus)
 	}()
 	var once sync.Once
@@ -136,7 +143,7 @@ func awaitUsagePoller(ctx context.Context, dir string) func() {
 // pollSubscriptionUsage runs the poller and answers other processes'
 // refresh requests until ctx ends.
 func pollSubscriptionUsage(ctx context.Context, usage *service.SubscriptionUsageService, bus *events.Bus) {
-	requests, unsubscribe := bus.SubscribeInvalidations(events.EventSubscriptionUsageRefreshRequested)
+	requests, unsubscribe := bus.SubscribeInvalidations(events.EventSubscriptionUsageRefreshRequested, events.EventSettingsChanged)
 	defer unsubscribe()
 	var wg sync.WaitGroup
 	wg.Add(1)

@@ -1,6 +1,6 @@
 ---
 title: Subscription usage
-description: See how much of your Claude and Codex subscriptions' usage limits you have used, and when each limit resets.
+description: See subscription limits and select defaults for new work with usage profiles, rules and pins.
 sidebar:
   order: 25
 ---
@@ -66,7 +66,7 @@ A subscription is **unavailable** when there is no reading to show. The card say
 
 ## Turning it off
 
-Each subscription can be turned off in Settings › Agents › Subscription usage, or in `config.yaml`:
+Each subscription can be turned off in Settings › Usage › Subscription usage, or in `config.yaml`:
 
 ```yaml
 usage:
@@ -78,3 +78,83 @@ usage:
 ```
 
 Off, Legato never asks that service. See the [configuration reference](/legato/reference/configuration/#subscription-usage).
+
+## Profiles and rules
+
+A **usage profile** sets the default agent and optional tier for new work. It can also set a reviewer agent and tier for new review passes. A **usage rule** selects a profile when a subscription meter reaches a threshold. For example, switch away from Claude at 90% weekly usage, then return after its reset.
+
+In **Settings › Usage**, add profiles and rules with the typed forms, then choose a fallback profile. Profiles choose existing adapter tiers, never raw model names. Set up the tiers first. This example assumes both tiers already exist under their adapters:
+
+```yaml
+usage:
+  profiles:
+    - name: usual
+      agent: claude-code
+      tier: standard
+    - name: spare
+      agent: chimera
+      tier: codex
+      reviewer:
+        agent: claude-code
+        tier: standard
+  rules:
+    - name: claude-weekly-high
+      order: 10
+      meter: claude.weekly
+      at_least: 90
+      profile: spare
+  fallback_profile: usual
+```
+
+Each rule needs a name, an explicit `order`, a `meter`, `at_least` (1–100 inclusive) and a profile. Lower orders come first; names break ties. The first matching rule wins. The six meters are:
+
+- `claude.five_hour`
+- `claude.weekly`
+- `claude.weekly_opus`
+- `claude.weekly_sonnet`
+- `codex.five_hour`
+- `codex.weekly`
+
+Only fresh, available readings can trigger a rule. Once triggered, a rule holds until its **captured reset time** has passed and a fresh reading dated at or after that reset is below its threshold. An old low reading or the clock passing the reset alone does not release it.
+
+When no rule matches, Legato uses the fallback profile. With no fallback set, it uses your usual configured defaults. Missing or stale readings hold the current defaults instead of forcing a switch back. Turning readers off does not hide the policy or its pin controls.
+
+The Usage card shows the active profile, why it was selected, when it took effect and recent switches. A switch, including a return to the fallback, adds an informational [Attention item](/legato/using/attention/). `notifications.usage` is on by default and controls switch notifications through your configured ntfy and desktop notifications; turning it off does not turn off the rules or Attention items.
+
+:::note
+If a profile needs a tier saved since Legato started, Usage can show a restart-required error and keep the previous defaults. Choose when to restart Legato to install that tier into its running adapter. Policy never restarts Legato for you.
+:::
+
+### What changes
+
+Profiles apply only to **new work with no explicit agent**: web, TUI, CLI, MCP, macros, worker handoffs and workflow `agent.run` steps. An explicit agent ignores the whole profile, including its tier. If you give a tier but leave the agent unset, your tier is retained.
+
+Resuming a conversation keeps the agent kind of that slot's newest saved conversation, even after a profile switch. Running agents, started runs and in-flight review passes do not change. Swarm roles, the learning curator, the Reeve and doctor do not follow this policy.
+
+Each new review pass reads the profile's optional reviewer defaults; an explicit reviewer override on its loop or handoff still wins. The pass saves its resolved choice, so retries keep it. Older loops keep their frozen reviewer settings.
+
+## Pinning a profile
+
+Open the Usage card's pin controls to keep a profile regardless of the rules: until you unpin it, until a time, or until a meter resets. The CLI offers the same choices:
+
+```bash
+legato usage pin spare
+legato usage pin spare --until 2026-12-01T18:00:00Z
+legato usage pin spare --until-reset claude.weekly
+legato usage unpin
+```
+
+`--until` takes a future RFC3339 time with a time zone. `--until-reset` takes one of the six qualified meters above, requires a fresh reading with a known future reset, and captures that reset time. Choose only one expiry. With neither, the pin is indefinite. Expiry or unpinning evaluates the rules again; a rule's reset hold still applies.
+
+Pinning works with readers off, except that an until-reset pin needs a fresh reset reading. Pin changes are confirmed by the one process that owns usage policy. A refusal or timeout is an error, not a successful pin. Scripts can use `PUT /api/usage/pin` with `{ "profile": "spare" }`, optionally `until` or `until_reset`, and `DELETE /api/usage/pin` to unpin.
+
+## After deployment
+
+This is an operator follow-up, not an automatic settings migration:
+
+1. Configure profiles, rules and fallback, then check the active choice and reason in Usage.
+2. Remove **only temporary explicit Chimera choices** from workflows and macros that were added to work around the lack of usage policy. Remove their corresponding unwanted tool-specific tier too. Keep intentional explicit choices.
+3. Check those workflows' remembered input defaults for the same temporary choices. A remembered explicit agent or tier still affects new work.
+4. Leave started runs and agents unchanged. Restart only when you choose to apply a tier that Usage says is not installed yet.
+
+This does not change subscription sources, provider accounts or live settings by itself.

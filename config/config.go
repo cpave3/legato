@@ -282,6 +282,8 @@ type NotificationsConfig struct {
 	// was lost on its worker, and a worker that no longer accepts this
 	// main or has been unreachable for 15 minutes. Default true.
 	Handoff *bool `yaml:"handoff"`
+	// Usage notifies on usage profile switches. Default true.
+	Usage *bool `yaml:"usage" json:"usage"`
 }
 
 // ApprovalsEnabled reports whether new approvals send a notification.
@@ -293,6 +295,11 @@ func (n NotificationsConfig) ApprovalsEnabled() bool {
 // tasks and workers.
 func (n NotificationsConfig) HandoffEnabled() bool {
 	return n.Handoff == nil || *n.Handoff
+}
+
+// UsageEnabled reports whether usage profile switches send a notification.
+func (n NotificationsConfig) UsageEnabled() bool {
+	return n.Usage == nil || *n.Usage
 }
 
 // OSNotificationsConfig holds OS-native desktop notification settings.
@@ -674,6 +681,9 @@ func validate(cfg *Config) error {
 	}
 	if err := checkUsagePollInterval(cfg.Usage.PollInterval); err != nil {
 		return fmt.Errorf("usage.poll_interval: %w", err)
+	}
+	if err := ValidateUsageProfiles(cfg); err != nil {
+		return err
 	}
 	if err := ValidateLearningConfig(cfg); err != nil {
 		return err
@@ -1217,17 +1227,20 @@ type UpdatesConfig struct {
 
 // UsageConfig is reading the subscriptions' usage limits.
 type UsageConfig struct {
-	Claude UsageProviderConfig `yaml:"claude"`
-	Codex  UsageProviderConfig `yaml:"codex"`
+	Profiles        []UsageProfile      `yaml:"profiles" json:"profiles"`
+	Rules           []UsageRule         `yaml:"rules" json:"rules"`
+	FallbackProfile string              `yaml:"fallback_profile" json:"fallback_profile"`
+	Claude          UsageProviderConfig `yaml:"claude" json:"claude"`
+	Codex           UsageProviderConfig `yaml:"codex" json:"codex"`
 	// PollInterval is how often each is read: a Go duration of at least
 	// MinUsagePollInterval, DefaultUsagePollInterval when empty.
-	PollInterval string `yaml:"poll_interval"`
+	PollInterval string `yaml:"poll_interval" json:"poll_interval"`
 }
 
 // UsageProviderConfig is whether one provider's usage is read.
 type UsageProviderConfig struct {
 	// Enabled is true when unset.
-	Enabled *bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enabled" json:"enabled"`
 }
 
 // IsEnabled says whether the provider's usage is read.

@@ -44,7 +44,7 @@ var forwardedCommands = map[string][]string{
 	// agent sees the host's tools, which its sandbox hides by design.
 	"doctor": {""},
 	// usage too: the subscriptions' usage is read on the host only.
-	"usage": {""},
+	"usage": {"", "pin", "unpin"},
 }
 
 // forwardedEnv is what the host takes of the agent's environment: values

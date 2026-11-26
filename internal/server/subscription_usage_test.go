@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
@@ -143,6 +144,46 @@ func TestUsageChangesAreBroadcast(t *testing.T) {
 			}
 		case <-time.After(2 * time.Second):
 			t.Fatalf("event %v was not broadcast", kind)
+		}
+	}
+}
+
+func TestUsagePinAPIKeepsAndClearsAnOperatorPin(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.New(filepath.Join(t.TempDir(), "pin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	usage := service.NewSubscriptionUsageService(service.SubscriptionUsageOptions{Store: db})
+	policy := service.NewUsagePolicyService(service.UsagePolicyOptions{Store: db, Config: func(context.Context) (config.UsageConfig, error) {
+		return config.UsageConfig{Profiles: []config.UsageProfile{{Name: "save", Agent: "chimera"}}}, nil
+	}, Readings: usage.ReadingsSnapshot})
+	usage.SetPolicy(policy, policy.Pin)
+	srv := New(nil, nil, nil, ":0")
+	srv.SetSubscriptionUsage(usage)
+	for _, step := range []struct {
+		method, body string
+		want         int
+		pin          bool
+	}{
+		{"PUT", `{"profile":"missing"}`, 400, false},
+		{"PUT", `{"profile":"save","until":"2020-01-01T00:00:00Z"}`, 400, false},
+		{"PUT", `{"profile":"save","unknown":true}`, 400, false},
+		{"PUT", `{"profile":"save"}`, 200, true},
+		{"DELETE", "", 200, false},
+	} {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(step.method, "/api/usage/pin", strings.NewReader(step.body)))
+		if rec.Code != step.want {
+			t.Fatalf("%s %s = %d %s", step.method, step.body, rec.Code, rec.Body.String())
+		}
+		snap, err := usage.Snapshot(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (snap.Policy.Active.Pin != nil) != step.pin {
+			t.Fatalf("pin = %+v", snap.Policy.Active.Pin)
 		}
 	}
 }

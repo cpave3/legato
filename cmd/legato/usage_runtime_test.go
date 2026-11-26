@@ -43,8 +43,8 @@ func TestUsageReadersFollowTheSettings(t *testing.T) {
 		t.Fatalf("codex off: readers = %v", got)
 	}
 	cfg.Usage.Claude.Enabled = &off
-	if subscriptionUsageFor(cfg, nil, nil) != nil {
-		t.Fatal("a service with both providers off")
+	if subscriptionUsageFor(cfg, nil, nil) == nil {
+		t.Fatal("policy must remain visible with both providers off")
 	}
 }
 

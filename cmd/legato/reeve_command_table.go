@@ -193,10 +193,12 @@ var legatoCommandClasses = map[string]legatoCommandClass{
 	"config import": {"change", "Propose importing settings"},
 
 	// Legato itself.
-	"restart": {"risky", "Restart Legato"},
-	"version": {"read", "Show Legato's version"},
-	"doctor":  {"read", "Check what Legato needs from this machine"},
-	"usage":   {"read", "Show the subscriptions' usage limits"},
-	"setup":   {"never", "Set Legato up in a terminal"},
-	"pair":    {"never", "Pair a device or a main instance"},
+	"restart":     {"risky", "Restart Legato"},
+	"version":     {"read", "Show Legato's version"},
+	"doctor":      {"read", "Check what Legato needs from this machine"},
+	"usage":       {"read", "Show the subscriptions' usage limits"},
+	"usage pin":   {"change", "Pin defaults to a usage profile"},
+	"usage unpin": {"change", "Remove the usage profile pin"},
+	"setup":       {"never", "Set Legato up in a terminal"},
+	"pair":        {"never", "Pair a device or a main instance"},
 }

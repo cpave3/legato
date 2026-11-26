@@ -442,9 +442,11 @@ func commandTree() *commandDef {
 		leaf("doctor", "Check what Legato needs from this machine, and say how to fix what is missing", runDoctorCmd, nil,
 			[]commandFlag{boolFlag("online", "Also ask GitHub whether gh's token works (uses the network)"), jsonFlag},
 			"legato doctor", "legato doctor --online --json"),
-		leaf("usage", "Show how much of the Claude and Codex subscriptions' usage limits is used", runUsageCmd, nil,
+		commandGroup("usage", "Show subscription usage and control profile defaults", runUsageCmd, nil,
 			[]commandFlag{boolFlag("refresh", "Read the usage now instead of showing the last reading"), jsonFlag},
-			"legato usage", "legato usage --refresh --json"),
+			[]string{"legato usage", "legato usage --refresh --json"},
+			leaf("pin", "Pin defaults to a usage profile", func(a []string) int { return runUsagePinCmd("pin", a) }, []argumentDef{arg("profile", "Usage profile name")}, []commandFlag{valueFlag("until", "RFC3339", "Pin until a time with a time zone"), valueFlag("until-reset", "meter", "Pin until a known future meter reset"), jsonFlag}, "legato usage pin conserve --until-reset claude.weekly"),
+			leaf("unpin", "Remove the usage profile pin", func(a []string) int { return runUsagePinCmd("unpin", a) }, nil, []commandFlag{jsonFlag}, "legato usage unpin")),
 		leaf("version", "Print the version of this Legato", runVersionCmd, nil, []commandFlag{jsonFlag}, "legato version", "legato version --json"),
 		leaf("pair", "Pair a device, or a main instance, with the Legato web UI", runPairContract, nil, []commandFlag{valueFlag("host", "host|ip", "Address this device uses to reach this specific Legato instance"), valueFlag("port", "port", "Server port"), boolFlag("main", "Pair a main instance that hands tasks to this Legato, instead of a phone"), jsonFlag}, "legato pair --host 192.168.1.20", "legato pair --main"),
 	)

@@ -68,7 +68,7 @@ func handleServeIPCMessage(msg ipc.Message, bus *events.Bus, srv serveNotifier) 
 		case "task_update":
 			bus.Publish(events.Event{Type: events.EventCardUpdated, At: time.Now()})
 		}
-	case "review_changed", "plan_changed", "agent_ui_changed", "approval_changed", "mqtt_changed", "server_theme_changed", "scope_changed", "operator_items_changed", ipcUsageChanged, ipcUsageRefresh:
+	case "review_changed", "plan_changed", "agent_ui_changed", "approval_changed", "mqtt_changed", "server_theme_changed", "scope_changed", "operator_items_changed", ipcUsageChanged, ipcUsageRefresh, ipcUsagePin:
 		handleIPCMessage(msg, bus, nil)
 	case "agent_stage_changed":
 		handleIPCMessage(msg, bus, nil)
@@ -89,6 +89,8 @@ func handleIPCMessage(msg ipc.Message, bus *events.Bus, wn webNotifier) {
 		bus.Publish(events.Event{Type: events.EventServerThemeInvalidated, At: time.Now()})
 	case "mqtt_changed":
 		bus.Publish(events.Event{Type: events.EventMQTTInvalidated, At: time.Now()})
+	case ipcUsagePin:
+		go handleUsagePinIPC(msg)
 	case ipcUsageChanged:
 		// The process that polls kept a subscription usage reading.
 		bus.Publish(events.Event{Type: events.EventSubscriptionUsageInvalidated, At: time.Now()})

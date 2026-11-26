@@ -108,11 +108,13 @@ var registry = []Setting{
 	{Key: "agents.sandbox.docker.publish", Title: "Published ports bind to", Help: "loopback puts every published port on 127.0.0.1, which agents still reach; any binds what the agent asks for.", Kind: KindEnum, Enum: []string{"loopback", "any"}, Class: ClassRisky, Mode: ModeRestart},
 
 	// Subscription usage.
+	{Key: "usage.fallback_profile", Title: "Fallback profile", Help: "The usage profile for new work when no usage rule matches. Empty keeps the usual defaults.", Kind: KindString, Class: ClassChange, Mode: ModeLive},
 	{Key: "usage.claude.enabled", Title: "Claude", Help: "Reads how much of your Claude subscription's 5-hour and weekly limits you have used, with Claude Code's login. Off, Legato never asks.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "usage.codex.enabled", Title: "Codex", Help: "Reads how much of your ChatGPT account's Codex limits you have used, through the codex command or its session logs. Off, Legato never asks.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "usage.poll_interval", Title: "Read usage every", Help: "How often Legato reads each subscription's usage. At least 2m.", DefaultLabel: "5m", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart, Check: checkUsagePollInterval},
 
 	// Notifications.
+	{Key: "notifications.usage", Title: "Usage profile switches", Help: "Notifies you when the active usage profile changes.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
 	{Key: "notifications.ntfy.url", Title: "ntfy server", Help: "The ntfy server that relays notifications to your phone.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "notifications.ntfy.topic", Title: "Topic", Help: "The topic to publish to; pick one nobody could guess. Empty, no phone notifications are sent.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "notifications.os.enabled", Title: "On this computer's desktop", Help: "Shows notifications on the desktop of the machine Legato runs on, through notify-send or osascript.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
@@ -624,7 +626,7 @@ func pointerDefault(key string, field reflect.Value) any {
 		return RailGroupDefault(group)
 	}
 	switch key {
-	case "notifications.approvals", "notifications.handoff", "agents.sandbox.default_mounts", "reeve.host_operations", "reeve.voice.partials", "reeve.watch.started",
+	case "notifications.approvals", "notifications.handoff", "notifications.usage", "agents.sandbox.default_mounts", "reeve.host_operations", "reeve.voice.partials", "reeve.watch.started",
 		"web.discovery", "credential_channels.gh.isolate_login", "usage.claude.enabled", "usage.codex.enabled":
 		return true
 	}

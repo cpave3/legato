@@ -98,6 +98,8 @@ var routeClassTable = []routeClassEntry{
 	{"PUT", "/api/setup/dismissed", ClassChange, "Hide the setup checklist, or bring it back"},
 	{"GET", "/api/updates", ClassRead, "Read the update status"},
 	{"GET", "/api/usage", ClassRead, "Read how much of the Claude and Codex subscriptions' usage limits is used"},
+	{"PUT", "/api/usage/pin", ClassChange, "Pin usage defaults to a profile"},
+	{"DELETE", "/api/usage/pin", ClassChange, "Remove the usage profile pin"},
 	{"POST", "/api/usage/refresh", ClassRead, "Read the subscriptions' usage again now"},
 	{"POST", "/api/updates/check", ClassRead, "Check for a new release"},
 	{"POST", "/api/updates/apply", ClassRisky, "Install an update and restart Legato"},
