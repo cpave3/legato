@@ -82,41 +82,72 @@ func subscriptionUsageFor(cfg *config.Config, db *store.Store, bus *events.Bus) 
 	})
 }
 
+// usageClaimRetry is how often a process that does not poll tries to take
+// usage.lock over, so polling goes on when the process holding it ends.
+var usageClaimRetry = time.Minute
+
 // startSubscriptionUsage polls in the one process of the data folder that
-// holds usage.lock; elsewhere it does nothing, and the service serves what
-// that process keeps.
+// holds usage.lock. A process that cannot take it serves what the holder
+// keeps, and keeps trying, so it takes the poller over when the holder
+// ends.
 func startSubscriptionUsage(cfg *config.Config, usage *service.SubscriptionUsageService, bus *events.Bus) func() {
 	if usage == nil {
 		return func() {}
 	}
-	release, err := claimUsagePoller(config.ResolveDataDir(cfg))
-	if err != nil {
-		log.Print("subscription usage: another process reads it")
-		return func() {}
-	}
+	dir := config.ResolveDataDir(cfg)
 	ctx, cancel := context.WithCancel(context.Background())
-	requests, unsubscribe := bus.SubscribeInvalidations(events.EventSubscriptionUsageRefreshRequested)
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { defer wg.Done(); usage.Run(ctx) }()
+	done := make(chan struct{})
 	go func() {
-		defer wg.Done()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-requests:
-				usage.Refresh(ctx)
-			}
+		defer close(done)
+		release := awaitUsagePoller(ctx, dir)
+		if release == nil {
+			return
 		}
+		defer release()
+		pollSubscriptionUsage(ctx, usage, bus)
 	}()
 	var once sync.Once
-	return func() {
-		once.Do(func() {
-			cancel()
+	return func() { once.Do(func() { cancel(); <-done }) }
+}
+
+// awaitUsagePoller takes usage.lock, trying again every usageClaimRetry;
+// nil when ctx ends first.
+func awaitUsagePoller(ctx context.Context, dir string) func() {
+	logged := false
+	for {
+		if release, err := claimUsagePoller(dir); err == nil {
+			if logged {
+				log.Print("subscription usage: took over reading it")
+			}
+			return release
+		}
+		if !logged {
+			log.Print("subscription usage: another process reads it; taking over when it stops")
+			logged = true
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(usageClaimRetry):
+		}
+	}
+}
+
+// pollSubscriptionUsage runs the poller and answers other processes'
+// refresh requests until ctx ends.
+func pollSubscriptionUsage(ctx context.Context, usage *service.SubscriptionUsageService, bus *events.Bus) {
+	requests, unsubscribe := bus.SubscribeInvalidations(events.EventSubscriptionUsageRefreshRequested)
+	defer unsubscribe()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done(); usage.Run(ctx) }()
+	for {
+		select {
+		case <-ctx.Done():
 			wg.Wait()
-			unsubscribe()
-			release()
-		})
+			return
+		case <-requests:
+			usage.Refresh(ctx)
+		}
 	}
 }

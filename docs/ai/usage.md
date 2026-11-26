@@ -38,7 +38,7 @@ Neither source is a published API. Every answer the readers do not understand is
     - no window → `ErrNoData`;
     - no `codex` command → `ErrCodexMissing`.
 - **`ReadLogs(root)`** reads the session logs.
-  - It takes the newest `rate_limits` of `event_msg`/`token_count` lines (snake_case: `used_percent`, `window_minutes`, `resets_at`, `credits.has_credits`). It tries the 10 newest `rollout-*.jsonl` files under `sessions/YYYY/MM/DD`, reading the last 512 KiB of each.
+  - It reads the last `rate_limits` of `event_msg`/`token_count` lines (snake_case: `used_percent`, `window_minutes`, `resets_at`, `credits.has_credits`) in the 10 most recently written `rollout-*.jsonl` files of the newest 60 day folders under `sessions/YYYY/MM/DD`, reading the last 512 KiB of each, and takes the newest event among them: a resumed session keeps writing to its first day's folder.
   - `AsOf` is the event's `timestamp`.
   - `SessionsDir` is `$CODEX_HOME/sessions`, else `~/.codex/sessions`.
 - **`Classify(minutes)`** names a window by its length:
@@ -46,6 +46,7 @@ Neither source is a published API. Every answer the readers do not understand is
   - a week less an hour or more → `weekly`;
   - anything else → dropped.
   - Primary and secondary are not fixed lengths: the ticket's sample had a weekly primary and no secondary.
+- Both packages open files in folders a sandboxed agent can write (`.claude`, `.codex`) without blocking, and read them only when the opened descriptor is a regular file (`openRegular`), so a FIFO cannot hang the host's poll or its shutdown.
 - Chimera's Codex models are assumed to use the same ChatGPT account as the Codex CLI (the Reeve's decision, LEG-659). If they do not, a Chimera-side source is needed.
 
 ## The service: `internal/service/subscription_usage.go`
@@ -77,7 +78,7 @@ Neither source is a published API. Every answer the readers do not understand is
 
 - `usageReaders` follows `usage.claude.enabled` and `usage.codex.enabled` (both on when unset).
 - `subscriptionUsageFor` builds the service on a store. It returns nil with both providers off.
-- `startSubscriptionUsage` runs the poller in the one process of a data folder that holds `<data_dir>/usage.lock` (flock, like `mqtt.lock`). Elsewhere it does nothing.
+- `startSubscriptionUsage` runs the poller in the one process of a data folder that holds `<data_dir>/usage.lock` (flock, like `mqtt.lock`). A process that cannot take the lock serves the cache and tries again every `usageClaimRetry` (a minute), so it takes the poller over when the holder ends (`awaitUsagePoller`).
 - A kept reading publishes `EventSubscriptionUsageChanged` and broadcasts the IPC message `usage_changed`. Other processes publish `EventSubscriptionUsageInvalidated` for it. Both reach the web as the WebSocket message `usage_changed`.
 - A refresh asked in a process that does not poll broadcasts `usage_refresh`. That becomes `EventSubscriptionUsageRefreshRequested`, which only the poller listens to.
 - Serve and the TUI wire it. `legato usage` (`usage_cmd.go`) reads the cache.
