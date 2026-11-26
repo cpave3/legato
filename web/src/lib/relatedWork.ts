@@ -13,6 +13,18 @@ export function splitRelated(items: RelatedWorkItem[]): { inProgress: RelatedWor
   }
 }
 
+// mergeRelated joins the related work of two tasks, each item once, in the
+// order first seen.
+export function mergeRelated(...lists: RelatedWorkItem[][]): RelatedWorkItem[] {
+  const seen = new Set<string>()
+  return lists.flat().filter((item) => {
+    const key = `${item.kind}:${item.id}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 export function relatedStatusLabel(status: string): string {
   return status.replace(/_/g, " ")
 }

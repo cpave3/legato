@@ -277,10 +277,16 @@ it("opens the work related to the agent beside its chat, with a way to its card"
   await waitFor(() => expect(address()).toBe("/board?highlight_task=TASK-1"))
 })
 
-it("lists the workflow run of the card a workflow's agent works on, not of the run's own task it runs on", async () => {
+it("lists the workflow run of the card a workflow's agent works on, beside what it made on the task it runs on", async () => {
   selection.initial = "wf-run-task"
   activity.byTask = {
     "CARD-9": [{ kind: "workflow_run", id: "wr-1", title: "One-off", status: "running", href: "/workflows/runs/wr-1" }],
+    // What the agent itself made is kept on the task it runs on, as
+    // legato plan submit saves to LEGATO_TASK_ID; the run is on both.
+    "wf-run-task": [
+      { kind: "plan", id: "pl-1", title: "Triage plan", status: "proposed", href: "/plans/pl-1" },
+      { kind: "workflow_run", id: "wr-1", title: "One-off", status: "running", href: "/workflows/runs/wr-1" },
+    ],
   }
   mockFetch.mockImplementation((input: RequestInfo | URL) => {
     const path = String(input)
@@ -293,6 +299,7 @@ it("lists the workflow run of the card a workflow's agent works on, not of the r
   fireEvent.click(within(screen.getByRole("banner")).getByRole("button", { name: /Related work/ }))
   const panel = screen.getByRole("complementary", { name: "Related work" })
   expect(within(panel).getByRole("link", { name: /One-off/ }).getAttribute("href")).toBe("/workflows/runs/wr-1")
+  expect(within(panel).getByRole("link", { name: /Triage plan/ }).getAttribute("href")).toBe("/plans/pl-1")
 })
 
 it("closes the related work when Related is pressed again", async () => {

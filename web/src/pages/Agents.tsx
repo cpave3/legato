@@ -39,7 +39,7 @@ import { useSwarmEvents } from "../hooks/useSwarmEvents"
 import { useTaskActivity } from "../hooks/useTaskActivity"
 import { useRelatedAgents } from "../hooks/useRelatedAgents"
 import { useTaskCard } from "../hooks/useTaskCard"
-import { splitRelated } from "../lib/relatedWork"
+import { mergeRelated, splitRelated } from "../lib/relatedWork"
 import { apiFetch, toggleAgentNotify } from "../lib/api"
 import { canBeNative } from "../lib/agentKind"
 import { useAgentSelection } from "../hooks/useAgentSelection"
@@ -525,11 +525,15 @@ export function AgentsPage() {
     return Array.from(new Set(ids.filter((id): id is string => Boolean(id))))
       .filter((id) => !agents.find((agent) => agent.task_id === id)?.has_chimera_endpoint)
   }, [agents, conductor?.task_id, ensemble, selectedId, swarmMode])
-  // The card the agent's work is for: a workflow's agent runs on the run's
-  // own task, and a named slot's on an agent ID, so its related work is the
-  // card's.
+  // The card the agent's work is for. A workflow's agent runs on the run's
+  // own task, where what it makes (its plans, its reviews) is kept, so its
+  // related work is that task's and the card's together. A named slot's
+  // agent ID is no task: its slot's card is.
   const cardId = selectedAgent ? selectedAgent.attribution_task_id || selectedAgent.task_id : ""
-  const { items: relatedWork } = useTaskActivity(cardId)
+  const backingId = selectedAgent ? selectedAgent.card_task_id || selectedAgent.task_id : ""
+  const { items: cardWork } = useTaskActivity(cardId)
+  const { items: ownWork } = useTaskActivity(backingId === cardId ? "" : backingId)
+  const relatedWork = useMemo(() => mergeRelated(ownWork, cardWork), [ownWork, cardWork])
   const relatedAgents = useRelatedAgents(selectedId ?? "")
 
   useEffect(() => {

@@ -53,6 +53,18 @@ describe("useTaskActivity", () => {
     expect(workflow?.status).toBe("running")
   })
 
+  it("lists nothing once it is asked for no task", async () => {
+    mockSubscribe.mockImplementation(() => () => undefined)
+    mockFetch.mockResolvedValueOnce(activityResponse())
+
+    const { result, rerender } = renderHook(({ taskId }) => useTaskActivity(taskId), { initialProps: { taskId: "T-1" } })
+    await waitFor(() => expect(result.current.items.length).toBe(3))
+
+    rerender({ taskId: "" })
+    await waitFor(() => expect(result.current.items).toEqual([]))
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
   it("refetches when a plan_changed event arrives for the selected task", async () => {
     let handler: ((message: WSMessage) => void) | undefined
     mockSubscribe.mockImplementation((next) => { handler = next; return () => undefined })

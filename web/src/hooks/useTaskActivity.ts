@@ -26,8 +26,14 @@ export function useTaskActivity(taskId: string): AsyncState {
   const requestIdRef = useRef(0)
 
   const refresh = useCallback(async () => {
-    if (!taskId) return
     const requestId = ++requestIdRef.current
+    // No task has no related work: drop the last task's, and any answer
+    // still on its way for it.
+    if (!taskId) {
+      setItems([])
+      setLoading(false)
+      return
+    }
     try {
       setError(null)
       const activity = await fetchTaskActivity(baseUrl, taskId)
