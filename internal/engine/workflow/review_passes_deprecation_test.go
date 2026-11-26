@@ -255,3 +255,114 @@ func TestReviewPRPassesIsWithdrawnFromTheTemplates(t *testing.T) {
 		t.Fatalf("old copy = %+v, %v", definition, err)
 	}
 }
+
+// A reference inside an inline step's own with, to an earlier inline step's
+// output, is mapped in the rewritten inputs: the with's rewrite and the
+// reference's are one edit, and the file stays valid YAML.
+func TestUpgradeMapsAReferenceInsideARewrittenWith(t *testing.T) {
+	in := `schema_version: 2
+name: r
+title: R
+steps:
+  - id: a
+    title: A
+    type: github.pr.review_passes
+    with:
+      repo: acme/widget
+      pr_number: 12
+  - id: b
+    title: B
+    type: github.pr.review_passes
+    with:
+      repo: acme/widget
+      pr_number: 13
+      max_passes: ${{ steps.a.outputs.findings }}
+`
+	result, err := Upgrade("r.workflow.yaml", []byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(result.YAML)
+	want := "    with:\n      workflow: review-loop\n      inputs:\n        repo: acme/widget\n        pr_number: 13\n        max_passes: ${{ steps.a.outputs.findings.total }}\n"
+	if !strings.HasSuffix(text, want) || len(result.Notes) != 0 {
+		t.Fatalf("upgraded file:\n%s\nnotes %+v", text, result.Notes)
+	}
+	if _, diagnostics := Check("r.workflow.yaml", result.YAML); len(diagnostics) != 0 {
+		t.Fatalf("upgraded file: %+v", diagnostics)
+	}
+}
+
+// A reference resolves to the nearest step of its ID in its own scope, as
+// the engine reads it: a later step outside a loop that reuses the loop
+// body's inline step's ID is another step, and its outputs are not mapped.
+func TestUpgradeMapsOnlyTheReferencesThatReadTheRewrittenStep(t *testing.T) {
+	in := `schema_version: 2
+name: r
+title: R
+steps:
+  - id: each
+    title: Each
+    loop: {over: [12, 13]}
+    steps:
+      - id: review
+        title: Review
+        type: github.pr.review_passes
+        with:
+          repo: acme/widget
+          pr_number: ${{ loop.item }}
+      - id: tell
+        title: Tell
+        type: task.note
+        with:
+          text: "${{ steps.review.outputs.findings }} findings"
+  - id: review
+    title: Count
+    type: agent.run
+    with:
+      prompt: Count them.
+    outputs:
+      findings:
+        type: integer
+  - id: note
+    title: Note
+    type: task.note
+    with:
+      text: "${{ steps.review.outputs.findings }} counted"
+`
+	result, err := Upgrade("r.workflow.yaml", []byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(result.YAML)
+	if !strings.Contains(text, `text: "${{ steps.review.outputs.findings.total }} findings"`) ||
+		!strings.Contains(text, `text: "${{ steps.review.outputs.findings }} counted"`) || len(result.Notes) != 0 {
+		t.Fatalf("upgraded file:\n%s\nnotes %+v", text, result.Notes)
+	}
+}
+
+// The workflow's own outputs, written after its steps, read the steps'
+// last scope: a read of the inline step's findings there is mapped too.
+func TestUpgradeMapsTheWorkflowsOutputsAfterItsSteps(t *testing.T) {
+	in := `schema_version: 2
+name: r
+title: R
+steps:
+  - id: review
+    title: Review
+    type: github.pr.review_passes
+    with:
+      repo: acme/widget
+      pr_number: 12
+outputs:
+  count:
+    type: integer
+    value: ${{ steps.review.outputs.findings }}
+`
+	result, err := Upgrade("r.workflow.yaml", []byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := string(result.YAML); !strings.Contains(text, "value: ${{ steps.review.outputs.findings.total }}") {
+		t.Fatalf("upgraded file:\n%s\nnotes %+v", text, result.Notes)
+	}
+}
