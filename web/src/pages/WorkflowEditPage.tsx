@@ -532,7 +532,10 @@ export function WorkflowEditPage({ mode }: { mode: "new" | "edit" }) {
     body = <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
       {noticeList && <div className="mb-3 space-y-2">{noticeList}</div>}
       {visual
-        ? <section aria-label="Visual" className="pb-16"><LazyWorkflowOutline {...outlineProps} /></section>
+        ? <>
+          {showProblems && <section aria-label="Check" className="mb-3 rounded-xl border border-lw-line bg-lw-surface p-3"><Problems diagnostics={diagnostics} /></section>}
+          <section aria-label="Visual" className="pb-16"><LazyWorkflowOutline {...outlineProps} /></section>
+        </>
         : <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             {editable && <section aria-label="Navigator">

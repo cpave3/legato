@@ -8,10 +8,10 @@ import { WorkflowEditPage } from "../WorkflowEditPage"
 // outline's sections as cards docked on the left and the inspector docked
 // on the right, as on a workflow's page.
 
-const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
+const { apiFetch, media } = vi.hoisted(() => ({ apiFetch: vi.fn(), media: { narrow: false } }))
 vi.mock("../../lib/api", () => ({ apiFetch }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
-vi.mock("../../hooks/useMediaQuery", () => ({ useMediaQuery: () => false }))
+vi.mock("../../hooks/useMediaQuery", () => ({ useMediaQuery: (query: string) => query === "(max-width: 767px)" && media.narrow }))
 vi.mock("../../hooks/useWorkflow", () => ({ useWorkflows: () => ({ data: { definitions: [], errors: null, folders: [{ id: "global", label: "Your workflows", path: "/g" }], trigger_states: { flow: [{ trigger: "schedule", file_enabled: true, enabled: true, overridden: false }] } }, refresh: vi.fn() }) }))
 vi.mock("../../components/workflow-editor/LazyWorkflowYamlEditor", () => ({
   LazyWorkflowYamlEditor: ({ value, onChange, label = "Workflow YAML" }: { value: string; onChange: (v: string) => void; label?: string }) =>
@@ -44,6 +44,7 @@ steps:
 const graph = { version: 2, nodes: [{ id: "trigger:manual", kind: "trigger", trigger: { kind: "manual", summary: "Run by hand", enabled: true } }, { id: "trigger:schedule", kind: "trigger", trigger: { kind: "schedule", summary: "", enabled: true } }, { id: "step:prep", kind: "step", step: { id: "prep" } }, { id: "step:run", kind: "step", step: { id: "run" } }], edges: [] }
 const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }))
 let checks = true
+let diagnostics: { severity: string; message: string; line: number; column: number }[] = []
 
 beforeEach(() => {
   // jsdom has no CSS.escape, which j and k use to focus the next row.
@@ -51,9 +52,11 @@ beforeEach(() => {
   localStorage.clear()
   localStorage.setItem("legato:workflow-editor-mode", "visual")
   checks = true
+  diagnostics = []
+  media.narrow = false
   apiFetch.mockReset()
   apiFetch.mockImplementation((_: string, path: string) => {
-    if (path === "/api/workflow-files/check") return checks ? json({ definition: { name: "flow" }, graph, diagnostics: [] }) : new Promise(() => {})
+    if (path === "/api/workflow-files/check") return checks ? json({ definition: { name: "flow" }, graph, diagnostics }) : new Promise(() => {})
     if (path === "/api/workflows/flow/file") return json({ name: "flow", yaml: fileText, path: "/g/flow.yaml", folder: "global", digest: "sha256:old", editable: true })
     return json({}, 404)
   })
@@ -183,4 +186,25 @@ it("shows the problems as a card when the header's button is pressed", async () 
   renderAt()
   fireEvent.click(await screen.findByRole("button", { name: "No problems" }))
   expect(within(screen.getByRole("region", { name: "Problems" })).getByText("No problems")).toBeTruthy()
+})
+
+it("on a phone, the problems count shows the problems", async () => {
+  media.narrow = true
+  diagnostics = [{ severity: "error", message: "step run: prompt is required", line: 14, column: 5 }]
+  renderAt()
+  fireEvent.click(await within(await screen.findByRole("toolbar", { name: "Save" })).findByRole("button", { name: "1 problem" }))
+  const problems = await screen.findByRole("list", { name: "Problems" })
+  expect(problems.textContent).toContain("14:5")
+  expect(problems.textContent).toContain("step run: prompt is required")
+})
+
+it("keeps the page's confirmations when the text can't be shown as forms", async () => {
+  renderAt()
+  await node("step:run")
+  fireEvent.click(screen.getByRole("radio", { name: "YAML" }))
+  fireEvent.change(await screen.findByRole("textbox", { name: "Workflow YAML" }), { target: { value: "[]" } })
+  fireEvent.click(screen.getByRole("radio", { name: "Visual" }))
+  expect(await screen.findByText(/can't be shown as forms/)).toBeTruthy()
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }))
+  expect(await screen.findByRole("alertdialog", { name: "Delete the workflow" })).toBeTruthy()
 })

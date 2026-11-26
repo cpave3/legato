@@ -294,10 +294,18 @@ function Outline(props: WorkflowOutlineProps) {
   }, [text, onEdit])
 
   if (file) {
-    return <div role="alert" className="flex flex-col items-start gap-2 rounded-xl border border-lw-danger-line bg-lw-error-soft p-4 text-sm text-lw-danger">
+    const alert = <div role="alert" className="flex flex-col items-start gap-2 rounded-xl border border-lw-danger-line bg-lw-error-soft p-4 text-sm text-lw-danger">
       <p>{file.startsWith("the YAML does not parse") ? `The YAML doesn't parse, so it can't be shown here: ${file.replace(/^the YAML does not parse: /, "")}` : `This file can't be shown as forms: ${file}.`}</p>
       <Button size="sm" variant="outline" onClick={() => onEditYaml()}>Edit as YAML</Button>
     </div>
+    // On the canvas the page's notices and cards come through here: they
+    // stay, with the alert, when there is no outline to draw.
+    if (canvasOn) return <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+      {props.notices && <div className="flex max-w-xl flex-col gap-2">{props.notices}</div>}
+      {alert}
+      {props.cards && <div className="max-w-sm">{props.cards}</div>}
+    </div>
+    return alert
   }
 
   // A step that is not a mapping keeps its place, and is no one's reader.
