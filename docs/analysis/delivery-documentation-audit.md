@@ -1,6 +1,6 @@
 # Workflow delivery and review documentation audit
 
-Audited 2026-11-26 against the fresh job clone, rebased onto main `60b19e5a` before final validation. Scope: operator site, workflow schemas/catalog, built-in and bundled definitions, CLI/runtime ownership, review engine, steward and review-tour/packet boundaries. No product behavior, CI, live configuration or workflow files were changed.
+Audited 2026-11-26 against the fresh job clone, initially validated on main `60b19e5a`. After upstream #424/#426 merged, rebased once onto latest main `9678029a` (including #420). Scope: operator site, workflow schemas/catalog, built-in and bundled definitions, CLI/runtime ownership, review engine, steward and review-tour/packet boundaries. No product behavior, CI, live configuration or workflow files were changed.
 
 ## Coverage matrix
 
@@ -57,6 +57,10 @@ A second focused harness run passed seven output/safety tests (2.7 seconds): `Te
 ### Site and hygiene — passed
 
 `ASTRO_TELEMETRY_DISABLED=1 NODE_OPTIONS=--max-old-space-size=1536 pnpm -C site build`: 63 pages, all internal links/anchors valid. The first build caught the new composition link's incomplete anchor; corrected to `#calling-a-workflow-workflowrun`. `git diff --check` passes. No route, hotkey or schema generation was needed; schema drift checks confirm the existing published files are current.
+
+## Updated-base verification
+
+After #424/#426 merged, the documentation branch was rebased onto main `9678029a` without conflicts or duplicated upstream repairs. The same focused workflow parser/call/template/schema command passed again, and the docs build again produced 63 pages with all internal links valid. `git diff --check origin/main...HEAD` passed. No full suite ran locally; the new pushed head gets fresh CI. The earlier failed-base run was not retried. Settled CI results and inherited-failure ownership are recorded in the task note and PR discussion rather than generating new CI runs merely to update this report.
 
 ## Remaining limits
 
