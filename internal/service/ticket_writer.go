@@ -41,7 +41,8 @@ type TicketDraft struct {
 	Type     string
 	Priority string
 	Fields   map[string]any
-	// AssigneeID is the account ID to assign the issue to as it is made.
+	// AssigneeID is the account ID to assign the issue to as it is made;
+	// when empty, Jira's project default (or Fields' assignee) applies.
 	AssigneeID string
 	// Burnlite only.
 	Kind        string

@@ -294,3 +294,59 @@ func TestTicketUpdateOfATaskClaimedByAnother(t *testing.T) {
 		t.Fatalf("release %v: %v, %v", args, result.Outputs, err)
 	}
 }
+
+// Burnlite releases a Task's claim when it closes it, and refuses to claim
+// a closed Task: a step that closes a claimed task ends with no one, and
+// its retry finds it closed and changes nothing.
+func TestTicketUpdateThatClosesABurnliteTaskEndsUnclaimedAndRetriesCleanly(t *testing.T) {
+	db, ctx := ticketRun(t)
+	bl := newFakeBurnliteWrites(t)
+	bl.task("LEG-9", map[string]any{"state": "open", "stage": "building"})
+	step := NewTicketUpdateExecutor(db, bl.writer())
+	with := map[string]any{"key": "LEG-9", "assignee": "me", "status": "done"}
+	result, err := step.Start(ctx, updateStep("wa-1", with))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outputs["assignee"] != "" || result.Outputs["status"] != "done" || result.Outputs["changed"] != true {
+		t.Fatalf("outputs = %v", result.Outputs)
+	}
+	writes := len(bl.writes())
+	again, err := step.Start(ctx, updateStep("wa-2", with))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Outputs["changed"] != false || again.Outputs["assignee"] != "" || len(bl.writes()) != writes {
+		t.Fatalf("retry: %v, writes %v", again.Outputs, bl.writes())
+	}
+}
+
+func TestTicketUpdateDoesNotClaimAClosedBurnliteTask(t *testing.T) {
+	db, ctx := ticketRun(t)
+	bl := newFakeBurnliteWrites(t)
+	bl.task("LEG-9", map[string]any{"state": "closed", "stage": "done", "closeReason": "completed"})
+	step := NewTicketUpdateExecutor(db, bl.writer())
+	if _, err := step.Start(ctx, updateStep("wa-1", map[string]any{"key": "LEG-9", "assignee": "me"})); err == nil || !strings.Contains(err.Error(), "closed") {
+		t.Fatalf("err = %v", err)
+	}
+	result, err := step.Start(ctx, updateStep("wa-2", map[string]any{"key": "LEG-9", "assignee": "me", "optional": true}))
+	if w := warningsOf(t, result); err != nil || len(w) != 1 || result.Outputs["changed"] != false {
+		t.Fatalf("optional: %v, %v", result.Outputs, err)
+	}
+	if len(bl.writes()) != 0 {
+		t.Fatalf("writes = %v", bl.writes())
+	}
+}
+
+// Burnlite's internal error is an outage, not a refusal: optional does not
+// hide it.
+func TestOptionalTicketUpdateStillFailsOnABurnliteInternalError(t *testing.T) {
+	db, ctx := ticketRun(t)
+	bl := newFakeBurnliteWrites(t)
+	bl.task("LEG-9", map[string]any{"state": "open", "stage": "ready"})
+	bl.refuseTool = map[string]string{"get_task": "internal"}
+	_, err := NewTicketUpdateExecutor(db, bl.writer()).Start(ctx, updateStep("wa-1", map[string]any{"key": "LEG-9", "status": "building", "optional": true}))
+	if err == nil || !strings.Contains(err.Error(), "internal") {
+		t.Fatalf("err = %v", err)
+	}
+}

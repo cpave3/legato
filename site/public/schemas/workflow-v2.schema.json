@@ -5755,7 +5755,7 @@
       "description": "Create a Jira issue or a Burnlite task, with Legato's own Jira settings (jira.base_url, jira.email, jira.api_token) or its Burnlite connection: no agent sees the token. A retry returns the ticket the step already created instead of creating another.",
       "properties": {
         "assignee": {
-          "description": "me (Legato's own Jira user, of jira.email; Burnlite: a claim as legato), an email or a Jira account ID; unassigned when empty",
+          "description": "me (Legato's own Jira user, of jira.email; Burnlite: a claim as legato), an email or a Jira account ID; when empty, Jira's project default (or fields.assignee) applies and Burnlite does not claim",
           "type": "string",
           "x-legato": {
             "context": "with",

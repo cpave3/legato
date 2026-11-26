@@ -311,6 +311,10 @@ func newFakeBurnliteWrites(t *testing.T) *fakeBurnliteWrites {
 			}
 			switch name {
 			case "claim_task":
+				if f.tasks[key]["state"] == "closed" {
+					b, _ := json.Marshal(map[string]string{"code": "validation", "message": key + " is closed and cannot be claimed"})
+					return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil
+				}
 				f.tasks[key]["claim"] = map[string]any{"holder": args["holder"]}
 				return result(map[string]any{"claim": map[string]any{"holder": args["holder"]}}), nil
 			case "release_claim":
@@ -324,7 +328,8 @@ func newFakeBurnliteWrites(t *testing.T) *fakeBurnliteWrites {
 				if args["reason"] == "not_planned" {
 					stage = "dropped"
 				}
-				f.tasks[key]["state"], f.tasks[key]["stage"], f.tasks[key]["closeReason"] = "closed", stage, args["reason"]
+				// Closing releases the claim.
+				f.tasks[key]["state"], f.tasks[key]["stage"], f.tasks[key]["closeReason"], f.tasks[key]["claim"] = "closed", stage, args["reason"], nil
 				return result(map[string]any{"task": map[string]any{"key": key}}), nil
 			}
 			switch name {

@@ -90,22 +90,26 @@ func updaterFor(ctx context.Context, writers []TicketWriter, provider string) (T
 }
 
 // warnable says optional may make an error a warning: no such ticket, a
-// change the provider refused or cannot make. An outage, a timeout, or
-// credentials the provider refused never are, so on_failure and retries
-// still see them.
+// change the provider refused or cannot make. An outage, a timeout, a
+// provider's internal error, or credentials the provider refused never
+// are, so on_failure and retries still see them.
 func warnable(err error) bool {
 	var refusal *ticketRefusal
 	if errors.As(err, &refusal) || errors.Is(err, errTicketNotFound) {
 		return true
 	}
-	if errors.Is(err, burnlite.ErrUnauthorized) {
-		return false
-	}
 	var jiraErr *jira.APIError
-	if errors.As(err, &jiraErr) && jiraErr.Status == 401 {
-		return false
+	if errors.As(err, &jiraErr) {
+		return jiraErr.Status >= 400 && jiraErr.Status < 500 && jiraErr.Status != 401
 	}
-	return ticketRefused(err)
+	var toolErr *burnlite.Error
+	if errors.As(err, &toolErr) {
+		switch toolErr.Code {
+		case "not_found", "validation", "already_claimed", "conflict":
+			return true
+		}
+	}
+	return false
 }
 
 func (e *TicketUpdateExecutor) Start(ctx context.Context, step ResolvedWorkflowStep) (WorkflowExecutionResult, error) {
@@ -178,6 +182,10 @@ func (e *TicketUpdateExecutor) Start(ctx context.Context, step ResolvedWorkflowS
 
 	changed := false
 	switch {
+	case ticket.Closed && status != "":
+		// A closed Burnlite task holds no claim. With a status, MoveTo
+		// either finds it already there, as on the retry of a step that
+		// closed it, or refuses to reopen it.
 	case who != nil && ticket.Assignee.ID != who.ID:
 		if err := updater.Assign(ctx, ticket, *who); err != nil {
 			if err := carryOn(fmt.Sprintf("assigning %s to %s", key, assignee), err); err != nil {
@@ -205,7 +213,7 @@ func (e *TicketUpdateExecutor) Start(ctx context.Context, step ResolvedWorkflowS
 				return WorkflowExecutionResult{}, err
 			}
 		}
-		ticket.Status = after
+		ticket = after
 		changed = changed || moved
 	}
 

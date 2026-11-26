@@ -24,9 +24,9 @@ type TicketUpdater interface {
 	// person.
 	Assign(ctx context.Context, ticket TicketState, who TicketPerson) error
 	// MoveTo moves a ticket to the status of that name, ignoring case, and
-	// returns the status it is in after, with whether it moved. A status
+	// returns the ticket as it is after, with whether it moved. A status
 	// it cannot reach is a *ticketRefusal naming those it can.
-	MoveTo(ctx context.Context, ticket TicketState, status string) (string, bool, error)
+	MoveTo(ctx context.Context, ticket TicketState, status string) (TicketState, bool, error)
 }
 
 // TicketState is a ticket as ticket.update finds it.
@@ -126,31 +126,32 @@ func (w JiraTicketWriter) Assign(ctx context.Context, ticket TicketState, who Ti
 
 // MoveTo runs the transition whose destination is the status, in Jira's
 // order; a transition that needs fields on its screen is Jira's refusal.
-func (w JiraTicketWriter) MoveTo(ctx context.Context, ticket TicketState, status string) (string, bool, error) {
+func (w JiraTicketWriter) MoveTo(ctx context.Context, ticket TicketState, status string) (TicketState, bool, error) {
 	if strings.EqualFold(ticket.Status, status) {
-		return ticket.Status, false, nil
+		return ticket, false, nil
 	}
 	client := w.client()
 	transitions, err := client.GetTransitions(ctx, ticket.Key)
 	if err != nil {
-		return ticket.Status, false, err
+		return ticket, false, err
 	}
 	var reachable []string
 	for _, t := range transitions {
 		if strings.EqualFold(t.To.Name, status) {
 			if err := client.DoTransition(ctx, ticket.Key, t.ID); err != nil {
-				return ticket.Status, false, err
+				return ticket, false, err
 			}
-			return t.To.Name, true, nil
+			ticket.Status = t.To.Name
+			return ticket, true, nil
 		}
 		if !containsFold(reachable, t.To.Name) {
 			reachable = append(reachable, t.To.Name)
 		}
 	}
 	if len(reachable) == 0 {
-		return ticket.Status, false, refuse("%s cannot move to %q from %q: Jira offers no transition from it to Legato's Jira user", ticket.Key, status, ticket.Status)
+		return ticket, false, refuse("%s cannot move to %q from %q: Jira offers no transition from it to Legato's Jira user", ticket.Key, status, ticket.Status)
 	}
-	return ticket.Status, false, refuse("%s cannot move to %q from %q: it can move to %s", ticket.Key, status, ticket.Status, strings.Join(reachable, ", "))
+	return ticket, false, refuse("%s cannot move to %q from %q: it can move to %s", ticket.Key, status, ticket.Status, strings.Join(reachable, ", "))
 }
 
 func (w BurnliteTicketWriter) Ticket(ctx context.Context, key string) (TicketState, error) {
@@ -188,8 +189,12 @@ func (w BurnliteTicketWriter) ResolveAssignee(_ context.Context, value string) (
 }
 
 // Assign claims the Task as the person, or releases the claim of whoever
-// holds it for no one.
+// holds it for no one. Burnlite holds no claim on a closed Task and refuses
+// one, so that is refused before any call.
 func (w BurnliteTicketWriter) Assign(ctx context.Context, ticket TicketState, who TicketPerson) error {
+	if ticket.Closed && who.ID != "" {
+		return refuse("%s is closed (%s), and Burnlite does not claim a closed task", ticket.Key, ticket.Status)
+	}
 	client, _, err := w.open(ctx)
 	if err != nil {
 		return err
@@ -207,24 +212,24 @@ func (w BurnliteTicketWriter) Assign(ctx context.Context, ticket TicketState, wh
 var burnliteStages = []string{burnlite.StageIdea, burnlite.StageExploring, burnlite.StageReady, burnlite.StageBuilding, burnlite.StageDone, burnlite.StageDropped}
 
 // MoveTo sets an open stage, or closes the Task for done (or closed) and
-// dropped. A closed Task is never reopened.
-func (w BurnliteTicketWriter) MoveTo(ctx context.Context, ticket TicketState, status string) (string, bool, error) {
+// dropped, which releases its claim. A closed Task is never reopened.
+func (w BurnliteTicketWriter) MoveTo(ctx context.Context, ticket TicketState, status string) (TicketState, bool, error) {
 	stage := strings.ToLower(strings.TrimSpace(status))
 	if stage == "closed" {
 		stage = burnlite.StageDone
 	}
 	if !containsFold(burnliteStages, stage) {
-		return ticket.Status, false, refuse("Burnlite has no status %q: give one of %s", status, strings.Join(burnliteStages, ", "))
+		return ticket, false, refuse("Burnlite has no status %q: give one of %s", status, strings.Join(burnliteStages, ", "))
 	}
 	if ticket.Status == stage {
-		return ticket.Status, false, nil
+		return ticket, false, nil
 	}
 	if ticket.Closed {
-		return ticket.Status, false, refuse("%s is closed (%s), and Legato does not reopen a Burnlite task to move it to %s", ticket.Key, ticket.Status, stage)
+		return ticket, false, refuse("%s is closed (%s), and Legato does not reopen a Burnlite task to move it to %s", ticket.Key, ticket.Status, stage)
 	}
 	client, _, err := w.open(ctx)
 	if err != nil {
-		return ticket.Status, false, err
+		return ticket, false, err
 	}
 	defer client.Close()
 	switch stage {
@@ -236,7 +241,15 @@ func (w BurnliteTicketWriter) MoveTo(ctx context.Context, ticket TicketState, st
 		err = client.SetStage(ctx, ticket.Key, stage)
 	}
 	if err != nil {
-		return ticket.Status, false, err
+		return ticket, false, err
 	}
-	return stage, true, nil
+	ticket.Status = stage
+	if stage == burnlite.StageDone || stage == burnlite.StageDropped {
+		ticket.Closed, ticket.Assignee = true, TicketPerson{}
+		ticket.CloseReason = burnlite.CloseCompleted
+		if stage == burnlite.StageDropped {
+			ticket.CloseReason = burnlite.CloseNotPlanned
+		}
+	}
+	return ticket, true, nil
 }

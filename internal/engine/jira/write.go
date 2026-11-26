@@ -19,8 +19,9 @@ type IssueDraft struct {
 	Description string
 	Labels      []string
 	Priority    string
-	// AssigneeID is the account ID to assign the issue to; unassigned when
-	// empty.
+	// AssigneeID is the account ID to assign the issue to. When empty, no
+	// assignee is sent, so Jira's project default (or Fields' assignee)
+	// applies.
 	AssigneeID string
 	Fields     map[string]any
 }

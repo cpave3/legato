@@ -620,7 +620,7 @@ var catalog = []ExecutorSpec{
 			{Name: "summary", Kind: KindString, Label: "Summary", Description: "The ticket's title, one line of at most 255 characters", Required: true, Essential: true, Order: 3},
 			{Name: "description", Kind: KindText, Label: "Description", Description: "Markdown; sent to Jira as its rich text, keeping code blocks, lists, links and tables", Essential: true, Order: 4},
 			{Name: "labels", Kind: KindJSON, Label: "Labels", Description: "A list of labels; Jira's hold no spaces", Order: 5},
-			{Name: "assignee", Kind: KindString, Label: "Assign to", Description: "me (Legato's own Jira user, of jira.email; Burnlite: a claim as legato), an email or a Jira account ID; unassigned when empty", Essential: true, Order: 6},
+			{Name: "assignee", Kind: KindString, Label: "Assign to", Description: "me (Legato's own Jira user, of jira.email; Burnlite: a claim as legato), an email or a Jira account ID; when empty, Jira's project default (or fields.assignee) applies and Burnlite does not claim", Essential: true, Order: 6},
 			{Name: "type", Kind: KindString, Label: "Issue type", Description: "Jira only: the issue type, such as Bug or Task; Bug when empty", Order: 7},
 			{Name: "priority", Kind: KindString, Label: "Priority", Description: "Jira only: the priority's name, such as High", Order: 8},
 			{Name: "fields", Kind: KindJSON, Label: "More Jira fields", Description: "Jira only: more fields as Jira names them, such as {customfield_10020: 7}; not the fields above (assignee only when Assign to is empty)", Order: 9},
