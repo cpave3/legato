@@ -34,6 +34,20 @@ author finishes ─▶ pass 1: reviewer reviews ─▶ clean? ── yes ─▶ 
 
 On the worker, each handed-off task's review is a run of the built-in [`review-loop`](#review-any-pull-request) workflow: the worker starts it when it takes the task, so comments and checks count from the start, and it shows on the worker's **Workflows** page, linked to the task's card. It runs the review as described here, the card in Done being the author's signal, and ends once the pull requests are approved (a handed-off task's review never goes on past approval). Recalling, dropping or returning the task, or the main leaving or being unpaired, cancels the run: the review stops and nothing more is posted. A handoff's review that was already under way when the worker was updated finishes as it began.
 
+### Drafts marked ready after review
+
+A handed-off task's pull requests stay drafts after approval unless the worker's [pull request rule](/legato/reference/configuration/#pull-requests) for the repository says otherwise. Give the `draft` rule `ready_after_review: true` (in Settings › Repositories › Pull requests, **Mark ready once reviewed**):
+
+```yaml
+pull_requests:
+  rules:
+    - match: acme/*
+      mode: draft
+      ready_after_review: true
+```
+
+The worker reads the rule when it starts the task's review. Once review passes approve the whole stack, and Legato has read the heads from GitHub and found them unchanged, it marks each draft ready for review, bottom first, as your GitHub App; a pull request that is already ready is left alone, and none goes back to draft. The author agent is told not to mark them ready itself. If GitHub will not mark one ready, the review run pauses at that step on the worker's **Workflows** page, with **Retry**, **Skip** and **Stop**; the ones below it stay ready. Legato never merges a pull request and never turns on auto-merge: merging is yours.
+
 A pass runs at most `review_passes.max_passes` times (a pass set aside because a head moved is not counted). After that the review is **stuck**, and you decide. It stops sooner when two passes in a row each find new blocking problems in the author's fixes: the author answers the last one, and then you decide whether another pass is worth it.
 
 ### What counts as blocking
