@@ -179,12 +179,15 @@ type ReviewAgents interface {
 
 // ReviewPassOptions configure the review-pass engine.
 type ReviewPassOptions struct {
-	Config   func() ReviewPassConfig
-	Agents   ReviewAgents
-	GitHub   ReviewGitHub
-	Checkout ReviewCheckout
-	Bus      *events.Bus
-	Now      func() time.Time
+	// ReviewerDefaults resolves live policy at the start of a new pass.
+	// A retry uses the pass's persisted settings instead.
+	ReviewerDefaults func(context.Context, ReviewPassSettings) (ReviewPassSettings, error)
+	Config           func() ReviewPassConfig
+	Agents           ReviewAgents
+	GitHub           ReviewGitHub
+	Checkout         ReviewCheckout
+	Bus              *events.Bus
+	Now              func() time.Time
 	// Run runs posting in the background; the caller's goroutine when nil.
 	Run func(func())
 	// Overlay says whether the reviewer's checkout gets a throwaway layer
@@ -648,13 +651,19 @@ func (s *ReviewPassService) startQueued(ctx context.Context) {
 // fresh reviewer in the loop task's reviewer slot.
 func (s *ReviewPassService) startPass(ctx context.Context, l ReviewLoop, loop *store.HandoffReview, dir string, prs []ReviewGitHubPR) error {
 	cfg := s.config()
-	settings := loopSettings(loop, cfg.Defaults)
 	pass := loop.Pass + 1
+	settings, err := s.newPassSettings(ctx, loop, pass)
+	if err != nil {
+		return s.stuck(ctx, l, loop, "Legato could not choose the reviewer: "+err.Error())
+	}
 	head, _, err := s.opts.Checkout.State(ctx, dir)
 	if err != nil {
 		return s.stuck(ctx, l, loop, "Legato could not read the author's checkout: "+err.Error())
 	}
 	record := store.HandoffReviewPass{TaskID: l.TaskID, Pass: pass, State: ReviewPassReviewing, Checkout: dir, HeadSHA: head, StartedAt: s.now()}
+	if record.ReviewerSettings, err = encodeJSON(settings); err != nil {
+		return err
+	}
 	var pinned []store.HandoffReviewPR
 	for _, pr := range prs {
 		if err := s.opts.Checkout.Pin(ctx, dir, pinRef(l.TaskID, pass, pr.Number), pr.HeadSHA); err != nil {
@@ -792,7 +801,10 @@ func (s *ReviewPassService) reviewerDied(ctx context.Context, l ReviewLoop, loop
 	if err != nil {
 		return err
 	}
-	settings := loopSettings(loop, s.config().Defaults)
+	settings, err := passSettings(pass, loopSettings(loop, s.config().Defaults))
+	if err != nil {
+		return err
+	}
 	brief, err := s.brief(ctx, l, pass.Pass, pinned, settings)
 	if err != nil {
 		return s.unable(ctx, l, loop, pass, "Legato could not write the reviewer's brief: "+err.Error())

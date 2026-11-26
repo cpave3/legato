@@ -40,7 +40,9 @@ func (m AgentSessionOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "r", "enter":
 			return m, func() tea.Msg {
-				return AgentSessionChoiceMsg{Spawn: m.spawn, SessionID: m.id, ResumeWorkingDir: m.ResumeWorkingDir, Resume: true}
+				spawn := m.spawn
+				spawn.AgentKind = m.agentKind
+				return AgentSessionChoiceMsg{Spawn: spawn, SessionID: m.id, ResumeWorkingDir: m.ResumeWorkingDir, Resume: true}
 			}
 		case "n":
 			return m, func() tea.Msg { return AgentSessionChoiceMsg{Spawn: m.spawn, SessionID: m.id} }

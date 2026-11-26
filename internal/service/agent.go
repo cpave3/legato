@@ -343,6 +343,7 @@ type AgentService interface {
 	LastSpawnConflicts() []AgentSpawnConflict
 	RegisteredAdapters() []string
 	DefaultAdapter() string
+	NewWorkDefaults(ctx context.Context) (NewWorkDefaults, error)
 	// AdapterFor returns the AIToolAdapter for the given kind, or nil if none
 	// is registered (e.g. kind "shell"). Empty kind resolves to the default.
 	AdapterFor(kind string) AIToolAdapter
@@ -394,6 +395,7 @@ type LearningPromptProvider interface {
 }
 
 type agentService struct {
+	newWorkDefaults      func(context.Context) (NewWorkDefaults, error)
 	toolCheck            func(ctx context.Context, tool string) error
 	capabilities         CapabilitySource
 	capabilityFolders    CapabilityFolders
@@ -599,8 +601,17 @@ type EventPublisher interface {
 	PublishWorkflowChanged(runID string)
 }
 
+// NewWorkDefaults selects the agent and optional tier for fresh, unspecified work.
+type NewWorkDefaults struct {
+	Agent string
+	Tier  string
+}
+
 // AgentServiceOptions configures optional AI tool integration for agent sessions.
 type AgentServiceOptions struct {
+	// NewWorkDefaults selects fresh work with no explicit agent. Nil uses
+	// Adapter; callback failures refuse the spawn before launch validation.
+	NewWorkDefaults func(context.Context) (NewWorkDefaults, error)
 	// ToolCheck, when set, is asked before a spawn whether the chosen
 	// agent tool (its adapter name) can start; an error refuses the spawn
 	// before anything is made. Doctor.SpawnCheck is the runtime's.
@@ -754,6 +765,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 	svc.workStages = NewWorkStageService(s, nil)
 	if len(opts) > 0 {
 		svc.adapter = opts[0].Adapter
+		svc.newWorkDefaults = opts[0].NewWorkDefaults
 		svc.adapters = opts[0].Adapters
 		svc.socketPath = opts[0].SocketPath
 		svc.tmuxOptions = opts[0].TmuxOptions
@@ -817,6 +829,19 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if err := ValidateAgentSlot(opt.Slot); err != nil {
 		return err
 	}
+	if opt.AgentKind == "" && opt.SessionPolicy != "resume" && opt.Role == "" && opt.ParentTaskID == "" && !IsReeveTask(ctx, a.store, taskID) {
+		defaults, err := a.NewWorkDefaults(ctx)
+		if err != nil {
+			return err
+		}
+		opt.AgentKind = defaults.Agent
+		if opt.Tier == "" {
+			opt.Tier = defaults.Tier
+		}
+	}
+	if err := a.prepareTaskResume(ctx, taskID, &opt); err != nil {
+		return err
+	}
 	adapter := a.resolveAdapter(opt.AgentKind)
 	if a.toolCheck != nil && adapter != nil {
 		if err := a.toolCheck(ctx, adapter.Name()); err != nil {
@@ -855,9 +880,6 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		if a.sandbox == nil {
 			return fmt.Errorf("%w, which is off here (agents.sandbox.enabled)", ErrReeveSandboxed)
 		}
-	}
-	if err := a.prepareTaskResume(ctx, taskID, &opt); err != nil {
-		return err
 	}
 	if (opt.Repo != "" || opt.Clone != 0) && opt.WorkingDir != "" {
 		return fmt.Errorf("an agent works in a job clone or in %s, not both", opt.WorkingDir)
@@ -1943,9 +1965,30 @@ func (a *agentService) RegisteredAdapters() []string {
 	return names
 }
 
-// DefaultAdapter returns the name of the default adapter, or an empty string
-// when none is configured.
+// DefaultAdapter reads the new-work default with a background context. On
+// failure it shows the configured default; SpawnAgent returns the error.
 func (a *agentService) DefaultAdapter() string {
+	defaults, err := a.NewWorkDefaults(context.Background())
+	if err == nil {
+		return defaults.Agent
+	}
+	return a.baseDefaultAdapter()
+}
+
+func (a *agentService) NewWorkDefaults(ctx context.Context) (NewWorkDefaults, error) {
+	if a.newWorkDefaults != nil {
+		defaults, err := a.newWorkDefaults(ctx)
+		if err != nil {
+			return NewWorkDefaults{}, err
+		}
+		if defaults.Agent != "" {
+			return defaults, nil
+		}
+	}
+	return NewWorkDefaults{Agent: a.baseDefaultAdapter()}, nil
+}
+
+func (a *agentService) baseDefaultAdapter() string {
 	if a.adapter == nil {
 		return ""
 	}

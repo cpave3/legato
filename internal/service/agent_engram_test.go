@@ -168,7 +168,7 @@ func TestSpawnAgent_SwarmAgentsAreNotStartedAsEngrams(t *testing.T) {
 
 func TestSpawnAgent_AResumedConversationKeepsItsEngramSession(t *testing.T) {
 	f := newEngramSpawnFixture(t, "chimera")
-	if err := f.svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Engram: "mneme", EngramSession: "ex-first", SessionPolicy: "resume", ResumeSessionID: "chimera-1"}); err != nil {
+	if err := f.svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{AgentKind: "chimera", Engram: "mneme", EngramSession: "ex-first", SessionPolicy: "resume", ResumeSessionID: "chimera-1"}); err != nil {
 		t.Fatal(err)
 	}
 	env := f.tmux.envVarsFor("legato-task-1")
@@ -193,7 +193,7 @@ func TestSpawnAgent_AResumeFindsTheTasksLastSessionOfThatEngram(t *testing.T) {
 	if err := f.svc.KillAgent(ctx, "task-1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.svc.SpawnAgent(ctx, "task-1", 0, 0, AgentSpawnOptions{Engram: "mneme", SessionPolicy: "resume", ResumeSessionID: "chimera-1"}); err != nil {
+	if err := f.svc.SpawnAgent(ctx, "task-1", 0, 0, AgentSpawnOptions{AgentKind: "chimera", Engram: "mneme", SessionPolicy: "resume", ResumeSessionID: "chimera-1"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.tmux.envVarsFor("legato-task-1")["ENGRAM_SESSION"]; got != first {
@@ -258,7 +258,7 @@ func TestFinishingAWorkflowAgentEndsItsEngramSession(t *testing.T) {
 
 func TestResumingAConversationAsAnEngramItNeverRanAsBootsIt(t *testing.T) {
 	f := newEngramSpawnFixture(t, "chimera")
-	if err := f.svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Engram: "mneme", SessionPolicy: "resume", ResumeSessionID: "chimera-1"}); err != nil {
+	if err := f.svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{AgentKind: "chimera", Engram: "mneme", SessionPolicy: "resume", ResumeSessionID: "chimera-1"}); err != nil {
 		t.Fatal(err)
 	}
 	exec := f.execution(t)
@@ -324,7 +324,7 @@ func TestAResumedRestartWhoseBootFailsEndsTheSessionItKept(t *testing.T) {
 	f := newEngramSpawnFixture(t, "chimera")
 	// The engram is gone by the time its agent is restarted.
 	f.cli.ids = nil
-	if err := f.svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Engram: "mneme", EngramSession: "ex-old", SessionPolicy: "resume", ResumeSessionID: "chimera-1"}); err != nil {
+	if err := f.svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{AgentKind: "chimera", Engram: "mneme", EngramSession: "ex-old", SessionPolicy: "resume", ResumeSessionID: "chimera-1"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.cli.ended) != 1 || envOf(f.cli.ended[0])["ENGRAM_SESSION"] != "ex-old" {
@@ -336,7 +336,7 @@ func TestAResumedRestartWhoseBootFailsEndsTheSessionItKept(t *testing.T) {
 // as its first message.
 func TestAResumedChimeraConversationGetsAFreshPacketAsItsFirstMessage(t *testing.T) {
 	f := newEngramSpawnFixture(t, "chimera")
-	if err := f.svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Engram: "mneme", SessionPolicy: "resume", ResumeSessionID: "chimera-1"}); err != nil {
+	if err := f.svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{AgentKind: "chimera", Engram: "mneme", SessionPolicy: "resume", ResumeSessionID: "chimera-1"}); err != nil {
 		t.Fatal(err)
 	}
 	path := f.tmux.envVarsFor("legato-task-1")["LEGATO_PROMPT_FILE"]

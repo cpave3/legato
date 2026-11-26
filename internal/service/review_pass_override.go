@@ -31,6 +31,7 @@ func (o ReviewPassOverride) OnlyOff() bool {
 // does not have is an error, as is a pass limit below one.
 func (a ReviewPassesAdvert) Apply(o ReviewPassOverride) (ReviewPassSettings, error) {
 	settings := a.Defaults
+	settings.ReviewerOverride = &ReviewPassOverride{Agent: o.Agent, Model: o.Model, Tier: o.Tier}
 	if o.Enabled != nil {
 		settings.Enabled = *o.Enabled
 	}

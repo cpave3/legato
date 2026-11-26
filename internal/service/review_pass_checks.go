@@ -255,7 +255,10 @@ func (s *ReviewPassService) approveSettled(ctx context.Context, l ReviewLoop, lo
 	if err != nil {
 		return err
 	}
-	settings := loopSettings(loop, s.config().Defaults)
+	settings, err := passSettings(*pass, loopSettings(loop, s.config().Defaults))
+	if err != nil {
+		return err
+	}
 	for _, pr := range prs {
 		if pr.Event != ReviewComment || !prClean(loop.Pass, pr.Number, findings, items, true) {
 			continue

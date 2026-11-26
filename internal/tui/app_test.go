@@ -19,8 +19,8 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/swarm"
 	"github.com/cpave3/legato/internal/service"
-	"github.com/cpave3/legato/internal/tui/attention"
 	"github.com/cpave3/legato/internal/tui/agents"
+	"github.com/cpave3/legato/internal/tui/attention"
 	"github.com/cpave3/legato/internal/tui/board"
 	"github.com/cpave3/legato/internal/tui/detail"
 	"github.com/cpave3/legato/internal/tui/overlay"
@@ -1340,8 +1340,11 @@ func (f *fakeAgentService) SpawnEphemeralAgent(_ context.Context, _ string, _, _
 }
 func (f *fakeAgentService) LastSpawnConflicts() []service.AgentSpawnConflict { return nil }
 func (f *fakeAgentService) RegisteredAdapters() []string                     { return nil }
-func (f *fakeAgentService) DefaultAdapter() string                           { return f.defaultAdapter }
-func (f *fakeAgentService) AdapterFor(kind string) service.AIToolAdapter     { return nil }
+func (f *fakeAgentService) NewWorkDefaults(context.Context) (service.NewWorkDefaults, error) {
+	return service.NewWorkDefaults{Agent: f.DefaultAdapter()}, nil
+}
+func (f *fakeAgentService) DefaultAdapter() string                       { return f.defaultAdapter }
+func (f *fakeAgentService) AdapterFor(kind string) service.AIToolAdapter { return nil }
 func (f *fakeAgentService) GetStateTimeline(_ context.Context, _ string, _ time.Duration, _ int) ([]string, error) {
 	return nil, nil
 }
@@ -1460,13 +1463,13 @@ func TestAgentSpawnWithStoredSessionPromptsAndResumes(t *testing.T) {
 		for _, selected := range []string{kind, ""} {
 			for _, dir := range []string{"", "/selected"} {
 				t.Run(kind+"/"+selected+"/"+dir, func(t *testing.T) {
-					agentSvc := &fakeAgentService{resumeSession: &service.TaskResumeSession{ID: "old-session", CWD: "/saved"}, defaultAdapter: kind}
+					agentSvc := &fakeAgentService{resumeSession: &service.TaskResumeSession{AgentKind: kind, ID: "old-session", CWD: "/saved"}, defaultAdapter: "switched-profile"}
 					app := newTestApp()
 					app.agentSvc = agentSvc
 					app.width, app.height = 100, 40
 					model, _ := app.Update(overlay.AgentSpawnSubmitMsg{TaskID: "TASK-1", AgentKind: selected, WorkingDir: dir})
 					app = model.(App)
-					if app.overlayType != overlayAgentSession || agentSvc.lookupKind != kind || agentSvc.lookupTask != "TASK-1" {
+					if app.overlayType != overlayAgentSession || agentSvc.lookupKind != selected || agentSvc.lookupTask != "TASK-1" {
 						t.Fatalf("overlay/lookup = %v/%s/%s", app.overlayType, agentSvc.lookupKind, agentSvc.lookupTask)
 					}
 					label := map[string]string{"chimera": "Chimera", "claude-code": "Claude Code", "codex": "Codex"}[kind]
@@ -1476,7 +1479,7 @@ func TestAgentSpawnWithStoredSessionPromptsAndResumes(t *testing.T) {
 					_, choice := app.activeOverlay.Update(tea.KeyMsg{Type: tea.KeyEnter})
 					_, cmd := app.Update(choice())
 					runSpawnCommand(t, cmd)
-					want := service.AgentSpawnOptions{AgentKind: selected, WorkingDir: dir, SessionPolicy: "resume", ResumeSessionID: "old-session", ResumeWorkingDir: "/saved"}
+					want := service.AgentSpawnOptions{AgentKind: kind, WorkingDir: dir, SessionPolicy: "resume", ResumeSessionID: "old-session", ResumeWorkingDir: "/saved"}
 					if agentSvc.lastSpawnOpts == nil || !reflect.DeepEqual(*agentSvc.lastSpawnOpts, want) {
 						t.Fatalf("spawn options = %+v, want %+v", agentSvc.lastSpawnOpts, want)
 					}
@@ -1489,10 +1492,10 @@ func TestAgentSpawnWithStoredSessionPromptsAndResumes(t *testing.T) {
 func TestAgentSessionNewAndCancel(t *testing.T) {
 	for _, key := range []string{"n", "esc"} {
 		t.Run(key, func(t *testing.T) {
-			svc := &fakeAgentService{resumeSession: &service.TaskResumeSession{ID: "old-session", CWD: "/saved"}}
+			svc := &fakeAgentService{resumeSession: &service.TaskResumeSession{AgentKind: "codex", ID: "old-session", CWD: "/saved"}}
 			app := newTestApp()
 			app.agentSvc = svc
-			model, _ := app.Update(overlay.AgentSpawnSubmitMsg{TaskID: "TASK-1", AgentKind: "codex", WorkingDir: "/selected"})
+			model, _ := app.Update(overlay.AgentSpawnSubmitMsg{TaskID: "TASK-1", WorkingDir: "/selected"})
 			app = model.(App)
 			keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
 			if key == "esc" {
@@ -1510,7 +1513,7 @@ func TestAgentSessionNewAndCancel(t *testing.T) {
 				return
 			}
 			runSpawnCommand(t, cmd)
-			want := service.AgentSpawnOptions{AgentKind: "codex", WorkingDir: "/selected", SessionPolicy: "new", ResumeSessionID: "old-session"}
+			want := service.AgentSpawnOptions{WorkingDir: "/selected", SessionPolicy: "new", ResumeSessionID: "old-session"}
 			if svc.lastSpawnOpts == nil || !reflect.DeepEqual(*svc.lastSpawnOpts, want) {
 				t.Fatalf("new options = %+v", svc.lastSpawnOpts)
 			}

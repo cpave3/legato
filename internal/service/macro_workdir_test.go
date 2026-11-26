@@ -86,7 +86,7 @@ func TestAMacrosNewAgentStartsInTheTasksCheckout(t *testing.T) {
 		if err := svc.settings.db.SetTaskWorktree(ctx, "abc12345", &store.TaskWorktree{PrimaryDir: "/src/app", Path: "/src/app/.worktrees/abc", Branch: "abc", BaseBranch: "main"}); err != nil {
 			t.Fatal(err)
 		}
-		spy.saved = &TaskResumeSession{ID: "s-1", CWD: "/where/it/was"}
+		spy.saved = &TaskResumeSession{AgentKind: "claude-code", ID: "s-1", CWD: "/where/it/was"}
 		if got := startedIn(t, svc, spy, pr); got != "/where/it/was" {
 			t.Fatalf("working dir = %q", got)
 		}

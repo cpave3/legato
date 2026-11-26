@@ -467,6 +467,10 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 		return err
 	}
 	settings := loopSettings(loop, cfg.Defaults)
+	reviewer, err := passSettings(*pass, settings)
+	if err != nil {
+		return err
+	}
 	prs, err := s.db.ListHandoffReviewPRs(ctx, taskID, pass.Pass)
 	if err != nil {
 		return err
@@ -496,7 +500,7 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 		if pr.ReviewID != 0 || pr.Event == ReviewKept {
 			continue // posted before a retry
 		}
-		layer, err := s.layerPost(ctx, l, loop, pass, settings, pr, previous, all, items)
+		layer, err := s.layerPost(ctx, l, loop, pass, reviewer, pr, previous, all, items)
 		if err != nil {
 			return err // left submitted: the next Tick tries again
 		}

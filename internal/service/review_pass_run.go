@@ -274,6 +274,10 @@ func reviewRunOpen(taskID string, run reviewRun, settings ReviewPassSettings, pr
 		// later step's loop on this task never finds this one's reviews
 		// on GitHub for its own (LEG-605 review).
 		CloneID: run.CloneID, CloneDir: run.Dir}}
+	if settings.ReviewerOverride != nil {
+		data, _ := json.Marshal(settings.ReviewerOverride)
+		open.Loop.ReviewerOverride = string(data)
+	}
 	for _, p := range run.prs() {
 		pr := read[p.Number]
 		// Each layer's author task is the engine's to derive (Open).
@@ -865,7 +869,9 @@ func (c *ReviewRunCaller) settings(cfg ReviewPassConfig, in reviewOpenInput) (Re
 		o.Agent, o.Tier, _ = strings.Cut(in.Reviewer, ":")
 	}
 	if o.MaxPasses == 0 && o.Agent == "" && in.Skill == "" {
-		return cfg.Defaults, nil
+		settings := cfg.Defaults
+		settings.ReviewerOverride = &ReviewPassOverride{}
+		return settings, nil
 	}
 	settings, err := c.engine.Override(o)
 	if err != nil && o.Agent != "" {

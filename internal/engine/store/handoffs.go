@@ -31,6 +31,7 @@ type Handoff struct {
 	// Base is the branch a new branch starts from; "" for the default.
 	Base           string  `db:"base"`
 	AgentKind      string  `db:"agent_kind"`
+	AgentTier      string  `db:"agent_tier"`
 	State          string  `db:"state"`
 	Failure        string  `db:"failure"`
 	RequestHash    string  `db:"request_hash"`
@@ -64,9 +65,9 @@ func (s *Store) CreateHandoffCard(ctx context.Context, task Task, notes []TaskNo
 		}
 	}
 	if _, err := tx.NamedExecContext(ctx, `INSERT INTO handoffs (main_instance_id, handoff_id, main_name, main_task_id, task_id, purpose, kind,
-			repo, branch, base, agent_kind, state, failure, request_hash, created_at, updated_at)
+			repo, branch, base, agent_kind, agent_tier, state, failure, request_hash, created_at, updated_at)
 		VALUES (:main_instance_id, :handoff_id, :main_name, :main_task_id, :task_id, :purpose, :kind,
-			:repo, :branch, :base, :agent_kind, :state, :failure, :request_hash, :created_at, :updated_at)`, h); err != nil {
+			:repo, :branch, :base, :agent_kind, :agent_tier, :state, :failure, :request_hash, :created_at, :updated_at)`, h); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return ErrConflict
 		}

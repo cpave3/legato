@@ -63,7 +63,7 @@ func (f *fakeDelegationAgents) GetTaskResumeSession(ctx context.Context, taskID,
 	if err != nil || saved == nil {
 		return nil, err
 	}
-	return &TaskResumeSession{ID: saved.ProviderSessionID, CWD: saved.CWD}, nil
+	return &TaskResumeSession{AgentKind: saved.AgentKind, ID: saved.ProviderSessionID, CWD: saved.CWD}, nil
 }
 
 type fakeWorktrees struct {

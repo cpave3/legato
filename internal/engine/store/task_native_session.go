@@ -48,6 +48,20 @@ func (s *Store) GetTaskNativeSessionInSlot(ctx context.Context, taskID, slot, ag
 	return &session, nil
 }
 
+// NewestTaskNativeSessionInSlot returns the slot's newest saved conversation.
+// Equal timestamps are ordered by owning session, then provider kind.
+func (s *Store) NewestTaskNativeSessionInSlot(ctx context.Context, taskID, slot string) (*TaskNativeSession, error) {
+	var session TaskNativeSession
+	err := s.db.GetContext(ctx, &session, `SELECT * FROM task_native_sessions WHERE task_id = ? AND slot = ? ORDER BY updated_at DESC, agent_session_id DESC, agent_kind ASC LIMIT 1`, taskID, slotOrMain(slot))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
 // ListTaskNativeSessions returns the main slot's saved conversations, the
 // ones the task resumes, ordered by provider kind.
 func (s *Store) ListTaskNativeSessions(ctx context.Context, taskID string) ([]TaskNativeSession, error) {

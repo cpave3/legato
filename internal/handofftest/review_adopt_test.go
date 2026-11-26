@@ -97,7 +97,7 @@ func TestAnUpgradeAdoptsAHandoffLoopMidPassAndPostsThePassOnce(t *testing.T) {
 	if open := stepOf(t, h.reviewRun(t), "open"); open.Status != "succeeded" {
 		t.Fatalf("the open step is %s", open.Status)
 	}
-	if runs, err := h.worker.Store.ListWorkflowRunsByRelatedTask(ctx, h.card); err != nil || len(runs) != 1 {
+	if runs, err := h.worker.Store.ListWorkflowRunsForTask(ctx, h.card); err != nil || len(runs) != 1 {
 		t.Fatalf("the card's runs = %+v, %v; want the adopting one alone", runs, err)
 	}
 
@@ -168,7 +168,7 @@ func TestAHandoffOwnedLoopOfAClosedHandoffIsClosedNotAdopted(t *testing.T) {
 	if held, _ := h.worker.Store.ActiveReviewLoop(ctx, "acme/widget", 7); held != nil {
 		t.Fatalf("#7 is still held by %s", held.ID)
 	}
-	if runs, err := h.worker.Store.ListWorkflowRunsByRelatedTask(ctx, h.card); err != nil || len(runs) != 0 {
+	if runs, err := h.worker.Store.ListWorkflowRunsForTask(ctx, h.card); err != nil || len(runs) != 0 {
 		t.Fatalf("runs %+v, %v were started for the closed handoff's loop", runs, err)
 	}
 }

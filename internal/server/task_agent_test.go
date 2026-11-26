@@ -36,11 +36,16 @@ func (f *taskAgentFake) SpawnAgent(_ context.Context, taskID string, _ int, _ in
 	return f.spawnErr
 }
 func (f *taskAgentFake) GetTaskResumeSession(_ context.Context, _ string, kind string) (*service.TaskResumeSession, error) {
+	if kind == "" {
+		kind = f.defaultAdapter
+	}
 	if saved := f.nativeSessions[kind]; saved != nil {
-		return saved, nil
+		copy := *saved
+		copy.AgentKind = kind
+		return &copy, nil
 	}
 	if kind == "chimera" && f.chimeraSessionID != "" {
-		return &service.TaskResumeSession{ID: f.chimeraSessionID}, nil
+		return &service.TaskResumeSession{AgentKind: "chimera", ID: f.chimeraSessionID}, nil
 	}
 	return nil, nil
 }

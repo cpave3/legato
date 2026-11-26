@@ -492,7 +492,7 @@ func TestAMacroOnAGoneFolderStartsInAFreshCloneOfTheBranch(t *testing.T) {
 	ctx := context.Background()
 	gone := "/jobs/ex-1/widget"
 	spy.gone[gone] = true
-	spy.saved = &TaskResumeSession{ID: "conv-1", CWD: gone}
+	spy.saved = &TaskResumeSession{AgentKind: "codex", ID: "conv-1", CWD: gone}
 	if err := svc.Save(ctx, "Rebase and repush", macros.Macro{Keys: "Rebase on main and push.\n"}, "web"); err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +504,7 @@ func TestAMacroOnAGoneFolderStartsInAFreshCloneOfTheBranch(t *testing.T) {
 	if opts.Repo != "acme/widget" || opts.Branch != "legato/leg-7" || !opts.PushedBranch {
 		t.Fatalf("spawn = repo %q branch %q pushed %v; want a fresh clone of the PR's branch", opts.Repo, opts.Branch, opts.PushedBranch)
 	}
-	if opts.WorkingDir != "" || opts.ResumeSessionID != "" || opts.SessionPolicy == "resume" {
+	if opts.AgentKind != "claude-code" || opts.WorkingDir != "" || opts.ResumeSessionID != "" || opts.SessionPolicy == "resume" {
 		t.Fatalf("spawn = dir %q resume %q policy %q; want a new conversation", opts.WorkingDir, opts.ResumeSessionID, opts.SessionPolicy)
 	}
 	if !strings.HasSuffix(opts.Prompt, "Rebase on main and push.") {
@@ -520,7 +520,7 @@ func TestAMacroResumesInItsLiveFolder(t *testing.T) {
 	svc, spy := newMacroStartFixture(t)
 	ctx := context.Background()
 	live := "/jobs/ex-1/widget"
-	spy.saved = &TaskResumeSession{ID: "conv-1", CWD: live}
+	spy.saved = &TaskResumeSession{AgentKind: "claude-code", ID: "conv-1", CWD: live}
 	if err := svc.Save(ctx, "Rebase and repush", macros.Macro{Keys: "Rebase on main and push.\n"}, "web"); err != nil {
 		t.Fatal(err)
 	}
@@ -538,7 +538,7 @@ func TestAMacroOnAGoneFolderWithNoRepositoryDoesNotStart(t *testing.T) {
 	ctx := context.Background()
 	gone := filepath.Join(t.TempDir(), "gone")
 	svc.folderExists = dirExists // the real check, on a folder that is not there
-	spy.saved = &TaskResumeSession{ID: "conv-1", CWD: gone}
+	spy.saved = &TaskResumeSession{AgentKind: "claude-code", ID: "conv-1", CWD: gone}
 	if err := svc.Save(ctx, "Rebase and repush", macros.Macro{Keys: "Rebase.\n"}, "web"); err != nil {
 		t.Fatal(err)
 	}

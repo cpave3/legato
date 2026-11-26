@@ -226,9 +226,9 @@ func TestTaskAgentNativeResumeSwitchesConfiguredProvidersWithoutOverwrite(t *tes
 				otherKind = "claude-code"
 			}
 			for step, request := range []struct{ body, kind string }{
-				{`{}`, defaultKind},
+				{`{}`, "codex"},
 				{fmt.Sprintf(`{"agent_kind":%q}`, otherKind), otherKind},
-				{`{"session_policy":"resume"}`, defaultKind},
+				{`{"session_policy":"resume"}`, otherKind},
 				{fmt.Sprintf(`{"agent_kind":%q,"session_policy":"resume"}`, otherKind), otherKind},
 			} {
 				postNativeResumeAgent(t, server, request.body)
@@ -393,4 +393,33 @@ esac
 // or without a launch prompt, rather than resuming one.
 func freshLaunch(command, tool string) bool {
 	return (command == tool || strings.HasPrefix(command, tool+" ")) && !strings.Contains(command, "resume")
+}
+
+func TestTaskAgentFreshLaunchRetainsOmittedAgentForProfile(t *testing.T) {
+	for _, policy := range []string{"", "new"} {
+		t.Run("policy="+policy, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			ctx := context.Background()
+			db := nativeResumeStore(t)
+			if policy == "new" {
+				seedNativeResumeRecord(t, db, "claude-code")
+			}
+			claude := hooks.NewClaudeCodeAdapter("legato")
+			codex := hooks.NewCodexAdapter("legato")
+			codex.SetTiers(map[string][]string{"profile": {"--model", "profile-model"}})
+			mt := &resumeLaunchTmux{}
+			agents := service.NewAgentService(db, mt, t.TempDir(), service.AgentServiceOptions{Adapter: claude, Adapters: map[string]service.AIToolAdapter{"claude-code": claude, "codex": codex}, DisablePeerAwareness: true, NewWorkDefaults: func(context.Context) (service.NewWorkDefaults, error) {
+				return service.NewWorkDefaults{Agent: "codex", Tier: "profile"}, nil
+			}})
+			server := New(&mockBoardService{cardDetail: &service.CardDetail{ID: "task-resume"}}, agents, nil, ":0")
+			postNativeResumeAgent(t, server, fmt.Sprintf(`{"session_policy":%q}`, policy))
+			if !strings.HasPrefix(mt.command, "codex ") || !strings.Contains(mt.command, "profile-model") || strings.Contains(mt.command, "resume ") {
+				t.Fatalf("launch = %q", mt.command)
+			}
+			session, err := db.GetAgentSessionByTaskID(ctx, "task-resume")
+			if err != nil || session.AgentKind != "codex" {
+				t.Fatalf("session = %+v, %v", session, err)
+			}
+		})
+	}
 }
