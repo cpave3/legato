@@ -67,6 +67,9 @@ describe("WorkflowPage", () => {
   it("shows a workflow's title, description, source and its steps as a graph", async () => {
     renderAt("/workflows/triage")
     expect(screen.getByRole("heading", { name: "Triage a task" })).toBeTruthy()
+    // The description and the file are in the About card, folded at first
+    // (LEG-655).
+    fireEvent.click(within(screen.getByRole("region", { name: "About" })).getAllByRole("button")[0])
     expect(screen.getByText("Investigate a card")).toBeTruthy()
     expect(screen.getByText("/home/me/.config/legato/workflows/triage.workflow.yaml")).toBeTruthy()
     const investigate = await screen.findByRole("button", { name: "Step: Investigate the task" })

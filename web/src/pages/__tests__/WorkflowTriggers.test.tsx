@@ -73,7 +73,7 @@ async function renderAt(hash = "") {
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[`/workflows/triage/edit${hash}`]}>
     <Routes><Route path="/workflows/:name/edit" element={<WorkflowEditPage mode="edit" />} /></Routes>
   </MemoryRouter></QueryClientProvider>)
-  return screen.findByRole("region", { name: "When" })
+  return screen.findByRole("region", { name: "Triggers" })
 }
 
 const fileNow = async () => {
@@ -108,7 +108,7 @@ it("offers a column trigger's workflow a task input filled from the card", async
   const file = parse(await fileNow())
   expect(file.inputs.task).toEqual({ type: "task", required: true })
   expect(file.on["task.entered_column"].inputs.task).toBe("${{ event.task }}")
-  const asks = screen.getByRole("region", { name: "Asks for" })
+  const asks = screen.getByRole("region", { name: "Inputs" })
   expect(within(asks).getByRole("button", { name: /task.*from the card/ })).toBeTruthy()
   expect(screen.queryByRole("button", { name: "Add a task input from the card" })).toBeNull()
 })

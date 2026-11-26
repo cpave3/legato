@@ -1,11 +1,11 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
+import { createContext, useContext, useState, type ReactNode } from "react"
 import { Link, useParams } from "react-router-dom"
-import { ChevronDown, ChevronRight, Download, FileText, X } from "lucide-react"
+import { ChevronDown, ChevronRight, Download, FileText } from "lucide-react"
 import { useWorkflowRun } from "../hooks/useWorkflow"
 import { useServer } from "../hooks/useServer"
 import { useNow } from "../hooks/useNow"
 import { anotherReviewPass, resumeWorkflowAgent, workflowStepAction, type GateDetails, type MergeWaitDetails, type WorkflowCallDetails, cancelWorkflow, retryWorkflowStep, resumeWorkflowStep, triggerWorkflowStep, promptWorkflowStep, fetchWorkflowArtifact, type ReviewRunDetails, type WorkflowArtifact, type WorkflowAttempt, type WorkflowRunView, type WorkflowStepRun } from "../lib/workflow"
-import { ago, attentionCopy, currentStep, elapsed, inputText, runWithAttention, producedValues, runState, runSubject, sourceLabel, stepIntent, stepMark, stepPosition, stepSegments, type StepLike, type Tone } from "../lib/workflowView"
+import { ago, attentionCopy, currentStep, elapsed, runWithAttention, producedValues, runState, runSubject, sourceLabel, stepIntent, stepMark, stepPosition, stepSegments, type StepLike, type Tone } from "../lib/workflowView"
 import { WorkflowMarkdownPreview } from "../components/WorkflowMarkdownPreview"
 import { ManualWorkflowStepAction } from "../components/ManualWorkflowStepAction"
 import { workflowArtifactFilename } from "../lib/workflow-artifact"
@@ -17,7 +17,6 @@ import { Button } from "../components/ui/Button"
 import { LoadingState } from "../components/ui/LoadingState"
 import { cn } from "../lib/utils"
 import { useMediaQuery } from "../hooks/useMediaQuery"
-import { LazyWorkflowGraph } from "../components/workflow-graph/LazyWorkflowGraph"
 import { StepYaml } from "../components/StepYaml"
 import { redactSecrets, runStateWords, stepTypeLabel, triggerName, yamlText, type GraphNode } from "../lib/workflowGraph"
 import { type RunNeedsYouRow, type RunRowStep } from "../lib/runNeedsYou"
@@ -31,8 +30,11 @@ import { dismissAttentionItem, executeAttentionAction, type AttentionItem } from
 import { NeedsYouRow } from "../components/needsYou/NeedsYouRow"
 import { MacroPickerButton } from "../components/MacroPicker"
 import { ApprovalCard } from "../components/ApprovalTray"
-import { NodeSheet } from "../components/NodeSheet"
-import type { Insets } from "../lib/graphViewport"
+import { DockCard, PanelClose } from "../components/workflow-canvas/DockCard"
+import { cardLook, cardTitle, floatingPanel, redact } from "../components/workflow-canvas/canvasStyles"
+import { ValueList } from "../components/workflow-canvas/ValueList"
+import { useCardFolds, useLargeScreen } from "../components/workflow-canvas/useCardFolds"
+import { CanvasHeader, WorkflowCanvas } from "../components/workflow-canvas/WorkflowCanvas"
 
 function parseJSON(raw: string | undefined): unknown {
   try { return JSON.parse(raw ?? "") } catch { return raw }
@@ -63,80 +65,20 @@ function definitionTitle(view: WorkflowRunView): string {
 }
 
 
-function redact(text: string, secrets: string[]): string {
-  return secrets.reduce((current, secret) => current.split(secret).join("••••••"), text)
-}
-
-function formatValue(value: unknown, secrets: string[]): string {
-  return redact(inputText(value), secrets)
-}
-
-// A value longer than this, or of more lines, is cut to three lines with
-// Show all where a list clamps.
-const longValue = (text: string) => text.length > 160 || text.split("\n").length > 3
-
-function ValueList({ values, secrets, className, clamp = false }: { values: [string, unknown][]; secrets: string[]; className?: string; clamp?: boolean }) {
-  return <dl className={cn("grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-[13px]", className)}>
-    {values.map(([key, value]) => {
-      const text = formatValue(value, secrets)
-      const json = inputText(value).startsWith("{")
-      return <div key={key} className="contents">
-        <dt className="pt-px font-lw-mono text-xs text-lw-faint">{key.replaceAll("_", " ")}</dt>
-        {clamp && !json && longValue(text) ? <dd className="min-w-0"><ClampedValue text={text} /></dd>
-          : <dd className={cn("min-w-0 whitespace-pre-wrap break-words", json && "max-h-48 overflow-auto font-lw-mono text-xs")}>{text}</dd>}
-      </div>
-    })}
-  </dl>
-}
-
-function ClampedValue({ text }: { text: string }) {
-  const [open, setOpen] = useState(false)
-  return <>
-    <span className={cn("block whitespace-pre-wrap break-words", !open && "line-clamp-3")}>{text}</span>
-    <button type="button" className="mt-0.5 text-xs text-lw-link hover:underline" onClick={() => setOpen(!open)}>{open ? "Show less" : "Show all"}</button>
-  </>
-}
-
-// RunCard is one of the cards over a run's graph (LEG-651): a title row
-// that folds it to that row, and what it holds.
-function RunCard({ label, heading, folded, onFold, tone, children }: { label: string; heading: ReactNode; folded: boolean; onFold: () => void; tone?: Tone; children?: ReactNode }) {
-  return <section aria-label={label} className={cn("shrink-0 rounded-xl border shadow-[var(--shadow-lw-panel)]", tone ? panelLook[tone] : "border-lw-line bg-lw-surface")}>
-    {/* The row folds the card; its button is the control the keyboard and
-        screen readers reach. */}
-    <div className="flex min-h-10 cursor-pointer items-center gap-2 py-1.5 pl-4 pr-1.5" onClick={onFold}>
-      <div className="min-w-0 flex-1">{heading}</div>
-      <button type="button" aria-expanded={!folded} aria-label={label} className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-lw-text-2 hover:bg-lw-selected">
-        {folded ? <ChevronRight size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
-      </button>
-    </div>
-    {!folded && children}
-  </section>
-}
-
-const cardTitle = "flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide text-lw-text-2"
-
 // NowFold is set over a run's graph, where the Now panel is a card that
 // folds; the step list's page draws it as it always has.
 const NowFold = createContext<{ folded: boolean; toggle: () => void } | null>(null)
 
-const panelLook: Record<Tone, string> = {
-  live: "border-lw-live/30 bg-lw-live-soft",
-  needs: "border-lw-needs/30 bg-lw-needs-soft",
-  done: "border-lw-done/30 bg-lw-done-soft",
-  error: "border-lw-error/30 bg-lw-error-soft",
-  idle: "border-lw-line bg-lw-surface",
-}
-
 function NowPanel({ tone, heading, children, actions }: { tone: Tone; heading: ReactNode; children?: ReactNode; actions?: ReactNode }) {
   const fold = useContext(NowFold)
-  if (fold) return <RunCard label="Now" tone={tone} folded={fold.folded} onFold={fold.toggle}
+  if (fold) return <DockCard label="Now" tone={tone} folded={fold.folded} onFold={fold.toggle}
     heading={<h2 className="flex items-start gap-2 py-1 text-[14px] font-semibold leading-snug"><span aria-hidden="true" className={toneText[tone]}>{toneGlyph[tone]}</span>{heading}</h2>}>
     {(children || actions) && <div className="px-4 pb-4 pl-10">
       {children && <div className="text-[13px] text-lw-text-2">{children}</div>}
       {actions && <div className="mt-3 flex flex-wrap items-center gap-2">{actions}</div>}
     </div>}
-  </RunCard>
-  return <section aria-label="Now" className={cn("mt-5 rounded-xl border p-4", panelLook[tone])}>
+  </DockCard>
+  return <section aria-label="Now" className={cn("mt-5 rounded-xl border p-4", cardLook[tone])}>
     <h2 className="flex items-center gap-2 text-[15px] font-semibold"><span aria-hidden="true" className={toneText[tone]}>{toneGlyph[tone]}</span>{heading}</h2>
     {children && <div className="mt-1 text-[13px] text-lw-text-2">{children}</div>}
     {actions && <div className="mt-3 flex flex-wrap items-center gap-2">{actions}</div>}
@@ -564,10 +506,10 @@ function NeedsYouList({ rows, steps, runId, refresh, onFocus, card }: { rows: Ru
       </div>)}
     </div>
   const errorLine = error && <p role="alert" className="mb-2 text-[13px] text-lw-error">{error}</p>
-  if (card) return <RunCard label="Needs you" folded={card.folded} onFold={card.onFold}
+  if (card) return <DockCard label="Needs you" folded={card.folded} onFold={card.onFold}
     heading={<h2 className={cn(cardTitle, "text-lw-needs")}>Needs you<span className="font-medium text-lw-faint">{shown.length}</span></h2>}>
     <div className="px-3 pb-3">{errorLine}{list}</div>
-  </RunCard>
+  </DockCard>
   return <section aria-label="Needs you" className="mt-5">
     <h2 className="mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide text-lw-needs">Needs you<span className="font-medium text-lw-faint">{shown.length}</span></h2>
     {errorLine}
@@ -582,14 +524,6 @@ function clock(time?: string): string {
 // RunStepPanel is one step of a run, beside its graph: what went in and
 // came out, every attempt, its artifacts, a review loop's passes, and its
 // YAML from the run's own copy, with the run's secrets hidden.
-// PanelClose is the side panel's own close button over a run's graph.
-function PanelClose({ onClose }: { onClose?: () => void }) {
-  if (!onClose) return null
-  return <button type="button" aria-label="Close" onClick={onClose} className="-mr-1.5 -mt-1.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md text-lw-text-2 hover:bg-lw-selected hover:text-lw-text"><X size={16} aria-hidden="true" /></button>
-}
-
-const floatingPanel = "max-h-full overflow-y-auto shadow-[var(--shadow-lw-panel)]"
-
 function RunStepPanel({ view, node, runId, secrets, state, onClose }: { view: WorkflowRunView; node: GraphNode; runId: string; secrets: string[]; state?: string; onClose?: () => void }) {
   const graphStep = node.step!
   // A loop's body's step is shown at its newest pass (graph version 2).
@@ -681,30 +615,6 @@ function StepOutline({ steps, run, now, selected, onPick }: { steps: WorkflowSte
   return <ul aria-label="Steps outline" className="max-h-[50vh] overflow-y-auto px-1.5 pb-2">{rows}</ul>
 }
 
-// The cards over a run's graph are folded or open as the operator last
-// left them, in this browser.
-const FOLDS_KEY = "legato:run-page:folds"
-
-function useCardFolds(large: boolean) {
-  const [saved, setSaved] = useState<Record<string, boolean>>(() => {
-    try { const value = JSON.parse(localStorage.getItem(FOLDS_KEY) ?? "{}"); return value && typeof value === "object" ? value : {} } catch { return {} }
-  })
-  // Inputs is open by default on a large screen only (LEG-651); Steps
-  // starts folded, as the graph already shows them.
-  const defaults: Record<string, boolean> = { inputs: !large, steps: true }
-  const folded = (card: string) => saved[card] ?? defaults[card] ?? false
-  const toggle = (card: string) => setSaved(current => {
-    const next = { ...current, [card]: !(current[card] ?? defaults[card] ?? false) }
-    try { localStorage.setItem(FOLDS_KEY, JSON.stringify(next)) } catch { /* kept for this visit only */ }
-    return next
-  })
-  return { folded, toggle }
-}
-
-// The widths of the cards' column and the side panel over a run's graph,
-// in pixels, with the space round each.
-const dockWidth = 360, panelWidth = 380, gap = 16
-
 export function WorkflowRunPage() {
   const { runId = "" } = useParams()
   const { data, loading, refreshing, error, refresh } = useWorkflowRun(runId)
@@ -715,12 +625,13 @@ export function WorkflowRunPage() {
   // Graph toggle to the graph, which then runs top to bottom with the run's
   // cards in a sheet and a node's details in another.
   const narrow = useMediaQuery("(max-width: 767px)")
-  const large = useMediaQuery("(min-width: 1280px) and (min-height: 800px)")
+  const large = useLargeScreen()
   const [graphOn, setGraphOn] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
   const [centerOn, setCenterOn] = useState<{ id: string; n: number } | null>(null)
-  const [panelsOn, setPanelsOn] = useState(true)
-  const folds = useCardFolds(large)
+  // Inputs is open by default on a large screen only (LEG-651); Steps
+  // starts folded, as the graph already shows them.
+  const folds = useCardFolds("legato:run-page:folds", { inputs: !large, steps: true })
   const { graph, needsYou, extras } = useRunGraphExtras(runId, data, now)
   const canvas = Boolean(graph) && (!narrow || graphOn)
   const focusNode = (node: string | null) => {
@@ -728,20 +639,6 @@ export function WorkflowRunPage() {
     setSelected(node)
     setCenterOn(current => ({ id: node, n: (current?.n ?? 0) + 1 }))
   }
-  // Escape closes a node's details; . shows or hides every card.
-  useEffect(() => {
-    if (!canvas) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
-      if ((event.target as Element | null)?.closest?.("input, textarea, select, [contenteditable=true], [role=dialog]")) return
-      if (event.key === "Escape" && selected) setSelected(null)
-      else if (event.key === ".") setPanelsOn(on => !on)
-      else return
-      event.preventDefault()
-    }
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [canvas, selected])
   if (loading) return <main className="flex min-h-0 flex-1 flex-col"><LoadingState label="Loading the workflow run…" /></main>
   if (!data) return <main className="p-6 font-lw text-lw-text">
     <Link to="/workflows?tab=runs" className="text-sm text-lw-link">← Runs</Link>
@@ -768,7 +665,8 @@ export function WorkflowRunPage() {
   const inputs = objectEntries(run.inputs_json).filter(([, value]) => value !== "" && value !== null)
   const secrets = secretValues(data)
   const selectedNode = graph?.nodes.find(node => node.id === selected)
-  const close = canvas ? () => setSelected(null) : undefined
+  const closePanel = () => setSelected(null)
+  const close = canvas ? closePanel : undefined
   const panel = selectedNode?.kind === "step"
     ? <RunStepPanel view={data} node={selectedNode} runId={runId} secrets={secrets} state={extras?.[selectedNode.id]?.state && runStateWords[extras[selectedNode.id].state!]} onClose={narrow ? undefined : close} />
     : selectedNode?.kind === "trigger" ? <RunTriggerPanel node={selectedNode} started={extras?.[selectedNode.id]?.trigger === "started"} onClose={narrow ? undefined : close} /> : null
@@ -794,31 +692,21 @@ export function WorkflowRunPage() {
   if (canvas && graph) {
     const current = run.current_step_id ? `step:${templatePath(run.current_step_id)}` : null
     const focusId = current && graph.nodes.some(node => node.id === current) ? current : null
-    const showPanel = panelsOn && Boolean(panel) && !narrow
-    const insets: Insets = narrow
-      ? { top: 0, left: 0, right: 0, bottom: panelsOn ? 220 : 0 }
-      : { top: 0, bottom: 0, left: panelsOn ? dockWidth + 2 * gap : 0, right: showPanel ? panelWidth + 2 * gap : 0 }
     const nowFold = { folded: folds.folded("now"), toggle: () => folds.toggle("now") }
     const cards = <>
       <NowFold.Provider value={nowFold}>{nowPanel}</NowFold.Provider>
       <NeedsYouList rows={needsYou.rows} steps={steps} runId={runId} refresh={refresh} onFocus={focusNode} card={{ folded: folds.folded("needs"), onFold: () => folds.toggle("needs") }} />
-      {inputs.length > 0 && <RunCard label="Inputs" folded={folds.folded("inputs")} onFold={() => folds.toggle("inputs")} heading={<h2 className={cardTitle}>Inputs<span className="font-medium text-lw-faint">{inputs.length}</span></h2>}>
+      {inputs.length > 0 && <DockCard label="Inputs" folded={folds.folded("inputs")} onFold={() => folds.toggle("inputs")} heading={<h2 className={cardTitle}>Inputs<span className="font-medium text-lw-faint">{inputs.length}</span></h2>}>
         <ValueList secrets={secrets} values={inputs} clamp className="px-4 pb-3" />
-      </RunCard>}
-      {!narrow && <RunCard label="Steps" folded={folds.folded("steps")} onFold={() => folds.toggle("steps")} heading={<h2 className={cardTitle}>Steps<span className="font-medium text-lw-faint">{steps.length}</span></h2>}>
+      </DockCard>}
+      {!narrow && <DockCard label="Steps" folded={folds.folded("steps")} onFold={() => folds.toggle("steps")} heading={<h2 className={cardTitle}>Steps<span className="font-medium text-lw-faint">{steps.length}</span></h2>}>
         <StepOutline steps={steps} run={run} now={now} selected={selected} onPick={focusNode} />
-      </RunCard>}
+      </DockCard>}
     </>
     const notices = (refreshFailed || changed || ended) && <>{refreshFailed}{changed}{ended && <div className="rounded-lg border border-lw-line bg-lw-surface px-3 py-2">{ended}</div>}</>
-    const panelsButton = <button type="button" aria-pressed={panelsOn} title="Show or hide the panels (.)" onClick={() => setPanelsOn(!panelsOn)} className="inline-flex h-8 items-center justify-center rounded-md px-2 text-xs text-lw-text hover:bg-lw-selected aria-pressed:bg-lw-selected">Panels</button>
     return <main className="flex min-h-0 flex-1 flex-col overflow-hidden font-lw text-lw-text">
-      <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-lw-line bg-lw-surface px-4 py-2.5">
-        <Link to="/workflows?tab=runs" className="text-sm text-lw-link">← Runs</Link>
-        <span aria-hidden="true" className="hidden h-7 w-px bg-lw-line sm:block" />
-        <div className="min-w-0 flex-1 basis-56">
-          <h1 className="truncate text-base font-semibold leading-snug" title={run.workflow_title}>{run.workflow_title}</h1>
-          <p className="truncate text-xs text-lw-text-2">{subtitle} · <span className="font-lw-mono text-[11px] text-lw-faint">{run.id} · <span title={run.definition_source}>{sourceLabel(run.definition_source ?? "")}</span></span></p>
-        </div>
+      <CanvasHeader back={{ to: "/workflows?tab=runs", label: "Runs" }} title={run.workflow_title}
+        subtitle={<>{subtitle} · <span className="font-lw-mono text-[11px] text-lw-faint">{run.id} · <span title={run.definition_source}>{sourceLabel(run.definition_source ?? "")}</span></span></>}>
         {/* The run's state keeps its words: on a narrow window it wraps under
             the title rather than being cut. */}
         <div className="flex min-w-0 max-w-full shrink-0 items-center gap-3 text-[13px] text-lw-text-2">
@@ -831,28 +719,11 @@ export function WorkflowRunPage() {
           <button type="button" aria-pressed={true} className="h-8 rounded-md bg-lw-selected px-3 text-xs font-medium text-lw-text">Graph</button>
         </div>}
         {cancel}
-      </header>
-      {/* On a phone the graph's toolbar is at its top, so the run's notices
-          go above the graph instead of over it. */}
-      {narrow && notices && <div className="shrink-0 space-y-2 border-b border-lw-line bg-lw-rail px-3 py-2">{notices}</div>}
-      <section aria-label="Run graph" className="relative min-h-0 flex-1 overflow-hidden bg-lw-ground">
-        <div className="absolute inset-0">
-          <LazyWorkflowGraph graph={graph} extras={extras} run selectedId={selected} onSelect={setSelected} centerOn={centerOn} direction={narrow ? "TB" : "LR"} canvas={{ insets, focusId, tools: panelsButton }} />
-        </div>
-        {!narrow && notices && <div className="pointer-events-none absolute top-4 z-10 flex justify-center px-4" style={{ left: insets.left, right: insets.right }}>
-          <div className="pointer-events-auto w-full max-w-md space-y-2">{notices}</div>
-        </div>}
-        {!panelsOn && <button type="button" onClick={() => setPanelsOn(true)} className="absolute left-4 top-4 z-10 inline-flex h-9 items-center gap-2 rounded-full border border-lw-line-strong bg-lw-surface px-3 text-[13px] text-lw-text shadow-[var(--shadow-lw-panel)] hover:bg-lw-raised">
-          <span aria-hidden="true" className={toneText[state.tone]}>{toneGlyph[state.tone]}</span>{state.label}<span className="text-lw-text-2">· Show panels</span>
-        </button>}
-        {panelsOn && (narrow
-          ? <div className="absolute inset-x-0 bottom-0 z-10 max-h-[50%] space-y-2 overflow-y-auto rounded-t-2xl border-t border-lw-line bg-lw-rail p-3 shadow-[var(--shadow-lw-panel)]">{cards}</div>
-          : <div className="pointer-events-none absolute bottom-20 left-4 top-4 z-10 flex flex-col gap-2 overflow-y-auto [&>*]:pointer-events-auto" style={{ width: dockWidth, maxWidth: "calc(100% - 2rem)" }}>{cards}</div>)}
-        {showPanel && <div className="pointer-events-none absolute bottom-4 right-4 top-4 z-10 flex flex-col" style={{ width: panelWidth, maxWidth: "calc(100% - 2rem)" }}>
-          <div className="pointer-events-auto flex min-h-0 flex-col">{panel}</div>
-        </div>}
-      </section>
-      {narrow && panel && <NodeSheet title={selectedNode?.step?.title ?? selectedNode?.trigger?.summary ?? ""} onClose={() => setSelected(null)}>{panel}</NodeSheet>}
+      </CanvasHeader>
+      <WorkflowCanvas label="Run graph" narrow={narrow} focusId={focusId} cards={cards} notices={notices}
+        graph={{ graph, extras, run: true, selectedId: selected, onSelect: setSelected, centerOn, direction: narrow ? "TB" : "LR" }}
+        panel={panel} panelTitle={selectedNode?.step?.title ?? selectedNode?.trigger?.summary ?? ""} selected={selected !== null} onClosePanel={closePanel}
+        hiddenPill={<><span aria-hidden="true" className={toneText[state.tone]}>{toneGlyph[state.tone]}</span>{state.label}</>} />
     </main>
   }
 

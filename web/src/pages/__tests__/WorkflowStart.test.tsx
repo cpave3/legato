@@ -124,7 +124,7 @@ it("opens Blank with no steps and an inviting first step", async () => {
   localStorage.setItem("legato:workflow-editor-mode", "visual")
   renderNew()
   fireEvent.click(await screen.findByRole("button", { name: /^Blank/ }))
-  const then = await screen.findByRole("region", { name: "Then" })
+  const then = await screen.findByRole("region", { name: "Steps" })
   fireEvent.click(within(then).getByRole("button", { name: "Add the first step" }))
   expect(screen.getByRole("dialog", { name: "Add a step" })).toBeTruthy()
 })

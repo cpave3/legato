@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react"
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react"
 import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Bot, Code2, Copy, FileText, FolderGit2, GitPullRequest, Hourglass, ListChecks, MoreVertical, Plus, Trash2 } from "lucide-react"
 import { addInput, inputsOf, itemKey, itemsOf, itemText, moveStep, pastedAs, pathAt, rangeOf, problemsByItem, removeStep, renameStep, setField, setItemText, setTrigger, stepsOf, stepYamlPath, triggersOf, parseWorkflow, insertStep, WorkflowDocumentError, type Item, type ItemRef, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
 import { addressOf, sameSelection, type Selection } from "../../lib/workflowAddress"
@@ -18,6 +18,10 @@ import { KIND_TITLES, newTrigger, triggerKinds, triggerSentence, type SentencePa
 import { LazyWorkflowYamlEditor } from "./LazyWorkflowYamlEditor"
 import { LazyWorkflowGraph } from "../workflow-graph/LazyWorkflowGraph"
 import type { WorkflowGraphModel } from "../../lib/workflowGraph"
+import { DockCard, PanelClose } from "../workflow-canvas/DockCard"
+import { cardTitle, floatingPanel } from "../workflow-canvas/canvasStyles"
+import { useCardFolds } from "../workflow-canvas/useCardFolds"
+import { WorkflowCanvas } from "../workflow-canvas/WorkflowCanvas"
 import { parseDocument } from "yaml"
 
 export type WorkflowOutlineProps = {
@@ -68,7 +72,21 @@ export type WorkflowOutlineProps = {
   /** savedText is the file as last saved (null for a new workflow): a
    * step it lacks takes its ID from its title. */
   savedText?: string | null
+  /** layout canvas draws the Visual side on a wide screen as the graph,
+   * with the outline's sections as cards on the left and the inspector on
+   * the right (LEG-655); the page's notices float over it, its Problems
+   * card (cards) heads the left dock. */
+  layout?: "canvas"
+  notices?: ReactNode
+  cards?: ReactNode
 }
+
+// The editor's inspector is wider than a run's side panel: its forms need
+// the room (LEG-655).
+const INSPECTOR_WIDTH = 480
+
+// cardOfKind is the card over the graph that holds a row of each kind.
+const cardOfKind: Record<Selection["kind"], string> = { trigger: "triggers", input: "inputs", step: "steps", about: "about" }
 
 /** HeldYaml is item YAML not written yet, by item key, with the item's
  * text it was begun from. */
@@ -170,7 +188,8 @@ function rowsOf(items: Item[], values: WorkflowValues, problems: Map<string, Wor
 }
 
 // WorkflowOutline is the Visual side of the editor (LEG-505): the outline
-// of the workflow (When, Asks for, Then, About) and an inspector of the
+// of the workflow (Triggers, Inputs, Steps, About; When, Asks for and Then
+// before LEG-655) and an inspector of the
 // row chosen, over the same text the YAML side edits.
 function Outline(props: WorkflowOutlineProps) {
   const { text, onEdit, diagnostics = [], nameFixed, onEditYaml, options = noOptions, schedule, selection, onSelect, narrow = false, sheet = false, onCloseSheet, onUndo, onRedo, savedText = null, pausedHere = NO_SWITCHES, mode = "edit", cursor, onJump, broken, graph = null } = props
@@ -195,7 +214,6 @@ function Outline(props: WorkflowOutlineProps) {
   const [adding, setAdding] = useState<{ kind: "step"; at: number } | { kind: "trigger" } | null>(null)
   const [menu, setMenu] = useState<string | null>(null)
   const [pasted, setPasted] = useState<string | null>(null)
-  // List | Map: the outline, or the run graph (read-only) in its place.
   const [view, setView] = useState<"list" | "map">("list")
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
   const [warning, setWarning] = useState("")
@@ -204,6 +222,18 @@ function Outline(props: WorkflowOutlineProps) {
   const [focusNew, setFocusNew] = useState<string | null>(null)
   const outline = useRef<HTMLElement>(null)
   const inspector = useRef<HTMLElement>(null)
+  // On the canvas: which cards are folded, and the node to centre.
+  const canvasOn = props.layout === "canvas" && !navigating && !narrow
+  const folds = useCardFolds("legato:workflow-editor:folds", {})
+  const { open: openCard } = folds
+  const [centerOn, setCenterOn] = useState<{ id: string; n: number } | null>(null)
+  const centre = (id: string | null) => { if (id) setCenterOn(current => ({ id, n: (current?.n ?? 0) + 1 })) }
+  // The card that holds the row chosen opens, so the row is never hidden.
+  const selectedCard = selection ? cardOfKind[selection.kind] : null
+  const selectedFolded = selectedCard ? folds.folded(selectedCard) : false
+  useEffect(() => { if (canvasOn && selectedCard && selectedFolded) openCard(selectedCard) }, [canvasOn, selectedCard, selectedFolded, openCard])
+  // List | Graph on a phone: the outline, or the graph (read-only) in its
+  // place.
 
   const rows = useMemo(() => rowsOf(items, values, problems, pausedHere), [items, values, problems, pausedHere])
   const savedIds = useMemo(() => savedText === null ? null : new Set(stepsOf(parseWorkflow(savedText).values).map(step => String(step?.id ?? ""))), [savedText])
@@ -264,10 +294,18 @@ function Outline(props: WorkflowOutlineProps) {
   }, [text, onEdit])
 
   if (file) {
-    return <div role="alert" className="flex flex-col items-start gap-2 rounded-xl border border-lw-danger-line bg-lw-error-soft p-4 text-sm text-lw-danger">
+    const alert = <div role="alert" className="flex flex-col items-start gap-2 rounded-xl border border-lw-danger-line bg-lw-error-soft p-4 text-sm text-lw-danger">
       <p>{file.startsWith("the YAML does not parse") ? `The YAML doesn't parse, so it can't be shown here: ${file.replace(/^the YAML does not parse: /, "")}` : `This file can't be shown as forms: ${file}.`}</p>
       <Button size="sm" variant="outline" onClick={() => onEditYaml()}>Edit as YAML</Button>
     </div>
+    // On the canvas the page's notices and cards come through here: they
+    // stay, with the alert, when there is no outline to draw.
+    if (canvasOn) return <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+      {props.notices && <div className="flex max-w-xl flex-col gap-2">{props.notices}</div>}
+      {alert}
+      {props.cards && <div className="max-w-sm">{props.cards}</div>}
+    </div>
+    return alert
   }
 
   // A step that is not a mapping keeps its place, and is no one's reader.
@@ -380,7 +418,7 @@ function Outline(props: WorkflowOutlineProps) {
     const Icon = row.type ? iconOf(row.type) : null
     const button = <button type="button" data-address={address} aria-current={selected ? "true" : undefined}
       className={`flex min-h-10 w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${selected ? "bg-lw-raised text-lw-text" : "text-lw-text-2 hover:bg-lw-raised hover:text-lw-text"}`}
-      onClick={() => select(row.selection, true)}>
+      onClick={() => { select(row.selection, true); if (canvasOn) centre(nodeOf(row.selection)) }}>
       {number !== undefined && <span className="w-4 shrink-0 text-right text-xs text-lw-faint">{number}</span>}
       {Icon && <Icon size={14} aria-hidden className="shrink-0 text-lw-faint" />}
       <span className="flex min-w-0 flex-1 flex-col">
@@ -445,50 +483,62 @@ function Outline(props: WorkflowOutlineProps) {
   </p>)
 
   const missing = triggerKinds.filter(t => !(t.kind in triggersOf(values)))
+  const whenBody = <>
+    <ul className="flex flex-col">{rows.when.map(row => rowButton(row))}</ul>
+    {container("on")}
+    {editing && missing.length > 0 && (adding?.kind === "trigger"
+      ? <div role="dialog" aria-label="Add a trigger" className="mx-2 flex flex-col gap-1 rounded-lg border border-lw-line bg-lw-surface p-1 shadow-xl" onKeyDown={event => { if (event.key === "Escape") setAdding(null) }}>
+        {missing.map(t => <button key={t.kind} type="button" className="flex min-h-9 flex-col items-start rounded-md px-2 py-1 text-left hover:bg-lw-raised" onClick={() => addTrigger(t.kind)}>
+          <span className="text-sm">{KIND_TITLES[t.kind] ?? t.kind}</span>
+          <span className="text-xs text-lw-text-2">{t.description}</span>
+        </button>)}
+        <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding(null)}>Cancel</Button>
+      </div>
+      : <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding({ kind: "trigger" })}><Plus size={13} />Add trigger</Button>)}
+    <p className="px-2 text-xs text-lw-faint">You can always run it by hand.</p>
+  </>
+  const asksBody = <>
+    {rows.asks.length === 0 && <p className="px-2 text-sm text-lw-text-2">Nothing: it takes no inputs</p>}
+    <ul className="flex flex-col">{rows.asks.map(row => rowButton(row))}</ul>
+    {container("inputs")}
+    {editing && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={addAnInput}><Plus size={13} />Add input</Button>}
+  </>
+  const thenBody = <>
+    {rows.then.length === 0 && (editing
+      ? (adding?.kind === "step" ? null : <button type="button" className="mx-2 flex min-h-16 items-center justify-center gap-2 rounded-lg border border-dashed border-lw-line-strong text-sm text-lw-text-2 hover:bg-lw-raised hover:text-lw-text" onClick={() => setAdding({ kind: "step", at: 0 })}><Plus size={14} />Add the first step</button>)
+      : <p className="px-2 text-sm text-lw-text-2">No steps yet: a workflow needs at least one.</p>)}
+    {warning && <p role="alert" className="px-2 text-xs text-lw-needs">{warning}</p>}
+    <ol aria-label="Steps" className="flex flex-col">{rows.then.map(stepRow)}</ol>
+    {container("steps")}
+    {editing && (adding?.kind === "step" && adding.at >= placed.length ? palette : placed.length > 0 && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding({ kind: "step", at: placed.length })}><Plus size={13} />Add step</Button>)}
+  </>
+  const aboutBody = <ul className="flex flex-col">{rowButton(order[order.length - 1])}</ul>
   const outlineView = <nav ref={outline} aria-label="Outline" onKeyDown={onKeyDown} className="flex min-w-0 flex-col gap-4">
-    {section("When", <>
-      <ul className="flex flex-col">{rows.when.map(row => rowButton(row))}</ul>
-      {container("on")}
-      {editing && missing.length > 0 && (adding?.kind === "trigger"
-        ? <div role="dialog" aria-label="Add a trigger" className="mx-2 flex flex-col gap-1 rounded-lg border border-lw-line bg-lw-surface p-1 shadow-xl" onKeyDown={event => { if (event.key === "Escape") setAdding(null) }}>
-          {missing.map(t => <button key={t.kind} type="button" className="flex min-h-9 flex-col items-start rounded-md px-2 py-1 text-left hover:bg-lw-raised" onClick={() => addTrigger(t.kind)}>
-            <span className="text-sm">{KIND_TITLES[t.kind] ?? t.kind}</span>
-            <span className="text-xs text-lw-text-2">{t.description}</span>
-          </button>)}
-          <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding(null)}>Cancel</Button>
-        </div>
-        : <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding({ kind: "trigger" })}><Plus size={13} />Add trigger</Button>)}
-      <p className="px-2 text-xs text-lw-faint">You can always run it by hand.</p>
-    </>)}
-    {section("Asks for", <>
-      {rows.asks.length === 0 && <p className="px-2 text-sm text-lw-text-2">Nothing: it takes no inputs</p>}
-      <ul className="flex flex-col">{rows.asks.map(row => rowButton(row))}</ul>
-      {container("inputs")}
-      {editing && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={addAnInput}><Plus size={13} />Add input</Button>}
-    </>)}
-    {section("Then", <>
-      {rows.then.length === 0 && (editing
-        ? (adding?.kind === "step" ? null : <button type="button" className="mx-2 flex min-h-16 items-center justify-center gap-2 rounded-lg border border-dashed border-lw-line-strong text-sm text-lw-text-2 hover:bg-lw-raised hover:text-lw-text" onClick={() => setAdding({ kind: "step", at: 0 })}><Plus size={14} />Add the first step</button>)
-        : <p className="px-2 text-sm text-lw-text-2">No steps yet: a workflow needs at least one.</p>)}
-      {warning && <p role="alert" className="px-2 text-xs text-lw-needs">{warning}</p>}
-      <ol aria-label="Steps" className="flex flex-col">{rows.then.map(stepRow)}</ol>
-      {container("steps")}
-      {editing && (adding?.kind === "step" && adding.at >= placed.length ? palette : placed.length > 0 && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding({ kind: "step", at: placed.length })}><Plus size={13} />Add step</Button>)}
-    </>)}
-    {section("About", <ul className="flex flex-col">{rowButton(order[order.length - 1])}</ul>)}
+    {section("Triggers", whenBody)}
+    {section("Inputs", asksBody)}
+    {section("Steps", thenBody)}
+    {section("About", aboutBody)}
   </nav>
 
   const listOrMap = <div role="radiogroup" aria-label="Outline view" className="inline-flex self-start rounded-md border border-lw-line p-0.5">
     {(["list", "map"] as const).map(option => <button key={option} type="button" role="radio" aria-checked={view === option} disabled={option === "map" && !graph}
-      title={option === "map" && !graph ? "The map shows once Legato has read the file" : undefined}
-      className={`min-h-7 rounded px-2.5 text-xs disabled:opacity-40 ${view === option ? "bg-lw-raised text-lw-text" : "text-lw-text-2"}`} onClick={() => setView(option)}>{option === "list" ? "List" : "Map"}</button>)}
+      title={option === "map" && !graph ? "The graph shows once Legato has read the file" : undefined}
+      className={`min-h-7 rounded px-2.5 text-xs disabled:opacity-40 ${view === option ? "bg-lw-raised text-lw-text" : "text-lw-text-2"}`} onClick={() => setView(option)}>{option === "list" ? "List" : "Graph"}</button>)}
   </div>
-  const mapView = graph && <section aria-label="Map" className="flex flex-col gap-1">
-    {graph.stale && <p role="status" className="text-xs text-lw-needs">The map is of the last version Legato could read.</p>}
-    <div className={narrow ? "h-[60vh] overflow-hidden rounded-lg border border-lw-line bg-lw-ground" : "h-[32rem] overflow-hidden rounded-lg border border-lw-line bg-lw-ground"}>
-      <LazyWorkflowGraph graph={graph.model} selectedId={nodeOf(shown)} direction="TB" onSelect={id => { if (broken) return; const next = selectionOfNode(graph.model, id); if (next) select(next, true) }} />
+  const staleWords = "The graph is of the last version Legato could read."
+  const graphSelect = (id: string | null) => { if (broken || !graph) return; const next = selectionOfNode(graph.model, id); if (next) select(next, true) }
+  const mapView = graph && (narrow && !navigating
+    // On a phone, Graph is the canvas in the outline's place, top to bottom.
+    ? <div className="relative flex h-[70vh] flex-col overflow-hidden rounded-lg border border-lw-line">
+      <WorkflowCanvas label="Graph" narrow graph={{ graph: graph.model, selectedId: nodeOf(shown), onSelect: graphSelect, direction: "TB" }}
+        notices={graph.stale && <p role="status" className="text-xs text-lw-needs">{staleWords}</p>} selected={false} onClosePanel={() => {}} hiddenPill="Graph" />
     </div>
-  </section>
+    : <section aria-label="Graph" className="flex flex-col gap-1">
+    {graph.stale && <p role="status" className="text-xs text-lw-needs">{staleWords}</p>}
+    <div className={narrow ? "h-[60vh] overflow-hidden rounded-lg border border-lw-line bg-lw-ground" : "h-[32rem] overflow-hidden rounded-lg border border-lw-line bg-lw-ground"}>
+      <LazyWorkflowGraph graph={graph.model} selectedId={nodeOf(shown)} direction="TB" onSelect={graphSelect} />
+    </div>
+  </section>)
   const navigation = <div className="flex min-w-0 flex-col gap-2">
     {listOrMap}
     {view === "map" && mapView ? mapView : outlineView}
@@ -512,6 +562,46 @@ function Outline(props: WorkflowOutlineProps) {
     {listOrMap}
     {view === "map" && mapView ? mapView : <div inert className="opacity-50">{outlineView}</div>}
   </div>
+  if (canvasOn) {
+    const cardOf = (key: string, label: string, size: number | null, body: ReactNode) => <DockCard label={label} folded={folds.folded(key)} onFold={() => folds.toggle(key)}
+      heading={<h2 className={cardTitle}>{label}{size !== null && <span className="font-medium text-lw-faint">{size}</span>}</h2>}>
+      <div className="flex min-w-0 flex-col gap-1 px-1.5 pb-2">{body}</div>
+    </DockCard>
+    // j and k move across every card's rows: the keys are the dock's.
+    const nav = <nav ref={outline} aria-label="Outline" onKeyDown={onKeyDown} className="flex min-w-0 flex-col gap-2">
+      {cardOf("triggers", "Triggers", rows.when.length, whenBody)}
+      {cardOf("inputs", "Inputs", rows.asks.length, asksBody)}
+      {cardOf("steps", "Steps", rows.then.length, thenBody)}
+      {cardOf("about", "About", null, aboutBody)}
+    </nav>
+    const box = "rounded-lg border border-lw-line bg-lw-surface px-3 py-2 text-[13px] shadow-[var(--shadow-lw-panel)]"
+    const notices = <>
+      {props.notices}
+      {brokenNote}
+      {graph?.stale && <p role="status" className={`${box} text-lw-needs`}>{staleWords}</p>}
+      {error && <p role="alert" className={`${box} text-lw-danger`}>{error}</p>}
+      {pasted !== null && <div role="alertdialog" aria-label="Replace the workflow" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm shadow-[var(--shadow-lw-panel)]">
+        <span className="min-w-0 flex-1">You pasted a whole workflow. Replace this one with it? Undo brings this one back.</span>
+        <Button size="sm" onClick={() => { const next = pasted; setPasted(null); onEdit({ text: next, undo: { label: "Paste a workflow", before: text, after: next } }) }}>Replace</Button>
+        <Button size="sm" variant="ghost" onClick={() => setPasted(null)}>Cancel</Button>
+      </div>}
+    </>
+    const hasNotices = Boolean(props.notices || broken || graph?.stale || error || pasted !== null)
+    const panel = selectedRow && !broken && <aside aria-label={selectedRow.label.trim()} className={`flex min-h-0 flex-col rounded-xl border border-lw-line bg-lw-surface p-4 text-sm ${floatingPanel}`}>
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">{inspectorView}</div>
+        <PanelClose onClose={() => onSelect(null)} />
+      </div>
+    </aside>
+    return <div className="flex min-h-0 flex-1 flex-col text-sm" onPaste={onPaste}>
+      <WorkflowCanvas label="Workflow graph" narrow={false} panelWidth={INSPECTOR_WIDTH} dockYields
+        graph={graph ? { graph: graph.model, selectedId: nodeOf(shown), onSelect: graphSelect, centerOn, direction: "LR" } : null}
+        empty="The graph shows once Legato has read the file."
+        cards={<>{props.cards}{broken ? <div inert className="opacity-50">{nav}</div> : nav}</>}
+        notices={hasNotices && notices} panel={panel || null} panelTitle={selectedRow?.label.trim()}
+        selected={selection !== null} onClosePanel={() => onSelect(null)} hiddenPill="Outline" />
+    </div>
+  }
   if (navigating) {
     if (narrow) {
       // On a phone, the outline beside the YAML is a menu to jump with.
