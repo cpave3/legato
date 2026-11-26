@@ -6,7 +6,7 @@ Application entry points resolve `config.DBConfig` through `config.ResolveDataba
 
 Production services, CLI commands, TUI code, and the web server use store behavior instead of a raw `*sqlx.DB`. SQLite-specific migrations, reporting SQL, full-text search, generated IDs, and connection setup stay behind the store boundary.
 
-The SQLite DSN enables foreign keys and a 5-second busy timeout on every pooled connection. The pool is capped at four connections. A read-only compatibility preflight runs before WAL mode can be changed. Migration transactions use an immediate SQLite transaction, taking ownership before reading schema state; WAL initialization retries bounded lock contention so racing Legato processes can safely open the same database.
+The SQLite DSN enables foreign keys and a 5-second busy timeout on every pooled connection. The pool is capped at four connections. A read-only compatibility preflight runs before WAL mode can be changed. Migration transactions use an immediate SQLite transaction, taking ownership before reading schema state; WAL initialization retries bounded lock contention so racing Legato processes can safely open the same database. `Store.Close` (and `Unmigrated.Close`) closes the pool and then waits, at most 10 seconds (`closeWait`, twice the busy timeout), for connections still in use to be given back, logging when it gives up: `database/sql` closes only idle connections, and a statement on one still checked out would make SQLite create the `-wal` and `-shm` files again after the idle one deleted them. Once `Close` returns they are gone, so a test's `t.TempDir()` cleanup can remove the folder even when a background goroutine outlived the test (LEG-654).
 
 ### Migrations and compatibility
 
