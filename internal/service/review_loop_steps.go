@@ -981,11 +981,12 @@ func (c *ReviewRunCaller) observe(ctx context.Context, kind string, step Resolve
 // endedState is what a loop closed under a waiting step says to it: stuck
 // (the operator ended it while stuck), closed (its pull requests closed),
 // ended (the operator ended its steward, during a re-entry's review too),
-// or, for a loop approved and closed, approved. A loop cancelled with its
-// run says nothing: the run is ending.
+// merged (a steward's, every pull request merged while a re-entry's step
+// waited), or, for a loop approved and closed, approved. A loop cancelled
+// with its run says nothing: the run is ending.
 func endedState(rec *store.ReviewLoop) string {
 	switch rec.Outcome {
-	case ReviewOutcomeStuck, ReviewOutcomeClosed, ReviewOutcomeApproved, ReviewOutcomeEnded:
+	case ReviewOutcomeStuck, ReviewOutcomeClosed, ReviewOutcomeApproved, ReviewOutcomeEnded, ReviewOutcomeMerged:
 		return rec.Outcome
 	}
 	return ""

@@ -1080,7 +1080,13 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 		}
 	}
 	if len(open) == 0 {
-		c.finish(ctx, l.TaskID, ReviewOutcomeClosed)
+		outcome := ReviewOutcomeClosed
+		if rec := c.engine.stewardRecord(ctx, l.TaskID); rec != nil {
+			if w, ok := c.engine.freshWatch(rec.ID); ok && watchEnd(w) == ReviewStageMerged {
+				outcome = ReviewOutcomeMerged
+			}
+		}
+		c.finish(ctx, l.TaskID, outcome)
 		return false
 	}
 	pushed := moved(open, c.pinnedHeads(ctx, l.TaskID))
@@ -1437,6 +1443,8 @@ func (c *ReviewRunCaller) Stage(ctx context.Context, l ReviewLoop, stage string)
 		c.approved(ctx, l)
 	case ReviewStageNone, ReviewStageClosed:
 		c.finish(ctx, l.TaskID, ReviewOutcomeClosed)
+	case ReviewStageMerged:
+		c.finish(ctx, l.TaskID, ReviewOutcomeMerged)
 	}
 }
 

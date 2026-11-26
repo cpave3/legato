@@ -51,6 +51,36 @@ const (
 // loop closed unmerged: the loop ends with outcome closed.
 const ReviewStageClosed = "closed"
 
+// ReviewStageMerged tells a caller that every pull request of its
+// stewarded loop merged: the loop ends with outcome merged.
+const ReviewStageMerged = "merged"
+
+// ReviewOutcomeMerged is a stewarded loop's outcome once every layer
+// merged.
+const ReviewOutcomeMerged = StewardWokeMerged
+
+// watchEnd is how a watch read ends a stewarded loop: closed when a layer
+// closed unmerged, merged when every layer merged, "" while one is open.
+func watchEnd(w ReviewLoopWatch) string {
+	if len(w.Layers) == 0 {
+		return ""
+	}
+	merged := true
+	for _, layer := range w.Layers {
+		switch layer.State {
+		case "closed":
+			return ReviewStageClosed
+		case "merged":
+		default:
+			merged = false
+		}
+	}
+	if merged {
+		return ReviewStageMerged
+	}
+	return ""
+}
+
 // StewardIdleAfter is how long a steward watches with no push, comment,
 // review or check change before its idle deadline (spec LEG-559: seven
 // days, repository_cache.keep_idle).
@@ -159,19 +189,18 @@ func (s *ReviewPassService) freshWatch(loopID string) (ReviewLoopWatch, bool) {
 }
 
 // routeWatch routes what a stewarding loop's newest watch read found (each
-// read once): a pull request closed unmerged ends the loop as closed (true);
-// failing counted checks and new counted comments and reviews are items for
-// the author. Call with s.mu held.
+// read once): a pull request closed unmerged ends the loop as closed, and
+// every one merged as merged (true); failing counted checks, new counted
+// comments and reviews, mergeability problems and merged lower layers are
+// items for the author. Call with s.mu held.
 func (s *ReviewPassService) routeWatch(ctx context.Context, l ReviewLoop, rec *store.ReviewLoop) bool {
 	w, ok := s.freshWatch(rec.ID)
 	if !ok {
 		return false
 	}
-	for _, layer := range w.Layers {
-		if layer.State == "closed" {
-			l.stage(ctx, ReviewStageClosed)
-			return true
-		}
+	if end := watchEnd(w); end != "" {
+		l.stage(ctx, end)
+		return true
 	}
 	if s.stewardHolds(ctx, rec) {
 		// Held or stuck: nothing is sent. What the reads found is routed
@@ -258,6 +287,27 @@ func (s *ReviewPassService) routeItems(ctx context.Context, l ReviewLoop, rec *s
 			}
 		}
 	}
+	for i, layer := range w.Layers {
+		if layer.State != "merged" {
+			continue
+		}
+		var above []PRWatch
+		for _, up := range w.Layers[i+1:] {
+			if up.State == "open" {
+				above = append(above, up)
+			}
+		}
+		item, write, isNew := s.applyMergedLayer(l, loop, rec.Repo, layer, above, byID)
+		if !write {
+			continue
+		}
+		if isNew {
+			fresh++
+		}
+		if err := s.db.UpsertHandoffReviewItem(ctx, item); err != nil {
+			return err
+		}
+	}
 	gone := s.closeUnseen(ctx, items, seen, func(item store.HandoffReviewItem) bool {
 		return read[item.PR] && strings.EqualFold(item.Repo, rec.Repo)
 	})
@@ -337,6 +387,46 @@ func (s *ReviewPassService) applyMergeability(l ReviewLoop, loop *store.HandoffR
 		item.Title = fmt.Sprintf("#%d is behind its base %s at %s: merge %s into it, or restack it", layer.Number, layer.BaseBranch, short(layer.HeadSHA), layer.BaseBranch)
 		item.Body = "GitHub reports this pull request BEHIND: its base requires branches to be up to date before merging."
 	}
+	return item, true, true
+}
+
+// applyMergedLayer is what a merged layer with open layers above it makes
+// of its item (spec LEG-559 § The steward): raised once, asking the author
+// to restack the rest onto the merged layer's base, and closed once every
+// open layer above has a new head (the restack) or none is left open.
+func (s *ReviewPassService) applyMergedLayer(l ReviewLoop, loop *store.HandoffReview, repo string, layer PRWatch, above []PRWatch,
+	byID map[string]store.HandoffReviewItem) (store.HandoffReviewItem, bool, bool) {
+	id := fmt.Sprintf("%s%d", mergedLayerPrefix, layer.Number)
+	item, known := byID[id]
+	heads := make([]string, 0, len(above))
+	for _, up := range above {
+		heads = append(heads, fmt.Sprintf("%d:%s", up.Number, up.HeadSHA))
+	}
+	switch {
+	case known && item.Closed:
+		return item, false, false
+	case known:
+		restacked := true
+		for _, head := range heads {
+			restacked = restacked && !slices.Contains(strings.Split(item.SourceID, ","), head)
+		}
+		if restacked {
+			item.Closed = true
+			return item, true, false
+		}
+		return item, false, false
+	case len(above) == 0:
+		return item, false, false
+	}
+	names := make([]string, 0, len(above))
+	for _, up := range above {
+		names = append(names, fmt.Sprintf("#%d", up.Number))
+	}
+	item = store.HandoffReviewItem{ID: id, TaskID: l.TaskID, Kind: ItemMergedLayer, Pass: loop.Pass, Repo: repo, PR: layer.Number, Version: 1,
+		Author: "GitHub", CreatedAt: s.now(), SourceID: strings.Join(heads, ","),
+		URL:   fmt.Sprintf("https://github.com/%s/pull/%d", repo, layer.Number),
+		Title: fmt.Sprintf("#%d merged into %s: restack the rest (%s) onto %s", layer.Number, layer.BaseBranch, joinAnd(names), layer.BaseBranch),
+		Body:  fmt.Sprintf("A lower layer of the stack merged. Restack the layers above it onto %s and push each one that moved; Legato reviews them again after the push.", layer.BaseBranch)}
 	return item, true, true
 }
 

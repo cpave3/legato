@@ -145,3 +145,84 @@ func TestAnUnknownMergeabilityLeavesTheItemAsItWas(t *testing.T) {
 		t.Fatalf("UNKNOWN after a conflict: %+v", items)
 	}
 }
+
+var stewardStackInputs = map[string]string{"repo": "acme/widget", "pr_number": "23", "agent_author": "true", "steward": "true"}
+
+// A merged lower layer asks the author to restack the rest; once the rest
+// is restacked and approved again, the loop watches on, and when every
+// layer has merged its outcome is merged (AC 32).
+func TestAMergedLowerLayerRoutesRestackTheRestAndAllMergedIsMerged(t *testing.T) {
+	r := stewardStack(t)
+	view := r.stewarded(t, stewardStackInputs)
+	task := view.Run.TaskID
+
+	r.worker.ReviewGitHub.MergePR(21)
+	r.watchTick()
+	r.told()
+	r.watchTick()
+
+	typed := r.worker.typedTo("legato-board-1")
+	if n := strings.Count(typed, "[legato steward] 1 merged layer"); n != 1 {
+		t.Fatalf("the author was told %d times; typed %q", n, typed)
+	}
+	items := r.openFeedback(t, service.ItemMergedLayer)
+	if len(items) != 1 || items[0].ID != "ml-21" || items[0].PR != 21 {
+		t.Fatalf("merged layer items %+v", items)
+	}
+	if !strings.Contains(items[0].Title, "restack") || !strings.Contains(items[0].Title, "#22") {
+		t.Fatalf("title %q", items[0].Title)
+	}
+	if !strings.Contains(items[0].Operation, "restack") {
+		t.Fatalf("operation %q", items[0].Operation)
+	}
+	view = r.show(t, view.Run.ID)
+	if view.Run.Status != "running" || !r.watching(t, view) {
+		t.Fatalf("run %q not watching after one layer merged: %s", view.Run.Status, stepStates(view))
+	}
+
+	// The author restacks the rest: one re-entry, reviewing the open layers.
+	r.worker.ReviewGitHub.Push(22, "sha22-b")
+	r.worker.ReviewGitHub.Push(23, "sha23-b")
+	r.watchTick()
+	r.tick()
+	prs, err := r.worker.Store.ListHandoffReviewPRs(context.Background(), task, 2)
+	if err != nil || len(prs) != 2 || prs[0].Number != 22 || prs[1].Number != 23 {
+		t.Fatalf("pass 2 reviews %+v, %v", prs, err)
+	}
+	r.submit(t, task, service.ReviewSubmission{Summary: "Still right."})
+	r.tick()
+	r.watchTick()
+	if items := r.openFeedback(t, service.ItemMergedLayer); len(items) != 0 {
+		t.Fatalf("the merged layer's item is still open once the rest moved: %+v", items)
+	}
+	view = r.show(t, view.Run.ID)
+	if !r.watching(t, view) {
+		t.Fatalf("not watching again: %s", stepStates(view))
+	}
+
+	r.worker.ReviewGitHub.MergePR(22)
+	r.worker.ReviewGitHub.MergePR(23)
+	r.watchTick()
+	r.tick()
+	view = r.show(t, view.Run.ID)
+	if view.Run.Status != "succeeded" || runOutputs(t, view)["outcome"] != "merged" {
+		t.Fatalf("run %q (%s), outputs %s: %s", view.Run.Status, view.Run.Error, view.Run.OutputsJSON, stepStates(view))
+	}
+	watches := stewardSteps(view, "watch")
+	if last := watches[len(watches)-1]; stepOutputs(t, last)["woke"] != "merged" {
+		t.Fatalf("watch steps: %s", stepStates(view))
+	}
+}
+
+// Every layer merging while the author fixes a re-entry pass's finding
+// ends the loop merged, not closed.
+func TestEveryLayerMergingDuringAReEntryIsMerged(t *testing.T) {
+	r, view := reenteredWithAFinding(t)
+	r.worker.ReviewGitHub.MergePR(12)
+	r.watchTick()
+	r.tick()
+	view = r.show(t, view.Run.ID)
+	if view.Run.Status != "succeeded" || runOutputs(t, view)["outcome"] != "merged" {
+		t.Fatalf("run %q (%s), outputs %s: %s", view.Run.Status, view.Run.Error, view.Run.OutputsJSON, stepStates(view))
+	}
+}
