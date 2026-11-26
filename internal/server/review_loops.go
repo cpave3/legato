@@ -15,6 +15,13 @@ type ReviewLoopLookup interface {
 	ActiveReviewLoop(ctx context.Context, repo string, pr int) (*service.FoundReviewLoop, error)
 }
 
+// ReviewStewardStates says whether a review loop's steward watches a pull
+// request: "stewarding", "held" or "" (service.ReviewLoopLookup). A lookup
+// that has it gives the board's PR rows their steward chip.
+type ReviewStewardStates interface {
+	StewardState(ctx context.Context, repo string, pr int) string
+}
+
 // SetReviewLoops serves GET /api/review-loops.
 func (s *Server) SetReviewLoops(lookup ReviewLoopLookup) { s.reviewLoops = lookup }
 

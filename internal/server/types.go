@@ -254,6 +254,10 @@ type PRMetaResponse struct {
 	MatchMethod string `json:"match_method,omitempty"`
 	SyncOutcome string `json:"sync_outcome,omitempty"`
 	SyncError   string `json:"sync_error,omitempty"`
+	// Steward is "stewarding" while a review loop's steward watches the
+	// pull request, "held" while the operator stopped it watching; absent
+	// otherwise (spec LEG-559 story 13).
+	Steward string `json:"steward,omitempty"`
 }
 
 // TrackedBranchResponse is one branch a task tracks. Source is
