@@ -22,6 +22,10 @@ func TestTicketStepsNameWhatTheyWrite(t *testing.T) {
 		"a Burnlite task": "ticket.create|      provider: burnlite\n      project: LEG\n      summary: Fix login\n      size: Medium\n      uncertainty: Low\n      kind: work\n",
 		"templates":       "ticket.create|      provider: ${{ workflow.inputs.task.metadata.provider }}\n      project: AG\n      summary: ${{ workflow.inputs.task.title }}\n",
 		"a comment":       "ticket.comment|      key: AG-12\n      body: Seen again in prod today\n",
+		"an assignee":     "ticket.create|      project: AG\n      summary: S\n      assignee: me\n",
+		"an update":       "ticket.update|      provider: jira\n      key: AG-123\n      assignee: me\n      status: In Progress\n",
+		"a status":        "ticket.update|      key: LEG-9\n      status: building\n      optional: true\n",
+		"templated":       "ticket.update|      key: ${{ workflow.inputs.task.metadata.key }}\n      assignee: ${{ workflow.inputs.task.title }}\n",
 	}
 	refused := map[string]string{
 		"no project":    "ticket.create|      summary: S\n",
@@ -31,6 +35,9 @@ func TestTicketStepsNameWhatTheyWrite(t *testing.T) {
 		"no key":        "ticket.comment|      body: x\n",
 		"no body":       "ticket.comment|      key: AG-1\n",
 		"comment to gh": "ticket.comment|      provider: github\n      key: AG-1\n      body: x\n",
+		"update no key": "ticket.update|      status: Done\n",
+		"update to gh":  "ticket.update|      provider: github\n      key: AG-1\n      status: Done\n",
+		"optional yes":  "ticket.update|      key: AG-1\n      status: Done\n      optional: \"yes\"\n",
 	}
 	split := func(s string) (string, string) {
 		for i := range s {
@@ -53,8 +60,9 @@ func TestTicketStepsNameWhatTheyWrite(t *testing.T) {
 		}
 	}
 	for stepType, outputs := range map[string][]string{
-		"ticket.create":  {"key", "url", "id", "provider", "created"},
+		"ticket.create":  {"key", "url", "id", "provider", "created", "warnings"},
 		"ticket.comment": {"url", "id", "key"},
+		"ticket.update":  {"key", "url", "status", "assignee", "changed", "warnings"},
 	} {
 		spec, ok := workflow.LookupExecutor(stepType)
 		if !ok || spec.Group != "Board" {

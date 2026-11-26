@@ -115,19 +115,57 @@ func oneOf(key, value string, allowed []string) error {
 type TicketCreateExecutor struct {
 	store   *store.Store
 	writers []TicketWriter
+	me      *assigneeCache
 }
 
 func NewTicketCreateExecutor(db *store.Store, writers ...TicketWriter) *TicketCreateExecutor {
-	return &TicketCreateExecutor{store: db, writers: writers}
+	return &TicketCreateExecutor{store: db, writers: writers, me: newAssigneeCache()}
 }
 
 func (e *TicketCreateExecutor) Type() string { return TicketCreateStepType }
 
 func (e *TicketCreateExecutor) Cancel(context.Context, store.WorkflowStepAttempt) error { return nil }
 
-func ticketCreated(t CreatedTicket, created bool) WorkflowExecutionResult {
+func ticketCreated(t CreatedTicket, created bool, warnings []string) WorkflowExecutionResult {
+	if warnings == nil {
+		warnings = []string{}
+	}
 	return WorkflowExecutionResult{Status: "succeeded", Outputs: map[string]any{
-		"key": t.Key, "id": t.ID, "url": t.URL, "provider": t.Provider, "created": created}}
+		"key": t.Key, "id": t.ID, "url": t.URL, "provider": t.Provider, "created": created, "warnings": warnings}}
+}
+
+// claimAfterCreate claims a Burnlite task made with assignee: me, which
+// create_task cannot do itself. The task is made, so a failed claim is a
+// warning; claiming again as the same holder changes nothing, so a retry
+// mends it.
+func (e *TicketCreateExecutor) claimAfterCreate(ctx context.Context, runID string, t CreatedTicket, assignee string) []string {
+	if t.Provider != BurnliteIntegration || !isMe(assignee) {
+		return nil
+	}
+	updater, err := updaterFor(ctx, e.writers, t.Provider)
+	if err == nil {
+		var who TicketPerson
+		if who, err = e.me.resolve(ctx, runID, updater, assignee); err == nil {
+			err = updater.Assign(ctx, TicketState{Key: t.Key}, who)
+		}
+	}
+	if err != nil {
+		return []string{ticketWriteError(fmt.Sprintf("created %s, then claiming it", t.Key), err).Error()}
+	}
+	return nil
+}
+
+// readCreateAssignee reads ticket.create's assignee: empty or me, an email
+// or an account ID; none means nothing on a new ticket.
+func readCreateAssignee(with map[string]any) (string, error) {
+	assignee, err := trimmedString(with, "assignee")
+	if err != nil {
+		return "", err
+	}
+	if isNone(assignee) {
+		return "", errors.New("assignee none unassigns a ticket, and a new ticket starts unassigned: leave assignee empty")
+	}
+	return assignee, nil
 }
 
 func (e *TicketCreateExecutor) Start(ctx context.Context, step ResolvedWorkflowStep) (WorkflowExecutionResult, error) {
@@ -135,8 +173,13 @@ func (e *TicketCreateExecutor) Start(ctx context.Context, step ResolvedWorkflowS
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
+	assignee, err := readCreateAssignee(step.With)
+	if err != nil {
+		return WorkflowExecutionResult{}, err
+	}
 	if record != nil && record.State == store.WorkflowEffectDone {
-		return ticketCreated(CreatedTicket{Provider: record.Provider, Key: record.Key, ID: record.RemoteID, URL: record.URL}, false), nil
+		t := CreatedTicket{Provider: record.Provider, Key: record.Key, ID: record.RemoteID, URL: record.URL}
+		return ticketCreated(t, false, e.claimAfterCreate(ctx, step.RunID, t, assignee)), nil
 	}
 	draft, providerName, err := readTicketDraft(step.With)
 	if err != nil {
@@ -148,6 +191,21 @@ func (e *TicketCreateExecutor) Start(ctx context.Context, step ResolvedWorkflowS
 	}
 	if err := checkTicketDraft(writer.Provider(), step.With, &draft); err != nil {
 		return WorkflowExecutionResult{}, err
+	}
+	if assignee != "" {
+		// Resolved before anything is begun, so one no one matches makes
+		// nothing.
+		updater, ok := writer.(TicketUpdater)
+		if !ok {
+			return WorkflowExecutionResult{}, fmt.Errorf("%s cannot assign tickets here", ticketProviderLabel(writer.Provider()))
+		}
+		who, err := e.me.resolve(ctx, step.RunID, updater, assignee)
+		if err != nil {
+			return WorkflowExecutionResult{}, ticketWriteError("finding the assignee "+assignee, err)
+		}
+		if writer.Provider() == "jira" {
+			draft.AssigneeID = who.ID
+		}
 	}
 	doing := fmt.Sprintf("creating %s in %s", ticketNoun(writer.Provider()), draft.Project)
 
@@ -167,7 +225,7 @@ func (e *TicketCreateExecutor) Start(ctx context.Context, step ResolvedWorkflowS
 			if err := e.store.FinishWorkflowStepEffect(ctx, step.RunID, step.StepID, TicketCreateStepType, found.Key, found.ID, found.URL); err != nil {
 				return WorkflowExecutionResult{}, err
 			}
-			return ticketCreated(*found, false), nil
+			return ticketCreated(*found, false, e.claimAfterCreate(ctx, step.RunID, *found, assignee)), nil
 		}
 	}
 
@@ -184,7 +242,7 @@ func (e *TicketCreateExecutor) Start(ctx context.Context, step ResolvedWorkflowS
 	if err := e.store.FinishWorkflowStepEffect(ctx, step.RunID, step.StepID, TicketCreateStepType, ticket.Key, ticket.ID, ticket.URL); err != nil {
 		return WorkflowExecutionResult{}, fmt.Errorf("created %s but could not record it: %w", ticket.Key, err)
 	}
-	return ticketCreated(ticket, true), nil
+	return ticketCreated(ticket, true, e.claimAfterCreate(ctx, step.RunID, ticket, assignee)), nil
 }
 
 // findEarlier is the ticket an earlier attempt created, nil when it made
@@ -342,6 +400,11 @@ func checkTicketDraft(provider string, with map[string]any, d *TicketDraft) erro
 			if _, ok := fields[name]; ok {
 				clash = append(clash, name)
 			}
+		}
+		// fields may assign by account ID as it always could, unless
+		// assignee does.
+		if _, ok := fields["assignee"]; ok && given(with, "assignee") {
+			clash = append(clash, "assignee")
 		}
 		if len(clash) > 0 {
 			sort.Strings(clash)

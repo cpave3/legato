@@ -41,6 +41,9 @@ type TicketDraft struct {
 	Type     string
 	Priority string
 	Fields   map[string]any
+	// AssigneeID is the account ID to assign the issue to as it is made;
+	// when empty, Jira's project default (or Fields' assignee) applies.
+	AssigneeID string
 	// Burnlite only.
 	Kind        string
 	Size        string
@@ -117,7 +120,7 @@ func (w JiraTicketWriter) client() *jira.Client {
 
 func (w JiraTicketWriter) Create(ctx context.Context, d TicketDraft) (CreatedTicket, error) {
 	issue, err := w.client().CreateIssue(ctx, jira.IssueDraft{Project: d.Project, Type: d.Type, Summary: d.Summary,
-		Description: d.Description, Labels: d.Labels, Priority: d.Priority, Fields: d.Fields})
+		Description: d.Description, Labels: d.Labels, Priority: d.Priority, AssigneeID: d.AssigneeID, Fields: d.Fields})
 	if err != nil {
 		return CreatedTicket{}, err
 	}

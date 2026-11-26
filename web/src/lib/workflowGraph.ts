@@ -74,6 +74,7 @@ const stepTypeLabels: Record<string, string> = {
   "chat.thread.read": "Chat thread",
   "ticket.create": "Create ticket",
   "ticket.comment": "Ticket comment",
+  "ticket.update": "Update ticket",
   gate: "Ask you",
   loop: "Loop",
   "workflow.run": "Run workflow",

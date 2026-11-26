@@ -7,7 +7,7 @@ sidebar:
 
 Legato can track tasks from Burnlite, an issue tracker and estimator, as cards on its board. You import the tasks you want to work on, and Legato keeps their name, description, plan, checklist and state up to date. Burnlite works next to Jira: a board can hold tasks from both.
 
-Legato reads Burnlite. When you move a card, the task in Burnlite does not change. Legato writes to Burnlite only from workflow steps: `burnlite.task.close` closes a task's ticket, for example when its pull request merges (see [Close a ticket from a workflow](#close-a-ticket-from-a-workflow)), and `ticket.create` and `ticket.comment` create a task or add a Note to one (see [Create a ticket or add a Note from a workflow](#create-a-ticket-or-add-a-note-from-a-workflow)).
+Legato reads Burnlite. When you move a card, the task in Burnlite does not change. Legato writes to Burnlite only from workflow steps: `burnlite.task.close` closes a task's ticket, for example when its pull request merges (see [Close a ticket from a workflow](#close-a-ticket-from-a-workflow)), `ticket.create` and `ticket.comment` create a task or add a Note to one (see [Create a ticket or add a Note from a workflow](#create-a-ticket-or-add-a-note-from-a-workflow)), and `ticket.update` claims a task or changes its stage (see [Claim a task or change its stage from a workflow](#claim-a-task-or-change-its-stage-from-a-workflow)).
 
 ## Connect Legato to Burnlite
 
@@ -53,7 +53,7 @@ If you run Burnlite on the same machine as Legato, type its address with the loo
 Burnlite gives Legato a new refresh token every hour. Legato saves each token in its secret store without you. If a passphrase unlocks that store, connecting fails: set `secrets.master_key` to a source that Legato can read on its own. See [Credentials setup](/legato/security/credentials-setup/).
 :::
 
-A connection made before Legato could close tickets reads only. A `burnlite.task.close`, `ticket.create` or `ticket.comment` step on it fails and says to connect again: connect again as above, and allow the new access.
+A connection made before Legato could close tickets reads only. A `burnlite.task.close`, `ticket.create`, `ticket.comment` or `ticket.update` step on it fails and says to connect again: connect again as above, and allow the new access.
 
 Older versions of Legato kept two connections to Burnlite: one for the board and one for agents' MCP connection. The first time a newer Legato starts, it joins them. It keeps the connection with the wider access, or the newer one when they have the same access. It asks Burnlite to revoke the other connection's tokens, and keeps the MCP connection's rules. Before it changes anything, it saves a copy of the database beside it, named `<database>.<time>.leg-544.bak`. Its log says which connection it kept and which one it revoked.
 
@@ -177,4 +177,24 @@ A `ticket.create` step creates a Burnlite task, and a `ticket.comment` step adds
     body: Seen again in prod today.
 ```
 
-A Work task (`kind: work`, the default) needs a `size` (`Small`, `Medium`, `Large` or `X-Large`) and an `uncertainty` (`Low`, `Medium`, `High` or `Extreme`). A Meta task (`kind: meta`) takes neither. `milestone` adds the task to a Milestone, by its key. `type`, `priority` and `fields` are for Jira, and the step fails if you set them. When Jira is not set up, you can leave `provider` empty. See [Workflows](/legato/using/workflows/) for both steps.
+A Work task (`kind: work`, the default) needs a `size` (`Small`, `Medium`, `Large` or `X-Large`) and an `uncertainty` (`Low`, `Medium`, `High` or `Extreme`). A Meta task (`kind: meta`) takes neither. `milestone` adds the task to a Milestone, by its key. `type`, `priority` and `fields` are for Jira, and the step fails if you set them. When Jira is not set up, you can leave `provider` empty. `assignee: me` claims the new task as `legato` after the step creates it. If the claim fails, the task is still created, and the step reports the problem in `warnings`. See [Workflows](/legato/using/workflows/) for both steps.
+
+## Claim a task or change its stage from a workflow
+
+A `ticket.update` step claims a task, changes its stage, or both:
+
+```yaml
+- id: take
+  title: Take the task
+  type: ticket.update
+  with:
+    provider: burnlite
+    key: LEG-42
+    assignee: me
+    status: building
+```
+
+- Burnlite has no users, only claims by a holder's name. `assignee: me` claims the task as `legato`, the holder Legato writes every ticket as. `assignee: none` releases the claim of whoever holds it. Other values fail the step.
+- A claim made this way holds the task under `legato`. An agent that later claims the task under its own name gets `already_claimed`. Leave the claim to the agent when the agent claims its own tasks.
+- `status` is a stage: `idea`, `exploring`, `ready`, `building`, `done` (or `closed`) or `dropped`. `done` closes the task as completed, and `dropped` closes it as not planned. Closing a task releases its claim, so the step then gives an empty `assignee`. A closed task is not reopened: moving it to an open stage fails. Burnlite does not claim a closed task either, so `assignee: me` on one fails, unless the step also gives the status the task is closed with. Any other status fails, and the step lists the stages.
+- A task already claimed by `legato`, or already at that stage, is left alone. With `optional: true`, a missing task, a claim another holder has, or a status the task cannot take becomes a warning instead of a failure.
