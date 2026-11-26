@@ -57,7 +57,7 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe("workflow graphs at phone width", () => {
-  it("keep the run's step list, with a Graph toggle that shows the graph top to bottom", async () => {
+  it("keep the run's step list, with a Graph toggle that shows the graph top to bottom and List back", async () => {
     renderAt("/workflows/runs/wr-1")
     expect(screen.getByRole("list", { name: "Steps" })).toBeTruthy()
     expect(screen.queryByRole("button", { name: /^Step:/ })).toBeNull()
@@ -67,8 +67,32 @@ describe("workflow graphs at phone width", () => {
     const node = await screen.findByRole("button", { name: "Step: Write the report, Running" })
     expect(topDown(node)).toBe(true)
     expect(screen.queryByRole("list", { name: "Steps" })).toBeNull()
-    fireEvent.click(screen.getByRole("button", { name: "Graph" }))
+    // The graph fills the screen, with List and Graph in its header (LEG-651).
+    expect(screen.getByRole("button", { name: "Graph" }).getAttribute("aria-pressed")).toBe("true")
+    fireEvent.click(screen.getByRole("button", { name: "List" }))
     expect(screen.getByRole("list", { name: "Steps" })).toBeTruthy()
+  })
+
+  it("keep the graph's toolbar at the top, clear of the run's sheet at the bottom (LEG-651)", async () => {
+    renderAt("/workflows/runs/wr-1")
+    fireEvent.click(screen.getByRole("button", { name: "Graph" }))
+    const toolbar = await screen.findByRole("toolbar", { name: "View" })
+    expect(toolbar.closest(".react-flow__panel")?.classList.contains("top")).toBe(true)
+    expect(within(toolbar).getByRole("button", { name: "Panels" })).toBeTruthy()
+  })
+
+  it("put a run's notices above the graph, not over its toolbar (LEG-651)", async () => {
+    const changed = { ...run, definition_changed: true }
+    calls.fetchRun.mockResolvedValue(changed)
+    const client = createQueryClient()
+    client.setQueryData(queryKeys.workflowRun("", "wr-1"), changed as unknown as WorkflowRunView)
+    render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/workflows/runs/wr-1"]}><Routes><Route path="/workflows/runs/:runId" element={<WorkflowRunPage />} /></Routes></MemoryRouter></QueryClientProvider>)
+    fireEvent.click(screen.getByRole("button", { name: "Graph" }))
+    const canvas = await screen.findByRole("region", { name: "Run graph" })
+    expect(within(canvas).getByRole("toolbar", { name: "View" })).toBeTruthy()
+    const note = screen.getByRole("note")
+    expect(note.textContent).toContain("This workflow has changed since this run")
+    expect(canvas.contains(note)).toBe(false)
   })
 
   it("open a run step's details in a bottom sheet that closes", async () => {
