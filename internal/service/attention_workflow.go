@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/events"
@@ -54,6 +55,9 @@ type workflowAttentionState struct {
 	// more are the actions after the first, for a step waiting on its
 	// service.
 	more []AttentionAction
+	// signal, when set, is the item's signal kind (a step waiting on its
+	// service names it).
+	signal string
 }
 
 func (a *WorkflowAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInput, error) {
@@ -98,6 +102,9 @@ func (a *WorkflowAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInp
 			signalKind = AttentionSignalWorkflowFailed
 			urgency = "high"
 		}
+		if s.signal != "" {
+			signalKind = s.signal
+		}
 		title := s.runTitle
 		if s.title != "" {
 			title = s.title
@@ -114,7 +121,7 @@ func (a *WorkflowAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInp
 			}, s.more...),
 		})
 	}
-	return items, nil
+	return append(items, a.notices(ctx)...), nil
 }
 
 // runCardDetail names the card a run is for, "" for none.
@@ -179,29 +186,10 @@ func (a *WorkflowAttentionAdapter) collectRunStates(run store.WorkflowRun, view 
 			continue
 		}
 		if attempt.NeedsAttention && attempt.Status == WorkflowStepWaiting {
-			// A step waiting on its service that needs the person: a
-			// review loop stuck (it offers end), or waiting for an
-			// author that will not move it alone.
-			kind := "author"
-			var more []AttentionAction
-			for _, id := range attempt.AttentionActions {
-				switch id {
-				case "end":
-					kind = "waiting"
-					more = append(more, AttentionAction{ID: "end", Label: "End", Kind: "execute", RequiresConfirm: true,
-						Confirmation: "End the review loop as stuck? The run goes on to its next step."})
-				case "message":
-					more = append(more, AttentionAction{ID: "message", Label: "Message the author", Kind: "execute", RequiresText: true})
-				}
-			}
-			states = append(states, workflowAttentionState{
-				runID: run.ID, stepID: attempt.Path, kind: kind,
-				revision: fmt.Sprintf("waiting:%s:%d:%s", attempt.Path, attempt.AttemptNumber, attempt.AttentionReason),
-				runTitle: run.WorkflowTitle, taskID: run.TaskID,
-				reason: attempt.AttentionReason,
-				action: AttentionAction{ID: "another_pass", Label: "Run another pass", Kind: "execute"},
-				more:   more,
-			})
+			// A step waiting on its service that needs the operator: a
+			// review loop stuck, waiting for an author that will not move
+			// it alone, or its steward held or its approval dismissed.
+			states = append(states, waitingState(run, attempt))
 			continue
 		}
 		if !attempt.NeedsAttention || attempt.Status != "waiting_agent" {
@@ -216,6 +204,88 @@ func (a *WorkflowAttentionAdapter) collectRunStates(run store.WorkflowRun, view 
 		})
 	}
 	return states
+}
+
+// waitingState is the item of a step waiting on its service that needs the
+// operator, with the actions it offers, the first the primary. A step that
+// names no signal offers another_pass first, and is stuck when it offers
+// end.
+func waitingState(run store.WorkflowRun, attempt store.WorkflowStepAttempt) workflowAttentionState {
+	ids, kind := attempt.AttentionActions, "author"
+	if attempt.AttentionSignal == "" {
+		ids = append([]string{ReviewLoopActionAnotherPass}, ids...)
+		if slices.Contains(ids, ReviewLoopActionEnd) {
+			kind = "waiting"
+		}
+	}
+	state := workflowAttentionState{
+		runID: run.ID, stepID: attempt.Path, kind: kind, signal: attempt.AttentionSignal,
+		revision: fmt.Sprintf("waiting:%s:%d:%s", attempt.Path, attempt.AttemptNumber, attempt.AttentionReason),
+		runTitle: run.WorkflowTitle, taskID: run.TaskID,
+		reason: attempt.AttentionReason,
+	}
+	for i, id := range ids {
+		action := waitingAction(id, attempt.AttentionSteward)
+		if i == 0 {
+			state.action = action
+			continue
+		}
+		state.more = append(state.more, action)
+	}
+	return state
+}
+
+// waitingAction is how an item offers a waiting step's action. End asks
+// first, in a steward's words when the loop is stewarded: it ends the
+// steward (outcome ended), not a stuck review (outcome stuck).
+func waitingAction(id string, steward bool) AttentionAction {
+	switch id {
+	case ReviewLoopActionAnotherPass:
+		return AttentionAction{ID: id, Label: "Run another pass", Kind: "execute"}
+	case ReviewLoopActionWatchAgain:
+		return AttentionAction{ID: id, Label: "Watch again", Kind: "execute"}
+	case ReviewLoopActionStopWatching:
+		return AttentionAction{ID: id, Label: "Stop watching", Kind: "execute"}
+	case ReviewLoopActionMessage:
+		return AttentionAction{ID: id, Label: "Message the author", Kind: "execute", RequiresText: true}
+	case ReviewLoopActionEnd:
+		if steward {
+			return AttentionAction{ID: id, Label: "End", Kind: "execute", RequiresConfirm: true,
+				Confirmation: StewardEndConfirmation}
+		}
+		return AttentionAction{ID: id, Label: "End", Kind: "execute", RequiresConfirm: true,
+			Confirmation: "End the review loop as stuck? The run goes on to its next step."}
+	}
+	return AttentionAction{ID: id, Label: id, Kind: "execute"}
+}
+
+// StewardEndConfirmation is what End asks of a stewarded loop.
+const StewardEndConfirmation = "End the steward? The review loop ends with outcome ended: nothing watches the pull requests after, " +
+	"legato-reviews' approval stays on GitHub as it is, and the run goes on to its next step."
+
+// notices are the items of the executors' notices (a steward that ended
+// idle): Open run only, until the operator dismisses one or it goes.
+func (a *WorkflowAttentionAdapter) notices(ctx context.Context) []AttentionInput {
+	source, ok := a.workflows.(interface {
+		Notices(ctx context.Context) []WorkflowNotice
+	})
+	if !ok {
+		return nil
+	}
+	var items []AttentionInput
+	for _, n := range source.Notices(ctx) {
+		item := AttentionInput{
+			SignalKind: n.Signal, SourceKey: n.RunID + ":" + n.StepID, SourceRevision: n.Revision,
+			Title: n.Title, Reason: n.Reason, Category: "workflow", Urgency: "normal",
+			Navigation: AttentionNavigation{Kind: "workflow_run", Target: n.RunID},
+			Actions:    []AttentionAction{{ID: "open", Label: "Open run", Kind: "navigate", Intent: "primary"}},
+		}
+		if view, err := a.workflows.Show(ctx, n.RunID); err == nil {
+			item.TaskID, item.Detail = view.Run.TaskID, runCardDetail(view.Run)
+		}
+		items = append(items, item)
+	}
+	return items
 }
 
 func (a *WorkflowAttentionAdapter) Execute(ctx context.Context, request AttentionActionRequest) error {
@@ -233,7 +303,7 @@ func (a *WorkflowAttentionAdapter) Execute(ctx context.Context, request Attentio
 	case "prompt":
 		_, err := a.workflows.PromptStep(ctx, runID, stepID)
 		return err
-	case "another_pass", "end", "message", PausedSkip, PausedStop:
+	case "another_pass", "end", "message", ReviewLoopActionWatchAgain, ReviewLoopActionStopWatching, PausedSkip, PausedStop:
 		_, err := a.workflows.StepAction(ctx, runID, stepID, request.ActionID, request.Text)
 		return err
 	case "resume_agent":

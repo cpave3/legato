@@ -1902,55 +1902,14 @@ func (s *ReviewPassesStep) Details(ctx context.Context, attempt store.WorkflowSt
 // publishes; the web server forwards those to open run pages.
 const ReviewLoopChangedKind = "review_loop"
 
-// Attention is why a run's loop needs the person: it is stuck, which offers
-// end, or it waits for an author that will not move it alone (a person, or
-// an agent author waiting on the operator, stopped or ended). A loop with an
-// agent author also offers message. An agent author at work is the agent's
-// wait, not the person's.
-func (c *ReviewRunCaller) Attention(ctx context.Context, attempt store.WorkflowStepAttempt) (string, []string) {
+// Need is why a run's loop needs the operator (review_steward_attention.go):
+// stuck, waiting for an author that will not move it alone, or, while its
+// steward watches, held or its approval dismissed.
+func (c *ReviewRunCaller) Need(ctx context.Context, attempt store.WorkflowStepAttempt) WorkflowStepNeed {
 	if c.opened(ctx, attempt) == nil {
-		return "", nil
+		return WorkflowStepNeed{}
 	}
-	return c.attention(ctx, attempt.TaskID)
-}
-
-// attention is why the loop a run task hosts needs the person, and the
-// actions beyond another_pass it offers.
-func (c *ReviewRunCaller) attention(ctx context.Context, taskID string) (string, []string) {
-	attempt := store.WorkflowStepAttempt{TaskID: taskID}
-	loop, err := c.engine.db.GetHandoffReview(ctx, attempt.TaskID)
-	if err != nil || loop == nil {
-		return "", nil
-	}
-	run, err := c.run(ctx, attempt.TaskID)
-	if err != nil {
-		return "", nil
-	}
-	var actions []string
-	var reason string
-	switch {
-	case run.handoff && loop.Phase == ReviewPhaseStuck:
-		// A handoff's loop ends with its handoff, never by End.
-		return "Review loop stuck: " + loop.Reason, []string{"message"}
-	case run.handoff:
-		return "", nil
-	}
-	switch loop.Phase {
-	case ReviewPhaseStuck:
-		reason, actions = "Review loop stuck: "+loop.Reason, []string{"end"}
-	case ReviewPhaseWaitingForAuthor:
-		state := c.authorState(ctx, run, loop)
-		if !c.authorNeedsYou(ctx, attempt.TaskID, run, state) {
-			return "", nil
-		}
-		reason = authorReason(state)
-	default:
-		return "", nil
-	}
-	if run.AuthorTask != "" {
-		actions = append(actions, "message")
-	}
-	return reason, actions
+	return c.need(ctx, attempt.TaskID)
 }
 
 // Act takes a stuck loop's actions on the step's loop by its ID (the
@@ -1975,12 +1934,12 @@ func (c *ReviewRunCaller) anotherPass(ctx context.Context, taskID string) error 
 	return c.engine.NextPass(ctx, taskID)
 }
 
-// Attention is the run caller's, once it is attached.
-func (s *ReviewPassesStep) Attention(ctx context.Context, attempt store.WorkflowStepAttempt) (string, []string) {
+// Need is the run caller's, once it is attached.
+func (s *ReviewPassesStep) Need(ctx context.Context, attempt store.WorkflowStepAttempt) WorkflowStepNeed {
 	if caller := s.current(); caller != nil {
-		return caller.Attention(ctx, attempt)
+		return caller.Need(ctx, attempt)
 	}
-	return "", nil
+	return WorkflowStepNeed{}
 }
 
 // Act is the run caller's, once it is attached.

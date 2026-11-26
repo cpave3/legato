@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -69,6 +71,27 @@ func TestTheWatchReadsEveryLayerInOneGraphQLQuery(t *testing.T) {
 	// A pull request GitHub does not have is an error, never an empty layer.
 	if _, err := session.Watch(ctx, []int{99}); err == nil {
 		t.Fatal("watching a missing pull request succeeded")
+	}
+}
+
+// The watch reads the reviews a person dismissed, so the steward can tell
+// a dismissed approval with no push from one a push dismissed (spec
+// LEG-559 § Approval after re-entry, AC 36).
+func TestTheWatchReadsTheDismissedReviews(t *testing.T) {
+	f := newPublisherFixture(t)
+	dismissed := strings.Replace(watchedPull13, `"updatedAt"`, `"reviews":{"nodes":[{"fullDatabaseId":"901"},{"fullDatabaseId":"902"}]},"updatedAt"`, 1)
+	f.github.watched = map[int]string{12: watchedPull12, 13: dismissed}
+	session := f.publisher.WatchSession("cpave3/legato")
+	defer session.Close()
+	layers, err := session.Watch(context.Background(), []int{12, 13})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(f.github.watchQuery, "states: [DISMISSED]") {
+		t.Fatalf("the watch asks no dismissed reviews: %s", f.github.watchQuery)
+	}
+	if len(layers[0].DismissedReviews) != 0 || !slices.Equal(layers[1].DismissedReviews, []int64{901, 902}) {
+		t.Fatalf("dismissed %v and %v", layers[0].DismissedReviews, layers[1].DismissedReviews)
 	}
 }
 

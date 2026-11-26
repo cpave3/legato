@@ -100,6 +100,29 @@ type FakeReviewGitHub struct {
 	// mergeable is each pull request's mergeable and mergeStateStatus as
 	// the watch reads them (MERGEABLE and CLEAN when not set).
 	mergeable map[int][2]string
+	// dismissed are the reviews a person dismissed, by ID (the posted
+	// review's: its place in posted, from 1).
+	dismissed map[int64]bool
+}
+
+// DismissReview dismisses the newest review posted on a pull request, as a
+// person with write access does on GitHub (no push): the watch reads it
+// among the pull request's dismissed reviews. It returns the review's ID,
+// 0 when none was posted.
+func (f *FakeReviewGitHub) DismissReview(number int) int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := len(f.posted) - 1; i >= 0; i-- {
+		if f.posted[i].Number == number {
+			if f.dismissed == nil {
+				f.dismissed = map[int64]bool{}
+			}
+			id := int64(i + 1)
+			f.dismissed[id] = true
+			return id
+		}
+	}
+	return 0
 }
 
 // SetMergeable gives a pull request GitHub's mergeable (MERGEABLE,
@@ -946,6 +969,11 @@ func (s *fakeWatchSession) Watch(_ context.Context, numbers []int) ([]service.PR
 			Mergeable: "MERGEABLE", MergeState: "CLEAN"}
 		if m, ok := f.mergeable[n]; ok {
 			w.Mergeable, w.MergeState = m[0], m[1]
+		}
+		for i, post := range f.posted {
+			if post.Number == n && f.dismissed[int64(i+1)] {
+				w.DismissedReviews = append(w.DismissedReviews, int64(i+1))
+			}
 		}
 		for _, c := range f.checks[pr.HeadSHA] {
 			w.Checks = append(w.Checks, service.WatchCheck{Name: c.Name, State: c.State, Conclusion: c.Conclusion, URL: c.URL, Required: true})

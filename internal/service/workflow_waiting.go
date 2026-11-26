@@ -121,6 +121,53 @@ type WorkflowStepAttention interface {
 	Attention(ctx context.Context, attempt store.WorkflowStepAttempt) (string, []string)
 }
 
+// WorkflowStepNeed is what a step waiting on its service needs of the
+// operator: a reason ("" for nothing), the Attention signal it raises, and
+// the actions it offers, the first the primary.
+type WorkflowStepNeed struct {
+	Reason  string
+	Signal  string
+	Actions []string
+	// Steward says the step's review loop is stewarded: End ends the
+	// steward with outcome ended.
+	Steward bool
+}
+
+// WorkflowStepNeeder is a WorkflowStepAttention that also names the
+// signal and the primary action (a review loop's steps); waitingAttention
+// asks it first.
+type WorkflowStepNeeder interface {
+	Need(ctx context.Context, attempt store.WorkflowStepAttempt) WorkflowStepNeed
+}
+
+// WorkflowNotice is an Attention notice an executor raises about a step
+// that no longer waits, such as a steward that ended idle: one item per
+// run step, which the operator dismisses or which goes by itself.
+type WorkflowNotice struct {
+	RunID    string
+	StepID   string
+	Signal   string
+	Revision string
+	Title    string
+	Reason   string
+}
+
+// WorkflowNoticer is an executor with notices to raise.
+type WorkflowNoticer interface {
+	Notices(ctx context.Context) []WorkflowNotice
+}
+
+// Notices are the notices of every executor that has any.
+func (s *WorkflowService) Notices(ctx context.Context) []WorkflowNotice {
+	var out []WorkflowNotice
+	for _, executor := range s.executors {
+		if noticer, ok := executor.(WorkflowNoticer); ok {
+			out = append(out, noticer.Notices(ctx)...)
+		}
+	}
+	return out
+}
+
 // WorkflowStepActor is an executor whose waiting step takes actions, such
 // as a stuck review loop's another_pass and end.
 type WorkflowStepActor interface {
@@ -133,6 +180,13 @@ func (s *WorkflowService) waitingAttention(ctx context.Context, view *store.Work
 	for i := range view.Attempts {
 		attempt := &view.Attempts[i]
 		if attempt.Status != WorkflowStepWaiting {
+			continue
+		}
+		if needer, ok := s.executors[attempt.ExecutorType].(WorkflowStepNeeder); ok {
+			if need := needer.Need(ctx, *attempt); need.Reason != "" {
+				attempt.NeedsAttention, attempt.AttentionReason, attempt.AttentionActions = true, need.Reason, need.Actions
+				attempt.AttentionSignal, attempt.AttentionSteward = need.Signal, need.Steward
+			}
 			continue
 		}
 		if detector, ok := s.executors[attempt.ExecutorType].(WorkflowStepAttention); ok {

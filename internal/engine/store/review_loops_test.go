@@ -475,3 +475,28 @@ func TestSetReviewLoopPRStatusWritesTheLayersWithoutMovingTheRev(t *testing.T) {
 		t.Fatalf("a closed loop's layer was written: %+v", layers[1])
 	}
 }
+
+// The steward's idle-end notice reads the run loops that closed with an
+// outcome since a time (spec LEG-559 AC 35).
+func TestListReviewLoopsClosedSince(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	idle := mustOpen(t, s, runLoop(t, s, "run-1", "o/r", 1))
+	old := mustOpen(t, s, runLoop(t, s, "run-2", "o/r", 2))
+	merged := mustOpen(t, s, runLoop(t, s, "run-3", "o/r", 3))
+	mustOpen(t, s, runLoop(t, s, "run-4", "o/r", 4)) // still open
+	for _, c := range []struct{ id, outcome, at string }{
+		{idle.ID, "idle", "2026-11-25T10:00:00Z"}, {old.ID, "idle", "2026-11-10T10:00:00Z"}, {merged.ID, "merged", "2026-11-25T11:00:00Z"},
+	} {
+		if _, _, err := s.CloseReviewLoop(ctx, c.id, c.outcome, c.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.ListReviewLoopsClosedSince(ctx, "idle", "2026-11-20T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != idle.ID || got[0].RunID != "run-1" {
+		t.Fatalf("closed idle since: %+v", got)
+	}
+}

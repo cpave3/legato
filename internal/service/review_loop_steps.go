@@ -882,15 +882,23 @@ func (c *ReviewRunCaller) stepHost(ctx context.Context, attempt store.WorkflowSt
 	return attempt.TaskID
 }
 
-// Attention is why the step's loop needs the operator: stuck (it offers
-// another_pass, message and end), or waiting for an author that will not
-// move it alone.
-func (e reviewObserver) Attention(ctx context.Context, attempt store.WorkflowStepAttempt) (string, []string) {
+// Need is why the step's loop needs the operator (review_steward_attention.go).
+func (e reviewObserver) Need(ctx context.Context, attempt store.WorkflowStepAttempt) WorkflowStepNeed {
 	caller := e.steps.current()
 	if caller == nil {
-		return "", nil
+		return WorkflowStepNeed{}
 	}
-	return caller.loopAttention(ctx, caller.stepHost(ctx, attempt))
+	return caller.need(ctx, caller.stepHost(ctx, attempt))
+}
+
+// Notices are the steward's idle-end notices, raised once, by the wait
+// step's executor.
+func (e reviewWaitExecutor) Notices(ctx context.Context) []WorkflowNotice {
+	caller := e.steps.current()
+	if caller == nil {
+		return nil
+	}
+	return caller.stewardNotices(ctx)
 }
 
 // Act takes the operator's action on the step's loop by its ID: Another
@@ -1159,12 +1167,6 @@ func (c *ReviewRunCaller) observeConfirm(ctx context.Context, step ResolvedWorkf
 // as the inline step's, once it has a loop.
 func (c *ReviewRunCaller) loopDetails(ctx context.Context, taskID string) any {
 	return c.details(ctx, taskID)
-}
-
-// loopAttention is the inline step's attention, for the loop a run task
-// hosts.
-func (c *ReviewRunCaller) loopAttention(ctx context.Context, taskID string) (string, []string) {
-	return c.attention(ctx, taskID)
 }
 
 // reviewReadyExecutor is github.pr.ready (LEG-588): it marks a loop's

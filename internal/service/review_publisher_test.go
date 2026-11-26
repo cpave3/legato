@@ -111,6 +111,7 @@ type reviewGitHub struct {
 	watched    map[int]string
 	watchReads int
 	watchVars  map[string]any
+	watchQuery string
 	bearers    []string
 }
 
@@ -393,6 +394,7 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			case strings.Contains(body.Query, "mergeStateStatus"):
 				g.watchReads++
 				g.watchVars = body.Variables
+				g.watchQuery = body.Query
 				var parts []string
 				for k, v := range body.Variables {
 					if !strings.HasPrefix(k, "n") || k == "name" {

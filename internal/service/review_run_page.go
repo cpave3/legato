@@ -55,7 +55,9 @@ func (c *ReviewRunCaller) recordDetails(ctx context.Context, d *ReviewRunDetails
 			d.Summary = "Stewarding"
 		}
 		if (rec.Held || loop.Phase == ReviewPhaseStuck) && approvalStands(loop) {
-			d.ApprovalStands = approvalStandsLine(layers)
+			// As the Attention items say it: a layer a person dismissed or
+			// closed is left out (approvalStandsText).
+			d.ApprovalStands = c.engine.approvalStandsText(ctx, rec)
 		}
 	}
 	d.Actions = loopActions(rec, loop, run)

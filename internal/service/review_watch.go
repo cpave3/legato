@@ -390,6 +390,26 @@ func (s *ReviewPassService) watchLoop(ctx context.Context, github ReviewWatchGit
 		// not idle (held too, which routes nothing).
 		s.stillActive(ctx, l.ID)
 	}
+	if err == nil && !sameDismissals(prev.Layers, next.Layers) {
+		// A review dismissed: the steward's Attention item may change
+		// (review_steward_attention.go).
+		s.changed(l.HostTask)
+	}
+}
+
+// sameDismissals says whether two reads found the same dismissed reviews
+// on each layer.
+func sameDismissals(a, b []PRWatch) bool {
+	dismissed := func(layers []PRWatch) map[int][]int64 {
+		out := map[int][]int64{}
+		for _, layer := range layers {
+			if len(layer.DismissedReviews) > 0 {
+				out[layer.Number] = layer.DismissedReviews
+			}
+		}
+		return out
+	}
+	return reflect.DeepEqual(dismissed(a), dismissed(b))
 }
 
 // sameComments says whether two reads of a loop's comments found the
