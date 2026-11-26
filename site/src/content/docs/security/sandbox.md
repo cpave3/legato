@@ -46,7 +46,7 @@ From then on every agent Legato starts runs inside the sandbox. If `bwrap` is mi
 | The session's own copy of the [skills](/legato/agent-tools/skills/) that are on | read-only |
 | The agent tool's installation | read-only |
 | Your toolchains, such as `~/.local/bin`, mise, `~/go/bin`, Rust and Bun | read-only |
-| Package and build caches for Go, npm, pnpm, Yarn, Bun, pip, uv, Cargo, Gradle, Maven and others | read and write |
+| Package and build caches for Go, npm, pnpm, Yarn, Bun, pip, uv, Cargo, Gradle, Maven, NuGet and others | read and write |
 | A home folder | an empty folder of the session's own, on disk, with only the entries above in it |
 | `/tmp` | a folder of the session's own, on disk |
 | Legato's sockets for the session: the SSH agent socket, the `gh` wrapper and the host broker | read-only |
@@ -69,7 +69,7 @@ Agents never see:
 - Package registry logins: `~/.npmrc`, `~/.pypirc`, `~/.yarnrc`, Gradle's `gradle.properties`, Maven's `settings.xml`, Composer's `auth.json`.
 - Password stores and keyrings, the session bus, and your runtime folder.
 
-The environment loses the variables secrets come from, such as `GITHUB_TOKEN`, `OP_SERVICE_ACCOUNT_TOKEN`, cloud and registry tokens, and `DOCKER_HOST`. A variable of that name that Legato sets for the agent itself is kept: a credential named `jira` gives the agent a `JIRA_API_TOKEN` placeholder, which works only through Legato's proxy, while your own `JIRA_API_TOKEN` is still removed. It gains your git name and email address, since `~/.gitconfig` is not there.
+The environment loses the variables secrets come from, such as `GITHUB_TOKEN`, `OP_SERVICE_ACCOUNT_TOKEN`, cloud and registry tokens, and `DOCKER_HOST`. A variable of that name that Legato sets for the agent itself is kept: a credential named `jira` gives the agent a `JIRA_API_TOKEN` placeholder, which works only through Legato's proxy, while your own `JIRA_API_TOKEN` is still removed. It gains your git name and email address, since `~/.gitconfig` is not there. It also gains `DOTNET_CLI_TELEMETRY_OPTOUT=1` and `DOTNET_NOLOGO=1`, and `NUGET_PACKAGES` set to your NuGet cache when it is mounted. `~/.dotnet` is the agent's own, in its writable home folder; yours is not mounted.
 
 The sandbox shares the host's network and your user. It has its own process, IPC and hostname namespaces, and everything in it ends when the agent's pane closes.
 
@@ -81,7 +81,7 @@ An agent may work in a job clone inside Legato's data folder when that clone bel
 - **SSH.** `~/.ssh` stays hidden, so the agent has no keys of its own. A login works when an `ssh` credential covers the host: Legato's SSH agent signs it.
 - **GitHub.** With a `github` credential, `git` fetches with read tokens even when the repository's `origin` is an ssh address, and pushes go through Legato's proxy. `gh` is always Legato's wrapper inside the sandbox.
 - **Azure.** With an `azure` credential, `az` inside the sandbox is Legato's wrapper: it signs in as the credential's app before the first command that needs an account, once you allow it. See [Azure](/legato/security/credential-broker/#azure).
-- **Packages.** A package already in a shared cache installs as it does outside. One that is not needs a registry that works without your login.
+- **Packages.** A package already in a shared cache installs as it does outside. One that is not needs a registry that works without your login. A .NET restore uses the shared NuGet cache even when a build moves `DOTNET_CLI_HOME`.
 
 ## Add folders
 

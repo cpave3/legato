@@ -391,3 +391,28 @@ func TestInsideTheSandboxAnAgentReadsItsTasksPastedImageAndNoOthers(t *testing.T
 		t.Errorf("another task's pasted images show inside: %q", out)
 	}
 }
+
+// Inside, NUGET_PACKAGES names the shared cache, which is writable, and
+// dotnet's first-run files have a writable ~/.dotnet of the sandbox's own
+// (LEG-653).
+func TestInsideTheSandboxNuGetsCacheIsPinnedAndDotnetsHomeIsWritable(t *testing.T) {
+	in := bwrapFixture(t)
+	in.DefaultMounts = true
+	cache := filepath.Join(in.Home, ".nuget/packages")
+	if err := os.MkdirAll(cache, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runInSandbox(t, in, `mkdir -p "$HOME/.dotnet" && touch "$HOME/.dotnet/x" && touch "$NUGET_PACKAGES/p" && echo "$NUGET_PACKAGES"`)
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if strings.TrimSpace(out) != cache {
+		t.Fatalf("NUGET_PACKAGES = %q, want %q", out, cache)
+	}
+	if _, err := os.Stat(filepath.Join(cache, "p")); err != nil {
+		t.Errorf("the write to the cache did not reach the shared one: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(scratchFor(in).Home("ex-1"), ".dotnet/x")); err != nil {
+		t.Errorf("~/.dotnet is not the scratch home's: %v", err)
+	}
+}

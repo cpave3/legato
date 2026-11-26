@@ -261,7 +261,9 @@ func (HostFS) Chain(link string) (linkChain, bool) {
 var systemPaths = []string{"/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/etc", "/opt", "/home", "/run/systemd/resolve", "/var/lib/alternatives"}
 
 // toolchains are the person's tools, read-only, and their package and build
-// caches, read-write. None holds a credential.
+// caches, read-write. None holds a credential. ~/.dotnet is not one: the
+// sandbox's home gives each execution a writable one of its own, and the
+// host's can hold global tools (~/.dotnet/tools) that the host runs.
 var toolchainsRO = []string{".local/bin", ".local/share/mise", ".config/mise", "go/bin", ".cargo/bin", ".rustup", ".bun", ".deno", ".volta", ".nvm", ".pyenv"}
 var toolchainsRW = []string{"go/pkg/mod", ".cache/go-build", ".npm", ".cache/pnpm", ".local/share/pnpm", ".cache/pip", ".cache/uv", ".cargo/registry", ".cache/sccache", ".cache/ms-playwright", ".cache/node", ".nuget/packages", ".bun/install/cache",
 	".local/state/pnpm", ".cache/yarn", ".yarn/berry/cache", ".cache/composer", ".gradle/caches", ".gradle/wrapper", ".m2/repository",
@@ -483,7 +485,9 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		return nil
 	}
 	scratch := scratchFor(in)
-	plan := sandbox.Plan{Home: in.Home, Chdir: in.WorkDir, Setenv: map[string]string{"LEGATO_SANDBOXED": "1", "TMPDIR": "/tmp"}}
+	plan := sandbox.Plan{Home: in.Home, Chdir: in.WorkDir, Setenv: map[string]string{
+		"LEGATO_SANDBOXED": "1", "TMPDIR": "/tmp", "DOTNET_CLI_TELEMETRY_OPTOUT": "1", "DOTNET_NOLOGO": "1",
+	}}
 	if scratch.Root != "" {
 		plan.HomeSource = scratch.Home(in.ExecutionID)
 	}
@@ -522,6 +526,15 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		}
 		for _, rel := range toolchainsRW {
 			add(filepath.Join(in.Home, rel), sandbox.ReadWrite)
+		}
+		// NuGet's package cache follows DOTNET_CLI_HOME unless NUGET_PACKAGES
+		// names it, and an agent that moves DOTNET_CLI_HOME would restore from
+		// the feeds instead of the shared cache.
+		nuget := filepath.Join(in.Home, ".nuget/packages")
+		for _, m := range mounts {
+			if m.Kind == sandbox.ReadWrite && m.Path == nuget && m.Dest == "" {
+				plan.Setenv["NUGET_PACKAGES"] = nuget
+			}
 		}
 	}
 	for _, rel := range agentState[in.AgentKind] {

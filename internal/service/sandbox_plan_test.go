@@ -896,3 +896,102 @@ func TestAVariableLegatoSetsForTheSessionIsNotUnsetAsAnInheritedSecret(t *testin
 		}
 	}
 }
+
+// An agent that moves DOTNET_CLI_HOME moves NuGet's package cache with it,
+// away from the shared one, unless NUGET_PACKAGES names it (LEG-653). The
+// author and the reviewer get the same plan.
+func TestNuGetPackagesIsPinnedToTheMountedCache(t *testing.T) {
+	for name, in := range authorAndReviewerInputs() {
+		t.Run(name, func(t *testing.T) {
+			fs := hostFS()
+			fs["/var/home/me/.nuget/packages"] = "dir"
+			in.FS = fs
+			plan, err := BuildSandboxPlan(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := mounted(plan)["/var/home/me/.nuget/packages"]; got.Kind != sandbox.ReadWrite {
+				t.Fatalf("the NuGet cache = %+v", got)
+			}
+			if got := plan.Setenv["NUGET_PACKAGES"]; got != "/var/home/me/.nuget/packages" {
+				t.Fatalf("NUGET_PACKAGES = %q", got)
+			}
+		})
+	}
+}
+
+func TestNuGetPackagesIsNotSetWithoutTheMountedCache(t *testing.T) {
+	plan, err := BuildSandboxPlan(baseInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := plan.Setenv["NUGET_PACKAGES"]; ok {
+		t.Fatalf("NUGET_PACKAGES = %q with no cache on the host", got)
+	}
+	in := baseInput()
+	fs := hostFS()
+	fs["/var/home/me/.nuget/packages"] = "dir"
+	in.FS = fs
+	in.DefaultMounts = false
+	plan, err = BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := plan.Setenv["NUGET_PACKAGES"]; ok {
+		t.Fatalf("NUGET_PACKAGES = %q with the default mounts off", got)
+	}
+}
+
+func TestDotnetIsQuietInEverySandbox(t *testing.T) {
+	inputs := authorAndReviewerInputs()
+	noDefaults := baseInput()
+	noDefaults.DefaultMounts = false
+	inputs["no default mounts"] = noDefaults
+	for name, in := range inputs {
+		t.Run(name, func(t *testing.T) {
+			plan, err := BuildSandboxPlan(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, v := range []string{"DOTNET_CLI_TELEMETRY_OPTOUT", "DOTNET_NOLOGO"} {
+				if plan.Setenv[v] != "1" {
+					t.Errorf("%s = %q", v, plan.Setenv[v])
+				}
+			}
+		})
+	}
+}
+
+// ~/.dotnet is the execution's own, in its writable home: the host's, which
+// can hold global tools the host runs, is never mounted over it.
+func TestDotnetsHomeIsTheSandboxsOwnAndWritable(t *testing.T) {
+	for name, in := range authorAndReviewerInputs() {
+		t.Run(name, func(t *testing.T) {
+			fs := hostFS()
+			fs["/var/home/me/.dotnet"] = "dir"
+			fs["/var/home/me/.dotnet/tools"] = "dir"
+			in.FS = fs
+			plan, err := BuildSandboxPlan(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.HomeSource != "/var/home/me/.local/share/legato/sandbox/ex-1/home" {
+				t.Fatalf("home source = %s", plan.HomeSource)
+			}
+			for _, m := range plan.Mounts {
+				for _, p := range []string{m.Path, m.Dest} {
+					if p != "" && within(p, "/var/home/me/.dotnet") {
+						t.Errorf("the host's ~/.dotnet is mounted: %+v", m)
+					}
+				}
+			}
+		})
+	}
+}
+
+func authorAndReviewerInputs() map[string]SandboxPlanInput {
+	reviewer := baseInput()
+	reviewer.ReadOnlyCheckout = true
+	reviewer.ThrowawayCheckout = true
+	return map[string]SandboxPlanInput{"author": baseInput(), "reviewer": reviewer}
+}
