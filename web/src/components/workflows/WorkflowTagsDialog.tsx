@@ -6,17 +6,7 @@ import { useServer } from "../../hooks/useServer"
 import { setWorkflowTags, type WorkflowDefinition } from "../../lib/workflow"
 import { copyBuiltInWorkflow } from "../../lib/workflowFiles"
 import { sourceLabel } from "../../lib/workflowView"
-import { tagProblem } from "../../lib/workflowList"
-
-// errorText is an API error's message: its JSON's error, else its text.
-function errorText(reason: unknown): string {
-  const text = reason instanceof Error ? reason.message : String(reason)
-  try {
-    const parsed = JSON.parse(text) as { error?: unknown }
-    if (typeof parsed.error === "string") return parsed.error
-  } catch { /* plain text */ }
-  return text
-}
+import { errorText, tagProblem } from "../../lib/workflowList"
 
 // WorkflowTagsDialog changes a workflow's tags, which are written into its
 // file. known are the tags workflows already have, with how many have each.

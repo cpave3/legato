@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, ChevronRight, Clock, Columns3, CornerDownRight, Git
 import { useServer } from "../../hooks/useServer"
 import { setWorkflowTrigger, stepStart, type WorkflowDefinition, type WorkflowStats, type WorkflowTriggerState } from "../../lib/workflow"
 import { ago, inputsLabel, runState, sourceLabel, triggerText } from "../../lib/workflowView"
-import { allTags, groupRows, knownTags, matches, noFilters, sortRows, startKinds, switchLabel, workflowRows, type Filters, type SortBy, type WorkflowGroup, type WorkflowRow } from "../../lib/workflowList"
+import { allTags, errorText, groupRows, knownTags, matches, noFilters, sortRows, startKinds, switchLabel, workflowRows, type Filters, type SortBy, type WorkflowGroup, type WorkflowRow } from "../../lib/workflowList"
 import { copyBuiltInWorkflow } from "../../lib/workflowFiles"
 import { cn } from "../../lib/utils"
 import { StatePill } from "../WorkflowRunStatus"
@@ -163,12 +163,22 @@ function Row({ row, group, open, onToggle, statsLoaded, now, onRun, onTags, onCh
   const { definition } = row
   const builtIn = definition.source.startsWith("builtin:")
   const others = row.tags.filter(tag => tag !== group)
+  const [actionError, setActionError] = useState("")
+  const copy = async () => {
+    setActionError("")
+    try {
+      await copyBuiltInWorkflow(baseUrl, definition.name, "global")
+      await onChanged()
+    } catch (reason) {
+      setActionError(errorText(reason))
+    }
+  }
   const entries = [
     { label: "Open", onSelect: () => navigate(`/workflows/${encodeURIComponent(definition.name)}`) },
     { label: "Run…", onSelect: () => onRun(definition) },
     ...(definition.editable ? [{ label: "Edit", onSelect: () => navigate(`/workflows/${encodeURIComponent(definition.name)}/edit`) }] : []),
     { label: "Tags…", onSelect: () => onTags(definition) },
-    ...(builtIn ? [{ label: "Copy to my workflows", onSelect: async () => { await copyBuiltInWorkflow(baseUrl, definition.name, "global"); await onChanged() } }] : []),
+    ...(builtIn ? [{ label: "Copy to my workflows", onSelect: copy }] : []),
   ]
   return <li className="border-t border-lw-line first:border-t-0">
     <div className={cn("grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 px-3 py-2 hover:bg-lw-raised/50", columns, row.inner ? "min-h-12" : "min-h-14")}>
@@ -201,6 +211,7 @@ function Row({ row, group, open, onToggle, statsLoaded, now, onRun, onTags, onCh
         <AgentMoreMenu label={`More for ${definition.title}`} entries={entries} />
       </div>
     </div>
+    {actionError && <p role="alert" className="px-3 pb-2 text-xs text-lw-error md:pl-14">{actionError}</p>}
     {open && <Details row={row} onChanged={onChanged} onTags={() => onTags(definition)} />}
   </li>
 }

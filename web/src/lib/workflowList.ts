@@ -160,3 +160,13 @@ export function tagProblem(tag: string): string {
   if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(tag)) return "Use lower-case letters, digits and -, starting with a letter or digit, at most 32 characters"
   return ""
 }
+
+// errorText is an API error's message: its JSON's error, else its text.
+export function errorText(reason: unknown): string {
+  const text = reason instanceof Error ? reason.message : String(reason)
+  try {
+    const parsed = JSON.parse(text) as { error?: unknown }
+    if (typeof parsed.error === "string") return parsed.error
+  } catch { /* plain text */ }
+  return text
+}

@@ -103,6 +103,39 @@ describe("workflow runs", () => {
     }
   })
 
+  it("opens a child's own children, at every level", () => {
+    runs.push(
+      { ...base, id: "wr-b", workflow_name: "inner", workflow_title: "Inner run", status: "succeeded", current_step_id: "", parent_run_id: "wr-done", created_at: "2026-07-28T09:01:00Z", steps: [] },
+      { ...base, id: "wr-c", workflow_name: "innermost", workflow_title: "Innermost run", status: "succeeded", current_step_id: "", parent_run_id: "wr-b", created_at: "2026-07-28T09:02:00Z", steps: [] },
+    )
+    try {
+      render(<MemoryRouter><WorkflowsPage /></MemoryRouter>)
+      const parent = within(screen.getByRole("list", { name: /Finished runs/ })).getAllByRole("listitem").find(row => row.textContent?.includes("Plan xk2pb7do"))!
+      fireEvent.click(within(parent).getByRole("button", { name: "1 run inside" }))
+      const inner = within(within(parent).getByRole("list", { name: "Runs inside Plan xk2pb7do" })).getAllByRole("listitem")[0]
+      fireEvent.click(within(inner).getByRole("button", { name: "1 run inside" }))
+      expect(within(inner).getByRole("list", { name: "Runs inside Inner run" }).textContent).toContain("Innermost run")
+    } finally {
+      runs.splice(-2)
+    }
+  })
+
+  it("counts and finds a child run that needs the operator, under its parent", () => {
+    runs.push({ ...base, id: "wr-gate-child", workflow_name: "ask-child", workflow_title: "Child at a gate", status: "waiting", current_step_id: "ask", needs_attention: true, attention_reason: "manual action required: Ask", parent_run_id: "wr-run", created_at: "2026-07-28T10:02:00Z", steps: [{ step_id: "ask", title: "Ask", status: "waiting_manual", trigger: "manual" }] })
+    try {
+      render(<MemoryRouter><WorkflowsPage /></MemoryRouter>)
+      const chips = screen.getByRole("group", { name: "Status" })
+      fireEvent.click(within(chips).getByRole("button", { name: "Needs you 2" }))
+      const needs = within(screen.getByRole("list", { name: "Runs that need you" })).getAllByRole("listitem")
+      const parent = needs.find(row => row.textContent?.includes("Plan jgek1vt3"))!
+      expect(within(parent).getByRole("list", { name: "Runs inside Plan jgek1vt3" }).textContent).toContain("Child at a gate")
+      fireEvent.click(within(chips).getByRole("button", { name: /^All/ }))
+      expect(within(screen.getByRole("combobox", { name: "Workflow" })).getByRole("option", { name: "ask-child" })).toBeTruthy()
+    } finally {
+      runs.pop()
+    }
+  })
+
   it("opens the tab a link names, else the one chosen last, and remembers a choice", () => {
     render(<MemoryRouter initialEntries={["/workflows?tab=workflows"]}><WorkflowsPage /></MemoryRouter>)
     expect(screen.getByRole("tab", { name: "Workflows" }).getAttribute("aria-selected")).toBe("true")

@@ -78,8 +78,20 @@ function duration(run: WorkflowRun, now: number): string {
   return active(run) ? elapsed(start, now) : ""
 }
 
-function RunRow({ run, now, children = [], child = false }: { run: WorkflowRun; now: number; children?: WorkflowRun[]; child?: boolean }) {
-  const [open, setOpen] = useState(() => children.some(active))
+// RunTree is each listed run's children: the runs its workflow.run steps
+// started, oldest first.
+type RunTree = Map<string, WorkflowRun[]>
+
+function descendants(run: WorkflowRun, tree: RunTree): WorkflowRun[] {
+  return (tree.get(run.id) ?? []).flatMap(child => [child, ...descendants(child, tree)])
+}
+
+// RunRow is a run, with its children folded under it. reveal says which
+// runs the list is showing for: a row opens on one among its descendants,
+// as it does on one still active.
+function RunRow({ run, now, tree, reveal, child = false }: { run: WorkflowRun; now: number; tree: RunTree; reveal: (run: WorkflowRun) => boolean; child?: boolean }) {
+  const children = tree.get(run.id) ?? []
+  const [open, setOpen] = useState(() => descendants(run, tree).some(item => active(item) || reveal(item)))
   const state = runState(run)
   const steps = run.steps ?? []
   // A finished run's duration has its own column, so its line says only
@@ -114,16 +126,16 @@ function RunRow({ run, now, children = [], child = false }: { run: WorkflowRun; 
         <ChevronRight size={12} aria-hidden="true" className={cn("transition-transform motion-reduce:transition-none", open && "rotate-90")} />{inside}
       </button>
       {open && <ul aria-label={`Runs inside ${run.workflow_title}`} className="border-t border-lw-line">
-        {children.map(item => <RunRow key={item.id} run={item} now={now} child />)}
+        {children.map(item => <RunRow key={item.id} run={item} now={now} tree={tree} reveal={reveal} child />)}
       </ul>}
     </>}
   </li>
 }
 
-function RunList({ label, runs, children, tone }: { label: string; runs: WorkflowRun[]; children: Map<string, WorkflowRun[]>; tone?: "needs" }) {
+function RunList({ label, runs, tree, reveal, tone }: { label: string; runs: WorkflowRun[]; tree: RunTree; reveal: (run: WorkflowRun) => boolean; tone?: "needs" }) {
   const now = useNow(30_000)
   return <ul aria-label={label} className={cn("overflow-hidden rounded-xl border bg-lw-surface", tone === "needs" ? "border-lw-needs/40" : "border-lw-line")}>
-    {runs.map(run => <RunRow key={run.id} run={run} now={now} children={children.get(run.id)} />)}
+    {runs.map(run => <RunRow key={run.id} run={run} now={now} tree={tree} reveal={reveal} />)}
   </ul>
 }
 
@@ -151,18 +163,24 @@ function RunsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
   const all = runs.data ?? []
   // A child run is listed under its parent when the parent is listed too.
   const ids = new Set(all.map(run => run.id))
-  const children = new Map<string, WorkflowRun[]>()
+  const tree: RunTree = new Map()
   for (const run of [...all].reverse()) {
-    if (run.parent_run_id && ids.has(run.parent_run_id)) children.set(run.parent_run_id, [...(children.get(run.parent_run_id) ?? []), run])
+    if (run.parent_run_id && ids.has(run.parent_run_id)) tree.set(run.parent_run_id, [...(tree.get(run.parent_run_id) ?? []), run])
   }
   const top = all.filter(run => !(run.parent_run_id && ids.has(run.parent_run_id)))
-  const workflows = [...new Set(top.map(run => run.workflow_name))].sort()
+  const workflows = [...new Set(all.map(run => run.workflow_name))].sort()
   const filter = statusFilters.find(item => item.value === status)!
-  const shown = top.filter(run => filter.test(run) && (!workflow || run.workflow_name === workflow))
-  const needs = shown.filter(run => run.needs_attention)
-  const inProgress = shown.filter(run => active(run) && !run.needs_attention)
+  const filtered = status !== "all" || workflow !== ""
+  const matches = (run: WorkflowRun) => filter.test(run) && (!workflow || run.workflow_name === workflow)
+  // A run is listed when it or a run under it matches, so a child that
+  // waits on the operator is found under its parent.
+  const shown = top.filter(run => matches(run) || descendants(run, tree).some(matches))
+  const reveal = (run: WorkflowRun) => filtered && matches(run)
+  const waits = (run: WorkflowRun) => Boolean(run.needs_attention) || descendants(run, tree).some(item => Boolean(item.needs_attention))
+  const needs = shown.filter(waits)
+  const inProgress = shown.filter(run => active(run) && !waits(run))
   const days: { key: string; label: string; runs: WorkflowRun[] }[] = []
-  for (const run of shown.filter(run => !active(run))) {
+  for (const run of shown.filter(run => !active(run) && !waits(run))) {
     const day = dayOf(run.created_at, now)
     const last = days[days.length - 1]
     if (last?.key === day.key) last.runs.push(run)
@@ -175,7 +193,7 @@ function RunsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
     {top.length > 0 && <div className="mt-4 flex flex-wrap items-center gap-2">
       <div role="group" aria-label="Status" className="flex flex-wrap gap-2">
         {statusFilters.map(item => {
-          const count = top.filter(item.test).length
+          const count = all.filter(item.test).length
           return <button key={item.value} type="button" aria-pressed={status === item.value} onClick={() => setStatus(item.value)}
             className={cn("inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-[13px]", status === item.value ? "border-lw-accent bg-lw-selected text-lw-text" : "border-lw-line-strong bg-lw-surface text-lw-text-2 hover:text-lw-text")}>
             {item.label} <span className={cn("font-lw-mono text-xs", item.value === "needs" && count > 0 && "text-lw-needs")}>{count}</span>
@@ -188,13 +206,13 @@ function RunsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
         {workflows.map(name => <option key={name} value={name}>{name}</option>)}
       </select>}
     </div>}
-    {needs.length > 0 && <><SectionHeading count={needs.length} tone="needs">Needs you</SectionHeading><RunList label="Runs that need you" runs={needs} children={children} tone="needs" /></>}
-    {inProgress.length > 0 && <><SectionHeading count={inProgress.length}>In progress</SectionHeading><RunList label="Runs in progress" runs={inProgress} children={children} /></>}
+    {needs.length > 0 && <><SectionHeading count={needs.length} tone="needs">Needs you</SectionHeading><RunList label="Runs that need you" runs={needs} tree={tree} reveal={reveal} tone="needs" /></>}
+    {inProgress.length > 0 && <><SectionHeading count={inProgress.length}>In progress</SectionHeading><RunList label="Runs in progress" runs={inProgress} tree={tree} reveal={reveal} /></>}
     {days.length > 0 && <><SectionHeading>Finished</SectionHeading>
       <div className="flex flex-col gap-3">
         {days.map(day => <div key={day.key}>
           <h3 className="mb-1.5 flex items-baseline gap-2 text-xs font-medium text-lw-text-2">{day.label}<span className="font-lw-mono text-lw-faint">{day.runs.length}</span></h3>
-          <RunList label={`Finished runs, ${day.label}`} runs={day.runs} children={children} />
+          <RunList label={`Finished runs, ${day.label}`} runs={day.runs} tree={tree} reveal={reveal} />
         </div>)}
       </div>
     </>}

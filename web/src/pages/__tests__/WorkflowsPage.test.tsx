@@ -176,4 +176,13 @@ describe("the workflows list", () => {
     expect(dialog.textContent).toContain("built in")
     expect(within(dialog).queryByRole("button", { name: "Save" })).toBeNull()
   })
+
+  it("says why copying a built-in from its menu was refused", async () => {
+    apiFetch.mockResolvedValue(new Response(JSON.stringify({ error: "a workflow named review-loop-copy exists", code: "name_taken" }), { status: 409 }))
+    open()
+    fireEvent.click(within(row(group("Untagged"), "Triage a task")).getByRole("button", { name: "More for Triage a task" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy to my workflows" }))
+    const alert = await within(row(group("Untagged"), "Triage a task")).findByRole("alert")
+    expect(alert.textContent).toContain("a workflow named review-loop-copy exists")
+  })
 })
