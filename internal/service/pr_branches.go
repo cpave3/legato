@@ -106,11 +106,13 @@ func (p *prTrackingService) RefreshBranchStates(ctx context.Context, taskID, rep
 		return err
 	}
 	changed := false
-	// A PR of this repository held in the single field only (linked before
-	// branches were tracked) is moved onto its branch first, state only:
+	// A PR held in the single field only (linked before branches were
+	// tracked) on one of these branches is moved onto it first, state only:
 	// read from the single field, a branch with no PR would be its stale
-	// state, and the PR may be too old for the listing.
-	if legacy, _ := store.ParsePRMeta(task.PRMeta); legacy != nil && legacy.PRNumber > 0 && !holdsPR(rows, legacy.PRNumber) && cc != nil && cc.Repo == repo {
+	// state, and the PR may be too old for the listing. One on another
+	// branch is left alone, as TaskPullRequests names it under that branch.
+	if legacy, _ := store.ParsePRMeta(task.PRMeta); legacy != nil && legacy.PRNumber > 0 && !holdsPR(rows, legacy.PRNumber) &&
+		cc != nil && cc.Repo == repo && slices.Contains(branches, firstNonEmpty(legacy.Branch, cc.Branch)) {
 		adopted, err := p.adoptLegacyPR(ctx, taskID, cc, legacy, true)
 		if err != nil {
 			p.publishIfChanged(p.applyDiscoveryOutcome(ctx, taskID, "error", err.Error()))

@@ -669,3 +669,32 @@ func TestRefreshingBranchStatesAdoptsALegacyPROfTheRepository(t *testing.T) {
 		t.Fatalf("read reviews %d times, want none", n)
 	}
 }
+
+// A legacy PR on a branch that is not being refreshed is left alone: it
+// cannot reach the reader, and a failure fetching it must not fail the
+// branches asked about.
+func TestRefreshingBranchStatesLeavesALegacyPROfAnotherBranchAlone(t *testing.T) {
+	gh := newFakeGitHub(t)
+	gh.set("acme/widget", fakePR{Number: 8, Head: "new-feature"}) // #7 is not served: fetching it fails
+	s, svc, _ := newBranchTracking(t, gh)
+	ctx := context.Background()
+	createPRTask(t, s, "task-1")
+	setRepoContext(t, s, "task-1", "acme/widget", "new-feature")
+	legacy := `{"branch":"old-feature","pr_number":7,"state":"OPEN","sync_outcome":"linked"}`
+	if err := s.UpdatePRMeta(ctx, "task-1", &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddTaskBranches(ctx, "task-1", "acme/widget", []string{"new-feature"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.RefreshBranchStates(ctx, "task-1", "acme/widget", []string{"new-feature"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := gh.count("/repos/acme/widget/pulls/7"); n != 0 {
+		t.Fatalf("fetched the legacy PR of old-feature %d times, want none", n)
+	}
+	if got, want := prList(t, svc, "task-1"), []string{"new-feature:#8"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("tracked = %v, want %v", got, want)
+	}
+}
