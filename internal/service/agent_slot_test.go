@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -169,7 +170,14 @@ func saveConversation(t *testing.T, s *store.Store, taskID, slot, kind, conversa
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RecordTaskNativeSession(ctx, taskID, session.ID, session.ExecutionID, kind, conversation, cwd, ""); err != nil {
+	// Its bridge reports the root it ran in: a Claude Code agent's is the
+	// account its execution recorded (the fixture's default, ~/.claude), and
+	// the store refuses any other.
+	storage := ""
+	if kind == "claude-code" {
+		storage = filepath.Join(os.Getenv("HOME"), ".claude")
+	}
+	if _, err := s.RecordTaskNativeSession(ctx, taskID, session.ID, session.ExecutionID, kind, conversation, cwd, storage); err != nil {
 		t.Fatal(err)
 	}
 }

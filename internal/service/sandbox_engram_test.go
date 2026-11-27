@@ -113,7 +113,7 @@ func TestASandboxedEngramSessionHasItsBinaryFirstOnPathAndItsStore(t *testing.T)
 	session, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
 	binDir := filepath.Join(runtime, "sandbox", session.ExecutionID, "bin")
 	lines := mt.sentLinesFor("legato-task-1")
-	if len(lines) == 0 || !strings.HasPrefix(lines[0], "PATH="+binDir+`:"$PATH" SANDBOX`) {
+	if len(lines) == 0 || !strings.HasPrefix(lines[0], "env -u CLAUDE_CONFIG_DIR PATH="+binDir+`:"$PATH" SANDBOX --args 3 3<`) {
 		t.Fatalf("launch = %v", lines)
 	}
 	plan := backend.plans[0]

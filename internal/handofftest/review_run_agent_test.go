@@ -81,7 +81,7 @@ func TestAnExitedAgentAuthorIsResumedFromItsConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.worker.Store.RecordTaskNativeSession(ctx, "board-1", first.ID, first.ExecutionID, "claude-code", "author-conversation", dir, ""); err != nil {
+	if _, err := r.worker.Store.RecordTaskNativeSession(ctx, "board-1", first.ID, first.ExecutionID, "claude-code", "author-conversation", dir, bridgeStorage(t, "claude-code")); err != nil {
 		t.Fatal(err)
 	}
 	_ = r.worker.Tmux.Kill("legato-board-1")

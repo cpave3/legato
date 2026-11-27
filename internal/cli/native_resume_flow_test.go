@@ -97,7 +97,6 @@ func TestNativeCaptureToTaskResumeToPanelHistory(t *testing.T) {
 			if err := db.FinishAgentSession(context.Background(), owner.ID); err != nil {
 				t.Fatal(err)
 			}
-			t.Setenv(storageKey, t.TempDir())
 			terminal := &resumeFlowTerminal{}
 			var adapter service.AIToolAdapter = hooks.NewClaudeCodeAdapter("legato")
 			if kind == "codex" {
@@ -107,6 +106,22 @@ func TestNativeCaptureToTaskResumeToPanelHistory(t *testing.T) {
 			}
 			agents := service.NewAgentService(db, terminal, cwd, service.AgentServiceOptions{Adapter: adapter, DisablePeerAwareness: true})
 			api := server.New(service.NewBoardService(db, nil), agents, nil, ":0").Handler()
+			// Legato's own storage root moves after the capture.
+			t.Setenv(storageKey, t.TempDir())
+			if kind == "claude-code" {
+				// A Claude conversation stays on the account it ran with. This
+				// one recorded no account, and its storage is no longer the
+				// default's nor any configured account's: resume is refused,
+				// not launched against another login.
+				refusal := httptest.NewRecorder()
+				api.ServeHTTP(refusal, httptest.NewRequest(http.MethodPost, "/api/tasks/task1/agent", strings.NewReader(`{"session_policy":"resume"}`)))
+				if refusal.Code != http.StatusConflict || !strings.Contains(refusal.Body.String(), "legacy Claude storage has no matching local account") || terminal.command != "" {
+					t.Fatalf("resume on a moved default = %d %s, launched %q", refusal.Code, refusal.Body.String(), terminal.command)
+				}
+				// With the account's directory the default again, the same
+				// request resumes the conversation on it.
+				t.Setenv(storageKey, originalStorage)
+			}
 			response := httptest.NewRecorder()
 			api.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/tasks/task1/agent", strings.NewReader(`{"session_policy":"resume"}`)))
 			if response.Code != http.StatusCreated {
