@@ -191,3 +191,37 @@ func TestAWaitStepTakesModeWatchAndNoOther(t *testing.T) {
 		t.Fatal("mode nap loaded")
 	}
 }
+
+// prs is a list of 1 to 20 positive pull request numbers, each a number or
+// an expression, or one expression for the whole list.
+func TestAReviewLoopOpenStepsPRsMustBeAListOfNumbers(t *testing.T) {
+	twenty := "prs: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]"
+	for _, tc := range []struct {
+		name, with string
+		ok         bool
+	}{
+		{"an empty list", "prs: []", false},
+		{"a zero", "prs: [12, 0]", false},
+		{"a negative number", "prs: [-3]", false},
+		{"a word", "prs: [12, twelve]", false},
+		{"a single number", "prs: 12", false},
+		{"a map", "prs: {a: 1}", false},
+		{"twenty numbers", twenty, true},
+		{"an expression among numbers", "prs: [12, '${{ workflow.inputs.pr }}']", true},
+		{"one expression for the list", "prs: '${{ workflow.inputs.prs }}'", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := checkErrors(t, reviewLoopYAML(tc.with))
+			named := false
+			for _, e := range errs {
+				named = named || strings.Contains(e.Message, "with prs must be a list of at most 20 pull request numbers")
+			}
+			if tc.ok && named {
+				t.Fatalf("errors = %v, want no prs refusal", errs)
+			}
+			if !tc.ok && !named {
+				t.Fatalf("errors = %v, want the prs refusal", errs)
+			}
+		})
+	}
+}
