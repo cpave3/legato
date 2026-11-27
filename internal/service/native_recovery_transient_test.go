@@ -130,5 +130,3 @@ func TestAutomaticBridgeDiscoveryNeverUndoesADowngrade(t *testing.T) {
 		t.Fatal("the operator's upgrade did not bind it")
 	}
 }
-
-
