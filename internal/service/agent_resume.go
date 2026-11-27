@@ -63,18 +63,10 @@ func (a *agentService) prepareTaskResume(ctx context.Context, taskID string, opt
 	}
 	kind := opt.AgentKind
 	if kind == "" && opt.SessionPolicy == "resume" {
-		saved, err := a.GetTaskResumeSessionInSlot(ctx, taskID, opt.Slot, "")
-		if err != nil {
+		if err := a.inferResumeKind(ctx, taskID, opt); err != nil {
 			return err
 		}
-		if saved == nil {
-			return fmt.Errorf("%w: no saved conversation", ErrTaskResumeConflict)
-		}
-		kind = saved.AgentKind
-		opt.AgentKind = kind
-		if kind == "chimera" && opt.ResumeSessionID == "" {
-			opt.ResumeSessionID = saved.ID
-		}
+		kind = opt.AgentKind
 	}
 	if kind == "" {
 		kind = a.baseDefaultAdapter()
@@ -99,34 +91,9 @@ func (a *agentService) prepareTaskResume(ctx context.Context, taskID string, opt
 	if kind == "chimera" {
 		return nil
 	}
-	saved, err := a.GetTaskResumeSessionInSlot(ctx, taskID, opt.Slot, kind)
+	saved, err := a.resumeConversation(ctx, taskID, *opt, kind)
 	if err != nil {
 		return err
-	}
-	var storage *string
-	if opt.AccountIdentity != nil {
-		storage = &opt.AccountIdentity.ConfigDir
-	} else if opt.ResumeStorageDir != "" {
-		storage = &opt.ResumeStorageDir
-	}
-	lookupHistory := saved == nil || (opt.ResumeSessionID != "" && (opt.ResumeSessionID != saved.ID || storage == nil))
-	if saved != nil && storage != nil && saved.StorageDir != *storage {
-		lookupHistory = true
-	}
-	if lookupHistory {
-		// Any conversation the session history keeps for this task, slot
-		// and tool can be resumed, not only the newest.
-		earlier, err := a.historyConversation(ctx, taskID, opt.Slot, kind, opt.ResumeSessionID, storage)
-		if err != nil {
-			if errors.Is(err, store.ErrConflict) {
-				return fmt.Errorf("%w: %w", ErrTaskResumeConflict, err)
-			}
-			return err
-		}
-		if earlier == nil {
-			return fmt.Errorf("%w: no matching saved %s conversation", ErrTaskResumeConflict, kind)
-		}
-		saved = earlier
 	}
 	info, err := os.Stat(saved.CWD)
 	if err != nil {
@@ -160,20 +127,7 @@ func (a *agentService) prepareTaskResume(ctx context.Context, taskID string, opt
 	opt.ResumeWorkingDir = saved.CWD
 	opt.ResumeStorageDir = saved.StorageDir
 	if kind == "claude-code" {
-		if saved.AccountIdentity != nil {
-			opt.AccountIdentity = saved.AccountIdentity
-		} else if saved.StorageDir != "" {
-			identity, err := a.resolveClaudeAccount(ctx, *opt, kind)
-			if err != nil {
-				return err
-			}
-			root, err := resolvedAccountRoot(saved.StorageDir)
-			if err != nil || root != identity.ResolvedDir {
-				return fmt.Errorf("%w: legacy Claude storage has no matching local account; restore its original account mapping", ErrTaskResumeConflict)
-			}
-			opt.AccountIdentity = identity
-		}
-		if _, err := a.resolveClaudeAccount(ctx, *opt, kind); err != nil {
+		if err := a.bindResumeAccount(ctx, opt, saved, kind); err != nil {
 			return err
 		}
 	}
@@ -183,6 +137,95 @@ func (a *agentService) prepareTaskResume(ctx context.Context, taskID string, opt
 		opt.WorkingDir = saved.CWD
 	}
 	return nil
+}
+
+// inferResumeKind names the tool of a resume that names none: the tool of
+// the slot's newest saved conversation, set as opt.AgentKind. Chimera's
+// resume ID comes from that conversation unless the caller gave one. With
+// nothing saved there is nothing to resume.
+func (a *agentService) inferResumeKind(ctx context.Context, taskID string, opt *AgentSpawnOptions) error {
+	saved, err := a.GetTaskResumeSessionInSlot(ctx, taskID, opt.Slot, "")
+	if err != nil {
+		return err
+	}
+	if saved == nil {
+		return fmt.Errorf("%w: no saved conversation", ErrTaskResumeConflict)
+	}
+	opt.AgentKind = saved.AgentKind
+	if saved.AgentKind == "chimera" && opt.ResumeSessionID == "" {
+		opt.ResumeSessionID = saved.ID
+	}
+	return nil
+}
+
+// resumeStorage is the storage root a resume asks for: the selected
+// account's directory, else the caller's storage directory, else nil for
+// any root.
+func resumeStorage(opt AgentSpawnOptions) *string {
+	if opt.AccountIdentity != nil {
+		return &opt.AccountIdentity.ConfigDir
+	}
+	if opt.ResumeStorageDir != "" {
+		return &opt.ResumeStorageDir
+	}
+	return nil
+}
+
+// resumeConversation is the conversation of kind the task's slot resumes:
+// the saved one, unless nothing is saved, the resume names another ID or
+// names an ID without a storage root, or it asks for a storage root other
+// than the saved one's. Then it is the session history's conversation of
+// that ID (in that root, when one is asked for); an ambiguous entry and no
+// match are refusals.
+func (a *agentService) resumeConversation(ctx context.Context, taskID string, opt AgentSpawnOptions, kind string) (*TaskResumeSession, error) {
+	saved, err := a.GetTaskResumeSessionInSlot(ctx, taskID, opt.Slot, kind)
+	if err != nil {
+		return nil, err
+	}
+	storage := resumeStorage(opt)
+	lookupHistory := saved == nil || (opt.ResumeSessionID != "" && (opt.ResumeSessionID != saved.ID || storage == nil))
+	if saved != nil && storage != nil && saved.StorageDir != *storage {
+		lookupHistory = true
+	}
+	if !lookupHistory {
+		return saved, nil
+	}
+	// Any conversation the session history keeps for this task, slot
+	// and tool can be resumed, not only the newest.
+	earlier, err := a.historyConversation(ctx, taskID, opt.Slot, kind, opt.ResumeSessionID, storage)
+	if err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			return nil, fmt.Errorf("%w: %w", ErrTaskResumeConflict, err)
+		}
+		return nil, err
+	}
+	if earlier == nil {
+		return nil, fmt.Errorf("%w: no matching saved %s conversation", ErrTaskResumeConflict, kind)
+	}
+	return earlier, nil
+}
+
+// bindResumeAccount keeps a resumed Claude Code conversation on the
+// account it ran with, never on defaults that changed since: the identity
+// its execution recorded, else, for legacy storage, the account that now
+// resolves to that directory (a refusal when none does). Whatever it binds
+// is checked against this instance's accounts again before launch.
+func (a *agentService) bindResumeAccount(ctx context.Context, opt *AgentSpawnOptions, saved *TaskResumeSession, kind string) error {
+	if saved.AccountIdentity != nil {
+		opt.AccountIdentity = saved.AccountIdentity
+	} else if saved.StorageDir != "" {
+		identity, err := a.resolveClaudeAccount(ctx, *opt, kind)
+		if err != nil {
+			return err
+		}
+		root, err := resolvedAccountRoot(saved.StorageDir)
+		if err != nil || root != identity.ResolvedDir {
+			return fmt.Errorf("%w: legacy Claude storage has no matching local account; restore its original account mapping", ErrTaskResumeConflict)
+		}
+		opt.AccountIdentity = identity
+	}
+	_, err := a.resolveClaudeAccount(ctx, *opt, kind)
+	return err
 }
 
 // historyConversation is a conversation of the session history the task's
