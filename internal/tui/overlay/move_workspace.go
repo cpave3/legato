@@ -2,7 +2,6 @@ package overlay
 
 import (
 	"fmt"
-	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -70,51 +69,11 @@ func NewMoveWorkspace(taskID string, workspaces []service.Workspace, currentWork
 }
 
 func buildMWShortcuts(entries []mwEntry) map[rune]int {
-	shortcuts := make(map[rune]int)
-	used := make(map[rune]bool)
-	registry := hotkey.DefaultRegistry()
-	ctx := hotkey.Context{Overlay: hotkey.OverlayMoveWorkspace}
-	reserved := func(key rune) bool { _, ok := registry.IsReserved(hotkey.Rune(key), ctx); return ok }
-
+	labels := make([]string, len(entries))
 	for i, e := range entries {
-		if len(e.label) == 0 {
-			continue
-		}
-		key := unicode.ToLower(rune(e.label[0]))
-		if !used[key] && !reserved(key) {
-			shortcuts[key] = i
-			used[key] = true
-		}
+		labels[i] = e.label
 	}
-
-	num := '1'
-	for i := range entries {
-		assigned := false
-		for _, idx := range shortcuts {
-			if idx == i {
-				assigned = true
-				break
-			}
-		}
-		for num <= '9' && reserved(num) {
-			num++
-		}
-		if !assigned && num <= '9' {
-			shortcuts[num] = i
-			num++
-		}
-	}
-
-	return shortcuts
-}
-
-func (m MoveWorkspaceOverlay) shortcutFor(idx int) string {
-	for k, v := range m.shortcuts {
-		if v == idx {
-			return string(k)
-		}
-	}
-	return ""
+	return assignShortcuts(labels, byIndex, reservedIn(hotkey.Context{Overlay: hotkey.OverlayMoveWorkspace}))
 }
 
 func (m MoveWorkspaceOverlay) isCurrent(e mwEntry) bool {
@@ -186,7 +145,7 @@ func (m MoveWorkspaceOverlay) View() string {
 	content := []string{title, ""}
 
 	for i, e := range m.entries {
-		shortcut := m.shortcutFor(i)
+		shortcut := shortcutLabel(m.shortcuts, i)
 		keyStyle := lipgloss.NewStyle().Foreground(theme.AccentPurple).Bold(true)
 		labelStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
 

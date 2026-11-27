@@ -262,3 +262,22 @@ func TestMoveWorkspaceOverlayShortcutsShownAndDispatched(t *testing.T) {
 		})
 	}
 }
+
+// No digit is reserved in the move or workspace overlays today, so a reserved
+// digit cannot be reached through them; this pins the fallback's skip on the
+// shared assignment directly.
+func TestAssignShortcutsFallbackSkipsReservedDigits(t *testing.T) {
+	labels := []string{"a", "ab", "ac", "ad"}
+	reserved := func(key rune) bool { return key == '1' || key == '3' }
+	got := assignShortcuts(labels, byIndex, reserved)
+	want := map[rune]int{'a': 0, '2': 1, '4': 2, '5': 3}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("shortcuts = %v, want %v", got, want)
+	}
+
+	allDigits := func(key rune) bool { return key >= '1' && key <= '9' }
+	got = assignShortcuts(labels, byIndex, allDigits)
+	if want := map[rune]int{'a': 0}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("with every digit reserved, shortcuts = %v, want %v", got, want)
+	}
+}

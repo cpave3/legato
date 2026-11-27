@@ -2,7 +2,6 @@ package overlay
 
 import (
 	"fmt"
-	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -70,52 +69,11 @@ func NewWorkspace(workspaces []service.Workspace, current store.WorkspaceView) W
 }
 
 func buildWSShortcuts(entries []wsEntry) map[rune]int {
-	shortcuts := make(map[rune]int)
-	used := make(map[rune]bool)
-	registry := hotkey.DefaultRegistry()
-	ctx := hotkey.Context{Overlay: hotkey.OverlayWorkspace}
-	reserved := func(key rune) bool { _, ok := registry.IsReserved(hotkey.Rune(key), ctx); return ok }
-
+	labels := make([]string, len(entries))
 	for i, e := range entries {
-		if len(e.label) == 0 {
-			continue
-		}
-		key := unicode.ToLower(rune(e.label[0]))
-		if !used[key] && !reserved(key) {
-			shortcuts[key] = i
-			used[key] = true
-		}
+		labels[i] = e.label
 	}
-
-	// Handle conflicts — assign number keys for unassigned entries
-	num := '1'
-	for i := range entries {
-		assigned := false
-		for _, idx := range shortcuts {
-			if idx == i {
-				assigned = true
-				break
-			}
-		}
-		for num <= '9' && reserved(num) {
-			num++
-		}
-		if !assigned && num <= '9' {
-			shortcuts[num] = i
-			num++
-		}
-	}
-
-	return shortcuts
-}
-
-func (m WorkspaceOverlay) shortcutFor(idx int) string {
-	for k, v := range m.shortcuts {
-		if v == idx {
-			return string(k)
-		}
-	}
-	return ""
+	return assignShortcuts(labels, byIndex, reservedIn(hotkey.Context{Overlay: hotkey.OverlayWorkspace}))
 }
 
 func (m WorkspaceOverlay) Init() tea.Cmd { return nil }
@@ -167,7 +125,7 @@ func (m WorkspaceOverlay) View() string {
 	content := []string{title, ""}
 
 	for i, e := range m.entries {
-		shortcut := m.shortcutFor(i)
+		shortcut := shortcutLabel(m.shortcuts, i)
 		keyStyle := lipgloss.NewStyle().Foreground(theme.AccentPurple).Bold(true)
 		labelStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
 
