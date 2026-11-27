@@ -35,7 +35,7 @@ func (a *agentService) discoverCodexBridge(ctx context.Context, taskID string, a
 	if !isLoopbackHTTPURL(lockfile.URL) || !nativeEndpointServes(ctx, lockfile.URL, lockfile.SessionID, taskID) {
 		return ErrChimeraDiscoveryNotFound
 	}
-	if err := a.store.UpdateChimeraDiscoveryForSession(ctx, agentSessionID, lockfile.SessionID, lockfile.URL); err != nil {
+	if err := a.bindBridge(ctx, agentSessionID, lockfile.SessionID, lockfile.URL); err != nil {
 		return fmt.Errorf("persisting Codex bridge discovery: %w", err)
 	}
 	if a.bus != nil {
@@ -79,13 +79,23 @@ func (a *agentService) RecoverNativeEndpoints(ctx context.Context) int {
 			continue
 		}
 		bound := session.ChimeraEndpoint != nil && session.ChimeraSessionID != nil
-		if bound && nativeEndpointAlive(ctx, *session.ChimeraEndpoint, *session.ChimeraSessionID) {
-			continue
-		}
-		if bound && session.AgentKind == "chimera" {
-			cleared, err := a.store.ClearChimeraDiscoveryForSession(ctx, session.ID, *session.ChimeraSessionID, *session.ChimeraEndpoint)
-			if err != nil || !cleared {
+		if bound {
+			class := probeNativeEndpoint(ctx, *session.ChimeraEndpoint, *session.ChimeraSessionID)
+			if class == "" {
 				continue
+			}
+			if class != chimera.FailureGone && class != chimera.FailureRefused {
+				// Alive but failing for the moment, or refusing Legato's
+				// credentials: nothing proves it gone, so keep it.
+				log.Printf("native binding for %s kept: startup probe failed (%s)", session.TaskID, class)
+				continue
+			}
+			if session.AgentKind == "chimera" {
+				cleared, err := a.store.ClearChimeraDiscoveryForSession(ctx, session.ID, *session.ChimeraSessionID, *session.ChimeraEndpoint)
+				if err != nil || !cleared {
+					continue
+				}
+				log.Printf("native binding for %s cleared: startup_probe_%s", session.TaskID, class)
 			}
 		}
 		err := a.DiscoverChimera(WithAgentSlot(ctx, session.Slot), session.TaskID)
@@ -102,15 +112,16 @@ func (a *agentService) RecoverNativeEndpoints(ctx context.Context) int {
 	return recovered
 }
 
-// nativeEndpointAlive reports whether endpoint still serves the session it
-// was bound for. The session's name is not checked: the binding was verified
-// when it was made, and an ephemeral session has a name of its own.
-func nativeEndpointAlive(ctx context.Context, endpoint, sessionID string) bool {
+// probeNativeEndpoint asks endpoint for the session it was bound for and
+// returns "" when it answers, else the chimera failure class of why not. The
+// session's name is not checked: the binding was verified when it was made,
+// and an ephemeral session has a name of its own.
+func probeNativeEndpoint(ctx context.Context, endpoint, sessionID string) string {
 	requestCtx, cancel := context.WithTimeout(ctx, chimeraDiscoveryRequestTimeout)
 	defer cancel()
 	client := chimera.NewClientWithHTTPClient(endpoint, &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}})
 	_, err := client.GetSession(requestCtx, sessionID)
-	return err == nil
+	return chimera.FailureClass(err)
 }

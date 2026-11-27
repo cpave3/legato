@@ -119,6 +119,8 @@ For a question, choose an option or type an answer of your own, then **Send answ
 
 If the panel did not connect, **Upgrade to native Chimera** in the terminal view's menu looks for the endpoint again. **Downgrade to tmux** in the panel's menu shows the agent through its terminal, without stopping it.
 
+A Chimera that is busy, slow or briefly unreachable does not lose its panel: Legato disconnects it only when Chimera no longer serves the session or nothing listens at its address. If the connection is lost while the agent runs, Legato's mod connects it again within a few seconds, even while the agent is idle, once Chimera confirms the session. A message sent in the meantime waits for the connection instead of failing or being typed into the terminal. An agent you switched to its terminal with **Downgrade to tmux** stays there until you upgrade it. Agents started before this version of Legato don't reconnect this way until their next Chimera session.
+
 ## Compact the conversation
 
 Type `/compact` in the panel. Legato asks the Chimera session to compact, as Chimera's own `/compact` does, and shows its progress and the context size before and after. Chimera takes no focus words, and refuses while a run is in progress. See [Compacting an agent](/legato/using/agents/#compacting-an-agent).

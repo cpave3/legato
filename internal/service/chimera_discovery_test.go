@@ -544,7 +544,7 @@ func TestChimeraDiscoveryUsesPrivateSecretAndSupportsOlderServers(t *testing.T) 
 			if n := svc.(NativeEndpointRecoverer).RecoverNativeEndpoints(ctx); n != 0 {
 				t.Fatalf("recovery undid a deliberate downgrade: %d", n)
 			}
-			if err := svc.DiscoverChimera(ctx, "private"); err != nil {
+			if err := svc.DiscoverChimera(WithOperatorUpgrade(ctx), "private"); err != nil {
 				t.Fatalf("upgrade failed: %v", err)
 			}
 			upgraded, _ := s.GetAgentSessionByTaskID(ctx, "private")

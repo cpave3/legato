@@ -495,8 +495,7 @@ func (c *Client) getJSON(ctx context.Context, path string, out any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("GET %s: %s %s", path, resp.Status, string(body))
+		return newStatusError(http.MethodGet, path, resp)
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }

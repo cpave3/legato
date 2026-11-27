@@ -236,6 +236,39 @@ func bridgeOps(db *store.Store, deps BrokerDeps) map[string]BrokerOp {
 			}
 			return map[string]bool{"ok": true}, h.Unbind(ctx, endpoint)
 		},
+		// endpoint.ensure is how a Chimera link checks, and with bind
+		// restores, its own session's binding. The row is the caller's, from
+		// its token; the endpoint must be loopback, as endpoint.bind's is.
+		"endpoint.ensure": func(ctx context.Context, caller BrokerCaller, raw json.RawMessage) (any, error) {
+			endpoint, err := endpointArg(raw)
+			if err != nil {
+				return nil, err
+			}
+			var args struct {
+				SessionID string `json:"session_id"`
+				Bind      bool   `json:"bind"`
+			}
+			if err := json.Unmarshal(raw, &args); err != nil || args.SessionID == "" {
+				return nil, refuse("bad_request", "session_id is required")
+			}
+			if err := validateChimeraLinkURL(endpoint); err != nil {
+				return nil, refuse("bad_request", err.Error())
+			}
+			h, err := host(ctx, caller)
+			if err != nil {
+				return nil, err
+			}
+			if args.Bind {
+				if _, err := h.rebindChimera(ctx, args.SessionID, endpoint); err != nil {
+					return nil, err
+				}
+			}
+			state, err := h.chimeraBindingState(ctx, args.SessionID, endpoint)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]string{"state": state}, nil
+		},
 		"resume.save": func(ctx context.Context, caller BrokerCaller, raw json.RawMessage) (any, error) {
 			var args struct {
 				Kind              string `json:"kind"`

@@ -215,7 +215,7 @@ func TestADeliberateDowngradeToTmuxSurvivesARestart(t *testing.T) {
 	}
 
 	// The person upgrades it again: it is native, and stays so.
-	if err := svc.DiscoverChimera(ctx, "CODEX-1"); err != nil {
+	if err := svc.DiscoverChimera(WithOperatorUpgrade(ctx), "CODEX-1"); err != nil {
 		t.Fatal(err)
 	}
 	if after, _ := s.GetAgentSessionByTaskID(ctx, "CODEX-1"); after.NativeOff {
