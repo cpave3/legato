@@ -411,7 +411,7 @@ Read your Claude, Codex and OpenCode Go subscriptions' usage limits and select d
 | `usage.poll_interval` | duration | `5m` | How often each subscription's usage is read. At least `2m`. |
 | `usage.fallback_profile` | string | none | A usage profile to use when no rule matches. Empty keeps your usual defaults. Applies without a restart. |
 
-`usage.profiles` and `usage.rules` are named entry lists. File entries are pinned; entries saved in Settings apply without a restart. Names must be nonempty and unique within each list, ignoring case.
+`usage.profiles`, `usage.rules` and `usage.repositories` are named entry lists. File entries are pinned; entries saved in Settings apply without a restart. Names must be nonempty and unique within each list, ignoring case.
 
 | Profile field | What it does |
 | --- | --- |
@@ -428,6 +428,12 @@ Read your Claude, Codex and OpenCode Go subscriptions' usage limits and select d
 | `usage.rules[].meter` | One of `claude.five_hour`, `claude.weekly`, `claude.weekly_opus`, `claude.weekly_sonnet`, `codex.five_hour`, `codex.weekly`, `opencode.five_hour`, `opencode.weekly` or `opencode.monthly`. |
 | `usage.rules[].at_least` | Usage percentage from 1 to 100, inclusive. Fractions are allowed. |
 | `usage.rules[].profile` | A configured usage profile, matched by name ignoring case. |
+| `usage.rules[].when_default` | Optional list of usage profiles. The rule applies only to new work whose default (its repository default, else the fallback) is one of them. Empty applies to all new work. |
+
+| Repository default field | What it does |
+| --- | --- |
+| `usage.repositories[].repository` | `owner/name` or `owner/*` on GitHub, ignoring case; a leading `github.com/` is dropped. Each may be listed once. An exact name wins over its owner's `owner/*`. |
+| `usage.repositories[].profile` | The usage profile new work in that repository starts from, in place of `usage.fallback_profile`. Rules whose `when_default` allows it, and a pin, can still switch away; an explicit agent or account on a launch always wins. |
 
 The fallback must also name a configured profile, ignoring case. A profile changes defaults for new work, not agents already running. For example, with the `careful` tier configured for Chimera:
 

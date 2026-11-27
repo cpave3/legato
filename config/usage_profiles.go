@@ -78,8 +78,25 @@ func ValidateUsageProfiles(cfg *Config) error {
 		if !names[strings.ToLower(r.Profile)] {
 			return fmt.Errorf("%s.profile %q is not a usage profile", path, r.Profile)
 		}
+		for j, name := range r.WhenDefault {
+			p, ok := usageProfileByName(cfg.Usage.Profiles, name)
+			if !ok {
+				return fmt.Errorf("%s.when_default[%d] %q is not a usage profile", path, j, strings.TrimSpace(name))
+			}
+			r.WhenDefault[j] = p.Name
+		}
 	}
-	return nil
+	return validateUsageRepositories(cfg)
+}
+
+func usageProfileByName(profiles []UsageProfile, name string) (UsageProfile, bool) {
+	name = strings.TrimSpace(name)
+	for _, p := range profiles {
+		if name != "" && strings.EqualFold(p.Name, name) {
+			return p, true
+		}
+	}
+	return UsageProfile{}, false
 }
 
 // IsUsageMeter reports whether meter is one of the qualified subscription
@@ -152,4 +169,8 @@ type UsageRule struct {
 	Meter   string  `yaml:"meter" json:"meter"`
 	AtLeast float64 `yaml:"at_least" json:"at_least"`
 	Profile string  `yaml:"profile" json:"profile"`
+	// WhenDefault limits the rule to new work whose baseline (its
+	// repository default, else the fallback profile) is one of these
+	// profiles. Empty applies to all new work.
+	WhenDefault []string `yaml:"when_default,omitempty" json:"when_default,omitempty"`
 }

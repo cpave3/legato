@@ -8,6 +8,7 @@
     "claude_accounts",
     "usage.profiles",
     "usage.rules",
+    "usage.repositories",
     "workspaces",
     "macros",
     "adapters",
@@ -52,6 +53,13 @@
       "class": "change",
       "mode": "live",
       "name_field": "name"
+    },
+    {
+      "key": "usage.repositories",
+      "title": "Repository defaults",
+      "class": "change",
+      "mode": "live",
+      "name_field": "repository"
     },
     {
       "key": "workspaces",

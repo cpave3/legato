@@ -39,6 +39,7 @@ var entryListDefs = []EntryList{
 	{Key: "claude_accounts", Title: "Claude accounts", Class: ClassRisky, Mode: ModeRestart, NameField: "name"},
 	{Key: "usage.profiles", Title: "Usage profiles", Class: ClassChange, Mode: ModeLive, NameField: "name"},
 	{Key: "usage.rules", Title: "Usage rules", Class: ClassChange, Mode: ModeLive, NameField: "name"},
+	{Key: "usage.repositories", Title: "Repository defaults", Class: ClassChange, Mode: ModeLive, NameField: "repository"},
 	{Key: "workspaces", Title: "Workspaces", Class: ClassChange, Mode: ModeRestart, NameField: "name"},
 	{Key: "macros", Title: "Macros", Class: ClassChange, Mode: ModeLive, NameField: "name"},
 	{Key: "adapters", Title: "Claude Code, Codex and Chimera", Class: ClassChange, Mode: ModeRestart},
