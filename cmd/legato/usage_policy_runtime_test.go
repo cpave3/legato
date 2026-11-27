@@ -231,3 +231,53 @@ func TestUsageRootAndPinCommandsKeepSeparatePermissionClasses(t *testing.T) {
 		}
 	}
 }
+
+func TestUsageRepositoryDefaultsReachTheSpawnOfATaskInThatRepository(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "config.yaml")
+	t.Setenv("HOME", dir)
+	text := "data_dir: " + dir + "\nusage:\n  claude:\n    enabled: false\n  codex:\n    enabled: false\n  profiles:\n    - name: save\n      agent: codex\n      tier: careful\n    - name: claude\n      agent: claude-code\n  fallback_profile: save\n  repositories:\n    - {repository: acme/*, profile: claude}\nadapters:\n  codex:\n    tiers:\n      careful:\n        launch_args: [--model, profile-model]\n"
+	if err := os.WriteFile(file, []byte(text), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEGATO_CONFIG", file)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.New(filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, id := range []string{"acme-task", "other-task"} {
+		if err := db.CreateTask(ctx, store.Task{ID: id, Title: "New work"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.SetCodeContext(ctx, "acme-task", &store.CodeContext{Repo: "acme/widget"}); err != nil {
+		t.Fatal(err)
+	}
+	usage := subscriptionUsageFor(cfg, db, events.New())
+	release, err := claimUsagePoller(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	usage.Poll(ctx)
+	codex := hooks.NewCodexAdapter("legato")
+	codex.SetTiers(map[string][]string{"careful": {"--model", "profile-model"}})
+	claude := hooks.NewClaudeCodeAdapter("legato")
+	tmux := &usageLaunchTmux{contractTmux: contractTmux{alive: map[string]bool{}}}
+	agents := service.NewAgentService(db, tmux, dir, service.AgentServiceOptions{Adapter: claude, Adapters: map[string]service.AIToolAdapter{"codex": codex, "claude-code": claude}, NewWorkDefaults: usageNewWorkDefaults(db), DisablePeerAwareness: true})
+	for _, tc := range []struct{ task, kind string }{{"acme-task", "claude-code"}, {"other-task", "codex"}} {
+		if err := agents.SpawnAgent(ctx, tc.task, 0, 0); err != nil {
+			t.Fatal(err)
+		}
+		session, err := db.GetAgentSessionByTaskID(ctx, tc.task)
+		if err != nil || session.AgentKind != tc.kind {
+			t.Fatalf("%s: session=%+v err=%v", tc.task, session, err)
+		}
+	}
+}

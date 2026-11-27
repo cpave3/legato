@@ -34,7 +34,7 @@ func reviewPassesAdvert(cfg *config.Config, db *store.Store) func() *service.Rev
 			Skills: []string{},
 		}
 		if db != nil {
-			defaults, err := usageReviewerDefaults(context.Background(), db, advert.Defaults)
+			defaults, err := usageReviewerDefaults(context.Background(), db, "", advert.Defaults)
 			if err != nil {
 				log.Printf("usage reviewer defaults: %v", err)
 				return nil

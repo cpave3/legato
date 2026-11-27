@@ -13,9 +13,11 @@ import (
 // review posted from it retain that pass's selected reviewer.
 func TestReviewerPolicyChangesAtNewPassNotCrashRetry(t *testing.T) {
 	agent := "codex"
+	var repos []string
 	opts := ReviewPassOptions{Runtime: func(o service.ReviewPassOptions) service.ReviewPassOptions {
 		o.Config, o.Advert = ReviewPassOptions{}.config, ReviewPassOptions{}.advert
-		o.ReviewerDefaults = func(_ context.Context, defaults service.ReviewPassSettings) (service.ReviewPassSettings, error) {
+		o.ReviewerDefaults = func(_ context.Context, repo string, defaults service.ReviewPassSettings) (service.ReviewPassSettings, error) {
+			repos = append(repos, repo)
 			defaults.Agent, defaults.Model, defaults.Tier = agent, "", ""
 			return defaults, nil
 		}
@@ -49,6 +51,11 @@ func TestReviewerPolicyChangesAtNewPassNotCrashRetry(t *testing.T) {
 	}
 	r.tick()
 	assertReviewer("claude-code")
+	// Resolved for the loop's repository, once per new pass: never on the
+	// crash retry.
+	if len(repos) != 2 || repos[0] != "github.com/acme/widget" || repos[1] != repos[0] {
+		t.Fatalf("reviewer defaults asked for %q", repos)
+	}
 }
 
 func TestReviewerPolicyPreservesExplicitChoicesButNotSkillOnlyDefaults(t *testing.T) {
@@ -64,7 +71,7 @@ func TestReviewerPolicyPreservesExplicitChoicesButNotSkillOnlyDefaults(t *testin
 			ctx := context.Background()
 			h := newReviewed(t, ReviewPassOptions{Runtime: func(o service.ReviewPassOptions) service.ReviewPassOptions {
 				o.Config, o.Advert = ReviewPassOptions{}.config, ReviewPassOptions{}.advert
-				o.ReviewerDefaults = func(_ context.Context, defaults service.ReviewPassSettings) (service.ReviewPassSettings, error) {
+				o.ReviewerDefaults = func(_ context.Context, _ string, defaults service.ReviewPassSettings) (service.ReviewPassSettings, error) {
 					defaults.Agent, defaults.Model, defaults.Tier = "claude-code", "", ""
 					return defaults, nil
 				}
@@ -98,7 +105,7 @@ func TestReviewerPolicyPreservesExplicitChoicesButNotSkillOnlyDefaults(t *testin
 func TestReviewerPolicyKeepsLegacySettingsFrozen(t *testing.T) {
 	r := newReviewRun(t, ReviewPassOptions{Runtime: func(o service.ReviewPassOptions) service.ReviewPassOptions {
 		o.Config, o.Advert = ReviewPassOptions{}.config, ReviewPassOptions{}.advert
-		o.ReviewerDefaults = func(_ context.Context, _ service.ReviewPassSettings) (service.ReviewPassSettings, error) {
+		o.ReviewerDefaults = func(_ context.Context, _ string, _ service.ReviewPassSettings) (service.ReviewPassSettings, error) {
 			t.Fatal("legacy settings must not consult live policy")
 			return service.ReviewPassSettings{}, nil
 		}
@@ -126,7 +133,7 @@ func TestReviewerPolicyWorkflowChoicesWinAndSkillOnlyStaysLive(t *testing.T) {
 		t.Run(tc.want, func(t *testing.T) {
 			r := newReviewRun(t, ReviewPassOptions{Runtime: func(o service.ReviewPassOptions) service.ReviewPassOptions {
 				o.Config, o.Advert = ReviewPassOptions{}.config, ReviewPassOptions{}.advert
-				o.ReviewerDefaults = func(_ context.Context, defaults service.ReviewPassSettings) (service.ReviewPassSettings, error) {
+				o.ReviewerDefaults = func(_ context.Context, _ string, defaults service.ReviewPassSettings) (service.ReviewPassSettings, error) {
 					defaults.Agent, defaults.Model, defaults.Tier = "claude-code", "policy-model", ""
 					return defaults, nil
 				}
@@ -150,7 +157,7 @@ func TestReviewerPolicyWorkflowChoicesWinAndSkillOnlyStaysLive(t *testing.T) {
 func TestReviewerPolicyFailureIsVisibleAndStartsNoReviewer(t *testing.T) {
 	r := newReviewRun(t, ReviewPassOptions{Runtime: func(o service.ReviewPassOptions) service.ReviewPassOptions {
 		o.Config, o.Advert = ReviewPassOptions{}.config, ReviewPassOptions{}.advert
-		o.ReviewerDefaults = func(_ context.Context, _ service.ReviewPassSettings) (service.ReviewPassSettings, error) {
+		o.ReviewerDefaults = func(_ context.Context, _ string, _ service.ReviewPassSettings) (service.ReviewPassSettings, error) {
 			return service.ReviewPassSettings{}, fmt.Errorf("profile configuration cannot be read")
 		}
 		return o

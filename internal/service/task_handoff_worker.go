@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cpave3/legato/config"
 	"log"
 	"net/url"
 	"regexp"
@@ -23,7 +24,9 @@ type HandoffAgents interface {
 	SpawnAgent(ctx context.Context, taskID string, width, height int, opts ...AgentSpawnOptions) error
 	RegisteredAdapters() []string
 	DefaultAdapter() string
-	NewWorkDefaults(context.Context) (NewWorkDefaults, error)
+	// NewWorkDefaults are this worker's own defaults for new work in a
+	// repository: its own usage policy, never the main's.
+	NewWorkDefaults(ctx context.Context, repo string) (NewWorkDefaults, error)
 	AdapterFor(kind string) AIToolAdapter
 	GetAgentSession(ctx context.Context, taskID string) (*store.AgentSession, error)
 	// KillAgent stops a card's agent, when a return or recall takes the
@@ -219,7 +222,8 @@ func (s *HandoffWorkerService) Accept(ctx context.Context, main HandoffMain, cal
 		defaults.Agent = "claude-code"
 	}
 	if defaults.Agent == "" {
-		defaults, err = s.opts.Agents.NewWorkDefaults(ctx)
+		repo, _ := config.NormalizeRepository(call.Repo)
+		defaults, err = s.opts.Agents.NewWorkDefaults(ctx, repo)
 		if err != nil {
 			return HandoffAccepted{}, false, err
 		}

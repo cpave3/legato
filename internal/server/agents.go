@@ -257,8 +257,9 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			http.Error(w, "give repo or clone_id, or working_dir, not both", http.StatusBadRequest)
 			return
 		}
+		workingDirDefaulted := false
 		if req.WorkingDir == "" && req.Repo == "" && req.CloneID == 0 {
-			req.WorkingDir = s.workDir
+			req.WorkingDir, workingDirDefaulted = s.workDir, true
 		}
 		// The spawn dialog writes paths under the home directory with a tilde.
 		if s.directories != nil {
@@ -271,18 +272,19 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			return
 		}
 		opts := service.AgentSpawnOptions{
-			AgentKind:   req.AgentKind,
-			Account:     strings.TrimSpace(req.Account),
-			Tier:        strings.TrimSpace(req.Tier),
-			WorkingDir:  req.WorkingDir,
-			Repo:        req.Repo,
-			Ref:         req.Ref,
-			Branch:      strings.TrimSpace(req.Branch),
-			Clone:       req.CloneID,
-			Resources:   resources,
-			Unsandboxed: req.Sandbox != nil && !*req.Sandbox,
-			Prompt:      req.Prompt,
-			Engram:      strings.TrimSpace(req.Engram),
+			AgentKind:           req.AgentKind,
+			Account:             strings.TrimSpace(req.Account),
+			Tier:                strings.TrimSpace(req.Tier),
+			WorkingDir:          req.WorkingDir,
+			WorkingDirDefaulted: workingDirDefaulted,
+			Repo:                req.Repo,
+			Ref:                 req.Ref,
+			Branch:              strings.TrimSpace(req.Branch),
+			Clone:               req.CloneID,
+			Resources:           resources,
+			Unsandboxed:         req.Sandbox != nil && !*req.Sandbox,
+			Prompt:              req.Prompt,
+			Engram:              strings.TrimSpace(req.Engram),
 
 			DockerHostNetwork: req.DockerHostNetwork,
 		}
@@ -648,6 +650,12 @@ type taskAgentService interface {
 	SpawnAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error
 }
 
+// newWorkDefaultsResolver resolves new work's defaults for a task's own
+// repository.
+type newWorkDefaultsResolver interface {
+	NewWorkDefaultsFor(ctx context.Context, taskID string, opt service.AgentSpawnOptions) (service.NewWorkDefaults, error)
+}
+
 // messageQueuer sends a message to a running agent.
 type messageQueuer interface {
 	QueueMessage(ctx context.Context, taskID, message string) error
@@ -781,7 +789,14 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			effectiveAdapter = saved.AgentKind
 			opts.AgentKind = saved.AgentKind
 		} else if effectiveAdapter == "" {
+			// The defaults of the task's own repository, as the spawn will
+			// resolve them, not the global ones.
 			effectiveAdapter = agents.DefaultAdapter()
+			if resolver, ok := agents.(newWorkDefaultsResolver); ok && opts.SessionPolicy != "" {
+				if defaults, err := resolver.NewWorkDefaultsFor(r.Context(), taskID, opts); err == nil && defaults.Agent != "" {
+					effectiveAdapter = defaults.Agent
+				}
+			}
 		}
 		if opts.SessionPolicy != "" && !service.SupportsTaskResume(effectiveAdapter) {
 			http.Error(w, "session_policy requires a resumable adapter", http.StatusBadRequest)
@@ -795,7 +810,7 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			opts.ResumeSessionID, opts.ResumeWorkingDir = saved.ID, saved.CWD
 		}
 		if opts.WorkingDir == "" && opts.Repo == "" && opts.Clone == 0 {
-			opts.WorkingDir = s.workDir
+			opts.WorkingDir, opts.WorkingDirDefaulted = s.workDir, true
 			if opts.SessionPolicy == "resume" && opts.ResumeWorkingDir != "" {
 				opts.WorkingDir = opts.ResumeWorkingDir
 			}

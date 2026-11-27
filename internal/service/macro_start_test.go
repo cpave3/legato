@@ -19,6 +19,10 @@ type macroAgentsSpy struct {
 	queued   []string
 	saved    *TaskResumeSession
 	queueErr error
+	// byTask, when set, are the defaults for new work on one task: its
+	// repository's, as the agent service resolves them.
+	byTask   map[string]NewWorkDefaults
+	askedFor []string
 	// gone are the folders that are not there; every other one is.
 	gone map[string]bool
 }
@@ -37,11 +41,18 @@ func (m *macroAgentsSpy) SpawnAgent(_ context.Context, _ string, _, _ int, opts 
 	m.spawned = append(m.spawned, opts...)
 	return nil
 }
-func (m *macroAgentsSpy) NewWorkDefaults(context.Context) (NewWorkDefaults, error) {
+func (m *macroAgentsSpy) NewWorkDefaults(context.Context, string) (NewWorkDefaults, error) {
 	if m.defaults.Agent != "" {
 		return m.defaults, nil
 	}
 	return NewWorkDefaults{Agent: "claude-code"}, nil
+}
+func (m *macroAgentsSpy) NewWorkDefaultsFor(ctx context.Context, taskID string, _ AgentSpawnOptions) (NewWorkDefaults, error) {
+	m.askedFor = append(m.askedFor, taskID)
+	if d, ok := m.byTask[taskID]; ok {
+		return d, nil
+	}
+	return m.NewWorkDefaults(ctx, "")
 }
 func (m *macroAgentsSpy) GetTaskResumeSession(context.Context, string, string) (*TaskResumeSession, error) {
 	return m.saved, nil
@@ -176,6 +187,29 @@ func TestAMacroCapturesProfileAgentAndTierTogether(t *testing.T) {
 	}
 	if result.AgentKind != "codex" || len(spy.spawned) != 1 || spy.spawned[0].AgentKind != "codex" || spy.spawned[0].Tier != "profile" {
 		t.Fatalf("result=%+v spawn=%+v", result, spy.spawned)
+	}
+}
+
+func TestAMacroTakesTheDefaultsOfItsTasksRepository(t *testing.T) {
+	svc, spy := newMacroStartFixture(t)
+	spy.byTask = map[string]NewWorkDefaults{"local01": {Agent: "claude-code", Account: "work"}}
+	result, err := svc.Start(context.Background(), MacroStart{Name: "plan", TaskID: "local01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(spy.askedFor) != 1 || spy.askedFor[0] != "local01" || result.AgentKind != "claude-code" || len(spy.spawned) != 1 || spy.spawned[0].Account != "work" {
+		t.Fatalf("asked=%q result=%+v spawn=%+v", spy.askedFor, result, spy.spawned)
+	}
+	// A macro's own tool wins: no defaults are read.
+	spy.askedFor, spy.spawned = nil, nil
+	if err := svc.Save(context.Background(), "codex plan", config.Macro{Keys: "Plan.\n", Agent: "codex"}, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Start(context.Background(), MacroStart{Name: "codex plan", TaskID: "local01"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(spy.askedFor) != 0 || spy.spawned[0].AgentKind != "codex" {
+		t.Fatalf("asked=%q spawn=%+v", spy.askedFor, spy.spawned)
 	}
 }
 

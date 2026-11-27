@@ -20,6 +20,9 @@ type taskAgentFake struct {
 	spawnErr         error
 	spawned          string
 	opts             service.AgentSpawnOptions
+	// taskDefaults, when set, is the agent new work on the task gets: its
+	// repository's default, which may differ from defaultAdapter.
+	taskDefaults string
 }
 
 func (f *taskAgentFake) CaptureOutput(context.Context, string) (string, error) {
@@ -50,6 +53,29 @@ func (f *taskAgentFake) GetTaskResumeSession(_ context.Context, _ string, kind s
 	return nil, nil
 }
 func (f *taskAgentFake) DefaultAdapter() string { return f.defaultAdapter }
+func (f *taskAgentFake) NewWorkDefaultsFor(context.Context, string, service.AgentSpawnOptions) (service.NewWorkDefaults, error) {
+	if f.taskDefaults != "" {
+		return service.NewWorkDefaults{Agent: f.taskDefaults}, nil
+	}
+	return service.NewWorkDefaults{Agent: f.defaultAdapter}, nil
+}
+
+// A fresh session is checked against the task's repository default, which
+// is the tool the spawn will start, not the global default.
+func TestTaskAgentSessionPolicyFollowsTheTasksRepositoryDefault(t *testing.T) {
+	agents := &taskAgentFake{defaultAdapter: "shell", taskDefaults: "claude-code"}
+	board := &mockBoardService{cardDetail: &service.CardDetail{ID: "T-1"}}
+	server := New(board, agents, nil, ":0")
+	request := httptest.NewRequest(http.MethodPost, "/api/tasks/T-1/agent", strings.NewReader(`{"session_policy":"new"}`))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK && response.Code != http.StatusCreated {
+		t.Fatalf("status = %d body = %s", response.Code, response.Body.String())
+	}
+	if agents.spawned != "T-1" || !agents.opts.WorkingDirDefaulted {
+		t.Fatalf("spawned %q opts %+v", agents.spawned, agents.opts)
+	}
+}
 
 func TestTaskAgentEndpointCreatesTaskBoundAgent(t *testing.T) {
 	agents := &taskAgentFake{}

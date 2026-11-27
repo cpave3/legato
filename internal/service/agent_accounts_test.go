@@ -150,7 +150,7 @@ func TestClaudeAccountsStayIsolatedAcrossLaunchAndResume(t *testing.T) {
 	if err := db.UpdateAgentSessionStatus(ctx, "work", "dead"); err != nil {
 		t.Fatal(err)
 	}
-	resumer := NewAgentService(db, mt, execution.WorkingDir, AgentServiceOptions{Adapter: hooks.NewClaudeCodeAdapter("legato"), ClaudeAccounts: accounts, NewWorkDefaults: func(context.Context) (NewWorkDefaults, error) {
+	resumer := NewAgentService(db, mt, execution.WorkingDir, AgentServiceOptions{Adapter: hooks.NewClaudeCodeAdapter("legato"), ClaudeAccounts: accounts, NewWorkDefaults: func(context.Context, string) (NewWorkDefaults, error) {
 		t.Fatal("resume followed changed profile")
 		return NewWorkDefaults{Agent: "claude-code", Account: "extra"}, nil
 	}, DisablePeerAwareness: true})

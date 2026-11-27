@@ -15,7 +15,7 @@ func TestReviewPassFreezesItsLocalAccountBeforeRetry(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", root)
 	r := newReviewRun(t, ReviewPassOptions{Runtime: func(o service.ReviewPassOptions) service.ReviewPassOptions {
 		o.Config, o.Advert = ReviewPassOptions{}.config, ReviewPassOptions{}.advert
-		o.ReviewerDefaults = func(_ context.Context, defaults service.ReviewPassSettings) (service.ReviewPassSettings, error) {
+		o.ReviewerDefaults = func(_ context.Context, _ string, defaults service.ReviewPassSettings) (service.ReviewPassSettings, error) {
 			defaults.Agent, defaults.Account = "claude-code", "default"
 			return defaults, nil
 		}

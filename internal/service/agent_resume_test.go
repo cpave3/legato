@@ -56,7 +56,7 @@ func TestSpawnAgentResumesNativeConversationWithoutFreshKickoff(t *testing.T) {
 				codex.SetNativeBridge(true)
 				adapter, want, storageKey = codex, "legato agent codex -- resume saved-conversation", "CODEX_HOME"
 			}
-			svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{Adapter: hooks.NewChimeraAdapter("legato"), Adapters: map[string]AIToolAdapter{kind: adapter}, NewWorkDefaults: func(context.Context) (NewWorkDefaults, error) {
+			svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{Adapter: hooks.NewChimeraAdapter("legato"), Adapters: map[string]AIToolAdapter{kind: adapter}, NewWorkDefaults: func(context.Context, string) (NewWorkDefaults, error) {
 				t.Fatal("resume consulted new-work defaults")
 				return NewWorkDefaults{}, nil
 			}, DisablePeerAwareness: true, BriefKickoffDelay: time.Millisecond})
@@ -226,7 +226,7 @@ func TestSpawnAgentResumeUsesNewestConversationInItsOwnSlot(t *testing.T) {
 	}
 	mt := newMockTmux()
 	claude := hooks.NewClaudeCodeAdapter("legato")
-	svc := NewAgentService(db, mt, cwd, AgentServiceOptions{Adapter: claude, Adapters: map[string]AIToolAdapter{"claude-code": claude, "codex": hooks.NewCodexAdapter("legato"), "chimera": hooks.NewChimeraAdapter("legato")}, NewWorkDefaults: func(context.Context) (NewWorkDefaults, error) {
+	svc := NewAgentService(db, mt, cwd, AgentServiceOptions{Adapter: claude, Adapters: map[string]AIToolAdapter{"claude-code": claude, "codex": hooks.NewCodexAdapter("legato"), "chimera": hooks.NewChimeraAdapter("legato")}, NewWorkDefaults: func(context.Context, string) (NewWorkDefaults, error) {
 		return NewWorkDefaults{}, errors.New("resume must not read profile")
 	}, DisablePeerAwareness: true})
 	for _, tc := range []struct{ slot, kind string }{{"main", "codex"}, {"reviewer", "chimera"}} {

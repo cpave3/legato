@@ -415,7 +415,7 @@ func TestTaskAgentFreshLaunchRetainsOmittedAgentForProfile(t *testing.T) {
 			codex := hooks.NewCodexAdapter("legato")
 			codex.SetTiers(map[string][]string{"profile": {"--model", "profile-model"}})
 			mt := &resumeLaunchTmux{}
-			agents := service.NewAgentService(db, mt, t.TempDir(), service.AgentServiceOptions{Adapter: claude, Adapters: map[string]service.AIToolAdapter{"claude-code": claude, "codex": codex}, DisablePeerAwareness: true, NewWorkDefaults: func(context.Context) (service.NewWorkDefaults, error) {
+			agents := service.NewAgentService(db, mt, t.TempDir(), service.AgentServiceOptions{Adapter: claude, Adapters: map[string]service.AIToolAdapter{"claude-code": claude, "codex": codex}, DisablePeerAwareness: true, NewWorkDefaults: func(context.Context, string) (service.NewWorkDefaults, error) {
 				return service.NewWorkDefaults{Agent: "codex", Tier: "profile"}, nil
 			}})
 			server := New(&mockBoardService{cardDetail: &service.CardDetail{ID: "task-resume"}}, agents, nil, ":0")

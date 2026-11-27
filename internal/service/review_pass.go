@@ -181,7 +181,8 @@ type ReviewAgents interface {
 type ReviewPassOptions struct {
 	// ReviewerDefaults resolves live policy at the start of a new pass.
 	// A retry uses the pass's persisted settings instead.
-	ReviewerDefaults func(context.Context, ReviewPassSettings) (ReviewPassSettings, error)
+	// repo is the loop's repository (host/owner/name; "" when unknown).
+	ReviewerDefaults func(ctx context.Context, repo string, defaults ReviewPassSettings) (ReviewPassSettings, error)
 	Config           func() ReviewPassConfig
 	Agents           ReviewAgents
 	GitHub           ReviewGitHub
@@ -652,7 +653,7 @@ func (s *ReviewPassService) startQueued(ctx context.Context) {
 func (s *ReviewPassService) startPass(ctx context.Context, l ReviewLoop, loop *store.HandoffReview, dir string, prs []ReviewGitHubPR) error {
 	cfg := s.config()
 	pass := loop.Pass + 1
-	settings, err := s.newPassSettings(ctx, loop, pass)
+	settings, err := s.newPassSettings(ctx, loop, pass, l.Repo)
 	if err != nil {
 		return s.stuck(ctx, l, loop, "Legato could not choose the reviewer: "+err.Error())
 	}
