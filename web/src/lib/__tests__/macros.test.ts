@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { fetchMacros, macrosFor, pickerMacros, prIsMine, splitFavorites, startMacro, suggestedFirst, type Macro } from "../macros"
+import { fetchMacros, macrosFor, pickerMacros, prIsMine, splitFavorites, saveMacro, startMacro, suggestedFirst, type Macro } from "../macros"
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -115,5 +115,17 @@ describe("macrosFor several targets", () => {
   it("keeps the macros for any of them", () => {
     const list: Macro[] = [{ name: "A", keys: "a", applies_to: "task" }, { name: "B", keys: "b", applies_to: "pr" }, { name: "C", keys: "c" }]
     expect(macrosFor(list, ["task", "pr"]).map(m => m.name)).toEqual(["A", "B", "C"])
+  })
+})
+
+describe("saveMacro", () => {
+  it("sends the selected subscription in the replacement HTTP body", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", fetch)
+    const fields = { message: "Build", agent: "claude-code", account: "work" }
+    await saveMacro("", "Work macro", fields)
+    expect(fetch.mock.calls[0][0]).toBe("/api/macros/Work%20macro")
+    expect(fetch.mock.calls[0][1].method).toBe("PUT")
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(fields)
   })
 })

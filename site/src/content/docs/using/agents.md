@@ -30,6 +30,8 @@ launch and logs the failure instead of sending the command to another program.
 
 `tab` and `shift+tab` move between the fields, and `enter` spawns from any of them. A line above the keys says what `enter` will do, such as `→ chimera in ~/Development/autopilot · for f41p6uf0`.
 
+With named Claude accounts configured, selecting Claude adds an **account** row. Use `tab` to reach it and `h`/`l` or the arrow keys to choose an account by its display name. The default-agent choice follows the usage profile for new work; explicit Claude without an account uses the default login. Resuming a conversation keeps its saved account and refuses a conflicting selection.
+
 Without tmux, Legato still starts, with agents off: the TUI says `tmux not found: agents are off` in its status bar, `a` and every other way of starting an agent show that reason with the fix, and `legato serve` logs it and keeps serving the board. Install tmux and restart Legato.
 
 Before it starts the agent, Legato checks that the agent tool is installed and runs, as [`legato doctor`](/legato/reference/cli/#running-legato) does. When it is missing or broken, the spawn is refused with the reason and the fix, in the status bar or the web spawn dialog, rather than leaving `command not found` in a terminal. The check reuses a result from the last few minutes and never holds a spawn for more than a fraction of a second.
@@ -72,6 +74,10 @@ The web UI's dialog asks the same questions and adds these:
 ## Agents with no task
 
 An ephemeral agent belongs to no card. Press `s` in the agents view, or **+ Spawn agent** in the web UI, and give it a title. Without one it is called "Ephemeral session".
+
+## Account names
+
+For a named Claude account, the web sidebar shows the account label you configured instead of **Claude Code**. If you left the label blank, it shows the account name. Right-click the agent and choose **Agent info** to see its **Account** and **Agent tool** separately. The unnamed default account keeps the **Claude Code** label.
 
 ## The Reeve in the list
 
@@ -279,6 +285,8 @@ Each macro has:
 | **Offer it on** | Optional | Which menus list it. Tasks: a card's menu and the spawn dialog. Pull requests: a card's menu, under each pull request, and the button of a pull request that needs you. **Resume agent…** on a pull request waiting to merge lists both. The Agents page and the TUI picker list every macro. | Tasks and pull requests |
 | **Agent to start** | Optional | The agent (Claude Code, Codex or Chimera) started when the task has no agent running. Ignored when one is running. | Your default agent |
 | **Model tier** | Optional | One of that agent's [tiers](/legato/reference/configuration/#adapters), usually choosing its model. Used only when the macro starts the agent. Offered only for an agent that has tiers. | None |
+
+Set `account` on a macro in `config.yaml` to choose a local Claude account for fresh starts. Without `agent`, this selects Claude Code. A resumed conversation keeps its original account, even if you change the macro. A macro sent to an agent already running does not change its account.
 
 In `config.yaml`, the same fields are `name`, `message` (or `keys`, its older name), `applies_to` (`task` or `pr`), `agent` and `tier`, plus `favorite` for the star:
 

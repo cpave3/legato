@@ -298,6 +298,8 @@ Snapshot hydration keeps the latest exchange after retained historical tools. Id
 
 **An agent's engram**: an agent started as an engram (`engram` in `/api/agents`) shows it beside its tool, `Claude Code · hestia` (`agentToolLabel` in `web/src/lib/agentKind.ts`, `AgentKindBadge`'s `engram`): in the sidebar, the agent page's header (native and terminal) and an ensemble tile's meta line. No engram shows nothing. See [Engram sessions](engram.md).
 
+**Named Claude accounts**: `/api/agents` carries `account` and its configured `account_label`, without the local authentication directory. The sidebar's `AgentKindBadge` shows that label instead of **Claude Code** (the account name when no label is set); its tooltip still names the agent tool. **Agent info**, opened from the context menu, shows the same label in **Account**, separately from **Agent tool**. The unnamed default keeps its existing tool label.
+
 **Ensemble**: `/agents?view=ensemble` shows every running agent at once, in place of the agent list and the one agent in view (`AgentEnsemble`). It is the web counterpart of the TUI's ensemble (see [TUI](tui.md) § Ensemble).
 
 - **Getting there.** The grid button in the agent list's header, the same button beside the agent picker on a phone, or `e` (ignored while typing, with a modifier held, or with a dialog open). **List**, or `e` again, goes back. The view is part of the address, so Back returns to it after an agent was opened from it.

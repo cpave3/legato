@@ -23,8 +23,16 @@ func bwrapFixture(t *testing.T) (in SandboxPlanInput) {
 		t.Skipf("bwrap cannot run here: %v", err)
 	}
 	base, err := os.MkdirTemp("/var/tmp", "lgsbx")
+	if os.IsNotExist(err) {
+		// Minimal hosts may have no /var/tmp. A job-clone folder also
+		// stays outside the /tmp that bwrap replaces.
+		cwd, cwdErr := os.Getwd()
+		if cwdErr == nil && !within(cwd, "/tmp") {
+			base, err = os.MkdirTemp(cwd, ".lgsbx-")
+		}
+	}
 	if err != nil {
-		t.Skip("no /var/tmp")
+		t.Skipf("no scratch directory outside /tmp: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(base) })
 	home := filepath.Join(base, "home")

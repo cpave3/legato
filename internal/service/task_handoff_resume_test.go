@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/hooks"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -12,12 +15,16 @@ import (
 // resumeAgents records what a handoff's resume asks of the agent service.
 type resumeAgents struct {
 	HandoffAgents
+	running *store.AgentSession
 	saved   *TaskResumeSession
 	spawned []AgentSpawnOptions
 }
 
 func (r *resumeAgents) ReconcileSessions(context.Context) error { return nil }
 func (r *resumeAgents) GetAgentSession(context.Context, string) (*store.AgentSession, error) {
+	if r.running != nil {
+		return r.running, nil
+	}
 	return nil, store.ErrNotFound
 }
 func (r *resumeAgents) GetTaskResumeSession(_ context.Context, _, kind string) (*TaskResumeSession, error) {
@@ -185,5 +192,126 @@ func TestHandoffCapturesNewWorkAgentAndTierAtAcceptance(t *testing.T) {
 				t.Fatalf("launch = %+v", agents.spawned)
 			}
 		})
+	}
+}
+
+func (a *capturedHandoffAgents) resolveClaudeAccount(_ context.Context, opts AgentSpawnOptions, kind string) (*store.AgentAccountIdentity, error) {
+	if kind != "claude-code" {
+		return nil, nil
+	}
+	return &store.AgentAccountIdentity{Provider: "claude", Account: opts.Account, ConfigDir: "/accounts/" + opts.Account, ResolvedDir: "/accounts/" + opts.Account}, nil
+}
+
+func TestHandoffAccountIsCapturedBeforePendingStart(t *testing.T) {
+	for _, selected := range []string{"personal", ""} {
+		t.Run("account="+selected, func(t *testing.T) {
+			ctx := context.Background()
+			db, err := store.New(filepath.Join(t.TempDir(), "handoff.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			if err := db.CreateColumnMapping(ctx, store.ColumnMapping{ColumnName: "Doing"}); err != nil {
+				t.Fatal(err)
+			}
+			claude := hooks.NewClaudeCodeAdapter("legato")
+			agents := &capturedHandoffAgents{AgentService: NewAgentService(db, newMockTmux(), t.TempDir(), AgentServiceOptions{Adapter: claude}), defaults: NewWorkDefaults{Agent: "claude-code", Account: "work"}}
+			var pending func()
+			options := HandoffWorkerOptions{Agents: agents, Repositories: captureHandoffRepos{}, Sandbox: func() bool { return true }, Run: func(f func()) { pending = f }}
+			svc := NewHandoffWorkerService(db, options)
+			call := HandoffCall{HandoffID: "h-account", MainTaskID: "T1", Title: "Work", Purpose: HandoffMakeChange, Kind: HandoffNewBranch, Repo: "acme/widget", Branch: "legato/T1", Account: selected}
+			if _, _, err := svc.Accept(ctx, HandoffMain{InstanceID: "main"}, call); err != nil {
+				t.Fatal(err)
+			}
+			cards, err := db.ListTasksByStatus(ctx, "Doing")
+			if err != nil || len(cards) != 1 {
+				t.Fatalf("accepted card: %+v %v", cards, err)
+			}
+			if cards[0].Metadata != nil && strings.Contains(*cards[0].Metadata, "/accounts/") {
+				t.Fatal("private local account identity leaked into public task metadata")
+			}
+			agents.defaults.Account = "changed"
+			// A new service must recover the accepted choice, not the current profile.
+			svc = NewHandoffWorkerService(db, options)
+			svc.ResumePending(ctx)
+			pending()
+			if len(agents.spawned) != 1 {
+				t.Fatalf("spawns = %+v", agents.spawned)
+			}
+			got := agents.spawned[0]
+			want := selected
+			if want == "" {
+				want = "work"
+			}
+			if got.Account != want || got.AccountIdentity == nil || got.AccountIdentity.ConfigDir != "/accounts/"+want {
+				t.Fatalf("spawn = %+v", got)
+			}
+		})
+	}
+}
+
+func TestHandoffResumePassesSavedIdentity(t *testing.T) {
+	db, ctx := handoffCardFixture(t)
+	identity := &store.AgentAccountIdentity{Provider: "claude", Account: "work", ConfigDir: "/account/work", ResolvedDir: "/account/work"}
+	agents := &resumeAgents{saved: &TaskResumeSession{AgentKind: "claude-code", ID: "s1", AccountIdentity: identity}}
+	svc := NewHandoffWorkerService(db, HandoffWorkerOptions{Agents: agents})
+	if err := svc.ResumeAuthor(ctx, "card-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := agents.spawned[0]; got.Account != "work" || got.AccountIdentity != identity {
+		t.Fatalf("spawn = %+v", got)
+	}
+}
+
+func TestHandoffRefusesAnAccountAbsentOnTheWorkerBeforeMakingACard(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.New(filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	claude := hooks.NewClaudeCodeAdapter("legato")
+	agents := NewAgentService(db, newMockTmux(), t.TempDir(), AgentServiceOptions{Adapter: claude})
+	svc := NewHandoffWorkerService(db, HandoffWorkerOptions{Agents: agents, Sandbox: func() bool { return true }})
+	call := HandoffCall{HandoffID: "h-missing", MainTaskID: "T1", Title: "Work", Purpose: HandoffMakeChange, Kind: HandoffNewBranch, Repo: "acme/widget", Branch: "legato/T1", AgentKind: "claude-code", Account: "not-local"}
+	_, _, err = svc.Accept(ctx, HandoffMain{InstanceID: "main"}, call)
+	if err == nil || !strings.Contains(err.Error(), "not configured on this instance") {
+		t.Fatalf("accept = %v", err)
+	}
+	if _, err := db.GetHandoff(ctx, "main", call.HandoffID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("made a handoff: %v", err)
+	}
+}
+
+func TestHandoffWireAccountRejectsHostPaths(t *testing.T) {
+	call := HandoffCall{HandoffID: "h-path", MainTaskID: "T1", Title: "Work", Purpose: HandoffMakeChange, Kind: HandoffNewBranch, Repo: "acme/widget", Branch: "legato/T1", AgentKind: "claude-code", Account: "/home/user/.claude"}
+	db, ctx := handoffCardFixture(t)
+	svc := NewHandoffWorkerService(db, HandoffWorkerOptions{})
+	if _, _, err := svc.Accept(ctx, HandoffMain{InstanceID: "main"}, call); err == nil || !strings.Contains(err.Error(), "logical account name") {
+		t.Fatalf("host path on wire: %v", err)
+	}
+}
+
+func TestHandoffRestartSnapshotsRunningAccountBeforeStop(t *testing.T) {
+	db, ctx := handoffCardFixture(t)
+	id, err := db.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: "card-1", TmuxSession: "author", AgentKind: "claude-code", Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateExecution(ctx, store.Execution{ID: "ex-account", Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, ExecutionTaskID: "card-1", AgentSessionID: &id, StartedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	identity := store.AgentAccountIdentity{Provider: "claude", Account: "work", ConfigDir: "/original", ResolvedDir: "/original"}
+	if err := db.PutExecutionAccount(ctx, "ex-account", identity); err != nil {
+		t.Fatal(err)
+	}
+	agents := &resumeAgents{running: &store.AgentSession{ExecutionID: "ex-account"}, saved: &TaskResumeSession{AgentKind: "claude-code", ID: "s1"}}
+	svc := NewHandoffWorkerService(db, HandoffWorkerOptions{Agents: agents})
+	stopped := false
+	if err := svc.RestartHandedOff(ctx, "card-1", HandedOffRestart{Stop: func(context.Context) error { stopped = true; agents.running = nil; return nil }}); err != nil {
+		t.Fatal(err)
+	}
+	if got := agents.spawned[0]; !stopped || got.AccountIdentity == nil || *got.AccountIdentity != identity || got.Account != "work" {
+		t.Fatalf("stopped=%v spawn=%+v", stopped, got)
 	}
 }

@@ -18,7 +18,7 @@ The quickest way is the Reeve entry pinned at the top of the Agents list: pick i
 **Ask the Reeve** starts it about something specific: it is on each item in Attention, on the note the board keeps when a provider sync fails, and beside an agent that needs you. The session starts with a brief of what it is, its IDs and its error. If a session is already there, Legato asks whether to **Add to the current conversation** or **End it and start fresh**.
 
 
-Settings › **Reeve** has **Start the Reeve**. A session runs with the agent tool, model and launch arguments set there (`reeve.agent`, `reeve.model`, `reeve.launch_args`); you can pick another tool or model for one session before starting it. One session runs at a time.
+Settings › **Reeve** has **Start the Reeve**. A session runs with the agent tool, model and launch arguments set there (`reeve.agent`, `reeve.model`, `reeve.launch_args`); you can pick another tool or model for one session before starting it. Set `reeve.account` to a local Claude account for new sessions. Resuming a session keeps its original account, even after you change the default. One session runs at a time.
 
 **End session** stops it, and so does killing its agent from the Agents list or the TUI's agents view. Ended sessions are kept in the history, where **Resume** starts one again with its conversation, and **Delete** removes it.
 

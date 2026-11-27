@@ -72,7 +72,7 @@ func runMacroRunContract(args []string) int {
 		return renderCommandError(command, &commandError{Code: "dependency_unavailable", Message: err.Error(), Exit: exitDependency}, jsonMode)
 	}
 	macros.SetAgents(agents)
-	result, err := macros.Start(ctx, service.MacroStart{Name: name, TaskID: taskID, PR: pr})
+	result, err := macros.Start(ctx, service.MacroStart{Name: name, TaskID: taskID, PR: pr, Account: strings.TrimSpace(parsed.Values["account"])})
 	if err != nil {
 		return renderCommandError(command, macroCommandError(err), jsonMode)
 	}

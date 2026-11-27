@@ -20,7 +20,11 @@ func (f restartFixture) reportAs(t *testing.T, taskID, cwd, conversation string)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.store.RecordTaskNativeSession(ctx, taskID, session.ID, session.ExecutionID, "claude-code", conversation, cwd, ""); err != nil {
+	identity, err := f.store.ExecutionAccount(ctx, session.ExecutionID)
+	if err != nil || identity == nil {
+		t.Fatalf("missing launch identity: %v", err)
+	}
+	if _, err := f.store.RecordTaskNativeSession(ctx, taskID, session.ID, session.ExecutionID, "claude-code", conversation, cwd, identity.ConfigDir); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -89,7 +93,7 @@ func TestRestoringAnOlderConversationResumesItAndSaysItWasRestored(t *testing.T)
 		t.Fatal(err)
 	}
 	lines := f.linesEventually(t, "task-1", 2)
-	if len(lines) < 2 || !strings.HasPrefix(lines[0], "claude --resume conv-old") {
+	if len(lines) < 2 || !strings.HasPrefix(lines[0], "env -u CLAUDE_CONFIG_DIR claude --resume conv-old") {
 		t.Fatalf("lines = %q, want the older conversation resumed", lines)
 	}
 	if !strings.HasPrefix(lines[1], "[legato restored] This conversation was restored from Legato's session history. It last ran ") ||
@@ -180,7 +184,7 @@ func TestRestoringTheInterruptedAgentsConversationResumesIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := f.linesEventually(t, "task-i", 2)
-	if len(lines) < 2 || !strings.HasPrefix(lines[0], "claude --resume conversation-1") || !strings.HasPrefix(lines[1], "[legato interrupted] ") {
+	if len(lines) < 2 || !strings.HasPrefix(lines[0], "env -u CLAUDE_CONFIG_DIR claude --resume conversation-1") || !strings.HasPrefix(lines[1], "[legato interrupted] ") {
 		t.Fatalf("lines = %q, want the interrupted agent resumed with its note", lines)
 	}
 	if list, _ := f.interrupted().ListInterruptedAgents(ctx); len(list) != 0 {
@@ -207,7 +211,7 @@ func TestRestoringAnotherConversationDismissesTheInterruptedAgent(t *testing.T) 
 	if err := restoreErr(f.history(), ctx, f.conversationID(t, "task-i", "conv-old"), RestoreIntoTask); err != nil {
 		t.Fatal(err)
 	}
-	if lines := f.linesEventually(t, "task-i", 2); len(lines) < 2 || !strings.HasPrefix(lines[0], "claude --resume conv-old") || !strings.HasPrefix(lines[1], "[legato restored] ") {
+	if lines := f.linesEventually(t, "task-i", 2); len(lines) < 2 || !strings.HasPrefix(lines[0], "env -u CLAUDE_CONFIG_DIR claude --resume conv-old") || !strings.HasPrefix(lines[1], "[legato restored] ") {
 		t.Fatalf("lines = %q, want conv-old restored", lines)
 	}
 	if runs, _ := f.store.ListConversationRuns(ctx, f.conversationID(t, "task-i", "conv-new")); len(runs) != 1 || runs[0].EndReason == nil || *runs[0].EndReason != store.RunDismissed {

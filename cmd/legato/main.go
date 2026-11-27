@@ -969,8 +969,8 @@ func runServeCmd(args []string) int {
 			Sandbox:        sandboxSettings(cfg),
 			SandboxScratch: sandboxScratch(cfg),
 			Adapter:        defaultAdapter, Adapters: adapters,
-			NewWorkDefaults: usageNewWorkDefaults(db),
-			Notifier:        notifier, OSNotifier: osNotifier,
+			ClaudeAccounts: cfg.ClaudeAccounts, AccountDataDir: config.ResolveDataDir(cfg), ClaudeManagedSettingsDir: claudeManagedSettingsDir(), NewWorkDefaults: usageNewWorkDefaults(db),
+			Notifier: notifier, OSNotifier: osNotifier,
 			// Agents starting and ending reach the swarm, attention and
 			// workflow loops of this process, as they do in the TUI's.
 			EventBus:               service.AgentDiedPublisher{Bus: bus},
@@ -1010,8 +1010,8 @@ func runServeCmd(args []string) int {
 			MaxSubtasksPerPlan:  cfg.Swarm.MaxSubtasksPerPlan,
 			MaxStepsPerPlan:     cfg.Swarm.MaxStepsPerPlan,
 			StrictScope:         cfg.Swarm.StrictScope,
-			Conductor:           service.SwarmParticipantConfig{Agent: cfg.Swarm.Conductor.Agent, Model: cfg.Swarm.Conductor.Model},
-			Worker:              service.SwarmParticipantConfig{Agent: cfg.Swarm.Worker.Agent, Model: cfg.Swarm.Worker.Model},
+			Conductor:           service.SwarmParticipantConfig{Agent: cfg.Swarm.Conductor.Agent, Model: cfg.Swarm.Conductor.Model, Account: cfg.Swarm.Conductor.Account},
+			Worker:              service.SwarmParticipantConfig{Agent: cfg.Swarm.Worker.Agent, Model: cfg.Swarm.Worker.Model, Account: cfg.Swarm.Worker.Account},
 			TierCatalog:         tierCatalog(cfg.Adapters),
 			ValidateOptions:     buildValidateOptions(cfg),
 		}
@@ -1377,6 +1377,7 @@ func runTUI() int {
 			osNotifier = service.NewOSNotifier()
 		}
 		agentSvc = service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
+			ClaudeAccounts: cfg.ClaudeAccounts, AccountDataDir: config.ResolveDataDir(cfg), ClaudeManagedSettingsDir: claudeManagedSettingsDir(),
 			ToolCheck:         processDoctor().SpawnCheck,
 			Sandbox:           sandboxSettings(cfg),
 			SandboxScratch:    sandboxScratch(cfg),
@@ -1431,8 +1432,8 @@ func runTUI() int {
 		MaxSubtasksPerPlan:  cfg.Swarm.MaxSubtasksPerPlan,
 		MaxStepsPerPlan:     cfg.Swarm.MaxStepsPerPlan,
 		StrictScope:         cfg.Swarm.StrictScope,
-		Conductor:           service.SwarmParticipantConfig{Agent: cfg.Swarm.Conductor.Agent, Model: cfg.Swarm.Conductor.Model},
-		Worker:              service.SwarmParticipantConfig{Agent: cfg.Swarm.Worker.Agent, Model: cfg.Swarm.Worker.Model},
+		Conductor:           service.SwarmParticipantConfig{Agent: cfg.Swarm.Conductor.Agent, Model: cfg.Swarm.Conductor.Model, Account: cfg.Swarm.Conductor.Account},
+		Worker:              service.SwarmParticipantConfig{Agent: cfg.Swarm.Worker.Agent, Model: cfg.Swarm.Worker.Model, Account: cfg.Swarm.Worker.Account},
 		TierCatalog:         tierCatalog(cfg.Adapters),
 		ValidateOptions:     buildValidateOptions(cfg),
 	}
@@ -1646,6 +1647,7 @@ func runTUI() int {
 	workspaces, _ := boardSvc.ListWorkspaces(context.Background())
 
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros, reviewSvc)
+	app.SetClaudeAccounts(cfg.ClaudeAccounts)
 	app.SetAgentsOff(agentsOff)
 	app.SetStarterTask(starterTask)
 	app.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
@@ -2107,6 +2109,7 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 	}
 	defaultAdapter, adapters := configuredAdapters(cfg, legatoBin)
 	agents := service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
+		ClaudeAccounts: cfg.ClaudeAccounts, AccountDataDir: config.ResolveDataDir(cfg), ClaudeManagedSettingsDir: claudeManagedSettingsDir(),
 		ToolCheck:              processDoctor().SpawnCheck,
 		Sandbox:                sandboxSettings(cfg),
 		SandboxScratch:         sandboxScratch(cfg),
@@ -2134,8 +2137,8 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		MaxSubtasksPerPlan:  cfg.Swarm.MaxSubtasksPerPlan,
 		MaxStepsPerPlan:     cfg.Swarm.MaxStepsPerPlan,
 		StrictScope:         cfg.Swarm.StrictScope,
-		Conductor:           service.SwarmParticipantConfig{Agent: cfg.Swarm.Conductor.Agent, Model: cfg.Swarm.Conductor.Model},
-		Worker:              service.SwarmParticipantConfig{Agent: cfg.Swarm.Worker.Agent, Model: cfg.Swarm.Worker.Model},
+		Conductor:           service.SwarmParticipantConfig{Agent: cfg.Swarm.Conductor.Agent, Model: cfg.Swarm.Conductor.Model, Account: cfg.Swarm.Conductor.Account},
+		Worker:              service.SwarmParticipantConfig{Agent: cfg.Swarm.Worker.Agent, Model: cfg.Swarm.Worker.Model, Account: cfg.Swarm.Worker.Account},
 		TierCatalog:         tierCatalog(cfg.Adapters),
 		ValidateOptions:     buildValidateOptions(cfg),
 	}

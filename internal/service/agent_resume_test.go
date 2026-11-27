@@ -16,6 +16,9 @@ import (
 
 func savedNativeConversation(t *testing.T, s *store.Store, taskID, kind, cwd, storageDir string) {
 	t.Helper()
+	if kind == "claude-code" {
+		t.Setenv("CLAUDE_CONFIG_DIR", storageDir)
+	}
 	ctx := context.Background()
 	id, err := s.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: taskID, AgentKind: kind, ExecutionID: "ex-old", TmuxSession: "old", Status: "running"})
 	if err != nil {
@@ -62,6 +65,9 @@ func TestSpawnAgentResumesNativeConversationWithoutFreshKickoff(t *testing.T) {
 				t.Fatal(err)
 			}
 			lines := mt.sentLinesFor("legato-task-resume")
+			if kind == "claude-code" {
+				want = "env CLAUDE_CONFIG_DIR=" + shellWord(storageDir) + " " + want
+			}
 			if len(lines) != 1 || !strings.HasPrefix(lines[0], want) {
 				t.Fatalf("launch lines = %q, want %s", lines, want)
 			}

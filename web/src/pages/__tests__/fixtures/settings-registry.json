@@ -5,6 +5,7 @@
     "resources",
     "agents.guidance",
     "board.columns",
+    "claude_accounts",
     "usage.profiles",
     "usage.rules",
     "workspaces",
@@ -31,6 +32,13 @@
     "agents.repository_resources"
   ],
   "lists": [
+    {
+      "key": "claude_accounts",
+      "title": "Claude accounts",
+      "class": "risky",
+      "mode": "restart",
+      "name_field": "name"
+    },
     {
       "key": "usage.profiles",
       "title": "Usage profiles",
@@ -1034,6 +1042,17 @@
       "mode": "restart"
     },
     {
+      "key": "swarm.conductor.account",
+      "title": "Conductor's Claude account",
+      "section": "swarms",
+      "group": "Conductor and workers",
+      "help": "Local Claude account for a new conductor. Promotion keeps its running account.",
+      "description": "Local Claude account for a new conductor. Promotion keeps its running account.",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
       "key": "swarm.conductor.model",
       "title": "Conductor's model",
       "section": "swarms",
@@ -1053,6 +1072,17 @@
       "help": "The agent tool a worker runs when its part names none. Also the default agent while that is unset.",
       "description": "The agent tool a worker runs when its part names none. Also the default agent while that is unset.",
       "default_label": "claude-code",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "swarm.worker.account",
+      "title": "Workers' Claude account",
+      "section": "swarms",
+      "group": "Conductor and workers",
+      "help": "Local Claude account for workers using the configured tool. A different tool does not inherit it.",
+      "description": "Local Claude account for workers using the configured tool. A different tool does not inherit it.",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -1778,6 +1808,17 @@
       "mode": "restart"
     },
     {
+      "key": "review_passes.reviewer.account",
+      "title": "Reviewer's Claude account",
+      "section": "review-passes",
+      "group": "Reviewer",
+      "help": "A local Claude account name, or default. Requires Claude Code; each pass keeps its selection for retries.",
+      "description": "A local Claude account name, or default. Requires Claude Code; each pass keeps its selection for retries.",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
       "key": "review_passes.reviewer.model",
       "title": "Reviewer's model",
       "section": "review-passes",
@@ -1941,6 +1982,17 @@
       "help": "The agent tool a Reeve session runs.",
       "description": "The agent tool a Reeve session runs.",
       "default_label": "Same as the default agent",
+      "kind": "string",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.account",
+      "title": "Claude account",
+      "section": "reeve",
+      "group": "Session",
+      "help": "Local Claude account for a new Reeve session. Resuming keeps its original account.",
+      "description": "Local Claude account for a new Reeve session. Resuming keeps its original account.",
       "kind": "string",
       "class": "change",
       "mode": "live"

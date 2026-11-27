@@ -288,17 +288,25 @@ func (s *Store) RecordConversationText(ctx context.Context, executionID, first, 
 }
 
 // FindTaskConversation returns the task slot's conversation of a tool by
-// its provider session ID, the most recently seen when several storage
-// folders hold one; nil, nil when there is none.
-func (s *Store) FindTaskConversation(ctx context.Context, taskID, slot, agentKind, providerSessionID string) (*AgentConversation, error) {
+// its provider session ID; nil, nil when there is none. Multiple storage
+// roots holding the same ID are ambiguous and return ErrConflict.
+func (s *Store) FindTaskConversation(ctx context.Context, taskID, slot, agentKind, providerSessionID string, storageDir *string) (*AgentConversation, error) {
 	var found []AgentConversation
-	if err := s.db.SelectContext(ctx, &found, `SELECT * FROM agent_conversations
-		WHERE task_id = ? AND slot = ? AND agent_kind = ? AND provider_session_id = ?
-		ORDER BY last_seen_at DESC, id DESC LIMIT 1`, taskID, slotOrMain(slot), agentKind, providerSessionID); err != nil {
+	query := `SELECT * FROM agent_conversations WHERE task_id = ? AND slot = ? AND agent_kind = ? AND provider_session_id = ?`
+	args := []any{taskID, slotOrMain(slot), agentKind, providerSessionID}
+	if storageDir != nil {
+		query += ` AND storage_dir = ?`
+		args = append(args, *storageDir)
+	}
+	query += ` ORDER BY last_seen_at DESC, id DESC LIMIT 2`
+	if err := s.db.SelectContext(ctx, &found, query, args...); err != nil {
 		return nil, err
 	}
 	if len(found) == 0 {
 		return nil, nil
+	}
+	if len(found) > 1 {
+		return nil, fmt.Errorf("%w: ambiguous %s conversation %q exists in multiple storage roots", ErrConflict, agentKind, providerSessionID)
 	}
 	return &found[0], nil
 }

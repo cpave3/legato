@@ -120,3 +120,30 @@ review_passes:
 		t.Fatalf("review passes with the MCP tools off: %v", err)
 	}
 }
+
+func TestReviewerAccountConfigurationLoadsAndRejectsInvalidSelections(t *testing.T) {
+	for _, tc := range []struct {
+		agent, account string
+		valid          bool
+	}{
+		{"claude-code", "work", true}, {"claude-code", "default", true},
+		{"codex", "work", false}, {"claude-code", "missing", false},
+	} {
+		t.Run(tc.agent+"/"+tc.account, func(t *testing.T) {
+			body := reviewPassesBase + "claude_accounts: [{name: work, config_dir: /tmp/legato-review-account-fixture}]\nreview_passes:\n  enabled: true\n  github_credential: reviewer-app\n  reviewer: {agent: " + tc.agent + ", account: " + tc.account + "}\n"
+			cfg, err := LoadBytes([]byte(body))
+			if !tc.valid {
+				if err == nil {
+					t.Fatal("invalid reviewer account accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.ReviewPasses.Reviewer.Account != tc.account {
+				t.Fatalf("reviewer=%+v", cfg.ReviewPasses.Reviewer)
+			}
+		})
+	}
+}

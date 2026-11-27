@@ -41,6 +41,7 @@ type TaskHandoffRequest struct {
 	Branch    string
 	Repo      string
 	AgentKind string
+	Account   string
 	// Review overrides the worker's review passes; nil keeps its defaults.
 	Review *ReviewPassOverride
 }
@@ -206,6 +207,9 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	if req.Kind == "" {
 		req.Kind = HandoffNewBranch
 	}
+	if req.Account != "" && (len(req.Account) > maxHandoffField || !handoffAccountName.MatchString(req.Account)) {
+		return AwayTask{}, fmt.Errorf("%w: account must be a logical account name, not a path", ErrHandoffInput)
+	}
 	req.Repo = strings.TrimSpace(req.Repo)
 	req.Branch = strings.TrimSpace(req.Branch)
 	switch {
@@ -305,6 +309,7 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 		{HandoffFeaturePushedBranch, req.Kind == HandoffPushedBranch},
 		{HandoffFeatureReviewOverride, req.Review != nil},
 		{HandoffFeatureBase, base != ""},
+		{HandoffFeatureAccount, req.Account != ""},
 	} {
 		if need.used && !slices.Contains(meta.HandoffFeatures, need.feature) {
 			return AwayTask{}, &handoffWorkerError{ErrWorkerTooOld, fmt.Sprintf("%s is too old for %s: update it (it runs Legato %s)", name, need.feature, orUnknown(meta.Version))}
@@ -349,7 +354,7 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	}
 
 	call := HandoffCall{HandoffID: row.HandoffID, MainTaskID: task.ID, Title: task.Title, Details: task.DescriptionMD, Notes: []HandoffCallNote{},
-		Repo: row.Repo, Purpose: row.Purpose, Kind: row.Kind, Branch: row.Branch, AgentKind: row.AgentKind}
+		Repo: row.Repo, Purpose: row.Purpose, Kind: row.Kind, Branch: row.Branch, AgentKind: row.AgentKind, Account: req.Account}
 	for _, n := range notes {
 		call.Notes = append(call.Notes, HandoffCallNote{ID: n.ID, Body: n.Body, CreatedAt: n.CreatedAt})
 	}

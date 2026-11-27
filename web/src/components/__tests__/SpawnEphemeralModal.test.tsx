@@ -87,6 +87,17 @@ describe("SpawnEphemeralModal", () => {
   })
   afterEach(cleanup)
 
+  it("sends the selected Claude account", async () => {
+    serve({ "GET /api/adapters": () => json({ adapters: ["chimera", "claude-code", "codex"], default: "chimera", accounts: [{ name: "work", label: "Work subscription", provider: "claude" }] }) })
+    await openModal()
+    fireEvent.click(screen.getByRole("radio", { name: "Claude Code" }))
+    fireEvent.change(screen.getByRole("combobox", { name: "Account" }), { target: { value: "work" } })
+    expect(screen.getByRole("option", { name: "Work subscription" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: /^Spawn in/ }))
+    await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+    expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body)).toMatchObject({ agent_kind: "claude-code", account: "work" })
+  })
+
   it("starts in the default directory and spawns there under the default title", async () => {
     await openModal()
 

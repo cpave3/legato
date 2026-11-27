@@ -87,7 +87,7 @@ func engramAttention(db *store.Store) *service.EngramAttentionAdapter {
 }
 
 func reeveDefaults(cfg *config.Config) service.ReeveDefaults {
-	return service.ReeveDefaults{Agent: cfg.Reeve.Agent, Model: cfg.Reeve.Model, LaunchArgs: cfg.Reeve.LaunchArgs, Voice: cfg.Reeve.Voice.Enabled, Name: service.ReeveNameOf(cfg)}
+	return service.ReeveDefaults{Agent: cfg.Reeve.Agent, Account: cfg.Reeve.Account, Model: cfg.Reeve.Model, LaunchArgs: cfg.Reeve.LaunchArgs, Voice: cfg.Reeve.Voice.Enabled, Name: service.ReeveNameOf(cfg)}
 }
 
 // wireReeve serves the Reeve on a web server, and suspends its idle

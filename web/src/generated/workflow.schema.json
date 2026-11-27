@@ -1992,6 +1992,17 @@
       ],
       "description": "Start an agent of the workflow on a prompt or a macro, and wait for it to complete the step with the outputs the step declares.",
       "properties": {
+        "account": {
+          "description": "An instance-local Claude account name; requires claude-code",
+          "type": "string",
+          "x-legato": {
+            "context": "with",
+            "expressions": true,
+            "kind": "string",
+            "label": "Claude account",
+            "order": 21
+          }
+        },
         "agent": {
           "description": "Agent tool, such as claude-code, codex or chimera; the macro's, else the default, when empty",
           "type": "string",

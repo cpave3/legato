@@ -433,7 +433,7 @@ function AgentEntry({
         <ReeveWaitLine agent={agent} />
         <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-lw-text-2">
           <span className="flex min-w-0 items-center gap-1.5">
-            <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} />
+            <AgentKindBadge kind={agent.agent_kind} accountLabel={agent.account_label || agent.account} isNative={!!agent.has_chimera_endpoint} />
             {!isAgentToolInForeground(agent.agent_kind, agent.command) && (
               <span className="min-w-0 truncate font-lw-mono text-lw-faint">{agent.command}</span>
             )}

@@ -170,7 +170,7 @@ func TestResumingASuspendedStepResumesItsAgentOnTheSameAttempt(t *testing.T) {
 			}
 
 			lines := f.linesEventually(t, "LEG-7", 2)
-			if len(lines) < 2 || !strings.HasPrefix(lines[0], "claude --resume conversation-1") {
+			if len(lines) < 2 || !strings.HasPrefix(lines[0], "env -u CLAUDE_CONFIG_DIR claude --resume conversation-1") {
 				t.Fatalf("lines = %q; want the saved conversation resumed", lines)
 			}
 			if !strings.HasPrefix(lines[1], "[legato interrupted] ") || !strings.Contains(lines[1], "implement") || !strings.Contains(lines[1], "still open") {
@@ -251,7 +251,7 @@ func TestTheRunPageResumesASuspendedStep(t *testing.T) {
 	if view.Run.Status != "running" {
 		t.Fatalf("run = %s; want running", view.Run.Status)
 	}
-	if lines := f.linesEventually(t, "LEG-7", 1); len(lines) == 0 || !strings.HasPrefix(lines[0], "claude --resume conversation-1") {
+	if lines := f.linesEventually(t, "LEG-7", 1); len(lines) == 0 || !strings.HasPrefix(lines[0], "env -u CLAUDE_CONFIG_DIR claude --resume conversation-1") {
 		t.Fatalf("lines = %q; want the conversation resumed", lines)
 	}
 }

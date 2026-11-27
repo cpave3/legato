@@ -59,8 +59,8 @@ type RecoveredConversation struct {
 }
 
 // RecordRecoveredConversation keeps a recovered conversation with a run on
-// the execution, ended as the execution ended. One already recorded (by any
-// storage folder) is left alone and false returned; one already recovered
+// the execution, ended as the execution ended. One already recorded in the same
+// storage folder is left alone and false returned; one already recovered
 // gains the run.
 func (s *Store) RecordRecoveredConversation(ctx context.Context, execution UnrecordedExecution, c RecoveredConversation) (bool, error) {
 	tx, err := s.db.BeginTxx(ctx, nil)
@@ -73,7 +73,7 @@ func (s *Store) RecordRecoveredConversation(ctx context.Context, execution Unrec
 		Source string `db:"source"`
 	}
 	if err := tx.SelectContext(ctx, &existing, `SELECT id, source FROM agent_conversations
-		WHERE agent_kind = ? AND provider_session_id = ? ORDER BY id LIMIT 1`, c.AgentKind, c.ProviderSessionID); err != nil {
+		WHERE agent_kind = ? AND storage_dir = ? AND provider_session_id = ? LIMIT 1`, c.AgentKind, c.StorageDir, c.ProviderSessionID); err != nil {
 		return false, err
 	}
 	now := formatExecutionTime(time.Now())

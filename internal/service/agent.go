@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/chimera"
 	gitpkg "github.com/cpave3/legato/internal/engine/git"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -79,6 +80,8 @@ type AgentSession struct {
 	TmuxSession   string
 	Command       string
 	AgentKind     string
+	Account       string
+	AccountLabel  string
 	Status        string
 	Activity      string // "working", "waiting", "error", or "" (idle)
 	Role          string // "conductor", "" for non-swarm, or worker role label
@@ -227,18 +230,20 @@ type AgentSpawnOptions struct {
 	// push. A clone that exists: a new branch at the commit it has checked
 	// out, and the branch it is on when empty.
 	Branch           string
-	AgentKind        string            // adapter name to use; "" → default adapter
-	Model            string            // direct model selector; "" → adapter default
-	Tier             string            // adapter tier name (selects per-tier launch_args from cfg.Adapters.<kind>.tiers); "" → base launch_args only
-	Brief            string            // the per-worker initial brief; conductors leave this empty
-	StrictScope      bool              // when true, scope conflicts hard-block the spawn; otherwise advisory
-	SessionPolicy    string            // new or resume; Chimera also supports its internal error collision policy
-	ResumeSessionID  string            // saved provider conversation ID
-	ResumeWorkingDir string            // saved native conversation directory
-	ResumeStorageDir string            // provider's transcript storage directory
-	Ephemeral        bool              // internal: omit task-linked session identity
-	Assignment       string            // standalone workflow assignment; distinct from swarm role prompts
-	ExtraEnv         map[string]string // trusted Legato-owned workflow identity values
+	AgentKind        string                      // adapter name to use; "" → default adapter
+	Account          string                      `json:"account,omitempty"` // local Claude account; empty uses the unchanged default
+	AccountIdentity  *store.AgentAccountIdentity `json:"-"`                 // internal: frozen identity on resume
+	Model            string                      // direct model selector; "" → adapter default
+	Tier             string                      // adapter tier name (selects per-tier launch_args from cfg.Adapters.<kind>.tiers); "" → base launch_args only
+	Brief            string                      // the per-worker initial brief; conductors leave this empty
+	StrictScope      bool                        // when true, scope conflicts hard-block the spawn; otherwise advisory
+	SessionPolicy    string                      // new or resume; Chimera also supports its internal error collision policy
+	ResumeSessionID  string                      // saved provider conversation ID
+	ResumeWorkingDir string                      // saved native conversation directory
+	ResumeStorageDir string                      // provider's transcript storage directory
+	Ephemeral        bool                        // internal: omit task-linked session identity
+	Assignment       string                      // standalone workflow assignment; distinct from swarm role prompts
+	ExtraEnv         map[string]string           // trusted Legato-owned workflow identity values
 	// Holder is the name the agent claims and closes its ticket under
 	// (LEGATO_HOLDER): a handed-off agent's is the main's task ID, which a
 	// tracker's holder rule prefers over LEGATO_TASK_ID.
@@ -395,53 +400,56 @@ type LearningPromptProvider interface {
 }
 
 type agentService struct {
-	newWorkDefaults      func(context.Context) (NewWorkDefaults, error)
-	toolCheck            func(ctx context.Context, tool string) error
-	capabilities         CapabilitySource
-	capabilityFolders    CapabilityFolders
-	interruptedMu        sync.Mutex
-	interruptedRoutes    []InterruptedResumeRoute
-	handedOff            HandedOffAgents
-	resourceResolver     ResourceResolver
-	interruptedListeners []func()
-	sessionEnvMu         sync.Mutex
-	sessionEnv           SessionEnvProvider       // credential channels; nil without any
-	brokerEnv            SessionEnvProvider       // the host broker's socket and a token; nil without one
-	repos                JobCloner                // makes clones for agents spawned with a repository; nil without one
-	engrams              AgentEngrams             // boots engrams for agents started as one; nil without
-	primaryDir           func(repo string) string // a repository's main checkout, for a fresh clone's setup; nil without
-	setupsMu             sync.Mutex
-	setups               map[string]string // task -> the status file of its clone's setup, while it runs
-	sandbox              *SandboxSettings  // nil: agents run unsandboxed
-	scratch              SandboxScratch    // the sandboxes' scratch folders, removed when executions end
-	store                *store.Store
-	tmux                 TmuxManager
-	workDir              string
-	adapter              AIToolAdapter
-	adapters             map[string]AIToolAdapter // optional registry keyed by name; falls back to `adapter`
-	socketPath           string
-	tmuxOptions          map[string]string
-	prSvc                PRTrackingService
-	checkoutInspector    CheckoutInspector
-	guidance             RepositoryGuidanceSource
-	prModes              PullRequestModeSource
-	reeveName            ReeveNameSource
-	repoResources        RepositoryResourceSource
-	docker               *SandboxDocker
-	reviewsOff           bool
-	hasSkill             func(name string) bool
-	binaryPath           string
-	bus                  EventPublisher
-	workStages           *WorkStageService
-	briefKickoffDelay    time.Duration
-	notifier             Notifier
-	osNotifier           Notifier
-	learning             LearningPromptProvider
-	learningMaxItems     int
-	learningMaxBytes     int
-	peerAwareness        bool
-	peerMessageSent      func()
-	reeveWakes           bool
+	newWorkDefaults          func(context.Context) (NewWorkDefaults, error)
+	claudeAccounts           []config.ClaudeAccount
+	claudeManagedSettingsDir string
+	accountDataDir           string
+	toolCheck                func(ctx context.Context, tool string) error
+	capabilities             CapabilitySource
+	capabilityFolders        CapabilityFolders
+	interruptedMu            sync.Mutex
+	interruptedRoutes        []InterruptedResumeRoute
+	handedOff                HandedOffAgents
+	resourceResolver         ResourceResolver
+	interruptedListeners     []func()
+	sessionEnvMu             sync.Mutex
+	sessionEnv               SessionEnvProvider       // credential channels; nil without any
+	brokerEnv                SessionEnvProvider       // the host broker's socket and a token; nil without one
+	repos                    JobCloner                // makes clones for agents spawned with a repository; nil without one
+	engrams                  AgentEngrams             // boots engrams for agents started as one; nil without
+	primaryDir               func(repo string) string // a repository's main checkout, for a fresh clone's setup; nil without
+	setupsMu                 sync.Mutex
+	setups                   map[string]string // task -> the status file of its clone's setup, while it runs
+	sandbox                  *SandboxSettings  // nil: agents run unsandboxed
+	scratch                  SandboxScratch    // the sandboxes' scratch folders, removed when executions end
+	store                    *store.Store
+	tmux                     TmuxManager
+	workDir                  string
+	adapter                  AIToolAdapter
+	adapters                 map[string]AIToolAdapter // optional registry keyed by name; falls back to `adapter`
+	socketPath               string
+	tmuxOptions              map[string]string
+	prSvc                    PRTrackingService
+	checkoutInspector        CheckoutInspector
+	guidance                 RepositoryGuidanceSource
+	prModes                  PullRequestModeSource
+	reeveName                ReeveNameSource
+	repoResources            RepositoryResourceSource
+	docker                   *SandboxDocker
+	reviewsOff               bool
+	hasSkill                 func(name string) bool
+	binaryPath               string
+	bus                      EventPublisher
+	workStages               *WorkStageService
+	briefKickoffDelay        time.Duration
+	notifier                 Notifier
+	osNotifier               Notifier
+	learning                 LearningPromptProvider
+	learningMaxItems         int
+	learningMaxBytes         int
+	peerAwareness            bool
+	peerMessageSent          func()
+	reeveWakes               bool
 	// nativeBindTimeout bounds how long a launch message waits for the
 	// session's native endpoint before it is typed into the pane instead.
 	nativeBindTimeout time.Duration
@@ -603,12 +611,18 @@ type EventPublisher interface {
 
 // NewWorkDefaults selects the agent and optional tier for fresh, unspecified work.
 type NewWorkDefaults struct {
-	Agent string
-	Tier  string
+	Agent   string
+	Tier    string
+	Account string
 }
 
 // AgentServiceOptions configures optional AI tool integration for agent sessions.
 type AgentServiceOptions struct {
+	// ClaudeManagedSettingsDir is the platform's OS-level policy directory.
+	// Tests supply only synthetic settings; the command entry point wires it.
+	ClaudeManagedSettingsDir string
+	ClaudeAccounts           []config.ClaudeAccount
+	AccountDataDir           string
 	// NewWorkDefaults selects fresh work with no explicit agent. Nil uses
 	// Adapter; callback failures refuse the spawn before launch validation.
 	NewWorkDefaults func(context.Context) (NewWorkDefaults, error)
@@ -766,6 +780,9 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 	if len(opts) > 0 {
 		svc.adapter = opts[0].Adapter
 		svc.newWorkDefaults = opts[0].NewWorkDefaults
+		svc.claudeAccounts = slices.Clone(opts[0].ClaudeAccounts)
+		svc.claudeManagedSettingsDir = opts[0].ClaudeManagedSettingsDir
+		svc.accountDataDir = opts[0].AccountDataDir
 		svc.adapters = opts[0].Adapters
 		svc.socketPath = opts[0].SocketPath
 		svc.tmuxOptions = opts[0].TmuxOptions
@@ -829,12 +846,16 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if err := ValidateAgentSlot(opt.Slot); err != nil {
 		return err
 	}
+	if opt.Account != "" && opt.AgentKind == "" && opt.SessionPolicy != "resume" {
+		opt.AgentKind = "claude-code"
+	}
 	if opt.AgentKind == "" && opt.SessionPolicy != "resume" && opt.Role == "" && opt.ParentTaskID == "" && !IsReeveTask(ctx, a.store, taskID) {
 		defaults, err := a.NewWorkDefaults(ctx)
 		if err != nil {
 			return err
 		}
 		opt.AgentKind = defaults.Agent
+		opt.Account = defaults.Account
 		if opt.Tier == "" {
 			opt.Tier = defaults.Tier
 		}
@@ -843,6 +864,14 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		return err
 	}
 	adapter := a.resolveAdapter(opt.AgentKind)
+	kind := opt.AgentKind
+	if adapter != nil {
+		kind = adapter.Name()
+	}
+	accountIdentity, err := a.resolveClaudeAccount(ctx, opt, kind)
+	if err != nil {
+		return err
+	}
 	if a.toolCheck != nil && adapter != nil {
 		if err := a.toolCheck(ctx, adapter.Name()); err != nil {
 			return err
@@ -1257,6 +1286,12 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if err := a.store.CreateExecution(ctx, execution); err != nil {
 		return fmt.Errorf("creating execution: %w", err)
 	}
+	if accountIdentity != nil {
+		if err := a.store.PutExecutionAccount(ctx, executionID, *accountIdentity); err != nil {
+			_ = a.EndExecution(ctx, executionID, store.ExecutionFailed)
+			return fmt.Errorf("recording Claude account identity: %w", err)
+		}
+	}
 	if opt.ReadOnlyCheckout {
 		if err := a.store.SetExecutionReadOnly(ctx, executionID); err != nil {
 			return fmt.Errorf("marking the execution read-only: %w", err)
@@ -1319,6 +1354,24 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 
 	// Skills, copied for this execution where its tool finds them.
+	if err := applyAccountEnvironment(envMap, accountIdentity); err != nil {
+		failExecution()
+		return err
+	}
+	accountArgs := slices.Clone(opt.LaunchArgs)
+	if configured, ok := adapter.(interface{ LaunchArguments(string) []string }); ok {
+		accountArgs = append(accountArgs, configured.LaunchArguments(opt.Tier)...)
+	}
+	if err := validateNamedAccountAuth(accountIdentity, workDir, accountArgs); err != nil {
+		failExecution()
+		return err
+	}
+	if accountIdentity != nil && accountIdentity.Account != "" && a.claudeManagedSettingsDir != "" {
+		if err := validateNamedAccountManagedSettings(a.claudeManagedSettingsDir); err != nil {
+			failExecution()
+			return err
+		}
+	}
 	a.giveCapabilities(ctx, CapabilityRequest{TaskID: taskID, ExecutionID: executionID, AgentKind: agentKind, Role: opt.Role, Slot: slot, WorkDir: workDir}, adapter, envMap)
 
 	// The bootstrap secret is read by the launch command, never tmux's environment.
@@ -1570,6 +1623,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			if sandboxed && !ownsPrefix {
 				cmd = sandboxPrefix + " " + cmd
 			}
+			cmd = accountLaunchCommand(cmd, accountIdentity)
 			cmd = thenLaunch(cmd)
 			if truster, ok := adapter.(WorkspaceTrustAdapter); ok {
 				if err := truster.TrustWorkDir(launchEnv, workDir); err != nil {
@@ -2119,6 +2173,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			TmuxSession:       s.TmuxSession,
 			Command:           command,
 			AgentKind:         s.AgentKind,
+			Account:           s.Account, AccountLabel: a.claudeAccountLabel(s.Account),
 			Status:            s.Status,
 			Activity:          s.Activity,
 			Role:              s.Role,

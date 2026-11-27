@@ -30,6 +30,8 @@ func (a *nativeLaunchAdapter) BindsNativeEndpoint() bool { return true }
 
 func newNativeLaunchService(t *testing.T, workDir string) (AgentService, *store.Store, *mockTmux) {
 	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	s, err := store.New(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +88,7 @@ func TestLaunchKickoffWaitsForTheSessionsBridgeAndIsSubmittedDirectly(t *testing
 	// Claude Code is still starting. Typing the kickoff now is how it used to
 	// be lost: the text lands in the prompt box and the Enter goes nowhere.
 	time.Sleep(60 * time.Millisecond)
-	if lines := mt.sentLinesFor("legato-parent-1"); len(lines) != 1 || lines[0] != "claude" {
+	if lines := mt.sentLinesFor("legato-parent-1"); len(lines) != 1 || lines[0] != "env -u CLAUDE_CONFIG_DIR claude" {
 		t.Fatalf("lines typed while the session was starting = %v, want only the launch command", lines)
 	}
 

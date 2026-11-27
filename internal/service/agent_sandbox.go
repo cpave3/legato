@@ -87,6 +87,31 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 		log.Printf("sandbox: the pasted images folder of %s: %v", taskID, err)
 	}
 	in.ToolState = toolStateDirs(agentKind, env, in.Home)
+	in.ProtectedClaudeAccounts = append([]string{}, in.ProtectedClaudeAccounts...)
+	defaultClaude := os.Getenv("CLAUDE_CONFIG_DIR")
+	if defaultClaude == "" {
+		defaultClaude = filepath.Join(in.Home, ".claude")
+	}
+	if agentKind == "claude-code" {
+		in.ClaudeConfigDir = env["CLAUDE_CONFIG_DIR"]
+		in.ClaudeConfigExplicit = in.ClaudeConfigDir != ""
+		if in.ClaudeConfigDir == "" {
+			in.ClaudeConfigDir = filepath.Join(in.Home, ".claude")
+		}
+	}
+	roots := []string{defaultClaude, filepath.Join(in.Home, ".claude")}
+	for _, account := range a.claudeAccounts {
+		roots = append(roots, account.ConfigDir)
+	}
+	for _, root := range roots {
+		selected := in.ClaudeConfigDir != "" && filepath.Clean(root) == filepath.Clean(in.ClaudeConfigDir)
+		if !selected {
+			in.ProtectedClaudeAccounts = append(in.ProtectedClaudeAccounts, root)
+		}
+	}
+	if agentKind != "claude-code" || in.ClaudeConfigExplicit {
+		in.ProtectedClaudeAccounts = append(in.ProtectedClaudeAccounts, filepath.Join(in.Home, ".claude.json"))
+	}
 	for _, dir := range in.ToolState {
 		// Made when missing, so what the tool writes there lands on the host
 		// and not in the sandbox's empty home.

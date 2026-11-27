@@ -37,10 +37,11 @@ type ReviewPassesConfig struct {
 // ReviewerAgentConfig is the reviewer's agent tool, its model or tier, and
 // the review skill it is told to use.
 type ReviewerAgentConfig struct {
-	Agent string `yaml:"agent"`
-	Model string `yaml:"model"`
-	Tier  string `yaml:"tier"`
-	Skill string `yaml:"skill"`
+	Account string `yaml:"account"`
+	Agent   string `yaml:"agent"`
+	Model   string `yaml:"model"`
+	Tier    string `yaml:"tier"`
+	Skill   string `yaml:"skill"`
 }
 
 func defaultReviewPasses() ReviewPassesConfig {
@@ -72,6 +73,10 @@ func ValidateReviewPasses(cfg *Config) error {
 	}
 	rp := &cfg.ReviewPasses
 	rp.Reviewer.Agent = strings.TrimSpace(rp.Reviewer.Agent)
+	rp.Reviewer.Account = strings.TrimSpace(rp.Reviewer.Account)
+	if err := cfg.ValidateClaudeSelection(rp.Reviewer.Agent, rp.Reviewer.Account); err != nil {
+		return fmt.Errorf("review_passes.reviewer.account: %w", err)
+	}
 	rp.Reviewer.Model = strings.TrimSpace(rp.Reviewer.Model)
 	rp.Reviewer.Tier = strings.TrimSpace(rp.Reviewer.Tier)
 	rp.Reviewer.Skill = strings.TrimSpace(rp.Reviewer.Skill)

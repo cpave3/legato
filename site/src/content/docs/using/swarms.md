@@ -114,3 +114,5 @@ A plan that names a tier the sub-task's agent tool does not have is refused. A s
 | `adapters.chimera.modes` | A Chimera mode for each role, such as `worker: legato-worker`. You write the mode files. |
 
 See the [configuration reference](/legato/reference/configuration/) for every setting, and the [command reference](/legato/reference/cli/) for the `legato swarm` commands the conductor and workers use.
+
+Set `swarm.conductor.account` and `swarm.worker.account` to local Claude account names for new agents. A worker keeps its account when a plan selects a tier, but does not inherit it when the plan selects another agent tool. Promoting an agent to conductor keeps its running account.

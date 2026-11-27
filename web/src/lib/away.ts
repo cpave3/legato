@@ -311,6 +311,7 @@ export interface HandOffRequest {
   branch?: string
   repo: string
   agent_kind: string
+  account?: string
   // Changes to the worker's review passes for this handoff.
   review?: ReviewOverride
 }

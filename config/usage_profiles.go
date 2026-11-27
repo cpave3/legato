@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"math"
-	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -14,17 +13,22 @@ type UsageProfile struct {
 	Name     string                `yaml:"name" json:"name"`
 	Agent    string                `yaml:"agent" json:"agent"`
 	Tier     string                `yaml:"tier,omitempty" json:"tier,omitempty"`
+	Account  string                `yaml:"account,omitempty" json:"account,omitempty"`
 	Reviewer *UsageProfileReviewer `yaml:"reviewer,omitempty" json:"reviewer,omitempty"`
 }
 
 // UsageProfileReviewer overrides the default reviewer for a new review pass.
 type UsageProfileReviewer struct {
-	Agent string `yaml:"agent" json:"agent"`
-	Tier  string `yaml:"tier,omitempty" json:"tier,omitempty"`
+	Agent   string `yaml:"agent" json:"agent"`
+	Tier    string `yaml:"tier,omitempty" json:"tier,omitempty"`
+	Account string `yaml:"account,omitempty" json:"account,omitempty"`
 }
 
 // ValidateUsageProfiles checks usage policy against the configured adapter tiers.
 func ValidateUsageProfiles(cfg *Config) error {
+	if err := ValidateClaudeAccounts(cfg); err != nil {
+		return err
+	}
 	names := map[string]bool{}
 	for i := range cfg.Usage.Profiles {
 		p := &cfg.Usage.Profiles[i]
@@ -37,10 +41,16 @@ func ValidateUsageProfiles(cfg *Config) error {
 		if err := usageAgent(cfg, p.Agent, p.Tier, path); err != nil {
 			return err
 		}
+		if err := cfg.ValidateClaudeSelection(p.Agent, p.Account); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
 		if p.Reviewer != nil {
 			p.Reviewer.Agent, p.Reviewer.Tier = strings.TrimSpace(p.Reviewer.Agent), strings.TrimSpace(p.Reviewer.Tier)
 			if err := usageAgent(cfg, p.Reviewer.Agent, p.Reviewer.Tier, path+".reviewer"); err != nil {
 				return err
+			}
+			if err := cfg.ValidateClaudeSelection(p.Reviewer.Agent, p.Reviewer.Account); err != nil {
+				return fmt.Errorf("%s.reviewer: %w", path, err)
 			}
 		}
 	}
@@ -59,7 +69,7 @@ func ValidateUsageProfiles(cfg *Config) error {
 		if r.Order == nil {
 			return fmt.Errorf("%s.order must be explicit", path)
 		}
-		if !IsUsageMeter(r.Meter) {
+		if !cfg.IsUsageMeter(r.Meter) {
 			return fmt.Errorf("%s.meter %q is not a qualified usage meter", path, r.Meter)
 		}
 		if math.IsNaN(r.AtLeast) || r.AtLeast < 1 || r.AtLeast > 100 {
@@ -75,7 +85,8 @@ func ValidateUsageProfiles(cfg *Config) error {
 // IsUsageMeter reports whether meter is one of the qualified subscription
 // meters the providers declare (UsageQualifiedMeters).
 func IsUsageMeter(meter string) bool {
-	return slices.Contains(UsageQualifiedMeters(), meter)
+	_, account, _, ok := ParseUsageMeter(meter)
+	return ok && account == ""
 }
 
 func usageName(seen map[string]bool, name, path string) error {

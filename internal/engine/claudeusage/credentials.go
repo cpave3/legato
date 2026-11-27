@@ -38,6 +38,10 @@ func (f FileCredentials) Login() (Login, error) {
 		return Login{}, errors.New("claude: reading the credentials file failed")
 	}
 	defer file.Close()
+	return loginFromReader(file)
+}
+
+func loginFromReader(file io.Reader) (Login, error) {
 	data, err := io.ReadAll(io.LimitReader(file, credentialsLimit))
 	if err != nil {
 		return Login{}, errors.New("claude: reading the credentials file failed")

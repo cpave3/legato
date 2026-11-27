@@ -21,6 +21,7 @@ func TestSpawnAgentNewWorkDefaults(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
+			t.Setenv("CLAUDE_CONFIG_DIR", "")
 			db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
 			if err != nil {
 				t.Fatal(err)
@@ -49,7 +50,7 @@ func TestSpawnAgentNewWorkDefaults(t *testing.T) {
 			}
 			command := "codex"
 			if tc.wantKind == "claude-code" {
-				command = "claude"
+				command = "env -u CLAUDE_CONFIG_DIR claude"
 			}
 			if !strings.HasPrefix(lines[0], command+" ") || (tc.wantModel != "" && !strings.Contains(lines[0], tc.wantModel)) {
 				t.Fatalf("launch = %s", lines[0])
@@ -95,6 +96,7 @@ func TestSpawnAgentNewWorkDefaultsExcludeSwarmAndReeve(t *testing.T) {
 	for _, reeve := range []bool{false, true} {
 		t.Run(fmt.Sprintf("reeve=%v", reeve), func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
+			t.Setenv("CLAUDE_CONFIG_DIR", "")
 			ctx := context.Background()
 			db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
 			if err != nil {
@@ -128,7 +130,7 @@ func TestSpawnAgentNewWorkDefaultsExcludeSwarmAndReeve(t *testing.T) {
 				t.Fatal(err)
 			}
 			lines := mt.sentLinesFor("legato-" + taskID)
-			if len(lines) != 1 || !strings.HasPrefix(lines[0], "claude ") {
+			if len(lines) != 1 || !strings.HasPrefix(lines[0], "env -u CLAUDE_CONFIG_DIR claude ") {
 				t.Fatalf("swarm launch = %q", lines)
 			}
 		})

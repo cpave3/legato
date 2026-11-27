@@ -182,6 +182,7 @@ export function AgentInfoDialog({ agent, onClose }: { agent: AgentInfo; onClose:
             <CopyField label="Task" value={taskId} copyLabel="task ID" />
             {slot && <PlainField label="Slot" value={slot} />}
             <PlainField label="Agent tool" value={agentKindLabel(agent.agent_kind)} />
+            {agent.account && <PlainField label="Account" value={agent.account_label || agent.account} />}
             {agent.engram && <PlainField label="Engram" value={agent.engram} />}
             <PlainField label="Driven" value={agent.has_chimera_endpoint ? "Native panel" : "Through its terminal"} />
             {agent.role && <PlainField label="Role" value={agent.role} />}

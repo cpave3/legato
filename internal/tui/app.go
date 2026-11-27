@@ -240,6 +240,7 @@ type App struct {
 	tmux               service.TmuxManager
 	swarmSvc           service.SwarmService
 	workDir            string
+	claudeAccounts     []overlay.SpawnAccount
 	macros             []macros.Macro
 	macroSource        func(context.Context) ([]macros.Macro, error)
 	macroStarter       TaskMacroStarter
@@ -2692,6 +2693,7 @@ func (a App) openAgentSpawnOverlay(taskID, title string) (tea.Model, tea.Cmd) {
 		}
 	}
 	spawnModel := a.withSpawnResources(a.withSpawnLocations(overlay.NewAgentSpawn(filtered, defaultAdapter, defaultDir, taskID, title), defaultDir))
+	spawnModel = spawnModel.WithClaudeAccounts(a.claudeAccounts)
 	if a.sandbox {
 		spawnModel = spawnModel.WithSandbox()
 		if a.sandboxDocker {
@@ -2730,6 +2732,7 @@ func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model,
 	}
 	opts := service.AgentSpawnOptions{
 		AgentKind:   msg.AgentKind,
+		Account:     msg.Account,
 		WorkingDir:  msg.WorkingDir,
 		Resources:   resources,
 		Unsandboxed: msg.Unsandboxed,
@@ -2784,7 +2787,7 @@ func (a App) spawnTaskAgent(msg overlay.AgentSpawnSubmitMsg, sessionPolicy, resu
 	if err != nil {
 		return a, func() tea.Msg { return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()} }
 	}
-	opts := service.AgentSpawnOptions{AgentKind: msg.AgentKind, WorkingDir: msg.WorkingDir, SessionPolicy: sessionPolicy, ResumeSessionID: resumeSessionID, ResumeWorkingDir: resumeWorkingDir, Resources: resources, Unsandboxed: msg.Unsandboxed, Engram: msg.Engram, DockerHostNetwork: msg.DockerHostNetwork}
+	opts := service.AgentSpawnOptions{AgentKind: msg.AgentKind, Account: msg.Account, WorkingDir: msg.WorkingDir, SessionPolicy: sessionPolicy, ResumeSessionID: resumeSessionID, ResumeWorkingDir: resumeWorkingDir, Resources: resources, Unsandboxed: msg.Unsandboxed, Engram: msg.Engram, DockerHostNetwork: msg.DockerHostNetwork}
 	a.rememberSpawnEngram(msg)
 
 	// Task-bound agent: switch to agent view and spawn with options

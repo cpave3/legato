@@ -36,6 +36,7 @@ const ReeveTokenPrefix = "lgr_"
 
 // ReeveDefaults are the settings a session starts with (reeve.*).
 type ReeveDefaults struct {
+	Account    string
 	Agent      string
 	Model      string
 	LaunchArgs []string
@@ -47,13 +48,15 @@ type ReeveDefaults struct {
 }
 
 // ReeveStart is how a session starts: an override of the agent tool and
-// model for this session (the Reeve's own button), and a brief (Ask the
+// model and account for this session (the Reeve's own button), and a brief (Ask the
 // Reeve).
 type ReeveStart struct {
-	Agent     string `json:"agent,omitempty"`
-	Model     string `json:"model,omitempty"`
-	Brief     string `json:"brief,omitempty"`
-	StartedBy string `json:"-"`
+	accountIdentity *store.AgentAccountIdentity
+	Account         string `json:"account,omitempty"`
+	Agent           string `json:"agent,omitempty"`
+	Model           string `json:"model,omitempty"`
+	Brief           string `json:"brief,omitempty"`
+	StartedBy       string `json:"-"`
 }
 
 // ReeveSpawner starts the agent of a session; the agent service is one.
@@ -219,6 +222,10 @@ func (s *ReeveService) startLocked(ctx context.Context, in ReeveStart) (*store.R
 	}
 	defaults := s.opts.Defaults()
 	agent, model := firstNonEmpty(in.Agent, defaults.Agent), firstNonEmpty(in.Model, defaults.Model)
+	account := firstNonEmpty(in.Account, defaults.Account)
+	if in.Agent != "" && in.Agent != defaults.Agent && in.Account == "" {
+		account = ""
+	}
 	taskID, err := s.opts.Store.CreateReeveTask(ctx, "The Reeve")
 	if err != nil {
 		return nil, err
@@ -230,7 +237,7 @@ func (s *ReeveService) startLocked(ctx context.Context, in ReeveStart) (*store.R
 	if err := s.opts.Store.InsertReeveSession(ctx, row); err != nil {
 		return nil, err
 	}
-	if err := s.spawn(ctx, row, in.Brief, false); err != nil {
+	if err := s.spawn(ctx, row, in.Brief, false, AgentSpawnOptions{Account: account}); err != nil {
 		_ = s.opts.Store.SetReeveSessionState(ctx, taskID, store.ReeveEnded)
 		return nil, err
 	}
@@ -238,7 +245,7 @@ func (s *ReeveService) startLocked(ctx context.Context, in ReeveStart) (*store.R
 	return s.opts.Store.GetReeveSession(ctx, taskID)
 }
 
-func (s *ReeveService) spawn(ctx context.Context, row store.ReeveSession, brief string, resumed bool) error {
+func (s *ReeveService) spawn(ctx context.Context, row store.ReeveSession, brief string, resumed bool, account AgentSpawnOptions) error {
 	if err := os.MkdirAll(s.WorkDir(), 0o700); err != nil {
 		return fmt.Errorf("making the Reeve's folder: %w", err)
 	}
@@ -282,6 +289,7 @@ func (s *ReeveService) spawn(ctx context.Context, row store.ReeveSession, brief 
 		first = "[legato] Look into the brief at the end of your instructions, and tell me what you find."
 	}
 	opt := AgentSpawnOptions{
+		Account: account.Account, AccountIdentity: account.AccountIdentity,
 		AgentKind: row.AgentKind, Model: row.Model, WorkingDir: s.WorkDir(), Ephemeral: true, Prompt: first, LaunchPrompt: launch,
 		Resources: []Resource{{Name: "The Reeve's folder", Paths: []ResourcePath{{Path: s.opts.Folder, Access: "write"}}, Configured: true}},
 		ExtraEnv:  map[string]string{"LEGATO_REEVE": "1"},
@@ -404,7 +412,7 @@ func (s *ReeveService) StopAgent(ctx context.Context, taskID string) (handled bo
 }
 
 // Resume runs an ended (or suspended) session again with its conversation:
-// a new token, the current defaults unless overridden. Refused while
+// a new token, the saved conversation's account and session settings. Refused while
 // another session runs.
 func (s *ReeveService) Resume(ctx context.Context, taskID string, in ReeveStart) (*store.ReeveSession, error) {
 	s.mu.Lock()
@@ -434,7 +442,7 @@ func (s *ReeveService) resumeLocked(ctx context.Context, taskID string, in Reeve
 	if err := s.opts.Store.ResumeReeveSession(ctx, *row); err != nil {
 		return nil, err
 	}
-	if err := s.spawn(ctx, *row, in.Brief, true); err != nil {
+	if err := s.spawn(ctx, *row, in.Brief, true, AgentSpawnOptions{Account: in.Account, AccountIdentity: in.accountIdentity}); err != nil {
 		_ = s.opts.Store.SetReeveSessionState(ctx, taskID, store.ReeveEnded)
 		return nil, err
 	}
@@ -562,13 +570,24 @@ func (s *ReeveService) GiveVoice(ctx context.Context, taskID string) error {
 	if on, known := s.StartedWithVoice(taskID); on || !known {
 		return nil
 	}
+	// Stop can remove the live session before a native conversation was saved.
+	// Keep its execution identity rather than selecting from changed defaults.
+	var identity *store.AgentAccountIdentity
+	if agent, err := s.opts.Store.GetAgentSessionByTaskID(ctx, taskID); err == nil {
+		identity, err = s.opts.Store.ExecutionAccount(ctx, agent.ExecutionID)
+		if err != nil {
+			return err
+		}
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
 	if err := s.opts.Agents.KillAgent(withEngramSessionKept(ctx), taskID); err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
 	if err := s.opts.Store.SetReeveSessionState(ctx, taskID, store.ReeveSuspended); err != nil {
 		return err
 	}
-	_, err = s.resumeLocked(ctx, taskID, ReeveStart{StartedBy: "voice"})
+	_, err = s.resumeLocked(ctx, taskID, ReeveStart{StartedBy: "voice", accountIdentity: identity})
 	return err
 }
 

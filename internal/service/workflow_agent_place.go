@@ -109,12 +109,15 @@ func (e *AgentRunExecutor) startOnTask(ctx context.Context, step ResolvedWorkflo
 	if wait {
 		assignment = buildWorkflowAssignment(work, step, e.binaryPath)
 	}
-	kind, tier := stepAgent(step.With, macro)
+	kind, tier, account, err := stepAgent(step.With, macro)
+	if err != nil {
+		return WorkflowExecutionResult{}, err
+	}
 	// A plain agent of the task, as an operator's spawn: no workflow run or
 	// attempt of its own, so its stage is the card's and it outlives the
 	// step. The contract names the step it completes.
 	opts := AgentSpawnOptions{
-		AgentKind: kind, Tier: tier, WorkingDir: workingDir, Assignment: assignment,
+		AgentKind: kind, Tier: tier, Account: strings.TrimSpace(account), WorkingDir: workingDir, Assignment: assignment,
 		ExtraEnv: map[string]string{},
 	}
 	// agent.dispatch's repo is only the pull request a macro reads, as it

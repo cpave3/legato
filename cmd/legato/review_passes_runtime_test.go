@@ -34,4 +34,13 @@ func TestUsageProfileReviewerAppearsInTheLiveAdvert(t *testing.T) {
 	if got.Agent != "codex" || got.Tier != "careful" || got.Model != "" {
 		t.Fatalf("advert=%+v", got)
 	}
+	state.Profile.Reviewer = &config.UsageProfileReviewer{Agent: "claude-code", Account: "review"}
+	raw, _ = json.Marshal(state)
+	if err := db.SaveUsageProfile(ctx, string(raw), nil); err != nil {
+		t.Fatal(err)
+	}
+	got = advert().Defaults
+	if got.Agent != "claude-code" || got.Account != "review" {
+		t.Fatalf("profile reviewer account lost in runtime wiring: %+v", got)
+	}
 }

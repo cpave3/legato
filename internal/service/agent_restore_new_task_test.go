@@ -69,7 +69,7 @@ func TestADeletedTasksConversationIsRestoredIntoANewCard(t *testing.T) {
 		t.Fatalf("new task = %#v, want a card titled as the original in its workspace and the first column", task)
 	}
 	lines := f.linesEventually(t, task.ID, 2)
-	if len(lines) < 2 || !strings.HasPrefix(lines[0], "claude --resume conv-1") || !strings.HasPrefix(lines[1], "[legato restored] ") {
+	if len(lines) < 2 || !strings.HasPrefix(lines[0], "env -u CLAUDE_CONFIG_DIR claude --resume conv-1") || !strings.HasPrefix(lines[1], "[legato restored] ") {
 		t.Fatalf("lines = %q, want the conversation resumed in the new task", lines)
 	}
 	// Its bridge reports it from the new task, which now owns it.
@@ -98,7 +98,7 @@ func TestABusyTasksConversationIsRestoredIntoANewTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	task := f.onlyNewTask(t, "task-1")
-	if lines := f.linesEventually(t, task.ID, 1); len(lines) == 0 || !strings.HasPrefix(lines[0], "claude --resume conv-old") {
+	if lines := f.linesEventually(t, task.ID, 1); len(lines) == 0 || !strings.HasPrefix(lines[0], "env -u CLAUDE_CONFIG_DIR claude --resume conv-old") {
 		t.Fatalf("lines = %q", lines)
 	}
 }

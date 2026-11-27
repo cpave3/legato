@@ -34,6 +34,7 @@ type handOffRequest struct {
 	Branch    string `json:"branch"`
 	Repo      string `json:"repo"`
 	AgentKind string `json:"agent_kind"`
+	Account   string `json:"account,omitempty"`
 	// Review overrides the worker's review passes for this handoff.
 	Review *service.ReviewPassOverride `json:"review,omitempty"`
 }
@@ -58,7 +59,7 @@ func (s *Server) taskHandOffHandler() http.HandlerFunc {
 			return
 		}
 		away, err := s.instances.mainHandoffs.HandOff(r.Context(), service.TaskHandoffRequest{
-			TaskID: id, Worker: body.Worker, Purpose: body.Purpose, Kind: body.Kind, Branch: body.Branch, Repo: body.Repo, AgentKind: body.AgentKind,
+			TaskID: id, Worker: body.Worker, Purpose: body.Purpose, Kind: body.Kind, Branch: body.Branch, Repo: body.Repo, AgentKind: body.AgentKind, Account: body.Account,
 			Review: body.Review,
 		})
 		if err != nil {

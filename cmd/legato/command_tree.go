@@ -168,7 +168,7 @@ func commandTree() *commandDef {
 	macro := group("macro", "Put a task's agent to work with a macro", []string{"legato macro run Plan <task-id>", "legato macro run Review <task-id> --pr 12"},
 		leaf("run", "Start a macro on a task: its agent starts with it, or gets it as its next message", runMacroRunContract,
 			[]argumentDef{arg("name", "The macro's name"), arg("task-id", "The task")},
-			[]commandFlag{valueFlag("pr", "number", "One of the task's pull requests to start it on"), jsonFlag},
+			[]commandFlag{valueFlag("pr", "number", "One of the task's pull requests to start it on"), valueFlag("account", "name", "Local Claude account for a new session; a resume must match its saved account"), jsonFlag},
 			"legato macro run Plan <task-id>", "legato macro run \"Address feedback\" <task-id> --pr 12"),
 	)
 	clone := group("clone", "Make a clone Legato made for an agent ready to work in", []string{"legato clone setup"},

@@ -185,8 +185,10 @@ var registry = []Setting{
 	{Key: "swarm.max_subtasks_per_plan", Title: "Parts in a plan", Help: "A plan with more parts, in all or in one step, is refused.", DefaultLabel: "10", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
 	{Key: "swarm.max_steps_per_plan", Title: "Steps in a plan", Help: "The most ordered steps a plan may have.", DefaultLabel: "10", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
 	{Key: "swarm.conductor.agent", Title: "Conductor", Help: "The agent tool that plans the work and dispatches the workers.", DefaultLabel: "Workers' agent", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "swarm.conductor.account", Title: "Conductor's Claude account", Help: "Local Claude account for a new conductor. Promotion keeps its running account.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "swarm.conductor.model", Title: "Conductor's model", Help: "A model or tier for new conductors, added to the tool's launch flags.", DefaultLabel: "The tool's default", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "swarm.worker.agent", Title: "Workers", Help: "The agent tool a worker runs when its part names none. Also the default agent while that is unset.", DefaultLabel: "claude-code", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "swarm.worker.account", Title: "Workers' Claude account", Help: "Local Claude account for workers using the configured tool. A different tool does not inherit it.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "swarm.worker.model", Title: "Workers' model", Help: "A model or tier for workers that name no tier.", DefaultLabel: "The tool's default", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "swarm.strict_scope", Title: "Strict file scopes", Help: "Refuses to dispatch a worker whose files overlap another's. Off, an overlap only warns the conductor.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "swarm.brief_kickoff_delay_ms", Title: "Kickoff delay", Help: "How long Legato waits after starting a tool before it types \"read your brief\". Raise it for a slow tool.", DefaultLabel: "250", Kind: KindInt, Class: ClassChange, Mode: ModeRestart, Check: nonNegative},
@@ -264,6 +266,7 @@ var registry = []Setting{
 	// Review passes.
 	{Key: "review_passes.enabled", Title: "Review passes", Help: "Reviews make-a-change handoffs on this worker in passes, and tells main instances it does. Needs Legato's tools.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "review_passes.reviewer.agent", Title: "Reviewer", Help: "The reviewer's agent tool. Needed while review passes are on; pick a different model from the author's.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "review_passes.reviewer.account", Title: "Reviewer's Claude account", Help: "A local Claude account name, or default. Requires Claude Code; each pass keeps its selection for retries.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "review_passes.reviewer.model", Title: "Reviewer's model", Help: "The reviewer's model. Set this or the tier, not both.", DefaultLabel: "The tool's default", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "review_passes.reviewer.tier", Title: "Reviewer's tier", Help: "A tier of the reviewer's tool. Set this or the model, not both.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "review_passes.reviewer.skill", Title: "Reviewer's skill", Help: "The review skill the reviewer is told to use, such as 3-tier-review.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
@@ -281,6 +284,7 @@ var registry = []Setting{
 	// The Reeve: read when a session starts.
 	{Key: "reeve.name", Title: "Name", Help: "What Legato calls the Reeve on this instance, everywhere it shows and in its own prompt.", DefaultLabel: "the Reeve", Kind: KindString, Class: ClassChange, Mode: ModeLive, Check: func(v any) error { return CheckReeveName(v.(string)) }},
 	{Key: "reeve.agent", Title: "Agent", Help: "The agent tool a Reeve session runs.", DefaultLabel: "Same as the default agent", Kind: KindString, Class: ClassChange, Mode: ModeLive},
+	{Key: "reeve.account", Title: "Claude account", Help: "Local Claude account for a new Reeve session. Resuming keeps its original account.", Kind: KindString, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.model", Title: "Model or tier", Help: "The model or tier a Reeve session runs.", DefaultLabel: "The tool's default", Kind: KindString, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.idle_timeout", Title: "Suspend after", Help: "How long a session may be idle before its agent is stopped; the next message resumes it.", DefaultLabel: "2h", Kind: KindDuration, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.levels.change", Title: "Approval for a change", Help: "auto runs at once; approve takes a tap; signed an enrolled device; verified a fingerprint or PIN too. Loosening it needs a signature.", DefaultLabel: "approve", Kind: KindEnum, Enum: []string{"", "auto", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},

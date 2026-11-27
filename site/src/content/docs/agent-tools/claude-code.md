@@ -159,3 +159,17 @@ With a `manticore:` block in the configuration, Legato loads a second mod, `lega
 - The panel shows thinking only when the model gives text for it, which current Claude models seldom do.
 
 For how the mod and its bridge work inside, see [Claude Code native integration](https://github.com/cpave3/legato/blob/main/docs/ai/claude-code-native.md).
+
+## Named subscription accounts
+
+Keep your existing default login where it is. Add an extra account under **Settings › Usage › Accounts**, with a stable name, display label and separate absolute config directory. You sign in to that directory yourself with the official CLI:
+
+```sh
+CLAUDE_CONFIG_DIR='/your/extra-directory' claude auth login --claudeai
+```
+
+The path is an example; choose your own directory. Legato does not move or copy credentials. Select the account in the spawn dialog or a usage profile; profiles can select a different reviewer account. Explicit selection applies to new work only. Resume and reload keep the original account and transcript location; changing or removing its directory mapping refuses resume instead of using another login.
+
+Named subscriptions refuse conflicting key, helper, profile or cloud-provider overrides. Remove the override named in the error, or use your existing default setup for intentional non-subscription authentication. Legato checks local settings and file-based managed policy; it does not attest macOS MDM or policy fetched later by Claude.
+
+On macOS, named **usage polling** requires file-backed login state. Named Keychain polling is unavailable; Legato never tries the default Keychain entry as a fallback. Your existing default account is unchanged.

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -49,7 +48,7 @@ func TestAFreshStartHandsOverWhatTheHistoryKnows(t *testing.T) {
 		t.Fatalf("fresh start = %q, %v", taskID, err)
 	}
 	lines := f.linesEventually(t, "task-1", 2)
-	if len(lines) < 2 || strings.Contains(lines[0], "--resume") || !strings.HasPrefix(lines[0], "claude") {
+	if len(lines) < 2 || strings.Contains(lines[0], "--resume") || !strings.HasPrefix(lines[0], "env -u CLAUDE_CONFIG_DIR claude") {
 		t.Fatalf("lines = %q, want a new conversation", lines)
 	}
 	// A new conversation's first message is in its prompt file, which the
@@ -115,4 +114,3 @@ func freshErr(h *SessionHistoryService, ctx context.Context, id int64, dir strin
 	_, err := h.StartFresh(ctx, id, RestoreIntoTask, dir)
 	return err
 }
-

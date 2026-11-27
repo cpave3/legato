@@ -214,6 +214,9 @@ The swarm resolves participants by role and then applies plan overrides:
 1. **Conductor profile:** `swarm.conductor.agent` selects the adapter for a new conductor. It falls back to `swarm.worker.agent`, then Claude Code. `swarm.conductor.model` adds a direct model selector. Ad-hoc promotion keeps the existing process and cannot change its model.
 2. **Worker adapter:** a sub-task `agent` overrides `swarm.worker.agent`. If both are empty, Legato uses Claude Code.
 3. **Worker model:** a sub-task `tier` suppresses `swarm.worker.model`. An explicit different sub-task agent also suppresses the worker model because model names are adapter-specific.
+4. **Account:** `swarm.conductor.account` and `swarm.worker.account` select the local Claude account through `AgentSpawnOptions.Account`. A worker using the configured adapter keeps its account even with a tier; a plan selecting a different adapter gets no worker account. Ad-hoc promotion retains the running execution’s identity. Empty account keeps the default Claude identity.
+
+Runtime wiring must copy `Account` from each `config.SwarmParticipantConfig` into its service counterpart at every `NewSwarmService` construction; settings registration and user documentation belong with that wiring.
 
 ```yaml
 swarm:

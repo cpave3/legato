@@ -113,6 +113,7 @@ var settingLayout = map[string]settingPlace{
 	// The Reeve.
 	"reeve.name":                 {SectionReeve, "Session", ""},
 	"reeve.agent":                {SectionReeve, "Session", ""},
+	"reeve.account":              {SectionReeve, "Session", ""},
 	"reeve.model":                {SectionReeve, "Session", ""},
 	"reeve.idle_timeout":         {SectionReeve, "Session", ""},
 	"reeve.launch_args":          {SectionReeve, "Session", ""},

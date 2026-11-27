@@ -136,7 +136,12 @@ var mainTaskID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$`)
 
 var ticketProviderName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,49}$`)
 
+var handoffAccountName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
 func validateHandoffCall(call HandoffCall) error {
+	if call.Account != "" && (len(call.Account) > maxHandoffField || !handoffAccountName.MatchString(call.Account)) {
+		return handoffErr("bad_request", "account must be a logical account name, not a path")
+	}
 	switch {
 	case len(call.HandoffID) == 0 || len(call.HandoffID) > maxHandoffField:
 		return handoffErr("bad_request", "handoff_id must be 1 to 200 characters")
@@ -209,14 +214,24 @@ func (s *HandoffWorkerService) Accept(ctx context.Context, main HandoffMain, cal
 		return HandoffAccepted{}, false, handoffErr("unknown_agent", "this worker cannot start agents")
 	}
 	var err error
-	defaults := NewWorkDefaults{Agent: call.AgentKind}
+	defaults := NewWorkDefaults{Agent: call.AgentKind, Account: call.Account}
+	if defaults.Agent == "" && call.Account != "" {
+		defaults.Agent = "claude-code"
+	}
 	if defaults.Agent == "" {
 		defaults, err = s.opts.Agents.NewWorkDefaults(ctx)
 		if err != nil {
 			return HandoffAccepted{}, false, err
 		}
 	}
+	if call.Account != "" {
+		defaults.Account = call.Account
+	}
 	agentKind, err := s.agentKind(defaults.Agent)
+	if err != nil {
+		return HandoffAccepted{}, false, err
+	}
+	account, err := s.handoffAccount(ctx, agentKind, defaults.Account)
 	if err != nil {
 		return HandoffAccepted{}, false, err
 	}
@@ -266,6 +281,13 @@ func (s *HandoffWorkerService) Accept(ctx context.Context, main HandoffMain, cal
 	record := store.Handoff{MainInstanceID: main.InstanceID, HandoffID: call.HandoffID, MainName: main.Name, MainTaskID: call.MainTaskID,
 		TaskID: task.ID, Purpose: call.Purpose, Kind: call.Kind, Repo: call.Repo, Branch: call.Branch, Base: call.Base, AgentKind: agentKind, AgentTier: defaults.Tier,
 		State: store.HandoffPending, RequestHash: hash, CreatedAt: now, UpdatedAt: now}
+	if account != nil {
+		raw, err := json.Marshal(account)
+		if err != nil {
+			return HandoffAccepted{}, false, err
+		}
+		record.AccountIdentity = string(raw)
+	}
 	if err := s.db.CreateHandoffCard(ctx, task, notes, record); errors.Is(err, store.ErrConflict) {
 		// The same handoff arrived twice at once; the first one stands.
 		return s.Accept(ctx, main, call)
@@ -474,6 +496,15 @@ func (s *HandoffWorkerService) start(ctx context.Context, mainInstanceID, handof
 	brief := HandoffBrief(in)
 	opts := AgentSpawnOptions{AgentKind: h.AgentKind, Tier: h.AgentTier, Repo: h.Repo, Branch: h.Branch, Assignment: brief, Unattended: true,
 		Branches: handoffSessionBranches(h), PushedBranch: h.Kind == HandoffPushedBranch, Holder: h.MainTaskID}
+	if h.AccountIdentity != "" {
+		var snapshot store.AgentAccountIdentity
+		if err := json.Unmarshal([]byte(h.AccountIdentity), &snapshot); err != nil {
+			move(store.HandoffFailed, "reading accepted account: "+err.Error())
+			return
+		}
+		opts.AccountIdentity = &snapshot
+		opts.Account = snapshot.Account
+	}
 	if h.Kind == HandoffNewBranch {
 		opts.Ref = h.Base
 	}
@@ -717,4 +748,24 @@ func (s *HandoffWorkerService) publish(t events.EventType, payload any) {
 	if s.opts.Bus != nil {
 		s.opts.Bus.Publish(events.Event{Type: t, At: time.Now(), Payload: payload})
 	}
+}
+
+// handoffAccount resolves the worker's local identity before accepting work.
+func (s *HandoffWorkerService) handoffAccount(ctx context.Context, kind, account string) (*store.AgentAccountIdentity, error) {
+	if account != "" && kind != "claude-code" {
+		return nil, handoffErr("unknown_account", "account requires the claude-code agent")
+	}
+	if resolver, ok := s.opts.Agents.(interface {
+		resolveClaudeAccount(context.Context, AgentSpawnOptions, string) (*store.AgentAccountIdentity, error)
+	}); ok {
+		identity, err := resolver.resolveClaudeAccount(ctx, AgentSpawnOptions{AgentKind: kind, Account: account}, kind)
+		if err != nil {
+			return nil, handoffErr("unknown_account", "%v", err)
+		}
+		return identity, nil
+	}
+	if account != "" {
+		return nil, handoffErr("unknown_account", "this worker cannot resolve Claude account %q", account)
+	}
+	return nil, nil
 }

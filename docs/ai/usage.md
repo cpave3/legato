@@ -150,3 +150,19 @@ This is an operator checklist, not an automatic settings migration. No live sett
   - Policy remains visible when readers are off; without providers or policy there is nothing to draw.
   - Tests of the Agents page stub it, as they stub `InterruptedAgents`.
 - TUI: `App.SetSubscriptionUsage` reads `Snapshot` at start and every minute. `agents.Model.SetSubscriptionUsage` draws a row per provider at the foot of the list and on the ensemble's top line.
+
+## Named Claude accounts
+
+`claude_accounts` is an instance-local, restart-mode list of `{name, label?, config_dir}`. The implicit default remains unchanged; never move or copy its login. Names are lowercase slugs (not `default`), directories must be absolute and normalized, and account roots cannot overlap. The settings list is risky because it chooses local authentication state. Owner login is through the official binary, not the poller:
+
+```sh
+CLAUDE_CONFIG_DIR='/operator-chosen/extra-directory' claude auth login --claudeai
+```
+
+The directory above is a template; the operator chooses the live directory and label. No login is initiated by configuring a reader.
+
+The provider table still describes kinds. A named Claude reading has `provider: claude:<name>`, `kind: claude`, `account: <name>`; its catalog uses `claude.<name>.<window>` meters. The default cache key `claude` and existing `claude.<window>` meters are unchanged, including persisted latches and pins. Rule parsing is structural (`config.ParseUsageMeter`); configuration additionally validates local account references. Readers have independent polling schedules, persisted rows and error state; polling is bounded to four concurrent reads. Account catalog entries remain available when polling is off.
+
+Named credential readers read only the selected directory's credentials file. On macOS, named Keychain polling is explicitly unavailable when no file-backed login exists (`named_keychain_unavailable`); no guessed Keychain name or default/unsuffixed fallback is attempted. Default platform behavior is unchanged. Polling never refreshes, writes or logs out a login.
+
+New work resolves explicit agent/account selection before the usage profile. An explicit account selects Claude; explicit Claude without an account selects the implicit default. Profiles carry independent author and reviewer accounts. Spawn, macros, workflow inputs, handoffs, swarm configuration and Reeve configuration carry stable IDs; workers resolve those IDs locally. Resume, reload, interrupted recovery and history restore keep the execution's config identity and transcript root, refusing removed/remapped accounts. Named subscription launches reject conflicting environment/settings/provider overrides with sanitized guidance; the implicit default retains its existing auth behavior. See [Claude Code](claude-code-native.md) and [Sandbox](sandbox.md).

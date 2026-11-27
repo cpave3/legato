@@ -3,6 +3,7 @@ import { agentKindLabel } from "../lib/agentKind"
 import { macroMessage, renameMacro, saveMacro, type AgentTier, type Macro, type MacroFields } from "../lib/macros"
 import { Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogPanel, DialogTitle } from "./ui/Dialog"
 import { primaryButton, quietButton } from "./settings/SettingsUI"
+import type { Adapters } from "../lib/adapters"
 
 const input = "min-h-11 w-full rounded-lg border border-lw-line-strong bg-lw-ground px-3 py-2 text-base text-lw-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lw-accent-ring disabled:opacity-60 sm:min-h-10 sm:text-sm"
 const pill = "inline-flex min-h-11 cursor-pointer items-center rounded-lg border px-3 text-sm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-lw-accent-ring sm:min-h-9"
@@ -38,7 +39,7 @@ export function MacroForm({ baseUrl, macro, macros, adapters, tiers, onClose, on
   baseUrl: string
   macro: Macro | null
   macros: Macro[]
-  adapters: { adapters: string[]; default: string }
+  adapters: Adapters
   tiers: Record<string, AgentTier[]>
   onClose: () => void
   onSaved: () => void | Promise<void>
@@ -48,12 +49,13 @@ export function MacroForm({ baseUrl, macro, macros, adapters, tiers, onClose, on
   const [applies, setApplies] = useState<string>(macro?.applies_to ?? "")
   const [agent, setAgent] = useState(macro?.agent ?? "")
   const [tier, setTier] = useState(macro?.tier ?? "")
+  const [account, setAccount] = useState(macro?.account ?? "")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const id = useId()
 
   const builtin = Boolean(macro?.builtin)
-  const effectiveAgent = agent || adapters.default
+  const effectiveAgent = agent || (account ? "claude-code" : adapters.default)
   const agentTiers = tiers[effectiveAgent] ?? []
   const unknownTier = tier !== "" && !agentTiers.some((t) => t.name === tier)
   const renamed = macro !== null && !builtin && name.trim() !== "" && !same(name, macro.name)
@@ -66,13 +68,14 @@ export function MacroForm({ baseUrl, macro, macros, adapters, tiers, onClose, on
 
   const chooseAgent = (next: string) => {
     setAgent(next)
+    setAccount("")
     if (!(tiers[next || adapters.default] ?? []).some((t) => t.name === tier)) setTier("")
   }
   const save = async () => {
     if (saving || !name.trim() || !message.trim() || taken) return
     setSaving(true)
     setError("")
-    const fields: MacroFields = { message, applies_to: applies as MacroFields["applies_to"], agent, tier }
+    const fields: MacroFields = { message, applies_to: applies as MacroFields["applies_to"], agent, tier, ...(account ? { account } : {}) }
     try {
       if (macro === null) {
         await saveMacro(baseUrl, name.trim(), fields)
@@ -119,6 +122,14 @@ export function MacroForm({ baseUrl, macro, macros, adapters, tiers, onClose, on
             <Choices label={<>Agent to start <Marker /></>} name="agent" value={agent} onChange={chooseAgent} options={agents} />
             <span className={help}>Used when the task has no agent running.</span>
           </div>
+          {effectiveAgent === "claude-code" && ((adapters.accounts?.length ?? 0) > 0 || account) && <div className="flex flex-col gap-1.5">
+            <label htmlFor={`${id}-account`} className="text-[13px] font-medium">Account</label>
+            <select id={`${id}-account`} className={input} value={account} onChange={(e) => setAccount(e.target.value)}>
+              <option value="">{agent ? "Default account" : "Follow usage profile"}</option>
+              {(adapters.accounts ?? []).map((a) => <option key={a.name} value={a.name}>{a.label || a.name}</option>)}
+              {account && !(adapters.accounts ?? []).some((a) => a.name === account) && <option value={account}>{account} (not configured)</option>}
+            </select>
+          </div>}
           {(agentTiers.length > 0 || unknownTier) && <div className="flex flex-col gap-1.5">
             <label htmlFor={`${id}-tier`} className="flex items-baseline gap-1.5 text-[13px] font-medium">Model tier <Marker /></label>
             <select id={`${id}-tier`} aria-describedby={`${id}-tier-help`} className={input} value={tier} onChange={(e) => setTier(e.target.value)}>

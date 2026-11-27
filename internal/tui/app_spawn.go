@@ -4,6 +4,7 @@ import (
 	"context"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/overlay"
 	"github.com/cpave3/legato/internal/tui/statusbar"
@@ -12,6 +13,15 @@ import (
 // spawnSuggestionLimit is how many directories the spawn overlay is given
 // for a typed path. It draws as many as it has room for.
 const spawnSuggestionLimit = 8
+
+// SetClaudeAccounts offers the configured account names without retaining
+// their credential directories in the TUI model.
+func (a *App) SetClaudeAccounts(accounts []config.ClaudeAccount) {
+	a.claudeAccounts = make([]overlay.SpawnAccount, len(accounts))
+	for i, account := range accounts {
+		a.claudeAccounts[i] = overlay.SpawnAccount{ID: account.Name, Label: account.Label}
+	}
+}
 
 // DirectoryService answers where an agent can be started: the directory
 // presets, and the directories that complete a path as it is typed.

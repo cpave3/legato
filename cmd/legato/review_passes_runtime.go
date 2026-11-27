@@ -28,7 +28,7 @@ func reviewPassesAdvert(cfg *config.Config, db *store.Store) func() *service.Rev
 		}
 		advert := &service.ReviewPassesAdvert{
 			Defaults: service.ReviewPassSettings{
-				Enabled: true, Agent: rp.Reviewer.Agent, Model: rp.Reviewer.Model, Tier: rp.Reviewer.Tier,
+				Enabled: true, Agent: rp.Reviewer.Agent, Account: rp.Reviewer.Account, Model: rp.Reviewer.Model, Tier: rp.Reviewer.Tier,
 				Skill: rp.Reviewer.Skill, MaxPasses: rp.MaxPasses,
 			},
 			Skills: []string{},

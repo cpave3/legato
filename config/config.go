@@ -68,7 +68,8 @@ type Config struct {
 	Updates UpdatesConfig `yaml:"updates"`
 	// Usage is reading the Claude and Codex subscriptions' usage limits.
 	// See docs/ai/usage.md.
-	Usage UsageConfig `yaml:"usage"`
+	Usage          UsageConfig     `yaml:"usage"`
+	ClaudeAccounts []ClaudeAccount `yaml:"claude_accounts"`
 	// Reeve is the agent of this Legato itself.
 	Reeve ReeveConfig `yaml:"reeve"`
 	// Engram is whether agents can be started as engrams. See
@@ -220,8 +221,9 @@ type TierConfig struct {
 
 // SwarmParticipantConfig selects the adapter and model for a swarm role.
 type SwarmParticipantConfig struct {
-	Agent string `yaml:"agent"`
-	Model string `yaml:"model"`
+	Agent   string `yaml:"agent"`
+	Account string `yaml:"account"`
+	Model   string `yaml:"model"`
 }
 
 // SwarmConfig holds swarm-orchestration settings.
@@ -1300,6 +1302,7 @@ type ReeveConfig struct {
 	// "the Reeve"; empty keeps "the Reeve". Plain text (CheckReeveName).
 	Name       string   `yaml:"name"`
 	Agent      string   `yaml:"agent"`
+	Account    string   `yaml:"account"`
 	Model      string   `yaml:"model"`
 	LaunchArgs []string `yaml:"launch_args"`
 	// IdleTimeout is how long a session may be idle before it is

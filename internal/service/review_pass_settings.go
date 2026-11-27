@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/cpave3/legato/internal/engine/store"
 )
 
 // ReviewPassSettings are the review settings of one handoff: the worker's
@@ -14,6 +16,7 @@ type ReviewPassSettings struct {
 	ReviewerOverride *ReviewPassOverride `json:"reviewer_override,omitempty"`
 	Enabled          bool                `json:"enabled"`
 	Agent            string              `json:"agent"`
+	Account          string              `json:"account,omitempty"`
 	Model            string              `json:"model,omitempty"`
 	Tier             string              `json:"tier,omitempty"`
 	Skill            string              `json:"skill,omitempty"`
@@ -22,6 +25,8 @@ type ReviewPassSettings struct {
 	// (and not also the agent tools' own), which Claude Code names
 	// legato-skills:<name>.
 	SkillManaged bool `json:"skill_managed,omitempty"`
+	// accountIdentity is local to a persisted pass, never a worker advert.
+	accountIdentity *store.AgentAccountIdentity
 }
 
 // ReviewAdapter is an agent tool a worker can start a reviewer with, and

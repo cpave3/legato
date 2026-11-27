@@ -190,7 +190,7 @@ func macroSettingEntries(cfg *config.Config, rows []store.SettingEntry) []Settin
 	var out []SettingEntryValue
 	for _, m := range macroEntries(cfg) {
 		value := map[string]any{"keys": m.Keys}
-		for k, v := range map[string]string{"applies_to": m.AppliesTo, "agent": m.Agent, "tier": m.Tier} {
+		for k, v := range map[string]string{"applies_to": m.AppliesTo, "agent": m.Agent, "tier": m.Tier, "account": m.Account} {
 			if v != "" {
 				value[k] = v
 			}
@@ -273,12 +273,13 @@ type storedMacro struct {
 	Keys      string `json:"keys,omitempty"`
 	AppliesTo string `json:"applies_to,omitempty"`
 	Agent     string `json:"agent,omitempty"`
+	Account   string `json:"account,omitempty"`
 	Tier      string `json:"tier,omitempty"`
 	Favorite  bool   `json:"favorite,omitempty"`
 }
 
 func macroValue(m macros.Macro) (json.RawMessage, error) {
-	return json.Marshal(storedMacro{Keys: m.Keys, AppliesTo: m.AppliesTo, Agent: m.Agent, Tier: m.Tier, Favorite: m.Favorite})
+	return json.Marshal(storedMacro{Keys: m.Keys, AppliesTo: m.AppliesTo, Agent: m.Agent, Tier: m.Tier, Account: m.Account, Favorite: m.Favorite})
 }
 
 // SetFavorite stars a macro or takes its star away. An unedited built-in

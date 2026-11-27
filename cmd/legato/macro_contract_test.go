@@ -130,3 +130,11 @@ func captureStderr(t *testing.T, run func()) string {
 	os.Stderr = old
 	return string(<-done)
 }
+
+func TestMacroRunExplicitClaudeAccountReachesSpawn(t *testing.T) {
+	spy := macroRunFixture(t)
+	output := captureStdout(t, func() int { return runCLI([]string{"macro", "run", "plan", "T1", "--account", "work", "--json"}) })
+	if len(spy.spawned) != 1 || spy.spawned[0].Account != "work" || spy.spawned[0].AgentKind != "claude-code" {
+		t.Fatalf("account was not launched: %s, %+v", output, spy.spawned)
+	}
+}

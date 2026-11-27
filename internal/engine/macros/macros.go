@@ -28,7 +28,8 @@ type Macro struct {
 	// Agent is the agent tool (an adapter's kind) to start; "" the default.
 	Agent string `yaml:"agent,omitempty" json:"agent,omitempty"`
 	// Tier is the adapter's tier to start with; "" none.
-	Tier string `yaml:"tier,omitempty" json:"tier,omitempty"`
+	Account string `yaml:"account,omitempty" json:"account,omitempty"`
+	Tier    string `yaml:"tier,omitempty" json:"tier,omitempty"`
 	// Favorite marks a macro the operator starred. Pickers show the
 	// favourites first and the rest behind Show all; with none starred,
 	// every macro counts as one.
@@ -42,6 +43,7 @@ type macroFields struct {
 	Message   string `yaml:"message" json:"message"`
 	AppliesTo string `yaml:"applies_to" json:"applies_to"`
 	Agent     string `yaml:"agent" json:"agent"`
+	Account   string `yaml:"account" json:"account"`
 	Tier      string `yaml:"tier" json:"tier"`
 	Favorite  bool   `yaml:"favorite" json:"favorite"`
 }
@@ -54,7 +56,7 @@ func (f macroFields) macro() (Macro, error) {
 		}
 		keys = f.Message
 	}
-	return Macro{Name: f.Name, Keys: keys, AppliesTo: f.AppliesTo, Agent: f.Agent, Tier: f.Tier, Favorite: f.Favorite}, nil
+	return Macro{Name: f.Name, Keys: keys, AppliesTo: f.AppliesTo, Agent: f.Agent, Tier: f.Tier, Account: f.Account, Favorite: f.Favorite}, nil
 }
 
 // UnmarshalYAML reads a macro, its message as keys or message.

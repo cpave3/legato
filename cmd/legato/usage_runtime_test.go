@@ -3,7 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -179,5 +184,48 @@ func TestASurvivingProcessTakesOverThePoller(t *testing.T) {
 		t.Fatalf("the lock was kept after stopping: %v", err)
 	} else {
 		again()
+	}
+}
+
+func TestUsageRuntimeReadsEachNamedClaudeDirectory(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("default HostCredentials accesses the real Keychain; covered with Linux file fixtures only")
+	}
+	cfg := config.Defaults()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	named := filepath.Join(t.TempDir(), "work")
+	cfg.ClaudeAccounts = []config.ClaudeAccount{{Name: "work", Label: "Work", ConfigDir: named}}
+	for dir, token := range map[string]string{filepath.Join(home, ".claude"): "fixture-default", named: "fixture-work"} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte(fmt.Sprintf(`{"claudeAiOauth":{"accessToken":%q,"expiresAt":%d}}`, token, time.Now().Add(time.Hour).UnixMilli())), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		percent := 10
+		if r.Header.Get("Authorization") == "Bearer fixture-work" {
+			percent = 80
+		}
+		fmt.Fprintf(w, `{"seven_day":{"utilization":%d,"resets_at":null}}`, percent)
+	}))
+	defer srv.Close()
+	readers := usageReaders(cfg, nil)
+	if len(readers) != 3 {
+		t.Fatalf("got %d readers, want two Claude accounts and Codex", len(readers))
+	}
+	for i, want := range []float64{10, 80} {
+		reader := readers[i].(*service.ClaudeUsageReader)
+		reader.Client.BaseURL = srv.URL
+		got, err := reader.Read(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Windows) != 1 || got.Windows[0].UsedPercent != want {
+			t.Fatalf("account %d used another login", i)
+		}
 	}
 }

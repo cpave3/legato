@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"testing"
 )
@@ -17,8 +16,14 @@ func TestUsageProfileMigrationPreservesPartialStateAndHistory(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			path := filepath.Join(t.TempDir(), "usage.db")
-			db, err := New(path)
+			db := newStoreAtMigration(t, path, "157_review_loop_approval_dismissed.sql")
+			// Model partially created usage tables without replaying unrelated
+			// later migrations over an already-upgraded schema.
+			schema, err := migrationsFS.ReadFile("migrations/158_usage_profiles.sql")
 			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.DB().Exec(string(schema)); err != nil {
 				t.Fatal(err)
 			}
 			state := `{"profile":{"name":"conserving"},"pin":{"profile":"conserving"}}`
@@ -35,13 +40,6 @@ func TestUsageProfileMigrationPreservesPartialStateAndHistory(t *testing.T) {
 				if _, err := db.DB().Exec(`DROP TABLE usage_profile_switches`); err != nil {
 					t.Fatal(err)
 				}
-			}
-			var version int
-			if err := db.DB().Get(&version, `SELECT version FROM schema_migrations WHERE name='158_usage_profiles.sql'`); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := db.DB().Exec(fmt.Sprintf(`DELETE FROM schema_migrations WHERE version >= %d; PRAGMA user_version=%d`, version, version-1)); err != nil {
-				t.Fatal(err)
 			}
 			if err := db.Close(); err != nil {
 				t.Fatal(err)

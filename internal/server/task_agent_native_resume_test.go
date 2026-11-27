@@ -51,6 +51,9 @@ func TestTaskAgentEndpointLaunchesSavedNativeConversation(t *testing.T) {
 					t.Fatal(err)
 				}
 				cwd, providerHome := t.TempDir(), t.TempDir()
+				if kind == "claude-code" {
+					t.Setenv("CLAUDE_CONFIG_DIR", providerHome)
+				}
 				id, err := db.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: "task-resume", AgentKind: kind, TmuxSession: "old", Status: "running"})
 				if err != nil {
 					t.Fatal(err)
@@ -84,7 +87,7 @@ func TestTaskAgentEndpointLaunchesSavedNativeConversation(t *testing.T) {
 					t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 				}
 				if policy != "new" {
-					want := "claude --resume actual-provider-id"
+					want := "env CLAUDE_CONFIG_DIR=" + providerHome + " claude --resume actual-provider-id"
 					if kind == "codex" {
 						want = "legato agent codex -- resume actual-provider-id"
 					}
@@ -156,7 +159,11 @@ func seedNativeResumeRecord(t *testing.T, db *store.Store, kind string) *store.T
 	if err := db.CreateExecution(ctx, store.Execution{ID: executionID, Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: "task-resume", ExecutionTaskID: "task-resume", AgentKind: kind, AgentSessionID: &id, StartedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.RecordTaskNativeSession(ctx, "task-resume", id, executionID, kind, "saved-"+kind, t.TempDir(), t.TempDir()); err != nil {
+	storage := t.TempDir()
+	if kind == "claude-code" {
+		t.Setenv("CLAUDE_CONFIG_DIR", storage)
+	}
+	if _, err := db.RecordTaskNativeSession(ctx, "task-resume", id, executionID, kind, "saved-"+kind, t.TempDir(), storage); err != nil {
 		t.Fatal(err)
 	}
 	finishNativeResumeAgent(t, db)
@@ -233,7 +240,7 @@ func TestTaskAgentNativeResumeSwitchesConfiguredProvidersWithoutOverwrite(t *tes
 			} {
 				postNativeResumeAgent(t, server, request.body)
 				selected := saved[request.kind]
-				prefix, storageKey, otherKey := "claude --resume ", "CLAUDE_CONFIG_DIR", "CODEX_HOME"
+				prefix, storageKey, otherKey := "env CLAUDE_CONFIG_DIR="+selected.StorageDir+" claude --resume ", "CLAUDE_CONFIG_DIR", "CODEX_HOME"
 				if request.kind == "codex" {
 					prefix, storageKey, otherKey = "legato agent codex -- resume ", "CODEX_HOME", "CLAUDE_CONFIG_DIR"
 				}
@@ -333,7 +340,7 @@ esac
 			if err := os.Symlink(catPath, filepath.Join(binDir, "cat")); err != nil {
 				t.Fatal(err)
 			}
-			t.Setenv("PATH", binDir)
+			t.Setenv("PATH", binDir+":/usr/bin:/bin")
 			freshCWD := t.TempDir()
 			mt := &nativeResumeProcessTmux{}
 			agents := service.NewAgentService(db, mt, freshCWD, service.AgentServiceOptions{Adapter: adapter, DisablePeerAwareness: true})
@@ -361,7 +368,7 @@ esac
 				}
 				finishNativeResumeAgent(t, db)
 			}
-			prefix := tool + " --resume "
+			prefix := "env CLAUDE_CONFIG_DIR=" + saved.StorageDir + " " + tool + " --resume "
 			if kind == "codex" {
 				prefix = tool + " resume "
 			}
@@ -375,11 +382,11 @@ esac
 			}
 			postNativeResumeAgent(t, server, `{"session_policy":"new"}`)
 			pane, err := agents.CaptureOutput(context.Background(), "task-resume")
-			if err != nil || pane != "fresh conversation launched\n" || mt.exitErr != nil || mt.stderr.Len() != 0 || len(mt.commands) != 4 || !freshLaunch(mt.command, tool) || mt.cwd != freshCWD {
+			if err != nil || pane != "fresh conversation launched\n" || mt.exitErr != nil || mt.stderr.Len() != 0 || len(mt.commands) != 4 || !freshLaunch(strings.TrimPrefix(mt.command, "env CLAUDE_CONFIG_DIR="+saved.StorageDir+" "), tool) || mt.cwd != freshCWD {
 				t.Fatalf("New: pane %q, error %v, exit %v, stderr %q, commands %q, cwd %q", pane, err, mt.exitErr, mt.stderr.String(), mt.commands, mt.cwd)
 			}
 			env := nativeResumeEnv(mt.env)
-			if env["LEGATO_SESSION_POLICY"] != "new" || env["LEGATO_RESUME_SESSION_ID"] != "" || env["CLAUDE_CONFIG_DIR"] != "" || env["CODEX_HOME"] != "" {
+			if env["LEGATO_SESSION_POLICY"] != "new" || env["LEGATO_RESUME_SESSION_ID"] != "" || env["CLAUDE_CONFIG_DIR"] != os.Getenv("CLAUDE_CONFIG_DIR") || env["CODEX_HOME"] != "" {
 				t.Fatalf("New retained resume environment: %v", env)
 			}
 			if actual := readNativeResumeRecord(t, db, kind); !reflect.DeepEqual(actual, saved) {
