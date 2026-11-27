@@ -354,30 +354,7 @@ func (s *ReviewPassService) addStacked(ctx context.Context, l ReviewLoop, rec *s
 		return err
 	}
 	top := layers[len(layers)-1]
-	used := map[string]bool{}
-	numbers := []int{}
-	for _, layer := range layers {
-		branch := layer.LocalBranch
-		if branch == "" {
-			branch = layer.Branch
-		}
-		used[branch] = true
-		numbers = append(numbers, layer.Number)
-	}
-	var add []store.ReviewLoopPR
-	for _, pr := range w.Stacked {
-		if (pr.HeadRepo != "" && !strings.EqualFold(pr.HeadRepo, rec.Repo)) || !sameLogin(pr.Author, top.Author) {
-			continue // not the author's own layer
-		}
-		local := pr.Branch
-		if used[local] || !stackgraph.ValidBranchName(local) {
-			local = reviewRunBranch(pr.Number)
-		}
-		used[local] = true
-		numbers = append(numbers, pr.Number)
-		add = append(add, store.ReviewLoopPR{Number: pr.Number, Branch: pr.Branch, Base: pr.Base, Title: pr.Title, URL: pr.URL, HeadRepo: pr.HeadRepo,
-			State: "open", Draft: pr.Draft, Author: pr.Author, AuthorAssociation: pr.AuthorAssociation, AuthorTask: rec.AuthorTask, LocalBranch: local})
-	}
+	add, numbers := stackedLayersToAdd(rec, layers, w.Stacked)
 	if len(add) == 0 {
 		return nil
 	}
@@ -408,6 +385,39 @@ func (s *ReviewPassService) addStacked(ctx context.Context, l ReviewLoop, rec *s
 	// read it as moved, so the next pass reviews it (confirm).
 	s.changed(l.TaskID)
 	return nil
+}
+
+// stackedLayersToAdd are the pull requests stacked on a loop's top layer
+// that join it, with the numbers of the loop's layers and theirs: only the
+// author's own (the top layer's author, not from a fork), each checked out
+// on its own branch unless a layer has that branch already or git would
+// refuse its name, then on legato-review/pr-N.
+func stackedLayersToAdd(rec *store.ReviewLoop, layers []store.ReviewLoopPR, stacked []ReviewGitHubPR) (add []store.ReviewLoopPR, numbers []int) {
+	top := layers[len(layers)-1]
+	used := map[string]bool{}
+	numbers = []int{}
+	for _, layer := range layers {
+		branch := layer.LocalBranch
+		if branch == "" {
+			branch = layer.Branch
+		}
+		used[branch] = true
+		numbers = append(numbers, layer.Number)
+	}
+	for _, pr := range stacked {
+		if (pr.HeadRepo != "" && !strings.EqualFold(pr.HeadRepo, rec.Repo)) || !sameLogin(pr.Author, top.Author) {
+			continue // not the author's own layer
+		}
+		local := pr.Branch
+		if used[local] || !stackgraph.ValidBranchName(local) {
+			local = reviewRunBranch(pr.Number)
+		}
+		used[local] = true
+		numbers = append(numbers, pr.Number)
+		add = append(add, store.ReviewLoopPR{Number: pr.Number, Branch: pr.Branch, Base: pr.Base, Title: pr.Title, URL: pr.URL, HeadRepo: pr.HeadRepo,
+			State: "open", Draft: pr.Draft, Author: pr.Author, AuthorAssociation: pr.AuthorAssociation, AuthorTask: rec.AuthorTask, LocalBranch: local})
+	}
+	return add, numbers
 }
 
 // GitHub's words for whether a pull request can merge (PRWatch.Mergeable,
