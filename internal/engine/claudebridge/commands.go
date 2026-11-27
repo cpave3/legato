@@ -167,7 +167,7 @@ func (b *Bridge) handleModPermission(w http.ResponseWriter, r *http.Request) {
 		b.awaitPermission(w, r, body.RequestID, waiter)
 		return
 	}
-	if len(b.subscribers) == 0 {
+	if b.stream.Viewers() == 0 {
 		b.mu.Unlock()
 		writeJSON(w, http.StatusOK, askInTerminal)
 		return
