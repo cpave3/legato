@@ -32,7 +32,7 @@ func (a *agentService) discoverClaudeBridge(ctx context.Context, taskID string, 
 	if !isLoopbackHTTPURL(lockfile.URL) || !nativeEndpointServes(ctx, lockfile.URL, lockfile.SessionID, taskID) {
 		return ErrChimeraDiscoveryNotFound
 	}
-	if err := a.store.UpdateChimeraDiscoveryForSession(ctx, agentSessionID, lockfile.SessionID, lockfile.URL); err != nil {
+	if err := a.bindBridge(ctx, agentSessionID, lockfile.SessionID, lockfile.URL); err != nil {
 		return fmt.Errorf("persisting Claude Code bridge discovery: %w", err)
 	}
 	if a.bus != nil {

@@ -2925,6 +2925,46 @@ var (
 
 const chimeraDiscoveryRequestTimeout = 2 * time.Second
 
+type operatorUpgradeKey struct{}
+
+// WithOperatorUpgrade marks a discovery as the operator's own upgrade of an
+// agent to its native panel. Only such a discovery may bind an agent the
+// operator switched to its terminal (native_off), and it ends that switch;
+// every other discovery leaves such an agent where the operator put it.
+func WithOperatorUpgrade(ctx context.Context) context.Context {
+	return context.WithValue(ctx, operatorUpgradeKey{}, true)
+}
+
+func isOperatorUpgrade(ctx context.Context) bool {
+	upgrade, _ := ctx.Value(operatorUpgradeKey{}).(bool)
+	return upgrade
+}
+
+// bindDiscovered binds an unbound row to a verified Chimera endpoint, with
+// the operator's authority when the discovery is theirs.
+func (a *agentService) bindDiscovered(ctx context.Context, agentSessionID int, sessionID, endpoint string) (bool, error) {
+	if isOperatorUpgrade(ctx) {
+		return a.store.UpgradeChimeraDiscoveryIfUnbound(ctx, agentSessionID, sessionID, endpoint)
+	}
+	return a.store.BindChimeraDiscoveryIfUnbound(ctx, agentSessionID, sessionID, endpoint)
+}
+
+// bindBridge binds a verified bridge to the exact row, with the operator's
+// authority when the discovery is theirs.
+func (a *agentService) bindBridge(ctx context.Context, agentSessionID int, sessionID, endpoint string) error {
+	if isOperatorUpgrade(ctx) {
+		return a.store.UpdateChimeraDiscoveryForSession(ctx, agentSessionID, sessionID, endpoint)
+	}
+	bound, err := a.store.BindNativeEndpointUnlessOff(ctx, agentSessionID, sessionID, endpoint)
+	if err != nil {
+		return err
+	}
+	if !bound {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
 // DiscoverChimera binds the active task agent to its native endpoint. For a
 // Chimera agent it scans all current Chimera lockfiles and upgrades only when
 // exactly one live endpoint serves the task-bound session; a Claude Code or
@@ -3008,7 +3048,7 @@ func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID 
 	if len(valid) > 1 {
 		return ErrChimeraDiscoveryAmbiguous
 	}
-	if bound, err := a.store.BindChimeraDiscoveryIfUnbound(ctx, agentSessionID, valid[0].sessionID, valid[0].endpoint); err != nil {
+	if bound, err := a.bindDiscovered(ctx, agentSessionID, valid[0].sessionID, valid[0].endpoint); err != nil {
 		return fmt.Errorf("persisting Chimera discovery: %w", err)
 	} else if !bound {
 		return store.ErrNotFound

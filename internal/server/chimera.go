@@ -53,7 +53,7 @@ func (s *Server) chimeraDiscoverHandler() http.HandlerFunc {
 			http.Error(w, native+" agent is already native", http.StatusConflict)
 			return
 		}
-		if err := s.agents.DiscoverChimera(r.Context(), taskID); err != nil {
+		if err := s.agents.DiscoverChimera(service.WithOperatorUpgrade(r.Context()), taskID); err != nil {
 			switch {
 			case errors.Is(err, service.ErrChimeraDiscoveryNotFound) && session.AgentKind == "claude-code":
 				http.Error(w, "no live Claude Code bridge for this task was found; the session may not have loaded the Legato mod", http.StatusNotFound)
