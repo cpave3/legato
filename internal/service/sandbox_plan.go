@@ -458,11 +458,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		}
 		in.ToolState = state
 		in.ClaudeConfigDir = real(in.ClaudeConfigDir)
-		protected := make([]string, len(in.ProtectedClaudeAccounts))
-		for i, p := range in.ProtectedClaudeAccounts {
-			protected[i] = real(p)
-		}
-		in.ProtectedClaudeAccounts = protected
+		in.ProtectedClaudeAccounts = realPaths(in.ProtectedClaudeAccounts, real)
 		in.GH.Wrapper, in.GH.Real, in.GH.RealMount = real(in.GH.Wrapper), real(in.GH.Real), real(in.GH.RealMount)
 		overlays := make([]string, len(in.GH.Overlays))
 		for i, p := range in.GH.Overlays {
@@ -479,10 +475,8 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	no := forbidden(in)
 	scratchRoot := scratchFor(in).Root
 	check := func(path string) error {
-		for _, root := range in.ProtectedClaudeAccounts {
-			if within(path, root) {
-				return fmt.Errorf("%s is another Claude account's private state", path)
-			}
+		if err := inProtectedClaudeAccount(in.ProtectedClaudeAccounts, path); err != nil {
+			return err
 		}
 		// The scratch folder before the exemptions: one inside the
 		// repository cache is no less private.
@@ -542,28 +536,15 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		for _, rel := range toolchainsRW {
 			add(filepath.Join(in.Home, rel), sandbox.ReadWrite)
 		}
-		// NuGet's package cache follows DOTNET_CLI_HOME unless NUGET_PACKAGES
-		// names it, and an agent that moves DOTNET_CLI_HOME would restore from
-		// the feeds instead of the shared cache.
-		nuget := filepath.Join(in.Home, ".nuget/packages")
-		for _, m := range mounts {
-			if m.Kind == sandbox.ReadWrite && m.Path == nuget && m.Dest == "" {
-				plan.Setenv["NUGET_PACKAGES"] = nuget
-			}
+		if nuget, ok := nugetPackagesEnv(in.Home, mounts); ok {
+			plan.Setenv["NUGET_PACKAGES"] = nuget
 		}
 	}
 	statePaths := agentState[in.AgentKind]
-	if in.AgentKind == "claude-code" && in.ClaudeConfigDir != "" {
-		if err := check(in.ClaudeConfigDir); err != nil {
+	if usesClaudeAccount(in) {
+		if err := claudeAccountStateMounts(in, add, check); err != nil {
 			return sandbox.Plan{}, err
 		}
-		add(in.ClaudeConfigDir, sandbox.ReadWrite)
-		if !in.ClaudeConfigExplicit {
-			for _, rel := range []string{".claude.json", ".cache/claude", ".local/state/claude"} {
-				add(filepath.Join(in.Home, rel), sandbox.ReadWrite)
-			}
-		}
-		add(filepath.Join(in.Home, ".local/share/claude"), sandbox.ReadOnly)
 		statePaths = nil
 	}
 	for _, rel := range statePaths {
@@ -703,7 +684,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		info := in.FS.Probe(f)
 		// The scratch folder is covered even inside an exempt mount (the
 		// repository cache).
-		if !info.Exists || (allowedInside(in, f) && f != scratchRoot && !slices.Contains(in.ProtectedClaudeAccounts, f)) || seen[f] {
+		if !info.Exists || (allowedInside(in, f) && !coveredInsideExemptMounts(in, scratchRoot, f)) || seen[f] {
 			continue
 		}
 		seen[f] = true
@@ -766,6 +747,73 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		plan.Unsetenv = append(plan.Unsetenv, "DOCKER_CONTEXT", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "DOCKER_CONFIG")
 	}
 	return plan, nil
+}
+
+// realPaths is each of paths where it really is, in the same order.
+func realPaths(paths []string, real func(string) string) []string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = real(p)
+	}
+	return out
+}
+
+// inProtectedClaudeAccount refuses a path at or inside another Claude
+// account's folder. It comes before every other check, so neither the
+// scratch folder's words nor an exemption decide such a path.
+func inProtectedClaudeAccount(protected []string, path string) error {
+	for _, root := range protected {
+		if within(path, root) {
+			return fmt.Errorf("%s is another Claude account's private state", path)
+		}
+	}
+	return nil
+}
+
+// usesClaudeAccount says whether the agent is Claude Code started on a
+// Claude account (its CLAUDE_CONFIG_DIR), whose state replaces Claude
+// Code's usual state in the home.
+func usesClaudeAccount(in SandboxPlanInput) bool {
+	return in.AgentKind == "claude-code" && in.ClaudeConfigDir != ""
+}
+
+// claudeAccountStateMounts adds Claude Code's state for its account: the
+// account's folder, checked like any mount, read-write; for the default
+// account (not named explicitly) the home's other Claude files read-write
+// too; and the installation in ~/.local/share/claude read-only.
+func claudeAccountStateMounts(in SandboxPlanInput, add func(string, sandbox.Kind), check func(string) error) error {
+	if err := check(in.ClaudeConfigDir); err != nil {
+		return err
+	}
+	add(in.ClaudeConfigDir, sandbox.ReadWrite)
+	if !in.ClaudeConfigExplicit {
+		for _, rel := range []string{".claude.json", ".cache/claude", ".local/state/claude"} {
+			add(filepath.Join(in.Home, rel), sandbox.ReadWrite)
+		}
+	}
+	add(filepath.Join(in.Home, ".local/share/claude"), sandbox.ReadOnly)
+	return nil
+}
+
+// nugetPackagesEnv is the value of NUGET_PACKAGES when NuGet's package
+// cache is mounted read-write at its own path. The cache follows
+// DOTNET_CLI_HOME unless NUGET_PACKAGES names it, and an agent that moves
+// DOTNET_CLI_HOME would restore from the feeds instead of the shared cache.
+func nugetPackagesEnv(home string, mounts []sandbox.Mount) (string, bool) {
+	nuget := filepath.Join(home, ".nuget/packages")
+	for _, m := range mounts {
+		if m.Kind == sandbox.ReadWrite && m.Path == nuget && m.Dest == "" {
+			return nuget, true
+		}
+	}
+	return "", false
+}
+
+// coveredInsideExemptMounts are the forbidden paths covered even inside a
+// mount that may sit in a forbidden folder (the repository cache): the
+// scratch folder, and another Claude account's folder.
+func coveredInsideExemptMounts(in SandboxPlanInput, scratchRoot, path string) bool {
+	return path == scratchRoot || slices.Contains(in.ProtectedClaudeAccounts, path)
 }
 
 // sshConfigMounts put the copies of the system ssh configuration over the
