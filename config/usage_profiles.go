@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -71,14 +72,10 @@ func ValidateUsageProfiles(cfg *Config) error {
 	return nil
 }
 
-// IsUsageMeter reports whether meter is one of the six qualified subscription meters.
+// IsUsageMeter reports whether meter is one of the qualified subscription
+// meters the providers declare (UsageQualifiedMeters).
 func IsUsageMeter(meter string) bool {
-	switch meter {
-	case "claude.five_hour", "claude.weekly", "claude.weekly_opus", "claude.weekly_sonnet", "codex.five_hour", "codex.weekly":
-		return true
-	default:
-		return false
-	}
+	return slices.Contains(UsageQualifiedMeters(), meter)
 }
 
 func usageName(seen map[string]bool, name, path string) error {

@@ -159,7 +159,7 @@ function Labelled({ field, children }: { field: Pick<FormField, "label" | "help"
 
 // EntryForm edits one entry with its list's form, or as YAML. Fields the
 // form does not know are kept as they are.
-export function EntryForm({ list, form, entry, onSave, onCancel, lists = [] }: { lists?: ConfigList[]; list: ConfigList; form: ListForm; entry?: ConfigListEntry; onSave: (name: string, value: unknown) => Promise<void>; onCancel: () => void }) {
+export function EntryForm({ list, form, entry, onSave, onCancel, lists = [], meters = [] }: { lists?: ConfigList[]; list: ConfigList; form: ListForm; entry?: ConfigListEntry; meters?: string[]; onSave: (name: string, value: unknown) => Promise<void>; onCancel: () => void }) {
   const initial: Value = form.scalar ? (typeof entry?.value === "string" ? entry.value : "") : asObject(entry?.value)
   const [name, setName] = useState(entry?.name ?? "")
   const [draft, setDraft] = useState<Value>(initial)
@@ -202,9 +202,13 @@ export function EntryForm({ list, form, entry, onSave, onCancel, lists = [] }: {
   }
   const resolvedFields = form.fields.map((field): FormField => {
     if (!field.optionsFrom) return field
-    const names = field.optionsFrom === "profiles"
-      ? lists.find((l) => l.key === "usage.profiles")?.entries.map((e) => e.name) ?? []
-      : Object.keys(asObject(asObject(lists.find((l) => l.key === "adapters")?.entries.find((e) => e.name === fieldValue(draft, field.agentKey ?? "agent"))?.value).tiers))
+    // The usage rule meters come from the server's usage catalog, not a
+    // list of our own; profiles and tiers come from the settings lists.
+    const names = field.optionsFrom === "usage_meters"
+      ? meters
+      : field.optionsFrom === "profiles"
+        ? lists.find((l) => l.key === "usage.profiles")?.entries.map((e) => e.name) ?? []
+        : Object.keys(asObject(asObject(lists.find((l) => l.key === "adapters")?.entries.find((e) => e.name === fieldValue(draft, field.agentKey ?? "agent"))?.value).tiers))
     return { ...field, choices: names.map((name) => [name, name]) }
   })
   const toYaml = () => { setYaml(entryYaml(name, draft, list.name_field)); setError("") }
@@ -287,7 +291,7 @@ function summary(form: ListForm, entry: ConfigListEntry): string {
 
 // ListCard is one list: config.yaml's entries, read-only with a lock, and
 // those kept here, which can be edited and removed; and its Add.
-export function ListCard({ list, baseUrl, lists = [] }: { list: ConfigList; baseUrl: string; lists?: ConfigList[] }) {
+export function ListCard({ list, baseUrl, lists = [], meters = [] }: { list: ConfigList; baseUrl: string; lists?: ConfigList[]; meters?: string[] }) {
   const queryClient = useQueryClient()
   const form = formFor(list.key, list.name_field)
   const entries = list.key === "usage.rules" ? [...list.entries].sort((a, b) => Number(asObject(a.value).order) - Number(asObject(b.value).order) || a.name.localeCompare(b.name)) : list.entries
@@ -339,14 +343,14 @@ export function ListCard({ list, baseUrl, lists = [] }: { list: ConfigList; base
                 </span>
               )}
             </div>
-            {editing === entry.name && <EntryForm list={list} lists={lists} form={form} entry={entry} onSave={save} onCancel={() => setEditing(null)} />}
+            {editing === entry.name && <EntryForm list={list} lists={lists} meters={meters} form={form} entry={entry} onSave={save} onCancel={() => setEditing(null)} />}
           </li>
         })}
       </ul>}
       {list.entries.length === 0 && editing !== "" && <p className="text-sm text-lw-text-2">{form.empty}</p>}
       {notice && <p role="status" className="mt-1 text-xs text-lw-text-2">{notice}</p>}
       {error && <p role="alert" className="mt-1 text-xs text-lw-error">{error}</p>}
-      {editing === "" ? <EntryForm list={list} lists={lists} form={form} onSave={save} onCancel={() => setEditing(null)} />
+      {editing === "" ? <EntryForm list={list} lists={lists} meters={meters} form={form} onSave={save} onCancel={() => setEditing(null)} />
         : <button type="button" className={`${quietButton} mt-2 min-h-9`} onClick={() => { setNotice(""); setEditing("") }}>{add}</button>}
     </SettingsCard>
   )
@@ -356,7 +360,7 @@ function listFormsAdd(form: ListForm, list: ConfigList): string {
   return form.add === "Add" ? `Add to ${list.title.toLowerCase()}` : form.add
 }
 
-export function ListSettings({ baseUrl, lists }: { baseUrl: string; lists?: string[] }) {
+export function ListSettings({ baseUrl, lists, meters = [] }: { baseUrl: string; lists?: string[]; meters?: string[] }) {
   const query = useQuery({ queryKey: queryKeys.configLists(baseUrl), queryFn: () => fetchConfigLists(baseUrl), retry: false, enabled: lists?.length !== 0 })
   if (lists?.length === 0) return null
   return <>
@@ -366,6 +370,6 @@ export function ListSettings({ baseUrl, lists }: { baseUrl: string; lists?: stri
       <p>{query.error.message}{query.data ? " Showing previously loaded lists; they may be out of date." : ""}</p>
       <button type="button" className={quietButton} disabled={query.isFetching} onClick={() => void query.refetch()}>Retry</button>
     </div>}
-    {query.data?.filter((list) => lists === undefined || lists.includes(list.key)).map((list) => <ListCard key={`${baseUrl}:${list.key}`} list={list} lists={query.data} baseUrl={baseUrl} />)}
+    {query.data?.filter((list) => lists === undefined || lists.includes(list.key)).map((list) => <ListCard key={`${baseUrl}:${list.key}`} list={list} lists={query.data} meters={meters} baseUrl={baseUrl} />)}
   </>
 }

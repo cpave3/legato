@@ -228,3 +228,33 @@ func TestUsagePolicyRecordsTheFirstReadingAboveAThresholdAsASwitch(t *testing.T)
 		t.Fatalf("startup threshold switch=%+v notifications=%d", snap.Policy, notifier.count)
 	}
 }
+
+// A pin can run until an OpenCode Go meter resets, capturing that meter's
+// own deadline.
+func TestAOpenCodeResetPinCapturesItsDeadline(t *testing.T) {
+	f := newUsageFixture(t)
+	ctx := context.Background()
+	opencode := &fakeUsageReader{provider: UsageProviderOpenCode, usage: ProviderUsage{Windows: []UsageWindow{
+		{Meter: UsageMeterFiveHour, UsedPercent: 30, ResetsAt: f.now.Add(time.Hour)},
+		{Meter: UsageMeterWeekly, UsedPercent: 66, ResetsAt: f.now.Add(3 * 24 * time.Hour)},
+		{Meter: UsageMeterMonthly, UsedPercent: 90, ResetsAt: f.now.Add(4 * 24 * time.Hour)},
+	}}}
+	f.svc = NewSubscriptionUsageService(SubscriptionUsageOptions{
+		Store: f.db, Readers: []SubscriptionUsageReader{opencode}, PollInterval: 5 * time.Minute, Now: func() time.Time { return f.now },
+	})
+	cfg := config.UsageConfig{Profiles: []config.UsageProfile{{Name: "normal", Agent: "claude-code"}, {Name: "save", Agent: "chimera"}}, FallbackProfile: "normal"}
+	policy := NewUsagePolicyService(UsagePolicyOptions{Store: f.db, Config: func(context.Context) (config.UsageConfig, error) { return cfg, nil }, Readings: f.svc.ReadingsSnapshot, Now: func() time.Time { return f.now }})
+	f.svc.Poll(ctx)
+
+	var pin *UsagePinRequest
+	if err := policy.Pin(ctx, &UsagePinRequest{Profile: "save", UntilReset: "opencode.weekly"}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := policy.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pin = snap.Active.Pin; pin == nil || pin.UntilReset != "opencode.weekly" || !pin.Until.Equal(f.now.Add(3*24*time.Hour)) {
+		t.Fatalf("pin = %+v", pin)
+	}
+}

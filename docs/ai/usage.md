@@ -1,10 +1,14 @@
 # Subscription usage
 
-How much of the Claude and Codex subscriptions' usage limits the operator has used (LEG-659). It is not `service.Usage` / `UsageService`, which are Manticore's token counts (see [TUI](tui.md) § Token usage). Site page: `using/usage`. Usage profiles and rules (LEG-660) switch defaults for new work, without changing the provider readers or accounts.
+How much of the Claude, Codex and OpenCode Go subscriptions' usage limits the operator has used (LEG-659). It is not `service.Usage` / `UsageService`, which are Manticore's token counts (see [TUI](tui.md) § Token usage). Site page: `using/usage`. Usage profiles and rules (LEG-660) switch defaults for new work, without changing the provider readers or accounts.
+
+## Providers
+
+`config/usage_providers.go` is the one table that declares the providers: their stable id, the name the operator knows them by, and the meters they report, each with its short and long label. `IsUsageMeter` (qualified rule and pin meters, `provider.window`), the service's `UsageProviderName` / `UsageMeterLabel` / `UsageMeterShort`, the TUI's row labels and the web's catalog all derive from it. The six Claude/Codex qualified meter ids are unchanged; OpenCode Go adds `opencode.five_hour`, `opencode.weekly` and `opencode.monthly`. Adding a provider means a table row, an engine reader package, a service adapter (and its error mapping), one wiring line in `usageReaders`, and settings rows; the polling, cache, backoff, ownership, policy and API surfaces are provider-generic. A future account axis should compose with the reader identity (`SubscriptionUsageReader.Provider()` keys the poll schedule, the cache row and the API row), not multiply this table.
 
 ## Sources
 
-Neither source is a published API. Every answer the readers do not understand is an error with a reason, never a guess, and a test pins each response shape relied on.
+Claude's endpoint is undocumented; Codex's is an app-server call; OpenCode Go's is documented. Every answer the readers do not understand is an error with a reason, never a guess, and a test pins each response shape relied on.
 
 ### Claude: `internal/engine/claudeusage`
 
@@ -49,12 +53,23 @@ Neither source is a published API. Every answer the readers do not understand is
 - Both packages open files in folders a sandboxed agent can write (`.claude`, `.codex`) without blocking, and read them only when the opened descriptor is a regular file (`openRegular`), so a FIFO cannot hang the host's poll or its shutdown.
 - Chimera's Codex models are assumed to use the same ChatGPT account as the Codex CLI (the Reeve's decision, LEG-659). If they do not, a Chimera-side source is needed.
 
+### OpenCode Go: `internal/engine/opencodeusage`
+
+- `GET https://opencode.ai/inference/go/v1/usage`, the endpoint OpenCode documents for its clients, with `Authorization: Bearer <the Go API key>`. The reading is the account's: it counts every client that uses the key, so usage consumed elsewhere (by Manticore, by another harness) appears on the next read.
+- The answer has one meter per limit — `rolling` (the 5-hour window), `weekly`, `monthly` — each `{status: ok|rate-limited, percent: 0–100, resetsAt: ISO-8601}`. `resetsAt` is surfaced as the endpoint gives it; Legato never reconstructs a reset from the advertised schedule. Zero percent is a real reading; a meter that is missing or null is left out, not invented.
+- The answer is decoded strictly: an unknown status, a percent that is not a finite 0–100, a limit used up below 100, or a missing reset time is `ErrEndpointChanged`, never a guess.
+- Error mapping: 401 → `invalid_key` (the reading is dropped, as an expired login's is: it may be another account's), 403 → `no_subscription` (the key's workspace has no Go subscription), 429 → `*RateLimitedError{RetryAfter}`.
+- **The key** is a Secret setting, `usage.opencode.api_key`, naming a secret in Legato's sealed store (`legato://opencode-go`, stored with `legato secret add`) or 1Password; the settings machinery resolves it into the process at start, like `manticore.api_key`. Replacing the key's value in the secret store applies at restart, which the setting's help says. `usage.opencode.enabled` is **off by default** (the provider is opt-in: it needs a key and asks an external service). No key means `missing_key`, and **no request is made**. No error, log, API answer or export carries the key; the engine replaces transport errors with fixed text, does not follow redirects (the origin is fixed), ignores the environment's proxies and bounds the answer.
+- The opencode reader needs no OpenCode inference on Legato: it is a subscription reader only, separate from any inference adapter.
+
 ## The service: `internal/service/subscription_usage.go`
 
 - **`SubscriptionUsageReader`** (`Provider`, `Read`) is one provider.
-  - `ClaudeUsageReader` and `CodexUsageReader` (`subscription_usage_readers.go`) map the engine's windows to meters: `five_hour`, `weekly`, `weekly_opus`, `weekly_sonnet`.
-  - They map the engine's errors to `*UsageUnavailableError{Reason, RetryAfter}`. The reasons are `not_signed_in`, `login_expired`, `no_subscription`, `codex_missing`, `no_data`, `endpoint_changed`, `rate_limited`, `unreachable` and `error`. `not_read` means never read.
+  - `ClaudeUsageReader`, `CodexUsageReader` and `OpenCodeUsageReader` (`subscription_usage_readers.go`) map the engine's windows to meters: `five_hour`, `weekly`, `weekly_opus`, `weekly_sonnet`, and for OpenCode Go `monthly` (its rolling window maps to `five_hour`).
+  - They map the engine's errors to `*UsageUnavailableError{Reason, RetryAfter}`. The reasons are `not_signed_in`, `login_expired`, `no_subscription`, `missing_key`, `invalid_key`, `codex_missing`, `no_data`, `endpoint_changed`, `rate_limited`, `unreachable` and `error`. `not_read` means never read.
   - `CodexUsageReader` asks the app server first and falls back to the logs for any failure but `ErrNotSignedIn`.
+  - `UsageProviderName`, `UsageMeterLabel` and `UsageMeterShort` come from the config provider table; the web keeps its reason words of its own in `web/src/lib/usage.ts`.
+- **`Snapshot`** also carries **`Catalog`** (`service.UsageCatalog`, from the config provider table): each provider's id, name and meters with `window`, `qualified`, `short` and `long`. `/api/usage` serves it beside the readings; the web labels providers and meters from it, and Settings feeds the usage rule form's meter choices from the same fetch. Without a usage service the route answers the catalog with no providers.
 - **`SubscriptionUsageService`** reads providers and keeps their readings.
   - `Poll` reads each provider whose next read is due, every `PollInterval` (`usage.poll_interval`, 5m, at least 2m).
   - `Refresh` reads now, but at most once a minute per provider and never during a back-off.
@@ -76,7 +91,7 @@ Neither source is a published API. Every answer the readers do not understand is
 
 ## Runtime: `cmd/legato/usage_runtime.go`
 
-- `usageReaders` follows `usage.claude.enabled` and `usage.codex.enabled` (both on when unset).
+- `usageReaders` follows `usage.claude.enabled` and `usage.codex.enabled` (both on when unset) and `usage.opencode.enabled` (off when unset). OpenCode Go's reader is built with the key the settings resolved into the process; a config.yaml pin that still names a secret (`legato://`/`op://`) resolves through the sealed store once at wiring, and a secret that cannot be read is no key (`missing_key`), never an error that names it.
 - `subscriptionUsageFor` builds the service and attaches the usage policy on a store, even with both readers off: policy state and pin controls remain available without provider readings.
 - `startSubscriptionUsage` runs the poller in the one process of a data folder that holds `<data_dir>/usage.lock` (flock, like `mqtt.lock`). A process that cannot take the lock serves the cache and tries again every `usageClaimRetry` (a minute), so it takes the poller over when the holder ends (`awaitUsagePoller`).
 - A kept reading publishes `EventSubscriptionUsageChanged` and broadcasts the IPC message `usage_changed`. Other processes publish `EventSubscriptionUsageInvalidated` for it. Both reach the web as the WebSocket message `usage_changed`.
@@ -88,7 +103,7 @@ Neither source is a published API. Every answer the readers do not understand is
 ## Profiles, rules and pins
 
 - `usage.profiles` entries are `{name, agent, tier?, reviewer?: {agent, tier?}}`. Agents are `claude-code`, `codex` or `chimera`. Both selections use configured `adapters.<agent>.tiers`, never raw models; `model` is rejected. Names are unique ignoring case.
-- `usage.rules` entries are `{name, order, meter, at_least, profile}`. `order` must be explicit: lower first, ties by name. `at_least` is 1–100 inclusive. The six qualified meters are `claude.five_hour`, `claude.weekly`, `claude.weekly_opus`, `claude.weekly_sonnet`, `codex.five_hour` and `codex.weekly`. Unknown agents, tiers, meters or profile references are refused on save.
+- `usage.rules` entries are `{name, order, meter, at_least, profile}`. `order` must be explicit: lower first, ties by name. `at_least` is 1–100 inclusive. The qualified meters are those the provider table declares: `claude.five_hour`, `claude.weekly`, `claude.weekly_opus`, `claude.weekly_sonnet`, `codex.five_hour`, `codex.weekly`, `opencode.five_hour`, `opencode.weekly` and `opencode.monthly`. Unknown agents, tiers, meters or profile references are refused on save.
 - `usage.fallback_profile` names the profile when no rule matches; empty means the usual configured defaults. Profiles, rules and fallback are live settings, edited in Settings › Usage with typed entry forms.
 - `EvaluateUsageRules` (`internal/service/usage_policy.go`) is pure. The first matching rule wins, using only an `ok` reading at or above its threshold. Missing or stale evidence holds the current defaults rather than forcing a fallback when no rule matches.
 - The latch captures the triggering rule's identity and reset time. It releases only after that captured reset has passed and an `ok` reading with `AsOf` at or after it is below the threshold. Passing wall-clock time or rereading an old low value is not enough. A changed rule invalidates its latch.

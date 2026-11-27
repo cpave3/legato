@@ -97,7 +97,7 @@ var routeClassTable = []routeClassEntry{
 	{"GET", "/api/setup", ClassRead, "Read the setup checklist"},
 	{"PUT", "/api/setup/dismissed", ClassChange, "Hide the setup checklist, or bring it back"},
 	{"GET", "/api/updates", ClassRead, "Read the update status"},
-	{"GET", "/api/usage", ClassRead, "Read how much of the Claude and Codex subscriptions' usage limits is used"},
+	{"GET", "/api/usage", ClassRead, "Read how much of each subscription's usage limits is used, with the provider catalog"},
 	{"PUT", "/api/usage/pin", ClassChange, "Pin usage defaults to a profile"},
 	{"DELETE", "/api/usage/pin", ClassChange, "Remove the usage profile pin"},
 	{"POST", "/api/usage/refresh", ClassRead, "Read the subscriptions' usage again now"},

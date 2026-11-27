@@ -18,8 +18,8 @@ type SubscriptionUsageSource interface {
 	Snapshot(ctx context.Context) (service.SubscriptionUsage, error)
 }
 
-// SetSubscriptionUsage makes the agents view show how much of the Claude
-// and Codex subscriptions' usage limits is used.
+// SetSubscriptionUsage makes the agents view show how much of each
+// subscription's usage limits is used.
 func (a *App) SetSubscriptionUsage(source SubscriptionUsageSource) {
 	a.subscriptionUsage = source
 }

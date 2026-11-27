@@ -68,7 +68,9 @@ type fakeCodexAppServer struct {
 	err     error
 }
 
-func (f fakeCodexAppServer) Read(context.Context) (codexusage.Reading, error) { return f.reading, f.err }
+func (f fakeCodexAppServer) Read(context.Context) (codexusage.Reading, error) {
+	return f.reading, f.err
+}
 
 func writeCodexLog(t *testing.T) string {
 	t.Helper()

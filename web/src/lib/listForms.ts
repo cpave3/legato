@@ -1,4 +1,3 @@
-import { qualifiedUsageMeters } from "./usage"
 import { dump, load } from "js-yaml"
 
 // The forms that edit the entries of Settings' lists, in place of JSON.
@@ -12,7 +11,7 @@ export interface FormField {
   optional?: boolean
   kind: "text" | "lines" | "bool" | "check" | "choice" | "swatches" | "textarea" | "tiers" | "pairs" | "number"
   choices?: [string, string][]
-  optionsFrom?: "profiles" | "tiers"
+  optionsFrom?: "profiles" | "tiers" | "usage_meters"
   agentKey?: string
   placeholder?: string
   // bool: what unset means.
@@ -79,7 +78,7 @@ export const listForms: Record<string, ListForm> = {
     name: { label: "Name" },
     fields: [
       { key: "order", label: "Order", kind: "number", help: "Lower numbers match first; names break ties." },
-      { key: "meter", label: "Meter", kind: "choice", choices: qualifiedUsageMeters.map((m) => [m, m]) },
+      { key: "meter", label: "Meter", kind: "choice", optionsFrom: "usage_meters" },
       { key: "at_least", label: "At least (%)", kind: "number" },
       { key: "profile", label: "Profile", kind: "choice", optionsFrom: "profiles" },
     ],

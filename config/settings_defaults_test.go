@@ -30,6 +30,8 @@ func TestANilSettingReportsTheDefaultTheRuntimeUses(t *testing.T) {
 		"credential_channels.gh.isolate_login": true,
 		// UsageProviderConfig.IsEnabled: nil is on.
 		"usage.claude.enabled": true, "usage.codex.enabled": true,
+		// UsageOpenCodeConfig.IsEnabled: nil is off (opt-in).
+		"usage.opencode.enabled": false,
 	}
 	cfg := Defaults()
 	for _, s := range Settings() {

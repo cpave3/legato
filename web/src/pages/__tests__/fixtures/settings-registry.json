@@ -341,6 +341,29 @@
       "mode": "restart"
     },
     {
+      "key": "usage.opencode.enabled",
+      "title": "OpenCode Go",
+      "section": "usage",
+      "group": "Subscription usage",
+      "help": "Reads how much of your OpenCode Go subscription's 5-hour, weekly and monthly limits you have used, with the API key named below. Off (the default), Legato never asks. Applies at restart.",
+      "description": "Reads how much of your OpenCode Go subscription's 5-hour, weekly and monthly limits you have used, with the API key named below. Off (the default), Legato never asks. Applies at restart.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "usage.opencode.api_key",
+      "title": "OpenCode Go API key",
+      "section": "usage",
+      "group": "Subscription usage",
+      "help": "The name of a secret holding your OpenCode Go API key, such as legato://opencode-go; store it with `legato secret add`. Replacing the key's value in the secret store applies when Legato restarts, not before.",
+      "description": "The name of a secret holding your OpenCode Go API key, such as legato://opencode-go; store it with `legato secret add`. Replacing the key's value in the secret store applies when Legato restarts, not before.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart",
+      "secret": true
+    },
+    {
       "key": "usage.poll_interval",
       "title": "Read usage every",
       "section": "usage",

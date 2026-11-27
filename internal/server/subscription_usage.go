@@ -35,7 +35,7 @@ func (s *Server) usageHandler() http.HandlerFunc {
 			return
 		}
 		if s.usage == nil {
-			s.writeJSON(w, http.StatusOK, service.SubscriptionUsage{Providers: []service.ProviderUsage{}})
+			s.writeJSON(w, http.StatusOK, service.SubscriptionUsage{Providers: []service.ProviderUsage{}, Catalog: service.UsageCatalog()})
 			return
 		}
 		usage, err := s.usage.Snapshot(r.Context())

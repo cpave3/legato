@@ -6,17 +6,18 @@ import { useServer } from "../hooks/useServer"
 import { queryKeys } from "../lib/query"
 import {
   agoText,
+  catalogMeterLabel,
+  catalogProviderName,
+  catalogQualifiedMeters,
   fetchSubscriptionUsage,
-  meterLabel,
-  providerName,
   reasonPhrase,
   reasonSentence,
   refreshSubscriptionUsage,
   resetText,
   usageTone,
   type ProviderUsage,
+  type UsageCatalogProvider,
   type UsagePolicy,
-  qualifiedUsageMeters,
   setUsagePin,
   type UsagePin,
   type UsageWindow,
@@ -49,6 +50,7 @@ export function UsageStrip({ className }: { className?: string }) {
   const [error, setError] = useState("")
   const data = query.data
   const providers = data?.providers ?? []
+  const catalog = data?.catalog
   if (query.isError) return <div className={cn("px-2 py-1.5 text-xs", className)}>
     <p role="alert" className="break-words text-lw-error">{query.error.message}</p>
     <button type="button" className="min-h-9 text-lw-link hover:underline" disabled={query.isFetching} onClick={() => void query.refetch()}>Retry usage</button>
@@ -74,7 +76,7 @@ export function UsageStrip({ className }: { className?: string }) {
       <button
         type="button"
         aria-expanded={open}
-        aria-label={`Subscription usage: ${[data?.policy?.active.profile.name, ...providers.map(briefLabel)].filter(Boolean).join("; ")}`}
+        aria-label={`Subscription usage: ${[data?.policy?.active.profile.name, ...providers.map((p) => briefLabel(p, catalog))].filter(Boolean).join("; ")}`}
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-start gap-1.5 rounded-md px-2 py-1.5 text-left text-xs hover:bg-lw-raised"
       >
@@ -83,14 +85,14 @@ export function UsageStrip({ className }: { className?: string }) {
           {data?.policy && <span className="font-medium text-lw-text">{data.policy.active.profile.name || "Usual defaults"}</span>}
           {providers.map((p) => (
             <span key={p.provider} className="flex min-w-0 items-baseline gap-2">
-              <span className="w-12 shrink-0 text-lw-text-2">{providerName(p.provider)}</span>
+              <span className="w-20 shrink-0 text-lw-text-2">{catalogProviderName(catalog, p.provider)}</span>
               {p.state === "unavailable" ? (
                 <span className="text-lw-faint">unavailable</span>
               ) : (
                 <>
                   {p.windows.map((w) => (
                     <span key={w.meter} className={cn("tabular-nums", p.stale ? "text-lw-faint" : toneText[usageTone(w.used_percent)])}>
-                      {meterLabel(w.meter, "short")} {Math.round(w.used_percent)}%
+                      {catalogMeterLabel(catalog, w.meter, "short")} {Math.round(w.used_percent)}%
                     </span>
                   ))}
                   {p.stale && <span className="text-lw-faint">stale</span>}
@@ -103,9 +105,9 @@ export function UsageStrip({ className }: { className?: string }) {
 
       {open && (
         <section aria-label="Subscription usage" className="mx-1 mb-1 flex flex-col gap-3 rounded-md border border-lw-line bg-lw-raised px-2.5 py-2.5 text-xs">
-          {data?.policy && <PolicyCard policy={data.policy} requestedPin={requestedPin} baseUrl={baseUrl} />}
+          {data?.policy && <PolicyCard policy={data.policy} requestedPin={requestedPin} baseUrl={baseUrl} catalog={catalog} />}
           {providers.length === 0 && <p className="text-lw-text-2">Usage readers are off.</p>}
-          {providers.map((p) => <ProviderCard key={p.provider} usage={p} now={now} />)}
+          {providers.map((p) => <ProviderCard key={p.provider} usage={p} catalog={catalog} now={now} />)}
           {error && <p role="alert" className="m-0 break-words text-lw-error">{error}</p>}
           <button
             type="button"
@@ -122,15 +124,15 @@ export function UsageStrip({ className }: { className?: string }) {
   )
 }
 
-function briefLabel(p: ProviderUsage): string {
-  const name = providerName(p.provider)
+function briefLabel(p: ProviderUsage, catalog: UsageCatalogProvider[] | undefined): string {
+  const name = catalogProviderName(catalog, p.provider)
   if (p.state === "unavailable") return `${name} unavailable`
-  const windows = p.windows.map((w) => `${meterLabel(w.meter)} ${Math.round(w.used_percent)}%`).join(", ")
+  const windows = p.windows.map((w) => `${catalogMeterLabel(catalog, w.meter)} ${Math.round(w.used_percent)}%`).join(", ")
   return p.stale ? `${name} ${windows} (stale)` : `${name} ${windows}`
 }
 
-function ProviderCard({ usage, now }: { usage: ProviderUsage; now: Date }) {
-  const name = providerName(usage.provider)
+function ProviderCard({ usage, catalog, now }: { usage: ProviderUsage; catalog: UsageCatalogProvider[] | undefined; now: Date }) {
+  const name = catalogProviderName(catalog, usage.provider)
   if (usage.state === "unavailable") {
     return (
       <div role="group" aria-label={name} className="flex flex-col gap-1">
@@ -151,7 +153,7 @@ function ProviderCard({ usage, now }: { usage: ProviderUsage; now: Date }) {
           {usage.stale ? ["stale", fresh, usage.reason ? reasonPhrase(usage.reason) : ""].filter(Boolean).join(" · ") : fresh}
         </span>
       </div>
-      {usage.windows.map((w) => <WindowBar key={w.meter} provider={name} window={w} stale={usage.stale} now={now} />)}
+      {usage.windows.map((w) => <WindowBar key={w.meter} provider={name} window={w} catalog={catalog} stale={usage.stale} now={now} />)}
       {usage.credits && (usage.credits.unlimited || usage.credits.balance) && (
         <span className="text-[11px] text-lw-faint">Credits: {usage.credits.unlimited ? "unlimited" : usage.credits.balance}</span>
       )}
@@ -160,18 +162,19 @@ function ProviderCard({ usage, now }: { usage: ProviderUsage; now: Date }) {
   )
 }
 
-function WindowBar({ provider, window: w, stale, now }: { provider: string; window: UsageWindow; stale: boolean; now: Date }) {
+function WindowBar({ provider, window: w, catalog, stale, now }: { provider: string; window: UsageWindow; catalog: UsageCatalogProvider[] | undefined; stale: boolean; now: Date }) {
   const percent = Math.max(0, Math.min(100, Math.round(w.used_percent)))
   const tone = usageTone(w.used_percent)
+  const label = catalogMeterLabel(catalog, w.meter)
   return (
     <div className="flex flex-col gap-0.5">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-lw-text-2">{meterLabel(w.meter)}</span>
+        <span className="text-lw-text-2">{label}</span>
         <span className={cn("tabular-nums", stale ? "text-lw-faint" : toneText[tone])}>{percent}%</span>
       </div>
       <div
         role="progressbar"
-        aria-label={`${provider} ${meterLabel(w.meter)}`}
+        aria-label={`${provider} ${label}`}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent}
@@ -186,7 +189,7 @@ function WindowBar({ provider, window: w, stale, now }: { provider: string; wind
   )
 }
 
-function PolicyCard({ policy, requestedPin, baseUrl }: { policy: UsagePolicy; requestedPin: string | null; baseUrl: string }) {
+function PolicyCard({ policy, requestedPin, baseUrl, catalog }: { policy: UsagePolicy; requestedPin: string | null; baseUrl: string; catalog: UsageCatalogProvider[] | undefined }) {
   const { active } = policy
   return <div className="flex min-w-0 flex-col gap-2 text-lw-text-2">
     <div><strong className="text-lw-text">{active.profile.name || "Usual defaults"}</strong><p>{[active.profile.agent, active.profile.tier].filter(Boolean).join(" · ")}</p></div>
@@ -195,7 +198,7 @@ function PolicyCard({ policy, requestedPin, baseUrl }: { policy: UsagePolicy; re
     {active.profile.name && <p>Since {new Date(active.since).toLocaleString()}</p>}
     {active.error && <p role="alert" className="text-lw-error">{active.error}</p>}
     {policy.profiles.length > 0
-      ? <PinControls key={requestedPin} policy={policy} requestedPin={requestedPin} baseUrl={baseUrl} />
+      ? <PinControls key={requestedPin} policy={policy} requestedPin={requestedPin} baseUrl={baseUrl} catalog={catalog} />
       : <Link to="/settings#usage" className="min-h-9 text-lw-link hover:underline">Configure profiles</Link>}
     {policy.switches.length > 0 && <details><summary className="cursor-pointer">Recent switches</summary><ol className="mt-2 flex max-h-48 flex-col gap-2 overflow-y-auto" aria-label="Recent switches">
       {policy.switches.slice(0, 5).map((change) => <li key={change.id}><p>{change.from_profile} → {change.to_profile}</p><p>{change.reason}</p><time dateTime={change.since}>{new Date(change.since).toLocaleString()}</time></li>)}
@@ -205,7 +208,7 @@ function PolicyCard({ policy, requestedPin, baseUrl }: { policy: UsagePolicy; re
 
 const pinField = "min-h-9 w-full min-w-0 rounded border border-lw-line-strong bg-lw-ground px-2 text-xs text-lw-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lw-accent-ring"
 
-function PinControls({ policy, requestedPin, baseUrl }: { policy: UsagePolicy; requestedPin: string | null; baseUrl: string }) {
+function PinControls({ policy, requestedPin, baseUrl, catalog }: { policy: UsagePolicy; requestedPin: string | null; baseUrl: string; catalog: UsageCatalogProvider[] | undefined }) {
   const queryClient = useQueryClient()
   const pin = policy.active.pin
   const [open, setOpen] = useState(requestedPin !== null)
@@ -216,7 +219,8 @@ function PinControls({ policy, requestedPin, baseUrl }: { policy: UsagePolicy; r
     const date = new Date(pin.until)
     return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
   })
-  const [meter, setMeter] = useState(pin?.until_reset ?? qualifiedUsageMeters[0])
+  const meters = catalogQualifiedMeters(catalog)
+  const [meter, setMeter] = useState(pin?.until_reset ?? meters[0] ?? "")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
@@ -244,7 +248,7 @@ function PinControls({ policy, requestedPin, baseUrl }: { policy: UsagePolicy; r
       <label className="flex flex-col gap-1">Pin profile<select aria-label="Pin profile" className={pinField} value={profile} onChange={(e) => setProfile(e.target.value)}>{policy.profiles.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}</select></label>
       <label className="flex flex-col gap-1">Pin expires<select aria-label="Pin expires" className={pinField} value={expiry} onChange={(e) => setExpiry(e.target.value)}><option value="indefinite">When unpinned</option><option value="time">At a time</option><option value="reset">When a meter resets</option></select></label>
       {expiry === "time" && <label className="flex flex-col gap-1">Until (local time)<input type="datetime-local" className={pinField} required value={until} onChange={(e) => setUntil(e.target.value)} /></label>}
-      {expiry === "reset" && <label className="flex flex-col gap-1">Until meter resets<select aria-label="Until meter resets" className={pinField} value={meter} onChange={(e) => setMeter(e.target.value)}>{qualifiedUsageMeters.map((m) => <option key={m} value={m}>{m}</option>)}</select></label>}
+      {expiry === "reset" && <label className="flex flex-col gap-1">Until meter resets<select aria-label="Until meter resets" className={pinField} value={meter} onChange={(e) => setMeter(e.target.value)}>{meters.map((m) => <option key={m} value={m}>{m}</option>)}</select></label>}
       <button type="submit" className="min-h-9 self-start rounded bg-lw-accent px-3 text-[var(--theme-canvas,#fff)] disabled:opacity-50" disabled={saving || !profile}>{saving ? "Saving…" : "Pin profile"}</button>
     </fieldset></form>}
     {error && <p role="alert" className="break-words text-lw-error">{error}</p>}

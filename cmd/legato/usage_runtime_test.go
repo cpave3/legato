@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/credential"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
@@ -35,16 +37,91 @@ func TestOneProcessHoldsTheUsagePoller(t *testing.T) {
 func TestUsageReadersFollowTheSettings(t *testing.T) {
 	off := false
 	cfg := config.Defaults()
-	if got := usageReaders(cfg); len(got) != 2 || got[0].Provider() != "claude" || got[1].Provider() != "codex" {
+	if got := usageReaders(cfg, nil); len(got) != 2 || got[0].Provider() != "claude" || got[1].Provider() != "codex" {
 		t.Fatalf("readers = %v", got)
 	}
 	cfg.Usage.Codex.Enabled = &off
-	if got := usageReaders(cfg); len(got) != 1 || got[0].Provider() != "claude" {
+	if got := usageReaders(cfg, nil); len(got) != 1 || got[0].Provider() != "claude" {
 		t.Fatalf("codex off: readers = %v", got)
 	}
 	cfg.Usage.Claude.Enabled = &off
 	if subscriptionUsageFor(cfg, nil, nil) == nil {
 		t.Fatal("policy must remain visible with both providers off")
+	}
+	// OpenCode Go is off until it is turned on, and never a reader before.
+	cfg.Usage.OpenCode.APIKey = "opencode-key-SENTINEL"
+	if got := usageReaders(cfg, nil); len(got) != 0 {
+		t.Fatalf("opencode off with a key: readers = %v", got)
+	}
+}
+
+// OpenCode Go's reader is wired with the key the settings resolved at start;
+// a config.yaml pin that still holds the secret's name resolves through the
+// sealed store, and a key that cannot be read leaves the reader to say so.
+func TestOpenCodeUsageReaderIsWiredWithTheResolvedKey(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.New(filepath.Join(dir, "legato.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	cfg := config.Defaults()
+	cfg.DataDir = dir
+	off := false
+	cfg.Usage.Claude.Enabled, cfg.Usage.Codex.Enabled = &off, &off
+	if err := configuredSecretStore(cfg, db).Add(context.Background(), "opencode-go", credential.TypeValue, []byte("opencode-key-SENTINEL")); err != nil {
+		t.Fatal(err)
+	}
+
+	on := true
+	cfg.Usage.OpenCode.Enabled = &on
+	cfg.Usage.OpenCode.APIKey = "legato://opencode-go" // as a config.yaml pin holds it
+	readers := usageReaders(cfg, db)
+	if len(readers) != 1 {
+		t.Fatalf("readers = %v", readers)
+	}
+	reader, ok := readers[0].(*service.OpenCodeUsageReader)
+	if !ok {
+		t.Fatalf("reader = %T", readers[0])
+	}
+	// The base URL is the engine's documented default; the wiring leaves it
+	// to the client to apply.
+	if reader.Provider() != service.UsageProviderOpenCode || reader.Client.APIKey != "opencode-key-SENTINEL" || reader.Client.BaseURL != "" {
+		t.Fatalf("reader = %+v", reader.Client)
+	}
+
+	// A key the settings already resolved (a database setting) is used as is.
+	cfg.Usage.OpenCode.APIKey = "opencode-key-PLAIN"
+	if readers = usageReaders(cfg, db); len(readers) != 1 {
+		t.Fatalf("plain key: readers = %v", readers)
+	}
+	if reader, ok = readers[0].(*service.OpenCodeUsageReader); !ok || reader.Client.APIKey != "opencode-key-PLAIN" {
+		t.Fatalf("plain key: reader = %+v", readers[0])
+	}
+
+	// No key named: the reader is there and says so when it reads, so the
+	// operator sees setup is unfinished.
+	cfg.Usage.OpenCode.APIKey = ""
+	if readers = usageReaders(cfg, db); len(readers) != 1 {
+		t.Fatalf("no key: readers = %v", readers)
+	}
+	if reader, ok = readers[0].(*service.OpenCodeUsageReader); !ok || reader.Client.APIKey != "" {
+		t.Fatalf("no key: reader = %+v", readers[0])
+	}
+	_, err = reader.Read(context.Background())
+	var unavailable *service.UsageUnavailableError
+	if !errors.As(err, &unavailable) || unavailable.Reason != service.UsageReasonMissingKey {
+		t.Fatalf("no key: err = %v, want %s", err, service.UsageReasonMissingKey)
+	}
+
+	// A secret that cannot be read is the same as none: the reason says to
+	// name a key, and the value never reaches an error.
+	cfg.Usage.OpenCode.APIKey = "legato://never-stored"
+	if readers = usageReaders(cfg, db); len(readers) != 1 {
+		t.Fatalf("unreadable secret: readers = %v", readers)
+	}
+	if reader, ok = readers[0].(*service.OpenCodeUsageReader); !ok || reader.Client.APIKey != "" {
+		t.Fatalf("unreadable secret: reader = %+v", readers[0])
 	}
 }
 

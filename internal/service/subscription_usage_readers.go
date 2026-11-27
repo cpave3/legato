@@ -6,6 +6,7 @@ import (
 
 	"github.com/cpave3/legato/internal/engine/claudeusage"
 	"github.com/cpave3/legato/internal/engine/codexusage"
+	"github.com/cpave3/legato/internal/engine/opencodeusage"
 )
 
 // ClaudeUsageReader reads Claude's subscription usage from Claude Code's
@@ -126,4 +127,60 @@ func codexUsage(reading codexusage.Reading) ProviderUsage {
 		usage.Credits = &UsageCredits{HasCredits: c.HasCredits, Unlimited: c.Unlimited, Balance: c.Balance}
 	}
 	return usage
+}
+
+// OpenCodeUsageReader reads an OpenCode Go subscription's usage from the
+// usage endpoint OpenCode documents (engine/opencodeusage), with the API key
+// the settings resolved at start. The reading is the account's, so it
+// counts every client that uses the key, not only Legato.
+type OpenCodeUsageReader struct {
+	Client *opencodeusage.Client
+}
+
+func (r *OpenCodeUsageReader) Provider() string { return UsageProviderOpenCode }
+
+func (r *OpenCodeUsageReader) Read(ctx context.Context) (ProviderUsage, error) {
+	reading, err := r.Client.Read(ctx)
+	if err != nil {
+		return ProviderUsage{}, opencodeUsageError(err)
+	}
+	usage := ProviderUsage{Source: "endpoint"}
+	for _, m := range reading.Meters {
+		var meter string
+		switch m.Name {
+		case opencodeusage.Rolling:
+			meter = UsageMeterFiveHour
+		case opencodeusage.Weekly:
+			meter = UsageMeterWeekly
+		case opencodeusage.Monthly:
+			meter = UsageMeterMonthly
+		default:
+			continue
+		}
+		usage.Windows = append(usage.Windows, UsageWindow{Meter: meter, UsedPercent: m.UsedPercent, ResetsAt: m.ResetsAt})
+	}
+	return usage, nil
+}
+
+func opencodeUsageError(err error) error {
+	var limited *opencodeusage.RateLimitedError
+	switch {
+	case errors.Is(err, context.Canceled):
+		return err
+	case errors.As(err, &limited):
+		return &UsageUnavailableError{Reason: UsageReasonRateLimited, RetryAfter: limited.RetryAfter}
+	case errors.Is(err, opencodeusage.ErrNoKey):
+		return &UsageUnavailableError{Reason: UsageReasonMissingKey}
+	case errors.Is(err, opencodeusage.ErrInvalidKey):
+		return &UsageUnavailableError{Reason: UsageReasonInvalidKey}
+	case errors.Is(err, opencodeusage.ErrNoSubscription):
+		return &UsageUnavailableError{Reason: UsageReasonNoSubscription}
+	case errors.Is(err, opencodeusage.ErrEndpointChanged):
+		return &UsageUnavailableError{Reason: UsageReasonEndpointChanged}
+	case errors.Is(err, opencodeusage.ErrUnreachable):
+		return &UsageUnavailableError{Reason: UsageReasonUnreachable}
+	default:
+		// The engine's errors never hold the key or the endpoint's body.
+		return &UsageUnavailableError{Reason: UsageReasonError}
+	}
 }

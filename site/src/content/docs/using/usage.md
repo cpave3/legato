@@ -5,9 +5,9 @@ sidebar:
   order: 25
 ---
 
-Subscription usage shows how much of your Claude and Codex subscriptions' usage limits you have used. It shows the same windows as Claude Code's `/usage` view: Claude's 5-hour and weekly limits, and the weekly limit of a model when your plan has one. It also shows your Codex limits. Each window says when it resets. Use it to see which subscription has room before you start an agent.
+Subscription usage shows how much of your Claude, Codex and OpenCode Go subscriptions' usage limits you have used. It shows the same windows as Claude Code's `/usage` view: Claude's 5-hour and weekly limits, and the weekly limit of a model when your plan has one. It also shows your Codex limits, and OpenCode Go's 5-hour, weekly and monthly limits. Each window says when it resets. Use it to see which subscription has room before you start an agent.
 
-Legato reads the usage on the machine it runs on, with the logins Claude Code and Codex already keep. You do not sign in to anything in Legato.
+Legato reads Claude's and Codex's usage on the machine it runs on, with the logins those tools already keep. OpenCode Go is read with its API key, which you store once as a Legato secret and name in Settings; the reading is your account's, so it counts the calls every client of that key makes — including calls another harness like Manticore makes — not only Legato's own.
 
 ## Where it shows
 
@@ -35,11 +35,15 @@ A bar turns amber at 75% and red at 90%.
 - **Codex:** Legato runs `codex app-server` on this machine for a moment and asks it for the account's rate limits, which uses Codex's own login.
   - Without the `codex` command, or when that fails, Legato takes the newest limits Codex wrote into its session logs under `~/.codex/sessions`. These are only as fresh as your last Codex turn, and the card says so.
   - Chimera's Codex models count against the same ChatGPT account, as long as Chimera signs in with the same account as the Codex CLI.
+- **OpenCode Go:** Legato asks the usage endpoint OpenCode documents for its clients, with the API key named by `usage.opencode.api_key`. OpenCode Go is off until you turn it on in Settings › Usage.
+  - Store the key first: `legato secret add opencode-go` (paste the key, it is never printed), then name the secret in Settings, `legato://opencode-go`. The row shows **Stored**, never the key.
+  - The reading is your account's allowance: 5-hour, weekly and monthly, each as a percent and a reset time exactly as OpenCode reports it. No OpenCode inference needs to run on Legato.
+  - Replacing the key's value in the secret store applies when Legato restarts; the setting says so, and so does a refused key.
 
-Neither login is ever sent to an agent, shown in the UI or written to a log. An agent in Legato's sandbox can run `legato usage`, but it only gets the readings.
+No login or key is ever sent to an agent, shown in the UI or written to a log. An agent in Legato's sandbox can run `legato usage`, but it only gets the readings.
 
 :::caution
-Neither source is a published API: Claude's usage endpoint and Codex's rate-limit call can change without notice. When Legato cannot understand an answer, it shows the subscription as unavailable and says why. It never guesses.
+Claude's usage endpoint and Codex's rate-limit call are not published APIs and can change without notice. When Legato cannot understand an answer, it shows the subscription as unavailable and says why. It never guesses.
 :::
 
 ## How often it is read
@@ -58,7 +62,9 @@ A subscription is **unavailable** when there is no reading to show. The card say
 | --- | --- |
 | Sign in to Claude Code (or Codex) on this machine | Sign in with the tool on the machine Legato runs on. |
 | Login has expired | Use the tool once; it signs in again. |
-| No subscription limits | The login is an API key or a plan without these limits. |
+| No API key named (OpenCode Go) | Name the key's secret in Settings › Usage. |
+| API key refused | Replace the key's secret, then restart Legato. |
+| No subscription limits | The account or key has a plan without these limits. |
 | The codex command is not installed | Install Codex on this machine, or use it once so its session logs have a reading. |
 | Nothing reported yet | Codex has not written any limits yet. Use it once. |
 | Its usage report changed | The service changed its answer. Update Legato. |
@@ -74,10 +80,13 @@ usage:
     enabled: true
   codex:
     enabled: false   # never run codex or read its logs
+  opencode:
+    enabled: true    # off by default; needs usage.opencode.api_key
+    api_key: legato://opencode-go
   poll_interval: 5m
 ```
 
-Off, Legato never asks that service. See the [configuration reference](/legato/reference/configuration/#subscription-usage).
+Off, Legato never asks that service. OpenCode Go is off until you turn it on and name a key. See the [configuration reference](/legato/reference/configuration/#subscription-usage).
 
 ## Profiles and rules
 
@@ -106,7 +115,7 @@ usage:
   fallback_profile: usual
 ```
 
-Each rule needs a name, an explicit `order`, a `meter`, `at_least` (1–100 inclusive) and a profile. Lower orders come first; names break ties. The first matching rule wins. The six meters are:
+Each rule needs a name, an explicit `order`, a `meter`, `at_least` (1–100 inclusive) and a profile. Lower orders come first; names break ties. The first matching rule wins. The meters are:
 
 - `claude.five_hour`
 - `claude.weekly`
@@ -114,6 +123,9 @@ Each rule needs a name, an explicit `order`, a `meter`, `at_least` (1–100 incl
 - `claude.weekly_sonnet`
 - `codex.five_hour`
 - `codex.weekly`
+- `opencode.five_hour`
+- `opencode.weekly`
+- `opencode.monthly`
 
 Only fresh, available readings can trigger a rule. Once triggered, a rule holds until its **captured reset time** has passed and a fresh reading dated at or after that reset is below its threshold. An old low reading or the clock passing the reset alone does not release it.
 
@@ -146,7 +158,7 @@ legato usage pin spare --until-reset claude.weekly
 legato usage unpin
 ```
 
-`--until` takes a future RFC3339 time with a time zone. `--until-reset` takes one of the six qualified meters above, requires a fresh reading with a known future reset, and captures that reset time. Choose only one expiry. With neither, the pin is indefinite. Expiry or unpinning evaluates the rules again; a rule's reset hold still applies.
+`--until` takes a future RFC3339 time with a time zone. `--until-reset` takes one of the qualified meters above, requires a fresh reading with a known future reset, and captures that reset time. Choose only one expiry. With neither, the pin is indefinite. Expiry or unpinning evaluates the rules again; a rule's reset hold still applies.
 
 Pinning works with readers off, except that an until-reset pin needs a fresh reset reading. Pin changes are confirmed by the one process that owns usage policy. A refusal or timeout is an error, not a successful pin. Scripts can use `PUT /api/usage/pin` with `{ "profile": "spare" }`, optionally `until` or `until_reset`, and `DELETE /api/usage/pin` to unpin.
 

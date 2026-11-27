@@ -25,6 +25,38 @@ export interface ProviderUsage {
   source?: string
 }
 
+// The providers the server knows and the meters they report, as
+// GET /api/usage's catalog gives them: every surface labels providers and
+// meters from it, and rule and pin choices are its qualified meters.
+export interface UsageCatalogMeter {
+  window: string
+  qualified: string
+  short: string
+  long: string
+}
+
+export interface UsageCatalogProvider {
+  provider: string
+  name: string
+  meters: UsageCatalogMeter[]
+}
+
+export function catalogProviderName(catalog: UsageCatalogProvider[] | undefined, provider: string): string {
+  return catalog?.find((p) => p.provider === provider)?.name ?? provider
+}
+
+export function catalogMeterLabel(catalog: UsageCatalogProvider[] | undefined, meter: string, form: "short" | "long" = "long"): string {
+  for (const p of catalog ?? []) {
+    const m = p.meters.find((candidate) => candidate.window === meter)
+    if (m) return form === "short" ? m.short : m.long
+  }
+  return meter
+}
+
+export function catalogQualifiedMeters(catalog: UsageCatalogProvider[] | undefined): string[] {
+  return (catalog ?? []).flatMap((p) => p.meters.map((m) => m.qualified))
+}
+
 export interface UsageProfile {
   name: string
   agent: string
@@ -40,8 +72,6 @@ export interface UsagePolicy {
   switches: { id: number; from_profile: string; to_profile: string; since: string; reason: string }[]
 }
 
-export const qualifiedUsageMeters = ["claude.five_hour", "claude.weekly", "claude.weekly_opus", "claude.weekly_sonnet", "codex.five_hour", "codex.weekly"]
-
 export async function setUsagePin(baseUrl: string, pin?: UsagePin): Promise<void> {
   const response = await apiFetch(baseUrl, "/api/usage/pin", pin
     ? { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pin) }
@@ -53,6 +83,7 @@ export async function setUsagePin(baseUrl: string, pin?: UsagePin): Promise<void
 }
 
 export interface SubscriptionUsage {
+  catalog?: UsageCatalogProvider[]
   policy?: UsagePolicy
   providers: ProviderUsage[]
   poll_interval_seconds: number
@@ -80,29 +111,17 @@ export async function refreshSubscriptionUsage(baseUrl: string): Promise<void> {
   }
 }
 
-export function providerName(provider: string): string {
-  return provider === "claude" ? "Claude" : provider === "codex" ? "Codex" : provider
-}
-
-const meterLabels: Record<string, { short: string; long: string }> = {
-  five_hour: { short: "5h", long: "5-hour" },
-  weekly: { short: "wk", long: "weekly" },
-  weekly_opus: { short: "Opus", long: "weekly Opus" },
-  weekly_sonnet: { short: "Sonnet", long: "weekly Sonnet" },
-}
-
-export function meterLabel(meter: string, form: "short" | "long" = "long"): string {
-  return meterLabels[meter]?.[form] ?? meter
-}
-
 // Why a provider's usage could not be read, as a short phrase (beside a
-// stale reading) or a sentence (in place of one).
+// stale reading) or a sentence (in place of one). The provider's own words
+// name the tool the reason is about.
 export function reasonPhrase(reason?: string): string {
   switch (reason) {
     case "not_read": return "not read yet"
     case "not_signed_in": return "not signed in"
     case "login_expired": return "login expired"
     case "no_subscription": return "no subscription limits"
+    case "missing_key": return "no API key named"
+    case "invalid_key": return "API key refused"
     case "codex_missing": return "codex not installed"
     case "no_data": return "nothing reported yet"
     case "endpoint_changed": return "its usage report changed"
@@ -113,12 +132,14 @@ export function reasonPhrase(reason?: string): string {
 }
 
 export function reasonSentence(provider: string, reason?: string): string {
-  const tool = provider === "claude" ? "Claude Code" : "Codex"
+  const tool = provider === "claude" ? "Claude Code" : provider === "codex" ? "Codex" : provider === "opencode" ? "OpenCode Go" : provider
   switch (reason) {
     case "not_read": return "Not read yet."
     case "not_signed_in": return `Sign in to ${tool} on this machine.`
     case "login_expired": return `${tool}'s login has expired; using ${tool} signs in again.`
-    case "no_subscription": return "This login has no subscription limits to show."
+    case "no_subscription": return "This account has no subscription limits to show."
+    case "missing_key": return "Name its API key in Settings › Usage."
+    case "invalid_key": return `${tool}'s API key was refused; replace the key's secret and restart.`
     case "codex_missing": return "The codex command is not installed on this machine."
     case "no_data": return `${tool} has not reported any usage yet.`
     case "endpoint_changed": return `${tool}'s usage report has changed and Legato cannot read it.`
