@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"sync"
 
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/service"
@@ -68,22 +67,7 @@ func (s *Server) usageRefreshHandler() http.HandlerFunc {
 // StartSubscriptionUsageEvents broadcasts usage_changed when this process
 // or another keeps a reading.
 func (s *Server) StartSubscriptionUsageEvents(bus *events.Bus) func() {
-	changes, unsubscribe := bus.SubscribeInvalidations(events.EventSubscriptionUsageChanged, events.EventSubscriptionUsageInvalidated)
-	stop := make(chan struct{})
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			select {
-			case <-stop:
-				return
-			case <-changes:
-				s.hub.Broadcast(WSMessage{Type: MsgUsageChanged})
-			}
-		}
-	}()
-	var once sync.Once
-	return func() { once.Do(func() { close(stop); <-done; unsubscribe() }) }
+	return s.broadcastInvalidations(bus, MsgUsageChanged, events.EventSubscriptionUsageChanged, events.EventSubscriptionUsageInvalidated)
 }
 
 // usagePinHandler changes policy only after its owner acknowledges the write.

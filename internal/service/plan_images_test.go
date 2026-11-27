@@ -412,3 +412,17 @@ func TestSweepRemovesPlanImagesThatNothingNames(t *testing.T) {
 		}
 	}
 }
+
+// A folder beside the bundle whose name starts with the bundle's is still
+// outside it.
+func TestPlanImageInASiblingFolderSharingTheBundlesPrefixIsOutside(t *testing.T) {
+	parent := t.TempDir()
+	bundle := filepath.Join(parent, "bundle")
+	writeBundleFile(t, bundle, "plan.md", nil)
+	writeBundleFile(t, filepath.Join(parent, "bundle-other"), "x.png", pngImage("sibling"))
+
+	problems := PlanImageProblems([]byte("# Plan\n\n![a](../bundle-other/x.png)\n"), bundle)
+	if len(problems) != 1 || !strings.Contains(problems[0].Message, "inside the plan bundle") {
+		t.Fatalf("problems = %+v", problems)
+	}
+}

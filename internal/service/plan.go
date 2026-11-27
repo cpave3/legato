@@ -71,16 +71,12 @@ func PlanImageProblems(markdown []byte, bundleDir string) []planvalidate.Diagnos
 // is whole by itself.
 func planBundleImage(bundleDir string) func(destination string) (string, error) {
 	outside := errors.New("a plan's image must be a file inside the plan bundle, named by a relative path such as assets/board.png")
-	inside := func(root, file string) bool {
-		rel, err := filepath.Rel(root, file)
-		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-	}
 	return func(destination string) (string, error) {
 		if filepath.IsAbs(destination) {
 			return "", outside
 		}
 		named := filepath.Join(bundleDir, filepath.FromSlash(destination))
-		if !inside(bundleDir, named) {
+		if !pathWithin(bundleDir, named) {
 			return "", outside
 		}
 		// Where links lead counts, not where they lie.
@@ -89,7 +85,7 @@ func planBundleImage(bundleDir string) func(destination string) (string, error) 
 			return named, nil
 		}
 		root, err := filepath.EvalSymlinks(bundleDir)
-		if err != nil || !inside(root, resolved) {
+		if err != nil || !pathWithin(root, resolved) {
 			return "", outside
 		}
 		return resolved, nil

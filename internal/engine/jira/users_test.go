@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -96,5 +99,52 @@ func TestCreateIssueAssignsAsItCreates(t *testing.T) {
 	}
 	if got := path((*seen)[0].body, "fields", "assignee", "accountId"); got != "5b10ac8d" {
 		t.Fatalf("fields.assignee.accountId = %v", got)
+	}
+}
+
+// Every write, PUT or POST, is JSON with Basic auth, as Jira requires.
+func TestWritesSendJSONWithBasicAuth(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		method string
+		write  func(*Client) error
+	}{
+		{"assign", http.MethodPut, func(c *Client) error { return c.Assign(context.Background(), "AG-12", "5b10ac8d") }},
+		{"transition", http.MethodPost, func(c *Client) error { return c.DoTransition(context.Background(), "AG-12", "31") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, seen := jiraServer(t, http.StatusNoContent, ``)
+			c := NewClient(srv.URL, "cam@example.com", "secret-token", 5*time.Second)
+			if err := tc.write(c); err != nil {
+				t.Fatal(err)
+			}
+			r := (*seen)[0]
+			if r.method != tc.method || r.contentType != "application/json" || r.accept != "application/json" || !strings.HasPrefix(r.auth, "Basic ") {
+				t.Fatalf("request = %+v", r)
+			}
+		})
+	}
+}
+
+// A rate-limited PUT is sent again with the same body.
+func TestAssignRateLimitedIsRetriedWithItsBody(t *testing.T) {
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		if len(bodies) == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(srv.Close)
+	c := NewClient(srv.URL, "cam@example.com", "secret-token", 5*time.Second)
+	if err := c.Assign(context.Background(), "AG-12", "5b10ac8d"); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 2 || bodies[0] != `{"accountId":"5b10ac8d"}` || bodies[1] != bodies[0] {
+		t.Fatalf("bodies = %q", bodies)
 	}
 }

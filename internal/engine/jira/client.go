@@ -139,7 +139,7 @@ func (c *Client) GetTransitions(ctx context.Context, key string) ([]Transition, 
 // DoTransition executes a workflow transition on an issue.
 func (c *Client) DoTransition(ctx context.Context, key, transitionID string) error {
 	payload := fmt.Sprintf(`{"transition":{"id":%q}}`, transitionID)
-	_, err := c.doPost(ctx, "/rest/api/3/issue/"+url.PathEscape(key)+"/transitions", payload)
+	_, err := c.doJSON(ctx, http.MethodPost, "/rest/api/3/issue/"+url.PathEscape(key)+"/transitions", payload)
 	if err != nil {
 		return fmt.Errorf("do transition: %w", err)
 	}
@@ -154,8 +154,9 @@ func (c *Client) doGet(ctx context.Context, path string) ([]byte, error) {
 	return c.doRequest(req)
 }
 
-func (c *Client) doPost(ctx context.Context, path, body string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, strings.NewReader(body))
+// doJSON sends a JSON body with method (POST or PUT).
+func (c *Client) doJSON(ctx context.Context, method, path, body string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, strings.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
