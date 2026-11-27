@@ -523,12 +523,26 @@ func (c *ReviewRunCaller) waitingToOpenOn(ctx context.Context, repo string, numb
 	if c.workflows == nil {
 		return nil
 	}
-	attempts, err := c.workflows.WaitingAttempts(ctx, ReviewPassesStepType)
+	held, err := c.passesStepWaitingOn(ctx, repo, number, except)
 	if err != nil {
 		return nil
 	}
-	refusal := func(attempt store.WorkflowStepAttempt) *ReviewLoopActiveError {
-		return &ReviewLoopActiveError{Repo: repo, PR: number, Name: "run " + attempt.RunID, Link: "/workflows/runs/" + attempt.RunID}
+	if held == nil {
+		// Open steps still waiting to open hold their pull requests too.
+		if held, err = c.openStepWaitingOn(ctx, repo, number, except); err != nil || held == nil {
+			return nil
+		}
+	}
+	return &ReviewLoopActiveError{Repo: repo, PR: number, Name: "run " + held.RunID, Link: "/workflows/runs/" + held.RunID}
+}
+
+// passesStepWaitingOn is an inline github.pr.review_passes step, other than
+// the run task except's, waiting to open its loop on the pull request; nil
+// when there is none.
+func (c *ReviewRunCaller) passesStepWaitingOn(ctx context.Context, repo string, number int, except string) (*store.WorkflowStepAttempt, error) {
+	attempts, err := c.workflows.WaitingAttempts(ctx, ReviewPassesStepType)
+	if err != nil {
+		return nil, err
 	}
 	for _, attempt := range attempts {
 		if attempt.TaskID == except || c.opened(ctx, attempt) != nil {
@@ -539,15 +553,21 @@ func (c *ReviewRunCaller) waitingToOpenOn(ctx context.Context, repo string, numb
 			continue
 		}
 		if r, n, err := reviewStepPR(step.With); err == nil && n == number && strings.EqualFold(r, repo) {
-			return refusal(attempt)
+			return &attempt, nil
 		}
 	}
-	// Open steps still waiting to open hold their pull requests too.
-	opens, err := c.workflows.WaitingAttempts(ctx, ReviewOpenStepType)
+	return nil, nil
+}
+
+// openStepWaitingOn is a github.pr.review.open step, other than the run
+// task except's, waiting to open a loop that takes the pull request; nil
+// when there is none.
+func (c *ReviewRunCaller) openStepWaitingOn(ctx context.Context, repo string, number int, except string) (*store.WorkflowStepAttempt, error) {
+	attempts, err := c.workflows.WaitingAttempts(ctx, ReviewOpenStepType)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	for _, attempt := range opens {
+	for _, attempt := range attempts {
 		if attempt.TaskID == except {
 			continue
 		}
@@ -560,10 +580,10 @@ func (c *ReviewRunCaller) waitingToOpenOn(ctx context.Context, repo string, numb
 			continue
 		}
 		if slices.Contains(in.numbers(), number) {
-			return refusal(attempt)
+			return &attempt, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // openInline opens an inline github.pr.review_passes step's loop: the one
