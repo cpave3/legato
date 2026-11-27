@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"sync"
 
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/service"
@@ -21,22 +20,7 @@ func (s *Server) SetThemePreferenceService(themes ThemePreferenceService) { s.th
 
 // StartServerThemeEvents rereads authority in clients after any process saves.
 func (s *Server) StartServerThemeEvents(bus *events.Bus) func() {
-	changes, unsubscribe := bus.SubscribeInvalidations(events.EventServerThemeChanged, events.EventServerThemeInvalidated)
-	stop := make(chan struct{})
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			select {
-			case <-stop:
-				return
-			case <-changes:
-				s.hub.Broadcast(WSMessage{Type: MsgServerThemeChanged})
-			}
-		}
-	}()
-	var once sync.Once
-	return func() { once.Do(func() { close(stop); <-done; unsubscribe() }) }
+	return s.broadcastInvalidations(bus, MsgServerThemeChanged, events.EventServerThemeChanged, events.EventServerThemeInvalidated)
 }
 
 func (s *Server) themePreferenceHandler() http.HandlerFunc {
