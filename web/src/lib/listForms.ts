@@ -11,7 +11,7 @@ export interface FormField {
   optional?: boolean
   kind: "text" | "lines" | "bool" | "check" | "choice" | "swatches" | "textarea" | "tiers" | "pairs" | "number"
   choices?: [string, string][]
-  optionsFrom?: "profiles" | "tiers" | "usage_meters"
+  optionsFrom?: "profiles" | "tiers" | "usage_meters" | "claude_accounts"
   agentKey?: string
   placeholder?: string
   // bool: what unset means.
@@ -63,12 +63,23 @@ export const workspaceColors: [string, string][] = [
 ]
 
 export const listForms: Record<string, ListForm> = {
+  claude_accounts: {
+    name: { label: "Name", placeholder: "work" },
+    fields: [
+      { key: "label", label: "Display name", kind: "text", optional: true },
+      { key: "config_dir", label: "Config directory", kind: "text", help: "Absolute account-local directory. Sign in there with Claude's CLI before launching." },
+    ],
+    empty: "No named Claude accounts.", add: "New account",
+    summary: (name, value) => String(value.label || name),
+  },
   "usage.profiles": {
     name: { label: "Name" },
     fields: [
       { key: "agent", label: "Agent", kind: "choice", choices: Object.entries(agentLabels) },
+      { key: "account", label: "Account", kind: "choice", optional: true, unsetLabel: "Default account", optionsFrom: "claude_accounts", when: { key: "agent", is: "claude-code" } },
       { key: "tier", label: "Tier", kind: "choice", optional: true, unsetLabel: "Agent default", optionsFrom: "tiers", agentKey: "agent" },
       { key: "reviewer.agent", label: "Reviewer agent", kind: "choice", optional: true, unsetLabel: "Usual reviewer", choices: Object.entries(agentLabels) },
+      { key: "reviewer.account", label: "Reviewer account", kind: "choice", optional: true, unsetLabel: "Default account", optionsFrom: "claude_accounts", when: { key: "reviewer.agent", is: "claude-code" } },
       { key: "reviewer.tier", label: "Reviewer tier", kind: "choice", optional: true, unsetLabel: "Reviewer default", optionsFrom: "tiers", agentKey: "reviewer.agent" },
     ],
     empty: "No usage profiles.", add: "New profile",
@@ -159,7 +170,7 @@ export const listForms: Record<string, ListForm> = {
 // value (FormField.only, FormField.when).
 export function fieldApplies(field: FormField, name: string, value: Record<string, unknown>): boolean {
   if (field.only && !field.only.includes(name.trim())) return false
-  return !field.when || value[field.when.key] === field.when.is
+  return !field.when || field.when.key.split(".").reduce<unknown>((node, key) => node !== null && typeof node === "object" ? (node as Record<string, unknown>)[key] : undefined, value) === field.when.is
 }
 
 export function formFor(listKey: string, nameField?: string): ListForm {

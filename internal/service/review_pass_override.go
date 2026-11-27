@@ -39,7 +39,7 @@ func (a ReviewPassesAdvert) Apply(o ReviewPassOverride) (ReviewPassSettings, err
 		return settings, nil
 	}
 	if o.Agent != "" && o.Agent != settings.Agent {
-		settings.Agent, settings.Model, settings.Tier = o.Agent, "", ""
+		settings.Agent, settings.Model, settings.Tier, settings.Account = o.Agent, "", "", ""
 	}
 	var adapter *ReviewAdapter
 	for i := range a.Adapters {

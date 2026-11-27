@@ -36,6 +36,7 @@ type mockTmux struct {
 	paneCommandsErr  error
 	spawnErr         error
 	sentLines        map[string][]string // session -> ordered list of SendKeysLine payloads
+	shellCommands    map[string][]string // only SendKeysShellCommand payloads
 	sendLineErr      error
 	sentMultiline    map[string][]string // session -> ordered list of SendKeysMultiline payloads
 	sendMultilineErr map[string]error
@@ -247,7 +248,17 @@ func (m *mockTmux) SendKeysShellCommand(name, command string) error {
 	// real distinction (split call + delay) is a tmux-level concern that
 	// doesn't matter for service-layer tests.
 	m.sentLines[name] = append(m.sentLines[name], command)
+	if m.shellCommands == nil {
+		m.shellCommands = make(map[string][]string)
+	}
+	m.shellCommands[name] = append(m.shellCommands[name], command)
 	return nil
+}
+
+func (m *mockTmux) shellCommandsFor(name string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string{}, m.shellCommands[name]...)
 }
 
 func (m *mockTmux) PipeOutput(name string) (io.Reader, func(), error) {

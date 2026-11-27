@@ -52,6 +52,8 @@ type HandoffCall struct {
 	Base string `json:"base,omitempty"`
 	// AgentKind is the agent tool; empty for the worker's default.
 	AgentKind string `json:"agent_kind,omitempty"`
+	// Account is a logical Claude account ID resolved on the worker, never a host path.
+	Account string `json:"account,omitempty"`
 	// Review overrides the worker's review passes for this handoff; nil
 	// keeps its defaults.
 	Review *ReviewPassOverride `json:"review,omitempty"`

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -49,6 +50,8 @@ func (m *macroAgentsSpy) GetTaskResumeSession(context.Context, string, string) (
 func newMacroStartFixture(t *testing.T) (*MacroService, *macroAgentsSpy) {
 	t.Helper()
 	settings, db := newSettingsFixture(t, "")
+	account, _ := json.Marshal(map[string]string{"config_dir": t.TempDir(), "label": "Synthetic work"})
+	if err := settings.SetEntry(context.Background(), "claude_accounts", "work", account, "test"); err != nil { t.Fatal(err) }
 	remote := "LEG-7"
 	if err := db.CreateTask(context.Background(), store.Task{ID: "abc12345", Title: "Fix the login", Status: "Doing", RemoteID: &remote, CreatedAt: "2024-01-01T00:00:00Z", UpdatedAt: "2024-01-01T00:00:00Z"}); err != nil {
 		t.Fatal(err)
@@ -171,5 +174,61 @@ func TestAMacroCapturesProfileAgentAndTierTogether(t *testing.T) {
 	}
 	if result.AgentKind != "codex" || len(spy.spawned) != 1 || spy.spawned[0].AgentKind != "codex" || spy.spawned[0].Tier != "profile" {
 		t.Fatalf("result=%+v spawn=%+v", result, spy.spawned)
+	}
+}
+
+func TestMacroAccountIsUsedForFreshWorkAndSavedIdentityForResume(t *testing.T) {
+	svc, spy := newMacroStartFixture(t)
+	ctx := context.Background()
+	if err := svc.Save(ctx, "account", macros.Macro{Keys: "do it", Agent: "claude-code", Account: "work"}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Start(ctx, MacroStart{Name: "account", TaskID: "local01"}); err != nil {
+		t.Fatal(err)
+	}
+	if spy.spawned[0].Account != "work" {
+		t.Fatalf("fresh options = %+v", spy.spawned[0])
+	}
+	identity := &store.AgentAccountIdentity{Provider: "claude", Account: "personal", ConfigDir: "/old", ResolvedDir: "/old"}
+	spy.saved = &TaskResumeSession{AgentKind: "claude-code", ID: "s1", CWD: "/work", AccountIdentity: identity}
+	if _, err := svc.Start(ctx, MacroStart{Name: "account", TaskID: "local01"}); err != nil {
+		t.Fatal(err)
+	}
+	got := spy.spawned[1]
+	if got.Account != "personal" || got.AccountIdentity != identity {
+		t.Fatalf("resumed options = %+v", got)
+	}
+	spy.gone["/work"] = true
+	if err := svc.settings.db.SetCodeContext(ctx, "local01", &store.CodeContext{Repo: "acme/app"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Start(ctx, MacroStart{Name: "account", TaskID: "local01"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := spy.spawned[2]; got.Account != "work" || got.AccountIdentity != nil {
+		t.Fatalf("fresh clone options = %+v", got)
+	}
+}
+
+func TestMacroExplicitAccountCannotSwitchAResumedConversation(t *testing.T) {
+	svc, spy := newMacroStartFixture(t)
+	spy.saved = &TaskResumeSession{AgentKind: "claude-code", ID: "s1", CWD: "/work", AccountIdentity: &store.AgentAccountIdentity{Provider: "claude", Account: "work"}}
+	_, err := svc.Start(context.Background(), MacroStart{Name: "Plan", TaskID: "local01", Account: "personal"})
+	if err == nil || !strings.Contains(err.Error(), "account") || len(spy.spawned) != 0 {
+		t.Fatalf("start = %v, spawns %+v", err, spy.spawned)
+	}
+}
+
+func TestMacroAccountSelectsClaudeWithoutInheritingOtherToolProfile(t *testing.T) {
+	svc, spy := newMacroStartFixture(t)
+	spy.defaults = NewWorkDefaults{Agent: "codex", Tier: "codex-tier"}
+	if err := svc.Save(context.Background(), "account", macros.Macro{Keys: "do it", Account: "work"}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Start(context.Background(), MacroStart{Name: "account", TaskID: "local01"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := spy.spawned[0]; got.Account != "work" || got.AgentKind != "claude-code" || got.Tier != "" {
+		t.Fatalf("spawn = %+v", got)
 	}
 }

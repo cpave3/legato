@@ -296,6 +296,10 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 	}
 	name, _ := workflowString(step.With, "name", false)
 	kind, tier := stepAgent(step.With, macro)
+	account, err := workflowString(step.With, "account", false)
+	if err != nil {
+		return WorkflowExecutionResult{}, err
+	}
 	workingDir, _ := workflowString(step.With, "working_dir", false)
 	repo, _ := workflowString(step.With, "repo", false)
 	ref, _ := workflowString(step.With, "ref", false)
@@ -330,7 +334,7 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 	}
 	assignment := buildWorkflowAssignment(prompt, step, e.binaryPath)
 	opts := AgentSpawnOptions{
-		AgentKind: kind, Tier: tier, WorkingDir: workingDir, Repo: strings.TrimSpace(repo), Ref: strings.TrimSpace(ref), Branch: strings.TrimSpace(branch), Assignment: assignment,
+		AgentKind: kind, Tier: tier, Account: strings.TrimSpace(account), WorkingDir: workingDir, Repo: strings.TrimSpace(repo), Ref: strings.TrimSpace(ref), Branch: strings.TrimSpace(branch), Assignment: assignment,
 		ExecutionKind: store.ExecutionWorkflowAgent, AttributionTaskID: attribution, Slot: slot,
 		WorkflowRunID: step.RunID, WorkflowAttemptID: step.AttemptID,
 		Engram: strings.TrimSpace(engram), EngramRequired: strings.TrimSpace(engram) != "",

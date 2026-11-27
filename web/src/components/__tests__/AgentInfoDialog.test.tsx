@@ -42,6 +42,13 @@ afterEach(() => {
 })
 
 describe("AgentInfoDialog", () => {
+  it("shows the configured account separately from the agent tool", async () => {
+    render(<AgentInfoDialog agent={agent({ account: "work", account_label: "Work subscription" })} onClose={() => {}} />)
+    expect(field("Account").textContent).toBe("Work subscription")
+    expect(field("Agent tool").textContent).toBe("Claude Code")
+    expect(await screen.findByText("notes")).toBeTruthy()
+  })
+
   it("shows what Legato knows about the agent", async () => {
     render(<AgentInfoDialog agent={agent()} onClose={() => {}} />)
     const dialog = screen.getByRole("dialog", { name: "Agent info" })

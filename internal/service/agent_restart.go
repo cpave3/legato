@@ -140,6 +140,11 @@ func (a *agentService) restartAgentWith(ctx context.Context, taskID string, reso
 		}
 	}
 	if session.ExecutionID != "" {
+		identity, err := a.store.ExecutionAccount(ctx, session.ExecutionID)
+		if err != nil {
+			return false, err
+		}
+		opt.AccountIdentity = identity
 		if execution, err := a.store.GetExecution(ctx, session.ExecutionID); err == nil {
 			opt.WorkingDir = execution.WorkingDir
 		}

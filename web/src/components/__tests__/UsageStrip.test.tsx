@@ -125,6 +125,13 @@ describe("UsageStrip", () => {
     expect(within(card).queryByRole("progressbar")).toBeNull()
   })
 
+  it("names the configured account in sign-in guidance", async () => {
+    usage = { poll_interval_seconds: 300, catalog: [...catalog, { provider: "claude:review", name: "Review subscription", meters: [] }], providers: [{ provider: "claude:review", kind: "claude", account: "review", state: "unavailable", stale: false, reason: "not_signed_in", windows: [] }] }
+    renderIt()
+    fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
+    expect(screen.getByText("Sign in to Review subscription on this machine.")).toBeTruthy()
+  })
+
   it("shows OpenCode Go beside the others, with its monthly meter", async () => {
     usage = {
       ...(usage as Record<string, unknown>),

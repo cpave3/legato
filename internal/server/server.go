@@ -779,11 +779,17 @@ func (s *Server) adaptersHandler() http.HandlerFunc {
 			adapters = s.agents.RegisteredAdapters()
 		}
 		resp := struct {
-			Adapters []string `json:"adapters"`
-			Default  string   `json:"default"`
+			Adapters []string                      `json:"adapters"`
+			Default  string                        `json:"default"`
+			Accounts []service.ClaudeAccountChoice `json:"accounts"`
 		}{
 			Adapters: adapters,
 			Default:  defaultAdapter,
+		}
+		if accounts, ok := s.agents.(interface {
+			ClaudeAccountChoices() []service.ClaudeAccountChoice
+		}); ok {
+			resp.Accounts = accounts.ClaudeAccountChoices()
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}

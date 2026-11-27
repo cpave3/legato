@@ -46,6 +46,8 @@ func sandboxedService(t *testing.T, backend *fakeBackend, adjust ...func(*Sandbo
 	t.Cleanup(func() { s.Close() })
 	mt := newMockTmux()
 	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	settings := &SandboxSettings{Backend: backend, Base: SandboxPlanInput{Home: home, RuntimeDir: filepath.Join(t.TempDir(), "legato"), DefaultMounts: true}}
 	for _, f := range adjust {
 		f(settings)
@@ -73,10 +75,10 @@ func TestASandboxedSpawnWrapsTheLaunchCommand(t *testing.T) {
 	// The sandbox's arguments are read from a file, so the typed line stays
 	// short however many mounts there are.
 	lines := mt.sentLinesFor("legato-task-1")
-	if len(lines) == 0 || !strings.HasPrefix(lines[0], "SANDBOX --args 3 3<") || !strings.Contains(lines[0], "bwrap.args") || !strings.Contains(lines[0], " -- fake-tool --in-sandbox") {
+	if len(lines) == 0 || !strings.HasPrefix(lines[0], "env -u CLAUDE_CONFIG_DIR SANDBOX --args 3 3<") || !strings.Contains(lines[0], "bwrap.args") || !strings.Contains(lines[0], " -- fake-tool --in-sandbox") {
 		t.Fatalf("launch = %v", lines)
 	}
-	file := strings.TrimPrefix(strings.Split(lines[0], " -- ")[0], "SANDBOX --args 3 3<")
+	file := strings.TrimPrefix(strings.Split(lines[0], " -- ")[0], "env -u CLAUDE_CONFIG_DIR SANDBOX --args 3 3<")
 	args, err := os.ReadFile(strings.Trim(file, "'"))
 	if err != nil || string(args) != "--ro-bind\x00/a path\x00/a path\x00" {
 		t.Fatalf("args file %s = %q, %v", file, args, err)
@@ -176,7 +178,7 @@ func TestAnAgentCanBeSpawnedWithoutTheSandbox(t *testing.T) {
 	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Unsandboxed: true}); err != nil {
 		t.Fatal(err)
 	}
-	if lines := mt.sentLinesFor("legato-task-1"); len(lines) == 0 || lines[0] != "fake-tool" {
+	if lines := mt.sentLinesFor("legato-task-1"); len(lines) == 0 || lines[0] != "env -u CLAUDE_CONFIG_DIR fake-tool" {
 		t.Fatalf("launch = %v", lines)
 	}
 	session, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
@@ -192,7 +194,7 @@ func TestASwarmWorkerCannotLeaveTheSandbox(t *testing.T) {
 	if err := svc.SpawnAgent(context.Background(), "st-1", 0, 0, AgentSpawnOptions{Unsandboxed: true, ParentTaskID: "parent", SubtaskID: "st-1", Role: "worker"}); err != nil {
 		t.Fatal(err)
 	}
-	if lines := mt.sentLinesFor("legato-st-1"); len(lines) == 0 || !strings.HasPrefix(lines[0], "SANDBOX") {
+	if lines := mt.sentLinesFor("legato-st-1"); len(lines) == 0 || !strings.HasPrefix(lines[0], "env -u CLAUDE_CONFIG_DIR SANDBOX") {
 		t.Fatalf("launch = %v", lines)
 	}
 }
@@ -219,7 +221,7 @@ func TestReloadingAnAgentKeepsItsSandboxChoice(t *testing.T) {
 	// A conversation to resume, as a Claude Code session reports.
 	running, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
 	execution, _ := s.GetExecution(context.Background(), running.ExecutionID)
-	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, t.TempDir()); err != nil {
+	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, filepath.Join(os.Getenv("HOME"), ".claude")); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.(AgentRestarter).RestartAgent(context.Background(), "task-1", nil); err != nil {
@@ -229,8 +231,11 @@ func TestReloadingAnAgentKeepsItsSandboxChoice(t *testing.T) {
 	if session.Sandboxed {
 		t.Fatal("reloading moved an unsandboxed agent into the sandbox")
 	}
-	lines := mt.sentLinesFor("legato-task-1")
-	if strings.HasPrefix(lines[len(lines)-1], "SANDBOX") {
+	lines := mt.shellCommandsFor("legato-task-1")
+	if len(lines) != 2 {
+		t.Fatalf("want exactly two shell launches: %q", lines)
+	}
+	if !strings.HasPrefix(lines[1], "env -u CLAUDE_CONFIG_DIR fake-tool") {
 		t.Fatalf("relaunched as %q", lines[len(lines)-1])
 	}
 }
@@ -244,7 +249,7 @@ func TestReloadingAnAgentWithoutTheSandboxTakesItOut(t *testing.T) {
 	}
 	running, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
 	execution, _ := s.GetExecution(context.Background(), running.ExecutionID)
-	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, t.TempDir()); err != nil {
+	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, filepath.Join(os.Getenv("HOME"), ".claude")); err != nil {
 		t.Fatal(err)
 	}
 	sandboxed, err := svc.(SandboxSwitcher).RestartAgentSwitchingSandbox(context.Background(), "task-1", nil)
@@ -255,8 +260,11 @@ func TestReloadingAnAgentWithoutTheSandboxTakesItOut(t *testing.T) {
 	if sandboxed || session.Sandboxed {
 		t.Fatalf("the agent is still sandboxed (said %v, recorded %v)", sandboxed, session.Sandboxed)
 	}
-	lines := mt.sentLinesFor("legato-task-1")
-	if last := lines[len(lines)-1]; strings.HasPrefix(last, "SANDBOX") {
+	lines := mt.shellCommandsFor("legato-task-1")
+	if len(lines) != 2 {
+		t.Fatalf("want exactly two shell launches: %q", lines)
+	}
+	if last := lines[1]; !strings.HasPrefix(last, "env -u CLAUDE_CONFIG_DIR fake-tool") {
 		t.Fatalf("relaunched as %q", last)
 	}
 	if note := sentLineEventually(t, mt, "task-1", "[legato sandbox] "); !strings.Contains(note, "outside Legato's sandbox") {
@@ -273,7 +281,7 @@ func TestReloadingAnUnsandboxedAgentSwitchingTheSandboxPutsItBack(t *testing.T) 
 	}
 	running, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
 	execution, _ := s.GetExecution(context.Background(), running.ExecutionID)
-	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, t.TempDir()); err != nil {
+	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, filepath.Join(os.Getenv("HOME"), ".claude")); err != nil {
 		t.Fatal(err)
 	}
 	sandboxed, err := svc.(SandboxSwitcher).RestartAgentSwitchingSandbox(context.Background(), "task-1", nil)
@@ -284,8 +292,11 @@ func TestReloadingAnUnsandboxedAgentSwitchingTheSandboxPutsItBack(t *testing.T) 
 	if !sandboxed || !session.Sandboxed {
 		t.Fatalf("the agent is not back in the sandbox (said %v, recorded %v)", sandboxed, session.Sandboxed)
 	}
-	lines := mt.sentLinesFor("legato-task-1")
-	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "SANDBOX") {
+	lines := mt.shellCommandsFor("legato-task-1")
+	if len(lines) != 2 {
+		t.Fatalf("want exactly two shell launches: %q", lines)
+	}
+	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "env -u CLAUDE_CONFIG_DIR SANDBOX") {
 		t.Fatalf("relaunched as %q", last)
 	}
 	if note := sentLineEventually(t, mt, "task-1", "[legato sandbox] "); !strings.Contains(note, "inside Legato's sandbox") {
@@ -304,9 +315,9 @@ func mountOf(plan sandbox.Plan, path string) (sandbox.Mount, bool) {
 
 func TestAToolsStateFolderSetInTheEnvironmentIsMounted(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "claude-elsewhere")
-	t.Setenv("CLAUDE_CONFIG_DIR", state)
 	backend := &fakeBackend{}
 	svc, s, _ := sandboxedService(t, backend)
+	t.Setenv("CLAUDE_CONFIG_DIR", state)
 	createTask(t, s, "task-1")
 	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
 		t.Fatal(err)
@@ -324,13 +335,14 @@ func TestAToolsStateFolderSetInTheEnvironmentIsMounted(t *testing.T) {
 func TestAResumedSessionsStorageFolderIsMounted(t *testing.T) {
 	backend := &fakeBackend{}
 	svc, s, _ := sandboxedService(t, backend)
+	storage := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", storage)
 	createTask(t, s, "task-1")
 	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	running, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
 	execution, _ := s.GetExecution(context.Background(), running.ExecutionID)
-	storage := t.TempDir()
 	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, storage); err != nil {
 		t.Fatal(err)
 	}
@@ -658,7 +670,7 @@ func TestAnUnattendedAgentRunsInTheSandboxWithItsPromptsOff(t *testing.T) {
 	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Unattended: true, Unsandboxed: true}); err != nil {
 		t.Fatal(err)
 	}
-	if lines := mt.sentLinesFor("legato-task-1"); len(lines) == 0 || !strings.HasPrefix(lines[0], "SANDBOX") || !strings.HasSuffix(lines[0], " -- fake-tool --no-prompts 'a b'") {
+	if lines := mt.sentLinesFor("legato-task-1"); len(lines) == 0 || !strings.HasPrefix(lines[0], "env -u CLAUDE_CONFIG_DIR SANDBOX") || !strings.HasSuffix(lines[0], " -- fake-tool --no-prompts 'a b'") {
 		t.Fatalf("launch = %v", lines)
 	}
 }

@@ -14,10 +14,11 @@ var ErrTaskResumeConflict = errors.New("task session cannot be resumed")
 
 // TaskResumeSession is a durable conversation selector, not a native panel binding.
 type TaskResumeSession struct {
-	AgentKind  string
-	ID         string
-	CWD        string
-	StorageDir string
+	AgentKind       string
+	ID              string
+	CWD             string
+	StorageDir      string
+	AccountIdentity *store.AgentAccountIdentity
 }
 
 func SupportsTaskResume(agentKind string) bool {
@@ -49,7 +50,11 @@ func (a *agentService) GetTaskResumeSessionInSlot(ctx context.Context, taskID, s
 	if err != nil || saved == nil {
 		return nil, err
 	}
-	return &TaskResumeSession{AgentKind: saved.AgentKind, ID: saved.ProviderSessionID, CWD: saved.CWD, StorageDir: saved.StorageDir}, nil
+	identity, err := a.store.ExecutionAccount(ctx, saved.ExecutionID)
+	if err != nil {
+		return nil, err
+	}
+	return &TaskResumeSession{AgentKind: saved.AgentKind, ID: saved.ProviderSessionID, CWD: saved.CWD, StorageDir: saved.StorageDir, AccountIdentity: identity}, nil
 }
 
 func (a *agentService) prepareTaskResume(ctx context.Context, taskID string, opt *AgentSpawnOptions) error {
@@ -98,11 +103,24 @@ func (a *agentService) prepareTaskResume(ctx context.Context, taskID string, opt
 	if err != nil {
 		return err
 	}
-	if saved == nil || (opt.ResumeSessionID != "" && opt.ResumeSessionID != saved.ID) {
+	var storage *string
+	if opt.AccountIdentity != nil {
+		storage = &opt.AccountIdentity.ConfigDir
+	} else if opt.ResumeStorageDir != "" {
+		storage = &opt.ResumeStorageDir
+	}
+	lookupHistory := saved == nil || (opt.ResumeSessionID != "" && (opt.ResumeSessionID != saved.ID || storage == nil))
+	if saved != nil && storage != nil && saved.StorageDir != *storage {
+		lookupHistory = true
+	}
+	if lookupHistory {
 		// Any conversation the session history keeps for this task, slot
 		// and tool can be resumed, not only the newest.
-		earlier, err := a.historyConversation(ctx, taskID, opt.Slot, kind, opt.ResumeSessionID)
+		earlier, err := a.historyConversation(ctx, taskID, opt.Slot, kind, opt.ResumeSessionID, storage)
 		if err != nil {
+			if errors.Is(err, store.ErrConflict) {
+				return fmt.Errorf("%w: %w", ErrTaskResumeConflict, err)
+			}
 			return err
 		}
 		if earlier == nil {
@@ -141,6 +159,24 @@ func (a *agentService) prepareTaskResume(ctx context.Context, taskID string, opt
 	opt.ResumeSessionID = saved.ID
 	opt.ResumeWorkingDir = saved.CWD
 	opt.ResumeStorageDir = saved.StorageDir
+	if kind == "claude-code" {
+		if saved.AccountIdentity != nil {
+			opt.AccountIdentity = saved.AccountIdentity
+		} else if saved.StorageDir != "" {
+			identity, err := a.resolveClaudeAccount(ctx, *opt, kind)
+			if err != nil {
+				return err
+			}
+			root, err := resolvedAccountRoot(saved.StorageDir)
+			if err != nil || root != identity.ResolvedDir {
+				return fmt.Errorf("%w: legacy Claude storage has no matching local account; restore its original account mapping", ErrTaskResumeConflict)
+			}
+			opt.AccountIdentity = identity
+		}
+		if _, err := a.resolveClaudeAccount(ctx, *opt, kind); err != nil {
+			return err
+		}
+	}
 	// An agent that works in a job clone joins it again (and is recorded
 	// in it); the spawn checks the clone is where the conversation is.
 	if opt.Repo == "" && opt.Clone == 0 {
@@ -151,13 +187,27 @@ func (a *agentService) prepareTaskResume(ctx context.Context, taskID string, opt
 
 // historyConversation is a conversation of the session history the task's
 // slot may resume, nil when it has none of that tool by that ID.
-func (a *agentService) historyConversation(ctx context.Context, taskID, slot, kind, providerSessionID string) (*TaskResumeSession, error) {
+func (a *agentService) historyConversation(ctx context.Context, taskID, slot, kind, providerSessionID string, storageDir *string) (*TaskResumeSession, error) {
 	if providerSessionID == "" {
 		return nil, nil
 	}
-	c, err := a.store.FindTaskConversation(ctx, taskID, slot, kind, providerSessionID)
+	c, err := a.store.FindTaskConversation(ctx, taskID, slot, kind, providerSessionID, storageDir)
 	if err != nil || c == nil || c.CWD == "" {
 		return nil, err
 	}
-	return &TaskResumeSession{AgentKind: c.AgentKind, ID: c.ProviderSessionID, CWD: c.CWD, StorageDir: c.StorageDir}, nil
+	runs, err := a.store.ListConversationRuns(ctx, c.ID)
+	if err != nil {
+		return nil, err
+	}
+	var identity *store.AgentAccountIdentity
+	for i := len(runs) - 1; i >= 0; i-- {
+		identity, err = a.store.ExecutionAccount(ctx, runs[i].ExecutionID)
+		if err != nil {
+			return nil, err
+		}
+		if identity != nil {
+			break
+		}
+	}
+	return &TaskResumeSession{AgentKind: c.AgentKind, ID: c.ProviderSessionID, CWD: c.CWD, StorageDir: c.StorageDir, AccountIdentity: identity}, nil
 }

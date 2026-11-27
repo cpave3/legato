@@ -268,8 +268,10 @@ How a swarm's conductor and workers start, and how large a plan may be. See [Swa
 | --- | --- | --- | --- |
 | `swarm.enabled` | bool | `false` | Turns swarms on: the `legato swarm` commands, the swarm endpoints, the swarm controls in the terminal UI and the **Start swarm** buttons in the web UI. Off by default. Restart Legato after changing it. |
 | `swarm.conductor.agent` | string | `swarm.worker.agent`, then `claude-code` | The tool a new conductor runs: `claude-code`, `codex` or `chimera`. |
+| `swarm.conductor.account` | string | none | Local Claude account for a new conductor. Promotion keeps the running account. |
 | `swarm.conductor.model` | string | none | A model for new conductors, added to the tool's launch flags. |
 | `swarm.worker.agent` | string | `claude-code` | The tool a worker runs when its sub-task names none. While `agents.default_tool` is unset, it is also Legato's default agent tool. |
+| `swarm.worker.account` | string | none | Local Claude account for workers using the configured worker tool; a different plan tool does not inherit it. |
 | `swarm.worker.model` | string | none | A model for workers that run `swarm.worker.agent` and name no tier. |
 | `swarm.max_concurrent_agents` | integer | `4` | How many workers of one swarm may run at once. Further sub-tasks wait. |
 | `swarm.max_subtasks_per_plan` | integer | `10` | The most sub-tasks a plan may have, in total and in any one step. |
@@ -304,6 +306,7 @@ Saved messages for agents. Manage them on the web UI's **Macros** page, where th
 | `macros[].keys` | string | none | The older name of `message`, still read. Give one of the two. |
 | `macros[].applies_to` | `task`, `pr` | both | Which menus list it (**Offer it on**): a task's, or a pull request's. |
 | `macros[].agent` | string | the default agent tool | The agent tool to start when the task has no agent running (**Agent to start**), such as `codex`. |
+| `macros[].account` | string | none | Local Claude account for a fresh macro start; with no agent, selects Claude Code. Resumed conversations keep their original account. |
 | `macros[].tier` | string | none | One of that tool's `adapters.<tool>.tiers` to start with (**Model tier**). |
 | `macros[].favorite` | bool | `false` | Stars the macro (the star on the Macros page). Every macro picker lists the starred macros first and keeps the rest behind **Show all**. While no macro is starred, every macro is listed. To star a built-in and keep its text, give only its name and `favorite: true`. |
 
@@ -361,6 +364,7 @@ The Reeve's defaults, read when a session starts. Usually set in Settings › Re
 | --- | --- | --- | --- |
 | `reeve.name` | string | empty: "the Reeve" | What Legato calls the Reeve on this instance, in the web UI, the desktop app, the TUI, notifications and the Reeve's own prompt. One line of plain text, at most 40 characters. See [Give it a name](/legato/using/reeve/#give-it-a-name). |
 | `reeve.agent` | string | the default agent tool | The agent tool a session runs: `claude-code`, `codex` or `chimera`. |
+| `reeve.account` | string | none | Local Claude account for new sessions. Resumed sessions keep the original account. |
 | `reeve.model` | string | the tool's default | The model or tier a session runs. |
 | `reeve.idle_timeout` | duration | `2h` | How long a session may be idle before its agent is stopped. The next message to it resumes it. |
 | `reeve.levels.change` | string | `approve` | What a change the Reeve proposes needs: `auto` (it runs at once, with no approval asked), `approve` (a tap), `signed` (an enrolled device) or `verified` (signed, with a fingerprint or a PIN). Making it stricter needs nothing; anything else needs a signed approval. See [What a change needs](/legato/using/reeve/#what-a-change-needs). |
@@ -800,6 +804,7 @@ A reviewer on another model reviews pull requests in passes until a pass is clea
 | --- | --- | --- | --- |
 | `review_passes.enabled` | bool | `false` | Runs review passes on this worker's make-a-change handoffs, and tells main instances it does, and lets review loops run on any pull request here. Needs `agents.mcp.enabled`: the reviewer reports through Legato's `submit_review` tool. |
 | `review_passes.reviewer.agent` | string | none | The reviewer's tool: `claude-code`, `codex` or `chimera`. Required when enabled. Choose a different model from the author's; Legato does not check. |
+| `review_passes.reviewer.account` | string | implicit default | A local Claude account name, or `default`. Requires `claude-code`; the account must be configured on this instance. Each pass keeps its selected account for retries. |
 | `review_passes.reviewer.model` | string | the tool's | The reviewer's model. Set this or `review_passes.reviewer.tier`, not both. |
 | `review_passes.reviewer.tier` | string | none | A tier of `adapters.<name>.tiers` for the reviewer. |
 | `review_passes.reviewer.skill` | string | none | The review skill the reviewer is told to use, such as `3-tier-review`. |
@@ -823,10 +828,6 @@ review_passes:
 ```
 
 ### Named Claude usage accounts
-
-:::caution
-Account-aware agent launches are still in development. This configuration currently separates usage polling; do not rely on a profile's account selection for launching agents yet.
-:::
 
 `claude_accounts` is a named entry list in Settings › Usage › Accounts. It applies at restart and leaves the existing default login unchanged.
 

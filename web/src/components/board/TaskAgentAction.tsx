@@ -29,8 +29,9 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
   const initialWorkingDir = resolveTaskWorkingDirectory(worktreePath, rememberedWorkingDir, settings.data?.working_dir || "")
 
   const launch = useCallback(async (request: SpawnAgentRequest) => {
-    const body: { agent_kind: string; working_dir?: string; repo?: string; ref?: string; branch?: string; clone_id?: number; session_policy?: "resume" | "new"; resources?: string[]; sandbox?: false; docker_host_network?: true; prompt?: string; tier?: string; engram?: string; remember_engram?: boolean } = {
+    const body: { agent_kind: string; account?: string; working_dir?: string; repo?: string; ref?: string; branch?: string; clone_id?: number; session_policy?: "resume" | "new"; resources?: string[]; sandbox?: false; docker_host_network?: true; prompt?: string; tier?: string; engram?: string; remember_engram?: boolean } = {
       agent_kind: request.agentKind,
+      ...(request.account ? { account: request.account } : {}),
     }
     Object.assign(body, spawnPlace(request))
     if (request.sessionPolicy) body.session_policy = request.sessionPolicy

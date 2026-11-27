@@ -27,6 +27,7 @@ export function SpawnEphemeralModal({
       body: JSON.stringify({
         title: request.title || "Ephemeral session",
         agent_kind: request.agentKind,
+        ...(request.account ? { account: request.account } : {}),
         ...spawnPlace(request),
         ...(request.resources ? { resources: request.resources } : {}),
         ...(request.sandbox === false ? { sandbox: false } : {}),

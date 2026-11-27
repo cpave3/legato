@@ -408,6 +408,7 @@ var catalog = []ExecutorSpec{
 			{Name: "repo", Kind: KindRepository, Label: "Or a clone of", Description: "GitHub repository (owner/name) the agent works in a fresh clone of; with macro, also the pull request's repository", Essential: true, Order: 4},
 			{Name: "ref", Kind: KindString, Label: "Clone starts from", Description: "With repo: the branch, tag or commit the clone starts from", Order: 8},
 			{Name: "branch", Kind: KindString, Label: "Branch to work on", Description: "With repo: the branch the agent works on", Order: 9},
+			{Name: "account", Kind: KindString, Label: "Claude account", Description: "An instance-local Claude account name; requires claude-code", Checked: true, Invalid: "must be the name of a Claude account", Order: 21},
 			{Name: "engram", Kind: KindString, Label: "Engram", Description: "An engram for the agent to be; the step fails when engram does not list it", Checked: true, Invalid: "must be the name of an engram", Order: 10},
 			literalFalse("keep_agent", "Keep the agent running", "Leave the agent running once its outputs are in, so the operator can go on talking to it").at(11, false),
 			prNumberFld.at(12, false),

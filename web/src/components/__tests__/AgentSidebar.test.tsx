@@ -24,6 +24,16 @@ const longAgent: AgentInfo = {
 afterEach(cleanup)
 
 describe("AgentSidebar", () => {
+  it("names the selected Claude account while keeping the unnamed default label", () => {
+    render(<AgentSidebar agents={[
+      { ...longAgent, task_id: "work", agent_kind: "claude-code", account: "work", account_label: "Work subscription", has_chimera_endpoint: true },
+      { ...longAgent, id: 2, task_id: "default", agent_kind: "claude-code", has_chimera_endpoint: true },
+    ]} selectedId={null} onSelect={() => {}} onSpawn={() => {}} />)
+    expect(screen.getByText("Work subscription")).toBeTruthy()
+    expect(screen.getByLabelText("Work subscription, Claude Code, native session")).toBeTruthy()
+    expect(screen.getByLabelText("Claude Code, native session")).toBeTruthy()
+  })
+
   it("marks an agent that showed artifacts the person has not seen", () => {
     const quiet: AgentInfo = { ...longAgent, id: 2, task_id: "quiet-task", task_title: "Quiet" }
     render(

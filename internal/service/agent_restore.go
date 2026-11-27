@@ -72,7 +72,10 @@ func (a *agentService) StartFresh(ctx context.Context, f FreshStart) error {
 			return err
 		}
 	}
-	opt, _ := a.runSpawnOptions(ctx, f.AgentKind, f.Sandboxed, false, f.ExecutionID)
+	opt, _, err := a.runSpawnOptions(ctx, f.AgentKind, f.Sandboxed, false, f.ExecutionID)
+	if err != nil {
+		return err
+	}
 	opt.EngramSession = ""
 	opt.Slot = store.SlotMain
 	opt.WorkingDir = f.WorkingDir
@@ -110,13 +113,17 @@ func (a *agentService) RestoreConversation(ctx context.Context, r ConversationRe
 		}
 	}
 
-	opt, _ := a.runSpawnOptions(ctx, r.AgentKind, r.Sandboxed, false, r.ExecutionID)
+	opt, _, err := a.runSpawnOptions(ctx, r.AgentKind, r.Sandboxed, false, r.ExecutionID)
+	if err != nil {
+		return err
+	}
 	// The engram session ended with the run; the engram starts a new one.
 	opt.EngramSession = ""
 	opt.Slot = store.SlotMain
 	opt.SessionPolicy = "resume"
 	opt.ResumeSessionID = r.ProviderSessionID
 	opt.ResumeWorkingDir = r.CWD
+	opt.ResumeStorageDir = r.StorageDir
 	opt.WorkingDir = r.CWD
 	opt.Prompt = RestoredNote(r.LastRanAt, r.CWD)
 	chosen, _ := a.store.ListChosenExecutionResources(ctx, r.ExecutionID)

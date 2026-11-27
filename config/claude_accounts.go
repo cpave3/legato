@@ -37,6 +37,39 @@ func ValidateClaudeAccounts(cfg *Config) error {
 			}
 		}
 	}
+	worker := cfg.Swarm.Worker.Agent
+	if worker == "" {
+		worker = "claude-code"
+	}
+	conductor := cfg.Swarm.Conductor.Agent
+	if conductor == "" {
+		conductor = worker
+	}
+	reeve := cfg.Reeve.Agent
+	if reeve == "" {
+		reeve = cfg.DefaultAgentTool()
+	}
+	if reeve == "" {
+		reeve = "claude-code"
+	}
+	for _, selection := range []struct{ path, agent, account string }{
+		{"swarm.worker.account", worker, cfg.Swarm.Worker.Account},
+		{"swarm.conductor.account", conductor, cfg.Swarm.Conductor.Account},
+		{"reeve.account", reeve, cfg.Reeve.Account},
+	} {
+		if err := cfg.ValidateClaudeSelection(selection.agent, selection.account); err != nil {
+			return fmt.Errorf("%s: %w", selection.path, err)
+		}
+	}
+	for _, macro := range cfg.Macros {
+		kind := macro.Agent
+		if kind == "" && macro.Account != "" {
+			kind = "claude-code"
+		}
+		if err := cfg.ValidateClaudeSelection(kind, macro.Account); err != nil {
+			return fmt.Errorf("macro %q: %w", macro.Name, err)
+		}
+	}
 	return nil
 }
 

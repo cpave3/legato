@@ -53,6 +53,21 @@ describe("List forms", () => {
     await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "usage.profiles", "Economy", { agent: "codex", tier: "fast", reviewer: { agent: "chimera", tier: "review" } }))
   })
 
+  it("saves independent author and reviewer Claude accounts", async () => {
+    show([list({ key: "usage.profiles", title: "Usage profiles", mode: "live" }), list({ key: "claude_accounts", title: "Claude accounts", entries: [
+      { name: "work", value: { label: "Work subscription" }, source: "database", pinned: false },
+      { name: "review", value: { label: "Review subscription" }, source: "database", pinned: false },
+    ] })], ["usage.profiles"])
+    fireEvent.click(await screen.findByRole("button", { name: "New profile" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Split" } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "claude-code" } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Account" }), { target: { value: "work" } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Reviewer agent" }), { target: { value: "claude-code" } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Reviewer account" }), { target: { value: "review" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "usage.profiles", "Split", { agent: "claude-code", account: "work", reviewer: { agent: "claude-code", account: "review" } }))
+  })
+
   it("orders usage rules lower first and retains numeric rule intent on a refused save", async () => {
     mockSave.mockRejectedValue(new Error("Choose an existing profile"))
     show([list({ key: "usage.rules", title: "Usage rules", mode: "live", entries: [

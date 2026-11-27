@@ -76,13 +76,26 @@ func (s *HandoffWorkerService) resumeAuthor(ctx context.Context, taskID string, 
 	kind = saved.AgentKind
 	// A restart stops the running agent only once it is known it can be
 	// resumed as the handoff resumes it.
+	identity := saved.AccountIdentity
 	if r.Stop != nil {
+		if session, err := s.opts.Agents.GetAgentSession(ctx, taskID); err == nil && session != nil && session.ExecutionID != "" {
+			identity, err = s.db.ExecutionAccount(ctx, session.ExecutionID)
+			if err != nil {
+				return err
+			}
+		} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
 		if err := r.Stop(ctx); err != nil {
 			return err
 		}
 	}
 	opts := AgentSpawnOptions{AgentKind: kind, Tier: h.AgentTier, Repo: h.Repo, Unattended: true, Branches: handoffSessionBranches(h),
 		SessionPolicy: "resume", ResumeSessionID: saved.ID, Prompt: note, Holder: h.MainTaskID}
+	opts.AccountIdentity = identity
+	if identity != nil {
+		opts.Account = identity.Account
+	}
 	opts.Resources = r.Resources
 	if err := s.opts.Agents.SpawnAgent(ctx, taskID, 0, 0, opts); err != nil {
 		return fmt.Errorf("%w: %v", ErrAuthorNotResumable, err)

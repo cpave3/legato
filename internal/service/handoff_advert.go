@@ -34,12 +34,14 @@ const (
 	// HandoffFeatureBase: a new branch may start from a base branch other
 	// than the default (base).
 	HandoffFeatureBase = "base"
+	// HandoffFeatureAccount accepts logical agent account IDs.
+	HandoffFeatureAccount = "account"
 )
 
 // HandoffFeatures are the handoff features this build supports.
 func HandoffFeatures() []string {
 	return []string{
-		HandoffFeatureBase, HandoffFeatureCapabilities, HandoffFeatureDrop, HandoffFeatureEvents, HandoffFeaturePushedBranch,
+		HandoffFeatureAccount, HandoffFeatureBase, HandoffFeatureCapabilities, HandoffFeatureDrop, HandoffFeatureEvents, HandoffFeaturePushedBranch,
 		HandoffFeatureReturn, HandoffFeatureReviewOverride, HandoffFeatureTicket,
 	}
 }

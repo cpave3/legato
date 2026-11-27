@@ -18,6 +18,8 @@ type AgentSpawnSubmitMsg struct {
 	TaskID    string // empty for ephemeral agents
 	Title     string // used when TaskID is empty
 	AgentKind string
+	// Account is a named Claude account; empty leaves policy and resume identity intact.
+	Account string
 	// WorkingDir is absolute when a listed directory or a suggestion was
 	// picked, and the path as it was typed otherwise.
 	WorkingDir string
@@ -130,10 +132,14 @@ const (
 	spawnFocusWhere
 	spawnFocusResources
 	spawnFocusEngram
+	spawnFocusAccount
 )
 
 // spawnFieldOrder is the order tab moves through the fields in.
-var spawnFieldOrder = []spawnField{spawnFocusTitle, spawnFocusAgent, spawnFocusEngram, spawnFocusResources, spawnFocusWhere}
+var spawnFieldOrder = []spawnField{spawnFocusTitle, spawnFocusAgent, spawnFocusAccount, spawnFocusEngram, spawnFocusResources, spawnFocusWhere}
+
+// SpawnAccount offers only the local account name and display label.
+type SpawnAccount struct{ ID, Label string }
 
 type spawnAgent struct{ label, value string }
 
@@ -148,6 +154,8 @@ type AgentSpawnOverlay struct {
 	focus      spawnField
 	// defaultAdapter is the tool of the first agent choice.
 	defaultAdapter string
+	accounts       []SpawnAccount
+	accountIndex   int
 
 	// engrams is the picker for engramFor, the directory it was given for;
 	// engramAsked is the last directory it was asked for. engramIndex 0 is
@@ -219,6 +227,52 @@ func NewAgentSpawn(adapters []string, defaultAdapter, defaultCWD, taskID, title 
 
 	m := AgentSpawnOverlay{taskID: taskID, title: title, agents: options, focus: focus, pick: -1, defaultAdapter: defaultAdapter}
 	return m.WithLocations(SpawnDir{Path: defaultCWD}, nil)
+}
+
+// WithClaudeAccounts offers named accounts when Claude is selected.
+func (m AgentSpawnOverlay) WithClaudeAccounts(accounts []SpawnAccount) AgentSpawnOverlay {
+	m.accounts = accounts
+	m.accountIndex = 0
+	if len(accounts) > 0 && m.defaultAdapter == "claude-code" {
+		// Keep the policy option and explicit Claude distinct.
+		options := []spawnAgent{{label: "default · claude"}, {label: "claude", value: "claude-code"}}
+		m.agents = append(options, m.agents[1:]...)
+	}
+	return m
+}
+
+func (m AgentSpawnOverlay) accountShown() bool {
+	kind := m.agents[m.agentIndex].value
+	if kind == "" {
+		kind = m.defaultAdapter
+	}
+	return len(m.accounts) > 0 && kind == "claude-code"
+}
+
+func (m AgentSpawnOverlay) account() string {
+	if !m.accountShown() || m.accountIndex == 0 {
+		return ""
+	}
+	return m.accounts[m.accountIndex-1].ID
+}
+
+func (m AgentSpawnOverlay) accountValue(width int) string {
+	label := "default"
+	if m.accountIndex == 0 && m.agents[m.agentIndex].value == "" {
+		label = "configured default"
+	}
+	if m.accountIndex > 0 {
+		account := m.accounts[m.accountIndex-1]
+		label = account.Label
+		if label == "" {
+			label = account.ID
+		}
+	}
+	style := lipgloss.NewStyle().Foreground(theme.TextPrimary)
+	if m.focus == spawnFocusAccount {
+		style = style.Foreground(theme.Accent).Bold(true)
+	}
+	return style.Render(ansi.Truncate(fmt.Sprintf("‹ %s ›  %d/%d", label, m.accountIndex+1, len(m.accounts)+1), max(width, 1), "…"))
 }
 
 // WithLocations sets where the agent starts by default and the presets
@@ -495,6 +549,13 @@ func (m AgentSpawnOverlay) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case spawnFocusAgent:
 		m.moveAgent(msg.String())
+	case spawnFocusAccount:
+		switch msg.String() {
+		case "h", "left":
+			m.accountIndex = max(0, m.accountIndex-1)
+		case "l", "right":
+			m.accountIndex = min(len(m.accounts), m.accountIndex+1)
+		}
 	case spawnFocusEngram:
 		m.handleEngramKey(msg)
 	case spawnFocusResources:
@@ -526,6 +587,9 @@ func (m AgentSpawnOverlay) nextField(step int) spawnField {
 			continue
 		}
 		if focus == spawnFocusResources && len(m.resources) == 0 {
+			continue
+		}
+		if focus == spawnFocusAccount && !m.accountShown() {
 			continue
 		}
 		if focus == spawnFocusEngram && !m.engramShown() {
@@ -566,6 +630,7 @@ func (m AgentSpawnOverlay) pickedResources() []string {
 }
 
 func (m *AgentSpawnOverlay) moveAgent(key string) {
+	before := m.agentIndex
 	switch key {
 	case "left", "h":
 		if m.agentIndex > 0 {
@@ -575,6 +640,9 @@ func (m *AgentSpawnOverlay) moveAgent(key string) {
 		if m.agentIndex < len(m.agents)-1 {
 			m.agentIndex++
 		}
+	}
+	if before != m.agentIndex {
+		m.accountIndex = 0
 	}
 }
 
@@ -697,6 +765,7 @@ func (m AgentSpawnOverlay) submit() (tea.Model, tea.Cmd) {
 		TaskID:     m.taskID,
 		Title:      title,
 		AgentKind:  m.agents[m.agentIndex].value,
+		Account:    m.account(),
 		WorkingDir: m.target().path,
 		Resources:  m.pickedResources(),
 		// The choice is the person's own and only while the sandbox is on.
@@ -705,6 +774,9 @@ func (m AgentSpawnOverlay) submit() (tea.Model, tea.Cmd) {
 		DockerHostNetwork: m.offersHostNetwork() && m.hostNetwork,
 		Engram:            m.engram(),
 		RememberEngram:    m.remember && m.canRemember(),
+	}
+	if submit.Account != "" {
+		submit.AgentKind = "claude-code"
 	}
 	return m, func() tea.Msg { return submit }
 }
@@ -774,6 +846,9 @@ func (m AgentSpawnOverlay) View() string {
 	if len(m.resources) > 0 {
 		fixed, gaps = fixed+1, gaps+1
 	}
+	if m.accountShown() {
+		fixed, gaps = fixed+1, gaps+1
+	}
 	engramLines := m.engramLines()
 	if len(engramLines) > 0 {
 		fixed, gaps = fixed+len(engramLines), gaps+1
@@ -829,6 +904,10 @@ func (m AgentSpawnOverlay) View() string {
 	gap()
 	lines = append(lines, field("agent", spawnFocusAgent, []string{m.agentValue()})...)
 	gap()
+	if m.accountShown() {
+		lines = append(lines, field("account", spawnFocusAccount, []string{m.accountValue(valueWidth)})...)
+		gap()
+	}
 	if len(engramLines) > 0 {
 		lines = append(lines, field("engram", spawnFocusEngram, engramLines)...)
 		gap()
@@ -1213,6 +1292,8 @@ func (m AgentSpawnOverlay) hints(width int) string {
 			presets = fmt.Sprintf("↑↓ 1-%d", count)
 		}
 		left = join("tab", "field", presets, "preset", "h/l", "agent", "/", "path")
+	case m.focus == spawnFocusAccount:
+		left = join("tab", "field", "h/l", "account")
 	case m.focus == spawnFocusAgent:
 		left = join("tab", "field", "h/l", "agent")
 	case m.focus == spawnFocusEngram && m.canRemember():

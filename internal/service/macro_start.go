@@ -20,9 +20,11 @@ type MacroPR struct {
 
 // MacroStart asks for a macro on a task, and on one of its pull requests.
 type MacroStart struct {
-	Name   string
-	TaskID string
-	PR     *MacroPR
+	Name string
+	// Account explicitly selects an account; unlike the macro default it cannot override a saved conversation.
+	Account string
+	TaskID  string
+	PR      *MacroPR
 	// Branch is the pull request's head branch: what a fresh clone checks
 	// out when the task's folder is gone. The task's code context's branch
 	// when empty.
@@ -89,7 +91,10 @@ func (s *MacroService) Start(ctx context.Context, req MacroStart) (MacroStartRes
 		result.Queued = true
 		return result, nil
 	}
-	opts := AgentSpawnOptions{AgentKind: macro.Agent, Tier: macro.Tier, Prompt: message, WorkingDir: s.macroWorkingDir(ctx, req)}
+	opts := AgentSpawnOptions{AgentKind: macro.Agent, Tier: macro.Tier, Account: macro.Account, Prompt: message, WorkingDir: s.macroWorkingDir(ctx, req)}
+	if req.Account != "" {
+		opts.Account = req.Account
+	}
 	kind := macro.Agent
 	if kind == "" || SupportsTaskResume(kind) {
 		saved, err := s.agents.GetTaskResumeSession(ctx, req.TaskID, kind)
@@ -100,13 +105,31 @@ func (s *MacroService) Start(ctx context.Context, req MacroStart) (MacroStartRes
 			kind, opts.AgentKind = saved.AgentKind, saved.AgentKind
 			opts.SessionPolicy, opts.ResumeSessionID, opts.ResumeWorkingDir = "resume", saved.ID, saved.CWD
 			opts.WorkingDir = saved.CWD
+			opts.Account = req.Account
+			if saved.AccountIdentity != nil {
+				selected := req.Account
+				if selected == "default" {
+					selected = ""
+				}
+				if req.Account != "" && selected != saved.AccountIdentity.Account {
+					return MacroStartResult{}, errors.New("selected account conflicts with the saved conversation account; start a new conversation to change it")
+				}
+				opts.Account, opts.AccountIdentity = saved.AccountIdentity.Account, saved.AccountIdentity
+			}
 		}
 	}
 	if gone := opts.WorkingDir; gone != "" && !s.folderExists(gone) {
 		opts.AgentKind, kind = macro.Agent, macro.Agent
+		opts.Account, opts.AccountIdentity = macro.Account, nil
+		if req.Account != "" {
+			opts.Account = req.Account
+		}
 		if err := s.freshClone(ctx, req, &opts); err != nil {
 			return MacroStartResult{}, err
 		}
+	}
+	if opts.AgentKind == "" && opts.Account != "" {
+		opts.AgentKind, kind = "claude-code", "claude-code"
 	}
 	if opts.AgentKind == "" {
 		defaults, err := s.agents.NewWorkDefaults(ctx)
@@ -114,6 +137,9 @@ func (s *MacroService) Start(ctx context.Context, req MacroStart) (MacroStartRes
 			return MacroStartResult{}, err
 		}
 		opts.AgentKind, kind = defaults.Agent, defaults.Agent
+		if opts.Account == "" {
+			opts.Account = defaults.Account
+		}
 		if opts.Tier == "" {
 			opts.Tier = defaults.Tier
 		}

@@ -73,7 +73,7 @@ func TestAutomaticCleanupKeepsAnInterruptedCloneResumable(t *testing.T) {
 	if err := f.interrupted().ResumeInterruptedAgent(ctx, "task-i", false); err != nil {
 		t.Fatalf("resume after cleanup: %v", err)
 	}
-	sentLineEventually(t, f.tmux, "task-i", "claude --resume conversation-1")
+	sentLineEventually(t, f.tmux, "task-i", "env -u CLAUDE_CONFIG_DIR claude --resume conversation-1")
 	session, err := f.store.GetAgentSessionByTaskID(ctx, "task-i")
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +188,7 @@ func TestSharedInterruptedCloneIsHeldThroughCanonicalAliasesUntilEveryDismissal(
 	if err := f.interrupted().ResumeInterruptedAgent(ctx, "task-b", false); err != nil {
 		t.Fatalf("resume through canonical alias: %v", err)
 	}
-	sentLineEventually(t, f.tmux, "task-b", "claude --resume conversation-1")
+	sentLineEventually(t, f.tmux, "task-b", "env -u CLAUDE_CONFIG_DIR claude --resume conversation-1")
 	// Interrupt that resumed execution too, then dismiss the last holder.
 	f.crash()
 	if _, err := f.interrupted().SweepInterruptedAgents(ctx); err != nil {

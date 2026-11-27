@@ -24,6 +24,7 @@ func agentStateResult(result sql.Result, err error) error {
 
 const agentSessionSelect = `SELECT a.*,
 	COALESCE(e.id, '') AS execution_id,
+	COALESCE(json_extract(ea.identity_json, '$.account'), '') AS account,
 	COALESCE(e.task_id, '') AS attribution_task_id,
 	COALESCE(e.kind, '') AS execution_kind,
 	COALESCE(e.workflow_run_id, '') AS workflow_run_id,
@@ -48,6 +49,7 @@ const agentSessionSelect = `SELECT a.*,
 	COALESCE(ws.since, '') AS work_stage_since
 	FROM agent_sessions a
 	LEFT JOIN executions e ON e.agent_session_id = a.id
+	LEFT JOIN execution_accounts ea ON ea.execution_id = e.id
 	LEFT JOIN job_clones c ON e.working_dir != '' AND c.path = e.working_dir AND c.removed_at IS NULL
 	LEFT JOIN tasks rc ON rc.id = (SELECT wr.related_task_id FROM workflow_runs wr WHERE wr.task_id = a.task_id ORDER BY wr.created_at DESC LIMIT 1)
 	LEFT JOIN agent_stages ws ON ws.task_id = a.task_id AND ws.slot = a.slot

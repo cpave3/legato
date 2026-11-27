@@ -196,12 +196,13 @@ export function EntryForm({ list, form, entry, onSave, onCancel, lists = [], met
     }
     // A field that no longer applies (a draft rule's option on a rule
     // that is not draft) leaves the entry.
-    for (const field of form.fields) if (field.when && !fieldApplies(field, name, object)) delete object[field.key]
+    for (const field of form.fields) if (field.when && !fieldApplies(field, name, object)) object = writeField(object, field.key, undefined)
     setDraft(object)
     setError("")
   }
   const resolvedFields = form.fields.map((field): FormField => {
     if (!field.optionsFrom) return field
+    if (field.optionsFrom === "claude_accounts") return { ...field, choices: (lists.find((l) => l.key === "claude_accounts")?.entries ?? []).map((e) => [e.name, String(asObject(e.value).label || e.name)]) }
     // The usage rule meters come from the server's usage catalog, not a
     // list of our own; profiles and tiers come from the settings lists.
     const names = field.optionsFrom === "usage_meters"

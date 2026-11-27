@@ -116,7 +116,7 @@ func TestResumingAnInterruptedAgentResumesItsConversationAndSaysItWasInterrupted
 	}
 
 	lines := f.linesEventually(t, "task-i", 2)
-	if len(lines) < 2 || !strings.HasPrefix(lines[0], "claude --resume conversation-1") {
+	if len(lines) < 2 || !strings.HasPrefix(lines[0], "env -u CLAUDE_CONFIG_DIR claude --resume conversation-1") {
 		t.Fatalf("lines = %q, want the resumed conversation first", lines)
 	}
 	if !strings.Contains(strings.Join(lines[1:], "\n"), "interrupted") {

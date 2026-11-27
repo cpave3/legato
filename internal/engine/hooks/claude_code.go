@@ -61,6 +61,13 @@ func (a *ClaudeCodeAdapter) SetTiers(tiers map[string][]string) {
 	a.tiers = tiers
 }
 
+// LaunchArguments exposes configured arguments for named-subscription auth
+// validation; the returned slice does not share the adapter's configuration.
+func (a *ClaudeCodeAdapter) LaunchArguments(tier string) []string {
+	args := append([]string{}, a.launchArgs...)
+	return append(args, a.tiers[tier]...)
+}
+
 // SetModDir names the installed Legato mod's plugin directory. Sessions the
 // adapter launches then load it, which gives Legato direct messages,
 // interrupts, permission decisions and the native panel for them.

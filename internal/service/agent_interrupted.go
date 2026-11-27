@@ -314,7 +314,11 @@ type interruptedResume struct {
 func (a *agentService) planInterruptedResume(ctx context.Context, s store.AgentSession) interruptedResume {
 	var plan interruptedResume
 	sandboxed := s.Sandboxed
-	opt, resources := a.runSpawnOptions(ctx, s.AgentKind, &sandboxed, s.DockerHostNetwork, s.ExecutionID)
+	opt, resources, err := a.runSpawnOptions(ctx, s.AgentKind, &sandboxed, s.DockerHostNetwork, s.ExecutionID)
+	if err != nil {
+		plan.err = err
+		return plan
+	}
 	if s.ExecutionID != "" {
 		plan.resources = resources
 		plan.executionID = s.ExecutionID
@@ -366,7 +370,7 @@ func (a *agentService) planInterruptedResume(ctx context.Context, s store.AgentS
 // it again: its tool, its folder, its sandbox choice (nil leaves the
 // default), its Docker host network, its engram and engram session. It
 // also returns the names of the resources it was given.
-func (a *agentService) runSpawnOptions(ctx context.Context, kind string, sandboxed *bool, dockerHostNetwork bool, executionID string) (AgentSpawnOptions, []string) {
+func (a *agentService) runSpawnOptions(ctx context.Context, kind string, sandboxed *bool, dockerHostNetwork bool, executionID string) (AgentSpawnOptions, []string, error) {
 	opt := AgentSpawnOptions{AgentKind: kind}
 	if sandboxed != nil {
 		opt.Unsandboxed = !*sandboxed
@@ -374,6 +378,11 @@ func (a *agentService) runSpawnOptions(ctx context.Context, kind string, sandbox
 	}
 	var resources []string
 	if executionID != "" {
+		identity, err := a.store.ExecutionAccount(ctx, executionID)
+		if err != nil {
+			return opt, nil, err
+		}
+		opt.AccountIdentity = identity
 		if execution, err := a.store.GetExecution(ctx, executionID); err == nil {
 			opt.WorkingDir = execution.WorkingDir
 		}
@@ -382,7 +391,7 @@ func (a *agentService) runSpawnOptions(ctx context.Context, kind string, sandbox
 		}
 		resources, _ = a.store.ListExecutionResources(ctx, executionID)
 	}
-	return opt, resources
+	return opt, resources, nil
 }
 
 func (a *agentService) resolveResources(ctx context.Context, names []string) []Resource {

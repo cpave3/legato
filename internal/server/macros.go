@@ -194,8 +194,9 @@ func (s *Server) macroStartHandler() http.HandlerFunc {
 			return
 		}
 		var req struct {
-			Name string           `json:"name"`
-			PR   *service.MacroPR `json:"pr"`
+			Name    string           `json:"name"`
+			PR      *service.MacroPR `json:"pr"`
+			Account string           `json:"account"`
 		}
 		if json.NewDecoder(r.Body).Decode(&req) != nil || strings.TrimSpace(req.Name) == "" {
 			s.writeError(w, http.StatusBadRequest, "want {\"name\": \"<macro>\", \"pr\": {\"repo\": \"owner/name\", \"pr_number\": 12}}")
@@ -222,7 +223,7 @@ func (s *Server) macroStartHandler() http.HandlerFunc {
 				return
 			}
 		}
-		result, err := starter.Start(r.Context(), service.MacroStart{Name: req.Name, TaskID: taskID, PR: req.PR})
+		result, err := starter.Start(r.Context(), service.MacroStart{Name: req.Name, TaskID: taskID, PR: req.PR, Account: req.Account})
 		switch {
 		case errors.Is(err, service.ErrMacroNotFound), errors.Is(err, store.ErrNotFound):
 			s.writeError(w, http.StatusNotFound, err.Error())

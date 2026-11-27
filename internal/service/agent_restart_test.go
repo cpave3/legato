@@ -24,6 +24,7 @@ type restartFixture struct {
 func newRestartFixture(t *testing.T) restartFixture {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	s, err := store.New(filepath.Join(t.TempDir(), "restart.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +51,11 @@ func (f restartFixture) reportConversation(t *testing.T, taskID, cwd string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.store.RecordTaskNativeSession(ctx, taskID, session.ID, session.ExecutionID, "claude-code", "conversation-1", cwd, t.TempDir()); err != nil {
+	identity, err := f.store.ExecutionAccount(ctx, session.ExecutionID)
+	if err != nil || identity == nil {
+		t.Fatalf("missing launch identity: %v", err)
+	}
+	if _, err := f.store.RecordTaskNativeSession(ctx, taskID, session.ID, session.ExecutionID, "claude-code", "conversation-1", cwd, identity.ConfigDir); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -81,7 +86,7 @@ func TestRestartAgentStartsItAgainResumingItsConversation(t *testing.T) {
 
 	// The asynchronous reload notice may already follow the launch command.
 	sentLineEventually(t, f.tmux, "task-r", "[legato reloaded] ")
-	sentLineEventually(t, f.tmux, "task-r", "claude --resume conversation-1")
+	sentLineEventually(t, f.tmux, "task-r", "env -u CLAUDE_CONFIG_DIR claude --resume conversation-1")
 	after, err := f.store.GetAgentSessionByTaskID(ctx, "task-r")
 	if err != nil || after.ExecutionID == before.ExecutionID {
 		t.Fatalf("session after restart = %#v, %v; want a new execution", after, err)
@@ -138,7 +143,7 @@ func TestRestartAgentResumesAnEphemeralAgentsConversation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sentLineEventually(t, f.tmux, taskID, "claude --resume conversation-1")
+	sentLineEventually(t, f.tmux, taskID, "env -u CLAUDE_CONFIG_DIR claude --resume conversation-1")
 	if env := f.tmux.envVarsFor("legato-" + taskID); env["LEGATO_TASK_EPHEMERAL"] != "1" {
 		t.Fatalf("restarted agent is no longer ephemeral: %v", env)
 	}

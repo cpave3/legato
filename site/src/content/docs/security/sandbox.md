@@ -205,7 +205,7 @@ To move a running agent, press `U` in the TUI's agents view, or in the web UI ch
 
 ## Limits
 
-- What two sandboxes share is what both are given from your machine. All Claude Code agents share `~/.claude`, and all Codex agents share `~/.codex`, with each other's sessions in them.
+- What two sandboxes share is what both are given from your machine. Claude Code agents on the same account share its configuration and sessions. A named Claude account gets only its selected state; other configured accounts and the default login are hidden, including through parent-directory mounts. Codex agents share `~/.codex`, with each other's sessions in it.
 - A global hook of your agent tool that runs a program outside the mounts fails on every tool call. Add its folder with `agents.sandbox.mounts`, or remove the hook.
 - Inside Legato's sandbox, Legato drops Chimera's own `--sandbox` flags. Chimera's sandbox is a container, and the container socket it needs would undo Legato's. This is so even with [Docker in the sandbox](#docker-in-the-sandbox) on.
 - With Docker in the sandbox, BuildKit's own settings for a build sent over its session (`docker buildx`, `compose build`) are applied by the Docker daemon, not by Legato. The daemon refuses insecure builds unless you allow them in its configuration; do not.

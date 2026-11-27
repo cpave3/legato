@@ -10,6 +10,7 @@ export interface Macro {
   agent?: string
   tier?: string
   source?: "builtin" | "override" | "config.yaml" | "database"
+  account?: string
   builtin?: boolean
   overridden?: boolean
   pinned?: boolean
@@ -176,6 +177,7 @@ export interface MacroFields {
   applies_to?: "" | "task" | "pr"
   agent?: string
   tier?: string
+  account?: string
 }
 
 async function macroWrite(baseUrl: string, path: string, method: string, body?: unknown): Promise<void> {

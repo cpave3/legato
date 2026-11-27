@@ -33,6 +33,7 @@ export interface SpawnAgentRequest {
   title: string
   // Empty for the default adapter.
   agentKind: string
+  account?: string
   // As it was typed: a path under the home directory may start with a tilde.
   workingDir: string
   // Set only when the chosen agent tool has a saved session to resume.
@@ -146,6 +147,7 @@ export function SpawnAgentDialog({
   const [title, setTitle] = useState("")
   // Kept from one opening to the next: the person's last choice of tool.
   const [agentKind, setAgentKind] = useState("")
+  const [account, setAccount] = useState("")
   const adapterQuery = useQuery({ queryKey: queryKeys.adapters(baseUrl), queryFn: () => fetchAdapters(baseUrl), enabled: open, staleTime: 0, retry: false })
   const adapters = adapterQuery.data
   // False until the adapters are known, since the default one decides
@@ -183,9 +185,10 @@ export function SpawnAgentDialog({
     setMacroName(name)
     const macro = macroList.macros.find((item) => item.name === name)
     setTier(macro?.tier ?? "")
+    setAccount(macro?.account ?? "")
     if (!macro) return
     setPrompt(macroMessage(macro.keys))
-    if (macro.agent) setAgentKind(macro.agent)
+    if (macro.agent || macro.account) setAgentKind(macro.agent || "claude-code")
   }
   // The files and folders the person keeps for agents, and the ones picked.
   const [resources, setResources] = useState<Resource[]>([])
@@ -455,6 +458,7 @@ export function SpawnAgentDialog({
       await onSubmit({
         title: title.trim(),
         agentKind,
+        ...(effectiveAdapter === "claude-code" && account && !(offersSessionChoice && sessionPolicy === "resume") ? { agentKind: "claude-code", account } : {}),
         workingDir,
         ...(inClone && jobClone ? { joinClone: { id: jobClone.id, branch: jobClone.busy ? "" : branch.trim() } } : {}),
         ...(inClone && !jobClone && cloneRepository ? { clone: { repo: cloneRepository.repo, baseBranch: baseBranch.trim(), branch: branch.trim() } } : {}),
@@ -472,7 +476,7 @@ export function SpawnAgentDialog({
     } finally {
       setLoading(false)
     }
-  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, offersSessionChoice, sessionPolicy, picked, unsandboxed, hostNetworkOffered, hostNetwork, prompt, tier, cloneRepository, baseBranch, branch, inClone, jobClone, engramShown, engram, canRemember, rememberEngram])
+  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, effectiveAdapter, account, offersSessionChoice, sessionPolicy, picked, unsandboxed, hostNetworkOffered, hostNetwork, prompt, tier, cloneRepository, baseBranch, branch, inClone, jobClone, engramShown, engram, canRemember, rememberEngram])
 
   if (!open) return null
 
@@ -584,7 +588,7 @@ export function SpawnAgentDialog({
                     type="button"
                     role="radio"
                     aria-checked={checked}
-                    onClick={() => setAgentKind(option.value)}
+                    onClick={() => { setAgentKind(option.value); setAccount("") }}
                     // Each takes the room its own label needs, then a share of what
                     // is left: four equal parts cut the longest label short.
                     className={`h-10 min-w-0 flex-auto truncate rounded-lg px-2 text-sm transition-colors sm:h-[30px] sm:rounded sm:text-[13px] ${
@@ -598,6 +602,18 @@ export function SpawnAgentDialog({
               })}
             </div>
           </div>
+
+          {effectiveAdapter === "claude-code" && (adapters?.accounts?.length ?? 0) > 0 && (
+            <label className="flex flex-col gap-1.5">
+              <span className={fieldLabel}>Account</span>
+              <select aria-label="Account" value={account} onChange={(event) => setAccount(event.target.value)} disabled={offersSessionChoice && sessionPolicy === "resume"}
+                className={`h-[46px] w-full min-w-0 rounded-[10px] border border-lw-line-strong bg-lw-ground px-3 text-base text-lw-text sm:h-9 sm:rounded-md sm:text-sm ${focusRing}`}>
+                <option value="">{offersSessionChoice && sessionPolicy === "resume" ? "Saved session account" : agentKind ? "Default account" : "Follow usage profile"}</option>
+                {!agentKind && <option value="default">Default account</option>}
+                {adapters?.accounts?.map((item) => <option key={item.name} value={item.name}>{item.label || item.name}</option>)}
+              </select>
+            </label>
+          )}
 
           {engramShown && (
             <div className="flex flex-col gap-1.5">

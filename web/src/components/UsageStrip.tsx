@@ -137,7 +137,7 @@ function ProviderCard({ usage, catalog, now }: { usage: ProviderUsage; catalog: 
     return (
       <div role="group" aria-label={name} className="flex flex-col gap-1">
         <span className="font-semibold text-lw-text">{name}</span>
-        <span className="text-lw-text-2">{reasonSentence(usage.provider, usage.reason)}</span>
+        <span className="text-lw-text-2">{reasonSentence(usage.provider, usage.reason, usage.account ? name : undefined)}</span>
       </div>
     )
   }

@@ -405,6 +405,7 @@ type ExecutionActivity struct {
 
 type AgentSession struct {
 	ID                int    `db:"id"`
+	Account           string `db:"account"`
 	TaskID            string `db:"task_id"`
 	ExecutionID       string `db:"execution_id"`
 	AttributionTaskID string `db:"attribution_task_id"`

@@ -129,8 +129,11 @@ type SandboxPlanInput struct {
 	ToolInstalls map[string][]string
 	// ToolState are state folders of the agent's tool beyond the usual ones
 	// (CLAUDE_CONFIG_DIR, CODEX_HOME, a resumed session's), read-write.
-	ToolState []string
-	GH        SandboxWrapper
+	ToolState               []string
+	ClaudeConfigDir         string
+	ClaudeConfigExplicit    bool
+	ProtectedClaudeAccounts []string
+	GH                      SandboxWrapper
 	// Azure is the credential az signs in with (the azure profile's first);
 	// with one, Az puts Legato's az wrapper over every real az.
 	Azure SandboxAzure
@@ -308,6 +311,7 @@ func forbidden(in SandboxPlanInput) []string {
 		filepath.Join(home, ".m2/settings.xml"), filepath.Join(home, ".config/composer/auth.json"), filepath.Join(home, ".composer/auth.json"),
 		"/var/run/docker.sock", "/run/docker.sock", "/run/podman",
 	}
+	paths = append(paths, in.ProtectedClaudeAccounts...)
 	// Every execution's /tmp and home: a sandbox sees its own only where
 	// they are bound, never through the scratch folder.
 	if root := scratchFor(in).Root; root != "" {
@@ -453,6 +457,12 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			state[i] = real(p)
 		}
 		in.ToolState = state
+		in.ClaudeConfigDir = real(in.ClaudeConfigDir)
+		protected := make([]string, len(in.ProtectedClaudeAccounts))
+		for i, p := range in.ProtectedClaudeAccounts {
+			protected[i] = real(p)
+		}
+		in.ProtectedClaudeAccounts = protected
 		in.GH.Wrapper, in.GH.Real, in.GH.RealMount = real(in.GH.Wrapper), real(in.GH.Real), real(in.GH.RealMount)
 		overlays := make([]string, len(in.GH.Overlays))
 		for i, p := range in.GH.Overlays {
@@ -469,6 +479,11 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	no := forbidden(in)
 	scratchRoot := scratchFor(in).Root
 	check := func(path string) error {
+		for _, root := range in.ProtectedClaudeAccounts {
+			if within(path, root) {
+				return fmt.Errorf("%s is another Claude account's private state", path)
+			}
+		}
 		// The scratch folder before the exemptions: one inside the
 		// repository cache is no less private.
 		if inOthersScratch(in, scratchRoot, path) {
@@ -537,7 +552,21 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			}
 		}
 	}
-	for _, rel := range agentState[in.AgentKind] {
+	statePaths := agentState[in.AgentKind]
+	if in.AgentKind == "claude-code" && in.ClaudeConfigDir != "" {
+		if err := check(in.ClaudeConfigDir); err != nil {
+			return sandbox.Plan{}, err
+		}
+		add(in.ClaudeConfigDir, sandbox.ReadWrite)
+		if !in.ClaudeConfigExplicit {
+			for _, rel := range []string{".claude.json", ".cache/claude", ".local/state/claude"} {
+				add(filepath.Join(in.Home, rel), sandbox.ReadWrite)
+			}
+		}
+		add(filepath.Join(in.Home, ".local/share/claude"), sandbox.ReadOnly)
+		statePaths = nil
+	}
+	for _, rel := range statePaths {
 		add(filepath.Join(in.Home, rel), sandbox.ReadWrite)
 	}
 	for _, path := range chimeraProtectedDirs(in) {
@@ -545,7 +574,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	}
 	for _, path := range in.ToolState {
 		path = filepath.Clean(path)
-		usual := false
+		usual := path == in.ClaudeConfigDir
 		for _, rel := range agentState[in.AgentKind] {
 			usual = usual || path == filepath.Join(in.Home, rel)
 		}
@@ -674,7 +703,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		info := in.FS.Probe(f)
 		// The scratch folder is covered even inside an exempt mount (the
 		// repository cache).
-		if !info.Exists || (allowedInside(in, f) && f != scratchRoot) || seen[f] {
+		if !info.Exists || (allowedInside(in, f) && f != scratchRoot && !slices.Contains(in.ProtectedClaudeAccounts, f)) || seen[f] {
 			continue
 		}
 		seen[f] = true
@@ -822,7 +851,11 @@ func linkTargetMounts(in SandboxPlanInput, mounts []sandbox.Mount, forbiddenPath
 		follow(filepath.Join(in.Home, rel), false)
 	}
 	for _, rel := range skillDirs[in.AgentKind] {
-		follow(filepath.Join(in.Home, rel), true)
+		if in.AgentKind == "claude-code" && in.ClaudeConfigDir != "" {
+			follow(filepath.Join(in.ClaudeConfigDir, filepath.Base(rel)), true)
+		} else {
+			follow(filepath.Join(in.Home, rel), true)
+		}
 	}
 	return out
 }

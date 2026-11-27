@@ -91,3 +91,17 @@ func TestTheReviewerIsToldTheSkillByTheNameItsToolKnows(t *testing.T) {
 		}
 	}
 }
+
+func TestReviewerToolOverrideDoesNotCarryAClaudeAccountToAnotherTool(t *testing.T) {
+	advert := ReviewPassesAdvert{
+		Defaults: ReviewPassSettings{Enabled: true, Agent: "claude-code", Account: "work"},
+		Adapters: []ReviewAdapter{{Name: "claude-code"}, {Name: "codex"}},
+	}
+	settings, err := advert.Apply(ReviewPassOverride{Agent: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Account != "" {
+		t.Fatalf("Claude account carried into %s: %q", settings.Agent, settings.Account)
+	}
+}

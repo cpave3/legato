@@ -19,7 +19,8 @@ const (
 // Recover looks for the conversations of past runs that never reported
 // one: for each ended interactive or conductor run of Claude Code or Codex
 // with no run in the history, the transcripts of its tool, in the default
-// storage folder and every one the history has seen, whose folder is the
+// storage folder and every one the history has seen (only the launch account
+// storage folder for a Claude run with an account snapshot), whose folder is the
 // run's and whose first line is from a minute before it began to when it
 // ended. Each is kept as found by folder and time, with that run; one
 // already recorded is never listed again. Each run is looked at once. It
@@ -44,8 +45,25 @@ func (h *SessionHistoryService) Recover(ctx context.Context) (int, error) {
 		if ctx.Err() != nil {
 			break
 		}
-		if _, ok := dirs[run.AgentKind]; !ok {
-			dirs[run.AgentKind], _ = h.store.ConversationStorageDirs(ctx, run.AgentKind)
+		var storageDirs []string
+		if run.AgentKind == "claude-code" {
+			identity, err := h.store.ExecutionAccount(ctx, run.ID)
+			if err != nil {
+				return found, err
+			}
+			if identity != nil {
+				storageDirs = []string{identity.ConfigDir}
+			}
+		}
+		if storageDirs == nil {
+			if _, ok := dirs[run.AgentKind]; !ok {
+				var err error
+				dirs[run.AgentKind], err = h.store.ConversationStorageDirs(ctx, run.AgentKind)
+				if err != nil {
+					return found, err
+				}
+			}
+			storageDirs = dirs[run.AgentKind]
 		}
 		end := h.opts.Now()
 		if run.EndedAt != nil {
@@ -53,7 +71,7 @@ func (h *SessionHistoryService) Recover(ctx context.Context) (int, error) {
 		}
 		seen := map[string]bool{}
 		matched := false
-		for _, dir := range dirs[run.AgentKind] {
+		for _, dir := range storageDirs {
 			list, err := h.opts.Transcripts.Scan(run.AgentKind, dir, run.WorkingDir, run.StartedAt.Add(-recoveryLeadIn), end)
 			if err != nil {
 				continue

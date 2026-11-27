@@ -69,11 +69,13 @@ type AgentResponse struct {
 	WorkflowRunID     string `json:"workflow_run_id,omitempty"`
 	// RunCard is the card a workflow run is for, on an agent that works on
 	// the run's own task (a step's agent, the run's reviewer).
-	RunCard     *service.RunCard `json:"run_card,omitempty"`
-	Title       string           `json:"task_title"`
-	TmuxSession string           `json:"tmux_session"`
-	Command     string           `json:"command"`
-	AgentKind   string           `json:"agent_kind"`
+	RunCard      *service.RunCard `json:"run_card,omitempty"`
+	Title        string           `json:"task_title"`
+	TmuxSession  string           `json:"tmux_session"`
+	Command      string           `json:"command"`
+	AgentKind    string           `json:"agent_kind"`
+	Account      string           `json:"account,omitempty"`
+	AccountLabel string           `json:"account_label,omitempty"`
 	// Engram is the engram the agent runs as; absent for none.
 	Engram string `json:"engram,omitempty"`
 	// Group is the group the agent's task is in; absent for none.
@@ -174,6 +176,7 @@ func agentResponse(agent service.AgentSession) AgentResponse {
 		AttributionTaskID: agent.AttributionTaskID, ExecutionKind: agent.ExecutionKind,
 		WorkflowRunID: agent.WorkflowRunID, RunCard: agent.RunCard, Title: agent.Title, TmuxSession: agent.TmuxSession,
 		Command: agent.Command, AgentKind: agent.AgentKind, Engram: agent.Engram, Group: agent.Group, Status: agent.Status,
+		Account: agent.Account, AccountLabel: agent.AccountLabel,
 		Activity: agent.Activity, OpenItems: agent.OpenItems, Role: agent.Role, ParentTaskID: agent.ParentTaskID,
 		SubtaskID: agent.SubtaskID, StartedAt: agent.StartedAt, EndedAt: agent.EndedAt,
 		Sandboxed: agent.Sandboxed, DockerHostNetwork: agent.DockerHostNetwork, CardTaskID: agent.CardTaskID, Slot: agent.Slot,
@@ -204,6 +207,7 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 		var req struct {
 			Title     string `json:"title"`
 			AgentKind string `json:"agent_kind"`
+			Account   string `json:"account"`
 			// Tier is one of the agent tool's tiers; "" for none.
 			Tier       string   `json:"tier"`
 			WorkingDir string   `json:"working_dir"`
@@ -268,6 +272,7 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 		}
 		opts := service.AgentSpawnOptions{
 			AgentKind:   req.AgentKind,
+			Account:     strings.TrimSpace(req.Account),
 			Tier:        strings.TrimSpace(req.Tier),
 			WorkingDir:  req.WorkingDir,
 			Repo:        req.Repo,
@@ -670,6 +675,7 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 		}
 		var req struct {
 			AgentKind string `json:"agent_kind"`
+			Account   string `json:"account"`
 			// Tier is one of the agent tool's tiers; "" for none.
 			Tier          string   `json:"tier"`
 			WorkingDir    string   `json:"working_dir"`
@@ -748,7 +754,11 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, Tier: strings.TrimSpace(req.Tier), WorkingDir: req.WorkingDir, Repo: req.Repo, Ref: req.Ref, Branch: strings.TrimSpace(req.Branch), Clone: req.CloneID, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox, Prompt: req.Prompt, Engram: strings.TrimSpace(req.Engram), DockerHostNetwork: req.DockerHostNetwork}
+		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, Account: strings.TrimSpace(req.Account), Tier: strings.TrimSpace(req.Tier), WorkingDir: req.WorkingDir, Repo: req.Repo, Ref: req.Ref, Branch: strings.TrimSpace(req.Branch), Clone: req.CloneID, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox, Prompt: req.Prompt, Engram: strings.TrimSpace(req.Engram), DockerHostNetwork: req.DockerHostNetwork}
+		if opts.Account != "" && opts.AgentKind == "" {
+			opts.AgentKind = "claude-code"
+			req.AgentKind = "claude-code"
+		}
 		if err := s.checkDockerHostNetwork(r.Context(), taskID, opts); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

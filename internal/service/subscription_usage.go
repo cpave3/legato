@@ -252,6 +252,7 @@ type SubscriptionUsageService struct {
 	mu       sync.Mutex
 	polling  bool
 	provider map[string]*usagePoll
+	workers  chan struct{}
 	// seeded: the schedule was taken from the kept readings.
 	seeded sync.Once
 }
@@ -277,7 +278,7 @@ func NewSubscriptionUsageService(opts SubscriptionUsageOptions) *SubscriptionUsa
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	s := &SubscriptionUsageService{opts: opts, provider: map[string]*usagePoll{}}
+	s := &SubscriptionUsageService{opts: opts, provider: map[string]*usagePoll{}, workers: make(chan struct{}, 4)}
 	for _, r := range opts.Readers {
 		s.provider[r.Provider()] = &usagePoll{}
 	}
@@ -424,14 +425,13 @@ func (s *SubscriptionUsageService) read(ctx context.Context, refresh bool) {
 	var wg sync.WaitGroup
 	changed := false
 	var changedMu sync.Mutex
-	workers := make(chan struct{}, 4)
 	for _, r := range s.opts.Readers {
-		workers <- struct{}{}
+		s.workers <- struct{}{}
 		poll := s.provider[r.Provider()]
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			defer func() { <-workers }()
+			defer func() { <-s.workers }()
 			if s.readOne(ctx, r, poll, refresh) {
 				changedMu.Lock()
 				changed = true

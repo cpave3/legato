@@ -347,3 +347,7 @@ Whether a bot is set up is this Legato's, not the file's: `workflowengine.ChatBo
 `Callers(definitions)` gives, for each workflow, the workflows whose `workflow.run` steps may run it (`callsOf`: a literal name or an input's choices); `GET /api/workflows` puts it on each definition as `called_by`. The web UI treats a workflow with callers and no trigger of its own as inner and folds it.
 
 `GET /api/workflow-stats?tz=<zone>` (`WorkflowService.Stats`, `workflow_stats.go`) gives `days` (the last 7 dates in the zone, oldest first, today last; the machine's zone without `tz`, `400` for an unknown one) and, by workflow, `last` (its newest run, `store.LatestWorkflowRuns`, described as the runs list describes runs: output warnings, the related task's key, attention) and `days` (`{runs, failed}` per date, from `store.WorkflowRunsSince` bucketed in the zone). Migration 155 indexes `workflow_runs(workflow_name, created_at DESC)` for both. It counts every run, a child run under its own workflow; the runs list's limit of 100 does not apply.
+
+### Claude account selection
+
+`agent.run` accepts `with.account`, a string or template naming an instance-local Claude account (`default` selects the implicit account). Both workflow-owned agents and fresh agents on a task pass it to the agent service; resolved inputs keep the stable name, not a host path. The agent service refuses unknown accounts and non-Claude tools. `reuse: true` only messages a running agent and does not change its account. A suspended agent resumes its saved execution identity.

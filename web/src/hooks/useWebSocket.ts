@@ -82,6 +82,8 @@ export interface AgentInfo {
   tmux_session: string
   command: string
   agent_kind: string
+  account?: string
+  account_label?: string
   // The engram the agent runs as; absent for none.
   engram?: string
   // The group the agent's task is in; absent for none.

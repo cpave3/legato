@@ -661,7 +661,7 @@ func (s *ReviewPassService) startPass(ctx context.Context, l ReviewLoop, loop *s
 		return s.stuck(ctx, l, loop, "Legato could not read the author's checkout: "+err.Error())
 	}
 	record := store.HandoffReviewPass{TaskID: l.TaskID, Pass: pass, State: ReviewPassReviewing, Checkout: dir, HeadSHA: head, StartedAt: s.now()}
-	if record.ReviewerSettings, err = encodeJSON(settings); err != nil {
+	if record.ReviewerSettings, err = encodePassSettings(settings); err != nil {
 		return err
 	}
 	var pinned []store.HandoffReviewPR
@@ -717,7 +717,7 @@ func (s *ReviewPassService) startPass(ctx context.Context, l ReviewLoop, loop *s
 	if err != nil {
 		return s.unable(ctx, l, loop, record, "Legato could not write the reviewer's brief: "+err.Error())
 	}
-	opts := AgentSpawnOptions{AgentKind: settings.Agent, Model: settings.Model, Tier: settings.Tier, Slot: SlotReviewer,
+	opts := AgentSpawnOptions{AgentKind: settings.Agent, Model: settings.Model, Tier: settings.Tier, Account: settings.Account, AccountIdentity: settings.accountIdentity, Slot: SlotReviewer,
 		WorkingDir: dir, Assignment: brief, Unattended: true, ReadOnlyCheckout: true, ThrowawayCheckout: true,
 		ExecutionKind: store.ExecutionInteractive}
 	if !s.resumeReviewer(ctx, l.TaskID, pass, settings, opts) {
@@ -809,7 +809,7 @@ func (s *ReviewPassService) reviewerDied(ctx context.Context, l ReviewLoop, loop
 	if err != nil {
 		return s.unable(ctx, l, loop, pass, "Legato could not write the reviewer's brief: "+err.Error())
 	}
-	opts := AgentSpawnOptions{AgentKind: settings.Agent, Model: settings.Model, Tier: settings.Tier, Slot: SlotReviewer,
+	opts := AgentSpawnOptions{AgentKind: settings.Agent, Model: settings.Model, Tier: settings.Tier, Account: settings.Account, AccountIdentity: settings.accountIdentity, Slot: SlotReviewer,
 		WorkingDir: pass.Checkout, Assignment: brief, Unattended: true, ReadOnlyCheckout: true, ThrowawayCheckout: true,
 		ExecutionKind: store.ExecutionInteractive}
 	if err := s.opts.Agents.SpawnAgent(ctx, l.TaskID, 0, 0, opts); err != nil {

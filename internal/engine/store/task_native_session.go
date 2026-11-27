@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -208,6 +209,13 @@ func (s *Store) RecordTaskNativeSession(ctx context.Context, taskID string, agen
 	}
 	if !owns {
 		return false, fmt.Errorf("record native session for task %q: session %d / execution %q / kind %q is not the latest running top-level owner of a persistent task: %w", taskID, agentSessionID, executionID, agentKind, ErrConflict)
+	}
+	identity, err := executionAccount(ctx, tx, executionID)
+	if err != nil {
+		return false, err
+	}
+	if identity != nil && (agentKind != "claude-code" || filepath.Clean(storageDir) != identity.ConfigDir) {
+		return false, fmt.Errorf("native session storage conflicts with the execution's selected account: %w", ErrConflict)
 	}
 
 	result, err := tx.ExecContext(ctx, `

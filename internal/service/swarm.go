@@ -21,8 +21,9 @@ import (
 
 // SwarmConfig configures swarm orchestration limits and behavior.
 type SwarmParticipantConfig struct {
-	Agent string
-	Model string
+	Account string
+	Agent   string
+	Model   string
 }
 
 type SwarmConfig struct {
@@ -613,6 +614,7 @@ func (s *swarmService) StartSwarm(ctx context.Context, parentID, workingDir stri
 		WorkingDir:        workingDir,
 		AgentKind:         conductorAgent,
 		Model:             s.cfg.Conductor.Model,
+		Account:           s.cfg.Conductor.Account,
 		Brief:             brief,
 	}); err != nil {
 		// Roll back the working dir on failure.
@@ -1003,6 +1005,14 @@ func (s *swarmService) Dispatch(ctx context.Context, subtaskID string) error {
 	if agentKind == "" {
 		agentKind = s.cfg.Worker.Agent
 	}
+	workerAdapter := s.cfg.Worker.Agent
+	if workerAdapter == "" {
+		workerAdapter = s.agents.DefaultAdapter()
+	}
+	workerAccount := ""
+	if st.AgentKind == "" || st.AgentKind == workerAdapter {
+		workerAccount = s.cfg.Worker.Account
+	}
 	workerModel := ""
 	if st.Tier == "" && (st.AgentKind == "" || st.AgentKind == s.cfg.Worker.Agent) {
 		workerModel = s.cfg.Worker.Model
@@ -1019,6 +1029,7 @@ func (s *swarmService) Dispatch(ctx context.Context, subtaskID string) error {
 		WorkingDir:        workingDir,
 		AgentKind:         agentKind,
 		Model:             workerModel,
+		Account:           workerAccount,
 		Tier:              st.Tier,
 		Brief:             brief,
 		StrictScope:       s.cfg.StrictScope,

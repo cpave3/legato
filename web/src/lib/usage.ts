@@ -137,8 +137,8 @@ export function reasonPhrase(reason?: string): string {
   }
 }
 
-export function reasonSentence(provider: string, reason?: string): string {
-  const tool = provider === "claude" ? "Claude Code" : provider === "codex" ? "Codex" : provider === "opencode" ? "OpenCode Go" : provider
+export function reasonSentence(provider: string, reason?: string, accountLabel?: string): string {
+  const tool = accountLabel || (provider === "claude" ? "Claude Code" : provider === "codex" ? "Codex" : provider === "opencode" ? "OpenCode Go" : provider)
   switch (reason) {
     case "not_read": return "Not read yet."
     case "not_signed_in": return `Sign in to ${tool} on this machine.`
