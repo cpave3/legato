@@ -410,6 +410,7 @@ type LearningPromptProvider interface {
 
 type agentService struct {
 	newWorkDefaults          func(context.Context, string) (NewWorkDefaults, error)
+	newWorkInspector         CheckoutInspector
 	claudeAccounts           []config.ClaudeAccount
 	claudeManagedSettingsDir string
 	accountDataDir           string
@@ -637,6 +638,10 @@ type AgentServiceOptions struct {
 	// uses Adapter; callback failures refuse the spawn before launch
 	// validation.
 	NewWorkDefaults func(ctx context.Context, repo string) (NewWorkDefaults, error)
+	// NewWorkInspector reads the repository of a working directory a spawn
+	// names, for its usage defaults only (CheckoutInspector when nil). It
+	// does not turn on code-context capture, which CheckoutInspector does.
+	NewWorkInspector CheckoutInspector
 	// ToolCheck, when set, is asked before a spawn whether the chosen
 	// agent tool (its adapter name) can start; an error refuses the spawn
 	// before anything is made. Doctor.SpawnCheck is the runtime's.
@@ -791,6 +796,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 	if len(opts) > 0 {
 		svc.adapter = opts[0].Adapter
 		svc.newWorkDefaults = opts[0].NewWorkDefaults
+		svc.newWorkInspector = opts[0].NewWorkInspector
 		svc.claudeAccounts = slices.Clone(opts[0].ClaudeAccounts)
 		svc.claudeManagedSettingsDir = opts[0].ClaudeManagedSettingsDir
 		svc.accountDataDir = opts[0].AccountDataDir
@@ -2067,8 +2073,12 @@ func (a *agentService) newWorkRepository(ctx context.Context, taskID string, opt
 			}
 		}
 	}
-	if opt.WorkingDir != "" && !opt.WorkingDirDefaulted && a.checkoutInspector != nil {
-		if cc, err := a.checkoutInspector.InspectCodeContext(opt.WorkingDir); err == nil && cc != nil {
+	inspector := a.newWorkInspector
+	if inspector == nil {
+		inspector = a.checkoutInspector
+	}
+	if opt.WorkingDir != "" && !opt.WorkingDirDefaulted && inspector != nil {
+		if cc, err := inspector.InspectCodeContext(opt.WorkingDir); err == nil && cc != nil {
 			if repo, ok := config.NormalizeRepository(cc.Repo); ok {
 				return repo
 			}

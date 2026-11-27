@@ -168,8 +168,16 @@ func (s *UsagePolicyService) evaluate(ctx context.Context, request *UsagePinRequ
 		pin = nil
 	}
 
+	// A scope's state belongs to its baseline, wherever it was kept: when
+	// the fallback moves onto a repository scope's baseline, that scope's
+	// state (and latch) becomes the global one, and the global state moves
+	// to a repository scope when the fallback moves off its baseline.
+	oldGlobalKey := strings.ToLower(before.Baseline)
 	global := before
-	global.Scopes = nil
+	if moved, ok := before.Scopes[strings.ToLower(cfg.FallbackProfile)]; ok && cfg.FallbackProfile != "" {
+		global = moved
+	}
+	global.Scopes, global.Pin = nil, nil
 	next, change, err := s.evaluateScope(cfg, snap, global, pin, cfg.FallbackProfile, "", now)
 	if err != nil {
 		var invalid usageValidationError
@@ -177,6 +185,7 @@ func (s *UsagePolicyService) evaluate(ctx context.Context, request *UsagePinRequ
 			return err
 		}
 		next = global
+		next.Baseline = cfg.FallbackProfile
 		next.Error = err.Error()
 	}
 	next.Pin = pin
@@ -191,6 +200,10 @@ func (s *UsagePolicyService) evaluate(ctx context.Context, request *UsagePinRequ
 		prior, ok := before.Scopes[key]
 		if !ok {
 			prior = UsageProfileState{}
+			if oldGlobalKey == key && before.Initialized {
+				prior = before
+				prior.Scopes, prior.Pin = nil, nil
+			}
 		}
 		scope, change, err := s.evaluateScope(cfg, snap, prior, pin, baseline, key, now)
 		if err != nil {
@@ -302,9 +315,7 @@ func (s *UsagePolicyService) evaluateScope(cfg config.UsageConfig, snap Subscrip
 			return before, nil, usageValidationError{err}
 		}
 	}
-	if scope != "" {
-		next.Baseline = baseline
-	}
+	next.Baseline = baseline
 	next.Profile = selected
 	next.Reason = reason
 	previousProfile := before.Profile

@@ -147,8 +147,9 @@ func TestAgentSpawnForATaskTabsBetweenAgentAndWhereOnly(t *testing.T) {
 func TestAgentSpawnOffersTheDefaultAdapterFirstThenTheOthersThenAShell(t *testing.T) {
 	m := NewAgentSpawn([]string{"claude-code", "codex"}, "chimera", "/tmp", "", "")
 
+	// The default follows the work's usage profile, so it names no adapter.
 	view := m.View()
-	for _, want := range []string{"chimera", "claude", "codex", "shell"} {
+	for _, want := range []string{"default", "claude", "codex", "shell"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks agent %q:\n%s", want, view)
 		}
@@ -415,7 +416,7 @@ func TestAgentSpawnShowsWhatASuggestionIs(t *testing.T) {
 	m = next.(AgentSpawnOverlay)
 
 	view := m.View()
-	for _, want := range []string{"~/Projects/", "git", "dir", "2 of 7 matches", "→ chimera in ~/Projects/", "tab complete", "esc back to presets"} {
+	for _, want := range []string{"~/Projects/", "git", "dir", "2 of 7 matches", "→ default in ~/Projects/", "tab complete", "esc back to presets"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks %q:\n%s", want, view)
 		}

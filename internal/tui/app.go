@@ -2666,16 +2666,10 @@ func (a App) openAgentSpawnOverlay(taskID, title string) (tea.Model, tea.Cmd) {
 		return a, a.agentsOffCmd()
 	}
 	defaultAdapter := ""
-	var adapters, filtered []string
+	var adapters []string
 	if a.agentSvc != nil {
 		defaultAdapter = a.agentSvc.DefaultAdapter()
 		adapters = a.agentSvc.RegisteredAdapters()
-		filtered = make([]string, 0, len(adapters))
-		for _, name := range adapters {
-			if name != defaultAdapter {
-				filtered = append(filtered, name)
-			}
-		}
 	}
 	defaultDir := a.workDir
 	if taskID != "" && a.svc != nil {
@@ -2691,7 +2685,7 @@ func (a App) openAgentSpawnOverlay(taskID, title string) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	spawnModel := a.withSpawnResources(a.withSpawnLocations(overlay.NewAgentSpawn(filtered, defaultAdapter, defaultDir, taskID, title), defaultDir))
+	spawnModel := a.withSpawnResources(a.withSpawnLocations(overlay.NewAgentSpawn(adapters, defaultAdapter, defaultDir, taskID, title), defaultDir))
 	spawnModel = spawnModel.WithClaudeAccounts(a.claudeAccounts)
 	if a.sandbox {
 		spawnModel = spawnModel.WithSandbox()

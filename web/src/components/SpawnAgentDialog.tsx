@@ -375,10 +375,12 @@ export function SpawnAgentDialog({
   const shownKey = shown.map((item) => item.path).join("\n") + (more ? "\n+" : "")
 
   const defaultAdapter = adapters?.default ?? ""
+  // The default follows the usage profile of the work's repository, which
+  // may differ from the global default, so it names no adapter; every
+  // adapter, the global default's too, stays an explicit override.
   const agentOptions = [
-    { value: "", label: defaultAdapter ? agentKindLabel(defaultAdapter) : "Default", note: defaultAdapter ? "default" : "" },
+    { value: "", label: "Default", note: "usage profile" },
     ...[...new Set([...(adapters?.adapters ?? []), ...(agentKind && agentKind !== "shell" ? [agentKind] : [])])]
-      .filter((adapter) => adapter !== defaultAdapter || adapter === agentKind)
       .map((adapter) => ({ value: adapter, label: agentKindLabel(adapter), note: "" })),
     { value: "shell", label: agentKindLabel("shell"), note: "" },
   ]

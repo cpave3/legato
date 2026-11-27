@@ -38,3 +38,13 @@ func usageReviewerDefaults(ctx context.Context, db *store.Store, repo string, de
 	}
 	return defaults, nil
 }
+
+// withUsageNewWork gives an agent service's options what usage defaults for
+// new work need: the defaults of the spawn's repository, and an inspector
+// for the repository of a working directory the operator chose. Every
+// runtime (the TUI, serve and commands) builds its agent service with it.
+func withUsageNewWork(opts service.AgentServiceOptions, db *store.Store) service.AgentServiceOptions {
+	opts.NewWorkDefaults = usageNewWorkDefaults(db)
+	opts.NewWorkInspector = checkoutInspector()
+	return opts
+}

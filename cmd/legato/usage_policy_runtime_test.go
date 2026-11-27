@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/cpave3/legato/internal/engine/events"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -270,9 +271,24 @@ func TestUsageRepositoryDefaultsReachTheSpawnOfATaskInThatRepository(t *testing.
 	codex.SetTiers(map[string][]string{"careful": {"--model", "profile-model"}})
 	claude := hooks.NewClaudeCodeAdapter("legato")
 	tmux := &usageLaunchTmux{contractTmux: contractTmux{alive: map[string]bool{}}}
-	agents := service.NewAgentService(db, tmux, dir, service.AgentServiceOptions{Adapter: claude, Adapters: map[string]service.AIToolAdapter{"codex": codex, "claude-code": claude}, NewWorkDefaults: usageNewWorkDefaults(db), DisablePeerAwareness: true})
-	for _, tc := range []struct{ task, kind string }{{"acme-task", "claude-code"}, {"other-task", "codex"}} {
-		if err := agents.SpawnAgent(ctx, tc.task, 0, 0); err != nil {
+	// The options serve, commands and the TUI build their agent service with.
+	agents := service.NewAgentService(db, tmux, dir, withUsageNewWork(service.AgentServiceOptions{Adapter: claude, Adapters: map[string]service.AIToolAdapter{"codex": codex, "claude-code": claude}, DisablePeerAwareness: true}, db))
+	// A checkout the operator chose, of acme/widget, for a task that records
+	// no repository.
+	checkout := filepath.Join(dir, "widget")
+	for _, args := range [][]string{{"init", "-q", checkout}, {"-C", checkout, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"}, {"-C", checkout, "remote", "add", "origin", "git@github.com:acme/widget.git"}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	if err := db.CreateTask(ctx, store.Task{ID: "dir-task", Title: "New work"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		task, kind string
+		opts       service.AgentSpawnOptions
+	}{{"acme-task", "claude-code", service.AgentSpawnOptions{}}, {"other-task", "codex", service.AgentSpawnOptions{}}, {"dir-task", "claude-code", service.AgentSpawnOptions{WorkingDir: checkout}}} {
+		if err := agents.SpawnAgent(ctx, tc.task, 0, 0, tc.opts); err != nil {
 			t.Fatal(err)
 		}
 		session, err := db.GetAgentSessionByTaskID(ctx, tc.task)

@@ -222,3 +222,64 @@ func TestAScopeWhoseProfileCannotLaunchKeepsItsStateWhileOthersMove(t *testing.T
 		t.Fatalf("global scope = %+v", snap.Active)
 	}
 }
+
+// A baseline keeps its latch when the fallback moves onto it or off it:
+// only the fallback changed, not that baseline or its rules.
+func TestABaselineKeepsItsLatchWhenTheFallbackMovesOntoOrOffIt(t *testing.T) {
+	f := newUsageFixture(t)
+	ctx := context.Background()
+	cfg := usageScopeConfig()
+	reset := f.now.Add(time.Hour)
+	windows := func(v float64) []UsageWindow {
+		w := claudeWindows(v)
+		for i := range w {
+			w[i].ResetsAt = reset
+		}
+		return w
+	}
+	policy := NewUsagePolicyService(UsagePolicyOptions{Store: f.db, Config: func(context.Context) (config.UsageConfig, error) { return cfg, nil }, Readings: f.svc.ReadingsSnapshot, Now: func() time.Time { return f.now }})
+	f.svc.SetPolicy(policy, policy.Pin)
+	f.claude.set(ProviderUsage{Windows: windows(50)}, nil)
+	f.svc.Poll(ctx)
+	f.now = f.now.Add(5 * time.Minute)
+	f.claude.set(ProviderUsage{Windows: windows(91)}, nil)
+	f.svc.Poll(ctx)
+	if sel := usageDefaultsFor(t, f, cfg, "autopilot-dev/autopilot"); sel.Profile.Name != "Codex" {
+		t.Fatalf("before = %+v", sel)
+	}
+	// Usage goes stale; then only the fallback changes, to Work.
+	f.now = f.now.Add(5 * time.Minute)
+	f.claude.set(ProviderUsage{}, errors.New("offline"))
+	f.svc.Poll(ctx)
+	cfg.FallbackProfile = "Work"
+	if err := policy.Evaluate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if sel := usageDefaultsFor(t, f, cfg, "autopilot-dev/autopilot"); sel.Profile.Name != "Codex" || sel.Reason.Rule != "work-weekly" {
+		t.Fatalf("fallback moved onto Work: autopilot = %+v", sel)
+	}
+	if sel := usageDefaultsFor(t, f, cfg, "someone/else"); sel.Profile.Name != "Codex" {
+		t.Fatalf("fallback moved onto Work: unmatched = %+v", sel)
+	}
+	if sel := usageDefaultsFor(t, f, cfg, "cpave3/legato"); sel.Profile.Name != "Default" {
+		t.Fatalf("fallback moved onto Work: Default's repositories = %+v", sel)
+	}
+	// And back: Work becomes a repository scope again, still held.
+	cfg.FallbackProfile = "Default"
+	if err := policy.Evaluate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if sel := usageDefaultsFor(t, f, cfg, "autopilot-dev/autopilot"); sel.Profile.Name != "Codex" || sel.Reason.Rule != "work-weekly" {
+		t.Fatalf("fallback moved off Work: autopilot = %+v", sel)
+	}
+	if sel := usageDefaultsFor(t, f, cfg, "someone/else"); sel.Profile.Name != "Default" {
+		t.Fatalf("fallback moved off Work: unmatched = %+v", sel)
+	}
+	// After the reset, a fresh low reading releases it, to Work.
+	f.now = reset.Add(31 * time.Minute)
+	f.claude.set(ProviderUsage{Windows: windows(3)}, nil)
+	f.svc.Poll(ctx)
+	if sel := usageDefaultsFor(t, f, cfg, "autopilot-dev/autopilot"); sel.Profile.Name != "Work" {
+		t.Fatalf("after reset = %+v", sel)
+	}
+}

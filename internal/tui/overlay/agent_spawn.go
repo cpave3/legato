@@ -207,13 +207,14 @@ type AgentSpawnOverlay struct {
 // taskID is empty for ephemeral agents; non-empty spawns an agent for an existing task.
 // title pre-fills the title field; for ephemeral agents this is editable, for task-bound it is shown as context.
 func NewAgentSpawn(adapters []string, defaultAdapter, defaultCWD, taskID, title string) AgentSpawnOverlay {
-	first := spawnAgent{label: "default"}
-	if defaultAdapter != "" {
-		first.label = spawnAgentLabel(defaultAdapter)
-	}
-	options := []spawnAgent{first}
+	// The default follows the usage profile of the work's repository, which
+	// may not be defaultAdapter (the global one), so it names no adapter, and
+	// every adapter stays an explicit override.
+	options := []spawnAgent{{label: "default"}}
+	seen := map[string]bool{}
 	for _, adapter := range adapters {
-		if adapter != defaultAdapter {
+		if !seen[adapter] && adapter != "shell" {
+			seen[adapter] = true
 			options = append(options, spawnAgent{label: spawnAgentLabel(adapter), value: adapter})
 		}
 	}
@@ -235,8 +236,13 @@ func (m AgentSpawnOverlay) WithClaudeAccounts(accounts []SpawnAccount) AgentSpaw
 	m.accountIndex = 0
 	if len(accounts) > 0 && m.defaultAdapter == "claude-code" {
 		// Keep the policy option and explicit Claude distinct.
-		options := []spawnAgent{{label: "default · claude"}, {label: "claude", value: "claude-code"}}
-		m.agents = append(options, m.agents[1:]...)
+		hasClaude := false
+		for _, a := range m.agents {
+			hasClaude = hasClaude || a.value == "claude-code"
+		}
+		if !hasClaude {
+			m.agents = append([]spawnAgent{m.agents[0], {label: "claude", value: "claude-code"}}, m.agents[1:]...)
+		}
 	}
 	return m
 }

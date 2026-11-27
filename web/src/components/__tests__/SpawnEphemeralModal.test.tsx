@@ -131,13 +131,20 @@ describe("SpawnEphemeralModal", () => {
     }))
   })
 
-  it("offers the default adapter first, then the others, then a shell", async () => {
+  it("offers the usage-profile default first, then every adapter as an explicit choice, then a shell", async () => {
     await openModal()
 
     const agents = within(screen.getByRole("radiogroup", { name: "Agent" })).getAllByRole("radio")
 
-    expect(agents.map((agent) => agent.textContent)).toEqual(["Chimera default", "Claude Code", "Codex", "Shell"])
+    // The default follows the usage profile of the work's repository, which
+    // may not be the global default (Chimera): it never names an adapter,
+    // and every adapter stays an explicit override, the global one included.
+    expect(agents.map((agent) => agent.textContent)).toEqual(["Default usage profile", "Chimera", "Claude Code", "Codex", "Shell"])
     expect(agents[0].getAttribute("aria-checked")).toBe("true")
+    fireEvent.click(screen.getByRole("radio", { name: "Chimera" }))
+    fireEvent.click(screen.getByRole("button", { name: /^Spawn in/ }))
+    await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+    expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body).agent_kind).toBe("chimera")
   })
 
   it("keeps an explicit adapter selected when a usage switch makes it the default", async () => {
@@ -147,7 +154,7 @@ describe("SpawnEphemeralModal", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Codex" }))
     defaultAgent = "codex"
     await act(async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.adapters("") }) })
-    expect((await screen.findByRole("radio", { name: "Codex default" })).getAttribute("aria-checked")).toBe("false")
+    expect((await screen.findByRole("radio", { name: "Default usage profile" })).getAttribute("aria-checked")).toBe("false")
     expect(screen.getByRole("radio", { name: "Codex" }).getAttribute("aria-checked")).toBe("true")
     fireEvent.click(screen.getByRole("button", { name: /^Spawn in/ }))
     await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
