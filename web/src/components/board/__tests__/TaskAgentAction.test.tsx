@@ -412,7 +412,7 @@ describe("TaskAgentAction", () => {
       body: JSON.stringify({ agent_kind: "codex", working_dir: "/manual" }),
     })))
 
-    pickAgent("Chimera default")
+    pickAgent("Default usage profile")
     expect(screen.getByRole("group", { name: "Existing Chimera session" })).toBeTruthy()
     expect((screen.getByRole("radio", { name: "Start new session" }) as HTMLInputElement).checked).toBe(true)
   })
@@ -478,7 +478,7 @@ describe("TaskAgentAction", () => {
 
     render(<MemoryRouter><TaskAgentAction taskId="T-1" /></MemoryRouter>)
     fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
-    await screen.findByRole("radio", { name: "Chimera default" })
+    await screen.findByRole("radio", { name: "Default usage profile" })
     expect(screen.queryByRole("radio", { name: "Resume previous session" })).toBeNull()
   })
 
