@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/cpave3/legato/internal/leaf/regularfile"
 )
 
 // tailBytes is how much of the end of a rollout file is read: enough for
@@ -125,7 +127,7 @@ type logLine struct {
 // lastRateLimits reads the tail of a rollout file for its last event with
 // rate limits.
 func lastRateLimits(path string) (Reading, bool) {
-	file, err := openRegular(path)
+	file, err := regularfile.Open(path)
 	if err != nil {
 		return Reading{}, false
 	}

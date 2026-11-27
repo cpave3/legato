@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"path/filepath"
 	"time"
+
+	"github.com/cpave3/legato/internal/leaf/regularfile"
 )
 
 // credentialsLimit bounds the credentials file, which is a few kilobytes.
@@ -30,7 +32,7 @@ type FileCredentials struct {
 // Login reads the file's Claude.ai login. The folder is one a sandboxed
 // Claude Code agent can write, so only a regular file is read.
 func (f FileCredentials) Login() (Login, error) {
-	file, err := openRegular(f.Path)
+	file, err := regularfile.Open(f.Path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Login{}, ErrNotSignedIn
 	}
