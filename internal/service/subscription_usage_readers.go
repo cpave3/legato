@@ -49,27 +49,46 @@ func (r *ClaudeUsageReader) Read(ctx context.Context) (ProviderUsage, error) {
 	return usage, nil
 }
 
+// claudeUsageReasons are the reasons Claude's usage reader gives, in the
+// order they are checked.
+var claudeUsageReasons = []usageErrorReason{
+	{claudeusage.ErrNotSignedIn, UsageReasonNotSignedIn},
+	{claudeusage.ErrNamedKeychainUnavailable, UsageReasonNamedKeychainUnavailable},
+	{claudeusage.ErrLoginExpired, UsageReasonLoginExpired},
+	{claudeusage.ErrNoSubscription, UsageReasonNoSubscription},
+	{claudeusage.ErrEndpointChanged, UsageReasonEndpointChanged},
+}
+
+// claudeUsageError explains a failed Claude read. The engine's errors
+// never hold the token or the endpoint's body.
 func claudeUsageError(err error) error {
 	var limited *claudeusage.RateLimitedError
-	switch {
-	case errors.Is(err, context.Canceled):
-		return err
-	case errors.As(err, &limited):
+	if !errors.Is(err, context.Canceled) && errors.As(err, &limited) {
 		return &UsageUnavailableError{Reason: UsageReasonRateLimited, RetryAfter: limited.RetryAfter}
-	case errors.Is(err, claudeusage.ErrNotSignedIn):
-		return &UsageUnavailableError{Reason: UsageReasonNotSignedIn}
-	case errors.Is(err, claudeusage.ErrNamedKeychainUnavailable):
-		return &UsageUnavailableError{Reason: UsageReasonNamedKeychainUnavailable}
-	case errors.Is(err, claudeusage.ErrLoginExpired):
-		return &UsageUnavailableError{Reason: UsageReasonLoginExpired}
-	case errors.Is(err, claudeusage.ErrNoSubscription):
-		return &UsageUnavailableError{Reason: UsageReasonNoSubscription}
-	case errors.Is(err, claudeusage.ErrEndpointChanged):
-		return &UsageUnavailableError{Reason: UsageReasonEndpointChanged}
-	default:
-		// The engine's errors never hold the token or the endpoint's body.
-		return &UsageUnavailableError{Reason: UsageReasonError}
 	}
+	return usageError(err, claudeUsageReasons)
+}
+
+// usageErrorReason is one engine error a provider's reader explains, and
+// the reason it gives.
+type usageErrorReason struct {
+	err    error
+	reason string
+}
+
+// usageError explains a failed read that is not a rate limit: cancellation
+// passes through, the first matching reason is given, and anything else
+// is UsageReasonError, so none of the engine's words reach the person.
+func usageError(err error, reasons []usageErrorReason) error {
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
+	for _, r := range reasons {
+		if errors.Is(err, r.err) {
+			return &UsageUnavailableError{Reason: r.reason}
+		}
+	}
+	return &UsageUnavailableError{Reason: UsageReasonError}
 }
 
 // CodexAppServerReader is what CodexUsageReader asks first.
@@ -173,25 +192,22 @@ func (r *OpenCodeUsageReader) Read(ctx context.Context) (ProviderUsage, error) {
 	return usage, nil
 }
 
+// opencodeUsageReasons are the reasons OpenCode Go's usage reader gives,
+// in the order they are checked.
+var opencodeUsageReasons = []usageErrorReason{
+	{opencodeusage.ErrNoKey, UsageReasonMissingKey},
+	{opencodeusage.ErrInvalidKey, UsageReasonInvalidKey},
+	{opencodeusage.ErrNoSubscription, UsageReasonNoSubscription},
+	{opencodeusage.ErrEndpointChanged, UsageReasonEndpointChanged},
+	{opencodeusage.ErrUnreachable, UsageReasonUnreachable},
+}
+
+// opencodeUsageError explains a failed OpenCode Go read. The engine's
+// errors never hold the key or the endpoint's body.
 func opencodeUsageError(err error) error {
 	var limited *opencodeusage.RateLimitedError
-	switch {
-	case errors.Is(err, context.Canceled):
-		return err
-	case errors.As(err, &limited):
+	if !errors.Is(err, context.Canceled) && errors.As(err, &limited) {
 		return &UsageUnavailableError{Reason: UsageReasonRateLimited, RetryAfter: limited.RetryAfter}
-	case errors.Is(err, opencodeusage.ErrNoKey):
-		return &UsageUnavailableError{Reason: UsageReasonMissingKey}
-	case errors.Is(err, opencodeusage.ErrInvalidKey):
-		return &UsageUnavailableError{Reason: UsageReasonInvalidKey}
-	case errors.Is(err, opencodeusage.ErrNoSubscription):
-		return &UsageUnavailableError{Reason: UsageReasonNoSubscription}
-	case errors.Is(err, opencodeusage.ErrEndpointChanged):
-		return &UsageUnavailableError{Reason: UsageReasonEndpointChanged}
-	case errors.Is(err, opencodeusage.ErrUnreachable):
-		return &UsageUnavailableError{Reason: UsageReasonUnreachable}
-	default:
-		// The engine's errors never hold the key or the endpoint's body.
-		return &UsageUnavailableError{Reason: UsageReasonError}
 	}
+	return usageError(err, opencodeUsageReasons)
 }
