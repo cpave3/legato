@@ -10,7 +10,7 @@ import (
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
-// SetSubscriptionUsage sets the Claude and Codex subscriptions' usage the
+// SetSubscriptionUsage sets the subscriptions' usage the
 // view shows; nil when none is read.
 func (m *Model) SetSubscriptionUsage(usage *service.SubscriptionUsage) {
 	m.subscriptionUsage = usage
@@ -22,13 +22,6 @@ type subscriptionRow struct {
 	label string
 	value string
 	color lipgloss.Color
-}
-
-var shortMeters = map[string]string{
-	service.UsageMeterFiveHour:     "5h",
-	service.UsageMeterWeekly:       "wk",
-	service.UsageMeterWeeklyOpus:   "Opus",
-	service.UsageMeterWeeklySonnet: "Sonnet",
 }
 
 func (m Model) subscriptionRows() []subscriptionRow {
@@ -46,11 +39,7 @@ func (m Model) subscriptionRows() []subscriptionRow {
 		var parts []string
 		most := 0.0
 		for _, w := range p.Windows {
-			short := shortMeters[w.Meter]
-			if short == "" {
-				short = w.Meter
-			}
-			parts = append(parts, fmt.Sprintf("%s %d%%", short, int(math.Round(w.UsedPercent))))
+			parts = append(parts, fmt.Sprintf("%s %d%%", service.UsageMeterShort(w.Meter), int(math.Round(w.UsedPercent))))
 			most = max(most, w.UsedPercent)
 		}
 		row.value = strings.Join(parts, " ")

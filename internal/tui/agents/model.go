@@ -77,7 +77,7 @@ type Model struct {
 	webLabel  string
 	// usage is how many tokens were used; nil when that is not known.
 	usage *Usage
-	// subscriptionUsage is the Claude and Codex subscriptions' usage; nil when
+	// subscriptionUsage is the subscriptions' usage; nil when
 	// none is read.
 	subscriptionUsage *service.SubscriptionUsage
 	// spinner is the frame the mark of a running agent is drawn at.
