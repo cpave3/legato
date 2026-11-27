@@ -20,7 +20,7 @@ func TestRestartingAHandedOffAgentKeepsItUnattendedAndSandboxed(t *testing.T) {
 		t.Fatal(err)
 	}
 	clone := worker.Tmux.Spawned()[0].WorkDir
-	if _, err := worker.Store.RecordTaskNativeSession(ctx, card, first.ID, first.ExecutionID, "claude-code", "author-conversation", clone, ""); err != nil {
+	if _, err := worker.Store.RecordTaskNativeSession(ctx, card, first.ID, first.ExecutionID, "claude-code", "author-conversation", clone, bridgeStorage(t, "claude-code")); err != nil {
 		t.Fatal(err)
 	}
 

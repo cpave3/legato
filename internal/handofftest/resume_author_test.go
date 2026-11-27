@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -32,8 +33,17 @@ func TestAHandoffsAuthorIsResumedWithEverythingItHad(t *testing.T) {
 				t.Fatal(err)
 			}
 			clone := worker.Tmux.Spawned()[0].WorkDir
+			if kind == "claude-code" {
+				// A conversation saved under another login's root is not this
+				// author's: the store refuses it rather than resume it later
+				// on the account the execution recorded.
+				other := t.TempDir()
+				if _, err := worker.Store.RecordTaskNativeSession(ctx, card, first.ID, first.ExecutionID, kind, "elsewhere", clone, other); !errors.Is(err, store.ErrConflict) {
+					t.Fatalf("saving under %s: %v; want a conflict", other, err)
+				}
+			}
 			// Its bridge saved the conversation, as a live author's does.
-			if _, err := worker.Store.RecordTaskNativeSession(ctx, card, first.ID, first.ExecutionID, kind, "author-conversation", clone, ""); err != nil {
+			if _, err := worker.Store.RecordTaskNativeSession(ctx, card, first.ID, first.ExecutionID, kind, "author-conversation", clone, bridgeStorage(t, kind)); err != nil {
 				t.Fatal(err)
 			}
 
@@ -41,6 +51,20 @@ func TestAHandoffsAuthorIsResumedWithEverythingItHad(t *testing.T) {
 			_ = worker.Tmux.Kill("legato-" + card)
 			worker.Restart()
 
+			if kind == "claude-code" {
+				// With the worker's default login moved elsewhere, the author
+				// is not resumed on it: the refusal names the account change,
+				// and nothing starts.
+				spawned := len(worker.Tmux.Spawned())
+				t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+				if err := worker.Handoffs.ResumeAuthor(ctx, card); err == nil || !strings.Contains(err.Error(), "saved Claude account configuration changed") {
+					t.Fatalf("resuming on a moved default: %v; want the account change refused", err)
+				}
+				if len(worker.Tmux.Spawned()) != spawned {
+					t.Fatal("the author was started on another login")
+				}
+				t.Setenv("CLAUDE_CONFIG_DIR", "")
+			}
 			if err := worker.Handoffs.ResumeAuthor(ctx, card); err != nil {
 				t.Fatalf("resuming the author: %v", err)
 			}
@@ -54,6 +78,10 @@ func TestAHandoffsAuthorIsResumedWithEverythingItHad(t *testing.T) {
 			typed := strings.Join(worker.Tmux.Typed(resumed.Name), "\n")
 			if !strings.Contains(typed, "--"+kind+"-prompts-off") {
 				t.Fatalf("launch = %q; want its prompts still off", typed)
+			}
+			// On the account it ran with: the default, its variable unset.
+			if kind == "claude-code" && !strings.Contains(typed, "env -u CLAUDE_CONFIG_DIR ") {
+				t.Fatalf("launch = %q; want the default account's environment", typed)
 			}
 			session, err := worker.Store.GetAgentSessionByTaskID(ctx, card)
 			if err != nil || session.ExecutionID == first.ExecutionID || !session.Sandboxed {

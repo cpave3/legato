@@ -76,7 +76,9 @@ func TestAFreshCloneIsSetUpInTheSandboxBeforeTheAgentStarts(t *testing.T) {
 	if !strings.Contains(setup, "--base release/2") || !strings.Contains(setup, "--primary "+primary) {
 		t.Errorf("setup = %q, want the base and the main checkout", setup)
 	}
-	if !strings.HasPrefix(launch, "SANDBOX --args 3 3<") || !strings.HasSuffix(launch, " -- fake-tool --in-sandbox") {
+	// The account's environment is fixed outside the sandbox, which passes
+	// it through: the default account leaves CLAUDE_CONFIG_DIR unset.
+	if !strings.HasPrefix(launch, "env -u CLAUDE_CONFIG_DIR SANDBOX --args 3 3<") || !strings.HasSuffix(launch, " -- fake-tool --in-sandbox") {
 		t.Errorf("launch = %q", launch)
 	}
 	clone := filepath.Join(cloner.root, "jobs")

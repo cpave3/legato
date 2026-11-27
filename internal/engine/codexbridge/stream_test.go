@@ -207,8 +207,16 @@ func TestAKnownCursorReplaysOnlyWhatFollows(t *testing.T) {
 func TestAnUnknownOrEmptyCursorReplaysNothing(t *testing.T) {
 	h := newHarness(t)
 	h.replying("item-a1")
+	// Notifications reach the bridge asynchronously: watch the earlier deltas
+	// published before subscribing, or one may arrive after and look live.
+	watch := h.subscribe("")
 	h.delta("item-a1", "earlier")
 	h.delta("item-a1", "also earlier")
+	for _, want := range []string{"earlier", "also earlier"} {
+		if event := nextEvent(t, watch); event["delta"] != want {
+			t.Fatalf("published %v, want the delta %q", event, want)
+		}
+	}
 
 	for index, cursor := range []string{"", "00000000-1", "not-a-cursor"} {
 		events := h.subscribe(cursor)
