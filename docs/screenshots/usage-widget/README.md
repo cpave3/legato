@@ -9,4 +9,14 @@ Captured with headless Chromium at 2× from a throwaway harness page. The harnes
 - `after-desktop-states.png`: a failed profile switch, a stale Codex reading and a signed-out Claude Default at once.
 - `after-mobile-collapsed.png`, `after-mobile-sheet.png`: the phone layout, 390×844, and the bottom sheet.
 
-These screenshots verify presentation only. The component tests in `web/src/components/__tests__/UsageStrip.test.tsx` cover the behaviour.
+## The phone's usage button (32g8tm5p)
+
+Captured the same way (headless Chromium at 2×, synthetic `/api/usage`, no live Legato), from the committed fixture `web/src/test/usage-preview.html` on a scratch Vite server (`?usage=open`, `?tone=over|failed`). On a phone the card above is replaced by a gauge button in the picker bar, so `after-mobile-collapsed.png` shows the old phone layout.
+
+- `after-mobile-compact.png`: the phone layout, 390×844: the gauge beside Ensemble, no card.
+- `after-mobile-compact-over.png`: a window at 93%, a red dot on the gauge.
+- `after-mobile-compact-failed.png`: a failed profile switch, an error mark in place of the gauge.
+- `after-mobile-compact-sheet.png`: the button opens the existing bottom sheet.
+- `after-desktop-unchanged.png`: the desktop sidebar card, 800×900, as before.
+
+These screenshots verify presentation only. The component tests in `web/src/components/__tests__/UsageStrip.test.tsx` and the page tests in `web/src/pages/__tests__/AgentsUsage.test.tsx` cover the behaviour.

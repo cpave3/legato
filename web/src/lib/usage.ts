@@ -237,3 +237,13 @@ export function summaryProviders(providers: ProviderUsage[], max: number): { sho
 export function usageTone(percent: number): "calm" | "warn" | "over" {
   return percent >= 90 ? "over" : percent >= 75 ? "warn" : "calm"
 }
+
+// The worst tone of any window that was read freshly: what a button too
+// small for the bars warns of. Stale and unavailable readings are left out,
+// as the card leaves their bars grey.
+export function worstTone(providers: ProviderUsage[]): "calm" | "warn" | "over" {
+  const percents = providers
+    .filter((p) => !p.stale && p.state !== "unavailable")
+    .flatMap((p) => p.windows.map((w) => w.used_percent))
+  return usageTone(Math.max(0, ...percents))
+}
