@@ -264,6 +264,35 @@ describe("SettingsPage layout", () => {
     if (element !== `section-${section}`) await waitFor(() => expect(document.getElementById(element)).toBeTruthy())
   })
 
+  it("offers the usage rule meters the server's catalog declares, including OpenCode Go's", async () => {
+    serveRegistry({}, (path) => {
+      if (path === "/api/config/lists") return Response.json({ lists: [
+        { key: "usage.rules", title: "Usage rules", name_field: "name", entries: [] },
+      ] })
+      if (path === "/api/usage") return Response.json({
+        poll_interval_seconds: 300,
+        catalog: [
+          { provider: "claude", name: "Claude", meters: [
+            { window: "five_hour", qualified: "claude.five_hour", short: "5h", long: "5-hour" },
+            { window: "weekly", qualified: "claude.weekly", short: "wk", long: "weekly" },
+          ] },
+          { provider: "opencode", name: "OpenCode Go", meters: [
+            { window: "five_hour", qualified: "opencode.five_hour", short: "5h", long: "5-hour" },
+            { window: "monthly", qualified: "opencode.monthly", short: "mo", long: "monthly" },
+          ] },
+        ],
+        providers: [],
+      })
+      return undefined
+    })
+    renderPage("/settings#list-usage.rules")
+    fireEvent.click(await screen.findByRole("button", { name: "New rule" }))
+    const meter = await screen.findByRole("combobox", { name: "Meter" })
+    expect(await within(meter).findByRole("option", { name: "opencode.monthly" })).toBeTruthy()
+    expect(within(meter).getByRole("option", { name: "claude.five_hour" })).toBeTruthy()
+    expect(within(meter).queryByRole("option", { name: "opencode.rolling" })).toBeNull()
+  })
+
   it("opens Usage profile forms with the tiers from Settings' adapter lists", async () => {
     serveRegistry({}, (path) => path === "/api/config/lists" ? Response.json({ lists: [
       { key: "usage.profiles", title: "Usage profiles", name_field: "name", entries: [] },

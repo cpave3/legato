@@ -9,6 +9,24 @@ vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 
 const NOW = new Date("2026-11-26T08:00:00Z")
 
+const catalog = [
+  { provider: "claude", name: "Claude", meters: [
+    { window: "five_hour", qualified: "claude.five_hour", short: "5h", long: "5-hour" },
+    { window: "weekly", qualified: "claude.weekly", short: "wk", long: "weekly" },
+    { window: "weekly_opus", qualified: "claude.weekly_opus", short: "Opus", long: "weekly Opus" },
+    { window: "weekly_sonnet", qualified: "claude.weekly_sonnet", short: "Sonnet", long: "weekly Sonnet" },
+  ] },
+  { provider: "codex", name: "Codex", meters: [
+    { window: "five_hour", qualified: "codex.five_hour", short: "5h", long: "5-hour" },
+    { window: "weekly", qualified: "codex.weekly", short: "wk", long: "weekly" },
+  ] },
+  { provider: "opencode", name: "OpenCode Go", meters: [
+    { window: "five_hour", qualified: "opencode.five_hour", short: "5h", long: "5-hour" },
+    { window: "weekly", qualified: "opencode.weekly", short: "wk", long: "weekly" },
+    { window: "monthly", qualified: "opencode.monthly", short: "mo", long: "monthly" },
+  ] },
+]
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })
 }
@@ -21,6 +39,7 @@ beforeEach(() => {
   vi.setSystemTime(NOW)
   usage = {
     poll_interval_seconds: 300,
+    catalog,
     providers: [
       {
         provider: "claude", state: "ok", stale: false, plan: "max", source: "endpoint",
@@ -106,6 +125,74 @@ describe("UsageStrip", () => {
     expect(within(card).queryByRole("progressbar")).toBeNull()
   })
 
+  it("shows OpenCode Go beside the others, with its monthly meter", async () => {
+    usage = {
+      ...(usage as Record<string, unknown>),
+      providers: [
+        ...(usage as { providers: unknown[] }).providers,
+        {
+          provider: "opencode", state: "ok", stale: false, source: "endpoint",
+          as_of: "2026-11-26T07:58:00Z",
+          windows: [
+            { meter: "five_hour", used_percent: 30, resets_at: "2026-11-26T13:00:00Z" },
+            { meter: "weekly", used_percent: 66, resets_at: "2026-11-30T00:00:00Z" },
+            { meter: "monthly", used_percent: 50, resets_at: "2026-12-01T00:00:00Z" },
+          ],
+        },
+      ],
+    }
+    renderIt()
+    const strip = await screen.findByRole("button", { name: /subscription usage/i })
+    expect(within(strip).getByText("OpenCode Go")).toBeTruthy()
+    expect(within(strip).getByText("mo 50%")).toBeTruthy()
+    fireEvent.click(strip)
+    const card = screen.getByRole("region", { name: "Subscription usage" })
+    const opencode = within(card).getByRole("group", { name: "OpenCode Go" })
+    expect(within(opencode).getByRole("progressbar", { name: "OpenCode Go monthly" }).getAttribute("aria-valuenow")).toBe("50")
+    expect(within(opencode).getByText("resets in 4d 16h")).toBeTruthy()
+  })
+
+  it("says what to do when OpenCode Go has no key", async () => {
+    usage = {
+      ...(usage as Record<string, unknown>),
+      providers: [{ provider: "opencode", state: "unavailable", stale: false, reason: "missing_key", windows: [] }],
+    }
+    renderIt()
+    fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
+    const card = screen.getByRole("region", { name: "Subscription usage" })
+    expect(within(card).getByText("Name its API key in Settings › Usage.")).toBeTruthy()
+  })
+
+  it("says what to do when OpenCode Go's key is refused", async () => {
+    usage = {
+      ...(usage as Record<string, unknown>),
+      providers: [{ provider: "opencode", state: "unavailable", stale: false, reason: "invalid_key", windows: [] }],
+    }
+    renderIt()
+    fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
+    const card = screen.getByRole("region", { name: "Subscription usage" })
+    expect(within(card).getByText("OpenCode Go's API key was refused; replace the key's secret and restart.")).toBeTruthy()
+  })
+
+  it("offers every catalog meter to pin until, including OpenCode Go's", async () => {
+    usage = {
+      ...(usage as Record<string, unknown>),
+      policy: {
+        active: { profile: { name: "Economy", agent: "codex" }, reason: { text: "Claude weekly reached 90%" }, since: "2026-11-26T07:00:00Z" },
+        profiles: [{ name: "Economy", agent: "codex" }],
+        switches: [],
+      },
+    }
+    renderIt()
+    fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
+    fireEvent.click(screen.getByRole("button", { name: "Pin a profile" }))
+    fireEvent.change(screen.getByRole("combobox", { name: "Pin expires" }), { target: { value: "reset" } })
+    const meters = screen.getByRole("combobox", { name: "Until meter resets" })
+    expect(within(meters).getByRole("option", { name: "opencode.monthly" })).toBeTruthy()
+    expect(within(meters).getByRole("option", { name: "claude.five_hour" })).toBeTruthy()
+    expect(within(meters).queryByRole("option", { name: "opencode.rolling" })).toBeNull()
+  })
+
   it("asks for a reading now", async () => {
     renderIt()
     fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
@@ -147,7 +234,7 @@ it("shows a policy with readers off, including its reason and bounded recent swi
 })
 
 it("opens pin controls from the address, sends the expiry intent, and keeps a rejected draft", async () => {
-  usage = { providers: [], poll_interval_seconds: 0, policy: {
+  usage = { catalog, providers: [], poll_interval_seconds: 0, policy: {
     active: { profile: { name: "Economy", agent: "codex" }, reason: { text: "Fallback" }, since: NOW.toISOString() },
     profiles: [{ name: "Economy", agent: "codex" }, { name: "Quality", agent: "claude-code" }], switches: [],
   } }

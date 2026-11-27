@@ -25,9 +25,9 @@ const workspaces = list({
   ],
 })
 
-function show(lists: ConfigList[], only?: string[]) {
+function show(lists: ConfigList[], only?: string[], meters: string[] = []) {
   mockFetch.mockResolvedValue(lists)
-  return render(<QueryClientProvider client={new QueryClient()}><ListSettings baseUrl="http://legato" lists={only} /></QueryClientProvider>)
+  return render(<QueryClientProvider client={new QueryClient()}><ListSettings baseUrl="http://legato" lists={only} meters={meters} /></QueryClientProvider>)
 }
 
 describe("List forms", () => {
@@ -58,7 +58,7 @@ describe("List forms", () => {
     show([list({ key: "usage.rules", title: "Usage rules", mode: "live", entries: [
       { name: "Late", value: { order: 20 }, source: "database", pinned: false },
       { name: "First", value: { order: 1 }, source: "config.yaml", pinned: true },
-    ] }), list({ key: "usage.profiles", title: "Usage profiles", entries: [{ name: "Economy", value: { agent: "codex" }, source: "database", pinned: false }] })], ["usage.rules"])
+    ] }), list({ key: "usage.profiles", title: "Usage profiles", entries: [{ name: "Economy", value: { agent: "codex" }, source: "database", pinned: false }] })], ["usage.rules"], ["claude.five_hour", "claude.weekly", "codex.weekly", "opencode.monthly"])
     const rules = await screen.findByRole("list", { name: "Usage rules" })
     expect(within(rules).getAllByRole("listitem")[0]).toHaveTextContent("First")
     fireEvent.click(screen.getByRole("button", { name: "New rule" }))

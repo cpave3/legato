@@ -15,6 +15,9 @@ export interface SectionContent {
   fileOnly: string[]
   fileOnlyValues?: Record<string, string>
   lists: ConfigList[]
+  // The qualified usage meters the server's catalog declares, for the
+  // usage rule form's meter choices.
+  meters?: string[]
   baseUrl: string
   // The cards this page can draw, by ID; a card left out (Development
   // without hot reload) is not shown.
@@ -22,7 +25,7 @@ export interface SectionContent {
 }
 
 export function SettingsSectionView({ section, content }: { section: SettingsSection; content: SectionContent }) {
-  const { settings, fileOnly, fileOnlyValues = {}, lists, baseUrl, cards } = content
+  const { settings, fileOnly, fileOnlyValues = {}, lists, meters = [], baseUrl, cards } = content
   const groups = sectionGroups(section, settings)
   return <section id={`section-${section.id}`} aria-labelledby={`section-${section.id}-title`} className="flex flex-col gap-6">
     <div>
@@ -46,7 +49,7 @@ export function SettingsSectionView({ section, content }: { section: SettingsSec
         {groupCards.filter((card) => !card.after).map((card) => <div key={card.id}>{cards[card.id]}</div>)}
         <RegistrySettings settings={rows} baseUrl={baseUrl} prefixes={rows.map((s) => s.key)} showMode={modes.size > 1 && !groupApplies[`${section.id}/${group}`]} />
         {groupCards.filter((card) => card.after).map((card) => <div key={card.id}>{cards[card.id]}</div>)}
-        {groupLists.map((list) => <ListCard key={`${baseUrl}:${list.key}`} list={list} lists={lists} baseUrl={baseUrl} />)}
+        {groupLists.map((list) => <ListCard key={`${baseUrl}:${list.key}`} list={list} lists={lists} meters={meters} baseUrl={baseUrl} />)}
         {files.length > 0 && <SettingsRows>{files.map((key) => <FileOnlyRow key={key} keyName={key} title={fileOnlyTitle(key)} value={fileOnlyValues[key]} />)}</SettingsRows>}
       </div></GroupTitleContext.Provider>
       if (group === leadGroup) return <div key={group} id={groupElementId(section.id, group)}>{body}</div>

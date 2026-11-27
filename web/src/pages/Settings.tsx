@@ -34,6 +34,7 @@ import { PickerContext, pickerData } from "../lib/settingPickers"
 import { listSkills } from "../lib/skills"
 import { fetchAdapters } from "../lib/adapters"
 import { queryKeys } from "../lib/query"
+import { catalogQualifiedMeters, fetchSubscriptionUsage } from "../lib/usage"
 import { useQuery } from "@tanstack/react-query"
 import { SettingsCard, quietButton } from "../components/settings/SettingsUI"
 import { Globe, Palette, Smartphone } from "lucide-react"
@@ -200,6 +201,15 @@ export function SettingsPage() {
   const destination = settingsDestination(target, registry, fileOnly)
   const currentId = destination?.section ?? (!target && wide ? "appearance" : "")
   const current = findSection(currentId)
+  // The usage catalog feeds the usage rule form's meter choices; the
+  // meters come from the server's provider table, not a list here.
+  const usageCatalog = useQuery({
+    queryKey: queryKeys.subscriptionUsage(baseUrl),
+    queryFn: () => fetchSubscriptionUsage(baseUrl),
+    enabled: currentId === "usage",
+    retry: false,
+    staleTime: 5 * 60_000,
+  })
   const [search, setSearch] = useState("")
   const [active, setActive] = useState(0)
   const searchBox = useRef<HTMLInputElement>(null)
@@ -321,7 +331,7 @@ export function SettingsPage() {
             <Link to={current.href} className={quietButton + " w-fit"}>Open {current.title}</Link>
           </section>}
           {current && !current.href && !search.trim() && <ShowKeysContext.Provider value={showKeys}><PickerContext.Provider value={pickerData(lists, registry, { adapters: adapters.data?.adapters ?? [], default: adapters.data?.default ?? "" }, (skills.data?.skills ?? []).filter((sk) => !sk.error).map((sk) => sk.name))}>
-            <SettingsSectionView section={current} content={{ settings: registry, fileOnly, fileOnlyValues, lists, baseUrl, cards }} />
+            <SettingsSectionView section={current} content={{ settings: registry, fileOnly, fileOnlyValues, lists, meters: catalogQualifiedMeters(usageCatalog.data?.catalog), baseUrl, cards }} />
           </PickerContext.Provider></ShowKeysContext.Provider>}
         </main>
       </div>

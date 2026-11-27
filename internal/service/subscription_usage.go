@@ -122,6 +122,8 @@ type UsageCatalogProvider struct {
 // UsageCatalogMeter is one meter a provider reports, with the name rules and
 // pins use for it and the labels every surface shows.
 type UsageCatalogMeter struct {
+	// Window is the meter's name in a reading: "five_hour".
+	Window string `json:"window"`
 	// Qualified is the meter's name in rules and pins: "claude.five_hour".
 	Qualified string `json:"qualified"`
 	Short     string `json:"short"`
@@ -140,7 +142,7 @@ func UsageCatalog() []UsageCatalogProvider {
 			if !ok {
 				continue
 			}
-			entry.Meters = append(entry.Meters, UsageCatalogMeter{Qualified: p.ID + "." + window, Short: info.Short, Long: info.Long})
+			entry.Meters = append(entry.Meters, UsageCatalogMeter{Window: window, Qualified: p.ID + "." + window, Short: info.Short, Long: info.Long})
 		}
 		out = append(out, entry)
 	}
