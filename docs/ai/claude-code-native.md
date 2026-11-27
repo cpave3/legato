@@ -29,7 +29,7 @@ A mod cannot listen for connections: it can only call out and spawn a child. So 
 
 ## Packages
 
-- `internal/engine/claudebridge/` — the bridge: conversation state built from mod events, the native-protocol HTTP surface, the SSE replay ring, held permission and question requests (`questions.go`, `permission_options.go`), command output, and the lockfile. Claude Code tool calls are mapped onto the tool names and arguments the panel has cards for (`Bash` → `bash`, `Edit`/`Write`/`Read` → `edit`/`write`/`read` with `path`, `Agent` → `spawn_agent`); other tools keep their name with a one-line summary.
+- `internal/engine/claudebridge/` — the bridge: conversation state built from mod events, the native-protocol HTTP surface, the SSE stream (`stream.go`, over the replay ring in `internal/leaf/replaystream`, with the viewer count and the last-viewer permission handback its own), held permission and question requests (`questions.go`, `permission_options.go`), command output, and the lockfile. Claude Code tool calls are mapped onto the tool names and arguments the panel has cards for (`Bash` → `bash`, `Edit`/`Write`/`Read` → `edit`/`write`/`read` with `path`, `Agent` → `spawn_agent`); other tools keep their name with a one-line summary.
 - `internal/engine/hooks/claudemod/legato/` — the mod: manifest, `hooks/register.ts`, and its tests. Embedded in the binary by `internal/engine/hooks/claude_mod.go`.
 - `internal/cli/claude_bridge.go` — `RunClaudeBridge`: hosts a bridge, binds and unbinds the agent session, broadcasts `agents_changed` IPC.
 - `cmd/legato/agent_bridge.go` — the `legato agent bridge` command. It exits when the Claude Code process that spawned it is gone.

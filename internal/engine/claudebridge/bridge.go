@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cpave3/legato/internal/leaf/replaystream"
 )
 
 // Options configures a Bridge.
@@ -66,9 +68,6 @@ type Bridge struct {
 	token  string
 	models []string
 	now    func() time.Time
-	// instance scopes event IDs to this bridge, so a cursor from an earlier
-	// bridge for the same task is never mistaken for one of ours.
-	instance string
 
 	commandMu      sync.Mutex
 	commands       io.Writer
@@ -91,11 +90,12 @@ type Bridge struct {
 	closed    chan struct{}
 	shellPoll time.Duration
 
-	mu          sync.Mutex
-	session     *session
-	sequence    int64
-	retained    []envelope
-	subscribers map[chan envelope]struct{}
+	mu      sync.Mutex
+	session *session
+	// stream numbers, keeps and fans out the native events. Its IDs start
+	// with a prefix of this bridge's own, so a cursor from an earlier bridge
+	// for the same task is never mistaken for one of ours.
+	stream *replaystream.Stream
 	// waiters are the mod's held permission requests, by request ID.
 	waiters map[string]chan permissionAnswer
 	// detached are held requests whose call ended without a decision: Claude
@@ -133,7 +133,6 @@ func New(opts Options) *Bridge {
 		token:        opts.Token,
 		models:       opts.Models,
 		now:          now,
-		instance:     randomHex(4),
 		commands:     commands,
 		onDisconnect: opts.OnDisconnect,
 		onIdentity:   opts.OnIdentity,
@@ -151,13 +150,13 @@ func New(opts Options) *Bridge {
 			}
 			return DefaultShellPoll
 		}(),
-		session:     newSession(),
-		subscribers: map[chan envelope]struct{}{},
-		waiters:     map[string]chan permissionAnswer{},
-		detached:    map[string]*time.Timer{},
-		parked:      map[string]permissionAnswer{},
-		grace:       permissionGrace,
-		holdFor:     permissionHold,
+		session:  newSession(),
+		stream:   replaystream.New(randomHex(4), replayLimit, subscriberBuffer),
+		waiters:  map[string]chan permissionAnswer{},
+		detached: map[string]*time.Timer{},
+		parked:   map[string]permissionAnswer{},
+		grace:    permissionGrace,
+		holdFor:  permissionHold,
 	}
 }
 

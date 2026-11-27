@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cpave3/legato/internal/leaf/replaystream"
 )
 
 // Options configures a Bridge.
@@ -84,9 +86,6 @@ type Bridge struct {
 	identityDone    chan struct{}
 	identityQueue   []providerIdentity
 	identityFailure error
-	// instance scopes event IDs to this bridge, so a cursor from an earlier
-	// bridge for the same task is never mistaken for one of ours.
-	instance string
 
 	client *rpcClient
 	// ended is closed when the app server connection is over; endErr says why.
@@ -98,11 +97,12 @@ type Bridge struct {
 	attachOnce sync.Once
 	attached   chan struct{}
 
-	mu          sync.Mutex
-	session     *session
-	sequence    int64
-	retained    []envelope
-	subscribers map[chan envelope]struct{}
+	mu      sync.Mutex
+	session *session
+	// stream numbers, keeps and fans out the native events. Its IDs start
+	// with a prefix of this bridge's own, so a cursor from an earlier bridge
+	// for the same task is never mistaken for one of ours.
+	stream *replaystream.Stream
 	// joining is the thread a join is in flight for, so only one runs.
 	// joinWanted is the attempts a join asked for while it ran wants: the
 	// one in flight makes them when its own run out.
@@ -162,12 +162,11 @@ func New(opts Options) *Bridge {
 		identityErr:  make(chan error, 1),
 		identityWake: make(chan struct{}, 1),
 		identityDone: make(chan struct{}),
-		instance:     randomHex(4),
 		ended:        make(chan struct{}),
 		closed:       make(chan struct{}),
 		attached:     make(chan struct{}),
 		session:      session,
-		subscribers:  map[chan envelope]struct{}{},
+		stream:       replaystream.New(randomHex(4), replayLimit, subscriberBuffer),
 	}
 	return b
 }
