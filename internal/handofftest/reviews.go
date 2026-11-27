@@ -137,16 +137,21 @@ func (f *FakeReviewGitHub) SetMergeable(number int, mergeable, mergeState string
 	f.mergeable[number] = [2]string{mergeable, mergeState}
 }
 
-// Draft makes an open pull request a draft, or ready.
-func (f *FakeReviewGitHub) Draft(number int, draft bool) {
+// editPR changes the open pull request numbered number, under the lock.
+func (f *FakeReviewGitHub) editPR(number int, edit func(*service.ReviewGitHubPR)) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for branch, pr := range f.prs {
 		if pr.Number == number {
-			pr.Draft = draft
+			edit(&pr)
 			f.prs[branch] = pr
 		}
 	}
+}
+
+// Draft makes an open pull request a draft, or ready.
+func (f *FakeReviewGitHub) Draft(number int, draft bool) {
+	f.editPR(number, func(pr *service.ReviewGitHubPR) { pr.Draft = draft })
 }
 
 // RefuseReady makes GitHub refuse to mark the pull request ready.
@@ -358,27 +363,13 @@ func (f *FakeReviewGitHub) OpenPR(number int, branch, head string) {
 // MEMBER, COLLABORATOR, CONTRIBUTOR, NONE...), an open pull request's
 // author, as GitHub's REST reads name it.
 func (f *FakeReviewGitHub) SetAuthor(number int, login, association string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for branch, pr := range f.prs {
-		if pr.Number == number {
-			pr.Author, pr.AuthorAssociation = login, association
-			f.prs[branch] = pr
-		}
-	}
+	f.editPR(number, func(pr *service.ReviewGitHubPR) { pr.Author, pr.AuthorAssociation = login, association })
 }
 
 // Describe gives an open pull request a title and a body, as its author
 // wrote them on GitHub.
 func (f *FakeReviewGitHub) Describe(number int, title, body string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for branch, pr := range f.prs {
-		if pr.Number == number {
-			pr.Title, pr.Body = title, body
-			f.prs[branch] = pr
-		}
-	}
+	f.editPR(number, func(pr *service.ReviewGitHubPR) { pr.Title, pr.Body = title, body })
 }
 
 // OpenStackedPR opens a pull request from branch onto base at head, a layer
@@ -828,14 +819,7 @@ func (f *FakeReviewGitHub) NotInstalled(repo string) {
 
 // Push moves a pull request's head, as its owner pushing.
 func (f *FakeReviewGitHub) Push(number int, head string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for branch, pr := range f.prs {
-		if pr.Number == number {
-			pr.HeadSHA = head
-			f.prs[branch] = pr
-		}
-	}
+	f.editPR(number, func(pr *service.ReviewGitHubPR) { pr.HeadSHA = head })
 }
 
 func (f *FakeReviewGitHub) Installed(_ context.Context, repo string) error {
