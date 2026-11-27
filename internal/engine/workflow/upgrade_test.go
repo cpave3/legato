@@ -232,3 +232,48 @@ steps:
 		t.Fatalf("note does not name the reference: %s", flagged.Message)
 	}
 }
+
+// A mapped reference is rewritten wherever it stands whole, any number of
+// times on a line, but never inside a longer path: steps.ctx.outputs.content
+// is not a reference in steps.ctx.outputs.contents or my.steps.ctx.outputs.content.
+func TestAStepRewriteMapsOnlyWholeReferences(t *testing.T) {
+	in := `schema_version: 1
+name: f
+title: F
+inputs:
+  task: {type: task}
+steps:
+  - id: ctx
+    title: Read
+    type: task.context
+    with:
+      task: ${{ workflow.inputs.task }}
+  - id: note
+    title: Note
+    type: task.note
+    with:
+      task: ${{ workflow.inputs.task }}
+      body: |
+        Twice: ${{ steps.ctx.outputs.content }} and ${{ steps.ctx.outputs.content }}
+        Longer: steps.ctx.outputs.contents my.steps.ctx.outputs.content
+`
+	rewrites := map[string]StepRewrite{
+		"task.context": func(step *UpgradeStep) {
+			step.Replace("- id: read\n  title: Read the card\n  type: task.context\n  with:\n    task: ${{ workflow.inputs.task }}\n")
+			step.MapOutput("content", "steps.read.outputs.content")
+		},
+	}
+	result, err := upgrade("f.yaml", []byte(in), rewrites)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(result.YAML)
+	for _, want := range []string{
+		"Twice: ${{ steps.read.outputs.content }} and ${{ steps.read.outputs.content }}",
+		"Longer: steps.ctx.outputs.contents my.steps.ctx.outputs.content",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("upgraded file has no %q:\n%s", want, text)
+		}
+	}
+}
