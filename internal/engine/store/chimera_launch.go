@@ -77,3 +77,43 @@ func (s *Store) bindIfUnbound(ctx context.Context, query string, args ...any) (b
 	n, err := result.RowsAffected()
 	return n == 1, err
 }
+
+// How a running agent row's native binding stands for one Chimera session.
+const (
+	NativeBindingBound     = "bound"     // bound to that session and endpoint
+	NativeBindingUnbound   = "unbound"   // bound to nothing; it may be restored
+	NativeBindingOff       = "off"       // the operator switched it to its terminal
+	NativeBindingElsewhere = "elsewhere" // bound to another session or endpoint
+	NativeBindingStale     = "stale"     // ended, missing, or no longer its task's newest
+)
+
+// ChimeraBindingState says how row id's binding stands for the given Chimera
+// session and endpoint, in the terms BindChimeraDiscoveryIfUnbound decides
+// by. It writes nothing and says nothing of another binding's endpoint.
+func (s *Store) ChimeraBindingState(ctx context.Context, id int, sessionID, endpoint string) (string, error) {
+	var row struct {
+		Status    string  `db:"status"`
+		NativeOff bool    `db:"native_off"`
+		SessionID *string `db:"chimera_session_id"`
+		Endpoint  *string `db:"chimera_endpoint"`
+		Latest    bool    `db:"latest"`
+	}
+	err := s.db.GetContext(ctx, &row, `SELECT status, native_off, chimera_session_id, chimera_endpoint, `+latestInSlot+` AS latest FROM agent_sessions WHERE id = ?`, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return NativeBindingStale, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case row.Status != "running" || !row.Latest:
+		return NativeBindingStale, nil
+	case row.SessionID != nil && row.Endpoint != nil && *row.SessionID == sessionID && *row.Endpoint == endpoint:
+		return NativeBindingBound, nil
+	case row.SessionID != nil || row.Endpoint != nil:
+		return NativeBindingElsewhere, nil
+	case row.NativeOff:
+		return NativeBindingOff, nil
+	}
+	return NativeBindingUnbound, nil
+}

@@ -24,6 +24,9 @@ type ChimeraLinkOptions struct {
 	TaskID, ExecutionID string
 	Stdin               io.Reader
 	Host                BridgeHost
+	// RebindInterval is how often the link checks that its session is still
+	// bound, and restores a lost binding; 0 is DefaultChimeraRebindInterval.
+	RebindInterval time.Duration
 }
 
 type chimeraLinkHost interface {
@@ -31,7 +34,17 @@ type chimeraLinkHost interface {
 	bindChimera(context.Context, string, string) error
 	unbindChimera(context.Context, string, string) error
 	reportChimera(context.Context, []byte, string) error
+	// chimeraBindingState says how the link's agent session stands for its
+	// Chimera session and endpoint (store.NativeBinding*). It writes nothing.
+	chimeraBindingState(context.Context, string, string) (string, error)
+	// rebindChimera restores the binding to the link's own agent session,
+	// only while that row is running, unbound, not switched to its terminal
+	// and its task's newest; it reports whether it bound.
+	rebindChimera(context.Context, string, string) (bool, error)
 }
+
+// DefaultChimeraRebindInterval is how often a link checks its binding.
+const DefaultChimeraRebindInterval = 5 * time.Second
 
 // RunChimeraLink consumes the mod's ordered NDJSON stream until it ends.
 // The host owns the binding; no Chimera server is polled during startup.
@@ -68,6 +81,13 @@ func RunChimeraLink(ctx context.Context, s *store.Store, opts ChimeraLinkOptions
 	records := readChimeraRecords(ctx, opts.Stdin)
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
+	interval := opts.RebindInterval
+	if interval <= 0 {
+		interval = DefaultChimeraRebindInterval
+	}
+	rebindTicker := time.NewTicker(interval)
+	defer rebindTicker.Stop()
+	rebind := &chimeraRebinder{host: h, taskID: opts.TaskID, interval: interval}
 	var applied uint64
 	probeFailed := false
 	httpClient := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -86,6 +106,9 @@ func RunChimeraLink(ctx context.Context, s *store.Store, opts ChimeraLinkOptions
 				return record.err
 			}
 			raw = record.raw
+		case now := <-rebindTicker.C:
+			rebind.tick(ctx, id, endpoint, now, httpClient)
+			continue
 		case <-ticker.C:
 			if len(candidates) == 0 {
 				continue
@@ -170,6 +193,7 @@ func RunChimeraLink(ctx context.Context, s *store.Store, opts ChimeraLinkOptions
 			}
 			endpoint, id = e.ServerURL, e.SessionID
 			cwd = e.Cwd
+			rebind.reset()
 			clear(questions)
 			clear(permissions)
 			clear(candidates)
@@ -220,6 +244,104 @@ func RunChimeraLink(ctx context.Context, s *store.Store, opts ChimeraLinkOptions
 		}
 		applied = e.Seq
 	}
+}
+
+// chimeraRebinder restores the binding of the link's session after something
+// cleared it while the agent lives on: an idle agent sends no events that
+// could. It binds only a session its Chimera still serves, never one the
+// operator switched to its terminal, another agent's row, or a gone session,
+// and it logs each change of state once, without the endpoint.
+type chimeraRebinder struct {
+	host     chimeraLinkHost
+	taskID   string
+	interval time.Duration
+	stopped  bool
+	wait     time.Duration
+	next     time.Time
+	last     string
+}
+
+// maxChimeraRebindWait bounds the back-off while Chimera cannot confirm.
+const maxChimeraRebindWait = time.Minute
+
+func (r *chimeraRebinder) reset() {
+	r.stopped, r.wait, r.next, r.last = false, 0, time.Time{}, store.NativeBindingBound
+}
+
+func (r *chimeraRebinder) note(state, message string) {
+	if r.last == state {
+		return
+	}
+	r.last = state
+	log.Printf("Chimera link for %s: %s", r.taskID, message)
+}
+
+func (r *chimeraRebinder) tick(ctx context.Context, id, endpoint string, now time.Time, httpClient *http.Client) {
+	if id == "" || r.stopped || now.Before(r.next) {
+		return
+	}
+	state, err := r.host.chimeraBindingState(ctx, id, endpoint)
+	if err != nil {
+		var refusal *broker.Error
+		switch {
+		case errors.Is(err, broker.ErrUnreachable):
+		case errors.As(err, &refusal) && refusal.Code == "unknown_op":
+			r.note("unsupported", "this Legato cannot restore a lost binding; not checking again")
+			r.stopped = true
+		case errors.As(err, &refusal) && refusal.Code == "rejected":
+			r.note(store.NativeBindingStale, "the agent session is no longer this link's; not checking again")
+			r.stopped = true
+		default:
+			r.note("error", "cannot check the native binding; retrying")
+		}
+		return
+	}
+	switch state {
+	case store.NativeBindingBound:
+		r.wait, r.last = 0, state
+		return
+	case store.NativeBindingOff:
+		r.note(state, "native binding not restored: switched to the terminal")
+		return
+	case store.NativeBindingElsewhere:
+		r.note(state, "native binding not restored: bound to another session")
+		return
+	case store.NativeBindingUnbound:
+	default:
+		r.note(store.NativeBindingStale, "the agent session is no longer this link's; not checking again")
+		r.stopped = true
+		return
+	}
+	// Confirm with the agent's own Chimera, on its small context route,
+	// before binding: a session it no longer serves stays unbound.
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	_, probeErr := chimera.NewClientWithHTTPClient(endpoint, httpClient).GetSessionContext(probeCtx, id)
+	cancel()
+	if probeErr != nil {
+		class := chimera.FailureClass(probeErr)
+		if chimera.IsSessionGone(probeErr) {
+			r.note("gone", "native binding not restored: Chimera no longer serves the session ("+class+")")
+			r.stopped = true
+			return
+		}
+		r.note("unconfirmed:"+class, "native binding lost; Chimera cannot confirm the session ("+class+"); retrying")
+		if r.wait == 0 {
+			r.wait = r.interval
+		}
+		r.wait *= 2
+		if r.wait > maxChimeraRebindWait {
+			r.wait = maxChimeraRebindWait
+		}
+		r.next = now.Add(r.wait)
+		return
+	}
+	bound, err := r.host.rebindChimera(ctx, id, endpoint)
+	if err != nil || !bound {
+		return
+	}
+	r.wait, r.next = 0, time.Time{}
+	r.last = store.NativeBindingBound
+	log.Printf("Chimera link for %s: native binding restored", r.taskID)
 }
 
 type chimeraRecord struct {
@@ -297,6 +419,16 @@ func (h *storeBridgeHost) unbindChimera(ctx context.Context, id, endpoint string
 	}
 	return err
 }
+func (h *storeBridgeHost) chimeraBindingState(ctx context.Context, id, endpoint string) (string, error) {
+	return h.s.ChimeraBindingState(ctx, h.session.ID, id, endpoint)
+}
+func (h *storeBridgeHost) rebindChimera(ctx context.Context, id, endpoint string) (bool, error) {
+	bound, err := h.s.BindChimeraDiscoveryIfUnbound(ctx, h.session.ID, id, endpoint)
+	if bound {
+		ipc.Broadcast(ipc.Message{Type: "agents_changed", TaskID: h.taskID})
+	}
+	return bound, err
+}
 func (h *storeBridgeHost) reportChimera(ctx context.Context, raw []byte, cwd string) error {
 	hook, err := ParseChimeraHook(raw)
 	if err != nil {
@@ -309,6 +441,20 @@ func (h *brokerBridgeHost) bindChimera(ctx context.Context, id, endpoint string)
 }
 func (h *brokerBridgeHost) unbindChimera(ctx context.Context, id, endpoint string) error {
 	return h.call(ctx, "endpoint.unbind", map[string]string{"endpoint": endpoint, "session_id": id}, nil)
+}
+func (h *brokerBridgeHost) chimeraBindingState(ctx context.Context, id, endpoint string) (string, error) {
+	var out struct {
+		State string `json:"state"`
+	}
+	err := h.call(ctx, "endpoint.ensure", map[string]any{"endpoint": endpoint, "session_id": id}, &out)
+	return out.State, err
+}
+func (h *brokerBridgeHost) rebindChimera(ctx context.Context, id, endpoint string) (bool, error) {
+	var out struct {
+		State string `json:"state"`
+	}
+	err := h.call(ctx, "endpoint.ensure", map[string]any{"endpoint": endpoint, "session_id": id, "bind": true}, &out)
+	return out.State == store.NativeBindingBound, err
 }
 func (h *brokerBridgeHost) reportChimera(ctx context.Context, raw []byte, cwd string) error {
 	hook, err := ParseChimeraHook(raw)
