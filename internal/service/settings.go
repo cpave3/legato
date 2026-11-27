@@ -830,7 +830,7 @@ func (s *SettingsService) FileOnlyValues(ctx context.Context) (map[string]string
 // checkUsageEntryRemoval prevents a settings edit from leaving broken policy
 // references. Existing generic list semantics remain unchanged elsewhere.
 func (s *SettingsService) checkUsageEntryRemoval(ctx context.Context, list, name, rename string) error {
-	if list != "usage.profiles" && list != "usage.rules" && list != "adapters" {
+	if list != "usage.profiles" && list != "usage.rules" && list != "adapters" && list != "claude_accounts" {
 		return nil
 	}
 	if list == "usage.profiles" {

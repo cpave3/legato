@@ -821,3 +821,21 @@ review_passes:
   github_credential: reviewer-app
   counted_bots: ["cubic-dev-ai[bot]"]
 ```
+
+### Named Claude usage accounts
+
+:::caution
+Account-aware agent launches are still in development. This configuration currently separates usage polling; do not rely on a profile's account selection for launching agents yet.
+:::
+
+`claude_accounts` is a named entry list in Settings › Usage › Accounts. It applies at restart and leaves the existing default login unchanged.
+
+| Field | Meaning |
+| --- | --- |
+| `claude_accounts[].name` | Stable lowercase slug, using letters, digits and hyphens; `default` is reserved. |
+| `claude_accounts[].label` | Optional display label. |
+| `claude_accounts[].config_dir` | Absolute, normalized local Claude configuration directory. Account directories cannot overlap. |
+| `usage.profiles[].account` | Claude account reference, stored with a profile. |
+| `usage.profiles[].reviewer.account` | Independent reviewer account reference. |
+
+Named usage meters use `claude.<name>.<window>`, such as `claude.work.weekly`. Existing default Claude, Codex and OpenCode Go meter names stay unchanged. Authenticate each extra directory yourself with the official CLI; Legato does not create or copy logins. On macOS, named usage polling supports file-backed logins only; named Keychain polling is unavailable.

@@ -68,7 +68,8 @@ type Config struct {
 	Updates UpdatesConfig `yaml:"updates"`
 	// Usage is reading the Claude and Codex subscriptions' usage limits.
 	// See docs/ai/usage.md.
-	Usage UsageConfig `yaml:"usage"`
+	Usage          UsageConfig     `yaml:"usage"`
+	ClaudeAccounts []ClaudeAccount `yaml:"claude_accounts"`
 	// Reeve is the agent of this Legato itself.
 	Reeve ReeveConfig `yaml:"reeve"`
 	// Engram is whether agents can be started as engrams. See

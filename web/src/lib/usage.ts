@@ -14,6 +14,8 @@ export interface UsageWindow {
 
 export interface ProviderUsage {
   provider: string
+  kind?: string
+  account?: string
   state: UsageState
   stale: boolean
   reason?: string
@@ -37,6 +39,8 @@ export interface UsageCatalogMeter {
 
 export interface UsageCatalogProvider {
   provider: string
+  kind?: string
+  account?: string
   name: string
   meters: UsageCatalogMeter[]
 }
@@ -61,7 +65,8 @@ export interface UsageProfile {
   name: string
   agent: string
   tier?: string
-  reviewer?: { agent: string; tier?: string }
+  account?: string
+  reviewer?: { agent: string; tier?: string; account?: string }
 }
 
 export interface UsageReason { text: string; rule?: string; meter?: string; reset?: string }
@@ -118,6 +123,7 @@ export function reasonPhrase(reason?: string): string {
   switch (reason) {
     case "not_read": return "not read yet"
     case "not_signed_in": return "not signed in"
+    case "named_keychain_unavailable": return "named Keychain usage unavailable; requires file-backed login"
     case "login_expired": return "login expired"
     case "no_subscription": return "no subscription limits"
     case "missing_key": return "no API key named"
@@ -136,6 +142,7 @@ export function reasonSentence(provider: string, reason?: string): string {
   switch (reason) {
     case "not_read": return "Not read yet."
     case "not_signed_in": return `Sign in to ${tool} on this machine.`
+    case "named_keychain_unavailable": return "Usage polling for named Keychain logins is unavailable on macOS. Only file-backed logins can be read."
     case "login_expired": return `${tool}'s login has expired; using ${tool} signs in again.`
     case "no_subscription": return "This account has no subscription limits to show."
     case "missing_key": return "Name its API key in Settings › Usage."

@@ -5,6 +5,7 @@
     "resources",
     "agents.guidance",
     "board.columns",
+    "claude_accounts",
     "usage.profiles",
     "usage.rules",
     "workspaces",
@@ -31,6 +32,13 @@
     "agents.repository_resources"
   ],
   "lists": [
+    {
+      "key": "claude_accounts",
+      "title": "Claude accounts",
+      "class": "risky",
+      "mode": "restart",
+      "name_field": "name"
+    },
     {
       "key": "usage.profiles",
       "title": "Usage profiles",

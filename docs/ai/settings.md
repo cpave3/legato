@@ -130,3 +130,5 @@ Reader switches do not hide the saved policy: Usage still shows its active selec
 ## Preferred server theme
 
 **Preferred theme** is separate from the generic configuration registry: `ThemePreferenceService` owns the current database row and revision, with authenticated `GET`/`PUT /api/settings/theme`. Empty ID means **No preference**. Saves apply after commit without a restart and notify followers through `server_theme_changed`; they do not change browser/native local choices. **Follow server** is a client flag, not a registry setting. The risky `integrations.mqtt.theme_control` opt-in is restart-only and independent of aggregate `enabled`; saving it does not enable control live. Only the operator chooses when to restart. See [Client themes](themes.md).
+
+`claude_accounts` is a risky, restart-mode named entry list (`name`, `label`, `config_dir`), placed under Usage › Accounts. Account references in usage profiles/rules are checked by the whole-config validator; removing or renaming a referenced account is refused. Its paths are local configuration, not credential values or a worker transfer format.

@@ -32,7 +32,7 @@ export const settingsSections: SettingsSection[] = [
   { id: "attention", title: "Attention", nav: "You", groups: ["Needs-you rail", "Notify me", "What notifies"], terms: "notifications rail needs you ntfy push desktop phone approvals handoff" },
   { id: "input", title: "Input and terminal", nav: "You", groups: ["This browser", "Dictation", "TUI and tmux"], terms: "keyboard switch key prompt detection voice dictation whisper microphone editor vim tmux" },
   { id: "agents", title: "Agents", nav: "Agents", groups: ["Defaults", "Claude Code, Codex and Chimera", "What agents get", "Skills", "Resources", "Engrams", "Session history"], terms: "agent tools adapters models tiers groups mcp tools skills resources engrams session history conversations" },
-  { id: "usage", title: "Usage", nav: "Agents", groups: ["Subscription usage", "Profiles and rules"], terms: "usage subscription profiles rules fallback pin Claude Codex limits" },
+  { id: "usage", title: "Usage", nav: "Agents", groups: ["Subscription usage", "Accounts", "Profiles and rules"], terms: "usage subscription accounts profiles rules fallback pin Claude Codex limits" },
   { id: "repositories", title: "Repositories", nav: "Agents", groups: ["Repositories and folders", "Pull requests", "Fresh clones", "Worktrees"], terms: "repositories folders directory presets guidance pull requests drafts ready clones cache worktrees yggdrasil" },
   { id: "sandbox", title: "Sandbox", nav: "Agents", groups: ["What agents see", "Docker", "Advanced"], terms: "bubblewrap bwrap mounts toolchains docker" },
   { id: "macros", title: "Macros", nav: "Agents", groups: [], href: "/macros", terms: "macros keys messages" },
@@ -102,6 +102,7 @@ export const settingsCards: (Place & { id: string; title: string; terms: string;
 
 // The lists of named entries, by key. Macros is its own page.
 export const listPlaces: Record<string, Place> = {
+	"claude_accounts": { section: "usage", group: "Accounts" },
   "usage.profiles": { section: "usage", group: "Profiles and rules" },
   "usage.rules": { section: "usage", group: "Profiles and rules" },
   "repositories": { section: "repositories", group: "Repositories and folders" },

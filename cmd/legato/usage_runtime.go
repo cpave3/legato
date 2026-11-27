@@ -56,6 +56,11 @@ func usageReaders(cfg *config.Config, db *store.Store) []service.SubscriptionUsa
 		readers = append(readers, &service.ClaudeUsageReader{Client: &claudeusage.Client{
 			Credentials: claudeusage.HostCredentials(os.Getenv, home),
 		}})
+		for _, account := range cfg.ClaudeAccounts {
+			readers = append(readers, &service.ClaudeUsageReader{Account: account.Name, Label: account.Label, Client: &claudeusage.Client{
+				Credentials: claudeusage.NamedCredentials(account.ConfigDir),
+			}})
+		}
 	}
 	if cfg.Usage.Codex.IsEnabled() {
 		readers = append(readers, &service.CodexUsageReader{
@@ -102,9 +107,10 @@ func usageAPIKey(cfg *config.Config, db *store.Store, raw string) string {
 func subscriptionUsageFor(cfg *config.Config, db *store.Store, bus *events.Bus) *service.SubscriptionUsageService {
 	readers := usageReaders(cfg, db)
 	usage := service.NewSubscriptionUsageService(service.SubscriptionUsageOptions{
-		Store:        db,
-		Readers:      readers,
-		PollInterval: cfg.Usage.PollIntervalDuration(),
+		Store:          db,
+		Readers:        readers,
+		ClaudeAccounts: cfg.ClaudeAccounts,
+		PollInterval:   cfg.Usage.PollIntervalDuration(),
 		OnChange: func() {
 			bus.Publish(events.Event{Type: events.EventSubscriptionUsageChanged, At: time.Now()})
 			ipc.Broadcast(ipc.Message{Type: ipcUsageChanged})

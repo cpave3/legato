@@ -172,3 +172,7 @@ This is an operator follow-up, not an automatic settings migration:
 4. Leave started runs and agents unchanged. Restart only when you choose to apply a tier that Usage says is not installed yet.
 
 This does not change subscription sources, provider accounts or live settings by itself.
+
+## Additional Claude usage accounts
+
+You can add named Claude configuration directories under **Settings › Usage › Accounts**. Each account has its own reading, reset times and unavailable state. Existing default Claude meters stay unchanged; a named account uses meters such as `claude.work.weekly`. See [Named Claude usage accounts](/legato/reference/configuration/#named-claude-usage-accounts) for fields and the current launch limitation. On macOS, named usage requires a file-backed login; named Keychain polling is unavailable.

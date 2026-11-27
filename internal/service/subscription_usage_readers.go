@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/cpave3/legato/config"
 
 	"github.com/cpave3/legato/internal/engine/claudeusage"
 	"github.com/cpave3/legato/internal/engine/codexusage"
@@ -12,10 +13,18 @@ import (
 // ClaudeUsageReader reads Claude's subscription usage from Claude Code's
 // OAuth usage endpoint (engine/claudeusage), with Claude Code's login.
 type ClaudeUsageReader struct {
-	Client *claudeusage.Client
+	Client  *claudeusage.Client
+	Account string
+	Label   string
 }
 
-func (r *ClaudeUsageReader) Provider() string { return UsageProviderClaude }
+func (r *ClaudeUsageReader) Provider() string {
+	return config.UsageReaderID(UsageProviderClaude, r.Account)
+}
+
+func (r *ClaudeUsageReader) usageAccount() (string, string, string) {
+	return UsageProviderClaude, r.Account, r.Label
+}
 
 var claudeMeters = map[string]string{
 	claudeusage.FiveHour:       UsageMeterFiveHour,
@@ -49,6 +58,8 @@ func claudeUsageError(err error) error {
 		return &UsageUnavailableError{Reason: UsageReasonRateLimited, RetryAfter: limited.RetryAfter}
 	case errors.Is(err, claudeusage.ErrNotSignedIn):
 		return &UsageUnavailableError{Reason: UsageReasonNotSignedIn}
+	case errors.Is(err, claudeusage.ErrNamedKeychainUnavailable):
+		return &UsageUnavailableError{Reason: UsageReasonNamedKeychainUnavailable}
 	case errors.Is(err, claudeusage.ErrLoginExpired):
 		return &UsageUnavailableError{Reason: UsageReasonLoginExpired}
 	case errors.Is(err, claudeusage.ErrNoSubscription):

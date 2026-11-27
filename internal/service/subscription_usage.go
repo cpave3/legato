@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"sync"
 	"time"
 
@@ -49,11 +50,12 @@ const (
 
 // Why a provider's usage could not be read.
 const (
-	UsageReasonNotRead        = "not_read"
-	UsageReasonNotSignedIn    = "not_signed_in"
-	UsageReasonLoginExpired   = "login_expired"
-	UsageReasonNoSubscription = "no_subscription"
-	UsageReasonCodexMissing   = "codex_missing"
+	UsageReasonNotRead                  = "not_read"
+	UsageReasonNotSignedIn              = "not_signed_in"
+	UsageReasonNamedKeychainUnavailable = "named_keychain_unavailable"
+	UsageReasonLoginExpired             = "login_expired"
+	UsageReasonNoSubscription           = "no_subscription"
+	UsageReasonCodexMissing             = "codex_missing"
 	// UsageReasonMissingKey: OpenCode Go is on but names no API key.
 	UsageReasonMissingKey = "missing_key"
 	// UsageReasonInvalidKey: the endpoint refused the API key.
@@ -94,6 +96,8 @@ type UsageCredits struct {
 // ProviderUsage is one provider's subscription usage as Legato last read it.
 type ProviderUsage struct {
 	Provider string     `json:"provider"`
+	Kind     string     `json:"kind,omitempty"`
+	Account  string     `json:"account,omitempty"`
 	State    UsageState `json:"state"`
 	// Stale is State == UsageStale, for readers that want a flag.
 	Stale bool `json:"stale"`
@@ -115,6 +119,8 @@ type ProviderUsage struct {
 // its name, and the meters it reports.
 type UsageCatalogProvider struct {
 	Provider string              `json:"provider"`
+	Kind     string              `json:"kind,omitempty"`
+	Account  string              `json:"account,omitempty"`
 	Name     string              `json:"name"`
 	Meters   []UsageCatalogMeter `json:"meters"`
 }
@@ -133,7 +139,7 @@ type UsageCatalogMeter struct {
 // UsageCatalog is what every surface labels providers and meters from, and
 // what rule and pin choices are offered: the config provider table, not a
 // reading.
-func UsageCatalog() []UsageCatalogProvider {
+func UsageCatalog(accounts ...config.ClaudeAccount) []UsageCatalogProvider {
 	var out []UsageCatalogProvider
 	for _, p := range config.UsageProviders() {
 		entry := UsageCatalogProvider{Provider: p.ID, Name: p.Name}
@@ -143,6 +149,18 @@ func UsageCatalog() []UsageCatalogProvider {
 				continue
 			}
 			entry.Meters = append(entry.Meters, UsageCatalogMeter{Window: window, Qualified: p.ID + "." + window, Short: info.Short, Long: info.Long})
+		}
+		out = append(out, entry)
+	}
+	for _, a := range accounts {
+		entry := UsageCatalogProvider{Provider: config.UsageReaderID(UsageProviderClaude, a.Name), Kind: UsageProviderClaude, Account: a.Name, Name: a.Label}
+		if entry.Name == "" {
+			entry.Name = a.Name
+		}
+		entry.Name = "Claude · " + entry.Name
+		for _, m := range out[0].Meters {
+			m.Qualified = "claude." + a.Name + "." + m.Window
+			entry.Meters = append(entry.Meters, m)
 		}
 		out = append(out, entry)
 	}
@@ -208,8 +226,9 @@ type SubscriptionUsageStore interface {
 
 // SubscriptionUsageOptions builds a SubscriptionUsageService.
 type SubscriptionUsageOptions struct {
-	Store   SubscriptionUsageStore
-	Readers []SubscriptionUsageReader
+	Store          SubscriptionUsageStore
+	Readers        []SubscriptionUsageReader
+	ClaudeAccounts []config.ClaudeAccount
 	// PollInterval is DefaultUsagePollInterval when zero, and never less
 	// than MinUsagePollInterval.
 	PollInterval time.Duration
@@ -272,7 +291,18 @@ func (s *SubscriptionUsageService) PollInterval() time.Duration { return s.opts.
 // catalog. It never reads a provider.
 func (s *SubscriptionUsageService) Snapshot(ctx context.Context) (SubscriptionUsage, error) {
 	out, err := s.ReadingsSnapshot(ctx)
-	out.Catalog = UsageCatalog()
+	accounts := append([]config.ClaudeAccount{}, s.opts.ClaudeAccounts...)
+	for _, r := range s.opts.Readers {
+		if a, ok := r.(interface {
+			usageAccount() (string, string, string)
+		}); ok {
+			_, account, label := a.usageAccount()
+			if account != "" && account != "default" && !slices.ContainsFunc(accounts, func(a config.ClaudeAccount) bool { return a.Name == account }) {
+				accounts = append(accounts, config.ClaudeAccount{Name: account, Label: label})
+			}
+		}
+	}
+	out.Catalog = UsageCatalog(accounts...)
 	if err != nil || s.policy == nil {
 		return out, err
 	}
@@ -314,6 +344,7 @@ func (s *SubscriptionUsageService) ReadingsSnapshot(ctx context.Context) (Subscr
 		if !ok {
 			usage = ProviderUsage{Provider: r.Provider(), State: UsageUnavailable, Reason: UsageReasonNotRead}
 		}
+		setUsageIdentity(&usage, r)
 		out.Providers = append(out.Providers, s.judge(usage, now))
 	}
 	return out, nil
@@ -393,11 +424,14 @@ func (s *SubscriptionUsageService) read(ctx context.Context, refresh bool) {
 	var wg sync.WaitGroup
 	changed := false
 	var changedMu sync.Mutex
+	workers := make(chan struct{}, 4)
 	for _, r := range s.opts.Readers {
+		workers <- struct{}{}
 		poll := s.provider[r.Provider()]
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer func() { <-workers }()
 			if s.readOne(ctx, r, poll, refresh) {
 				changedMu.Lock()
 				changed = true
@@ -478,6 +512,7 @@ func (s *SubscriptionUsageService) readOne(ctx context.Context, r SubscriptionUs
 		kept.Reason = reason
 	}
 	kept.Provider = r.Provider()
+	setUsageIdentity(&kept, r)
 	kept.CheckedAt = &checked
 	kept.State, kept.Stale = "", false
 	data, err := json.Marshal(kept)
@@ -547,6 +582,8 @@ func UsageReasonText(reason string) string {
 		return "not read yet"
 	case UsageReasonNotSignedIn:
 		return "sign in to it on this machine"
+	case UsageReasonNamedKeychainUnavailable:
+		return "named Keychain usage is unavailable; only file-backed logins can be read"
 	case UsageReasonLoginExpired:
 		return "its login has expired; using it signs in again"
 	case UsageReasonNoSubscription:
@@ -596,4 +633,15 @@ func UsageMeterLabel(meter string) string {
 		return info.Long
 	}
 	return meter
+}
+
+func setUsageIdentity(usage *ProviderUsage, r SubscriptionUsageReader) {
+	if a, ok := r.(interface {
+		usageAccount() (string, string, string)
+	}); ok {
+		usage.Kind, usage.Account, _ = a.usageAccount()
+		if usage.Account == "default" {
+			usage.Account = ""
+		}
+	}
 }

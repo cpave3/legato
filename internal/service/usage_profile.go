@@ -135,7 +135,7 @@ func (s *UsagePolicyService) evaluate(ctx context.Context, request *UsagePinRequ
 				return errors.New("choose until or until_reset, not both")
 			}
 			if pin.UntilReset != "" {
-				if !config.IsUsageMeter(pin.UntilReset) {
+				if _, _, _, valid := config.ParseUsageMeter(pin.UntilReset); !valid {
 					return fmt.Errorf("unknown usage meter %q", pin.UntilReset)
 				}
 				w, _, ok := usageMeter(snap.Providers, pin.UntilReset)

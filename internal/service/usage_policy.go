@@ -31,7 +31,11 @@ func usageRuleIdentity(r config.UsageRule) string {
 }
 
 func usageMeter(readings []ProviderUsage, meter string) (UsageWindow, *time.Time, bool) {
-	provider, window, _ := strings.Cut(meter, ".")
+	kind, account, window, valid := config.ParseUsageMeter(meter)
+	if !valid {
+		return UsageWindow{}, nil, false
+	}
+	provider := config.UsageReaderID(kind, account)
 	for _, p := range readings {
 		if p.Provider != provider || p.State != UsageOK || p.AsOf == nil {
 			continue

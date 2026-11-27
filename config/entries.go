@@ -36,6 +36,7 @@ type EntryList struct {
 }
 
 var entryListDefs = []EntryList{
+	{Key: "claude_accounts", Title: "Claude accounts", Class: ClassRisky, Mode: ModeRestart, NameField: "name"},
 	{Key: "usage.profiles", Title: "Usage profiles", Class: ClassChange, Mode: ModeLive, NameField: "name"},
 	{Key: "usage.rules", Title: "Usage rules", Class: ClassChange, Mode: ModeLive, NameField: "name"},
 	{Key: "workspaces", Title: "Workspaces", Class: ClassChange, Mode: ModeRestart, NameField: "name"},
