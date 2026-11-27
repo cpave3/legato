@@ -452,19 +452,11 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			}
 		}
 		in.ToolInstalls = installs
-		state := make([]string, len(in.ToolState))
-		for i, p := range in.ToolState {
-			state[i] = real(p)
-		}
-		in.ToolState = state
+		in.ToolState = realPaths(in.ToolState, real)
 		in.ClaudeConfigDir = real(in.ClaudeConfigDir)
 		in.ProtectedClaudeAccounts = realPaths(in.ProtectedClaudeAccounts, real)
 		in.GH.Wrapper, in.GH.Real, in.GH.RealMount = real(in.GH.Wrapper), real(in.GH.Real), real(in.GH.RealMount)
-		overlays := make([]string, len(in.GH.Overlays))
-		for i, p := range in.GH.Overlays {
-			overlays[i] = real(p)
-		}
-		in.GH.Overlays = overlays
+		in.GH.Overlays = realPaths(in.GH.Overlays, real)
 		in.Engram.Binary, in.Engram.Store = real(in.Engram.Binary), real(in.Engram.Store)
 		extra := make([]SandboxPath, len(in.Extra))
 		for i, e := range in.Extra {
