@@ -1076,23 +1076,12 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 		return false
 	}
 	c.noteAuthor(ctx, l.TaskID, run)
-	open, polls, watched := c.watchedPRs(ctx, l)
-	if watched && open == nil {
-		return false // no watch read yet: the next one tells
-	}
-	if !watched {
-		if open, err = c.openRunPRs(ctx, run); err != nil {
-			return false // GitHub may answer next time
-		}
+	open, polls, watched, ok := c.roundPRs(ctx, l, run)
+	if !ok {
+		return false
 	}
 	if len(open) == 0 {
-		outcome := ReviewOutcomeClosed
-		if rec := c.engine.stewardRecord(ctx, l.TaskID); rec != nil {
-			if w, ok := c.engine.freshWatch(rec.ID); ok && watchEnd(w) == ReviewStageMerged {
-				outcome = ReviewOutcomeMerged
-			}
-		}
-		c.finish(ctx, l.TaskID, outcome)
+		c.finish(ctx, l.TaskID, c.closedOutcome(ctx, l.TaskID))
 		return false
 	}
 	pushed := moved(open, c.pinnedHeads(ctx, l.TaskID))
@@ -1119,6 +1108,34 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 		return err == nil && now.Sub(seen) >= c.engine.config().QuietTime
 	}
 	return disputed || c.disputed(ctx, l, run, open, polls)
+}
+
+// roundPRs are the open pull requests an author's round is read from: a
+// stewarding loop's from its newest watch read, with the comments the
+// watch read (watched), else GitHub's now. ok is false when there is
+// nothing to read yet: no watch read, or GitHub did not answer.
+func (c *ReviewRunCaller) roundPRs(ctx context.Context, l ReviewLoop, run *reviewRun) (open []ReviewGitHubPR, polls map[int]CommentPoll, watched, ok bool) {
+	open, polls, watched = c.watchedPRs(ctx, l)
+	if watched {
+		return open, polls, true, open != nil // nil: no watch read yet, the next one tells
+	}
+	open, err := c.openRunPRs(ctx, run)
+	if err != nil {
+		return nil, nil, false, false // GitHub may answer next time
+	}
+	return open, nil, false, true
+}
+
+// closedOutcome is how a loop whose pull requests are no longer open
+// ends: merged when the steward's fresh watch saw the stack merge, else
+// closed.
+func (c *ReviewRunCaller) closedOutcome(ctx context.Context, taskID string) string {
+	if rec := c.engine.stewardRecord(ctx, taskID); rec != nil {
+		if w, ok := c.engine.freshWatch(rec.ID); ok && watchEnd(w) == ReviewStageMerged {
+			return ReviewOutcomeMerged
+		}
+	}
+	return ReviewOutcomeClosed
 }
 
 // watchedPRs are a stewarding loop's open pull requests and their comments
