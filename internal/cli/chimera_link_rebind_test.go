@@ -33,6 +33,7 @@ type fakeChimera struct {
 	probes        atomic.Int32
 	mu            sync.Mutex
 	messages      []string
+	permissions   []string
 }
 
 func newFakeChimera(t *testing.T, sessionID string) *fakeChimera {
@@ -51,6 +52,12 @@ func newFakeChimera(t *testing.T, sessionID string) *fakeChimera {
 	})
 	mux.HandleFunc("GET /secret/v1/sessions/"+sessionID, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"id":"`+sessionID+`","status":"idle","cwd":"/repo"}`)
+	})
+	mux.HandleFunc("POST /secret/v1/sessions/"+sessionID+"/permissions/{request}", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.permissions = append(f.permissions, r.PathValue("request"))
+		f.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /secret/v1/sessions/"+sessionID+"/messages", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -348,7 +355,17 @@ func TestAMessageSentWhileTheBindingIsLostReachesTheSameSession(t *testing.T) {
 	if len(got) != 1 || !strings.Contains(got[0], "still there?") {
 		t.Fatalf("Chimera received %q", got)
 	}
+	// A permission the operator answers now reaches the same session too.
+	if err := agents.ResolvePermission(ctx, "link-task", "req-1", service.PermissionAction{Decision: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	permissions := append([]string(nil), f.permissions...)
+	f.mu.Unlock()
+	if len(permissions) != 1 || permissions[0] != "req-1" {
+		t.Fatalf("Chimera received permissions %q", permissions)
+	}
 	if terminal.typed() != 0 {
-		t.Fatal("the message was typed into the terminal")
+		t.Fatal("the message or permission was typed into the terminal")
 	}
 }
