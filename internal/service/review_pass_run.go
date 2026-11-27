@@ -1168,18 +1168,32 @@ func (c *ReviewRunCaller) agentDone(ctx context.Context, l ReviewLoop, pushed bo
 		return false
 	}
 	if c.engine.stewardRecord(ctx, l.TaskID) != nil {
-		disputed := false
-		for _, item := range items {
-			if item.Kind != ItemBlocking {
-				continue
-			}
-			if item.Answer == "" {
-				return false
-			}
-			disputed = disputed || item.Answer == AnswerReplied
-		}
-		return pushed || disputed
+		return stewardRoundDone(items, pushed)
 	}
+	return reviewRoundDone(items, pushed)
+}
+
+// stewardRoundDone says a round of a loop the steward watches is done:
+// every blocking finding answered, and a push or one of them disputed.
+// Nothing else waits for an answer.
+func stewardRoundDone(items []store.HandoffReviewItem, pushed bool) bool {
+	disputed := false
+	for _, item := range items {
+		if item.Kind != ItemBlocking {
+			continue
+		}
+		if item.Answer == "" {
+			return false
+		}
+		disputed = disputed || item.Answer == AnswerReplied
+	}
+	return pushed || disputed
+}
+
+// reviewRoundDone says a round is done: every item but a nit answered, and
+// a push, a blocking finding disputed, or only failing checks each
+// answered by a reply.
+func reviewRoundDone(items []store.HandoffReviewItem, pushed bool) bool {
 	disputed := false
 	// Only failing checks, each answered by a reply: nothing to review
 	// again, and the loop can end.
