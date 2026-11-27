@@ -99,3 +99,42 @@ func TestReadyAfterReviewReadsTheRulesEachTime(t *testing.T) {
 		t.Fatal("rules that cannot be read mark stacks ready")
 	}
 }
+
+// Both questions read the rules each time; no rules, or rules that cannot
+// be read, give the answer that changes nothing ("" and false).
+func TestPullRequestModesAnswerFromTheRulesOrNothing(t *testing.T) {
+	ctx := context.Background()
+	var none PullRequestModes
+	if got := none.PullRequestMode(ctx, "acme/api"); got != "" {
+		t.Fatalf("nil PullRequestMode = %q", got)
+	}
+	if none.ReadyAfterReview(ctx, "acme/api") {
+		t.Fatal("nil ReadyAfterReview = true")
+	}
+	broken := PullRequestModes(func(context.Context) (config.PullRequestsConfig, error) {
+		return config.PullRequestsConfig{}, errors.New("unreadable")
+	})
+	if got := broken.PullRequestMode(ctx, "acme/api"); got != "" {
+		t.Fatalf("unreadable PullRequestMode = %q", got)
+	}
+	if broken.ReadyAfterReview(ctx, "acme/api") {
+		t.Fatal("unreadable ReadyAfterReview = true")
+	}
+	reads := 0
+	rules := PullRequestModes(func(context.Context) (config.PullRequestsConfig, error) {
+		reads++
+		return config.PullRequestsConfig{Rules: []config.PullRequestRule{
+			{Match: "acme/*", Mode: config.PullRequestsDraft, ReadyAfterReview: true},
+			{Match: "acme/web", Mode: config.PullRequestsReady},
+		}}, nil
+	})
+	if got := rules.PullRequestMode(ctx, "acme/api"); got != config.PullRequestsDraft {
+		t.Fatalf("PullRequestMode = %q", got)
+	}
+	if !rules.ReadyAfterReview(ctx, "acme/api") || rules.ReadyAfterReview(ctx, "acme/web") || rules.ReadyAfterReview(ctx, "other/x") {
+		t.Fatal("ReadyAfterReview answered from the wrong rule")
+	}
+	if reads != 4 {
+		t.Fatalf("rules read %d times, want once per question", reads)
+	}
+}

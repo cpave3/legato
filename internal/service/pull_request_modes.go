@@ -21,15 +21,26 @@ type PullRequestModes func(ctx context.Context) (config.PullRequestsConfig, erro
 // PullRequestMode implements PullRequestModeSource. A nil PullRequestModes,
 // or rules that cannot be read, give "".
 func (m PullRequestModes) PullRequestMode(ctx context.Context, repo string) string {
-	if m == nil {
+	prs, ok := m.rules(ctx)
+	if !ok {
 		return ""
+	}
+	return prs.ModeFor(repo)
+}
+
+// rules reads the pull_requests rules; false with no PullRequestModes or
+// rules that cannot be read (logged), so each question gives the answer
+// that changes nothing.
+func (m PullRequestModes) rules(ctx context.Context) (config.PullRequestsConfig, bool) {
+	if m == nil {
+		return config.PullRequestsConfig{}, false
 	}
 	prs, err := m(ctx)
 	if err != nil {
 		log.Printf("reading pull_requests.rules: %v", err)
-		return ""
+		return config.PullRequestsConfig{}, false
 	}
-	return prs.ModeFor(repo)
+	return prs, true
 }
 
 // ReadyAfterReviewSource says whether a repository's handed-off stacks are
@@ -43,15 +54,8 @@ type ReadyAfterReviewSource interface {
 // PullRequestModes, or rules that cannot be read, give false: the stack is
 // left a draft.
 func (m PullRequestModes) ReadyAfterReview(ctx context.Context, repo string) bool {
-	if m == nil {
-		return false
-	}
-	prs, err := m(ctx)
-	if err != nil {
-		log.Printf("reading pull_requests.rules: %v", err)
-		return false
-	}
-	return prs.ReadyAfterReview(repo)
+	prs, ok := m.rules(ctx)
+	return ok && prs.ReadyAfterReview(repo)
 }
 
 // pullRequestModePrompt is the launch prompt section for a repository's
