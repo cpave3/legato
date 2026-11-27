@@ -45,25 +45,9 @@ func (h *SessionHistoryService) Recover(ctx context.Context) (int, error) {
 		if ctx.Err() != nil {
 			break
 		}
-		var storageDirs []string
-		if run.AgentKind == "claude-code" {
-			identity, err := h.store.ExecutionAccount(ctx, run.ID)
-			if err != nil {
-				return found, err
-			}
-			if identity != nil {
-				storageDirs = []string{identity.ConfigDir}
-			}
-		}
-		if storageDirs == nil {
-			if _, ok := dirs[run.AgentKind]; !ok {
-				var err error
-				dirs[run.AgentKind], err = h.store.ConversationStorageDirs(ctx, run.AgentKind)
-				if err != nil {
-					return found, err
-				}
-			}
-			storageDirs = dirs[run.AgentKind]
+		storageDirs, err := h.storageDirsFor(ctx, run, dirs)
+		if err != nil {
+			return found, err
 		}
 		end := h.opts.Now()
 		if run.EndedAt != nil {
@@ -99,6 +83,30 @@ func (h *SessionHistoryService) Recover(ctx context.Context) (int, error) {
 		}
 	}
 	return found, nil
+}
+
+// storageDirsFor is where a run's conversations may be: a Claude Code
+// run's launch account's folder only, else every folder the tool's
+// conversations have been kept in, read once per tool into dirs.
+func (h *SessionHistoryService) storageDirsFor(ctx context.Context, run store.UnrecordedExecution, dirs map[string][]string) ([]string, error) {
+	if run.AgentKind == "claude-code" {
+		identity, err := h.store.ExecutionAccount(ctx, run.ID)
+		if err != nil {
+			return nil, err
+		}
+		if identity != nil {
+			return []string{identity.ConfigDir}, nil
+		}
+	}
+	if known, ok := dirs[run.AgentKind]; ok {
+		return known, nil
+	}
+	list, err := h.store.ConversationStorageDirs(ctx, run.AgentKind)
+	if err != nil {
+		return nil, err
+	}
+	dirs[run.AgentKind] = list
+	return list, nil
 }
 
 // StartRecovery runs a recovery pass now, off the caller's path, and again
