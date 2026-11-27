@@ -1,4 +1,4 @@
-import { apiFetch } from "./api"
+import { apiFetch, ok } from "./api"
 import { z } from "zod"
 
 // A clone Legato made for an agent in its data folder, which later agents
@@ -27,18 +27,6 @@ const jobCloneSchema = z.object({
 export type JobClone = z.infer<typeof jobCloneSchema>
 
 const jobClonesResponseSchema = z.object({ clones: z.array(jobCloneSchema) })
-
-async function ok(response: Response): Promise<Response> {
-  if (response.ok) return response
-  let message = response.statusText
-  try {
-    const body = await response.json()
-    if (body && typeof body.error === "string") message = body.error
-  } catch {
-    // The body was not JSON; the status says enough.
-  }
-  throw new Error(message || `request failed (${response.status})`)
-}
 
 // The live job clones, the most recently used first.
 export async function listJobClones(baseUrl: string): Promise<JobClone[]> {

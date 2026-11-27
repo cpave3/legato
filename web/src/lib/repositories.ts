@@ -1,5 +1,5 @@
 import type { RepositoryCacheStatus } from "./preparingAgents"
-import { apiFetch } from "./api"
+import { apiFetch, ok } from "./api"
 
 // A repository Legato offers: a GitHub repository the spawn dialog can clone
 // fresh, a checkout on the server, or both. Those of config.yaml are listed
@@ -25,18 +25,6 @@ export interface NewRepository {
   repo: string
   base_branch: string
   primary_dir: string
-}
-
-async function ok(response: Response): Promise<Response> {
-  if (response.ok) return response
-  let message = response.statusText
-  try {
-    const body = await response.json()
-    if (body && typeof body.error === "string") message = body.error
-  } catch {
-    // The body was not JSON; the status says enough.
-  }
-  throw new Error(message || `request failed (${response.status})`)
 }
 
 export async function listRepositories(baseUrl: string): Promise<Repository[]> {

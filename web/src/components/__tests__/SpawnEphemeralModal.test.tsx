@@ -22,7 +22,7 @@ const { settingsData } = vi.hoisted(() => ({
   },
 }))
 vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ data: settingsData }) }))
-vi.mock("../../lib/api", () => ({ apiFetch }))
+vi.mock("../../lib/api", async (importOriginal) => ({ ...await importOriginal<typeof import("../../lib/api")>(), apiFetch }))
 
 const presets = {
   presets: [

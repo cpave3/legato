@@ -1,4 +1,4 @@
-import { apiFetch } from "./api"
+import { apiFetch, ok } from "./api"
 
 /** Which agents may use which of a connection's tools, and how a use is approved. */
 export interface MCPRule {
@@ -128,18 +128,6 @@ export interface MCPTestResult {
 
 const settings = "/api/settings/mcp/connections"
 const json = { "Content-Type": "application/json" }
-
-async function ok(response: Response): Promise<Response> {
-  if (response.ok) return response
-  let message = response.statusText
-  try {
-    const body = await response.json()
-    if (body && typeof body.error === "string") message = body.error
-  } catch {
-    // Not JSON; the status says enough.
-  }
-  throw new Error(message || `request failed (${response.status})`)
-}
 
 const named = (name: string) => `${settings}/${encodeURIComponent(name)}`
 

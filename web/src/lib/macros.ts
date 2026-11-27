@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { apiFetch } from "./api"
+import { apiFetch, serverError } from "./api"
 
 // A macro: named text for an agent. Started on a task or a pull request it
 // also starts the task's agent when none is running.
@@ -31,17 +31,6 @@ export interface MacroStartResult {
   agent_kind?: string
 }
 
-async function failed(response: Response): Promise<Error> {
-  let message = response.statusText
-  try {
-    const body = await response.json()
-    if (body && typeof body.error === "string") message = body.error
-  } catch {
-    // Not JSON: the status says enough.
-  }
-  return new Error(message || `request failed (${response.status})`)
-}
-
 // The macro suggested for each target: offered first, started by a plain press.
 export interface MacroSuggestions {
   task: string
@@ -68,7 +57,7 @@ export interface MacroList {
 
 export async function fetchMacroList(baseUrl: string): Promise<MacroList> {
   const response = await apiFetch(baseUrl, "/api/macros")
-  if (!response.ok) throw await failed(response)
+  if (!response.ok) throw await serverError(response)
   const body = await response.json() as { macros?: Macro[]; suggested?: MacroSuggestions; tiers?: Record<string, AgentTier[]> }
   return { macros: Array.isArray(body.macros) ? body.macros : [], suggested: body.suggested ?? defaultSuggestions, tiers: body.tiers ?? {} }
 }
@@ -147,7 +136,7 @@ export async function startMacro(baseUrl: string, taskId: string, name: string, 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(pr ? { name, pr } : { name }),
   })
-  if (!response.ok) throw await failed(response)
+  if (!response.ok) throw await serverError(response)
   return await response.json() as MacroStartResult
 }
 
@@ -185,7 +174,7 @@ async function macroWrite(baseUrl: string, path: string, method: string, body?: 
     method,
     ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   })
-  if (!response.ok) throw await failed(response)
+  if (!response.ok) throw await serverError(response)
 }
 
 const macroPath = (name: string) => `/api/macros/${encodeURIComponent(name)}`

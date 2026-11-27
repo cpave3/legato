@@ -8,7 +8,7 @@ import { WorkflowEditPage } from "../WorkflowEditPage"
 // The inspector's Setup and Outputs of a step (LEG-508).
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
-vi.mock("../../lib/api", () => ({ apiFetch }))
+vi.mock("../../lib/api", async (importOriginal) => ({ ...await importOriginal<typeof import("../../lib/api")>(), apiFetch }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 vi.mock("../../hooks/useMediaQuery", () => ({ useMediaQuery: () => false }))
 vi.mock("../../hooks/useWorkflow", () => ({ useWorkflows: () => ({ data: { definitions: [], errors: null, folders: [] }, refresh: vi.fn() }) }))

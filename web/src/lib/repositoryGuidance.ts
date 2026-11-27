@@ -1,4 +1,4 @@
-import { apiFetch } from "./api"
+import { apiFetch, ok } from "./api"
 
 // Guidance Legato adds to the launch prompt of every agent that works in a
 // repository, whichever checkout or worktree it is in. That of config.yaml
@@ -11,18 +11,6 @@ export interface RepositoryGuidance {
 }
 
 const path = "/api/settings/repository-guidance"
-
-async function ok(response: Response): Promise<Response> {
-  if (response.ok) return response
-  let message = response.statusText
-  try {
-    const body = await response.json()
-    if (body && typeof body.error === "string") message = body.error
-  } catch {
-    // The body was not JSON; the status says enough.
-  }
-  throw new Error(message || `request failed (${response.status})`)
-}
 
 export async function listRepositoryGuidance(baseUrl: string): Promise<RepositoryGuidance[]> {
   const response = await ok(await apiFetch(baseUrl, path))
