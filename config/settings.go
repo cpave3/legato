@@ -111,6 +111,8 @@ var registry = []Setting{
 	{Key: "usage.fallback_profile", Title: "Fallback profile", Help: "The usage profile for new work when no usage rule matches. Empty keeps the usual defaults.", Kind: KindString, Class: ClassChange, Mode: ModeLive},
 	{Key: "usage.claude.enabled", Title: "Claude", Help: "Reads how much of your Claude subscription's 5-hour and weekly limits you have used, with Claude Code's login. Off, Legato never asks.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "usage.codex.enabled", Title: "Codex", Help: "Reads how much of your ChatGPT account's Codex limits you have used, through the codex command or its session logs. Off, Legato never asks.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "usage.opencode.enabled", Title: "OpenCode Go", Help: "Reads how much of your OpenCode Go subscription's 5-hour, weekly and monthly limits you have used, with the API key named below. Off (the default), Legato never asks. Applies at restart.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "usage.opencode.api_key", Title: "OpenCode Go API key", Help: "The name of a secret holding your OpenCode Go API key, such as legato://opencode-go; store it with `legato secret add`. Replacing the key's value in the secret store applies when Legato restarts, not before.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "usage.poll_interval", Title: "Read usage every", Help: "How often Legato reads each subscription's usage. At least 2m.", DefaultLabel: "5m", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart, Check: checkUsagePollInterval},
 
 	// Notifications.

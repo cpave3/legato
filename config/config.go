@@ -1232,6 +1232,7 @@ type UsageConfig struct {
 	FallbackProfile string              `yaml:"fallback_profile" json:"fallback_profile"`
 	Claude          UsageProviderConfig `yaml:"claude" json:"claude"`
 	Codex           UsageProviderConfig `yaml:"codex" json:"codex"`
+	OpenCode        UsageOpenCodeConfig `yaml:"opencode" json:"opencode"`
 	// PollInterval is how often each is read: a Go duration of at least
 	// MinUsagePollInterval, DefaultUsagePollInterval when empty.
 	PollInterval string `yaml:"poll_interval" json:"poll_interval"`
@@ -1245,6 +1246,21 @@ type UsageProviderConfig struct {
 
 // IsEnabled says whether the provider's usage is read.
 func (p UsageProviderConfig) IsEnabled() bool { return p.Enabled == nil || *p.Enabled }
+
+// UsageOpenCodeConfig is the OpenCode Go provider: opt-in, because it needs
+// a configured API key and asks an external service.
+type UsageOpenCodeConfig struct {
+	// Enabled is false when unset.
+	Enabled *bool `yaml:"enabled" json:"enabled"`
+	// APIKey is the name of a secret holding the OpenCode Go API key
+	// (legato://<name> or op://<vault>/<item>/<field>), or the key itself
+	// where config.yaml substitutes ${ENV}. The settings machinery resolves
+	// a saved name at process start.
+	APIKey string `yaml:"api_key" json:"api_key"`
+}
+
+// IsEnabled says whether OpenCode Go's usage is read.
+func (p UsageOpenCodeConfig) IsEnabled() bool { return p.Enabled != nil && *p.Enabled }
 
 // Subscription usage polling bounds.
 const (

@@ -396,12 +396,14 @@ How this Legato takes new releases. Usually set in Settings › System › Updat
 
 ## Subscription usage
 
-Read your Claude and Codex subscriptions' usage limits and select defaults for new work. Set these in Settings › Usage. See [Subscription usage](/legato/using/usage/).
+Read your Claude, Codex and OpenCode Go subscriptions' usage limits and select defaults for new work. Set these in Settings › Usage. See [Subscription usage](/legato/using/usage/).
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `usage.claude.enabled` | bool | `true` | Reads your Claude subscription's 5-hour and weekly limits with Claude Code's login, on the machine Legato runs on. Off, Legato never asks. |
 | `usage.codex.enabled` | bool | `true` | Reads your ChatGPT account's Codex limits through the `codex` command, else from Codex's session logs. Off, Legato never asks. |
+| `usage.opencode.enabled` | bool | `false` | Reads your OpenCode Go subscription's 5-hour, weekly and monthly limits with the API key named by `usage.opencode.api_key`. On, it asks OpenCode from the machine Legato runs on; a changed value applies at restart. |
+| `usage.opencode.api_key` | secret name | none | The name of a secret holding your OpenCode Go API key, such as `legato://opencode-go`; store it with `legato secret add`. Replacing the key's value in the secret store applies when Legato restarts, not before. |
 | `usage.poll_interval` | duration | `5m` | How often each subscription's usage is read. At least `2m`. |
 | `usage.fallback_profile` | string | none | A usage profile to use when no rule matches. Empty keeps your usual defaults. Applies without a restart. |
 
@@ -419,7 +421,7 @@ Read your Claude and Codex subscriptions' usage limits and select defaults for n
 | --- | --- |
 | `usage.rules[].name` | The rule's name. |
 | `usage.rules[].order` | Required integer, including zero. Lower values run first; names break ties. List position does not set priority. |
-| `usage.rules[].meter` | One of `claude.five_hour`, `claude.weekly`, `claude.weekly_opus`, `claude.weekly_sonnet`, `codex.five_hour` or `codex.weekly`. |
+| `usage.rules[].meter` | One of `claude.five_hour`, `claude.weekly`, `claude.weekly_opus`, `claude.weekly_sonnet`, `codex.five_hour`, `codex.weekly`, `opencode.five_hour`, `opencode.weekly` or `opencode.monthly`. |
 | `usage.rules[].at_least` | Usage percentage from 1 to 100, inclusive. Fractions are allowed. |
 | `usage.rules[].profile` | A configured usage profile, matched by name ignoring case. |
 
