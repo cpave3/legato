@@ -94,6 +94,11 @@ func TestGetUsageWithoutTheServiceIsEmptyNotAnError(t *testing.T) {
 	if code != http.StatusOK || len(body["providers"].([]any)) != 0 {
 		t.Fatalf("GET: %d %v", code, body)
 	}
+	// The catalog is still there: it says what exists, not what was read.
+	catalog, ok := body["catalog"].([]any)
+	if !ok || len(catalog) != 3 {
+		t.Fatalf("catalog = %v", body["catalog"])
+	}
 }
 
 func TestRefreshUsageAsksForAReadAndAnswersAtOnce(t *testing.T) {

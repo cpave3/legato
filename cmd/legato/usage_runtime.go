@@ -11,8 +11,10 @@ import (
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/claudeusage"
 	"github.com/cpave3/legato/internal/engine/codexusage"
+	"github.com/cpave3/legato/internal/engine/credential"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/ipc"
+	"github.com/cpave3/legato/internal/engine/opencodeusage"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 	"golang.org/x/sys/unix"
@@ -45,7 +47,9 @@ func claimUsagePoller(dataDir string) (func(), error) {
 
 // usageReaders are the providers the settings turn on, Claude first. Both
 // read on this machine with the tools' own logins, never in a sandbox.
-func usageReaders(cfg *config.Config) []service.SubscriptionUsageReader {
+// OpenCode Go is off until it is turned on and reads with the API key its
+// secret setting named, resolved at start.
+func usageReaders(cfg *config.Config, db *store.Store) []service.SubscriptionUsageReader {
 	home, _ := os.UserHomeDir()
 	var readers []service.SubscriptionUsageReader
 	if cfg.Usage.Claude.IsEnabled() {
@@ -59,14 +63,44 @@ func usageReaders(cfg *config.Config) []service.SubscriptionUsageReader {
 			SessionsDir: codexusage.SessionsDir(os.Getenv, home),
 		})
 	}
+	if cfg.Usage.OpenCode.IsEnabled() {
+		readers = append(readers, &service.OpenCodeUsageReader{Client: &opencodeusage.Client{
+			APIKey: usageAPIKey(cfg, db, cfg.Usage.OpenCode.APIKey),
+		}})
+	}
 	return readers
+}
+
+// usageAPIKey is the OpenCode Go key the settings leave in the process: a
+// database setting was resolved into cfg at start, while a config.yaml pin
+// may still name a secret (legato:// or op://), which resolves here once.
+// A secret that cannot be read is no key: the reader says to name one, and
+// the value never reaches an error or a log.
+func usageAPIKey(cfg *config.Config, db *store.Store, raw string) string {
+	if raw == "" {
+		return ""
+	}
+	ref, err := credential.ParseRef(raw)
+	if err != nil || (ref.Scheme != "legato" && ref.Scheme != "op") {
+		return raw
+	}
+	if db == nil {
+		log.Print("subscription usage: the OpenCode Go key names a secret, but this command cannot read the store")
+		return ""
+	}
+	plain, err := settingSecrets(cfg, db)(context.Background(), raw)
+	if err != nil {
+		log.Printf("subscription usage: reading the OpenCode Go key: %v", err)
+		return ""
+	}
+	return plain
 }
 
 // subscriptionUsageFor serves the subscriptions' usage kept in db; nil with
 // both providers off. A kept reading is announced on bus and to the other
 // processes.
 func subscriptionUsageFor(cfg *config.Config, db *store.Store, bus *events.Bus) *service.SubscriptionUsageService {
-	readers := usageReaders(cfg)
+	readers := usageReaders(cfg, db)
 	usage := service.NewSubscriptionUsageService(service.SubscriptionUsageOptions{
 		Store:        db,
 		Readers:      readers,

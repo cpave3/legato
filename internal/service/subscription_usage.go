@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -16,10 +17,12 @@ import (
 // operator has used: Claude's 5-hour and weekly windows, Codex's. It is not
 // Usage (Manticore's token counts). See docs/ai/usage.md.
 
-// The providers whose subscription usage Legato reads.
+// The providers whose subscription usage Legato reads. Their names and
+// meters are declared by the config provider table (UsageProviders).
 const (
-	UsageProviderClaude = "claude"
-	UsageProviderCodex  = "codex"
+	UsageProviderClaude   = "claude"
+	UsageProviderCodex    = "codex"
+	UsageProviderOpenCode = "opencode"
 )
 
 // The usage meters: a window of a provider's limits.
@@ -28,6 +31,7 @@ const (
 	UsageMeterWeekly       = "weekly"
 	UsageMeterWeeklyOpus   = "weekly_opus"
 	UsageMeterWeeklySonnet = "weekly_sonnet"
+	UsageMeterMonthly      = "monthly"
 )
 
 // UsageState is how a provider's reading stands.
@@ -45,11 +49,15 @@ const (
 
 // Why a provider's usage could not be read.
 const (
-	UsageReasonNotRead         = "not_read"
-	UsageReasonNotSignedIn     = "not_signed_in"
-	UsageReasonLoginExpired    = "login_expired"
-	UsageReasonNoSubscription  = "no_subscription"
-	UsageReasonCodexMissing    = "codex_missing"
+	UsageReasonNotRead        = "not_read"
+	UsageReasonNotSignedIn    = "not_signed_in"
+	UsageReasonLoginExpired   = "login_expired"
+	UsageReasonNoSubscription = "no_subscription"
+	UsageReasonCodexMissing   = "codex_missing"
+	// UsageReasonMissingKey: OpenCode Go is on but names no API key.
+	UsageReasonMissingKey = "missing_key"
+	// UsageReasonInvalidKey: the endpoint refused the API key.
+	UsageReasonInvalidKey      = "invalid_key"
 	UsageReasonNoData          = "no_data"
 	UsageReasonEndpointChanged = "endpoint_changed"
 	UsageReasonRateLimited     = "rate_limited"
@@ -103,11 +111,49 @@ type ProviderUsage struct {
 	Source string `json:"source,omitempty"`
 }
 
-// SubscriptionUsage is every provider's usage, in reader order.
+// UsageCatalogProvider is one provider the catalog declares: its identity,
+// its name, and the meters it reports.
+type UsageCatalogProvider struct {
+	Provider string              `json:"provider"`
+	Name     string              `json:"name"`
+	Meters   []UsageCatalogMeter `json:"meters"`
+}
+
+// UsageCatalogMeter is one meter a provider reports, with the name rules and
+// pins use for it and the labels every surface shows.
+type UsageCatalogMeter struct {
+	// Qualified is the meter's name in rules and pins: "claude.five_hour".
+	Qualified string `json:"qualified"`
+	Short     string `json:"short"`
+	Long      string `json:"long"`
+}
+
+// UsageCatalog is what every surface labels providers and meters from, and
+// what rule and pin choices are offered: the config provider table, not a
+// reading.
+func UsageCatalog() []UsageCatalogProvider {
+	var out []UsageCatalogProvider
+	for _, p := range config.UsageProviders() {
+		entry := UsageCatalogProvider{Provider: p.ID, Name: p.Name}
+		for _, window := range p.Windows {
+			info, ok := config.UsageMeterInfoOf(window)
+			if !ok {
+				continue
+			}
+			entry.Meters = append(entry.Meters, UsageCatalogMeter{Qualified: p.ID + "." + window, Short: info.Short, Long: info.Long})
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// SubscriptionUsage is every provider's usage, in reader order, with the
+// catalog that labels it.
 type SubscriptionUsage struct {
-	Providers    []ProviderUsage      `json:"providers"`
-	PollInterval time.Duration        `json:"-"`
-	Policy       *UsagePolicySnapshot `json:"policy,omitempty"`
+	Providers    []ProviderUsage        `json:"providers"`
+	Catalog      []UsageCatalogProvider `json:"catalog"`
+	PollInterval time.Duration          `json:"-"`
+	Policy       *UsagePolicySnapshot   `json:"policy,omitempty"`
 }
 
 // MarshalJSON gives the poll interval in seconds.
@@ -220,10 +266,11 @@ func NewSubscriptionUsageService(opts SubscriptionUsageOptions) *SubscriptionUsa
 // PollInterval is how often providers are read.
 func (s *SubscriptionUsageService) PollInterval() time.Duration { return s.opts.PollInterval }
 
-// Snapshot is every provider's newest reading from the database. It never
-// reads a provider.
+// Snapshot is every provider's newest reading from the database, with the
+// catalog. It never reads a provider.
 func (s *SubscriptionUsageService) Snapshot(ctx context.Context) (SubscriptionUsage, error) {
 	out, err := s.ReadingsSnapshot(ctx)
+	out.Catalog = UsageCatalog()
 	if err != nil || s.policy == nil {
 		return out, err
 	}
@@ -501,9 +548,13 @@ func UsageReasonText(reason string) string {
 	case UsageReasonLoginExpired:
 		return "its login has expired; using it signs in again"
 	case UsageReasonNoSubscription:
-		return "this login has no subscription limits"
+		return "this account has no subscription limits"
 	case UsageReasonCodexMissing:
 		return "the codex command is not installed"
+	case UsageReasonMissingKey:
+		return "name its API key in Settings › Usage"
+	case UsageReasonInvalidKey:
+		return "its API key was refused; replace the key's secret and restart"
 	case UsageReasonNoData:
 		return "nothing reported yet"
 	case UsageReasonEndpointChanged:
@@ -517,28 +568,30 @@ func UsageReasonText(reason string) string {
 	}
 }
 
-// UsageProviderName is a provider's name as the operator knows it.
+// UsageProviderName is a provider's name as the operator knows it, from the
+// config provider table.
 func UsageProviderName(provider string) string {
-	switch provider {
-	case UsageProviderClaude:
-		return "Claude"
-	case UsageProviderCodex:
-		return "Codex"
+	for _, p := range config.UsageProviders() {
+		if p.ID == provider {
+			return p.Name
+		}
 	}
 	return provider
 }
 
-// UsageMeterLabel is a meter's short label.
+// UsageMeterLabel is a meter's short label: "5h", from the config provider
+// table.
+func UsageMeterShort(meter string) string {
+	if info, ok := config.UsageMeterInfoOf(meter); ok {
+		return info.Short
+	}
+	return meter
+}
+
+// UsageMeterLabel is a meter's full label, from the config provider table.
 func UsageMeterLabel(meter string) string {
-	switch meter {
-	case UsageMeterFiveHour:
-		return "5-hour"
-	case UsageMeterWeekly:
-		return "weekly"
-	case UsageMeterWeeklyOpus:
-		return "weekly Opus"
-	case UsageMeterWeeklySonnet:
-		return "weekly Sonnet"
+	if info, ok := config.UsageMeterInfoOf(meter); ok {
+		return info.Long
 	}
 	return meter
 }

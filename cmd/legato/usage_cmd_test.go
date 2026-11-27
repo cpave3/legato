@@ -42,7 +42,37 @@ Codex: unavailable (the codex command is not installed)
 	if got := formatSubscriptionUsage(unavailable, now); got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
-	if got := formatSubscriptionUsage(service.SubscriptionUsage{}, now); got != "Subscription usage is off (usage.claude.enabled and usage.codex.enabled).\n" {
+	if got := formatSubscriptionUsage(service.SubscriptionUsage{}, now); got != "Subscription usage is off (usage.claude.enabled, usage.codex.enabled and usage.opencode.enabled).\n" {
 		t.Fatalf("none: %q", got)
+	}
+}
+
+// OpenCode Go prints beside the others, with its monthly window and its own
+// reasons.
+func TestUsagePrintsOpenCodeGoWithItsMonthlyMeter(t *testing.T) {
+	now := time.Date(2026, 11, 27, 8, 0, 0, 0, time.UTC)
+	asOf := now.Add(-2 * time.Minute)
+	snap := service.SubscriptionUsage{Providers: []service.ProviderUsage{
+		{Provider: "opencode", State: service.UsageOK, AsOf: &asOf, Windows: []service.UsageWindow{
+			{Meter: service.UsageMeterFiveHour, UsedPercent: 30, ResetsAt: now.Add(5 * time.Hour)},
+			{Meter: service.UsageMeterWeekly, UsedPercent: 66, ResetsAt: now.Add(3 * 24 * time.Hour)},
+			{Meter: service.UsageMeterMonthly, UsedPercent: 50, ResetsAt: now.Add(4 * 24 * time.Hour)},
+		}},
+	}}
+	want := `OpenCode Go, as of 2m ago
+  5-hour         30%  resets in 5h
+  weekly         66%  resets in 3d
+  monthly        50%  resets in 4d
+`
+	if got := formatSubscriptionUsage(snap, now); got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+
+	missingKey := service.SubscriptionUsage{Providers: []service.ProviderUsage{
+		{Provider: "opencode", State: service.UsageUnavailable, Reason: service.UsageReasonMissingKey},
+	}}
+	want = "OpenCode Go: unavailable (name its API key in Settings › Usage)\n"
+	if got := formatSubscriptionUsage(missingKey, now); got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
 }

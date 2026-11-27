@@ -54,7 +54,7 @@ func runUsageCmd(args []string) int {
 // cliSubscriptionUsage is the service as a short-lived command uses it: no
 // bus, and a kept reading announced to the running processes.
 func cliSubscriptionUsage(cfg *config.Config, db *store.Store) *service.SubscriptionUsageService {
-	readers := usageReaders(cfg)
+	readers := usageReaders(cfg, db)
 	usage := service.NewSubscriptionUsageService(service.SubscriptionUsageOptions{
 		Store: db, Readers: readers, PollInterval: cfg.Usage.PollIntervalDuration(),
 		OnChange: func() { ipc.Broadcast(ipc.Message{Type: ipcUsageChanged}) },
@@ -101,7 +101,7 @@ func formatSubscriptionUsage(snap service.SubscriptionUsage, now time.Time) stri
 		}
 	}
 	if len(snap.Providers) == 0 {
-		b.WriteString("Subscription usage is off (usage.claude.enabled and usage.codex.enabled).\n")
+		b.WriteString("Subscription usage is off (usage.claude.enabled, usage.codex.enabled and usage.opencode.enabled).\n")
 		return b.String()
 	}
 	for _, p := range snap.Providers {

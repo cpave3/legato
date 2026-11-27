@@ -57,6 +57,8 @@ var (
 	// ErrEndpointChanged: the endpoint is gone or answered in a shape this
 	// package does not know.
 	ErrEndpointChanged = errors.New("opencode: usage endpoint changed")
+	// ErrUnreachable: the endpoint could not be asked at all.
+	ErrUnreachable = errors.New("opencode: usage endpoint unreachable")
 )
 
 // RateLimitedError is a 429: ask again after RetryAfter, zero when the
@@ -172,11 +174,11 @@ func transportError(err error) error {
 	var netErr net.Error
 	switch {
 	case errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()):
-		return errors.New("opencode: usage endpoint timed out")
+		return fmt.Errorf("%w (timed out)", ErrUnreachable)
 	case errors.Is(err, context.Canceled):
 		return context.Canceled
 	default:
-		return errors.New("opencode: usage endpoint unreachable")
+		return fmt.Errorf("%w", ErrUnreachable)
 	}
 }
 
@@ -195,9 +197,9 @@ func retryAfter(value string, now time.Time) time.Duration {
 }
 
 type wireMeter struct {
-	Status   *string   `json:"status"`
-	Percent  *float64  `json:"percent"`
-	ResetsAt *string   `json:"resetsAt"`
+	Status   *string  `json:"status"`
+	Percent  *float64 `json:"percent"`
+	ResetsAt *string  `json:"resetsAt"`
 }
 
 func decode(body []byte) (Reading, error) {

@@ -3,6 +3,7 @@ package opencodeusage
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -237,10 +238,56 @@ func TestAnUnreachableEndpointDoesNotShowTheKey(t *testing.T) {
 	url := srv.URL
 	srv.Close()
 	_, err := client(url).Read(context.Background())
-	if err == nil {
-		t.Fatal("no error")
+	if !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("err = %v, want ErrUnreachable", err)
 	}
 	if strings.Contains(err.Error(), sentinel) || strings.Contains(err.Error(), url) {
 		t.Fatalf("error quotes the key or URL: %v", err)
 	}
+
+	// A read that outlives its bounds is unreachable too, and a cancel
+	// stays a cancel.
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(2 * time.Second)
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err = client(srv.URL).Read(ctx)
+	if !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("err = %v, want ErrUnreachable", err)
+	}
+	ctx, cancel = context.WithCancel(context.Background())
+	cancel()
+	_, err = client(srv.URL).Read(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
 }
+
+// With no base URL set, the read goes to the endpoint OpenCode documents,
+// proved without the network: the transport sees the request.
+func TestTheDefaultBaseURLIsTheDocumentedEndpoint(t *testing.T) {
+	var gotURL, gotAuth string
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		gotURL, gotAuth = r.URL.String(), r.Header.Get("Authorization")
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(fullResponse)), Header: make(http.Header)}, nil
+	})}
+	reading, err := (&Client{APIKey: sentinel, HTTP: httpClient}).Read(context.Background())
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if gotURL != "https://opencode.ai/inference/go/v1/usage" {
+		t.Fatalf("url = %q", gotURL)
+	}
+	if gotAuth != "Bearer "+sentinel {
+		t.Fatalf("auth = %q", gotAuth)
+	}
+	if len(reading.Meters) != 3 {
+		t.Fatalf("meters = %+v", reading.Meters)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

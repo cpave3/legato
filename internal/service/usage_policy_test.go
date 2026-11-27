@@ -73,3 +73,54 @@ func TestUsageRulesOrderMissingDataAndPolicyEdits(t *testing.T) {
 		t.Fatalf("no fallback did not return static defaults: %s", selected)
 	}
 }
+
+// A rule on OpenCode Go's weekly window behaves like one on Claude's: the
+// threshold switches, the latch holds until the meter's own reset, and a
+// fresh reading below it releases.
+func TestUsageRuleOnOpenCodeWeeklyHoldsUntilItsReset(t *testing.T) {
+	now := time.Date(2026, 11, 27, 8, 0, 0, 0, time.UTC)
+	reset := now.Add(3 * 24 * time.Hour)
+	order := 1
+	rules := []config.UsageRule{{Name: "conserve", Order: &order, Meter: "opencode.weekly", AtLeast: 75, Profile: "save"}}
+	profiles := []config.UsageProfile{{Name: "base", Agent: "claude-code"}, {Name: "save", Agent: "chimera"}}
+	reading := func(value float64, asOf time.Time, state UsageState) []ProviderUsage {
+		return []ProviderUsage{{Provider: UsageProviderOpenCode, State: state, AsOf: &asOf, Windows: []UsageWindow{
+			{Meter: UsageMeterWeekly, UsedPercent: value, ResetsAt: reset},
+			{Meter: UsageMeterMonthly, UsedPercent: value, ResetsAt: reset.Add(24 * time.Hour)},
+		}}}
+	}
+	state := UsageRuleLatch{Current: "base"}
+	profile, reason, state := EvaluateUsageRules(rules, profiles, "base", reading(80, now, UsageOK), state, now)
+	if profile != "save" || reason.Rule != "conserve" || !reason.Reset.Equal(reset) {
+		t.Fatalf("profile = %q, reason = %+v", profile, reason)
+	}
+	// Below the threshold, but before the reset: held.
+	profile, _, state = EvaluateUsageRules(rules, profiles, "base", reading(3, reset.Add(-time.Hour), UsageOK), state, reset.Add(-time.Hour))
+	if profile != "save" {
+		t.Fatalf("released before reset: %q", profile)
+	}
+	// After the reset, a fresh low reading releases the latch.
+	profile, _, state = EvaluateUsageRules(rules, profiles, "base", reading(3, reset.Add(time.Minute), UsageOK), state, reset.Add(time.Minute))
+	if profile != "base" {
+		t.Fatalf("held after a fresh low reading: %q", profile)
+	}
+}
+
+// A rule on OpenCode Go's monthly meter is as qualified as one on any other
+// window; missing Go evidence holds the current defaults.
+func TestAMissingOpenCodeReadingHoldsTheCurrentDefaults(t *testing.T) {
+	now := time.Now().UTC()
+	order := 1
+	rules := []config.UsageRule{{Name: "monthly-cap", Order: &order, Meter: "opencode.monthly", AtLeast: 80, Profile: "save"}}
+	profiles := []config.UsageProfile{{Name: "base", Agent: "claude-code"}, {Name: "save", Agent: "chimera"}}
+	unavailable := []ProviderUsage{{Provider: UsageProviderOpenCode, State: UsageUnavailable, Reason: UsageReasonNotRead}}
+	profile, reason, _ := EvaluateUsageRules(rules, profiles, "base", unavailable, UsageRuleLatch{Current: "save"}, now)
+	if profile != "save" || reason.Text != "Usage data is unavailable or stale; keeping current defaults" {
+		t.Fatalf("profile = %q, reason = %q", profile, reason.Text)
+	}
+	ok := []ProviderUsage{{Provider: UsageProviderOpenCode, State: UsageOK, AsOf: &now, Windows: []UsageWindow{{Meter: UsageMeterMonthly, UsedPercent: 95, ResetsAt: now.Add(4 * 24 * time.Hour)}}}}
+	profile, _, _ = EvaluateUsageRules(rules, profiles, "base", ok, UsageRuleLatch{Current: "base"}, now)
+	if profile != "save" {
+		t.Fatalf("profile = %q", profile)
+	}
+}
