@@ -795,7 +795,7 @@ export function AgentsPage() {
         <InterruptedAgents className="w-full max-w-sm" />
         <PreparingAgents className="w-full max-w-sm" />
         <p className="text-lw-text-2">No active agents</p>
-        <UsageStrip className="w-full max-w-sm" />
+        <UsageStrip className="w-full max-w-sm" sheet={isMobile} />
         <SessionHistoryLink />
         <button
           onClick={handleSpawn}
@@ -889,10 +889,10 @@ export function AgentsPage() {
           onStageFilter={stageFilter.setStage}
           preparing={<><InterruptedAgents /><PreparingAgents /><SessionHistoryLink /></>}
           reeve={<ReeveEntry baseUrl={baseUrl} agent={runningAgents.find((a) => a.reeve)} selected={Boolean(selectedAgent?.reeve)} onSelect={handleSelect} />}
-          usage={<UsageStrip className="px-1.5 pb-1" />}
+          usage={<UsageStrip className="px-2 pb-2" />}
         />
       )}
-      {isMobile && <UsageStrip className="border-b border-lw-line px-2 py-1" />}
+      {isMobile && <UsageStrip sheet className="border-b border-lw-line px-3 py-2" />}
       {isMobile && <InterruptedAgents className="border-b border-lw-line px-2 pb-2" />}
       {isMobile && <PreparingAgents className="border-b border-lw-line px-2 pb-2" />}
       {isMobile && <SessionHistoryLink className="border-b border-lw-line" />}
