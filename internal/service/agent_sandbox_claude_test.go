@@ -146,3 +146,43 @@ func (g claudeFixture) rebase(f claudeFixture, path string) string {
 	}
 	return path
 }
+
+// The rule itself, for the cases a spawn cannot easily reach: a Base that
+// already protects something, an account that is Legato's own default, and
+// a non-Claude agent keeping the Base's config folder.
+func TestWithClaudeAccounts(t *testing.T) {
+	accounts := []config.ClaudeAccount{{Name: "work", ConfigDir: "/acct/work"}, {Name: "home", ConfigDir: "/acct/home/"}}
+	for _, tc := range []struct {
+		name                  string
+		base                  SandboxPlanInput
+		agent, launch, legato string
+		wantDir               string
+		wantExplicit          bool
+		wantProtected         []string
+	}{
+		{"default account", SandboxPlanInput{Home: "/h"}, "claude-code", "", "", "/h/.claude", false,
+			[]string{"/acct/work", "/acct/home/"}},
+		{"named account", SandboxPlanInput{Home: "/h"}, "claude-code", "/acct/work", "", "/acct/work", true,
+			[]string{"/h/.claude", "/h/.claude", "/acct/home/", "/h/.claude.json"}},
+		{"named account, spelled with a slash", SandboxPlanInput{Home: "/h"}, "claude-code", "/acct/home", "", "/acct/home", true,
+			[]string{"/h/.claude", "/h/.claude", "/acct/work", "/h/.claude.json"}},
+		{"Legato's default is the account in use", SandboxPlanInput{Home: "/h"}, "claude-code", "/acct/work", "/acct/work", "/acct/work", true,
+			[]string{"/h/.claude", "/acct/home/", "/h/.claude.json"}},
+		{"chimera", SandboxPlanInput{Home: "/h", ProtectedClaudeAccounts: []string{"/kept"}}, "chimera", "/ignored", "/env", "", false,
+			[]string{"/kept", "/env", "/h/.claude", "/acct/work", "/acct/home/", "/h/.claude.json"}},
+		{"chimera keeps the Base's folder", SandboxPlanInput{Home: "/h", ClaudeConfigDir: "/acct/work"}, "chimera", "", "", "/acct/work", false,
+			[]string{"/h/.claude", "/h/.claude", "/acct/home/", "/h/.claude.json"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := tc.base
+			before := append([]string(nil), base.ProtectedClaudeAccounts...)
+			got := withClaudeAccounts(base, tc.agent, tc.launch, tc.legato, accounts)
+			if got.ClaudeConfigDir != tc.wantDir || got.ClaudeConfigExplicit != tc.wantExplicit || fmt.Sprint(got.ProtectedClaudeAccounts) != fmt.Sprint(tc.wantProtected) {
+				t.Fatalf("got dir %q explicit %v protected %v", got.ClaudeConfigDir, got.ClaudeConfigExplicit, got.ProtectedClaudeAccounts)
+			}
+			if fmt.Sprint(base.ProtectedClaudeAccounts) != fmt.Sprint(before) {
+				t.Fatal("the Base's protected list was changed in place")
+			}
+		})
+	}
+}
