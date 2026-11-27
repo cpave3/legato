@@ -13,8 +13,9 @@ import (
 )
 
 type recordedRequest struct {
-	method, path, auth string
-	body               map[string]any
+	method, path, auth  string
+	contentType, accept string
+	body                map[string]any
 }
 
 func jiraServer(t *testing.T, status int, answer string) (*httptest.Server, *[]recordedRequest) {
@@ -22,7 +23,8 @@ func jiraServer(t *testing.T, status int, answer string) (*httptest.Server, *[]r
 	var seen []recordedRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
-		req := recordedRequest{method: r.Method, path: r.URL.RequestURI(), auth: r.Header.Get("Authorization")}
+		req := recordedRequest{method: r.Method, path: r.URL.RequestURI(), auth: r.Header.Get("Authorization"),
+			contentType: r.Header.Get("Content-Type"), accept: r.Header.Get("Accept")}
 		_ = json.Unmarshal(raw, &req.body)
 		seen = append(seen, req)
 		w.Header().Set("Content-Type", "application/json")

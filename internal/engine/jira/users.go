@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 )
 
 // Myself is the user whose token the client sends.
@@ -48,17 +47,8 @@ func (c *Client) Assign(ctx context.Context, key, accountID string) error {
 	if err != nil {
 		return fmt.Errorf("assign: %w", err)
 	}
-	if _, err := c.doPut(ctx, "/rest/api/3/issue/"+url.PathEscape(key)+"/assignee", string(payload)); err != nil {
+	if _, err := c.doJSON(ctx, http.MethodPut, "/rest/api/3/issue/"+url.PathEscape(key)+"/assignee", string(payload)); err != nil {
 		return fmt.Errorf("assign: %w", err)
 	}
 	return nil
-}
-
-func (c *Client) doPut(ctx context.Context, path, body string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+path, strings.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	return c.doRequest(req)
 }

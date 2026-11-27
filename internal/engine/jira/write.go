@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -113,7 +114,7 @@ func (c *Client) CreateIssue(ctx context.Context, draft IssueDraft) (CreatedIssu
 	if err != nil {
 		return CreatedIssue{}, fmt.Errorf("create issue: %w", err)
 	}
-	body, err := c.doPost(ctx, "/rest/api/3/issue", string(payload))
+	body, err := c.doJSON(ctx, http.MethodPost, "/rest/api/3/issue", string(payload))
 	if err != nil {
 		return CreatedIssue{}, fmt.Errorf("create issue: %w", err)
 	}
@@ -133,7 +134,7 @@ func (c *Client) AddComment(ctx context.Context, key, markdown string) (CreatedC
 	if err != nil {
 		return CreatedComment{}, fmt.Errorf("add comment: %w", err)
 	}
-	body, err := c.doPost(ctx, "/rest/api/3/issue/"+url.PathEscape(key)+"/comment", string(payload))
+	body, err := c.doJSON(ctx, http.MethodPost, "/rest/api/3/issue/"+url.PathEscape(key)+"/comment", string(payload))
 	if err != nil {
 		return CreatedComment{}, fmt.Errorf("add comment: %w", err)
 	}
