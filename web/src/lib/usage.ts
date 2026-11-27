@@ -71,10 +71,16 @@ export interface UsageProfile {
 
 export interface UsageReason { text: string; rule?: string; meter?: string; reset?: string }
 export interface UsagePin { profile: string; until?: string; until_reset?: string }
+export interface UsageProfileState { profile: UsageProfile; reason: UsageReason; since: string; pin?: UsagePin; error?: string }
+// A repository scope: the current profile for new work in the repositories
+// whose usage default (baseline) is not the fallback. Running agents keep
+// what they started with.
+export interface UsagePolicyScope { key: string; baseline: string; repositories: string[]; active: UsageProfileState }
 export interface UsagePolicy {
-  active: { profile: UsageProfile; reason: UsageReason; since: string; pin?: UsagePin; error?: string }
+  active: UsageProfileState
+  scopes?: UsagePolicyScope[]
   profiles: UsageProfile[]
-  switches: { id: number; from_profile: string; to_profile: string; since: string; reason: string }[]
+  switches: { id: number; scope?: string; from_profile: string; to_profile: string; since: string; reason: string }[]
 }
 
 export async function setUsagePin(baseUrl: string, pin?: UsagePin): Promise<void> {

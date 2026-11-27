@@ -412,6 +412,27 @@ function WindowRow({ provider, window: w, catalog, stale, now }: { provider: str
   )
 }
 
+// RepositoryScopes is the current profile for new work in each repository
+// default that is not the fallback: one line each, as the profile's rows.
+function RepositoryScopes({ scopes }: { scopes: NonNullable<UsagePolicy["scopes"]> }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1 text-xs">
+      <span className="text-[11px] font-medium text-lw-text-2">New work by repository</span>
+      <ul aria-label="New work by repository" className="m-0 flex list-none flex-col gap-1 p-0">
+        {scopes.map((scope) => (
+          <li key={scope.key} className="min-w-0 break-words">
+            <span className="text-lw-text-2">{scope.repositories.join(", ")}</span>{" → "}
+            <strong className="font-semibold">{scope.active.profile.name || "Usual defaults"}</strong>
+            <span className="text-lw-text-2"> · default {scope.baseline}</span>
+            {scope.active.profile.name !== scope.baseline && <span className="block text-lw-text-2">{scope.active.reason.text}</span>}
+            {scope.active.error && <span role="alert" className="block text-lw-error">{scope.active.error}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function PolicyCard({ policy, requestedPin, catalog, providers, now, sheet }: { policy: UsagePolicy; requestedPin: string | null; catalog: UsageCatalogProvider[] | undefined; providers: ProviderUsage[]; now: Date; sheet: boolean }) {
   const { active } = policy
   const [switchesOpen, setSwitchesOpen] = useState(false)
@@ -431,6 +452,7 @@ function PolicyCard({ policy, requestedPin, catalog, providers, now, sheet }: { 
         {active.profile.name && <><dt className="text-lw-text-2">Since</dt><dd className="m-0" title={new Date(active.since).toLocaleString()}>{sinceText(active.since, now)}</dd></>}
       </dl>
       {active.error && <p role="alert" className="m-0 break-words text-lw-error">{active.error}</p>}
+      {(policy.scopes?.length ?? 0) > 0 && <RepositoryScopes scopes={policy.scopes ?? []} />}
       {policy.profiles.length > 0
         ? <PinControls key={requestedPin} policy={policy} requestedPin={requestedPin} catalog={catalog} providers={providers} now={now} sheet={sheet} />
         : <Link to="/settings#usage" className="self-start text-lw-link hover:underline">Configure profiles</Link>}
@@ -536,6 +558,7 @@ function PinControls({ policy, requestedPin, catalog, providers, now, sheet }: {
     </div>
     {open && <form onSubmit={(e) => { e.preventDefault(); void save() }} className="rounded-lg border border-lw-line bg-lw-surface p-3">
       <fieldset disabled={saving} className="m-0 flex min-w-0 flex-col gap-2.5 border-0 p-0">
+        <p className="m-0 text-[11px] text-lw-text-2">A pin applies to all new work, in every repository, over repository defaults and rules. An agent or account chosen for a launch still wins.</p>
         <label className="flex flex-col gap-1 text-[11px] font-medium text-lw-text-2">Pin profile
           <select aria-label="Pin profile" className={cn(pinField, sheet ? "h-11" : "h-8")} value={profile} onChange={(e) => setProfile(e.target.value)}>
             {policy.profiles.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}

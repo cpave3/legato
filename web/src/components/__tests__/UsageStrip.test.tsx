@@ -410,6 +410,26 @@ describe("the profile in the popout", () => {
     expect(within(card()).getAllByRole("listitem")).toHaveLength(5)
   })
 
+  it("lists the current profile for new work in each repository default, and says a pin covers all new work", async () => {
+    usage = { providers: [], poll_interval_seconds: 0, policy: {
+      active: { profile: { name: "Default", agent: "claude-code" }, reason: { text: "No usage rule matches; using fallback defaults" }, since: "2026-11-26T07:00:00Z" },
+      scopes: [{ key: "claude work", baseline: "Claude Work", repositories: ["autopilot-dev/autopilot"],
+        active: { profile: { name: "Codex", agent: "codex" }, reason: { text: "claude.work.weekly reached 90% (work-weekly)" }, since: "2026-11-26T07:30:00Z" } }],
+      profiles: [{ name: "Default", agent: "claude-code" }, { name: "Claude Work", agent: "claude-code", account: "work" }, { name: "Codex", agent: "codex" }],
+      switches: [],
+    } }
+    renderIt()
+    fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
+    const scopes = within(card()).getByRole("list", { name: "New work by repository" })
+    const row = within(scopes).getByRole("listitem")
+    expect(row.textContent).toContain("autopilot-dev/autopilot")
+    expect(row.textContent).toContain("Codex")
+    expect(row.textContent).toContain("default Claude Work")
+    expect(row.textContent).toContain("claude.work.weekly reached 90% (work-weekly)")
+    fireEvent.click(within(card()).getByRole("button", { name: "Pin a profile" }))
+    expect(within(card()).getByText(/A pin applies to all new work, in every repository/)).toBeTruthy()
+  })
+
   it("offers profile setup when no profiles are configured", async () => {
     usage = { providers: [], poll_interval_seconds: 0, policy: {
       active: { profile: { name: "", agent: "" }, reason: { text: "Usual defaults" }, since: "0001-01-01T00:00:00Z" },
