@@ -3,7 +3,6 @@ package overlay
 import (
 	"fmt"
 	"strings"
-	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -54,59 +53,11 @@ func (m MoveOverlay) WithTitle(title string) MoveOverlay {
 	return m
 }
 
-// buildShortcuts assigns single-letter shortcuts to columns.
-// Uses first letter of column name (lowercased). On conflict, falls back to number keys.
+// buildShortcuts assigns single-letter shortcuts to columns, keyed by column
+// name: columns with the same name share one shortcut and choose that name.
 func buildShortcuts(columns []string) map[rune]string {
-	shortcuts := make(map[rune]string)
-	used := make(map[rune]bool)
-	registry := hotkey.DefaultRegistry()
-	context := hotkey.Context{Overlay: hotkey.OverlayMove}
-	reserved := func(key rune) bool {
-		_, found := registry.IsReserved(hotkey.Rune(key), context)
-		return found
-	}
-
-	for _, col := range columns {
-		if len(col) == 0 {
-			continue
-		}
-		key := unicode.ToLower(rune(col[0]))
-		if !used[key] && !reserved(key) {
-			shortcuts[key] = col
-			used[key] = true
-		}
-	}
-
-	// Handle conflicts — assign number keys for unassigned columns
-	num := '1'
-	for _, col := range columns {
-		assigned := false
-		for _, v := range shortcuts {
-			if v == col {
-				assigned = true
-				break
-			}
-		}
-		for num <= '9' && reserved(num) {
-			num++
-		}
-		if !assigned && num <= '9' {
-			shortcuts[num] = col
-			num++
-		}
-	}
-
-	return shortcuts
-}
-
-// shortcutFor returns the shortcut key for a column name.
-func (m MoveOverlay) shortcutFor(col string) string {
-	for k, v := range m.shortcuts {
-		if v == col {
-			return string(k)
-		}
-	}
-	return ""
+	byName := func(i int) string { return columns[i] }
+	return assignShortcuts(columns, byName, reservedIn(hotkey.Context{Overlay: hotkey.OverlayMove}))
 }
 
 // Init returns no command.
@@ -183,7 +134,7 @@ func (m MoveOverlay) View() string {
 
 	var items []string
 	for i, col := range m.columns {
-		shortcut := m.shortcutFor(col)
+		shortcut := shortcutLabel(m.shortcuts, col)
 		style := lipgloss.NewStyle().Foreground(theme.TextSecondary)
 		keyStyle := lipgloss.NewStyle().Foreground(theme.AccentPurple).Bold(true)
 
