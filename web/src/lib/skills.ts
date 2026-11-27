@@ -1,4 +1,4 @@
-import { apiFetch } from "./api"
+import { apiFetch, ok } from "./api"
 
 // A skill in Legato's skills folder: a folder with a SKILL.md. Those on and
 // without an error are given to every agent Legato starts from then on.
@@ -18,18 +18,6 @@ export interface SkillList {
 }
 
 const path = "/api/settings/skills"
-
-async function ok(response: Response): Promise<Response> {
-  if (response.ok) return response
-  let message = response.statusText
-  try {
-    const body = await response.json()
-    if (body && typeof body.error === "string") message = body.error
-  } catch {
-    // The body was not JSON; the status says enough.
-  }
-  throw new Error(message || `request failed (${response.status})`)
-}
 
 export async function listSkills(baseUrl: string): Promise<SkillList> {
   const body = await (await ok(await apiFetch(baseUrl, path))).json()

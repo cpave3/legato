@@ -22,7 +22,7 @@ const { settingsData } = vi.hoisted(() => ({
   settingsData: { swarm_enabled: false, working_dir: "/default", fresh_clones_enabled: false, repositories: [{ name: "Legato", repo: "cpave3/legato", primary_dir: "/projects/legato", base_branch: "main" }] },
 }))
 vi.mock("../../../hooks/useSettings", () => ({ useSettings: () => ({ data: settingsData }) }))
-vi.mock("../../../lib/api", () => ({ apiFetch }))
+vi.mock("../../../lib/api", async (importOriginal) => ({ ...await importOriginal<typeof import("../../../lib/api")>(), apiFetch }))
 vi.mock("../../StartSwarmModal", () => ({ StartSwarmModal: (props: Record<string, unknown>) => { startSwarmProps.current = props; return null } }))
 
 function pathField() {

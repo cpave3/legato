@@ -1,4 +1,4 @@
-import { apiFetch } from "./api"
+import { apiFetch, ok } from "./api"
 
 // A resource is a named set of files and folders an agent can be given: an
 // Obsidian vault, a folder of specs. Chimera is granted each path; other
@@ -15,18 +15,6 @@ export interface Resource {
   paths: ResourcePath[]
   // A resource from the configuration cannot be changed here.
   configured: boolean
-}
-
-async function ok(response: Response): Promise<Response> {
-  if (response.ok) return response
-  let message = response.statusText
-  try {
-    const body = await response.json()
-    if (body && typeof body.error === "string") message = body.error
-  } catch {
-    // The body was not JSON; the status says enough.
-  }
-  throw new Error(message || `request failed (${response.status})`)
 }
 
 export async function listResources(baseUrl: string): Promise<Resource[]> {
