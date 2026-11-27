@@ -26,7 +26,7 @@ The rules:
 - `internal/engine/` packages import only the standard library, third-party modules and the leaf packages under `internal/leaf/`. An engine package never imports another engine package, `internal/service/` or `internal/tui/`. When two engine packages need the same thing, the service layer joins them; when they need the very same small helper that knows nothing of Legato, it can be a leaf package.
 - `internal/leaf/` packages (such as `retryafter` and `regularfile`) import only the standard library, so any package may use them. Each holds one helper with one meaning, never a `util` grab bag ([ADR 1](https://github.com/cpave3/legato/blob/main/docs/adr/0001-stdlib-leaf-packages.md)).
 - `internal/service/` imports `internal/engine/` and never `internal/tui/`.
-- `internal/tui/` reaches the logic through service interfaces. In practice it also uses a few engine value types, such as the event bus and store records.
+- `internal/tui/` reaches the logic through service interfaces. It may also name engine value types and pure helpers, such as store records, event types and payloads, and diff lines, but nothing that does I/O. It subscribes to and publishes events through `service.EventStream`, never the bus itself. `internal/tui/architecture_test.go` lists each engine symbol the TUI may use.
 - `internal/setup/` holds the first-run setup wizard.
 
 Tests enforce the boundary rules in [`internal/engine/store/architecture_test.go`](https://github.com/cpave3/legato/blob/main/internal/engine/store/architecture_test.go):

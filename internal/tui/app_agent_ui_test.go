@@ -55,7 +55,7 @@ func messagesOf(cmd tea.Cmd) []tea.Msg {
 	return []tea.Msg{msg}
 }
 
-func newAgentUIApp(bus *events.Bus, ui AgentUIService, webURL string) App {
+func newAgentUIApp(bus service.EventStream, ui AgentUIService, webURL string) App {
 	app := NewApp(&fakeBoardService{}, nil, &fakeAgentService{agents: twoAgents()}, nil, &fakeReportService{}, theme.NewIcons("unicode"), bus, "", nil, nil, "", nil, nil)
 	if ui != nil {
 		app.SetAgentUIService(ui, webURL)

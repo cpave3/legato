@@ -13,7 +13,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/engine/events"
-	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/service"
@@ -228,7 +227,7 @@ type App struct {
 	pendingNav         string // card ID to navigate to after next board data load
 	pendingImport      string // remote ticket ID waiting to appear on the board
 	prSvc              service.PRTrackingService
-	eventBus           *events.Bus
+	eventBus           service.EventStream
 	eventSubs          []<-chan events.Event // sync lifecycle events (started/completed/failed/errors)
 	cardUpdateSub      <-chan events.Event
 	cardMoveSub        <-chan events.Event
@@ -388,8 +387,10 @@ func (a *App) SetSparklineWindow(window time.Duration, buckets int) {
 }
 
 // NewApp creates a new root application model. Pass nil for swarmSvc to
-// disable swarm UI (S keybinding is no-op, swarm panels hidden).
-func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace, tmux service.TmuxManager, workDir string, swarmSvc service.SwarmService, macrosList []config.Macro, reviewServices ...review.Service) App {
+// disable swarm UI (S keybinding is no-op, swarm panels hidden). A nil bus
+// (the interface itself, not a nil *events.Bus inside it) subscribes to
+// nothing.
+func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus service.EventStream, editor string, workspaces []service.Workspace, tmux service.TmuxManager, workDir string, swarmSvc service.SwarmService, macrosList []config.Macro, reviewServices ...review.Service) App {
 	clip := clipboard.New()
 	b := board.New(svc, icons)
 	b.SetWorkspaces(workspaces)
@@ -2475,11 +2476,10 @@ func (a App) handlePlanApprove(msg overlay.PlanApproveMsg) (tea.Model, tea.Cmd) 
 	a.overlayType = overlayNone
 	a.activeOverlay = nil
 	if msg.ReplySocket != "" {
-		_ = ipc.Send(msg.ReplySocket, ipc.Message{
-			Type:     "plan_verdict",
-			TaskID:   msg.ParentTaskID,
-			Status:   "approved",
-			PlanPath: msg.PlanPath,
+		_ = service.SendPlanVerdict(msg.ReplySocket, service.PlanVerdict{
+			ParentTaskID: msg.ParentTaskID,
+			Status:       "approved",
+			PlanPath:     msg.PlanPath,
 		})
 	}
 	// Notify the rest of the system (web clients, other TUIs) so the modal
@@ -2502,11 +2502,10 @@ func (a App) handlePlanReject(msg overlay.PlanRejectMsg) (tea.Model, tea.Cmd) {
 	a.overlayType = overlayNone
 	a.activeOverlay = nil
 	if msg.ReplySocket != "" {
-		_ = ipc.Send(msg.ReplySocket, ipc.Message{
-			Type:   "plan_verdict",
-			TaskID: msg.ParentTaskID,
-			Status: "rejected",
-			Notes:  msg.Notes,
+		_ = service.SendPlanVerdict(msg.ReplySocket, service.PlanVerdict{
+			ParentTaskID: msg.ParentTaskID,
+			Status:       "rejected",
+			Notes:        msg.Notes,
 		})
 	}
 	// Notify the rest of the system (web clients, other TUIs) so the modal
