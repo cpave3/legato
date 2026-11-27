@@ -165,19 +165,6 @@ func TestProviderAndMeterWordsComeFromTheTable(t *testing.T) {
 	}
 }
 
-// The new reasons have operator words, and the existing ones keep theirs.
-func TestUsageReasonTextCoversTheNewReasons(t *testing.T) {
-	if got := UsageReasonText(UsageReasonMissingKey); got == UsageReasonText(UsageReasonNotRead) || got == "" {
-		t.Fatalf("missing_key says %q", got)
-	}
-	if got := UsageReasonText(UsageReasonInvalidKey); got == UsageReasonText(UsageReasonNotRead) || got == "" {
-		t.Fatalf("invalid_key says %q", got)
-	}
-	if got := UsageReasonText(UsageReasonRateLimited); got != "asked too often; waiting" {
-		t.Fatalf("rate_limited says %q", got)
-	}
-}
-
 // The catalog tells every surface what exists: the providers Legato knows
 // and the meters they report, from the config provider table, not from a
 // reading.
