@@ -222,6 +222,10 @@ _Avoid_: model profile, account profile
 A named threshold on one qualified Claude or Codex subscription meter that selects a usage profile. Lower explicit order wins, with names breaking ties. Its match holds until the captured reset has passed and a fresh post-reset reading is below the threshold.
 _Avoid_: routing rule, quota rule
 
+**Repository default**:
+The usage profile new work in a repository (an exact `owner/name`, or `owner/*`) starts from, in place of the fallback. Usage rules and an operator's pin can still switch it, and an explicit launch choice always wins; it is a starting point, not a lock. Repositories with the same repository default share one switch and reset hold.
+_Avoid_: repository pin, repository lock, repo account
+
 ### Engrams
 
 **Engram**:
