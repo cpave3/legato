@@ -513,9 +513,7 @@ func (c *ReviewRunCaller) openSteps(ctx context.Context) {
 			rec, warnings, err = c.openStep(ctx, step)
 		}
 		if err != nil {
-			if _, failErr := c.workflows.FailWaitingError(ctx, attempt.RunID, attempt.Path, attempt.ID, reviewStepError(err)); failErr != nil && !errors.Is(failErr, store.ErrWorkflowStateConflict) {
-				log.Printf("review passes: failing %s: %v", attempt.RunID, failErr)
-			}
+			c.failWaitingLogged(ctx, attempt, reviewStepError(err))
 			continue
 		}
 		outputs, err := c.openOutputs(ctx, rec, warnings)
@@ -523,9 +521,24 @@ func (c *ReviewRunCaller) openSteps(ctx context.Context) {
 			log.Printf("review passes: the outputs of %s's open: %v", attempt.RunID, err)
 			continue
 		}
-		if _, err := c.workflows.CompleteWaiting(ctx, attempt.RunID, attempt.Path, attempt.ID, outputs); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
-			log.Printf("review passes: completing %s's open: %v", attempt.RunID, err)
-		}
+		c.completeWaitingLogged(ctx, attempt, outputs, "open")
+	}
+}
+
+// failWaitingLogged fails a waiting review step with failure. A step that
+// another tick or process ended first (a state conflict) is left as it is;
+// any other refusal is logged, and the next tick tries again.
+func (c *ReviewRunCaller) failWaitingLogged(ctx context.Context, attempt store.WorkflowStepAttempt, failure error) {
+	if _, err := c.workflows.FailWaitingError(ctx, attempt.RunID, attempt.Path, attempt.ID, failure); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
+		log.Printf("review passes: failing %s: %v", attempt.RunID, err)
+	}
+}
+
+// completeWaitingLogged completes a waiting review step (what names it in
+// the log) with outputs, as failWaitingLogged fails one.
+func (c *ReviewRunCaller) completeWaitingLogged(ctx context.Context, attempt store.WorkflowStepAttempt, outputs map[string]any, what string) {
+	if _, err := c.workflows.CompleteWaiting(ctx, attempt.RunID, attempt.Path, attempt.ID, outputs); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
+		log.Printf("review passes: completing %s's %s: %v", attempt.RunID, what, err)
 	}
 }
 
@@ -639,9 +652,7 @@ func (c *ReviewRunCaller) SettleSteps(ctx context.Context) {
 		}
 		rec, err := ownedStepLoop(ctx, c.engine.db, step, true)
 		if err != nil {
-			if _, failErr := c.workflows.FailWaitingError(ctx, attempt.RunID, attempt.Path, attempt.ID, err); failErr != nil && !errors.Is(failErr, store.ErrWorkflowStateConflict) {
-				log.Printf("review passes: failing %s: %v", attempt.RunID, failErr)
-			}
+			c.failWaitingLogged(ctx, attempt, err)
 			continue
 		}
 		outputs, err := c.closeStepLoop(ctx, rec)
@@ -649,9 +660,7 @@ func (c *ReviewRunCaller) SettleSteps(ctx context.Context) {
 			log.Printf("review passes: closing loop %s of %s, trying again: %v", rec.ID, rec.RunID, err)
 			continue
 		}
-		if _, err := c.workflows.CompleteWaiting(ctx, attempt.RunID, attempt.Path, attempt.ID, outputs); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
-			log.Printf("review passes: completing %s's close: %v", attempt.RunID, err)
-		}
+		c.completeWaitingLogged(ctx, attempt, outputs, "close")
 	}
 }
 
@@ -945,17 +954,13 @@ func (c *ReviewRunCaller) settleObservers(ctx context.Context, kind string) {
 			outputs, err = c.observe(ctx, kind, step, rec)
 		}
 		if err != nil {
-			if _, failErr := c.workflows.FailWaitingError(ctx, attempt.RunID, attempt.Path, attempt.ID, reviewStepError(err)); failErr != nil && !errors.Is(failErr, store.ErrWorkflowStateConflict) {
-				log.Printf("review passes: failing %s: %v", attempt.RunID, failErr)
-			}
+			c.failWaitingLogged(ctx, attempt, reviewStepError(err))
 			continue
 		}
 		if outputs == nil {
 			continue // not there yet
 		}
-		if _, err := c.workflows.CompleteWaiting(ctx, attempt.RunID, attempt.Path, attempt.ID, outputs); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
-			log.Printf("review passes: completing %s's %s: %v", attempt.RunID, kind, err)
-		}
+		c.completeWaitingLogged(ctx, attempt, outputs, kind)
 	}
 }
 
@@ -1218,14 +1223,10 @@ func (c *ReviewRunCaller) settleReady(ctx context.Context) {
 			continue
 		}
 		if err != nil {
-			if _, failErr := c.workflows.FailWaitingError(ctx, attempt.RunID, attempt.Path, attempt.ID, err); failErr != nil && !errors.Is(failErr, store.ErrWorkflowStateConflict) {
-				log.Printf("review passes: failing %s: %v", attempt.RunID, failErr)
-			}
+			c.failWaitingLogged(ctx, attempt, err)
 			continue
 		}
-		if _, err := c.workflows.CompleteWaiting(ctx, attempt.RunID, attempt.Path, attempt.ID, outputs); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
-			log.Printf("review passes: completing %s's ready: %v", attempt.RunID, err)
-		}
+		c.completeWaitingLogged(ctx, attempt, outputs, "ready")
 	}
 }
 
