@@ -248,6 +248,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/updates", s.updatesHandler())
 	mux.HandleFunc("/api/usage", s.usageHandler())
 	mux.HandleFunc("/api/usage/pin", s.usagePinHandler())
+	mux.HandleFunc("/api/usage/defaults", s.usageDefaultsHandler())
 	mux.HandleFunc("/api/usage/refresh", s.usageRefreshHandler())
 	mux.HandleFunc("/api/updates/check", s.updateCheckHandler())
 	mux.HandleFunc("/api/updates/apply", s.updateApplyHandler())

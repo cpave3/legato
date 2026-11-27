@@ -326,7 +326,11 @@ func (s *UsagePolicyService) evaluateScope(cfg config.UsageConfig, snap Subscrip
 	if !switched {
 		return next, nil, nil
 	}
-	return next, &store.UsageProfileSwitch{Scope: scope, From: previousProfile.Name, To: next.Profile.Name, Since: now.Format(time.RFC3339Nano), Reason: reason.Text}, nil
+	switchScope := ""
+	if scope != "" {
+		switchScope = baseline
+	}
+	return next, &store.UsageProfileSwitch{Scope: switchScope, From: previousProfile.Name, To: next.Profile.Name, Since: now.Format(time.RFC3339Nano), Reason: reason.Text}, nil
 }
 
 // UsageDefaults reads the committed profile; it never evaluates policy or
@@ -409,6 +413,16 @@ type UsageSelection struct {
 	Reason     UsageProfileReason  `json:"reason"`
 	Since      time.Time           `json:"since,omitzero"`
 	Error      string              `json:"error,omitempty"`
+}
+
+// DefaultsFor reads the committed defaults for new work in a repository
+// under the live configuration.
+func (s *UsagePolicyService) DefaultsFor(ctx context.Context, repo string) (UsageSelection, error) {
+	cfg, err := s.opts.Config(ctx)
+	if err != nil {
+		return UsageSelection{}, err
+	}
+	return UsageDefaultsFor(ctx, s.opts.Store, cfg, repo)
 }
 
 // UsageDefaultsFor reads the committed defaults for new work in a

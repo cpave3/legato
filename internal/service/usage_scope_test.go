@@ -82,11 +82,15 @@ func TestRepositoryScopesSwitchAndReturnToTheirOwnDefault(t *testing.T) {
 		}
 	}
 	snap, _ = policy.Snapshot(ctx)
-	if len(snap.Switches) != 1 || snap.Switches[0].Scope != "work" || snap.Switches[0].From != "Work" || snap.Switches[0].To != "Codex" {
+	if len(snap.Switches) != 1 || snap.Switches[0].Scope != "Work" || snap.Switches[0].From != "Work" || snap.Switches[0].To != "Codex" {
 		t.Fatalf("switches = %+v", snap.Switches)
 	}
 	if snap.Active.Profile.Name != "Default" {
 		t.Fatalf("global scope moved: %+v", snap.Active)
+	}
+	items, err := NewUsageAttentionAdapter(f.db).Snapshot(ctx)
+	if err != nil || len(items) != 1 || items[0].Title != "Usage profile for new work defaulting to Work switched to Codex" {
+		t.Fatalf("attention = %+v, %v", items, err)
 	}
 	if len(snap.Scopes) != 1 || snap.Scopes[0].Baseline != "Work" || snap.Scopes[0].Active.Profile.Name != "Codex" || len(snap.Scopes[0].Repositories) != 1 {
 		t.Fatalf("scopes = %+v", snap.Scopes)
@@ -113,7 +117,7 @@ func TestRepositoryScopesSwitchAndReturnToTheirOwnDefault(t *testing.T) {
 		t.Fatalf("after reset = %+v", sel)
 	}
 	snap, _ = policy.Snapshot(ctx)
-	if len(snap.Switches) != 2 || snap.Switches[0].To != "Work" || snap.Switches[0].Scope != "work" {
+	if len(snap.Switches) != 2 || snap.Switches[0].To != "Work" || snap.Switches[0].Scope != "Work" {
 		t.Fatalf("switches = %+v", snap.Switches)
 	}
 }

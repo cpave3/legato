@@ -8,8 +8,8 @@ import (
 // UsageProfileSwitch records a committed change of effective defaults.
 type UsageProfileSwitch struct {
 	ID int64 `db:"id" json:"id"`
-	// Scope is the lower-cased baseline profile of the repositories whose
-	// defaults switched; empty for the fallback (global) scope.
+	// Scope is the baseline profile (repository default) of the new work
+	// whose defaults switched; empty for the fallback (global) scope.
 	Scope  string `db:"scope" json:"scope"`
 	From   string `db:"from_profile" json:"from_profile"`
 	To     string `db:"to_profile" json:"to_profile"`
