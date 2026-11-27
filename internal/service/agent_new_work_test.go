@@ -33,7 +33,7 @@ func TestSpawnAgentNewWorkDefaults(t *testing.T) {
 			claude := hooks.NewClaudeCodeAdapter("legato")
 			mt := newMockTmux()
 			calls := 0
-			svc := NewAgentService(db, mt, t.TempDir(), AgentServiceOptions{Adapter: claude, Adapters: map[string]AIToolAdapter{"codex": codex, "claude-code": claude}, DisablePeerAwareness: true, NewWorkDefaults: func(context.Context) (NewWorkDefaults, error) {
+			svc := NewAgentService(db, mt, t.TempDir(), AgentServiceOptions{Adapter: claude, Adapters: map[string]AIToolAdapter{"codex": codex, "claude-code": claude}, DisablePeerAwareness: true, NewWorkDefaults: func(context.Context, string) (NewWorkDefaults, error) {
 				calls++
 				return NewWorkDefaults{Agent: "codex", Tier: "profile"}, nil
 			}})
@@ -83,7 +83,7 @@ func TestSpawnAgentSurfacesNewWorkDefaultsError(t *testing.T) {
 	createTask(t, db, "task-profile")
 	want := errors.New("profile unavailable")
 	mt := newMockTmux()
-	svc := NewAgentService(db, mt, t.TempDir(), AgentServiceOptions{Adapter: hooks.NewCodexAdapter("legato"), NewWorkDefaults: func(context.Context) (NewWorkDefaults, error) { return NewWorkDefaults{}, want }})
+	svc := NewAgentService(db, mt, t.TempDir(), AgentServiceOptions{Adapter: hooks.NewCodexAdapter("legato"), NewWorkDefaults: func(context.Context, string) (NewWorkDefaults, error) { return NewWorkDefaults{}, want }})
 	if err := svc.SpawnAgent(context.Background(), "task-profile", 0, 0); !errors.Is(err, want) {
 		t.Fatalf("error = %v", err)
 	}
@@ -115,7 +115,7 @@ func TestSpawnAgentNewWorkDefaultsExcludeSwarmAndReeve(t *testing.T) {
 				createTask(t, db, taskID)
 			}
 			mt := newMockTmux()
-			svc := NewAgentService(db, mt, t.TempDir(), AgentServiceOptions{Adapter: hooks.NewClaudeCodeAdapter("legato"), DisablePeerAwareness: true, NewWorkDefaults: func(context.Context) (NewWorkDefaults, error) {
+			svc := NewAgentService(db, mt, t.TempDir(), AgentServiceOptions{Adapter: hooks.NewClaudeCodeAdapter("legato"), DisablePeerAwareness: true, NewWorkDefaults: func(context.Context, string) (NewWorkDefaults, error) {
 				t.Fatal("excluded role read new-work defaults")
 				return NewWorkDefaults{}, nil
 			}})
@@ -148,7 +148,7 @@ func TestSpawnAgentValidatesProfileTierBeforeLaunch(t *testing.T) {
 	codex := hooks.NewCodexAdapter("legato")
 	codex.SetTiers(map[string][]string{"profile": {"--last"}})
 	mt := newMockTmux()
-	svc := NewAgentService(db, mt, t.TempDir(), AgentServiceOptions{Adapter: hooks.NewClaudeCodeAdapter("legato"), Adapters: map[string]AIToolAdapter{"codex": codex}, NewWorkDefaults: func(context.Context) (NewWorkDefaults, error) {
+	svc := NewAgentService(db, mt, t.TempDir(), AgentServiceOptions{Adapter: hooks.NewClaudeCodeAdapter("legato"), Adapters: map[string]AIToolAdapter{"codex": codex}, NewWorkDefaults: func(context.Context, string) (NewWorkDefaults, error) {
 		return NewWorkDefaults{Agent: "codex", Tier: "profile"}, nil
 	}})
 	if err := svc.SpawnAgent(ctx, "task-profile", 0, 0, AgentSpawnOptions{SessionPolicy: "new"}); !errors.Is(err, ErrTaskResumeConflict) || !strings.Contains(err.Error(), "--last") {

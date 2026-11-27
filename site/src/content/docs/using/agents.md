@@ -23,7 +23,7 @@ launch and logs the failure instead of sending the command to another program.
 
 1. Select the task's card on the board.
 2. Press `a`. The spawn dialog opens.
-3. Choose the agent tool with `h` and `l`. The default tool comes first, then the others, then `shell`.
+3. Choose the agent tool with `h` and `l`. `default` comes first: the tool the [usage profile](/legato/using/usage/) for this work chooses, which can depend on its repository. Then every tool as an explicit choice, then `shell`.
 4. With engram installed, choose an [engram](/legato/agent-tools/engrams/) on the `engram` row with `h` and `l`, or leave it on `no engram`. Press `r` there to remember the choice for the repository.
 5. Tick any [resources](/legato/agent-tools/resources/) to give the agent, with `space`.
 6. Choose where the agent starts, then press `enter`.

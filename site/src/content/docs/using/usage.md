@@ -150,11 +150,42 @@ Profiles apply only to **new work with no explicit agent**: web, TUI, CLI, MCP, 
 
 Resuming a conversation keeps the agent kind of that slot's newest saved conversation, even after a profile switch. Running agents, started runs and in-flight review passes do not change. Swarm roles, the learning curator, the Reeve and doctor do not follow this policy.
 
-Each new review pass reads the profile's optional reviewer defaults; an explicit reviewer override on its loop or handoff still wins. The pass saves its resolved choice, so retries keep it. Older loops keep their frozen reviewer settings.
+Each new review pass reads the optional reviewer defaults of the profile for its pull request's repository; an explicit reviewer override on its loop or handoff still wins. The pass saves its resolved choice, so retries keep it. Older loops keep their frozen reviewer settings.
+
+## Repository defaults
+
+A repository can start from a profile other than the fallback. In **Settings › Usage › Profiles and rules**, add a repository default: an exact repository (`autopilot-dev/autopilot`) or every repository of an owner (`cpave3/*`), and its profile. An exact repository wins over its owner's entry. Repositories with no entry use the fallback.
+
+```yaml
+usage:
+  fallback_profile: Default
+  repositories:
+    - repository: autopilot-dev/autopilot
+      profile: Claude Work
+    - repository: cpave3/*
+      profile: Default
+  rules:
+    - name: work almost full
+      order: 1
+      meter: claude.work.weekly
+      at_least: 90
+      profile: Codex
+      when_default: [Claude Work]
+```
+
+A repository default is where new work there starts, not a lock:
+
+- Rules still switch it. Give a rule **Only for work defaulting to** (`when_default`) to limit it to work whose repository default is one of those profiles; a rule without it applies to all new work. Each repository default keeps its own switch and reset hold, so in the example only `autopilot-dev/autopilot` moves to Codex near the work account's weekly limit, and it returns to Claude Work, not the fallback, after a fresh reading below the threshold once the limit resets.
+- A pin applies to all new work, in every repository, until it ends.
+- An explicit agent or account on a launch always wins, as above.
+
+Legato knows the repository from how the work starts: the repository a job clone is made of, the task's linked repository, or a folder you chose. It never guesses from where Legato runs. Work with no known repository uses the fallback. A handed-off task uses the worker's own repository defaults.
+
+The Usage card lists the current profile for new work in each repository default. `GET /api/usage/defaults?repo=owner/name` answers what new work there would start with and why. Agents already running keep the agent and account they started with.
 
 ## Pinning a profile
 
-Open the Usage card and choose **Pin a profile** to keep a profile regardless of the rules. Under **Keep it until**, choose **I unpin**, **A time** or **A reset** (a limit's next reset, listed with when that is). The CLI offers the same choices:
+Open the Usage card and choose **Pin a profile** to keep a profile for all new work, regardless of the rules and repository defaults. Under **Keep it until**, choose **I unpin**, **A time** or **A reset** (a limit's next reset, listed with when that is). The CLI offers the same choices:
 
 ```bash
 legato usage pin spare

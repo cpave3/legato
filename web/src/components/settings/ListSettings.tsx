@@ -134,6 +134,19 @@ function FieldInput({ field, value, onChange, onError = () => {} }: { field: For
       return <select aria-label={field.label} className={fieldClass} value={typeof value === "boolean" ? String(value) : ""} onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value === "true")}>
         <option value="">{field.unsetLabel ?? "Default"}</option><option value="true">On</option><option value="false">Off</option>
       </select>
+    case "checks": {
+      const chosen = Array.isArray(value) ? (value as string[]) : []
+      const choices = field.choices ?? []
+      const toggle = (v: string, on: boolean) => {
+        const next = choices.map(([c]) => c).filter((c) => c === v ? on : chosen.some((x) => x.toLowerCase() === c.toLowerCase()))
+        onChange(next.length ? next : undefined)
+      }
+      return <span role="group" aria-label={field.label} className="flex flex-wrap gap-x-3 gap-y-1">
+        {choices.map(([v, label]) => <label key={v} className="flex items-center gap-1.5 text-xs">
+          <input type="checkbox" className="h-4 w-4" checked={chosen.some((x) => x.toLowerCase() === v.toLowerCase())} onChange={(e) => toggle(v, e.target.checked)} />{label}
+        </label>)}
+      </span>
+    }
     case "check":
       return <input type="checkbox" aria-label={field.label} className="h-4 w-4 self-start" checked={value === true} onChange={(e) => onChange(e.target.checked ? true : undefined)} />
     case "lines":

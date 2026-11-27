@@ -325,6 +325,15 @@ func (s *SubscriptionUsageService) Pin(ctx context.Context, pin *UsagePinRequest
 	return s.pin(ctx, pin)
 }
 
+// DefaultsFor is the current defaults for new work in a repository ("" for
+// none), read from the committed policy; it never evaluates.
+func (s *SubscriptionUsageService) DefaultsFor(ctx context.Context, repo string) (UsageSelection, error) {
+	if s.policy == nil {
+		return UsageSelection{}, errors.New("usage policy is unavailable")
+	}
+	return s.policy.DefaultsFor(ctx, repo)
+}
+
 // ReadingsSnapshot is the cache without policy, used by the evaluator.
 func (s *SubscriptionUsageService) ReadingsSnapshot(ctx context.Context) (SubscriptionUsage, error) {
 	rows, err := s.opts.Store.ListSubscriptionUsage(ctx)

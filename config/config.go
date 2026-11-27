@@ -1228,12 +1228,15 @@ type UpdatesConfig struct {
 
 // UsageConfig is reading the subscriptions' usage limits.
 type UsageConfig struct {
-	Profiles        []UsageProfile      `yaml:"profiles" json:"profiles"`
-	Rules           []UsageRule         `yaml:"rules" json:"rules"`
-	FallbackProfile string              `yaml:"fallback_profile" json:"fallback_profile"`
-	Claude          UsageProviderConfig `yaml:"claude" json:"claude"`
-	Codex           UsageProviderConfig `yaml:"codex" json:"codex"`
-	OpenCode        UsageOpenCodeConfig `yaml:"opencode" json:"opencode"`
+	Profiles []UsageProfile `yaml:"profiles" json:"profiles"`
+	Rules    []UsageRule    `yaml:"rules" json:"rules"`
+	// Repositories give the profile new work in a repository starts from
+	// (its baseline) in place of FallbackProfile. See RepositoryDefault.
+	Repositories    []UsageRepositoryDefault `yaml:"repositories" json:"repositories"`
+	FallbackProfile string                   `yaml:"fallback_profile" json:"fallback_profile"`
+	Claude          UsageProviderConfig      `yaml:"claude" json:"claude"`
+	Codex           UsageProviderConfig      `yaml:"codex" json:"codex"`
+	OpenCode        UsageOpenCodeConfig      `yaml:"opencode" json:"opencode"`
 	// PollInterval is how often each is read: a Go duration of at least
 	// MinUsagePollInterval, DefaultUsagePollInterval when empty.
 	PollInterval string `yaml:"poll_interval" json:"poll_interval"`

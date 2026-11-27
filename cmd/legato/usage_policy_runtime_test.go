@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/cpave3/legato/internal/engine/events"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -228,6 +229,71 @@ func TestUsageRootAndPinCommandsKeepSeparatePermissionClasses(t *testing.T) {
 	}{{[]string{"usage", "--json"}, "read"}, {[]string{"usage", "pin", "save"}, "change"}, {[]string{"usage", "unpin"}, "change"}, {[]string{"usage", "unknown"}, "never"}} {
 		if class, _ := classifyLegatoCommand(tc.args); class != tc.class {
 			t.Fatalf("%v => %s want %s", tc.args, class, tc.class)
+		}
+	}
+}
+
+func TestUsageRepositoryDefaultsReachTheSpawnOfATaskInThatRepository(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "config.yaml")
+	t.Setenv("HOME", dir)
+	text := "data_dir: " + dir + "\nusage:\n  claude:\n    enabled: false\n  codex:\n    enabled: false\n  profiles:\n    - name: save\n      agent: codex\n      tier: careful\n    - name: claude\n      agent: claude-code\n  fallback_profile: save\n  repositories:\n    - {repository: acme/*, profile: claude}\nadapters:\n  codex:\n    tiers:\n      careful:\n        launch_args: [--model, profile-model]\n"
+	if err := os.WriteFile(file, []byte(text), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEGATO_CONFIG", file)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.New(filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, id := range []string{"acme-task", "other-task"} {
+		if err := db.CreateTask(ctx, store.Task{ID: id, Title: "New work"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.SetCodeContext(ctx, "acme-task", &store.CodeContext{Repo: "acme/widget"}); err != nil {
+		t.Fatal(err)
+	}
+	usage := subscriptionUsageFor(cfg, db, events.New())
+	release, err := claimUsagePoller(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	usage.Poll(ctx)
+	codex := hooks.NewCodexAdapter("legato")
+	codex.SetTiers(map[string][]string{"careful": {"--model", "profile-model"}})
+	claude := hooks.NewClaudeCodeAdapter("legato")
+	tmux := &usageLaunchTmux{contractTmux: contractTmux{alive: map[string]bool{}}}
+	// The options serve, commands and the TUI build their agent service with.
+	agents := service.NewAgentService(db, tmux, dir, withUsageNewWork(service.AgentServiceOptions{Adapter: claude, Adapters: map[string]service.AIToolAdapter{"codex": codex, "claude-code": claude}, DisablePeerAwareness: true}, db))
+	// A checkout the operator chose, of acme/widget, for a task that records
+	// no repository.
+	checkout := filepath.Join(dir, "widget")
+	for _, args := range [][]string{{"init", "-q", checkout}, {"-C", checkout, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"}, {"-C", checkout, "remote", "add", "origin", "git@github.com:acme/widget.git"}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	if err := db.CreateTask(ctx, store.Task{ID: "dir-task", Title: "New work"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		task, kind string
+		opts       service.AgentSpawnOptions
+	}{{"acme-task", "claude-code", service.AgentSpawnOptions{}}, {"other-task", "codex", service.AgentSpawnOptions{}}, {"dir-task", "claude-code", service.AgentSpawnOptions{WorkingDir: checkout}}} {
+		if err := agents.SpawnAgent(ctx, tc.task, 0, 0, tc.opts); err != nil {
+			t.Fatal(err)
+		}
+		session, err := db.GetAgentSessionByTaskID(ctx, tc.task)
+		if err != nil || session.AgentKind != tc.kind {
+			t.Fatalf("%s: session=%+v err=%v", tc.task, session, err)
 		}
 	}
 }

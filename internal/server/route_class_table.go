@@ -98,6 +98,7 @@ var routeClassTable = []routeClassEntry{
 	{"PUT", "/api/setup/dismissed", ClassChange, "Hide the setup checklist, or bring it back"},
 	{"GET", "/api/updates", ClassRead, "Read the update status"},
 	{"GET", "/api/usage", ClassRead, "Read how much of each subscription's usage limits is used, with the provider catalog"},
+	{"GET", "/api/usage/defaults", ClassRead, "Read the current usage defaults for new work in a repository, with where they come from"},
 	{"PUT", "/api/usage/pin", ClassChange, "Pin usage defaults to a profile"},
 	{"DELETE", "/api/usage/pin", ClassChange, "Remove the usage profile pin"},
 	{"POST", "/api/usage/refresh", ClassRead, "Read the subscriptions' usage again now"},

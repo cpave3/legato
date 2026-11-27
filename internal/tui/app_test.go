@@ -1340,8 +1340,11 @@ func (f *fakeAgentService) SpawnEphemeralAgent(_ context.Context, _ string, _, _
 }
 func (f *fakeAgentService) LastSpawnConflicts() []service.AgentSpawnConflict { return nil }
 func (f *fakeAgentService) RegisteredAdapters() []string                     { return nil }
-func (f *fakeAgentService) NewWorkDefaults(context.Context) (service.NewWorkDefaults, error) {
+func (f *fakeAgentService) NewWorkDefaults(context.Context, string) (service.NewWorkDefaults, error) {
 	return service.NewWorkDefaults{Agent: f.DefaultAdapter()}, nil
+}
+func (f *fakeAgentService) NewWorkDefaultsFor(ctx context.Context, _ string, _ service.AgentSpawnOptions) (service.NewWorkDefaults, error) {
+	return f.NewWorkDefaults(ctx, "")
 }
 func (f *fakeAgentService) DefaultAdapter() string                       { return f.defaultAdapter }
 func (f *fakeAgentService) AdapterFor(kind string) service.AIToolAdapter { return nil }

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -74,5 +76,18 @@ func TestUsagePrintsOpenCodeGoWithItsMonthlyMeter(t *testing.T) {
 	want = "OpenCode Go: unavailable (name its API key in Settings › Usage)\n"
 	if got := formatSubscriptionUsage(missingKey, now); got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestUsageTextListsEachRepositoryDefaultsCurrentProfile(t *testing.T) {
+	snap := service.SubscriptionUsage{Policy: &service.UsagePolicySnapshot{
+		Active: service.UsageProfileState{Initialized: true, Profile: config.UsageProfile{Name: "Default"}, Reason: service.UsageProfileReason{Text: "No usage rule matches; using fallback defaults"}},
+		Scopes: []service.UsagePolicyScope{{Key: "work", Baseline: "Work", Repositories: []string{"autopilot-dev/autopilot"},
+			Active: service.UsageProfileState{Profile: config.UsageProfile{Name: "Codex"}, Reason: service.UsageProfileReason{Text: "claude.weekly reached 90% (work-weekly)"}}}},
+	}}
+	got := formatSubscriptionUsage(snap, time.Now())
+	want := "New work in autopilot-dev/autopilot (default Work): Codex — claude.weekly reached 90% (work-weekly)\n"
+	if !strings.Contains(got, want) {
+		t.Fatalf("text = %q", got)
 	}
 }

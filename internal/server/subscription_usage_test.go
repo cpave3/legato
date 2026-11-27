@@ -200,3 +200,46 @@ func TestUsagePinAPIKeepsAndClearsAnOperatorPin(t *testing.T) {
 		}
 	}
 }
+
+func TestUsageDefaultsAPIExplainsNewWorkInARepository(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "defaults.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	usage := service.NewSubscriptionUsageService(service.SubscriptionUsageOptions{Store: db})
+	cfg := config.UsageConfig{
+		Profiles:        []config.UsageProfile{{Name: "Default", Agent: "claude-code"}, {Name: "Work", Agent: "claude-code", Account: "work"}},
+		FallbackProfile: "Default",
+		Repositories:    []config.UsageRepositoryDefault{{Repository: "autopilot-dev/autopilot", Profile: "Work"}},
+	}
+	policy := service.NewUsagePolicyService(service.UsagePolicyOptions{Store: db, Config: func(context.Context) (config.UsageConfig, error) { return cfg, nil }, Readings: usage.ReadingsSnapshot})
+	usage.SetPolicy(policy, policy.Pin)
+	if err := policy.Evaluate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(nil, nil, nil, ":0")
+	srv.SetSubscriptionUsage(usage)
+	for _, tc := range []struct{ query, profile, source string }{
+		{"?repo=autopilot-dev/autopilot", "Work", service.UsageSourceRepository},
+		{"?repo=someone/else", "Default", service.UsageSourceFallback},
+		{"", "Default", service.UsageSourceFallback},
+	} {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/usage/defaults"+tc.query, nil))
+		var sel service.UsageSelection
+		if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &sel) != nil || sel.Profile.Name != tc.profile || sel.Source != tc.source {
+			t.Fatalf("%s = %d %s", tc.query, rec.Code, rec.Body.String())
+		}
+	}
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/usage/defaults?repo=not%20a%20repo", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad repo = %d", rec.Code)
+	}
+	code, body := getUsage(t, srv)
+	scopes, _ := body["policy"].(map[string]any)["scopes"].([]any)
+	if code != 200 || len(scopes) != 1 {
+		t.Fatalf("GET /api/usage scopes = %d %+v", code, body["policy"])
+	}
+}

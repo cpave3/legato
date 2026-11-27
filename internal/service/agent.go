@@ -212,6 +212,10 @@ type AgentSpawnOptions struct {
 	SubtaskID    string   // sub-task ID being assigned
 	Scope        []string // scope globs for conflict checks
 	WorkingDir   string   // override for tmux session working directory; falls back to agent service workDir
+	// WorkingDirDefaulted says the caller filled WorkingDir with its own
+	// default folder, not one the operator chose: usage defaults never read
+	// a repository from it.
+	WorkingDirDefaulted bool
 	// Repo, a GitHub repository (owner/name), makes the agent work in a
 	// fresh clone of it at Ref (the default branch when empty) made for
 	// its execution, instead of WorkingDir.
@@ -348,7 +352,12 @@ type AgentService interface {
 	LastSpawnConflicts() []AgentSpawnConflict
 	RegisteredAdapters() []string
 	DefaultAdapter() string
-	NewWorkDefaults(ctx context.Context) (NewWorkDefaults, error)
+	// NewWorkDefaults are the defaults for new work in a repository
+	// (host/owner/name; "" for none, which is the global policy).
+	NewWorkDefaults(ctx context.Context, repo string) (NewWorkDefaults, error)
+	// NewWorkDefaultsFor are the defaults a spawn of the task with these
+	// options would take, for the repository it would work in.
+	NewWorkDefaultsFor(ctx context.Context, taskID string, opt AgentSpawnOptions) (NewWorkDefaults, error)
 	// AdapterFor returns the AIToolAdapter for the given kind, or nil if none
 	// is registered (e.g. kind "shell"). Empty kind resolves to the default.
 	AdapterFor(kind string) AIToolAdapter
@@ -400,7 +409,8 @@ type LearningPromptProvider interface {
 }
 
 type agentService struct {
-	newWorkDefaults          func(context.Context) (NewWorkDefaults, error)
+	newWorkDefaults          func(context.Context, string) (NewWorkDefaults, error)
+	newWorkInspector         CheckoutInspector
 	claudeAccounts           []config.ClaudeAccount
 	claudeManagedSettingsDir string
 	accountDataDir           string
@@ -623,9 +633,15 @@ type AgentServiceOptions struct {
 	ClaudeManagedSettingsDir string
 	ClaudeAccounts           []config.ClaudeAccount
 	AccountDataDir           string
-	// NewWorkDefaults selects fresh work with no explicit agent. Nil uses
-	// Adapter; callback failures refuse the spawn before launch validation.
-	NewWorkDefaults func(context.Context) (NewWorkDefaults, error)
+	// NewWorkDefaults selects fresh work with no explicit agent, for the
+	// repository (host/owner/name, "" for none) the spawn works in. Nil
+	// uses Adapter; callback failures refuse the spawn before launch
+	// validation.
+	NewWorkDefaults func(ctx context.Context, repo string) (NewWorkDefaults, error)
+	// NewWorkInspector reads the repository of a working directory a spawn
+	// names, for its usage defaults only (CheckoutInspector when nil). It
+	// does not turn on code-context capture, which CheckoutInspector does.
+	NewWorkInspector CheckoutInspector
 	// ToolCheck, when set, is asked before a spawn whether the chosen
 	// agent tool (its adapter name) can start; an error refuses the spawn
 	// before anything is made. Doctor.SpawnCheck is the runtime's.
@@ -780,6 +796,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 	if len(opts) > 0 {
 		svc.adapter = opts[0].Adapter
 		svc.newWorkDefaults = opts[0].NewWorkDefaults
+		svc.newWorkInspector = opts[0].NewWorkInspector
 		svc.claudeAccounts = slices.Clone(opts[0].ClaudeAccounts)
 		svc.claudeManagedSettingsDir = opts[0].ClaudeManagedSettingsDir
 		svc.accountDataDir = opts[0].AccountDataDir
@@ -850,7 +867,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		opt.AgentKind = "claude-code"
 	}
 	if opt.AgentKind == "" && opt.SessionPolicy != "resume" && opt.Role == "" && opt.ParentTaskID == "" && !IsReeveTask(ctx, a.store, taskID) {
-		defaults, err := a.NewWorkDefaults(ctx)
+		defaults, err := a.NewWorkDefaultsFor(ctx, taskID, opt)
 		if err != nil {
 			return err
 		}
@@ -2022,16 +2039,57 @@ func (a *agentService) RegisteredAdapters() []string {
 // DefaultAdapter reads the new-work default with a background context. On
 // failure it shows the configured default; SpawnAgent returns the error.
 func (a *agentService) DefaultAdapter() string {
-	defaults, err := a.NewWorkDefaults(context.Background())
+	defaults, err := a.NewWorkDefaults(context.Background(), "")
 	if err == nil {
 		return defaults.Agent
 	}
 	return a.baseDefaultAdapter()
 }
 
-func (a *agentService) NewWorkDefaults(ctx context.Context) (NewWorkDefaults, error) {
+func (a *agentService) NewWorkDefaultsFor(ctx context.Context, taskID string, opt AgentSpawnOptions) (NewWorkDefaults, error) {
+	return a.NewWorkDefaults(ctx, a.newWorkRepository(ctx, taskID, opt))
+}
+
+// newWorkRepository is the repository a spawn works in, as its launch
+// context records it, in spawnProjectKey's order: the repository it
+// clones, the job clone it joins, its task's code context, then the origin
+// of a working directory it names. Never the agent service's own folder,
+// which is a guess. "" when none is known.
+func (a *agentService) newWorkRepository(ctx context.Context, taskID string, opt AgentSpawnOptions) string {
+	if repo, ok := config.NormalizeRepository(opt.Repo); ok {
+		return repo
+	}
+	if opt.Clone != 0 {
+		if clone, err := a.store.JobCloneByID(ctx, opt.Clone); err == nil && clone != nil {
+			if repo, ok := config.NormalizeRepository(clone.Repo); ok {
+				return repo
+			}
+		}
+	}
+	if task, err := a.store.GetTask(ctx, taskID); err == nil {
+		if cc, err := store.ParseCodeContext(task.CodeContext); err == nil && cc != nil {
+			if repo, ok := config.NormalizeRepository(cc.Repo); ok {
+				return repo
+			}
+		}
+	}
+	inspector := a.newWorkInspector
+	if inspector == nil {
+		inspector = a.checkoutInspector
+	}
+	if opt.WorkingDir != "" && !opt.WorkingDirDefaulted && inspector != nil {
+		if cc, err := inspector.InspectCodeContext(opt.WorkingDir); err == nil && cc != nil {
+			if repo, ok := config.NormalizeRepository(cc.Repo); ok {
+				return repo
+			}
+		}
+	}
+	return ""
+}
+
+func (a *agentService) NewWorkDefaults(ctx context.Context, repo string) (NewWorkDefaults, error) {
 	if a.newWorkDefaults != nil {
-		defaults, err := a.newWorkDefaults(ctx)
+		defaults, err := a.newWorkDefaults(ctx, repo)
 		if err != nil {
 			return NewWorkDefaults{}, err
 		}

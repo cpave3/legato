@@ -9,7 +9,8 @@ export interface FormField {
   label: string
   help?: string
   optional?: boolean
-  kind: "text" | "lines" | "bool" | "check" | "choice" | "swatches" | "textarea" | "tiers" | "pairs" | "number"
+  // checks: several of choices, kept in their order; none chosen unsets it.
+  kind: "text" | "lines" | "bool" | "check" | "checks" | "choice" | "swatches" | "textarea" | "tiers" | "pairs" | "number"
   choices?: [string, string][]
   optionsFrom?: "profiles" | "tiers" | "usage_meters" | "claude_accounts"
   agentKey?: string
@@ -92,9 +93,17 @@ export const listForms: Record<string, ListForm> = {
       { key: "meter", label: "Meter", kind: "choice", optionsFrom: "usage_meters" },
       { key: "at_least", label: "At least (%)", kind: "number" },
       { key: "profile", label: "Profile", kind: "choice", optionsFrom: "profiles" },
+      { key: "when_default", label: "Only for work defaulting to", kind: "checks", optional: true, optionsFrom: "profiles", help: "Limit the rule to new work whose repository default (or the fallback) is one of these. None chosen: all new work." },
     ],
     empty: "No usage rules.", add: "New rule",
-    ordered: "Lower order matches first; names break ties. The first matching rule chooses the profile. With no match, the fallback profile applies.",
+    ordered: "Lower order matches first; names break ties. The first rule that applies to the work's default and matches chooses the profile. With none, the work's repository default applies, else the fallback profile.",
+  },
+  "usage.repositories": {
+    name: { label: "Repository", placeholder: "owner/name or owner/*", help: "A GitHub repository, or owner/* for every repository of an owner. An exact name beats its owner's; case is ignored." },
+    fields: [
+      { key: "profile", label: "Profile", kind: "choice", optionsFrom: "profiles", help: "The usual profile for new work in this repository, in place of the fallback. Rules and a pin can still switch it; an explicit agent or account on a launch always wins. Agents already running keep theirs." },
+    ],
+    empty: "No repository defaults: new work everywhere starts from the fallback profile.", add: "Add a repository default",
   },
   workspaces: {
     name: { label: "Name", placeholder: "infra" },

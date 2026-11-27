@@ -96,6 +96,16 @@ func formatSubscriptionUsage(snap service.SubscriptionUsage, now time.Time) stri
 			}
 			fmt.Fprintf(&b, "Pinned: %s (%s)\n", active.Pin.Profile, expiry)
 		}
+		for _, scope := range snap.Policy.Scopes {
+			name := scope.Active.Profile.Name
+			if name == "" {
+				name = "configured defaults"
+			}
+			fmt.Fprintf(&b, "New work in %s (default %s): %s — %s\n", strings.Join(scope.Repositories, ", "), scope.Baseline, name, scope.Active.Reason.Text)
+			if scope.Active.Error != "" {
+				fmt.Fprintf(&b, "  Policy error: %s\n", scope.Active.Error)
+			}
+		}
 		for _, change := range snap.Policy.Switches {
 			fmt.Fprintf(&b, "  %s: %s → %s — %s\n", change.Since, change.From, change.To, change.Reason)
 		}

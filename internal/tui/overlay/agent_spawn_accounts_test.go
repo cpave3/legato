@@ -59,3 +59,22 @@ func TestSpawnNamedAccountMakesDefaultAgentExplicitClaude(t *testing.T) {
 		t.Fatalf("named account submit = %+v", got)
 	}
 }
+
+// The default follows the usage profile of the work's repository, which may
+// not be the global default, so every adapter, the global one included,
+// stays an explicit override.
+func TestSpawnOffersEveryAdapterBesideTheUsageDefault(t *testing.T) {
+	m := NewAgentSpawn([]string{"chimera", "claude-code", "codex"}, "chimera", "/work", "TASK-1", "Task")
+	var values, labels []string
+	for _, a := range m.agents {
+		values, labels = append(values, a.value), append(labels, a.label)
+	}
+	if strings.Join(values, ",") != ",chimera,claude-code,codex,shell" || labels[0] != "default" {
+		t.Fatalf("agents = %q %q", values, labels)
+	}
+	m, _ = spawnKey(t, m, keyRight)
+	_, msg := spawnKey(t, m, keyEnter)
+	if got := msg.(AgentSpawnSubmitMsg); got.AgentKind != "chimera" {
+		t.Fatalf("explicit global adapter = %+v", got)
+	}
+}

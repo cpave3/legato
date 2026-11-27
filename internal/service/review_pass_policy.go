@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
 // newPassSettings resolves policy once, before the pass and its pins are
-// persisted. A discarded pass pinned again keeps its original selection.
-func (s *ReviewPassService) newPassSettings(ctx context.Context, loop *store.HandoffReview, number int) (ReviewPassSettings, error) {
+// persisted, with the usage defaults of the loop's repository. A retried,
+// respawned or discarded-and-pinned pass keeps its original selection.
+func (s *ReviewPassService) newPassSettings(ctx context.Context, loop *store.HandoffReview, number int, repo string) (ReviewPassSettings, error) {
 	settings := loopSettings(loop, s.config().Defaults)
 	previous, err := s.db.GetHandoffReviewPass(ctx, loop.TaskID, number)
 	if err == nil && previous != nil {
@@ -25,7 +27,8 @@ func (s *ReviewPassService) newPassSettings(ctx context.Context, loop *store.Han
 	}
 	defaults := s.config().Defaults
 	if s.opts.ReviewerDefaults != nil {
-		defaults, err = s.opts.ReviewerDefaults(ctx, defaults)
+		normalized, _ := config.NormalizeRepository(repo)
+		defaults, err = s.opts.ReviewerDefaults(ctx, normalized, defaults)
 		if err != nil {
 			return ReviewPassSettings{}, err
 		}

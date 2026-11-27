@@ -36,8 +36,12 @@ func (a *UsageAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInput,
 		if name == "" {
 			name = "configured defaults"
 		}
+		title := "Usage profile switched to " + name
+		if change.Scope != "" {
+			title = "Usage profile for new work defaulting to " + change.Scope + " switched to " + name
+		}
 		out = append(out, AttentionInput{SignalKind: AttentionSignalUsageProfileSwitched, SourceKey: fmt.Sprint(change.ID), SourceRevision: change.To + ":" + change.Since,
-			Category: "maintenance", Urgency: "info", Title: "Usage profile switched to " + name, Reason: change.Reason,
+			Category: "maintenance", Urgency: "info", Title: title, Reason: change.Reason,
 			Navigation: AttentionNavigation{Kind: "agents", Target: "usage"},
 			Actions:    []AttentionAction{{ID: "open", Label: "Open Usage", Kind: "navigate", Href: "/agents?usage=open"}, {ID: "pin", Label: "Pin profile", Kind: "navigate", Href: "/agents?usage=open&pin=" + url.QueryEscape(change.To)}}})
 	}

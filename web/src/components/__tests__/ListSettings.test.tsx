@@ -171,6 +171,35 @@ describe("List forms", () => {
     await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "agents.sandbox.mounts", "~/notes", { access: "write" }))
   })
 
+  it("adds a repository default: a repository or owner/* and its usage profile", async () => {
+    show([list({ key: "usage.repositories", title: "Repository defaults", mode: "live", name_field: "repository", entries: [{ name: "cpave3/*", value: { profile: "Default" }, source: "database", pinned: false }] }),
+      list({ key: "usage.profiles", title: "Usage profiles", entries: [{ name: "Default", value: { agent: "claude-code" }, source: "database", pinned: false }, { name: "Work", value: { agent: "claude-code", account: "work" }, source: "database", pinned: false }] })], ["usage.repositories"])
+    expect(await screen.findByText("cpave3/*")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Add a repository default" }))
+    expect(screen.getByText(/an explicit agent or account on a launch always wins/)).toBeTruthy()
+    fireEvent.change(screen.getByRole("textbox", { name: "Repository" }), { target: { value: "autopilot-dev/autopilot" } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Profile" }), { target: { value: "Work" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "usage.repositories", "autopilot-dev/autopilot", { profile: "Work" }))
+  })
+
+  it("limits a usage rule to work defaulting to chosen profiles, and to all work with none chosen", async () => {
+    show([list({ key: "usage.rules", title: "Usage rules", mode: "live", entries: [{ name: "Work weekly", value: { order: 1, meter: "claude.weekly", at_least: 90, profile: "Codex", when_default: ["Work"] }, source: "database", pinned: false }] }),
+      list({ key: "usage.profiles", title: "Usage profiles", entries: ["Default", "Work", "Codex"].map((name) => ({ name, value: { agent: "codex" }, source: "database" as const, pinned: false })) })], ["usage.rules"], ["claude.weekly"])
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Work weekly" }))
+    const group = screen.getByRole("group", { name: "Only for work defaulting to" })
+    expect(within(group).getByRole("checkbox", { name: "Work" })).toBeChecked()
+    expect(within(group).getByRole("checkbox", { name: "Default" })).not.toBeChecked()
+    fireEvent.click(within(group).getByRole("checkbox", { name: "Default" }))
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenLastCalledWith("http://legato", "usage.rules", "Work weekly", { order: 1, meter: "claude.weekly", at_least: 90, profile: "Codex", when_default: ["Default", "Work"] }))
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Work weekly" }))
+    const again = screen.getByRole("group", { name: "Only for work defaulting to" })
+    fireEvent.click(within(again).getByRole("checkbox", { name: "Work" }))
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenLastCalledWith("http://legato", "usage.rules", "Work weekly", { order: 1, meter: "claude.weekly", at_least: 90, profile: "Codex" }))
+  })
+
   it("adds a pull request rule: a repository or pattern and its mode", async () => {
     show([list({ key: "pull_requests.rules", title: "Pull requests", mode: "live", name_field: "match", entries: [{ name: "cpave3/*", value: { mode: "draft" }, source: "database", pinned: false }] })])
     expect(await screen.findByText("cpave3/*")).toBeTruthy()

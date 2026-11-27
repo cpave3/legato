@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -103,5 +105,39 @@ func (s *Server) usagePinHandler() http.HandlerFunc {
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+// usageDefaultsHandler serves GET /api/usage/defaults?repo=owner/name: the
+// current defaults for NEW work in that repository (none: the global
+// policy), with the repository default and the reason behind them. It does
+// not describe an agent already running, which keeps the identity it
+// started with.
+func (s *Server) usageDefaultsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		source, ok := s.usage.(interface {
+			DefaultsFor(ctx context.Context, repo string) (service.UsageSelection, error)
+		})
+		if !ok {
+			s.writeError(w, http.StatusServiceUnavailable, "usage policy is unavailable")
+			return
+		}
+		repo := strings.TrimSpace(r.URL.Query().Get("repo"))
+		if repo != "" {
+			if _, valid := config.NormalizeRepository(repo); !valid {
+				s.writeError(w, http.StatusBadRequest, "repo must name a repository, such as owner/name")
+				return
+			}
+		}
+		sel, err := source.DefaultsFor(r.Context(), repo)
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.writeJSON(w, http.StatusOK, sel)
 	}
 }

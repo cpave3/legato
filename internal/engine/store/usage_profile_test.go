@@ -28,7 +28,15 @@ func TestUsageProfileMigrationPreservesPartialStateAndHistory(t *testing.T) {
 			}
 			state := `{"profile":{"name":"conserving"},"pin":{"profile":"conserving"}}`
 			change := UsageProfileSwitch{From: "usual", To: "conserving", Since: "2026-11-26T09:00:00Z", Reason: "weekly threshold"}
-			if err := db.SaveUsageProfile(ctx, state, &change); err != nil {
+			// Written as schema 158 had it: switches had no scope yet.
+			if _, err := db.DB().Exec(`INSERT INTO active_usage_profile(id,state) VALUES(1,?)`, state); err != nil {
+				t.Fatal(err)
+			}
+			result, err := db.DB().Exec(`INSERT INTO usage_profile_switches(from_profile,to_profile,since,reason) VALUES(?,?,?,?)`, change.From, change.To, change.Since, change.Reason)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if change.ID, err = result.LastInsertId(); err != nil {
 				t.Fatal(err)
 			}
 			if !tc.active {
@@ -79,5 +87,33 @@ func TestUsageProfileMigrationPreservesPartialStateAndHistory(t *testing.T) {
 				t.Fatalf("switch IDs lost continuity: %d after %d", next.ID, change.ID)
 			}
 		})
+	}
+}
+
+func TestUsageProfileSwitchesKeepTheirScope(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "usage.db")
+	db := newStoreAtMigration(t, path, "161_handoff_accounts.sql")
+	if _, err := db.DB().Exec(`INSERT INTO usage_profile_switches(from_profile,to_profile,since,reason) VALUES('a','b','2026-11-26T09:00:00Z','old')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	scoped := UsageProfileSwitch{Scope: "work", From: "Work", To: "Codex", Since: "2026-11-26T10:00:00Z", Reason: "limit"}
+	if err := reopened.SaveUsageProfile(ctx, `{}`, &scoped); err != nil {
+		t.Fatal(err)
+	}
+	history, err := reopened.UsageProfileSwitches(ctx, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 2 || history[0] != scoped || history[1].Scope != "" || history[1].From != "a" {
+		t.Fatalf("history = %+v", history)
 	}
 }

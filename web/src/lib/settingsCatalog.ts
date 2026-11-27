@@ -105,6 +105,7 @@ export const listPlaces: Record<string, Place> = {
 	"claude_accounts": { section: "usage", group: "Accounts" },
   "usage.profiles": { section: "usage", group: "Profiles and rules" },
   "usage.rules": { section: "usage", group: "Profiles and rules" },
+  "usage.repositories": { section: "usage", group: "Profiles and rules" },
   "repositories": { section: "repositories", group: "Repositories and folders" },
   "workflows.repositories": { section: "repositories", group: "Repositories and folders" },
   "agents.guidance": { section: "repositories", group: "Repositories and folders" },

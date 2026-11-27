@@ -101,7 +101,7 @@ var apiGroups = []struct {
 	{"Tasks and cards", []string{"/api/tasks"}},
 	{"Agents", []string{"/api/agents", "/api/preparing-agents", "/api/ui-items", "/agent-ui-"}},
 	{"Board", []string{"/api/board", "/api/workspaces", "/api/remote", "/api/repo/", "/api/ticket-providers"}},
-	{"Attention and reports", []string{"/api/attention", "/api/report", "/api/navigation-summary", "/api/usage"}},
+	{"Attention and reports", []string{"/api/attention", "/api/report", "/api/navigation-summary", "/api/usage", "/api/usage/defaults"}},
 	{"The Reeve", []string{"/api/reeve", "/api/integrations/reeve"}},
 	{"Approvals and devices", []string{"/api/approvals", "/api/devices"}},
 	{"Credentials", []string{"/api/credentials"}},

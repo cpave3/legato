@@ -35,8 +35,11 @@ func (m *macroRunSpy) SpawnAgent(_ context.Context, _ string, _, _ int, opts ...
 	m.spawned = append(m.spawned, opts...)
 	return nil
 }
-func (m *macroRunSpy) NewWorkDefaults(context.Context) (service.NewWorkDefaults, error) {
+func (m *macroRunSpy) NewWorkDefaults(context.Context, string) (service.NewWorkDefaults, error) {
 	return service.NewWorkDefaults{Agent: "claude-code"}, nil
+}
+func (m *macroRunSpy) NewWorkDefaultsFor(ctx context.Context, _ string, _ service.AgentSpawnOptions) (service.NewWorkDefaults, error) {
+	return m.NewWorkDefaults(ctx, "")
 }
 func (m *macroRunSpy) GetTaskResumeSession(context.Context, string, string) (*service.TaskResumeSession, error) {
 	return nil, nil

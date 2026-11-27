@@ -27,10 +27,19 @@ type UsageProfileState struct {
 	Pin         *UsagePinRequest    `json:"pin,omitempty"`
 	Initialized bool                `json:"initialized"`
 	Error       string              `json:"error,omitempty"`
+	// Baseline is a repository scope's default profile; empty for the
+	// global scope, whose baseline is usage.fallback_profile.
+	Baseline string `json:"baseline,omitempty"`
+	// Scopes, on the global state only, are the repository scopes by
+	// lower-cased baseline. The global pin applies to each.
+	Scopes map[string]UsageProfileState `json:"scopes,omitempty"`
 }
 
 type UsagePolicySnapshot struct {
-	Active   UsageProfileState          `json:"active"`
+	Active UsageProfileState `json:"active"`
+	// Scopes are the repository scopes: the current defaults for new work
+	// in the repositories whose default is Baseline (not the fallback).
+	Scopes   []UsagePolicyScope         `json:"scopes"`
 	Profiles []config.UsageProfile      `json:"profiles"`
 	Switches []store.UsageProfileSwitch `json:"switches"`
 }
@@ -83,7 +92,9 @@ func (s *UsagePolicyService) Snapshot(ctx context.Context) (UsagePolicySnapshot,
 		return UsagePolicySnapshot{}, err
 	}
 	history, err := s.opts.Store.UsageProfileSwitches(ctx, 20)
-	return UsagePolicySnapshot{Active: state, Profiles: cfg.Profiles, Switches: history}, err
+	scopes := usagePolicyScopes(cfg, state)
+	state.Scopes = nil
+	return UsagePolicySnapshot{Active: state, Scopes: scopes, Profiles: cfg.Profiles, Switches: history}, err
 }
 
 func (s *UsagePolicyService) Evaluate(ctx context.Context) error {
@@ -121,81 +132,199 @@ func (s *UsagePolicyService) evaluate(ctx context.Context, request *UsagePinRequ
 	if err != nil {
 		return err
 	}
-	next := before
 	now := s.opts.Now().UTC()
+	pin := before.Pin
 	if changePin {
 		if request != nil {
-			pin := *request
-			profile, ok := usageProfileNamed(cfg.Profiles, pin.Profile)
-			if !ok || pin.Profile == "" {
-				return fmt.Errorf("unknown usage profile %q", pin.Profile)
+			next := *request
+			profile, ok := usageProfileNamed(cfg.Profiles, next.Profile)
+			if !ok || next.Profile == "" {
+				return fmt.Errorf("unknown usage profile %q", next.Profile)
 			}
-			pin.Profile = profile.Name
-			if pin.Until != nil && pin.UntilReset != "" {
+			next.Profile = profile.Name
+			if next.Until != nil && next.UntilReset != "" {
 				return errors.New("choose until or until_reset, not both")
 			}
-			if pin.UntilReset != "" {
-				if _, _, _, valid := config.ParseUsageMeter(pin.UntilReset); !valid {
-					return fmt.Errorf("unknown usage meter %q", pin.UntilReset)
+			if next.UntilReset != "" {
+				if _, _, _, valid := config.ParseUsageMeter(next.UntilReset); !valid {
+					return fmt.Errorf("unknown usage meter %q", next.UntilReset)
 				}
-				w, _, ok := usageMeter(snap.Providers, pin.UntilReset)
+				w, _, ok := usageMeter(snap.Providers, next.UntilReset)
 				if !ok || !w.ResetsAt.After(now) {
 					return errors.New("that meter has no fresh future reset")
 				}
 				reset := w.ResetsAt.UTC()
-				pin.Until = &reset
+				next.Until = &reset
 			}
-			if pin.Until != nil && !pin.Until.After(now) {
+			if next.Until != nil && !next.Until.After(now) {
 				return errors.New("pin expiry must be in the future")
 			}
-			next.Pin = &pin
+			pin = &next
 		} else {
-			next.Pin = nil
+			pin = nil
 		}
 	}
-	if next.Pin != nil && next.Pin.Until != nil && !now.Before(*next.Pin.Until) {
-		next.Pin = nil
+	if pin != nil && pin.Until != nil && !now.Before(*pin.Until) {
+		pin = nil
 	}
+
+	// A scope's state belongs to its baseline, wherever it was kept: when
+	// the fallback moves onto a repository scope's baseline, that scope's
+	// state (and latch) becomes the global one, and the global state moves
+	// to a repository scope when the fallback moves off its baseline.
+	oldGlobalKey := strings.ToLower(before.Baseline)
+	global := before
+	if moved, ok := before.Scopes[strings.ToLower(cfg.FallbackProfile)]; ok && cfg.FallbackProfile != "" {
+		global = moved
+	}
+	global.Scopes, global.Pin = nil, nil
+	next, change, err := s.evaluateScope(cfg, snap, global, pin, cfg.FallbackProfile, "", now)
+	if err != nil {
+		var invalid usageValidationError
+		if changePin || !errors.As(err, &invalid) {
+			return err
+		}
+		next = global
+		next.Baseline = cfg.FallbackProfile
+		next.Error = err.Error()
+	}
+	next.Pin = pin
+	changes := []*store.UsageProfileSwitch{}
+	switched := []UsageProfileState{}
+	if change != nil {
+		changes = append(changes, change)
+		switched = append(switched, next)
+	}
+	for _, baseline := range usageScopeBaselines(cfg) {
+		key := strings.ToLower(baseline)
+		prior, ok := before.Scopes[key]
+		if !ok {
+			prior = UsageProfileState{}
+			if oldGlobalKey == key && before.Initialized {
+				prior = before
+				prior.Scopes, prior.Pin = nil, nil
+			}
+		}
+		scope, change, err := s.evaluateScope(cfg, snap, prior, pin, baseline, key, now)
+		if err != nil {
+			scope = prior
+			scope.Baseline = baseline
+			if !scope.Initialized {
+				// Never evaluated: keep the baseline, as readers already do.
+				scope.Profile, _ = usageProfileNamed(cfg.Profiles, baseline)
+				scope.Latch.Current = scope.Profile.Name
+			}
+			scope.Pin = nil
+			scope.Error = err.Error()
+		}
+		if next.Scopes == nil {
+			next.Scopes = map[string]UsageProfileState{}
+		}
+		next.Scopes[key] = scope
+		if change != nil {
+			changes = append(changes, change)
+			switched = append(switched, scope)
+		}
+	}
+	data, err := json.Marshal(next)
+	if err != nil {
+		return err
+	}
+	if err := s.opts.Store.SaveUsageProfileChanges(ctx, string(data), changes); err != nil {
+		return err
+	}
+	if s.opts.OnSwitch != nil {
+		for i, change := range changes {
+			s.opts.OnSwitch(ctx, switched[i], change.ID)
+		}
+	}
+	beforeData, _ := json.Marshal(before)
+	if string(beforeData) != string(data) && s.opts.OnChange != nil {
+		s.opts.OnChange()
+	}
+	return nil
+}
+
+// usageValidationError is a selected profile that cannot launch here: the
+// scope keeps its previous state and shows the error.
+type usageValidationError struct{ error }
+
+func (e usageValidationError) Unwrap() error { return e.error }
+
+// usageScopeBaselines are the repository defaults' profiles that are not
+// the fallback, once each, in configuration order. Each is a scope with its
+// own latch; repositories that default to the fallback share the global one.
+func usageScopeBaselines(cfg config.UsageConfig) []string {
+	seen := map[string]bool{strings.ToLower(cfg.FallbackProfile): true}
+	out := []string{}
+	for _, d := range cfg.Repositories {
+		key := strings.ToLower(d.Profile)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if p, ok := usageProfileNamed(cfg.Profiles, d.Profile); ok && p.Name != "" {
+			out = append(out, p.Name)
+		}
+	}
+	return out
+}
+
+// usageRulesFor are the rules new work with this baseline obeys: those with
+// no when_default, and those whose when_default names it.
+func usageRulesFor(rules []config.UsageRule, baseline string) []config.UsageRule {
+	out := []config.UsageRule{}
+	for _, r := range rules {
+		eligible := len(r.WhenDefault) == 0
+		for _, name := range r.WhenDefault {
+			if strings.EqualFold(name, baseline) {
+				eligible = true
+			}
+		}
+		if eligible {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// evaluateScope evaluates one baseline's rules and the pin against its
+// stored state. A validation failure is returned as an error, and the
+// caller keeps the scope's previous state.
+func (s *UsagePolicyService) evaluateScope(cfg config.UsageConfig, snap SubscriptionUsage, before UsageProfileState, pin *UsagePinRequest, baseline, scope string, now time.Time) (UsageProfileState, *store.UsageProfileSwitch, error) {
+	next := before
+	next.Scopes = nil
+	next.Pin = nil
 	next.Latch.Current = before.Profile.Name
-	profile, reason, latch := EvaluateUsageRules(cfg.Rules, cfg.Profiles, cfg.FallbackProfile, snap.Providers, next.Latch, now)
+	if !before.Initialized && scope != "" {
+		next.Latch.Current = baseline
+	}
+	profile, reason, latch := EvaluateUsageRules(usageRulesFor(cfg.Rules, baseline), cfg.Profiles, baseline, snap.Providers, next.Latch, now)
 	next.Latch = latch
-	if next.Pin != nil {
-		profile = next.Pin.Profile
+	if pin != nil {
+		profile = pin.Profile
 		reason = UsageProfileReason{Text: "Pinned by the operator"}
 	}
 	selected, ok := usageProfileNamed(cfg.Profiles, profile)
 	if !ok {
-		return fmt.Errorf("active usage profile %q no longer exists", profile)
+		return before, nil, fmt.Errorf("active usage profile %q no longer exists", profile)
 	}
 	next.Error = ""
 	if s.opts.Validate != nil {
 		if err := s.opts.Validate(selected); err != nil {
-			next.Profile = before.Profile
-			next.Reason = before.Reason
-			next.Latch = before.Latch
-			next.Error = err.Error()
-			if changePin {
-				return err
-			}
-			data, _ := json.Marshal(next)
-			if err := s.opts.Store.SaveUsageProfile(ctx, string(data), nil); err != nil {
-				return err
-			}
-			if s.opts.OnChange != nil {
-				s.opts.OnChange()
-			}
-			return nil
+			return before, nil, usageValidationError{err}
 		}
 	}
+	next.Baseline = baseline
 	next.Profile = selected
 	next.Reason = reason
 	previousProfile := before.Profile
 	if !before.Initialized {
 		previousProfile = next.Profile
-		// Seeding fallback is a baseline, but a startup rule or operator pin
-		// still changes defaults and must have history and notification.
-		if reason.Rule != "" || next.Pin != nil {
-			previousProfile, _ = usageProfileNamed(cfg.Profiles, cfg.FallbackProfile)
+		// Seeding the baseline is silent, but a startup rule or operator
+		// pin still changes defaults and must have history and notification.
+		if reason.Rule != "" || pin != nil {
+			previousProfile, _ = usageProfileNamed(cfg.Profiles, baseline)
 		}
 	}
 	oldDefaults, _ := json.Marshal(previousProfile)
@@ -205,25 +334,14 @@ func (s *UsagePolicyService) evaluate(ctx context.Context, request *UsagePinRequ
 		next.Since = now
 	}
 	next.Initialized = true
-	var change *store.UsageProfileSwitch
-	if switched {
-		change = &store.UsageProfileSwitch{From: previousProfile.Name, To: next.Profile.Name, Since: now.Format(time.RFC3339Nano), Reason: reason.Text}
+	if !switched {
+		return next, nil, nil
 	}
-	data, err := json.Marshal(next)
-	if err != nil {
-		return err
+	switchScope := ""
+	if scope != "" {
+		switchScope = baseline
 	}
-	if err := s.opts.Store.SaveUsageProfile(ctx, string(data), change); err != nil {
-		return err
-	}
-	if switched && s.opts.OnSwitch != nil {
-		s.opts.OnSwitch(ctx, next, change.ID)
-	}
-	beforeData, _ := json.Marshal(before)
-	if string(beforeData) != string(data) && s.opts.OnChange != nil {
-		s.opts.OnChange()
-	}
-	return nil
+	return next, &store.UsageProfileSwitch{Scope: switchScope, From: previousProfile.Name, To: next.Profile.Name, Since: now.Format(time.RFC3339Nano), Reason: reason.Text}, nil
 }
 
 // UsageDefaults reads the committed profile; it never evaluates policy or
@@ -240,4 +358,121 @@ func UsageDefaults(ctx context.Context, db *store.Store) (config.UsageProfile, e
 		}
 	}
 	return state.Profile, nil
+}
+
+// UsagePolicyScope is one repository scope as Settings and the Usage card
+// show it.
+type UsagePolicyScope struct {
+	Key          string            `json:"key"`
+	Baseline     string            `json:"baseline"`
+	Repositories []string          `json:"repositories"`
+	Active       UsageProfileState `json:"active"`
+}
+
+func usagePolicyScopes(cfg config.UsageConfig, global UsageProfileState) []UsagePolicyScope {
+	out := []UsagePolicyScope{}
+	for _, baseline := range usageScopeBaselines(cfg) {
+		key := strings.ToLower(baseline)
+		repos := []string{}
+		for _, d := range cfg.Repositories {
+			if strings.EqualFold(d.Profile, baseline) {
+				repos = append(repos, d.Repository)
+			}
+		}
+		out = append(out, UsagePolicyScope{Key: key, Baseline: baseline, Repositories: repos, Active: usageScopeState(cfg, global, baseline)})
+	}
+	return out
+}
+
+// usageScopeState is a scope's stored state, or, before its first
+// evaluation, its baseline (under the pin, if one is set).
+func usageScopeState(cfg config.UsageConfig, global UsageProfileState, baseline string) UsageProfileState {
+	if state, ok := global.Scopes[strings.ToLower(baseline)]; ok && state.Initialized {
+		return state
+	}
+	if global.Pin != nil {
+		state := global
+		state.Scopes = nil
+		state.Pin = nil
+		state.Baseline = baseline
+		return state
+	}
+	profile, _ := usageProfileNamed(cfg.Profiles, baseline)
+	return UsageProfileState{Profile: profile, Baseline: baseline, Reason: UsageProfileReason{Text: "Repository default"}, Latch: UsageRuleLatch{Current: profile.Name}}
+}
+
+// Where the current defaults for new work came from.
+const (
+	UsageSourcePin        = "pin"
+	UsageSourceRule       = "rule"
+	UsageSourceHeld       = "held"
+	UsageSourceRepository = "repository"
+	UsageSourceOwner      = "owner"
+	UsageSourceFallback   = "fallback"
+)
+
+// UsageSelection is the current defaults for new work in one repository:
+// the profile, the repository default it starts from (Baseline, with the
+// entry it Matched), and why (Source, Reason). It describes new work only,
+// never an agent already running.
+type UsageSelection struct {
+	Repository string              `json:"repository,omitempty"`
+	Profile    config.UsageProfile `json:"profile"`
+	Baseline   string              `json:"baseline"`
+	Source     string              `json:"source"`
+	Matched    string              `json:"matched,omitempty"`
+	Reason     UsageProfileReason  `json:"reason"`
+	Since      time.Time           `json:"since,omitzero"`
+	Error      string              `json:"error,omitempty"`
+}
+
+// DefaultsFor reads the committed defaults for new work in a repository
+// under the live configuration.
+func (s *UsagePolicyService) DefaultsFor(ctx context.Context, repo string) (UsageSelection, error) {
+	cfg, err := s.opts.Config(ctx)
+	if err != nil {
+		return UsageSelection{}, err
+	}
+	return UsageDefaultsFor(ctx, s.opts.Store, cfg, repo)
+}
+
+// UsageDefaultsFor reads the committed defaults for new work in a
+// repository (owner/name, host/owner/name or a remote address; empty for
+// none). It never evaluates policy or reads a subscription.
+func UsageDefaultsFor(ctx context.Context, db *store.Store, cfg config.UsageConfig, repo string) (UsageSelection, error) {
+	text, err := db.ActiveUsageProfile(ctx)
+	if err != nil {
+		return UsageSelection{}, err
+	}
+	var global UsageProfileState
+	if text != "" {
+		if err = json.Unmarshal([]byte(text), &global); err != nil {
+			return UsageSelection{}, err
+		}
+	}
+	sel := UsageSelection{Repository: repo, Baseline: cfg.FallbackProfile, Source: UsageSourceFallback}
+	if fallback, ok := usageProfileNamed(cfg.Profiles, cfg.FallbackProfile); ok {
+		sel.Baseline = fallback.Name
+	}
+	state := global
+	if d, kind, ok := cfg.RepositoryDefault(repo); ok {
+		sel.Baseline, sel.Matched = d.Profile, d.Repository
+		sel.Source = UsageSourceRepository
+		if kind == config.UsageRepositoryOwner {
+			sel.Source = UsageSourceOwner
+		}
+		if !strings.EqualFold(d.Profile, cfg.FallbackProfile) {
+			state = usageScopeState(cfg, global, d.Profile)
+		}
+	}
+	sel.Profile, sel.Reason, sel.Since, sel.Error = state.Profile, state.Reason, state.Since, state.Error
+	switch {
+	case global.Pin != nil:
+		sel.Source = UsageSourcePin
+	case state.Reason.Rule != "":
+		sel.Source = UsageSourceRule
+	case !strings.EqualFold(state.Profile.Name, sel.Baseline):
+		sel.Source = UsageSourceHeld
+	}
+	return sel, nil
 }

@@ -69,8 +69,8 @@ func reviewPassConfig(cfg *config.Config) func() service.ReviewPassConfig {
 // Without the advert every override is refused.
 func workerReviewPassOptions(cfg *config.Config, db *store.Store, opts service.ReviewPassOptions) service.ReviewPassOptions {
 	opts.Config, opts.Advert = reviewPassConfig(cfg), reviewPassesAdvert(cfg, db)
-	opts.ReviewerDefaults = func(ctx context.Context, defaults service.ReviewPassSettings) (service.ReviewPassSettings, error) {
-		return usageReviewerDefaults(ctx, db, defaults)
+	opts.ReviewerDefaults = func(ctx context.Context, repo string, defaults service.ReviewPassSettings) (service.ReviewPassSettings, error) {
+		return usageReviewerDefaults(ctx, db, repo, defaults)
 	}
 	return opts
 }

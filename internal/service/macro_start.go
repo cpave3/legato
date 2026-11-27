@@ -45,7 +45,7 @@ type MacroAgents interface {
 	CaptureOutput(ctx context.Context, taskID string) (string, error)
 	QueueMessage(ctx context.Context, taskID, message string) error
 	SpawnAgent(ctx context.Context, taskID string, width, height int, opts ...AgentSpawnOptions) error
-	NewWorkDefaults(context.Context) (NewWorkDefaults, error)
+	NewWorkDefaultsFor(ctx context.Context, taskID string, opt AgentSpawnOptions) (NewWorkDefaults, error)
 	GetTaskResumeSession(ctx context.Context, taskID, agentKind string) (*TaskResumeSession, error)
 }
 
@@ -132,7 +132,7 @@ func (s *MacroService) Start(ctx context.Context, req MacroStart) (MacroStartRes
 		opts.AgentKind, kind = "claude-code", "claude-code"
 	}
 	if opts.AgentKind == "" {
-		defaults, err := s.agents.NewWorkDefaults(ctx)
+		defaults, err := s.agents.NewWorkDefaultsFor(ctx, req.TaskID, opts)
 		if err != nil {
 			return MacroStartResult{}, err
 		}

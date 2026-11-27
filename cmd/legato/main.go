@@ -964,12 +964,12 @@ func runServeCmd(args []string) int {
 		if cfg.Notifications.OS.Enabled {
 			osNotifier = service.NewOSNotifier()
 		}
-		agentSvc = service.NewAgentService(db, mgr, wd, service.AgentServiceOptions{
+		agentSvc = service.NewAgentService(db, mgr, wd, withUsageNewWork(service.AgentServiceOptions{
 			ToolCheck:      processDoctor().SpawnCheck,
 			Sandbox:        sandboxSettings(cfg),
 			SandboxScratch: sandboxScratch(cfg),
 			Adapter:        defaultAdapter, Adapters: adapters,
-			ClaudeAccounts: cfg.ClaudeAccounts, AccountDataDir: config.ResolveDataDir(cfg), ClaudeManagedSettingsDir: claudeManagedSettingsDir(), NewWorkDefaults: usageNewWorkDefaults(db),
+			ClaudeAccounts: cfg.ClaudeAccounts, AccountDataDir: config.ResolveDataDir(cfg), ClaudeManagedSettingsDir: claudeManagedSettingsDir(),
 			Notifier: notifier, OSNotifier: osNotifier,
 			// Agents starting and ending reach the swarm, attention and
 			// workflow loops of this process, as they do in the TUI's.
@@ -987,7 +987,7 @@ func runServeCmd(args []string) int {
 			RepositoryResources:  repositoryResources(cfg),
 			Capabilities:         skillService(cfg, db),
 			CapabilityFolders:    capabilityFolders(cfg),
-		})
+		}, db))
 		sweepInterruptedAgents(agentSvc, configuredResourceService(cfg, db))
 		recoverNativeEndpoints(agentSvc)
 		wireTaskAgents(boardSvc, agentSvc)
@@ -1376,13 +1376,12 @@ func runTUI() int {
 		if cfg.Notifications.OS.Enabled {
 			osNotifier = service.NewOSNotifier()
 		}
-		agentSvc = service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
+		agentSvc = service.NewAgentService(db, tmuxMgr, wd, withUsageNewWork(service.AgentServiceOptions{
 			ClaudeAccounts: cfg.ClaudeAccounts, AccountDataDir: config.ResolveDataDir(cfg), ClaudeManagedSettingsDir: claudeManagedSettingsDir(),
 			ToolCheck:         processDoctor().SpawnCheck,
 			Sandbox:           sandboxSettings(cfg),
 			SandboxScratch:    sandboxScratch(cfg),
 			Adapter:           defaultAdapter,
-			NewWorkDefaults:   usageNewWorkDefaults(db),
 			Adapters:          adapters,
 			SocketPath:        socketPath,
 			TmuxOptions:       cfg.Agents.TmuxOptions,
@@ -1405,7 +1404,7 @@ func runTUI() int {
 			RepositoryResources:  repositoryResources(cfg),
 			Capabilities:         skillService(cfg, db),
 			CapabilityFolders:    capabilityFolders(cfg),
-		})
+		}, db))
 		sweepInterruptedAgents(agentSvc, configuredResourceService(cfg, db))
 		recoverNativeEndpoints(agentSvc)
 		wireTaskAgents(boardSvc, agentSvc)

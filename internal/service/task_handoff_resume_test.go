@@ -125,11 +125,13 @@ type capturedHandoffAgents struct {
 	AgentService
 	defaults NewWorkDefaults
 	calls    int
+	repos    []string
 	spawned  []AgentSpawnOptions
 }
 
-func (a *capturedHandoffAgents) NewWorkDefaults(context.Context) (NewWorkDefaults, error) {
+func (a *capturedHandoffAgents) NewWorkDefaults(_ context.Context, repo string) (NewWorkDefaults, error) {
 	a.calls++
+	a.repos = append(a.repos, repo)
 	return a.defaults, nil
 }
 func (a *capturedHandoffAgents) GetAgentSession(context.Context, string) (*store.AgentSession, error) {
@@ -169,6 +171,10 @@ func TestHandoffCapturesNewWorkAgentAndTierAtAcceptance(t *testing.T) {
 			accepted, created, err := svc.Accept(ctx, HandoffMain{InstanceID: "main", Name: "main"}, call)
 			if err != nil || !created {
 				t.Fatalf("accept = %+v, %v, %v", accepted, created, err)
+			}
+			// The worker's own default for the handoff's repository.
+			if explicit == "" && (len(agents.repos) != 1 || agents.repos[0] != "github.com/acme/widget") {
+				t.Fatalf("defaults asked for %q", agents.repos)
 			}
 			wantKind, wantTier := "codex", "profile-tier"
 			if explicit != "" {
