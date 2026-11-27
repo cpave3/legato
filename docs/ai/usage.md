@@ -146,7 +146,8 @@ This is an operator checklist, not an automatic settings migration. No live sett
 - `PUT /api/usage/pin` takes `{profile, until?, until_reset?}`; `until` is RFC3339 and is mutually exclusive with `until_reset`. Neither expiry means indefinite. `DELETE /api/usage/pin` removes the pin. Both acknowledge the owner's committed change; refusals reach the caller.
 - `legato usage pin <profile> [--until <RFC3339>|--until-reset <meter>] [--json]` and `legato usage unpin [--json]` use the same policy controls, forwarded to the host from a sandbox.
 - Web: `UsageStrip` (`web/src/components/UsageStrip.tsx`) sits at the head of `AgentSidebar` (prop `usage`), under the picker bar on a phone, and on the empty Agents page.
-  - It shows each provider in brief and opens to the Usage card: a bar per window, its reset time, as-of, stale and unavailable states, and **Read now**.
+  - The collapsed card shows the active profile with an Auto, Pinned or Switch failed chip, the freshness, and a line per provider in the server's order: a 3px bar per window and its tightest window (`tightestWindow`). Past four providers it keeps the four most constrained, still in server order (`summaryProviders`), and names the rest.
+  - It opens to the Usage card: a nonmodal popout beside the sidebar (`useMenuLayer`, placement `side`, Escape and outside click close it, focus returns to the card), or with `sheet` (phones) a modal bottom sheet on `Dialog`. The card has a bar per window with its reset time (`resetShort`), as-of, stale and unavailable states, credits to two decimals (`formatCredits`), and **Read now**.
   - Policy remains visible when readers are off; without providers or policy there is nothing to draw.
   - Tests of the Agents page stub it, as they stub `InterruptedAgents`.
 - TUI: `App.SetSubscriptionUsage` reads `Snapshot` at start and every minute. `agents.Model.SetSubscriptionUsage` draws a row per provider at the foot of the list and on the ensemble's top line.

@@ -11,11 +11,14 @@ Legato reads Claude's and Codex's usage on the machine it runs on, with the logi
 
 ## Where it shows
 
-- **Web UI:** a strip at the head of the agents list (under the agent picker on a phone, and on the Agents page when no agent runs) shows each subscription in brief, such as `Claude 5h 42% wk 91%`. Click it to open the Usage card:
-  - a bar for each window, with when it resets;
-  - how old the reading is ("as of 2m ago");
+- **Web UI:** a card at the head of the agents list (under the agent picker on a phone, and on the Agents page when no agent runs) shows the active usage profile, whether rules chose it (**Auto**) or you pinned it (**Pinned**), and how fresh the reading is. Below that, it has a line per subscription: a thin bar for each of its windows, shortest window on top, and the window closest to its limit as a number, such as `91% wk`. A ▲ marks a window at 75% or more, a ⬣ one at 90% or more, and a clock with "stale" a reading that is out of date. With more than four subscriptions, the card keeps the four closest to a limit and names the rest. Click it to open the Usage card, which opens beside the sidebar (as a sheet from the bottom on a phone), so the agent list stays where it is:
+  - the active profile: its agent and reviewer, why it was chosen and since when, with its pin and recent switches;
+  - a bar for each window, with when it resets (a countdown within a day, else the day and time; point at it for the full date);
+  - how old each reading is ("2m ago");
   - why the usage is stale or unavailable, when it is;
-  - **Read now**, which reads the usage again at once.
+  - **Read now** (the circular arrow), which reads the usage again at once.
+
+  Escape, the close button or a click outside closes it.
 - **TUI:** the agents view lists each subscription at the foot of the agent list, and the ensemble lists them on its top line.
 - **CLI:** `legato usage` prints the same.
 
@@ -149,7 +152,7 @@ Each new review pass reads the profile's optional reviewer defaults; an explicit
 
 ## Pinning a profile
 
-Open the Usage card's pin controls to keep a profile regardless of the rules: until you unpin it, until a time, or until a meter resets. The CLI offers the same choices:
+Open the Usage card and choose **Pin a profile** to keep a profile regardless of the rules. Under **Keep it until**, choose **I unpin**, **A time** or **A reset** (a limit's next reset, listed with when that is). The CLI offers the same choices:
 
 ```bash
 legato usage pin spare

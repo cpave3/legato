@@ -1,12 +1,18 @@
 import { MemoryRouter } from "react-router-dom"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { createQueryClient } from "../../lib/query"
 import { UsageStrip } from "../UsageStrip"
 
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 
+// Reset times are shown in the browser's zone; these tests pin it.
+const zone = process.env.TZ
+beforeAll(() => { process.env.TZ = "UTC" })
+afterAll(() => { process.env.TZ = zone })
+
+// A Thursday, 08:00 UTC.
 const NOW = new Date("2026-11-26T08:00:00Z")
 
 const catalog = [
@@ -73,38 +79,160 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function renderIt(path = "/agents") {
-  render(<QueryClientProvider client={createQueryClient()}><MemoryRouter initialEntries={[path]}><UsageStrip /></MemoryRouter></QueryClientProvider>)
+function renderIt(path = "/agents", props: { sheet?: boolean } = {}) {
+  render(<QueryClientProvider client={createQueryClient()}><MemoryRouter initialEntries={[path]}><UsageStrip {...props} /></MemoryRouter></QueryClientProvider>)
 }
 
-describe("UsageStrip", () => {
-  it("shows each provider's windows in brief", async () => {
+const card = () => screen.getByRole("dialog", { name: "Subscription usage" })
+const row = (strip: HTMLElement, provider: string) => strip.querySelector<HTMLElement>(`[data-provider="${provider}"]`)!
+
+describe("the collapsed card", () => {
+  it("shows each provider's tightest window, with a bar for every window", async () => {
     renderIt()
     const strip = await screen.findByRole("button", { name: /subscription usage/i })
     expect(strip.getAttribute("aria-expanded")).toBe("false")
-    expect(within(strip).getByText("Claude")).toBeTruthy()
-    expect(within(strip).getByText("5h 42%")).toBeTruthy()
-    expect(within(strip).getByText("wk 91%")).toBeTruthy()
-    expect(within(strip).getByText("Codex")).toBeTruthy()
-    expect(within(strip).getByText("wk 5%")).toBeTruthy()
-    expect(within(strip).getByText("stale")).toBeTruthy()
+    expect(strip.getAttribute("aria-haspopup")).toBe("dialog")
+    const claude = row(strip, "claude")
+    expect(within(claude).getByText("Claude")).toBeTruthy()
+    expect(within(claude).getByText("91%")).toBeTruthy()
+    expect(within(claude).getByText("wk")).toBeTruthy()
+    expect(claude.querySelectorAll("[data-meter]")).toHaveLength(2)
+    const codex = row(strip, "codex")
+    expect(within(codex).getByText("5%")).toBeTruthy()
+    expect(codex.querySelectorAll("[data-meter]")).toHaveLength(1)
   })
 
-  it("opens to bars with when each resets and how fresh the reading is", async () => {
+  it("says a reading is stale in words, not only in grey", async () => {
     renderIt()
-    fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
-    const card = screen.getByRole("region", { name: "Subscription usage" })
-    const claude = within(card).getByRole("group", { name: "Claude" })
+    const strip = await screen.findByRole("button", { name: /subscription usage/i })
+    expect(within(strip).getByText("stale 3h")).toBeTruthy()
+    expect(strip.getAttribute("aria-label")).toMatch(/Codex weekly 5%, stale/)
+  })
+
+  it("names a window at its limit in its label", async () => {
+    renderIt()
+    const strip = await screen.findByRole("button", { name: /subscription usage/i })
+    expect(strip.getAttribute("aria-label")).toMatch(/Claude weekly 91%, at limit/)
+  })
+
+  it("shows how fresh the newest reading is when none is stale", async () => {
+    usage = { ...(usage as Record<string, unknown>), providers: [(usage as { providers: unknown[] }).providers[0]] }
+    renderIt()
+    const strip = await screen.findByRole("button", { name: /subscription usage/i })
+    expect(within(strip).getByText("2m")).toBeTruthy()
+  })
+
+  it("keeps four accounts and names the rest", async () => {
+    const account = (provider: string, percent: number) => ({ provider, state: "ok", stale: false, as_of: "2026-11-26T07:58:00Z", windows: [{ meter: "weekly", used_percent: percent }] })
+    usage = { poll_interval_seconds: 300, providers: [account("a", 10), account("b", 90), account("c", 50), account("d", 5), account("e", 75), account("f", 61)] }
+    renderIt()
+    const strip = await screen.findByRole("button", { name: /subscription usage/i })
+    expect(strip.querySelectorAll("[data-provider]")).toHaveLength(4)
+    expect(within(strip).getByText("+2 more: a, d")).toBeTruthy()
+  })
+
+  it("says Auto, or Pinned, beside the active profile", async () => {
+    usage = { ...(usage as Record<string, unknown>), policy: {
+      active: { profile: { name: "Economy", agent: "codex" }, reason: { text: "Fallback" }, since: NOW.toISOString() },
+      profiles: [{ name: "Economy", agent: "codex" }], switches: [],
+    } }
+    renderIt()
+    let strip = await screen.findByRole("button", { name: /subscription usage/i })
+    expect(within(strip).getByText("Economy")).toBeTruthy()
+    expect(within(strip).getByText("Auto")).toBeTruthy()
+    cleanup()
+    usage = { ...(usage as Record<string, unknown>), policy: {
+      active: { profile: { name: "Economy", agent: "codex" }, reason: { text: "Pinned" }, since: NOW.toISOString(), pin: { profile: "Economy" } },
+      profiles: [{ name: "Economy", agent: "codex" }], switches: [],
+    } }
+    renderIt()
+    strip = await screen.findByRole("button", { name: /subscription usage/i })
+    expect(within(strip).getByText("Pinned")).toBeTruthy()
+  })
+
+  it("says a failed profile switch on the card", async () => {
+    usage = { ...(usage as Record<string, unknown>), policy: {
+      active: { profile: { name: "Economy", agent: "codex" }, reason: { text: "Fallback" }, since: NOW.toISOString(), error: "codex is not installed" },
+      profiles: [{ name: "Economy", agent: "codex" }], switches: [],
+    } }
+    renderIt()
+    const strip = await screen.findByRole("button", { name: /subscription usage/i })
+    expect(within(strip).getByText("Switch failed")).toBeTruthy()
+  })
+
+  it("shows nothing when no provider is read", async () => {
+    usage = { poll_interval_seconds: 0, providers: [] }
+    renderIt()
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled())
+    expect(screen.queryByRole("button", { name: /subscription usage/i })).toBeNull()
+  })
+
+  it("shows nothing on a server without usage", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ error: "not found" }, 404)))
+    renderIt()
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled())
+    expect(screen.queryByRole("button", { name: /subscription usage/i })).toBeNull()
+  })
+
+  it("surfaces usage read errors and can retry", async () => {
+    let failed = true
+    vi.stubGlobal("fetch", vi.fn(async () => failed ? json({ error: "Policy cache unavailable" }, 500) : json(usage)))
+    renderIt()
+    expect((await screen.findByRole("alert")).textContent).toContain("Policy cache unavailable")
+    failed = false
+    fireEvent.click(screen.getByRole("button", { name: "Retry usage" }))
+    expect(await screen.findByRole("button", { name: /subscription usage/i })).toBeTruthy()
+  })
+})
+
+describe("the popout", () => {
+  it("opens to a bar per window, with when each resets and how fresh the reading is", async () => {
+    renderIt()
+    const strip = await screen.findByRole("button", { name: /subscription usage/i })
+    fireEvent.click(strip)
+    expect(strip.getAttribute("aria-expanded")).toBe("true")
+    const claude = within(card()).getByRole("group", { name: "Claude" })
     const weekly = within(claude).getByRole("progressbar", { name: "Claude weekly" })
     expect(weekly.getAttribute("aria-valuenow")).toBe("91")
-    expect(within(claude).getByText("resets in 5d 1h")).toBeTruthy()
-    expect(within(claude).getByText("resets in 2h")).toBeTruthy()
-    expect(within(claude).getByText(/as of 2m ago/)).toBeTruthy()
+    expect(within(claude).getByText("in 2h")).toBeTruthy()
+    expect(within(claude).getByText("Tue 09:00")).toBeTruthy()
+    expect(within(claude).getByText("2m ago")).toBeTruthy()
     expect(within(claude).getByText(/max/)).toBeTruthy()
 
-    const codex = within(card).getByRole("group", { name: "Codex" })
-    expect(within(codex).getByText(/stale · as of 3h ago · could not reach it/)).toBeTruthy()
+    const codex = within(card()).getByRole("group", { name: "Codex" })
+    expect(within(codex).getByText(/stale · 3h ago · could not reach it/)).toBeTruthy()
     expect(within(codex).getByText(/from Codex's session logs/)).toBeTruthy()
+  })
+
+  it("closes on Escape and gives focus back to the card", async () => {
+    renderIt()
+    const strip = await screen.findByRole("button", { name: /subscription usage/i })
+    strip.focus()
+    fireEvent.click(strip)
+    expect(card().contains(document.activeElement)).toBe(true)
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" })
+    expect(screen.queryByRole("dialog", { name: "Subscription usage" })).toBeNull()
+    expect(document.activeElement).toBe(strip)
+  })
+
+  it("closes from its close button", async () => {
+    renderIt()
+    fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
+    fireEvent.click(within(card()).getByRole("button", { name: "Close" }))
+    expect(screen.queryByRole("dialog", { name: "Subscription usage" })).toBeNull()
+  })
+
+  it("opens as a sheet over the page on a phone", async () => {
+    renderIt("/agents", { sheet: true })
+    fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
+    expect(card().getAttribute("aria-modal")).toBe("true")
+  })
+
+  it("rounds Codex's credit balance", async () => {
+    usage = { poll_interval_seconds: 300, catalog, providers: [{ provider: "codex", state: "ok", stale: false, as_of: "2026-11-26T07:58:00Z", credits: { has_credits: true, unlimited: false, balance: "1240.50382910" }, windows: [{ meter: "weekly", used_percent: 74 }] }] }
+    renderIt()
+    fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
+    expect(within(card()).getByText("1,240.50")).toBeTruthy()
   })
 
   it("says why a provider is unavailable", async () => {
@@ -119,10 +247,9 @@ describe("UsageStrip", () => {
     const strip = await screen.findByRole("button", { name: /subscription usage/i })
     expect(within(strip).getAllByText("unavailable")).toHaveLength(2)
     fireEvent.click(strip)
-    const card = screen.getByRole("region", { name: "Subscription usage" })
-    expect(within(card).getByText("Sign in to Claude Code on this machine.")).toBeTruthy()
-    expect(within(card).getByText("The codex command is not installed on this machine.")).toBeTruthy()
-    expect(within(card).queryByRole("progressbar")).toBeNull()
+    expect(within(card()).getByText("Sign in to Claude Code on this machine.")).toBeTruthy()
+    expect(within(card()).getByText("The codex command is not installed on this machine.")).toBeTruthy()
+    expect(within(card()).queryByRole("progressbar")).toBeNull()
   })
 
   it("names the configured account in sign-in guidance", async () => {
@@ -150,13 +277,14 @@ describe("UsageStrip", () => {
     }
     renderIt()
     const strip = await screen.findByRole("button", { name: /subscription usage/i })
-    expect(within(strip).getByText("OpenCode Go")).toBeTruthy()
-    expect(within(strip).getByText("mo 50%")).toBeTruthy()
+    const opencode = row(strip, "opencode")
+    expect(within(opencode).getByText("OpenCode Go")).toBeTruthy()
+    expect(within(opencode).getByText("66%")).toBeTruthy()
+    expect(opencode.querySelectorAll("[data-meter]")).toHaveLength(3)
     fireEvent.click(strip)
-    const card = screen.getByRole("region", { name: "Subscription usage" })
-    const opencode = within(card).getByRole("group", { name: "OpenCode Go" })
-    expect(within(opencode).getByRole("progressbar", { name: "OpenCode Go monthly" }).getAttribute("aria-valuenow")).toBe("50")
-    expect(within(opencode).getByText("resets in 4d 16h")).toBeTruthy()
+    const group = within(card()).getByRole("group", { name: "OpenCode Go" })
+    expect(within(group).getByRole("progressbar", { name: "OpenCode Go monthly" }).getAttribute("aria-valuenow")).toBe("50")
+    expect(within(group).getByText("Tue 00:00")).toBeTruthy()
   })
 
   it("says what to do when OpenCode Go has no key", async () => {
@@ -166,8 +294,7 @@ describe("UsageStrip", () => {
     }
     renderIt()
     fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
-    const card = screen.getByRole("region", { name: "Subscription usage" })
-    expect(within(card).getByText("Name its API key in Settings › Usage.")).toBeTruthy()
+    expect(within(card()).getByText("Name its API key in Settings › Usage.")).toBeTruthy()
   })
 
   it("says what to do when OpenCode Go's key is refused", async () => {
@@ -177,11 +304,19 @@ describe("UsageStrip", () => {
     }
     renderIt()
     fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
-    const card = screen.getByRole("region", { name: "Subscription usage" })
-    expect(within(card).getByText("OpenCode Go's API key was refused; replace the key's secret and restart.")).toBeTruthy()
+    expect(within(card()).getByText("OpenCode Go's API key was refused; replace the key's secret and restart.")).toBeTruthy()
   })
 
-  it("offers every catalog meter to pin until, including OpenCode Go's", async () => {
+  it("asks for a reading now", async () => {
+    renderIt()
+    fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
+    fireEvent.click(within(card()).getByRole("button", { name: "Read now" }))
+    await waitFor(() => expect(posted).toEqual(["/api/usage/refresh"]))
+  })
+})
+
+describe("the profile in the popout", () => {
+  it("offers every catalog meter to pin until, named and with its reset", async () => {
     usage = {
       ...(usage as Record<string, unknown>),
       policy: {
@@ -193,51 +328,43 @@ describe("UsageStrip", () => {
     renderIt()
     fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
     fireEvent.click(screen.getByRole("button", { name: "Pin a profile" }))
-    fireEvent.change(screen.getByRole("combobox", { name: "Pin expires" }), { target: { value: "reset" } })
-    const meters = screen.getByRole("combobox", { name: "Until meter resets" })
-    expect(within(meters).getByRole("option", { name: "opencode.monthly" })).toBeTruthy()
-    expect(within(meters).getByRole("option", { name: "claude.five_hour" })).toBeTruthy()
-    expect(within(meters).queryByRole("option", { name: "opencode.rolling" })).toBeNull()
+    fireEvent.click(screen.getByRole("radio", { name: "A reset" }))
+    const meters = screen.getByRole("combobox", { name: "Until this limit resets" })
+    expect((within(meters).getByRole("option", { name: "OpenCode Go · monthly" }) as HTMLOptionElement).value).toBe("opencode.monthly")
+    expect((within(meters).getByRole("option", { name: "Claude · weekly (Tue 09:00)" }) as HTMLOptionElement).value).toBe("claude.weekly")
+    expect(within(meters).getByRole("option", { name: "Claude · 5-hour (in 2h)" })).toBeTruthy()
   })
 
-  it("asks for a reading now", async () => {
+  it("shows a policy with readers off, its agent, reason and time, and bounded recent switches", async () => {
+    usage = { providers: [], poll_interval_seconds: 0, policy: {
+      active: { profile: { name: "Economy", agent: "codex", tier: "fast", reviewer: { agent: "claude-code", tier: "high" } }, reason: { text: "Claude weekly reached 90%" }, since: "2026-11-26T07:00:00Z", error: "Restart to apply the new tier" },
+      profiles: [{ name: "Economy", agent: "codex", tier: "fast" }],
+      switches: Array.from({ length: 12 }, (_, i) => ({ id: i, from_profile: `Old ${i}`, to_profile: "Economy", since: "2026-11-26T07:00:00Z", reason: "Threshold reached" })),
+    } }
     renderIt()
     fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
-    fireEvent.click(screen.getByRole("button", { name: "Read now" }))
-    await waitFor(() => expect(posted).toEqual(["/api/usage/refresh"]))
+    expect(within(card()).getAllByText("Economy").length).toBeGreaterThan(0)
+    expect(within(card()).getByText("codex · fast")).toBeTruthy()
+    expect(within(card()).getByText("claude-code · high")).toBeTruthy()
+    expect(within(card()).getByText("Claude weekly reached 90%")).toBeTruthy()
+    expect(within(card()).getByText("07:00 · 1h ago")).toBeTruthy()
+    expect(within(card()).getByText("Usage readers are off.")).toBeTruthy()
+    expect(within(card()).getByRole("alert").textContent).toBe("Restart to apply the new tier")
+    const toggle = within(card()).getByRole("button", { name: /Recent switches/ })
+    expect(toggle.getAttribute("aria-expanded")).toBe("false")
+    fireEvent.click(toggle)
+    expect(within(card()).getAllByRole("listitem")).toHaveLength(5)
   })
 
-  it("shows nothing when no provider is read", async () => {
-    usage = { poll_interval_seconds: 0, providers: [] }
-    renderIt()
-    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled())
-    expect(screen.queryByRole("button", { name: /subscription usage/i })).toBeNull()
+  it("offers profile setup when no profiles are configured", async () => {
+    usage = { providers: [], poll_interval_seconds: 0, policy: {
+      active: { profile: { name: "", agent: "" }, reason: { text: "Usual defaults" }, since: "0001-01-01T00:00:00Z" },
+      profiles: null, switches: [],
+    } }
+    renderIt("/agents?usage=open&pin=1")
+    expect((await screen.findByRole("link", { name: "Configure profiles" })).getAttribute("href")).toBe("/settings#usage")
+    expect(screen.queryByRole("button", { name: "Pin a profile" })).toBeNull()
   })
-
-  it("shows nothing on a server without usage", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => json({ error: "not found" }, 404)))
-    renderIt()
-    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled())
-    expect(screen.queryByRole("button", { name: /subscription usage/i })).toBeNull()
-  })
-})
-
-it("shows a policy with readers off, including its reason and bounded recent switches", async () => {
-  usage = { providers: [], poll_interval_seconds: 0, policy: {
-    active: { profile: { name: "Economy", agent: "codex", tier: "fast" }, reason: { text: "Claude weekly reached 90%" }, since: "2026-11-26T07:00:00Z", error: "Restart to apply the new tier" },
-    profiles: [{ name: "Economy", agent: "codex", tier: "fast" }],
-    switches: Array.from({ length: 12 }, (_, i) => ({ id: i, from_profile: `Old ${i}`, to_profile: "Economy", since: "2026-11-26T07:00:00Z", reason: "Threshold reached" })),
-  } }
-  renderIt()
-  fireEvent.click(await screen.findByRole("button", { name: /subscription usage/i }))
-  const card = screen.getByRole("region", { name: "Subscription usage" })
-  expect(within(card).getByText("Economy")).toBeTruthy()
-  expect(within(card).getByText("codex · fast")).toBeTruthy()
-  expect(within(card).getByText("Claude weekly reached 90%")).toBeTruthy()
-  expect(within(card).getByText("Usage readers are off.")).toBeTruthy()
-  expect(within(card).getByRole("alert").textContent).toBe("Restart to apply the new tier")
-  fireEvent.click(within(card).getByText("Recent switches"))
-  expect(within(card).getAllByRole("listitem")).toHaveLength(5)
 })
 
 it("opens pin controls from the address, sends the expiry intent, and keeps a rejected draft", async () => {
@@ -253,8 +380,8 @@ it("opens pin controls from the address, sends the expiry intent, and keeps a re
   renderIt("/agents?usage=open&pin=Quality")
   const profile = await screen.findByRole("combobox", { name: "Pin profile" })
   expect((profile as HTMLSelectElement).value).toBe("Quality")
-  fireEvent.change(screen.getByRole("combobox", { name: "Pin expires" }), { target: { value: "reset" } })
-  fireEvent.change(screen.getByRole("combobox", { name: "Until meter resets" }), { target: { value: "claude.weekly" } })
+  fireEvent.click(screen.getByRole("radio", { name: "A reset" }))
+  fireEvent.change(screen.getByRole("combobox", { name: "Until this limit resets" }), { target: { value: "claude.weekly" } })
   fireEvent.click(screen.getByRole("button", { name: "Pin profile" }))
   expect((await screen.findByRole("alert")).textContent).toBe("Meter has no known reset")
   expect(requests).toEqual([{ profile: "Quality", until_reset: "claude.weekly" }])
@@ -278,7 +405,7 @@ it.each(["indefinite", "time"])("pins a profile with %s expiry and can unpin it"
   renderIt("/agents?usage=open&pin=Economy")
   await screen.findByRole("combobox", { name: "Pin profile" })
   if (expiry === "time") {
-    fireEvent.change(screen.getByRole("combobox", { name: "Pin expires" }), { target: { value: "time" } })
+    fireEvent.click(screen.getByRole("radio", { name: "A time" }))
     fireEvent.change(screen.getByLabelText("Until (local time)"), { target: { value: "2026-11-27T12:00" } })
   }
   fireEvent.click(screen.getByRole("button", { name: "Pin profile" }))
@@ -286,16 +413,6 @@ it.each(["indefinite", "time"])("pins a profile with %s expiry and can unpin it"
   expect(requests[0]).toEqual({ method: "PUT", body: { profile: "Economy", ...(expiry === "time" ? { until: new Date("2026-11-27T12:00").toISOString() } : {}) } })
   fireEvent.click(screen.getByRole("button", { name: "Unpin" }))
   await waitFor(() => expect(requests[1]).toEqual({ method: "DELETE" }))
-})
-
-it("surfaces usage read errors and can retry", async () => {
-  let failed = true
-  vi.stubGlobal("fetch", vi.fn(async () => failed ? json({ error: "Policy cache unavailable" }, 500) : json(usage)))
-  renderIt()
-  expect((await screen.findByRole("alert")).textContent).toContain("Policy cache unavailable")
-  failed = false
-  fireEvent.click(screen.getByRole("button", { name: "Retry usage" }))
-  expect(await screen.findByRole("button", { name: /subscription usage/i })).toBeTruthy()
 })
 
 it("can unpin with an incomplete expiry draft and surfaces a refusal", async () => {
@@ -309,20 +426,10 @@ it("can unpin with an incomplete expiry draft and surfaces a refusal", async () 
     return json(usage)
   }))
   renderIt("/agents?usage=open&pin=Economy")
-  fireEvent.change(await screen.findByRole("combobox", { name: "Pin expires" }), { target: { value: "time" } })
+  fireEvent.click(await screen.findByRole("radio", { name: "A time" }))
   fireEvent.click(screen.getByRole("button", { name: "Unpin" }))
   expect((await screen.findByRole("alert")).textContent).toBe("Policy owner unavailable")
   expect(deleted).toHaveBeenCalledOnce()
-})
-
-it("offers profile setup when no profiles are configured", async () => {
-  usage = { providers: [], poll_interval_seconds: 0, policy: {
-    active: { profile: { name: "", agent: "" }, reason: { text: "Usual defaults" }, since: "0001-01-01T00:00:00Z" },
-    profiles: null, switches: [],
-  } }
-  renderIt("/agents?usage=open&pin=1")
-  expect((await screen.findByRole("link", { name: "Configure profiles" })).getAttribute("href")).toBe("/settings#usage")
-  expect(screen.queryByRole("button", { name: "Pin a profile" })).toBeNull()
 })
 
 it("keeps an existing reset expiry when changing its pinned profile", async () => {

@@ -178,6 +178,61 @@ export function resetText(iso: string | undefined, now: Date): string {
   return ms > 0 ? `resets in ${spanText(ms)}` : `reset ${spanText(-ms)} ago`
 }
 
+// The largest unit only, for a corner of the card: "2m", "3h", "now".
+export function agoShort(iso: string, now: Date): string {
+  const ms = now.getTime() - new Date(iso).getTime()
+  return ms < 60000 ? "now" : spanText(ms).split(" ")[0]
+}
+
+function localDay(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+}
+
+// A moment in the browser's zone, as short as it can be read: "09:05"
+// today, "Mon 09:00" within a week either way, "Dec 9" further off.
+export function whenText(iso: string, now: Date): string {
+  const date = new Date(iso)
+  const days = Math.round((localDay(date) - localDay(now)) / 86_400_000)
+  const clock = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
+  if (days === 0) return clock
+  if (Math.abs(days) <= 6) return `${date.toLocaleDateString(undefined, { weekday: "short" })} ${clock}`
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+}
+
+// When a window resets, beside its bar: a countdown within a day, else the
+// day and time.
+export function resetShort(iso: string | undefined, now: Date): string {
+  if (!iso) return ""
+  const ms = new Date(iso).getTime() - now.getTime()
+  if (ms <= 0) return `reset ${spanText(-ms)} ago`
+  return ms < 86_400_000 ? `in ${spanText(ms)}` : whenText(iso, now)
+}
+
+export function sinceText(iso: string, now: Date): string {
+  return `${whenText(iso, now)} · ${agoText(iso, now)}`
+}
+
+// Codex reports its credit balance with every digit it has.
+export function formatCredits(balance: string, locale?: string): string {
+  const value = Number(balance)
+  if (balance.trim() === "" || !Number.isFinite(value)) return balance
+  return new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
+}
+
+// The window nearest its limit, which the collapsed card shows as a number.
+export function tightestWindow(windows: UsageWindow[]): UsageWindow | undefined {
+  return windows.reduce<UsageWindow | undefined>((top, w) => (!top || w.used_percent > top.used_percent ? w : top), undefined)
+}
+
+// The providers the collapsed card has room for: all of them up to max,
+// else the most constrained, kept in the server's order.
+export function summaryProviders(providers: ProviderUsage[], max: number): { shown: ProviderUsage[]; hidden: ProviderUsage[] } {
+  if (providers.length <= max) return { shown: providers, hidden: [] }
+  const pressure = (p: ProviderUsage) => (p.state === "unavailable" ? -1 : tightestWindow(p.windows)?.used_percent ?? -1)
+  const kept = new Set([...providers].sort((a, b) => pressure(b) - pressure(a)).slice(0, max))
+  return { shown: providers.filter((p) => kept.has(p)), hidden: providers.filter((p) => !kept.has(p)) }
+}
+
 // The tone of a bar: calm, then warning from 75%, then over from 90%.
 export function usageTone(percent: number): "calm" | "warn" | "over" {
   return percent >= 90 ? "over" : percent >= 75 ? "warn" : "calm"
