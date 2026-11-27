@@ -27,7 +27,6 @@ var engineValues = map[string]map[string]bool{
 	"analytics": set("TimeRange", "PeriodType", "PeriodDay", "PeriodWeek", "PeriodMonth", "Today", "ThisWeek", "ThisMonth", "Previous", "Next"),
 	"git":       set("FileDiff", "FileBinary", "FileRenamed", "Line", "LineAdded", "LineDeleted"),
 	"github":    set("PRStatus"),
-	"macros":    set("Macro", "AppliesToTask", "AppliesToPR", "AnyFavorite", "SplitFavorites"),
 	"store":     set("WorkspaceView", "ViewAll", "ViewUnassigned", "ViewWorkspace", "PRMeta", "TaskWorktree", "PlanComment", "ReviewHunkNote", "ReviewStep"),
 	"workflow":  set("RepositoryPreset"),
 	// events: the Event value, its EventType constants (Event…) and payload
