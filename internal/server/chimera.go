@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"slices"
 	"strings"
@@ -153,6 +154,17 @@ func (s *Server) chimeraSnapshotHandler() http.HandlerFunc {
 		client := chimera.NewClient(endpoint)
 		snap, err := client.GetSession(r.Context(), sessionID)
 		if err != nil {
+			class := chimera.FailureClass(err)
+			if !chimera.IsSessionGone(err) {
+				// The endpoint may be alive and failing for the moment (busy,
+				// slow, a broken body, a refused credential): keep its binding.
+				// Only the class is logged; the error may carry what it sent.
+				if r.URL.Query().Get("initial") == "true" {
+					log.Printf("native binding for %s kept: snapshot failed (%s)", agentSession.TaskID, class)
+				}
+				http.Error(w, "chimera: unavailable ("+class+"): "+err.Error(), http.StatusBadGateway)
+				return
+			}
 			if r.URL.Query().Get("initial") == "true" {
 				invalidator, ok := s.agents.(service.ChimeraBindingInvalidator)
 				if !ok {
@@ -165,6 +177,7 @@ func (s *Server) chimeraSnapshotHandler() http.HandlerFunc {
 					return
 				}
 				if cleared {
+					log.Printf("native binding for %s cleared: snapshot_%s", agentSession.TaskID, class)
 					s.NotifyAgentsChanged()
 				}
 			}
