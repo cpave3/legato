@@ -37,6 +37,14 @@ func TestProductionCodeUsesStoreBoundary(t *testing.T) {
 	}
 }
 
+const (
+	legatoModule = "github.com/cpave3/legato/"
+	leafPackages = legatoModule + "internal/leaf/"
+)
+
+// Engine packages import the standard library and third-party modules,
+// never a sibling engine package, and of Legato's own packages only the
+// leaf packages (docs/adr/0001-stdlib-leaf-packages.md).
 func TestEnginePackagesDoNotImportSiblingEnginePackages(t *testing.T) {
 	root := filepath.Clean(filepath.Join("..", "..", "..", "internal", "engine"))
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
@@ -57,6 +65,8 @@ func TestEnginePackagesDoNotImportSiblingEnginePackages(t *testing.T) {
 			}
 			if strings.HasPrefix(value, "github.com/cpave3/legato/internal/engine/") {
 				t.Errorf("%s imports sibling engine package %s", path, value)
+			} else if strings.HasPrefix(value, legatoModule) && !strings.HasPrefix(value, leafPackages) {
+				t.Errorf("%s imports %s; of Legato's own packages, engine packages may import only the leaf packages under internal/leaf", path, value)
 			}
 		}
 		return nil
@@ -98,5 +108,42 @@ func TestProductionCommandsUseSharedStoreOpener(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A leaf package under internal/leaf imports only the standard library, so
+// any package may use it, an engine package included, without a cycle or a
+// back door between engine packages (docs/adr/0001-stdlib-leaf-packages.md).
+func TestLeafPackagesImportOnlyTheStandardLibrary(t *testing.T) {
+	root := filepath.Clean(filepath.Join("..", "..", "leaf"))
+	found := false
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		found = true
+		parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, imported := range parsed.Imports {
+			value, err := strconv.Unquote(imported.Path.Value)
+			if err != nil {
+				return err
+			}
+			if first, _, _ := strings.Cut(value, "/"); strings.Contains(first, ".") {
+				t.Errorf("%s imports %s; a leaf package imports only the standard library", path, value)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatal("no leaf packages found: the walk is looking in the wrong place")
 	}
 }
