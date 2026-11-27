@@ -10,6 +10,7 @@ import (
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/hooks"
+	"github.com/cpave3/legato/internal/engine/macros"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
 
@@ -76,5 +77,40 @@ func TestWorkflowAgentRejectsNonTextAccountBeforeLaunch(t *testing.T) {
 	_, err := NewAgentRunExecutor(agents).Start(context.Background(), ResolvedWorkflowStep{TaskID: "run-task", With: map[string]any{"prompt": "work", "account": 42}})
 	if err == nil || len(agents.calls) != 0 {
 		t.Fatalf("err=%v calls=%v", err, agents.calls)
+	}
+}
+
+func TestWorkflowMacroAccountReachesBothLaunchPaths(t *testing.T) {
+	for _, on := range []string{"run", "local01"} {
+		for _, tc := range []struct{ name, macroAgent, agent, account, wantAgent, wantAccount string }{
+			{"inherited", "claude-code", "", "", "claude-code", "work"},
+			{"account only macro", "", "", "", "claude-code", "work"},
+			{"different explicit tool", "claude-code", "codex", "", "codex", ""},
+			{"explicit default account", "claude-code", "", "default", "", "default"},
+		} {
+			t.Run(on+"/"+tc.name, func(t *testing.T) {
+				macro, _ := newMacroStartFixture(t)
+				if err := macro.Save(context.Background(), "account", macros.Macro{Keys: "Work", Agent: tc.macroAgent, Account: "work"}, "test"); err != nil {
+					t.Fatal(err)
+				}
+				runner := &fakePlaceRunner{fakeWorkflowAgentService: &fakeWorkflowAgentService{}}
+				executor := NewAgentRunExecutor(runner)
+				executor.SetMacros(macro)
+				with := map[string]any{"on": on, "macro": "account"}
+				if tc.agent != "" {
+					with["agent"] = tc.agent
+				}
+				if tc.account != "" {
+					with["account"] = tc.account
+				}
+				_, err := executor.Start(context.Background(), ResolvedWorkflowStep{TaskID: "run-task", With: with})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if runner.opts.Account != tc.wantAccount || runner.opts.AgentKind != tc.wantAgent {
+					t.Fatalf("spawn=%+v; want agent=%q account=%q", runner.opts, tc.wantAgent, tc.wantAccount)
+				}
+			})
+		}
 	}
 }

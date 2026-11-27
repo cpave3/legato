@@ -109,8 +109,7 @@ func (e *AgentRunExecutor) startOnTask(ctx context.Context, step ResolvedWorkflo
 	if wait {
 		assignment = buildWorkflowAssignment(work, step, e.binaryPath)
 	}
-	kind, tier := stepAgent(step.With, macro)
-	account, err := workflowString(step.With, "account", false)
+	kind, tier, account, err := stepAgent(step.With, macro)
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}

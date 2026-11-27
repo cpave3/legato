@@ -34,15 +34,29 @@ func stepMacro(ctx context.Context, macros workflowMacros, with map[string]any) 
 	return macro, true, nil
 }
 
-// stepAgent is the agent tool and tier a step asks for: its own, else its
-// macro's when it names none.
-func stepAgent(with map[string]any, macro MacroEntry) (kind, tier string) {
+// stepAgent resolves explicit selection before macro defaults. A named account
+// without a tool selects Claude, not the macro's possibly different tool.
+func stepAgent(with map[string]any, macro MacroEntry) (kind, tier, account string, err error) {
 	kind, _ = workflowString(with, "agent", false)
 	tier, _ = workflowString(with, "tier", false)
+	account, err = workflowString(with, "account", false)
+	if err != nil {
+		return
+	}
+	if _, explicit := with["account"]; explicit {
+		return
+	}
+	explicitKind := kind
 	if kind == "" && tier == "" {
 		kind, tier = macro.Agent, macro.Tier
 	}
-	return kind, tier
+	if explicitKind == "" || explicitKind == macro.Agent || (macro.Agent == "" && explicitKind == "claude-code") {
+		account = macro.Account
+	}
+	if account != "" && kind == "" {
+		kind = "claude-code"
+	}
+	return
 }
 
 // macroPRHeader is the line a macro started on a pull request opens with,
