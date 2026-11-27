@@ -880,3 +880,21 @@ func TestTicketCreateClaimsTheBurnliteTaskAfterMakingIt(t *testing.T) {
 		t.Fatalf("created %d", n)
 	}
 }
+
+// A writer that cannot assign refuses an assignee before anything is
+// created, naming its provider.
+func TestTicketCreateWithAnAssigneeAWriterCannotSetCreatesNothing(t *testing.T) {
+	db, ctx := ticketRun(t)
+	jira := newFakeJira(t)
+	type createOnly struct{ TicketWriter }
+	with := jiraBug()
+	with["assignee"] = "me"
+	_, err := NewTicketCreateExecutor(db, createOnly{jira.writer()}).Start(ctx, ticketStep("wa-1", with))
+	if err == nil || !strings.Contains(err.Error(), "cannot assign tickets here") {
+		t.Fatalf("err = %v", err)
+	}
+	record, err := db.GetWorkflowStepEffect(ctx, "wr-t", "raise", TicketCreateStepType)
+	if err != nil || record != nil || len(jira.creates) != 0 {
+		t.Fatalf("record %+v, %v, creates %d", record, err, len(jira.creates))
+	}
+}
