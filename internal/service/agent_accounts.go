@@ -121,48 +121,73 @@ func (a *agentService) resolveClaudeAccount(ctx context.Context, opt AgentSpawnO
 	if account == "" {
 		return identity, nil
 	}
+	if err := namedAccountEnvConflict(account, opt.ExtraEnv); err != nil {
+		return nil, err
+	}
+	if err := a.checkNamedAccountIsolation(account, dir, resolved, home, opt.WorkingDir); err != nil {
+		return nil, err
+	}
+	if err := checkNamedAccountLogin(account, dir); err != nil {
+		return nil, err
+	}
+	return identity, nil
+}
+
+// namedAccountEnvConflict refuses a named account when an auth/provider
+// override is set, checking each key in order in this process's environment
+// and then in the spawn's ExtraEnv.
+func namedAccountEnvConflict(account string, extraEnv map[string]string) error {
 	for _, key := range namedAccountAuthVars {
 		if os.Getenv(key) != "" {
-			return nil, fmt.Errorf("Claude account %q conflicts with %s; remove that auth/provider override for a named subscription", account, key)
+			return fmt.Errorf("Claude account %q conflicts with %s; remove that auth/provider override for a named subscription", account, key)
 		}
-		if opt.ExtraEnv[key] != "" {
-			return nil, fmt.Errorf("Claude account %q conflicts with %s; remove that auth/provider override for a named subscription", account, key)
+		if extraEnv[key] != "" {
+			return fmt.Errorf("Claude account %q conflicts with %s; remove that auth/provider override for a named subscription", account, key)
 		}
 	}
+	return nil
+}
+
+// checkNamedAccountIsolation refuses a named account whose resolved root
+// overlaps the default account's, a private root (credentials, tool state,
+// Legato's data), contains a home, checkout or Legato state tree, or aliases
+// another account; then any of its state files at dir that is a symlink.
+// Aliases are compared resolved as well as spelled.
+func (a *agentService) checkNamedAccountIsolation(account, dir, resolved, home, workingDir string) error {
 	// Auth roots must not be reachable from another account or encompass a
 	// home, checkout or Legato state tree. Check aliases as well as spelling.
 	defaultDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	if defaultDir == "" {
 		defaultDir = filepath.Join(home, ".claude")
 	}
-	defaultDir, err = resolvedAccountRoot(defaultDir)
+	defaultDir, err := resolvedAccountRoot(defaultDir)
 	if err != nil {
-		return nil, errors.New("default Claude directory cannot be resolved")
+		return errors.New("default Claude directory cannot be resolved")
 	}
 	if accountRootsOverlap(resolved, defaultDir) {
-		return nil, fmt.Errorf("Claude account %q overlaps the default account directory", account)
+		return fmt.Errorf("Claude account %q overlaps the default account directory", account)
 	}
 	privateRoots := append(forbidden(SandboxPlanInput{Home: home, DataDir: a.accountDataDir}), filepath.Join(home, ".local/share/claude"), filepath.Join(home, ".codex"), filepath.Join(home, ".chimera"))
 	for _, path := range privateRoots {
 		root, err := resolvedAccountRoot(path)
 		if err != nil {
-			return nil, errors.New("Claude account directory safety check failed")
+			return errors.New("Claude account directory safety check failed")
 		}
 		if accountRootsOverlap(resolved, root) {
-			return nil, fmt.Errorf("Claude account %q directory overlaps credentials, tool installation or protected Legato state", account)
+			return fmt.Errorf("Claude account %q directory overlaps credentials, tool installation or protected Legato state", account)
 		}
 	}
-	protected := []string{home, a.workDir, opt.WorkingDir, a.accountDataDir}
+	protected := []string{home, a.workDir, workingDir, a.accountDataDir}
 	for _, path := range protected {
 		if path == "" {
 			continue
 		}
 		real, err := resolvedAccountRoot(path)
 		if err != nil {
-			return nil, errors.New("Claude account directory safety check failed")
+			return errors.New("Claude account directory safety check failed")
 		}
 		if within(real, resolved) || (path == a.accountDataDir && within(resolved, real)) {
-			return nil, fmt.Errorf("Claude account %q directory overlaps protected state or a working directory", account)
+			return fmt.Errorf("Claude account %q directory overlaps protected state or a working directory", account)
 		}
 	}
 	for _, other := range a.claudeAccounts {
@@ -171,29 +196,35 @@ func (a *agentService) resolveClaudeAccount(ctx context.Context, opt AgentSpawnO
 		}
 		root, err := resolvedAccountRoot(other.ConfigDir)
 		if err != nil {
-			return nil, errors.New("Claude account directory safety check failed")
+			return errors.New("Claude account directory safety check failed")
 		}
 		if accountRootsOverlap(resolved, root) {
-			return nil, fmt.Errorf("Claude account %q directory aliases another account", account)
+			return fmt.Errorf("Claude account %q directory aliases another account", account)
 		}
 	}
 	for _, name := range []string{".credentials.json", ".claude.json", "settings.json"} {
 		info, err := os.Lstat(filepath.Join(dir, name))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("Claude account %q state cannot be inspected", account)
+			return fmt.Errorf("Claude account %q state cannot be inspected", account)
 		}
 		if err == nil && info.Mode()&os.ModeSymlink != 0 {
-			return nil, fmt.Errorf("Claude account %q state contains a symlink; replace it with an account-local file", account)
+			return fmt.Errorf("Claude account %q state contains a symlink; replace it with an account-local file", account)
 		}
 	}
+	return nil
+}
+
+// checkNamedAccountLogin refuses a named account whose dir has no readable,
+// unexpired subscription login (on darwin, a Keychain-only login passes).
+func checkNamedAccountLogin(account, dir string) error {
 	login, err := claudeusage.NamedCredentials(dir).Login()
 	if err != nil && !(runtime.GOOS == "darwin" && errors.Is(err, claudeusage.ErrNamedKeychainUnavailable)) {
-		return nil, fmt.Errorf("Claude account %q has no readable subscription login; run CLAUDE_CONFIG_DIR=%s claude auth login --claudeai", account, shellWord(dir))
+		return fmt.Errorf("Claude account %q has no readable subscription login; run CLAUDE_CONFIG_DIR=%s claude auth login --claudeai", account, shellWord(dir))
 	}
 	if err == nil && !login.ExpiresAt.IsZero() && !time.Now().Before(login.ExpiresAt) {
-		return nil, fmt.Errorf("Claude account %q login has expired; sign in to that directory with claude auth login --claudeai", account)
+		return fmt.Errorf("Claude account %q login has expired; sign in to that directory with claude auth login --claudeai", account)
 	}
-	return identity, nil
+	return nil
 }
 
 // accountLaunchCommand fixes identity at the child boundary: a pane's login
