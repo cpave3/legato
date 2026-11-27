@@ -35,9 +35,9 @@ func newStatusError(method, path string, resp *http.Response) *StatusError {
 // Failure classes name why a call to a Chimera endpoint failed, in words
 // that never carry the endpoint or anything the endpoint sent.
 const (
-	FailureGone        = "gone"        // the session is not served there (404, 410)
-	FailureRefused     = "refused"     // nothing listens at the endpoint any more
-	FailureAuth        = "auth"        // the endpoint refused Legato's credentials
+	FailureGone        = "gone"    // the session is not served there (404, 410)
+	FailureRefused     = "refused" // nothing listens at the endpoint any more
+	FailureAuth        = "auth"    // the endpoint refused Legato's credentials
 	FailureServerError = "server_error"
 	FailureBusy        = "busy"
 	FailureStatus      = "status"
