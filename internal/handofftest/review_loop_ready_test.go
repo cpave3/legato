@@ -144,6 +144,8 @@ func TestReadyRefusesAnApprovalWithheldFromAnOutsider(t *testing.T) {
 	}
 	if ready := stepOf(t, view, "ready"); ready.ErrorCode != service.ReviewRefusalNotApprovedAtHeads || len(r.worker.ReviewGitHub.Readied()) != 0 {
 		t.Fatalf("ready %q (%s): %s; readied %v", ready.Status, ready.ErrorCode, ready.Error, r.worker.ReviewGitHub.Readied())
+	} else if !strings.Contains(ready.Error, "#12 has no approval from legato-reviews at") || !strings.Contains(ready.Error, "the approval was withheld or held") {
+		t.Fatalf("ready refused with %q", ready.Error)
 	}
 }
 
