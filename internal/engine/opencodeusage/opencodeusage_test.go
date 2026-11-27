@@ -3,6 +3,7 @@ package opencodeusage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -291,3 +292,14 @@ func TestTheDefaultBaseURLIsTheDocumentedEndpoint(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestMalformedResponseCannotEchoTheKey(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"usage":{"rolling":{"status":%q,"percent":0,"resetsAt":"2026-12-01T00:00:00Z"}}}`, sentinel)
+	}))
+	defer s.Close()
+	_, err := client(s.URL).Read(context.Background())
+	if err == nil || strings.Contains(err.Error(), sentinel) {
+		t.Fatalf("unsafe error: %v", err)
+	}
+}

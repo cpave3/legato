@@ -247,7 +247,7 @@ func decodeMeter(name string, value json.RawMessage) (Meter, error) {
 	case *w.Status == "rate-limited":
 		limited = true
 	default:
-		return Meter{}, fmt.Errorf("%w (meter %s status %q)", ErrEndpointChanged, name, *w.Status)
+		return Meter{}, fmt.Errorf("%w (meter %s status)", ErrEndpointChanged, name)
 	}
 	if w.Percent == nil || math.IsNaN(*w.Percent) || math.IsInf(*w.Percent, 0) || *w.Percent < 0 || *w.Percent > 100 {
 		return Meter{}, fmt.Errorf("%w (meter %s percent)", ErrEndpointChanged, name)

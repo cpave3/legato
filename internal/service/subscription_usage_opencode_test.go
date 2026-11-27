@@ -236,4 +236,3 @@ func TestTheSnapshotCarriesTheCatalog(t *testing.T) {
 		t.Fatalf("opencode = %v", opencode)
 	}
 }
-
