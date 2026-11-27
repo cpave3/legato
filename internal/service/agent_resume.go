@@ -195,19 +195,26 @@ func (a *agentService) historyConversation(ctx context.Context, taskID, slot, ki
 	if err != nil || c == nil || c.CWD == "" {
 		return nil, err
 	}
-	runs, err := a.store.ListConversationRuns(ctx, c.ID)
+	identity, err := a.latestRunAccount(ctx, c.ID)
 	if err != nil {
 		return nil, err
 	}
-	var identity *store.AgentAccountIdentity
+	return &TaskResumeSession{AgentKind: c.AgentKind, ID: c.ProviderSessionID, CWD: c.CWD, StorageDir: c.StorageDir, AccountIdentity: identity}, nil
+}
+
+// latestRunAccount is the account of a conversation's newest run that
+// recorded one, or nil when none did: a later run with no account (an
+// older Legato's) does not reset the conversation to the default.
+func (a *agentService) latestRunAccount(ctx context.Context, conversationID int64) (*store.AgentAccountIdentity, error) {
+	runs, err := a.store.ListConversationRuns(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
 	for i := len(runs) - 1; i >= 0; i-- {
-		identity, err = a.store.ExecutionAccount(ctx, runs[i].ExecutionID)
-		if err != nil {
-			return nil, err
-		}
-		if identity != nil {
-			break
+		identity, err := a.store.ExecutionAccount(ctx, runs[i].ExecutionID)
+		if err != nil || identity != nil {
+			return identity, err
 		}
 	}
-	return &TaskResumeSession{AgentKind: c.AgentKind, ID: c.ProviderSessionID, CWD: c.CWD, StorageDir: c.StorageDir, AccountIdentity: identity}, nil
+	return nil, nil
 }
