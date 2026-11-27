@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cpave3/legato/config"
 	"os/exec"
 	"reflect"
 	"strings"
@@ -15,7 +16,6 @@ import (
 	"github.com/cpave3/legato/internal/engine/events"
 	gitpkg "github.com/cpave3/legato/internal/engine/git"
 	"github.com/cpave3/legato/internal/engine/github"
-	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/swarm"
 	"github.com/cpave3/legato/internal/service"
@@ -2081,7 +2081,7 @@ func TestMacroSelectedClosesOverlay(t *testing.T) {
 	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
 	app, _ = updateApp(app, agents.OpenMacroPickerMsg{})
 	app, _ = updateApp(app, overlay.MacroSelectedMsg{
-		Macro: macros.Macro{Name: "tests", Keys: "task test\n"},
+		Macro: config.Macro{Name: "tests", Keys: "task test\n"},
 	})
 	if app.overlayType != overlayNone {
 		t.Errorf("overlay should close after select, got %d", app.overlayType)
@@ -2097,7 +2097,7 @@ func TestAPickedMacroIsSentAsAMessage(t *testing.T) {
 		app := NewApp(&fakeBoardService{}, nil, svc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
 		app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
 		app, _ = updateApp(app, agents.AgentsRefreshedMsg{Agents: twoAgents()})
-		_, cmd := updateApp(app, overlay.MacroSelectedMsg{Macro: macros.Macro{Name: "tests", Keys: keys}})
+		_, cmd := updateApp(app, overlay.MacroSelectedMsg{Macro: config.Macro{Name: "tests", Keys: keys}})
 		if cmd == nil {
 			t.Fatalf("%q: no command to send the macro", keys)
 		}

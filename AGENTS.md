@@ -27,7 +27,7 @@ internal/tui/   → presentation (imports service/ via interfaces, never engine/
 internal/service/ → business logic (imports engine/, never tui/)
 internal/engine/  → infrastructure (imports only stdlib + 3rd-party + internal/leaf/)
 internal/leaf/    → one-purpose helpers (imports only stdlib; anyone may import)
-config/           → configuration (standalone, no internal imports)
+config/           → configuration (standalone, no internal imports; owns the macro model, ADR 2)
 ```
 
 `packages/` holds TypeScript apps outside the Go binary (the first is `even-hub/`, the Even G2 glasses app), one pnpm workspace rooted at `packages/`, not at the repository root: a root workspace would take over `pnpm install` in `web/`, `site/` and `browser-extension/`, which keep their own lockfiles until they move in. Each package has `typecheck` and `test` scripts; `task packages:check` runs lint, types and tests for all of them. Run pnpm there with `-C packages/...` from the repository root rather than after `cd`. See `docs/ai/even-hub.md` § The `packages/` workspace.

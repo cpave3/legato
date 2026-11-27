@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cpave3/legato/config"
 	"os"
 	"sort"
 	"strings"
@@ -13,7 +14,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/ipc"
-	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/service"
@@ -241,8 +241,8 @@ type App struct {
 	swarmSvc           service.SwarmService
 	workDir            string
 	claudeAccounts     []overlay.SpawnAccount
-	macros             []macros.Macro
-	macroSource        func(context.Context) ([]macros.Macro, error)
+	macros             []config.Macro
+	macroSource        func(context.Context) ([]config.Macro, error)
 	macroStarter       TaskMacroStarter
 	lastSparklineFetch time.Time
 	sparklineWindow    time.Duration
@@ -389,7 +389,7 @@ func (a *App) SetSparklineWindow(window time.Duration, buckets int) {
 
 // NewApp creates a new root application model. Pass nil for swarmSvc to
 // disable swarm UI (S keybinding is no-op, swarm panels hidden).
-func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace, tmux service.TmuxManager, workDir string, swarmSvc service.SwarmService, macrosList []macros.Macro, reviewServices ...review.Service) App {
+func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace, tmux service.TmuxManager, workDir string, swarmSvc service.SwarmService, macrosList []config.Macro, reviewServices ...review.Service) App {
 	clip := clipboard.New()
 	b := board.New(svc, icons)
 	b.SetWorkspaces(workspaces)
@@ -2836,9 +2836,9 @@ type cardMacroStartedMsg struct {
 // first, then each open pull request's, the suggested first.
 func cardMacroItems(list []service.MacroEntry, prs []service.PRMetaView) []overlay.CardContextMacro {
 	ordered := func(target service.MacroTarget) []service.MacroEntry {
-		want := macros.AppliesToTask
+		want := config.MacroAppliesToTask
 		if target.PR {
-			want = macros.AppliesToPR
+			want = config.MacroAppliesToPR
 		}
 		suggested := service.SuggestedMacro(target)
 		var first, rest []service.MacroEntry
@@ -2854,11 +2854,11 @@ func cardMacroItems(list []service.MacroEntry, prs []service.PRMetaView) []overl
 		}
 		return append(first, rest...)
 	}
-	all := make([]macros.Macro, len(list))
+	all := make([]config.Macro, len(list))
 	for i, m := range list {
 		all[i] = m.Macro
 	}
-	starred := macros.AnyFavorite(all)
+	starred := config.AnyFavoriteMacro(all)
 	favorite := func(m service.MacroEntry) bool { return !starred || m.Favorite }
 	var items []overlay.CardContextMacro
 	for _, m := range ordered(service.MacroTarget{}) {
@@ -2878,7 +2878,7 @@ func cardMacroItems(list []service.MacroEntry, prs []service.PRMetaView) []overl
 
 // SetMacroSource reads the macros at each use, so an edit needs no
 // restart; without it the picker offers the list NewApp was given.
-func (a *App) SetMacroSource(source func(context.Context) ([]macros.Macro, error)) {
+func (a *App) SetMacroSource(source func(context.Context) ([]config.Macro, error)) {
 	a.macroSource = source
 }
 

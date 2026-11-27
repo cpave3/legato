@@ -2,10 +2,10 @@ package service
 
 import (
 	"context"
+	"github.com/cpave3/legato/config"
 	"strings"
 	"testing"
 
-	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -16,7 +16,7 @@ func TestAWorkflowAgentStepResolvesTheMacrosCurrentText(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := NewMacroService(settings)
-	if err := svc.Save(ctx, "Review", macros.Macro{Keys: "Review with my skill.\n", AppliesTo: "pr", Agent: "codex", Tier: "smart"}, "web"); err != nil {
+	if err := svc.Save(ctx, "Review", config.Macro{Keys: "Review with my skill.\n", AppliesTo: "pr", Agent: "codex", Tier: "smart"}, "web"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -40,7 +40,7 @@ func TestAWorkflowAgentStepResolvesTheMacrosCurrentText(t *testing.T) {
 	}
 
 	// An edit applies to the next run.
-	if err := svc.Save(ctx, "Review", macros.Macro{Keys: "Edited."}, "web"); err != nil {
+	if err := svc.Save(ctx, "Review", config.Macro{Keys: "Edited."}, "web"); err != nil {
 		t.Fatal(err)
 	}
 	dispatcher := &fakeWorkflowAgentService{}

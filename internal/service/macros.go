@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/cpave3/legato/config"
-	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -37,30 +36,30 @@ var (
 // The built-in macros. Every picker sends a macro as a message, so none
 // needs a final new line. They are the operator's words, not Legato's, so
 // they carry no [legato <kind>] tag (see docs/ai/dev-notes.md).
-var builtinMacros = []macros.Macro{
+var builtinMacros = []config.Macro{
 	{
 		Name:      "Plan",
-		AppliesTo: macros.AppliesToTask,
+		AppliesTo: config.MacroAppliesToTask,
 		Keys: "Plan this task before you change any code. Read the task and the code it touches, then write a plan: " +
 			"what you will change and where, how you will test it, and what you are unsure of. " +
 			"Wait for me to agree the plan before you start.",
 	},
 	{
 		Name:      "Implement",
-		AppliesTo: macros.AppliesToTask,
+		AppliesTo: config.MacroAppliesToTask,
 		Keys: "Implement this task. Work test first where the project has tests, keep the change to what the task asks, " +
 			"run the project's checks and commit when it is done. Then tell me what you changed and anything left to do.",
 	},
 	{
 		Name:      "Review",
-		AppliesTo: macros.AppliesToPR,
+		AppliesTo: config.MacroAppliesToPR,
 		Keys: "Review this pull request. If it is not checked out, check it out first (gh pr checkout). Read the change set and the code around it, and report what you find by severity, " +
 			"each with its file and line: bugs, missing tests, and anything that does not do what the pull request says. " +
 			"Do not change the code. Stay open for my questions about it.",
 	},
 	{
 		Name:      "Address feedback",
-		AppliesTo: macros.AppliesToPR,
+		AppliesTo: config.MacroAppliesToPR,
 		Keys: "Address the review feedback on this pull request. Read every unresolved review comment and decide whether it is right; " +
 			"fix the ones that are, run the checks, commit and push. Then tell me what you changed, " +
 			"and which comments you did not act on and why.",
@@ -68,24 +67,24 @@ var builtinMacros = []macros.Macro{
 }
 
 // BuiltinMacros lists the macros Legato ships, as shipped.
-func BuiltinMacros() []macros.Macro {
-	out := make([]macros.Macro, len(builtinMacros))
+func BuiltinMacros() []config.Macro {
+	out := make([]config.Macro, len(builtinMacros))
 	copy(out, builtinMacros)
 	return out
 }
 
-func builtinMacro(name string) (macros.Macro, bool) {
+func builtinMacro(name string) (config.Macro, bool) {
 	for _, m := range builtinMacros {
 		if strings.EqualFold(m.Name, name) {
 			return m, true
 		}
 	}
-	return macros.Macro{}, false
+	return config.Macro{}, false
 }
 
 // MacroEntry is one macro as the operator sees it, with where it comes from.
 type MacroEntry struct {
-	macros.Macro
+	config.Macro
 	Source string `json:"source"`
 	// Builtin is true for a built-in, edited or not.
 	Builtin bool `json:"builtin,omitempty"`
@@ -215,12 +214,12 @@ func macroSettingEntries(cfg *config.Config, rows []store.SettingEntry) []Settin
 }
 
 // Macros is every macro without where it comes from.
-func (s *MacroService) Macros(ctx context.Context) ([]macros.Macro, error) {
+func (s *MacroService) Macros(ctx context.Context) ([]config.Macro, error) {
 	list, err := s.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]macros.Macro, len(list))
+	out := make([]config.Macro, len(list))
 	for i, m := range list {
 		out[i] = m.Macro
 	}
@@ -245,7 +244,7 @@ func (s *MacroService) Get(ctx context.Context, name string) (MacroEntry, error)
 // here, or an override of a built-in. One config.yaml gives is refused.
 // An existing macro keeps its star (SetFavorite changes it); a new one is
 // starred when m says so.
-func (s *MacroService) Save(ctx context.Context, name string, m macros.Macro, by string) error {
+func (s *MacroService) Save(ctx context.Context, name string, m config.Macro, by string) error {
 	name = strings.TrimSpace(name)
 	if b, ok := builtinMacro(name); ok {
 		name = b.Name
@@ -278,7 +277,7 @@ type storedMacro struct {
 	Favorite  bool   `json:"favorite,omitempty"`
 }
 
-func macroValue(m macros.Macro) (json.RawMessage, error) {
+func macroValue(m config.Macro) (json.RawMessage, error) {
 	return json.Marshal(storedMacro{Keys: m.Keys, AppliesTo: m.AppliesTo, Agent: m.Agent, Tier: m.Tier, Account: m.Account, Favorite: m.Favorite})
 }
 
@@ -304,7 +303,7 @@ func (s *MacroService) SetFavorite(ctx context.Context, name string, favorite bo
 			}
 			return nil
 		}
-		m = macros.Macro{}
+		m = config.Macro{}
 	}
 	m.Favorite = favorite
 	raw, err := macroValue(m)
@@ -403,7 +402,7 @@ func (s *MacroService) Reset(ctx context.Context, name string) error {
 	stored := s.storedName(ctx, entry.Name)
 	if entry.Favorite {
 		// Keep the star: an entry with no text.
-		raw, err := macroValue(macros.Macro{Favorite: true})
+		raw, err := macroValue(config.Macro{Favorite: true})
 		if err != nil {
 			return err
 		}

@@ -1,6 +1,7 @@
-// Package macros defines the shared macro type and config-related helpers.
-// Macros are persisted in legato's YAML config as a top-level list.
-package macros
+package config
+
+// Macros are kept in Legato's YAML config as a top-level list and edited
+// in Settings; the web UI reads them through GET /api/macros.
 
 import (
 	"encoding/json"
@@ -11,8 +12,8 @@ import (
 
 // What a macro applies to, when it says.
 const (
-	AppliesToTask = "task"
-	AppliesToPR   = "pr"
+	MacroAppliesToTask = "task"
+	MacroAppliesToPR   = "pr"
 )
 
 // Macro is a named piece of text the operator sends to an agent. Sent to a
@@ -90,20 +91,15 @@ func (m *Macro) UnmarshalJSON(data []byte) error {
 // Validate checks the fields a macro may leave empty.
 func (m Macro) Validate() error {
 	switch m.AppliesTo {
-	case "", AppliesToTask, AppliesToPR:
+	case "", MacroAppliesToTask, MacroAppliesToPR:
 	default:
 		return fmt.Errorf("macro %q: applies_to must be task or pr, got %q", m.Name, m.AppliesTo)
 	}
 	return nil
 }
 
-// ListResult is the JSON shape returned by GET /api/macros.
-type ListResult struct {
-	Macros []Macro `json:"macros"`
-}
-
-// AnyFavorite says whether any macro in list is starred.
-func AnyFavorite(list []Macro) bool {
+// AnyFavoriteMacro says whether any macro in list is starred.
+func AnyFavoriteMacro(list []Macro) bool {
 	for _, m := range list {
 		if m.Favorite {
 			return true
@@ -112,11 +108,11 @@ func AnyFavorite(list []Macro) bool {
 	return false
 }
 
-// SplitFavorites is list's favourites and the rest, each in list's order.
+// SplitFavoriteMacros is list's favourites and the rest, each in list's order.
 // While no macro is starred, every macro is a favourite, so a picker shows
 // them all until the operator stars one.
-func SplitFavorites(list []Macro) (favorites, rest []Macro) {
-	if !AnyFavorite(list) {
+func SplitFavoriteMacros(list []Macro) (favorites, rest []Macro) {
+	if !AnyFavoriteMacro(list) {
 		return list, nil
 	}
 	for _, m := range list {

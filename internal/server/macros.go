@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/cpave3/legato/config"
-	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -21,7 +20,7 @@ type MacroSource interface {
 
 // SetMacros sets the list of macros to serve from /api/macros when no
 // macro service is wired.
-func (s *Server) SetMacros(m []macros.Macro) {
+func (s *Server) SetMacros(m []config.Macro) {
 	s.macros = m
 }
 
@@ -59,8 +58,13 @@ func (s *Server) macrosHandler() http.HandlerFunc {
 			_ = json.NewEncoder(w).Encode(body)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(macros.ListResult{Macros: s.macros})
+		_ = json.NewEncoder(w).Encode(macroListResult{Macros: s.macros})
 	}
+}
+
+// macroListResult is the JSON shape returned by GET /api/macros.
+type macroListResult struct {
+	Macros []config.Macro `json:"macros"`
 }
 
 // macroTiers gives each agent tool's tiers, for the macro form.
@@ -71,7 +75,7 @@ type macroTiers interface {
 // macroWriter changes the macros: the service's Save, SetFavorite, Delete,
 // Reset and Rename.
 type macroWriter interface {
-	Save(ctx context.Context, name string, m macros.Macro, by string) error
+	Save(ctx context.Context, name string, m config.Macro, by string) error
 	SetFavorite(ctx context.Context, name string, favorite bool, by string) error
 	Delete(ctx context.Context, name string) error
 	Reset(ctx context.Context, name string) error
@@ -116,7 +120,7 @@ func (s *Server) macroEntryHandler() http.HandlerFunc {
 		switch r.Method {
 		case http.MethodPut:
 			body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-			var m macros.Macro
+			var m config.Macro
 			if err == nil {
 				err = json.Unmarshal(body, &m)
 			}

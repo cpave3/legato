@@ -2,11 +2,11 @@ package tui
 
 import (
 	"context"
+	"github.com/cpave3/legato/config"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
@@ -25,7 +25,7 @@ func (f *fakeMacroStarter) Start(_ context.Context, req service.MacroStart) (ser
 }
 
 func macroEntry(name, appliesTo string) service.MacroEntry {
-	return service.MacroEntry{Macro: macros.Macro{Name: name, Keys: name, AppliesTo: appliesTo}}
+	return service.MacroEntry{Macro: config.Macro{Name: name, Keys: name, AppliesTo: appliesTo}}
 }
 
 func openCardMacros(t *testing.T, board *fakeBoardService, starter *fakeMacroStarter) App {

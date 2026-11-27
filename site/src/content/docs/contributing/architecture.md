@@ -18,7 +18,7 @@ cmd/legato/          wires everything together; imports every layer
   internal/cli/        the handlers of the legato subcommands
     internal/service/    business logic
       internal/engine/     infrastructure: SQLite, tmux, Jira, GitHub, the event bus, ...
-config/              configuration; stands alone (it shares one type with internal/engine/macros)
+config/              configuration; stands alone (imports no Legato package)
 ```
 
 The rules:
@@ -35,6 +35,8 @@ Tests enforce the boundary rules in [`internal/engine/store/architecture_test.go
 - A leaf package imports only the standard library.
 - Production code in `cmd/`, `internal/cli/`, `internal/service/`, `internal/setup/`, `internal/tui/` and `internal/server/` does not import `sqlx` or call `Store.DB()`. It uses the store's own methods.
 - Commands in `cmd/legato/` open the database only through `openStore` in `database.go`.
+
+[`config/architecture_test.go`](https://github.com/cpave3/legato/blob/main/config/architecture_test.go) checks that `config/` imports no Legato package. `config/` owns the macro model, `config.Macro`, which the server, the service layer and the TUI all read.
 
 Code that keeps files, such as certificates and tokens, finds their folder with `config.ResolveDataDir`, never from the database path. The data folder is the database's folder unless `data_dir` moves it.
 
