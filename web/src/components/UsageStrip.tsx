@@ -23,6 +23,7 @@ import {
   tightestWindow,
   usageTone,
   whenText,
+  worstTone,
   type ProviderUsage,
   type SubscriptionUsage,
   type UsageCatalogProvider,
@@ -45,8 +46,10 @@ const SUMMARY_LINES = 4
 // card with a line per account (a thin bar per window, the tightest window
 // as a number) and the active usage profile. It opens a popout beside the
 // sidebar, or a sheet on a phone, with a bar per window, when each resets,
-// the profile and its pin, and the recent switches.
-export function UsageStrip({ className, sheet = false }: { className?: string; sheet?: boolean }) {
+// the profile and its pin, and the recent switches. Compact, for a phone's
+// picker bar, it is only a button (marked when an account nears its limit
+// or the profile switch failed) that opens the sheet.
+export function UsageStrip({ className, sheet = false, compact = false }: { className?: string; sheet?: boolean; compact?: boolean }) {
   const { baseUrl } = useServer()
   const query = useQuery({
     queryKey: queryKeys.subscriptionUsage(baseUrl),
@@ -63,28 +66,79 @@ export function UsageStrip({ className, sheet = false }: { className?: string; s
   const triggerRef = useRef<HTMLButtonElement>(null)
   const data = query.data
   const providers = data?.providers ?? []
+  const asSheet = sheet || compact
 
-  if (query.isError) return <div className={cn("px-2 py-1.5 text-xs", className)}>
-    <p role="alert" className="break-words text-lw-error">{query.error.message}</p>
-    <button type="button" className="min-h-9 text-lw-link hover:underline" disabled={query.isFetching} onClick={() => void query.refetch()}>Retry usage</button>
-  </div>
+  if (query.isError) {
+    if (compact) return (
+      <button
+        type="button"
+        aria-label={`Subscription usage could not be read: ${query.error.message}. Retry`}
+        title="Usage could not be read. Retry"
+        disabled={query.isFetching}
+        onClick={() => void query.refetch()}
+        className={cn(compactButton, "text-lw-error", className)}
+      >
+        <OctagonAlert size={18} aria-hidden="true" />
+      </button>
+    )
+    return <div className={cn("px-2 py-1.5 text-xs", className)}>
+      <p role="alert" className="break-words text-lw-error">{query.error.message}</p>
+      <button type="button" className="min-h-9 text-lw-link hover:underline" disabled={query.isFetching} onClick={() => void query.refetch()}>Retry usage</button>
+    </div>
+  }
   if (!data || (providers.length === 0 && !data.policy)) return null
   const now = new Date()
   const close = () => setOpen(false)
-  const panel = <UsagePanel data={data} now={now} requestedPin={requestedPin} onClose={close} sheet={sheet} />
+  const toggle = () => setOpen((o) => !o)
+  const panel = <UsagePanel data={data} now={now} requestedPin={requestedPin} onClose={close} sheet={asSheet} />
+  const details = open && (asSheet
+    ? <Dialog open onClose={close} className="items-end p-0">
+        <DialogPanel className="max-h-[85dvh] max-w-none overflow-y-auto rounded-b-none rounded-t-2xl border-lw-line-strong bg-lw-raised pb-[env(safe-area-inset-bottom)] text-xs text-lw-text shadow-[var(--shadow-lw-panel)]">
+          <div aria-hidden="true" className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-lw-track-off" />
+          {panel}
+        </DialogPanel>
+      </Dialog>
+    : <UsagePopout triggerRef={triggerRef} onClose={close}>{panel}</UsagePopout>)
 
+  if (compact) return <>
+    <UsageButton data={data} open={open} triggerRef={triggerRef} onToggle={toggle} className={className} />
+    {details}
+  </>
   return (
     <div className={cn("flex flex-col", className)}>
-      <UsageSummary data={data} now={now} open={open} triggerRef={triggerRef} onToggle={() => setOpen((o) => !o)} />
-      {open && (sheet
-        ? <Dialog open onClose={close} className="items-end p-0">
-            <DialogPanel className="max-h-[85dvh] max-w-none overflow-y-auto rounded-b-none rounded-t-2xl border-lw-line-strong bg-lw-raised pb-[env(safe-area-inset-bottom)] text-xs text-lw-text shadow-[var(--shadow-lw-panel)]">
-              <div aria-hidden="true" className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-lw-track-off" />
-              {panel}
-            </DialogPanel>
-          </Dialog>
-        : <UsagePopout triggerRef={triggerRef} onClose={close}>{panel}</UsagePopout>)}
+      <UsageSummary data={data} now={now} open={open} triggerRef={triggerRef} onToggle={toggle} />
+      {details}
     </div>
+  )
+}
+
+// The size and look of the picker bar's own square buttons.
+const compactButton = "relative flex size-11 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-lw-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lw-accent-ring disabled:opacity-50"
+
+// UsageButton is the usage on a phone: a gauge, with a dot when an account
+// nears or reaches its limit, or an error mark when the profile switch
+// failed. Its name says all of it, so the mark never relies on colour.
+function UsageButton({ data, open, triggerRef, onToggle, className }: { data: SubscriptionUsage; open: boolean; triggerRef: RefObject<HTMLButtonElement | null>; onToggle: () => void; className?: string }) {
+  const failed = Boolean(data.policy?.active.error)
+  const tone = worstTone(data.providers)
+  return (
+    <button
+      ref={triggerRef}
+      type="button"
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      aria-label={summaryLabel(data)}
+      title="Usage"
+      onClick={onToggle}
+      className={cn(compactButton, open ? "bg-lw-raised text-lw-text" : "text-[var(--theme-text,#c9c8d0)] hover:text-lw-text", className)}
+    >
+      {failed
+        ? <OctagonAlert data-tone="error" size={18} aria-hidden="true" className="text-lw-error" />
+        : <Gauge size={18} aria-hidden="true" />}
+      {!failed && tone !== "calm" && (
+        <span data-tone={tone} aria-hidden="true" className={cn("absolute right-2 top-2 size-2 rounded-full ring-2 ring-lw-ground", toneFill[tone])} />
+      )}
+    </button>
   )
 }
 

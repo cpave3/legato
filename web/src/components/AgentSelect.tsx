@@ -267,16 +267,18 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping
 interface AgentPickerBarProps extends AgentSelectProps {
   onEnsemble: () => void
   onSpawn: () => void
+  usage?: ReactNode
 }
 
 // AgentPickerBar is the top of the agents page on a phone, where there is no
-// room for the list: the agent in view, which opens the others, then the
-// ensemble and a new agent.
-export function AgentPickerBar({ onEnsemble, onSpawn, ...picker }: AgentPickerBarProps) {
+// room for the list: the agent in view, which opens the others, then usage,
+// the ensemble and a new agent.
+export function AgentPickerBar({ onEnsemble, onSpawn, usage, ...picker }: AgentPickerBarProps) {
   const square = "flex size-11 shrink-0 items-center justify-center rounded-lg transition-colors"
   return (
     <div className="flex shrink-0 items-center gap-1.5 border-b border-[var(--theme-border,#222228)] bg-lw-ground p-2">
       <AgentSelect {...picker} />
+      {usage}
       <button type="button" onClick={onEnsemble} aria-label="Ensemble" title="Ensemble: every agent at once" className={cn(square, "text-[var(--theme-text,#c9c8d0)] hover:bg-lw-raised hover:text-lw-text")}>
         <LayoutGrid size={18} aria-hidden="true" />
       </button>

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { agoShort, formatCredits, resetShort, sinceText, summaryProviders, tightestWindow, whenText, type ProviderUsage } from "../usage"
+import { agoShort, formatCredits, resetShort, sinceText, summaryProviders, tightestWindow, whenText, worstTone, type ProviderUsage } from "../usage"
 
 // Times are read in the browser's zone; these tests pin it.
 const zone = process.env.TZ
@@ -21,6 +21,27 @@ describe("tightestWindow", () => {
 
   it("is nothing without windows", () => {
     expect(tightestWindow([])).toBeUndefined()
+  })
+})
+
+describe("worstTone", () => {
+  const provider = (percents: number[], extra: Partial<ProviderUsage> = {}): ProviderUsage => ({
+    provider: "claude", state: "ok", stale: false,
+    windows: percents.map((used_percent, i) => ({ meter: `m${i}`, used_percent })), ...extra,
+  } as ProviderUsage)
+
+  it("is the tone of the fullest window of any account", () => {
+    expect(worstTone([provider([10, 40]), provider([20])])).toBe("calm")
+    expect(worstTone([provider([10, 80]), provider([20])])).toBe("warn")
+    expect(worstTone([provider([10, 80]), provider([95])])).toBe("over")
+  })
+
+  it("leaves out stale and unavailable readings", () => {
+    expect(worstTone([provider([95], { stale: true }), provider([95], { state: "unavailable" }), provider([5])])).toBe("calm")
+  })
+
+  it("is calm with nothing read", () => {
+    expect(worstTone([])).toBe("calm")
   })
 })
 

@@ -79,7 +79,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function renderIt(path = "/agents", props: { sheet?: boolean } = {}) {
+function renderIt(path = "/agents", props: { sheet?: boolean; compact?: boolean } = {}) {
   render(<QueryClientProvider client={createQueryClient()}><MemoryRouter initialEntries={[path]}><UsageStrip {...props} /></MemoryRouter></QueryClientProvider>)
 }
 
@@ -182,6 +182,60 @@ describe("the collapsed card", () => {
     failed = false
     fireEvent.click(screen.getByRole("button", { name: "Retry usage" }))
     expect(await screen.findByRole("button", { name: /subscription usage/i })).toBeTruthy()
+  })
+})
+
+describe("the compact button", () => {
+  const button = () => screen.findByRole("button", { name: /^Subscription usage/ })
+
+  it("is one button with the whole summary as its name, and no account lines", async () => {
+    renderIt("/agents", { compact: true })
+    const trigger = await button()
+    expect(trigger.getAttribute("aria-label")).toBe(
+      "Subscription usage. Claude 5-hour 42%; Claude weekly 91%, at limit; Codex weekly 5%, stale",
+    )
+    expect(trigger.getAttribute("title")).toBe("Usage")
+    expect(document.querySelector("[data-provider]")).toBeNull()
+  })
+
+  it("marks the worst fresh window's tone", async () => {
+    renderIt("/agents", { compact: true })
+    expect((await button()).querySelector("[data-tone='over']")).toBeTruthy()
+    cleanup()
+    const providers = (usage as { providers: { windows: { used_percent: number }[] }[] }).providers
+    providers[0].windows[1].used_percent = 80
+    renderIt("/agents", { compact: true })
+    expect((await button()).querySelector("[data-tone='warn']")).toBeTruthy()
+    cleanup()
+    providers[0].windows[1].used_percent = 50
+    renderIt("/agents", { compact: true })
+    expect((await button()).querySelector("[data-tone]")).toBeNull()
+  })
+
+  it("opens the details as a modal sheet", async () => {
+    renderIt("/agents", { compact: true })
+    fireEvent.click(await button())
+    expect(card().getAttribute("aria-modal")).toBe("true")
+    expect((await button()).getAttribute("aria-expanded")).toBe("true")
+  })
+
+  it("retries a failed read from the button, without a block of text", async () => {
+    let fail = true
+    vi.stubGlobal("fetch", vi.fn(async () => fail ? json({ error: "usage poller unavailable" }, 500) : json(usage)))
+    renderIt("/agents", { compact: true })
+    const retry = await screen.findByRole("button", { name: "Subscription usage could not be read: usage poller unavailable. Retry" })
+    expect(screen.queryByRole("alert")).toBeNull()
+    fail = false
+    fireEvent.click(retry)
+    expect(await screen.findByRole("button", { name: /^Subscription usage\. Claude/ })).toBeTruthy()
+  })
+
+  it("shows nothing when no provider is read", async () => {
+    usage = { poll_interval_seconds: 0, providers: [] }
+    renderIt("/agents", { compact: true })
+    await waitFor(() => expect(fetch).toHaveBeenCalled())
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(screen.queryByRole("button")).toBeNull()
   })
 })
 

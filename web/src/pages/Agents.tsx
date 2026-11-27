@@ -621,7 +621,8 @@ export function AgentsPage() {
   }, [shownAgents, listOrder, selectedId, handleSelect, triggerGlitch])
 
   // Mobile: use select dropdown on narrow screens
-  const [isMobile, setIsMobile] = useState(false)
+  // Read at once, so a phone's first paint is already the phone's layout.
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth <= 768)
   // The artifact panel needs room beside the conversation (and beside the
   // swarm event log, when there is one). Without it, it is a full-screen
   // sheet, as on a phone.
@@ -795,7 +796,7 @@ export function AgentsPage() {
         <InterruptedAgents className="w-full max-w-sm" />
         <PreparingAgents className="w-full max-w-sm" />
         <p className="text-lw-text-2">No active agents</p>
-        <UsageStrip className="w-full max-w-sm" sheet={isMobile} />
+        {isMobile ? <UsageStrip compact /> : <UsageStrip className="w-full max-w-sm" />}
         <SessionHistoryLink />
         <button
           onClick={handleSpawn}
@@ -871,6 +872,7 @@ export function AgentsPage() {
           reeve={<ReeveEntry baseUrl={baseUrl} compact agent={runningAgents.find((a) => a.reeve)} selected={Boolean(selectedAgent?.reeve)} onSelect={handleSelect} />}
           onEnsemble={() => showEnsemble(true)}
           onSpawn={handleSpawn}
+          usage={<UsageStrip compact />}
         />
       ) : (
         <AgentSidebar
@@ -892,7 +894,6 @@ export function AgentsPage() {
           usage={<UsageStrip className="px-2 pb-2" />}
         />
       )}
-      {isMobile && <UsageStrip sheet className="border-b border-lw-line px-3 py-2" />}
       {isMobile && <InterruptedAgents className="border-b border-lw-line px-2 pb-2" />}
       {isMobile && <PreparingAgents className="border-b border-lw-line px-2 pb-2" />}
       {isMobile && <SessionHistoryLink className="border-b border-lw-line" />}
