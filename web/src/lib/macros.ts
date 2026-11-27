@@ -193,7 +193,7 @@ const macroPath = (name: string) => `/api/macros/${encodeURIComponent(name)}`
 // saveMacro saves a new macro, an edit, or an edit of a built-in.
 export function saveMacro(baseUrl: string, name: string, fields: MacroFields): Promise<void> {
   const body: Record<string, string> = { message: fields.message }
-  for (const key of ["applies_to", "agent", "tier"] as const) if (fields[key]) body[key] = fields[key] as string
+  for (const key of ["applies_to", "agent", "tier", "account"] as const) if (fields[key]) body[key] = fields[key] as string
   return macroWrite(baseUrl, macroPath(name), "PUT", body)
 }
 
