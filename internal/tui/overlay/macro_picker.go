@@ -2,17 +2,17 @@ package overlay
 
 import (
 	"fmt"
+	"github.com/cpave3/legato/config"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
 // MacroSelectedMsg is sent when the user picks a macro.
 type MacroSelectedMsg struct {
-	Macro macros.Macro
+	Macro config.Macro
 }
 
 // MacroCancelledMsg is sent when the user dismisses the picker.
@@ -21,17 +21,17 @@ type MacroCancelledMsg struct{}
 // MacroPickerOverlay lets the user select a macro: the favourites, and
 // the rest after a Show all row.
 type MacroPickerOverlay struct {
-	macros []macros.Macro
+	macros []config.Macro
 	// hidden is the macros Show all adds; none once it has.
-	hidden []macros.Macro
+	hidden []config.Macro
 	cursor int
 	width  int
 	height int
 }
 
 // NewMacroPicker creates a macro picker overlay.
-func NewMacroPicker(macrosList []macros.Macro) MacroPickerOverlay {
-	favorites, rest := macros.SplitFavorites(macrosList)
+func NewMacroPicker(macrosList []config.Macro) MacroPickerOverlay {
+	favorites, rest := config.SplitFavoriteMacros(macrosList)
 	return MacroPickerOverlay{macros: favorites, hidden: rest}
 }
 
@@ -70,7 +70,7 @@ func (m MacroPickerOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter", "tab":
 			if m.cursor == len(m.macros) && len(m.hidden) > 0 {
-				m.macros = append(append([]macros.Macro(nil), m.macros...), m.hidden...)
+				m.macros = append(append([]config.Macro(nil), m.macros...), m.hidden...)
 				m.hidden = nil
 				return m, nil
 			}

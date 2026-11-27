@@ -537,24 +537,35 @@ func (u *upgrader) mapText(start, end int, scope map[string]map[string]outputMap
 		for _, name := range sortedKeys(scope[id]) {
 			mapping := scope[id][name]
 			reference := "steps." + id + ".outputs." + name
-			for from := start; from < end; {
-				at := bytes.Index(text[from:end], []byte(reference))
-				if at < 0 {
-					break
-				}
-				refStart := from + at
-				refEnd := refStart + len(reference)
-				from = refEnd
-				if (refStart > 0 && isPathByte(text[refStart-1])) || (refEnd < len(text) && isPathByte(text[refEnd])) {
-					continue
-				}
-				u.sites = append(u.sites, referenceSite{start: refStart, end: refEnd, reference: reference, mapping: mapping})
+			for _, at := range wholeReferences(text, start, end, reference) {
+				u.sites = append(u.sites, referenceSite{start: at, end: at + len(reference), reference: reference, mapping: mapping})
 			}
 			if with != nil && mapping.reason == "" {
 				mapScalars(with, reference, mapping.to)
 			}
 		}
 	}
+}
+
+// wholeReferences are the offsets in text where reference stands whole
+// between start and end: not inside a longer path, judged against the
+// bytes beside it even outside the window.
+func wholeReferences(text []byte, start, end int, reference string) []int {
+	var found []int
+	for from := start; from < end; {
+		at := bytes.Index(text[from:end], []byte(reference))
+		if at < 0 {
+			break
+		}
+		refStart := from + at
+		refEnd := refStart + len(reference)
+		from = refEnd
+		if (refStart > 0 && isPathByte(text[refStart-1])) || (refEnd < len(text) && isPathByte(text[refEnd])) {
+			continue
+		}
+		found = append(found, refStart)
+	}
+	return found
 }
 
 // mapScalars replaces reference with to in every scalar under node.

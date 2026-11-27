@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cpave3/legato/config"
 	"log"
 	"os"
 	"os/exec"
@@ -87,31 +88,7 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 		log.Printf("sandbox: the pasted images folder of %s: %v", taskID, err)
 	}
 	in.ToolState = toolStateDirs(agentKind, env, in.Home)
-	in.ProtectedClaudeAccounts = append([]string{}, in.ProtectedClaudeAccounts...)
-	defaultClaude := os.Getenv("CLAUDE_CONFIG_DIR")
-	if defaultClaude == "" {
-		defaultClaude = filepath.Join(in.Home, ".claude")
-	}
-	if agentKind == "claude-code" {
-		in.ClaudeConfigDir = env["CLAUDE_CONFIG_DIR"]
-		in.ClaudeConfigExplicit = in.ClaudeConfigDir != ""
-		if in.ClaudeConfigDir == "" {
-			in.ClaudeConfigDir = filepath.Join(in.Home, ".claude")
-		}
-	}
-	roots := []string{defaultClaude, filepath.Join(in.Home, ".claude")}
-	for _, account := range a.claudeAccounts {
-		roots = append(roots, account.ConfigDir)
-	}
-	for _, root := range roots {
-		selected := in.ClaudeConfigDir != "" && filepath.Clean(root) == filepath.Clean(in.ClaudeConfigDir)
-		if !selected {
-			in.ProtectedClaudeAccounts = append(in.ProtectedClaudeAccounts, root)
-		}
-	}
-	if agentKind != "claude-code" || in.ClaudeConfigExplicit {
-		in.ProtectedClaudeAccounts = append(in.ProtectedClaudeAccounts, filepath.Join(in.Home, ".claude.json"))
-	}
+	in = withClaudeAccounts(in, agentKind, env["CLAUDE_CONFIG_DIR"], os.Getenv("CLAUDE_CONFIG_DIR"), a.claudeAccounts)
 	for _, dir := range in.ToolState {
 		// Made when missing, so what the tool writes there lands on the host
 		// and not in the sandbox's empty home.
@@ -454,4 +431,40 @@ func sessionEnvValues(env map[string]string) map[string]string {
 		}
 	}
 	return out
+}
+
+// withClaudeAccounts applies the Claude account rule to a sandbox's input.
+// A claude-code agent works in its launch's CLAUDE_CONFIG_DIR (launchDir;
+// explicit), else the home's .claude. Every other Claude folder is
+// protected: Legato's own default (legatoDir, else the home's .claude),
+// the home's .claude and each configured account's, except the one in
+// use; and the home's .claude.json unless the agent is claude-code on the
+// default account. Protected paths are added to a copy of the input's.
+func withClaudeAccounts(in SandboxPlanInput, agentKind, launchDir, legatoDir string, accounts []config.ClaudeAccount) SandboxPlanInput {
+	in.ProtectedClaudeAccounts = append([]string{}, in.ProtectedClaudeAccounts...)
+	defaultClaude := legatoDir
+	if defaultClaude == "" {
+		defaultClaude = filepath.Join(in.Home, ".claude")
+	}
+	if agentKind == "claude-code" {
+		in.ClaudeConfigDir = launchDir
+		in.ClaudeConfigExplicit = in.ClaudeConfigDir != ""
+		if in.ClaudeConfigDir == "" {
+			in.ClaudeConfigDir = filepath.Join(in.Home, ".claude")
+		}
+	}
+	roots := []string{defaultClaude, filepath.Join(in.Home, ".claude")}
+	for _, account := range accounts {
+		roots = append(roots, account.ConfigDir)
+	}
+	for _, root := range roots {
+		selected := in.ClaudeConfigDir != "" && filepath.Clean(root) == filepath.Clean(in.ClaudeConfigDir)
+		if !selected {
+			in.ProtectedClaudeAccounts = append(in.ProtectedClaudeAccounts, root)
+		}
+	}
+	if agentKind != "claude-code" || in.ClaudeConfigExplicit {
+		in.ProtectedClaudeAccounts = append(in.ProtectedClaudeAccounts, filepath.Join(in.Home, ".claude.json"))
+	}
+	return in
 }

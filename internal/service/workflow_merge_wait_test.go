@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/cpave3/legato/config"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +11,6 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
-	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
@@ -493,7 +493,7 @@ func TestAMacroOnAGoneFolderStartsInAFreshCloneOfTheBranch(t *testing.T) {
 	gone := "/jobs/ex-1/widget"
 	spy.gone[gone] = true
 	spy.saved = &TaskResumeSession{AgentKind: "codex", ID: "conv-1", CWD: gone}
-	if err := svc.Save(ctx, "Rebase and repush", macros.Macro{Keys: "Rebase on main and push.\n"}, "web"); err != nil {
+	if err := svc.Save(ctx, "Rebase and repush", config.Macro{Keys: "Rebase on main and push.\n"}, "web"); err != nil {
 		t.Fatal(err)
 	}
 	result, err := svc.Start(ctx, MacroStart{Name: "Rebase and repush", TaskID: "abc12345", PR: &MacroPR{Repo: "acme/widget", Number: 12}, Branch: "legato/leg-7"})
@@ -521,7 +521,7 @@ func TestAMacroResumesInItsLiveFolder(t *testing.T) {
 	ctx := context.Background()
 	live := "/jobs/ex-1/widget"
 	spy.saved = &TaskResumeSession{AgentKind: "claude-code", ID: "conv-1", CWD: live}
-	if err := svc.Save(ctx, "Rebase and repush", macros.Macro{Keys: "Rebase on main and push.\n"}, "web"); err != nil {
+	if err := svc.Save(ctx, "Rebase and repush", config.Macro{Keys: "Rebase on main and push.\n"}, "web"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.Start(ctx, MacroStart{Name: "Rebase and repush", TaskID: "abc12345", PR: &MacroPR{Repo: "acme/widget", Number: 12}, Branch: "legato/leg-7"}); err != nil {
@@ -539,7 +539,7 @@ func TestAMacroOnAGoneFolderWithNoRepositoryDoesNotStart(t *testing.T) {
 	gone := filepath.Join(t.TempDir(), "gone")
 	svc.folderExists = dirExists // the real check, on a folder that is not there
 	spy.saved = &TaskResumeSession{AgentKind: "claude-code", ID: "conv-1", CWD: gone}
-	if err := svc.Save(ctx, "Rebase and repush", macros.Macro{Keys: "Rebase.\n"}, "web"); err != nil {
+	if err := svc.Save(ctx, "Rebase and repush", config.Macro{Keys: "Rebase.\n"}, "web"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.Start(ctx, MacroStart{Name: "Rebase and repush", TaskID: "abc12345"}); !errors.Is(err, ErrMacroFolderGone) {

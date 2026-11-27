@@ -321,39 +321,11 @@ func (s *ReviewPassService) watchLoop(ctx context.Context, github ReviewWatchGit
 
 	session := github.WatchSession(l.Repo)
 	defer session.Close()
-	err = func() error {
-		layers, err := session.Watch(ctx, numbers)
-		if err != nil {
-			return err
-		}
-		comments := map[int]CommentPoll{}
-		commentsChanged := false
-		for _, layer := range layers {
-			if layer.State != "open" {
-				continue
-			}
-			poll, err := session.PollComments(ctx, layer.Number, watchPages{db: s.db, loopID: l.ID, pr: layer.Number})
-			if err != nil {
-				return err
-			}
-			comments[layer.Number] = poll
-			commentsChanged = commentsChanged || poll.Changed
-		}
-		var stacked []ReviewGitHubPR
-		if l.Scope == ReviewScopeStack {
-			if stacked, err = readStacked(ctx, session, numbers, layers); err != nil {
-				return err
-			}
-		}
-		stackedChanged := !sameStacked(prev.Stacked, stacked)
-		next.Changed = seen && !prev.ReadAt.IsZero() && (commentsChanged || !sameWatch(prev.Layers, layers) || stackedChanged)
-		// Activity is what the steward's idle end counts: a layer or a
-		// comment that differs, which a list's new ETag alone is not, or
-		// a layer stacked on the top.
-		active = seen && !prev.ReadAt.IsZero() && (!sameWatch(prev.Layers, layers) || !sameComments(prev.Comments, comments) || stackedChanged)
-		next.Layers, next.Comments, next.Stacked, next.ReadAt = layers, comments, stacked, now
-		return nil
-	}()
+	round, err := s.readWatchRound(ctx, session, l, numbers, prev, seen)
+	if err == nil {
+		next.Layers, next.Comments, next.Stacked, next.ReadAt = round.Layers, round.Comments, round.Stacked, now
+		next.Changed, active = round.Changed, round.Active
+	}
 	next.Err = err
 	if err == nil {
 		// The record keeps each layer as GitHub reported it, for the run
@@ -395,6 +367,57 @@ func (s *ReviewPassService) watchLoop(ctx context.Context, github ReviewWatchGit
 		// (review_steward_attention.go).
 		s.changed(l.HostTask)
 	}
+}
+
+// watchRound is what one watch read found of a loop: its layers, the
+// comments of its open ones and the pull requests stacked on its top, and
+// how that compares with the read before.
+type watchRound struct {
+	Layers   []PRWatch
+	Comments map[int]CommentPoll
+	Stacked  []ReviewGitHubPR
+	// Changed says the read differs from the one before: a layer, a
+	// comment list's ETag, or the layers stacked on the top.
+	Changed bool
+	// Active is what the steward's idle end counts: a layer or a comment
+	// that differs, which a list's new ETag alone is not, or a layer
+	// stacked on the top.
+	Active bool
+}
+
+// readWatchRound reads a loop's layers, their comments and (for a loop of
+// scope stack) the pull requests stacked on its top through one session,
+// and compares them with prev, the read before (seen: there is one). It
+// keeps nothing but the comment pages; the first error ends the read.
+func (s *ReviewPassService) readWatchRound(ctx context.Context, session ReviewWatchSession, l store.ReviewLoop, numbers []int, prev ReviewLoopWatch, seen bool) (watchRound, error) {
+	layers, err := session.Watch(ctx, numbers)
+	if err != nil {
+		return watchRound{}, err
+	}
+	comments := map[int]CommentPoll{}
+	commentsChanged := false
+	for _, layer := range layers {
+		if layer.State != "open" {
+			continue
+		}
+		poll, err := session.PollComments(ctx, layer.Number, watchPages{db: s.db, loopID: l.ID, pr: layer.Number})
+		if err != nil {
+			return watchRound{}, err
+		}
+		comments[layer.Number] = poll
+		commentsChanged = commentsChanged || poll.Changed
+	}
+	var stacked []ReviewGitHubPR
+	if l.Scope == ReviewScopeStack {
+		if stacked, err = readStacked(ctx, session, numbers, layers); err != nil {
+			return watchRound{}, err
+		}
+	}
+	stackedChanged := !sameStacked(prev.Stacked, stacked)
+	before := seen && !prev.ReadAt.IsZero()
+	return watchRound{Layers: layers, Comments: comments, Stacked: stacked,
+		Changed: before && (commentsChanged || !sameWatch(prev.Layers, layers) || stackedChanged),
+		Active:  before && (!sameWatch(prev.Layers, layers) || !sameComments(prev.Comments, comments) || stackedChanged)}, nil
 }
 
 // sameDismissals says whether two reads found the same dismissed reviews

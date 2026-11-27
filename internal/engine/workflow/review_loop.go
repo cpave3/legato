@@ -182,21 +182,7 @@ func checkReviewLoopStep(step Step) error {
 		if text, isText := raw.(string); isText && HasExpression(text) {
 			return nil
 		}
-		list, isList := raw.([]any)
-		if !isList || len(list) == 0 || len(list) > MaxReviewLoopPRs {
-			return within("with.prs", fmt.Errorf("with prs must be a list of at most %d pull request numbers", MaxReviewLoopPRs))
-		}
-		for _, item := range list {
-			switch n := item.(type) {
-			case int:
-				if n > 0 {
-					continue
-				}
-			case string:
-				if HasExpression(n) {
-					continue
-				}
-			}
+		if !validReviewLoopPRs(raw) {
 			return within("with.prs", fmt.Errorf("with prs must be a list of at most %d pull request numbers", MaxReviewLoopPRs))
 		}
 	}
@@ -206,6 +192,29 @@ func checkReviewLoopStep(step Step) error {
 		}
 	}
 	return nil
+}
+
+// validReviewLoopPRs says whether a review loop step's prs is a list of 1
+// to MaxReviewLoopPRs items, each a positive number or an expression.
+func validReviewLoopPRs(raw any) bool {
+	list, isList := raw.([]any)
+	if !isList || len(list) == 0 || len(list) > MaxReviewLoopPRs {
+		return false
+	}
+	for _, item := range list {
+		switch n := item.(type) {
+		case int:
+			if n > 0 {
+				continue
+			}
+		case string:
+			if HasExpression(n) {
+				continue
+			}
+		}
+		return false
+	}
+	return true
 }
 
 // ReviewLoopDiagnostics checks d's review loop steps against this Legato's

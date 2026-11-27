@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -71,6 +72,42 @@ func TestTheWatchReadsEveryLayerInOneGraphQLQuery(t *testing.T) {
 	// A pull request GitHub does not have is an error, never an empty layer.
 	if _, err := session.Watch(ctx, []int{99}); err == nil {
 		t.Fatal("watching a missing pull request succeeded")
+	}
+}
+
+// Each context of a check rollup becomes a check by its kind: a check run
+// passes on SUCCESS, NEUTRAL or SKIPPED, fails on any other conclusion and
+// is pending until it completes with one; a status context takes its
+// state; any other kind of context is left out.
+func TestTheWatchMapsEachCheckContext(t *testing.T) {
+	read := `{"number":7,"state":"OPEN","commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"PENDING","contexts":{"pageInfo":{"hasNextPage":true},"nodes":[
+		{"__typename":"CheckRun","name":"neutral","status":"COMPLETED","conclusion":"NEUTRAL","databaseId":1},
+		{"__typename":"CheckRun","name":"skipped","status":"COMPLETED","conclusion":"SKIPPED","databaseId":2},
+		{"__typename":"CheckRun","name":"cancelled","status":"COMPLETED","conclusion":"CANCELLED","databaseId":3},
+		{"__typename":"CheckRun","name":"no-conclusion","status":"COMPLETED","conclusion":null,"databaseId":4},
+		{"__typename":"CheckRun","name":"queued","status":"QUEUED","conclusion":"SUCCESS","databaseId":5},
+		{"__typename":"SomethingNew","name":"ignored"},
+		{"__typename":"StatusContext","context":"errored","state":"ERROR","targetUrl":"https://ci/e"},
+		{"__typename":"StatusContext","context":"expected","state":"EXPECTED","isRequired":true}]}}}}]}}`
+	var pull watchedPull
+	if err := json.Unmarshal([]byte(read), &pull); err != nil {
+		t.Fatal(err)
+	}
+	w := pull.watch(7)
+	if w.Rollup != CheckPending || !w.ChecksTruncated {
+		t.Fatalf("rollup %q, truncated %v", w.Rollup, w.ChecksTruncated)
+	}
+	want := []WatchCheck{
+		{Name: "neutral", State: CheckPassing, Conclusion: "NEUTRAL", RunID: 1},
+		{Name: "skipped", State: CheckPassing, Conclusion: "SKIPPED", RunID: 2},
+		{Name: "cancelled", State: CheckFailing, Conclusion: "CANCELLED", RunID: 3},
+		{Name: "no-conclusion", State: CheckPending, RunID: 4},
+		{Name: "queued", State: CheckPending, RunID: 5},
+		{Name: "errored", State: CheckFailing, Conclusion: "ERROR", URL: "https://ci/e"},
+		{Name: "expected", State: CheckPending, Conclusion: "EXPECTED", Required: true},
+	}
+	if !slices.Equal(w.Checks, want) {
+		t.Fatalf("checks\n%+v\nwant\n%+v", w.Checks, want)
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/cpave3/legato/config"
-	"github.com/cpave3/legato/internal/engine/macros"
 )
 
 func macroNames(list []MacroEntry) []string {
@@ -51,10 +50,10 @@ func TestMacrosListBuiltInsThenTheFilesThenTheDatabases(t *testing.T) {
 		}
 	}
 	plan := findMacro(t, list, "Plan")
-	if !plan.Builtin || plan.Source != MacroBuiltin || plan.AppliesTo != macros.AppliesToTask || plan.Keys == "" || plan.Overridden {
+	if !plan.Builtin || plan.Source != MacroBuiltin || plan.AppliesTo != config.MacroAppliesToTask || plan.Keys == "" || plan.Overridden {
 		t.Fatalf("Plan = %+v", plan)
 	}
-	if review := findMacro(t, list, "Review"); review.AppliesTo != macros.AppliesToPR {
+	if review := findMacro(t, list, "Review"); review.AppliesTo != config.MacroAppliesToPR {
 		t.Fatalf("Review applies to %q", review.AppliesTo)
 	}
 	file := findMacro(t, list, "fromfile")
@@ -75,7 +74,7 @@ func TestAnEditedBuiltInShadowsItAndResetRestoresIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Save(ctx, "Plan", macros.Macro{Keys: "my plan", AppliesTo: "task", Agent: "codex"}, "web"); err != nil {
+	if err := svc.Save(ctx, "Plan", config.Macro{Keys: "my plan", AppliesTo: "task", Agent: "codex"}, "web"); err != nil {
 		t.Fatal(err)
 	}
 	// Seen at the next use: no restart.
@@ -106,7 +105,7 @@ func TestABuiltInCannotBeDeleted(t *testing.T) {
 	if err := svc.Delete(ctx, "Review"); !errors.Is(err, ErrBuiltinMacro) {
 		t.Fatalf("delete built-in = %v, want ErrBuiltinMacro", err)
 	}
-	if err := svc.Save(ctx, "mine", macros.Macro{Keys: "x"}, "web"); err != nil {
+	if err := svc.Save(ctx, "mine", config.Macro{Keys: "x"}, "web"); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.Delete(ctx, "mine"); err != nil {
@@ -128,7 +127,7 @@ func TestAFileEntryIsPinnedEvenOverABuiltIn(t *testing.T) {
 	if err != nil || got.Keys != "use my skill" || !got.Pinned || !got.Builtin || got.Source != MacroFromFile {
 		t.Fatalf("Review = %+v, %v", got, err)
 	}
-	if err := svc.Save(ctx, "Review", macros.Macro{Keys: "x"}, "web"); !errors.Is(err, config.ErrEntryPinned) {
+	if err := svc.Save(ctx, "Review", config.Macro{Keys: "x"}, "web"); !errors.Is(err, config.ErrEntryPinned) {
 		t.Fatalf("save over the file = %v", err)
 	}
 	if err := svc.Reset(ctx, "Review"); !errors.Is(err, config.ErrEntryPinned) {
@@ -143,10 +142,10 @@ func TestAFileEntryIsPinnedEvenOverABuiltIn(t *testing.T) {
 func TestAMacroRefusesAnUnknownAppliesTo(t *testing.T) {
 	settings, _ := newSettingsFixture(t, "")
 	svc := NewMacroService(settings)
-	if err := svc.Save(context.Background(), "x", macros.Macro{Keys: "x", AppliesTo: "card"}, "web"); err == nil {
+	if err := svc.Save(context.Background(), "x", config.Macro{Keys: "x", AppliesTo: "card"}, "web"); err == nil {
 		t.Fatal("accepted applies_to: card")
 	}
-	if err := svc.Save(context.Background(), "x", macros.Macro{AppliesTo: "task"}, "web"); err == nil {
+	if err := svc.Save(context.Background(), "x", config.Macro{AppliesTo: "task"}, "web"); err == nil {
 		t.Fatal("accepted a macro with no text")
 	}
 }
@@ -155,7 +154,7 @@ func TestSettingsListsMacrosWithTheBuiltIns(t *testing.T) {
 	settings, _ := newSettingsFixture(t, "")
 	ctx := context.Background()
 	svc := NewMacroService(settings)
-	if err := svc.Save(ctx, "Review", macros.Macro{Keys: "my review", AppliesTo: "pr"}, "web"); err != nil {
+	if err := svc.Save(ctx, "Review", config.Macro{Keys: "my review", AppliesTo: "pr"}, "web"); err != nil {
 		t.Fatal(err)
 	}
 	lists, err := settings.Lists(ctx)
@@ -182,7 +181,7 @@ func TestAMacroOfYoursCanBeRenamed(t *testing.T) {
 	settings, _ := newSettingsFixture(t, "")
 	ctx := context.Background()
 	svc := NewMacroService(settings)
-	if err := svc.Save(ctx, "Deep review", macros.Macro{Keys: "review deeply", AppliesTo: "pr", Agent: "codex"}, "web"); err != nil {
+	if err := svc.Save(ctx, "Deep review", config.Macro{Keys: "review deeply", AppliesTo: "pr", Agent: "codex"}, "web"); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.Rename(ctx, "deep review", "Thorough review", "web"); err != nil {
@@ -211,7 +210,7 @@ func TestARenameIsRefusedForBuiltInsFileMacrosAndNamesInUse(t *testing.T) {
 	ctx := context.Background()
 	svc := NewMacroService(settings)
 	for _, name := range []string{"Mine", "Other"} {
-		if err := svc.Save(ctx, name, macros.Macro{Keys: "text"}, "web"); err != nil {
+		if err := svc.Save(ctx, name, config.Macro{Keys: "text"}, "web"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -260,7 +259,7 @@ func TestMacroTiersAreEachAgentsTiersInOrder(t *testing.T) {
 }
 
 func TestAMacroEntryReadsBackWhole(t *testing.T) {
-	in := MacroEntry{Macro: macros.Macro{Name: "Plan", Keys: "plan", AppliesTo: "task", Agent: "codex", Tier: "large"}, Source: MacroOverride, Builtin: true, Overridden: true}
+	in := MacroEntry{Macro: config.Macro{Name: "Plan", Keys: "plan", AppliesTo: "task", Agent: "codex", Tier: "large"}, Source: MacroOverride, Builtin: true, Overridden: true}
 	data, err := json.Marshal(in)
 	if err != nil {
 		t.Fatal(err)
@@ -311,13 +310,13 @@ func TestAStarSurvivesEditsAndAReset(t *testing.T) {
 	settings, _ := newSettingsFixture(t, "")
 	ctx := context.Background()
 	svc := NewMacroService(settings)
-	if err := svc.Save(ctx, "mine", macros.Macro{Keys: "do it"}, "web"); err != nil {
+	if err := svc.Save(ctx, "mine", config.Macro{Keys: "do it"}, "web"); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.SetFavorite(ctx, "mine", true, "web"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Save(ctx, "mine", macros.Macro{Keys: "do it now"}, "web"); err != nil {
+	if err := svc.Save(ctx, "mine", config.Macro{Keys: "do it now"}, "web"); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.Rename(ctx, "mine", "ours", "web"); err != nil {
@@ -334,7 +333,7 @@ func TestAStarSurvivesEditsAndAReset(t *testing.T) {
 	if err := svc.SetFavorite(ctx, "Review", true, "web"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Save(ctx, "Review", macros.Macro{Keys: "my review", AppliesTo: "pr"}, "web"); err != nil {
+	if err := svc.Save(ctx, "Review", config.Macro{Keys: "my review", AppliesTo: "pr"}, "web"); err != nil {
 		t.Fatal(err)
 	}
 	edited, _ := svc.Get(ctx, "Review")
@@ -348,7 +347,7 @@ func TestAStarSurvivesEditsAndAReset(t *testing.T) {
 	if !reset.Favorite || reset.Overridden || reset.Keys == "my review" {
 		t.Fatalf("reset Review = %+v, want the shipped text, still starred", reset)
 	}
-	if err := svc.Save(ctx, "Review", macros.Macro{Keys: "unstar me", Favorite: false}, "web"); err != nil {
+	if err := svc.Save(ctx, "Review", config.Macro{Keys: "unstar me", Favorite: false}, "web"); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.SetFavorite(ctx, "Review", false, "web"); err != nil {

@@ -523,12 +523,26 @@ func (c *ReviewRunCaller) waitingToOpenOn(ctx context.Context, repo string, numb
 	if c.workflows == nil {
 		return nil
 	}
-	attempts, err := c.workflows.WaitingAttempts(ctx, ReviewPassesStepType)
+	held, err := c.passesStepWaitingOn(ctx, repo, number, except)
 	if err != nil {
 		return nil
 	}
-	refusal := func(attempt store.WorkflowStepAttempt) *ReviewLoopActiveError {
-		return &ReviewLoopActiveError{Repo: repo, PR: number, Name: "run " + attempt.RunID, Link: "/workflows/runs/" + attempt.RunID}
+	if held == nil {
+		// Open steps still waiting to open hold their pull requests too.
+		if held, err = c.openStepWaitingOn(ctx, repo, number, except); err != nil || held == nil {
+			return nil
+		}
+	}
+	return &ReviewLoopActiveError{Repo: repo, PR: number, Name: "run " + held.RunID, Link: "/workflows/runs/" + held.RunID}
+}
+
+// passesStepWaitingOn is an inline github.pr.review_passes step, other than
+// the run task except's, waiting to open its loop on the pull request; nil
+// when there is none.
+func (c *ReviewRunCaller) passesStepWaitingOn(ctx context.Context, repo string, number int, except string) (*store.WorkflowStepAttempt, error) {
+	attempts, err := c.workflows.WaitingAttempts(ctx, ReviewPassesStepType)
+	if err != nil {
+		return nil, err
 	}
 	for _, attempt := range attempts {
 		if attempt.TaskID == except || c.opened(ctx, attempt) != nil {
@@ -539,15 +553,21 @@ func (c *ReviewRunCaller) waitingToOpenOn(ctx context.Context, repo string, numb
 			continue
 		}
 		if r, n, err := reviewStepPR(step.With); err == nil && n == number && strings.EqualFold(r, repo) {
-			return refusal(attempt)
+			return &attempt, nil
 		}
 	}
-	// Open steps still waiting to open hold their pull requests too.
-	opens, err := c.workflows.WaitingAttempts(ctx, ReviewOpenStepType)
+	return nil, nil
+}
+
+// openStepWaitingOn is a github.pr.review.open step, other than the run
+// task except's, waiting to open a loop that takes the pull request; nil
+// when there is none.
+func (c *ReviewRunCaller) openStepWaitingOn(ctx context.Context, repo string, number int, except string) (*store.WorkflowStepAttempt, error) {
+	attempts, err := c.workflows.WaitingAttempts(ctx, ReviewOpenStepType)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	for _, attempt := range opens {
+	for _, attempt := range attempts {
 		if attempt.TaskID == except {
 			continue
 		}
@@ -560,10 +580,10 @@ func (c *ReviewRunCaller) waitingToOpenOn(ctx context.Context, repo string, numb
 			continue
 		}
 		if slices.Contains(in.numbers(), number) {
-			return refusal(attempt)
+			return &attempt, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // openInline opens an inline github.pr.review_passes step's loop: the one
@@ -1076,23 +1096,12 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 		return false
 	}
 	c.noteAuthor(ctx, l.TaskID, run)
-	open, polls, watched := c.watchedPRs(ctx, l)
-	if watched && open == nil {
-		return false // no watch read yet: the next one tells
-	}
-	if !watched {
-		if open, err = c.openRunPRs(ctx, run); err != nil {
-			return false // GitHub may answer next time
-		}
+	open, polls, watched, ok := c.roundPRs(ctx, l, run)
+	if !ok {
+		return false
 	}
 	if len(open) == 0 {
-		outcome := ReviewOutcomeClosed
-		if rec := c.engine.stewardRecord(ctx, l.TaskID); rec != nil {
-			if w, ok := c.engine.freshWatch(rec.ID); ok && watchEnd(w) == ReviewStageMerged {
-				outcome = ReviewOutcomeMerged
-			}
-		}
-		c.finish(ctx, l.TaskID, outcome)
+		c.finish(ctx, l.TaskID, c.closedOutcome(ctx, l.TaskID))
 		return false
 	}
 	pushed := moved(open, c.pinnedHeads(ctx, l.TaskID))
@@ -1119,6 +1128,34 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 		return err == nil && now.Sub(seen) >= c.engine.config().QuietTime
 	}
 	return disputed || c.disputed(ctx, l, run, open, polls)
+}
+
+// roundPRs are the open pull requests an author's round is read from: a
+// stewarding loop's from its newest watch read, with the comments the
+// watch read (watched), else GitHub's now. ok is false when there is
+// nothing to read yet: no watch read, or GitHub did not answer.
+func (c *ReviewRunCaller) roundPRs(ctx context.Context, l ReviewLoop, run *reviewRun) (open []ReviewGitHubPR, polls map[int]CommentPoll, watched, ok bool) {
+	open, polls, watched = c.watchedPRs(ctx, l)
+	if watched {
+		return open, polls, true, open != nil // nil: no watch read yet, the next one tells
+	}
+	open, err := c.openRunPRs(ctx, run)
+	if err != nil {
+		return nil, nil, false, false // GitHub may answer next time
+	}
+	return open, nil, false, true
+}
+
+// closedOutcome is how a loop whose pull requests are no longer open
+// ends: merged when the steward's fresh watch saw the stack merge, else
+// closed.
+func (c *ReviewRunCaller) closedOutcome(ctx context.Context, taskID string) string {
+	if rec := c.engine.stewardRecord(ctx, taskID); rec != nil {
+		if w, ok := c.engine.freshWatch(rec.ID); ok && watchEnd(w) == ReviewStageMerged {
+			return ReviewOutcomeMerged
+		}
+	}
+	return ReviewOutcomeClosed
 }
 
 // watchedPRs are a stewarding loop's open pull requests and their comments
@@ -1168,18 +1205,32 @@ func (c *ReviewRunCaller) agentDone(ctx context.Context, l ReviewLoop, pushed bo
 		return false
 	}
 	if c.engine.stewardRecord(ctx, l.TaskID) != nil {
-		disputed := false
-		for _, item := range items {
-			if item.Kind != ItemBlocking {
-				continue
-			}
-			if item.Answer == "" {
-				return false
-			}
-			disputed = disputed || item.Answer == AnswerReplied
-		}
-		return pushed || disputed
+		return stewardRoundDone(items, pushed)
 	}
+	return reviewRoundDone(items, pushed)
+}
+
+// stewardRoundDone says a round of a loop the steward watches is done:
+// every blocking finding answered, and a push or one of them disputed.
+// Nothing else waits for an answer.
+func stewardRoundDone(items []store.HandoffReviewItem, pushed bool) bool {
+	disputed := false
+	for _, item := range items {
+		if item.Kind != ItemBlocking {
+			continue
+		}
+		if item.Answer == "" {
+			return false
+		}
+		disputed = disputed || item.Answer == AnswerReplied
+	}
+	return pushed || disputed
+}
+
+// reviewRoundDone says a round is done: every item but a nit answered, and
+// a push, a blocking finding disputed, or only failing checks each
+// answered by a reply.
+func reviewRoundDone(items []store.HandoffReviewItem, pushed bool) bool {
 	disputed := false
 	// Only failing checks, each answered by a reply: nothing to review
 	// again, and the loop can end.

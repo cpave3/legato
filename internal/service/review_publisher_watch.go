@@ -159,18 +159,7 @@ type watchedPull struct {
 						PageInfo struct {
 							HasNextPage bool `json:"hasNextPage"`
 						} `json:"pageInfo"`
-						Nodes []struct {
-							Typename   string  `json:"__typename"`
-							Name       string  `json:"name"`
-							Status     string  `json:"status"`
-							Conclusion *string `json:"conclusion"`
-							DetailsURL string  `json:"detailsUrl"`
-							DatabaseID int64   `json:"databaseId"`
-							Context    string  `json:"context"`
-							State      string  `json:"state"`
-							TargetURL  string  `json:"targetUrl"`
-							IsRequired bool    `json:"isRequired"`
-						} `json:"nodes"`
+						Nodes []watchedCheck `json:"nodes"`
 					} `json:"contexts"`
 				} `json:"statusCheckRollup"`
 			} `json:"commit"`
@@ -235,28 +224,53 @@ func (pull *watchedPull) watch(number int) PRWatch {
 	w.Rollup = rollupState(rollup.State)
 	w.ChecksTruncated = rollup.Contexts.PageInfo.HasNextPage
 	for _, c := range rollup.Contexts.Nodes {
-		check := WatchCheck{Required: c.IsRequired}
-		switch c.Typename {
-		case "CheckRun":
-			check.Name, check.URL, check.RunID, check.State = c.Name, c.DetailsURL, c.DatabaseID, CheckPending
-			if c.Status == "COMPLETED" && c.Conclusion != nil {
-				check.Conclusion = *c.Conclusion
-				switch check.Conclusion {
-				case "SUCCESS", "NEUTRAL", "SKIPPED":
-					check.State = CheckPassing
-				default:
-					check.State = CheckFailing
-				}
-			}
-		case "StatusContext":
-			check.Name, check.URL, check.Conclusion = c.Context, c.TargetURL, c.State
-			check.State = rollupState(c.State)
-		default:
-			continue
+		if check, ok := c.toWatchCheck(); ok {
+			w.Checks = append(w.Checks, check)
 		}
-		w.Checks = append(w.Checks, check)
 	}
 	return w
+}
+
+// watchedCheck is one context of a check rollup as the watch query reads
+// it: a check run or a commit status.
+type watchedCheck struct {
+	Typename   string  `json:"__typename"`
+	Name       string  `json:"name"`
+	Status     string  `json:"status"`
+	Conclusion *string `json:"conclusion"`
+	DetailsURL string  `json:"detailsUrl"`
+	DatabaseID int64   `json:"databaseId"`
+	Context    string  `json:"context"`
+	State      string  `json:"state"`
+	TargetURL  string  `json:"targetUrl"`
+	IsRequired bool    `json:"isRequired"`
+}
+
+// toWatchCheck is the check the steward keeps of a context: a check run is
+// pending until it completes with a conclusion, then passing (SUCCESS,
+// NEUTRAL, SKIPPED) or failing; a commit status takes its state. false for
+// a kind of context the watch does not know.
+func (c watchedCheck) toWatchCheck() (WatchCheck, bool) {
+	check := WatchCheck{Required: c.IsRequired}
+	switch c.Typename {
+	case "CheckRun":
+		check.Name, check.URL, check.RunID, check.State = c.Name, c.DetailsURL, c.DatabaseID, CheckPending
+		if c.Status == "COMPLETED" && c.Conclusion != nil {
+			check.Conclusion = *c.Conclusion
+			switch check.Conclusion {
+			case "SUCCESS", "NEUTRAL", "SKIPPED":
+				check.State = CheckPassing
+			default:
+				check.State = CheckFailing
+			}
+		}
+	case "StatusContext":
+		check.Name, check.URL, check.Conclusion = c.Context, c.TargetURL, c.State
+		check.State = rollupState(c.State)
+	default:
+		return WatchCheck{}, false
+	}
+	return check, true
 }
 
 // rollupState maps GitHub's StatusState to a check state.

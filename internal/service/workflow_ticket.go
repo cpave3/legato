@@ -192,20 +192,10 @@ func (e *TicketCreateExecutor) Start(ctx context.Context, step ResolvedWorkflowS
 	if err := checkTicketDraft(writer.Provider(), step.With, &draft); err != nil {
 		return WorkflowExecutionResult{}, err
 	}
-	if assignee != "" {
-		// Resolved before anything is begun, so one no one matches makes
-		// nothing.
-		updater, ok := writer.(TicketUpdater)
-		if !ok {
-			return WorkflowExecutionResult{}, fmt.Errorf("%s cannot assign tickets here", ticketProviderLabel(writer.Provider()))
-		}
-		who, err := e.me.resolve(ctx, step.RunID, updater, assignee)
-		if err != nil {
-			return WorkflowExecutionResult{}, ticketWriteError("finding the assignee "+assignee, err)
-		}
-		if writer.Provider() == "jira" {
-			draft.AssigneeID = who.ID
-		}
+	// Resolved before anything is begun, so one no one matches makes
+	// nothing.
+	if err := e.resolveCreateAssignee(ctx, step.RunID, writer, assignee, &draft); err != nil {
+		return WorkflowExecutionResult{}, err
 	}
 	doing := fmt.Sprintf("creating %s in %s", ticketNoun(writer.Provider()), draft.Project)
 
@@ -243,6 +233,28 @@ func (e *TicketCreateExecutor) Start(ctx context.Context, step ResolvedWorkflowS
 		return WorkflowExecutionResult{}, fmt.Errorf("created %s but could not record it: %w", ticket.Key, err)
 	}
 	return ticketCreated(ticket, true, e.claimAfterCreate(ctx, step.RunID, ticket, assignee)), nil
+}
+
+// resolveCreateAssignee finds ticket.create's assignee, if it names one,
+// before the ticket is begun: a writer that cannot assign, or an assignee
+// no one matches, is an error. Jira takes the person on the new issue;
+// Burnlite claims it after creating (claimAfterCreate).
+func (e *TicketCreateExecutor) resolveCreateAssignee(ctx context.Context, runID string, writer TicketWriter, assignee string, draft *TicketDraft) error {
+	if assignee == "" {
+		return nil
+	}
+	updater, ok := writer.(TicketUpdater)
+	if !ok {
+		return fmt.Errorf("%s cannot assign tickets here", ticketProviderLabel(writer.Provider()))
+	}
+	who, err := e.me.resolve(ctx, runID, updater, assignee)
+	if err != nil {
+		return ticketWriteError("finding the assignee "+assignee, err)
+	}
+	if writer.Provider() == "jira" {
+		draft.AssigneeID = who.ID
+	}
+	return nil
 }
 
 // findEarlier is the ticket an earlier attempt created, nil when it made

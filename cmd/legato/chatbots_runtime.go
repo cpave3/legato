@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -12,7 +10,6 @@ import (
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
-	"golang.org/x/sys/unix"
 )
 
 // chatBotRuntimes holds each database's chat bots in this process: the
@@ -66,19 +63,7 @@ func chatBotSettings(cfg *config.Config, db *store.Store) service.ChatBotSetting
 // the bots connected: a TUI and a legato serve on one data directory would
 // otherwise split Slack's events between them and receive Discord's twice.
 func claimChatBots(dataDir string) (func(), error) {
-	if err := os.MkdirAll(dataDir, 0700); err != nil {
-		return nil, err
-	}
-	file, err := os.OpenFile(filepath.Join(dataDir, "chatbots.lock"), os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, err
-	}
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		_ = file.Close()
-		return nil, err
-	}
-	var once sync.Once
-	return func() { once.Do(func() { _ = unix.Flock(int(file.Fd()), unix.LOCK_UN); _ = file.Close() }) }, nil
+	return claimDataDirLock(dataDir, "chatbots.lock")
 }
 
 // startChatBots connects the enabled bots, handing their messages to the

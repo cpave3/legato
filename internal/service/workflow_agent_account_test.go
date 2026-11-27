@@ -10,7 +10,6 @@ import (
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/hooks"
-	"github.com/cpave3/legato/internal/engine/macros"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
 
@@ -90,7 +89,7 @@ func TestWorkflowMacroAccountReachesBothLaunchPaths(t *testing.T) {
 		} {
 			t.Run(on+"/"+tc.name, func(t *testing.T) {
 				macro, _ := newMacroStartFixture(t)
-				if err := macro.Save(context.Background(), "account", macros.Macro{Keys: "Work", Agent: tc.macroAgent, Account: "work"}, "test"); err != nil {
+				if err := macro.Save(context.Background(), "account", config.Macro{Keys: "Work", Agent: tc.macroAgent, Account: "work"}, "test"); err != nil {
 					t.Fatal(err)
 				}
 				runner := &fakePlaceRunner{fakeWorkflowAgentService: &fakeWorkflowAgentService{}}

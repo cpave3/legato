@@ -54,23 +54,22 @@ func OpenReviewLoopClones(ctx context.Context, db *store.Store) (map[int64]bool,
 	if err != nil {
 		return nil, err
 	}
+	hosts := make([]string, 0, len(attempts))
+	for _, attempt := range attempts {
+		hosts = append(hosts, attempt.TaskID)
+	}
 	// A loop an open step handed to its run is kept while it is open,
 	// whatever step of the run waits (a failed run's too, for Retry).
-	stepLoops, err := db.ListOpenReviewLoops(ctx)
+	stepHosts, err := stepOwnedLoopHosts(ctx, db)
 	if err != nil {
 		return nil, err
 	}
-	for _, l := range stepLoops {
-		if l.OwnerKind == store.ReviewLoopOwnerRun && db.ReviewLoopOpenedByStep(ctx, l.AttemptID) {
-			attempts = append(attempts, store.WorkflowStepAttempt{TaskID: l.HostTask})
-		}
-	}
-	for _, attempt := range attempts {
-		run, err := readReviewRun(ctx, db, attempt.TaskID)
+	for _, host := range append(hosts, stepHosts...) {
+		run, err := readReviewRun(ctx, db, host)
 		if err != nil {
 			continue // a step that has not recorded its loop yet has no clone
 		}
-		loop, err := db.GetHandoffReview(ctx, attempt.TaskID)
+		loop, err := db.GetHandoffReview(ctx, host)
 		if err != nil {
 			return nil, err
 		}
@@ -80,7 +79,7 @@ func OpenReviewLoopClones(ctx context.Context, db *store.Store) (map[int64]bool,
 		if run.CloneID != 0 {
 			out[run.CloneID] = true
 		}
-		if err := add(attempt.TaskID, run.Repo); err != nil {
+		if err := add(host, run.Repo); err != nil {
 			return nil, err
 		}
 		if err := add(run.AuthorTask, run.Repo); err != nil {
@@ -88,6 +87,22 @@ func OpenReviewLoopClones(ctx context.Context, db *store.Store) (map[int64]bool,
 		}
 	}
 	return out, nil
+}
+
+// stepOwnedLoopHosts are the host tasks of the open loops that an open
+// step (github.pr.review.open) handed to its run.
+func stepOwnedLoopHosts(ctx context.Context, db *store.Store) ([]string, error) {
+	loops, err := db.ListOpenReviewLoops(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var hosts []string
+	for _, l := range loops {
+		if l.OwnerKind == store.ReviewLoopOwnerRun && db.ReviewLoopOpenedByStep(ctx, l.AttemptID) {
+			hosts = append(hosts, l.HostTask)
+		}
+	}
+	return hosts, nil
 }
 
 // reviewLoopOpen says whether a loop record is a loop that has not ended.

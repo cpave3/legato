@@ -1,11 +1,11 @@
 package overlay
 
 import (
+	"github.com/cpave3/legato/config"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/cpave3/legato/internal/engine/macros"
 )
 
 func TestMacroPickerEmptyShowsPlaceholder(t *testing.T) {
@@ -17,7 +17,7 @@ func TestMacroPickerEmptyShowsPlaceholder(t *testing.T) {
 }
 
 func TestMacroPickerNavigateAndSelect(t *testing.T) {
-	m := NewMacroPicker([]macros.Macro{
+	m := NewMacroPicker([]config.Macro{
 		{Name: "run tests", Keys: "task test\n"},
 		{Name: "git diff", Keys: "! git diff\n"},
 	})
@@ -52,7 +52,7 @@ func TestMacroPickerNavigateAndSelect(t *testing.T) {
 }
 
 func TestMacroPickerCancel(t *testing.T) {
-	m := NewMacroPicker([]macros.Macro{
+	m := NewMacroPicker([]config.Macro{
 		{Name: "x", Keys: "y\n"},
 	})
 	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
@@ -67,7 +67,7 @@ func TestMacroPickerCancel(t *testing.T) {
 }
 
 func TestMacroPickerShowsFavouritesAndTheRestBehindShowAll(t *testing.T) {
-	var m tea.Model = NewMacroPicker([]macros.Macro{
+	var m tea.Model = NewMacroPicker([]config.Macro{
 		{Name: "Plan", Keys: "plan it", Favorite: true},
 		{Name: "Ticket to PR", Keys: "ship it"},
 		{Name: "Tests", Keys: "run the tests", Favorite: true},
@@ -100,7 +100,7 @@ func TestMacroPickerShowsFavouritesAndTheRestBehindShowAll(t *testing.T) {
 }
 
 func TestMacroPickerWithNoStarsListsEveryMacro(t *testing.T) {
-	m := NewMacroPicker([]macros.Macro{{Name: "a", Keys: "1"}, {Name: "b", Keys: "2"}})
+	m := NewMacroPicker([]config.Macro{{Name: "a", Keys: "1"}, {Name: "b", Keys: "2"}})
 	v := m.View()
 	if !strings.Contains(v, "a") || !strings.Contains(v, "b") || strings.Contains(v, "Show all") {
 		t.Fatalf("want every macro and no Show all, got:\n%s", v)

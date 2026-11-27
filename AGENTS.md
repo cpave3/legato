@@ -23,15 +23,16 @@ AI Agent Orchestration TUI — a keyboard-driven kanban board for tracking tasks
 
 ```
 cmd/legato/     → wires everything (imports all layers)
-internal/tui/   → presentation (imports service/ via interfaces, never engine/)
+internal/tui/   → presentation (imports service/ via interfaces; of engine/, only audited value types and pure helpers)
 internal/service/ → business logic (imports engine/, never tui/)
-internal/engine/  → infrastructure (imports only stdlib + 3rd-party)
-config/           → configuration (standalone, no internal imports)
+internal/engine/  → infrastructure (imports only stdlib + 3rd-party + internal/leaf/)
+internal/leaf/    → one-purpose helpers (imports only stdlib; anyone may import)
+config/           → configuration (standalone, no internal imports; owns the macro model, ADR 2)
 ```
 
 `packages/` holds TypeScript apps outside the Go binary (the first is `even-hub/`, the Even G2 glasses app), one pnpm workspace rooted at `packages/`, not at the repository root: a root workspace would take over `pnpm install` in `web/`, `site/` and `browser-extension/`, which keep their own lockfiles until they move in. Each package has `typecheck` and `test` scripts; `task packages:check` runs lint, types and tests for all of them. Run pnpm there with `-C packages/...` from the repository root rather than after `cd`. See `docs/ai/even-hub.md` § The `packages/` workspace.
 
-Import rules are enforced by architecture tests. Engine packages must not import sibling engine packages, service, or TUI; service must never import TUI. Production database callers use store behavior rather than `Store.DB()`/`sqlx`, command entry points open databases through `openStore`, and filesystem state resolves from `config.ResolveDataDir` rather than the database path.
+Import rules are enforced by architecture tests. Engine packages must not import sibling engine packages, service, or TUI, and of Legato's own packages may import only the standard-library leaf packages under `internal/leaf/` (`docs/adr/0001-stdlib-leaf-packages.md`: one helper with one meaning per package, never a `util` package); service must never import TUI. The TUI names only the engine value types and pure helpers listed in `internal/tui/architecture_test.go` (ADR 3): engine behaviour, such as the event bus or IPC, reaches it through service interfaces (`service.EventStream`, `service.SendPlanVerdict`). Production database callers use store behavior rather than `Store.DB()`/`sqlx`, command entry points open databases through `openStore`, and filesystem state resolves from `config.ResolveDataDir` rather than the database path.
 
 ## Commands
 

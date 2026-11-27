@@ -3,11 +3,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"github.com/cpave3/legato/config"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -22,7 +22,7 @@ func TestMacrosHandlerEmpty(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	var body macros.ListResult
+	var body macroListResult
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestMacrosHandlerEmpty(t *testing.T) {
 
 func TestMacrosHandlerUsesLowercaseJSONFields(t *testing.T) {
 	s := New(nil, nil, nil, ":0")
-	s.SetMacros([]macros.Macro{{Name: "run tests", Keys: "task test"}})
+	s.SetMacros([]config.Macro{{Name: "run tests", Keys: "task test"}})
 	rec := httptest.NewRecorder()
 	s.macrosHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/macros", nil))
 	if rec.Code != http.StatusOK {
@@ -53,7 +53,7 @@ func TestMacrosHandlerUsesLowercaseJSONFields(t *testing.T) {
 }
 
 func TestMacrosHandlerPopulated(t *testing.T) {
-	s := &Server{macros: []macros.Macro{
+	s := &Server{macros: []config.Macro{
 		{Name: "run tests", Keys: "task test\n"},
 		{Name: "git diff", Keys: "! git diff\n"},
 	}}
@@ -66,7 +66,7 @@ func TestMacrosHandlerPopulated(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	var body macros.ListResult
+	var body macroListResult
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
@@ -123,8 +123,8 @@ func (f *fakeMacroSource) List(context.Context) ([]service.MacroEntry, error) { 
 
 func TestMacrosHandlerReadsTheMacroServiceAtEachRequest(t *testing.T) {
 	s := New(nil, nil, nil, ":0")
-	s.SetMacros([]macros.Macro{{Name: "stale", Keys: "x"}})
-	src := &fakeMacroSource{list: []service.MacroEntry{{Macro: macros.Macro{Name: "Plan", Keys: "plan it", AppliesTo: "task"}, Source: service.MacroBuiltin, Builtin: true}}}
+	s.SetMacros([]config.Macro{{Name: "stale", Keys: "x"}})
+	src := &fakeMacroSource{list: []service.MacroEntry{{Macro: config.Macro{Name: "Plan", Keys: "plan it", AppliesTo: "task"}, Source: service.MacroBuiltin, Builtin: true}}}
 	s.SetMacroService(src)
 	get := func() map[string][]map[string]any {
 		rec := httptest.NewRecorder()
@@ -146,8 +146,35 @@ func TestMacrosHandlerReadsTheMacroServiceAtEachRequest(t *testing.T) {
 	if full.Suggested["task"] != "Plan" || full.Suggested["my_pr"] != "Address feedback" || full.Suggested["others_pr"] != "Review" {
 		t.Fatalf("suggested = %v", full.Suggested)
 	}
-	src.list = append(src.list, service.MacroEntry{Macro: macros.Macro{Name: "new", Keys: "y"}, Source: service.MacroFromDatabase})
+	src.list = append(src.list, service.MacroEntry{Macro: config.Macro{Name: "new", Keys: "y"}, Source: service.MacroFromDatabase})
 	if got := get()["macros"]; len(got) != 2 {
 		t.Fatalf("an edit was not seen at the next request: %v", got)
+	}
+}
+
+// The shape of GET /api/macros.
+func TestMacroListResultJSON(t *testing.T) {
+	lr := macroListResult{
+		Macros: []config.Macro{
+			{Name: "run tests", Keys: "task test\n"},
+			{Name: "git diff", Keys: "! git diff\n"},
+		},
+	}
+	data, err := json.Marshal(lr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got macroListResult
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Macros) != 2 {
+		t.Fatalf("expected 2 macros, got %d", len(got.Macros))
+	}
+	if got.Macros[0].Name != "run tests" {
+		t.Errorf("macro[0].Name = %q, want %q", got.Macros[0].Name, "run tests")
+	}
+	if got.Macros[1].Keys != "! git diff\n" {
+		t.Errorf("macro[1].Keys = %q, want %q", got.Macros[1].Keys, "! git diff\n")
 	}
 }

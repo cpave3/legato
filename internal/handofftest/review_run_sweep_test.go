@@ -46,6 +46,49 @@ func sweeper(t *testing.T, w *Worker) *service.RepositoryService {
 	return repos
 }
 
+// A loop the review-loop's open step handed to its run keeps its clones
+// while it is open, whichever step of the run waits; once the run ends,
+// they are no longer kept.
+func TestAnOpenStepsLoopKeepsItsClones(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	ctx := context.Background()
+	view, err := r.runs.StartReviewLoop(ctx, map[string]string{"repo": "acme/widget", "pr_number": "12"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.tick()
+	loops, err := r.worker.Store.ListOpenReviewLoops(ctx)
+	if err != nil || len(loops) != 1 || loops[0].RunID != view.Run.ID {
+		t.Fatalf("open loops %+v (%v)", loops, err)
+	}
+	host := loops[0].HostTask
+	clone, err := r.worker.Store.CreateJobClone(ctx, store.JobClone{ExecutionID: "exec-host", TaskID: host, Repo: "Acme/Widget",
+		Branch: "legato-review/pr-12", Path: filepath.Join(r.worker.Dir, "jobs", "exec-host", "widget"), CreatedAt: r.worker.Clock.Now(), Slot: service.SlotReviewer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := r.worker.Store.CreateJobClone(ctx, store.JobClone{ExecutionID: "exec-other", TaskID: host, Repo: "acme/other",
+		Branch: "main", Path: filepath.Join(r.worker.Dir, "jobs", "exec-other", "other"), CreatedAt: r.worker.Clock.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept, err := service.OpenReviewLoopClones(ctx, r.worker.Store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !kept[clone] || kept[other] {
+		t.Fatalf("kept %v; want %d and not %d", kept, clone, other)
+	}
+
+	if _, err := r.runs.Workflows.Cancel(ctx, view.Run.ID, "not needed"); err != nil {
+		t.Fatal(err)
+	}
+	r.worker.Settle()
+	if kept, err := service.OpenReviewLoopClones(ctx, r.worker.Store); err != nil || kept[clone] {
+		t.Fatalf("after the run ended, kept %v (%v)", kept, err)
+	}
+}
+
 // AC 46: a loop waiting days for its author keeps its reviewer's clone past
 // keep_idle; once the loop ends, the sweep may take it.
 func TestTheJobCloneSweepKeepsAnOpenLoopsClone(t *testing.T) {

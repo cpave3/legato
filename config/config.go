@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cpave3/legato/internal/engine/macros"
 	"gopkg.in/yaml.v3"
 )
 
@@ -34,7 +33,7 @@ type Config struct {
 	DefaultImportWorkspace string                   `yaml:"default_import_workspace"`
 	Swarm                  SwarmConfig              `yaml:"swarm"`
 	Adapters               map[string]AdapterConfig `yaml:"adapters"`
-	Macros                 []macros.Macro           `yaml:"macros"`
+	Macros                 []Macro                  `yaml:"macros"`
 	Voice                  VoiceConfig              `yaml:"voice"`
 	Worktrees              WorktreesConfig          `yaml:"worktrees"`
 	Groups                 GroupsConfig             `yaml:"groups"`
@@ -822,9 +821,9 @@ func ValidateWorkspaceDefaults(cfg *Config) error {
 
 // extractMacrosRaw unmarshals only the macros field from raw YAML bytes,
 // skipping any env-var expansion so $VAR references stay literal.
-func extractMacrosRaw(data []byte) ([]macros.Macro, error) {
+func extractMacrosRaw(data []byte) ([]Macro, error) {
 	var raw struct {
-		Macros []macros.Macro `yaml:"macros"`
+		Macros []Macro `yaml:"macros"`
 	}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, err

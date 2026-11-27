@@ -21,9 +21,10 @@ import (
 	"math"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cpave3/legato/internal/leaf/retryafter"
 )
 
 // DefaultBaseURL is where the Go endpoints live.
@@ -145,7 +146,7 @@ func (c *Client) Read(ctx context.Context) (Reading, error) {
 	case resp.StatusCode == http.StatusForbidden:
 		return Reading{}, ErrNoSubscription
 	case resp.StatusCode == http.StatusTooManyRequests:
-		return Reading{}, &RateLimitedError{RetryAfter: retryAfter(resp.Header.Get("Retry-After"), now())}
+		return Reading{}, &RateLimitedError{RetryAfter: retryafter.Parse(resp.Header.Get("Retry-After"), now())}
 	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone:
 		return Reading{}, fmt.Errorf("%w (status %d)", ErrEndpointChanged, resp.StatusCode)
 	case resp.StatusCode >= 300 && resp.StatusCode < 400:
@@ -180,20 +181,6 @@ func transportError(err error) error {
 	default:
 		return fmt.Errorf("%w", ErrUnreachable)
 	}
-}
-
-func retryAfter(value string, now time.Time) time.Duration {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return 0
-	}
-	if seconds, err := strconv.Atoi(value); err == nil && seconds > 0 {
-		return time.Duration(seconds) * time.Second
-	}
-	if at, err := http.ParseTime(value); err == nil && at.After(now) {
-		return at.Sub(now)
-	}
-	return 0
 }
 
 type wireMeter struct {

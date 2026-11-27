@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"crypto/tls"
 	"encoding/json"
+	"github.com/cpave3/legato/config"
 	"net"
 	"net/http"
 	"strings"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/ipc"
-	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/server/static"
@@ -71,7 +71,7 @@ type Server struct {
 	tlsKey                   string
 	caCertPath               string
 	authToken                string
-	macros                   []macros.Macro
+	macros                   []config.Macro
 	macroSvc                 MacroSource
 	groupDefaults            []string
 	sparklineWindow          time.Duration

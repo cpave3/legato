@@ -513,9 +513,7 @@ func (c *ReviewRunCaller) openSteps(ctx context.Context) {
 			rec, warnings, err = c.openStep(ctx, step)
 		}
 		if err != nil {
-			if _, failErr := c.workflows.FailWaitingError(ctx, attempt.RunID, attempt.Path, attempt.ID, reviewStepError(err)); failErr != nil && !errors.Is(failErr, store.ErrWorkflowStateConflict) {
-				log.Printf("review passes: failing %s: %v", attempt.RunID, failErr)
-			}
+			c.failWaitingLogged(ctx, attempt, reviewStepError(err))
 			continue
 		}
 		outputs, err := c.openOutputs(ctx, rec, warnings)
@@ -523,9 +521,24 @@ func (c *ReviewRunCaller) openSteps(ctx context.Context) {
 			log.Printf("review passes: the outputs of %s's open: %v", attempt.RunID, err)
 			continue
 		}
-		if _, err := c.workflows.CompleteWaiting(ctx, attempt.RunID, attempt.Path, attempt.ID, outputs); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
-			log.Printf("review passes: completing %s's open: %v", attempt.RunID, err)
-		}
+		c.completeWaitingLogged(ctx, attempt, outputs, "open")
+	}
+}
+
+// failWaitingLogged fails a waiting review step with failure. A step that
+// another tick or process ended first (a state conflict) is left as it is;
+// any other refusal is logged, and the next tick tries again.
+func (c *ReviewRunCaller) failWaitingLogged(ctx context.Context, attempt store.WorkflowStepAttempt, failure error) {
+	if _, err := c.workflows.FailWaitingError(ctx, attempt.RunID, attempt.Path, attempt.ID, failure); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
+		log.Printf("review passes: failing %s: %v", attempt.RunID, err)
+	}
+}
+
+// completeWaitingLogged completes a waiting review step (what names it in
+// the log) with outputs, as failWaitingLogged fails one.
+func (c *ReviewRunCaller) completeWaitingLogged(ctx context.Context, attempt store.WorkflowStepAttempt, outputs map[string]any, what string) {
+	if _, err := c.workflows.CompleteWaiting(ctx, attempt.RunID, attempt.Path, attempt.ID, outputs); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
+		log.Printf("review passes: completing %s's %s: %v", attempt.RunID, what, err)
 	}
 }
 
@@ -639,9 +652,7 @@ func (c *ReviewRunCaller) SettleSteps(ctx context.Context) {
 		}
 		rec, err := ownedStepLoop(ctx, c.engine.db, step, true)
 		if err != nil {
-			if _, failErr := c.workflows.FailWaitingError(ctx, attempt.RunID, attempt.Path, attempt.ID, err); failErr != nil && !errors.Is(failErr, store.ErrWorkflowStateConflict) {
-				log.Printf("review passes: failing %s: %v", attempt.RunID, failErr)
-			}
+			c.failWaitingLogged(ctx, attempt, err)
 			continue
 		}
 		outputs, err := c.closeStepLoop(ctx, rec)
@@ -649,9 +660,7 @@ func (c *ReviewRunCaller) SettleSteps(ctx context.Context) {
 			log.Printf("review passes: closing loop %s of %s, trying again: %v", rec.ID, rec.RunID, err)
 			continue
 		}
-		if _, err := c.workflows.CompleteWaiting(ctx, attempt.RunID, attempt.Path, attempt.ID, outputs); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
-			log.Printf("review passes: completing %s's close: %v", attempt.RunID, err)
-		}
+		c.completeWaitingLogged(ctx, attempt, outputs, "close")
 	}
 }
 
@@ -718,11 +727,7 @@ func (c *ReviewRunCaller) closeOutputs(ctx context.Context, rec *store.ReviewLoo
 	approved := rec.Outcome == ReviewOutcomeApproved
 	events := map[int]string{}
 	if approved && rec.CleanPass > 0 {
-		if pins, err := c.engine.db.ListHandoffReviewPRs(ctx, rec.HostTask, rec.CleanPass); err == nil {
-			for _, pin := range pins {
-				events[pin.Number] = pin.Event
-			}
-		}
+		events = c.cleanPassEvents(ctx, rec)
 	}
 	withheld := false
 	prs := []map[string]any{}
@@ -749,18 +754,23 @@ func (c *ReviewRunCaller) closeOutputs(ctx context.Context, rec *store.ReviewLoo
 	if err != nil {
 		return nil, err
 	}
-	// The passes posted: one discarded at the close (or re-pinned when a
-	// head moved) is not counted.
+	return map[string]any{"outcome": rec.Outcome, "passes": c.postedPasses(ctx, rec.ID), "clean_pass": rec.CleanPass, "confirmed_at": rec.ConfirmedAt,
+		"findings": counts, "prs": prs, "approval_withheld": withheld, "summary_path": path, "linked_task": rec.LinkedTask, "loop_id": rec.ID}, nil
+}
+
+// postedPasses counts a loop's passes posted to GitHub: one discarded at
+// the close (or re-pinned when a head moved) is not counted; none when
+// they cannot be read.
+func (c *ReviewRunCaller) postedPasses(ctx context.Context, loopID string) int {
 	posted := 0
-	if passes, err := c.engine.db.ListReviewLoopPasses(ctx, rec.ID); err == nil {
+	if passes, err := c.engine.db.ListReviewLoopPasses(ctx, loopID); err == nil {
 		for _, p := range passes {
 			if p.State == store.ReviewLoopPassPosted {
 				posted++
 			}
 		}
 	}
-	return map[string]any{"outcome": rec.Outcome, "passes": posted, "clean_pass": rec.CleanPass, "confirmed_at": rec.ConfirmedAt,
-		"findings": counts, "prs": prs, "approval_withheld": withheld, "summary_path": path, "linked_task": rec.LinkedTask, "loop_id": rec.ID}, nil
+	return posted
 }
 
 // writeSummary writes a loop's summary file: every pass with its verdict
@@ -945,17 +955,13 @@ func (c *ReviewRunCaller) settleObservers(ctx context.Context, kind string) {
 			outputs, err = c.observe(ctx, kind, step, rec)
 		}
 		if err != nil {
-			if _, failErr := c.workflows.FailWaitingError(ctx, attempt.RunID, attempt.Path, attempt.ID, reviewStepError(err)); failErr != nil && !errors.Is(failErr, store.ErrWorkflowStateConflict) {
-				log.Printf("review passes: failing %s: %v", attempt.RunID, failErr)
-			}
+			c.failWaitingLogged(ctx, attempt, reviewStepError(err))
 			continue
 		}
 		if outputs == nil {
 			continue // not there yet
 		}
-		if _, err := c.workflows.CompleteWaiting(ctx, attempt.RunID, attempt.Path, attempt.ID, outputs); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
-			log.Printf("review passes: completing %s's %s: %v", attempt.RunID, kind, err)
-		}
+		c.completeWaitingLogged(ctx, attempt, outputs, kind)
 	}
 }
 
@@ -1218,14 +1224,10 @@ func (c *ReviewRunCaller) settleReady(ctx context.Context) {
 			continue
 		}
 		if err != nil {
-			if _, failErr := c.workflows.FailWaitingError(ctx, attempt.RunID, attempt.Path, attempt.ID, err); failErr != nil && !errors.Is(failErr, store.ErrWorkflowStateConflict) {
-				log.Printf("review passes: failing %s: %v", attempt.RunID, failErr)
-			}
+			c.failWaitingLogged(ctx, attempt, err)
 			continue
 		}
-		if _, err := c.workflows.CompleteWaiting(ctx, attempt.RunID, attempt.Path, attempt.ID, outputs); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
-			log.Printf("review passes: completing %s's ready: %v", attempt.RunID, err)
-		}
+		c.completeWaitingLogged(ctx, attempt, outputs, "ready")
 	}
 }
 
@@ -1238,49 +1240,17 @@ func (c *ReviewRunCaller) settleReady(ctx context.Context) {
 // left alone and none goes back to draft. One GitHub will not mark ready
 // fails the step (ready_failed), naming it; those below it stay ready.
 func (c *ReviewRunCaller) markStackReady(ctx context.Context, rec *store.ReviewLoop) (map[string]any, error) {
-	notApproved := func(format string, args ...any) error {
-		return reviewRefused(ReviewRefusalNotApprovedAtHeads, format, args...)
-	}
 	if rec.ConfirmedAt == "" || rec.CleanPass == 0 || rec.CleanPass != rec.Pass ||
 		(rec.State != store.ReviewLoopOpenState && rec.Outcome != ReviewOutcomeApproved) {
-		return nil, notApproved("review loop %s is not approved at GitHub's heads", rec.ID)
+		return nil, notApprovedAtHeads("review loop %s is not approved at GitHub's heads", rec.ID)
 	}
 	ready, ok := c.opts.GitHub.(ReviewReadyGitHub)
 	if !ok {
 		return nil, reviewRefused(ReviewRefusalReadyFailed, "this Legato cannot mark pull requests ready")
 	}
-	layers, err := c.engine.db.ListReviewLoopPRs(ctx, rec.ID)
+	open, err := c.approvedOpenLayers(ctx, rec)
 	if err != nil {
 		return nil, err
-	}
-	events := map[int]string{}
-	if pins, err := c.engine.db.ListHandoffReviewPRs(ctx, rec.HostTask, rec.CleanPass); err == nil {
-		for _, pin := range pins {
-			events[pin.Number] = pin.Event
-		}
-	}
-	type layer struct {
-		number int
-		draft  bool
-	}
-	var open []layer
-	for _, l := range layers {
-		pr, state, err := c.opts.GitHub.PullRequest(ctx, rec.Repo, l.Number)
-		if err != nil {
-			return nil, fmt.Errorf("reading #%d: %w", l.Number, err)
-		}
-		if state != "open" {
-			continue // merged or closed: nothing to make ready
-		}
-		switch {
-		case pr.HeadSHA != l.CleanHead:
-			return nil, notApproved("#%d's head on GitHub is %s, not %s, which the review approved", l.Number, short(pr.HeadSHA), short(l.CleanHead))
-		case events[l.Number] != ReviewApprove && events[l.Number] != ReviewKept:
-			return nil, notApproved("#%d has no approval from legato-reviews at %s (its review is a COMMENT: the approval was withheld or held)", l.Number, short(pr.HeadSHA))
-		case c.engine.approvalHeld(ctx, rec.ID, l.Number):
-			return nil, notApproved("#%d's approval is held", l.Number)
-		}
-		open = append(open, layer{number: l.Number, draft: pr.Draft})
 	}
 	flipped := []int{}
 	for _, l := range open {
@@ -1302,4 +1272,63 @@ func (c *ReviewRunCaller) markStackReady(ctx context.Context, rec *store.ReviewL
 		}
 	}
 	return map[string]any{"ready": true, "flipped": flipped, "loop_id": rec.ID}, nil
+}
+
+// readyLayer is an open layer of an approved stack, and whether GitHub
+// has it as a draft.
+type readyLayer struct {
+	number int
+	draft  bool
+}
+
+// approvedOpenLayers are a loop's layers that are open on GitHub now, in
+// stack order, each at the head its clean pass approved, with that pass's
+// APPROVE (or an approval kept from before) and no hold; any other open
+// layer refuses the stack as not_approved_at_heads. Merged and closed
+// layers are left out.
+func (c *ReviewRunCaller) approvedOpenLayers(ctx context.Context, rec *store.ReviewLoop) ([]readyLayer, error) {
+	layers, err := c.engine.db.ListReviewLoopPRs(ctx, rec.ID)
+	if err != nil {
+		return nil, err
+	}
+	events := c.cleanPassEvents(ctx, rec)
+	var open []readyLayer
+	for _, l := range layers {
+		pr, state, err := c.opts.GitHub.PullRequest(ctx, rec.Repo, l.Number)
+		if err != nil {
+			return nil, fmt.Errorf("reading #%d: %w", l.Number, err)
+		}
+		if state != "open" {
+			continue // merged or closed: nothing to make ready
+		}
+		switch {
+		case pr.HeadSHA != l.CleanHead:
+			return nil, notApprovedAtHeads("#%d's head on GitHub is %s, not %s, which the review approved", l.Number, short(pr.HeadSHA), short(l.CleanHead))
+		case events[l.Number] != ReviewApprove && events[l.Number] != ReviewKept:
+			return nil, notApprovedAtHeads("#%d has no approval from legato-reviews at %s (its review is a COMMENT: the approval was withheld or held)", l.Number, short(pr.HeadSHA))
+		case c.engine.approvalHeld(ctx, rec.ID, l.Number):
+			return nil, notApprovedAtHeads("#%d's approval is held", l.Number)
+		}
+		open = append(open, readyLayer{number: l.Number, draft: pr.Draft})
+	}
+	return open, nil
+}
+
+// notApprovedAtHeads refuses a ready step whose stack is not approved at
+// GitHub's heads.
+func notApprovedAtHeads(format string, args ...any) error {
+	return reviewRefused(ReviewRefusalNotApprovedAtHeads, format, args...)
+}
+
+// cleanPassEvents are the review event the loop's clean pass posted on
+// each layer, by number (APPROVE, COMMENT, or kept from an earlier pass);
+// none when they cannot be read.
+func (c *ReviewRunCaller) cleanPassEvents(ctx context.Context, rec *store.ReviewLoop) map[int]string {
+	events := map[int]string{}
+	if pins, err := c.engine.db.ListHandoffReviewPRs(ctx, rec.HostTask, rec.CleanPass); err == nil {
+		for _, pin := range pins {
+			events[pin.Number] = pin.Event
+		}
+	}
+	return events
 }

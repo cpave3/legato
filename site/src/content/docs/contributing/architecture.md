@@ -18,21 +18,25 @@ cmd/legato/          wires everything together; imports every layer
   internal/cli/        the handlers of the legato subcommands
     internal/service/    business logic
       internal/engine/     infrastructure: SQLite, tmux, Jira, GitHub, the event bus, ...
-config/              configuration; stands alone (it shares one type with internal/engine/macros)
+config/              configuration; stands alone (imports no Legato package)
 ```
 
 The rules:
 
-- `internal/engine/` packages import only the standard library and third-party modules. An engine package never imports another engine package, `internal/service/` or `internal/tui/`. When two engine packages need the same thing, the service layer joins them.
+- `internal/engine/` packages import only the standard library, third-party modules and the leaf packages under `internal/leaf/`. An engine package never imports another engine package, `internal/service/` or `internal/tui/`. When two engine packages need the same thing, the service layer joins them; when they need the very same small helper that knows nothing of Legato, it can be a leaf package.
+- `internal/leaf/` packages (such as `retryafter` and `regularfile`) import only the standard library, so any package may use them. Each holds one helper with one meaning, never a `util` grab bag ([ADR 1](https://github.com/cpave3/legato/blob/main/docs/adr/0001-stdlib-leaf-packages.md)).
 - `internal/service/` imports `internal/engine/` and never `internal/tui/`.
-- `internal/tui/` reaches the logic through service interfaces. In practice it also uses a few engine value types, such as the event bus and store records.
+- `internal/tui/` reaches the logic through service interfaces. It may also name engine value types and pure helpers, such as store records, event types and payloads, and diff lines, but nothing that does I/O. It subscribes to and publishes events through `service.EventStream`, never the bus itself. `internal/tui/architecture_test.go` lists each engine symbol the TUI may use.
 - `internal/setup/` holds the first-run setup wizard.
 
 Tests enforce the boundary rules in [`internal/engine/store/architecture_test.go`](https://github.com/cpave3/legato/blob/main/internal/engine/store/architecture_test.go):
 
-- No engine package imports a sibling engine package.
+- No engine package imports a sibling engine package, or any Legato package outside `internal/leaf/`.
+- A leaf package imports only the standard library.
 - Production code in `cmd/`, `internal/cli/`, `internal/service/`, `internal/setup/`, `internal/tui/` and `internal/server/` does not import `sqlx` or call `Store.DB()`. It uses the store's own methods.
 - Commands in `cmd/legato/` open the database only through `openStore` in `database.go`.
+
+[`config/architecture_test.go`](https://github.com/cpave3/legato/blob/main/config/architecture_test.go) checks that `config/` imports no Legato package. `config/` owns the macro model, `config.Macro`, which the server, the service layer and the TUI all read.
 
 Code that keeps files, such as certificates and tokens, finds their folder with `config.ResolveDataDir`, never from the database path. The data folder is the database's folder unless `data_dir` moves it.
 
