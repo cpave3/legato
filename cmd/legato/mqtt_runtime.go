@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -19,25 +18,12 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/version"
 	"github.com/cpave3/legato/internal/service"
-	"golang.org/x/sys/unix"
 )
 
-// claimMQTTPublisher keeps the inode in place: removing it on unlock could
-// allow two processes to lock different files with the same path.
+// claimMQTTPublisher is the per-data-directory lock of the one process
+// that publishes to MQTT, so two never publish one instance's state.
 func claimMQTTPublisher(dataDir string) (func(), error) {
-	if err := os.MkdirAll(dataDir, 0700); err != nil {
-		return nil, err
-	}
-	file, err := os.OpenFile(filepath.Join(dataDir, "mqtt.lock"), os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, err
-	}
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		_ = file.Close()
-		return nil, err
-	}
-	var once sync.Once
-	return func() { once.Do(func() { _ = unix.Flock(int(file.Fd()), unix.LOCK_UN); _ = file.Close() }) }, nil
+	return claimDataDirLock(dataDir, "mqtt.lock")
 }
 
 // startMQTT is process-owned, not web-server-owned. It also runs in a TUI

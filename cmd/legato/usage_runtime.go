@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -17,7 +16,6 @@ import (
 	"github.com/cpave3/legato/internal/engine/opencodeusage"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
-	"golang.org/x/sys/unix"
 )
 
 // IPC messages of subscription usage: a reading was kept, and a process
@@ -30,19 +28,7 @@ const (
 // claimUsagePoller is the per-data-directory lock of the one process that
 // reads the subscriptions' usage, so two never ask a provider twice.
 func claimUsagePoller(dataDir string) (func(), error) {
-	if err := os.MkdirAll(dataDir, 0700); err != nil {
-		return nil, err
-	}
-	file, err := os.OpenFile(filepath.Join(dataDir, "usage.lock"), os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, err
-	}
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		_ = file.Close()
-		return nil, err
-	}
-	var once sync.Once
-	return func() { once.Do(func() { _ = unix.Flock(int(file.Fd()), unix.LOCK_UN); _ = file.Close() }) }, nil
+	return claimDataDirLock(dataDir, "usage.lock")
 }
 
 // usageReaders are the providers the settings turn on, Claude first. Both
