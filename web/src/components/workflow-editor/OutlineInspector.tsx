@@ -8,7 +8,7 @@ import { CommitField, Problems } from "./builderFields"
 import { valueText } from "./builderStyles"
 import { DetailsForm, InputCard } from "./itemForms"
 import { ReadersConfirm } from "./OutlineRowParts"
-import { CARD_TASK, executorTitle, fromTheCard, isContainerKey, type Row } from "./outlineRows"
+import { CARD_TASK, executorTitle, fromTheCard, isContainerKey, isStepAt, placeOf, type Row } from "./outlineRows"
 import type { BuilderOptions, StepValue } from "./stepForms"
 import { idFromTitle } from "./stepRows"
 import { StepOutputs, StepSetup } from "./StepSetup"
@@ -235,6 +235,17 @@ export function Inspector(props: InspectorProps) {
   if (selection.kind === "input") return <InputInspector {...props} name={selection.name} />
   if (selection.kind === "trigger") return <TriggerInspector {...props} name={selection.name} />
   return <StepInspector {...props} path={selection.path} />
+}
+
+type RowInspectorProps = Omit<InspectorProps, "place" | "held" | "row" | "focusEssential"> & { row: Row | null; order: Row[]; heldYaml: Record<string, string>; focusNew: string | null }
+
+/** RowInspector is the inspector of the row chosen, keyed by its place (a
+ * rename keeps it), with that place's held YAML; or it says to choose a
+ * row. */
+export function RowInspector({ row, order, heldYaml, focusNew, ...props }: RowInspectorProps) {
+  if (!row) return <p className="text-sm text-lw-text-2">Choose a row of the outline to edit it.</p>
+  const place = placeOf(order, row.selection)
+  return <Inspector key={place} place={place} held={heldYaml[place]} row={row} focusEssential={isStepAt(row, focusNew)} {...props} />
 }
 
 // CardTaskOffer offers a column trigger's workflow a task input filled

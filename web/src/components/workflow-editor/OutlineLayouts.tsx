@@ -55,12 +55,12 @@ export function JumpMenu({ order, shown, broken, note, onChoose }: { order: Row[
   </div>
 }
 
-/** InspectorPane holds the inspector of the row chosen, or says to choose
- * one; on a phone (back) a button returns to the outline. */
+/** InspectorPane holds the inspector of the row chosen; on a phone (back)
+ * a button returns to the outline. */
 export function InspectorPane({ sectionRef, back, onBack, children }: { sectionRef: RefObject<HTMLElement | null>; back: boolean; onBack?: () => void; children: ReactNode }) {
   return <section ref={sectionRef} aria-label="Inspector" className="flex min-w-0 flex-col gap-3">
     {back && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={onBack}><ArrowLeft size={13} />Outline</Button>}
-    {children || <p className="text-sm text-lw-text-2">Choose a row of the outline to edit it.</p>}
+    {children}
   </section>
 }
 

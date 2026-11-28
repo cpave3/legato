@@ -5,17 +5,16 @@ import type { SchedulePreview, WorkflowDiagnostic } from "../../lib/workflowFile
 import { PendingDrafts, usePendingReport } from "./pendingDrafts"
 import { BrokenOutline } from "./BrokenOutline"
 import { RowButton, StepRow } from "./OutlineRowParts"
-import { InputsBody, OutlineSection, StepsBody, TriggersBody } from "./OutlineSections"
+import { InputsBody, OutlineSection, StepPalette, StepsBody, TriggersBody } from "./OutlineSections"
 import { OutlineNavigation, type OutlineView } from "./OutlineMap"
 import { BrokenNote, CanvasOutline, InspectorPane, JumpMenu, SplitOutline } from "./OutlineLayouts"
 import { useCanvasDock } from "./useCanvasDock"
-import { Inspector } from "./OutlineInspector"
+import { RowInspector } from "./OutlineInspector"
 import { useHeldYaml, type HeldYaml } from "./useHeldYaml"
 import { useOutlineSelection } from "./useOutlineSelection"
 import { stepListOf, useOutlineEditing } from "./useOutlineEditing"
-import { isStepAt, savedIdsOf, selectionAt, nodeOf, orderOf, placeOf, rowsOf, type Row } from "./outlineRows"
+import { savedIdsOf, selectionAt, nodeOf, orderOf, rowsOf, type Row } from "./outlineRows"
 import { noOptions, type BuilderOptions, type StepValue } from "./stepForms"
-import { StepPicker } from "./StepPicker"
 import { triggerKinds } from "./triggerForms"
 import type { WorkflowGraphModel } from "../../lib/workflow"
 
@@ -116,7 +115,7 @@ function Outline(props: WorkflowOutlineProps) {
   const rowButton = (row: Row, number?: number) => <RowButton row={row} number={number} selected={sameSelection(shown, row.selection)} onChoose={() => chooseRow(row)} />
   const rowItem = (row: Row) => <li key={addressOf(row.selection)}>{rowButton(row)}</li>
 
-  const palette = adding?.kind === "step" ? <StepPicker narrow={narrow} onPick={type => addStep(type, adding.at)} onClose={() => setAdding(null)} /> : null
+  const palette = <StepPalette adding={adding} narrow={narrow} onPick={addStep} onClose={() => setAdding(null)} />
 
   const sectionProps = { containers: rows.about.containers, editing, rowItem, onEditYaml: () => onEditYaml() }
   const stepRow = (row: Row) => <StepRow key={addressOf(row.selection)} row={row} list={list} editing={editing} narrow={narrow} rowButton={rowButton} palette={palette} editor={editor} />
@@ -141,9 +140,8 @@ function Outline(props: WorkflowOutlineProps) {
   // last outline, dimmed and off.
   const navigation = <OutlineNavigation view={view} onView={setView} graph={graph} selectedId={nodeOf(shown)} onSelect={graphSelect} narrow={narrow} phone={narrow && !navigating} dim={Boolean(broken)}>{outlineView}</OutlineNavigation>
 
-  const place = selectedRow && placeOf(order, selectedRow.selection)
   const inspectorView = <InspectorPane sectionRef={inspector} back={narrow} onBack={onCloseSheet}>
-    {selectedRow && place && <Inspector key={place} place={place} held={heldYaml[place]} onHold={hold} row={selectedRow} savedIds={savedIds} focusEssential={isStepAt(selectedRow, focusNew)} onFocused={focused} text={text} values={values} diagnostics={diagnostics} problems={problems} options={options} apply={apply} nameFixed={nameFixed} schedule={schedule} onSelect={onSelect} onUndo={onUndo} onRedo={onRedo} />}
+    <RowInspector row={selectedRow} order={order} heldYaml={heldYaml} focusNew={focusNew} onHold={hold} savedIds={savedIds} onFocused={focused} text={text} values={values} diagnostics={diagnostics} problems={problems} options={options} apply={apply} nameFixed={nameFixed} schedule={schedule} onSelect={onSelect} onUndo={onUndo} onRedo={onRedo} />
   </InspectorPane>
 
   const brokenNote = <BrokenNote broken={broken} onShow={onEditYaml} />

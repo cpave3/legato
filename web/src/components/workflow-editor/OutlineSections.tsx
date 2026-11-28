@@ -4,7 +4,15 @@ import type { Item } from "../../lib/workflowDocument"
 import { Button } from "../ui/Button"
 import type { Row } from "./outlineRows"
 import { KIND_TITLES } from "./triggerForms"
+import { StepPicker } from "./StepPicker"
 import type { Adding } from "./useOutlineEditing"
+
+/** StepPalette is the step picker while a step is being added, which
+ * adds the type picked where the + was. */
+export function StepPalette({ adding, narrow, onPick, onClose }: { adding: Adding; narrow: boolean; onPick: (type: string, at: number) => void; onClose: () => void }) {
+  if (adding?.kind !== "step") return null
+  return <StepPicker narrow={narrow} onPick={type => onPick(type, adding.at)} onClose={onClose} />
+}
 
 /** OutlineSection is one section of the outline in the list: its heading
  * and body. */
