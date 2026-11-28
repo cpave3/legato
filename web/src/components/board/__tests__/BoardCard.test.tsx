@@ -391,6 +391,51 @@ describe("BoardCard", () => {
     expect(onClick).toHaveBeenCalledTimes(1)
   })
 
+  it("opens with Enter by a click when there is no double-click action", async () => {
+    const user = userEvent.setup()
+    const onClick = vi.fn()
+    renderCard(makeCard(), { onClick })
+    screen.getByRole("button", { name: "Test title" }).focus()
+    await user.keyboard("{Enter}")
+    expect(onClick).toHaveBeenCalledTimes(1)
+  })
+
+  it("has no action button or menu without the handlers, and does not cancel a right click", () => {
+    renderCard(makeCard())
+    expect(screen.queryByRole("button", { name: /Open actions/ })).toBeNull()
+    const card = screen.getByText("Test title").closest("[data-card]") as HTMLElement
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true })
+    card.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+  })
+
+  it("keeps a selected away card in view, can't be dragged, and keeps clicks on its actions to them", () => {
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView })
+    const onClick = vi.fn()
+    const away = { worker_instance_id: "s", worker: "vm-1", handoff_id: "h", worker_task_id: "w", purpose: "make-change", kind: "new-branch", repo: "acme/app", branch: "b", left_column: "Doing", handed_off_at: "2026-11-05T09:00:00Z", state: "working" }
+    renderCard(makeCard({ away } as Partial<BoardCardType>), { selected: true, onClick, actions: <button type="button">Recall</button> })
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" })
+    const root = screen.getByText("Test title").closest("[data-card]") as HTMLElement
+    expect(root.getAttribute("draggable")).toBe("false")
+    expect(screen.getByTestId("away-strip")).toBeTruthy()
+    expect(screen.queryByTestId("agent-strip")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Recall" }))
+    expect(onClick).not.toHaveBeenCalled()
+  })
+
+  it("names a handed-off task's main and its task in the source's tooltip, and tags a Milestone", () => {
+    renderCard(makeCard({ provider: "burnlite", issue_type: "Milestone", handoff_from: { main: "erebus", main_task_id: "K7" } } as Partial<BoardCardType>))
+    expect(within(screen.getByTestId("card-source")).getByTitle("erebus · K7")).toBeTruthy()
+    expect(within(screen.getByTestId("card-source")).getByText("Milestone")).toBeTruthy()
+    expect(screen.getByText("Test title").closest("[data-card]")?.getAttribute("draggable")).toBe("true")
+  })
+
+  it("lists nothing under the title when the task has nothing to say", () => {
+    renderCard(makeCard({ priority: "", issue_type: "" }))
+    expect(screen.queryByTestId("card-meta")).toBeNull()
+  })
+
   it("opens on a double click", () => {
     const onDoubleClick = vi.fn()
     renderCard(makeCard(), { onDoubleClick })
