@@ -36,31 +36,15 @@ func configuredAdapters(cfg *config.Config, legatoBin string) (service.AIToolAda
 		claude.SetLaunchArgs(configured.LaunchArgs)
 		claude.SetTiers(adapterTierLaunchArgs(configured))
 	}
-	// Every Claude Code session reports its state through the state plugin,
-	// written afresh at each start so its hooks match this binary. A failed
-	// install leaves the state to hook scripts installed by hand, if any.
-	if pluginDir, err := hooks.InstallClaudeStateMod(filepath.Join(config.ResolveDataDir(cfg), "claude-mod")); err != nil {
-		log.Printf("claude-code state plugin unavailable: %v", err)
-	} else {
-		claude.SetStateModDir(pluginDir)
+	mods := installAgentMods(cfg, legatoBin)
+	if mods.claudeState != "" {
+		claude.SetStateModDir(mods.claudeState)
 	}
-	if claudeNativeBridgeEnabled(cfg) {
-		// A failed install leaves Claude Code sessions tmux-only, as they
-		// were before the mod existed.
-		if pluginDir, err := hooks.InstallClaudeMod(filepath.Join(config.ResolveDataDir(cfg), "claude-mod")); err != nil {
-			log.Printf("claude-code native bridge unavailable: %v", err)
-		} else {
-			claude.SetModDir(pluginDir)
-		}
+	if mods.claudeBridge != "" {
+		claude.SetModDir(mods.claudeBridge)
 	}
-	if cfg.Manticore.URL != "" {
-		// A failed install leaves Claude Code sessions unreported; nothing
-		// else about them changes.
-		if pluginDir, err := hooks.InstallClaudeUsageMod(filepath.Join(config.ResolveDataDir(cfg), "claude-mod")); err != nil {
-			log.Printf("claude-code usage reporting unavailable: %v", err)
-		} else {
-			claude.SetUsageReporting(pluginDir, cfg.Manticore.URL, cfg.Manticore.APIKey)
-		}
+	if mods.claudeUsage != "" {
+		claude.SetUsageReporting(mods.claudeUsage, cfg.Manticore.URL, cfg.Manticore.APIKey)
 	}
 	if configured, ok := cfg.Adapters[chimera.Name()]; ok {
 		chimera.SetLaunchArgs(configured.LaunchArgs)
@@ -69,20 +53,8 @@ func configuredAdapters(cfg *config.Config, legatoBin string) (service.AIToolAda
 		}
 		chimera.SetTiers(adapterTierLaunchArgs(configured))
 	}
-	if nativeBridgeEnabled(cfg, chimera.Name()) {
-		root := filepath.Join(config.ResolveDataDir(cfg), "chimera-mod")
-		var modDir string
-		var err error
-		if cfg.Agents.MCP.Enabled {
-			modDir, err = hooks.InstallChimeraModWithTools(root, legatoBin, cli.MCPToolNames())
-		} else {
-			modDir, err = hooks.InstallChimeraMod(root)
-		}
-		if err != nil {
-			log.Printf("chimera native mod unavailable: %v", err)
-		} else {
-			chimera.SetModDir(modDir)
-		}
+	if mods.chimera != "" {
+		chimera.SetModDir(mods.chimera)
 	}
 	if configured, ok := cfg.Adapters[codex.Name()]; ok {
 		codex.SetLaunchArgs(configured.LaunchArgs)
@@ -94,12 +66,8 @@ func configuredAdapters(cfg *config.Config, legatoBin string) (service.AIToolAda
 		// added for that session only: nothing is written to the agent
 		// tool's own configuration. Each tool is run without asking.
 		//
-		// A failed install leaves Claude Code sessions without the tools;
-		// nothing else about them changes.
-		if pluginDir, err := hooks.InstallClaudeToolsMod(filepath.Join(config.ResolveDataDir(cfg), "claude-mod")); err != nil {
-			log.Printf("claude-code Legato tools unavailable: %v", err)
-		} else {
-			claude.SetToolsModDir(pluginDir)
+		if mods.claudeTools != "" {
+			claude.SetToolsModDir(mods.claudeTools)
 		}
 		codex.SetMCPTools(true)
 		chimera.SetMCPTools(true, cli.MCPToolNames())
@@ -165,4 +133,73 @@ func credentialPromptGuidance(cfg *config.Config, stacks bool, branches service.
 		return cli.GuidanceFor(nil, nil, stacks, branches)
 	}
 	return cli.GuidanceFor(summaries, sources, stacks, branches)
+}
+
+// agentMods are the folders of the mods and hook plugins installed for the
+// agent tools; a folder is empty when its install failed or is not wanted.
+type agentMods struct {
+	claudeState, claudeBridge, claudeUsage, claudeTools string
+	chimera                                             string
+}
+
+// installAgentMods writes every agent tool's mod and hook files for this
+// binary into the data folder, each only where its content changed. Serve
+// and the TUI call it first, before anything can start, resume or relaunch
+// an agent session, so a session never loads the files of the binary
+// before a restart (LEG-689); configuredAdapters calls it again, which then
+// writes nothing.
+func installAgentMods(cfg *config.Config, legatoBin string) agentMods {
+	var mods agentMods
+	claudeRoot := filepath.Join(config.ResolveDataDir(cfg), "claude-mod")
+	// Every Claude Code session reports its state through the state plugin,
+	// written afresh at each start so its hooks match this binary. A failed
+	// install leaves the state to hook scripts installed by hand, if any.
+	if dir, err := hooks.InstallClaudeStateMod(claudeRoot); err != nil {
+		log.Printf("claude-code state plugin unavailable: %v", err)
+	} else {
+		mods.claudeState = dir
+	}
+	if claudeNativeBridgeEnabled(cfg) {
+		// A failed install leaves Claude Code sessions tmux-only, as they
+		// were before the mod existed.
+		if dir, err := hooks.InstallClaudeMod(claudeRoot); err != nil {
+			log.Printf("claude-code native bridge unavailable: %v", err)
+		} else {
+			mods.claudeBridge = dir
+		}
+	}
+	if cfg.Manticore.URL != "" {
+		// A failed install leaves Claude Code sessions unreported; nothing
+		// else about them changes.
+		if dir, err := hooks.InstallClaudeUsageMod(claudeRoot); err != nil {
+			log.Printf("claude-code usage reporting unavailable: %v", err)
+		} else {
+			mods.claudeUsage = dir
+		}
+	}
+	if nativeBridgeEnabled(cfg, "chimera") {
+		root := filepath.Join(config.ResolveDataDir(cfg), "chimera-mod")
+		var dir string
+		var err error
+		if cfg.Agents.MCP.Enabled {
+			dir, err = hooks.InstallChimeraModWithTools(root, legatoBin, cli.MCPToolNames())
+		} else {
+			dir, err = hooks.InstallChimeraMod(root)
+		}
+		if err != nil {
+			log.Printf("chimera native mod unavailable: %v", err)
+		} else {
+			mods.chimera = dir
+		}
+	}
+	if cfg.Agents.MCP.Enabled {
+		// A failed install leaves Claude Code sessions without the tools;
+		// nothing else about them changes.
+		if dir, err := hooks.InstallClaudeToolsMod(claudeRoot); err != nil {
+			log.Printf("claude-code Legato tools unavailable: %v", err)
+		} else {
+			mods.claudeTools = dir
+		}
+	}
+	return mods
 }

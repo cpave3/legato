@@ -25,10 +25,11 @@ type accountChildTmux struct {
 	output    string
 }
 
-func (m *accountChildTmux) SendKeysShellCommand(name, command string) error {
-	if err := m.mockTmux.SendKeysShellCommand(name, command); err != nil {
+func (m *accountChildTmux) RunInPane(name string, argv []string, envVars ...string) error {
+	if err := m.mockTmux.RunInPane(name, argv, envVars...); err != nil {
 		return err
 	}
+	command := PaneLaunchLine(argv)
 	cmd := exec.Command("/bin/sh", "-c", command)
 	cmd.Env = []string{"PATH=" + m.path + ":/usr/bin:/bin", "HOME=" + os.Getenv("HOME"), "CLAUDE_CONFIG_DIR=/wrong-shell-directory"}
 	for key, value := range m.envVarsFor(name) {
@@ -39,11 +40,9 @@ func (m *accountChildTmux) SendKeysShellCommand(name, command string) error {
 	if m.shellAuth {
 		cmd.Env = append(cmd.Env, "ANTHROPIC_API_KEY=fixture-shell-only")
 	}
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		m.output = string(output)
-		return fmt.Errorf("fake child: %s: %w", output, err)
-	}
+	// The child's exit is the pane's affair, as with tmux: it ran.
+	output, _ := cmd.CombinedOutput()
+	m.output = string(output)
 	return nil
 }
 

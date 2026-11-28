@@ -219,8 +219,11 @@ func (t *usageLaunchTmux) Spawn(name, _ string, _, _ int, _ ...string) error {
 	t.alive[name] = true
 	return nil
 }
-func (t *usageLaunchTmux) SendKeysLine(_, line string) error         { t.command = line; return nil }
-func (t *usageLaunchTmux) SendKeysShellCommand(_, line string) error { t.command = line; return nil }
+func (t *usageLaunchTmux) SendKeysLine(_, line string) error { t.command = line; return nil }
+func (t *usageLaunchTmux) RunInPane(_ string, argv []string, _ ...string) error {
+	t.command = service.PaneLaunchLine(argv)
+	return nil
+}
 
 func TestUsageRootAndPinCommandsKeepSeparatePermissionClasses(t *testing.T) {
 	for _, tc := range []struct {

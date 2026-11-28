@@ -42,7 +42,9 @@ type TmuxManager interface {
 	SendKey(name, key string) error
 	SendKeysLine(name, line string) error
 	SendKeysMultiline(name, payload string) error
-	SendKeysShellCommand(name, command string) error
+	// RunInPane replaces the process of the session's pane with argv: how
+	// an agent is launched (paneLaunch), never by typing into a shell.
+	RunInPane(name string, argv []string, envVars ...string) error
 	PipeOutput(name string) (io.Reader, func(), error)
 	SetEnv(sessionName, key, value string) error
 	SetOption(sessionName, key, value string) error
@@ -1570,7 +1572,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 
 	// Capture the lockfile baseline before launching Chimera. Fast agents can
-	// write their lockfile synchronously during SendKeysShellCommand; taking this
+	// write their lockfile synchronously as they launch; taking this
 	// snapshot in the discovery goroutine would incorrectly classify it as old.
 	var chimeraLockfilesBeforeLaunch map[string]bool
 	// Discovery matches by session name (the task ID), which Chimera always
@@ -1614,16 +1616,28 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 		return setupLine + "; " + cmd
 	}
+	// The launch is the pane's own process, in the session just made for
+	// it (LEG-689). One tmux refuses is an error like any other here: an
+	// agent that never started is not left as a silent shell.
+	launch := func(line string) error {
+		if err := a.tmux.RunInPane(sessionName, paneLaunch(operatorShell(envMap), line), envVars...); err != nil {
+			a.tmux.Kill(sessionName)
+			_ = a.store.UpdateAgentSessionStatusInSlot(ctx, taskID, slot, "dead")
+			failExecution()
+			return fmt.Errorf("launching the agent: %w", err)
+		}
+		return nil
+	}
 	if _, ok := adapter.(LaunchCommandAdapter); !ok {
 		switch {
 		case sandboxed:
 			// A shell agent: the person's shell, in the sandbox.
-			if err := a.tmux.SendKeysShellCommand(sessionName, thenLaunch(sandboxPrefix+" ${SHELL:-/bin/bash}")); err != nil {
-				log.Printf("sandboxed shell send-keys failed for %s: %v", sessionName, err)
+			if err := launch(thenLaunch(sandboxPrefix + " ${SHELL:-/bin/bash}")); err != nil {
+				return err
 			}
 		case setupLine != "":
-			if err := a.tmux.SendKeysShellCommand(sessionName, setupLine); err != nil {
-				log.Printf("clone setup send-keys failed for %s: %v", sessionName, err)
+			if err := launch(setupLine); err != nil {
+				return err
 			}
 		}
 	}
@@ -1658,32 +1672,24 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 					log.Printf("trusting %s for %s: %v", workDir, taskID, err)
 				}
 			}
-			// Use SendKeysShellCommand because the receiver here is the
-			// freshly-spawned bash shell, not the AI tool. Bash with
-			// bracketed-paste mode treats a single text+Enter send-keys as
-			// a paste and leaves the command sitting in the prompt buffer
-			// instead of executing it.
-			if err := a.tmux.SendKeysShellCommand(sessionName, cmd); err != nil {
-				// Launch failure is best-effort: the session exists, the user
-				// can recover by attaching and running the AI tool manually.
-				log.Printf("auto-launch send-keys failed for %s: %v", sessionName, err)
-			} else {
-				// The brief kickoff, then the prompt, once the AI tool can
-				// take a message: over its native endpoint, else typed.
-				var messages []string
-				if _, hasBrief := envMap["LEGATO_BRIEF_FILE"]; hasBrief && !nativeResume {
-					// Skip the kickoff for adapters whose launch command already
-					// constitutes the first user turn (e.g. Chimera's `--prompt`).
-					if k, ok := adapter.(LaunchSelfKickoff); !ok || !k.LaunchIsSelfKickoff() {
-						messages = append(messages, briefKickoffMessage)
-					}
+			if err := launch(cmd); err != nil {
+				return err
+			}
+			// The brief kickoff, then the prompt, once the AI tool can
+			// take a message: over its native endpoint, else typed.
+			var messages []string
+			if _, hasBrief := envMap["LEGATO_BRIEF_FILE"]; hasBrief && !nativeResume {
+				// Skip the kickoff for adapters whose launch command already
+				// constitutes the first user turn (e.g. Chimera's `--prompt`).
+				if k, ok := adapter.(LaunchSelfKickoff); !ok || !k.LaunchIsSelfKickoff() {
+					messages = append(messages, briefKickoffMessage)
 				}
-				if prompt != "" {
-					messages = append(messages, prompt)
-				}
-				if len(messages) > 0 {
-					a.launchWith(ctx, executionID, taskID, slot, sessionName, agentKind, adapter, messages, envMap["LEGATO_PROMPT_FILE"])
-				}
+			}
+			if prompt != "" {
+				messages = append(messages, prompt)
+			}
+			if len(messages) > 0 {
+				a.launchWith(ctx, executionID, taskID, slot, sessionName, agentKind, adapter, messages, envMap["LEGATO_PROMPT_FILE"])
 			}
 		}
 	}
@@ -2135,7 +2141,15 @@ func (a *agentService) stopAgent(ctx context.Context, taskID string, announce bo
 func (a *agentService) stopAgentInSlot(ctx context.Context, taskID, slot string, announce bool) error {
 	session, err := a.store.GetAgentSessionInSlot(ctx, taskID, slot)
 	if err != nil {
-		// No running session — delete dead records
+		// No running session — delete dead records, and with them what
+		// waited on one: a step must not wait on a session that is gone.
+		if announce && !isWorkflowStop(ctx) {
+			if latest, err := a.store.LatestAgentSessionInSlot(ctx, taskID, slot); err == nil && latest.Status == "dead" {
+				if err := a.settleWaitingAttempts(ctx, *latest, "dead", WorkflowAgentStoppedReason); err != nil {
+					return err
+				}
+			}
+		}
 		return a.store.DeleteDeadAgentSessionsInSlot(ctx, taskID, slot)
 	}
 
@@ -2153,6 +2167,15 @@ func (a *agentService) stopAgentInSlot(ctx context.Context, taskID, slot string,
 
 	if err := a.store.UpdateAgentSessionStatusInSlot(ctx, taskID, slot, "dead"); err != nil {
 		return err
+	}
+	// The operator's stop ends what waited on the agent (LEG-689): a step
+	// left waiting on a deleted session could be neither retried nor
+	// reminded. A workflow's own stops (a cancel, a fail, a finish) end
+	// their steps themselves, and a restart rebinds them.
+	if announce && !isWorkflowStop(ctx) {
+		if err := a.settleWaitingAttempts(ctx, *session, "dead", WorkflowAgentStoppedReason); err != nil {
+			return err
+		}
 	}
 	if a.bus != nil && announce && IsNamedSlot(slot) {
 		a.bus.PublishSlotAgentDied(taskID, slot)
@@ -2442,6 +2465,31 @@ func (a *agentService) endGoneSessionFor(ctx context.Context, s store.AgentSessi
 	}
 	a.foregroundAgents.Delete(s.ID)
 	log.Printf("agent ended task=%s session=%s status=%s", s.TaskID, s.TmuxSession, status)
+	if err := a.settleWaitingAttempts(ctx, s, status, stepReason); err != nil {
+		return err
+	}
+	if a.bus != nil && IsNamedSlot(s.Slot) {
+		a.bus.PublishSlotAgentDied(s.TaskID, s.Slot)
+		return nil
+	}
+	// Notify swarm orchestrator that an agent died (best-effort).
+	if a.bus != nil {
+		parent := ""
+		if s.ParentTaskID != nil {
+			parent = *s.ParentTaskID
+		}
+		subtask := ""
+		if s.SubtaskID != nil {
+			subtask = *s.SubtaskID
+		}
+		a.bus.PublishAgentDied(s.TaskID, parent, subtask, s.Role)
+	}
+	return nil
+}
+
+// settleWaitingAttempts ends, or suspends, the workflow steps that wait on
+// an agent session that has ended with status.
+func (a *agentService) settleWaitingAttempts(ctx context.Context, s store.AgentSession, status, stepReason string) error {
 	attempts, err := a.store.ListWaitingWorkflowAttemptsByAgentSession(ctx, s.ID)
 	if err != nil {
 		return err
@@ -2482,22 +2530,6 @@ func (a *agentService) endGoneSessionFor(ctx context.Context, s store.AgentSessi
 		if a.bus != nil {
 			a.bus.PublishWorkflowChanged(attempt.RunID)
 		}
-	}
-	if a.bus != nil && IsNamedSlot(s.Slot) {
-		a.bus.PublishSlotAgentDied(s.TaskID, s.Slot)
-		return nil
-	}
-	// Notify swarm orchestrator that an agent died (best-effort).
-	if a.bus != nil {
-		parent := ""
-		if s.ParentTaskID != nil {
-			parent = *s.ParentTaskID
-		}
-		subtask := ""
-		if s.SubtaskID != nil {
-			subtask = *s.SubtaskID
-		}
-		a.bus.PublishAgentDied(s.TaskID, parent, subtask, s.Role)
 	}
 	return nil
 }

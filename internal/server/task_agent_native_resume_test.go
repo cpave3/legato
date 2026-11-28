@@ -31,8 +31,8 @@ func (m *resumeLaunchTmux) Spawn(_ string, cwd string, _, _ int, env ...string) 
 	m.cwd, m.env = cwd, env
 	return nil
 }
-func (m *resumeLaunchTmux) SendKeysShellCommand(_, command string) error {
-	m.command = command
+func (m *resumeLaunchTmux) RunInPane(_ string, argv []string, _ ...string) error {
+	m.command = service.PaneLaunchLine(argv)
 	return nil
 }
 
@@ -285,7 +285,8 @@ type nativeResumeProcessTmux struct {
 	exitErr      error
 }
 
-func (m *nativeResumeProcessTmux) SendKeysShellCommand(_ string, command string) error {
+func (m *nativeResumeProcessTmux) RunInPane(_ string, argv []string, _ ...string) error {
+	command := service.PaneLaunchLine(argv)
 	m.command = command
 	m.commands = append(m.commands, command)
 	m.pane.Reset()

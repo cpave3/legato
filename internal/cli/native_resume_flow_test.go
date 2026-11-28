@@ -30,8 +30,8 @@ func (m *resumeFlowTerminal) Spawn(_ string, cwd string, _, _ int, env ...string
 }
 func (m *resumeFlowTerminal) Kill(string) error            { return nil }
 func (m *resumeFlowTerminal) IsAlive(string) (bool, error) { return false, nil }
-func (m *resumeFlowTerminal) SendKeysShellCommand(_, command string) error {
-	m.command = command
+func (m *resumeFlowTerminal) RunInPane(_ string, argv []string, _ ...string) error {
+	m.command = service.PaneLaunchLine(argv)
 	return nil
 }
 func (m *resumeFlowTerminal) SetOption(string, string, string) error { return nil }

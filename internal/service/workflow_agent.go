@@ -66,7 +66,7 @@ func (r *WorkflowAgentRunner) SlotHasAgent(ctx context.Context, taskID, slot str
 // KillAgent stops the agent of an agent ID: a task's main slot, or
 // <task>_<slot> for a named one.
 func (r *WorkflowAgentRunner) KillAgent(ctx context.Context, taskID string) error {
-	return r.agents.KillAgent(ctx, taskID)
+	return r.agents.KillAgent(withWorkflowStop(ctx), taskID)
 }
 
 // AttemptAgentID is the agent ID of an attempt's own agent: <task>_<slot>
@@ -135,7 +135,7 @@ func (r *WorkflowAgentRunner) FinishWorkflowAgent(ctx context.Context, attempt s
 	// A task's own agent (on: <task> with stop: true) is stopped as the
 	// operator would stop it: nothing of a workflow agent's is its.
 	if plainTaskAgent(*session) {
-		return r.agents.KillAgent(ctx, AgentSlotKey(session.TaskID, session.Slot))
+		return r.agents.KillAgent(withWorkflowStop(ctx), AgentSlotKey(session.TaskID, session.Slot))
 	}
 	// The pane is stopped first: until it has, the session is still running,
 	// so a sweep meanwhile leaves the sandbox's scratch alone, and a pane

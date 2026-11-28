@@ -36,7 +36,9 @@ type mockTmux struct {
 	paneCommandsErr  error
 	spawnErr         error
 	sentLines        map[string][]string // session -> ordered list of SendKeysLine payloads
-	shellCommands    map[string][]string // only SendKeysShellCommand payloads
+	shellCommands    map[string][]string // only the launch lines RunInPane ran
+	paneLaunches     map[string][][]string
+	runInPaneErr     error
 	sendLineErr      error
 	sentMultiline    map[string][]string // session -> ordered list of SendKeysMultiline payloads
 	sendMultilineErr map[string]error
@@ -238,21 +240,34 @@ func (m *mockTmux) SendKeysMultiline(name, payload string) error {
 	return nil
 }
 
-func (m *mockTmux) SendKeysShellCommand(name, command string) error {
+func (m *mockTmux) RunInPane(name string, argv []string, envVars ...string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.sessions[name] {
 		return fmt.Errorf("session %s not found", name)
 	}
-	// Mock treats this the same as SendKeysLine for simplicity — the
-	// real distinction (split call + delay) is a tmux-level concern that
-	// doesn't matter for service-layer tests.
-	m.sentLines[name] = append(m.sentLines[name], command)
+	if m.runInPaneErr != nil {
+		return m.runInPaneErr
+	}
+	if m.paneLaunches == nil {
+		m.paneLaunches = make(map[string][][]string)
+	}
+	m.paneLaunches[name] = append(m.paneLaunches[name], append([]string{}, argv...))
+	// The line a pane launch runs, without the shell it execs afterwards,
+	// recorded where tests of launch lines look for it.
+	line := PaneLaunchLine(argv)
+	m.sentLines[name] = append(m.sentLines[name], line)
 	if m.shellCommands == nil {
 		m.shellCommands = make(map[string][]string)
 	}
-	m.shellCommands[name] = append(m.shellCommands[name], command)
+	m.shellCommands[name] = append(m.shellCommands[name], line)
 	return nil
+}
+
+func (m *mockTmux) paneLaunchesFor(name string) [][]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([][]string{}, m.paneLaunches[name]...)
 }
 
 func (m *mockTmux) shellCommandsFor(name string) []string {

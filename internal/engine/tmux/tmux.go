@@ -61,6 +61,35 @@ func (m *Manager) Spawn(name, workDir string, width, height int, envVars ...stri
 	if width > 0 && height > 0 {
 		args = append(args, "-x", fmt.Sprintf("%d", width), "-y", fmt.Sprintf("%d", height))
 	}
+	cmd := m.withEnv(args, envVars)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("tmux new-session: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+// RunInPane replaces the process of the session's pane with argv, which tmux
+// runs without a shell of its own (it follows --). This is how an agent is
+// launched: the launch is the pane's process, never a line typed into the
+// shell the session started with, which may still be starting up (its rc
+// files and first prompt run other programs in the foreground, LEG-689).
+// Env vars are given again with -e, and PATH as this command's own, since
+// tmux gives a pane the PATH of the client that made it.
+func (m *Manager) RunInPane(name string, argv []string, envVars ...string) error {
+	if len(argv) == 0 {
+		return fmt.Errorf("tmux respawn-pane: no command")
+	}
+	args := []string{"respawn-pane", "-k", "-t", name}
+	cmd := m.withEnv(args, envVars, append([]string{"--"}, argv...)...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("tmux respawn-pane: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+// withEnv adds envVars to a tmux command as -e flags, then tail, and gives
+// the command itself the PATH among them.
+func (m *Manager) withEnv(args, envVars []string, tail ...string) *exec.Cmd {
 	path, hasPath := "", false
 	for _, e := range envVars {
 		args = append(args, "-e", e)
@@ -68,15 +97,13 @@ func (m *Manager) Spawn(name, workDir string, width, height int, envVars ...stri
 			path, hasPath = v, true
 		}
 	}
+	args = append(args, tail...)
 	cmd := exec.Command(m.tmuxPath, args...)
 	if hasPath {
 		// tmux gives the pane the PATH of this command, not the one in -e.
 		cmd.Env = append(os.Environ(), "PATH="+path)
 	}
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("tmux new-session: %s: %w", strings.TrimSpace(string(out)), err)
-	}
-	return nil
+	return cmd
 }
 
 // Kill destroys a tmux session. Returns nil if the session doesn't exist.
@@ -260,8 +287,8 @@ func (m *Manager) SendKey(name, key string) error {
 // against Chimera's input handler.
 //
 // Use this for any send-keys that should result in an executed/submitted
-// input to an agent — prompts and conductor wake-ups. Bootstrap commands
-// must instead use SendKeysShellCommand.
+// input to an agent — prompts and conductor wake-ups. An agent's launch is
+// never typed: it is the pane's process (RunInPane).
 //
 // Higher-level callers that fire multiple SendKeysLine calls in rapid
 // succession to the same target should serialize them (e.g. SwarmService's
@@ -273,41 +300,6 @@ func (m *Manager) SendKeysLine(name, line string) error {
 	}
 	time.Sleep(sendKeysInterCallGap)
 	return m.SendKey(name, "Enter")
-}
-
-// SendKeysShellCommand is exclusively for bootstrap commands in a fresh shell,
-// never agent messages. It deliberately does not use the agent delivery guard.
-func (m *Manager) SendKeysShellCommand(name, command string) error {
-	pane, current, err := m.foregroundPane(name)
-	if err != nil {
-		return fmt.Errorf("verifying bootstrap shell: %w", err)
-	}
-	// new-session can return before its child execs the shell, and shell
-	// startup files may briefly run another program. Wait before writing
-	// anything, pinned to the original pane; never retry a partial send.
-	deadline := time.Now().Add(3 * time.Second)
-	for !IsShellCommand(current) && time.Now().Before(deadline) {
-		time.Sleep(25 * time.Millisecond)
-		_, current, err = m.foregroundPane(pane)
-		if err != nil {
-			return fmt.Errorf("waiting for bootstrap shell: %w", err)
-		}
-	}
-	if !IsShellCommand(current) {
-		return fmt.Errorf("bootstrap target %s did not become a shell (foreground %q)", name, current)
-	}
-	if err := m.sendKeys(pane, command, true); err != nil {
-		return err
-	}
-	time.Sleep(sendKeysInterCallGap)
-	_, current, err = m.foregroundPane(pane)
-	if err != nil {
-		return fmt.Errorf("rechecking bootstrap shell: %w", err)
-	}
-	if !IsShellCommand(current) {
-		return fmt.Errorf("bootstrap target %s is no longer a shell", name)
-	}
-	return m.sendKeys(pane, "Enter", false)
 }
 
 // IsShellCommand identifies shells, which can execute arbitrary message text.
