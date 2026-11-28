@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -164,5 +165,130 @@ func TestClaudeRelayReconnectsAfterItsHostRestarts(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("relay did not stop")
+	}
+}
+
+func TestReplacementClaudeRelayRespectsLeaseHandover(t *testing.T) {
+	for _, live := range []bool{false, true} {
+		name := "abandoned"
+		if live {
+			name = "live"
+		}
+		t.Run(name, func(t *testing.T) {
+			s := newTestStore(t)
+			owner := seedRunningClaudeAgent(t, s, "handover-claude")
+			linkNativeTestExecution(t, s, owner)
+			token := "lgb_handover_claude"
+			if err := s.SetExecutionBrokerToken(context.Background(), "native-handover-claude", service.HashBrokerToken(token)); err != nil {
+				t.Fatal(err)
+			}
+			socket := filepath.Join(t.TempDir(), "broker.sock")
+			server, err := broker.Listen(socket, cli.NewBrokerHandler(s, cli.BrokerDeps{ClaudeRuntimeDir: t.TempDir()}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer server.Close()
+			if err := broker.Call(context.Background(), socket, token, "claude.bridge.poll", map[string]string{"relay_id": "abandoned-child"}, nil); err != nil {
+				t.Fatal(err)
+			}
+			first, err := s.NativeBridgeRegistration(context.Background(), owner.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// An abandoned child cannot close its bridge; a live child keeps its lease.
+			reader, writer := io.Pipe()
+			defer reader.Close()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			heartbeatErrors := make(chan error, 1)
+			if live {
+				go func() {
+					ticker := time.NewTicker(time.Second)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-ctx.Done():
+							return
+						case <-ticker.C:
+							if err := broker.Call(ctx, socket, token, "claude.bridge.poll", map[string]string{"relay_id": "abandoned-child"}, nil); err != nil {
+								if ctx.Err() == nil {
+									heartbeatErrors <- err
+								}
+								return
+							}
+						}
+					}
+				}()
+			}
+			started := time.Now()
+			done := make(chan error, 1)
+			go func() {
+				err := cli.RunClaudeRelay(ctx, socket, token, writer)
+				writer.CloseWithError(err)
+				done <- err
+			}()
+			ready := make(chan string, 1)
+			go func() {
+				scanner := bufio.NewScanner(reader)
+				if scanner.Scan() {
+					ready <- scanner.Text()
+				}
+				_, _ = io.Copy(io.Discard, reader)
+			}()
+			select {
+			case line := <-ready:
+				if live {
+					t.Fatal("replacement stole a live relay lease")
+				}
+				var announcement struct{ Type, URL string }
+				if err := json.Unmarshal([]byte(line), &announcement); err != nil || announcement.Type != "ready" {
+					t.Fatalf("replacement announcement = %q: %v", line, err)
+				}
+				registration, err := s.NativeBridgeRegistration(context.Background(), owner.ID)
+				if err != nil || registration.PublicEndpoint != announcement.URL || registration.Generation == first.Generation {
+					t.Fatalf("replacement bridge = %+v, %v", registration, err)
+				}
+				resp, err := http.Get(boundEndpoint(t, s, "handover-claude") + "/v1/sessions/handover-claude")
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					t.Fatalf("replacement panel snapshot = %d", resp.StatusCode)
+				}
+			case err := <-heartbeatErrors:
+				t.Fatalf("original relay stopped working: %v", err)
+			case err := <-done:
+				if !live {
+					t.Fatalf("replacement exited before lease handover: %v", err)
+				}
+				var refusal *broker.Error
+				if !errors.As(err, &refusal) || refusal.Code != "conflict" {
+					t.Fatalf("replacement failure = %v, want ownership conflict", err)
+				}
+				if time.Since(started) < 15*time.Second {
+					t.Fatal("replacement did not wait for the handover window")
+				}
+				registration, err := s.NativeBridgeRegistration(context.Background(), owner.ID)
+				if err != nil || registration != first {
+					t.Fatalf("live relay authority changed: %+v, %v", registration, err)
+				}
+				if err := broker.Call(context.Background(), socket, token, "claude.bridge.poll", map[string]string{"relay_id": "abandoned-child"}, nil); err != nil {
+					t.Fatalf("live relay cannot poll after replacement exits: %v", err)
+				}
+				return
+			case <-time.After(25 * time.Second):
+				t.Fatal("replacement did not acquire the abandoned bridge")
+			}
+			cancel()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("replacement did not stop")
+			}
+		})
 	}
 }

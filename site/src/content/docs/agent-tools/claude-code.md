@@ -103,6 +103,8 @@ Legato runs the full Claude bridge on the host. Its child in the agent's sandbox
 
 Your terminal can still answer its actual dialog. With no viewer attached or an unavailable bridge, the request stays in the terminal; this does not allow keyless native answers. Refused native access raises a durable, high-urgency Attention incident. Dismissing it stays effective for that run and bridge generation despite repeated refusals.
 
+If a mod reload replaces a relay that stopped without cleanup, its replacement waits up to 20 seconds for the old lease to expire. It does not take the bridge from a relay that is still running.
+
 Start a new agent session for this boundary. Legato does not automatically restart agents or use an unprotected compatibility bridge. An unsandboxed agent runs as your OS user and can read private host state, so the key is not isolation from it. See [Sandbox](/legato/security/sandbox/#claude-codes-native-decisions).
 
 ### Turn the panel off

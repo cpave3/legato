@@ -227,6 +227,7 @@ func RunClaudeRelay(ctx context.Context, socket, token string, out io.Writer) er
 		return err
 	}
 	args := bridgePollArgs{RelayID: relayID}
+	var handoverDeadline time.Time
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -242,8 +243,21 @@ func RunClaudeRelay(ctx context.Context, socket, token string, out io.Writer) er
 				return nil
 			}
 			var refused *broker.Error
-			if errors.As(err, &refused) && refused.Code != "host_unavailable" {
-				return err
+			if errors.As(err, &refused) {
+				switch refused.Code {
+				case "conflict":
+					if handoverDeadline.IsZero() {
+						// A killed relay cannot close its bridge. Give its lease
+						// and the host's cleanup tick time to expire naturally.
+						handoverDeadline = time.Now().Add(claudeRelayLease + 5*time.Second)
+					}
+					if !time.Now().Before(handoverDeadline) {
+						return err
+					}
+				case "host_unavailable":
+				default:
+					return err
+				}
 			}
 			select {
 			case <-ctx.Done():
@@ -252,6 +266,7 @@ func RunClaudeRelay(ctx context.Context, socket, token string, out io.Writer) er
 				continue
 			}
 		}
+		handoverDeadline = time.Time{}
 		if result.Generation != args.Generation {
 			args.Generation = result.Generation
 			args.After = 0
