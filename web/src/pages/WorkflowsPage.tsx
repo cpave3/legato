@@ -23,10 +23,12 @@ type WorkflowView = "list" | "map"
 const VIEW_KEY = "legato:workflows-view"
 
 function storedView(): WorkflowView {
+  // codeeval-ignore lost-errors/error-to-success: storage can throw (a private window, blocked site data); the list is the default then
   try { return localStorage.getItem(VIEW_KEY) === "map" ? "map" : "list" } catch { return "list" }
 }
 
 function storeView(view: WorkflowView) {
+  // codeeval-ignore lost-errors/empty-handler: storage can throw; the choice is then only not remembered
   try { localStorage.setItem(VIEW_KEY, view) } catch { /* remembered only where storage works */ }
 }
 
@@ -288,12 +290,11 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
     {definitions.error && <LoadFailure error={definitions.error} saved={definitions.data !== null} label="workflows" refreshing={definitions.refreshing} refresh={definitions.refresh} />}
     {stats.error && list.length > 0 && <LoadFailure error={stats.error} saved={stats.data !== null} label="run counts" refreshing={stats.refreshing} refresh={stats.refresh} />}
     <ReviewLoopNotice definitions={list} />
-    {(definitions.data?.errors ?? []).map(error => <p key={error.path} className="mt-4 break-words rounded-lg border border-lw-danger-line bg-lw-error-soft p-3 text-sm text-lw-danger"><span className="font-lw-mono">{sourceLabel(error.path)}</span>: {error.error}</p>)}
+    <DiscoveryErrors errors={definitions.data?.errors} />
     {list.length > 0 && <>
       <ViewSwitch view={view} setView={setView} />
-      {view === "map"
-        ? <MapTab map={map} />
-        : <WorkflowList definitions={list} triggerStates={definitions.data?.trigger_states} stats={stats.data} now={now} onRun={setSelected} refresh={refreshAll} actions={newWorkflow} />}
+      {view === "map" && <MapTab map={map} />}
+      {view === "list" && <WorkflowList definitions={list} triggerStates={definitions.data?.trigger_states} stats={stats.data} now={now} onRun={setSelected} refresh={refreshAll} actions={newWorkflow} />}
     </>}
     {!definitions.loading && !definitions.error && list.length === 0 && <section aria-label="Start a workflow" className="mt-6 flex flex-col gap-3 text-sm">
       <div className="flex justify-end">{newWorkflow}</div>
@@ -303,6 +304,11 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
     </section>}
     {selected && <RunWorkflowDialog definition={selected} repositories={definitions.data?.repositories ?? []} onClose={() => setSelected(null)} />}
   </PageFrame>
+}
+
+// DiscoveryErrors are the workflow files that could not be read.
+function DiscoveryErrors({ errors }: { errors: { path: string; error: string }[] | null | undefined }) {
+  return <>{(errors ?? []).map(error => <p key={error.path} className="mt-4 break-words rounded-lg border border-lw-danger-line bg-lw-error-soft p-3 text-sm text-lw-danger"><span className="font-lw-mono">{sourceLabel(error.path)}</span>: {error.error}</p>)}</>
 }
 
 // ViewSwitch picks the Workflows tab's list or its map.

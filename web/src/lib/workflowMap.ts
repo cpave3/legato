@@ -108,15 +108,19 @@ const markerOf: Record<string, { kind: MarkerKind; label: string }> = {
 // workflow calls is started by hand.
 export function triggerMarkers(node: WorkflowMapNode, called: boolean): TriggerMarker[] {
   const out: TriggerMarker[] = []
-  for (const state of node.triggers ?? []) {
-    const marker = markerOf[state.trigger]
-    if (!marker) continue
-    const seen = out.find(item => item.kind === marker.kind)
-    if (seen) seen.enabled = seen.enabled || state.enabled
-    else out.push({ ...marker, enabled: state.enabled })
-  }
+  for (const state of node.triggers ?? []) addMarker(out, state)
   if (out.length === 0 && !called && !node.broken && !node.missing) out.push({ kind: "manual", label: "Run by hand", enabled: true })
   return out
+}
+
+// addMarker adds a trigger's marker, once per kind: on when any of that
+// kind is on.
+function addMarker(out: TriggerMarker[], state: WorkflowTriggerState) {
+  const marker = markerOf[state.trigger]
+  if (!marker) return
+  const seen = out.find(item => item.kind === marker.kind)
+  if (seen) seen.enabled = seen.enabled || state.enabled
+  else out.push({ ...marker, enabled: state.enabled })
 }
 
 // nodeStatus is whether a workflow's triggers are on here.

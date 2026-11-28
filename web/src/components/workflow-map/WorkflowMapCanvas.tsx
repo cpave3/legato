@@ -210,7 +210,7 @@ const nodeIdOf = (event: { target: EventTarget }) => (event.target as HTMLElemen
 function useMapChoice(layout: MapLayout, onOpen: (node: WorkflowMapNode) => void) {
   const [hovered, setHovered] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
-  const nodeOf = useCallback((id: string | null | undefined) => id ? layout.nodes.find(item => item.id === id)?.node : undefined, [layout])
+  const nodeOf = useCallback((id: string | undefined) => layout.nodes.find(item => item.id === id)?.node, [layout])
   // tapped is the workflow a touch screen's last tap lit: a tap focuses a
   // node before it clicks it, so focus alone never counts as the first tap.
   const tapped = useRef<string | null>(null)
