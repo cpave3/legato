@@ -8,6 +8,7 @@ import { PendingDrafts } from "./pendingDrafts"
 import { BrokenOutline } from "./BrokenOutline"
 import { RowButton, StepRow } from "./OutlineRowParts"
 import { InputsBody, OutlineSection, StepsBody, TriggersBody } from "./OutlineSections"
+import { OutlineMap, PhoneMap, STALE_WORDS, ViewSwitch, type OutlineView } from "./OutlineMap"
 import { useHeldYaml, type HeldYaml } from "./useHeldYaml"
 import { useOutlineSelection } from "./useOutlineSelection"
 import { stepListOf, useOutlineEditing } from "./useOutlineEditing"
@@ -22,7 +23,6 @@ import { StepPicker } from "./StepPicker"
 import { TriggerCard } from "./TriggersEditor"
 import { KIND_TITLES, triggerKinds } from "./triggerForms"
 import { LazyWorkflowYamlEditor } from "./LazyWorkflowYamlEditor"
-import { LazyWorkflowGraph } from "../workflow-graph/LazyWorkflowGraph"
 import type { WorkflowGraphModel } from "../../lib/workflow"
 import { DockCard, PanelClose } from "../workflow-canvas/DockCard"
 import { cardTitle, floatingPanel } from "../workflow-canvas/canvasStyles"
@@ -109,7 +109,7 @@ function Outline(props: WorkflowOutlineProps) {
   const { file, items } = useMemo(() => itemsOf(text), [text])
   const values = useMemo(() => parseWorkflow(text).values, [text])
   const problems = useMemo(() => problemsByItem(text, diagnostics), [text, diagnostics])
-  const [view, setView] = useState<"list" | "map">("list")
+  const [view, setView] = useState<OutlineView>("list")
   const inspector = useRef<HTMLElement>(null)
   // On the canvas: which cards are folded, and the node to centre.
   const canvasOn = props.layout === "canvas" && !navigating && !narrow
@@ -158,25 +158,11 @@ function Outline(props: WorkflowOutlineProps) {
     <OutlineSection title="About">{aboutBody}</OutlineSection>
   </nav>
 
-  const listOrMap = <div role="radiogroup" aria-label="Outline view" className="inline-flex self-start rounded-md border border-lw-line p-0.5">
-    {(["list", "map"] as const).map(option => <button key={option} type="button" role="radio" aria-checked={view === option} disabled={option === "map" && !graph}
-      title={option === "map" && !graph ? "The graph shows once Legato has read the file" : undefined}
-      className={`min-h-7 rounded px-2.5 text-xs disabled:opacity-40 ${view === option ? "bg-lw-raised text-lw-text" : "text-lw-text-2"}`} onClick={() => setView(option)}>{option === "list" ? "List" : "Graph"}</button>)}
-  </div>
-  const staleWords = "The graph is of the last version Legato could read."
+  const listOrMap = <ViewSwitch view={view} onView={setView} hasGraph={Boolean(graph)} />
   const graphSelect = (id: string | null) => { if (broken || !graph) return; const next = selectionOfNode(graph.model, id); if (next) select(next, true) }
-  const mapView = graph && (narrow && !navigating
-    // On a phone, Graph is the canvas in the outline's place, top to bottom.
-    ? <div className="relative flex h-[70vh] flex-col overflow-hidden rounded-lg border border-lw-line">
-      <WorkflowCanvas label="Graph" narrow graph={{ graph: graph.model, selectedId: nodeOf(shown), onSelect: graphSelect, direction: "TB" }}
-        notices={graph.stale && <p role="status" className="text-xs text-lw-needs">{staleWords}</p>} selected={false} onClosePanel={() => {}} hiddenPill="Graph" />
-    </div>
-    : <section aria-label="Graph" className="flex flex-col gap-1">
-    {graph.stale && <p role="status" className="text-xs text-lw-needs">{staleWords}</p>}
-    <div className={narrow ? "h-[60vh] overflow-hidden rounded-lg border border-lw-line bg-lw-ground" : "h-[32rem] overflow-hidden rounded-lg border border-lw-line bg-lw-ground"}>
-      <LazyWorkflowGraph graph={graph.model} selectedId={nodeOf(shown)} direction="TB" onSelect={graphSelect} />
-    </div>
-  </section>)
+  const mapProps = graph && { graph, selectedId: nodeOf(shown), onSelect: graphSelect }
+  // On a phone, Graph is the canvas in the outline's place, top to bottom.
+  const mapView = mapProps && (narrow && !navigating ? <PhoneMap {...mapProps} /> : <OutlineMap {...mapProps} narrow={narrow} />)
   const navigation = <div className="flex min-w-0 flex-col gap-2">
     {listOrMap}
     {view === "map" && mapView ? mapView : outlineView}
@@ -215,7 +201,7 @@ function Outline(props: WorkflowOutlineProps) {
     const notices = <>
       {props.notices}
       {brokenNote}
-      {graph?.stale && <p role="status" className={`${box} text-lw-needs`}>{staleWords}</p>}
+      {graph?.stale && <p role="status" className={`${box} text-lw-needs`}>{STALE_WORDS}</p>}
       {error && <p role="alert" className={`${box} text-lw-danger`}>{error}</p>}
       {paste.pasted !== null && <div role="alertdialog" aria-label="Replace the workflow" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm shadow-[var(--shadow-lw-panel)]">
         <span className="min-w-0 flex-1">You pasted a whole workflow. Replace this one with it? Undo brings this one back.</span>
