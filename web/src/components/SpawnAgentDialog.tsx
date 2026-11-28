@@ -1,6 +1,3 @@
-import { useQuery } from "@tanstack/react-query"
-import { fetchAdapters } from "../lib/adapters"
-import { queryKeys } from "../lib/query"
 import { useModalLayer } from "./ui/useModalLayer"
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { X } from "lucide-react"
@@ -8,12 +5,14 @@ import { accessLabel, listResources, type Resource } from "../lib/resources"
 import { macroMessage, pickerMacros, useMacros } from "../lib/macros"
 import { useServer } from "../hooks/useServer"
 import { useSettings } from "../hooks/useSettings"
-import { agentKindLabel } from "../lib/agentKind"
 import { directoryName, saveDirectoryPreset } from "../lib/spawnDirectories"
-import { buildSpawnRequest, spawnWorkingDir, type SessionPolicy, type SpawnAgentRequest } from "../lib/spawnRequest"
+import { buildSpawnRequest, spawnWorkingDir, type SpawnAgentRequest } from "../lib/spawnRequest"
 import { useDirectoryField } from "./spawn/useDirectoryField"
 import { useCloneChoice } from "./spawn/useCloneChoice"
 import { useEngramChoice } from "./spawn/useEngramChoice"
+import { useAgentChoice } from "./spawn/useAgentChoice"
+import { AccountField, AgentField } from "./spawn/AgentField"
+import { SessionPolicyField } from "./spawn/SessionPolicyField"
 import { EngramField } from "./spawn/EngramField"
 import { WhereField } from "./spawn/WhereField"
 import { fieldLabel, focusRing } from "./spawn/styles"
@@ -67,17 +66,12 @@ export function SpawnAgentDialog({
   const settings = useSettings()
   const settingsRef = useRef(settings.data)
   settingsRef.current = settings.data
+  // Changes whenever the dialog opens afresh, when each part starts over.
+  const openKey = open ? JSON.stringify([baseUrl, initialWorkingDir, defaultBranch, taskId]) : ""
+  const agent = useAgentChoice({ open, openKey, baseUrl, resumableAgentKinds })
+  const { agentKind, setAgentKind, account, setAccount, effectiveAdapter, offersSessionChoice, sessionPolicy, ready } = agent
 
   const [title, setTitle] = useState("")
-  // Kept from one opening to the next: the person's last choice of tool.
-  const [agentKind, setAgentKind] = useState("")
-  const [account, setAccount] = useState("")
-  const adapterQuery = useQuery({ queryKey: queryKeys.adapters(baseUrl), queryFn: () => fetchAdapters(baseUrl), enabled: open, staleTime: 0, retry: false })
-  const adapters = adapterQuery.data
-  // False until the adapters are known, since the default one decides
-  // whether there is a session to resume.
-  const ready = adapterQuery.isFetched
-  const [sessionPolicy, setSessionPolicy] = useState<SessionPolicy>("resume")
   // Out of Legato's sandbox for this one agent: asked afresh each time.
   const [unsandboxed, setUnsandboxed] = useState(false)
   const [hostNetwork, setHostNetwork] = useState(false)
@@ -111,12 +105,7 @@ export function SpawnAgentDialog({
   const titleRef = useRef<HTMLInputElement>(null)
   const listId = useId()
 
-  const defaultAdapter = adapters?.default ?? ""
-  const effectiveAdapter = agentKind || defaultAdapter
-  const offersSessionChoice = resumableAgentKinds.includes(effectiveAdapter)
-  // Changes whenever the dialog opens afresh, when each part starts over.
-  const openKey = open ? JSON.stringify([baseUrl, initialWorkingDir, defaultBranch, taskId]) : ""
-  const clone = useCloneChoice({ openKey, baseUrl, taskId, defaultBranch, settings: settings.data, settingsRef })
+  const clone =useCloneChoice({ openKey, baseUrl, taskId, defaultBranch, settings: settings.data, settingsRef })
   const { inClone, repository: cloneRepository, jobClone, branch, baseBranch, jobClonesError } = clone
   const dir = useDirectoryField({ openKey, baseUrl, initialWorkingDir, settingsRef, folder: clone.whereKind === "folder" })
   const { path, presets, selected, serverKnowsDirectories, savePath, showAll } = dir
@@ -132,7 +121,6 @@ export function SpawnAgentDialog({
     setError("")
     setLoading(false)
     setTitle("")
-    setSessionPolicy("resume")
     setUnsandboxed(false)
     setHostNetwork(false)
     setPrompt("")
@@ -148,17 +136,6 @@ export function SpawnAgentDialog({
   const where = inClone ? cloneRepository?.name ?? "" : selected?.name ?? directoryName(path)
   const canSave = !inClone && serverKnowsDirectories && path.trim() !== "" && !selected
 
-
-  // The default follows the usage profile of the work's repository, which
-  // may differ from the global default, so it names no adapter; every
-  // adapter, the global default's too, stays an explicit override.
-  const agentOptions = [
-    { value: "", label: "Default", note: "usage profile" },
-    ...[...new Set([...(adapters?.adapters ?? []), ...(agentKind && agentKind !== "shell" ? [agentKind] : [])])]
-      .map((adapter) => ({ value: adapter, label: agentKindLabel(adapter), note: "" })),
-    { value: "shell", label: agentKindLabel("shell"), note: "" },
-  ]
-  const toolLabel = agentKindLabel(effectiveAdapter)
 
   const submit = useCallback(async () => {
     if (loading || !ready) return
@@ -254,76 +231,13 @@ export function SpawnAgentDialog({
             </label>
           )}
 
-          <div className="flex flex-col gap-1.5">
-            <span className={fieldLabel}>Agent</span>
-            <div role="radiogroup" aria-label="Agent" className="flex rounded-[10px] border border-lw-line-strong bg-lw-ground p-[3px] sm:rounded-md sm:p-0.5">
-              {agentOptions.map((option) => {
-                const checked = option.value === agentKind
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={checked}
-                    onClick={() => { setAgentKind(option.value); setAccount("") }}
-                    // Each takes the room its own label needs, then a share of what
-                    // is left: four equal parts cut the longest label short.
-                    className={`h-10 min-w-0 flex-auto truncate rounded-lg px-2 text-sm transition-colors sm:h-[30px] sm:rounded sm:text-[13px] ${
-                      checked ? "bg-lw-selected font-medium text-lw-text" : "text-lw-text-2 hover:text-lw-text"
-                    }`}
-                  >
-                    {option.label}
-                    {option.note && <> <span className="hidden font-normal text-lw-faint sm:inline">{option.note}</span></>}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
+          <AgentField agent={agent} />
 
-          {effectiveAdapter === "claude-code" && (adapters?.accounts?.length ?? 0) > 0 && (
-            <label className="flex flex-col gap-1.5">
-              <span className={fieldLabel}>Account</span>
-              <select aria-label="Account" value={account} onChange={(event) => setAccount(event.target.value)} disabled={offersSessionChoice && sessionPolicy === "resume"}
-                className={`h-[46px] w-full min-w-0 rounded-[10px] border border-lw-line-strong bg-lw-ground px-3 text-base text-lw-text sm:h-9 sm:rounded-md sm:text-sm ${focusRing}`}>
-                <option value="">{offersSessionChoice && sessionPolicy === "resume" ? "Saved session account" : agentKind ? "Default account" : "Follow usage profile"}</option>
-                {!agentKind && <option value="default">Default account</option>}
-                {adapters?.accounts?.map((item) => <option key={item.name} value={item.name}>{item.label || item.name}</option>)}
-              </select>
-            </label>
-          )}
+          {agent.accountsShown && <AccountField agent={agent} />}
 
           {engram.shown && <EngramField engram={engram} />}
 
-          {offersSessionChoice && (
-            <fieldset className="flex flex-col gap-1.5">
-              <legend className={`${fieldLabel} mb-1.5`}>Existing {toolLabel} session</legend>
-              <div className="overflow-hidden rounded-[10px] border border-lw-line-strong bg-lw-ground sm:rounded-md">
-                {([
-                  { value: "resume", label: "Resume previous session", note: `Continue with the previous ${toolLabel} context.` },
-                  { value: "new", label: "Start new session", note: "Start fresh for this Legato task." },
-                ] as const).map((choice) => (
-                  <label
-                    key={choice.value}
-                    className={`flex min-h-[54px] cursor-pointer items-center gap-3 border-b border-lw-line px-3.5 last:border-b-0 sm:min-h-0 sm:px-3 sm:py-2 ${sessionPolicy === choice.value ? "bg-lw-selected" : ""}`}
-                  >
-                    <input
-                      type="radio"
-                      name={`${listId}-session`}
-                      value={choice.value}
-                      aria-label={choice.label}
-                      checked={sessionPolicy === choice.value}
-                      onChange={() => setSessionPolicy(choice.value)}
-                      className="accent-lw-accent"
-                    />
-                    <span className="flex flex-col gap-px">
-                      <span className="font-medium">{choice.label}</span>
-                      <span className="text-xs text-lw-text-2">{choice.note}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          )}
+          {offersSessionChoice && <SessionPolicyField agent={agent} name={`${listId}-session`} />}
 
           <WhereField dir={dir} clone={clone} listId={listId} customPathShown={customPathShown} layoutKey={JSON.stringify([error, offersSessionChoice])} />
           {resources.length > 0 && (
