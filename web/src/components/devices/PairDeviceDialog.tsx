@@ -90,7 +90,50 @@ function HiddenQrCode({ text }: { text: string }) {
   )
 }
 
-export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { baseUrl: string; purpose?: PairingPurpose; onClose: () => void }) {
+// The words for each purpose of a request: the dialog's title, where to type
+// the phrase, and what an open phrase waits for.
+const purposeText: Record<PairingPurpose, { title: string; how: string; waiting: string }> = {
+  phone: {
+    title: "Pair a device",
+    how: "In the Legato app, add a server, choose this one and type the words.",
+    waiting: "Waiting for a device…",
+  },
+  main: {
+    title: "Pair a main instance",
+    how: "On the main instance, open Settings › Connections › Workers › Add a worker and enter this address and phrase. The main gets a token that can only hand tasks off here.",
+    waiting: "Waiting for a main instance…",
+  },
+  reeve: {
+    title: "Pair another Reeve",
+    how: "On the other instance, open Settings › Reeve › Reeve pairings and enter this address and phrase. Its Reeve can then message this one's, and only that: whatever either proposes, its own person approves.",
+    waiting: "Waiting for the other instance…",
+  },
+}
+
+function pairedMessage(status: PairingStatus): string {
+  if (status.purpose === "main") return `Paired with main instance ${status.device}.`
+  if (status.purpose === "reeve") return `Paired with the Reeve on ${status.device || "the other instance"}.`
+  return `Paired with ${status.device || "a device"}.`
+}
+
+// A phone's request is opened with no body, as older servers expect.
+function pairingInit(method: "GET" | "POST" | "DELETE", purpose: PairingPurpose): RequestInit {
+  if (method === "POST" && purpose !== "phone") {
+    return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purpose }) }
+  }
+  return { method }
+}
+
+// pairingError is what to say of a refused request, or null for an answer.
+function pairingError(res: Response, body: { error?: string }): string | null {
+  if (res.status === 404) return "This server cannot pair by phrase. Update Legato on it."
+  if (!res.ok) return body.error ?? `The server answered ${res.status}.`
+  return null
+}
+
+// usePairing opens this dialog's request and follows it: on pairing_changed,
+// and when its countdown runs out, which is the server's to decide.
+function usePairing(baseUrl: string, purpose: PairingPurpose) {
   const { subscribe } = useWebSocket()
   const [status, setStatus] = useState<PairingStatus | null>(null)
   const [error, setError] = useState("")
@@ -99,18 +142,11 @@ export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { base
   const request = useCallback(
     async (method: "GET" | "POST" | "DELETE") => {
       try {
-        // A phone's request is opened with no body, as older servers expect.
-        const init: RequestInit = method === "POST" && purpose !== "phone"
-          ? { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purpose }) }
-          : { method }
-        const res = await apiFetch(baseUrl, "/api/pairing", init)
+        const res = await apiFetch(baseUrl, "/api/pairing", pairingInit(method, purpose))
         const body = await res.json().catch(() => ({}))
-        if (res.status === 404) {
-          setError("This server cannot pair by phrase. Update Legato on it.")
-          return
-        }
-        if (!res.ok) {
-          setError(body.error ?? `The server answered ${res.status}.`)
+        const refused = pairingError(res, body)
+        if (refused !== null) {
+          setError(refused)
           return
         }
         setError("")
@@ -126,10 +162,6 @@ export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { base
     void request("POST")
   }, [request])
 
-  // One request at a time: one opened elsewhere for something else replaces this one.
-  const shownPurpose: PairingPurpose = status?.purpose ?? "phone"
-  const replaced = status !== null && status.state === "open" && shownPurpose !== purpose
-
   useEffect(
     () =>
       subscribe((msg) => {
@@ -143,11 +175,16 @@ export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { base
     return () => clearInterval(timer)
   }, [])
 
-  // The countdown reaching zero is the server's to decide; read it again then.
   const expired = status?.state === "open" && status.expires_at !== undefined && Date.parse(status.expires_at) <= now
   useEffect(() => {
     if (expired) void request("GET")
   }, [expired, request])
+
+  return { status, error, request, now }
+}
+
+export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { baseUrl: string; purpose?: PairingPurpose; onClose: () => void }) {
+  const { status, error, request, now } = usePairing(baseUrl, purpose)
 
   const close = useCallback(() => {
     if (status?.state === "open") void request("DELETE")
@@ -169,14 +206,8 @@ export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { base
       >
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-lw-line px-5 py-3.5">
           <div>
-            <h2 id="pair-device-title" className="text-base font-semibold sm:text-sm">{purpose === "main" ? "Pair a main instance" : purpose === "reeve" ? "Pair another Reeve" : "Pair a device"}</h2>
-            <p className="text-xs text-lw-text-2">
-              {purpose === "main"
-                ? "On the main instance, open Settings › Connections › Workers › Add a worker and enter this address and phrase. The main gets a token that can only hand tasks off here."
-                : purpose === "reeve"
-                  ? "On the other instance, open Settings › Reeve › Reeve pairings and enter this address and phrase. Its Reeve can then message this one's, and only that: whatever either proposes, its own person approves."
-                  : "In the Legato app, add a server, choose this one and type the words."}
-            </p>
+            <h2 id="pair-device-title" className="text-base font-semibold sm:text-sm">{purposeText[purpose].title}</h2>
+            <p className="text-xs text-lw-text-2">{purposeText[purpose].how}</p>
           </div>
           <button
             onClick={close}
@@ -188,64 +219,11 @@ export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { base
         </div>
 
         <div className="flex min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain px-5 py-5">
-          {error && (
+          {error ? (
             <div role="alert" className="rounded-md border border-lw-danger-line bg-lw-error-soft px-3 py-2 text-xs text-lw-danger">
               {error}
             </div>
-          )}
-
-          {!error && replaced && (
-            <p role="status" className="rounded-md border border-lw-line-strong bg-lw-ground px-3 py-2 text-xs text-lw-needs">
-              Another request replaced this one: the phrase below now pairs {purposeName[shownPurpose]}.
-            </p>
-          )}
-
-          {!error && status?.state === "open" && status.phrase && (
-            <>
-              {shownPurpose !== "phone" && status.address && (
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-lw-text-2">Address</span>
-                  <span className="rounded-lg border border-lw-line-strong bg-lw-ground px-3 py-2 font-lw-mono text-sm text-lw-text">{status.address}</span>
-                </div>
-              )}
-              {shownPurpose === "phone" && status.pair_uri && (
-                <div className="flex flex-col gap-2">
-                  <HiddenQrCode key={status.pair_uri} text={status.pair_uri} />
-                  <p className="text-center text-xs text-lw-text-2">Scan it in the Legato app, or type the words.</p>
-                </div>
-              )}
-              <ol aria-label="Pairing phrase" className="grid grid-cols-2 gap-2">
-                {status.phrase.map((word, i) => (
-                  <li
-                    key={i}
-                    className="flex items-baseline gap-2 rounded-lg border border-lw-line-strong bg-lw-ground px-3 py-2.5"
-                  >
-                    <span className="font-lw-mono text-xs text-lw-faint">{i + 1}</span>
-                    <span className="font-lw-mono text-lg font-medium text-lw-text">{word}</span>
-                  </li>
-                ))}
-              </ol>
-              <p className="flex justify-between text-xs text-lw-text-2">
-                <span>Expires in {remaining(status.expires_at, now)}</span>
-                {status.attempts_left < 5 && <span className="text-lw-needs">{status.attempts_left} tries left</span>}
-              </p>
-              <p className="flex items-center gap-2 text-xs text-lw-text-2">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-lw-accent" />
-                {shownPurpose === "main" ? "Waiting for a main instance…" : shownPurpose === "reeve" ? "Waiting for the other instance…" : "Waiting for a device…"}
-              </p>
-            </>
-          )}
-
-          {!error && status?.state === "paired" && (
-            <p className="flex items-center gap-2 text-sm text-lw-live">
-              <Check size={16} />
-              {status.purpose === "main" ? `Paired with main instance ${status.device}.` : status.purpose === "reeve" ? `Paired with the Reeve on ${status.device || "the other instance"}.` : `Paired with ${status.device || "a device"}.`}
-            </p>
-          )}
-
-          {!error && status && ended[status.state] && <p className="text-sm text-lw-text-2">{ended[status.state]}</p>}
-
-          {!error && !status && <p className="text-sm text-lw-text-2">Asking the server for a phrase…</p>}
+          ) : <PairingState status={status} purpose={purpose} now={now} />}
         </div>
 
         <div className="flex shrink-0 justify-end gap-2 border-t border-lw-line px-5 py-3">
@@ -264,4 +242,68 @@ export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { base
       </div>
     </div>
   )
+}
+
+// PairingState is how the request stands: asked for, open, paired or ended.
+function PairingState({ status, purpose, now }: { status: PairingStatus | null; purpose: PairingPurpose; now: number }) {
+  if (!status) return <p className="text-sm text-lw-text-2">Asking the server for a phrase…</p>
+  // One request at a time: one opened elsewhere for something else replaces this one.
+  const shownPurpose: PairingPurpose = status.purpose ?? "phone"
+  const replaced = status.state === "open" && shownPurpose !== purpose
+  return <>
+    {replaced && (
+      <p role="status" className="rounded-md border border-lw-line-strong bg-lw-ground px-3 py-2 text-xs text-lw-needs">
+        Another request replaced this one: the phrase below now pairs {purposeName[shownPurpose]}.
+      </p>
+    )}
+
+    {status.state === "open" && status.phrase && <OpenPhrase status={status} phrase={status.phrase} purpose={shownPurpose} now={now} />}
+
+    {status.state === "paired" && (
+      <p className="flex items-center gap-2 text-sm text-lw-live">
+        <Check size={16} />
+        {pairedMessage(status)}
+      </p>
+    )}
+
+    {ended[status.state] && <p className="text-sm text-lw-text-2">{ended[status.state]}</p>}
+  </>
+}
+
+// OpenPhrase is an open request's phrase, with where to type it (the address
+// for an instance, the QR code for a phone), its countdown and tries left.
+function OpenPhrase({ status, phrase, purpose, now }: { status: PairingStatus; phrase: string[]; purpose: PairingPurpose; now: number }) {
+  return <>
+    {purpose !== "phone" && status.address && (
+      <div className="flex flex-col gap-1">
+        <span className="text-xs text-lw-text-2">Address</span>
+        <span className="rounded-lg border border-lw-line-strong bg-lw-ground px-3 py-2 font-lw-mono text-sm text-lw-text">{status.address}</span>
+      </div>
+    )}
+    {purpose === "phone" && status.pair_uri && (
+      <div className="flex flex-col gap-2">
+        <HiddenQrCode key={status.pair_uri} text={status.pair_uri} />
+        <p className="text-center text-xs text-lw-text-2">Scan it in the Legato app, or type the words.</p>
+      </div>
+    )}
+    <ol aria-label="Pairing phrase" className="grid grid-cols-2 gap-2">
+      {phrase.map((word, i) => (
+        <li
+          key={i}
+          className="flex items-baseline gap-2 rounded-lg border border-lw-line-strong bg-lw-ground px-3 py-2.5"
+        >
+          <span className="font-lw-mono text-xs text-lw-faint">{i + 1}</span>
+          <span className="font-lw-mono text-lg font-medium text-lw-text">{word}</span>
+        </li>
+      ))}
+    </ol>
+    <p className="flex justify-between text-xs text-lw-text-2">
+      <span>Expires in {remaining(status.expires_at, now)}</span>
+      {status.attempts_left < 5 && <span className="text-lw-needs">{status.attempts_left} tries left</span>}
+    </p>
+    <p className="flex items-center gap-2 text-xs text-lw-text-2">
+      <span className="h-2 w-2 animate-pulse rounded-full bg-lw-accent" />
+      {purposeText[purpose].waiting}
+    </p>
+  </>
 }
