@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import type { WorkflowGraphModel } from "../../lib/workflow"
 import { LazyWorkflowGraph } from "../workflow-graph/LazyWorkflowGraph"
 import { WorkflowCanvas } from "../workflow-canvas/WorkflowCanvas"
@@ -39,4 +40,18 @@ export function OutlineMap({ graph, selectedId, onSelect, narrow }: MapProps & {
       <LazyWorkflowGraph graph={graph.model} selectedId={selectedId} direction="TB" onSelect={onSelect} />
     </div>
   </section>
+}
+
+type NavigationProps = { view: OutlineView; onView: (view: OutlineView) => void; graph: MapProps["graph"] | null; selectedId: string | null; onSelect: (id: string | null) => void; narrow: boolean; phone: boolean; dim: boolean; children: ReactNode }
+
+/** OutlineNavigation is List | Graph over the outline: the outline (dimmed
+ * and off when dim), or the graph in its place; on a phone (phone) the
+ * graph is the canvas, top to bottom. */
+export function OutlineNavigation({ view, onView, graph, selectedId, onSelect, narrow, phone, dim, children }: NavigationProps) {
+  const map = graph && (phone ? <PhoneMap graph={graph} selectedId={selectedId} onSelect={onSelect} /> : <OutlineMap graph={graph} selectedId={selectedId} onSelect={onSelect} narrow={narrow} />)
+  const outline = dim ? <div inert className="opacity-50">{children}</div> : children
+  return <div className="flex min-w-0 flex-col gap-2">
+    <ViewSwitch view={view} onView={onView} hasGraph={Boolean(graph)} />
+    {view === "map" && map ? map : outline}
+  </div>
 }

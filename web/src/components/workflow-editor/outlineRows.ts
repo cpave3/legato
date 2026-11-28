@@ -1,5 +1,5 @@
 import { Bot, FileText, FolderGit2, GitPullRequest, Hourglass, ListChecks } from "lucide-react"
-import { inputsOf, itemKey, triggersOf, type Item, type ItemRef, type WorkflowValues } from "../../lib/workflowDocument"
+import { inputsOf, itemKey, parseWorkflow, stepsOf, triggersOf, type Item, type ItemRef, type WorkflowValues } from "../../lib/workflowDocument"
 import { sameSelection, type Selection } from "../../lib/workflowAddress"
 import { executors } from "../../lib/workflowSchema"
 import type { WorkflowDiagnostic } from "../../lib/workflowFiles"
@@ -59,6 +59,20 @@ export function selectionOfNode(graph: WorkflowGraphModel, id: string | null): S
   if (own?.kind === "trigger" && own.trigger && own.trigger.kind !== "manual") return { kind: "trigger", name: own.trigger.kind }
   return null
 }
+
+/** selectionAt is a node's row in the graph there is, if any. */
+export function selectionAt(graph: { model: WorkflowGraphModel } | null, id: string | null): Selection | null {
+  return graph ? selectionOfNode(graph.model, id) : null
+}
+
+/** savedIdsOf are the IDs of the steps saved (null: none yet). */
+export function savedIdsOf(savedText: string | null): Set<string> | null {
+  if (savedText === null) return null
+  return new Set(stepsOf(parseWorkflow(savedText).values).map(step => String(step?.id ?? "")))
+}
+
+/** isStepAt is a row the step at path. */
+export const isStepAt = (row: Row, path: string | null) => row.selection.kind === "step" && row.selection.path === path
 
 /** iconOf is a step type's icon in its row. */
 export function iconOf(type: string) {

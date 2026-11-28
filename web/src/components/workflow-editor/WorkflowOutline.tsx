@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { ArrowDown, ArrowLeft, ArrowUp, Plus, Trash2 } from "lucide-react"
+import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react"
 import { addInput, inputsOf, itemKey, itemsOf, itemText, moveStep, problemsByItem, removeStep, renameStep, setField, setItemText, stepsOf, stepYamlPath, triggersOf, parseWorkflow, WorkflowDocumentError, type ItemRef, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
 import { addressOf, sameSelection, type Selection } from "../../lib/workflowAddress"
 import type { SchedulePreview, WorkflowDiagnostic } from "../../lib/workflowFiles"
@@ -8,14 +8,14 @@ import { PendingDrafts } from "./pendingDrafts"
 import { BrokenOutline } from "./BrokenOutline"
 import { RowButton, StepRow } from "./OutlineRowParts"
 import { InputsBody, OutlineSection, StepsBody, TriggersBody } from "./OutlineSections"
-import { OutlineMap, PhoneMap, ViewSwitch, type OutlineView } from "./OutlineMap"
-import { BrokenNote, CanvasOutline, JumpMenu, SplitOutline } from "./OutlineLayouts"
+import { OutlineNavigation, type OutlineView } from "./OutlineMap"
+import { BrokenNote, CanvasOutline, InspectorPane, JumpMenu, SplitOutline } from "./OutlineLayouts"
 import { useCanvasDock } from "./useCanvasDock"
 import { useHeldYaml, type HeldYaml } from "./useHeldYaml"
 import { useOutlineSelection } from "./useOutlineSelection"
 import { stepListOf, useOutlineEditing } from "./useOutlineEditing"
 import { CommitField, Problems } from "./builderFields"
-import { CARD_TASK, executorTitle, fromTheCard, nodeOf, orderOf, placeOf, rowsOf, selectionOfNode, type Row } from "./outlineRows"
+import { CARD_TASK, executorTitle, fromTheCard, isStepAt, savedIdsOf, selectionAt, nodeOf, orderOf, placeOf, rowsOf, type Row } from "./outlineRows"
 import { valueText } from "./builderStyles"
 import { DetailsForm, InputCard } from "./itemForms"
 import { brokenReferences, noOptions, stepReferences, type BuilderOptions, type StepValue } from "./stepForms"
@@ -107,7 +107,7 @@ function Outline(props: WorkflowOutlineProps) {
   const dock = useCanvasDock(canvasOn, selection)
 
   const rows = useMemo(() => rowsOf(items, values, problems, pausedHere), [items, values, problems, pausedHere])
-  const savedIds = useMemo(() => savedText === null ? null : new Set(stepsOf(parseWorkflow(savedText).values).map(step => String(step?.id ?? ""))), [savedText])
+  const savedIds = useMemo(() => savedIdsOf(savedText), [savedText])
   const order: Row[] = useMemo(() => orderOf(rows), [rows])
 
   const { shown, selectedRow, choose, outline, onKeyDown } = useOutlineSelection({ text, items, order, selection, onSelect, navigating, broken: Boolean(broken), cursor, onJump })
@@ -140,30 +140,22 @@ function Outline(props: WorkflowOutlineProps) {
     <OutlineSection title="About">{aboutBody}</OutlineSection>
   </nav>
 
-  const listOrMap = <ViewSwitch view={view} onView={setView} hasGraph={Boolean(graph)} />
-  const graphSelect = (id: string | null) => { if (broken || !graph) return; const next = selectionOfNode(graph.model, id); if (next) select(next, true) }
-  const mapProps = graph && { graph, selectedId: nodeOf(shown), onSelect: graphSelect }
-  // On a phone, Graph is the canvas in the outline's place, top to bottom.
-  const mapView = mapProps && (narrow && !navigating ? <PhoneMap {...mapProps} /> : <OutlineMap {...mapProps} narrow={narrow} />)
-  const navigation = <div className="flex min-w-0 flex-col gap-2">
-    {listOrMap}
-    {view === "map" && mapView ? mapView : outlineView}
-  </div>
-
-  const inspectorView = <section ref={inspector} aria-label="Inspector" className="flex min-w-0 flex-col gap-3">
-    {narrow && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={onCloseSheet}><ArrowLeft size={13} />Outline</Button>}
-    {selectedRow
-      ? <Inspector key={placeOf(order, selectedRow.selection)} place={placeOf(order, selectedRow.selection)} held={heldYaml[placeOf(order, selectedRow.selection)]} onHold={hold} row={selectedRow} savedIds={savedIds} focusEssential={selectedRow.selection.kind === "step" && selectedRow.selection.path === focusNew} onFocused={focused} text={text} values={values} diagnostics={diagnostics} problems={problems} options={options} apply={apply} nameFixed={nameFixed} schedule={schedule} onSelect={onSelect} onUndo={onUndo} onRedo={onRedo} />
-      : <p className="text-sm text-lw-text-2">Choose a row of the outline to edit it.</p>}
-  </section>
-
-  const brokenNote = <BrokenNote broken={broken} onShow={onEditYaml} />
+  // A node chosen in the graph opens its row; none while the YAML doesn't
+  // read.
+  const graphSelect = (id: string | null) => {
+    const next = broken ? null : selectionAt(graph, id)
+    if (next) select(next, true)
+  }
   // While the YAML doesn't read: the last map (it says it is stale), or the
   // last outline, dimmed and off.
-  const brokenView = <div className="flex min-w-0 flex-col gap-2">
-    {listOrMap}
-    {view === "map" && mapView ? mapView : <div inert className="opacity-50">{outlineView}</div>}
-  </div>
+  const navigation = <OutlineNavigation view={view} onView={setView} graph={graph} selectedId={nodeOf(shown)} onSelect={graphSelect} narrow={narrow} phone={narrow && !navigating} dim={Boolean(broken)}>{outlineView}</OutlineNavigation>
+
+  const place = selectedRow && placeOf(order, selectedRow.selection)
+  const inspectorView = <InspectorPane sectionRef={inspector} back={narrow} onBack={onCloseSheet}>
+    {selectedRow && place && <Inspector key={place} place={place} held={heldYaml[place]} onHold={hold} row={selectedRow} savedIds={savedIds} focusEssential={isStepAt(selectedRow, focusNew)} onFocused={focused} text={text} values={values} diagnostics={diagnostics} problems={problems} options={options} apply={apply} nameFixed={nameFixed} schedule={schedule} onSelect={onSelect} onUndo={onUndo} onRedo={onRedo} />}
+  </InspectorPane>
+
+  const brokenNote = <BrokenNote broken={broken} onShow={onEditYaml} />
   if (canvasOn) {
     return <CanvasOutline dock={dock} bodies={{ triggers: whenBody, inputs: asksBody, steps: thenBody, about: aboutBody }} counts={{ triggers: rows.when.length, inputs: rows.asks.length, steps: rows.then.length }}
       outline={outline} onKeyDown={onKeyDown} pageNotices={props.notices} pageCards={props.cards} broken={broken} brokenNote={brokenNote}
@@ -175,13 +167,13 @@ function Outline(props: WorkflowOutlineProps) {
   if (navigating) {
     return <div className="flex flex-col gap-2 text-sm">
       {brokenNote}
-      {broken ? brokenView : navigation}
+      {navigation}
     </div>
   }
   if (broken) {
     return <div className="flex flex-col gap-3 text-sm">
       {brokenNote}
-      <div className="rounded-xl border border-lw-line bg-lw-surface p-2">{brokenView}</div>
+      <div className="rounded-xl border border-lw-line bg-lw-surface p-2">{navigation}</div>
     </div>
   }
   return <SplitOutline narrow={narrow} sheet={sheet} selectedRow={selectedRow} navigation={navigation} inspector={inspectorView} error={error} paste={paste} onPaste={paste.onPaste} />

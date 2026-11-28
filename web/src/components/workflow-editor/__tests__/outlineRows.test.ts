@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { itemsOf, parseWorkflow, problemsByItem } from "../../../lib/workflowDocument"
 import type { WorkflowGraphModel } from "../../../lib/workflow"
-import { fromTheCard, nodeOf, orderOf, placeOf, rowsOf, selectionOfNode } from "../outlineRows"
+import { fromTheCard, isStepAt, nodeOf, orderOf, placeOf, rowsOf, savedIdsOf, selectionAt, selectionOfNode } from "../outlineRows"
 
 const text = `schema_version: 2
 name: demo
@@ -94,5 +94,17 @@ describe("nodeOf and selectionOfNode", () => {
     expect(selectionOfNode(graph, "trigger:schedule")).toEqual({ kind: "trigger", name: "schedule" })
     expect(selectionOfNode(graph, "trigger:manual")).toBeNull()
     expect(selectionOfNode(graph, null)).toBeNull()
+    expect(selectionAt({ model: graph }, "step:each")).toEqual({ kind: "step", path: "each" })
+    expect(selectionAt(null, "step:each")).toBeNull()
+  })
+})
+
+describe("savedIdsOf and isStepAt", () => {
+  it("lists the saved steps' IDs, none for a new workflow, and finds a step's row", () => {
+    expect(savedIdsOf(null)).toBeNull()
+    expect([...savedIdsOf(text)!]).toEqual(["each", ""])
+    const step = orderOf(rowsFor(text))[4]
+    expect(isStepAt(step, "each")).toBe(true)
+    expect(isStepAt(step, null)).toBe(false)
   })
 })
