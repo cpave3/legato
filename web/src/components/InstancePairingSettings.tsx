@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { Laptop, Plus, ServerCog } from "lucide-react"
 import { SettingsCard, primaryButton, quietButton } from "./settings/SettingsUI"
 import { PairDeviceDialog } from "./devices/PairDeviceDialog"
+import { reasonText } from "../lib/nativeAgentView"
 import { listMains, listWorkers, pairWorker, pairedText, removeWarning, removeWorker, removedText, workerVersion, unpairMain, setMainReeve, workerCandidates, type PairedMain, type Worker, type WorkerCandidate, type WorkerList } from "../lib/workers"
 
 // Handoff: a main instance hands tasks to a worker instance it paired with
@@ -29,6 +30,13 @@ function sandboxOn(w: Worker): boolean {
 
 const metaClass = "flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs text-lw-text-2"
 
+type PairingDraft = { address: string; phrase: string; name: string }
+
+// A worker pairs with its address, the phrase it shows and this main's name
+// on it, all three given.
+const completePairing = (draft: PairingDraft) => draft.address.trim() !== "" && draft.phrase.trim() !== "" && draft.name.trim() !== ""
+const trimmedPairing = (draft: PairingDraft): PairingDraft => ({ address: draft.address.trim(), phrase: draft.phrase.trim(), name: draft.name.trim() })
+
 // WorkersSettings is the main's side: the workers it hands tasks to, Add a
 // worker (the worker's address, the phrase it shows, this main's name on
 // it), and Remove, which warns how many away tasks the worker holds. Add a
@@ -36,204 +44,29 @@ const metaClass = "flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5 text-
 // chosen opens its own pairing request, after a confirm, and is paired as if
 // its address and phrase had been typed.
 export function WorkersSettings({ baseUrl }: { baseUrl: string }) {
-  const [list, setList] = useState<WorkerList | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [draft, setDraft] = useState<{ address: string; phrase: string; name: string } | null>(null)
-  const [pairing, setPairing] = useState(false)
-  const [removing, setRemoving] = useState<Worker | null>(null)
-  const [busy, setBusy] = useState(false)
-  const source = useMemo(() => workerCandidates(baseUrl), [baseUrl])
-  const [candidates, setCandidates] = useState<WorkerCandidate[]>([])
-  const adding = draft !== null
-
-  const load = useCallback(async () => {
-    try {
-      setList(await listWorkers(baseUrl))
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    }
-  }, [baseUrl])
-  useEffect(() => { void load() }, [load])
-
-  useEffect(() => {
-    if (!adding) return
-    let live = true
-    source.list().then((list) => { if (live) setCandidates(list) }, () => { if (live) setCandidates([]) })
-    return () => { live = false }
-  }, [adding, source])
-
-  const pair = async () => {
-    if (!draft) return
-    setPairing(true)
-    setError(null)
-    setNotice(null)
-    try {
-      const worker = await pairWorker(baseUrl, { address: draft.address.trim(), phrase: draft.phrase.trim(), name: draft.name.trim() })
-      setDraft(null)
-      setNotice(pairedText(worker))
-      await load()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setPairing(false)
-    }
-  }
-
-  // pairKnown pairs a server this app knows: it opens the request there
-  // (after the app's or the browser's confirm), and this main pairs with
-  // the address and phrase it gives. On failure the form keeps the address.
-  const pairKnown = async (candidate: WorkerCandidate) => {
-    if (!draft) return
-    const name = draft.name.trim() || list?.main_name || ""
-    setPairing(true)
-    setError(null)
-    setNotice(null)
-    try {
-      const opened = await source.open(candidate, name)
-      if (!opened) return
-      const worker = await pairWorker(baseUrl, { address: opened.address, phrase: opened.phrase, name })
-      setDraft(null)
-      setNotice(pairedText(worker))
-      await load()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-      setDraft((d) => (d ? { ...d, address: candidate.url } : d))
-    } finally {
-      setPairing(false)
-    }
-  }
-
-  const remove = async (worker: Worker) => {
-    setBusy(true)
-    setError(null)
-    setNotice(null)
-    try {
-      setNotice(removedText(await removeWorker(baseUrl, worker.instance_id)))
-      setRemoving(null)
-      await load()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const workers = list?.workers ?? []
-  const canPair = draft !== null && draft.address.trim() !== "" && draft.phrase.trim() !== "" && draft.name.trim() !== "" && !pairing
+  const page = useWorkerList(baseUrl)
+  const adding = usePairWorker(baseUrl, page)
+  const removal = useRemoveWorker(baseUrl, page)
+  const workers = page.list?.workers ?? []
   return (
     <SettingsCard id="workers" icon={ServerCog} title="Workers" description="Other Legatos this one hands tasks to, to be worked on while this one sleeps. Each gave this Legato a token that can only hand off, pull and return.">
       <div className="flex flex-col gap-3">
-        {error && <p role="alert" className={alertClass}>{error}</p>}
-        {notice && <p role="status" className="text-sm text-lw-live">{notice}</p>}
-        {list && workers.length === 0 && (
-          <div className="flex flex-col gap-1.5 rounded-lg border border-lw-line px-3 py-2.5 text-xs text-lw-text-2">
-            <p className="m-0 text-sm text-lw-text">No workers yet.</p>
-            <p className="m-0">
-              A worker is another Legato, such as an always-on VM, that works on tasks while this one sleeps or travels. Once one is
-              paired, you can hand a task off to a worker from its card's menu or its task panel: you choose the purpose (make a
-              change, or find out), the repository and the agent tool, and the worker starts a sandboxed agent on it at once.
-            </p>
-            <p className="m-0">
-              While it is away, the task stays here, read-only, in an Away lane at the end of the board, and you can talk to its
-              agent on the worker. To pair one, open Settings › Connections › Main instances on the worker, then choose Add a worker here.
-            </p>
-          </div>
-        )}
+        {page.error && <p role="alert" className={alertClass}>{page.error}</p>}
+        {page.notice && <p role="status" className="text-sm text-lw-live">{page.notice}</p>}
+        {page.list && workers.length === 0 && <NoWorkers />}
         {workers.length > 0 && (
           <ul className={listClass}>
             {workers.map((w) => (
-              <li key={w.instance_id} aria-label={w.name} className="flex flex-col gap-1 px-3 py-2.5">
-                <div className="flex items-start gap-3">
-                  <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
-                    <span className="text-sm font-medium text-lw-text">{w.name}</span>
-                    <span className="truncate font-lw-mono text-xs text-lw-faint">{w.address}</span>
-                  </div>
-                  {removing?.instance_id !== w.instance_id && (
-                    <button onClick={() => setRemoving(w)} aria-label={`Remove ${w.name}`} className="min-h-10 shrink-0 rounded-lg px-3 text-sm text-lw-danger hover:bg-lw-raised">
-                      Remove
-                    </button>
-                  )}
-                </div>
-                <div className={metaClass}>
-                  <span className="font-lw-mono">{w.instance_id}</span>
-                  <span>{w.last_pull_at ? `Pulled ${when(w.last_pull_at)}` : "Not pulled yet"}</span>
-                  {w.refused_at ? (
-                    <span className="text-lw-error">No longer accepts this main; pair again</span>
-                  ) : w.unreachable_since ? (
-                    <span className="text-lw-error">Unreachable since {when(w.unreachable_since)}</span>
-                  ) : null}
-                  {!w.cannot_take_handoffs && <span className={sandboxOn(w) ? "" : "text-lw-needs"}>{sandboxOn(w) ? "Sandbox on" : "Sandbox off: it refuses handoffs"}</span>}
-                  <span className="font-lw-mono">{workerVersion(w)}</span>
-                  {w.older && <span className="text-lw-needs">Older than this Legato: update it</span>}
-                  <span>This main is <span className="font-lw-mono">{w.main_name}</span> there</span>
-                  <span>{w.away ?? 0} away</span>
-                </div>
-                {w.cannot_take_handoffs && <p className="m-0 text-xs text-lw-needs">{sentence(w.cannot_take_handoffs)}</p>}
-                {removing?.instance_id === w.instance_id && (
-                  <div className="mt-1 flex flex-col gap-2 rounded-lg border border-lw-danger-line p-3">
-                    <p className="text-xs text-lw-text-2">{removeWarning(w.name, w.away ?? 0)}</p>
-                    <div className="flex justify-end gap-2">
-                      <button onClick={() => setRemoving(null)} disabled={busy} className={quietButton}>Cancel</button>
-                      <button onClick={() => void remove(w)} disabled={busy} className="inline-flex min-h-10 items-center justify-center rounded-lg border border-lw-danger-line bg-lw-error-soft px-3.5 text-sm font-medium text-lw-danger hover:opacity-90">
-                        {busy ? "Removing…" : "Remove"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </li>
+              <WorkerRow key={w.instance_id} worker={w} removing={removal.removing?.instance_id === w.instance_id} busy={removal.busy}
+                onAsk={() => removal.setRemoving(w)} onCancel={() => removal.setRemoving(null)} onRemove={() => void removal.remove(w)} />
             ))}
           </ul>
         )}
-        {draft ? (
-          <form
-            onSubmit={(e) => { e.preventDefault(); void pair() }}
-            className="flex flex-col gap-3 rounded-lg border border-lw-line-strong p-3"
-          >
-            {candidates.length > 0 && (
-              <div className="flex flex-col gap-1.5">
-                <p id="worker-candidates" className="text-xs font-medium text-lw-text-2">{source.from === "app" ? "From this app" : "From this browser"}</p>
-                <ul aria-labelledby="worker-candidates" className={listClass}>
-                  {candidates.map((c) => (
-                    <li key={c.key}>
-                      <button
-                        type="button"
-                        onClick={() => void pairKnown(c)}
-                        disabled={pairing}
-                        className="flex min-h-10 w-full flex-wrap items-baseline gap-x-2 px-3 py-2 text-left hover:bg-lw-raised disabled:opacity-60"
-                      >
-                        <span className="text-sm font-medium text-lw-text">{c.name}</span>
-                        <span className="truncate font-lw-mono text-xs text-lw-faint">{c.url}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                <p className="text-xs text-lw-faint">Or enter another worker's address and phrase.</p>
-              </div>
-            )}
-            <p className="text-xs text-lw-text-2">
-              On the worker, open Settings › Connections › Main instances › Pair a main instance (or run{" "}
-              <code className="rounded bg-lw-raised px-1 font-lw-mono">legato pair --main</code>). It shows its address and a phrase. Enter them here.
-            </p>
-            <label className="flex flex-col gap-1 text-xs text-lw-text-2">
-              Worker address
-              <input value={draft.address} onChange={(e) => setDraft({ ...draft, address: e.target.value })} placeholder="https://vm-1.lan:3080" className={inputClass + " font-lw-mono"} />
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-lw-text-2">
-              Phrase
-              <input value={draft.phrase} onChange={(e) => setDraft({ ...draft, phrase: e.target.value })} placeholder="four words from the worker" autoComplete="off" className={inputClass + " font-lw-mono"} />
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-lw-text-2">
-              This main's name on the worker
-              <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className={inputClass + " font-lw-mono"} />
-            </label>
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setDraft(null)} className={quietButton}>Cancel</button>
-              <button type="submit" disabled={!canPair} className={primaryButton}>{pairing ? "Pairing…" : "Pair"}</button>
-            </div>
-          </form>
+        {adding.draft ? (
+          <AddWorkerForm draft={adding.draft} pairing={adding.pairing} candidates={adding.candidates} from={adding.from}
+            onChange={adding.setDraft} onCancel={() => adding.setDraft(null)} onPair={() => void adding.pair()} onPairKnown={(c) => void adding.pairKnown(c)} />
         ) : (
-          <button onClick={() => { setNotice(null); setError(null); setDraft({ address: "", phrase: "", name: list?.main_name ?? "" }) }} className={quietButton + " w-fit"}>
+          <button onClick={adding.start} className={quietButton + " w-fit"}>
             <Plus size={14} />
             Add a worker
           </button>
@@ -243,44 +76,247 @@ export function WorkersSettings({ baseUrl }: { baseUrl: string }) {
   )
 }
 
-// MainInstancesSettings is the worker's side: the main instances that hand
-// tasks to this Legato, Pair a main instance (a phrase for the main to
-// type), and Unpair, which revokes the main's token.
-export function MainInstancesSettings({ baseUrl }: { baseUrl: string }) {
-  const [mains, setMains] = useState<PairedMain[] | null>(null)
+type WorkerListState = ReturnType<typeof useWorkerList>
+
+// useWorkerList reads the workers, and runs the page's actions: each clears
+// what was said before and says why it failed.
+function useWorkerList(baseUrl: string) {
+  const [list, setList] = useState<WorkerList | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [confirming, setConfirming] = useState<PairedMain | null>(null)
-  const [showPair, setShowPair] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
-      setMains(await listMains(baseUrl))
+      setList(await listWorkers(baseUrl))
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(reasonText(reason))
     }
   }, [baseUrl])
   useEffect(() => { void load() }, [load])
 
-  const toggleReeve = async (main: PairedMain, enabled: boolean) => {
-    setError(null)
+  const clear = () => { setNotice(null); setError(null) }
+  const attempt = async (action: () => Promise<void>, failed?: () => void) => {
+    clear()
     try {
-      await setMainReeve(baseUrl, main.instance_id, enabled)
-      await load()
+      await action()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(reasonText(reason))
+      failed?.()
     }
+  }
+  return { list, error, notice, setNotice, clear, load, attempt }
+}
+
+// usePairWorker is Add a worker: the form, the servers this app or browser
+// knows, and pairing by a typed phrase or by a known server.
+function usePairWorker(baseUrl: string, page: WorkerListState) {
+  const [draft, setDraft] = useState<PairingDraft | null>(null)
+  const [pairing, setPairing] = useState(false)
+  const source = useMemo(() => workerCandidates(baseUrl), [baseUrl])
+  const candidates = useWorkerCandidates(draft !== null, source)
+
+  const paired = async (worker: Worker) => {
+    setDraft(null)
+    page.setNotice(pairedText(worker))
+    await page.load()
   }
 
-  const unpair = async (main: PairedMain) => {
-    setError(null)
-    try {
-      await unpairMain(baseUrl, main.instance_id)
-      setConfirming(null)
-      await load()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    }
+  const pair = async () => {
+    if (!draft) return
+    setPairing(true)
+    await page.attempt(async () => paired(await pairWorker(baseUrl, trimmedPairing(draft))))
+    setPairing(false)
   }
+
+  // pairKnown pairs a server this app knows: it opens the request there
+  // (after the app's or the browser's confirm), and this main pairs with
+  // the address and phrase it gives. On failure the form keeps the address.
+  const pairKnown = async (candidate: WorkerCandidate) => {
+    if (!draft) return
+    const name = draft.name.trim() || page.list?.main_name || ""
+    setPairing(true)
+    await page.attempt(async () => {
+      const opened = await source.open(candidate, name)
+      if (opened) await paired(await pairWorker(baseUrl, { address: opened.address, phrase: opened.phrase, name }))
+    }, () => setDraft((d) => (d ? { ...d, address: candidate.url } : d)))
+    setPairing(false)
+  }
+
+  const start = () => { page.clear(); setDraft({ address: "", phrase: "", name: page.list?.main_name ?? "" }) }
+  return { draft, setDraft, pairing, candidates, from: source.from, pair, pairKnown, start }
+}
+
+// useWorkerCandidates lists the servers this app or browser knows while Add
+// a worker is open.
+function useWorkerCandidates(adding: boolean, source: ReturnType<typeof workerCandidates>) {
+  const [candidates, setCandidates] = useState<WorkerCandidate[]>([])
+  useEffect(() => {
+    if (!adding) return
+    let live = true
+    source.list().then((list) => { if (live) setCandidates(list) }, () => { if (live) setCandidates([]) })
+    return () => { live = false }
+  }, [adding, source])
+  return candidates
+}
+
+function useRemoveWorker(baseUrl: string, page: WorkerListState) {
+  const [removing, setRemoving] = useState<Worker | null>(null)
+  const [busy, setBusy] = useState(false)
+  const remove = async (worker: Worker) => {
+    setBusy(true)
+    await page.attempt(async () => {
+      page.setNotice(removedText(await removeWorker(baseUrl, worker.instance_id)))
+      setRemoving(null)
+      await page.load()
+    })
+    setBusy(false)
+  }
+  return { removing, setRemoving, busy, remove }
+}
+
+function NoWorkers() {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg border border-lw-line px-3 py-2.5 text-xs text-lw-text-2">
+      <p className="m-0 text-sm text-lw-text">No workers yet.</p>
+      <p className="m-0">
+        A worker is another Legato, such as an always-on VM, that works on tasks while this one sleeps or travels. Once one is
+        paired, you can hand a task off to a worker from its card's menu or its task panel: you choose the purpose (make a
+        change, or find out), the repository and the agent tool, and the worker starts a sandboxed agent on it at once.
+      </p>
+      <p className="m-0">
+        While it is away, the task stays here, read-only, in an Away lane at the end of the board, and you can talk to its
+        agent on the worker. To pair one, open Settings › Connections › Main instances on the worker, then choose Add a worker here.
+      </p>
+    </div>
+  )
+}
+
+function WorkerRow({ worker: w, removing, busy, onAsk, onCancel, onRemove }: {
+  worker: Worker; removing: boolean; busy: boolean; onAsk: () => void; onCancel: () => void; onRemove: () => void
+}) {
+  return (
+    <li aria-label={w.name} className="flex flex-col gap-1 px-3 py-2.5">
+      <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+          <span className="text-sm font-medium text-lw-text">{w.name}</span>
+          <span className="truncate font-lw-mono text-xs text-lw-faint">{w.address}</span>
+        </div>
+        {!removing && (
+          <button onClick={onAsk} aria-label={`Remove ${w.name}`} className="min-h-10 shrink-0 rounded-lg px-3 text-sm text-lw-danger hover:bg-lw-raised">
+            Remove
+          </button>
+        )}
+      </div>
+      <WorkerMeta worker={w} />
+      {w.cannot_take_handoffs && <p className="m-0 text-xs text-lw-needs">{sentence(w.cannot_take_handoffs)}</p>}
+      {removing && (
+        <div className="mt-1 flex flex-col gap-2 rounded-lg border border-lw-danger-line p-3">
+          <p className="text-xs text-lw-text-2">{removeWarning(w.name, w.away ?? 0)}</p>
+          <div className="flex justify-end gap-2">
+            <button onClick={onCancel} disabled={busy} className={quietButton}>Cancel</button>
+            <button onClick={onRemove} disabled={busy} className="inline-flex min-h-10 items-center justify-center rounded-lg border border-lw-danger-line bg-lw-error-soft px-3.5 text-sm font-medium text-lw-danger hover:opacity-90">
+              {busy ? "Removing…" : "Remove"}
+            </button>
+          </div>
+        </div>
+      )}
+    </li>
+  )
+}
+
+// WorkerMeta is what this main knows of a worker: its ID, its last pull,
+// whether it still answers, its sandbox and version, and its away tasks.
+function WorkerMeta({ worker: w }: { worker: Worker }) {
+  const sandbox = sandboxOn(w)
+  return (
+    <div className={metaClass}>
+      <span className="font-lw-mono">{w.instance_id}</span>
+      <span>{w.last_pull_at ? `Pulled ${when(w.last_pull_at)}` : "Not pulled yet"}</span>
+      <WorkerReach worker={w} />
+      {!w.cannot_take_handoffs && <span className={sandbox ? "" : "text-lw-needs"}>{sandbox ? "Sandbox on" : "Sandbox off: it refuses handoffs"}</span>}
+      <span className="font-lw-mono">{workerVersion(w)}</span>
+      {w.older && <span className="text-lw-needs">Older than this Legato: update it</span>}
+      <span>This main is <span className="font-lw-mono">{w.main_name}</span> there</span>
+      <span>{w.away ?? 0} away</span>
+    </div>
+  )
+}
+
+function WorkerReach({ worker: w }: { worker: Worker }) {
+  if (w.refused_at) return <span className="text-lw-error">No longer accepts this main; pair again</span>
+  if (w.unreachable_since) return <span className="text-lw-error">Unreachable since {when(w.unreachable_since)}</span>
+  return null
+}
+
+function AddWorkerForm({ draft, pairing, candidates, from, onChange, onCancel, onPair, onPairKnown }: {
+  draft: PairingDraft; pairing: boolean; candidates: WorkerCandidate[]; from: "app" | "browser"
+  onChange: (draft: PairingDraft) => void; onCancel: () => void; onPair: () => void; onPairKnown: (candidate: WorkerCandidate) => void
+}) {
+  const canPair = completePairing(draft) && !pairing
+  return (
+    <form
+      onSubmit={(e) => { e.preventDefault(); onPair() }}
+      className="flex flex-col gap-3 rounded-lg border border-lw-line-strong p-3"
+    >
+      {candidates.length > 0 && <KnownWorkers candidates={candidates} from={from} pairing={pairing} onPick={onPairKnown} />}
+      <p className="text-xs text-lw-text-2">
+        On the worker, open Settings › Connections › Main instances › Pair a main instance (or run{" "}
+        <code className="rounded bg-lw-raised px-1 font-lw-mono">legato pair --main</code>). It shows its address and a phrase. Enter them here.
+      </p>
+      <label className="flex flex-col gap-1 text-xs text-lw-text-2">
+        Worker address
+        <input value={draft.address} onChange={(e) => onChange({ ...draft, address: e.target.value })} placeholder="https://vm-1.lan:3080" className={inputClass + " font-lw-mono"} />
+      </label>
+      <label className="flex flex-col gap-1 text-xs text-lw-text-2">
+        Phrase
+        <input value={draft.phrase} onChange={(e) => onChange({ ...draft, phrase: e.target.value })} placeholder="four words from the worker" autoComplete="off" className={inputClass + " font-lw-mono"} />
+      </label>
+      <label className="flex flex-col gap-1 text-xs text-lw-text-2">
+        This main's name on the worker
+        <input value={draft.name} onChange={(e) => onChange({ ...draft, name: e.target.value })} className={inputClass + " font-lw-mono"} />
+      </label>
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onCancel} className={quietButton}>Cancel</button>
+        <button type="submit" disabled={!canPair} className={primaryButton}>{pairing ? "Pairing…" : "Pair"}</button>
+      </div>
+    </form>
+  )
+}
+
+// KnownWorkers is the servers this app or browser knows, each paired with a click.
+function KnownWorkers({ candidates, from, pairing, onPick }: {
+  candidates: WorkerCandidate[]; from: "app" | "browser"; pairing: boolean; onPick: (candidate: WorkerCandidate) => void
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p id="worker-candidates" className="text-xs font-medium text-lw-text-2">{from === "app" ? "From this app" : "From this browser"}</p>
+      <ul aria-labelledby="worker-candidates" className={listClass}>
+        {candidates.map((c) => (
+          <li key={c.key}>
+            <button
+              type="button"
+              onClick={() => onPick(c)}
+              disabled={pairing}
+              className="flex min-h-10 w-full flex-wrap items-baseline gap-x-2 px-3 py-2 text-left hover:bg-lw-raised disabled:opacity-60"
+            >
+              <span className="text-sm font-medium text-lw-text">{c.name}</span>
+              <span className="truncate font-lw-mono text-xs text-lw-faint">{c.url}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-lw-faint">Or enter another worker's address and phrase.</p>
+    </div>
+  )
+}
+
+// MainInstancesSettings is the worker's side: the main instances that hand
+// tasks to this Legato, Pair a main instance (a phrase for the main to
+// type), and Unpair, which revokes the main's token.
+export function MainInstancesSettings({ baseUrl }: { baseUrl: string }) {
+  const { mains, error, load, toggleReeve, unpair } = useMains(baseUrl)
+  const [confirming, setConfirming] = useState<PairedMain | null>(null)
+  const [showPair, setShowPair] = useState(false)
 
   return (
     <SettingsCard id="main-instances" icon={Laptop} title="Main instances" description="Other Legatos that hand tasks to this one. Each is known by its instance ID and holds a token that can only hand off, pull and return.">
@@ -290,44 +326,9 @@ export function MainInstancesSettings({ baseUrl }: { baseUrl: string }) {
         {mains && mains.length > 0 && (
           <ul className={listClass}>
             {mains.map((m) => (
-              <li key={m.instance_id} aria-label={m.name} className="flex flex-col gap-2 px-3 py-2.5">
-                <div className="flex items-start gap-3">
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="text-sm font-medium text-lw-text">{m.name}</span>
-                    <div className={metaClass}>
-                      <span className="font-lw-mono">{m.instance_id}</span>
-                      <span>Paired {when(m.paired_at)}</span>
-                      <span>{m.last_pull_at ? `Last pulled ${when(m.last_pull_at)}` : "Never pulled"}</span>
-                      <span>{m.open_handoffs} open handoffs</span>
-                    </div>
-                    <label className="flex items-center gap-2 text-xs text-lw-text-2">
-                      <input type="checkbox" checked={Boolean(m.reeve)} onChange={(e) => void toggleReeve(m, e.target.checked)}
-                        aria-label={`Let the Reeve on ${m.name} message this one`} />
-                      Its Reeve may message this one's
-                    </label>
-                  </div>
-                  {confirming?.instance_id !== m.instance_id && (
-                    <button onClick={() => setConfirming(m)} aria-label={`Unpair ${m.name}`} className="min-h-10 shrink-0 rounded-lg px-3 text-sm text-lw-danger hover:bg-lw-raised">
-                      Unpair
-                    </button>
-                  )}
-                </div>
-                {confirming?.instance_id === m.instance_id && (
-                  <div className="flex flex-col gap-2 rounded-lg border border-lw-danger-line p-3">
-                    <p className="text-xs text-lw-text-2">
-                      {m.open_handoffs > 0
-                        ? `${m.name} has ${m.open_handoffs} open handoffs here. Unpairing revokes its token and closes them; their cards stay here as ordinary cards, agents still running, each with a note that ${m.name} was unpaired.`
-                        : `${m.name} has no open handoffs here. Unpairing revokes its token: it can no longer hand tasks to this Legato until it pairs again.`}
-                    </p>
-                    <div className="flex justify-end gap-2">
-                      <button onClick={() => setConfirming(null)} className={quietButton}>Cancel</button>
-                      <button onClick={() => void unpair(m)} className="inline-flex min-h-10 items-center justify-center rounded-lg border border-lw-danger-line bg-lw-error-soft px-3.5 text-sm font-medium text-lw-danger hover:opacity-90">
-                        Unpair
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </li>
+              <MainRow key={m.instance_id} main={m} confirming={confirming?.instance_id === m.instance_id}
+                onReeve={(enabled) => void toggleReeve(m, enabled)} onAsk={() => setConfirming(m)} onCancel={() => setConfirming(null)}
+                onUnpair={() => void unpair(m, () => setConfirming(null))} />
             ))}
           </ul>
         )}
@@ -338,5 +339,80 @@ export function MainInstancesSettings({ baseUrl }: { baseUrl: string }) {
       </div>
       {showPair && <PairDeviceDialog baseUrl={baseUrl} purpose="main" onClose={() => { setShowPair(false); void load() }} />}
     </SettingsCard>
+  )
+}
+
+// useMains reads the paired mains and changes them, saying why a change
+// failed; after runs once a change is made.
+function useMains(baseUrl: string) {
+  const [mains, setMains] = useState<PairedMain[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      setMains(await listMains(baseUrl))
+    } catch (reason) {
+      setError(reasonText(reason))
+    }
+  }, [baseUrl])
+  useEffect(() => { void load() }, [load])
+
+  const change = async (action: () => Promise<unknown>, after?: () => void) => {
+    setError(null)
+    try {
+      await action()
+      after?.()
+      await load()
+    } catch (reason) {
+      setError(reasonText(reason))
+    }
+  }
+  const toggleReeve = (main: PairedMain, enabled: boolean) => change(() => setMainReeve(baseUrl, main.instance_id, enabled))
+  const unpair = (main: PairedMain, after: () => void) => change(() => unpairMain(baseUrl, main.instance_id), after)
+  return { mains, error, load, toggleReeve, unpair }
+}
+
+function MainRow({ main: m, confirming, onReeve, onAsk, onCancel, onUnpair }: {
+  main: PairedMain; confirming: boolean; onReeve: (enabled: boolean) => void; onAsk: () => void; onCancel: () => void; onUnpair: () => void
+}) {
+  return (
+    <li aria-label={m.name} className="flex flex-col gap-2 px-3 py-2.5">
+      <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="text-sm font-medium text-lw-text">{m.name}</span>
+          <div className={metaClass}>
+            <span className="font-lw-mono">{m.instance_id}</span>
+            <span>Paired {when(m.paired_at)}</span>
+            <span>{m.last_pull_at ? `Last pulled ${when(m.last_pull_at)}` : "Never pulled"}</span>
+            <span>{m.open_handoffs} open handoffs</span>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-lw-text-2">
+            <input type="checkbox" checked={Boolean(m.reeve)} onChange={(e) => onReeve(e.target.checked)}
+              aria-label={`Let the Reeve on ${m.name} message this one`} />
+            Its Reeve may message this one's
+          </label>
+        </div>
+        {!confirming && (
+          <button onClick={onAsk} aria-label={`Unpair ${m.name}`} className="min-h-10 shrink-0 rounded-lg px-3 text-sm text-lw-danger hover:bg-lw-raised">
+            Unpair
+          </button>
+        )}
+      </div>
+      {confirming && (
+        <div className="flex flex-col gap-2 rounded-lg border border-lw-danger-line p-3">
+          <p className="text-xs text-lw-text-2">
+            {m.open_handoffs > 0
+              ? `${m.name} has ${m.open_handoffs} open handoffs here. Unpairing revokes its token and closes them; their cards stay here as ordinary cards, agents still running, each with a note that ${m.name} was unpaired.`
+              : `${m.name} has no open handoffs here. Unpairing revokes its token: it can no longer hand tasks to this Legato until it pairs again.`}
+          </p>
+          <div className="flex justify-end gap-2">
+            <button onClick={onCancel} className={quietButton}>Cancel</button>
+            <button onClick={onUnpair} className="inline-flex min-h-10 items-center justify-center rounded-lg border border-lw-danger-line bg-lw-error-soft px-3.5 text-sm font-medium text-lw-danger hover:opacity-90">
+              Unpair
+            </button>
+          </div>
+        </div>
+      )}
+    </li>
   )
 }
