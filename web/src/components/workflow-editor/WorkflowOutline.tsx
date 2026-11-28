@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Code2, Copy, MoreVertical, Plus, Trash2 } from "lucide-react"
-import { addInput, inputsOf, itemKey, itemsOf, itemText, moveStep, pastedAs, pathAt, rangeOf, problemsByItem, removeStep, renameStep, setField, setItemText, setTrigger, stepsOf, stepYamlPath, triggersOf, parseWorkflow, insertStep, WorkflowDocumentError, type ItemRef, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
+import { addInput, inputsOf, itemKey, itemsOf, itemText, moveStep, pastedAs, problemsByItem, removeStep, renameStep, setField, setItemText, setTrigger, stepsOf, stepYamlPath, triggersOf, parseWorkflow, insertStep, WorkflowDocumentError, type ItemRef, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
 import { addressOf, sameSelection, type Selection } from "../../lib/workflowAddress"
 import type { SchedulePreview, WorkflowDiagnostic } from "../../lib/workflowFiles"
 import { Button } from "../ui/Button"
 import { PendingDrafts } from "./pendingDrafts"
 import { useHeldYaml, type HeldYaml } from "./useHeldYaml"
+import { useOutlineSelection } from "./useOutlineSelection"
 import { CommitField, Problems } from "./builderFields"
 import { CARD_TASK, executorTitle, fromTheCard, iconOf, isTyping, nodeOf, orderOf, placeOf, rowsOf, selectionOfNode, type Row } from "./outlineRows"
 import { valueText } from "./builderStyles"
@@ -114,7 +115,6 @@ function Outline(props: WorkflowOutlineProps) {
   const [dragged, setDragged] = useState<string | null>(null)
   // A step just added has its first essential field focused.
   const [focusNew, setFocusNew] = useState<string | null>(null)
-  const outline = useRef<HTMLElement>(null)
   const inspector = useRef<HTMLElement>(null)
   // On the canvas: which cards are folded, and the node to centre.
   const canvasOn = props.layout === "canvas" && !navigating && !narrow
@@ -133,27 +133,7 @@ function Outline(props: WorkflowOutlineProps) {
   const savedIds = useMemo(() => savedText === null ? null : new Set(stepsOf(parseWorkflow(savedText).values).map(step => String(step?.id ?? ""))), [savedText])
   const order: Row[] = useMemo(() => orderOf(rows), [rows])
 
-  // A rename moves a row's address: follow it to the row of its kind in
-  // the same place.
-  const [last, setLast] = useState<{ address: string; place: number } | null>(null)
-  const atCursor = navigating && cursor !== undefined ? pathAt(text, cursor)?.item ?? null : null
-  const shown: Selection | null = navigating ? (atCursor ? (atCursor.kind === "about" ? { kind: "about" } : atCursor) : null) : selection
-  const found = selection ? order.findIndex(row => sameSelection(selection, row.selection)) : -1
-  // Until the address catches up, the renamed row is still the one shown,
-  // so its inspector (and the tab it is on) stays.
-  const following = selection && found < 0 && last?.address === addressOf(selection) ? order.filter(row => row.selection.kind === selection.kind)[last.place] ?? null : null
-  useEffect(() => {
-    if (navigating || broken) return
-    if (!selection) { setLast(null); return }
-    const same = order.filter(row => row.selection.kind === selection.kind)
-    const address = addressOf(selection)
-    if (found >= 0) {
-      const place = same.findIndex(row => sameSelection(selection, row.selection))
-      setLast(previous => previous?.address === address && previous.place === place ? previous : { address, place })
-      return
-    }
-    if (following) onSelect(following.selection)
-  }, [selection, found, order, onSelect, following, navigating, broken])
+  const { shown, selectedRow, choose, outline, onKeyDown } = useOutlineSelection({ text, items, order, selection, onSelect, navigating, broken: Boolean(broken), cursor, onJump })
 
   const { heldYaml, hold } = useHeldYaml({ text, order, held: props.held, onHeld: props.onHeld })
 
@@ -188,11 +168,7 @@ function Outline(props: WorkflowOutlineProps) {
   const ids = steps.map(step => step.id ?? "")
   const select = (next: Selection, open = false) => {
     setAdding(null)
-    if (!navigating) { onSelect(next, { open }); return }
-    // Beside the YAML, a row moves the cursor to its text.
-    const item = next.kind === "about" ? items.find(i => i.item.kind === "about" && !["inputs", "on", "steps"].includes(i.item.key))?.item : next
-    const range = item ? rangeOf(text, item) : null
-    if (range) onJump?.(range)
+    choose(next, open)
   }
 
   // What is pasted on the forms (not into a field): a whole workflow asks
@@ -270,20 +246,6 @@ function Outline(props: WorkflowOutlineProps) {
     for (let n = 2; taken.includes(name); n++) name = `input-${n}`
     apply(() => addInput(text, name, { type: "string" }))
     select({ kind: "input", name }, true)
-  }
-
-  // j and k move through the rows, Enter opens the one chosen.
-  const onKeyDown = (event: ReactKeyboardEvent) => {
-    if (isTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey) return
-    const at = order.findIndex(row => sameSelection(selection, row.selection))
-    if (event.key === "j" || event.key === "k") {
-      event.preventDefault()
-      const next = order[Math.max(0, Math.min(order.length - 1, at < 0 ? 0 : at + (event.key === "j" ? 1 : -1)))]
-      if (!next) return
-      onSelect(next.selection)
-      requestAnimationFrame(() => outline.current?.querySelector<HTMLElement>(`[data-address="${CSS.escape(addressOf(next.selection))}"]`)?.focus())
-    }
-    // Enter on a row is the row button's own click, which opens it.
   }
 
   const rowButton = (row: Row, bare = false, number?: number) => {
@@ -418,7 +380,6 @@ function Outline(props: WorkflowOutlineProps) {
     {view === "map" && mapView ? mapView : outlineView}
   </div>
 
-  const selectedRow = found >= 0 ? order[found] : following
   const inspectorView = <section ref={inspector} aria-label="Inspector" className="flex min-w-0 flex-col gap-3">
     {narrow && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={onCloseSheet}><ArrowLeft size={13} />Outline</Button>}
     {selectedRow
