@@ -169,6 +169,68 @@ describe("DiffView", () => {
     expect(selection).toBeNull()
   })
 
+  describe("line rows", () => {
+    const three = [{ ...files[0], hunks: [{ ...files[0].hunks[0], lines: [
+      ...files[0].hunks[0].lines,
+      { kind: "ctx" as const, old_no: 2, new_no: 2, text: "return oldName" },
+    ] }] }]
+    const row = (text: string) => screen.getByText(text).closest("[data-diff-line]") as HTMLElement
+    const base = "grid grid-cols-[3rem_3rem_1fr] leading-5"
+
+    it("tints each kind of line, marks it, and leaves no number where a side has none", () => {
+      render(<DiffView files={three} />)
+      expect(row("const oldName = true").className).toBe(`${base} bg-red-950/40 text-red-200`)
+      expect(row("const newName = true").className).toBe(`${base} bg-emerald-950/40 text-emerald-200`)
+      expect(row("return oldName").className).toBe(`${base} text-zinc-400`)
+      expect(row("return oldName").textContent).toBe("22 return oldName")
+      expect(row("const oldName = true").textContent).toBe("1-const oldName = true")
+      expect(row("const newName = true").textContent).toBe("1+const newName = true")
+      expect(row("const oldName = true").querySelectorAll("button")).toHaveLength(1)
+      expect(row("const oldName = true").getAttribute("data-selected")).toBeNull()
+    })
+
+    it("tints a noted range more softly, and a selected line not at all", () => {
+      const note = { id: "N", task_id: "T", step_id: "S", file_path: "src/new.ts", hunk_anchor: "auth-refresh-anchor", line_start: 1, line_end: 3, body: "All three", created_at: "" }
+      const { rerender } = render(<DiffView files={three} hunkNotes={[note]} />)
+      expect(row("const oldName = true").className).toBe(`${base} range-tinted-del bg-red-950/[0.25] text-red-100`)
+      expect(row("const newName = true").className).toBe(`${base} range-tinted-add bg-emerald-950/[0.25] text-emerald-100`)
+      expect(row("return oldName").className).toBe(`${base} bg-amber-950/20 text-amber-100`)
+      rerender(<DiffView files={three} selection={{ file_path: "src/new.ts", hunk_anchor: "auth-refresh-anchor", start: 0, end: 2 }} />)
+      for (const text of ["const oldName = true", "const newName = true", "return oldName"]) {
+        expect(row(text).className).toBe(base)
+        expect(row(text).getAttribute("data-selected")).toBe("true")
+      }
+    })
+
+    it("starts a drag only with the main button, and selects nothing without a handler", () => {
+      const selections: unknown[] = []
+      const { rerender } = render(<DiffView files={three} onSelectionChange={(next) => selections.push(next)} />)
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Select old line 1" }), { button: 2 })
+      fireEvent.pointerEnter(row("return oldName"))
+      expect(selections).toHaveLength(0)
+      rerender(<DiffView files={three} />)
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Select old line 1" }), { button: 0 })
+      fireEvent.click(screen.getByRole("button", { name: "Select old line 2" }))
+      expect(selections).toHaveLength(0)
+    })
+
+    it("extends a selection upwards from the gutter, and keeps a drag inside its hunk", () => {
+      const selections: { start: number; end: number }[] = []
+      const { rerender } = render(<DiffView files={three} selection={{ file_path: "src/new.ts", hunk_anchor: "auth-refresh-anchor", start: 2, end: 2 }} onSelectionChange={(next) => selections.push(next!)} />)
+      fireEvent.click(screen.getByRole("button", { name: "Select old line 1" }))
+      expect(selections.at(-1)).toMatchObject({ start: 0, end: 2 })
+      rerender(<DiffView files={three} onSelectionChange={(next) => selections.push(next!)} />)
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Select new line 2" }), { button: 0 })
+      fireEvent.pointerEnter(row("const oldName = true"))
+      expect(selections.at(-1)).toMatchObject({ start: 0, end: 2 })
+      fireEvent.pointerUp(window)
+      fireEvent.click(screen.getByRole("button", { name: "Select new line 2" }))
+      const count = selections.length
+      fireEvent.pointerEnter(row("const newName = true"))
+      expect(selections).toHaveLength(count)
+    })
+  })
+
   it("shows an empty state when a step has no diff", () => {
     render(<DiffView files={[]} />)
     expect(screen.getByText("No file changes in this step.")).toBeTruthy()
