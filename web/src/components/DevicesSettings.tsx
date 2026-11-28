@@ -33,8 +33,11 @@ export function DevicesSettings({ baseUrl }: { baseUrl: string }) {
         <DeviceMessages error={error} notice={actions.notice} />
         {list && !list.enrolled && <NotEnrolledWarning inApp={!!app} />}
         <DeviceRows devices={list?.devices ?? []} onRemove={(d) => void actions.remove(d.id, d.name)} />
-        {app ? <EnrollThisDevice onEnroll={() => { actions.clear(); app.enroll() }} />
-          : passkeysSupported() && <AddPasskey adding={actions.addingPasskey} onAdd={() => void actions.addPasskey()} />}
+        {app ? (
+          <button onClick={() => { actions.clear(); app.enroll() }} className="min-h-11 rounded-lg bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-500">
+            Sign approvals with this device
+          </button>
+        ) : passkeysSupported() && <AddPasskey adding={actions.addingPasskey} onAdd={() => void actions.addPasskey()} />}
       </div>
     </SettingsCard>
   )
@@ -150,14 +153,6 @@ function AddPasskey({ adding, onAdd }: { adding: boolean; onAdd: () => void }) {
   return (
     <button disabled={adding} onClick={onAdd} className="min-h-11 w-fit rounded-lg border border-zinc-700 px-4 text-sm font-medium text-zinc-200 hover:bg-zinc-800 disabled:opacity-50">
       {adding ? "Waiting for your passkey…" : "Add a passkey for this computer"}
-    </button>
-  )
-}
-
-function EnrollThisDevice({ onEnroll }: { onEnroll: () => void }) {
-  return (
-    <button onClick={onEnroll} className="min-h-11 rounded-lg bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-500">
-      Sign approvals with this device
     </button>
   )
 }
