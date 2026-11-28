@@ -6,7 +6,7 @@ import { modelSettingsResponse, settingLabels, type ModelSettings, type ModelSet
 import {
   changeDraft, currentThinking, defaultSettingLabel, hasSupportedSetting, needsThinking, parseNumberSetting, parseSelectedSetting,
   selectedSetting, settingOptionLabel, settingOptions, supportedCapability, unsupportedConfigured,
-  type ModelSettingCapability, type ModelSettingsDraft, type ModelSettingValue,
+  type ModelSettingsDraft, type ModelSettingValue,
 } from "../lib/modelSettingsForm"
 import { reasonText } from "../lib/nativeAgentView"
 import { Dropdown } from "./ui/Dropdown"
@@ -155,29 +155,19 @@ function ModelSettingField({ settingKey, values, locked, onChange }: {
   const inherited = values.state?.defaults[settingKey] ?? capability.default
   const selected = selectedSetting(values, settingKey)
   const disabled = locked || (needsThinking(settingKey) && currentThinking(values) === "off")
-  const control = { capability, value: selected == null ? "" : String(selected), disabled, defaultLabel: defaultSettingLabel(inherited), onChange: (value: ModelSettingValue) => onChange(settingKey, value) }
+  const value = selected == null ? "" : String(selected)
+  const defaultLabel = defaultSettingLabel(inherited)
   return <label className="flex flex-col gap-1 text-xs text-zinc-300">
     {settingLabels[settingKey]}
-    {capability.type === "number" ? <NumberSetting {...control} /> : <ChoiceSetting {...control} />}
+    {capability.type === "number" ? <input type="number" value={value} placeholder={defaultLabel}
+      disabled={disabled} min={capability.min} max={capability.max} step={capability.integer ? 1 : "any"}
+      onChange={(event) => onChange(settingKey, parseNumberSetting(event.target.value))}
+      className="rounded border border-zinc-700 bg-zinc-950 p-1.5" />
+      : <select value={value} disabled={disabled}
+        onChange={(event) => onChange(settingKey, parseSelectedSetting(capability, event.target.value))}
+        className="rounded border border-zinc-700 bg-zinc-950 p-1.5">
+        <option value="">{defaultLabel}</option>
+        {settingOptions(capability).map((option) => <option key={option} value={option}>{settingOptionLabel(option)}</option>)}
+      </select>}
   </label>
-}
-
-interface SettingControlProps {
-  capability: ModelSettingCapability; value: string; disabled: boolean; defaultLabel: string; onChange: (value: ModelSettingValue) => void
-}
-
-function NumberSetting({ capability, value, disabled, defaultLabel, onChange }: SettingControlProps) {
-  return <input type="number" value={value} placeholder={defaultLabel}
-    disabled={disabled} min={capability.min} max={capability.max} step={capability.integer ? 1 : "any"}
-    onChange={(event) => onChange(parseNumberSetting(event.target.value))}
-    className="rounded border border-zinc-700 bg-zinc-950 p-1.5" />
-}
-
-function ChoiceSetting({ capability, value, disabled, defaultLabel, onChange }: SettingControlProps) {
-  return <select value={value} disabled={disabled}
-    onChange={(event) => onChange(parseSelectedSetting(capability, event.target.value))}
-    className="rounded border border-zinc-700 bg-zinc-950 p-1.5">
-    <option value="">{defaultLabel}</option>
-    {settingOptions(capability).map((option) => <option key={option} value={option}>{settingOptionLabel(option)}</option>)}
-  </select>
 }
