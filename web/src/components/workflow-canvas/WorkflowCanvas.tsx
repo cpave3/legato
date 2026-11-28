@@ -105,14 +105,6 @@ function keyHandler(selected: boolean, onClosePanel: () => void, setPanelsOn: Se
   }
 }
 
-function useCanvasKeys(selected: boolean, onClosePanel: () => void, setPanelsOn: SetPanels) {
-  useEffect(() => {
-    const onKey = keyHandler(selected, onClosePanel, setPanelsOn)
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [selected, onClosePanel, setPanelsOn])
-}
-
 type Docks = { panelsOn: boolean; dockAsked: boolean; cramped: boolean; narrow: boolean; panel: ReactNode; cards: ReactNode }
 
 // isSomething is content that draws: not undefined, null or false.
@@ -132,15 +124,6 @@ function docksOf({ panelsOn, dockAsked, cramped, narrow, panel, cards }: Docks) 
 // and some of the graph between them.
 const isCramped = (dockYields: boolean, room: number, width: number) => dockYields && room > 0 && room < dockWidth + width + 4 * gap + graphRoom
 
-// GraphLayer is the graph under the docks, or in its place why there is
-// none, clear of the docks.
-function GraphLayer({ graph, insets, focusId, tools, empty }: { graph: WorkflowCanvasProps["graph"]; insets: Insets; focusId: string | null; tools: ReactNode; empty: ReactNode }) {
-  return <div className="absolute inset-0">
-    {graph ? <LazyWorkflowGraph {...graph} canvas={{ insets, focusId, tools }} />
-      : <p role="status" className="flex h-full items-center justify-center p-4 text-sm text-lw-text-2" style={{ paddingLeft: insets.left, paddingRight: insets.right }}>{empty}</p>}
-  </div>
-}
-
 // insetsOf is the room the docks take from the graph: on a phone the
 // cards' sheet along the bottom, else each dock with its gaps.
 function insetsOf(narrow: boolean, showDock: boolean, showPanel: boolean, width: number): Insets {
@@ -153,13 +136,6 @@ function insetsOf(narrow: boolean, showDock: boolean, showPanel: boolean, width:
 function PhoneNotices({ narrow, children }: { narrow: boolean; children: ReactNode }) {
   if (!narrow || !children) return null
   return <div className="shrink-0 space-y-2 border-b border-lw-line bg-lw-rail px-3 py-2">{children}</div>
-}
-
-// CardsDock is the cards: the left dock, or on a phone a sheet along the
-// bottom.
-function CardsDock({ narrow, children }: { narrow: boolean; children: ReactNode }) {
-  if (narrow) return <div className="absolute inset-x-0 bottom-0 z-10 max-h-[50%] space-y-2 overflow-y-auto rounded-t-2xl border-t border-lw-line bg-lw-rail p-3 shadow-[var(--shadow-lw-panel)]">{children}</div>
-  return <div className="pointer-events-none absolute bottom-20 left-4 top-4 z-10 flex flex-col gap-2 overflow-y-auto [&>*]:pointer-events-auto" style={{ width: dockWidth, maxWidth: "calc(100% - 2rem)" }}>{children}</div>
 }
 
 // FloatingNotices are the notices over the free area of the graph; on a
@@ -179,19 +155,30 @@ export function WorkflowCanvas({ label, graph, empty, focusId = null, cards, pan
   const [dockAsked, setDockAsked] = useState(false)
   const { section, room } = useRoom(dockYields)
   const cramped = isCramped(dockYields, room, width)
-  useCanvasKeys(selected, onClosePanel, setPanelsOn)
+  useEffect(() => {
+    const onKey = keyHandler(selected, onClosePanel, setPanelsOn)
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [selected, onClosePanel, setPanelsOn])
   const { showPanel, showDock, showPill } = docksOf({ panelsOn, dockAsked, cramped, narrow, panel, cards })
   const insets = insetsOf(narrow, showDock, showPanel, width)
   const panelsButton = <button type="button" aria-pressed={panelsOn} title="Show or hide the panels (.)" onClick={() => setPanelsOn(!panelsOn)} className="inline-flex h-8 items-center justify-center rounded-md px-2 text-xs text-lw-text hover:bg-lw-selected aria-pressed:bg-lw-selected">Panels</button>
   return <>
     <PhoneNotices narrow={narrow}>{notices}</PhoneNotices>
     <section ref={section} aria-label={label} className="relative min-h-0 flex-1 overflow-hidden bg-lw-ground">
-      <GraphLayer graph={graph} insets={insets} focusId={focusId} tools={panelsButton} empty={empty} />
+      {/* The graph under the docks, or in its place why there is none, clear of the docks. */}
+      <div className="absolute inset-0">
+        {graph ? <LazyWorkflowGraph {...graph} canvas={{ insets, focusId, tools: panelsButton }} />
+          : <p role="status" className="flex h-full items-center justify-center p-4 text-sm text-lw-text-2" style={{ paddingLeft: insets.left, paddingRight: insets.right }}>{empty}</p>}
+      </div>
       <FloatingNotices narrow={narrow} insets={insets}>{notices}</FloatingNotices>
       {showPill && <button type="button" onClick={() => { setPanelsOn(true); setDockAsked(true) }} className="absolute left-4 top-4 z-10 inline-flex h-9 items-center gap-2 rounded-full border border-lw-line-strong bg-lw-surface px-3 text-[13px] text-lw-text shadow-[var(--shadow-lw-panel)] hover:bg-lw-raised">
         {hiddenPill}<span className="text-lw-text-2">· Show panels</span>
       </button>}
-      {showDock && <CardsDock narrow={narrow}>{cards}</CardsDock>}
+      {/* The cards: the left dock, or on a phone a sheet along the bottom. */}
+      {showDock && (narrow
+        ? <div className="absolute inset-x-0 bottom-0 z-10 max-h-[50%] space-y-2 overflow-y-auto rounded-t-2xl border-t border-lw-line bg-lw-rail p-3 shadow-[var(--shadow-lw-panel)]">{cards}</div>
+        : <div className="pointer-events-none absolute bottom-20 left-4 top-4 z-10 flex flex-col gap-2 overflow-y-auto [&>*]:pointer-events-auto" style={{ width: dockWidth, maxWidth: "calc(100% - 2rem)" }}>{cards}</div>)}
       {showPanel && <div className="pointer-events-none absolute bottom-4 right-4 top-4 z-10 flex flex-col" style={{ width, maxWidth: "calc(100% - 2rem)" }}>
         <div className="pointer-events-auto flex min-h-0 flex-col">{panel}</div>
       </div>}
