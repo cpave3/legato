@@ -87,7 +87,7 @@ A command approval offers the choices Codex gives: **Allow once**, **Allow for t
 
 A question from Codex shows as a card with its options and a box for your own answer.
 
-Some prompts are only in the terminal, such as a trust question for a new folder or its hooks. When such a prompt is a numbered menu, the panel shows it as **Codex is asking in its terminal**, with a button for each option. Anything else you answer in the terminal.
+Some prompts are only in the terminal, such as a trust question for a new folder or its hooks. When such a prompt is a numbered menu, the panel shows it as **Codex is asking in its terminal**, with a button for each option. Choosing one answers the terminal; the card stays until the terminal moves on, and says so if the terminal didn't take the answer. Anything else you answer in the terminal.
 
 ### See the model's reasoning
 
