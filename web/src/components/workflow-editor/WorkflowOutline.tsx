@@ -5,6 +5,7 @@ import { addressOf, sameSelection, type Selection } from "../../lib/workflowAddr
 import type { SchedulePreview, WorkflowDiagnostic } from "../../lib/workflowFiles"
 import { Button } from "../ui/Button"
 import { PendingDrafts } from "./pendingDrafts"
+import { BrokenOutline } from "./BrokenOutline"
 import { useHeldYaml, type HeldYaml } from "./useHeldYaml"
 import { useOutlineSelection } from "./useOutlineSelection"
 import { stepListOf, useOutlineEditing } from "./useOutlineEditing"
@@ -134,20 +135,7 @@ function Outline(props: WorkflowOutlineProps) {
   const { error, apply, adding, setAdding, menu, setMenu, dragged, setDragged, select, paste, addStep, moveTo, removeIt, duplicate, warning, confirmRemove, keep, focusNew, focused, addTrigger, addAnInput } =
     useOutlineEditing({ editing, text, values, list, selection, onEdit, onSelect, choose, options })
 
-  if (file) {
-    const alert = <div role="alert" className="flex flex-col items-start gap-2 rounded-xl border border-lw-danger-line bg-lw-error-soft p-4 text-sm text-lw-danger">
-      <p>{file.startsWith("the YAML does not parse") ? `The YAML doesn't parse, so it can't be shown here: ${file.replace(/^the YAML does not parse: /, "")}` : `This file can't be shown as forms: ${file}.`}</p>
-      <Button size="sm" variant="outline" onClick={() => onEditYaml()}>Edit as YAML</Button>
-    </div>
-    // On the canvas the page's notices and cards come through here: they
-    // stay, with the alert, when there is no outline to draw.
-    if (canvasOn) return <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-      {props.notices && <div className="flex max-w-xl flex-col gap-2">{props.notices}</div>}
-      {alert}
-      {props.cards && <div className="max-w-sm">{props.cards}</div>}
-    </div>
-    return alert
-  }
+  if (file) return <BrokenOutline file={file} canvas={canvasOn} notices={props.notices} cards={props.cards} onEditYaml={onEditYaml} />
 
   const rowButton = (row: Row, bare = false, number?: number) => {
     const selected = sameSelection(shown, row.selection)
