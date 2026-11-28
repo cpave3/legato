@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { cn } from "../lib/utils"
 import type { DiffSelection, FileDiff, ReviewHunkNote } from "../lib/review"
+import { clickedSelection, draggedSelection, isLineSelected, lineMark, lineTint } from "../lib/diffLine"
 
 interface DiffViewProps {
   files: FileDiff[]
@@ -208,21 +209,15 @@ interface DiffLineProps {
 }
 
 function DiffLine({ lineIndex, line, hunkAnchor, selectionPath, selection, onSelectionChange, dragOriginRef, suppressClickRef, rangeNote, inRange = false }: DiffLineProps) {
-  const selected = selection?.file_path === selectionPath
-    && selection.hunk_anchor === hunkAnchor
-    && lineIndex >= selection.start && lineIndex <= selection.end
+  const place = { path: selectionPath, anchor: hunkAnchor, index: lineIndex }
+  const selected = isLineSelected(selection, place)
 
   const selectLine = () => {
     if (suppressClickRef.current) {
       suppressClickRef.current = false
       return
     }
-    if (!onSelectionChange) return
-    if (selection?.file_path === selectionPath && selection.hunk_anchor === hunkAnchor) {
-      onSelectionChange({ ...selection, start: Math.min(selection.start, lineIndex), end: Math.max(selection.end, lineIndex) })
-    } else {
-      onSelectionChange({ file_path: selectionPath, hunk_anchor: hunkAnchor, start: lineIndex, end: lineIndex })
-    }
+    onSelectionChange?.(clickedSelection(selection, place))
   }
   const startDrag = (event: React.PointerEvent) => {
     if (event.button !== 0 || !onSelectionChange) return
@@ -230,27 +225,9 @@ function DiffLine({ lineIndex, line, hunkAnchor, selectionPath, selection, onSel
     onSelectionChange({ file_path: selectionPath, hunk_anchor: hunkAnchor, start: lineIndex, end: lineIndex })
   }
   const extendDrag = () => {
-    const origin = dragOriginRef.current
-    if (!origin || origin.filePath !== selectionPath || origin.hunkAnchor !== hunkAnchor) return
-    origin.moved ||= origin.lineIndex !== lineIndex
-    onSelectionChange?.({
-      file_path: selectionPath,
-      hunk_anchor: hunkAnchor,
-      start: Math.min(origin.lineIndex, lineIndex),
-      end: Math.max(origin.lineIndex, lineIndex),
-    })
+    const next = draggedSelection(dragOriginRef.current, place)
+    if (next) onSelectionChange?.(next)
   }
-  const gutter = (side: "old" | "new", lineNo: number) => lineNo ? (
-    <button
-      type="button"
-      aria-label={`Select ${side} line ${lineNo}`}
-      onClick={selectLine}
-      onPointerDown={startDrag}
-      className="select-none touch-none border-r border-zinc-800 px-2 text-right text-zinc-600 hover:bg-indigo-900/50 hover:text-indigo-200"
-    >
-      {lineNo}
-    </button>
-  ) : <span className="border-r border-zinc-800" />
 
   return (
     <div
@@ -258,21 +235,29 @@ function DiffLine({ lineIndex, line, hunkAnchor, selectionPath, selection, onSel
       data-selected={selected ? "true" : undefined}
       data-line-note-range={rangeNote?.id}
       onPointerEnter={extendDrag}
-      className={cn(
-        "grid grid-cols-[3rem_3rem_1fr] leading-5",
-        !inRange && line.kind === "add" && "bg-emerald-950/40 text-emerald-200",
-        !inRange && line.kind === "del" && "bg-red-950/40 text-red-200",
-        inRange && !selected && line.kind === "add" && "range-tinted-add bg-emerald-950/[0.25] text-emerald-100",
-        inRange && !selected && line.kind === "del" && "range-tinted-del bg-red-950/[0.25] text-red-100",
-        inRange && !selected && line.kind === "ctx" && "bg-amber-950/20 text-amber-100",
-        line.kind === "ctx" && !inRange && "text-zinc-400",
-        selected && !inRange && "bg-[var(--theme-selection,color-mix(in_oklab,var(--color-indigo-900)_60%,transparent))] text-[var(--theme-text,var(--color-indigo-100))]",
-      )}
+      className={cn("grid grid-cols-[3rem_3rem_1fr] leading-5", ...lineTint(line.kind, inRange, selected))}
     >
-      {gutter("old", line.old_no)}
-      {gutter("new", line.new_no)}
-      <span className="whitespace-pre px-2"><span aria-hidden>{line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}</span>{line.text}</span>
+      <Gutter side="old" lineNo={line.old_no} onSelect={selectLine} onDragStart={startDrag} />
+      <Gutter side="new" lineNo={line.new_no} onSelect={selectLine} onDragStart={startDrag} />
+      <span className="whitespace-pre px-2"><span aria-hidden>{lineMark(line.kind)}</span>{line.text}</span>
     </div>
+  )
+}
+
+// A line number that selects its line, or an empty cell on the side of the
+// diff the line is not on.
+function Gutter({ side, lineNo, onSelect, onDragStart }: { side: "old" | "new"; lineNo: number; onSelect: () => void; onDragStart: (event: React.PointerEvent) => void }) {
+  if (!lineNo) return <span className="border-r border-zinc-800" />
+  return (
+    <button
+      type="button"
+      aria-label={`Select ${side} line ${lineNo}`}
+      onClick={onSelect}
+      onPointerDown={onDragStart}
+      className="select-none touch-none border-r border-zinc-800 px-2 text-right text-zinc-600 hover:bg-indigo-900/50 hover:text-indigo-200"
+    >
+      {lineNo}
+    </button>
   )
 }
 
