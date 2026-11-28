@@ -4,11 +4,12 @@ import { useServer } from "../hooks/useServer"
 import { proposeComposerText, type AgentUIItem } from "../lib/agentUi"
 import {
   StudioError, addScene, agreePlan, chapterHeadings, chooseTake, clock, commentOnScene, decideOffPlan, lengthOf, moveScene, planLength, renameChapter, rewriteScene, writeBrief, fetchStudioFile, fetchStudioProject, focusedScene, intoTake, leftTheScript, lineUpRequest,
-  openOffPlan, planChanges, pointsHit, questionAboutScene, recordedCount, removeScene, reviewRequest, sceneSignature, startRender, studioPace, takeBackComment, talkingPoints,
+  openOffPlan, planChanges, pointsHit, questionAboutScene, recordedCount, removeScene, reviewRequest, sceneSignature, startRender, takeBackComment, talkingPoints,
   timeline, transcriptRuns, uploadTake, type StudioProject, type StudioScene,
 } from "../lib/agentStudio"
 import { canPlayVideo, videoFormat } from "../lib/agentVideo"
-import { recordingOf, samplesOf, type Heard, type TakePart, type TakeSound } from "../lib/takeSound"
+import type { TakePart, TakeSound } from "../lib/takeSound"
+import { DEAD_MICROPHONE, QUIET_TOLD_MS, countDown, keptPicture, takeFilmOf, takeRefusal, takeSoundOf, takeWarning } from "../lib/studioTake"
 import { LoadingState } from "./ui/LoadingState"
 
 interface AgentStudioPanelProps {
@@ -27,22 +28,9 @@ interface AgentStudioPanelProps {
 // A studio that cannot open is asked for less often: each asking runs
 // libretto on the server.
 const FAILED_POLLS = 3
-// A take shorter than this cannot hold a word: it is a slip of the hand.
-const MIN_TAKE_MS = 1000
-// A recording smaller than this holds no sound: it is the start of a file
-// and nothing after it, which a recorder gives when its microphone gave it
-// nothing.
-const MIN_TAKE_BYTES = 2000
 // How long a take runs on after Stop is pressed. The sound of the last word
 // is still on its way from the microphone when the person presses.
 const STOP_TAIL_MS = 350
-// A microphone that has given exactly nothing for this long has likely
-// stopped, and the person is told while the take can still be thrown away.
-const QUIET_TOLD_MS = 3000
-// A take's sound may be this much shorter than the take before it is said
-// to be: the take runs on a moment after Stop, and starts a moment after
-// Record.
-const SHORT_TOLD_MS = 500
 const NO_CAMERA = "none"
 
 const STATUS: Record<StudioScene["status"], { dot: string; label: string }> = {
@@ -65,17 +53,6 @@ function why(err: unknown): string {
   if (name === "NotReadableError" || name === "AbortError") return "another program may be using it"
   if (name === "OverconstrainedError") return "the one chosen is not there now"
   return err instanceof Error ? err.message : String(err)
-}
-
-// quietNote says how much of a take the microphone gave nothing for. A
-// microphone that another page has gives sound in short bursts, so the whole
-// of it is said, and not only the longest stretch.
-function quietNote(heard: Heard, lastedMs: number): string {
-  const secs = (ms: number) => (ms / 1000).toFixed(1)
-  const where = !heard.silence ? ", in short stretches"
-    : heard.silence.ms >= heard.silentTotalMs ? `, from ${clock(heard.silence.atMs)} into it`
-      : `, ${secs(heard.silence.ms)} s of it in one stretch from ${clock(heard.silence.atMs)} into it`
-  return `The microphone gave nothing at all for ${secs(heard.silentTotalMs)} s of this ${secs(lastedMs)} s take${where}. If you were speaking then, another page or program may have had the microphone: close it, and record the take again.`
 }
 
 function remembered(key: string): string {
@@ -345,65 +322,39 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
     setSelectedId(recorded)
     setPhase("opening")
     setNote("")
-    // The microphone is opened for this take and let go after it. A feed
-    // from a microphone that has been open a long while runs late: the take
-    // begins with sound from before it, and loses the end of what was said.
-    let got: MediaStream
+    const got = await openForTake()
+    if (!got) return
+    const { sound, samples } = await takeSoundOf(meter.current?.context, got)
+    const film = takeFilmOf(got)
+    cancelled.current = false
+    setPhase("counting")
+    const dead = await countDown(meter.current?.analyser, setCounting, cancelled)
+    if (cancelled.current || dead) {
+      close()
+      setNote(dead && !cancelled.current ? DEAD_MICROPHONE : "")
+      setPhase("idle")
+      return
+    }
+    record(recorded, sound, samples, film)
+  }
+
+  // openForTake opens the microphone for this take, to let it go after it. A
+  // feed from a microphone that has been open a long while runs late: the
+  // take begins with sound from before it, and loses the end of what was
+  // said. It says why when it cannot, and gives null.
+  async function openForTake(): Promise<MediaStream | null> {
     try {
-      got = await open()
+      return await open()
     } catch (err) {
       setNote(`The microphone could not be opened: ${why(err)}. The microphone is chosen in the settings.`)
       setPhase("idle")
-      return
+      return null
     }
-    // The sound is taken from the microphone as samples, which show what
-    // the microphone gave. A browser's recorder hides a microphone that came
-    // and went, so it takes the sound only where samples cannot be had.
-    let sound: TakePart
-    let samples: TakeSound | null = null
-    try {
-      if (!meter.current) throw new Error("this browser has no sound system for a page")
-      sound = samples = await samplesOf(meter.current.context, got)
-    } catch {
-      sound = recordingOf(new MediaStream(got.getAudioTracks()), ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"], { audioBitsPerSecond: 128000 })
-    }
-    // The camera is recorded by itself, with no sound in the recording: a
-    // recorder given both waits for one before it writes the other.
-    const film = got.getVideoTracks().length > 0
-      ? recordingOf(new MediaStream(got.getVideoTracks()), ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"], { videoBitsPerSecond: 2500000 })
-      : null
-    // Three, two, one: time to look up, and time to hear whether the
-    // microphone gives anything at all before a take is spent on it. A
-    // microphone that another page has gives exactly nothing, or a burst of
-    // sound now and then, which a room never does.
-    cancelled.current = false
-    setPhase("counting")
-    const listen = meter.current?.analyser
-    const heardNow = new Float32Array(listen ? 256 : 0)
-    let looks = 0
-    let live = 0
-    const look = () => {
-      if (!listen || typeof listen.getFloatTimeDomainData !== "function") return
-      listen.getFloatTimeDomainData(heardNow)
-      looks++
-      if (heardNow.some((v) => v !== 0)) live++
-    }
-    for (let n = 3; n >= 1 && studioPace.countdownMs > 0; n--) {
-      setCounting(n)
-      for (const until = performance.now() + studioPace.countdownMs / 3; performance.now() < until && !cancelled.current;) {
-        await new Promise((resolve) => setTimeout(resolve, 50))
-        look()
-      }
-    }
-    look()
-    setCounting(0)
-    const dead = looks > 0 && live * 2 < looks
-    if (cancelled.current || dead) {
-      close()
-      setNote(dead && !cancelled.current ? "The microphone is giving no sound, so the take was not started. Another page or program may have it: close that, then record again. Test, in the settings, shows whether it hears you." : "")
-      setPhase("idle")
-      return
-    }
+  }
+
+  // record runs a take until it is stopped or cancelled, then keeps it or
+  // says why not.
+  function record(recorded: string, sound: TakePart, samples: TakeSound | null, film: TakePart | null) {
     const began = Date.now()
     const tick = setInterval(() => {
       setSeconds(Math.floor((Date.now() - began) / 1000))
@@ -414,17 +365,14 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
     const finish = async () => {
       if (finishing) return
       finishing = true
-      const lasted = Date.now() - began
-      const [words, filmed] = await Promise.all([sound.stop(), film ? film.stop() : null])
+      const lastedMs = Date.now() - began
+      const [words, filmed] = await Promise.all([sound.stop(), film?.stop() ?? null])
       clearInterval(tick)
       recorder.current = null
       setQuiet(0)
       close()
       const heard = samples?.heard()
-      const refused = cancelled.current ? "That take was thrown away."
-        : lasted < MIN_TAKE_MS ? "That take was too short to hold a word, so it was not kept."
-          : words.size < MIN_TAKE_BYTES || (heard && !heard.loud) ? "Nothing was recorded: the microphone gave no sound. Test it in the settings, then record again."
-            : ""
+      const refused = takeRefusal({ cancelled: cancelled.current, lastedMs, bytes: words.size, heard })
       if (refused) {
         setNote(refused)
         busy.current = false
@@ -432,19 +380,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
         return
       }
       setPhase("saving")
-      // What the samples say went wrong, for the person to hear of before
-      // they go on to the next scene.
-      const told = !heard ? "This browser could not give the take's sound as samples, so its own recorder was used. That recorder can lose the end of a take: listen to it before you go on."
-        : lasted - heard.seconds * 1000 > SHORT_TOLD_MS ? `Only ${heard.seconds.toFixed(1)} s of sound came from a take of ${(lasted / 1000).toFixed(1)} s, so some of what you said is missing. Listen to it, and record it again if it is.`
-          : heard.silentTotalMs >= QUIET_TOLD_MS ? quietNote(heard, lasted)
-            : ""
-      // A camera that gave nothing leaves a recording too small to be one;
-      // the take is then the sound alone, and the studio says so.
-      const picture = filmed && filmed.size >= MIN_TAKE_BYTES ? filmed : undefined
-      uploadTake(baseUrl, item.id, recorded, words, picture, notify)
-        .then((next) => { take(next); if (told) setNote(told) })
-        .catch((err) => setNote(asStudioError(err).message))
-        .finally(() => { busy.current = false; setPhase("idle") })
+      keep(recorded, words, keptPicture(filmed), takeWarning(heard, lastedMs))
     }
     busy.current = true
     recorder.current = { finish: () => void finish() }
@@ -453,6 +389,14 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
     sound.start()
     film?.start()
     setPhase("recording")
+  }
+
+  // keep gives a take to the studio, and then says what went wrong with it.
+  function keep(recorded: string, words: Blob, picture: Blob | undefined, told: string) {
+    uploadTake(baseUrl, item.id, recorded, words, picture, notify)
+      .then((next) => { take(next); if (told) setNote(told) })
+      .catch((err) => setNote(asStudioError(err).message))
+      .finally(() => { busy.current = false; setPhase("idle") })
   }
 
   function stop() {
