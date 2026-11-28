@@ -1,5 +1,4 @@
 import { ChevronDown } from "lucide-react"
-import { cloneNote } from "../../lib/spawnClones"
 import { fieldLabel, focusRing } from "./styles"
 import type { CloneChoice } from "./useCloneChoice"
 
@@ -15,7 +14,7 @@ function Chevron() {
 
 // Which repository, and which of its clones when there is more than a new
 // one to pick from.
-function CloneSelects({ clone }: { clone: CloneChoice }) {
+export function CloneSelects({ clone }: { clone: CloneChoice }) {
   const { repository, repositories, choices, choice, jobClone } = clone
   const picking = choices.length > 1 || Boolean(jobClone)
   return (
@@ -46,7 +45,7 @@ function CloneSelects({ clone }: { clone: CloneChoice }) {
 
 // The branch the agent works on, and for a new clone the one it starts
 // from. A clone an agent works in is joined on its own branch.
-function BranchFields({ clone }: { clone: CloneChoice }) {
+export function BranchFields({ clone }: { clone: CloneChoice }) {
   const { jobClone } = clone
   return (
     <div className={`grid grid-cols-1 gap-3 ${jobClone ? "" : "sm:grid-cols-2"}`}>
@@ -81,17 +80,6 @@ function BranchFields({ clone }: { clone: CloneChoice }) {
           />
         </label>
       )}
-    </div>
-  )
-}
-
-// Where in a clone the agent starts, and what that does.
-export function CloneFields({ clone, repo }: { clone: CloneChoice; repo: string }) {
-  return (
-    <div className="mt-2 flex flex-col gap-3">
-      <CloneSelects clone={clone} />
-      <BranchFields clone={clone} />
-      <p className="text-xs text-lw-faint">{cloneNote(clone.jobClone, repo)}</p>
     </div>
   )
 }

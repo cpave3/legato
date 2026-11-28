@@ -1,5 +1,6 @@
+import { cloneNote } from "../../lib/spawnClones"
 import { pathVisibility } from "../../lib/spawnSuggestions"
-import { CloneFields } from "./CloneFields"
+import { BranchFields, CloneSelects } from "./CloneFields"
 import { PathField } from "./PathField"
 import { PresetList } from "./PresetList"
 import { fieldLabel } from "./styles"
@@ -10,31 +11,6 @@ const places = [
   { value: "folder", label: "Folder" },
   { value: "clone", label: "Clone" },
 ] as const
-
-// Folder or clone, offered when there is a repository to clone.
-function PlaceToggle({ clone, dir }: { clone: CloneChoice; dir: DirectoryField }) {
-  return (
-    <div role="radiogroup" aria-label="Where" className="flex rounded-[10px] border border-lw-line-strong bg-lw-ground p-[3px] sm:rounded-md sm:p-0.5">
-      {places.map((option) => {
-        const checked = option.value === clone.whereKind
-        return (
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={checked}
-            onClick={() => { clone.setWhereKind(option.value); dir.closeList() }}
-            className={`h-10 min-w-0 flex-1 truncate rounded-lg px-2 text-sm transition-colors sm:h-[30px] sm:rounded sm:text-[13px] ${
-              checked ? "bg-lw-selected font-medium text-lw-text" : "text-lw-text-2 hover:text-lw-text"
-            }`}
-          >
-            {option.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
 
 interface WhereFieldProps {
   dir: DirectoryField
@@ -54,8 +30,36 @@ export function WhereField({ dir, clone, listId, customPathShown, layoutKey }: W
   return (
     <div className="flex flex-col gap-1.5">
       <span className={fieldLabel}>Where</span>
-      {clone.repositories.length > 0 && <PlaceToggle clone={clone} dir={dir} />}
-      {inClone && repository && <CloneFields clone={clone} repo={repository.repo} />}
+      {/* Folder or clone, offered when there is a repository to clone. */}
+      {clone.repositories.length > 0 && (
+        <div role="radiogroup" aria-label="Where" className="flex rounded-[10px] border border-lw-line-strong bg-lw-ground p-[3px] sm:rounded-md sm:p-0.5">
+          {places.map((option) => {
+            const checked = option.value === clone.whereKind
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={checked}
+                onClick={() => { clone.setWhereKind(option.value); dir.closeList() }}
+                className={`h-10 min-w-0 flex-1 truncate rounded-lg px-2 text-sm transition-colors sm:h-[30px] sm:rounded sm:text-[13px] ${
+                  checked ? "bg-lw-selected font-medium text-lw-text" : "text-lw-text-2 hover:text-lw-text"
+                }`}
+              >
+                {option.label}
+              </button>
+            )
+          })}
+        </div>
+      )}
+      {/* Where in a clone the agent starts, and what that does. */}
+      {inClone && repository && (
+        <div className="mt-2 flex flex-col gap-3">
+          <CloneSelects clone={clone} />
+          <BranchFields clone={clone} />
+          <p className="text-xs text-lw-faint">{cloneNote(clone.jobClone, repository.repo)}</p>
+        </div>
+      )}
       {!inClone && dir.presets.length > 0 && <PresetList dir={dir} />}
 
       <PathField dir={dir} listId={listId} visibility={pathVisibility(inClone, customPathShown, "block")} layoutKey={layoutKey} />
