@@ -157,6 +157,12 @@ func (c *ReviewRunCaller) Shipping(ctx context.Context) (ShippingView, error) {
 	if err != nil {
 		return ShippingView{}, err
 	}
+	// A merge waited for longer than the window is still waited for.
+	waits, err := db.ListApprovedLoopsAwaitingCallers(ctx, since)
+	if err != nil {
+		return ShippingView{}, err
+	}
+	closed = append(closed, waits...)
 	view := ShippingView{Loops: []ShippingLoop{}}
 	var waiting, ended []ShippingLoop
 	for i := range open {
@@ -164,9 +170,10 @@ func (c *ReviewRunCaller) Shipping(ctx context.Context) (ShippingView, error) {
 	}
 	for i := range closed {
 		loop := c.shippingLoop(ctx, &closed[i])
-		if loop.Phase == ShippingWaitingForMerge {
+		switch {
+		case loop.Phase == ShippingWaitingForMerge:
 			waiting = append(waiting, loop)
-		} else {
+		case loop.ClosedAt >= since:
 			ended = append(ended, loop)
 		}
 	}
@@ -243,6 +250,11 @@ func (c *ReviewRunCaller) shippingLoop(ctx context.Context, rec *store.ReviewLoo
 	loop.Task = c.shippingTask(ctx, rec)
 	if rec.AgentAuthor && rec.AuthorTask != "" {
 		loop.Author = c.shippingAuthor(ctx, rec.AuthorTask)
+	}
+	if loop.Open && (rec.Phase == ReviewPhaseReady || rec.Phase == ReviewPhaseWaitingForReviewer) {
+		// The record keeps the last pass until the next one starts; the run
+		// page names the pass to come.
+		loop.Pass = rec.Pass + 1
 	}
 	loop.Phase = shippingPhase(rec, d, chain)
 	if !loop.Open {
@@ -397,10 +409,7 @@ func (c *ReviewRunCaller) shippingAuthor(ctx context.Context, taskID string) *Sh
 	if task, err := c.engine.db.GetTask(ctx, taskID); err == nil && task != nil {
 		author.Title = task.Title
 	}
-	if c.engine.opts.Agents == nil {
-		return author
-	}
-	if session, err := c.engine.opts.Agents.GetAgentSession(ctx, taskID); err == nil && session != nil && session.Status == "running" {
+	if session, err := c.authorSession(ctx, taskID); err == nil && session != nil && session.Status == "running" {
 		author.State = session.Activity
 		if author.State == "" {
 			author.State = "idle"

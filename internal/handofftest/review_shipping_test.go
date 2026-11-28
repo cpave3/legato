@@ -87,6 +87,13 @@ func TestShippingFollowsALoopFromReviewingToChangesRequestedToStuck(t *testing.T
 	r := newReviewRun(t, ReviewPassOptions{MaxPasses: 1})
 	withBoardAuthor(t, r)
 	view := r.startLoop(t, agentAuthored)
+	r.runs.Open(context.Background())
+
+	// Opened and waiting for its reviewer: the pass to come is pass 1, as
+	// the run page says.
+	if due := oneShippingLoop(t, r.shipping(t)); due.Phase != service.ShippingReviewing || due.Pass != 1 {
+		t.Fatalf("due: phase %q, pass %d", due.Phase, due.Pass)
+	}
 	r.tick()
 
 	reviewing := oneShippingLoop(t, r.shipping(t))
@@ -251,6 +258,12 @@ func TestShippingListsAnApprovedLoopWhoseCallerStillRunsAsWaitingForTheMerge(t *
 	got := oneShippingLoop(t, r.shipping(t))
 	if got.Open || got.Phase != service.ShippingWaitingForMerge || got.Outcome != service.ReviewOutcomeApproved || got.Caller != "ship-without-steward" {
 		t.Fatalf("loop %+v (parent: %s)", got, stepStates(r.show(t, parent.Run.ID)))
+	}
+
+	// A merge that takes longer than the ended loops' 7 days is still waited for.
+	r.worker.Clock.Advance(8 * 24 * time.Hour)
+	if got := oneShippingLoop(t, r.shipping(t)); got.Phase != service.ShippingWaitingForMerge {
+		t.Fatalf("after 8 days: %+v", got)
 	}
 }
 

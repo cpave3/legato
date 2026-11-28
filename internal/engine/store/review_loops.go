@@ -587,6 +587,24 @@ func (s *Store) ListReviewLoopsClosedAfter(ctx context.Context, since string) ([
 	return out, err
 }
 
+// ListApprovedLoopsAwaitingCallers returns the loops closed approved before
+// before (RFC 3339) whose run, or one of the two runs above it, has not
+// ended: a caller still waiting for the merge, however long it takes.
+func (s *Store) ListApprovedLoopsAwaitingCallers(ctx context.Context, before string) ([]ReviewLoop, error) {
+	var out []ReviewLoop
+	err := s.db.SelectContext(ctx, &out, `SELECT l.* FROM review_loops l
+		JOIN workflow_runs r ON r.id = l.run_id
+		LEFT JOIN workflow_runs p ON p.id = r.parent_run_id
+		LEFT JOIN workflow_runs g ON g.id = p.parent_run_id
+		WHERE l.state = 'closed' AND l.outcome = 'approved' AND l.closed_at < ?
+		AND (r.status NOT IN `+endedRunStatuses+` OR p.status NOT IN `+endedRunStatuses+` OR g.status NOT IN `+endedRunStatuses+`)
+		ORDER BY l.closed_at DESC, l.id`, before)
+	return out, err
+}
+
+// endedRunStatuses are the statuses of a run that has ended.
+const endedRunStatuses = `('succeeded', 'failed', 'cancelled', 'stopped')`
+
 // CheckReviewLoopOwner is the re-check before a GitHub write: the loop as
 // it stands, ErrNotFound, ErrReviewLoopClosed or ErrReviewLoopNotOwned.
 func (s *Store) CheckReviewLoopOwner(ctx context.Context, id string, owner ReviewLoopOwner) (*ReviewLoop, error) {
