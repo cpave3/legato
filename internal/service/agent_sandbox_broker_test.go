@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/engine/store"
+	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
 
 // testBrokerEnv stands in for the host broker's session env.
