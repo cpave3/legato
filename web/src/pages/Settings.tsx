@@ -7,6 +7,7 @@ import { useSettingsCatalog, useSettingsLists } from "../components/settings/use
 import { RailSettings } from "../components/settings/RailSettings"
 import { ReeveAutoSettings } from "../components/settings/ReeveAutoSettings"
 import { SkillsSettings } from "../components/settings/SkillsSettings"
+import { ManagedHooksSettings } from "../components/settings/ManagedHooksSettings"
 import { MCPSettings } from "../components/settings/MCPSettings"
 import { ServerThemeSettings } from "../components/settings/ServerThemeSettings"
 import { setToken } from "../lib/auth"
@@ -159,6 +160,7 @@ export function SettingsPage() {
     "repository-guidance": <div id="list-agents.guidance"><RepositoryGuidanceSettings baseUrl={baseUrl} /></div>,
     "job-clones": <ManagedClonesCard />,
     "skills": <SkillsSettings baseUrl={baseUrl} />,
+    "managed-hooks": <ManagedHooksSettings baseUrl={baseUrl} />,
     "resources": <div id="list-resources"><ResourcesSettings baseUrl={baseUrl} /></div>,
     "engram-bindings": <EngramBindingsSettings baseUrl={baseUrl} />,
     "reeve-auto": <ReeveAutoSettings baseUrl={baseUrl} />,
