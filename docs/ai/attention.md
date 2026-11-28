@@ -125,6 +125,8 @@ All endpoints use the configured authentication boundary.
 - **CLI:** `legato attention list` reconciles CLI-available sources (plans, and `handoff` from the database, without notifying) and lists the durable default-policy set with producer/category/urgency/JSON options.
 - **Stream Deck and navigation badges:** consume the same expanded count/list policy.
 
+- **Shipping:** a review loop's needs (a held steward, a stuck loop, a check failing after approval, an author waiting on the operator) are also on `/shipping`, beside every other review loop and its steward, with the loop's actions (`GET /api/shipping`, `legato review-pass list`; see [Web UI](web-ui.md) § Shipping). It reads the loop records and the run page's details, not this registry.
+
 These clients intentionally remain generic lists in this delivery; only the web surface adopts grouped dashboard presentation.
 
 ## Operator items

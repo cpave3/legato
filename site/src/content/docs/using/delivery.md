@@ -126,6 +126,8 @@ Here `max_reentries: 2` needs an instance budget of at least 2. The task input s
 
 ## If the journey stops
 
+**Shipping**, beside Review in the rail, lists every review loop with where it stands, its checks and what its steward last did, and takes the actions below from its row. See [Shipping](/legato/using/review-passes/#every-review-loop-at-once-shipping).
+
 | What you see | What to do |
 | --- | --- |
 | Waiting for the review engine | Check the enabled setting and broker-holder process, not the reviewer's chat. |

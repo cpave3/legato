@@ -226,6 +226,7 @@ Legato posts each answer on the pull request.
 
 Outside any session, on the machine Legato runs on, you can read, answer and steer any open review loop by its ID (`rl-` and twelve hex digits; the run page, Attention and a refused start name it). `--loop` is refused inside an agent session.
 
+- `legato review-pass list [--json]`: every review loop, as the [Shipping](/legato/using/review-passes/#every-review-loop-at-once-shipping) page lists it: the open ones, those approved and waiting for the merge, and those that ended in the last 7 days, each with its phase, pull requests, checks, steward, author and loop ID.
 - `legato review-pass feedback --loop <loop-id> [--json]` and `legato review-pass answer <item-id> … --loop <loop-id>`: as above, for that loop. `--task <task-id>` (the loop of that task) still works in place of `--loop`.
 - `legato review-pass another-pass --loop <loop-id>`: **Another pass**. A stuck loop runs one more pass, past its limit or after a failed one; a workflow run's loop that waits for its author starts its next pass now. Anything else is refused (`loop_not_stuck`). The Legato that runs the review engine starts the pass on its next tick, within 15 seconds.
 - `legato review-pass message --loop <loop-id> --text <text>` (or `--file <path|->`): **Message the author**. Your words reach the author's agent as its next message, opening with `[legato review pass] From the operator:`. A person author reads GitHub instead, and an author agent that is not running is refused: start it first.
