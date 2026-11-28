@@ -137,6 +137,10 @@ After a crash, an agent whose session is gone is kept as **Interrupted** and res
 
 Each Chimera agent gets the [skills](/legato/agent-tools/skills/) you turned on in Legato as a mod named `legato-skills`, so a skill is called by its plain name. A skill of the same name in the project's or your own `.chimera/skills` wins over Legato's.
 
+## Managed hooks
+
+Not yet: Chimera agents get no [managed hooks](/legato/agent-tools/managed-hooks/). Legato skips them and adds a note to the task saying so.
+
 ## Sandboxes
 
 Chimera has a sandbox of its own, and Legato has [one for every agent](/legato/security/sandbox/). They interact in two ways:

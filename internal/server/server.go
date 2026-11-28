@@ -106,6 +106,7 @@ type Server struct {
 	repositoryPresets        RepositoryPresetService
 	repositoryGuidance       RepositoryGuidanceService
 	skills                   SkillService
+	managedHooks             ManagedHookService
 	jobClones                JobCloneService
 	taskStacks               TaskStackService
 	relatedAgents            RelatedAgentsService
@@ -245,6 +246,8 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/settings/repository-guidance", s.repositoryGuidanceHandler())
 	mux.HandleFunc("GET /api/settings/skills", s.skillsHandler())
 	mux.HandleFunc("PUT /api/settings/skills/{name}", s.skillHandler())
+	mux.HandleFunc("GET /api/settings/managed-hooks", s.managedHooksHandler())
+	mux.HandleFunc("PUT /api/settings/managed-hooks/{name}", s.managedHookHandler())
 	mux.HandleFunc("/api/settings/updates", s.updateModeHandler())
 	mux.HandleFunc("/api/updates", s.updatesHandler())
 	mux.HandleFunc("/api/usage", s.usageHandler())

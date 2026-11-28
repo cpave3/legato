@@ -237,6 +237,7 @@ var registry = []Setting{
 	// Engram.
 	{Key: "engram.enabled", Title: "Offer engrams", Help: "auto offers engrams when the engram command answers; on does too and logs when it does not; off hides them.", Kind: KindEnum, Enum: []string{"auto", "on", "off"}, Class: ClassChange, Mode: ModeLive},
 	{Key: "skills.dir", Title: "Skills folder", Help: "The folder of skills Legato gives agents, one folder per skill, each with a SKILL.md.", DefaultLabel: "~/.legato/skills", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "managed_hooks.dir", Title: "Managed hooks folder", Help: "The folder of managed hooks Legato gives agents, one folder per hook, each with a HOOK.yaml.", DefaultLabel: "~/.legato/managed-hooks", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "engram.command", Title: "Command", Help: "The engram binary.", DefaultLabel: "engram on PATH", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
 
 	// Manticore and integrations.

@@ -1,4 +1,4 @@
-import { apiFetch, ok } from "./api"
+import { listFolderItems, setFolderItemEnabled } from "./folderItems"
 
 // A skill in Legato's skills folder: a folder with a SKILL.md. Those on and
 // without an error are given to every agent Legato starts from then on.
@@ -20,15 +20,10 @@ export interface SkillList {
 const path = "/api/settings/skills"
 
 export async function listSkills(baseUrl: string): Promise<SkillList> {
-  const body = await (await ok(await apiFetch(baseUrl, path))).json()
-  return { dir: typeof body?.dir === "string" ? body.dir : "", skills: Array.isArray(body?.skills) ? body.skills : [] }
+  const { dir, items } = await listFolderItems<Skill>(baseUrl, path, "skills")
+  return { dir, skills: items }
 }
 
-export async function setSkillEnabled(baseUrl: string, name: string, enabled: boolean): Promise<Skill> {
-  const response = await ok(await apiFetch(baseUrl, `${path}/${encodeURIComponent(name)}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled }),
-  }))
-  return response.json()
+export function setSkillEnabled(baseUrl: string, name: string, enabled: boolean): Promise<Skill> {
+  return setFolderItemEnabled<Skill>(baseUrl, path, name, enabled)
 }

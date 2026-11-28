@@ -91,6 +91,8 @@ var routeClassTable = []routeClassEntry{
 	{"DELETE", "/api/settings/repository-guidance", ClassRisky, "Delete saved repository guidance"},
 	{"GET", "/api/settings/skills", ClassRead, "List the skills Legato gives agents"},
 	{"PUT", "/api/settings/skills/{name}", ClassChange, "Turn a skill on or off for agents started from now on"},
+	{"GET", "/api/settings/managed-hooks", ClassRead, "List the managed hooks Legato gives agents"},
+	{"PUT", "/api/settings/managed-hooks/{name}", ClassChange, "Turn a managed hook on or off for agents started from now on"},
 	{"PUT", "/api/settings/updates", ClassRisky, "Set how Legato updates itself"},
 	{"GET", "/api/doctor", ClassRead, "Read the checks of what Legato needs from this machine"},
 	{"POST", "/api/doctor/check", ClassRead, "Run the checks of what Legato needs from this machine again"},

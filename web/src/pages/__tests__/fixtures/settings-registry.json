@@ -1532,6 +1532,18 @@
       "mode": "restart"
     },
     {
+      "key": "managed_hooks.dir",
+      "title": "Managed hooks folder",
+      "section": "agents",
+      "group": "Managed hooks",
+      "help": "The folder of managed hooks Legato gives agents, one folder per hook, each with a HOOK.yaml.",
+      "description": "The folder of managed hooks Legato gives agents, one folder per hook, each with a HOOK.yaml.",
+      "default_label": "~/.legato/managed-hooks",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
       "key": "engram.command",
       "title": "Command",
       "section": "agents",

@@ -13,9 +13,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
+	"github.com/cpave3/legato/internal/leaf/subfolders"
 	"gopkg.in/yaml.v3"
 )
 
@@ -48,28 +48,14 @@ const maxNameLength = 64
 // skill is listed with its Err; files, and folders whose names start with a
 // dot, are not listed. A dir that does not exist holds no skills.
 func Scan(dir string) ([]Skill, error) {
-	entries, err := os.ReadDir(dir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
+	names, err := subfolders.List(dir)
 	if err != nil {
 		return nil, err
 	}
-	var list []Skill
-	for _, entry := range entries {
-		name := entry.Name()
-		if strings.HasPrefix(name, ".") {
-			continue
-		}
-		path := filepath.Join(dir, name)
-		// Stat follows a link, so a skill linked in from a checkout counts.
-		info, err := os.Stat(path)
-		if err != nil || !info.IsDir() {
-			continue
-		}
-		list = append(list, read(name, path))
+	list := make([]Skill, 0, len(names))
+	for _, name := range names {
+		list = append(list, read(name, filepath.Join(dir, name)))
 	}
-	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 	return list, nil
 }
 

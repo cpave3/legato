@@ -95,6 +95,10 @@ _Avoid_: section, bucket
 The column on the right of every web page that shows Attention, filtered by the rail settings, with approvals first.
 _Avoid_: sidebar, inbox, tray
 
+**Managed hook**:
+A hook the operator keeps in Legato's managed-hooks folder, which Legato gives to the agents it starts, translated for each agent tool, on unless something turns it off. It is never a repository's own hook, nor one in the operator's agent-tool settings.
+_Avoid_: operator hook, global hook, Legato hook
+
 ### Delivery and review
 
 **Ship**:

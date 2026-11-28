@@ -79,6 +79,10 @@ type Config struct {
 	// docs/ai/skills.md.
 	Skills SkillsConfig `yaml:"skills"`
 
+	// ManagedHooks is where Legato finds the managed hooks it gives
+	// agents. See docs/ai/managed-hooks.md.
+	ManagedHooks ManagedHooksConfig `yaml:"managed_hooks"`
+
 	// pins are the dotted keys config.yaml gives a value (Pinned).
 	pins map[string]bool
 	// fileEntries are the names of each entry list's entries the file
@@ -719,7 +723,7 @@ func validate(cfg *Config) error {
 	if err := normalizeRepositoryResources(cfg); err != nil {
 		return err
 	}
-	if err := normalizeSkills(cfg); err != nil {
+	if err := normalizeFolders(cfg); err != nil {
 		return err
 	}
 	if err := normalizeAgentSandbox(cfg); err != nil {

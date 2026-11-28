@@ -732,6 +732,14 @@ Where Legato finds the skills it gives agents. See [Skills](/legato/agent-tools/
 | --- | --- | --- | --- |
 | `skills.dir` | string | `~/.legato/skills` | The skills folder: one folder per skill, each with a `SKILL.md`. An absolute path or one that starts with `~/`. Takes effect at the next restart. |
 
+## Managed hooks
+
+Where Legato finds the managed hooks it gives agents. See [Managed hooks](/legato/agent-tools/managed-hooks/).
+
+| Setting | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `managed_hooks.dir` | string | `~/.legato/managed-hooks` | The managed-hooks folder: one folder per hook, each with a `HOOK.yaml`. An absolute path or one that starts with `~/`. Takes effect at the next restart. |
+
 ## Manticore
 
 Reports the tokens each Claude Code session uses to a Manticore instance, and shows today's total in the TUI. Set both settings or neither. See [Manticore](/legato/integrations/manticore/).

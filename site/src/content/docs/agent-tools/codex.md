@@ -135,6 +135,10 @@ After a crash, an agent whose session is gone is kept as **Interrupted** and res
 
 Codex agents do not get the [skills](/legato/agent-tools/skills/) you keep in Legato yet: Codex reads skills only from its own home folder, which Legato does not write into.
 
+## Managed hooks
+
+Not yet: Codex agents get no [managed hooks](/legato/agent-tools/managed-hooks/). Legato skips them and adds a note to the task saying so.
+
 ## Limits
 
 - The app-server interface of Codex is experimental and changes between releases. Legato was checked against Codex 0.157.1.
