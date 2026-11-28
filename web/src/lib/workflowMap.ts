@@ -46,20 +46,25 @@ export function splitStandalone(map: WorkflowMap): { linked: WorkflowMapNode[]; 
 // dims.
 export function related(map: WorkflowMap, id: string | null): Set<string> | null {
   if (!id) return null
-  const lit = new Set([id])
-  const walk = (from: string, next: (edge: WorkflowMapEdge) => [string, string]) => {
-    const queue = [from]
-    while (queue.length) {
-      const at = queue.shift()!
-      for (const edge of map.edges) {
-        const [here, there] = next(edge)
-        if (here === at && !lit.has(there)) { lit.add(there); queue.push(there) }
-      }
-    }
+  return new Set([id, ...reach(map, id, edge => [edge.source, edge.target]), ...reach(map, id, edge => [edge.target, edge.source])])
+}
+
+// reach is every workflow from can be reached from along edges, each read
+// as [from, to] by ends.
+function reach(map: WorkflowMap, from: string, ends: (edge: WorkflowMapEdge) => [string, string]): Set<string> {
+  const next = new Map<string, string[]>()
+  for (const edge of map.edges) {
+    const [here, there] = ends(edge)
+    next.set(here, [...(next.get(here) ?? []), there])
   }
-  walk(id, edge => [edge.source, edge.target])
-  walk(id, edge => [edge.target, edge.source])
-  return lit
+  const seen = new Set<string>()
+  const queue = [from]
+  while (queue.length) {
+    const fresh = (next.get(queue.shift()!) ?? []).filter(id => !seen.has(id))
+    fresh.forEach(id => seen.add(id))
+    queue.push(...fresh)
+  }
+  return seen
 }
 
 export function mapTags(map: WorkflowMap): string[] {

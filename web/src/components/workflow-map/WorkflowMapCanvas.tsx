@@ -2,8 +2,9 @@
 // LazyWorkflowMapCanvas, so React Flow stays out of every other page's
 // bundle. Places come from layoutWorkflowMap; this file only draws them.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BaseEdge, Controls, EdgeLabelRenderer, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type EdgeProps, type EdgeTypes, type Node, type NodeProps, type NodeTypes } from "@xyflow/react"
+import { BaseEdge, Controls, EdgeLabelRenderer, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type EdgeProps, type EdgeTypes, type Node, type NodeProps, type NodeTypes } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
+import { FlowHandles } from "../agent-graph/FlowHandles"
 import { CircleAlert, Clock, Columns3, GitPullRequest, MessageSquare, Play, type LucideIcon } from "lucide-react"
 import { edgeLabel, nodeStatus, related, triggerMarkers, type MarkerKind, type TriggerMarker, type WorkflowMap, type WorkflowMapNode } from "../../lib/workflowMap"
 import { cn } from "../../lib/utils"
@@ -27,15 +28,6 @@ type FlowNode = Node<NodeData>
 const markerIcons: Record<MarkerKind, LucideIcon> = { schedule: Clock, column: Columns3, pr: GitPullRequest, chat: MessageSquare, manual: Play }
 const statusWords = { on: "triggers on", paused: "triggers paused", mixed: "some triggers paused", none: "" } as const
 
-// React Flow joins edges to handles, so every node has one of each; where a
-// line runs comes from the layout's points, not from them.
-function Handles() {
-  const hidden = "!h-1 !w-1 !min-w-0 !border-0 !bg-transparent"
-  return <>
-    <Handle id="t" type="target" position={Position.Top} isConnectable={false} className={hidden} />
-    <Handle id="s" type="source" position={Position.Bottom} isConnectable={false} className={hidden} />
-  </>
-}
 
 const statusDot = { on: "bg-lw-live", mixed: "bg-lw-needs", paused: "bg-lw-faint", none: "" } as const
 
@@ -90,7 +82,7 @@ function WorkflowNode({ data, selected }: NodeProps<FlowNode>) {
     "flex cursor-pointer flex-col justify-center gap-1 rounded-lg border bg-lw-surface px-3 font-lw text-lw-text shadow-sm transition-opacity hover:border-lw-accent motion-reduce:transition-none",
     nodeBorder(node), selected && "ring-2 ring-lw-accent-ring", data.dimmed && "opacity-30",
   )}>
-    <Handles />
+    <FlowHandles across={false} />
     <NodeTitle node={node} />
     <span className="flex min-w-0 items-center gap-1.5 text-[11px] leading-4 text-lw-text-2">
       <span className="truncate font-lw-mono">{node.name}</span>
@@ -143,13 +135,16 @@ function Arrow() {
 // nodeName is how a node is read out: its title, what it is, how it starts
 // and whether its triggers are on.
 function nodeName(node: WorkflowMapNode, called: boolean): string {
-  const parts = [node.title || node.name]
-  if (node.title && node.title !== node.name) parts.push(node.name)
-  if (node.built_in) parts.push("built in")
-  if (node.broken) parts.push(`does not parse: ${node.error ?? ""}`)
-  if (node.missing) parts.push("no such workflow")
-  const markers = triggerMarkers(node, called).map(marker => marker.kind === "manual" ? marker.label.toLowerCase() : `${marker.label.toLowerCase()}, ${marker.enabled ? "on" : "paused"}`)
-  return [...parts, ...markers].join(", ")
+  const note = nodeNote(node)
+  const parts = [node.title || node.name, node.title && node.title !== node.name ? node.name : "", note ? note.text : "", node.broken ? node.error ?? "" : ""]
+  return [...parts.filter(Boolean), ...triggerMarkers(node, called).map(markerWords)].join(", ")
+}
+
+// markerWords is a trigger marker as it is read out.
+function markerWords(marker: TriggerMarker): string {
+  const label = marker.label.toLowerCase()
+  if (marker.kind === "manual") return label
+  return `${label}, ${marker.enabled ? "on" : "paused"}`
 }
 
 // hoverless says whether this screen cannot hover (a phone), where a first
@@ -210,17 +205,12 @@ const workflowId = (node: { id: string; type?: string }) => node.type === "workf
 // nodeIdOf is the map node an event happened in.
 const nodeIdOf = (event: { target: EventTarget }) => (event.target as HTMLElement).closest<HTMLElement>(".react-flow__node")?.dataset.id
 
-function MapView({ map, context, onOpen }: WorkflowMapCanvasProps) {
-  const flow = useReactFlow()
-  const layout: MapLayout = useMemo(() => layoutWorkflowMap(map), [map])
+// useMapChoice is what the operator points at: the workflow hovered or
+// selected (by focus or a tap), and the handlers that choose and open one.
+function useMapChoice(layout: MapLayout, onOpen: (node: WorkflowMapNode) => void) {
   const [hovered, setHovered] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
-  const lit = useMemo(() => related(map, hovered ?? selected), [map, hovered, selected])
-  const called = useMemo(() => new Set(map.edges.map(edge => edge.target)), [map])
-  const nodes = useMemo(() => flowNodes(layout, called, lit, context, selected), [layout, lit, context, selected, called])
-  const edges = useMemo(() => flowEdges(layout, lit, context), [layout, lit, context])
-
-  const nodeOf = useCallback((id: string) => layout.nodes.find(item => item.id === id)?.node, [layout])
+  const nodeOf = useCallback((id: string | null | undefined) => id ? layout.nodes.find(item => item.id === id)?.node : undefined, [layout])
   // tapped is the workflow a touch screen's last tap lit: a tap focuses a
   // node before it clicks it, so focus alone never counts as the first tap.
   const tapped = useRef<string | null>(null)
@@ -229,34 +219,50 @@ function MapView({ map, context, onOpen }: WorkflowMapCanvasProps) {
     const node = nodeOf(id)
     if (node) onOpen(node)
   }, [nodeOf, onOpen])
-  const frame = useRef<HTMLDivElement>(null)
   // Enter opens a focused workflow; focus lights its calls.
   const onKeyDown = useCallback((event: React.KeyboardEvent) => {
-    const id = nodeIdOf(event)
-    const node = id && (event.key === "Enter" || event.key === " ") ? nodeOf(id) : undefined
+    const node = event.key === "Enter" || event.key === " " ? nodeOf(nodeIdOf(event)) : undefined
     if (!node) return
     event.preventDefault()
     onOpen(node)
   }, [nodeOf, onOpen])
   const onFocus = useCallback((event: React.FocusEvent) => {
     const id = nodeIdOf(event)
-    if (id && nodeOf(id)) setSelected(id)
+    if (nodeOf(id)) setSelected(id!)
   }, [nodeOf])
-  // A wide screen sees all of the map; a phone its width, from its top.
+  const clear = useCallback(() => { tapped.current = null; setSelected(null) }, [])
+  return { pointed: hovered ?? selected, selected, setHovered, choose, onKeyDown, onFocus, clear }
+}
+
+// useFraming fits the map to the frame: all of it on a wide screen, its
+// width from its top on a phone; again whenever the layout changes (a tag
+// chosen), since the old view may show none of it. onInit frames the first.
+function useFraming(layout: MapLayout) {
+  const flow = useReactFlow()
+  const frame = useRef<HTMLDivElement>(null)
   const fitAll = useCallback(() => {
     const width = frame.current?.clientWidth ?? 0
     if (!width || layout.nodes.length === 0) return
     if (width >= 768) void flow.fitView({ padding: 0.1, minZoom: 0.3, maxZoom: 1 })
     else void flow.setViewport(phoneViewport(layout, width))
   }, [flow, layout])
-  // A new layout (a tag chosen, a workflow added) is framed again: the old
-  // view may show none of it. The first is framed by onInit.
   const framed = useRef(layout)
   useEffect(() => {
     if (framed.current === layout) return
     framed.current = layout
     fitAll()
   }, [layout, fitAll])
+  return { frame, fitAll }
+}
+
+function MapView({ map, context, onOpen }: WorkflowMapCanvasProps) {
+  const layout: MapLayout = useMemo(() => layoutWorkflowMap(map), [map])
+  const { pointed, selected, setHovered, choose, onKeyDown, onFocus, clear } = useMapChoice(layout, onOpen)
+  const { frame, fitAll } = useFraming(layout)
+  const lit = useMemo(() => related(map, pointed), [map, pointed])
+  const called = useMemo(() => new Set(map.edges.map(edge => edge.target)), [map])
+  const nodes = useMemo(() => flowNodes(layout, called, lit, context, selected), [layout, lit, context, selected, called])
+  const edges = useMemo(() => flowEdges(layout, lit, context), [layout, lit, context])
 
   return <div ref={frame} onKeyDown={onKeyDown} onFocus={onFocus} className="relative h-full w-full"
     style={{ "--xy-background-color": "var(--color-lw-ground)", "--xy-controls-button-background-color": "var(--color-lw-surface)", "--xy-controls-button-color": "var(--color-lw-text)", "--xy-controls-button-border-color": "var(--color-lw-line)" } as React.CSSProperties}>
@@ -281,7 +287,7 @@ function MapView({ map, context, onOpen }: WorkflowMapCanvasProps) {
       onNodeMouseEnter={(_, node) => setHovered(workflowId(node))}
       onNodeMouseLeave={() => setHovered(null)}
       onNodeClick={(_, node) => { const id = workflowId(node); if (id) choose(id) }}
-      onPaneClick={() => { tapped.current = null; setSelected(null) }}
+      onPaneClick={clear}
     >
       <Controls showInteractive={false} position="bottom-left" />
     </ReactFlow>

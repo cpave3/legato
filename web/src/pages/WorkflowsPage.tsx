@@ -30,9 +30,15 @@ function storeView(view: WorkflowView) {
   try { localStorage.setItem(VIEW_KEY, view) } catch { /* remembered only where storage works */ }
 }
 
-function useStoredView(): [WorkflowView, (view: WorkflowView) => void] {
-  const [view, setView] = useState<WorkflowView>(storedView)
-  return [view, (next: WorkflowView) => { setView(next); storeView(next) }]
+// useWorkflowsView is the tab's list or map, remembered, with the map
+// fetched only while it is shown; refreshAll refreshes it too then.
+function useWorkflowsView(refreshes: (() => Promise<void>)[]) {
+  const [view, setViewState] = useState<WorkflowView>(storedView)
+  const setView = (next: WorkflowView) => { setViewState(next); storeView(next) }
+  const map = useWorkflowMap(view === "map")
+  const all = view === "map" ? [...refreshes, map.refresh] : refreshes
+  const refreshAll = async () => { await Promise.all(all.map(refresh => refresh())) }
+  return { view, setView, map, refreshAll }
 }
 
 function storedTab(): WorkflowTab | null {
@@ -275,11 +281,7 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
   const now = useNow(30_000)
   const list = definitions.data?.definitions ?? []
   const needsYou = (runs.data ?? []).filter(run => run.needs_attention).length
-  const [view, setView] = useStoredView()
-  // The map is fetched only while it is shown.
-  const map = useWorkflowMap(view === "map")
-  const refreshes = [definitions.refresh, runs.refresh, stats.refresh, ...(view === "map" ? [map.refresh] : [])]
-  const refreshAll = async () => { await Promise.all(refreshes.map(refresh => refresh())) }
+  const { view, setView, map, refreshAll } = useWorkflowsView([definitions.refresh, runs.refresh, stats.refresh])
   const newWorkflow = <Link to="/workflows/new" className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-lw-accent px-3 text-xs font-medium text-[var(--theme-canvas,white)] hover:opacity-90"><Plus size={14} aria-hidden="true" />New workflow</Link>
   return <PageFrame tab="workflows" setTab={setTab} needsYou={needsYou} refresh={refreshAll}>
     {definitions.loading && <LoadingState label="Loading workflows…" size="inline" className="mt-6" />}
