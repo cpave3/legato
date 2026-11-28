@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { MemoryRouter } from "react-router-dom"
 import { HandOffModal } from "../HandOffModal"
 import type { BoardCard } from "../../../lib/board-types"
 
@@ -238,6 +239,120 @@ describe("HandOffModal", () => {
     await waitFor(() => expect(worker.value).toBe("srv-vm1"))
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(screen.queryByRole("group", { name: "Review passes" })).toBeNull()
+  })
+
+  it("points to Settings when no worker is paired", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const u = String(url)
+      if (u.endsWith("/api/settings/workers")) return json({ workers: [], instance_id: "srv-main", main_name: "workstation" })
+      if (u.endsWith("/api/adapters")) return json({ adapters: [], default: "" })
+      return json({ error: "nope" }, 404)
+    }))
+    render(<MemoryRouter><HandOffModal baseUrl="" open card={card} repositories={repositories} onClose={vi.fn()} onHandedOff={vi.fn()} /></MemoryRouter>)
+    const link = await screen.findByRole("link", { name: "Add a worker" })
+    expect(link.getAttribute("href")).toBe("/settings#workers")
+    const worker = screen.getByRole("combobox", { name: "Worker" }) as HTMLSelectElement
+    expect(within(worker).getByRole("option", { name: "No worker can take it" })).toBeTruthy()
+    const tool = screen.getByRole("combobox", { name: "Agent tool" })
+    expect(within(tool).getByRole("option", { name: "The worker's default" })).toBeTruthy()
+  })
+
+  it("says what reading the workers failed with", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ error: "workers unreadable" }, 500)))
+    renderForm()
+    const alert = await screen.findByRole("alert")
+    expect(alert.textContent).toMatch(/workers unreadable|500/)
+  })
+
+  it("says what the agent may do, following the purpose", async () => {
+    renderForm()
+    await waitFor(() => expect((screen.getByRole("combobox", { name: "Worker" }) as HTMLSelectElement).value).toBe("srv-vm1"))
+    expect(screen.getByText(/works on its own in vm-1's sandbox and can push its branches and open draft PRs\./)).toBeTruthy()
+    fireEvent.click(screen.getByRole("radio", { name: /Find out/ }))
+    expect(screen.getByText(/works on its own in vm-1's sandbox and pushes nothing\./)).toBeTruthy()
+  })
+
+  it("labels a repository by name and GitHub name when they differ", async () => {
+    renderForm({ repositories: [{ name: "Widget app", repo: "acme/widget", primary_dir: "" }] })
+    const repo = await screen.findByRole("combobox", { name: "Repository" })
+    expect(within(repo).getByRole("option", { name: "Widget app · acme/widget" })).toBeTruthy()
+  })
+
+  it("shows Handing off while the handoff is sent", async () => {
+    let release: (r: Response) => void = () => {}
+    handOffAnswer = null
+    const base = (globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>)
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith("/handoff") && init?.method === "POST") return new Promise<Response>((resolve) => { release = resolve })
+      return base(url, init)
+    }))
+    renderForm()
+    await waitFor(() => expect((screen.getByRole("combobox", { name: "Worker" }) as HTMLSelectElement).value).toBe("srv-vm1"))
+    fireEvent.change(screen.getByRole("combobox", { name: "Repository" }), { target: { value: "acme/widget" } })
+    fireEvent.click(screen.getByRole("button", { name: "Hand off" }))
+    const sending = await screen.findByRole("button", { name: "Handing off…" }) as HTMLButtonElement
+    expect(sending.disabled).toBe(true)
+    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true)
+    release(json({ error: "later" }, 422))
+    await screen.findByRole("alert")
+  })
+
+  describe("review passes", () => {
+    const passes = {
+      defaults: { enabled: true, agent: "codex", tier: "careful", model: "gpt-5.5", max_passes: 3 },
+      adapters: [{ name: "codex", tiers: ["careful"] }, { name: "claude-code" }],
+      skills: ["code-review"],
+    }
+
+    it("starts the reviewer's tier, model and skill at the worker's settings", async () => {
+      reviewPasses = passes
+      renderForm()
+      const section = await screen.findByRole("group", { name: "Review passes" })
+      expect((within(section).getByRole("combobox", { name: "Reviewer tier" }) as HTMLSelectElement).value).toBe("careful")
+      expect((within(section).getByRole("textbox", { name: "Reviewer model" }) as HTMLInputElement).value).toBe("gpt-5.5")
+      const skill = within(section).getByRole("combobox", { name: "Review skill" }) as HTMLSelectElement
+      expect(skill.value).toBe("")
+      expect(within(skill).getByRole("option", { name: "None" })).toBeTruthy()
+      expect((within(section).getByRole("spinbutton", { name: "Passes at most" }) as HTMLInputElement).value).toBe("3")
+    })
+
+    it("clears the tier and model for another reviewer, which has no tiers", async () => {
+      reviewPasses = passes
+      const { onHandedOff } = renderForm()
+      const section = await screen.findByRole("group", { name: "Review passes" })
+      fireEvent.change(within(section).getByRole("combobox", { name: "Reviewer" }), { target: { value: "claude-code" } })
+      expect(within(section).queryByRole("combobox", { name: "Reviewer tier" })).toBeNull()
+      expect((within(section).getByRole("textbox", { name: "Reviewer model" }) as HTMLInputElement).value).toBe("")
+      fireEvent.change(screen.getByRole("combobox", { name: "Repository" }), { target: { value: "acme/widget" } })
+      fireEvent.click(screen.getByRole("button", { name: "Hand off" }))
+      await waitFor(() => expect(onHandedOff).toHaveBeenCalledTimes(1))
+      expect(posts[0].body.review).toEqual({ agent: "claude-code" })
+    })
+
+    it("hides the reviewer's settings when passes are turned off, and sends that", async () => {
+      reviewPasses = passes
+      const { onHandedOff } = renderForm()
+      const section = await screen.findByRole("group", { name: "Review passes" })
+      fireEvent.click(within(section).getByRole("checkbox", { name: "Review this handoff's pull requests" }))
+      expect(within(section).queryByRole("combobox", { name: "Reviewer" })).toBeNull()
+      fireEvent.change(screen.getByRole("combobox", { name: "Repository" }), { target: { value: "acme/widget" } })
+      fireEvent.click(screen.getByRole("button", { name: "Hand off" }))
+      await waitFor(() => expect(onHandedOff).toHaveBeenCalledTimes(1))
+      expect(posts[0].body.review).toEqual({ enabled: false })
+    })
+
+    it("hides them, and sends none, for a handoff that only finds out", async () => {
+      reviewPasses = passes
+      const { onHandedOff } = renderForm()
+      const section = await screen.findByRole("group", { name: "Review passes" })
+      fireEvent.click(within(section).getByRole("checkbox", { name: "Review this handoff's pull requests" }))
+      fireEvent.click(screen.getByRole("radio", { name: /Find out/ }))
+      expect(screen.queryByRole("group", { name: "Review passes" })).toBeNull()
+      fireEvent.change(screen.getByRole("combobox", { name: "Repository" }), { target: { value: "acme/widget" } })
+      fireEvent.click(screen.getByRole("button", { name: "Hand off" }))
+      await waitFor(() => expect(onHandedOff).toHaveBeenCalledTimes(1))
+      expect(posts[0].body.review).toBeUndefined()
+    })
   })
 
   describe("with the worker's advert", () => {
