@@ -2,42 +2,34 @@ import { ReeveStatus, reeveWash } from "./ReeveEntry"
 import { AskReeve } from "./AskReeve"
 import { parseReeveMessage, reeveBrief } from "../lib/reeve"
 import { useState, useCallback, useMemo, memo, Fragment, type ReactNode } from "react"
-import { ArrowDown, ArrowLeftRight, Bell, Check, Terminal, Zap } from "lucide-react"
+import { ArrowDown, Bell, Terminal } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
 import { useWebSocket } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
 import { useMacroPicker } from "../hooks/useMacroPicker"
-import { MacroPickerItems } from "./macros/MacroPicker"
 import { macroMessage } from "../lib/macros"
 import { dispatchAgentInput } from "../lib/agentInput"
 import { useVoiceRecorder } from "../hooks/useVoiceRecorder"
 import { ReviewMessageBody } from "./ReviewMessageBody"
 import { ChimeraRecovery } from "./ChimeraRecovery"
-import { NativeModelSettingsForm } from "./NativeModelSettings"
-import { ComposerModelMenu } from "./ComposerModelMenu"
 import { NativeQuestionCard } from "./approvals/NativeQuestionCard"
 import { NativeTerminalPrompt } from "./NativeTerminalPrompt"
-import { NativeSlashMenu } from "./NativeSlashMenu"
 import { AgentUICallCard } from "./AgentUICallCard"
 import { ToolCallCard } from "./NativeToolCallCard"
 import { SubagentCard } from "./NativeSubagentCard"
-import { PastedImageStrip } from "./PastedImageStrip"
-import { AttachImageButton } from "./AttachImageButton"
 import { AgentChatHeader, type AgentChatState, type SidePanelsProps } from "./AgentChatHeader"
 import { buildAgentMenu } from "./nativeAgentMenu"
 import { agentChatState, awaitsRequest, isBangText, isChimeraKind, isRecoveryReply } from "../lib/nativeAgentView"
 import type { AgentStageInfo } from "./AgentStageChip"
-import { ResourcesButton } from "./ResourcesButton"
-import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, SendButton, WorkingStrip, type QueuedEntry } from "./Composer"
-import { CONTEXT_NEARLY_FULL, composerToolButton, currentStep, dictating, formatElapsed } from "../lib/composer"
+import type { QueuedEntry } from "./Composer"
+import { currentStep } from "../lib/composer"
 import { useTurnClock } from "../hooks/useTurnClock"
 import { usePageInView } from "../hooks/usePageInView"
 import { legatoUICall, forOperatorCall, speakFailed, speakText } from "../lib/agentUi"
 import { SaidBubble } from "./SaidBubble"
 import { usePastedImages } from "../hooks/usePastedImages"
 import { nativeToolName } from "../lib/agentKind"
-import { compactionNotice } from "../lib/compaction"
 import { toolDisplayName } from "../lib/mcpToolName"
 import { legatoEventSummary, parseLegatoMessage } from "../lib/legatoMessage"
 import { plainText } from "../lib/agentGlance"
@@ -67,13 +59,7 @@ import { useMessageSending } from "./useMessageSending"
 import { useNativeSyncState, useSnapshotResync } from "./useNativeAgentSync"
 import { useNativeAgentFeed } from "./useNativeAgentFeed"
 import { useSubagentTiles, type FeedTiles } from "./useSubagentTiles"
-
-
-function formatTokens(value: number): string {
-  if (value < 1_000) return value.toLocaleString()
-  if (value < 1_000_000) return `${Number((value / 1_000).toFixed(1))}k`
-  return `${Number((value / 1_000_000).toFixed(2))}M`
-}
+import { NativeComposer } from "./NativeComposer"
 
 function permissionFindingLabel(finding: NonNullable<NativePermissionItem["policyAnalysis"]>["findings"][number]): string {
   if (finding.kind === "risk") return `${finding.level} risk`
@@ -255,7 +241,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   })
   const pasted = usePastedImages(agentId, draft, insertImage)
   const slash = useSlashMenu(draft, setDraft, textareaRef, slashItems, catalogKey)
-  const { open: slashOpen, matches: slashMatches, index: slashIndex, setIndex: setSlashIndex, listId: slashListId, optionId: slashOptionId, select: handleSlashSelect } = slash
 
   const { handleModeChange, handleModelChange, handleEffortChange, efforts, effort } = useSessionSettings({
     agentId, baseUrl, syncState, syncStateRef, replaceSyncState, modelRequestRef, setMode, closeModes,
@@ -322,8 +307,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     onDowngradeFailed: failWith,
     onReload, switchSandbox, switchHostNetwork, onDisconnect, onKill,
   })
-  const modelWindow = models.find((m) => m.ref === model)?.contextWindow ?? contextUsage?.window
-  const contextShareOf = contextUsage ? Math.round((contextUsage.used / contextUsage.window) * 100) : null
 
   return (
     <div ref={panelRef} className="relative flex h-full min-w-0 w-full flex-1 flex-col overflow-hidden bg-lw-ground font-lw text-[13px] leading-5 text-lw-text">
@@ -382,148 +365,42 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         onScrollToBottom={scrollToBottom}
       />
 
-      {/* Composer: the message box, and under it everything that sets how
-          the agent works (model, effort, mode, resources, macros) beside
-          how full its context is and the buttons that send and interrupt. */}
-      <div className="px-3 pb-3 md:px-6 md:pb-[18px]">
-        {/* An image dropped anywhere on the composer joins the message. */}
-        <div {...(composerEnabled ? pasted.dropTarget : {})} className={`native-agent-composer relative mx-auto flex w-full max-w-[820px] flex-col rounded-[10px] border bg-lw-surface max-sm:rounded-xl ${dictating(voice) ? "border-lw-danger-line" : pasted.dragging ? "border-lw-accent" : "border-lw-line-strong"}`}>
-          {slashOpen && (
-            <NativeSlashMenu
-              anchorRef={textareaRef}
-              onClose={slash.dismiss}
-              loading={catalog.loading}
-              errors={catalog.errors}
-              empty={slashItems.length === 0}
-              onRetry={retryCatalog}
-              browser={slash.browser.open ? {
-                query: slash.browser.query, onQuery: slash.browser.setQuery,
-                filter: slash.browser.filter, onFilter: slash.browser.setFilter,
-                onKeyDown: handleKeyDown,
-                onClose: slash.escape,
-              } : undefined}
-              listId={slashListId}
-              optionId={slashOptionId}
-              matches={slashMatches}
-              active={slashIndex}
-              onHover={setSlashIndex}
-              onPick={handleSlashSelect}
-            />
-          )}
-          {composerEnabled && <button type="button" className="self-start min-h-11 px-3.5 text-sm text-lw-text-2 hover:text-lw-text focus-visible:outline-2 focus-visible:outline-lw-accent" aria-expanded={slashOpen} aria-controls={slashOpen ? slashListId : undefined}
-            onClick={slash.toggleBrowser}>
-            Commands and skills
-          </button>}
-          {contextUsage && contextShareOf !== null && contextShareOf >= CONTEXT_NEARLY_FULL && (
-            <ContextNotice used={formatTokens(contextUsage.used)} window={formatTokens(contextUsage.window)} />
-          )}
-          {busy && <WorkingStrip elapsed={turnSeconds === null ? undefined : formatElapsed(turnSeconds)} step={step} onInterrupt={handleInterrupt} />}
-          {compaction && <p role="status" className={`px-3.5 pt-2 text-xs ${compaction.status === "failed" ? "text-lw-danger" : "text-lw-text-2"}`}>{compactionNotice(compaction)}</p>}
-          {sendError && <p role="alert" className="px-3.5 pt-2 text-xs text-lw-danger">{sendError}</p>}
-          <QueuedList entries={queuedEntries} />
-          <PastedImageStrip pasted={pasted} />
-          {composerEnabled && (
-            <div data-testid="agent-composer" className="relative">
-              {isBang && (
-                <div className="pointer-events-none absolute left-3.5 top-2 flex items-center gap-1 text-lw-needs">
-                  <Terminal size={13} />
-                  <span className="text-[10px] font-semibold uppercase tracking-wide">bash</span>
-                </div>
-              )}
-              <textarea
-                ref={textareaRef}
-                aria-label="Message"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onPaste={pasted.onPaste}
-                aria-autocomplete="list"
-                aria-controls={slashOpen ? slashListId : undefined}
-                aria-activedescendant={slashOpen && slashMatches.length > 0 ? slashOptionId(slashIndex) : undefined}
-                placeholder={busy && queuedEntries.length > 0 ? "Queue another" : busy ? "Queue a message. Sent after the current step." : `Message ${agentId}`}
-                rows={2}
-                className={`block min-h-14 w-full resize-none border-0 bg-transparent px-3.5 pb-1 pt-3 text-sm text-lw-text placeholder:text-lw-faint focus:outline-none disabled:opacity-50 max-sm:text-base ${isBang ? "pt-8 shadow-[inset_0_0_0_1px] shadow-lw-needs/60" : ""}`}
-              />
-            </div>
-          )}
-          {composerEnabled && openItems > 0 && (
-            <p className="px-3.5 pt-1 text-[11.5px] text-lw-text-2">Your next message to this agent closes its {openItems} {openItems === 1 ? "item" : "items"} in the rail.</p>
-          )}
-          {dictating(voice) ? <DictationBar recorder={voice} /> : (
-          <div data-testid="composer-actions" className="flex min-w-0 items-center gap-1 px-2 pb-2 pt-1.5 text-xs text-lw-text-2 max-sm:gap-0.5 max-sm:px-1.5">
-            <div className="flex min-w-0 flex-1 items-center gap-1 max-sm:gap-0.5">
-            {composerEnabled && <AttachImageButton onFiles={pasted.attach} />}
-            {models.length > 0 && (
-              <ComposerModelMenu
-                models={models}
-                model={model ?? ""}
-                window={modelWindow != null ? formatTokens(modelWindow) : undefined}
-                effort={effort !== undefined ? String(effort) : undefined}
-                efforts={efforts}
-                onModel={handleModelChange}
-                onEffort={handleEffortChange}
-                effortLocked={busy ? "Wait for the current run to finish before changing the effort." : undefined}
-                settings={model ? (close) => (
-                  <NativeModelSettingsForm agentId={agentId} baseUrl={baseUrl} model={model} busy={busy} onClose={close}
-                    onSaved={(settingsState) => replaceSyncState({ ...syncStateRef.current, model: settingsState.model, settingsState })} />
-                ) : undefined}
-              />
-            )}
-            {modes.length > 0 && (
-              <div className="relative" ref={modesRef}>
-                <button type="button" onClick={toggleModes} className={composerToolButton(modesOpen)} title="Change mode">
-                  <ArrowLeftRight size={16} aria-hidden="true" className="sm:hidden" />
-                  <span className="hidden sm:inline">Mode</span>
-                  {mode && <span className="hidden font-lw-mono text-lw-faint sm:inline">{mode}</span>}
-                </button>
-                {modesOpen && (
-                  <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[160px] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
-                    {modes.map((m) => (
-                      <button
-                        key={m.name}
-                        onClick={() => handleModeChange(m.name)}
-                        className={"flex w-full min-w-0 items-start gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "bg-lw-raised text-lw-text" : "text-lw-text hover:bg-lw-raised")}
-                      >
-                        <Check size={12} className={m.name === mode ? "mt-0.5 shrink-0 text-lw-text-2" : "mt-0.5 shrink-0 opacity-0"} />
-                        <div className="min-w-0 flex-1 text-left">
-                          <div className="font-mono">{m.name}</div>
-                          {m.description && <div className="truncate text-lw-text-2">{m.description}</div>}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            <ResourcesButton agentId={agentId} baseUrl={baseUrl} sandboxed={sandboxed} />
-            <div className="relative" ref={macrosRef}>
-              <button type="button" onClick={toggleMacros} className={composerToolButton(macrosOpen)} title="Macros (M)" aria-keyshortcuts="m">
-                <Zap size={16} aria-hidden="true" className="sm:hidden" />
-                <span className="hidden sm:inline">Macros</span>
-              </button>
-              {macrosOpen && (
-                <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[180px] max-w-[calc(100vw-2rem)] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
-                  <MacroPickerItems shown={macroPicker.shown} hidden={macroPicker.hidden} onShowAll={macroPicker.showAll} onPick={(macro) => handleMacro(macro.keys)} />
-                </div>
-              )}
-            </div>
-            </div>
-            {contextUsage && contextShareOf !== null && (
-              <ContextGauge share={contextShareOf} used={formatTokens(contextUsage.used)} window={formatTokens(contextUsage.window)} />
-            )}
-            {composerEnabled && voiceEnabled && <DictateButton recorder={voice} />}
-            {composerEnabled && (
-              <SendButton
-                label={bang.running ? "Running…" : isBang ? "Run" : busy ? "Queue" : "Send"}
-                queue={busy && !isBang}
-                disabled={!draft.trim() || bang.running}
-                onClick={handleSend}
-              />
-            )}
-          </div>
-          )}
-        </div>
-      </div>
+      <NativeComposer
+        agentId={agentId}
+        baseUrl={baseUrl}
+        sandboxed={sandboxed}
+        enabled={composerEnabled}
+        voiceEnabled={voiceEnabled}
+        openItems={openItems}
+        busy={busy}
+        turnSeconds={turnSeconds}
+        step={step}
+        contextUsage={contextUsage}
+        compaction={compaction}
+        sendError={sendError}
+        queuedEntries={queuedEntries}
+        draft={draft}
+        setDraft={setDraft}
+        textareaRef={textareaRef}
+        isBang={isBang}
+        bangRunning={bang.running}
+        pasted={pasted}
+        voice={voice}
+        slash={slash}
+        catalog={{ loading: catalog.loading, errors: catalog.errors, empty: slashItems.length === 0, onRetry: retryCatalog }}
+        onKeyDown={handleKeyDown}
+        onSend={handleSend}
+        onInterrupt={handleInterrupt}
+        model={{
+          agentId, baseUrl, busy, models, model, contextUsage, effort, efforts,
+          onModel: handleModelChange, onEffort: handleEffortChange,
+          onSaved: (settingsState) => replaceSyncState({ ...syncStateRef.current, model: settingsState.model, settingsState }),
+        }}
+        modes={{ modes, mode, open: modesOpen, onToggle: toggleModes, onChange: handleModeChange }}
+        modesRef={modesRef}
+        macros={{ open: macrosOpen, onToggle: toggleMacros, shown: macroPicker.shown, hidden: macroPicker.hidden, onShowAll: macroPicker.showAll, onPick: handleMacro }}
+        macrosRef={macrosRef}
+      />
       </div>
       {showTiles && tilesBeside && (
         <TileDeck
