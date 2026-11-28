@@ -969,6 +969,14 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
 
+    // A process that runs no bridge of its own forgets one it inherited: a
+    // `claude -p` an agent runs gets its parent's variables and plugins, and
+    // its hooks must not answer for the parent's session. A /clear or a
+    // /resume keeps the bridge this process runs.
+    if (!isBridgeRunning && (await $.env.get('LEGATO_CLAUDE_BRIDGE_URL')) !== undefined) {
+      await nameBridge($, undefined)
+    }
+
     isBackground = (await $.env.get('CLAUDE_CODE_SESSION_KIND')) === 'bg'
 
     const held = await readIdentity($)

@@ -295,6 +295,48 @@ test('a headless run inside a Legato session does not take the session over', as
   expect(spawned).toEqual([])
 })
 
+// A child `claude -p` an agent runs inherits the session's variables and
+// plugins. It owns no bridge, so its hooks must not answer for the parent's.
+test('a headless child forgets the bridge it inherited from its parent', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, { ...LEGATO_SESSION, LEGATO_CLAUDE_BRIDGE_URL: 'http://bridge.test/parent' })
+  const { spawned, envSet } = world(on)
+
+  await $.session.start({ cwd: '/work/repo', surface: null, isInteractive: false })
+  await clock.settle()
+
+  expect(spawned).toEqual([])
+  expect('LEGATO_CLAUDE_BRIDGE_URL' in envSet && envSet.LEGATO_CLAUDE_BRIDGE_URL === undefined).toBe(true)
+})
+
+test('outside a Legato session an inherited bridge is forgotten too', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, { LEGATO_CLAUDE_BRIDGE_URL: 'http://bridge.test/parent' })
+  const { envSet } = world(on)
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+
+  expect('LEGATO_CLAUDE_BRIDGE_URL' in envSet && envSet.LEGATO_CLAUDE_BRIDGE_URL === undefined).toBe(true)
+})
+
+test('a /clear keeps the hooks pointed at the bridge this process runs', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { envSet, exit } = world(on, { lines: [READY] })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.session.end({ reason: 'clear', sessionId: 'claude-session-1', resume: { id: 'claude-session-1' } })
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+
+  expect(envSet.LEGATO_CLAUDE_BRIDGE_URL).toBe('http://bridge.test/secret')
+
+  exit()
+  await clock.settle()
+})
+
 test('inside a Legato session the bridge is started and told what the session is', async ($, on) => {
   const clock = mock.clock(on)
   mock.env(on, LEGATO_SESSION)
