@@ -35,7 +35,7 @@ func (m *mcpTools) forOperator() mcpserver.Tool {
 		Description: "Puts an item in the operator's needs-you rail, which is in view on every page of Legato, and shows you as needing them while it is open. " +
 			"Use it only for something the operator must see or act on: a command only they can run, a slash command they must type to you, a test in a browser, a pull request to approve or merge, a question you asked in plain words, finished work they should look at. " +
 			"Never use it for progress, for a summary of what you are doing, or for anything that does not matter to them. " +
-			"When your agent tool has its own question tool and you are mid-turn, ask with that instead. " +
+			"When your agent tool has its own question tool and you are mid-turn, ask with that instead, and never post a question you are also asking with your agent tool's own question tool: Legato already puts that one in the rail, so posting it here shows the operator the same question twice. " +
 			"Say in why what it blocks or what it means. Posting again with the same title updates that item rather than adding one. " +
 			"The item closes when the operator next types to you, when you end, or when they press Done; clear it yourself with clear_for_operator as soon as it no longer applies. " +
 			"It returns the item's ID.",

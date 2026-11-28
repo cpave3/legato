@@ -116,3 +116,41 @@ func TestTheRailViewSaysHowLongAClosedSheetStaysAway(t *testing.T) {
 		t.Fatalf("snooze_seconds with 1h = %d, want 3600", got)
 	}
 }
+
+// The rail's list and its count leave out an agent's Waiting while the
+// agent asks a question; the plain list keeps it.
+func TestTheRailViewShowsOneItemForOneWait(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.New(filepath.Join(t.TempDir(), "rail.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, _, err := db.InsertApproval(ctx, store.Approval{ID: "ap-q", Source: service.ApprovalSourceAgentQuestion, SourceKey: "q", ExecutionID: "e-1", TaskID: "T1", Title: "Which index?", Status: store.ApprovalPending}); err != nil {
+		t.Fatal(err)
+	}
+	attention := service.NewAttentionService(db, nil)
+	for _, execution := range []string{"e-1", "e-2"} {
+		if _, err := attention.Upsert(ctx, service.AttentionInput{
+			Producer: "agents", SignalKind: service.AttentionSignalAgentWaiting, SourceKey: execution, SourceRevision: "1",
+			Title: execution, Reason: "Agent is waiting for your input", Category: "agent", Urgency: "normal",
+			Navigation: service.AttentionNavigation{Kind: "task", Target: "T1"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv := New(nil, nil, nil, "")
+	srv.SetAttentionService(attention)
+	srv.SetSettingsService(railSettings{})
+
+	if all := listAttention(t, srv, ""); len(all) != 2 {
+		t.Fatalf("the plain list = %+v", all)
+	}
+	rail := listAttention(t, srv, "?view=rail")
+	if len(rail) != 1 || rail[0].SourceKey != "e-2" {
+		t.Fatalf("the rail = %+v, want only e-2's Waiting", rail)
+	}
+	if count, err := srv.railCount(ctx); err != nil || count != 1 {
+		t.Fatalf("rail count = %d, %v; want 1", count, err)
+	}
+}

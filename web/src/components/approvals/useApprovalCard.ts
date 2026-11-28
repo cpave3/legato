@@ -23,21 +23,24 @@ function errorText(err: unknown): string {
 
 // useApprovalDecision is one approval card's request state: busy while a
 // decision is on its way (here or in the app's sheet), the error of the last
-// one, and run, which sends one and refreshes after.
+// one, and run, which sends one and refreshes after, and says whether it
+// was sent.
 export function useApprovalDecision(baseUrl: string, approval: Approval, onDone: () => Promise<void>) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => onShellApproval((result) => settleShellResult(result, approval.id, { setBusy, setError, onDone })), [approval.id, onDone])
 
-  const run = async (action: () => Promise<unknown>) => {
+  const run = async (action: () => Promise<unknown>): Promise<boolean> => {
     setBusy(true)
     setError(null)
     try {
       await action()
       await onDone()
+      return true
     } catch (err) {
       setError(errorText(err))
+      return false
     } finally {
       setBusy(false)
     }
