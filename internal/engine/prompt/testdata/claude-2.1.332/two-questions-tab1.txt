@@ -1,0 +1,40 @@
+ ▐▛███▛█   Claude Code v2.1.332
+▝▜██████▀  Haiku 5.5 · Claude Team
+ ▝▝   ▝▝   /tmp/claude-1000/l688
+
+
+❯ Use the AskUserQuestion tool once to ask me ONE question: "Which colour?" with options Red, Green, Blue
+  (single select). Do nothing else.
+
+● Answered Claude's questions:
+  ⎿  · Which colour? → Purple
+
+● You picked Purple, which wasn't one of the listed options, so I've recorded it as a custom answer. I haven't
+  taken any other action.
+
+✻ Baked for 2s · done 9:35 pm
+
+❯ Now use AskUserQuestion once with TWO questions in one call: Q1 header "Colour" "Which colour?" options
+  Red, Green; Q2 header "Size" "Which size?" options Small, Large. Single select. Do nothing else.
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☐ Colour  ☐ Size  ✔ Submit  →
+
+Which colour?
+
+❯ 1. Red
+     Red
+  2. Green
+     Green
+  3. Type something.
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel
+
+
+
+
+
+
+
+

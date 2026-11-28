@@ -28,6 +28,9 @@ type Manager struct {
 	escapeKey     string
 	guardMu       sync.RWMutex
 	deliveryGuard func(string, string) error
+	// answerGuard checks AnswerPrompt's deliveries: the owner's
+	// foreground/lifecycle check for answering a prompt on screen.
+	answerGuard func(string, string) error
 }
 
 // New creates a Manager, verifying tmux is available.
@@ -207,15 +210,60 @@ func (m *Manager) SetDeliveryGuard(guard func(string, string) error) {
 	m.deliveryGuard = guard
 }
 
+// SetAnswerGuard installs the check AnswerPrompt makes before it presses a
+// prompt's answer. Answers fail closed until an owner supplies it.
+func (m *Manager) SetAnswerGuard(guard func(string, string) error) {
+	m.guardMu.Lock()
+	defer m.guardMu.Unlock()
+	m.answerGuard = guard
+}
+
+// AnswerPrompt answers a prompt the session's screen shows: it presses keys
+// (named keys, such as "Down"), types text literally if there is any, and
+// presses Enter after it when submit is set. Its caller has read these keys
+// off the screen as one of the prompt's answers; the answer guard decides
+// whether the pane may take them. The pane is pinned for the whole answer.
+func (m *Manager) AnswerPrompt(name string, keys []string, text string, submit bool) error {
+	m.guardMu.RLock()
+	guard := m.answerGuard
+	m.guardMu.RUnlock()
+	pane, err := m.checkDeliveryWith(name, guard)
+	if err != nil {
+		return err
+	}
+	for _, key := range keys {
+		if err := m.sendKeys(pane, key, false); err != nil {
+			return err
+		}
+	}
+	if text == "" {
+		return nil
+	}
+	// -l types the text as it is: with only --, tmux still reads a text
+	// such as "Enter" as the key of that name.
+	if out, err := exec.Command(m.tmuxPath, "send-keys", "-t", pane, "-l", "--", text).CombinedOutput(); err != nil {
+		return fmt.Errorf("tmux send-keys: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	if !submit {
+		return nil
+	}
+	time.Sleep(sendKeysInterCallGap)
+	return m.sendKeys(pane, "Enter", false)
+}
+
 func (m *Manager) checkDelivery(name string) (paneID string, err error) {
+	m.guardMu.RLock()
+	guard := m.deliveryGuard
+	m.guardMu.RUnlock()
+	return m.checkDeliveryWith(name, guard)
+}
+
+func (m *Manager) checkDeliveryWith(name string, guard func(string, string) error) (paneID string, err error) {
 	defer func() {
 		if err != nil {
 			log.Printf("tmux agent input refused session=%s: %v", name, err)
 		}
 	}()
-	m.guardMu.RLock()
-	guard := m.deliveryGuard
-	m.guardMu.RUnlock()
 	if guard == nil {
 		return "", fmt.Errorf("agent input to %s not delivered: no foreground verifier", name)
 	}

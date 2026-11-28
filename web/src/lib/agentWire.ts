@@ -9,6 +9,7 @@ export interface WSMessage {
     | "subscribe_agent" | "unsubscribe_agent" | "send_keys" | "resize" | "detect_prompt" | "refresh_pane"
     | "agent_message" | "agent_message_sent" | "agent_interrupt" | "agent_permission" | "agent_question"
     | "plan_proposed" | "plan_verdict" | "plan_changed" | "swarm_changed" | "cards_changed" | "review_changed" | "workflow_changed" | "attention_changed" | "approvals_changed"
+    | "answer_terminal_prompt" | "terminal_prompt_answered"
     | "agent_ui_changed" | "agent_context" | "agent_stage_changed" | "pairing_changed" | "repository_cache" | "settings_changed" | "server_theme_changed" | "usage_changed" | "update_changed"
   agent_id?: string
   // How full a native agent's context window is (agent_context).
@@ -49,6 +50,8 @@ export interface WSMessage {
   producer?: string
   source_key?: string
   request_id?: string
+  // Why an error happened, for errors the client acts on (prompt_changed).
+  code?: string
   decision?: "allow" | "deny"
   feedback?: string
   // agent_permission: which of the request's options an allow takes.
@@ -165,5 +168,16 @@ export interface PromptState {
   // menu: any other list of options the tool is showing in its terminal.
   type: "tool_approval" | "plan_approval" | "question" | "menu" | "free_text" | "working"
   context?: string
-  actions?: { label: string; keys: string }[]
+  actions?: PromptAction[]
+}
+
+// One answer a terminal prompt offers: the keys that choose it. A row that
+// takes text (Claude Code's "Type something.") is answered by typing on it;
+// text_submits says Enter then answers with the text, which in a
+// multi-select would untick the row instead.
+export interface PromptAction {
+  label: string
+  keys: string
+  takes_text?: boolean
+  text_submits?: boolean
 }

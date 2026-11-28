@@ -106,10 +106,13 @@ type WSMessage struct {
 	Producer       string              `json:"producer,omitempty"`
 	SourceKey      string              `json:"source_key,omitempty"`
 	RequestID      string              `json:"request_id,omitempty"`
-	Cursor         string              `json:"cursor,omitempty"`
-	Queue          bool                `json:"queue,omitempty"`
-	Decision       string              `json:"decision,omitempty"`
-	Feedback       *string             `json:"feedback,omitempty"`
+	// Code names why an error happened, for errors a client acts on, such
+	// as prompt_changed from answer_terminal_prompt.
+	Code     string  `json:"code,omitempty"`
+	Cursor   string  `json:"cursor,omitempty"`
+	Queue    bool    `json:"queue,omitempty"`
+	Decision string  `json:"decision,omitempty"`
+	Feedback *string `json:"feedback,omitempty"`
 	// Line numbers a line the Reeve said (reeve_spoke).
 	Line int64 `json:"line,omitempty"`
 	// Option names which of a permission request's options an allow takes.
@@ -255,6 +258,8 @@ func (s *Server) handleWSMessage(client *wsClient, msg WSMessage) {
 		s.handleAgentQuestion(client, msg)
 	case MsgResize:
 		s.handleResize(client, msg)
+	case MsgAnswerTerminalPrompt:
+		s.handleAnswerTerminalPrompt(client, msg)
 	case MsgDetectPrompt:
 		s.handleDetectPrompt(client, msg)
 	case MsgRefreshPane:
@@ -454,12 +459,12 @@ func (s *Server) handleResize(client *wsClient, msg WSMessage) {
 
 func (s *Server) handleSendKeys(client *wsClient, msg WSMessage) {
 	if s.tmux == nil {
-		client.send(WSMessage{Type: MsgError, Error: "tmux not available"})
+		client.send(WSMessage{Type: MsgError, AgentID: msg.AgentID, RequestID: msg.RequestID, Error: "tmux not available"})
 		return
 	}
 
 	if msg.AgentID == "" || msg.Keys == "" {
-		client.send(WSMessage{Type: MsgError, Error: "agent_id and keys are required"})
+		client.send(WSMessage{Type: MsgError, AgentID: msg.AgentID, RequestID: msg.RequestID, Error: "agent_id and keys are required"})
 		return
 	}
 
@@ -476,7 +481,7 @@ func (s *Server) handleSendKeys(client *wsClient, msg WSMessage) {
 			err = fmt.Errorf("native agent keys are unavailable; use its native controls")
 		}
 		if err != nil {
-			client.send(WSMessage{Type: MsgError, Error: err.Error()})
+			client.send(WSMessage{Type: MsgError, AgentID: msg.AgentID, RequestID: msg.RequestID, Error: err.Error()})
 		}
 		return
 	}
@@ -493,19 +498,19 @@ func (s *Server) handleSendKeys(client *wsClient, msg WSMessage) {
 		text := keys[:len(keys)-1]
 		if text != "" {
 			if err := s.tmux.SendKeys(sessionName, text); err != nil {
-				client.send(WSMessage{Type: MsgError, Error: "send_keys failed: " + err.Error()})
+				client.send(WSMessage{Type: MsgError, AgentID: msg.AgentID, RequestID: msg.RequestID, Error: "send_keys failed: " + err.Error()})
 				return
 			}
 		}
 		if err := s.tmux.SendKey(sessionName, "Enter"); err != nil {
-			client.send(WSMessage{Type: MsgError, Error: "send_keys failed: " + err.Error()})
+			client.send(WSMessage{Type: MsgError, AgentID: msg.AgentID, RequestID: msg.RequestID, Error: "send_keys failed: " + err.Error()})
 		}
 	} else {
 		// Named keys — send without -- so tmux interprets key names.
 		// Space-separated keys are sent in sequence (e.g. "Down Enter").
 		for _, key := range strings.Fields(keys) {
 			if err := s.tmux.SendKey(sessionName, key); err != nil {
-				client.send(WSMessage{Type: MsgError, Error: "send_keys failed: " + err.Error()})
+				client.send(WSMessage{Type: MsgError, AgentID: msg.AgentID, RequestID: msg.RequestID, Error: "send_keys failed: " + err.Error()})
 				return
 			}
 		}

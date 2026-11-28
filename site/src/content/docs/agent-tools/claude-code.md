@@ -95,7 +95,7 @@ When Claude Code asks for a permission, Legato raises it as an approval: in the 
 - **Plans.** A plan from plan mode shows as Markdown. You approve it and pick how edits go afterwards: accept edits without asking, or ask before each edit.
 - **Questions.** When Claude asks a question with options, the panel shows a card with the options, a box for your own answer, and **Dismiss**.
 
-Some prompts are only in the terminal, such as a picker opened with `/resume` or `/model`. When such a prompt is a numbered menu, the panel shows it as **Claude Code is asking in its terminal**, with a button for each option. Anything else you answer in the terminal.
+Some prompts are only in the terminal, such as a picker opened with `/resume` or `/model`, or a question or permission prompt from a session started before Legato's hooks were updated. When such a prompt is a numbered menu, the panel shows it as **Claude Code is asking in its terminal**, with a button for each option and a text field for **Type something.** Choosing one answers the terminal, from a phone too. A question with several tabs is walked one at a time, then **Submit answers**. The card stays until the terminal moves on, and says so if the terminal didn't take the answer. Anything else you answer in the terminal.
 
 ### Native decision security
 

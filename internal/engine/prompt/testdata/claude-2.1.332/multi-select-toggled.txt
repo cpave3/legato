@@ -1,0 +1,40 @@
+
+● Answered Claude's questions:
+  ⎿  · Which colour? → Purple
+
+● You picked Purple, which wasn't one of the listed options, so I've recorded it as a custom answer. I haven't
+  taken any other action.
+
+✻ Baked for 2s · done 9:35 pm
+
+❯ Now use AskUserQuestion once with TWO questions in one call: Q1 header "Colour" "Which colour?" options
+  Red, Green; Q2 header "Size" "Which size?" options Small, Large. Single select. Do nothing else.
+
+● Answered Claude's questions:
+  ⎿  · Which colour? → Green
+     · Which size? → Small
+
+● Your answers: colour Green, size Small. I haven't taken any other action.
+
+✻ Churned for 2s · done 9:35 pm
+
+❯ Now use AskUserQuestion once with ONE multi-select question (multiSelect true): header "Pets" "Which pets?"
+  options Cat, Dog, Fish. Do nothing else.
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Pets  ✔ Submit  →
+
+Which pets?
+
+❯ 1. [✔] Cat
+         Cat
+  2. [ ] Dog
+         Dog
+  3. [ ] Fish
+         Fish
+  4. [ ] Type something
+     Submit
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+

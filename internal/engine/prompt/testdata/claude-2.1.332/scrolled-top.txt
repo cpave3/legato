@@ -1,0 +1,16 @@
+
+Which fruit?
+
+❯ 1. Apple
+     A crisp, sweet fruit that comes in many varieties.
+  2. Banana
+     A soft, starchy fruit with a yellow peel.
+  3. Cherry
+     A small stone fruit, sweet or tart.
+↓ 4. Date
+     A sticky, very sweet fruit from a palm tree.
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  6. Chat about this
+ ↑ 1 more line
+Enter to select · ↑/↓ to navigate · Esc to cancel
+

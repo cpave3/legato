@@ -1026,23 +1026,60 @@ func TestFindIncompleteEscape(t *testing.T) {
 // mockTmuxManager implements service.TmuxManager for server-level tests.
 type mockTmuxManager struct {
 	sentKeys []string
+	// screens are what Capture returns, one per call, the last repeated.
+	screens []string
+	// typed records text sent literally (SendKeys) and lines (SendKeysLine).
+	typed      []string
+	sendKeyErr error
 }
 
 func (m *mockTmuxManager) Spawn(name, workDir string, width, height int, envVars ...string) error {
 	return nil
 }
-func (m *mockTmuxManager) Kill(name string) error                         { return nil }
-func (m *mockTmuxManager) Capture(name string) (string, error)            { return "", nil }
+func (m *mockTmuxManager) Kill(name string) error { return nil }
+func (m *mockTmuxManager) Capture(name string) (string, error) {
+	if len(m.screens) == 0 {
+		return "", nil
+	}
+	screen := m.screens[0]
+	if len(m.screens) > 1 {
+		m.screens = m.screens[1:]
+	}
+	return screen, nil
+}
 func (m *mockTmuxManager) CaptureWithEscapes(name string) (string, error) { return "", nil }
 func (m *mockTmuxManager) Attach(name string) *exec.Cmd                   { return exec.Command("echo") }
 func (m *mockTmuxManager) ListSessions() ([]string, error)                { return nil, nil }
 func (m *mockTmuxManager) IsAlive(name string) (bool, error)              { return false, nil }
-func (m *mockTmuxManager) SendKeys(name, keys string) error               { return nil }
+func (m *mockTmuxManager) SendKeys(name, keys string) error {
+	m.typed = append(m.typed, keys)
+	return nil
+}
 func (m *mockTmuxManager) SendKey(name, key string) error {
+	if m.sendKeyErr != nil {
+		return m.sendKeyErr
+	}
 	m.sentKeys = append(m.sentKeys, key)
 	return nil
 }
-func (m *mockTmuxManager) SendKeysLine(name, line string) error         { return nil }
+func (m *mockTmuxManager) AnswerPrompt(name string, keys []string, text string, submit bool) error {
+	for _, key := range keys {
+		if err := m.SendKey(name, key); err != nil {
+			return err
+		}
+	}
+	if text == "" {
+		return nil
+	}
+	if submit {
+		return m.SendKeysLine(name, text)
+	}
+	return m.SendKeys(name, text)
+}
+func (m *mockTmuxManager) SendKeysLine(name, line string) error {
+	m.typed = append(m.typed, line+"⏎")
+	return nil
+}
 func (m *mockTmuxManager) SendKeysMultiline(name, payload string) error { return nil }
 func (m *mockTmuxManager) RunInPane(string, []string, ...string) error  { return nil }
 func (m *mockTmuxManager) PipeOutput(name string) (io.Reader, func(), error) {
