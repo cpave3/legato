@@ -24,7 +24,7 @@ import {
   type DirectorySuggestion,
   type DirectorySuggestions,
 } from "../lib/spawnDirectories"
-import type { SessionPolicy, SpawnAgentRequest } from "../lib/spawnRequest"
+import { buildSpawnRequest, spawnWorkingDir, type SessionPolicy, type SpawnAgentRequest } from "../lib/spawnRequest"
 
 // What "Where" is: a folder on the server, or a clone Legato manages (a new
 // one, or one an agent worked in before).
@@ -415,27 +415,15 @@ export function SpawnAgentDialog({
 
   const submit = useCallback(async () => {
     if (loading || !ready) return
-    const workingDir = inClone ? "" : path.trim()
     setLoading(true)
     setError("")
     try {
-      if (savePath && canSave) await saveDirectoryPreset(baseUrl, workingDir)
-      await onSubmit({
-        title: title.trim(),
-        agentKind,
-        ...(effectiveAdapter === "claude-code" && account && !(offersSessionChoice && sessionPolicy === "resume") ? { agentKind: "claude-code", account } : {}),
-        workingDir,
-        ...(inClone && jobClone ? { joinClone: { id: jobClone.id, branch: jobClone.busy ? "" : branch.trim() } } : {}),
-        ...(inClone && !jobClone && cloneRepository ? { clone: { repo: cloneRepository.repo, baseBranch: baseBranch.trim(), branch: branch.trim() } } : {}),
-        ...(offersSessionChoice ? { sessionPolicy } : {}),
-        ...(picked.length > 0 ? { resources: picked } : {}),
-        ...(unsandboxed ? { sandbox: false as const } : {}),
-        ...(hostNetworkOffered && hostNetwork ? { dockerHostNetwork: true as const } : {}),
-        ...(prompt.trim() ? { prompt: prompt.trim() } : {}),
-        ...(tier ? { tier } : {}),
-        ...(engramShown && engram ? { engram } : {}),
-        ...(canRemember && rememberEngram ? { rememberEngram: true } : {}),
-      })
+      if (savePath && canSave) await saveDirectoryPreset(baseUrl, spawnWorkingDir({ inClone, path }))
+      await onSubmit(buildSpawnRequest({
+        title, agentKind, effectiveAdapter, account, path, inClone, jobClone, cloneRepo: cloneRepository?.repo, branch, baseBranch,
+        offersSessionChoice, sessionPolicy, resources: picked, unsandboxed, hostNetworkOffered, hostNetwork, prompt, tier,
+        engramShown, engram, canRemember, rememberEngram,
+      }))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {

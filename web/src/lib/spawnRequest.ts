@@ -35,3 +35,93 @@ export interface SpawnAgentRequest {
   // engram, clear the place's default); absent when not ticked.
   rememberEngram?: boolean
 }
+
+// What the dialog holds when it is confirmed: each choice as it stands, with
+// whether the dialog offered it, since a choice it did not offer is not sent.
+export interface SpawnChoices {
+  title: string
+  agentKind: string
+  // The tool that runs: the one picked, else the default.
+  effectiveAdapter: string
+  account: string
+  // The path as typed; it is trimmed here.
+  path: string
+  // True when the agent starts in a clone rather than at path.
+  inClone: boolean
+  // The clone picked, when it is one that exists.
+  jobClone?: { id: number; busy: boolean }
+  // The repository a new clone is of.
+  cloneRepo?: string
+  branch: string
+  baseBranch: string
+  offersSessionChoice: boolean
+  sessionPolicy: SessionPolicy
+  resources: string[]
+  unsandboxed: boolean
+  hostNetworkOffered: boolean
+  hostNetwork: boolean
+  prompt: string
+  tier: string
+  engramShown: boolean
+  engram: string
+  canRemember: boolean
+  rememberEngram: boolean
+}
+
+// The working directory the agent starts in: empty for a clone.
+export function spawnWorkingDir(choices: Pick<SpawnChoices, "inClone" | "path">): string {
+  return choices.inClone ? "" : choices.path.trim()
+}
+
+// A Claude Code account is sent only when it is not the saved session's,
+// which a resume keeps; it names the tool, since the default may not be it.
+function accountPart(choices: SpawnChoices): Partial<Pick<SpawnAgentRequest, "agentKind" | "account">> {
+  const resuming = choices.offersSessionChoice && choices.sessionPolicy === "resume"
+  if (choices.effectiveAdapter !== "claude-code" || !choices.account || resuming) return {}
+  return { agentKind: "claude-code", account: choices.account }
+}
+
+// Where in a clone: one that exists, joined (on its own branch while an
+// agent works in it), or a new one of the repository.
+function clonePart(choices: SpawnChoices): Pick<SpawnAgentRequest, "joinClone" | "clone"> {
+  if (!choices.inClone) return {}
+  const { jobClone, cloneRepo } = choices
+  if (jobClone) return { joinClone: { id: jobClone.id, branch: jobClone.busy ? "" : choices.branch.trim() } }
+  if (!cloneRepo) return {}
+  return { clone: { repo: cloneRepo, baseBranch: choices.baseBranch.trim(), branch: choices.branch.trim() } }
+}
+
+// The choices the agent starts with, each absent when left alone.
+function startPart(choices: SpawnChoices): Pick<SpawnAgentRequest, "sessionPolicy" | "resources" | "sandbox" | "dockerHostNetwork"> {
+  return {
+    ...(choices.offersSessionChoice ? { sessionPolicy: choices.sessionPolicy } : {}),
+    ...(choices.resources.length > 0 ? { resources: choices.resources } : {}),
+    ...(choices.unsandboxed ? { sandbox: false as const } : {}),
+    ...(choices.hostNetworkOffered && choices.hostNetwork ? { dockerHostNetwork: true as const } : {}),
+  }
+}
+
+// The first message, the macro's tier and the engram, each absent when none.
+function firstTurnPart(choices: SpawnChoices): Pick<SpawnAgentRequest, "prompt" | "tier" | "engram" | "rememberEngram"> {
+  const prompt = choices.prompt.trim()
+  return {
+    ...(prompt ? { prompt } : {}),
+    ...(choices.tier ? { tier: choices.tier } : {}),
+    ...(choices.engramShown && choices.engram ? { engram: choices.engram } : {}),
+    ...(choices.canRemember && choices.rememberEngram ? { rememberEngram: true } : {}),
+  }
+}
+
+// buildSpawnRequest turns the dialog's choices into the request onSubmit
+// gets.
+export function buildSpawnRequest(choices: SpawnChoices): SpawnAgentRequest {
+  return {
+    title: choices.title.trim(),
+    agentKind: choices.agentKind,
+    ...accountPart(choices),
+    workingDir: spawnWorkingDir(choices),
+    ...clonePart(choices),
+    ...startPart(choices),
+    ...firstTurnPart(choices),
+  }
+}
