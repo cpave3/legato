@@ -5,7 +5,7 @@ import { useCallback, useMemo, useRef, useState } from "react"
 import { BaseEdge, Controls, EdgeLabelRenderer, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type EdgeProps, type EdgeTypes, type Node, type NodeProps, type NodeTypes } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
 import { CircleAlert, Clock, Columns3, GitPullRequest, MessageSquare, Play, type LucideIcon } from "lucide-react"
-import { edgeLabel, nodeStatus, related, triggerMarkers, type MarkerKind, type WorkflowMap, type WorkflowMapNode } from "../../lib/workflowMap"
+import { edgeLabel, nodeStatus, related, triggerMarkers, type MarkerKind, type TriggerMarker, type WorkflowMap, type WorkflowMapNode } from "../../lib/workflowMap"
 import { cn } from "../../lib/utils"
 import { TagChip } from "../workflows/WorkflowTagsDialog"
 import { roundedPath } from "../agent-graph/roundedPath"
@@ -36,36 +36,66 @@ function Handles() {
   </>
 }
 
+const statusDot = { on: "bg-lw-live", mixed: "bg-lw-needs", paused: "bg-lw-faint", none: "" } as const
+
+// nodeBorder is a node's frame: red for a broken file, dashed for a
+// missing workflow.
+function nodeBorder(node: WorkflowMapNode): string {
+  if (node.broken) return "border-lw-danger-line"
+  if (node.missing) return "border-dashed border-lw-line-strong bg-lw-ground"
+  return "border-lw-line-strong"
+}
+
+function NodeTitle({ node }: { node: WorkflowMapNode }) {
+  const status = nodeStatus(node)
+  const title = node.title || node.name
+  return <span className="flex min-w-0 items-center gap-1.5">
+    {node.broken && <CircleAlert size={13} aria-hidden="true" className="shrink-0 text-lw-danger" />}
+    <span className={cn("truncate text-[13px] font-semibold leading-5", node.missing && "font-medium text-lw-text-2")} title={title}>{title}</span>
+    {status !== "none" && <span aria-hidden="true" title={statusWords[status]} className={cn("ml-auto size-2 shrink-0 rounded-full", statusDot[status])} />}
+  </span>
+}
+
+// nodeNote is what a node is besides a workflow file: built in, broken or
+// missing.
+function nodeNote(node: WorkflowMapNode): { text: string; danger?: boolean } | null {
+  if (node.broken) return { text: "does not parse", danger: true }
+  if (node.missing) return { text: "no such workflow" }
+  return node.built_in ? { text: "built in" } : null
+}
+
+function MarkerIcon({ marker }: { marker: TriggerMarker }) {
+  const Icon = markerIcons[marker.kind]
+  const manual = marker.kind === "manual"
+  const state = manual ? "" : marker.enabled ? ", on" : ", paused"
+  return <span title={marker.label + state} className={cn("shrink-0", manual || marker.enabled ? "text-lw-text-2" : "text-lw-faint")}><Icon size={12} aria-hidden="true" /></span>
+}
+
+function NodeMarks({ node, called }: { node: WorkflowMapNode; called: boolean }) {
+  const markers = triggerMarkers(node, called)
+  const tags = node.tags ?? []
+  if (markers.length === 0 && tags.length === 0) return null
+  return <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+    {markers.map(marker => <MarkerIcon key={marker.kind} marker={marker} />)}
+    {tags.slice(0, 2).map(tag => <TagChip key={tag} tag={tag} className="h-4 px-1.5 text-[10px]" />)}
+    {tags.length > 2 && <span className="shrink-0 font-lw-mono text-[10px] text-lw-faint">+{tags.length - 2}</span>}
+  </span>
+}
+
 function WorkflowNode({ data, selected }: NodeProps<FlowNode>) {
   const { node, width, height } = data.placed!
-  const markers = triggerMarkers(node, data.called)
-  const status = nodeStatus(node)
+  const note = nodeNote(node)
   return <div data-map-node style={{ width, height }} className={cn(
     "flex cursor-pointer flex-col justify-center gap-1 rounded-lg border bg-lw-surface px-3 font-lw text-lw-text shadow-sm transition-opacity hover:border-lw-accent motion-reduce:transition-none",
-    node.broken ? "border-lw-danger-line" : node.missing ? "border-dashed border-lw-line-strong bg-lw-ground" : "border-lw-line-strong",
-    selected && "ring-2 ring-lw-accent-ring", data.dimmed && "opacity-30",
+    nodeBorder(node), selected && "ring-2 ring-lw-accent-ring", data.dimmed && "opacity-30",
   )}>
     <Handles />
-    <span className="flex min-w-0 items-center gap-1.5">
-      {node.broken && <CircleAlert size={13} aria-hidden="true" className="shrink-0 text-lw-danger" />}
-      <span className={cn("truncate text-[13px] font-semibold leading-5", node.missing && "font-medium text-lw-text-2")} title={node.title || node.name}>{node.title || node.name}</span>
-      {status !== "none" && <span aria-hidden="true" title={statusWords[status]} className={cn("ml-auto size-2 shrink-0 rounded-full", status === "on" ? "bg-lw-live" : status === "mixed" ? "bg-lw-needs" : "bg-lw-faint")} />}
-    </span>
+    <NodeTitle node={node} />
     <span className="flex min-w-0 items-center gap-1.5 text-[11px] leading-4 text-lw-text-2">
       <span className="truncate font-lw-mono">{node.name}</span>
-      {node.built_in && <span className="shrink-0">· built in</span>}
-      {node.broken && <span className="shrink-0 text-lw-danger">· does not parse</span>}
-      {node.missing && <span className="shrink-0">· no such workflow</span>}
+      {note && <span className={cn("shrink-0", note.danger && "text-lw-danger")}>· {note.text}</span>}
     </span>
-    {(markers.length > 0 || (node.tags ?? []).length > 0) && <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-      {markers.map(marker => {
-        const Icon = markerIcons[marker.kind]
-        return <span key={marker.kind} title={`${marker.label}${marker.kind === "manual" ? "" : marker.enabled ? ", on" : ", paused"}`}
-          className={cn("shrink-0", marker.kind === "manual" || marker.enabled ? "text-lw-text-2" : "text-lw-faint")}><Icon size={12} aria-hidden="true" /></span>
-      })}
-      {(node.tags ?? []).slice(0, 2).map(tag => <TagChip key={tag} tag={tag} className="h-4 px-1.5 text-[10px]" />)}
-      {(node.tags ?? []).length > 2 && <span className="shrink-0 font-lw-mono text-[10px] text-lw-faint">+{(node.tags ?? []).length - 2}</span>}
-    </span>}
+    <NodeMarks node={node} called={data.called} />
   </div>
 }
 
@@ -125,6 +155,60 @@ function nodeName(node: WorkflowMapNode, called: boolean): string {
 // tap lights a workflow's calls and a second opens it.
 const hoverless = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(hover: none)").matches
 
+// isDimmed says whether a workflow is drawn faint: outside the lit chain,
+// or, with nothing lit, kept only as the tag filter's context.
+function isDimmed(lit: Set<string> | null, context: ReadonlySet<string>, ...ids: string[]): boolean {
+  if (lit) return !ids.every(id => lit.has(id))
+  return ids.every(id => context.has(id))
+}
+
+function boxNode(box: StandaloneBox): FlowNode {
+  return {
+    id: "box:standalone", type: "box", position: { x: box.x, y: box.y }, width: box.width, height: box.height, zIndex: -1,
+    data: { box, called: false, dimmed: false }, draggable: false, selectable: false, focusable: false, connectable: false,
+    ariaRole: "group", ariaLabel: `Stand alone, ${box.count} ${box.count === 1 ? "workflow" : "workflows"}`,
+  }
+}
+
+// flowNodes are the layout's nodes as React Flow draws them.
+function flowNodes(layout: MapLayout, called: Set<string>, lit: Set<string> | null, context: ReadonlySet<string>, selected: string | null): FlowNode[] {
+  const workflows = layout.nodes.map((placed): FlowNode => ({
+    id: placed.id, type: "workflow", position: { x: placed.x, y: placed.y }, width: placed.width, height: placed.height,
+    data: { placed, called: called.has(placed.id), dimmed: isDimmed(lit, context, placed.id) },
+    draggable: false, connectable: false, selected: placed.id === selected, ariaRole: "button", ariaLabel: nodeName(placed.node, called.has(placed.id)),
+  }))
+  return layout.standalone ? [boxNode(layout.standalone), ...workflows] : workflows
+}
+
+function flowEdges(layout: MapLayout, lit: Set<string> | null, context: ReadonlySet<string>): Edge[] {
+  return layout.edges.map(placed => {
+    const { source, target } = placed.edge
+    const label = edgeLabel(placed.edge)
+    return {
+      id: placed.id, source, target, type: "call", sourceHandle: "s", targetHandle: "t",
+      data: { placed, dimmed: isDimmed(lit, context, source, target) },
+      focusable: false, selectable: false, ariaLabel: `${source} calls ${target}${label ? `, ${label}` : ""}`,
+    }
+  })
+}
+
+// phoneViewport is where a narrow screen starts: the map's width fitted
+// (at a readable zoom at least), from its top, to scroll down.
+function phoneViewport(layout: MapLayout, width: number) {
+  const all = [...layout.nodes, ...(layout.standalone ? [layout.standalone] : [])]
+  const minX = Math.min(...all.map(item => item.x)), maxX = Math.max(...all.map(item => item.x + item.width))
+  const minY = Math.min(...all.map(item => item.y))
+  const pad = 12
+  const zoom = Math.min(1, Math.max(0.45, (width - 2 * pad) / (maxX - minX)))
+  return { x: pad - minX * zoom, y: pad - minY * zoom, zoom }
+}
+
+// workflowId is a React Flow node's ID when it is a workflow, not the box.
+const workflowId = (node: { id: string; type?: string }) => node.type === "workflow" ? node.id : null
+
+// nodeIdOf is the map node an event happened in.
+const nodeIdOf = (event: { target: EventTarget }) => (event.target as HTMLElement).closest<HTMLElement>(".react-flow__node")?.dataset.id
+
 function MapView({ map, context, onOpen }: WorkflowMapCanvasProps) {
   const flow = useReactFlow()
   const layout: MapLayout = useMemo(() => layoutWorkflowMap(map), [map])
@@ -132,24 +216,8 @@ function MapView({ map, context, onOpen }: WorkflowMapCanvasProps) {
   const [selected, setSelected] = useState<string | null>(null)
   const lit = useMemo(() => related(map, hovered ?? selected), [map, hovered, selected])
   const called = useMemo(() => new Set(map.edges.map(edge => edge.target)), [map])
-  const nodes: FlowNode[] = useMemo(() => [
-    ...(layout.standalone ? [{
-      id: "box:standalone", type: "box", position: { x: layout.standalone.x, y: layout.standalone.y }, width: layout.standalone.width, height: layout.standalone.height, zIndex: -1,
-      data: { box: layout.standalone, called: false, dimmed: false }, draggable: false, selectable: false, focusable: false, connectable: false,
-      ariaRole: "group" as const, ariaLabel: `Stand alone, ${layout.standalone.count} ${layout.standalone.count === 1 ? "workflow" : "workflows"}`,
-    }] : []),
-    ...layout.nodes.map((placed): FlowNode => ({
-      id: placed.id, type: "workflow", position: { x: placed.x, y: placed.y }, width: placed.width, height: placed.height,
-      data: { placed, called: called.has(placed.id), dimmed: Boolean(lit && !lit.has(placed.id)) || (!lit && context.has(placed.id)) },
-      draggable: false, connectable: false, selected: placed.id === selected, ariaRole: "button", ariaLabel: nodeName(placed.node, called.has(placed.id)),
-    })),
-  ], [layout, lit, context, selected, called])
-  const edges: Edge[] = useMemo(() => layout.edges.map(placed => ({
-    id: placed.id, source: placed.edge.source, target: placed.edge.target, type: "call", sourceHandle: "s", targetHandle: "t",
-    data: { placed, dimmed: Boolean(lit && !(lit.has(placed.edge.source) && lit.has(placed.edge.target))) || (!lit && (context.has(placed.edge.source) && context.has(placed.edge.target))) },
-    focusable: false, selectable: false,
-    ariaLabel: `${placed.edge.source} calls ${placed.edge.target}${edgeLabel(placed.edge) ? `, ${edgeLabel(placed.edge)}` : ""}`,
-  })), [layout, lit, context])
+  const nodes = useMemo(() => flowNodes(layout, called, lit, context, selected), [layout, lit, context, selected, called])
+  const edges = useMemo(() => flowEdges(layout, lit, context), [layout, lit, context])
 
   const nameOf = useCallback((id: string) => layout.nodes.find(item => item.id === id)?.node.name, [layout])
   // tapped is the workflow a touch screen's last tap lit: a tap focuses a
@@ -163,32 +231,22 @@ function MapView({ map, context, onOpen }: WorkflowMapCanvasProps) {
   const frame = useRef<HTMLDivElement>(null)
   // Enter opens a focused workflow; focus lights its calls.
   const onKeyDown = useCallback((event: React.KeyboardEvent) => {
-    if (event.key !== "Enter" && event.key !== " ") return
-    const id = (event.target as HTMLElement).closest<HTMLElement>(".react-flow__node")?.dataset.id
-    const name = id ? nameOf(id) : undefined
+    const id = nodeIdOf(event)
+    const name = id && (event.key === "Enter" || event.key === " ") ? nameOf(id) : undefined
     if (!name) return
     event.preventDefault()
     onOpen(name)
   }, [nameOf, onOpen])
   const onFocus = useCallback((event: React.FocusEvent) => {
-    const id = (event.target as HTMLElement).closest<HTMLElement>(".react-flow__node")?.dataset.id
+    const id = nodeIdOf(event)
     if (id && nameOf(id)) setSelected(id)
   }, [nameOf])
-  // A phone sees the map's width, from its top, to scroll down; a wider
-  // screen sees all of it.
+  // A wide screen sees all of the map; a phone its width, from its top.
   const fitAll = useCallback(() => {
     const width = frame.current?.clientWidth ?? 0
-    const all = [...layout.nodes, ...(layout.standalone ? [layout.standalone] : [])]
-    if (!width || all.length === 0) return
-    const minX = Math.min(...all.map(item => item.x)), maxX = Math.max(...all.map(item => item.x + item.width))
-    const minY = Math.min(...all.map(item => item.y))
-    if (width >= 768) {
-      void flow.fitView({ padding: 0.1, minZoom: 0.3, maxZoom: 1 })
-      return
-    }
-    const pad = 12
-    const zoom = Math.min(1, Math.max(0.45, (width - 2 * pad) / (maxX - minX)))
-    void flow.setViewport({ x: pad - minX * zoom, y: pad - minY * zoom, zoom })
+    if (!width || layout.nodes.length === 0) return
+    if (width >= 768) void flow.fitView({ padding: 0.1, minZoom: 0.3, maxZoom: 1 })
+    else void flow.setViewport(phoneViewport(layout, width))
   }, [flow, layout])
 
   return <div ref={frame} onKeyDown={onKeyDown} onFocus={onFocus} className="relative h-full w-full"
@@ -211,9 +269,9 @@ function MapView({ map, context, onOpen }: WorkflowMapCanvasProps) {
       deleteKeyCode={null}
       zoomOnDoubleClick={false}
       proOptions={{ hideAttribution: true }}
-      onNodeMouseEnter={(_, node) => { if (node.type === "workflow") setHovered(node.id) }}
+      onNodeMouseEnter={(_, node) => setHovered(workflowId(node))}
       onNodeMouseLeave={() => setHovered(null)}
-      onNodeClick={(_, node) => { if (node.type === "workflow") choose(node.id) }}
+      onNodeClick={(_, node) => { const id = workflowId(node); if (id) choose(id) }}
       onPaneClick={() => { tapped.current = null; setSelected(null) }}
     >
       <Controls showInteractive={false} position="bottom-left" />

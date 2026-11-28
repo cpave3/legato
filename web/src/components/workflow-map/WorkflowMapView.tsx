@@ -2,7 +2,7 @@ import { useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { mapTags, tagView, type WorkflowMap } from "../../lib/workflowMap"
 import { cn } from "../../lib/utils"
-import { LazyWorkflowMapCanvas } from "../workflow-map/LazyWorkflowMapCanvas"
+import { LazyWorkflowMapCanvas } from "./LazyWorkflowMapCanvas"
 
 // WorkflowMapView is the Workflows tab's map (LEG-710): every workflow as a
 // box and a line from each workflow to each it calls, filtered by tag.

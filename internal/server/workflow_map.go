@@ -35,19 +35,24 @@ func (s *Server) workflowMapHandler() http.HandlerFunc {
 		}
 		nodes := make([]workflowMapNode, 0, len(graph.Nodes))
 		for _, node := range graph.Nodes {
-			out := workflowMapNode{CallGraphNode: node}
-			if here, ok := states[node.ID]; ok && !node.Broken {
-				out.Triggers = here
-			} else {
-				for _, trigger := range node.Triggers {
-					out.Triggers = append(out.Triggers, service.WorkflowTriggerState{TriggerInfo: trigger, Enabled: trigger.EnabledByDefault})
-				}
-			}
-			nodes = append(nodes, out)
+			nodes = append(nodes, workflowMapNode{CallGraphNode: node, Triggers: triggersHere(node, states)})
 		}
 		s.writeJSON(w, http.StatusOK, struct {
 			Nodes []workflowMapNode              `json:"nodes"`
 			Edges []workflowengine.CallGraphEdge `json:"edges"`
 		}{nodes, graph.Edges})
 	}
+}
+
+// triggersHere are a node's triggers as this Legato has them switched,
+// else as its file says.
+func triggersHere(node workflowengine.CallGraphNode, states map[string][]service.WorkflowTriggerState) []service.WorkflowTriggerState {
+	if here, ok := states[node.ID]; ok && !node.Broken {
+		return here
+	}
+	var out []service.WorkflowTriggerState
+	for _, trigger := range node.Triggers {
+		out = append(out, service.WorkflowTriggerState{TriggerInfo: trigger, Enabled: trigger.EnabledByDefault})
+	}
+	return out
 }

@@ -9,7 +9,7 @@ import { ago, elapsed, parseTime, runState, runSubject, runSummary, sourceLabel,
 import { RunWorkflowDialog } from "../components/RunWorkflowDialog"
 import { LazyWorkflowStart } from "../components/workflow-editor/LazyWorkflowStart"
 import { WorkflowList } from "../components/workflows/WorkflowList"
-import { WorkflowMapView } from "../components/workflows/WorkflowMapView"
+import { WorkflowMapView } from "../components/workflow-map/WorkflowMapView"
 import { StatePill, StepBar } from "../components/workflow-status/WorkflowRunStatus"
 import { toneText } from "../lib/workflowTones"
 import { Button } from "../components/ui/Button"
@@ -28,6 +28,11 @@ function storedView(): WorkflowView {
 
 function storeView(view: WorkflowView) {
   try { localStorage.setItem(VIEW_KEY, view) } catch { /* remembered only where storage works */ }
+}
+
+function useStoredView(): [WorkflowView, (view: WorkflowView) => void] {
+  const [view, setView] = useState<WorkflowView>(storedView)
+  return [view, (next: WorkflowView) => { setView(next); storeView(next) }]
 }
 
 function storedTab(): WorkflowTab | null {
@@ -270,11 +275,11 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
   const now = useNow(30_000)
   const list = definitions.data?.definitions ?? []
   const needsYou = (runs.data ?? []).filter(run => run.needs_attention).length
-  const [view, setViewState] = useState<WorkflowView>(storedView)
-  const setView = (next: WorkflowView) => { setViewState(next); storeView(next) }
+  const [view, setView] = useStoredView()
   // The map is fetched only while it is shown.
   const map = useWorkflowMap(view === "map")
-  const refreshAll = async () => { await Promise.all([definitions.refresh(), runs.refresh(), stats.refresh(), ...(view === "map" ? [map.refresh()] : [])]) }
+  const refreshes = [definitions.refresh, runs.refresh, stats.refresh, ...(view === "map" ? [map.refresh] : [])]
+  const refreshAll = async () => { await Promise.all(refreshes.map(refresh => refresh())) }
   const newWorkflow = <Link to="/workflows/new" className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-lw-accent px-3 text-xs font-medium text-[var(--theme-canvas,white)] hover:opacity-90"><Plus size={14} aria-hidden="true" />New workflow</Link>
   return <PageFrame tab="workflows" setTab={setTab} needsYou={needsYou} refresh={refreshAll}>
     {definitions.loading && <LoadingState label="Loading workflows…" size="inline" className="mt-6" />}
@@ -282,9 +287,12 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
     {stats.error && list.length > 0 && <LoadFailure error={stats.error} saved={stats.data !== null} label="run counts" refreshing={stats.refreshing} refresh={stats.refresh} />}
     <ReviewLoopNotice definitions={list} />
     {(definitions.data?.errors ?? []).map(error => <p key={error.path} className="mt-4 break-words rounded-lg border border-lw-danger-line bg-lw-error-soft p-3 text-sm text-lw-danger"><span className="font-lw-mono">{sourceLabel(error.path)}</span>: {error.error}</p>)}
-    {list.length > 0 && <ViewSwitch view={view} setView={setView} />}
-    {list.length > 0 && view === "map" && <MapTab map={map} />}
-    {list.length > 0 && view === "list" && <WorkflowList definitions={list} triggerStates={definitions.data?.trigger_states} stats={stats.data} now={now} onRun={setSelected} refresh={refreshAll} actions={newWorkflow} />}
+    {list.length > 0 && <>
+      <ViewSwitch view={view} setView={setView} />
+      {view === "map"
+        ? <MapTab map={map} />
+        : <WorkflowList definitions={list} triggerStates={definitions.data?.trigger_states} stats={stats.data} now={now} onRun={setSelected} refresh={refreshAll} actions={newWorkflow} />}
+    </>}
     {!definitions.loading && !definitions.error && list.length === 0 && <section aria-label="Start a workflow" className="mt-6 flex flex-col gap-3 text-sm">
       <div className="flex justify-end">{newWorkflow}</div>
       <p className="text-lw-text-2">No workflow definitions found</p>
