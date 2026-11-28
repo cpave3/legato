@@ -17,36 +17,6 @@ import {
   type SuggestionView,
 } from "../../lib/spawnSuggestions"
 
-// The presets offered and the path, set afresh each time the dialog opens:
-// the server's presets (or, from a server with no directory service, the
-// configured repositories with a folder) and its default directory.
-function useDirectoryPresets(openKey: string, baseUrl: string, initialWorkingDir: string, settingsRef: RefObject<DirectorySettings | undefined>) {
-  const [presets, setPresets] = useState<DirectoryPreset[]>([])
-  const [serverKnowsDirectories, setServerKnowsDirectories] = useState(false)
-  const [path, setPath] = useState("")
-  const [showAll, setShowAll] = useState(false)
-  const [savePath, setSavePath] = useState(false)
-
-  useEffect(() => {
-    if (!openKey) return
-    let current = true
-    setSavePath(false)
-    fetchDirectoryPresets(baseUrl)
-      .catch(() => null)
-      .then((listed) => {
-        if (!current) return
-        const start = directoryStart(listed, settingsRef.current, initialWorkingDir)
-        setServerKnowsDirectories(start.serverKnowsDirectories)
-        setPresets(start.presets)
-        setPath(start.path)
-        setShowAll(start.showAll)
-      })
-    return () => { current = false }
-  }, [openKey, baseUrl, initialWorkingDir, settingsRef])
-
-  return { presets, serverKnowsDirectories, path, setPath, showAll, setShowAll, savePath, setSavePath }
-}
-
 // Asks the server for the directories under the path once it rests, while
 // the list is open. A request that fails has no suggestions, which is also
 // what ends the wait of a list that is held for it. An answer for a path
@@ -58,18 +28,6 @@ function askSuggestions(baseUrl: string, path: string, signal: AbortSignal, disp
       if (signal.aborted) return
       dispatch({ type: "answer", found: result ?? noSuggestions(path) })
     })
-}
-
-function useSuggestionAnswers(suggests: boolean, baseUrl: string, path: string, dispatch: Dispatch<PathFieldEvent>) {
-  useEffect(() => {
-    if (!suggests) return
-    const controller = new AbortController()
-    const timer = window.setTimeout(() => askSuggestions(baseUrl, path, controller.signal, dispatch), suggestDelayMs)
-    return () => {
-      window.clearTimeout(timer)
-      controller.abort()
-    }
-  }, [suggests, baseUrl, path, dispatch])
 }
 
 // The list floats over the dialog, so that it neither resizes the dialog
@@ -146,16 +104,47 @@ interface DirectoryFieldOptions {
 // the path, and the suggestions the server completes it with, with the keys
 // that move along them.
 export function useDirectoryField({ openKey, baseUrl, initialWorkingDir, settingsRef, folder }: DirectoryFieldOptions) {
-  const presetState = useDirectoryPresets(openKey, baseUrl, initialWorkingDir, settingsRef)
-  const { path, setPath, presets, serverKnowsDirectories } = presetState
+  // The presets offered and the path, set afresh each time the dialog opens:
+  // the server's presets (or, from a server with no directory service, the
+  // configured repositories with a folder) and its default directory.
+  const [presets, setPresets] = useState<DirectoryPreset[]>([])
+  const [serverKnowsDirectories, setServerKnowsDirectories] = useState(false)
+  const [path, setPath] = useState("")
+  const [showAll, setShowAll] = useState(false)
+  const [savePath, setSavePath] = useState(false)
   const [state, dispatch] = useReducer(pathFieldReducer, initialPathField)
+
+  useEffect(() => {
+    if (!openKey) return
+    let current = true
+    setSavePath(false)
+    fetchDirectoryPresets(baseUrl)
+      .catch(() => null)
+      .then((listed) => {
+        if (!current) return
+        const start = directoryStart(listed, settingsRef.current, initialWorkingDir)
+        setServerKnowsDirectories(start.serverKnowsDirectories)
+        setPresets(start.presets)
+        setPath(start.path)
+        setShowAll(start.showAll)
+      })
+    return () => { current = false }
+  }, [openKey, baseUrl, initialWorkingDir, settingsRef])
 
   useEffect(() => {
     if (openKey) dispatch({ type: "reset" })
   }, [openKey])
 
   const suggests = openKey !== "" && state.listOpen && serverKnowsDirectories && folder
-  useSuggestionAnswers(suggests, baseUrl, path, dispatch)
+  useEffect(() => {
+    if (!suggests) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => askSuggestions(baseUrl, path, controller.signal, dispatch), suggestDelayMs)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [suggests, baseUrl, path, dispatch])
   const view = suggestionView(state.found, path, suggests)
   const { current, ghost } = suggestionCursor(path, view.takeable, state.active, state.chosen)
 
@@ -166,7 +155,14 @@ export function useDirectoryField({ openKey, baseUrl, initialWorkingDir, setting
   const take = (item: DirectorySuggestion | undefined) => { if (item) edit(item.display) }
 
   return {
-    ...presetState,
+    presets,
+    serverKnowsDirectories,
+    path,
+    setPath,
+    showAll,
+    setShowAll,
+    savePath,
+    setSavePath,
     selected: presetFor(path, presets),
     found: state.found,
     suggests,
