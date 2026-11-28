@@ -354,6 +354,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/learning-reflections/{id}/submit", s.learningReflectionSubmitHandler())
 	mux.HandleFunc("/api/learning-prompt-manifests/{id}", s.learningPromptManifestHandler())
 	mux.HandleFunc("/api/workflows", s.workflowsHandler())
+	mux.HandleFunc("/api/workflows/graph", s.workflowMapHandler())
 	mux.HandleFunc("/api/workflows/{name}/runs", s.workflowStartHandler())
 	mux.HandleFunc("/api/workflows/{name}/file", s.workflowFileHandler())
 	mux.HandleFunc("/api/workflows/{name}/copy", s.workflowCopyHandler())
