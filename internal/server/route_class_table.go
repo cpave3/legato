@@ -141,6 +141,7 @@ var routeClassTable = []routeClassEntry{
 	{"GET", "/api/agents/{task_id}/resources", ClassRead, "List an agent's resources"},
 	{"POST", "/api/agents/{task_id}/resources", ClassRisky, "Give an agent resources, restarting it if needed"},
 	{"POST", "/api/agents/{task_id}/restart", ClassRisky, "Restart an agent"},
+	{"GET", "/api/agents/{task_id}/managed-hooks", ClassRead, "Read an agent's managed hooks: those it has, and why each other is off"},
 	{"POST", "/api/agents/{task_id}/compact", ClassChange, "Compact an agent's context with its tool's own compaction, between turns; Claude Code also takes focus instructions"},
 	{"GET", "/api/agents/interrupted", ClassRead, "List the agents a crash interrupted"},
 	{"GET", "/api/sessions", ClassRead, "Search the session history: the conversations agents had here, with whether each can be restored"},

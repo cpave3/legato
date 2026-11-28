@@ -61,10 +61,10 @@ const handOffBody = `{"worker": "<instance_id>", "purpose": "make-change", "kind
 var routeBodies = map[string]string{
 	"POST /api/tasks":                              `{"title": "…", "description": "…", "column": "Backlog", "priority": "", "workspace_id": 1}`,
 	"PATCH /api/tasks/{id}":                        `{"title": "…", "description": "…", "column": "Done", "before": "LEG-12", "workspace_id": 1}`,
-	"POST /api/tasks/{id}/agent":                   `{"agent_kind": "claude-code", "tier": "…", "prompt": "…", "working_dir": "…", "repo": "owner/name", "resources": ["…"]}`,
+	"POST /api/tasks/{id}/agent":                   `{"agent_kind": "claude-code", "tier": "…", "prompt": "…", "working_dir": "…", "repo": "owner/name", "resources": ["…"], "hooks_off": ["…"]}`,
 	"POST /api/tasks/{id}/macro":                   `{"name": "Review", "pr": {"repo": "owner/name", "pr_number": 12, "url": "…"}}`,
 	"POST /api/tasks/{id}/link-pr":                 `{"owner": "…", "repo": "…", "pr_number": 12}`,
-	"POST /api/agents/spawn":                       `{"title": "…", "agent_kind": "claude-code", "tier": "…", "working_dir": "…", "prompt": "…"}`,
+	"POST /api/agents/spawn":                       `{"title": "…", "agent_kind": "claude-code", "tier": "…", "working_dir": "…", "prompt": "…", "hooks_off": ["…"]}`,
 	"PUT /api/workflows/{name}/triggers/{trigger}": `{"enabled": false}`,
 	"POST /api/workflow-templates/{template}":      `{"name": "…", "folder": "global"}`,
 	"POST /api/workflow-drafts":                    `{"yaml": "schema_version: 2\nname: …"}`,
