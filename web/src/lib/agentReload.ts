@@ -3,12 +3,11 @@ import { apiFetch } from "./api"
 
 // Whether an agent can be reloaded: stopped and started again with its agent
 // tool, directory and resources, resuming its conversation, so it reads its
-// MCP servers, plugins and hooks afresh. A swarm or a workflow starts its own
-// agents, so theirs are not offered.
+// MCP servers, plugins and hooks afresh. A swarm starts its own agents, so
+// theirs are not offered; a workflow's agent reloads on the step it is on.
 export function canReloadAgent(agent: AgentInfo | undefined): boolean {
   if (!agent || agent.status !== "running") return false
-  if (agent.role || agent.parent_task_id || agent.subtask_id) return false
-  return !agent.workflow_run_id && agent.execution_kind !== "workflow_agent"
+  return !(agent.role || agent.parent_task_id || agent.subtask_id)
 }
 
 // The menu entry that reloads an agent on the other side of the sandbox, as

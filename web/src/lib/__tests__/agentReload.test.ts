@@ -7,13 +7,14 @@ const agent = (extra: Partial<AgentInfo> = {}) => ({ task_id: "T-1", agent_kind:
 afterEach(() => vi.unstubAllGlobals())
 
 describe("reloading an agent", () => {
-  it("is offered for a running agent of its own, and not for one a swarm or a workflow runs", () => {
+  it("is offered for a running agent of its own or a workflow's, and not for one a swarm runs", () => {
     expect(canReloadAgent(agent())).toBe(true)
     expect(canReloadAgent(agent({ status: "dead" }))).toBe(false)
     expect(canReloadAgent(agent({ role: "conductor", parent_task_id: "T-1" }))).toBe(false)
     expect(canReloadAgent(agent({ role: "backend", parent_task_id: "P-1" }))).toBe(false)
-    expect(canReloadAgent(agent({ workflow_run_id: "run-1" }))).toBe(false)
-    expect(canReloadAgent(agent({ execution_kind: "workflow_agent" }))).toBe(false)
+    // A workflow's agent reloads on the step it is on (LEG-689).
+    expect(canReloadAgent(agent({ workflow_run_id: "run-1" }))).toBe(true)
+    expect(canReloadAgent(agent({ execution_kind: "workflow_agent" }))).toBe(true)
     expect(canReloadAgent(undefined)).toBe(false)
   })
 
