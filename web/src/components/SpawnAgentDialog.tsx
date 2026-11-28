@@ -9,22 +9,14 @@ import { macroMessage, pickerMacros, useMacros } from "../lib/macros"
 import { useServer } from "../hooks/useServer"
 import { useSettings } from "../hooks/useSettings"
 import { agentKindLabel } from "../lib/agentKind"
-import { cloneChoices, listJobClones, type JobClone } from "../lib/jobClones"
 import { engramMarkLabel, fetchEngramPicker, takesEngram, type EngramPicker } from "../lib/engrams"
 import { directoryName, saveDirectoryPreset } from "../lib/spawnDirectories"
 import { suggestDelayMs } from "../lib/spawnSuggestions"
 import { buildSpawnRequest, spawnWorkingDir, type SessionPolicy, type SpawnAgentRequest } from "../lib/spawnRequest"
 import { useDirectoryField } from "./spawn/useDirectoryField"
-import { PresetList } from "./spawn/PresetList"
-import { PathField } from "./spawn/PathField"
+import { useCloneChoice } from "./spawn/useCloneChoice"
+import { WhereField } from "./spawn/WhereField"
 import { fieldLabel, focusRing } from "./spawn/styles"
-
-// What "Where" is: a folder on the server, or a clone Legato manages (a new
-// one, or one an agent worked in before).
-type Place = "folder" | "clone"
-
-// The clone choice that means a new clone.
-const newClone = 0
 
 // SpawnAgentDialog asks how to start an agent: a title (when the agent is not
 // a task's), the agent tool, whether to resume that tool's saved session
@@ -113,17 +105,6 @@ export function SpawnAgentDialog({
   const [picked, setPicked] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-  // A fresh clone, when the server offers them (repository_cache.enabled):
-  // which repository, the branch the agent works on and the one it starts from.
-  const [whereKind, setWhereKind] = useState<Place>("folder")
-  const [cloneName, setCloneName] = useState("")
-  const [branch, setBranch] = useState("")
-  const [baseBranch, setBaseBranch] = useState("")
-  // The clones agents worked in, which another can work in again, and the
-  // one picked: newClone, or null for the repository's first choice.
-  const [jobClones, setJobClones] = useState<JobClone[]>([])
-  const [jobCloneId, setJobCloneId] = useState<number | null>(null)
-  const [jobClonesError, setJobClonesError] = useState("")
   // The engrams the agent can start as, and the one picked ("" for none).
   const [engramPicker, setEngramPicker] = useState<EngramPicker | null>(null)
   const [engram, setEngram] = useState("")
@@ -145,7 +126,9 @@ export function SpawnAgentDialog({
   const offersSessionChoice = resumableAgentKinds.includes(effectiveAdapter)
   // Changes whenever the dialog opens afresh, when each part starts over.
   const openKey = open ? JSON.stringify([baseUrl, initialWorkingDir, defaultBranch, taskId]) : ""
-  const dir = useDirectoryField({ openKey, baseUrl, initialWorkingDir, settingsRef, folder: whereKind === "folder" })
+  const clone = useCloneChoice({ openKey, baseUrl, taskId, defaultBranch, settings: settings.data, settingsRef })
+  const { inClone, repository: cloneRepository, jobClone, branch, baseBranch, jobClonesError } = clone
+  const dir = useDirectoryField({ openKey, baseUrl, initialWorkingDir, settingsRef, folder: clone.whereKind === "folder" })
   const { path, presets, selected, serverKnowsDirectories, savePath, showAll } = dir
 
   useEffect(() => {
@@ -160,35 +143,9 @@ export function SpawnAgentDialog({
     setPrompt("")
     setMacroName("")
     setTier("")
-    setWhereKind("folder")
-    const firstCloneable = (settingsRef.current?.repositories ?? []).find((repository) => repository.repo)
-    setCloneName(firstCloneable?.name ?? "")
-    setBranch(defaultBranch)
-    setBaseBranch(firstCloneable?.base_branch ?? "")
-    setJobClones([])
-    setJobCloneId(null)
-    setJobClonesError("")
     setEngramPicker(null)
     setEngram("")
     setRememberEngram(false)
-    if (settingsRef.current?.fresh_clones_enabled) {
-      listJobClones(baseUrl)
-        .then((listed) => {
-          if (!current) return
-          setJobClones(listed)
-          // The task's own clone is where its next agent most likely goes.
-          const own = taskId ? listed.find((clone) => clone.task_ids.includes(taskId)) : undefined
-          if (own) {
-            const preset = (settingsRef.current?.repositories ?? []).find((repository) => repository.repo === own.repo)
-            setCloneName(preset?.name ?? own.repo)
-            setBaseBranch(preset?.base_branch ?? "")
-          }
-        })
-        .catch((reason) => {
-          if (current) setJobClonesError(`Could not load clones: ${reason instanceof Error ? reason.message : String(reason)}`)
-        })
-    }
-
     setPicked([])
     listResources(baseUrl)
       .then((listed) => { if (current) setResources(listed) })
@@ -196,21 +153,6 @@ export function SpawnAgentDialog({
     return () => { current = false }
   }, [open, baseUrl, initialWorkingDir, defaultBranch, taskId])
 
-  // The repositories a clone can be of: those offered with a GitHub name,
-  // then those of clones made before that are no longer offered.
-  const offered = settings.data?.fresh_clones_enabled ? (settings.data.repositories ?? []).filter((repository) => repository.repo) : []
-  const cloneRepositories = [
-    ...offered.map((repository) => ({ name: repository.name, repo: repository.repo, baseBranch: repository.base_branch ?? "", offered: true })),
-    ...[...new Set(jobClones.map((clone) => clone.repo))]
-      .filter((repo) => !offered.some((repository) => repository.repo === repo))
-      .map((repo) => ({ name: repo, repo, baseBranch: "", offered: false })),
-  ]
-  const inClone = whereKind === "clone" && cloneRepositories.length > 0
-  const cloneRepository = cloneRepositories.find((repository) => repository.name === cloneName) ?? cloneRepositories[0]
-  const choices = cloneRepository ? cloneChoices(jobClones, cloneRepository.repo, taskId, cloneRepository.offered) : []
-  const choice = choices.find((option) => option.id === jobCloneId) ?? choices[0]
-  // The clone picked, when it is one that exists.
-  const jobClone = choice?.clone
   const where = inClone ? cloneRepository?.name ?? "" : selected?.name ?? directoryName(path)
   const canSave = !inClone && serverKnowsDirectories && path.trim() !== "" && !selected
 
@@ -474,122 +416,7 @@ export function SpawnAgentDialog({
             </fieldset>
           )}
 
-          <div className="flex flex-col gap-1.5">
-            <span className={fieldLabel}>Where</span>
-            {cloneRepositories.length > 0 && (
-              <div role="radiogroup" aria-label="Where" className="flex rounded-[10px] border border-lw-line-strong bg-lw-ground p-[3px] sm:rounded-md sm:p-0.5">
-                {([
-                  { value: "folder", label: "Folder" },
-                  { value: "clone", label: "Clone" },
-                ] as const).map((option) => {
-                  const checked = option.value === whereKind
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={checked}
-                      onClick={() => { setWhereKind(option.value); dir.closeList() }}
-                      className={`h-10 min-w-0 flex-1 truncate rounded-lg px-2 text-sm transition-colors sm:h-[30px] sm:rounded sm:text-[13px] ${
-                        checked ? "bg-lw-selected font-medium text-lw-text" : "text-lw-text-2 hover:text-lw-text"
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-            {inClone && cloneRepository && (
-              <div className="mt-2 flex flex-col gap-3">
-                <div className={`grid grid-cols-1 gap-3 ${choices.length > 1 || jobClone ? "sm:grid-cols-2" : ""}`}>
-                  <label className="flex min-w-0 flex-col gap-1.5">
-                    <span className={fieldLabel}>Repository</span>
-                    <span className="relative flex">
-                      <select
-                        aria-label="Repository"
-                        value={cloneRepository.name}
-                        onChange={(event) => {
-                          const picked = cloneRepositories.find((repository) => repository.name === event.target.value)
-                          setCloneName(event.target.value)
-                          setBaseBranch(picked?.baseBranch ?? "")
-                          setJobCloneId(null)
-                        }}
-                        className={`h-[46px] w-full min-w-0 appearance-none truncate rounded-[10px] border border-lw-line-strong bg-lw-ground pl-3 pr-9 text-base text-lw-text outline-none sm:h-9 sm:rounded-md sm:text-sm ${focusRing}`}
-                      >
-                        {cloneRepositories.map((repository) => <option key={repository.name} value={repository.name}>{repository.name}</option>)}
-                      </select>
-                      <ChevronDown aria-hidden="true" size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-lw-faint" />
-                    </span>
-                  </label>
-                  {(choices.length > 1 || jobClone) && (
-                    <label className="flex min-w-0 flex-col gap-1.5">
-                      <span className={fieldLabel}>Clone</span>
-                      <span className="relative flex">
-                        <select
-                          aria-label="Clone"
-                          value={choice?.id ?? newClone}
-                          onChange={(event) => setJobCloneId(Number(event.target.value))}
-                          className={`h-[46px] w-full min-w-0 appearance-none truncate rounded-[10px] border border-lw-line-strong bg-lw-ground pl-3 pr-9 text-base text-lw-text outline-none sm:h-9 sm:rounded-md sm:text-sm ${focusRing}`}
-                        >
-                          {choices.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-                        </select>
-                        <ChevronDown aria-hidden="true" size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-lw-faint" />
-                      </span>
-                    </label>
-                  )}
-                </div>
-                <div className={`grid grid-cols-1 gap-3 ${jobClone ? "" : "sm:grid-cols-2"}`}>
-                  <label className="flex flex-col gap-1.5">
-                    <span className={fieldLabel}>Branch</span>
-                    <input
-                      type="text"
-                      aria-label="Branch"
-                      autoComplete="off"
-                      autoCapitalize="off"
-                      spellCheck={false}
-                      disabled={jobClone?.busy}
-                      value={jobClone?.busy ? "" : branch}
-                      onChange={(event) => setBranch(event.target.value)}
-                      placeholder={jobClone ? `stay on ${jobClone.branch || "its commit"}` : "legato/<task id>"}
-                      className={`h-[46px] rounded-[10px] border border-lw-line-strong bg-lw-ground px-3 font-lw-mono text-base text-lw-text outline-none placeholder:text-lw-faint disabled:opacity-60 sm:h-9 sm:rounded-md sm:text-[13px] ${focusRing}`}
-                    />
-                  </label>
-                  {!jobClone && (
-                    <label className="flex flex-col gap-1.5">
-                      <span className={fieldLabel}>Base branch</span>
-                      <input
-                        type="text"
-                        aria-label="Base branch"
-                        autoComplete="off"
-                        autoCapitalize="off"
-                        spellCheck={false}
-                        value={baseBranch}
-                        onChange={(event) => setBaseBranch(event.target.value)}
-                        placeholder="default branch"
-                        className={`h-[46px] rounded-[10px] border border-lw-line-strong bg-lw-ground px-3 font-lw-mono text-base text-lw-text outline-none placeholder:text-lw-faint sm:h-9 sm:rounded-md sm:text-[13px] ${focusRing}`}
-                      />
-                    </label>
-                  )}
-                </div>
-                <p className="text-xs text-lw-faint">
-                  {!jobClone
-                    ? `A new clone of ${cloneRepository.repo}. A branch that exists on GitHub is checked out; otherwise it is made from the base branch.`
-                    : jobClone.busy
-                      ? `An agent is working in this clone, so this one joins it on ${jobClone.branch || "its commit"}. The two can message each other.`
-                      : `Continues in ${jobClone.path} as it was left, with its build output. A branch named here is made at its current commit, stacked on ${jobClone.branch || "it"}.`}
-                </p>
-              </div>
-            )}
-            {!inClone && presets.length > 0 && <PresetList dir={dir} />}
-
-            <PathField
-              dir={dir}
-              listId={listId}
-              visibility={inClone ? "hidden" : customPathShown ? "block" : "hidden sm:block"}
-              layoutKey={JSON.stringify([error, offersSessionChoice])}
-            />
-          </div>
+          <WhereField dir={dir} clone={clone} listId={listId} customPathShown={customPathShown} layoutKey={JSON.stringify([error, offersSessionChoice])} />
           {resources.length > 0 && (
             <fieldset className="flex flex-col gap-1.5">
               <legend className={`${fieldLabel} mb-1.5`}>Resources</legend>
