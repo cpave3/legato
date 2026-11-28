@@ -236,6 +236,31 @@ describe("AgentSidebar", () => {
     expect(screen.queryByRole("heading", { name: /Your turn/ })).toBeNull()
   })
 
+  it("marks a swarm worker by its role, indented with the swarm's menu, and an agent that notifies", () => {
+    render(
+      <AgentSidebar
+        agents={[
+          { ...longAgent, id: 1, task_id: "worker-a", parent_task_id: "P", role: "tester", notify_enabled: true },
+          { ...longAgent, id: 2, task_id: "solo", activity: "" },
+        ]}
+        selectedId="solo"
+        onSelect={() => {}}
+        onSpawn={() => {}}
+      />,
+    )
+    const worker = screen.getByRole("button", { name: /worker-a/ })
+    expect(within(worker).getByTitle("Worker role: tester").textContent).toBe("tester")
+    expect(within(worker).getByLabelText("Notifications on")).toBeTruthy()
+    const row = worker.parentElement as HTMLElement
+    expect(row.className).toContain("ml-3")
+    expect(row.querySelectorAll("button").length).toBeGreaterThan(1)
+    const solo = screen.getByRole("button", { name: /^solo/ })
+    expect(solo.parentElement?.className).toContain("bg-lw-selected")
+    expect(solo.parentElement?.className).not.toContain("ml-3")
+    expect(within(solo).queryByLabelText("Notifications on")).toBeNull()
+    expect(solo.parentElement?.querySelectorAll(":scope > div > button").length).toBe(0)
+  })
+
   it("numbers the agents for switching in the order it lists them", () => {
     render(
       <AgentSidebar

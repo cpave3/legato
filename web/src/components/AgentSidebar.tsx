@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import type { AgentInfo } from "../lib/agentWire";
 import type { AgentGrouping } from "./agent-groups/useAgentGroups";
 import type { AgentContext } from "../hooks/useAgentContexts";
@@ -345,6 +345,100 @@ function GroupMenu({ name, label, grouping }: { name: string | null; label: stri
   );
 }
 
+// The row's first line: notifications, a swarm role, the task, new
+// artifacts, and its number while the modifier is held, else its time.
+function EntryHeading({ agent, index, modifierHeld, unseen, isConductor, isWorker }: { agent: AgentInfo; index: number; modifierHeld?: boolean; unseen: number; isConductor: boolean; isWorker: boolean }) {
+  const time = formatAgentTime(stateSeconds(agent));
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      {agent.notify_enabled && <Bell size={10} aria-label="Notifications on" className="shrink-0 text-lw-link" />}
+      {isConductor && (
+        <span title="Swarm conductor" className="shrink-0 rounded bg-lw-accent/20 px-1.5 text-[10px] font-medium uppercase text-lw-link">◆ conductor</span>
+      )}
+      {isWorker && agent.role && (
+        <span title={`Worker role: ${agent.role}`} className="shrink-0 rounded bg-lw-raised px-1.5 text-[10px] font-medium uppercase text-lw-text-2">{agent.role}</span>
+      )}
+      <span className="min-w-0 truncate font-lw-mono text-xs font-medium">{agent.task_id}</span>
+      <UnseenBadge unseen={unseen} />
+      {modifierHeld && index < 9
+        ? <span className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded bg-lw-accent text-[10px] font-bold text-[var(--theme-canvas,#fff)]">{index + 1}</span>
+        : time && <span className="ml-auto shrink-0 text-xs text-lw-text-2">{time}</span>}
+    </div>
+  );
+}
+
+function UnseenBadge({ unseen }: { unseen: number }) {
+  if (unseen <= 0) return null;
+  return (
+    <span
+      aria-label={`${unseen} new artifact${unseen === 1 ? "" : "s"}`}
+      title="New artifacts from this agent"
+      className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-lw-accent px-1 text-[10px] font-semibold text-[var(--theme-canvas,#fff)]"
+    >
+      {unseen}
+    </span>
+  );
+}
+
+// The tool line, with the foreground process when it is not the tool, how
+// full the context is, and below it the recent activity and sandbox marks.
+function EntryFooter({ agent, context }: { agent: AgentInfo; context?: AgentContext }) {
+  return <>
+    <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-lw-text-2">
+      <span className="flex min-w-0 items-center gap-1.5">
+        <AgentKindBadge kind={agent.agent_kind} accountLabel={agent.account_label || agent.account} isNative={!!agent.has_chimera_endpoint} />
+        {!isAgentToolInForeground(agent.agent_kind, agent.command) && (
+          <span className="min-w-0 truncate font-lw-mono text-lw-faint">{agent.command}</span>
+        )}
+      </span>
+      {context && <ContextMeter share={context.share} />}
+    </div>
+    <div className="flex items-center gap-2 pt-0.5">
+      <ActivityBar states={agent.state_timeline} />
+      {agent.unsandboxed && <UnsandboxedBadge />}
+      {agent.docker_host_network && <HostNetworkBadge />}
+    </div>
+  </>;
+}
+
+// A swarm agent's menu: message, close or finish (AgentActionMenu).
+function SwarmEntryMenu({ agent }: { agent: AgentInfo }) {
+  return (
+    <div className="pr-1 pt-1.5">
+      <AgentActionMenu
+        agentTaskId={agent.task_id}
+        parentTaskId={agent.parent_task_id ?? ""}
+        subtaskId={agent.subtask_id ?? agent.task_id}
+        role={agent.role ?? "worker"}
+      />
+    </div>
+  );
+}
+
+// The row's own handlers: dragging it to another group, and its menu on a
+// right click, each only when the list offers it.
+function entryHandlers(agent: AgentInfo, onDragStart?: (taskId: string) => void, onAgentContextMenu?: (agent: AgentInfo, position: { x: number; y: number }) => void) {
+  return {
+    draggable: onDragStart ? true : undefined,
+    onDragStart: onDragStart ? (event: DragEvent<HTMLDivElement>) => {
+      event.dataTransfer?.setData(AGENT_DRAG_TYPE, agent.task_id);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+      onDragStart(agent.task_id);
+    } : undefined,
+    onContextMenu: onAgentContextMenu ? (event: MouseEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      onAgentContextMenu(agent, { x: event.clientX, y: event.clientY });
+    } : undefined,
+  };
+}
+
+// The row's ink: full for the selected, the finished and an agent at work,
+// muted for one with nothing going on.
+function entryInk(agent: AgentInfo, selected: boolean, finished: boolean): string {
+  if (selected || finished || agent.activity) return "text-lw-text";
+  return "text-[var(--theme-muted,#b4b3bd)]";
+}
+
 function AgentEntry({
   agent,
   index,
@@ -372,23 +466,13 @@ function AgentEntry({
   const isConductor = agent.role === "conductor";
   const isSwarm = Boolean(agent.parent_task_id);
   const isWorker = isSwarm && !isConductor;
-  const time = formatAgentTime(stateSeconds(agent));
   const unread = unreadDone(agent);
   const finished = glanceSection(agent) === "finished";
 
   return (
     <div
-      draggable={onDragStart ? true : undefined}
-      onDragStart={onDragStart ? (event) => {
-        event.dataTransfer?.setData(AGENT_DRAG_TYPE, agent.task_id);
-        if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-        onDragStart(agent.task_id);
-      } : undefined}
+      {...entryHandlers(agent, onDragStart, onAgentContextMenu)}
       onDragEnd={onDragEnd}
-      onContextMenu={onAgentContextMenu ? (event) => {
-        event.preventDefault();
-        onAgentContextMenu(agent, { x: event.clientX, y: event.clientY });
-      } : undefined}
       className={cn(
         "group relative flex min-w-0 max-w-full flex-wrap items-start overflow-hidden rounded-md transition-colors",
         isWorker && "ml-3",
@@ -399,30 +483,9 @@ function AgentEntry({
       <button
         data-agent={agent.task_id}
         onClick={() => onSelect(agent.task_id)}
-        className={cn("flex min-w-0 max-w-full flex-1 flex-col gap-[3px] overflow-hidden px-2.5 py-2 text-left", selected || finished ? "text-lw-text" : agent.activity ? "text-lw-text" : "text-[var(--theme-muted,#b4b3bd)]")}
+        className={cn("flex min-w-0 max-w-full flex-1 flex-col gap-[3px] overflow-hidden px-2.5 py-2 text-left", entryInk(agent, selected, finished))}
       >
-        <div className="flex min-w-0 items-center gap-1.5">
-          {agent.notify_enabled && <Bell size={10} aria-label="Notifications on" className="shrink-0 text-lw-link" />}
-          {isConductor && (
-            <span title="Swarm conductor" className="shrink-0 rounded bg-lw-accent/20 px-1.5 text-[10px] font-medium uppercase text-lw-link">◆ conductor</span>
-          )}
-          {isWorker && agent.role && (
-            <span title={`Worker role: ${agent.role}`} className="shrink-0 rounded bg-lw-raised px-1.5 text-[10px] font-medium uppercase text-lw-text-2">{agent.role}</span>
-          )}
-          <span className="min-w-0 truncate font-lw-mono text-xs font-medium">{agent.task_id}</span>
-          {unseen > 0 && (
-            <span
-              aria-label={`${unseen} new artifact${unseen === 1 ? "" : "s"}`}
-              title="New artifacts from this agent"
-              className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-lw-accent px-1 text-[10px] font-semibold text-[var(--theme-canvas,#fff)]"
-            >
-              {unseen}
-            </span>
-          )}
-          {modifierHeld && index < 9
-            ? <span className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded bg-lw-accent text-[10px] font-bold text-[var(--theme-canvas,#fff)]">{index + 1}</span>
-            : time && <span className="ml-auto shrink-0 text-xs text-lw-text-2">{time}</span>}
-        </div>
+        <EntryHeading agent={agent} index={index} modifierHeld={modifierHeld} unseen={unseen} isConductor={isConductor} isWorker={isWorker} />
         {agent.task_title && <span className="truncate">{agent.task_title}</span>}
         {agent.run_card && (
           <span title={agent.run_card.title} className="truncate text-[11px] text-lw-text-2">for {agent.run_card.key}</span>
@@ -431,31 +494,9 @@ function AgentEntry({
         {finished ? <FinishedReason agent={agent} unread={unread} /> : <StageLine agent={agent} />}
         <NeedsYouLine agent={agent} />
         <ReeveWaitLine agent={agent} />
-        <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-lw-text-2">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <AgentKindBadge kind={agent.agent_kind} accountLabel={agent.account_label || agent.account} isNative={!!agent.has_chimera_endpoint} />
-            {!isAgentToolInForeground(agent.agent_kind, agent.command) && (
-              <span className="min-w-0 truncate font-lw-mono text-lw-faint">{agent.command}</span>
-            )}
-          </span>
-          {context && <ContextMeter share={context.share} />}
-        </div>
-        <div className="flex items-center gap-2 pt-0.5">
-          <ActivityBar states={agent.state_timeline} />
-          {agent.unsandboxed && <UnsandboxedBadge />}
-          {agent.docker_host_network && <HostNetworkBadge />}
-        </div>
+        <EntryFooter agent={agent} context={context} />
       </button>
-      {isSwarm && (
-        <div className="pr-1 pt-1.5">
-          <AgentActionMenu
-            agentTaskId={agent.task_id}
-            parentTaskId={agent.parent_task_id ?? ""}
-            subtaskId={agent.subtask_id ?? agent.task_id}
-            role={agent.role ?? "worker"}
-          />
-        </div>
-      )}
+      {isSwarm && <SwarmEntryMenu agent={agent} />}
       {/* Beside the row's button, not in it: it opens a tree of its own. */}
       <SubagentsLine jobs={agent.background_jobs} className="-mt-1 basis-full px-2.5 pb-2" />
     </div>
