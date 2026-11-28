@@ -39,7 +39,9 @@ See [Web UI](web-ui.md) § Background shell tiles.
   which Legato writes at every start and loads into every Claude Code session it
   launches, hooks `SessionStart`, `UserPromptSubmit`, `PostToolUse`,
   `PermissionRequest`, `Stop`, `StopFailure`, `PreCompact`, `PostCompact`,
-  `SubagentStart`, `SubagentStop` and `SessionEnd`, and pipes each payload into `legato agent hook claude-code`. That
+  `SubagentStart`, `SubagentStop` and `SessionEnd`, and pipes each payload into `legato agent hook claude-code`
+  (`PermissionRequest` and `StopFailure` also into `legato agent bridge-hook claude-code`, for the native
+  panel; see [Claude Code native integration](claude-code-native.md) § Permissions). That
   command keeps only what the state needs (`cli.ParseClaudeHook`) and sends it
   through the host broker (op `agent.hook`) or, outside a sandbox without a
   broker, applies it to the database itself. The host applies it with
