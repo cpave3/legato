@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/sandbox"
 )
@@ -24,6 +25,58 @@ type SandboxSettings struct {
 	// Docker gives each sandboxed agent a filtered Docker socket
 	// (agents.sandbox.docker). Nil: none, and Docker stays hidden.
 	Docker *SandboxDocker
+	// SocketWait bounds how long a launch waits for the execution's
+	// sockets the sandbox binds (sandboxSockets); 0 is
+	// defaultSandboxSocketWait.
+	SocketWait time.Duration
+}
+
+// defaultSandboxSocketWait outlasts the channel host's reconcile tick (5 s):
+// when another process serves the credential channels, it opens a new
+// execution's socket on its next reconcile at the latest.
+const defaultSandboxSocketWait = 15 * time.Second
+
+// sandboxSockets are the sockets of an execution that the sandbox binds as
+// files and that another process may open after the spawn has begun: bwrap
+// refuses to start when a path it binds is missing (LEG-709). The broker's
+// and Docker's are bound by their folders, so only the SSH agent's is here.
+func sandboxSockets(in SandboxPlanInput) []string {
+	if in.SSHSocket == "" {
+		return nil
+	}
+	return []string{in.SSHSocket}
+}
+
+// awaitSandboxSockets returns once every path exists, or an error naming
+// those still missing after the settings' wait.
+func (s *SandboxSettings) awaitSandboxSockets(ctx context.Context, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	wait := s.SocketWait
+	if wait <= 0 {
+		wait = defaultSandboxSocketWait
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		var missing []string
+		for _, p := range paths {
+			if _, err := os.Lstat(p); err != nil {
+				missing = append(missing, p)
+			}
+		}
+		if len(missing) == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the sandbox binds %s, which was not there after %s", strings.Join(missing, ", "), wait)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
 }
 
 // CheckoutOverlayProber says whether an agent's checkout can be shown
@@ -46,10 +99,10 @@ func (a *agentService) CheckoutOverlayAvailable() bool {
 // in its sandbox, ending in "--". attributionTaskID is the task the agent's
 // execution concerns: a workflow agent's may differ from taskID, and that
 // task's job clone is the agent's to work in too.
-func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTaskID, executionID, agentKind, workDir string, env map[string]string, resources []Resource, readOnly, throwaway, dockerHostNetwork bool, engram SandboxEngram) (string, error) {
+func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTaskID, executionID, agentKind, workDir string, env map[string]string, resources []Resource, readOnly, throwaway, dockerHostNetwork bool, engram SandboxEngram) (string, []string, error) {
 	backend := a.sandbox.Backend
 	if err := backend.Available(); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	in := a.sandbox.Base
 	in.WorkDir, in.ExecutionID, in.TaskID, in.AgentKind = workDir, executionID, taskID, agentKind
@@ -93,13 +146,13 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 		// Made when missing, so what the tool writes there lands on the host
 		// and not in the sandbox's empty home.
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return "", err
+			return "", nil, err
 		}
 	}
 	in.GitCommonDir = gitCommonDir(ctx, workDir)
 	jobDir, err := a.taskJobClone(ctx, in.DataDir, workDir, taskID, attributionTaskID)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	in.JobDir = jobDir
 	in.Extra = append([]SandboxPath{}, in.Extra...)
@@ -112,13 +165,13 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 		in.SSHConfigDir = filepath.Join(in.RuntimeDir, "sandbox", executionID, "ssh")
 		copies, err := writeSandboxSSHConfig("/etc/ssh", in.SSHConfigDir)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		in.SSHConfig = copies
 	}
 	if gh, ok := sandboxGH(in.CredentialWrapperDir, env["PATH"], filepath.Join(in.RuntimeDir, "sandbox", executionID, "gh-real")); ok {
 		if err := os.WriteFile(gh.RealMount, nil, 0o600); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		in.GH = gh
 	}
@@ -126,23 +179,23 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 	// folder goes first on its PATH.
 	pathFirst := ""
 	if engram.Store != "" && in.RuntimeDir == "" {
-		return "", errors.New("an engram session needs Legato's runtime folder for its engram binary")
+		return "", nil, errors.New("an engram session needs Legato's runtime folder for its engram binary")
 	}
 	if engram.Store != "" {
 		binDir := filepath.Join(in.RuntimeDir, "sandbox", executionID, "bin")
 		engram.BinMount = filepath.Join(binDir, "engram")
 		if err := os.MkdirAll(binDir, 0o700); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		if err := os.WriteFile(engram.BinMount, nil, 0o600); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		pathFirst = binDir
 	}
 	in.Engram = engram
 	az, err := sandboxAz(in, executionID)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	in.Az = az
 	if a.sandbox.Docker != nil {
@@ -152,27 +205,27 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 	// mounts hold it covers it on the first spawn too.
 	if root := scratchFor(in).Root; root != "" {
 		if err := os.MkdirAll(root, 0o700); err != nil {
-			return "", err
+			return "", nil, err
 		}
 	}
 	// These mounts must exist even on the first spawn: their writable
 	// parent would otherwise let the agent install its own mods or hooks.
 	for _, dir := range chimeraProtectedDirs(in) {
 		if err := checkProtectedDir(HostFS{}, dir); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return "", fmt.Errorf("prepare Chimera sandbox directory %s: %w", dir, err)
+			return "", nil, fmt.Errorf("prepare Chimera sandbox directory %s: %w", dir, err)
 		}
 	}
 	plan, err := BuildSandboxPlan(in)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if a.sandbox.Docker != nil {
 		// What the proxy lets this agent's containers mount.
 		if err := a.sandbox.Docker.WriteView(executionID, plan, dockerHostNetwork); err != nil {
-			return "", err
+			return "", nil, err
 		}
 	}
 	for k, v := range sandboxGitFetches(env) {
@@ -199,11 +252,11 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 	}
 	for _, dir := range private {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		if dir != scratch.Root {
 			if err := os.Chmod(dir, 0o700); err != nil {
-				return "", err
+				return "", nil, err
 			}
 		}
 	}
@@ -211,12 +264,12 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 	// one that starts later is then reachable from inside.
 	if in.BrokerSocket != "" {
 		if err := os.MkdirAll(filepath.Dir(in.BrokerSocket), 0o700); err != nil {
-			return "", err
+			return "", nil, err
 		}
 	}
 	args, err := backend.Wrap(plan, []string{"true"})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	args = args[:len(args)-1] // the backend's command, then its options, then "--"
 	// The shell that runs the line expands $PATH, so what the session's
@@ -230,13 +283,13 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 	if in.RuntimeDir != "" && len(args) >= 2 && args[len(args)-1] == "--" {
 		file := filepath.Join(in.RuntimeDir, "sandbox", executionID, "bwrap.args")
 		line, err := argsFileCommand(args[0], args[1:len(args)-1], file)
-		return withPath(line), err
+		return withPath(line), sandboxSockets(in), err
 	}
 	quoted := make([]string, len(args))
 	for i, arg := range args {
 		quoted[i] = shellWord(arg)
 	}
-	return withPath(strings.Join(quoted, " ")), nil
+	return withPath(strings.Join(quoted, " ")), sandboxSockets(in), nil
 }
 
 // argsFileCommand writes a backend's options to file, NUL-separated, and

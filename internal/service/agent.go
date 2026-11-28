@@ -1433,6 +1433,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// Legato's sandbox: decided and checked before any tmux session exists,
 	// so a sandbox that cannot be built never leaves an unsandboxed agent.
 	sandboxPrefix := ""
+	var sandboxSockets []string // bound by the sandbox, opened by the channel host
 	sandboxed := a.sandbox != nil && (!opt.Unsandboxed || opt.Unattended || opt.ReadOnlyCheckout || opt.ParentTaskID != "" || opt.SubtaskID != "" || opt.WorkflowRunID != "")
 	if sandboxed && brokerMissing != nil {
 		// Every legato command in the sandbox goes through the broker: an
@@ -1445,12 +1446,12 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		if booted.booted() {
 			engramMounts = SandboxEngram{Binary: booted.Binary, Store: booted.Store}
 		}
-		prefix, err := a.sandboxPrefix(ctx, taskID, attributionTaskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout, opt.ThrowawayCheckout, opt.DockerHostNetwork, engramMounts)
+		prefix, sockets, err := a.sandboxPrefix(ctx, taskID, attributionTaskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout, opt.ThrowawayCheckout, opt.DockerHostNetwork, engramMounts)
 		if err != nil {
 			failExecution()
 			return fmt.Errorf("Legato's sandbox: %w", err)
 		}
-		sandboxPrefix = prefix
+		sandboxPrefix, sandboxSockets = prefix, sockets
 	}
 
 	envVars := make([]string, 0, len(envMap))
@@ -1620,6 +1621,14 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// it (LEG-689). One tmux refuses is an error like any other here: an
 	// agent that never started is not left as a silent shell.
 	launch := func(line string) error {
+		// The launch is immediate, so a socket the channel host has yet
+		// to open would stop bwrap (LEG-709): it is waited for first.
+		if err := a.sandbox.awaitSandboxSockets(ctx, sandboxSockets); err != nil {
+			a.tmux.Kill(sessionName)
+			_ = a.store.UpdateAgentSessionStatusInSlot(ctx, taskID, slot, "dead")
+			failExecution()
+			return fmt.Errorf("launching the agent: %w", err)
+		}
 		if err := a.tmux.RunInPane(sessionName, paneLaunch(operatorShell(envMap), line), envVars...); err != nil {
 			a.tmux.Kill(sessionName)
 			_ = a.store.UpdateAgentSessionStatusInSlot(ctx, taskID, slot, "dead")

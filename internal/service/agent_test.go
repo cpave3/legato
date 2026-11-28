@@ -51,6 +51,8 @@ type mockTmux struct {
 	// kill and leaves the session running.
 	onKill  func(name string)
 	killErr error
+	// onRunInPane runs as a launch is issued, before it is recorded.
+	onRunInPane func(name string)
 }
 
 func newMockTmux() *mockTmux {
@@ -248,6 +250,9 @@ func (m *mockTmux) RunInPane(name string, argv []string, envVars ...string) erro
 	}
 	if m.runInPaneErr != nil {
 		return m.runInPaneErr
+	}
+	if m.onRunInPane != nil {
+		m.onRunInPane(name)
 	}
 	if m.paneLaunches == nil {
 		m.paneLaunches = make(map[string][][]string)
