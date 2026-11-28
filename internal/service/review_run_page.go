@@ -35,13 +35,14 @@ func (c *ReviewRunCaller) recordDetails(ctx context.Context, d *ReviewRunDetails
 		d.Findings = &counts
 	}
 	layers, _ := db.ListReviewLoopPRs(ctx, rec.ID)
+	onBase := checksOnBase(ctx, db, rec.ID)
 	for _, layer := range layers {
 		url := layer.URL
 		if url == "" {
 			url = fmt.Sprintf("https://github.com/%s/pull/%d", rec.Repo, layer.Number)
 		}
 		d.Layers = append(d.Layers, ReviewRunLayer{Number: layer.Number, URL: url, Title: layer.Title,
-			State: layer.State, Draft: layer.Draft, Mergeable: layer.Mergeable})
+			State: layer.State, Draft: layer.Draft, Mergeable: layer.Mergeable, ChecksOnBase: onBase[layer.Number]})
 	}
 	run, _ := c.run(ctx, taskID)
 	if stewarding(rec) {

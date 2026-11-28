@@ -196,3 +196,37 @@ func TestARateLimitedWatchIsTypedAndTheSessionWaits(t *testing.T) {
 		t.Fatal("a read during the back-off reached GitHub")
 	}
 }
+
+// The watch reads the base branch's newest commits' checks in the same
+// query, and the steward counts every check on the head: a failing one the
+// base fails too is noted, not routed (LEG-711).
+func TestTheWatchReadsTheBasesChecksAndCountsEveryCheck(t *testing.T) {
+	read := `{"number":458,"state":"OPEN","headRefOid":"aaa","baseRefName":"main",
+	"baseRef":{"target":{"history":{"nodes":[
+		{"statusCheckRollup":{"contexts":{"nodes":[{"__typename":"CheckRun","name":"go","status":"IN_PROGRESS","conclusion":null},{"__typename":"StatusContext","context":"ci/stack","state":"FAILURE"}]}}},
+		{"statusCheckRollup":{"contexts":{"nodes":[{"__typename":"CheckRun","name":"go","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"docs","status":"COMPLETED","conclusion":"FAILURE"}]}}},
+		{"statusCheckRollup":null}]}}},
+	"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"FAILURE","contexts":{"pageInfo":{"hasNextPage":false},"nodes":[
+		{"__typename":"CheckRun","name":"go","status":"COMPLETED","conclusion":"FAILURE","databaseId":1},
+		{"__typename":"CheckRun","name":"docs","status":"COMPLETED","conclusion":"FAILURE","databaseId":2},
+		{"__typename":"StatusContext","context":"ci/stack","state":"FAILURE"},
+		{"__typename":"CheckRun","name":"web","status":"COMPLETED","conclusion":"CANCELLED","databaseId":3}]}}}}]}}`
+	var pull watchedPull
+	if err := json.Unmarshal([]byte(read), &pull); err != nil {
+		t.Fatal(err)
+	}
+	w := pull.watch(458)
+	if len(w.BaseHistory) != 3 || len(w.BaseHistory[0]) != 2 || len(w.BaseHistory[2]) != 0 {
+		t.Fatalf("base history %+v", w.BaseHistory)
+	}
+	got := map[string]string{}
+	for _, c := range countedWatchChecks(w, nil) {
+		got[c.Name] = c.State
+	}
+	if len(got) != 3 || got["go"] != CheckFailing || got["docs"] != CheckFailingOnBase || got["ci/stack"] != CheckFailingOnBase {
+		t.Fatalf("counted %v", got)
+	}
+	if !strings.Contains(watchFields, "baseRef") {
+		t.Fatal("the watch query reads nothing of the base")
+	}
+}

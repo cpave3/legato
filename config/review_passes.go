@@ -29,8 +29,9 @@ type ReviewPassesConfig struct {
 	// CountedBots are bot logins whose comments count as feedback, beside
 	// the repository's owners, members and collaborators.
 	CountedBots []string `yaml:"counted_bots"`
-	// RequiredChecks are the checks a pull request must pass; empty means
-	// its branch protection's required checks.
+	// RequiredChecks are checks a pull request must pass even when its base
+	// fails them too; empty means its branch protection's required checks.
+	// Every other check counts as well unless the base fails it (LEG-711).
 	RequiredChecks []string `yaml:"required_checks"`
 }
 

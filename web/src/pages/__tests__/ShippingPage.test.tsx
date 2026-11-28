@@ -64,6 +64,11 @@ describe("the Shipping page", () => {
     expect(stack).toHaveTextContent("Reviewing · pass 2 of 5")
   })
 
+  it("notes a check failing on the base too, which is not the pull request's", () => {
+    open([loop({ layers: [{ number: 12, url: "https://github.com/acme/widget/pull/12", title: "Fix the login form", state: "open", draft: false, mergeable: "MERGEABLE", checks_on_base: ["docs"] }] })])
+    expect(rowOf("Fix login")).toHaveTextContent("Checks passing · Also failing on its base: docs")
+  })
+
   it("filters by Needs you, Active and Recently ended, with counts", () => {
     open([watching, reviewing, held, failing, merged])
     const active = screen.getByRole("button", { name: "Active 4" })

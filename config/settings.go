@@ -279,7 +279,7 @@ var registry = []Setting{
 	{Key: "review_passes.poll_interval", Title: "Check for new reviews every", Help: "How often pull requests are checked for new comments.", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart},
 	{Key: "review_passes.quiet_time", Title: "Wait after the last review", Help: "How long new feedback waits for more before the author is told.", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart},
 	{Key: "review_passes.counted_bots", Title: "Bots that count as reviewers", Help: "Bot logins whose comments count as feedback, as the repository's people do.", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
-	{Key: "review_passes.required_checks", Title: "Checks to wait for", Help: "The checks that must pass. Empty, the branch protection's required checks.", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
+	{Key: "review_passes.required_checks", Title: "Checks to wait for", Help: "Checks that must pass even when the base branch fails them too. Every check counts without this; empty, the branch protection's required checks.", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
 
 	// The Reeve: read when a session starts.
 	{Key: "reeve.name", Title: "Name", Help: "What Legato calls the Reeve on this instance, everywhere it shows and in its own prompt.", DefaultLabel: "the Reeve", Kind: KindString, Class: ClassChange, Mode: ModeLive, Check: func(v any) error { return CheckReeveName(v.(string)) }},

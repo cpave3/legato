@@ -46,12 +46,14 @@ function Layer({ layer }: { layer: ReviewRunLayer }) {
   const state = open ? (layer.draft ? "Draft" : "Open") : stateWords[layer.state ?? ""] ?? layer.state
   const merge = open && layer.mergeable ? mergeWords[layer.mergeable] ?? layer.mergeable : ""
   const trouble = layer.mergeable === "CONFLICTING" || layer.mergeable === "BEHIND"
+  const onBase = layer.checks_on_base ?? []
   const label = `#${layer.number}`
   return <li className="flex flex-wrap items-baseline gap-x-1.5">
     {layer.url ? <a className="font-lw-mono text-xs text-lw-link underline" href={layer.url} target="_blank" rel="noreferrer">{label}</a> : <span className="font-lw-mono text-xs">{label}</span>}
     {layer.title && <span className="min-w-0 truncate text-lw-text">{layer.title}</span>}
     <span aria-hidden="true">·</span><span>{state}</span>
     {merge && <><span aria-hidden="true">·</span><span className={cn(trouble && "text-lw-needs")}>{merge}</span></>}
+    {open && onBase.length > 0 && <><span aria-hidden="true">·</span><span>Also failing on its base: {onBase.join(", ")}</span></>}
   </li>
 }
 

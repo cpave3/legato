@@ -163,6 +163,39 @@ func TestShippingSaysAFailingCheckAfterApprovalNeedsYou(t *testing.T) {
 	}
 }
 
+// A check failing on the pull request and on its base too is not the
+// pull request's: the page notes it and says the checks pass; once the base
+// is green again it is the author's (LEG-711).
+func TestShippingNotesACheckFailingOnTheBaseToo(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	withBoardAuthor(t, r)
+	r.stewarded(t, stewardInputs)
+
+	r.worker.ReviewGitHub.SetBaseChecks("main", failingGo)
+	r.worker.ReviewGitHub.SetChecks("bbb222", failingGo)
+	r.watchTick()
+	got := oneShippingLoop(t, r.shipping(t))
+	if got.Checks != service.ShippingChecksPassing || got.NeedsYou {
+		t.Fatalf("checks %q, needs you %v", got.Checks, got.NeedsYou)
+	}
+	if layer := got.Layers[0]; len(layer.FailingChecks) != 0 || !slices.Equal(layer.ChecksOnBase, []string{"go"}) {
+		t.Fatalf("layer %+v", layer)
+	}
+	if run := r.pageDetails(t, got.RunID); len(run.Layers) != 1 || !slices.Equal(run.Layers[0].ChecksOnBase, []string{"go"}) {
+		t.Fatalf("run page layers %+v", run.Layers)
+	}
+
+	r.worker.ReviewGitHub.SetBaseChecks("main", service.CheckResult{Name: "go", State: service.CheckPassing})
+	r.watchTick()
+	got = oneShippingLoop(t, r.shipping(t))
+	if got.Checks != service.ShippingChecksFailing || !got.NeedsYou {
+		t.Fatalf("base green: checks %q, needs you %v", got.Checks, got.NeedsYou)
+	}
+	if layer := got.Layers[0]; !slices.Equal(layer.FailingChecks, []string{"go"}) || len(layer.ChecksOnBase) != 0 {
+		t.Fatalf("base green: layer %+v", layer)
+	}
+}
+
 func TestShippingSaysAStewardIsStuckAtItsReentryLimit(t *testing.T) {
 	r := newReviewRun(t, ReviewPassOptions{})
 	withBoardAuthor(t, r)

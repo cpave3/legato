@@ -56,6 +56,10 @@ type reviewGitHub struct {
 	// without the permission to read branch protection.
 	checkRuns        map[string]string
 	noAdministration bool
+	// baseCommits are the newest commits of main, as the commits list
+	// answers.
+	baseCommits string
+	baseReads   int
 	// pulls are the open pull requests the list answers with; methods
 	// the methods of every request.
 	pulls   []map[string]any
@@ -261,6 +265,13 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 				break
 			}
 			_, _ = io.WriteString(w, `{"contexts":["build"],"checks":[{"context":"build"},{"context":"lint"}]}`)
+		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/commits" && r.URL.Query().Get("sha") == "main":
+			g.baseReads++
+			if g.baseCommits == "" {
+				_, _ = io.WriteString(w, `[]`)
+				break
+			}
+			_, _ = io.WriteString(w, g.baseCommits)
 		case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/repos/cpave3/legato/commits/") && strings.HasSuffix(r.URL.Path, "/check-runs"):
 			head := strings.Split(r.URL.Path, "/")[5]
 			_, _ = io.WriteString(w, g.checkRuns[head])
@@ -1051,8 +1062,9 @@ func TestRequiredChecksAreReadFromTheBaseBranchsProtection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(checks) != 2 {
-		t.Fatalf("checks %+v; want the two required ones only", checks)
+	// The two required ones, then every other check on the head (LEG-711).
+	if len(checks) != 4 || checks[2].Name != "docs" || checks[2].State != CheckFailing || checks[3].Name != "ci/legacy" || checks[3].State != CheckPassing {
+		t.Fatalf("checks %+v; want the two required ones, then docs and ci/legacy", checks)
 	}
 	build, lint := checks[0], checks[1]
 	if build.Name != "build" || build.State != CheckFailing || build.Conclusion != "failure" || build.URL != "b77" ||
@@ -1067,13 +1079,50 @@ func TestRequiredChecksAreReadFromTheBaseBranchsProtection(t *testing.T) {
 	}
 
 	// An App that may not read branch protection counts the configured
-	// list.
+	// list first, then the rest.
 	runs := f.github.checkRuns
 	f = newPublisherFixture(t)
 	f.github.checkRuns, f.github.noAdministration = runs, true
 	checks, err = f.publisher.Checks(ctx, "cpave3/legato", "main", "aaa", []string{"docs", "ci/legacy", "e2e"})
-	if err != nil || len(checks) != 3 || checks[0].State != CheckFailing || checks[1].State != CheckPassing || checks[2].State != CheckPending {
+	if err != nil || len(checks) != 5 || checks[0].State != CheckFailing || checks[1].State != CheckPassing || checks[2].State != CheckPending ||
+		checks[3].Name != "build" || checks[3].State != CheckFailing || checks[4].Name != "lint" || checks[4].State != CheckPending {
 		t.Fatalf("configured checks %+v, %v", checks, err)
+	}
+}
+
+// Without protection or configuration every check on the head counts, and
+// a failing one the base fails too, at the newest commit that finished
+// running it, is failing on the base: noted, not routed (LEG-711).
+func TestEveryCheckCountsAndTheBaseIsReadForAFailingOne(t *testing.T) {
+	f := newPublisherFixture(t)
+	f.github.noAdministration = true
+	f.github.baseCommits = `[{"sha":"m2"},{"sha":"m1"}]`
+	f.github.checkRuns = map[string]string{
+		"aaa": `{"check_runs":[{"id":91,"name":"go","status":"completed","conclusion":"failure","html_url":"g91"},{"id":92,"name":"docs","status":"completed","conclusion":"failure"},{"id":93,"name":"web","status":"completed","conclusion":"cancelled"}]}`,
+		"m2":  `{"check_runs":[{"id":81,"name":"go","status":"completed","conclusion":"success"},{"id":82,"name":"docs","status":"in_progress"}]}`,
+		"m1":  `{"check_runs":[{"id":71,"name":"go","status":"completed","conclusion":"failure"},{"id":72,"name":"docs","status":"completed","conclusion":"failure"}]}`,
+		"ccc": `{"check_runs":[{"id":94,"name":"go","status":"completed","conclusion":"success"}]}`,
+	}
+	ctx := context.Background()
+
+	checks, err := f.publisher.Checks(ctx, "cpave3/legato", "main", "aaa", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, c := range checks {
+		got[c.Name] = c.State
+	}
+	if len(got) != 3 || got["go"] != CheckFailing || got["docs"] != CheckFailingOnBase || got["ci/legacy"] != CheckPassing {
+		t.Fatalf("checks %v", got)
+	}
+
+	// Nothing fails on the head: the base is not read.
+	if f.github.baseReads != 1 {
+		t.Fatalf("the base read %d times for one head", f.github.baseReads)
+	}
+	if _, err := f.publisher.Checks(ctx, "cpave3/legato", "main", "ccc", nil); err != nil || f.github.baseReads != 1 {
+		t.Fatalf("the base read for a head with nothing failing: %d reads, %v", f.github.baseReads, err)
 	}
 }
 

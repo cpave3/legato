@@ -49,8 +49,10 @@ type FakeReviewGitHub struct {
 	// (a rate limit, a 5xx) while set.
 	pollsOf    map[string]int
 	pollErrors map[string]error
-	// checks are the counted checks of each head.
-	checks map[string][]service.CheckResult
+	// checks are the counted checks of each head; baseChecks the checks of
+	// each base branch's head.
+	checks     map[string][]service.CheckResult
+	baseChecks map[string][]service.CheckResult
 	// closed are the pull requests closed, by number; notInstalled the
 	// repositories the reviewer App cannot read.
 	closed       map[int]string
@@ -509,10 +511,37 @@ func (f *FakeReviewGitHub) SetChecks(head string, checks ...service.CheckResult)
 	f.checks[head] = append([]service.CheckResult(nil), checks...)
 }
 
-func (f *FakeReviewGitHub) Checks(_ context.Context, _, _, head string, _ []string) ([]service.CheckResult, error) {
+// SetBaseChecks sets the checks of a base branch's head: a check failing
+// on a pull request's head that fails there too is the base's (LEG-711).
+func (f *FakeReviewGitHub) SetBaseChecks(base string, checks ...service.CheckResult) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]service.CheckResult(nil), f.checks[head]...), nil
+	if f.baseChecks == nil {
+		f.baseChecks = map[string][]service.CheckResult{}
+	}
+	f.baseChecks[base] = append([]service.CheckResult(nil), checks...)
+}
+
+// failingOnBase says the base's head fails a check. Call with f.mu held.
+func (f *FakeReviewGitHub) failingOnBase(base, name string) bool {
+	for _, c := range f.baseChecks[base] {
+		if c.Name == name && c.State == service.CheckFailing {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *FakeReviewGitHub) Checks(_ context.Context, _, base, head string, _ []string) ([]service.CheckResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := append([]service.CheckResult(nil), f.checks[head]...)
+	for i, c := range out {
+		if c.State == service.CheckFailing && f.failingOnBase(base, c.Name) {
+			out[i].State = service.CheckFailingOnBase
+		}
+	}
+	return out, nil
 }
 
 // Polls counts the polls of the pull requests' comments.
@@ -959,8 +988,15 @@ func (s *fakeWatchSession) Watch(_ context.Context, numbers []int) ([]service.PR
 				w.DismissedReviews = append(w.DismissedReviews, int64(i+1))
 			}
 		}
+		if base, ok := f.baseChecks[pr.Base]; ok {
+			var history []service.WatchCheck
+			for _, c := range base {
+				history = append(history, service.WatchCheck{Name: c.Name, State: c.State, Conclusion: c.Conclusion})
+			}
+			w.BaseHistory = [][]service.WatchCheck{history}
+		}
 		for _, c := range f.checks[pr.HeadSHA] {
-			w.Checks = append(w.Checks, service.WatchCheck{Name: c.Name, State: c.State, Conclusion: c.Conclusion, URL: c.URL, Required: true})
+			w.Checks = append(w.Checks, service.WatchCheck{Name: c.Name, State: c.State, Conclusion: c.Conclusion, URL: c.URL})
 			switch {
 			case c.State == service.CheckFailing:
 				w.Rollup = service.CheckFailing

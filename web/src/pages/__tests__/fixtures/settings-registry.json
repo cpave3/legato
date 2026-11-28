@@ -1964,8 +1964,8 @@
       "title": "Checks to wait for",
       "section": "review-passes",
       "group": "Bots and checks",
-      "help": "The checks that must pass. Empty, the branch protection's required checks.",
-      "description": "The checks that must pass. Empty, the branch protection's required checks.",
+      "help": "Checks that must pass even when the base branch fails them too. Every check counts without this; empty, the branch protection's required checks.",
+      "description": "Checks that must pass even when the base branch fails them too. Every check counts without this; empty, the branch protection's required checks.",
       "kind": "strings",
       "class": "change",
       "mode": "restart"
