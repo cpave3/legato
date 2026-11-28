@@ -41,4 +41,46 @@ describe("NativeTerminalPrompt", () => {
 
     expect(onOpenTerminal).toHaveBeenCalledOnce()
   })
+
+  const question = {
+    type: "menu" as const,
+    context: "☐ Colour\nWhich colour?",
+    actions: [
+      { label: "Red", keys: "Enter" },
+      { label: "Type something.", keys: "Down Enter", takes_text: true, text_submits: true },
+      { label: "Cancel (Esc)", keys: "Escape" },
+    ],
+  }
+
+  it("answers a row that takes text with what the operator types", () => {
+    const onChoose = vi.fn()
+    render(<NativeTerminalPrompt prompt={question} askedBy="Claude Code" onChoose={onChoose} />)
+
+    const field = screen.getByRole("textbox", { name: "Type something." })
+    const sendButton = screen.getByRole("button", { name: "Send answer" })
+    expect((sendButton as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(field, { target: { value: "Purple" } })
+    fireEvent.click(sendButton)
+
+    expect(onChoose).toHaveBeenCalledWith("Down Enter", "Purple")
+    expect(screen.queryByRole("button", { name: "Type something." })).toBeNull()
+  })
+
+  it("holds its buttons while an answer is on its way", () => {
+    const onChoose = vi.fn()
+    render(<NativeTerminalPrompt prompt={question} askedBy="Claude Code" onChoose={onChoose} pending />)
+
+    expect(screen.getByText("Answering…")).not.toBeNull()
+    const red = screen.getByRole("button", { name: "Red" }) as HTMLButtonElement
+    expect(red.disabled).toBe(true)
+    fireEvent.click(red)
+    expect(onChoose).not.toHaveBeenCalled()
+  })
+
+  it("says when the terminal did not take an answer", () => {
+    render(<NativeTerminalPrompt prompt={question} askedBy="Claude Code" onChoose={vi.fn()} notice="The terminal didn't take that answer." />)
+
+    expect(screen.getByRole("status").textContent).toContain("The terminal didn't take that answer.")
+    expect((screen.getByRole("button", { name: "Red" }) as HTMLButtonElement).disabled).toBe(false)
+  })
 })

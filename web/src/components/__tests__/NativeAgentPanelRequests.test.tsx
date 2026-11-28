@@ -181,22 +181,78 @@ describe("NativeAgentPanel and prompts only the terminal shows", () => {
   }
   const terminalAsks = (prompt: unknown) => act(() => websocketHandler?.({ type: "prompt_state", agent_id: "task-1", prompt }))
 
-  it("asks what the terminal is showing, shows it, and answers with keys", async () => {
+  const cardName = "Codex is asking in its terminal"
+  const answerOf = () => send.mock.calls.map(([message]) => message).find((message) => message.type === "answer_terminal_prompt")
+  const answered = (prompt: unknown, requestId = answerOf()?.request_id) =>
+    act(() => websocketHandler?.({ type: "terminal_prompt_answered", agent_id: "task-1", request_id: requestId, prompt }))
+
+  async function showMenu() {
+    mockSnapshot({ status: "idle" })
+    render(<NativeAgentPanel agentId="task-1" agentKind="codex" />)
+    await screen.findByText("Session ready — send a message to start")
+    terminalAsks(menu)
+    send.mockClear()
+    return screen.getByRole("region", { name: cardName })
+  }
+
+  it("asks what the terminal is showing, shows it, and answers with the keys read off it", async () => {
     mockSnapshot({ status: "idle" })
     render(<NativeAgentPanel agentId="task-1" agentKind="codex" />)
     await screen.findByText("Session ready — send a message to start")
 
     expect(send).toHaveBeenCalledWith({ type: "detect_prompt", agent_id: "task-1" })
     terminalAsks(menu)
-    const card = screen.getByRole("region", { name: "Codex is asking in its terminal" })
+    const card = screen.getByRole("region", { name: cardName })
     expect(screen.getByRole("button", { name: "Needs you" })).not.toBeNull()
     send.mockClear()
     fireEvent.click(within(card).getByRole("button", { name: "Skip" }))
 
-    expect(send).toHaveBeenCalledWith({ type: "send_keys", agent_id: "task-1", keys: "Down Enter" })
-    // Answered: the card goes at once and the terminal is read again.
-    expect(screen.queryByRole("region", { name: "Codex is asking in its terminal" })).toBeNull()
-    await waitFor(() => expect(send).toHaveBeenCalledWith({ type: "detect_prompt", agent_id: "task-1" }))
+    const answer = answerOf()
+    expect(answer).toMatchObject({ type: "answer_terminal_prompt", agent_id: "task-1", keys: "Down Enter" })
+    expect(answer.request_id).toMatch(/^terminal-answer:/)
+    // The card stays until the screen says the answer landed.
+    expect(screen.getByRole("region", { name: cardName })).not.toBeNull()
+    expect(screen.getByText("Answering…")).not.toBeNull()
+  })
+
+  it("closes once the terminal no longer asks", async () => {
+    const card = await showMenu()
+    fireEvent.click(within(card).getByRole("button", { name: "Skip" }))
+
+    answered({ type: "free_text" })
+
+    expect(screen.queryByRole("region", { name: cardName })).toBeNull()
+  })
+
+  it("walks on to the next question the terminal asks", async () => {
+    const card = await showMenu()
+    fireEvent.click(within(card).getByRole("button", { name: "Skip" }))
+
+    answered({ type: "menu", context: "Which size?", actions: [{ label: "Small", keys: "Enter" }, { label: "Large", keys: "Down Enter" }] })
+
+    const next = screen.getByRole("region", { name: cardName })
+    expect(within(next).getByRole("button", { name: "Large" })).not.toBeNull()
+    expect(within(next).queryByText("Answering…")).toBeNull()
+  })
+
+  it("stays and says so when the terminal still asks the same", async () => {
+    const card = await showMenu()
+    fireEvent.click(within(card).getByRole("button", { name: "Skip" }))
+
+    answered(menu)
+
+    expect(screen.getByRole("status").textContent).toMatch(/didn't take that answer/)
+    expect((within(card).getByRole("button", { name: "Skip" }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it("shows why Legato refused the answer", async () => {
+    const card = await showMenu()
+    fireEvent.click(within(card).getByRole("button", { name: "Skip" }))
+
+    act(() => websocketHandler?.({ type: "error", agent_id: "task-1", request_id: answerOf().request_id, error: "the keys did not reach the terminal: pane is gone" }))
+
+    expect(screen.getByRole("status").textContent).toContain("pane is gone")
+    expect(screen.getByRole("region", { name: cardName })).not.toBeNull()
   })
 
   it("drops the card when the terminal is no longer asking", async () => {

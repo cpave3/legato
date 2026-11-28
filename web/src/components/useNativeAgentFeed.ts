@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react"
-import type { PromptState, WSMessage } from "../lib/agentWire"
+import type { WSMessage } from "../lib/agentWire"
 import { isCommandText } from "../lib/composer"
 import { nextCompaction, type Compaction } from "../lib/compaction"
 import { createNativeSyncState, type NativeEvent, type NativeSyncState } from "../lib/nativeAgentSync"
 import { endsTurn, MESSAGE_REQUEST, reopenRequest, subagentsRunning } from "../lib/nativeFeed"
+import { TERMINAL_ANSWER_REQUEST } from "../lib/terminalAnswer"
 import type { NativeSync } from "./useNativeAgentSync"
 
 // What the routing of the panel's WebSocket messages acts on.
@@ -19,7 +20,9 @@ interface FeedContext {
   confirmWorking: () => void
   resync: () => Promise<void>
   timer: { current: number | null }
-  setTerminalPrompt: (prompt: PromptState | null) => void
+  // What the server said of the agent's terminal: the prompt it shows, and
+  // what became of an answer to it.
+  onTerminalMessage: (msg: WSMessage) => void
   settleMessage: (requestId: string, error?: string) => void
   failByWords: (words: string, reason: string) => void
   // A command was refused; says whether this panel sent it.
@@ -58,8 +61,8 @@ function routeAgentMessage(msg: WSMessage, ctx: FeedContext) {
 }
 
 function routeOwnMessage(msg: WSMessage, ctx: FeedContext) {
-  if (msg.type === "prompt_state") {
-    ctx.setTerminalPrompt(msg.prompt ?? null)
+  if (msg.type === "prompt_state" || msg.type === "terminal_prompt_answered" || (msg.type === "error" && msg.request_id?.startsWith(TERMINAL_ANSWER_REQUEST))) {
+    ctx.onTerminalMessage(msg)
     return
   }
   if (msg.type === "agent_message_sent" && msg.request_id) {
@@ -137,7 +140,7 @@ export interface FeedOptions {
   resync: (scrollAfterSync?: boolean, initialHydration?: boolean) => Promise<void>
   restartInitialScroll: () => void
   followLatest: () => void
-  setTerminalPrompt: (prompt: PromptState | null) => void
+  onTerminalMessage: (msg: WSMessage) => void
   settleMessage: (requestId: string, error?: string) => void
   failByWords: (words: string, reason: string) => void
   commandRefused: (words: string, reason: string) => boolean
@@ -147,7 +150,7 @@ export interface FeedOptions {
 // useNativeAgentFeed follows a native agent over Legato's WebSocket while
 // the panel is in view: its events, Legato's answers about what the panel
 // sent, and the prompts its terminal shows. It starts over for a new agent.
-export function useNativeAgentFeed({ agentId, agentKind, following, send, subscribe, sync, resync, restartInitialScroll, followLatest, setTerminalPrompt, settleMessage, failByWords, commandRefused, runNextBang }: FeedOptions) {
+export function useNativeAgentFeed({ agentId, agentKind, following, send, subscribe, sync, resync, restartInitialScroll, followLatest, onTerminalMessage, settleMessage, failByWords, commandRefused, runNextBang }: FeedOptions) {
   const runFinishTimerRef = useRef<number | null>(null)
   const hydratedAgentRef = useRef<string | null>(null)
   // The agent's latest compaction, as its events tell it.
@@ -172,7 +175,7 @@ export function useNativeAgentFeed({ agentId, agentKind, following, send, subscr
     const ctx: FeedContext = {
       agentId, agentKind, following, state: () => syncStateRef.current, replaceSyncState, applyEvent, stopUnconfirmedWorking,
       confirmWorking: () => { workingUnconfirmedRef.current = false },
-      resync, timer: runFinishTimerRef, setTerminalPrompt, settleMessage, failByWords, commandRefused, setCompaction, runNextBang, followLatest,
+      resync, timer: runFinishTimerRef, onTerminalMessage, settleMessage, failByWords, commandRefused, setCompaction, runNextBang, followLatest,
     }
     const unsubscribe = subscribe((msg: WSMessage) => routeAgentMessage(msg, ctx))
     if (following) {
@@ -186,7 +189,7 @@ export function useNativeAgentFeed({ agentId, agentKind, following, send, subscr
       unsubscribe()
       if (following) send({ type: "unsubscribe_agent", agent_id: agentId })
     }
-  }, [subscribe, agentId, agentKind, applyEvent, replaceSyncState, resync, runNextBang, following, send, stopUnconfirmedWorking, followLatest, settleMessage, failByWords, commandRefused, setTerminalPrompt, syncStateRef, workingUnconfirmedRef])
+  }, [subscribe, agentId, agentKind, applyEvent, replaceSyncState, resync, runNextBang, following, send, stopUnconfirmedWorking, followLatest, settleMessage, failByWords, commandRefused, onTerminalMessage, syncStateRef, workingUnconfirmedRef])
 
   return { compaction }
 }

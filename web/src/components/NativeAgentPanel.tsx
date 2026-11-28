@@ -53,7 +53,7 @@ import { useDropdown } from "./useDropdown"
 import { useSessionSettings } from "./useSessionSettings"
 import { useBangCommands } from "./useBangCommands"
 import { useQueuedMessages } from "./useQueuedMessages"
-import { useTerminalPromptPolling } from "./useTerminalPrompt"
+import { useTerminalPrompt } from "./useTerminalPrompt"
 import { useRequestAnswers } from "./useRequestAnswers"
 import { useMessageSending } from "./useMessageSending"
 import { useNativeSyncState, useSnapshotResync } from "./useNativeAgentSync"
@@ -231,7 +231,8 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const awaitingRequest = awaitsRequest(items)
   // What the agent's terminal is asking, as read off its screen, and whether
   // the panel shows it.
-  const [terminalPrompt, setTerminalPrompt] = useState<PromptState | null>(null)
+  const terminal = useTerminalPrompt(agentId, connected, send)
+  const terminalPrompt = terminal.prompt
   const terminalAsking = terminalAsks(terminalPrompt, awaitingRequest)
   const awaitingPerson = awaitingRequest || terminalAsking
   const { open: modesOpen, ref: modesRef, toggle: toggleModes, close: closeModes } = useDropdown()
@@ -261,10 +262,9 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
 
   const { compaction } = useNativeAgentFeed({
     agentId, agentKind, following, send, subscribe, sync, resync, restartInitialScroll, followLatest,
-    setTerminalPrompt, settleMessage: settle, failByWords, commandRefused, runNextBang,
+    onTerminalMessage: terminal.onMessage, settleMessage: settle, failByWords, commandRefused, runNextBang,
   })
 
-  const handleTerminalChoice = useTerminalPromptPolling(agentId, connected, send, setTerminalPrompt)
   const { handlePermission, handleQuestion } = useRequestAnswers(agentId, send, { syncStateRef, replaceSyncState })
   const handleKeyDown = useComposerKeys(slash, busy, handleSend, handleInterrupt)
 
@@ -338,7 +338,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         onOpenUIItem={onOpenUIItem}
         onPermission={handlePermission}
         onQuestion={handleQuestion}
-        terminal={<TerminalPromptCard asking={terminalAsking} prompt={terminalPrompt} agentKind={agentKind} onChoose={handleTerminalChoice} onDowngradeChimera={onDowngradeChimera} />}
+        terminal={<TerminalPromptCard asking={terminalAsking} prompt={terminalPrompt} agentKind={agentKind} onChoose={terminal.choose} pending={terminal.pending} notice={terminal.notice} onDowngradeChimera={onDowngradeChimera} />}
         isScrolledUp={isScrolledUp}
         onScrollToBottom={scrollToBottom}
       />
@@ -426,11 +426,13 @@ function SubagentDeck({ subagents, beside }: { subagents: ReturnType<typeof useS
 
 // What the agent's terminal asks, when the panel shows it, at the end of the
 // conversation.
-function TerminalPromptCard({ asking, prompt, agentKind, onChoose, onDowngradeChimera }: {
+function TerminalPromptCard({ asking, prompt, agentKind, onChoose, pending, notice, onDowngradeChimera }: {
   asking: boolean
   prompt: PromptState | null
   agentKind?: string
-  onChoose: (keys: string) => void
+  onChoose: (keys: string, text?: string) => void
+  pending: boolean
+  notice?: string
   onDowngradeChimera?: () => Promise<void>
 }) {
   if (!asking || !prompt) return null
@@ -439,6 +441,8 @@ function TerminalPromptCard({ asking, prompt, agentKind, onChoose, onDowngradeCh
               prompt={prompt}
               askedBy={agentToolName(agentKind)}
               onChoose={onChoose}
+              pending={pending}
+              notice={notice}
               onOpenTerminal={onDowngradeChimera ? () => { void onDowngradeChimera().catch(() => {}) } : undefined}
             />
   )
