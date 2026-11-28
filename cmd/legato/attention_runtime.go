@@ -15,6 +15,7 @@ import (
 // registered and reconciled, then attaches it to the server.
 func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *server.Server, planSvc *service.PlanService, reviewSvc *service.ReviewService, agentSvc service.AgentService, workflowSvc *service.WorkflowService, approvals *approvalRuntime, updates *service.UpdateService, handoffs *mainHandoffs, reviewPrompt *service.ReviewPromptAttentionAdapter, triggerCoordinator ...*service.WorkflowTriggerCoordinator) *service.AttentionService {
 	attention := service.NewAttentionService(db, bus)
+	registerNativeSecurityAttention(attention, db)
 	registerUsageAttention(attention, db)
 	if planSvc != nil {
 		adapter := service.NewPlanAttentionAdapter(planSvc)
@@ -80,6 +81,13 @@ func mustRegister(err error) {
 	if err != nil {
 		log.Printf("attention: %v", err)
 	}
+}
+
+// Refusal callbacks publish EventApprovalChanged after recording the incident.
+// Both runtime Attention services also recover durable incidents at startup.
+func registerNativeSecurityAttention(attention *service.AttentionService, db *store.Store) {
+	mustRegister(attention.RegisterProducerWithEvents(service.NewNativeSecurityAttentionAdapter(db),
+		events.EventApprovalChanged, events.EventAgentDied, events.EventAgentCompleted))
 }
 
 // newReviewPrompt is the Attention producer that prompts a review of local

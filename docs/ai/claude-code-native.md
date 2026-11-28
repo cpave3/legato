@@ -6,33 +6,49 @@ This works through a Claude Code **mod**: a plugin whose hooks module runs insid
 
 ## How it fits together
 
-```
- Claude Code session                       legato agent bridge                      Legato
- ┌──────────────────────┐  spawns        ┌─────────────────────┐   bound as the   ┌──────────────────────┐
- │ Legato mod           │───────────────▶│ loopback HTTP       │   agent's native │ AgentService         │
- │ (hooks/register.ts)  │  commands on   │ + conversation      │   endpoint       │ (messages, interrupt,│
- │                      │◀─── stdout ────│   state             │◀─── HTTP ────────│  permissions)        │
- │                      │                │                     │                  │ web server           │
- │                      │─ POST events ─▶│                     │─── SSE ─────────▶│ (snapshot, stream)   │
- └──────────────────────┘                └─────────────────────┘                  └──────────────────────┘
+```mermaid
+flowchart TB
+  mod[Claude Code mod] -->|spawns| relay[Agent child relay]
+  relay -->|execution-scoped polling| host[Host broker and full bridge]
+  host -->|ordered JSON commands via relay| mod
+  mod -->|keyless events and permission waits| host
+  operator[Legato server] -->|authenticated native HTTP and SSE| host
 ```
 
-A mod cannot listen for connections: it can only call out and spawn a child. So the direction is inverted compared with Chimera, which serves HTTP itself.
+A mod can call out and spawn a child, but cannot listen for connections. The child is an unprivileged relay; the host broker starts the full bridge inside the host process, outside the agent's sandbox.
 
 1. **Launch.** `ClaudeCodeAdapter.EnvVars` puts `CLAUDE_CODE_PLUGIN_DIRS=<data_dir>/claude-mod/legato` and `LEGATO_BIN` into the tmux session's environment. Any `claude` started in that pane loads the mod, whether Legato typed the command or the person did. `hooks.InstallClaudeMod` writes the embedded mod to disk when adapters are configured; an unchanged file is not rewritten.
-2. **Bridge.** In an interactive session with `LEGATO_TASK_ID` set, the mod's `session.start` hook spawns `legato agent bridge <task-id> --execution-id <id>` for the session's life. The bridge listens on `127.0.0.1:<random port>` under a random secret path, binds itself to the running agent session, writes a lockfile and prints a `ready` line.
+2. **Bridge.** In an interactive session with `LEGATO_TASK_ID` set, the mod's `session.start` hook spawns `legato agent bridge <task-id> --execution-id <id>` for the session's life. The child polls the host broker for its execution. The host bridge listens on `127.0.0.1:<random port>` under a random path, binds itself to the running agent session and writes a public lockfile. The relay prints the keyless `ready` line to the mod.
 3. **Events in.** The mod forwards the engine's events to `POST <endpoint>/mod/events`: a description of the session (`hello`: identity, model, context fill, and the transcript so far), stored transcript rows (`session.append`), streamed reply text and the context fill after each model request (`turn.step`), turn start and end, subagent spawns. Everything from `session.start` onward is queued, so nothing that happens while the bridge is still starting is lost.
-4. **Commands out.** The bridge writes newline-delimited JSON commands to its stdout, which the mod reads: `submit`, `queue`, `append`, `interrupt`, `viewers`, `model`, `effort`.
+4. **Commands out.** The host bridge queues ordered JSON commands; execution-scoped polling carries them to the child relay, which writes them as newline-delimited JSON on stdout for the mod: `submit`, `queue`, `append`, `interrupt`, `viewers`, `model`, `effort`.
 5. **Legato's side.** The bridge serves the native agent protocol Legato already speaks to Chimera (`/v1/sessions/:id`, its SSE event stream, messages, interrupt, permissions). It is bound in the same `agent_sessions.chimera_endpoint` / `chimera_session_id` columns, so `AgentService`, the web server's stream manager and `NativeAgentPanel` drive a bridged Claude Code agent without knowing the difference. The bound session ID is the Legato task ID, not Claude's own, so the binding survives a `/clear`.
 
 `has_chimera_endpoint` on `/api/agents` is therefore true for a bridged Claude Code agent, and the web UI shows the native panel for it. The column and field names still say "chimera"; they mean "native endpoint".
+
+## Security boundary (LEG-686)
+
+Only `POST /mod/events` and `POST /mod/permissions` are keyless. All native routes require a per-generation operator key, including snapshots and SSE: attaching a viewer changes whether requests stay in Legato or fall back to the terminal. Missing or incorrect authorization returns `401` without applying the call; key comparison is constant-time.
+
+The host stores the Basic-auth control URL in private `native_bridge_registrations`, matched to the exact public endpoint and generation. The existing private `agent_sessions` binding also holds that control URL. Recovery requires the matching private registration; a public lockfile alone cannot authorize a binding. The shared native client removes URL userinfo, sends it as a Basic `Authorization` header and refuses redirects for credential-bearing requests. Neither the operator key nor the control URL enters the relay, agent environment, launch arguments, public lockfile, sandbox mounts, traces or public DTOs. `ready` and `LEGATO_CLAUDE_BRIDGE_URL` carry only the public URL.
+
+Unauthorized native access records a durable, high-urgency `native_security` Attention incident per execution and generation (see [Attention](attention.md)). This records a refused call, not proof of who made it.
+
+The key protects authenticated operator decisions, not the truth of agent telemetry. The agent can still post fabricated events or requests on its keyless routes. A real terminal dialog can still decide locally, and an unreachable bridge or no viewer still hands the request to that dialog; neither is permission to accept a keyless native decision.
+
+This boundary requires a new session. Legato does not automatically restart existing sessions or accept an unprotected compatibility endpoint. An unsandboxed agent runs as the operator's OS user and can read the host's private state: this is not isolation from that agent.
+
+### LEG-686 verification
+
+`internal/cli/testdata/agent-health/claude_end_to_end.py --suite native-authority` runs real Claude Code **2.1.332** against a local scripted provider. Its private Legato/config/database/data/runtime/tmux/profile folders are removed afterwards. The focused pass verified permission allow/deny and rejection of keyless/wrong-key answers; question choices/custom text/dismissal after panel reconnect; real EnterPlanMode/Write/ExitPlanMode approval with accept-edits; host restart with key rotation and stale-key rejection; retained Attention; terminal fallback, interrupt and `/clear`. Nineteen provider calls completed. It uses the actual HTTP, WebSocket, approval watcher and command-hook paths, not provider credentials.
+
+That session is unsandboxed. `TestSandboxClaudeNativeAuthorityStaysOnHost` separately ran the real sandbox plan in bwrap: the agent-side process opened and waited, could not answer or subscribe, could not read private registration state, and received the host's authenticated decision. This proves the process boundary with a real bridge fixture, not a full sandboxed Claude launch. No existing Legato process was tested or restarted. Browser screenshots were unavailable because the configured Playwright distrobox is absent; the focused pass drives the panel's HTTP/WebSocket payloads and terminal instead.
 
 ## Packages
 
 - `internal/engine/claudebridge/` — the bridge: conversation state built from mod events, the native-protocol HTTP surface, the SSE stream (`stream.go`, over the replay ring in `internal/leaf/replaystream`, with the viewer count and the last-viewer permission handback its own), held permission and question requests (`questions.go`, `permission_options.go`), command output, and the lockfile. Claude Code tool calls are mapped onto the tool names and arguments the panel has cards for (`Bash` → `bash`, `Edit`/`Write`/`Read` → `edit`/`write`/`read` with `path`, `Agent` → `spawn_agent`); other tools keep their name with a one-line summary.
 - `internal/engine/hooks/claudemod/legato/` — the mod: manifest, `hooks/register.ts`, and its tests. Embedded in the binary by `internal/engine/hooks/claude_mod.go`.
-- `internal/cli/claude_bridge.go` — `RunClaudeBridge`: hosts a bridge, binds and unbinds the agent session, broadcasts `agents_changed` IPC.
-- `cmd/legato/agent_bridge.go` — the `legato agent bridge` command. It exits when the Claude Code process that spawned it is gone.
+- `internal/cli/claude_bridge.go` — `RunClaudeBridge`: the host bridge, private registration, binding and `agents_changed` IPC. `internal/cli/claude_host_bridge.go` owns execution-scoped command polling and the unprivileged `RunClaudeRelay`.
+- `cmd/legato/agent_bridge.go` — the `legato agent bridge` command. The relay exits when the Claude Code process that spawned it is gone; loss of its polling lease ends the host bridge.
 - `internal/service/claude_bridge.go` — re-discovery from the lockfile, used by "Upgrade to native panel".
 
 ## The mod, hook by hook
@@ -57,7 +73,7 @@ otherwise reopening a panel would turn an intentional cancellation into error.
 
 Each event carries `seq`, numbered as it is queued. A batch the bridge refuses with a `5xx` other than `503` (it failed part way, saving an identity) is sent again whole after a second, up to five times; the bridge skips the events it already applied (`appliedSeq`), and does not count an identity event whose save failed, so that one is applied and saved again. Text is never added to an event already sent. A `400` (unreadable) and a `503` (bridge closing) are not sent again. An event without `seq`, from an older mod, is always applied.
 
-**What the bridge writes back** (one JSON object per line on its stdout):
+**What the host bridge relays back** (one JSON object per line on the child's stdout):
 
 | Command | Effect in the session |
 | --- | --- |
@@ -132,7 +148,7 @@ An allow can carry more than a yes, as the terminal's own dialog does. When Clau
 How much of this there is depends on the model. Checked with Claude Code 2.1.296: Opus 5.5, Sonnet 5.5 and Haiku 5.5 each returned a thinking block for a short question, streamed no thinking chunk and stored the block with empty text, so there was nothing to show. In a long working session about one block in twenty carried a line or two of text (a summary of where the work stands); those are what the panel shows.
 
 **Background shells.** A Bash call Claude Code runs in the background (`run_in_background`, or one moved there after its timeout) is recorded by the bridge when its result arrives (`shells.go`): the result names its ID and its output file (`Command running in background with ID: <id>. Output is being written to: <path>`, or `moved to the background (ID: <id>)`). The snapshot lists them as `backgroundShells` (`shellId`, `callId`, `command`, `description`, `status` `running`/`exited`/`killed`, `exitCode`, `startedAt`, `endedAt`, `output {available, text, truncated}`), and they go out live as `background_shell` (a start or an end, without output) and `background_shell_output` (`shellId`, `chunk`, `seq`, and `gap` or `reset`). `seq` numbers a shell's output events from 1 and the snapshot's `output.seq` is the newest its text holds, so a panel replayed events over a snapshot skips those at or below it. The panel draws them as tiles (see [Web UI](web-ui.md) § Background shell tiles).
-- *Output.* A watcher reads the file every 500 ms (`DefaultShellPoll`, `Options.ShellPoll`) from where it left off, until the shell has ended and the file has been read once more. It reads only a regular file named `<id>.output` in a `tasks` folder, at the absolute path the result gave; any other path leaves the shell with `output.available: false`. The bridge is Claude Code's child, so in a sandbox it sees the same `/tmp` and reads the file there: nothing is widened, and the host never reads it. The output tool (`TaskOutput`) is the model's, not Legato's.
+- *Output.* A watcher reads the file every 500 ms (`DefaultShellPoll`, `Options.ShellPoll`) from where it left off, until the shell has ended and the file has been read once more. It reads only a regular file named `<id>.output` in a `tasks` folder, at the absolute path the result gave; any other path leaves the shell with `output.available: false`. The host bridge maps `/tmp` to this execution's private scratch `tmp` folder. Reads go through `os.Root`, which refuses traversal and symlink escapes; an agent-reported path cannot select an arbitrary host file. The output tool (`TaskOutput`) is the model's, not Legato's.
 - *Limits.* Output is never stored in the database. The bridge keeps each shell's newest 32 KiB (`shellTailLimit`, `truncated` when cut). An event carries at most 8 KiB (`shellChunkLimit`): more printed between two reads is skipped up to its last 8 KiB, sent with `gap`, and the panel (which also keeps 32 KiB) starts over from it. A file that shrank is read again from the start (`reset`). At most 32 shells are kept, the oldest ended going first. Characters are never split across chunks.
 - *Ends.* A `<task-notification>` prompt row (`<task-id>`, `<status>` `completed`/`failed`/`killed`, `<summary>` with `exit code N`) ends the shell it names: `killed`, or `exited` with that code (0 for `completed` without one, 1 for `failed` without one); several can come in one prompt. A successful `TaskStop` (`KillShell` before 2.1) call ends it as `killed` at once, which its later notification does not change. Claude Code delivers a notification between the session's steps, so a shell that ends during a long turn is marked when the turn takes the notification in. Claude Code also ends the file with `[exited with code N]`, but the bridge never ends a shell from its output: the command can print that line itself (review of PR #128). A resumed session's shells and how they ended are read from its transcript (`hydrateShells`); a `/clear` keeps them, as they run on in the same process.
 
@@ -213,17 +229,18 @@ Claude Code asks whether to trust a folder the first time a session starts there
 
 - The mod and hook files are installed first thing (LEG-689). `installAgentMods` (`cmd/legato/configured_adapters.go`) writes every agent tool's files for this binary (Claude Code's state, bridge, usage and tools plugins, Chimera's mod), each only where its content changed; `legato serve` and the TUI call it right after loading the configuration, before the store opens and before anything that can start, resume or relaunch a session (`TestServeAndTheTUIInstallAgentModsBeforeAnythingElse` reads `main.go` to hold that order). `configuredAdapters` calls it again, which then writes nothing. Before, the files were written only once sync, PR tracking and handoffs were set up, and on a restart the Reeve was relaunched about two seconds before its new `hooks.json` landed, so it ran the old hooks.
 - A bridge refuses to start when the task is already bound to a live endpoint, after giving that endpoint ten seconds to go: a session sent to the background starts its bridge while the old one is leaving.
+- A replacement relay retries ownership conflicts for 20 seconds. This lets a killed child's 15-second lease and the host's cleanup tick expire. A still-polling child keeps its bridge; the replacement exits with the conflict instead of taking ownership. A successful poll resets the handover window.
 - On exit the bridge clears its own binding and removes its lockfile. If it is killed, the stale binding is cleared the next time the panel fails its initial snapshot, exactly as for Chimera, and the next bridge replaces a dead binding.
-- "Downgrade to tmux" clears the binding while the bridge keeps running. It also marks the session `native_off` (`NativeDowngrader.DowngradeToTmux`, migration 097), so a restart of Legato (`RecoverNativeEndpoints`) leaves it on its terminal; binding it again clears the mark. "Upgrade to native panel" (`POST /api/agents/{task_id}/chimera/discover`) re-binds from the lockfile at `<runtime dir>/claude-bridge/<task-id>.json` after verifying the endpoint is loopback, alive and serving that task.
-- When Legato starts, `AgentService.RecoverNativeEndpoints` runs once in the background over every running agent (Chimera, Claude Code and Codex alike). A binding whose endpoint answers is kept; an agent with no usable binding is bound to the live endpoint its session advertises (this bridge's lockfile); a binding to an endpoint that is gone is cleared. So a session stays native across a restart of the TUI or server without anyone pressing Upgrade. A session downgraded on purpose is bound again by this pass when its bridge is still running: the choice is not recorded.
+- "Downgrade to tmux" clears the binding while the bridge keeps running. It also marks the session `native_off` (`NativeDowngrader.DowngradeToTmux`, migration 097), so a restart of Legato (`RecoverNativeEndpoints`) leaves it on its terminal; binding it again clears the mark. "Upgrade to native panel" (`POST /api/agents/{task_id}/chimera/discover`) re-binds from the lockfile at `<runtime dir>/claude-bridge/<task-id>.json` only with its matching private registration, after an authenticated probe verifies the endpoint is loopback, alive and serving that task.
+- When Legato starts, `AgentService.RecoverNativeEndpoints` runs once in the background over every running agent (Chimera, Claude Code and Codex alike). A binding whose endpoint answers is kept; an agent with no usable binding is bound to the live endpoint its session advertises (this bridge's lockfile); a binding to an endpoint that is gone is cleared. A broker-hosted bridge ends with its host process; a live relay can establish a new generation when polling resumes. Recovery never reconstructs control authority from the public lockfile alone. A session downgraded on purpose stays on its terminal (`native_off`). Claude rediscovery requires its matching private registration; no keyless compatibility fallback is used.
 - A panel that opens, or re-reads its snapshot, while a request is waiting draws the same card a live event would: the web server passes a pending permission's `plan` and `options`, and `pendingQuestions`, through from the bridge's snapshot.
 
 ## Debugging
 
-- `LEGATO_CLAUDE_BRIDGE_TRACE=<file>` in the session's environment records every event batch the mod posts and every command the bridge writes, one JSON object per line.
+- Direct, unsandboxed bridge runs can use `LEGATO_CLAUDE_BRIDGE_TRACE=<file>` to record event batches and commands as JSON lines. The broker-hosted bridge does not take a trace path from the agent environment; traces must never contain the operator key or private control URL.
 - `claude --debug` logs each hook failure and the mod's own `legato:` lines.
 - `claude plugin validate internal/engine/hooks/claudemod/legato` reads the mod the way the engine will. `claude plugin test internal/engine/hooks/claudemod/legato` runs its tests in the engine's own test host.
-- `curl <endpoint>/v1/sessions/<task-id>` shows the bridge's snapshot; the endpoint is in the lockfile.
+- The public lockfile URL cannot read snapshots or SSE. Use Legato's authenticated native panel; do not copy the private control URL into agent commands or traces.
 
 ## Working on the mod
 
@@ -231,7 +248,7 @@ Claude Code asks whether to trust a folder the first time a session starts there
 - `claude plugin validate` refuses a module that passes `$` to anything but a function declared at the top of the file, so helpers that take `$` and the state they share live at module scope, not inside `register`.
 - A hook's own time is capped at ten seconds per dispatch, but time inside a `$` call is not counted. Anything that waits on a person waits inside `$.http.fetch` against the bridge, never on a plain promise.
 - Hooks only queue events; one detached pump per bridge posts them. A hook never awaits the bridge to forward what it saw.
-- An interactive session watches a folder loaded through `CLAUDE_CODE_PLUGIN_DIRS` and reloads the mod about a second after a file in it is saved, even while idle. A reload is a fresh load: `register` runs again, `session.start` fires again, the old copy's bridge child is killed and a new bridge is spawned from `LEGATO_BIN`. Sessions load the installed copy under `<data_dir>/claude-mod/legato`, not the repository's: `InstallClaudeMod` rewrites a file there only when the embedded content differs, so restarting Legato on a binary with a changed mod reloads every running session, and one with an unchanged mod disturbs none. Two consequences: editing `internal/engine/hooks/claudemod/` does nothing until Legato is rebuilt and restarted, and a change to the Go bridge alone leaves running sessions on their old bridge process until the mod next changes or the session restarts.
+- An interactive session watches a folder loaded through `CLAUDE_CODE_PLUGIN_DIRS` and reloads the mod about a second after a file in it is saved, even while idle. A reload is a fresh load: `register` runs again, `session.start` fires again, the old copy's relay child is killed and a new relay is spawned from `LEGATO_BIN`. Sessions load the installed copy under `<data_dir>/claude-mod/legato`, not the repository's: `InstallClaudeMod` rewrites a file there only when the embedded content differs, so restarting Legato on a binary with a changed mod reloads every running session, and one with an unchanged mod disturbs none. Two consequences: editing `internal/engine/hooks/claudemod/` does nothing until Legato is rebuilt and restarted, and a change to the Go host bridge requires a new session under the updated host. Installing LEG-686 does not automatically restart existing agents.
 
 ### What Claude Code accepts from the mod
 

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -59,12 +60,16 @@ func newHarness(t *testing.T, identity ...func(string, string) error) *harness {
 		onIdentity = identity[0]
 	}
 	bridge := New(Options{
-		OnIdentity: onIdentity,
-		TaskID:     "task-1",
-		Commands:   commands,
-		Now:        func() time.Time { return time.UnixMilli(1_700_000_000_000) },
+		DecisionKey: "test-host-decision-key",
+		OnIdentity:  onIdentity,
+		TaskID:      "task-1",
+		Commands:    commands,
+		Now:         func() time.Time { return time.UnixMilli(1_700_000_000_000) },
 	})
 	server := httptest.NewServer(bridge.Handler())
+	private, _ := url.Parse(server.URL)
+	private.User = url.UserPassword("legato", "test-host-decision-key")
+	server.URL = private.String()
 	t.Cleanup(func() {
 		bridge.Close()
 		server.Close()
@@ -79,7 +84,7 @@ func (h *harness) mod(events ...map[string]any) {
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	resp, err := http.Post(h.server.URL+"/mod/events", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(h.publicURL()+"/mod/events", "application/json", bytes.NewReader(body))
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -760,8 +765,11 @@ func TestModLearnsWhenANativeViewerIsWatching(t *testing.T) {
 }
 
 func TestRequestsWithoutTheSecretPathAreNotServed(t *testing.T) {
-	bridge := New(Options{TaskID: "task-1", Token: "s3cret"})
+	bridge := New(Options{TaskID: "task-1", Token: "s3cret", DecisionKey: "test-host-decision-key"})
 	server := httptest.NewServer(bridge.Handler())
+	private, _ := url.Parse(server.URL)
+	private.User = url.UserPassword("legato", "test-host-decision-key")
+	server.URL = private.String()
 	defer server.Close()
 	defer bridge.Close()
 
@@ -789,7 +797,7 @@ func (h *harness) askPermission(id, tool string, input map[string]any) <-chan ma
 	go func() {
 		defer close(answer)
 		body, _ := json.Marshal(map[string]any{"requestId": id, "tool": tool, "input": input, "reason": "not in the allowlist"})
-		resp, err := http.Post(h.server.URL+"/mod/permissions", "application/json", bytes.NewReader(body))
+		resp, err := http.Post(h.publicURL()+"/mod/permissions", "application/json", bytes.NewReader(body))
 		if err != nil {
 			return
 		}
@@ -949,7 +957,7 @@ func TestPermissionTheModGivesUpOnExpiresInThePanel(t *testing.T) {
 	events := h.subscribe("")
 	ctx, abandon := context.WithCancel(context.Background())
 	body, _ := json.Marshal(map[string]any{"requestId": "toolu_1", "tool": "Bash", "input": map[string]any{"command": "ls"}})
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, h.server.URL+"/mod/permissions", bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, h.publicURL()+"/mod/permissions", bytes.NewReader(body))
 	go func() {
 		if resp, err := http.DefaultClient.Do(req); err == nil {
 			resp.Body.Close()
@@ -1705,7 +1713,7 @@ func TestAPermissionAskedAgainAfterTheCallTimedOutKeepsWaiting(t *testing.T) {
 	events := h.subscribe("")
 	ctx, timedOut := context.WithCancel(context.Background())
 	body, _ := json.Marshal(map[string]any{"requestId": "toolu_1", "tool": "Bash", "input": map[string]any{"command": "ls"}})
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, h.server.URL+"/mod/permissions", bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, h.publicURL()+"/mod/permissions", bytes.NewReader(body))
 	go func() {
 		if resp, err := http.DefaultClient.Do(req); err == nil {
 			resp.Body.Close()
@@ -1739,7 +1747,7 @@ func TestADecisionMadeBetweenTwoCallsReachesTheNext(t *testing.T) {
 	events := h.subscribe("")
 	ctx, timedOut := context.WithCancel(context.Background())
 	body, _ := json.Marshal(map[string]any{"requestId": "toolu_1", "tool": "Bash", "input": map[string]any{"command": "ls"}})
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, h.server.URL+"/mod/permissions", bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, h.publicURL()+"/mod/permissions", bytes.NewReader(body))
 	go func() {
 		if resp, err := http.DefaultClient.Do(req); err == nil {
 			resp.Body.Close()
@@ -1801,4 +1809,14 @@ func TestASubagentsEditNamesItsFileOnly(t *testing.T) {
 	if inner["name"] != "Edit" || args["path"] != "/work/a.go" || len(args) != 1 {
 		t.Fatalf("started inner = %v", inner)
 	}
+}
+
+func (h *harness) publicURL() string {
+	h.t.Helper()
+	u, err := url.Parse(h.server.URL)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	u.User = nil
+	return u.String()
 }

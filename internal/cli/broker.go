@@ -30,6 +30,9 @@ type BrokerDeps struct {
 	// ClaudeModels are adapters.claude-code.models, which a bridge in the
 	// sandbox cannot read from the configuration.
 	ClaudeModels []string
+	// ClaudeRuntimeDir overrides host bridge advertisement storage in isolated instances.
+	ClaudeRuntimeDir string
+	ClaudeTmpDir     func(executionID string) string
 	// Ops adds operations served by other parts of the host (tools, bridges).
 	Ops map[string]BrokerOp
 }
@@ -46,13 +49,24 @@ func NewBrokerHandler(db *store.Store, deps BrokerDeps) broker.Handler {
 		"agent.session_created": brokerSessionCreated(db),
 		"agent.stage":           brokerAgentStage(db),
 	}
+	for name, op := range claudeHostOps(db, deps) {
+		ops[name] = op
+	}
 	for name, op := range bridgeOps(db, deps) {
 		ops[name] = op
 	}
 	for name, op := range deps.Ops {
 		ops[name] = op
 	}
-	return func(ctx context.Context, req broker.Request) (any, error) {
+	return func(ctx context.Context, req broker.Request) (out any, runErr error) {
+		// Broker ownership can move during authentication as well as during a
+		// long poll. Do not turn host shutdown into a permanent relay failure.
+		defer func() {
+			if ctx.Err() != nil {
+				out = nil
+				runErr = refuse("host_unavailable", "Legato host is stopping")
+			}
+		}()
 		execution, err := db.ExecutionByBrokerToken(ctx, service.HashBrokerToken(req.Token))
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, refuse("unauthorized", "this token names no running agent session")

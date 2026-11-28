@@ -97,6 +97,16 @@ When Claude Code asks for a permission, Legato raises it as an approval: in the 
 
 Some prompts are only in the terminal, such as a picker opened with `/resume` or `/model`. When such a prompt is a numbered menu, the panel shows it as **Claude Code is asking in its terminal**, with a button for each option. Anything else you answer in the terminal.
 
+### Native decision security
+
+Legato runs the full Claude bridge on the host. Its child in the agent's sandbox only relays commands; the operator key stays in private host state, never in the agent's environment, arguments or bridge lockfile. Native answers and reads, including live streams, need that key. Only event reports and permission waits are keyless. Reports remain untrusted; a fabricated event is not an authenticated operator decision.
+
+Your terminal can still answer its actual dialog. With no viewer attached or an unavailable bridge, the request stays in the terminal; this does not allow keyless native answers. Refused native access raises a durable, high-urgency Attention incident. Dismissing it stays effective for that run and bridge generation despite repeated refusals.
+
+If a mod reload replaces a relay that stopped without cleanup, its replacement waits up to 20 seconds for the old lease to expire. It does not take the bridge from a relay that is still running.
+
+Start a new agent session for this boundary. Legato does not automatically restart agents or use an unprotected compatibility bridge. An unsandboxed agent runs as your OS user and can read private host state, so the key is not isolation from it. See [Sandbox](/legato/security/sandbox/#claude-codes-native-decisions).
+
 ### Turn the panel off
 
 ```yaml

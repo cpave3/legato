@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -299,7 +300,7 @@ func TestBridgeHookIgnoresOtherEvents(t *testing.T) {
 // The seam that broke in LEG-684: an AskUserQuestion reaches the panel
 // through the hook, and the answer given there settles Claude Code's dialog.
 func TestBridgeHookPutsAQuestionToTheRealBridgeAndReturnsItsAnswer(t *testing.T) {
-	bridge := claudebridge.New(claudebridge.Options{TaskID: "task-1", Token: "secret", Commands: io.Discard})
+	bridge := claudebridge.New(claudebridge.Options{TaskID: "task-1", Token: "secret", DecisionKey: "test-host-key", Commands: io.Discard})
 	server := httptest.NewServer(bridge.Handler())
 	t.Cleanup(func() {
 		bridge.Close()
@@ -310,7 +311,9 @@ func TestBridgeHookPutsAQuestionToTheRealBridgeAndReturnsItsAnswer(t *testing.T)
 		map[string]any{"type": "hello", "sessionId": "s-1", "cwd": "/work/repo"},
 		map[string]any{"type": "turn_start", "turnId": "turn-1"},
 	}})
-	events := subscribeBridge(t, base+"/v1/sessions/task-1/events")
+	control, _ := url.Parse(base)
+	control.User = url.UserPassword("legato", "test-host-key")
+	events := subscribeBridge(t, control.String()+"/v1/sessions/task-1/events")
 
 	output := make(chan string, 1)
 	go func() {
@@ -328,7 +331,7 @@ func TestBridgeHookPutsAQuestionToTheRealBridgeAndReturnsItsAnswer(t *testing.T)
 	questions, _ := request["questions"].([]any)
 	first, _ := questions[0].(map[string]any)
 	requestID, _ := request["requestId"].(string)
-	postJSON(t, base+"/v1/sessions/task-1/questions/"+requestID, map[string]any{
+	postJSON(t, control.String()+"/v1/sessions/task-1/questions/"+requestID, map[string]any{
 		"answers": map[string]any{first["id"].(string): []string{"Blue"}},
 	})
 

@@ -11,6 +11,8 @@ package claudebridge
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -31,6 +33,10 @@ type Options struct {
 	TaskID string
 	// Token, when set, is a secret first path segment every request must carry.
 	Token string
+	// DecisionKey belongs to the host, never to the mod or its relay.
+	DecisionKey string
+	// OnUnauthorized records a rejected native call, without caller-supplied text.
+	OnUnauthorized func(category string)
 	// Commands receives newline-delimited JSON commands for the mod.
 	Commands io.Writer
 	// Models are the model IDs the panel offers beside the session's own.
@@ -54,6 +60,8 @@ type Options struct {
 	// ShellPoll is how often a background shell's output file is read;
 	// zero means DefaultShellPoll.
 	ShellPoll time.Duration
+	// ShellRoot maps the sandbox /tmp onto host storage without following escaping links.
+	ShellRoot string
 	// Now overrides the clock in tests.
 	Now func() time.Time
 }
@@ -64,10 +72,12 @@ const DefaultTurnEndedDelay = 1500 * time.Millisecond
 
 // Bridge holds one Claude Code session's conversation state and serves it.
 type Bridge struct {
-	taskID string
-	token  string
-	models []string
-	now    func() time.Time
+	taskID         string
+	token          string
+	decisionKey    string
+	onUnauthorized func(string)
+	models         []string
+	now            func() time.Time
 
 	commandMu      sync.Mutex
 	commands       io.Writer
@@ -89,6 +99,7 @@ type Bridge struct {
 	closeOnce sync.Once
 	closed    chan struct{}
 	shellPoll time.Duration
+	shellRoot string
 
 	mu      sync.Mutex
 	session *session
@@ -97,7 +108,8 @@ type Bridge struct {
 	// for the same task is never mistaken for one of ours.
 	stream *replaystream.Stream
 	// waiters are the mod's held permission requests, by request ID.
-	waiters map[string]chan permissionAnswer
+	waiters       map[string]chan permissionAnswer
+	requestInputs map[string][32]byte
 	// detached are held requests whose call ended without a decision: Claude
 	// Code ends a mod's HTTP call after 30 seconds, and the mod then asks
 	// again with the same ID. Each expires unless asked again within grace.
@@ -129,14 +141,17 @@ func New(opts Options) *Bridge {
 		commands = io.Discard
 	}
 	return &Bridge{
-		taskID:       opts.TaskID,
-		token:        opts.Token,
-		models:       opts.Models,
-		now:          now,
-		commands:     commands,
-		onDisconnect: opts.OnDisconnect,
-		onIdentity:   opts.OnIdentity,
-		onTurnEnded:  opts.OnTurnEnded,
+		shellRoot:      opts.ShellRoot,
+		taskID:         opts.TaskID,
+		token:          opts.Token,
+		decisionKey:    opts.DecisionKey,
+		onUnauthorized: opts.OnUnauthorized,
+		models:         opts.Models,
+		now:            now,
+		commands:       commands,
+		onDisconnect:   opts.OnDisconnect,
+		onIdentity:     opts.OnIdentity,
+		onTurnEnded:    opts.OnTurnEnded,
 		turnEndedDelay: func() time.Duration {
 			if opts.TurnEndedDelay > 0 {
 				return opts.TurnEndedDelay
@@ -150,13 +165,14 @@ func New(opts Options) *Bridge {
 			}
 			return DefaultShellPoll
 		}(),
-		session:  newSession(),
-		stream:   replaystream.New(randomHex(4), replayLimit, subscriberBuffer),
-		waiters:  map[string]chan permissionAnswer{},
-		detached: map[string]*time.Timer{},
-		parked:   map[string]permissionAnswer{},
-		grace:    permissionGrace,
-		holdFor:  permissionHold,
+		session:       newSession(),
+		stream:        replaystream.New(randomHex(4), replayLimit, subscriberBuffer),
+		waiters:       map[string]chan permissionAnswer{},
+		requestInputs: map[string][32]byte{},
+		detached:      map[string]*time.Timer{},
+		parked:        map[string]permissionAnswer{},
+		grace:         permissionGrace,
+		holdFor:       permissionHold,
 	}
 }
 
@@ -180,8 +196,25 @@ func (b *Bridge) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/sessions/{id}/permissions/{requestId}", b.handlePermission)
 	mux.HandleFunc("POST /v1/sessions/{id}/questions/{requestId}", b.handleQuestion)
 	b.registerDescriptionRoutes(mux)
+	protected := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A viewer changes terminal fallback, so reads need host authority too.
+		agentRoute := r.Method == http.MethodPost && (r.URL.Path == "/mod/events" || r.URL.Path == "/mod/permissions")
+		if !agentRoute {
+			user, password, ok := r.BasicAuth()
+			expected, supplied := sha256.Sum256([]byte(b.decisionKey)), sha256.Sum256([]byte(password))
+			if b.decisionKey == "" || !ok || user != "legato" || subtle.ConstantTimeCompare(expected[:], supplied[:]) != 1 {
+				if b.onUnauthorized != nil {
+					b.onUnauthorized(controlCategory(r.URL.Path))
+				}
+				w.Header().Set("WWW-Authenticate", `Basic realm="Legato native control"`)
+				http.Error(w, "native control authentication required", http.StatusUnauthorized)
+				return
+			}
+		}
+		mux.ServeHTTP(w, r)
+	})
 	if b.token == "" {
-		return mux
+		return protected
 	}
 	prefix := "/" + b.token
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -189,7 +222,7 @@ func (b *Bridge) Handler() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		http.StripPrefix(prefix, mux).ServeHTTP(w, r)
+		http.StripPrefix(prefix, protected).ServeHTTP(w, r)
 	})
 }
 
@@ -310,4 +343,15 @@ func (b *Bridge) reportTurnEnded(reason string) {
 	if !busy {
 		b.onTurnEnded(reason)
 	}
+}
+
+func controlCategory(path string) string {
+	parts := strings.Split(path, "/")
+	if len(parts) >= 5 && parts[1] == "v1" && parts[2] == "sessions" {
+		switch parts[4] {
+		case "permissions", "questions", "messages", "interrupt", "compact", "model", "mode", "paths", "events":
+			return parts[4]
+		}
+	}
+	return "native"
 }

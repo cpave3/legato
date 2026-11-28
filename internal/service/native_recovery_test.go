@@ -119,7 +119,20 @@ func TestRestartingLegatoRecoversAgentsWhoseNativeEndpointIsStillRunning(t *test
 		t.Fatal(err)
 	}
 	runningAgent(t, s, "CLAUDE-1", "claude-code")
-	claudeEndpoint := nativeEndpoint(t, "CLAUDE-1", "CLAUDE-1")
+	bridge := claudebridge.New(claudebridge.Options{DecisionKey: "test-host-key", TaskID: "CLAUDE-1"})
+	claudeServer := httptest.NewServer(bridge.Handler())
+	t.Cleanup(func() { bridge.Close(); claudeServer.Close() })
+	claudeEndpoint := claudeServer.URL
+	claudeControl := testClaudeControlEndpoint(t, claudeEndpoint)
+	claudeSession, err := s.GetAgentSessionByTaskID(ctx, "CLAUDE-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RegisterNativeBridge(ctx, store.NativeBridgeRegistration{
+		AgentSessionID: claudeSession.ID, PublicEndpoint: claudeEndpoint, ControlEndpoint: claudeControl, Generation: "test-generation",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := claudebridge.WriteLockfile(ipc.SocketDir(), "CLAUDE-1", claudebridge.Lockfile{SessionID: "CLAUDE-1", URL: claudeEndpoint}); err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +168,7 @@ func TestRestartingLegatoRecoversAgentsWhoseNativeEndpointIsStillRunning(t *test
 
 	for taskID, want := range map[string][2]string{
 		"CODEX-1":   {"CODEX-1", codexEndpoint},
-		"CLAUDE-1":  {"CLAUDE-1", claudeEndpoint},
+		"CLAUDE-1":  {"CLAUDE-1", claudeControl},
 		"CHIMERA-1": {"session-abc", chimeraEndpoint},
 		"CHIMERA-2": {"session-kept", keptEndpoint},
 		// A panel pointed at a dead endpoint shows nothing; the terminal does.

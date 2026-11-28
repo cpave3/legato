@@ -6,19 +6,13 @@ Unlike Claude Code, Codex needs no mod: it serves a protocol of its own. `codex 
 
 ## How it fits together
 
-```
- tmux pane                               legato agent codex-bridge                  Legato
- ┌──────────────────────┐              ┌──────────────────────────┐  bound as the  ┌──────────────────────┐
- │ legato agent codex   │── starts ───▶│ codexbridge              │  agent's native│ AgentService         │
- │   becomes (exec)     │              │  ├ WebSocket client ──┐  │  endpoint      │ (messages, interrupt,│
- │ codex --remote ws:// │              │  └ loopback HTTP      │  │◀─── HTTP ──────│  approvals)          │
- └──────────┬───────────┘              └───────────────────────┼──┘─── SSE ──────▶│ web server           │
-            │ WebSocket                                        │                   └──────────────────────┘
-            ▼                                                  ▼
-          ┌──────────────────────────────────────────────────────┐
-          │ codex app-server  (one per agent session, loopback,  │
-          │ behind a token)   holds the thread, runs the hooks   │
-          └──────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+  launcher[legato agent codex] -->|starts| bridge[Codex bridge]
+  launcher -->|exec| terminal[Codex remote terminal]
+  bridge -->|starts and connects| app[Codex app-server]
+  terminal -->|WebSocket with token| app
+  legato[Legato server] -->|native HTTP and SSE| bridge
 ```
 
 1. **Launch.** With the bridge enabled, `CodexAdapter.LaunchCommand` types `<legato> agent codex -- <codex arguments>` into the pane instead of `codex <arguments>`. The arguments are the same as before: the role prompt as `-c developer_instructions=…`, `launch_args`, the role model, the tier's args.
@@ -146,6 +140,8 @@ adapters:
 - A second client is easy to attach by hand: any WebSocket client that sends `Authorization: Bearer <token>`, then `{"id":1,"method":"initialize","params":{"clientInfo":{"name":"x","title":"x","version":"0"},"capabilities":{"experimentalApi":true}}}` and `{"method":"initialized"}`.
 
 ## Known limits
+
+- LEG-686's host-owned operator-key boundary is Claude-first. Codex's app-server token still reaches the terminal through `LEGATO_CODEX_REMOTE_TOKEN` and a runtime token file; protecting Claude's bridge does not close this upstream access path or establish Codex isolation from self-authorization. The shared native client supports private Basic-auth URLs and refuses credential-bearing redirects, but that alone does not secure Codex's app server.
 
 - The app-server protocol is experimental. A Codex without `app-server`, `--remote` and `--remote-auth-token-env` is started without the bridge.
 - A model or effort chosen in the panel takes effect with the next turn Legato starts, not at once.

@@ -2,6 +2,7 @@ package claudebridge
 
 import (
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -10,6 +11,7 @@ func turnEndedHarness(t *testing.T, delay time.Duration) (*harness, <-chan strin
 	t.Helper()
 	ended := make(chan string, 8)
 	bridge := New(Options{
+		DecisionKey:    "test-host-decision-key",
 		TaskID:         "task-1",
 		Commands:       &commandLog{lines: make(chan map[string]any, 64)},
 		Now:            func() time.Time { return time.UnixMilli(1_700_000_000_000) },
@@ -17,6 +19,9 @@ func turnEndedHarness(t *testing.T, delay time.Duration) (*harness, <-chan strin
 		TurnEndedDelay: delay,
 	})
 	server := httptest.NewServer(bridge.Handler())
+	private, _ := url.Parse(server.URL)
+	private.User = url.UserPassword("legato", "test-host-decision-key")
+	server.URL = private.String()
 	t.Cleanup(func() {
 		bridge.Close()
 		server.Close()

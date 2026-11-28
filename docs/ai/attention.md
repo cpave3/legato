@@ -35,6 +35,7 @@ Executable source actions additionally implement `AttentionActionHandler`. Navig
 | `workflows` | Manual gates, `gate` steps (`workflow_gate`), workflow agents waiting for input, failed steps of failed runs, steps paused after a failure (`workflow_failed`), review loops stuck (`workflow_review_stuck`), waiting on their author (`workflow_review_author`), and a steward held, its approval dismissed or ended idle (`workflow_review_steward`) | Workflow and agent lifecycle events |
 | `workflow_triggers` | Missing input, confirmation, failed automatic triggers, and loop stops (`workflow_trigger_loop_stop`: Run anyway, Pause trigger) | `EventWorkflowTriggerChanged` |
 | `approvals` | Pending approval requests (agents' permissions and questions), with their options as actions; see [Approvals](approvals.md) | `EventApprovalChanged` |
+| `native_security` | Refused Claude native access (`native_security_incident`, default-enabled, high urgency, category `security`); one durable incident per execution + bridge generation | `EventApprovalChanged`, startup reconciliation |
 | `devices` | The last `legato device reset`, until dismissed; see [Approvals](approvals.md) § Signed approvals | `EventApprovalChanged` |
 | `argus` | Argus's open CI cases on the person's PRs (`argus_case`, `argus_needs_you`), pushed by Argus and put on the task that owns the PR; navigation `external`; see [Integrations](integrations.md) § Cases in Attention | After each push, `EventPRStatusUpdated`, `EventCardsRefreshed` |
 | `usage` | Committed profile switches (`usage_profile_switched`, informational), including return to fallback; revision `profile:since`, source key the switch ID. Two navigation actions: **Open Usage** and pin controls; rail group `legato`. Kept for seven days within bounded switch history. Notifications are emitted by the usage owner, not snapshot reconciliation; `notifications.usage` defaults on. See [Subscription usage](usage.md) | `EventSubscriptionUsageChanged`, `EventSubscriptionUsageInvalidated` |
@@ -57,11 +58,16 @@ Startup reconciliation remains the safety net. Source events reconcile the relev
 
 Each producer builds a revision from meaningful source state. Dismiss suppresses only that exact revision. A changed PR blocker, agent activity, review handoff, plan, or workflow state can resurface; an unchanged snapshot cannot. When a successful snapshot omits a previous source key, reconciliation resolves the stale item.
 
+### Native security incidents (LEG-686)
+
+`NativeSecurityAttentionAdapter` projects `native_security_incidents`, not pending approvals. A refused unauthenticated or incorrectly authenticated native call records a bounded category, count, and first/last times, never the URL, key or request body. It establishes a refusal, not caller identity. Successful answers, request completion and session end do not erase it. The source key is execution + generation and revision is the generation: repeat refusals update the count without undoing dismissal, including across restart. A new generation is a separate incident. The item says “Unauthenticated native decision attempt”, offers Open agent and uses the default-enabled `legato` rail group.
+
 ## Default signal policy
 
 Attention deliberately includes only states the local durable data can support reliably:
 
 - **Informational:** usage profile switches (`usage_profile_switched`); the operator can inspect the reason or pin a profile. This does not mean existing work was moved to another agent.
+- **Needs intervention** also: refused native access (`native_security_incident`), high urgency.
 - **Needs intervention:** plan decisions, workflow gates/failures/input, standalone agent waiting/error, pending approvals, and a device reset.
 - **Needs intervention** also: a restart of Legato rolled back (`restart_rolled_back`).
 - **Needs intervention** also: an agent whose engram did not boot (`engram_boot_failed`), while it runs.

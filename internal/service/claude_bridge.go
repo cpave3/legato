@@ -29,10 +29,14 @@ func (a *agentService) discoverClaudeBridge(ctx context.Context, taskID string, 
 	if err != nil {
 		return fmt.Errorf("reading the Claude Code bridge lockfile: %w", err)
 	}
-	if !isLoopbackHTTPURL(lockfile.URL) || !nativeEndpointServes(ctx, lockfile.URL, lockfile.SessionID, taskID) {
+	registration, err := a.store.NativeBridgeRegistration(ctx, agentSessionID)
+	if err != nil {
 		return ErrChimeraDiscoveryNotFound
 	}
-	if err := a.bindBridge(ctx, agentSessionID, lockfile.SessionID, lockfile.URL); err != nil {
+	if registration.PublicEndpoint != lockfile.URL || !isLoopbackHTTPURL(lockfile.URL) || !nativeEndpointServes(ctx, registration.ControlEndpoint, lockfile.SessionID, taskID) {
+		return ErrChimeraDiscoveryNotFound
+	}
+	if err := a.bindBridge(ctx, agentSessionID, lockfile.SessionID, registration.ControlEndpoint); err != nil {
 		return fmt.Errorf("persisting Claude Code bridge discovery: %w", err)
 	}
 	if a.bus != nil {

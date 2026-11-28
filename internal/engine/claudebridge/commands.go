@@ -1,6 +1,7 @@
 package claudebridge
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -150,7 +151,18 @@ func (b *Bridge) handleModPermission(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "requestId, tool and input are required", http.StatusBadRequest)
 		return
 	}
+	immutable, _ := json.Marshal(struct {
+		Tool        string
+		Input       map[string]any
+		Suggestions []json.RawMessage
+	}{body.Tool, body.Input, body.Suggestions})
+	fingerprint := sha256.Sum256(immutable)
 	b.mu.Lock()
+	if previous, seen := b.requestInputs[body.RequestID]; seen && (previous != fingerprint || b.waiters[body.RequestID] == nil && b.parked[body.RequestID].Decision == "") {
+		b.mu.Unlock()
+		http.Error(w, "request identity was already used", http.StatusConflict)
+		return
+	}
 	// The mod asks again for a request whose call timed out: wait on as before.
 	if answer, ok := b.parked[body.RequestID]; ok {
 		delete(b.parked, body.RequestID)
@@ -172,12 +184,18 @@ func (b *Bridge) handleModPermission(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, askInTerminal)
 		return
 	}
+	if len(b.requestInputs) >= 10000 {
+		b.mu.Unlock()
+		http.Error(w, "bridge request capacity reached", http.StatusTooManyRequests)
+		return
+	}
 	events := b.session.requestPermission(body.RequestID, body.Tool, body.Input, body.Reason, body.Suggestions)
 	if events == nil {
 		b.mu.Unlock()
 		writeJSON(w, http.StatusOK, askInTerminal)
 		return
 	}
+	b.requestInputs[body.RequestID] = fingerprint
 	waiter := make(chan permissionAnswer, 1)
 	b.waiters[body.RequestID] = waiter
 	b.publish(events)

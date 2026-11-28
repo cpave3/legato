@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -122,13 +123,13 @@ func TestClaudeBridgeBindsTheRunningAgentForAsLongAsItRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.ChimeraEndpoint == nil || *session.ChimeraEndpoint != endpoint || session.ChimeraSessionID == nil || *session.ChimeraSessionID != "task1" {
+	if session.ChimeraEndpoint == nil || publicBridgeURL(t, *session.ChimeraEndpoint) != endpoint || session.ChimeraSessionID == nil || *session.ChimeraSessionID != "task1" {
 		t.Fatalf("binding = %v / %v, want the bridge endpoint under the task", session.ChimeraEndpoint, session.ChimeraSessionID)
 	}
 
 	// The endpoint serves the native protocol under the task's name, which
 	// is what Legato's discovery verifies.
-	resp, err := http.Get(endpoint + "/v1/sessions/task1")
+	resp, err := http.Get(controlBridgeURL(t, s, "task1") + "/v1/sessions/task1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +238,7 @@ func TestClaudeBridgeTakesOverFromABridgeThatIsLeaving(t *testing.T) {
 	endpoint, _ := runningBridge(t, s, cli.ClaudeBridgeOptions{TaskID: "task1", RuntimeDir: t.TempDir(), HandoverWait: 5 * time.Second})
 
 	bound, _ := s.GetAgentSessionByTaskID(context.Background(), "task1")
-	if bound.ChimeraEndpoint == nil || *bound.ChimeraEndpoint != endpoint {
+	if bound.ChimeraEndpoint == nil || publicBridgeURL(t, *bound.ChimeraEndpoint) != endpoint {
 		t.Fatalf("binding = %v, want the new bridge %q", bound.ChimeraEndpoint, endpoint)
 	}
 }
@@ -255,7 +256,7 @@ func TestClaudeBridgeReplacesADeadBinding(t *testing.T) {
 	endpoint, _ := runningBridge(t, s, cli.ClaudeBridgeOptions{TaskID: "task1", RuntimeDir: t.TempDir()})
 
 	bound, _ := s.GetAgentSessionByTaskID(context.Background(), "task1")
-	if bound.ChimeraEndpoint == nil || *bound.ChimeraEndpoint != endpoint {
+	if bound.ChimeraEndpoint == nil || publicBridgeURL(t, *bound.ChimeraEndpoint) != endpoint {
 		t.Fatalf("binding = %v, want the new bridge %q", bound.ChimeraEndpoint, endpoint)
 	}
 }
@@ -291,11 +292,11 @@ func TestClaudeBridgeOffersTheConfiguredModels(t *testing.T) {
 	s := newTestStore(t)
 	seedRunningClaudeAgent(t, s, "task1")
 
-	endpoint, _ := runningBridge(t, s, cli.ClaudeBridgeOptions{
+	_, _ = runningBridge(t, s, cli.ClaudeBridgeOptions{
 		TaskID: "task1", RuntimeDir: t.TempDir(), Models: []string{"claude-sonnet-5-5", "claude-haiku-5-5"},
 	})
 
-	resp, err := http.Get(endpoint + "/v1/sessions/task1/models")
+	resp, err := http.Get(controlBridgeURL(t, s, "task1") + "/v1/sessions/task1/models")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +370,7 @@ func TestClaudeBridgeCapturesIdentityAndResumedHistoryWithoutChangingBinding(t *
 			post(`[{"type":"reset"}]`, "claude-first", "/repo")
 			post(`[{"type":"identity","sessionId":"claude-clear","cwd":"/repo"}]`, "claude-clear", "/repo")
 			post(`[{"type":"hello","sessionId":"claude-resume","cwd":"/other","messages":[{"role":"user","text":"old question"},{"role":"assistant","text":"old answer"}]}]`, "claude-resume", "/other")
-			resp, err := http.Get(endpoint + "/v1/sessions/task1")
+			resp, err := http.Get(controlBridgeURL(t, s, "task1") + "/v1/sessions/task1")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -444,4 +445,58 @@ func TestClaudeBridgeEndsAnInterruptedTurn(t *testing.T) {
 		session, err := s.GetAgentSessionByTaskID(context.Background(), "task1")
 		return err == nil && session.Activity == ""
 	})
+}
+
+func publicBridgeURL(t *testing.T, endpoint string) string {
+	t.Helper()
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.User = nil
+	return u.String()
+}
+func controlBridgeURL(t *testing.T, s *store.Store, taskID string) string {
+	t.Helper()
+	session, err := s.GetAgentSessionByTaskID(context.Background(), taskID)
+	if err != nil || session.ChimeraEndpoint == nil {
+		t.Fatalf("no host native binding: %v", err)
+	}
+	return *session.ChimeraEndpoint
+}
+
+func TestHostClaudeBridgeRecordsTheExecutionsSelectedAccountStorage(t *testing.T) {
+	s := newTestStore(t)
+	owner := seedRunningClaudeAgent(t, s, "task1")
+	linkNativeTestExecution(t, s, owner)
+	selected := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := s.PutExecutionAccount(context.Background(), "native-task1", store.AgentAccountIdentity{Provider: "claude-code", Account: "selected", ConfigDir: selected, ResolvedDir: selected, ConfigEnvSet: true}); err != nil {
+		t.Fatal(err)
+	}
+	endpoint, _ := runningBridge(t, s, cli.ClaudeBridgeOptions{TaskID: "task1", ExecutionID: "native-task1", RuntimeDir: t.TempDir()})
+	if code, body := postClaudeIdentity(t, endpoint, `[{"type":"hello","sessionId":"selected-conversation","cwd":"/repo"}]`); code != http.StatusNoContent {
+		t.Fatalf("identity=%d %s", code, body)
+	}
+	saved, err := s.GetTaskNativeSession(context.Background(), "task1", "claude-code")
+	if err != nil || saved == nil || saved.StorageDir != selected {
+		t.Fatalf("host recorded another account's storage: %+v %v", saved, err)
+	}
+}
+
+func TestReplacementHostBridgeKeepsTheOperatorsTerminalChoice(t *testing.T) {
+	s := newTestStore(t)
+	owner := seedRunningClaudeAgent(t, s, "task1")
+	_, stop := runningBridge(t, s, cli.ClaudeBridgeOptions{TaskID: "task1", RuntimeDir: t.TempDir()})
+	if changed, err := s.KeepAgentSessionOnTmux(context.Background(), owner.ID, "task1", controlBridgeURL(t, s, "task1")); err != nil || !changed {
+		t.Fatalf("terminal switch=%v %v", changed, err)
+	}
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = runningBridge(t, s, cli.ClaudeBridgeOptions{TaskID: "task1", RuntimeDir: t.TempDir()})
+	current, err := s.GetAgentSessionByTaskID(context.Background(), "task1")
+	if err != nil || !current.NativeOff || current.ChimeraEndpoint != nil {
+		t.Fatalf("replacement undid terminal choice: %+v %v", current, err)
+	}
 }

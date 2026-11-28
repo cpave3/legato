@@ -15,7 +15,7 @@ func TestQuestionAnswerReachesABridgedClaudeAgent(t *testing.T) {
 	// A native viewer is watching, so the bridge holds the mod's request.
 	ctx, stopWatching := context.WithCancel(context.Background())
 	defer stopWatching()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, agent.endpoint+"/v1/sessions/TASK-42/events", nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, testClaudeControlEndpoint(t, agent.endpoint)+"/v1/sessions/TASK-42/events", nil)
 	watching, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

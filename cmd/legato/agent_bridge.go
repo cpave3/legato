@@ -35,6 +35,23 @@ func runAgentBridgeContract(args []string) int {
 	if executionID == "" {
 		executionID = strings.TrimSpace(os.Getenv("LEGATO_EXECUTION_ID"))
 	}
+	// The broker starts trusted host code. This child only carries commands
+	// to the mod and never receives the bridge's control credential.
+	if socket, token, ok := brokerSession(); ok {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+		defer stop()
+		signal.Ignore(syscall.SIGPIPE)
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		go cancelWhenOrphaned(ctx, cancel, os.Getppid(), os.Getppid, time.Second)
+		if _, err := cli.BrokerBridgeHost(socket, token).Session(ctx, taskID, executionID); err != nil {
+			return renderCommandError(command, commandDomainError(err), false)
+		}
+		if err := cli.RunClaudeRelay(ctx, socket, token, os.Stdout); err != nil {
+			return renderCommandError(command, commandDomainError(err), false)
+		}
+		return exitOK
+	}
 	host, db, models, failed := bridgeHost(command, taskID, executionID, func(cfg *config.Config) []string { return cfg.Adapters["claude-code"].Models })
 	if failed != 0 {
 		return failed

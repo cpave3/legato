@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,14 +66,14 @@ func newBridgedClaudeAgent(t *testing.T, taskID string) *bridgedClaudeAgent {
 		t.Fatal(err)
 	}
 	commands := &lineWriter{lines: make(chan map[string]any, 32)}
-	bridge := claudebridge.New(claudebridge.Options{TaskID: taskID, Token: "secret", Commands: commands})
+	bridge := claudebridge.New(claudebridge.Options{DecisionKey: "test-host-key", TaskID: taskID, Token: "secret", Commands: commands})
 	server := httptest.NewServer(bridge.Handler())
 	t.Cleanup(func() {
 		bridge.Close()
 		server.Close()
 	})
 	endpoint := server.URL + "/secret"
-	if err := s.UpdateChimeraDiscovery(ctx, taskID, taskID, endpoint); err != nil {
+	if err := s.UpdateChimeraDiscovery(ctx, taskID, taskID, testClaudeControlEndpoint(t, endpoint)); err != nil {
 		t.Fatal(err)
 	}
 	agent := &bridgedClaudeAgent{t: t, svc: svc, store: s, endpoint: endpoint, commands: commands.lines}
@@ -151,7 +152,7 @@ func TestAttachmentsReachABridgedClaudeAgentAheadOfTheMessage(t *testing.T) {
 	var snapshot struct {
 		CWD string `json:"cwd"`
 	}
-	resp, err := http.Get(agent.endpoint + "/v1/sessions/TASK-42")
+	resp, err := http.Get(testClaudeControlEndpoint(t, agent.endpoint) + "/v1/sessions/TASK-42")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +196,7 @@ func TestPermissionDecisionReachesABridgedClaudeAgent(t *testing.T) {
 	// A native viewer is watching, so the bridge holds the mod's request.
 	ctx, stopWatching := context.WithCancel(context.Background())
 	defer stopWatching()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, agent.endpoint+"/v1/sessions/TASK-42/events", nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, testClaudeControlEndpoint(t, agent.endpoint)+"/v1/sessions/TASK-42/events", nil)
 	watching, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -250,13 +251,23 @@ func TestDiscoverRebindsAClaudeCodeAgentToItsRunningBridge(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	bridge := claudebridge.New(claudebridge.Options{TaskID: "TASK-42", Token: "secret"})
+	bridge := claudebridge.New(claudebridge.Options{DecisionKey: "test-host-key", TaskID: "TASK-42", Token: "secret"})
 	server := httptest.NewServer(bridge.Handler())
 	t.Cleanup(func() {
 		bridge.Close()
 		server.Close()
 	})
 	endpoint := server.URL + "/secret"
+	session, err := s.GetAgentSessionByTaskID(context.Background(), "TASK-42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	controlEndpoint := testClaudeControlEndpoint(t, endpoint)
+	if err := s.RegisterNativeBridge(context.Background(), store.NativeBridgeRegistration{
+		AgentSessionID: session.ID, PublicEndpoint: endpoint, ControlEndpoint: controlEndpoint, Generation: "test-generation",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	// The bridge keeps advertising itself after a downgrade to tmux.
 	if err := claudebridge.WriteLockfile(ipc.SocketDir(), "TASK-42", claudebridge.Lockfile{SessionID: "TASK-42", URL: endpoint}); err != nil {
 		t.Fatal(err)
@@ -266,11 +277,11 @@ func TestDiscoverRebindsAClaudeCodeAgentToItsRunningBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	session, err := s.GetAgentSessionByTaskID(context.Background(), "TASK-42")
+	session, err = s.GetAgentSessionByTaskID(context.Background(), "TASK-42")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.ChimeraEndpoint == nil || *session.ChimeraEndpoint != endpoint || session.ChimeraSessionID == nil || *session.ChimeraSessionID != "TASK-42" {
+	if session.ChimeraEndpoint == nil || *session.ChimeraEndpoint != controlEndpoint || session.ChimeraSessionID == nil || *session.ChimeraSessionID != "TASK-42" {
 		t.Fatalf("binding = %v / %v", session.ChimeraEndpoint, session.ChimeraSessionID)
 	}
 	if len(publisher.discoveries) != 1 || publisher.discoveries[0] != "TASK-42" {
@@ -282,7 +293,7 @@ func TestDiscoverLeavesAClaudeCodeAgentAloneWithoutAUsableBridge(t *testing.T) {
 	gone := httptest.NewServer(http.NotFoundHandler())
 	goneURL := gone.URL
 	gone.Close()
-	otherTask := claudebridge.New(claudebridge.Options{TaskID: "OTHER-1"})
+	otherTask := claudebridge.New(claudebridge.Options{DecisionKey: "test-host-key", TaskID: "OTHER-1"})
 	otherServer := httptest.NewServer(otherTask.Handler())
 	t.Cleanup(func() {
 		otherTask.Close()
@@ -309,6 +320,15 @@ func TestDiscoverLeavesAClaudeCodeAgentAloneWithoutAUsableBridge(t *testing.T) {
 				t.Fatal(err)
 			}
 			if tt.lockfile != nil {
+				session, err := s.GetAgentSessionByTaskID(context.Background(), "TASK-42")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := s.RegisterNativeBridge(context.Background(), store.NativeBridgeRegistration{
+					AgentSessionID: session.ID, PublicEndpoint: tt.lockfile.URL, ControlEndpoint: testClaudeControlEndpoint(t, tt.lockfile.URL), Generation: "test-generation",
+				}); err != nil {
+					t.Fatal(err)
+				}
 				if err := claudebridge.WriteLockfile(ipc.SocketDir(), "TASK-42", *tt.lockfile); err != nil {
 					t.Fatal(err)
 				}
@@ -325,4 +345,14 @@ func TestDiscoverLeavesAClaudeCodeAgentAloneWithoutAUsableBridge(t *testing.T) {
 			}
 		})
 	}
+}
+
+func testClaudeControlEndpoint(t *testing.T, publicEndpoint string) string {
+	t.Helper()
+	endpoint, err := url.Parse(publicEndpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint.User = url.UserPassword("legato", "test-host-key")
+	return endpoint.String()
 }

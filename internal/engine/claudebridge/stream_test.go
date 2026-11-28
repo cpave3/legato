@@ -293,6 +293,7 @@ func TestALaggingSubscriberIsDroppedWithoutBlockingThePublisher(t *testing.T) {
 	go func() {
 		defer close(ended)
 		req := httptest.NewRequest(http.MethodGet, "/v1/sessions/task-1/events", nil).WithContext(ctx)
+		req.SetBasicAuth("legato", "test-host-decision-key")
 		h.bridge.Handler().ServeHTTP(writer, req)
 	}()
 	var releaseOnce sync.Once
@@ -360,7 +361,9 @@ func TestAWriterThatCannotFlushIsRefusedBeforeSubscribing(t *testing.T) {
 	h.mod(hello(nil))
 
 	writer := &plainWriter{header: http.Header{}}
-	h.bridge.Handler().ServeHTTP(writer, httptest.NewRequest(http.MethodGet, "/v1/sessions/task-1/events", nil))
+	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/task-1/events", nil)
+	req.SetBasicAuth("legato", "test-host-decision-key")
+	h.bridge.Handler().ServeHTTP(writer, req)
 
 	if writer.status != http.StatusInternalServerError || strings.TrimSpace(writer.body.String()) != "streaming unsupported" {
 		t.Fatalf("response = %d %q", writer.status, writer.body.String())

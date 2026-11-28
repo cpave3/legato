@@ -17,7 +17,7 @@ func (h *harness) ask(body map[string]any) <-chan map[string]any {
 	go func() {
 		defer close(answer)
 		encoded, _ := json.Marshal(body)
-		resp, err := http.Post(h.server.URL+"/mod/permissions", "application/json", bytes.NewReader(encoded))
+		resp, err := http.Post(h.publicURL()+"/mod/permissions", "application/json", bytes.NewReader(encoded))
 		if err != nil {
 			return
 		}

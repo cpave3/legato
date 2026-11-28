@@ -81,7 +81,13 @@ func (h *storeBridgeHost) Session(ctx context.Context, taskID, executionID strin
 }
 
 func (h *storeBridgeHost) Bind(ctx context.Context, endpoint string) error {
-	if err := h.s.UpdateChimeraDiscoveryForSession(ctx, h.session.ID, h.taskID, endpoint); err != nil {
+	var err error
+	if h.session.AgentKind == "claude-code" {
+		_, err = h.s.BindNativeEndpointUnlessOff(ctx, h.session.ID, h.taskID, endpoint)
+	} else {
+		err = h.s.UpdateChimeraDiscoveryForSession(ctx, h.session.ID, h.taskID, endpoint)
+	}
+	if err != nil {
 		return fmt.Errorf("binding the bridge to task %s: %w", h.taskID, err)
 	}
 	ipc.Broadcast(ipc.Message{Type: "agents_changed", TaskID: h.taskID})
@@ -190,10 +196,27 @@ func bridgeOps(db *store.Store, deps BrokerDeps) map[string]BrokerOp {
 			if err != nil {
 				return nil, refuse("rejected", err.Error())
 			}
+			if h.session.AgentKind == "claude-code" {
+				session.Endpoint = ""
+				registration, lookupErr := db.NativeBridgeRegistration(ctx, h.session.ID)
+				if lookupErr == nil {
+					session.Endpoint = registration.PublicEndpoint
+				} else if lookupErr != store.ErrNotFound {
+					return nil, lookupErr
+				}
+			}
 			session.Models = deps.ClaudeModels
 			return session, nil
 		},
 		"endpoint.bind": func(ctx context.Context, caller BrokerCaller, raw json.RawMessage) (any, error) {
+			owner, err := db.GetRunningAgentSession(ctx, caller.TaskID, caller.ExecutionID)
+			if err != nil {
+				return nil, err
+			}
+			if owner.AgentKind == "claude-code" {
+				return nil, refuse("forbidden", "Claude bridge bindings are host-owned")
+			}
+
 			endpoint, err := endpointArg(raw)
 			if err != nil {
 				return nil, err
@@ -217,6 +240,14 @@ func bridgeOps(db *store.Store, deps BrokerDeps) map[string]BrokerOp {
 			return map[string]bool{"ok": true}, h.Bind(ctx, endpoint)
 		},
 		"endpoint.unbind": func(ctx context.Context, caller BrokerCaller, raw json.RawMessage) (any, error) {
+			owner, err := db.GetRunningAgentSession(ctx, caller.TaskID, caller.ExecutionID)
+			if err != nil {
+				return nil, err
+			}
+			if owner.AgentKind == "claude-code" {
+				return nil, refuse("forbidden", "Claude bridge bindings are host-owned")
+			}
+
 			endpoint, err := endpointArg(raw)
 			if err != nil {
 				return nil, err
@@ -240,6 +271,14 @@ func bridgeOps(db *store.Store, deps BrokerDeps) map[string]BrokerOp {
 		// restores, its own session's binding. The row is the caller's, from
 		// its token; the endpoint must be loopback, as endpoint.bind's is.
 		"endpoint.ensure": func(ctx context.Context, caller BrokerCaller, raw json.RawMessage) (any, error) {
+			owner, err := db.GetRunningAgentSession(ctx, caller.TaskID, caller.ExecutionID)
+			if err != nil {
+				return nil, err
+			}
+			if owner.AgentKind == "claude-code" {
+				return nil, refuse("forbidden", "Claude bridge bindings are host-owned")
+			}
+
 			endpoint, err := endpointArg(raw)
 			if err != nil {
 				return nil, err
