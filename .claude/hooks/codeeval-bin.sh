@@ -6,8 +6,8 @@
 #
 # First that exists: $CODEEVAL_BIN, the shared install
 # $HOME/.local/share/codeeval/current/codeeval (mounted read-only into every
-# Legato sandbox), then codeeval on PATH. With nothing printed, the Stop hook
-# finds no codeeval and exits 0 without a word.
+# Legato sandbox), then codeeval on PATH. With nothing printed, the commands
+# in .claude/settings.json run neither hook, so nothing is printed (LEG-713).
 if [ -n "${CODEEVAL_BIN:-}" ]; then
   printf '%s\n' "$CODEEVAL_BIN"
 elif [ -x "${HOME:-}/.local/share/codeeval/current/codeeval" ]; then

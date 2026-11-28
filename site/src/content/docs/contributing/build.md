@@ -98,15 +98,16 @@ Go tests use real SQLite databases in temporary folders, not mocks. Tests that n
 
 The repository runs [CodeEval](https://github.com/cpave3/code-analyzer) as Claude Code hooks, so a Claude Code session in a checkout gets them, including an agent that Legato starts in a job clone. CodeEval measures the structure of a change. It does not run code.
 
-- **When a session starts,** the hook records the commit it started from, in `.git/codeeval/<session>/`. Each Claude session keeps its own, so two sessions in one checkout do not disturb each other.
-- **When Claude stops,** the hook checks everything the session changed since that commit, committed or not. A quick check of the changed files runs in about a second. A broad check of the cross-file rules runs in the background, and the next stop reports its result. When the change adds debt or gate defects, the hook blocks the stop once and gives Claude the findings.
+- **When a session starts,** the hook records the commit it started from, in `.git/codeeval/<session>/`. Each Claude session keeps its own, so two sessions in one checkout do not disturb each other. The hook also tells Claude the quick check to run before it pushes.
+- **When Claude stops,** the hook checks what the session changed, committed or not, since its last stop that passed (or since it started). Work an earlier stop passed, and work merged from others, is not checked again. A quick check of the changed files runs in about a second. A broad check of the cross-file rules runs in the background, and the next stop reports its result.
+- **When the check fails,** the hook blocks the stop once and gives Claude the findings. A change may add up to 10 points of debt before it fails; set `CODEEVAL_DEBT_BUDGET` to change that. Once the branch's pull request is approved, the hook only reports a finding to you and does not block.
 
 The hooks look for CodeEval in this order: `$CODEEVAL_BIN`, then `~/.local/share/codeeval/current/codeeval`, then `codeeval` on `PATH`. When they find none, they do nothing and print nothing. You do not need CodeEval to work on Legato.
 
 To turn the Stop check off, set `CODEEVAL_HOOK=off`, or `CODEEVAL_BIN=/bin/false`, in the environment you start Claude Code from. For a false positive, add a `codeeval-ignore <rule-id>: <reason>` comment on or above the line.
 
 :::caution
-The two hook scripts carry a patch that CodeEval has not shipped yet (CE-3). Running `codeeval hook install` in the repository overwrites the patch, and it also writes your machine's CodeEval path into `.claude/settings.json`. Do not commit either change.
+The hook scripts are CodeEval 0.9.1's, unchanged. Running `codeeval hook install` in the repository updates them, and it also writes your machine's CodeEval path into `.claude/settings.json`. Commit the scripts if you mean to update them, but put back the two commands in `.claude/settings.json`.
 :::
 
 ## Pull requests and CI
