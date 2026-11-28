@@ -7,8 +7,8 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/managedhooks"
 	"github.com/cpave3/legato/internal/engine/skills"
@@ -118,11 +118,13 @@ type SkillsAdapter interface {
 // hooks exactly when its adapter implements it.
 type HooksAdapter interface {
 	// HooksBundle writes in root what the tool needs to run the hooks (a
-	// plugin's or a mod's manifest, the entries for the events they run
-	// on), adds to env what makes the tool load it, and returns the folder
-	// each hook's folder goes in. events is every event the hooks use,
-	// each once.
-	HooksBundle(root string, events []string, env map[string]string) (hooksDir string, err error)
+	// plugin's or a mod's manifest, an entry calling the runner for each
+	// event and for the internal canary and turn reset), adds to env what
+	// makes the tool load it, and returns the bundle's folder, in which
+	// Legato then lays out what the runner reads (writeHooksContract).
+	// events maps every delivered event the hooks use to the longest time
+	// limit, in seconds, of the hooks that run on it.
+	HooksBundle(root string, events map[string]int, env map[string]string) (bundleDir string, err error)
 }
 
 // CapabilityFolders holds each execution's capabilities, one folder per
@@ -260,7 +262,10 @@ func (a *agentService) giveCapabilities(ctx context.Context, req CapabilityReque
 	if decided {
 		given.Hooks = hooks
 	}
-	kinds := capabilityKinds{dir: dir, tool: filepath.Join(dir, adapter.Name()), req: req, env: env}
+	if req.ToolTakesHooks {
+		a.noteUndeliveredHookEvents(ctx, req.TaskID, given.Hooks)
+	}
+	kinds := capabilityKinds{dir: dir, tool: filepath.Join(dir, adapter.Name()), req: req, env: env, now: time.Now().UTC()}
 	kinds.giveSkills(adapter, given.Skills)
 	kinds.giveHooks(adapter, given.Hooks)
 }
@@ -297,46 +302,35 @@ func (k capabilityKinds) giveSkills(adapter AIToolAdapter, given []skills.Skill)
 	})
 }
 
-// giveHooks gives the managed hooks, if the adapter can take them. A hook's
-// files are copied as a skill's are: from inside its folder only,
-// executable bits kept, size capped.
+// giveHooks gives the managed hooks, if the adapter can take them: the
+// tool's bundle, then what the runner reads in it (writeHooksContract:
+// each hook's copy and hook.env, the seed, the context and the index).
 func (k capabilityKinds) giveHooks(adapter AIToolAdapter, given []ManagedHook) {
 	bundler, ok := adapter.(HooksAdapter)
 	if !ok || len(given) == 0 {
 		return
 	}
 	k.give("managed hooks", func(bundleEnv map[string]string) error {
-		hooksDir, err := bundler.HooksBundle(k.tool, hookEvents(given), bundleEnv)
+		bundle, err := bundler.HooksBundle(k.tool, deliveredHookTimeouts(given), bundleEnv)
 		if err != nil {
 			return err
 		}
-		for _, hook := range given {
-			k.copyLogged("managed hook", skills.Skill{Name: hook.Name, Path: hook.Path}, filepath.Join(hooksDir, hook.Name))
-		}
-		return nil
+		return writeHooksContract(bundle, given, k.req, k.now)
 	})
 }
 
 // copyLogged copies one folder into a bundle; a failure leaves the agent
-// without that one, logged.
-func (k capabilityKinds) copyLogged(what string, folder skills.Skill, dst string) {
-	if err := skills.Copy(folder, dst); err != nil {
-		log.Printf("capabilities: %s %s for %s (%s): %v", what, folder.Name, k.req.TaskID, k.req.ExecutionID, err)
-	}
+// without that one, logged, and is reported.
+func (k capabilityKinds) copyLogged(what string, folder skills.Skill, dst string) bool {
+	return copyFolderLogged(what, folder, dst, k.req)
 }
 
-// hookEvents is every event the hooks run on, each once, sorted.
-func hookEvents(given []ManagedHook) []string {
-	var events []string
-	for _, hook := range given {
-		for _, event := range hook.Events {
-			if !slices.Contains(events, event) {
-				events = append(events, event)
-			}
-		}
+func copyFolderLogged(what string, folder skills.Skill, dst string, req CapabilityRequest) bool {
+	if err := skills.Copy(folder, dst); err != nil {
+		log.Printf("capabilities: %s %s for %s (%s): %v", what, folder.Name, req.TaskID, req.ExecutionID, err)
+		return false
 	}
-	slices.Sort(events)
-	return events
+	return true
 }
 
 // capabilityKinds gives one execution's capabilities kind by kind, each in
@@ -346,6 +340,7 @@ type capabilityKinds struct {
 	tool string // the tool's folder inside it
 	req  CapabilityRequest
 	env  map[string]string
+	now  time.Time // when the agent starts: the seed's time
 }
 
 // give writes one kind's bundle with write, which adds to the copy of the

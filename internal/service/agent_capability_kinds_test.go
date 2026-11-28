@@ -95,31 +95,42 @@ func TestTheCapabilityRequestSaysWhatTheSpawnKnowsOfTheAgent(t *testing.T) {
 	if !reeve.Reeve || reeve.TaskID != reeveTask {
 		t.Fatalf("the Reeve's spawn asked %+v", reeve)
 	}
-	plain.TaskID, plain.ExecutionID, plain.AgentKind, plain.Slot, plain.WorkDir = "", "", "", "", ""
+	if !plain.ToolTakesHooks {
+		t.Fatal("Claude Code was asked for as a tool that cannot run managed hooks")
+	}
+	plain.TaskID, plain.ExecutionID, plain.AgentKind, plain.Slot, plain.WorkDir, plain.ToolTakesHooks = "", "", "", "", "", false
 	if !reflect.DeepEqual(plain, CapabilityRequest{}) {
 		t.Fatalf("a plain spawn outside a repository asked %+v, want nothing beyond who it is", plain)
 	}
 }
 
-// hookingClaude is Claude Code with a HooksAdapter of the test's: no real
-// adapter takes managed hooks yet. Its bundle is a folder legato-hooks it
-// adds to CLAUDE_CODE_PLUGIN_DIRS; with fail, it writes part of it, changes
-// env, and fails.
+// hookingClaude is Claude Code with a HooksAdapter of the test's. Its
+// bundle is a folder legato-hooks it adds to CLAUDE_CODE_PLUGIN_DIRS; with
+// fail, it writes part of it, changes env, and fails; with unwritable, it
+// succeeds but leaves a bundle Legato cannot write the runner's files in.
 type hookingClaude struct {
 	*hooks.ClaudeCodeAdapter
-	fail   bool
-	events [][]string
+	fail, unwritable bool
+	events           []map[string]int
 }
 
-func (h *hookingClaude) HooksBundle(root string, events []string, env map[string]string) (string, error) {
+func (h *hookingClaude) HooksBundle(root string, events map[string]int, env map[string]string) (string, error) {
 	h.events = append(h.events, events)
-	dir := filepath.Join(root, "legato-hooks", "hooks")
+	dir := filepath.Join(root, "legato-hooks")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	env["CLAUDE_CODE_PLUGIN_DIRS"] += string(os.PathListSeparator) + filepath.Dir(dir)
+	env["CLAUDE_CODE_PLUGIN_DIRS"] += string(os.PathListSeparator) + dir
 	if h.fail {
 		return "", errors.New("the disk is full")
+	}
+	if h.unwritable {
+		// A folder where each of the runner's files goes.
+		for _, name := range []string{"seed.json", "context.json", "index.json"} {
+			if err := os.MkdirAll(filepath.Join(dir, name, "taken"), 0o755); err != nil {
+				return "", err
+			}
+		}
 	}
 	return dir, nil
 }
@@ -137,13 +148,24 @@ func writeManagedHook(t *testing.T, name string, events ...string) ManagedHook {
 }
 
 func TestAHooksBundleThatFailsLeavesTheSkillsAndTheAgentStarts(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		hook *hookingClaude
+	}{
+		{"the adapter fails", &hookingClaude{ClaudeCodeAdapter: hooks.NewClaudeCodeAdapter("legato"), fail: true}},
+		{"the runner's files cannot be written", &hookingClaude{ClaudeCodeAdapter: hooks.NewClaudeCodeAdapter("legato"), unwritable: true}},
+	} {
+		t.Run(c.name, func(t *testing.T) { testAFailedHooksBundle(t, c.hook) })
+	}
+}
+
+func testAFailedHooksBundle(t *testing.T, claude *hookingClaude) {
 	ctx := context.Background()
 	skill := writeLegatoSkill(t, t.TempDir(), "tdd", "Tests first.")
 	source := &recordingCapabilities{given: AgentCapabilities{
 		Skills: []skills.Skill{{Name: "tdd", Description: "Tests first.", Path: skill}},
 		Hooks:  []ManagedHook{writeManagedHook(t, "codeeval", "stop")},
 	}}
-	claude := &hookingClaude{ClaudeCodeAdapter: hooks.NewClaudeCodeAdapter("legato"), fail: true}
 	svc, s, mt, root := newSandboxedCapabilityService(t, source, claude)
 	createTask(t, s, "task-h")
 	if err := svc.SpawnAgent(ctx, "task-h", 0, 0, AgentSpawnOptions{WorkingDir: t.TempDir()}); err != nil {
@@ -183,11 +205,12 @@ func TestHooksAreGivenToAToolThatTakesThemEvenWithNoSkills(t *testing.T) {
 	if !slices.Contains(filepath.SplitList(env["CLAUDE_CODE_PLUGIN_DIRS"]), bundle) {
 		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want the hooks bundle", env["CLAUDE_CODE_PLUGIN_DIRS"])
 	}
-	if len(claude.events) != 1 || !slices.Equal(claude.events[0], []string{"session_start", "stop"}) {
-		t.Fatalf("events = %v, want each event the hooks use once", claude.events)
+	// A hook made by hand names no time limits: each event's default.
+	if len(claude.events) != 1 || !reflect.DeepEqual(claude.events[0], map[string]int{"session_start": 10, "stop": 120}) {
+		t.Fatalf("events = %v, want each event the hooks use once, with its longest time limit", claude.events)
 	}
 	for _, name := range []string{"codeeval", "lint"} {
-		info, err := os.Stat(filepath.Join(bundle, "hooks", name, "run"))
+		info, err := os.Stat(filepath.Join(bundle, "copies", name, "run"))
 		if err != nil || info.Mode().Perm()&0o111 == 0 {
 			t.Fatalf("%s's run = %v, %v; want an executable copy", name, info, err)
 		}
@@ -200,7 +223,10 @@ func TestHooksAreGivenToAToolThatTakesThemEvenWithNoSkills(t *testing.T) {
 func TestAToolThatCannotTakeHooksIsGivenNone(t *testing.T) {
 	ctx := context.Background()
 	source := &recordingCapabilities{given: AgentCapabilities{Hooks: []ManagedHook{writeManagedHook(t, "codeeval", "stop")}}}
-	svc, s, mt, root := newSandboxedCapabilityService(t, source, hooks.NewClaudeCodeAdapter("legato"))
+	// Only the adapter's own methods: neither a SkillsAdapter nor a
+	// HooksAdapter.
+	plain := struct{ AIToolAdapter }{hooks.NewClaudeCodeAdapter("legato")}
+	svc, s, mt, root := newSandboxedCapabilityService(t, source, plain)
 	createTask(t, s, "task-u")
 	if err := svc.SpawnAgent(ctx, "task-u", 0, 0, AgentSpawnOptions{WorkingDir: t.TempDir()}); err != nil {
 		t.Fatal(err)

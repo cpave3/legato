@@ -16,16 +16,15 @@ import (
 
 // hookPolicyFixture is an agent service in Legato's sandbox (the Reeve and
 // a read-only checkout run only there) whose managed hooks come from a
-// real ManagedHookService, with Claude Code as a tool that takes hooks (a
-// fake HooksAdapter) and Codex and Chimera as tools that do not.
+// real ManagedHookService, with Claude Code as a tool that takes hooks and
+// Codex and Chimera as tools that do not (Phase 1).
 type hookPolicyFixture struct {
-	svc    AgentService
-	store  *store.Store
-	tmux   *mockTmux
-	hooks  *ManagedHookService
-	dir    string // the managed-hooks folder
-	root   string // the capability folders
-	claude *hookingClaude
+	svc   AgentService
+	store *store.Store
+	tmux  *mockTmux
+	hooks *ManagedHookService
+	dir   string // the managed-hooks folder
+	root  string // the capability folders
 }
 
 func newHookPolicyFixture(t *testing.T) hookPolicyFixture {
@@ -40,7 +39,7 @@ func newHookPolicyFixture(t *testing.T) hookPolicyFixture {
 	dataDir := t.TempDir()
 	root := filepath.Join(dataDir, "capabilities")
 	mt := newMockTmux()
-	claude := &hookingClaude{ClaudeCodeAdapter: hooks.NewClaudeCodeAdapter("legato")}
+	claude := hooks.NewClaudeCodeAdapter("legato")
 	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
 		Adapter: claude,
 		Adapters: map[string]AIToolAdapter{
@@ -55,13 +54,21 @@ func newHookPolicyFixture(t *testing.T) hookPolicyFixture {
 	})
 	svc.(*agentService).nativeBindTimeout = time.Millisecond
 	svc.(*agentService).SetBrokerEnv(testBrokerEnv(t))
-	return hookPolicyFixture{svc: svc, store: s, tmux: mt, hooks: hookSvc, dir: dir, root: root, claude: claude}
+	return hookPolicyFixture{svc: svc, store: s, tmux: mt, hooks: hookSvc, dir: dir, root: root}
 }
 
-// hook writes a managed hook whose manifest has extra lines added.
+// hook writes a managed hook that runs ./stop.sh at stop, whose manifest
+// has extra lines added.
 func (f hookPolicyFixture) hook(t *testing.T, name string, extra ...string) {
 	t.Helper()
-	manifest := "name: " + name + "\ndescription: " + name + ".\n" + strings.Join(extra, "\n") + "\nevents:\n  stop: {command: ./stop.sh}\n"
+	f.hookOn(t, name, "  stop: {command: ./stop.sh}", extra...)
+}
+
+// hookOn writes a managed hook with the given events: block, with extra
+// lines added to its manifest, and a script ./stop.sh.
+func (f hookPolicyFixture) hookOn(t *testing.T, name, events string, extra ...string) {
+	t.Helper()
+	manifest := "name: " + name + "\ndescription: " + name + ".\n" + strings.Join(extra, "\n") + "\nevents:\n" + events + "\n"
 	writeHookManifest(t, f.dir, name, manifest)
 	if err := os.WriteFile(filepath.Join(f.dir, name, "stop.sh"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -130,7 +137,7 @@ func (f hookPolicyFixture) notes(t *testing.T, taskID string) []store.TaskNote {
 func (f hookPolicyFixture) given(t *testing.T, session string) []string {
 	t.Helper()
 	env := f.tmux.envVarsFor(session)
-	entries, _ := os.ReadDir(filepath.Join(f.root, env["LEGATO_EXECUTION_ID"], "claude-code", "legato-hooks", "hooks"))
+	entries, _ := os.ReadDir(filepath.Join(f.root, env["LEGATO_EXECUTION_ID"], "claude-code", "legato-hooks", "copies"))
 	var names []string
 	for _, entry := range entries {
 		names = append(names, entry.Name())
@@ -270,7 +277,7 @@ func TestAToolThatCannotRunHooksStartsWithNoneAndOneSkipNote(t *testing.T) {
 				"gate": {"off:unsupported-tool"}, "claude-only": {"off:unsupported-tool"},
 			})
 			env := f.tmux.envVarsFor("legato-task-u")
-			if pathExists(filepath.Join(f.root, env["LEGATO_EXECUTION_ID"], kind, "legato-hooks")) || len(f.claude.events) != 0 {
+			if pathExists(filepath.Join(f.root, env["LEGATO_EXECUTION_ID"])) {
 				t.Fatal("a tool that cannot run hooks was given a bundle")
 			}
 			notes := f.notes(t, "task-u")
