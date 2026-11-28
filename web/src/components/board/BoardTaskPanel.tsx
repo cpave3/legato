@@ -73,13 +73,6 @@ function AwayProperties({ card, actions }: { card: BoardCard; actions?: ReactNod
   )
 }
 
-type Look = ReturnType<typeof agentStripLook>
-
-function AgentValue({ look }: { look: Look | null }) {
-  if (!look) return <span className="text-lw-text-2">None yet</span>
-  return <span className={look.tone}>{look.tool ? `${look.label} · ${look.tool}` : look.label}</span>
-}
-
 function PullRequestsProperty({ pullRequests }: { pullRequests: PRMetaView[] }) {
   if (pullRequests.length === 0) return null
   return <Property label={pullRequests.length === 1 ? "Pull request" : "Pull requests"}>
@@ -102,7 +95,11 @@ function AgentProperties({ card }: { card: BoardCard }) {
   const look = card.agent_active ? agentStripLook(card, reeve) : null
   const spent = formatDuration(card.working_seconds + card.waiting_seconds + card.error_seconds)
   return <>
-    {!card.away && <Property label="Agent"><AgentValue look={look} /></Property>}
+    {!card.away && <Property label="Agent">
+      {look
+        ? <span className={look.tone}>{look.tool ? `${look.label} · ${look.tool}` : look.label}</span>
+        : <span className="text-lw-text-2">None yet</span>}
+    </Property>}
     {!card.agent_active && spent && <Property label="Agent time"><span className="text-lw-text-2">{spent}</span></Property>}
   </>
 }
@@ -122,21 +119,6 @@ function TaskProperties({ card, column, ready }: { card: BoardCard; column: stri
       {ready?.worktree && <Property label="Worktree"><span className="font-lw-mono text-xs">{ready.worktree.branch}</span></Property>}
     </dl>
   )
-}
-
-function DescriptionPreview({ away, ready }: { away: boolean; ready: CardDetail | null }) {
-  return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-[18px] py-3.5 text-lw-text-2">
-      {away && <p className="m-0 mb-2 text-[11px] font-semibold uppercase tracking-[1px] text-lw-faint">Description · read-only while away</p>}
-      <DescriptionText ready={ready} />
-    </div>
-  )
-}
-
-function DescriptionText({ ready }: { ready: CardDetail | null }) {
-  if (!ready) return <p className="m-0 text-lw-faint">Reading the task…</p>
-  if (!ready.description_md) return <p className="m-0 italic text-lw-faint">No description</p>
-  return <MarkdownBody body={ready.description_md} />
 }
 
 // The page to open: the ticket's at its provider, else the first pull
@@ -189,7 +171,14 @@ export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, o
 
       {card.away && <AwayProperties card={card} actions={awayActions} />}
       <TaskProperties card={card} column={column} ready={ready} />
-      <DescriptionPreview away={Boolean(card.away)} ready={ready} />
+      <div className="min-h-0 flex-1 overflow-y-auto px-[18px] py-3.5 text-lw-text-2">
+        {card.away && <p className="m-0 mb-2 text-[11px] font-semibold uppercase tracking-[1px] text-lw-faint">Description · read-only while away</p>}
+        {!ready
+          ? <p className="m-0 text-lw-faint">Reading the task…</p>
+          : ready.description_md
+            ? <MarkdownBody body={ready.description_md} />
+            : <p className="m-0 italic text-lw-faint">No description</p>}
+      </div>
       <PanelActions card={card} ready={ready} onOpenDetails={onOpenDetails} onMove={onMove} onOpenURL={onOpenURL} onHandOff={onHandOff} />
     </aside>
   )
