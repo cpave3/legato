@@ -176,10 +176,6 @@ function borderClass(selected: boolean, edge: string): string {
   return cn("bg-lw-surface", "border-lw-line hover:border-lw-line-strong")
 }
 
-function ActionMenuButton({ title, onActionMenu }: { title: string; onActionMenu: (position: { x: number; y: number }) => void }) {
-  return <button type="button" aria-label={`Open actions for ${title}`} onClick={event => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); onActionMenu({ x: rect.right, y: rect.bottom }) }} className="absolute right-0 top-0 z-10 flex h-11 w-11 items-center justify-center rounded-md md:right-1 md:top-1 text-lw-faint hover:bg-lw-raised hover:text-lw-text focus-visible:opacity-100 md:h-7 md:w-7 md:opacity-0 md:group-hover:opacity-100"><MoreHorizontal size={15} /></button>
-}
-
 // The header: where the task comes from, and its marks. It always leaves
 // room for ⋯ at its right.
 function CardSourceLine({ card }: { card: BoardCardType }) {
@@ -273,7 +269,7 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
         highlighted && "lw-highlight",
       )}
     >
-      {onActionMenu && <ActionMenuButton title={card.title} onActionMenu={onActionMenu} />}
+      {onActionMenu && <button type="button" aria-label={`Open actions for ${card.title}`} onClick={event => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); onActionMenu({ x: rect.right, y: rect.bottom }) }} className="absolute right-0 top-0 z-10 flex h-11 w-11 items-center justify-center rounded-md md:right-1 md:top-1 text-lw-faint hover:bg-lw-raised hover:text-lw-text focus-visible:opacity-100 md:h-7 md:w-7 md:opacity-0 md:group-hover:opacity-100"><MoreHorizontal size={15} /></button>}
       <div className="flex flex-col gap-1 px-3 py-2.5">
         <CardSourceLine card={card} />
         <CardTitle title={card.title} selected={selected} done={column === "Done"} onOpen={onDoubleClick ?? onClick} />
