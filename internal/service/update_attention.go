@@ -45,6 +45,10 @@ func toolUpdateItems(st UpdateStatus) []AttentionInput {
 		if !tool.Managed || tool.State != UpdateAvailable {
 			continue
 		}
+		detail := tool.Detail
+		if detail == "" {
+			detail = fmt.Sprintf("Updating runs %s update, which installs it in place. Nothing restarts.", tool.Name)
+		}
 		items = append(items, AttentionInput{
 			SignalKind: AttentionSignalUpdateAvailable, SourceKey: toolUpdateSourcePrefix + tool.Name,
 			SourceRevision: tool.Name + ":" + tool.Latest,
@@ -52,7 +56,7 @@ func toolUpdateItems(st UpdateStatus) []AttentionInput {
 			Navigation: AttentionNavigation{Kind: "settings", Target: "updates"},
 			Title:      fmt.Sprintf("%s %s is available", tool.Name, tool.Latest),
 			Reason:     fmt.Sprintf("This machine's %s is %s", tool.Name, tool.Version),
-			Detail:     fmt.Sprintf("Updating runs %s update, which installs it in place. Nothing restarts.", tool.Name),
+			Detail:     detail,
 			Actions: []AttentionAction{
 				{ID: "update", Label: "Update " + tool.Name, Kind: "execute", Intent: "primary"},
 				{ID: "open", Label: "Open updates", Kind: "navigate"},

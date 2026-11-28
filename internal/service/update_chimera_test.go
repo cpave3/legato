@@ -95,7 +95,7 @@ func TestChimeraFollowsLegatosUpdateMode(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			fake := newFakeChimeraTool(t, "v1.1.0", true)
 			tool := NewChimeraUpdater(ToolUpdaterOptions{})
-			f := newUpdater(t, "dev", func(o *UpdateOptions) { o.Tools = []*ToolUpdater{tool} })
+			f := newUpdater(t, "dev", func(o *UpdateOptions) { o.Tools = []ManagedTool{tool} })
 			ctx := context.Background()
 			if err := f.svc.SetMode(ctx, mode); err != nil {
 				t.Fatal(err)

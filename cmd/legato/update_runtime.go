@@ -78,7 +78,7 @@ func newUpdateService(db *store.Store, bus *events.Bus, agents service.AgentServ
 		Store: service.StringSetting{Settings: settingsFor(db)}, Bus: bus, Current: version.String(), Executable: exe,
 		Releases: selfupdate.Client{Repo: releaseRepo, HTTP: &http.Client{Timeout: 10 * time.Minute}},
 		// Release builds on Legato's PATH are kept current beside Legato.
-		Tools: []*service.ToolUpdater{
+		Tools: []service.ManagedTool{
 			service.NewSTUpdater(service.ToolUpdaterOptions{}),
 			service.NewChimeraUpdater(service.ToolUpdaterOptions{}),
 		},

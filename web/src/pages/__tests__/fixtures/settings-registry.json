@@ -536,6 +536,34 @@
       "mode": "live"
     },
     {
+      "key": "updates.claude.channel",
+      "title": "Claude Code release channel",
+      "section": "system",
+      "group": "Updates",
+      "help": "Which of Anthropic's channels Legato's own Claude Code follows: stable, or latest for every release as soon as it is out.",
+      "description": "Which of Anthropic's channels Legato's own Claude Code follows: stable, or latest for every release as soon as it is out.",
+      "default_label": "stable",
+      "kind": "enum",
+      "enum": [
+        "stable",
+        "latest"
+      ],
+      "class": "risky",
+      "mode": "live"
+    },
+    {
+      "key": "updates.claude.command",
+      "title": "Your own Claude Code",
+      "section": "system",
+      "group": "Updates",
+      "help": "Starts agents with this claude instead of Legato's own copy: a full path, or a command on Legato's PATH such as claude. Legato then never updates or rolls it back. Empty, Legato keeps its own.",
+      "description": "Starts agents with this claude instead of Legato's own copy: a full path, or a command on Legato's PATH such as claude. Legato then never updates or rolls it back. Empty, Legato keeps its own.",
+      "default_label": "Legato's own, kept current",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
       "key": "notifications.ntfy.token",
       "title": "Token",
       "section": "attention",

@@ -397,6 +397,8 @@ How this Legato takes new releases. Usually set in Settings › System › Updat
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `updates.mode` | string | `ask` | `auto` installs a new release once no agent is in the middle of a turn, and restarts; `ask` offers it; `off` never looks. |
+| `updates.claude.channel` | string | `stable` | The release channel Legato's own Claude Code follows: `stable`, or `latest` for every release as soon as it is out. See [Claude Code](/legato/running/updates/#claude-code). |
+| `updates.claude.command` | string | none | Starts agents with your own `claude` instead of Legato's copy: a full path, or a command on Legato's `PATH` such as `claude`. Legato then never updates or rolls it back, and shows it as unmanaged. Applies at restart. |
 
 ## Subscription usage
 

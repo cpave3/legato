@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -192,4 +193,24 @@ func Platform() (string, error) {
 		return "linux-" + arch, nil
 	}
 	return "", ErrUnsupportedPlatform
+}
+
+// Newer reports whether version a is later than version b. A version with a
+// suffix (2.1.326-beta.1) comes before the same version without one.
+// Anything that is not a version is never newer.
+func Newer(a, b string) bool {
+	if !ValidVersion(a) || !ValidVersion(b) {
+		return false
+	}
+	na, sa, _ := strings.Cut(a, "-")
+	nb, sb, _ := strings.Cut(b, "-")
+	pa, pb := strings.Split(na, "."), strings.Split(nb, ".")
+	for i := range pa {
+		x, _ := strconv.Atoi(pa[i])
+		y, _ := strconv.Atoi(pb[i])
+		if x != y {
+			return x > y
+		}
+	}
+	return sa == "" && sb != ""
 }

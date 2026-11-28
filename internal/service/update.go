@@ -79,10 +79,11 @@ type UpdateOptions struct {
 	// and asks its version.
 	Verify func(want string) func(ctx context.Context, binary string) error
 
-	// Tools are command-line tools kept current beside Legato (st and chimera), under
-	// the same mode: checked with Legato, installed at once in auto mode
-	// (nothing holds them open), and on the person's word in ask mode.
-	Tools []*ToolUpdater
+	// Tools are command-line tools kept current beside Legato (st, chimera
+	// and Claude Code), under the same mode: checked with Legato, installed
+	// at once in auto mode (nothing holds them open), and on the person's
+	// word in ask mode.
+	Tools []ManagedTool
 
 	FirstCheckAfter time.Duration // after Run starts
 	CheckEvery      time.Duration
@@ -373,6 +374,22 @@ func (s *UpdateService) ApplyTool(ctx context.Context, name string) error {
 		if tool.Name() == name {
 			return tool.Apply(ctx)
 		}
+	}
+	return ErrToolNotManaged
+}
+
+// RollbackTool puts a tool back on its last known good version:
+// ErrToolNotManaged for a tool the updater does not look after or that
+// cannot roll back, ErrNoLastGood when there is nothing to go back to.
+func (s *UpdateService) RollbackTool(ctx context.Context, name string) error {
+	for _, tool := range s.opts.Tools {
+		if tool.Name() != name {
+			continue
+		}
+		if rb, ok := tool.(RollbackTool); ok {
+			return rb.Rollback(ctx)
+		}
+		return ErrToolNotManaged
 	}
 	return ErrToolNotManaged
 }

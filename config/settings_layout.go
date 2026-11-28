@@ -195,7 +195,8 @@ var settingLayout = map[string]settingPlace{
 	"web.discovery": {SectionConnections, "Network", ""},
 
 	// System.
-	"updates.mode": {SectionSystem, "Updates", ""},
+	"updates.mode":    {SectionSystem, "Updates", ""},
+	"updates.claude.": {SectionSystem, "Updates", ""},
 }
 
 // placeOf finds a key's place: its own entry, else the longest prefix.

@@ -135,3 +135,24 @@ func TestFetchReportsAPlatformTheReleaseLacks(t *testing.T) {
 		t.Fatalf("err = %v, want one naming the platform", err)
 	}
 }
+
+func TestNewer(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{
+		{"2.1.332", "2.1.326", true},
+		{"2.1.326", "2.1.332", false},
+		{"2.10.0", "2.9.9", true},
+		{"3.0.0", "2.99.99", true},
+		{"2.1.326", "2.1.326", false},
+		{"2.1.326", "2.1.326-beta.1", true},
+		{"2.1.326-beta.1", "2.1.326", false},
+		{"nope", "2.1.326", false},
+		{"2.1.326", "nope", false},
+	} {
+		if got := Newer(c.a, c.b); got != c.want {
+			t.Errorf("Newer(%s, %s) = %v", c.a, c.b, got)
+		}
+	}
+}

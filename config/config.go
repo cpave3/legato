@@ -1228,6 +1228,18 @@ type EngramConfig struct {
 type UpdatesConfig struct {
 	// Mode is auto, ask (the default when empty) or off.
 	Mode string `yaml:"mode"`
+	// Claude is how Legato keeps its own Claude Code.
+	Claude UpdatesClaudeConfig `yaml:"claude"`
+}
+
+// UpdatesClaudeConfig is Legato's own Claude Code.
+type UpdatesClaudeConfig struct {
+	// Channel is the release channel followed: stable (the default when
+	// empty) or latest.
+	Channel string `yaml:"channel"`
+	// Command is the operator's own claude, used instead of Legato's: an
+	// absolute path or a command on PATH. Empty, Legato keeps its own.
+	Command string `yaml:"command"`
 }
 
 // UsageConfig is reading the subscriptions' usage limits.
