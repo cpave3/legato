@@ -34,14 +34,14 @@ export function QuestionRow({ approval, onDone, here, focused = false }: Questio
   const single = questions.length === 1 && !questions[0].multiSelect ? questions[0] : null
   const asker = approvalAsker(approval)
   const focus = () => setFocusMode(true, approval.id)
-  const answer = (label: string) => {
-    if (single) void decide({ decision: "answer", answers: { [single.id]: [label] } })
-  }
-  const send = () => {
+  const answer = (label: string) => (single ? decide({ decision: "answer", answers: { [single.id]: [label] } }) : Promise.resolve(false))
+  // The typed reply stays until it is sent, so a failed send can be retried.
+  const send = async () => {
     if (!text.trim()) return
-    answer(text.trim())
-    setText("")
-    setReplying(false)
+    if (await answer(text.trim())) {
+      setText("")
+      setReplying(false)
+    }
   }
   const shown = single && single.question !== approval.title ? single.question : ""
   return (
@@ -64,7 +64,7 @@ export function QuestionRow({ approval, onDone, here, focused = false }: Questio
         {single?.options.map((option) => {
           const { text: label, recommended: suggested } = recommended(option.label)
           return (
-            <button key={option.label} type="button" disabled={busy} title={option.description} aria-label={label} className={button} onClick={() => answer(option.label)}>
+            <button key={option.label} type="button" disabled={busy} title={option.description} aria-label={label} className={button} onClick={() => void answer(option.label)}>
               {label}
               {suggested && <span className="rounded bg-lw-accent-soft px-1 text-[10px] text-lw-accent-text">Recommended</span>}
             </button>
@@ -78,7 +78,7 @@ export function QuestionRow({ approval, onDone, here, focused = false }: Questio
         <button type="button" className={quiet} disabled={busy} onClick={() => void run(() => dismissApproval(baseUrl, approval.id))}>Dismiss</button>
       </div>
       {replying && (
-        <form className="flex items-center gap-1.5" onSubmit={(event) => { event.preventDefault(); send() }}>
+        <form className="flex items-center gap-1.5" onSubmit={(event) => { event.preventDefault(); void send() }}>
           <input aria-label="Reply" autoFocus value={text} onChange={(event) => setText(event.target.value)} placeholder="Your answer"
             className="min-h-8 min-w-0 flex-1 rounded-md border border-lw-line-strong/40 bg-lw-rail px-2 text-xs text-lw-text" />
           <button type="submit" className={button} disabled={busy || !text.trim()}>Send</button>

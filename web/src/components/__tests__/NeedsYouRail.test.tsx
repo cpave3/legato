@@ -260,6 +260,25 @@ describe("NeedsYouRail", () => {
       await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-22222222", { decision: "answer", answers: { q1: ["Neither: use the file"] } }))
     })
 
+    it("keeps a typed reply when sending it fails, so it can be sent again", async () => {
+      const asked = questionApproval()
+      asked.details.questions = [{ id: "q1", question: "Which database?", options: [{ label: "SQLite" }], multiSelect: false }]
+      mockApprovals = [asked]
+      mockDecide.mockRejectedValueOnce(new Error("Legato could not be reached."))
+      renderRail()
+      const row = await screen.findByRole("article", { name: "Which database?" })
+      fireEvent.click(within(row).getByRole("button", { name: "Reply…" }))
+      fireEvent.change(within(row).getByRole("textbox", { name: "Reply" }), { target: { value: "Use the file" } })
+      fireEvent.click(within(row).getByRole("button", { name: "Send" }))
+      expect(await within(row).findByText("Legato could not be reached.")).toBeTruthy()
+      expect((within(row).getByRole("textbox", { name: "Reply" }) as HTMLInputElement).value).toBe("Use the file")
+
+      fireEvent.click(within(row).getByRole("button", { name: "Send" }))
+      await waitFor(() => expect(mockDecide).toHaveBeenCalledTimes(2))
+      expect(mockDecide).toHaveBeenLastCalledWith("http://legato", "ap-22222222", { decision: "answer", answers: { q1: ["Use the file"] } })
+      await waitFor(() => expect(within(row).queryByRole("textbox", { name: "Reply" })).toBeNull())
+    })
+
     it("offers no Reply for a question that takes no answer of the operator's own", async () => {
       mockApprovals = [questionApproval()]
       renderRail()
