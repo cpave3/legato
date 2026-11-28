@@ -64,7 +64,7 @@ func TestNativeSecurityAttentionSurvivesExecutionEndAndStableDismissal(t *testin
 	if item.SignalKind != AttentionSignalNativeSecurityIncident || item.SourceRevision != "generation" || item.TaskID != "task" || item.Urgency != "high" || item.Navigation.Kind != "task" || item.Navigation.Target != "task" || !strings.Contains(item.Reason, "refused") {
 		t.Fatalf("incident attention = %+v", item)
 	}
-	rail := RailView(items, config.RailConfig{})
+		rail := RailView(items, config.RailConfig{}, RailAsks{})
 	if len(rail) != 1 || rail[0].RailGroup != "legato" {
 		t.Fatalf("rail = %+v", rail)
 	}
