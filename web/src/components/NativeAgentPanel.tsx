@@ -25,6 +25,7 @@ import { NativeTerminalPrompt } from "./NativeTerminalPrompt"
 import { NativeSlashMenu } from "./NativeSlashMenu"
 import { AgentUICallCard } from "./AgentUICallCard"
 import { ToolCallCard } from "./NativeToolCallCard"
+import { SubagentCard } from "./NativeSubagentCard"
 import { PastedImageStrip } from "./PastedImageStrip"
 import { AttachImageButton } from "./AttachImageButton"
 import { AgentChatHeader, type AgentChatState, type SidePanelsProps } from "./AgentChatHeader"
@@ -44,7 +45,7 @@ import { nativeToolName } from "../lib/agentKind"
 import { compactAgent, compactCommand, compactionNotice, nextCompaction, type Compaction } from "../lib/compaction"
 import { toolDisplayName } from "../lib/mcpToolName"
 import { legatoEventSummary, parseLegatoMessage } from "../lib/legatoMessage"
-import { plainText, subagentTree, type SubagentNode } from "../lib/agentGlance"
+import { plainText, subagentTree } from "../lib/agentGlance"
 import { modelSettingsResponse, type ModelCapabilities, type ModelSettings, type ModelSettingsState } from "../lib/modelSettings"
 import {
   createNativeSyncState,
@@ -62,8 +63,8 @@ import {
 } from "../lib/nativeAgentSync"
 import { LoadingState } from "./ui/LoadingState"
 import { TileDeck } from "./tiles/TileDeck"
-import { SubagentLink, SubagentShells } from "./tiles/SubagentParts"
-import { saveSubagentView, savedSubagentView, subagentLive, subagentTiles, type SubagentView } from "./tiles/subagentTiles"
+import { SubagentLink } from "./tiles/SubagentParts"
+import { saveSubagentView, savedSubagentView, subagentTiles, type SubagentView } from "./tiles/subagentTiles"
 import { shellTileForCall, shellTiles } from "./tiles/shellTiles"
 import { fromStored, mergeShells, type StoredBackgroundShell } from "../lib/backgroundShells"
 import type { BackgroundJob } from "../lib/agentWire"
@@ -1453,63 +1454,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     </div>
   )
 }
-
-// SubagentCard is a subagent's call in the conversation. While Legato lists
-// the subagent among the agent's background jobs it is live, whatever the
-// conversation says: waiting on its shells once its own turn has ended.
-const SubagentCard = memo(function SubagentCard({ tool, nodes }: { tool: ToolCallItem; nodes: SubagentNode[] }) {
-  const [expanded, setExpanded] = useState(true)
-  const args = tool.args || {}
-  const result = tool.result || {}
-  const subagent = tool.subagent
-  const purpose = subagent?.purpose || String(args.purpose || "Subagent")
-  const prompt = String(args.prompt || "")
-  const agent = String(args.agent || "default")
-  const model = String(args.model || "inherited")
-  const mode = String(args.mode || "default")
-  const { status, label, node } = subagentLive(tool, nodes)
-  const steps = result.steps as number | undefined
-  const toolCalls = result.tool_calls_count as number | undefined
-
-  return (
-    <div data-testid={`subagent-card-${tool.key}`} className="mx-4 my-2 overflow-hidden rounded-lg border border-indigo-700/60 bg-indigo-950/20">
-      <button className="flex w-full items-center gap-2 px-3 py-2 text-left" onClick={() => setExpanded(!expanded)}>
-        <span className="rounded bg-[var(--theme-selection,color-mix(in_oklab,var(--color-indigo-600)_70%,transparent))] px-1.5 py-0.5 font-mono text-xs text-[var(--theme-text,white)]">subagent</span>
-        <span className="truncate text-sm font-medium text-indigo-100">{purpose}</span>
-        <span className={`ml-auto text-xs ${status === "error" ? "text-red-400" : status === "finished" ? "text-green-400" : "text-indigo-300"}`}>{label}</span>
-        <span className="text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
-      </button>
-      {expanded && (
-        <div className="border-t border-indigo-900/60 px-3 py-2">
-          <div className="mb-2 flex flex-wrap gap-1.5 text-[11px]">
-            <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">agent <span className="font-mono text-zinc-100">{agent}</span></span>
-            <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">model <span className="font-mono text-zinc-100">{model}</span></span>
-            <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">mode <span className="font-mono text-zinc-100">{mode}</span></span>
-          </div>
-          {prompt && <div className="mb-2 whitespace-pre-wrap rounded bg-zinc-900/70 px-2 py-1.5 text-xs text-zinc-300">{prompt}</div>}
-          {tool.error && <div className="text-xs text-red-300">{tool.error}</div>}
-          {subagent?.activities.length ? (
-            <div className="space-y-1 border-l border-indigo-700/50 pl-3">
-              {subagent.activities.map((activity) => <div key={activity.key} className="text-xs text-zinc-300">{activity.text}</div>)}
-            </div>
-          ) : (
-            <div className="text-xs text-zinc-500">
-              {status === "spawning" || status === "running" ? "Waiting for activity…" : "No live activity captured"}
-            </div>
-          )}
-          {node && node.shells.length > 0 && <SubagentShells shells={node.shells} />}
-          {(steps !== undefined || toolCalls !== undefined) && (
-            <div className="mt-2 text-[11px] text-zinc-500">
-              {steps !== undefined && `${steps} step${steps === 1 ? "" : "s"}`}
-              {steps !== undefined && toolCalls !== undefined && " · "}
-              {toolCalls !== undefined && `${toolCalls} tool call${toolCalls === 1 ? "" : "s"}`}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-})
 
 // A step is something the agent did on its way to a reply: a tool call, or a
 // thought.
