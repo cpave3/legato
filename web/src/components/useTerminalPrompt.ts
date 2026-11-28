@@ -1,17 +1,9 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect } from "react"
 import type { PromptState, WSMessage } from "../lib/agentWire"
-import { terminalAsks } from "../lib/nativeAgentView"
 
 // How often the panel asks what the agent's terminal is showing, for prompts
 // that never reach Legato as requests of their own.
 const TERMINAL_PROMPT_POLL_MS = 2000
-
-// useTerminalPrompt is what the agent's terminal is asking, as read off its
-// screen, and whether the panel shows it.
-export function useTerminalPrompt(awaitingRequest: boolean) {
-  const [prompt, setPrompt] = useState<PromptState | null>(null)
-  return { prompt, setPrompt, asking: terminalAsks(prompt, awaitingRequest) }
-}
 
 // useTerminalPromptPolling keeps asking what the terminal shows, and answers
 // a prompt with keys. A prompt can be up in the terminal without the agent

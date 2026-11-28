@@ -20,7 +20,7 @@ import { ToolCallCard } from "./NativeToolCallCard"
 import { SubagentCard } from "./NativeSubagentCard"
 import { AgentChatHeader, type AgentChatState, type SidePanelsProps } from "./AgentChatHeader"
 import { buildAgentMenu } from "./nativeAgentMenu"
-import { agentChatState, awaitsRequest, isBangText, isChimeraKind, isRecoveryReply } from "../lib/nativeAgentView"
+import { agentChatState, awaitsRequest, isBangText, isChimeraKind, isRecoveryReply, terminalAsks } from "../lib/nativeAgentView"
 import type { AgentStageInfo } from "./AgentStageChip"
 import type { QueuedEntry } from "./Composer"
 import { currentStep } from "../lib/composer"
@@ -53,7 +53,7 @@ import { useDropdown } from "./useDropdown"
 import { useSessionSettings } from "./useSessionSettings"
 import { useBangCommands } from "./useBangCommands"
 import { useQueuedMessages } from "./useQueuedMessages"
-import { useTerminalPrompt, useTerminalPromptPolling } from "./useTerminalPrompt"
+import { useTerminalPromptPolling } from "./useTerminalPrompt"
 import { useRequestAnswers } from "./useRequestAnswers"
 import { useMessageSending } from "./useMessageSending"
 import { useNativeSyncState, useSnapshotResync } from "./useNativeAgentSync"
@@ -229,8 +229,10 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const turnSeconds = useTurnClock(busy, !loading)
   // The agent has stopped on a permission prompt or a question of its own.
   const awaitingRequest = awaitsRequest(items)
-  const terminal = useTerminalPrompt(awaitingRequest)
-  const { prompt: terminalPrompt, setPrompt: setTerminalPrompt, asking: terminalAsking } = terminal
+  // What the agent's terminal is asking, as read off its screen, and whether
+  // the panel shows it.
+  const [terminalPrompt, setTerminalPrompt] = useState<PromptState | null>(null)
+  const terminalAsking = terminalAsks(terminalPrompt, awaitingRequest)
   const awaitingPerson = awaitingRequest || terminalAsking
   const { open: modesOpen, ref: modesRef, toggle: toggleModes, close: closeModes } = useDropdown()
   const { open: macrosOpen, ref: macrosRef, toggle: toggleMacros, show: openMacros, close: closeMacros } = useDropdown()
@@ -476,7 +478,9 @@ function ConversationFeed({ scrollRef, onScroll, items, blocks, terminal, isScro
         <div data-conversation-column className="mx-auto w-full max-w-[820px] py-3 md:px-2">
         {blocks.map((block) => block.kind === "steps"
           ? <StepsBlock key={block.key} block={block} agentId={row.agentId} tiles={row.tiles} />
-          : <ConversationItemView key={block.item.key} item={block.item} {...row} />)}
+          // One item of the conversation: something said, or something the
+          // agent did or asks.
+          : <Fragment key={block.item.key}>{messageRow({ ...row, item: block.item }) ?? actionRow({ ...row, item: block.item })}</Fragment>)}
           {terminal}
         </div>
         </div>
@@ -513,18 +517,21 @@ function StepsBlock({ block, agentId, tiles }: { block: Extract<ConversationBloc
   )
 }
 
-// One item of the conversation: something said, or something the agent did
-// or asks.
-function ConversationItemView(props: FeedRowProps & { item: NativeConversationItem }) {
-  return messageRow(props) ?? actionRow(props)
-}
-
 // A message: a reply, what the operator or Legato wrote, or a recovery
 // excerpt Chimera keeps.
 function messageRow({ item, agentKind }: FeedRowProps & { item: NativeConversationItem }): ReactNode {
   if (isRecoveryReply(item, agentKind)) return <ChimeraRecovery text={item.text} />
   if (item.role === "user") return <UserMessage text={item.text} />
-  if (item.role === "assistant") return <AssistantMessage item={item} />
+  if (item.role === "assistant") {
+    return (
+      <div className="flex justify-start px-4 py-2">
+        <div className={`min-w-0 max-w-full text-[13px] leading-[21px] text-[var(--theme-text,#c9c8d0)] ${item.isStreaming ? "opacity-80" : ""}`}>
+          <ReviewMessageBody body={item.text} />
+          {item.isStreaming && <span className="ml-0.5 animate-pulse">▋</span>}
+        </div>
+      </div>
+    )
+  }
   return null
 }
 
@@ -545,77 +552,61 @@ function UserMessage({ text }: { text: string }) {
   const peerReeve = parseReeveMessage(text)
   // Another instance's Reeve wrote this: its own block, with the Reeve's
   // violet edge.
-  if (peerReeve) return <PeerReeveMessage message={peerReeve} />
+  if (peerReeve) {
+    return (
+      <div className="flex justify-end px-4 py-2">
+        <div
+          aria-label={`Message from the Reeve on ${peerReeve.instance}`}
+          className={`max-w-[75%] rounded-lg border-l-2 border-l-[var(--theme-keyword,#8b5cf6)] px-3 py-2 text-sm text-zinc-300 whitespace-pre-wrap break-words ${reeveWash}`}
+        >
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--theme-keyword,#c4b5fd)]">
+            From the Reeve on <span className="normal-case">{peerReeve.instance}</span> · <span className="normal-case">{peerReeve.role}</span>
+          </div>
+          <div>{peerReeve.body}</div>
+        </div>
+      </div>
+    )
+  }
+  // A message Legato wrote or carried.
   const legato = parseLegatoMessage(text)
-  if (legato) return <LegatoMessage message={legato} />
+  if (legato) {
+    // Something that happened (a change set ran, Legato restarted): one line
+    // among the steps, not a message anyone wrote.
+    if (legato.event) return <LegatoEventRow label={legato.label} body={legato.body} />
+    // Another agent wrote this and Legato only carried it, so it has a look
+    // of its own, labelled with who sent it.
+    const { peer } = legato
+    if (peer !== undefined) {
+      return (
+        <div className="flex justify-end px-4 py-2">
+          <div
+            aria-label={peer ? `Message from agent ${peer}` : "Message from another agent"}
+            className="max-w-[75%] rounded-lg border border-fuchsia-800/60 bg-fuchsia-950/30 px-3 py-2 text-sm text-zinc-300 whitespace-pre-wrap break-words"
+          >
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-fuchsia-400">
+              Agent{peer && <> · <span className="normal-case">{peer}</span></>}
+            </div>
+            <div>{legato.body}</div>
+          </div>
+        </div>
+      )
+    }
+    return (
+      <div className="flex justify-end px-4 py-2">
+        <div
+          aria-label={`Message from Legato: ${legato.label}`}
+          className="max-w-[75%] rounded-lg border border-teal-800/60 bg-teal-950/30 px-3 py-2 text-sm text-zinc-300 whitespace-pre-wrap break-words"
+        >
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-teal-400">Legato · {legato.label}</div>
+          <div>{legato.body}</div>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="flex justify-end px-4 py-2">
       <div className="max-w-[min(520px,85%)] rounded-[10px_10px_2px_10px] border border-lw-line-strong bg-lw-selected px-3 py-2 text-[13px] text-lw-text whitespace-pre-wrap break-words">
         {text}
-      </div>
-    </div>
-  )
-}
-
-function PeerReeveMessage({ message }: { message: NonNullable<ReturnType<typeof parseReeveMessage>> }) {
-  return (
-    <div className="flex justify-end px-4 py-2">
-      <div
-        aria-label={`Message from the Reeve on ${message.instance}`}
-        className={`max-w-[75%] rounded-lg border-l-2 border-l-[var(--theme-keyword,#8b5cf6)] px-3 py-2 text-sm text-zinc-300 whitespace-pre-wrap break-words ${reeveWash}`}
-      >
-        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--theme-keyword,#c4b5fd)]">
-          From the Reeve on <span className="normal-case">{message.instance}</span> · <span className="normal-case">{message.role}</span>
-        </div>
-        <div>{message.body}</div>
-      </div>
-    </div>
-  )
-}
-
-// A message Legato wrote or carried.
-function LegatoMessage({ message }: { message: NonNullable<ReturnType<typeof parseLegatoMessage>> }) {
-  // Something that happened (a change set ran, Legato restarted): one line
-  // among the steps, not a message anyone wrote.
-  if (message.event) return <LegatoEventRow label={message.label} body={message.body} />
-  // Another agent wrote this and Legato only carried it, so it has a look of
-  // its own, labelled with who sent it.
-  if (message.peer !== undefined) return <PeerAgentMessage peer={message.peer} body={message.body} />
-  return (
-    <div className="flex justify-end px-4 py-2">
-      <div
-        aria-label={`Message from Legato: ${message.label}`}
-        className="max-w-[75%] rounded-lg border border-teal-800/60 bg-teal-950/30 px-3 py-2 text-sm text-zinc-300 whitespace-pre-wrap break-words"
-      >
-        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-teal-400">Legato · {message.label}</div>
-        <div>{message.body}</div>
-      </div>
-    </div>
-  )
-}
-
-function PeerAgentMessage({ peer, body }: { peer: string; body: string }) {
-  return (
-    <div className="flex justify-end px-4 py-2">
-      <div
-        aria-label={peer ? `Message from agent ${peer}` : "Message from another agent"}
-        className="max-w-[75%] rounded-lg border border-fuchsia-800/60 bg-fuchsia-950/30 px-3 py-2 text-sm text-zinc-300 whitespace-pre-wrap break-words"
-      >
-        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-fuchsia-400">
-          Agent{peer && <> · <span className="normal-case">{peer}</span></>}
-        </div>
-        <div>{body}</div>
-      </div>
-    </div>
-  )
-}
-
-function AssistantMessage({ item }: { item: NativeConversationItem }) {
-  return (
-    <div className="flex justify-start px-4 py-2">
-      <div className={`min-w-0 max-w-full text-[13px] leading-[21px] text-[var(--theme-text,#c9c8d0)] ${item.isStreaming ? "opacity-80" : ""}`}>
-        <ReviewMessageBody body={item.text} />
-        {item.isStreaming && <span className="ml-0.5 animate-pulse">▋</span>}
       </div>
     </div>
   )
