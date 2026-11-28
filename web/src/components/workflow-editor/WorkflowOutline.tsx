@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { itemsOf, problemsByItem, stepsOf, triggersOf, parseWorkflow, type WorkflowEdit } from "../../lib/workflowDocument"
 import { addressOf, sameSelection, type Selection } from "../../lib/workflowAddress"
 import type { SchedulePreview, WorkflowDiagnostic } from "../../lib/workflowFiles"
-import { PendingDrafts } from "./pendingDrafts"
+import { PendingDrafts, usePendingReport } from "./pendingDrafts"
 import { BrokenOutline } from "./BrokenOutline"
 import { RowButton, StepRow } from "./OutlineRowParts"
 import { InputsBody, OutlineSection, StepsBody, TriggersBody } from "./OutlineSections"
@@ -171,14 +171,7 @@ function Outline(props: WorkflowOutlineProps) {
 }
 
 export default function WorkflowOutline(props: WorkflowOutlineProps) {
-  const { onPending } = props
-  const pending = useRef(new Set<string>())
-  const report = useCallback((id: string, isPending: boolean) => {
-    const had = pending.current.size > 0
-    if (isPending) pending.current.add(id)
-    else pending.current.delete(id)
-    if (had !== pending.current.size > 0) onPending?.(pending.current.size > 0)
-  }, [onPending])
+  const report = usePendingReport(props.onPending)
   // A file that stops parsing keeps the outline it last had, dimmed.
   const parsed = useMemo(() => itemsOf(props.text), [props.text])
   const [ownGood, setOwnGood] = useState<string | null>(parsed.file === null ? props.text : null)
