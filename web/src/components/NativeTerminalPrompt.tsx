@@ -1,4 +1,4 @@
-import type { PromptState } from "../hooks/useWebSocket"
+import type { PromptState } from "../lib/agentWire"
 
 interface NativeTerminalPromptProps {
   prompt: PromptState

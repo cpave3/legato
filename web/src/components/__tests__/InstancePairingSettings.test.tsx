@@ -365,3 +365,123 @@ describe("Add a worker from this browser", () => {
     expect((screen.getByLabelText("Worker address") as HTMLInputElement).value).toBe("https://legato-1.lan:3080")
   })
 })
+
+describe("WorkersSettings details", () => {
+  it("names this main on each worker, its away tasks and a sandbox its advert turned off", async () => {
+    workers = [{ ...workers[0], away: 3, advert: { version: "v1", features: [], sandbox: false, agents: [], mcp_tools: true, mcp_connections: [], skills: [], repositories: [] } }]
+    render(<WorkersSettings baseUrl="" />)
+    const vm = await screen.findByRole("listitem", { name: "vm-1" })
+    expect(within(vm).getByText("3 away")).toBeTruthy()
+    expect(within(vm).getByText("workstation").parentElement?.textContent).toBe("This main is workstation there")
+    const sandbox = within(vm).getByText("Sandbox off: it refuses handoffs")
+    expect(sandbox.className).toBe("text-lw-needs")
+    expect(within(vm).queryByText(/older than this Legato/i)).toBeNull()
+  })
+
+  it("counts no away tasks as 0", async () => {
+    render(<WorkersSettings baseUrl="" />)
+    expect(within(await screen.findByRole("listitem", { name: "vm-1" })).getByText("0 away")).toBeTruthy()
+  })
+
+  it("keeps a worker when removing it is cancelled, and says why a removal failed", async () => {
+    render(<WorkersSettings baseUrl="" />)
+    const vm = await screen.findByRole("listitem", { name: "vm-1" })
+    fireEvent.click(within(vm).getByRole("button", { name: "Remove vm-1" }))
+    fireEvent.click(within(vm).getByRole("button", { name: "Cancel" }))
+    expect(within(vm).getByRole("button", { name: "Remove vm-1" })).toBeTruthy()
+    expect(within(vm).queryByText(/holds/)).toBeNull()
+    fireEvent.click(within(vm).getByRole("button", { name: "Remove vm-1" }))
+    let finish!: (response: Response) => void
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve }))
+    fireEvent.click(within(vm).getByRole("button", { name: "Remove" }))
+    const removing = within(vm).getByRole("button", { name: "Removing…" }) as HTMLButtonElement
+    expect(removing.disabled).toBe(true)
+    expect((within(vm).getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true)
+    finish(json({ error: "worker busy" }, 409))
+    expect((await screen.findByRole("alert")).textContent).toMatch(/worker busy/)
+    expect(within(vm).getByRole("button", { name: "Remove" })).toBeTruthy()
+  })
+
+  it("pairs only with an address, a phrase and a name, trimmed, and cancels the form", async () => {
+    render(<WorkersSettings baseUrl="" />)
+    await screen.findByRole("listitem", { name: "vm-1" })
+    fireEvent.click(screen.getByRole("button", { name: "Add a worker" }))
+    const pair = screen.getByRole("button", { name: "Pair" }) as HTMLButtonElement
+    expect(pair.disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText("Worker address"), { target: { value: " vm-2.lan:3080 " } })
+    fireEvent.change(screen.getByLabelText("Phrase"), { target: { value: " a b c d " } })
+    fireEvent.change(screen.getByLabelText("This main's name on the worker"), { target: { value: "  " } })
+    expect(pair.disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText("This main's name on the worker"), { target: { value: " laptop " } })
+    expect(pair.disabled).toBe(false)
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(screen.queryByLabelText("Worker address")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Add a worker" }))
+    expect((screen.getByLabelText("Worker address") as HTMLInputElement).value).toBe("")
+    fireEvent.change(screen.getByLabelText("Worker address"), { target: { value: " vm-2.lan:3080 " } })
+    fireEvent.change(screen.getByLabelText("Phrase"), { target: { value: " a b c d " } })
+    fireEvent.change(screen.getByLabelText("This main's name on the worker"), { target: { value: " laptop " } })
+    fireEvent.click(screen.getByRole("button", { name: "Pair" }))
+    await screen.findByRole("listitem", { name: "vm-2" })
+    expect(requests.find((r) => r.method === "POST")?.body).toEqual({ address: "vm-2.lan:3080", phrase: "a b c d", name: "laptop" })
+    expect(screen.getByRole("button", { name: "Add a worker" })).toBeTruthy()
+  })
+
+  it("clears what it said when Add a worker opens again", async () => {
+    render(<WorkersSettings baseUrl="" />)
+    const vm = await screen.findByRole("listitem", { name: "vm-1" })
+    fireEvent.click(within(vm).getByRole("button", { name: "Remove vm-1" }))
+    fireEvent.click(within(vm).getByRole("button", { name: "Remove" }))
+    await screen.findByRole("status")
+    fireEvent.click(screen.getByRole("button", { name: "Add a worker" }))
+    expect(screen.queryByRole("status")).toBeNull()
+  })
+
+  it("shows a failed read", async () => {
+    vi.mocked(fetch).mockImplementation(async () => json({ error: "no workers here" }, 500))
+    render(<WorkersSettings baseUrl="" />)
+    expect((await screen.findByRole("alert")).textContent).toMatch(/no workers here/)
+    expect(screen.queryByText("No workers yet.")).toBeNull()
+  })
+})
+
+describe("MainInstancesSettings details", () => {
+  it("says no main is paired", async () => {
+    mains = []
+    render(<MainInstancesSettings baseUrl="" />)
+    expect(await screen.findByText("No main instance is paired.")).toBeTruthy()
+    expect(screen.queryByRole("list")).toBeNull()
+  })
+
+  it("warns of open handoffs before unpairing, never pulled, and Cancel keeps it", async () => {
+    mains = [{ ...mains[0], last_pull_at: undefined, open_handoffs: 2, reeve: true }]
+    render(<MainInstancesSettings baseUrl="" />)
+    const main = await screen.findByRole("listitem", { name: "workstation" })
+    expect(within(main).getByText("Never pulled")).toBeTruthy()
+    expect((within(main).getByRole("checkbox") as HTMLInputElement).checked).toBe(true)
+    fireEvent.click(within(main).getByRole("button", { name: "Unpair workstation" }))
+    expect(within(main).getByText(/workstation has 2 open handoffs here\. Unpairing revokes its token and closes them/)).toBeTruthy()
+    expect(within(main).queryByRole("button", { name: "Unpair workstation" })).toBeNull()
+    fireEvent.click(within(main).getByRole("button", { name: "Cancel" }))
+    expect(within(main).getByRole("button", { name: "Unpair workstation" })).toBeTruthy()
+  })
+
+  it("says why the Reeve could not be changed or a main unpaired", async () => {
+    render(<MainInstancesSettings baseUrl="" />)
+    const main = await screen.findByRole("listitem", { name: "workstation" })
+    vi.mocked(fetch).mockImplementationOnce(async () => json({ error: "reeve off here" }, 409))
+    fireEvent.click(within(main).getByRole("checkbox"))
+    expect((await screen.findByRole("alert")).textContent).toMatch(/reeve off here/)
+    fireEvent.click(within(main).getByRole("button", { name: "Unpair workstation" }))
+    vi.mocked(fetch).mockImplementationOnce(async () => json({ error: "still busy" }, 409))
+    fireEvent.click(within(main).getByRole("button", { name: "Unpair" }))
+    expect((await screen.findByRole("alert")).textContent).toMatch(/still busy/)
+    expect(within(main).getByRole("button", { name: "Cancel" })).toBeTruthy()
+  })
+
+  it("shows a failed read", async () => {
+    vi.mocked(fetch).mockImplementation(async () => json({ error: "no mains" }, 500))
+    render(<MainInstancesSettings baseUrl="" />)
+    expect((await screen.findByRole("alert")).textContent).toMatch(/no mains/)
+  })
+})

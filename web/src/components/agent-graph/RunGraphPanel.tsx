@@ -4,14 +4,14 @@
 import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import { ExternalLink, X } from "lucide-react"
-import { useModalLayer } from "../../hooks/useModalLayer"
+import { useModalLayer } from "../ui/useModalLayer"
 import { useWorkflowRun } from "../../hooks/useWorkflow"
 import { useNow } from "../../hooks/useNow"
 import { useRunGraphExtras } from "../../hooks/useRunGraph"
 import { runState, runWithAttention, stepPosition, type StepLike } from "../../lib/workflowView"
 import { cn } from "../../lib/utils"
 import { LazyWorkflowGraph } from "../workflow-graph/LazyWorkflowGraph"
-import { StatePill } from "../WorkflowRunStatus"
+import { StatePill } from "../workflow-status/WorkflowRunStatus"
 import { LoadingState } from "../ui/LoadingState"
 
 export interface RunGraphPanelProps {

@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { useState } from "react"
 import { AgentSidebar } from "../AgentSidebar"
-import type { AgentInfo } from "../../hooks/useWebSocket"
+import type { AgentInfo } from "../../lib/agentWire"
 import type { WorkStage } from "../../lib/agentStage"
 
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))

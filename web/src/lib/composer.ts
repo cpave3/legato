@@ -1,4 +1,4 @@
-import type { VoiceRecorder } from "../hooks/useVoiceRecorder"
+import type { VoiceRecorder } from "./voiceRecorder"
 import { toolDisplayName } from "./mcpToolName"
 import type { NativeConversationItem } from "./nativeAgentSync"
 import { cn } from "./utils"

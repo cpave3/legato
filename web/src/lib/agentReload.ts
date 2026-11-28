@@ -1,4 +1,4 @@
-import type { AgentInfo } from "../hooks/useWebSocket"
+import type { AgentInfo } from "./agentWire"
 import { apiFetch } from "./api"
 
 // Whether an agent can be reloaded: stopped and started again with its agent

@@ -14,7 +14,7 @@ import { useDevices } from "../hooks/useDevices"
 import { usePreparingAgents, useRepositoryCache } from "../hooks/usePreparingAgents"
 import { fetchHandoff } from "../lib/handoff"
 import { createQueryClient, queryKeys } from "../lib/query"
-import type { WSMessage } from "../hooks/useWebSocket"
+import type { WSMessage } from "../lib/agentWire"
 
 const { websocket } = vi.hoisted(() => ({
   websocket: {

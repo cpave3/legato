@@ -224,6 +224,56 @@ describe("ImportRemoteModal", () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
+  it("says when a search finds nothing, and searches nothing under two letters", async () => {
+    serve({ search: { ok: true, body: [] } })
+    renderModal()
+    const input = screen.getByPlaceholderText("Type to search...")
+    fireEvent.change(input, { target: { value: "q" } })
+    await new Promise((resolve) => setTimeout(resolve, 450))
+    expect(mockFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/remote/search"))).toHaveLength(0)
+    expect(screen.queryByText("No results")).toBeNull()
+    fireEvent.change(input, { target: { value: "qq" } })
+    expect(await screen.findByText("No results", {}, { timeout: 2000 })).toBeTruthy()
+  })
+
+  it("says it is searching while a search runs", async () => {
+    let answer: (value: unknown) => void = () => {}
+    mockFetch.mockImplementation(async (url: string) => {
+      if (url.startsWith("/api/ticket-providers")) return { ok: true, status: 200, json: async () => ({ providers: [{ name: "jira", label: "Jira" }] }) }
+      return new Promise((resolve) => { answer = resolve })
+    })
+    renderModal()
+    fireEvent.change(screen.getByPlaceholderText("Type to search..."), { target: { value: "ticket" } })
+    expect(await screen.findByText("Searching...", {}, { timeout: 2000 })).toBeTruthy()
+    answer({ ok: true, status: 200, json: async () => [], text: async () => "[]" })
+    expect(await screen.findByText("No results")).toBeTruthy()
+  })
+
+  it("imports a clicked result, saying so on its row, and the rows wait meanwhile", async () => {
+    let answer: (value: unknown) => void = () => {}
+    serve({ search: twoResults })
+    renderModal()
+    fireEvent.change(screen.getByPlaceholderText("Type to search..."), { target: { value: "ticket" } })
+    const first = await screen.findByText("First ticket", {}, { timeout: 2000 })
+    const base = mockFetch.getMockImplementation()!
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/remote/import")) return new Promise((resolve) => { answer = resolve })
+      return base(url, init)
+    })
+    fireEvent.click(first)
+    expect(await screen.findByText("Importing…")).toBeTruthy()
+    const rows = document.querySelectorAll("[data-remote-result]")
+    expect(rows[0].getAttribute("aria-disabled")).toBe("true")
+    expect(rows[1].className).toContain("pointer-events-none")
+    // The highlighted row is the first; the other is not.
+    expect(rows[0].className).toContain("bg-zinc-800")
+    expect(rows[1].className).not.toContain("bg-zinc-800 ")
+    fireEvent.click(rows[1])
+    expect(importBodies()).toHaveLength(1)
+    answer({ ok: false, status: 500, json: async () => ({ error: "boom" }), text: async () => "boom" })
+    expect(await screen.findByRole("alert")).toBeTruthy()
+  })
+
   it("surfaces an error message after a failed search", async () => {
     serve({ search: { ok: false, status: 500 } })
     renderModal()

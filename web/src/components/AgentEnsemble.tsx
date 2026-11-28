@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react"
 import { Loader2 } from "lucide-react"
-import type { AgentInfo } from "../hooks/useWebSocket"
+import type { AgentInfo } from "../lib/agentWire"
 import type { AgentContext } from "../hooks/useAgentContexts"
 import { useAgentGlance } from "../hooks/useAgentGlance"
 import { useMediaQuery } from "../hooks/useMediaQuery"
@@ -380,6 +380,67 @@ function couldNotRead(agent: AgentInfo): string {
 
 const cardButton = "min-h-[30px] shrink-0 rounded-md border border-lw-line-strong bg-lw-raised px-3 text-xs text-lw-text hover:border-[var(--theme-border,#4a4955)]"
 
+// A working agent's body: what it is at now (its newest tool call, the job
+// it waits on, or its terminal's last line), and its sub-agents.
+function WorkingNow({ agent, conversation, paneLines, unread }: { agent: AgentInfo; conversation: AgentConversation | null; paneLines: string[]; unread: boolean }) {
+  const now = nowLine(agent, conversation) ?? (paneLines.length > 0 ? { tool: "", text: paneLines[paneLines.length - 1] } : null)
+  if (unread && !now) return <Quiet>{couldNotRead(agent)}</Quiet>
+  return (
+    <>
+      <p aria-label="Now" className="m-0 truncate font-lw-mono text-[11px] leading-4 text-lw-text-2">
+        {now ? <>{now.tool && <span className="text-lw-link">{now.tool}</span>}{now.tool && " "}{now.text}</> : "Working…"}
+      </p>
+      <SubagentsLine jobs={agent.background_jobs} />
+    </>
+  )
+}
+
+// Any other agent's body: its last reply, else the end of its terminal.
+function LastWords({ agent, conversation, paneLines, unread }: { agent: AgentInfo; conversation: AgentConversation | null; paneLines: string[]; unread: boolean }) {
+  const reply = conversation ? newestReply(conversation) : null
+  if (reply) return <blockquote className="m-0 line-clamp-4 whitespace-pre-line border-l-2 border-lw-line-strong pl-2.5 text-[13px] leading-5 text-lw-text">{reply}</blockquote>
+  if (paneLines.length > 0) return <pre className="m-0 overflow-hidden whitespace-pre font-lw-mono text-[11px] leading-4 text-lw-text-2">{paneLines.slice(-4).join("\n")}</pre>
+  return <Quiet>{unread ? couldNotRead(agent) : "No reply yet."}</Quiet>
+}
+
+// Reply (or Message, while it works) opens a box in place; Open opens the
+// agent; how full its context is sits at the end.
+function StageCardActions({ agent, context, working, touch, replying, setReplying, onOpen, onSend }: { agent: AgentInfo; context?: AgentContext; working: boolean; touch: boolean; replying: boolean; setReplying: Dispatch<SetStateAction<boolean>>; onOpen: (taskId: string) => void; onSend?: (taskId: string, content: string) => void }) {
+  const verb = working ? "Message" : "Reply"
+  return (
+    <div className="flex flex-col gap-2">
+      {replying && onSend && <CardMessageBox agent={agent} idle={!working} onSend={onSend} touch={touch} />}
+      <div className="flex items-center gap-2">
+        {onSend && (
+          <button type="button" aria-expanded={replying} onClick={() => setReplying((value) => !value)} className={cn(cardButton, touch && "min-h-11")}>
+            <span aria-hidden="true">{verb}</span>
+            <span className="sr-only">{working ? `Message ${agent.task_id}` : `Reply to ${agent.task_id}`}</span>
+          </button>
+        )}
+        <button type="button" aria-label={`Open ${agent.task_id}`} onClick={() => onOpen(agent.task_id)} className={cn(cardButton, touch && "min-h-11")}>Open</button>
+        {context && <span className="ml-auto"><ContextMeter share={context.share} width="w-[60px]" /></span>}
+      </div>
+    </div>
+  )
+}
+
+// The glance and its time, then the ID, the title, and why it is at its
+// stage with its tool.
+function StageCardHeading({ agent, glance }: { agent: AgentInfo; glance: ReturnType<typeof glanceOf> }) {
+  const time = formatAgentTime(stateSeconds(agent))
+  const why = [agent.stage_reason, agentToolLabel(agent.agent_kind, agent.engram)].filter(Boolean).join(" · ")
+  return <>
+    <span className={cn("self-start rounded px-1.5 text-[11px] font-medium", glance.tone)}>
+      {`${glance.glyph} ${glance.word}${time ? ` · ${time}` : ""}`}
+    </span>
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <span className="font-lw-mono text-[11px] text-lw-faint">{agent.task_id}</span>
+      <span className="line-clamp-2 text-[13px] font-semibold leading-5">{agent.task_title || agent.task_id}</span>
+      {why && <span className="truncate text-xs text-lw-text-2">{why}</span>}
+    </div>
+  </>
+}
+
 // StageCard is an agent in a stage band, light enough to scan: the glance
 // and its time, the ID and title, why it is at its stage and its tool, then
 // one body (what it needs from the operator, what it is doing now, or its
@@ -403,31 +464,9 @@ function StageCard({ agent, context, approval, onDecide, onOpen, onSend, touch =
   const unread = failed && !conversation && pane === null
   const needs = section === "needs-you"
   const working = section === "working"
-  const time = formatAgentTime(stateSeconds(agent))
-  const why = [agent.stage_reason, agentToolLabel(agent.agent_kind, agent.engram)].filter(Boolean).join(" · ")
+  const shown = { agent, conversation, paneLines, unread }
+  // Kept here, so a box opened stays open while the agent needs the operator.
   const [replying, setReplying] = useState(false)
-
-  let body: ReactNode
-  if (needs) {
-    body = <NeedsBox agent={agent} conversation={conversation} approval={approval} onDecide={onDecide} onOpen={onOpen} touch={touch} />
-  } else if (working) {
-    const now = nowLine(agent, conversation) ?? (paneLines.length > 0 ? { tool: "", text: paneLines[paneLines.length - 1] } : null)
-    body = unread && !now
-      ? <Quiet>{couldNotRead(agent)}</Quiet>
-      : (
-        <>
-          <p aria-label="Now" className="m-0 truncate font-lw-mono text-[11px] leading-4 text-lw-text-2">
-            {now ? <>{now.tool && <span className="text-lw-link">{now.tool}</span>}{now.tool && " "}{now.text}</> : "Working…"}
-          </p>
-          <SubagentsLine jobs={agent.background_jobs} />
-        </>
-      )
-  } else {
-    const reply = conversation ? newestReply(conversation) : null
-    if (reply) body = <blockquote className="m-0 line-clamp-4 whitespace-pre-line border-l-2 border-lw-line-strong pl-2.5 text-[13px] leading-5 text-lw-text">{reply}</blockquote>
-    else if (paneLines.length > 0) body = <pre className="m-0 overflow-hidden whitespace-pre font-lw-mono text-[11px] leading-4 text-lw-text-2">{paneLines.slice(-4).join("\n")}</pre>
-    else body = <Quiet>{unread ? couldNotRead(agent) : "No reply yet."}</Quiet>
-  }
 
   return (
     <article
@@ -435,31 +474,14 @@ function StageCard({ agent, context, approval, onDecide, onOpen, onSend, touch =
       aria-label={`${agent.task_id}, ${glance.word.split(" · ")[0].toLowerCase()}`}
       className={cn("flex min-w-0 flex-col gap-2 rounded-[10px] border bg-lw-surface px-3 py-2.5", needs ? "border-[var(--theme-border,#4a3a1a)]" : "border-lw-line")}
     >
-      <span className={cn("self-start rounded px-1.5 text-[11px] font-medium", glance.tone)}>
-        {`${glance.glyph} ${glance.word}${time ? ` · ${time}` : ""}`}
-      </span>
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="font-lw-mono text-[11px] text-lw-faint">{agent.task_id}</span>
-        <span className="line-clamp-2 text-[13px] font-semibold leading-5">{agent.task_title || agent.task_id}</span>
-        {why && <span className="truncate text-xs text-lw-text-2">{why}</span>}
-      </div>
-      {body}
-      {!needs && (
-        <div className="flex flex-col gap-2">
-          {replying && onSend && <CardMessageBox agent={agent} idle={!working} onSend={onSend} touch={touch} />}
-          <div className="flex items-center gap-2">
-            {onSend && (
-              <button type="button" aria-expanded={replying} onClick={() => setReplying((value) => !value)} className={cn(cardButton, touch && "min-h-11")}>
-                <span aria-hidden="true">{working ? "Message" : "Reply"}</span>
-                <span className="sr-only">{working ? `Message ${agent.task_id}` : `Reply to ${agent.task_id}`}</span>
-              </button>
-            )}
-            <button type="button" aria-label={`Open ${agent.task_id}`} onClick={() => onOpen(agent.task_id)} className={cn(cardButton, touch && "min-h-11")}>Open</button>
-            {context && <span className="ml-auto"><ContextMeter share={context.share} width="w-[60px]" /></span>}
-          </div>
-        </div>
-      )}
-      {needs && context && <ContextMeter share={context.share} width="w-[60px]" />}
+      <StageCardHeading agent={agent} glance={glance} />
+      {needs ? <>
+        <NeedsBox agent={agent} conversation={conversation} approval={approval} onDecide={onDecide} onOpen={onOpen} touch={touch} />
+        {context && <ContextMeter share={context.share} width="w-[60px]" />}
+      </> : <>
+        {working ? <WorkingNow {...shown} /> : <LastWords {...shown} />}
+        <StageCardActions agent={agent} context={context} working={working} touch={touch} replying={replying} setReplying={setReplying} onOpen={onOpen} onSend={onSend} />
+      </>}
     </article>
   )
 }

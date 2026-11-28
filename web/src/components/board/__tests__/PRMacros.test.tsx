@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, expect, it, vi } from "vitest"
 import { BoardCard } from "../BoardCard"
-import { BoardMacrosContext } from "../PRMacros"
+import { BoardMacrosContext } from "../prMacrosContext"
 import type { BoardCard as BoardCardType, PRMetaView } from "../../../lib/board-types"
 import type { Macro } from "../../../lib/macros"
 

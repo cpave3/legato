@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { WorkflowRunView } from "../workflow"
-import type { WorkflowGraphModel } from "../workflowGraph"
+import type { WorkflowGraphModel } from "../workflow"
 import { instancesOf, runNodeExtras, templatePath } from "../workflowRunGraph"
 
 describe("runNodeExtras", () => {

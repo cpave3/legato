@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { useConfirm } from "../../../hooks/useConfirm"
+import { useConfirm } from "../useConfirm"
 
 function Harness({ onAnswer }: { onAnswer: (answer: boolean) => void }) {
   const { confirm, dialog } = useConfirm()

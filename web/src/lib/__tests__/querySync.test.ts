@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { WSMessage } from "../../hooks/useWebSocket"
+import type { WSMessage } from "../agentWire"
 import { invalidationsFor } from "../querySync"
 
 const base = "https://legato.local"

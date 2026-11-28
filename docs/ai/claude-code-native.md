@@ -185,7 +185,7 @@ Questions and allow options are part of the native agent protocol, not of the Cl
 | command | `POST …/permissions/:requestId` | `{decision: "allow", option?: "<id>"}`; an allow that names none takes the option that changes least |
 | event | `permission_resolved.option` | the option the allow took |
 
-From the browser these travel as the `agent_question` (`request_id`, `answers` or `dismissed`) and `agent_permission` (`decision`, `feedback`, `option`) WebSocket messages, through `AgentService.AnswerQuestion` and `ResolvePermission`. `NativeQuestionCard` (`web/src/components/NativeQuestionCard.tsx`) draws a question from the request alone and can be mounted outside the panel.
+From the browser these travel as the `agent_question` (`request_id`, `answers` or `dismissed`) and `agent_permission` (`decision`, `feedback`, `option`) WebSocket messages, through `AgentService.AnswerQuestion` and `ResolvePermission`. `NativeQuestionCard` (`web/src/components/approvals/NativeQuestionCard.tsx`) draws a question from the request alone and can be mounted outside the panel.
 
 ## Configuration
 

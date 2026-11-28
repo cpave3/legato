@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
-import { useWebSocket, type AgentInfo } from "./useWebSocket"
+import { useWebSocket } from "./useWebSocket"
+import { type AgentInfo } from "../lib/agentWire"
 
 export interface AgentContext {
   used: number

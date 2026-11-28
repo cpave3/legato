@@ -74,4 +74,62 @@ describe("IntegrationsSettings", () => {
     render(<IntegrationsSettings baseUrl="" />)
     expect((await screen.findByRole("alert")).textContent).toContain("not available")
   })
+
+  it("points to Settings for Argus's address when it can be set there", async () => {
+    mockFetch.mockResolvedValue({ tokens: [], argus: { configured: false, connection: { name: "argus", state: "none", replies: {} }, open_cases: 0 } })
+    render(<IntegrationsSettings baseUrl="" argusSetHere />)
+    const argus = await screen.findByRole("region", { name: "Argus" })
+    expect(within(argus).getByText("Not set up. Give Argus's address below; it applies when Legato restarts.")).toBeTruthy()
+    expect(within(argus).queryByText(/integrations\.argus\.url/)).toBeNull()
+  })
+
+  it("says briefs go at once, and that replies cannot reach an Argus not connected", async () => {
+    mockFetch.mockResolvedValue({ ...connected, argus: { ...connected.argus, delivery: "auto", connection: { name: "argus", state: "none", replies: { pending: 4 } } } })
+    render(<IntegrationsSettings baseUrl="" />)
+    const argus = await screen.findByRole("region", { name: "Argus" })
+    expect(within(argus).getByText("at once")).toBeTruthy()
+    expect(within(argus).getByText(/Not connected\. Run/)).toBeTruthy()
+    expect(within(argus).getByText("4 waiting to send").textContent).toBe("4 waiting to send")
+    expect(within(argus).queryByText(/Connected since/)).toBeNull()
+  })
+
+  it("shows failed replies alone, and none at all", async () => {
+    mockFetch.mockResolvedValue({ ...connected, argus: { ...connected.argus, connection: { ...connected.argus.connection, replies: { failed: 2 } } } })
+    render(<IntegrationsSettings baseUrl="" />)
+    const argus = await screen.findByRole("region", { name: "Argus" })
+    expect(within(argus).getByText("2 failed").textContent).toBe("2 failed")
+    cleanup()
+    mockFetch.mockResolvedValue({ ...connected, argus: { ...connected.argus, connection: { ...connected.argus.connection, replies: undefined } } })
+    render(<IntegrationsSettings baseUrl="" />)
+    const quiet = await screen.findByRole("region", { name: "Argus" })
+    expect(within(quiet).queryByText(/waiting|failed/)).toBeNull()
+  })
+
+  it("names when each token was made and used", async () => {
+    mockFetch.mockResolvedValue({ ...connected, tokens: [...connected.tokens, { id: "it-2", name: "fresh", scopes: [], created_at: "2026-11-02T03:00:00Z" }] })
+    render(<IntegrationsSettings baseUrl="" only="tokens" />)
+    const tokens = await screen.findByRole("region", { name: "Integration tokens" })
+    const made = (iso: string) => new Date(iso).toLocaleString()
+    expect(within(tokens).getByText("fresh").closest("li")?.textContent).toContain(`Made ${made("2026-11-02T03:00:00Z")} · not used yet`)
+    expect(within(tokens).getByText("argus").closest("li")?.textContent).toContain(` · last used ${made("2026-11-01T04:00:00Z")}`)
+    const old = within(tokens).getByText("old").closest("li") as HTMLElement
+    expect(old.className).toContain("opacity-60")
+    expect(old.textContent).toContain(` · revoked ${made("2026-10-31T03:00:00Z")}`)
+    expect(screen.queryByRole("region", { name: "Argus" })).toBeNull()
+  })
+
+  it("draws only Argus, with a link to its token", async () => {
+    mockFetch.mockResolvedValue(connected)
+    render(<IntegrationsSettings baseUrl="" only="argus" />)
+    const argus = await screen.findByRole("region", { name: "Argus" })
+    expect(within(argus).getByRole("link", { name: /Argus's token is under Security/ }).getAttribute("href")).toBe("#integration-tokens")
+    expect(screen.queryByRole("region", { name: "Integration tokens" })).toBeNull()
+  })
+
+  it("leaves the token link out when every card is drawn", async () => {
+    mockFetch.mockResolvedValue(connected)
+    render(<IntegrationsSettings baseUrl="" />)
+    await screen.findByRole("region", { name: "Argus" })
+    expect(screen.queryByRole("link", { name: /Argus's token is under Security/ })).toBeNull()
+  })
 })

@@ -1,7 +1,7 @@
 // How an agent's state looks on the graph: the same words, glyphs and
 // colours as the ensemble's tiles, as a border the state can be read from
 // at a glance.
-import type { AgentInfo } from "../../hooks/useWebSocket"
+import type { AgentInfo } from "../../lib/agentWire"
 import { glanceSection } from "../../lib/agentStage"
 import { reeveName, type ReeveName } from "../../lib/reeveName"
 

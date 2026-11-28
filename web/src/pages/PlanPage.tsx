@@ -1,4 +1,4 @@
-import { useModalLayer } from "../hooks/useModalLayer"
+import { useModalLayer } from "../components/ui/useModalLayer"
 import { createContext, memo, useCallback, useContext, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
 import { useMediaQuery } from "../hooks/useMediaQuery"
 import type { ItemImage } from "../lib/agentUi"

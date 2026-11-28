@@ -1,6 +1,6 @@
 import { useEffect, useRef, type RefObject } from "react"
 import { createPortal } from "react-dom"
-import { useMenuLayer } from "../hooks/useMenuLayer"
+import { useMenuLayer } from "./ui/useMenuLayer"
 import type { SlashItem, SlashMatch } from "../lib/slashMenu"
 
 // A plugin's skill is named "plugin:skill"; the plugin is drawn faint.

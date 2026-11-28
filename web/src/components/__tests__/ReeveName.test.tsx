@@ -9,7 +9,7 @@ vi.mock("../../lib/reeve", () => ({
 }))
 
 import { ReeveEntry } from "../ReeveEntry"
-import { ChangeSetCard } from "../ChangeSetCard"
+import { ChangeSetCard } from "../approvals/ChangeSetCard"
 import { ReeveNameContext } from "../../lib/reeveName"
 import type { Approval } from "../../lib/approvals"
 

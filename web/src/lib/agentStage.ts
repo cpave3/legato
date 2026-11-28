@@ -1,4 +1,4 @@
-import type { AgentInfo } from "../hooks/useWebSocket"
+import type { AgentInfo } from "./agentWire"
 import { apiFetch } from "./api"
 import { reeveName, type ReeveName } from "./reeveName"
 

@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom"
-import { useModalLayer } from "../hooks/useModalLayer"
+import { useModalLayer } from "./ui/useModalLayer"
 import { useEffect, useRef, useState } from "react"
 import { Image as ImageIcon, X } from "lucide-react"
 import { useServer } from "../hooks/useServer"

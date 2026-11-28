@@ -1,28 +1,22 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react"
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Bot, Code2, Copy, FileText, FolderGit2, GitPullRequest, Hourglass, ListChecks, MoreVertical, Plus, Trash2 } from "lucide-react"
-import { addInput, inputsOf, itemKey, itemsOf, itemText, moveStep, pastedAs, pathAt, rangeOf, problemsByItem, removeStep, renameStep, setField, setItemText, setTrigger, stepsOf, stepYamlPath, triggersOf, parseWorkflow, insertStep, WorkflowDocumentError, type Item, type ItemRef, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { itemsOf, problemsByItem, stepsOf, triggersOf, parseWorkflow, type WorkflowEdit } from "../../lib/workflowDocument"
 import { addressOf, sameSelection, type Selection } from "../../lib/workflowAddress"
-import { executors } from "../../lib/workflowSchema"
 import type { SchedulePreview, WorkflowDiagnostic } from "../../lib/workflowFiles"
-import { Button } from "../ui/Button"
-import { PendingDrafts } from "./pendingDrafts"
-import { CommitField, Problems } from "./builderFields"
-import { valueText } from "./builderStyles"
-import { DetailsForm, InputCard } from "./itemForms"
-import { brokenReferences, newStep, noOptions, stepReferences, type BuilderOptions, type StepValue } from "./stepForms"
-import { connectorOf, duplicateOf, idFromTitle, stepSummary } from "./stepRows"
-import { StepOutputs, StepSetup } from "./StepSetup"
-import { StepPicker } from "./StepPicker"
-import { TriggerCard } from "./TriggersEditor"
-import { KIND_TITLES, newTrigger, triggerKinds, triggerSentence, type SentencePart } from "./triggerForms"
-import { LazyWorkflowYamlEditor } from "./LazyWorkflowYamlEditor"
-import { LazyWorkflowGraph } from "../workflow-graph/LazyWorkflowGraph"
-import type { WorkflowGraphModel } from "../../lib/workflowGraph"
-import { DockCard, PanelClose } from "../workflow-canvas/DockCard"
-import { cardTitle, floatingPanel } from "../workflow-canvas/canvasStyles"
-import { useCardFolds } from "../workflow-canvas/useCardFolds"
-import { WorkflowCanvas } from "../workflow-canvas/WorkflowCanvas"
-import { parseDocument } from "yaml"
+import { PendingDrafts, usePendingReport } from "./pendingDrafts"
+import { BrokenOutline } from "./BrokenOutline"
+import { RowButton, StepRow } from "./OutlineRowParts"
+import { InputsBody, OutlineSection, StepPalette, StepsBody, TriggersBody } from "./OutlineSections"
+import { OutlineNavigation, type OutlineView } from "./OutlineMap"
+import { BrokenNote, CanvasOutline, InspectorPane, JumpMenu, SplitOutline } from "./OutlineLayouts"
+import { useCanvasDock } from "./useCanvasDock"
+import { RowInspector } from "./OutlineInspector"
+import { useHeldYaml, type HeldYaml } from "./useHeldYaml"
+import { useOutlineSelection } from "./useOutlineSelection"
+import { stepListOf, useOutlineEditing } from "./useOutlineEditing"
+import { savedIdsOf, selectionAt, nodeOf, orderOf, rowsOf, type Row } from "./outlineRows"
+import { noOptions, type BuilderOptions, type StepValue } from "./stepForms"
+import { triggerKinds } from "./triggerForms"
+import type { WorkflowGraphModel } from "../../lib/workflow"
 
 export type WorkflowOutlineProps = {
   text: string
@@ -81,111 +75,9 @@ export type WorkflowOutlineProps = {
   cards?: ReactNode
 }
 
-// The editor's inspector is wider than a run's side panel: its forms need
-// the room (LEG-655).
-const INSPECTOR_WIDTH = 480
-
-// cardOfKind is the card over the graph that holds a row of each kind.
-const cardOfKind: Record<Selection["kind"], string> = { trigger: "triggers", input: "inputs", step: "steps", about: "about" }
-
-/** HeldYaml is item YAML not written yet, by item key, with the item's
- * text it was begun from. */
-export type HeldYaml = Record<string, { base: string; text: string }>
-
-// placeOf is a row's kind and position among the rows of its kind.
-function placeOf(order: Row[], selection: Selection): string {
-  const same = order.filter(row => row.selection.kind === selection.kind)
-  return `${selection.kind}:${same.findIndex(row => sameSelection(selection, row.selection))}`
-}
-
-type Row = { selection: Selection; label: string; detail: string; problem: string | null; problems: number; paused?: boolean; on?: boolean; sentence?: SentencePart[]; summary?: string; type?: string; depth?: number }
-
-const CARD_TASK = "${{ event.task }}"
-
-/** fromTheCard are the inputs a column trigger fills from its card. */
-function fromTheCard(values: WorkflowValues): string[] {
-  const inputs = (triggersOf(values)["task.entered_column"]?.inputs ?? {}) as Record<string, unknown>
-  return Object.entries(inputs).filter(([, value]) => typeof value === "string" && value.replace(/\s+/g, "") === CARD_TASK.replace(/\s+/g, "")).map(([name]) => name)
-}
-
-const isTyping = (target: EventTarget | null) => {
-  const element = target as HTMLElement | null
-  return Boolean(element && (element.tagName === "INPUT" || element.tagName === "TEXTAREA" || element.tagName === "SELECT" || element.isContentEditable))
-}
-
-const executorTitle = (type: unknown) => executors.find(e => e.type === type)?.title ?? String(type ?? "")
+export type { HeldYaml }
 
 const NO_SWITCHES: Record<string, boolean> = {}
-
-// A row's node in the run graph, and a node's row: trigger:<kind> and
-// step:<id> (a review loop's inner nodes are their step's).
-function nodeOf(selection: Selection | null): string | null {
-  if (selection?.kind === "step") return `step:${selection.path}`
-  if (selection?.kind === "trigger") return `trigger:${selection.name}`
-  return null
-}
-function selectionOfNode(graph: WorkflowGraphModel, id: string | null): Selection | null {
-  const node = graph.nodes.find(n => n.id === id)
-  const own = node?.kind === "inner" ? graph.nodes.find(n => n.id === node.parent) : node
-  if (own?.kind === "step" && own.step) return { kind: "step", path: own.step.path || own.step.id }
-  if (own?.kind === "trigger" && own.trigger && own.trigger.kind !== "manual") return { kind: "trigger", name: own.trigger.kind }
-  return null
-}
-
-// iconOf is a step type's icon in its row.
-function iconOf(type: string) {
-  if (type === "wait") return Hourglass
-  if (type.startsWith("agent.")) return Bot
-  if (type.startsWith("github.")) return GitPullRequest
-  if (type.startsWith("task.")) return ListChecks
-  if (type.startsWith("repo.") || type.startsWith("worktree.")) return FolderGit2
-  return FileText
-}
-
-// rowsOf are the outline's rows, section by section, from the file's
-// items: a trigger, input or step each, and About for the top-level fields.
-function rowsOf(items: Item[], values: WorkflowValues, problems: Map<string, WorkflowDiagnostic[]>, pausedHere: Record<string, boolean>) {
-  const fromCard = fromTheCard(values)
-  const count = (item: ItemRef) => (problems.get(itemKey(item)) ?? []).filter(d => d.severity === "error").length
-  const triggers = triggersOf(values)
-  const inputs = inputsOf(values)
-  const steps = new Map<string, Record<string, unknown>>()
-  const walk = (list: unknown, parent: string) => {
-    if (!Array.isArray(list)) return
-    list.forEach((step, i) => {
-      const id = step && typeof step === "object" && typeof (step as { id?: unknown }).id === "string" && (step as { id: string }).id !== "" ? (step as { id: string }).id : `#${i}`
-      const path = parent ? `${parent}/${id}` : id
-      steps.set(path, (step ?? {}) as Record<string, unknown>)
-      walk((step as { steps?: unknown } | null)?.steps, path)
-    })
-  }
-  walk(values.steps, "")
-  const when: Row[] = []
-  const asks: Row[] = []
-  const then: Row[] = []
-  const about: { problems: number; problem: string | null; containers: Item[] } = { problems: 0, problem: null, containers: [] }
-  for (const item of items) {
-    const ref = item.item
-    if (ref.kind === "trigger") {
-      const trigger = triggers[ref.name]
-      const sentence = item.problem ? undefined : triggerSentence(ref.name, trigger)
-      const paused = ref.name in pausedHere ? pausedHere[ref.name] : trigger?.enabled === false
-      when.push({ selection: ref, label: sentence ? sentence.map(p => p.text).join("") : KIND_TITLES[ref.name] ?? ref.name, sentence, detail: "", problem: item.problem, problems: count(ref), paused, on: !paused })
-    } else if (ref.kind === "input") {
-      asks.push({ selection: ref, label: ref.name, detail: fromCard.includes(ref.name) ? "from the card" : String(inputs[ref.name]?.type ?? ""), problem: item.problem, problems: count(ref) })
-    } else if (ref.kind === "step") {
-      const step = steps.get(ref.path) ?? {}
-      const depth = ref.path.split("/").length - 1
-      then.push({ selection: ref, label: valueText(step.title) || ref.path.split("/").pop() || "", detail: executorTitle(step.type), problem: item.problem, problems: count(ref), summary: item.problem ? "" : stepSummary(step as StepValue), type: String(step.type ?? ""), depth })
-    } else if (["inputs", "on", "steps"].includes(ref.key)) {
-      if (item.problem) about.containers.push(item)
-    } else {
-      about.problems += count(ref)
-      about.problem ??= item.problem
-    }
-  }
-  return { when, asks, then, about }
-}
 
 // WorkflowOutline is the Visual side of the editor (LEG-505): the outline
 // of the workflow (Triggers, Inputs, Steps, About; When, Asks for and Then
@@ -198,648 +90,86 @@ function Outline(props: WorkflowOutlineProps) {
   const { file, items } = useMemo(() => itemsOf(text), [text])
   const values = useMemo(() => parseWorkflow(text).values, [text])
   const problems = useMemo(() => problemsByItem(text, diagnostics), [text, diagnostics])
-  const [error, setError] = useState("")
-  // An item's YAML that does not read yet: kept by the item's key with the
-  // text it was begun from, by the page (so leaving the tab, the row or
-  // Visual keeps it) or else here, and counted as unsaved. It is shown only
-  // while its item still has that text, so a row that moves or changes
-  // never takes another's.
-  const [ownHeld, setOwnHeld] = useState<HeldYaml>({})
-  const heldStore = props.held ?? ownHeld
-  const setHeldStore = props.onHeld ?? setOwnHeld
-  const report = useContext(PendingDrafts)
-  const heldAny = Object.keys(heldStore).length > 0
-  useEffect(() => { report("outline-held-yaml", heldAny) }, [report, heldAny])
-  useEffect(() => () => report("outline-held-yaml", false), [report])
-  const [adding, setAdding] = useState<{ kind: "step"; at: number } | { kind: "trigger" } | null>(null)
-  const [menu, setMenu] = useState<string | null>(null)
-  const [pasted, setPasted] = useState<string | null>(null)
-  const [view, setView] = useState<"list" | "map">("list")
-  const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
-  const [warning, setWarning] = useState("")
-  const [dragged, setDragged] = useState<string | null>(null)
-  // A step just added has its first essential field focused.
-  const [focusNew, setFocusNew] = useState<string | null>(null)
-  const outline = useRef<HTMLElement>(null)
+  const [view, setView] = useState<OutlineView>("list")
   const inspector = useRef<HTMLElement>(null)
   // On the canvas: which cards are folded, and the node to centre.
   const canvasOn = props.layout === "canvas" && !navigating && !narrow
-  const folds = useCardFolds("legato:workflow-editor:folds", {})
-  const { open: openCard } = folds
-  const [centerOn, setCenterOn] = useState<{ id: string; n: number } | null>(null)
-  const centre = (id: string | null) => { if (id) setCenterOn(current => ({ id, n: (current?.n ?? 0) + 1 })) }
-  // The card that holds the row chosen opens, so the row is never hidden.
-  const selectedCard = selection ? cardOfKind[selection.kind] : null
-  const selectedFolded = selectedCard ? folds.folded(selectedCard) : false
-  useEffect(() => { if (canvasOn && selectedCard && selectedFolded) openCard(selectedCard) }, [canvasOn, selectedCard, selectedFolded, openCard])
-  // List | Graph on a phone: the outline, or the graph (read-only) in its
-  // place.
+  const dock = useCanvasDock(canvasOn, selection)
 
   const rows = useMemo(() => rowsOf(items, values, problems, pausedHere), [items, values, problems, pausedHere])
-  const savedIds = useMemo(() => savedText === null ? null : new Set(stepsOf(parseWorkflow(savedText).values).map(step => String(step?.id ?? ""))), [savedText])
-  const order: Row[] = useMemo(() => [...rows.when, ...rows.asks, ...rows.then, { selection: { kind: "about" }, label: "About", detail: "", problem: rows.about.problem, problems: rows.about.problems }], [rows])
+  const savedIds = useMemo(() => savedIdsOf(savedText), [savedText])
+  const order: Row[] = useMemo(() => orderOf(rows), [rows])
 
-  // A rename moves a row's address: follow it to the row of its kind in
-  // the same place.
-  const [last, setLast] = useState<{ address: string; place: number } | null>(null)
-  const atCursor = navigating && cursor !== undefined ? pathAt(text, cursor)?.item ?? null : null
-  const shown: Selection | null = navigating ? (atCursor ? (atCursor.kind === "about" ? { kind: "about" } : atCursor) : null) : selection
-  const found = selection ? order.findIndex(row => sameSelection(selection, row.selection)) : -1
-  // Until the address catches up, the renamed row is still the one shown,
-  // so its inspector (and the tab it is on) stays.
-  const following = selection && found < 0 && last?.address === addressOf(selection) ? order.filter(row => row.selection.kind === selection.kind)[last.place] ?? null : null
-  useEffect(() => {
-    if (navigating || broken) return
-    if (!selection) { setLast(null); return }
-    const same = order.filter(row => row.selection.kind === selection.kind)
-    const address = addressOf(selection)
-    if (found >= 0) {
-      const place = same.findIndex(row => sameSelection(selection, row.selection))
-      setLast(previous => previous?.address === address && previous.place === place ? previous : { address, place })
-      return
-    }
-    if (following) onSelect(following.selection)
-  }, [selection, found, order, onSelect, following, navigating, broken])
+  const { shown, selectedRow, choose, outline, onKeyDown } = useOutlineSelection({ text, items, order, selection, onSelect, navigating, broken: Boolean(broken), cursor, onJump })
 
-  // heldYaml is the held text by the row's place, which the inspector is
-  // keyed by; hold keeps or drops a row's.
-  const heldYaml = useMemo(() => {
-    const out: Record<string, string> = {}
-    for (const row of order) {
-      if (row.selection.kind === "about") continue
-      const kept = heldStore[itemKey(row.selection)]
-      if (kept && itemText(text, row.selection) === kept.base) out[placeOf(order, row.selection)] = kept.text
-    }
-    return out
-  }, [order, heldStore, text])
-  const hold = useCallback((place: string, held: string | null) => {
-    const row = order.find(r => placeOf(order, r.selection) === place)
-    if (!row || row.selection.kind === "about") return
-    const key = itemKey(row.selection)
-    const base = itemText(text, row.selection) ?? ""
-    setHeldStore(previous => {
-      if (held === null) { if (!(key in previous)) return previous; const next = { ...previous }; delete next[key]; return next }
-      return { ...previous, [key]: { base: previous[key]?.base === base ? previous[key].base : base, text: held } }
-    })
-  }, [order, text, setHeldStore])
+  const { heldYaml, hold } = useHeldYaml({ text, order, held: props.held, onHeld: props.onHeld })
 
-  const apply = useCallback((make: () => WorkflowEdit, how?: { typing?: boolean }) => {
-    try {
-      setError("")
-      const result = make()
-      if (result.text !== text) onEdit(result, how)
-    } catch (reason) {
-      setError(reason instanceof WorkflowDocumentError ? reason.message : String(reason))
-    }
-  }, [text, onEdit])
+  const list = useMemo(() => stepListOf(stepsOf(values) as (StepValue | null)[]), [values])
+  const { placed } = list
+  const editor = useOutlineEditing({ editing, text, values, list, selection, onEdit, onSelect, choose, options })
+  const { error, apply, adding, setAdding, select, paste, addStep, warning, focusNew, focused, addTrigger, addAnInput } = editor
 
-  if (file) {
-    const alert = <div role="alert" className="flex flex-col items-start gap-2 rounded-xl border border-lw-danger-line bg-lw-error-soft p-4 text-sm text-lw-danger">
-      <p>{file.startsWith("the YAML does not parse") ? `The YAML doesn't parse, so it can't be shown here: ${file.replace(/^the YAML does not parse: /, "")}` : `This file can't be shown as forms: ${file}.`}</p>
-      <Button size="sm" variant="outline" onClick={() => onEditYaml()}>Edit as YAML</Button>
-    </div>
-    // On the canvas the page's notices and cards come through here: they
-    // stay, with the alert, when there is no outline to draw.
-    if (canvasOn) return <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-      {props.notices && <div className="flex max-w-xl flex-col gap-2">{props.notices}</div>}
-      {alert}
-      {props.cards && <div className="max-w-sm">{props.cards}</div>}
-    </div>
-    return alert
-  }
+  if (file) return <BrokenOutline file={file} canvas={canvasOn} notices={props.notices} cards={props.cards} onEditYaml={onEditYaml} />
 
-  // A step that is not a mapping keeps its place, and is no one's reader.
-  const placed = stepsOf(values) as (StepValue | null)[]
-  const steps = placed.filter((step): step is StepValue => step !== null && typeof step === "object")
-  const ids = steps.map(step => step.id ?? "")
-  const select = (next: Selection, open = false) => {
-    setAdding(null)
-    if (!navigating) { onSelect(next, { open }); return }
-    // Beside the YAML, a row moves the cursor to its text.
-    const item = next.kind === "about" ? items.find(i => i.item.kind === "about" && !["inputs", "on", "steps"].includes(i.item.key))?.item : next
-    const range = item ? rangeOf(text, item) : null
-    if (range) onJump?.(range)
-  }
+  const chooseRow = (row: Row) => { select(row.selection, true); if (canvasOn) dock.centre(nodeOf(row.selection)) }
+  const rowButton = (row: Row, number?: number) => <RowButton row={row} number={number} selected={sameSelection(shown, row.selection)} onChoose={() => chooseRow(row)} />
+  const rowItem = (row: Row) => <li key={addressOf(row.selection)}>{rowButton(row)}</li>
 
-  // What is pasted on the forms (not into a field): a whole workflow asks
-  // to replace this one; steps go in after the step chosen.
-  const onPaste = (event: React.ClipboardEvent) => {
-    if (!editing || isTyping(event.target)) return
-    const clip = event.clipboardData.getData("text/plain")
-    const what = pastedAs(clip)
-    if (what.kind === "other") return
-    event.preventDefault()
-    if (what.kind === "workflow") { setPasted(clip); return }
-    const after = selection?.kind === "step" ? placed.findIndex(step => step?.id === selection.path.split("/")[0]) + 1 : placed.length
-    apply(() => {
-      let working = text
-      const taken = [...ids]
-      // The IDs first, then the group's references to its own renamed
-      // steps follow them; a reference to a step not pasted is left alone.
-      const added = what.steps.map(raw => {
-        const base = typeof raw.id === "string" && raw.id !== "" ? raw.id : idFromTitle(String(raw.title ?? raw.type ?? "step"), taken)
-        let id = base
-        for (let n = 2; taken.includes(id); n++) id = `${base}-${n}`
-        taken.push(id)
-        return id
-      })
-      const renamed = new Map(what.steps.flatMap((raw, i) => typeof raw.id === "string" && raw.id !== added[i] ? [[raw.id, added[i]] as const] : []))
-      const follow = (value: unknown): unknown => {
-        if (typeof value === "string") return renamed.size === 0 ? value : value.replace(/\$\{\{[^}]*\}\}/g, expression => expression.replace(/(\bsteps\.)([^.\s}]+)(?=\.outputs\b)/g, (all, head: string, id: string) => renamed.has(id) ? head + renamed.get(id) : all))
-        if (Array.isArray(value)) return value.map(follow)
-        if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, follow(v)]))
-        return value
-      }
-      what.steps.forEach((raw, i) => {
-        working = insertStep(working, (after <= 0 ? placed.length : after) + i, { ...(follow(raw) as Record<string, unknown>), id: added[i] }).text
-      })
-      if (added[0]) setTimeout(() => select({ kind: "step", path: added[0] }), 0)
-      return { text: working, undo: { label: `Paste ${added.length === 1 ? `step ${added[0]}` : `${added.length} steps`}`, before: text, after: working } }
-    })
-  }
+  const palette = <StepPalette adding={adding} narrow={narrow} onPick={addStep} onClose={() => setAdding(null)} />
 
-  // A new step's ID is made from its title, and follows it until saved.
-  const addStep = (type: string, at: number) => {
-    const made = newStep(type, ids)
-    const step = { ...made, id: idFromTitle(String(made.title ?? type), ids) }
-    apply(() => insertStep(text, at, step))
-    select({ kind: "step", path: step.id }, true)
-    setFocusNew(step.id)
-  }
-  const moveTo = (id: string, to: number) => {
-    const order = ids.filter(other => other !== id)
-    order.splice(to, 0, id)
-    const broken = brokenReferences(steps, order)
-    if (broken.length > 0) { setWarning(`That move would break a reference: ${broken.join("; ")}.`); return }
-    setWarning("")
-    apply(() => moveStep(text, id, to))
-  }
-  const removeIt = (id: string) => {
-    const readers = steps.filter(step => step.id !== id && stepReferences(step).some(ref => ref.id === id))
-    if (readers.length > 0 && confirmRemove !== id) { setConfirmRemove(id); return }
-    setConfirmRemove(null)
-    apply(() => removeStep(text, id))
-    if (selection?.kind === "step" && selection.path === id) onSelect(null)
-  }
-  const duplicate = (step: StepValue, index: number) => {
-    const copy = duplicateOf(step, ids)
-    apply(() => insertStep(text, index + 1, copy))
-    select({ kind: "step", path: String(copy.id) }, true)
-  }
-  const addTrigger = (kind: string) => {
-    apply(() => setTrigger(text, kind, newTrigger(kind, options)))
-    select({ kind: "trigger", name: kind }, true)
-  }
-  const addAnInput = () => {
-    const taken = Object.keys(inputsOf(values))
-    let name = "input"
-    for (let n = 2; taken.includes(name); n++) name = `input-${n}`
-    apply(() => addInput(text, name, { type: "string" }))
-    select({ kind: "input", name }, true)
-  }
-
-  // j and k move through the rows, Enter opens the one chosen.
-  const onKeyDown = (event: ReactKeyboardEvent) => {
-    if (isTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey) return
-    const at = order.findIndex(row => sameSelection(selection, row.selection))
-    if (event.key === "j" || event.key === "k") {
-      event.preventDefault()
-      const next = order[Math.max(0, Math.min(order.length - 1, at < 0 ? 0 : at + (event.key === "j" ? 1 : -1)))]
-      if (!next) return
-      onSelect(next.selection)
-      requestAnimationFrame(() => outline.current?.querySelector<HTMLElement>(`[data-address="${CSS.escape(addressOf(next.selection))}"]`)?.focus())
-    }
-    // Enter on a row is the row button's own click, which opens it.
-  }
-
-  const rowButton = (row: Row, bare = false, number?: number) => {
-    const selected = sameSelection(shown, row.selection)
-    const address = addressOf(row.selection)
-    const Icon = row.type ? iconOf(row.type) : null
-    const button = <button type="button" data-address={address} aria-current={selected ? "true" : undefined}
-      className={`flex min-h-10 w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${selected ? "bg-lw-raised text-lw-text" : "text-lw-text-2 hover:bg-lw-raised hover:text-lw-text"}`}
-      onClick={() => { select(row.selection, true); if (canvasOn) centre(nodeOf(row.selection)) }}>
-      {number !== undefined && <span className="w-4 shrink-0 text-right text-xs text-lw-faint">{number}</span>}
-      {Icon && <Icon size={14} aria-hidden className="shrink-0 text-lw-faint" />}
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate">{row.sentence ? row.sentence.map((part, i) => part.strong ? <strong key={i} className="font-semibold text-lw-text">{part.text}</strong> : <span key={i}>{part.text}</span>) : row.label}</span>
-        {row.summary && <span className="truncate text-xs text-lw-faint">{row.summary}</span>}
-      </span>
-      {row.detail && !row.summary && <span className="truncate text-xs text-lw-faint">{row.detail}</span>}
-      {row.paused && <span className="rounded border border-lw-line px-1 text-[11px] text-lw-text-2">paused</span>}
-      {row.on && <span className="rounded bg-lw-live-soft px-1 text-[11px] text-lw-live">on</span>}
-      {row.problem && <span className="flex items-center gap-1 rounded border border-lw-line px-1 text-[11px] text-lw-text-2"><Code2 size={11} />Edited as YAML</span>}
-      {row.problems > 0 && <span aria-label={`${row.problems} ${row.problems === 1 ? "problem" : "problems"}`} className="flex items-center gap-0.5 text-[11px] text-lw-danger"><AlertTriangle size={11} />{row.problems}</span>}
-    </button>
-    return bare ? button : <li key={address}>{button}</li>
-  }
-
-  const palette = adding?.kind === "step" ? <StepPicker narrow={narrow} onPick={type => addStep(type, adding.at)} onClose={() => setAdding(null)} /> : null
-
-  // A top-level step's row, with the connector before it that says how
-  // it starts and inserts a step there. Nested steps are plain rows.
-  const stepRow = (row: Row) => {
-    if (row.selection.kind !== "step" || (row.depth ?? 0) > 0) return <li key={addressOf(row.selection)} className="pl-6">{rowButton(row, true)}</li>
-    const id = row.selection.path
-    // A step with no ID is #<index>, its place (stepNodes).
-    const index = /^#\d+$/.test(id) ? Number(id.slice(1)) : placed.findIndex(step => step?.id === id)
-    const step = (placed[index] ?? {}) as StepValue
-    const connector = connectorOf(placed.map(p => (p ?? {}) as Record<string, unknown>), index)
-    const title = row.label
-    const readers = steps.filter(other => other.id !== id && stepReferences(other).some(ref => ref.id === id)).map(other => String(other.id))
-    return <li key={addressOf(row.selection)} className="group flex min-w-0 flex-col"
-      draggable={editing && !narrow} onDragStart={() => setDragged(id)} onDragOver={event => event.preventDefault()}
-      onDrop={event => { event.preventDefault(); if (dragged && dragged !== id) moveTo(dragged, index); setDragged(null) }}>
-      <div className={`flex min-h-7 items-center gap-2 pl-5 text-[11px] ${connector.kind === "manual" ? "text-lw-needs" : "text-lw-faint"}`}>
-        <span aria-hidden className={`h-5 border-l ${connector.kind === "first" ? "invisible " : ""}${connector.kind === "agent_ended" ? "border-dashed border-lw-line-strong" : connector.kind === "manual" ? "border-lw-needs" : "border-lw-line"}`} />
-        <span data-start={connector.kind} className="flex-1">{connector.text}</span>
-        {editing && <button type="button" aria-label={`Add a step before ${title}`} className={`rounded px-1 text-lw-text-2 hover:bg-lw-raised hover:text-lw-text ${narrow ? "" : "opacity-0 focus:opacity-100 group-hover:opacity-100"}`} onClick={() => setAdding({ kind: "step", at: index })}><Plus size={13} /></button>}
-      </div>
-      {adding?.kind === "step" && adding.at === index && palette}
-      <div className="relative flex min-w-0 items-center">
-        {rowButton(row, true, index + 1)}
-        {editing && <button type="button" aria-label={`Actions for step ${id}`} aria-expanded={menu === id} className="ml-1 rounded p-1 text-lw-text-2 hover:bg-lw-raised" onClick={() => setMenu(menu === id ? null : id)}><MoreVertical size={14} /></button>}
-        {menu === id && <div role="menu" aria-label={`Step ${id}`} className="absolute right-0 top-full z-20 flex w-44 flex-col rounded-md border border-lw-line bg-lw-surface p-1 text-sm shadow-xl" onKeyDown={event => { if (event.key === "Escape") setMenu(null) }}>
-          <button type="button" role="menuitem" className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised" onClick={() => { setMenu(null); duplicate(step, index) }}><Copy size={13} />Duplicate</button>
-          <button type="button" role="menuitem" disabled={index === 0} className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised disabled:opacity-40" onClick={() => { setMenu(null); moveTo(id, index - 1) }}><ArrowUp size={13} />Move up</button>
-          <button type="button" role="menuitem" disabled={index === placed.length - 1} className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised disabled:opacity-40" onClick={() => { setMenu(null); moveTo(id, index + 1) }}><ArrowDown size={13} />Move down</button>
-          <button type="button" role="menuitem" className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-lw-danger hover:bg-lw-raised" onClick={() => { setMenu(null); removeIt(id) }}><Trash2 size={13} />Delete</button>
-        </div>}
-      </div>
-      {confirmRemove === id && <div role="alertdialog" aria-label={`Remove step ${id}`} className="mx-2 my-1 flex flex-wrap items-center gap-2 rounded border border-lw-needs p-2 text-xs">
-        <span>{readers.join(", ")} {readers.length === 1 ? "reads" : "read"} this step's outputs.</span>
-        <Button type="button" size="sm" variant="destructive" onClick={() => removeIt(id)}>Remove anyway</Button>
-        <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmRemove(null)}>Keep it</Button>
-      </div>}
-    </li>
-  }
-
-  const section = (title: string, body: React.ReactNode) => <section aria-label={title} className="flex flex-col gap-1">
-    <h2 className="px-2 text-[11px] font-semibold uppercase tracking-wide text-lw-faint">{title}</h2>
-    {body}
-  </section>
-  const container = (key: string) => rows.about.containers.filter(item => item.item.kind === "about" && item.item.key === key).map(item => <p key={key} role="alert" className="mx-2 flex flex-wrap items-center gap-2 text-xs text-lw-needs">
-    {item.problem} <Button size="sm" variant="ghost" onClick={() => onEditYaml()}>Edit as YAML</Button>
-  </p>)
-
-  const missing = triggerKinds.filter(t => !(t.kind in triggersOf(values)))
-  const whenBody = <>
-    <ul className="flex flex-col">{rows.when.map(row => rowButton(row))}</ul>
-    {container("on")}
-    {editing && missing.length > 0 && (adding?.kind === "trigger"
-      ? <div role="dialog" aria-label="Add a trigger" className="mx-2 flex flex-col gap-1 rounded-lg border border-lw-line bg-lw-surface p-1 shadow-xl" onKeyDown={event => { if (event.key === "Escape") setAdding(null) }}>
-        {missing.map(t => <button key={t.kind} type="button" className="flex min-h-9 flex-col items-start rounded-md px-2 py-1 text-left hover:bg-lw-raised" onClick={() => addTrigger(t.kind)}>
-          <span className="text-sm">{KIND_TITLES[t.kind] ?? t.kind}</span>
-          <span className="text-xs text-lw-text-2">{t.description}</span>
-        </button>)}
-        <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding(null)}>Cancel</Button>
-      </div>
-      : <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding({ kind: "trigger" })}><Plus size={13} />Add trigger</Button>)}
-    <p className="px-2 text-xs text-lw-faint">You can always run it by hand.</p>
-  </>
-  const asksBody = <>
-    {rows.asks.length === 0 && <p className="px-2 text-sm text-lw-text-2">Nothing: it takes no inputs</p>}
-    <ul className="flex flex-col">{rows.asks.map(row => rowButton(row))}</ul>
-    {container("inputs")}
-    {editing && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={addAnInput}><Plus size={13} />Add input</Button>}
-  </>
-  const thenBody = <>
-    {rows.then.length === 0 && (editing
-      ? (adding?.kind === "step" ? null : <button type="button" className="mx-2 flex min-h-16 items-center justify-center gap-2 rounded-lg border border-dashed border-lw-line-strong text-sm text-lw-text-2 hover:bg-lw-raised hover:text-lw-text" onClick={() => setAdding({ kind: "step", at: 0 })}><Plus size={14} />Add the first step</button>)
-      : <p className="px-2 text-sm text-lw-text-2">No steps yet: a workflow needs at least one.</p>)}
-    {warning && <p role="alert" className="px-2 text-xs text-lw-needs">{warning}</p>}
-    <ol aria-label="Steps" className="flex flex-col">{rows.then.map(stepRow)}</ol>
-    {container("steps")}
-    {editing && (adding?.kind === "step" && adding.at >= placed.length ? palette : placed.length > 0 && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding({ kind: "step", at: placed.length })}><Plus size={13} />Add step</Button>)}
-  </>
-  const aboutBody = <ul className="flex flex-col">{rowButton(order[order.length - 1])}</ul>
+  const sectionProps = { containers: rows.about.containers, editing, rowItem, onEditYaml: () => onEditYaml() }
+  const stepRow = (row: Row) => <StepRow key={addressOf(row.selection)} row={row} list={list} editing={editing} narrow={narrow} rowButton={rowButton} palette={palette} editor={editor} />
+  const whenBody = <TriggersBody {...sectionProps} rows={rows.when} missing={triggerKinds.filter(t => !(t.kind in triggersOf(values)))} adding={adding} setAdding={setAdding} onAdd={addTrigger} />
+  const asksBody = <InputsBody {...sectionProps} rows={rows.asks} onAdd={addAnInput} />
+  const thenBody = <StepsBody {...sectionProps} rows={rows.then} stepRow={stepRow} count={placed.length} warning={warning} adding={adding} setAdding={setAdding} palette={palette} />
+  const aboutBody = <ul className="flex flex-col">{rowItem(order[order.length - 1])}</ul>
   const outlineView = <nav ref={outline} aria-label="Outline" onKeyDown={onKeyDown} className="flex min-w-0 flex-col gap-4">
-    {section("Triggers", whenBody)}
-    {section("Inputs", asksBody)}
-    {section("Steps", thenBody)}
-    {section("About", aboutBody)}
+    <OutlineSection title="Triggers">{whenBody}</OutlineSection>
+    <OutlineSection title="Inputs">{asksBody}</OutlineSection>
+    <OutlineSection title="Steps">{thenBody}</OutlineSection>
+    <OutlineSection title="About">{aboutBody}</OutlineSection>
   </nav>
 
-  const listOrMap = <div role="radiogroup" aria-label="Outline view" className="inline-flex self-start rounded-md border border-lw-line p-0.5">
-    {(["list", "map"] as const).map(option => <button key={option} type="button" role="radio" aria-checked={view === option} disabled={option === "map" && !graph}
-      title={option === "map" && !graph ? "The graph shows once Legato has read the file" : undefined}
-      className={`min-h-7 rounded px-2.5 text-xs disabled:opacity-40 ${view === option ? "bg-lw-raised text-lw-text" : "text-lw-text-2"}`} onClick={() => setView(option)}>{option === "list" ? "List" : "Graph"}</button>)}
-  </div>
-  const staleWords = "The graph is of the last version Legato could read."
-  const graphSelect = (id: string | null) => { if (broken || !graph) return; const next = selectionOfNode(graph.model, id); if (next) select(next, true) }
-  const mapView = graph && (narrow && !navigating
-    // On a phone, Graph is the canvas in the outline's place, top to bottom.
-    ? <div className="relative flex h-[70vh] flex-col overflow-hidden rounded-lg border border-lw-line">
-      <WorkflowCanvas label="Graph" narrow graph={{ graph: graph.model, selectedId: nodeOf(shown), onSelect: graphSelect, direction: "TB" }}
-        notices={graph.stale && <p role="status" className="text-xs text-lw-needs">{staleWords}</p>} selected={false} onClosePanel={() => {}} hiddenPill="Graph" />
-    </div>
-    : <section aria-label="Graph" className="flex flex-col gap-1">
-    {graph.stale && <p role="status" className="text-xs text-lw-needs">{staleWords}</p>}
-    <div className={narrow ? "h-[60vh] overflow-hidden rounded-lg border border-lw-line bg-lw-ground" : "h-[32rem] overflow-hidden rounded-lg border border-lw-line bg-lw-ground"}>
-      <LazyWorkflowGraph graph={graph.model} selectedId={nodeOf(shown)} direction="TB" onSelect={graphSelect} />
-    </div>
-  </section>)
-  const navigation = <div className="flex min-w-0 flex-col gap-2">
-    {listOrMap}
-    {view === "map" && mapView ? mapView : outlineView}
-  </div>
-
-  const selectedRow = found >= 0 ? order[found] : following
-  const inspectorView = <section ref={inspector} aria-label="Inspector" className="flex min-w-0 flex-col gap-3">
-    {narrow && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={onCloseSheet}><ArrowLeft size={13} />Outline</Button>}
-    {selectedRow
-      ? <Inspector key={placeOf(order, selectedRow.selection)} place={placeOf(order, selectedRow.selection)} held={heldYaml[placeOf(order, selectedRow.selection)]} onHold={hold} row={selectedRow} savedIds={savedIds} focusEssential={selectedRow.selection.kind === "step" && selectedRow.selection.path === focusNew} onFocused={() => setFocusNew(null)} text={text} values={values} diagnostics={diagnostics} problems={problems} options={options} apply={apply} nameFixed={nameFixed} schedule={schedule} onSelect={onSelect} onUndo={onUndo} onRedo={onRedo} />
-      : <p className="text-sm text-lw-text-2">Choose a row of the outline to edit it.</p>}
-  </section>
-
-  const brokenNote = broken && <p role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-danger-line bg-lw-error-soft px-3 py-2 text-xs text-lw-danger">
-    <span className="min-w-0 flex-1">{broken.line ? `Line ${broken.line}: ` : ""}can't read the YAML. The outline is as it last could be; the forms are off until it reads again.</span>
-    <Button size="sm" variant="outline" onClick={() => onEditYaml(broken.line)}>Show</Button>
-  </p>
+  // A node chosen in the graph opens its row; none while the YAML doesn't
+  // read.
+  const graphSelect = (id: string | null) => {
+    const next = broken ? null : selectionAt(graph, id)
+    if (next) select(next, true)
+  }
   // While the YAML doesn't read: the last map (it says it is stale), or the
   // last outline, dimmed and off.
-  const brokenView = <div className="flex min-w-0 flex-col gap-2">
-    {listOrMap}
-    {view === "map" && mapView ? mapView : <div inert className="opacity-50">{outlineView}</div>}
-  </div>
+  const navigation = <OutlineNavigation view={view} onView={setView} graph={graph} selectedId={nodeOf(shown)} onSelect={graphSelect} narrow={narrow} phone={narrow && !navigating} dim={Boolean(broken)}>{outlineView}</OutlineNavigation>
+
+  const inspectorView = <InspectorPane sectionRef={inspector} back={narrow} onBack={onCloseSheet}>
+    <RowInspector row={selectedRow} order={order} heldYaml={heldYaml} focusNew={focusNew} onHold={hold} savedIds={savedIds} onFocused={focused} text={text} values={values} diagnostics={diagnostics} problems={problems} options={options} apply={apply} nameFixed={nameFixed} schedule={schedule} onSelect={onSelect} onUndo={onUndo} onRedo={onRedo} />
+  </InspectorPane>
+
+  const brokenNote = <BrokenNote broken={broken} onShow={onEditYaml} />
   if (canvasOn) {
-    const cardOf = (key: string, label: string, size: number | null, body: ReactNode) => <DockCard label={label} folded={folds.folded(key)} onFold={() => folds.toggle(key)}
-      heading={<h2 className={cardTitle}>{label}{size !== null && <span className="font-medium text-lw-faint">{size}</span>}</h2>}>
-      <div className="flex min-w-0 flex-col gap-1 px-1.5 pb-2">{body}</div>
-    </DockCard>
-    // j and k move across every card's rows: the keys are the dock's.
-    const nav = <nav ref={outline} aria-label="Outline" onKeyDown={onKeyDown} className="flex min-w-0 flex-col gap-2">
-      {cardOf("triggers", "Triggers", rows.when.length, whenBody)}
-      {cardOf("inputs", "Inputs", rows.asks.length, asksBody)}
-      {cardOf("steps", "Steps", rows.then.length, thenBody)}
-      {cardOf("about", "About", null, aboutBody)}
-    </nav>
-    const box = "rounded-lg border border-lw-line bg-lw-surface px-3 py-2 text-[13px] shadow-[var(--shadow-lw-panel)]"
-    const notices = <>
-      {props.notices}
-      {brokenNote}
-      {graph?.stale && <p role="status" className={`${box} text-lw-needs`}>{staleWords}</p>}
-      {error && <p role="alert" className={`${box} text-lw-danger`}>{error}</p>}
-      {pasted !== null && <div role="alertdialog" aria-label="Replace the workflow" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm shadow-[var(--shadow-lw-panel)]">
-        <span className="min-w-0 flex-1">You pasted a whole workflow. Replace this one with it? Undo brings this one back.</span>
-        <Button size="sm" onClick={() => { const next = pasted; setPasted(null); onEdit({ text: next, undo: { label: "Paste a workflow", before: text, after: next } }) }}>Replace</Button>
-        <Button size="sm" variant="ghost" onClick={() => setPasted(null)}>Cancel</Button>
-      </div>}
-    </>
-    const hasNotices = Boolean(props.notices || broken || graph?.stale || error || pasted !== null)
-    const panel = selectedRow && !broken && <aside aria-label={selectedRow.label.trim()} className={`flex min-h-0 flex-col rounded-xl border border-lw-line bg-lw-surface p-4 text-sm ${floatingPanel}`}>
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">{inspectorView}</div>
-        <PanelClose onClose={() => onSelect(null)} />
-      </div>
-    </aside>
-    return <div className="flex min-h-0 flex-1 flex-col text-sm" onPaste={onPaste}>
-      <WorkflowCanvas label="Workflow graph" narrow={false} panelWidth={INSPECTOR_WIDTH} dockYields
-        graph={graph ? { graph: graph.model, selectedId: nodeOf(shown), onSelect: graphSelect, centerOn, direction: "LR" } : null}
-        empty="The graph shows once Legato has read the file."
-        cards={<>{props.cards}{broken ? <div inert className="opacity-50">{nav}</div> : nav}</>}
-        notices={hasNotices && notices} panel={panel || null} panelTitle={selectedRow?.label.trim()}
-        selected={selection !== null} onClosePanel={() => onSelect(null)} hiddenPill="Outline" />
-    </div>
+    return <CanvasOutline dock={dock} bodies={{ triggers: whenBody, inputs: asksBody, steps: thenBody, about: aboutBody }} counts={{ triggers: rows.when.length, inputs: rows.asks.length, steps: rows.then.length }}
+      outline={outline} onKeyDown={onKeyDown} pageNotices={props.notices} pageCards={props.cards} broken={broken} brokenNote={brokenNote}
+      graph={graph} selectedId={nodeOf(shown)} onGraphSelect={graphSelect} error={error} paste={paste} onPaste={paste.onPaste}
+      selectedRow={selectedRow} selection={selection} inspector={inspectorView} onSelect={onSelect} />
   }
+  // On a phone, the outline beside the YAML is a menu to jump with.
+  if (navigating && narrow) return <JumpMenu order={order} shown={shown} broken={Boolean(broken)} note={brokenNote} onChoose={next => select(next)} />
   if (navigating) {
-    if (narrow) {
-      // On a phone, the outline beside the YAML is a menu to jump with.
-      return <div className="flex flex-col gap-2 text-sm">
-        {brokenNote}
-        <label className="flex items-center gap-2 text-xs text-lw-text-2">Jump to
-          <select aria-label="Jump to" disabled={Boolean(broken)} className="min-h-9 min-w-0 flex-1 rounded-md border border-lw-line-strong bg-lw-ground px-2 text-sm text-lw-text" value={shown ? addressOf(shown) : ""}
-            onChange={event => { const row = order.find(r => addressOf(r.selection) === event.target.value); if (row) select(row.selection) }}>
-            <option value="">The outline…</option>
-            {order.map(row => <option key={addressOf(row.selection)} value={addressOf(row.selection)}>{row.label}</option>)}
-          </select>
-        </label>
-      </div>
-    }
     return <div className="flex flex-col gap-2 text-sm">
       {brokenNote}
-      {broken ? brokenView : navigation}
+      {navigation}
     </div>
   }
   if (broken) {
     return <div className="flex flex-col gap-3 text-sm">
       {brokenNote}
-      <div className="rounded-xl border border-lw-line bg-lw-surface p-2">{brokenView}</div>
+      <div className="rounded-xl border border-lw-line bg-lw-surface p-2">{navigation}</div>
     </div>
   }
-
-  return <div className="flex flex-col gap-3 text-sm" onPaste={onPaste}>
-    {error && <p role="alert" className="text-sm text-lw-danger">{error}</p>}
-    {pasted !== null && <div role="alertdialog" aria-label="Replace the workflow" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm">
-      <span className="min-w-0 flex-1">You pasted a whole workflow. Replace this one with it? Undo brings this one back.</span>
-      <Button size="sm" onClick={() => { const next = pasted; setPasted(null); onEdit({ text: next, undo: { label: "Paste a workflow", before: text, after: next } }) }}>Replace</Button>
-      <Button size="sm" variant="ghost" onClick={() => setPasted(null)}>Cancel</Button>
-    </div>}
-    {narrow
-      ? (sheet && selectedRow
-        ? <div role="dialog" aria-label={selectedRow.label.trim()} className="fixed inset-0 z-40 overflow-y-auto bg-lw-ground px-4 pb-20 pt-3">{inspectorView}</div>
-        : navigation)
-      : <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] md:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
-        <div className="rounded-xl border border-lw-line bg-lw-surface p-2">{navigation}</div>
-        <div className="rounded-xl border border-lw-line bg-lw-surface p-4">{inspectorView}</div>
-      </div>}
-  </div>
-}
-
-type InspectorProps = {
-  /** place names the row by its kind and position, which a rename keeps. */
-  place: string
-  held?: string
-  onHold: (place: string, held: string | null) => void
-  row: Row
-  focusEssential?: boolean
-  onFocused?: () => void
-  /** savedIds are the IDs of the steps saved (null: none yet). */
-  savedIds: Set<string> | null
-  text: string
-  values: WorkflowValues
-  diagnostics: WorkflowDiagnostic[]
-  problems: Map<string, WorkflowDiagnostic[]>
-  options: BuilderOptions
-  apply: (make: () => WorkflowEdit, how?: { typing?: boolean }) => void
-  nameFixed?: boolean
-  schedule?: SchedulePreview | null
-  onSelect: (selection: Selection | null) => void
-  onUndo?: () => void
-  onRedo?: () => void
-}
-
-type Tab = "setup" | "outputs" | "yaml"
-
-// Inspector edits one row: its header, then its tabs (Setup, Outputs for a
-// step, and YAML). A row the forms can't show has YAML alone.
-function Inspector({ place, held, onHold, row, focusEssential, onFocused, savedIds, text, values, diagnostics, problems, options, apply, nameFixed, schedule, onSelect, onUndo, onRedo }: InspectorProps) {
-  const selection = row.selection
-  const tabs: Tab[] = row.problem ? ["yaml"] : selection.kind === "step" ? ["setup", "outputs", "yaml"] : selection.kind === "about" ? ["setup"] : ["setup", "yaml"]
-  const [tab, setTab] = useState<Tab>(tabs[0])
-  const body = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!focusEssential) return
-    const control = body.current?.querySelector<HTMLElement>('[data-essential="true"] :is(input, textarea, select)')
-    if (control) { control.focus(); onFocused?.() }
-  })
-  const shown = tabs.includes(tab) ? tab : tabs[0]
-  // A step that is not a mapping keeps its place, and is no one's reader.
-  const placed = stepsOf(values) as (StepValue | null)[]
-  const steps = placed.filter((step): step is StepValue => step !== null && typeof step === "object")
-  const ids = steps.map(step => step.id ?? "")
-  const own = selection.kind === "about"
-    ? [...problems.entries()].filter(([key]) => key.startsWith("about:") && !["about:inputs", "about:on", "about:steps"].includes(key)).flatMap(([, list]) => list)
-    : problems.get(itemKey(selection)) ?? []
-
-  let kind = "About this workflow"
-  let header: React.ReactNode = <h2 className="text-base font-semibold">{valueText(values.title) || "Untitled"}</h2>
-  let actions: React.ReactNode = null
-  let setup: React.ReactNode = null
-  let outputs: React.ReactNode = null
-
-  if (selection.kind === "about") {
-    setup = <div className="flex flex-col gap-3"><DetailsForm text={text} values={values} diagnostics={diagnostics} apply={apply} nameFixed={nameFixed} /></div>
-  } else if (selection.kind === "input") {
-    kind = "Input"
-    header = <h2 className="font-lw-mono text-base font-semibold">{selection.name}</h2>
-    setup = <div className="flex flex-col gap-2"><InputCard text={text} values={values} diagnostics={diagnostics} apply={apply} name={selection.name} input={inputsOf(values)[selection.name]} /></div>
-  } else if (selection.kind === "trigger") {
-    kind = "Trigger"
-    header = <h2 className="text-base font-semibold">{KIND_TITLES[selection.name] ?? selection.name}</h2>
-    const card = <TriggerCard kind={selection.name} trigger={triggersOf(values)[selection.name] ?? {}} text={text} values={values} diagnostics={diagnostics} options={options} apply={apply} schedule={selection.name === "schedule" ? schedule : null} />
-    setup = selection.name === "task.entered_column" && fromTheCard(values).length === 0
-      ? <div className="flex flex-col gap-3"><CardTaskOffer text={text} values={values} apply={apply} />{card}</div>
-      : card
-  } else {
-    const yaml = stepYamlPath(text, selection.path)
-    const top = yaml && yaml.length === 2 ? Number(yaml[1]) : -1
-    const step = (top >= 0 ? placed[top] : null) ?? null
-    const id = selection.path.split("/").pop() ?? ""
-    kind = step ? executorTitle(step.type) : "Step"
-    // A step not saved yet takes its ID from its title, while the ID is
-    // still the one its title made.
-    const others = ids.filter(other => other !== id)
-    const follows = step !== null && !savedIds?.has(id) && id === idFromTitle(valueText(step.title), others)
-    const commitTitle = (value: string) => apply(() => {
-      const titled = setField(text, ["steps", top, "title"] as YamlPath, value === "" ? undefined : value)
-      const next = idFromTitle(value, others)
-      if (!follows || value.trim() === "" || next === id) return titled
-      const renamed = renameStep(titled.text, id, next).text
-      return { text: renamed, undo: { label: `Set the title of step ${id}`, before: text, after: renamed } }
-    })
-    header = top >= 0 && step && !row.problem
-      ? <CommitField aria-label="Step title" value={valueText(step.title)} onCommit={commitTitle} />
-      : <h2 className="text-base font-semibold">{row.label.trim()}</h2>
-    if (top >= 0 && step) {
-      const move = (to: number) => {
-        const order = ids.filter(other => other !== id)
-        order.splice(to, 0, id)
-        const broken = brokenReferences(steps, order)
-        if (broken.length > 0) { apply(() => { throw new WorkflowDocumentError(`That move would break a reference: ${broken.join("; ")}.`) }); return }
-        apply(() => moveStep(text, id, to))
-      }
-      const readers = steps.filter(other => other.id !== id && stepReferences(other).some(ref => ref.id === id)).map(other => other.id)
-      actions = <div className="flex gap-1">
-        <Button type="button" variant="ghost" size="icon-sm" aria-label={`Move step ${id} up`} disabled={top === 0} onClick={() => move(top - 1)}><ArrowUp size={13} /></Button>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label={`Move step ${id} down`} disabled={top === placed.length - 1} onClick={() => move(top + 1)}><ArrowDown size={13} /></Button>
-        <RemoveStep id={id} readers={readers.map(String)} onRemove={() => { apply(() => removeStep(text, id)); onSelect(null) }} />
-      </div>
-      if (!row.problem) {
-        setup = <StepSetup step={step} index={top} text={text} values={values} diagnostics={diagnostics} options={options} apply={apply} />
-        outputs = <StepOutputs step={step} index={top} text={text} diagnostics={diagnostics} apply={apply} />
-      }
-    } else if (!row.problem) {
-      // A nested step: its forms come with the containers (LEG-518).
-      setup = <p className="text-sm text-lw-text-2">A step inside another is edited as YAML for now.</p>
-    }
-  }
-
-  const ref: ItemRef | null = selection.kind === "about" ? null : selection
-  const yamlTab = ref && <ItemYaml text={text} item={ref} apply={apply} onUndo={onUndo} onRedo={onRedo} held={held} onHold={next => onHold(place, next)} />
-
-  return <div ref={body} className="flex flex-col gap-3">
-    <header className="flex flex-col gap-1">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-lw-faint">{kind}</span>
-        {actions}
-      </div>
-      {header}
-      {row.problem && <p className="text-xs text-lw-text-2">This can't be shown as a form: {row.problem}. Edit it as YAML here; the rest of the workflow stays as forms.</p>}
-      {row.problem && <Problems diagnostics={own} />}
-    </header>
-    {tabs.length > 1 && <div role="tablist" aria-label="Inspector" className="inline-flex self-start rounded-md border border-lw-line p-0.5">
-      {tabs.map(t => <button key={t} type="button" role="tab" aria-selected={shown === t} className={`min-h-7 rounded px-2.5 text-xs ${shown === t ? "bg-lw-raised text-lw-text" : "text-lw-text-2"}`} onClick={() => setTab(t)}>
-        {t === "setup" ? "Setup" : t === "outputs" ? "Outputs" : "YAML"}
-      </button>)}
-    </div>}
-    <div role={tabs.length > 1 ? "tabpanel" : undefined} className="flex flex-col gap-3">
-      {shown === "setup" && setup}
-      {shown === "outputs" && outputs}
-      {shown === "yaml" && yamlTab}
-    </div>
-  </div>
-}
-
-// CardTaskOffer offers a column trigger's workflow a task input filled
-// from the card that entered the column.
-function CardTaskOffer({ text, values, apply }: { text: string; values: WorkflowValues; apply: InspectorProps["apply"] }) {
-  const taken = Object.keys(inputsOf(values))
-  let name = "task"
-  for (let n = 2; taken.includes(name); n++) name = `task-${n}`
-  const add = () => apply(() => {
-    const added = addInput(text, name, { type: "task", required: true })
-    const mapped = setField(added.text, ["on", "task.entered_column", "inputs", name], CARD_TASK)
-    return { text: mapped.text, undo: { label: `Add input ${name} from the card`, before: text, after: mapped.text } }
-  })
-  return <div role="note" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-line bg-lw-ground p-2 text-xs text-lw-text-2">
-    <span className="min-w-0 flex-1">Let the steps know which card it was: a task input, filled from the card.</span>
-    <Button type="button" size="sm" variant="outline" onClick={add}><Plus size={12} />Add a task input from the card</Button>
-  </div>
-}
-
-function RemoveStep({ id, readers, onRemove }: { id: string; readers: string[]; onRemove: () => void }) {
-  const [asking, setAsking] = useState(false)
-  if (asking) {
-    return <div role="alertdialog" aria-label={`Remove step ${id}`} className="flex flex-wrap items-center gap-2 rounded border border-lw-needs p-2 text-xs">
-      <span>{readers.join(", ")} {readers.length === 1 ? "reads" : "read"} this step's outputs.</span>
-      <Button type="button" size="sm" variant="destructive" onClick={onRemove}>Remove anyway</Button>
-      <Button type="button" size="sm" variant="ghost" onClick={() => setAsking(false)}>Keep it</Button>
-    </div>
-  }
-  return <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove step ${id}`} onClick={() => readers.length > 0 ? setAsking(true) : onRemove()}><Trash2 size={13} /></Button>
-}
-
-// ItemYaml is one item's YAML: what it edits writes over that item alone,
-// once it parses, so a half-typed line never breaks the rest of the file.
-function ItemYaml({ text, item, apply, onUndo, onRedo, held, onHold }: { text: string; item: ItemRef; apply: InspectorProps["apply"]; onUndo?: () => void; onRedo?: () => void; held?: string; onHold: (held: string | null) => void }) {
-  const written = itemText(text, item)
-  if (written === null) return null
-  const problemOf = (next: string) => next.trim() === "" ? "it is empty" : parseDocument(next).errors[0]?.message.split("\n")[0]
-  const value = held ?? written
-  const problem = held !== undefined ? problemOf(held) : undefined
-  const change = (next: string) => {
-    const wrong = problemOf(next)
-    onHold(wrong ? next : null)
-    if (!wrong) apply(() => setItemText(text, item, next), { typing: true })
-  }
-  return <div className="flex flex-col gap-1">
-    <div className="h-72 overflow-hidden rounded-lg border border-lw-line">
-      <LazyWorkflowYamlEditor fragment label={`YAML of ${addressOf(item)}`} value={value} onChange={change} onUndo={onUndo} onRedo={onRedo} />
-    </div>
-    {problem && <p role="status" className="text-xs text-lw-needs">Not written to the file yet: {problem}</p>}
-  </div>
+  return <SplitOutline narrow={narrow} sheet={sheet} selectedRow={selectedRow} navigation={navigation} inspector={inspectorView} error={error} paste={paste} onPaste={paste.onPaste} />
 }
 
 export default function WorkflowOutline(props: WorkflowOutlineProps) {
-  const { onPending } = props
-  const pending = useRef(new Set<string>())
-  const report = useCallback((id: string, isPending: boolean) => {
-    const had = pending.current.size > 0
-    if (isPending) pending.current.add(id)
-    else pending.current.delete(id)
-    if (had !== pending.current.size > 0) onPending?.(pending.current.size > 0)
-  }, [onPending])
+  const report = usePendingReport(props.onPending)
   // A file that stops parsing keeps the outline it last had, dimmed.
   const parsed = useMemo(() => itemsOf(props.text), [props.text])
   const [ownGood, setOwnGood] = useState<string | null>(parsed.file === null ? props.text : null)

@@ -1,4 +1,4 @@
-import type { AgentInfo } from "../hooks/useWebSocket"
+import type { AgentInfo } from "./agentWire"
 import { agentSections, type AgentListSection } from "./agentList"
 
 // One group of the agent list: its agents in the order the list shows them,

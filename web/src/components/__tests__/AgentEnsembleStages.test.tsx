@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AgentEnsemble, ENSEMBLE_LAYOUT_KEY } from "../AgentEnsemble"
-import type { AgentInfo } from "../../hooks/useWebSocket"
+import type { AgentInfo } from "../../lib/agentWire"
 import type { Approval } from "../../lib/approvals"
 import { getRailStateForTests as railState } from "../../lib/railState"
 

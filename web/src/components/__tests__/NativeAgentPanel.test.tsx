@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import type { BackgroundJob } from "../../hooks/useWebSocket"
+import type { BackgroundJob } from "../../lib/agentWire"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import subagentFixture from "../../../../contracts/chimera-subagents.json"
 import recoveryFixture from "../../../../contracts/chimera-recovery/fixture.json"

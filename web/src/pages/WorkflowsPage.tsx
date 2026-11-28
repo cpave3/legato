@@ -9,7 +9,7 @@ import { ago, elapsed, parseTime, runState, runSubject, runSummary, sourceLabel,
 import { RunWorkflowDialog } from "../components/RunWorkflowDialog"
 import { LazyWorkflowStart } from "../components/workflow-editor/LazyWorkflowStart"
 import { WorkflowList } from "../components/workflows/WorkflowList"
-import { StatePill, StepBar } from "../components/WorkflowRunStatus"
+import { StatePill, StepBar } from "../components/workflow-status/WorkflowRunStatus"
 import { toneText } from "../lib/workflowTones"
 import { Button } from "../components/ui/Button"
 import { LoadingState } from "../components/ui/LoadingState"

@@ -3,7 +3,7 @@
 // Reeve, three repositories, six agents, a review loop and four watch lines.
 // busyFleet adds what a busier day brings: a peer message between boxes, a
 // swarm of three, and a run whose two agents work in different repositories.
-import type { AgentInfo, BackgroundJob } from "../hooks/useWebSocket"
+import type { AgentInfo, BackgroundJob } from "../lib/agentWire"
 import type { AgentGraphData, GraphRun } from "../lib/agentGraph"
 
 export interface Fleet {

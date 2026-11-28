@@ -126,6 +126,54 @@ describe("CardContextMenu", () => {
     expect(onReviewPasses).toHaveBeenLastCalledWith(expect.objectContaining({ pr_number: 12 }))
   })
 
+  it("reviews pull requests of different repositories each alone, with no stack", () => {
+    const onReviewPasses = vi.fn()
+    const pr = (repo: string, n: number) => ({ repo, branch: `b${n}`, pr_number: n, pr_url: "", state: "OPEN" }) as never
+    const reviewLoops = { "acme/widget#1": { loop: null, agent_author: true }, "acme/gadget#2": { loop: null, agent_author: false } }
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr("acme/widget", 1), pr("acme/gadget", 2)]} reviewLoops={reviewLoops} reviewStack onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
+    expect(screen.getAllByRole("menuitem", { name: /Review passes/ }).map(item => item.textContent)).toEqual(["Review passes · #1 · agent", "Review passes · #2 · person"])
+    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · #2 · person" }))
+    expect(onReviewPasses).toHaveBeenCalledWith(expect.objectContaining({ pr_number: 2 }))
+    expect(onReviewPasses.mock.calls[0]).toHaveLength(1)
+  })
+
+  it("says why no review can start in place of the review items", () => {
+    const pr = { repo: "acme/widget", branch: "b", pr_number: 12, pr_url: "", state: "OPEN" } as never
+    const reviewLoops = { "acme/widget#12": { loop: null, agent_author: true } }
+    const { rerender } = render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr]} reviewLoops={reviewLoops} reviewUnavailable="No Legato here runs the review engine." onReviewPasses={() => {}} onAction={() => {}} onClose={() => {}} />)
+    expect(screen.getByText("No Legato here runs the review engine.")).toBeTruthy()
+    expect(screen.queryByRole("menuitem", { name: /Review passes/ })).toBeNull()
+    // Nothing to say for a card without pull requests.
+    rerender(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[]} reviewUnavailable="No Legato here runs the review engine." onReviewPasses={() => {}} onAction={() => {}} onClose={() => {}} />)
+    expect(screen.queryByText("No Legato here runs the review engine.")).toBeNull()
+  })
+
+  it("offers Recall for an away task its worker can be asked to return, and no worker link without an address", () => {
+    const onAction = vi.fn()
+    const away = { ...card, away: { worker: "vm-1", view: "working" } } as BoardCard
+    render(<CardContextMenu card={away} position={{ x: 10, y: 10 }} onAction={onAction} onClose={() => {}} />)
+    expect(screen.getAllByRole("menuitem").map(item => item.textContent)).toEqual(["Open details", "Recall…"])
+    fireEvent.click(screen.getByRole("menuitem", { name: "Recall…" }))
+    expect(onAction).toHaveBeenCalledWith("recall")
+  })
+
+  it("lists a task's actions in order, Delete in red", () => {
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} canHandOff onAction={() => {}} onClose={() => {}} />)
+    expect(screen.getAllByRole("menuitem").map(item => item.textContent)).toEqual(["Open details", "Move", "Hand off…", "Delete", "Workflows"])
+    expect(screen.getByRole("menuitem", { name: "Delete" }).className).toContain("text-red-300")
+    expect(screen.getByRole("menuitem", { name: "Move" }).className).toContain("text-zinc-200")
+  })
+
+  it("says while workflows load, when none fits, and a warning about them", () => {
+    const { rerender } = render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} workflowLoading onAction={() => {}} onClose={() => {}} />)
+    fireEvent.click(screen.getByRole("menuitem", { name: "Workflows" }))
+    expect(screen.getByText("Loading workflows…")).toBeTruthy()
+    expect(screen.queryByText("No eligible workflows")).toBeNull()
+    rerender(<CardContextMenu card={card} position={{ x: 10, y: 10 }} workflowWarning="Some workflows could not be read." onAction={() => {}} onClose={() => {}} />)
+    expect(screen.getByText("No eligible workflows")).toBeTruthy()
+    expect(screen.getByText("Some workflows could not be read.")).toBeTruthy()
+  })
+
   it("emits existing card actions", () => {
     const onAction = vi.fn()
     render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} onAction={onAction} onClose={() => {}} />)

@@ -4,7 +4,7 @@ import { Copy, ExternalLink } from "lucide-react"
 import { kindIcons, toneClass } from "../../lib/needsYouIcons"
 import type { AttentionAction, AttentionItem } from "../../lib/attention"
 import { externalHref, legatoHref } from "../../lib/navigation"
-import { MacroPickerButton } from "../MacroPicker"
+import { MacroPickerButton } from "../macros/MacroPicker"
 import { itemHow, needsYouKind, needsYouKinds, shortAge } from "../../lib/needsYou"
 
 // The kind of an item: its word and its own icon, on its tone.

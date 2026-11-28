@@ -1,5 +1,5 @@
 import { Loader2, Mic, Square } from "lucide-react"
-import type { VoiceRecorder } from "../hooks/useVoiceRecorder"
+import type { VoiceRecorder } from "../lib/voiceRecorder"
 import { CONTEXT_NEARLY_FULL } from "../lib/composer"
 import { cn } from "../lib/utils"
 

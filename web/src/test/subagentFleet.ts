@@ -2,7 +2,7 @@
 // subagents, one per ticket. One works; six have ended their turns and wait
 // on the go test runs they started, which Claude Code reports as background
 // shells whose parent is the subagent.
-import type { BackgroundJob } from "../hooks/useWebSocket"
+import type { BackgroundJob } from "../lib/agentWire"
 
 const started = "2026-11-24T10:00:00Z"
 

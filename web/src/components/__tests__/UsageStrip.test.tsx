@@ -521,3 +521,33 @@ it("keeps an existing reset expiry when changing its pinned profile", async () =
   fireEvent.click(screen.getByRole("button", { name: "Pin profile" }))
   await waitFor(() => expect(body).toEqual({ profile: "Quality", until_reset: "codex.weekly" }))
 })
+
+it("starts a timed pin's form at its time, in local time, and Cancel closes it", async () => {
+  usage = { providers: [], poll_interval_seconds: 0, policy: {
+    active: { profile: { name: "Economy", agent: "codex" }, reason: { text: "Pinned" }, since: NOW.toISOString(), pin: { profile: "Economy", until: "2026-11-27T12:30:00Z" } },
+    profiles: [{ name: "Economy", agent: "codex" }, { name: "Quality", agent: "claude-code" }], switches: [],
+  } }
+  vi.stubGlobal("fetch", vi.fn(async () => json(usage)))
+  renderIt("/agents?usage=open")
+  const change = await screen.findByRole("button", { name: "Change pin" })
+  expect(change.getAttribute("aria-expanded")).toBe("false")
+  expect(screen.getByText("Economy", { selector: "strong" })).toBeTruthy()
+  fireEvent.click(change)
+  expect((screen.getByRole("combobox", { name: "Pin profile" }) as HTMLSelectElement).value).toBe("Economy")
+  expect((screen.getByRole("radio", { name: "A time" }) as HTMLInputElement).checked).toBe(true)
+  expect((screen.getByLabelText("Until (local time)") as HTMLInputElement).value).toBe("2026-11-27T12:30")
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+  expect(screen.queryByRole("combobox", { name: "Pin profile" })).toBeNull()
+})
+
+it("starts the pin form at the active profile when the address names none it has", async () => {
+  usage = { providers: [], poll_interval_seconds: 0, policy: {
+    active: { profile: { name: "Quality", agent: "claude-code" }, reason: { text: "Auto" }, since: NOW.toISOString() },
+    profiles: [{ name: "Economy", agent: "codex" }, { name: "Quality", agent: "claude-code" }], switches: [],
+  } }
+  vi.stubGlobal("fetch", vi.fn(async () => json(usage)))
+  renderIt("/agents?usage=open&pin=Missing")
+  expect(((await screen.findByRole("combobox", { name: "Pin profile" })) as HTMLSelectElement).value).toBe("Quality")
+  expect((screen.getByRole("radio", { name: "I unpin" }) as HTMLInputElement).checked).toBe(true)
+  expect(screen.queryByRole("button", { name: "Unpin" })).toBeNull()
+})

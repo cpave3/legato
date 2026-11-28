@@ -3,8 +3,9 @@ import { useEffect, useRef, type ReactNode } from "react"
 import { queryKeys } from "../lib/query"
 import { coalesce, invalidationsFor, type Coalesced } from "../lib/querySync"
 import { useServer } from "../hooks/useServer"
-import { useWebSocket, type AgentInfo, type WSMessage } from "../hooks/useWebSocket"
-import type { NavigationSummary } from "../hooks/useNavigationSummary"
+import { useWebSocket } from "../hooks/useWebSocket"
+import { type AgentInfo, type WSMessage } from "../lib/agentWire"
+import type { NavigationSummary } from "../lib/navigationSummary"
 import type { RepositoryCacheStatus } from "../lib/preparingAgents"
 
 function countActiveAgents(agents: AgentInfo[]) {

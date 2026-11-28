@@ -7,7 +7,7 @@ import { navSections } from "../../lib/navSections"
 import { tintColor } from "../../lib/tints"
 import { NavRail } from "../NavRail"
 import { TintBand } from "../TintBand"
-import { TintPicker } from "../TintPicker"
+import { TintPicker } from "../settings/TintPicker"
 import { setAppTheme, applyAppTheme } from "../../lib/appTheme"
 
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))

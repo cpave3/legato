@@ -4,7 +4,8 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AgentEnsemble, ENSEMBLE_LAYOUT_KEY } from "../AgentEnsemble"
-import type { AgentInfo, WSMessage } from "../../hooks/useWebSocket"
+import { AgentGraphView } from "../AgentGraphView"
+import type { AgentInfo, WSMessage } from "../../lib/agentWire"
 import type { AgentGraphData, GraphRun } from "../../lib/agentGraph"
 import { createQueryClient } from "../../lib/query"
 import { mockReactFlow } from "../../test/reactFlow"
@@ -193,6 +194,75 @@ describe("the ensemble's graph", () => {
     rerender(ui(agents.map((a, i) => ({ ...a, activity: i === 0 ? "waiting" : "idle", stage: "reviewing", stage_reason: "a long reason that changes", working_seconds: 999 }))))
     await node(/^LEG-1, needs you/i)
     expect(where()).toEqual(before)
+  })
+
+  it("says how many more need you at other stages, and Show all clears the filter", async () => {
+    const onStageFilter = vi.fn()
+    show([agent({ task_id: "LEG-1", stage: "reviewing" }), agent({ task_id: "LEG-2", activity: "waiting", stage: "planning" }), agent({ task_id: "LEG-3", activity: "waiting", stage: "planning" })], { layout: "graph", stageFilter: "reviewing", onStageFilter })
+    await node(/^LEG-1, running/)
+    expect(screen.queryByRole("list", { name: "Needs you" })).toBeNull()
+    expect(screen.getByText(/2 more need you/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Show all" }))
+    expect(onStageFilter).toHaveBeenCalledWith(null)
+  })
+
+  it("says no agents run when there are none", async () => {
+    render(<QueryClientProvider client={createQueryClient()}><MemoryRouter><AgentGraphView agents={[]} onOpen={vi.fn()} /></MemoryRouter></QueryClientProvider>)
+    expect(await screen.findByText("No agents running.")).toBeInTheDocument()
+    expect(screen.queryByRole("list", { name: "Links" })).toBeNull()
+  })
+
+  it("shows an agent's badges in its card, sends no empty message, and closes the card", async () => {
+    graph.agents = { "LEG-1": { repo: "a/one", badges: [{ kind: "handoff", label: "from erebus", detail: "K7" }] } } as unknown as AgentGraphData["agents"]
+    const handlers = show([agent({ task_id: "LEG-1", stage: "implementing", stage_reason: "tests first" })], { layout: "graph" })
+    fireEvent.click(await node(/^LEG-1, running/))
+    const card = await screen.findByRole("region", { name: "LEG-1" })
+    expect(within(card).getByText("from erebus · K7")).toBeInTheDocument()
+    expect(within(card).getByText(/tests first/)).toBeInTheDocument()
+    const box = within(card).getByRole("textbox", { name: "Message LEG-1" })
+    fireEvent.change(box, { target: { value: "   " } })
+    fireEvent.keyDown(box, { key: "Enter" })
+    fireEvent.change(box, { target: { value: "later" } })
+    fireEvent.keyDown(box, { key: "Enter", shiftKey: true })
+    expect(handlers.onSend).not.toHaveBeenCalled()
+    fireEvent.click(within(card).getByRole("button", { name: "Close" }))
+    await waitFor(() => expect(screen.queryByRole("region", { name: "LEG-1" })).toBeNull())
+  })
+
+  it("offers only Open in the card when the graph cannot send messages, and Escape closes it", async () => {
+    render(<QueryClientProvider client={createQueryClient()}><MemoryRouter><AgentGraphView agents={[agent({ task_id: "LEG-1" })]} onOpen={vi.fn()} /></MemoryRouter></QueryClientProvider>)
+    fireEvent.click(await node(/^LEG-1, running/))
+    const card = await screen.findByRole("region", { name: "LEG-1" })
+    expect(within(card).queryByRole("textbox")).toBeNull()
+    expect(within(card).getByRole("button", { name: "Open LEG-1" }).className).toContain("flex-1")
+    fireEvent.keyDown(document, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("region", { name: "LEG-1" })).toBeNull())
+    expect(screen.getByRole("button", { name: "Fit the graph" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Fit the graph" }))
+  })
+
+  it("clears a stage filter that dims the agent the address named, once the page has taken it out of the address", async () => {
+    const onStageFilter = vi.fn()
+    const client = createQueryClient()
+    const agents = [agent({ task_id: "LEG-1", stage: "reviewing" }), agent({ task_id: "LEG-2", stage: "planning" })]
+    const ui = (focus: { agentId?: string } | null, stageFilter: "reviewing" | null) => <QueryClientProvider client={client}><MemoryRouter><AgentGraphView agents={agents} onOpen={vi.fn()} focus={focus} stageFilter={stageFilter} onStageFilter={onStageFilter} /></MemoryRouter></QueryClientProvider>
+    const { rerender } = render(ui({ agentId: "LEG-2" }, "reviewing"))
+    await node(/^LEG-2, running/)
+    expect(onStageFilter).not.toHaveBeenCalled()
+    rerender(ui(null, "reviewing"))
+    await waitFor(() => expect(onStageFilter).toHaveBeenCalledWith(null))
+    rerender(ui(null, null))
+    expect(await screen.findByRole("region", { name: "LEG-2" })).toBeInTheDocument()
+  })
+
+  it("lets go of a selection whose agent leaves the graph", async () => {
+    const client = createQueryClient()
+    const ui = (list: AgentInfo[]) => <QueryClientProvider client={client}><MemoryRouter><AgentGraphView agents={list} onOpen={vi.fn()} /></MemoryRouter></QueryClientProvider>
+    const { rerender } = render(ui([agent({ task_id: "LEG-1" }), agent({ task_id: "LEG-2" })]))
+    fireEvent.click(await node(/^LEG-2, running/))
+    expect(await screen.findByRole("region", { name: "LEG-2" })).toBeInTheDocument()
+    rerender(ui([agent({ task_id: "LEG-1" })]))
+    await waitFor(() => expect(screen.queryByRole("region", { name: "LEG-2" })).toBeNull())
   })
 
   it("leaves a new agent out until the graph's next read says where it works", async () => {

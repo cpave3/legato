@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { ChevronDown, X } from "lucide-react"
-import type { AgentInfo } from "../hooks/useWebSocket"
+import type { AgentInfo } from "../lib/agentWire"
 import { cn } from "../lib/utils"
 import { stageCounts, stageLabel, workStages, type WorkStage } from "../lib/agentStage"
 import { StageTrack } from "./StageTrack"

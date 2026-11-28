@@ -6,7 +6,7 @@ import { queryKeys } from "../../lib/query"
 import { cn } from "../../lib/utils"
 import { byteUnit, formatValue, isZero, modeLabel } from "../../lib/settingValues"
 import { SettingsRows, Toggle, primaryButton, quietButton } from "./SettingsUI"
-import { useConfirm } from "../../hooks/useConfirm"
+import { useConfirm } from "../ui/useConfirm"
 import { useShowKeys } from "./showKeys"
 import { PickerControl, TagsControl } from "./Pickers"
 import { partnersOf, settingPickers } from "../../lib/settingPickers"
@@ -114,8 +114,30 @@ function SettingControl({ setting, disabled, onSet }: {
   setting: ConfigSetting; disabled: boolean
   onSet: (value: unknown) => Promise<ConfigSetting | undefined>
 }) {
-  const { format, parse, unit } = useTextField(setting)
-  const text = format(setting.value)
+  switch (setting.kind) {
+    case "bool":
+      return <Toggle label={setting.title} disabled={disabled} on={Boolean(setting.value)} onChange={() => onSet(!setting.value)} />
+    case "enum":
+      return <EnumControl setting={setting} disabled={disabled} onSet={onSet} />
+    default:
+      return <TextControl setting={setting} disabled={disabled} onSet={onSet} />
+  }
+}
+
+function EnumControl({ setting, disabled, onSet }: { setting: ConfigSetting; disabled: boolean; onSet: (value: unknown) => void }) {
+  return (
+    <select aria-label={setting.title} value={String(setting.value ?? "")} disabled={disabled}
+      onChange={(e) => onSet(e.target.value)}
+      className={cn("min-h-9 rounded-lg border border-lw-line-strong bg-lw-ground px-2 text-sm disabled:border-lw-line disabled:opacity-100", setting.source === "default" ? "text-lw-text-2" : "text-lw-text")}>
+      {(setting.enum ?? []).map((option) => <option key={option} value={option}>{option || setting.default_label || "None"}</option>)}
+    </select>
+  )
+}
+
+// useDraft keeps a typed value's draft against the text it started from
+// (baseline). A refresh moves both along unless the draft was edited; one
+// that lands on an edited draft is a conflict, until Use or Keep settles it.
+function useDraft(text: string) {
   const [draft, setDraft] = useState(text)
   const [baseline, setBaseline] = useState(text)
   const [observed, setObserved] = useState(text)
@@ -128,58 +150,70 @@ function SettingControl({ setting, disabled, onSet }: {
   }
   const dirty = draft !== baseline
   const conflict = dirty && text !== baseline && draft !== text
-  const reload = () => { setDraft(text); setBaseline(text) }
-  const label = setting.title
-  const conflictNode = conflict ? <div className="flex w-full flex-wrap items-center justify-end gap-2 text-xs text-lw-needs">
-    <p role="status">Changed to {text === "" ? formatValue(setting, setting.value) : text} while you edited.</p>
-    <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} disabled={disabled} onClick={reload}>Use {text || formatValue(setting, setting.value)}</button>
-    <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} disabled={disabled} onClick={() => setBaseline(text)}>Keep {draft}</button>
-  </div> : null
-  switch (setting.kind) {
-    case "bool":
-      return <Toggle label={label} disabled={disabled} on={Boolean(setting.value)} onChange={() => onSet(!setting.value)} />
-    case "enum":
-      return (
-        <select aria-label={label} value={String(setting.value ?? "")} disabled={disabled}
-          onChange={(e) => onSet(e.target.value)}
-          className={cn("min-h-9 rounded-lg border border-lw-line-strong bg-lw-ground px-2 text-sm disabled:border-lw-line disabled:opacity-100", setting.source === "default" ? "text-lw-text-2" : "text-lw-text")}>
-          {(setting.enum ?? []).map((option) => <option key={option} value={option}>{option || setting.default_label || "None"}</option>)}
-        </select>
-      )
-    default: {
-      const commit = async () => {
-        if (!dirty || conflict || disabled) return
-        const saved = await onSet(parse(draft))
-        if (saved && "value" in saved) {
-          setDraft(format(saved.value))
-          setBaseline(format(saved.value))
-        }
-      }
-      const greyed = setting.source === "default" && !dirty
-      return (
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <span className="flex items-center gap-2">
-            <input aria-label={label} value={draft} disabled={disabled} inputMode={setting.kind === "int" ? "numeric" : undefined}
-              placeholder={setting.default_label}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") { e.preventDefault(); void commit() }
-                if (e.key === "Escape" && dirty) { e.preventDefault(); reload() }
-              }}
-              className={cn("min-h-9 rounded-lg border border-lw-line-strong bg-lw-ground px-2.5 text-sm placeholder:text-lw-faint disabled:border-lw-line",
-                setting.kind === "int" ? "w-24 text-right" : "w-60 max-w-full",
-                greyed ? "text-lw-text-2" : "text-lw-text")} />
-            {unit && <span className="text-[13px] text-lw-text-2">{unit}</span>}
-          </span>
-          {dirty && !setting.pinned && <span className="flex gap-2">
-            <button type="button" className={quietButton + " min-h-9"} disabled={disabled} onClick={reload}>Cancel</button>
-            <button type="button" className={primaryButton + " min-h-9"} disabled={disabled || conflict} onClick={commit}>Save</button>
-          </span>}
-          {conflictNode}
-        </div>
-      )
-    }
+  const settle = (value: string) => { setDraft(value); setBaseline(value) }
+  return { draft, setDraft, dirty, conflict, settle, keep: () => setBaseline(text) }
+}
+
+function TextControl({ setting, disabled, onSet }: {
+  setting: ConfigSetting; disabled: boolean
+  onSet: (value: unknown) => Promise<ConfigSetting | undefined>
+}) {
+  const { text, unit, draft, setDraft, dirty, conflict, reload, keep, commit } = useTextSave(setting, disabled, onSet)
+  // On a conflict, the value saved elsewhere while the draft was edited.
+  const now = text || formatValue(setting, setting.value)
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <TextInput setting={setting} value={draft} unit={unit} disabled={disabled} greyed={setting.source === "default" && !dirty}
+        onChange={setDraft} onEnter={() => void commit()} onEscape={dirty ? reload : undefined} />
+      {dirty && !setting.pinned && <span className="flex gap-2">
+        <button type="button" className={quietButton + " min-h-9"} disabled={disabled} onClick={reload}>Cancel</button>
+        <button type="button" className={primaryButton + " min-h-9"} disabled={disabled || conflict} onClick={commit}>Save</button>
+      </span>}
+      {conflict && <div className="flex w-full flex-wrap items-center justify-end gap-2 text-xs text-lw-needs">
+        <p role="status">Changed to {now} while you edited.</p>
+        <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} disabled={disabled} onClick={reload}>Use {now}</button>
+        <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} disabled={disabled} onClick={keep}>Keep {draft}</button>
+      </div>}
+    </div>
+  )
+}
+
+// useTextSave is a typed value's draft and its save, which takes the value
+// the server saved as the new clean text.
+function useTextSave(setting: ConfigSetting, disabled: boolean, onSet: (value: unknown) => Promise<ConfigSetting | undefined>) {
+  const { format, parse, unit } = useTextField(setting)
+  const text = format(setting.value)
+  const { draft, setDraft, dirty, conflict, settle, keep } = useDraft(text)
+  const reload = () => settle(text)
+  const commit = async () => {
+    if (!dirty || conflict || disabled) return
+    const saved = await onSet(parse(draft))
+    if (saved && "value" in saved) settle(format(saved.value))
   }
+  return { text, unit, draft, setDraft, dirty, conflict, reload, keep, commit }
+}
+
+// TextInput is the typed value with its unit: Enter saves, and Esc goes
+// back when there is something to go back from.
+function TextInput({ setting, value, unit, disabled, greyed, onChange, onEnter, onEscape }: {
+  setting: ConfigSetting; value: string; unit?: string; disabled: boolean; greyed: boolean
+  onChange: (value: string) => void; onEnter: () => void; onEscape?: () => void
+}) {
+  return (
+    <span className="flex items-center gap-2">
+      <input aria-label={setting.title} value={value} disabled={disabled} inputMode={setting.kind === "int" ? "numeric" : undefined}
+        placeholder={setting.default_label}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); onEnter() }
+          if (e.key === "Escape" && onEscape) { e.preventDefault(); onEscape() }
+        }}
+        className={cn("min-h-9 rounded-lg border border-lw-line-strong bg-lw-ground px-2.5 text-sm placeholder:text-lw-faint disabled:border-lw-line",
+          setting.kind === "int" ? "w-24 text-right" : "w-60 max-w-full",
+          greyed ? "text-lw-text-2" : "text-lw-text")} />
+      {unit && <span className="text-[13px] text-lw-text-2">{unit}</span>}
+    </span>
+  )
 }
 
 // The menu of a row config.yaml pins: move it out, or copy its key.

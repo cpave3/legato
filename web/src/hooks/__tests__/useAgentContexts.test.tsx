@@ -1,7 +1,7 @@
 import { act, cleanup, renderHook } from "@testing-library/react"
 import { afterEach, expect, it, vi } from "vitest"
 import { useAgentContexts } from "../useAgentContexts"
-import type { AgentInfo, WSMessage } from "../useWebSocket"
+import type { AgentInfo, WSMessage } from "../../lib/agentWire"
 
 let handler: ((message: WSMessage) => void) | null = null
 vi.mock("../useWebSocket", () => ({ useWebSocket: () => ({ subscribe: (value: (message: WSMessage) => void) => { handler = value; return () => { handler = null } } }) }))

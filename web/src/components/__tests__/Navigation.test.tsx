@@ -25,7 +25,7 @@ vi.mock("../needsYou/NeedsYouSheet", () => ({ NeedsYouSheet: ({ onClose }: { onC
 vi.mock("../needsYou/NeedsYouRail", () => ({ NeedsYouRail: () => null }))
 vi.mock("../PlanApprovalModal", () => ({ PlanApprovalModal: () => null }))
 vi.mock("../OfflineDialog", () => ({ OfflineDialog: () => null }))
-vi.mock("../ApprovalTray", () => ({ ApprovalTray: () => <section aria-label="Approvals" />, ApprovalFocus: () => null, useApprovalLink: () => {} }))
+vi.mock("../approvals/ApprovalTray", () => ({ ApprovalTray: () => <section aria-label="Approvals" />, ApprovalFocus: () => null, useApprovalLink: () => {} }))
 const railView = vi.hoisted(() => ({ current: { items: [] as unknown[], hidden: 0, hiddenNames: [] as string[] } }))
 vi.mock("../../lib/needsYou", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/needsYou")>()),

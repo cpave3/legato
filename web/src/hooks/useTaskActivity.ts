@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useServer } from "./useServer"
-import { useWebSocket, type WSMessage } from "./useWebSocket"
+import { useWebSocket } from "./useWebSocket"
+import { type WSMessage } from "../lib/agentWire"
 import { fetchTaskActivity, toRelatedWork, emptyActivity, type RelatedWorkItem } from "../lib/task-activity"
 import { coalesce, isRunChange } from "../lib/querySync"
 

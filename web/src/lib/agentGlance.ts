@@ -1,4 +1,4 @@
-import type { AgentInfo, BackgroundJob } from "../hooks/useWebSocket"
+import type { AgentInfo, BackgroundJob } from "./agentWire"
 import { apiFetch } from "./api"
 import { legatoEventSummary, parseLegatoMessage } from "./legatoMessage"
 

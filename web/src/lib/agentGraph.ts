@@ -6,7 +6,7 @@
 // than through them (LEG-615). With the memory one layout leaves the next,
 // an agent keeps its place while others come and go, and a change of state
 // moves nothing.
-import type { AgentInfo, BackgroundJob } from "../hooks/useWebSocket"
+import type { AgentInfo, BackgroundJob } from "./agentWire"
 import { subagentTree, subagentWaitsOn } from "./agentGlance"
 
 // AgentGraphData is GET /api/agents/graph: what the agent list does not say.

@@ -1,7 +1,7 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { useSwarmInbox } from "../useSwarmEvents"
-import type { WSMessage } from "../useWebSocket"
+import type { WSMessage } from "../../lib/agentWire"
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 let handler: ((message: WSMessage) => void) | null = null

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { ArtifactFocus } from "../components/AgentArtifactPanel"
-import { useWebSocket, type WSMessage } from "./useWebSocket"
+import type { ArtifactFocus } from "../lib/artifactFocus"
+import { useWebSocket } from "./useWebSocket"
+import { type WSMessage } from "../lib/agentWire"
 
 interface PanelState {
   open: boolean

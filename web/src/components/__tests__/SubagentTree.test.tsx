@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import type { BackgroundJob } from "../../hooks/useWebSocket"
+import type { BackgroundJob } from "../../lib/agentWire"
 import { SubagentsLine } from "../SubagentTree"
 import { fleetShell, subagentFleet } from "../../test/subagentFleet"
 

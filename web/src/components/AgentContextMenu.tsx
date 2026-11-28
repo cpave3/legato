@@ -1,9 +1,9 @@
 import { createPortal } from "react-dom"
-import { useMenuLayer } from "../hooks/useMenuLayer"
+import { useMenuLayer } from "./ui/useMenuLayer"
 import { useRef } from "react"
-import type { AgentInfo } from "../hooks/useWebSocket"
+import type { AgentInfo } from "../lib/agentWire"
 import { cn } from "../lib/utils"
-import type { AgentMenuEntry } from "./AgentChatHeader"
+import type { AgentMenuEntry } from "../lib/agentMenu"
 
 export function AgentContextMenu({
   agent,

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { apiFetch } from "../lib/api"
-
-export type RecordingState = "idle" | "recording" | "transcribing" | "sent" | "error"
+import type { RecordingState, VoiceRecorder } from "../lib/voiceRecorder"
 
 export interface VoiceRecorderOptions {
   agentId?: string
@@ -10,18 +9,6 @@ export interface VoiceRecorderOptions {
   // Only return the text; never send it to the agent.
   transcriptionOnly?: boolean
   onTranscription?: (text: string) => void
-}
-
-export interface VoiceRecorder {
-  state: RecordingState
-  error: string
-  // Seconds recorded so far.
-  seconds: number
-  // How loud the microphone was, 0 to 1, newest last: the bars a recording draws.
-  levels: number[]
-  start: () => Promise<void>
-  stop: () => Promise<void>
-  cancel: () => void
 }
 
 const LEVELS = 24

@@ -2,7 +2,7 @@ import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } fr
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { lookupReviewLoop, useReviewLoops } from "../lib/reviewLoops"
 import { useReviewEngine } from "../lib/reviewEngine"
-import { BoardMacrosContext, macroPR } from "../components/board/PRMacros"
+import { BoardMacrosContext, macroPR } from "../components/board/prMacrosContext"
 import { cardMacroPRs } from "../lib/cardMacros"
 import { macroNotice, startMacro, useMacros, type Macro, type MacroPR } from "../lib/macros"
 import { useServer } from "../hooks/useServer"

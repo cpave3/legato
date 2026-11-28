@@ -115,4 +115,74 @@ describe("RepositoriesSettings", () => {
     expect(within(screen.getByRole("listitem", { name: "Gadget" })).getByText(/^Copied/)).toBeTruthy()
     expect(within(screen.getByRole("listitem", { name: "Notes" })).queryByText(/Cop/)).toBeNull()
   })
+
+  it("names the base branch and folder, and copies not yet made or being fetched", async () => {
+    stored = [
+      { id: 1, name: "Fresh", repo: "acme/fresh", primary_dir: "/srv/fresh", base_branch: "dev", configured: false, cache: { repo: "acme/fresh", state: "missing" } },
+      { id: 2, name: "Busy", repo: "acme/busy", primary_dir: "", configured: false, cache: { repo: "acme/busy", state: "fetching" } },
+      { id: 3, name: "Stale", repo: "acme/stale", primary_dir: "", configured: false, cache: { repo: "acme/stale", state: "ready", fetched_at: "not a date" } },
+    ]
+    renderWith(<RepositoriesSettings baseUrl="" />)
+    const fresh = await screen.findByRole("listitem", { name: "Fresh" })
+    expect(within(fresh).getByText("from dev")).toBeTruthy()
+    expect(within(fresh).getByTitle("/srv/fresh").textContent).toBe("/srv/fresh")
+    expect(within(fresh).getByText("Not copied yet")).toBeTruthy()
+    const busy = screen.getByRole("listitem", { name: "Busy" })
+    expect(within(busy).getByText("Fetching")).toBeTruthy()
+    expect(within(busy).queryByRole("progressbar")).toBeNull()
+    expect(within(screen.getByRole("listitem", { name: "Stale" })).getByText("Copied").textContent).toBe("Copied")
+  })
+
+  it("keeps a repository when removing it is not confirmed", async () => {
+    renderWith(<RepositoriesSettings baseUrl="" />)
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Widget" }))
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }))
+    expect(screen.getByRole("button", { name: "Remove Widget" })).toBeTruthy()
+    expect(requests.some((r) => r.method === "DELETE")).toBe(false)
+  })
+
+  it("shows why a repository was not removed", async () => {
+    stored = [{ id: 8, name: "Gone", repo: "acme/gone", primary_dir: "", configured: false }]
+    renderWith(<RepositoriesSettings baseUrl="" />)
+    vi.mocked(fetch).mockImplementationOnce(async () => json({ error: "in use" }, 409))
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Gone" }))
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }))
+    expect((await screen.findByRole("alert")).textContent).toMatch(/in use/)
+    expect(screen.getByRole("button", { name: "Keep" })).toBeTruthy()
+  })
+
+  it("saves only with a name and a repository or a folder, trimmed", async () => {
+    renderWith(<RepositoriesSettings baseUrl="" />)
+    fireEvent.click(await screen.findByRole("button", { name: /Add repository/ }))
+    const save = screen.getByRole("button", { name: "Save" })
+    expect(save).toHaveProperty("disabled", true)
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: " Notes " } })
+    expect(save).toHaveProperty("disabled", true)
+    fireEvent.change(screen.getByRole("textbox", { name: "Folder on this server" }), { target: { value: " /srv/notes " } })
+    expect(save).toHaveProperty("disabled", false)
+    fireEvent.click(save)
+    await screen.findByRole("listitem", { name: "Notes" })
+    expect(requests.find((r) => r.method === "POST")?.body).toEqual({ name: "Notes", repo: "", base_branch: "", primary_dir: "/srv/notes" })
+    expect(screen.queryByRole("textbox", { name: "Name" })).toBeNull()
+  })
+
+  it("cancels a new repository and its error", async () => {
+    renderWith(<RepositoriesSettings baseUrl="" />)
+    fireEvent.click(await screen.findByRole("button", { name: /Add repository/ }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Legato" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "GitHub repository" }), { target: { value: "x/y" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await screen.findByRole("alert")
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect(screen.queryByRole("textbox", { name: "Name" })).toBeNull()
+    expect(screen.getByRole("button", { name: /Add repository/ })).toBeTruthy()
+  })
+
+  it("shows a failed read and lists nothing", async () => {
+    vi.mocked(fetch).mockImplementation(async () => json({ error: "offline" }, 500))
+    renderWith(<RepositoriesSettings baseUrl="" />)
+    expect((await screen.findByRole("alert")).textContent).toMatch(/offline/)
+    expect(screen.queryByRole("list")).toBeNull()
+  })
 })

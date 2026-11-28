@@ -1,5 +1,4 @@
 import { apiFetch } from "./api"
-import type { WorkflowGraphModel } from "./workflowGraph"
 
 export type WorkflowInput = { type: "string"|"integer"|"boolean"|"json"|"task"|"repository"; required?: boolean; default?: unknown; description?: string; secret?: boolean; choices?: unknown[] }
 export type WorkflowOutput = { type: string; path?: string; media_type?: string; description?: string }
@@ -91,3 +90,21 @@ export const anotherReviewPass=(baseUrl:string,id:string,step:string)=>apiFetch(
 // stopTaskAgent stops a task's agent, as the agents page's Stop does: the
 // author agent a review loop left running.
 export const stopTaskAgent=(baseUrl:string,taskId:string)=>apiFetch(baseUrl,"/api/agents/kill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({task_id:taskId})}).then(decode<{status:string}>)
+
+// The workflow graph as the server builds it (internal/engine/workflow
+// graph.go): its nodes and edges. lib/workflowGraph.ts holds the words
+// that draw it.
+export type GraphTrigger = { kind: string; summary: string; enabled: boolean; confirm?: boolean; max_runs_per_day?: number; definition?: Record<string, unknown> }
+export type GraphGate = "manual" | "agent_ended"
+// A loop step's loop (graph version 2): its form, its most passes, and what
+// it goes over or ends on, in words.
+export type GraphLoop = { form: "over" | "next" | "repeat"; max: number; summary?: string; until?: string }
+// path is the step's path without a pass: its ID, or in a loop's body the
+// loop's path, a slash and its ID (each/build). A loop (group "loop") holds
+// its body's steps, whose parent is its node.
+export type GraphStep = { id: string; path?: string; title: string; type: string; start: "automatic" | "manual" | "agent_ended"; gate?: GraphGate; group?: "review_loop" | "loop"; loop?: GraphLoop; key: { field?: string; value?: string }; definition: WorkflowStepDefinition }
+export type GraphNode = { id: string; kind: "trigger" | "step" | "inner"; trigger?: GraphTrigger; step?: GraphStep; inner?: { role: string; title: string }; parent?: string }
+// A branch edge leads into a step with if: (condition, in words), or past it
+// (skip) to where the run goes when the step is skipped.
+export type GraphEdge = { id: string; kind: "start" | "order" | "data" | "loop" | "branch" | string; source: string; target: string; outputs?: string[]; condition?: string; skip?: boolean }
+export type WorkflowGraphModel = { version: number; nodes: GraphNode[]; edges: GraphEdge[] }

@@ -2,7 +2,7 @@ import { cn } from "../lib/utils"
 import { needsYouReason, reeveWaitLabel, stageLabel, stageSteps } from "../lib/agentStage"
 import { formatAgentTime } from "../lib/agentList"
 import { useNow } from "../hooks/useNow"
-import type { AgentInfo } from "../hooks/useWebSocket"
+import type { AgentInfo } from "../lib/agentWire"
 import { useReeveName } from "../lib/reeveName"
 
 // The sizes of a track's bars: "sm" in rows and chips, "xs" on board cards

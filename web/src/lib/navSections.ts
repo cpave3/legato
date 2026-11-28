@@ -1,4 +1,4 @@
-import type { NavigationSummary } from "../hooks/useNavigationSummary"
+import type { NavigationSummary } from "./navigationSummary"
 
 // The tone of a count: agents at work, something that waits on the person,
 // something that failed, or a plain number.

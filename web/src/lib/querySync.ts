@@ -1,5 +1,5 @@
 import type { QueryKey } from "@tanstack/react-query"
-import type { WSMessage } from "../hooks/useWebSocket"
+import type { WSMessage } from "./agentWire"
 import { queryKeys } from "./query"
 
 /** A query to read again: one key exactly, or every key under a prefix. */

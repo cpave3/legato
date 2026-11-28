@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AgentInfoDialog } from "../AgentInfoDialog"
-import type { AgentInfo } from "../../hooks/useWebSocket"
+import type { AgentInfo } from "../../lib/agentWire"
 
 const { attachedResources } = vi.hoisted(() => ({ attachedResources: vi.fn() }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))

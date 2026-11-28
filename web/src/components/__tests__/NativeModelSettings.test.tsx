@@ -90,3 +90,98 @@ it("keeps Tab in the labelled model form and Escape returns to its trigger", asy
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(trigger).toHaveFocus()
 })
+
+const thinkingState: ModelSettingsState = {
+  model: "anthropic/opus", overrides: { thinking: "on" }, defaults: { thinking: "on", maxOutputTokens: 4000, temperature: 0.5 }, effective: { thinking: "on" },
+  capabilities: { schemaVersion: 1, modelId: "opus-x", profile: "claude", source: "test", fingerprint: "two", settings: {
+    thinking: { status: "supported", type: "enum", values: ["on", "off"] },
+    reasoningEffort: { status: "supported", type: "enum", values: ["low", "high"], default: "low" },
+    thinkingBudgetTokens: { status: "supported", type: "number", min: 1, max: 100, integer: true },
+    temperature: { status: "unsupported", type: "number", reason: "Fixed by the provider." },
+    maxOutputTokens: { status: "unknown", type: "number" },
+  } },
+}
+
+async function openWith(value: unknown, model = thinkingState.model, post?: unknown) {
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) =>
+    new Response(JSON.stringify(init?.method === "POST" ? post : value)))
+  render(<NativeModelSettings agentId="one" baseUrl="" model={model} busy={false} onSaved={vi.fn()} />)
+  fireEvent.click(screen.getByRole("button", { name: "Model settings" }))
+  return fetchMock
+}
+
+it("shows the resolved model, defaults and the reasons for settings it cannot take", async () => {
+  await openWith(thinkingState)
+  expect(await screen.findByText("Resolved model: opus-x")).toBeInTheDocument()
+  expect(screen.getByLabelText("Thinking")).toHaveValue("on")
+  expect(screen.getByRole("option", { name: "Default (on)" })).toBeInTheDocument()
+  expect(screen.getByRole("option", { name: "Default (low)" })).toBeInTheDocument()
+  const budget = screen.getByLabelText("Thinking budget")
+  expect(budget).toHaveAttribute("type", "number")
+  expect(budget).toHaveAttribute("placeholder", "Default")
+  expect(budget).toHaveAttribute("min", "1")
+  expect(budget).toHaveAttribute("max", "100")
+  expect(budget).toHaveAttribute("step", "1")
+  expect(screen.getByText("Temperature: Fixed by the provider.")).toBeInTheDocument()
+  expect(screen.getByText("Output limit: Support is unknown for this model.")).toBeInTheDocument()
+  expect(screen.getByText("Applies to this session. Default uses the configured model value.")).toBeInTheDocument()
+})
+
+it("turning thinking off clears and disables effort and budget", async () => {
+  const fetchMock = await openWith(thinkingState, thinkingState.model, { settingsState: thinkingState })
+  fireEvent.change(await screen.findByLabelText("Thinking budget"), { target: { value: "12" } })
+  expect(screen.getByLabelText("Thinking budget")).toHaveValue(12)
+  fireEvent.change(screen.getByLabelText("Thinking"), { target: { value: "off" } })
+  expect(screen.getByLabelText("Reasoning effort")).toBeDisabled()
+  expect(screen.getByLabelText("Thinking budget")).toBeDisabled()
+  expect(screen.getByLabelText("Thinking budget")).toHaveValue(null)
+  fireEvent.click(screen.getByRole("button", { name: "Apply" }))
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body)).settings).toEqual({ thinking: "off", thinkingBudgetTokens: null, reasoningEffort: null })
+})
+
+it("a cleared number goes back to its default", async () => {
+  const fetchMock = await openWith(thinkingState, thinkingState.model, { settingsState: thinkingState })
+  fireEvent.change(await screen.findByLabelText("Thinking budget"), { target: { value: "12" } })
+  fireEvent.change(screen.getByLabelText("Thinking budget"), { target: { value: "" } })
+  fireEvent.click(screen.getByRole("button", { name: "Apply" }))
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body)).settings).toEqual({ thinkingBudgetTokens: null })
+})
+
+it("names boolean options On and Off", async () => {
+  await openWith(state, state.model)
+  await screen.findByLabelText("Parallel tool calls")
+  expect(screen.getByRole("option", { name: "On" })).toHaveValue("true")
+  expect(screen.getByRole("option", { name: "Off" })).toHaveValue("false")
+})
+
+it("says settings are unavailable for another model or schema", async () => {
+  await openWith(thinkingState, "other/model")
+  expect(await screen.findByText(/Settings information is unavailable for this model/)).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled()
+  expect(screen.queryByText(/Resolved model/)).toBeNull()
+})
+
+it("refuses a saved state for another model", async () => {
+  await openWith(thinkingState, thinkingState.model, { settingsState: { ...thinkingState, model: "else" } })
+  await screen.findByLabelText("Thinking")
+  fireEvent.click(screen.getByRole("button", { name: "Apply" }))
+  expect(await screen.findByRole("alert")).toHaveTextContent("The model changed. Reopen its settings.")
+})
+
+it("reports a failed read", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ error: "no session" }), { status: 404 }))
+  render(<NativeModelSettings agentId="one" baseUrl="" model="m" busy={false} onSaved={vi.fn()} />)
+  fireEvent.click(screen.getByRole("button", { name: "Model settings" }))
+  expect(await screen.findByRole("alert")).toHaveTextContent("no session")
+})
+
+it("asks to wait while the agent runs", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(thinkingState)))
+  render(<NativeModelSettings agentId="one" baseUrl="" model={thinkingState.model} busy={true} onSaved={vi.fn()} />)
+  fireEvent.click(screen.getByRole("button", { name: "Model settings" }))
+  expect(await screen.findByText("Wait for the current run to finish before applying settings.")).toBeInTheDocument()
+  expect(screen.getByLabelText("Thinking")).toBeDisabled()
+  expect(screen.getByRole("button", { name: "Reset to defaults" })).toBeDisabled()
+})

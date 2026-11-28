@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { AgentPickerBar, AgentSelect } from "../AgentSelect"
-import type { AgentInfo } from "../../hooks/useWebSocket"
+import type { AgentInfo } from "../../lib/agentWire"
 
 const errorAgent = {
   task_id: "task-error",
@@ -132,5 +132,79 @@ describe("AgentSelect grouped", () => {
 
     fireEvent.click(tooling)
     expect(toggle).toHaveBeenCalledWith("Tooling")
+  })
+})
+
+describe("AgentSelect rows", () => {
+  afterEach(cleanup)
+
+  const row = (task_id: string, fields: Partial<AgentInfo> = {}) =>
+    ({ ...errorAgent, task_id, task_title: `Task ${task_id}`, activity: "working", ...fields }) as AgentInfo
+
+  it("marks a conductor, a worker's role and its sandbox, and names a command other than its tool", () => {
+    render(
+      <AgentSelect
+        agents={[
+          row("cond", { role: "conductor" }),
+          row("work", { role: "builder", parent_task_id: "cond", unsandboxed: true, docker_host_network: true }),
+          row("edit", { agent_kind: "claude-code", command: "vim" }),
+          row("solo", { agent_kind: "claude-code", command: "claude" }),
+        ]}
+        selectedId="cond"
+        onSelect={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByRole("button", { name: /^Agent:/ }))
+    const list = screen.getByRole("group", { name: "Running agents" })
+    expect(within(list).getByText("4 agents")).toBeTruthy()
+    const conductor = within(list).getByRole("button", { name: /Task cond/ })
+    expect(conductor.getAttribute("aria-current")).toBe("true")
+    expect(within(conductor).getByText("Conductor")).toBeTruthy()
+    const worker = within(list).getByRole("button", { name: /Task work/ })
+    expect(worker.getAttribute("aria-current")).toBeNull()
+    expect(within(worker).getByText("builder")).toBeTruthy()
+    expect(within(worker).queryByText("Conductor")).toBeNull()
+    expect(within(worker).getByText("unsandboxed")).toBeTruthy()
+    expect(within(worker).getByText("host network")).toBeTruthy()
+    expect(within(within(list).getByRole("button", { name: /Task edit/ })).getByText("vim")).toBeTruthy()
+    expect(within(within(list).getByRole("button", { name: /Task solo/ })).queryByText("claude")).toBeNull()
+  })
+
+  it("selects an agent and closes; a click outside closes too", () => {
+    const onSelect = vi.fn()
+    render(<div><span>outside</span><AgentSelect agents={[row("a"), row("b")]} selectedId="a" onSelect={onSelect} /></div>)
+    const trigger = screen.getByRole("button", { name: /^Agent:/ })
+    fireEvent.click(trigger)
+    expect(trigger.getAttribute("aria-expanded")).toBe("true")
+    fireEvent.click(screen.getByRole("button", { name: /Task b/ }))
+    expect(onSelect).toHaveBeenCalledWith("b")
+    expect(screen.queryByRole("group", { name: "Running agents" })).toBeNull()
+    fireEvent.click(trigger)
+    expect(screen.getByRole("group", { name: "Running agents" })).toBeTruthy()
+    fireEvent.click(screen.getByText("outside"))
+    expect(screen.queryByRole("group", { name: "Running agents" })).toBeNull()
+  })
+
+  it("says when no agents run", () => {
+    render(<AgentSelect agents={[]} selectedId={null} onSelect={() => {}} />)
+    fireEvent.click(screen.getByRole("button", { name: "Choose an agent" }))
+    expect(screen.getByText("No active agents")).toBeTruthy()
+  })
+
+  it("leads with the Reeve's agent when it has no entry of its own, and counts without it", () => {
+    render(<AgentSelect agents={[row("a"), row("reeve-1", { reeve: true, task_title: "The Reeve" })]} selectedId="a" onSelect={() => {}} />)
+    fireEvent.click(screen.getByRole("button", { name: /^Agent:/ }))
+    const list = screen.getByRole("group", { name: "Running agents" })
+    expect(within(list).getByText("1 agent")).toBeTruthy()
+    expect(within(list).getAllByRole("button")[0].textContent).toContain("The Reeve")
+  })
+
+  it("says no agent is at the stage filtered to, and shows all again", () => {
+    const onStageFilter = vi.fn()
+    render(<AgentSelect agents={[row("a", { stage: "planning" })]} selectedId="a" onSelect={() => {}} stageFilter="reviewing" onStageFilter={onStageFilter} />)
+    fireEvent.click(screen.getByRole("button", { name: /^Agent:/ }))
+    expect(screen.getByText(/No agents are reviewing\./)).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Show all" }))
+    expect(onStageFilter).toHaveBeenCalledWith(null)
   })
 })

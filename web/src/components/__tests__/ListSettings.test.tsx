@@ -403,3 +403,202 @@ describe("Agent, role prompt and rule forms", () => {
     expect(await screen.findByText(/Awaiting approval/)).toBeTruthy()
   })
 })
+
+describe("List form fields", () => {
+  beforeEach(() => {
+    mockFetch.mockReset()
+    mockSave.mockReset(); mockSave.mockResolvedValue(undefined)
+    mockRemove.mockReset(); mockRemove.mockResolvedValue(undefined)
+  })
+  afterEach(() => cleanup())
+
+  it("keeps a cleared required text as empty and drops a cleared optional one", async () => {
+    show([list({ key: "credentials", title: "Credentials", mode: "live", entries: [{ name: "gh", value: { secret: "legato://gh", profile: "github", type: "value" }, source: "database", pinned: false }] })])
+    fireEvent.click(await screen.findByRole("button", { name: "Edit gh" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Profile" }), { target: { value: "" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "Type" }), { target: { value: "" } })
+    expect(screen.getByText("Optional")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "credentials", "gh", { secret: "legato://gh", profile: "" }))
+    expect(await screen.findByText("Saved.")).toBeTruthy()
+  })
+
+  it("drops a cleared number, and cleared launch arguments", async () => {
+    show([
+      list({ key: "usage.rules", title: "Usage rules", mode: "live", entries: [{ name: "R", value: { order: 3, meter: "m", at_least: 1, profile: "P" }, source: "database", pinned: false }] }),
+      list({ key: "usage.profiles", title: "Usage profiles", entries: [{ name: "P", value: {}, source: "database", pinned: false }] }),
+    ], ["usage.rules"], ["m"])
+    fireEvent.click(await screen.findByRole("button", { name: "Edit R" }))
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Order" }), { target: { value: "" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "usage.rules", "R", { meter: "m", at_least: 1, profile: "P" }))
+    cleanup()
+    show([list({ key: "adapters", title: "Agent tools", name_field: undefined, entries: [{ name: "codex", value: { launch_args: ["--a", "--b"] }, source: "database", pinned: false }] })])
+    fireEvent.click(await screen.findByRole("button", { name: "Edit codex" }))
+    const args = screen.getByRole("textbox", { name: "Launch arguments" })
+    expect(args).toHaveValue("--a\n--b")
+    fireEvent.change(args, { target: { value: "" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenLastCalledWith("http://legato", "adapters", "codex", {}))
+  })
+
+  it("shows a saved choice the form does not offer, and says Saved for new agents", async () => {
+    show([list({ key: "reeve.rules", title: "Reeve rules", mode: "new_agents", name_field: "pattern", entries: [{ name: "task.*", value: { level: "odd" }, source: "database", pinned: false }] })])
+    fireEvent.click(await screen.findByRole("button", { name: "Edit task.*" }))
+    const needs = screen.getByRole("combobox", { name: "Needs" }) as HTMLSelectElement
+    expect(needs.value).toBe("odd")
+    expect(within(needs).getAllByRole("option").map((o) => o.textContent)[0]).toBe("odd")
+    fireEvent.change(needs, { target: { value: "approve" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    expect(await screen.findByText("Saved. It applies to agents started from now on.")).toBeTruthy()
+  })
+
+  it("types a colour as hex and marks its swatch", async () => {
+    show([list({})])
+    fireEvent.click(await screen.findByRole("button", { name: "New workspace" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Colour, as a hex value" }), { target: { value: "#2dd4bf" } })
+    expect(screen.getByRole("radio", { name: "Teal" })).toHaveAttribute("aria-checked", "true")
+    expect(screen.getByRole("radio", { name: "Blue" })).toHaveAttribute("aria-checked", "false")
+  })
+
+  it("saves a role prompt and clears it", async () => {
+    show([list({ key: "swarm.prompts", title: "Role prompts", name_field: "role", entries: [{ name: "worker", value: { "claude-code": "Be brief." }, source: "database", pinned: false }] })])
+    fireEvent.click(await screen.findByRole("button", { name: "Edit worker" }))
+    const prompt = screen.getByRole("textbox", { name: "Claude Code's prompt" })
+    expect(prompt).toHaveValue("Be brief.")
+    fireEvent.change(prompt, { target: { value: "" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "swarm.prompts", "worker", {}))
+  })
+
+  it("clears a profile's tier when its agent changes", async () => {
+    show([list({ key: "usage.profiles", title: "Usage profiles", mode: "live", entries: [{ name: "E", value: { agent: "codex", tier: "fast", reviewer: { agent: "codex", tier: "fast" } }, source: "database", pinned: false }] }),
+      list({ key: "adapters", title: "Adapters", entries: [{ name: "codex", value: { tiers: { fast: {} } }, source: "database", pinned: false }] })], ["usage.profiles"])
+    fireEvent.click(await screen.findByRole("button", { name: "Edit E" }))
+    fireEvent.change(screen.getByRole("combobox", { name: "Reviewer agent" }), { target: { value: "chimera" } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "chimera" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "usage.profiles", "E", { agent: "chimera", reviewer: { agent: "chimera" } }))
+  })
+})
+
+describe("An entry's form", () => {
+  beforeEach(() => {
+    mockFetch.mockReset()
+    mockSave.mockReset(); mockSave.mockResolvedValue(undefined)
+    mockRemove.mockReset(); mockRemove.mockResolvedValue(undefined)
+  })
+  afterEach(() => cleanup())
+
+  it("saves only with a name, trimmed, and Cancel closes it", async () => {
+    show([list({})])
+    fireEvent.click(await screen.findByRole("button", { name: "New workspace" }))
+    expect(screen.getByRole("group", { name: "New entry of Workspaces" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+    expect(screen.queryByText("No workspaces.")).toBeNull()
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: " Side " } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "workspaces", "Side", {}))
+    fireEvent.click(await screen.findByRole("button", { name: "New workspace" }))
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(screen.queryByRole("group", { name: "New entry of Workspaces" })).toBeNull()
+  })
+
+  it("shows broken YAML's error, stays on it, and saves good YAML with its name", async () => {
+    show([workspaces])
+    fireEvent.click(within(await screen.findByTestId("entry-workspaces-Home")).getByRole("button", { name: "Edit Home" }))
+    expect(screen.getByRole("group", { name: "Edit Home" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Edit as YAML" }))
+    const yaml = screen.getByRole("textbox", { name: "Workspaces entry as YAML" })
+    fireEvent.change(yaml, { target: { value: "name: [" } })
+    fireEvent.click(screen.getByRole("button", { name: "Back to the form" }))
+    expect(await screen.findByRole("alert")).toBeTruthy()
+    expect(screen.getByRole("textbox", { name: "Workspaces entry as YAML" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    expect(mockSave).not.toHaveBeenCalled()
+    fireEvent.change(yaml, { target: { value: 'name: Home\ncolor: "#4A9EEF"\n' } })
+    expect(screen.queryByRole("alert")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "workspaces", "Home", { color: "#4A9EEF" }))
+  })
+
+  it("takes their version with Use theirs", async () => {
+    const client = new QueryClient()
+    const view = () => <QueryClientProvider client={client}><ListSettings baseUrl="http://legato" /></QueryClientProvider>
+    mockFetch.mockResolvedValue([list({ entries: [{ name: "Home", value: { color: "#3ECF8E" }, source: "database", pinned: false }] })])
+    const { rerender } = render(view())
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Home" }))
+    fireEvent.click(screen.getByRole("button", { name: "Edit as YAML" }))
+    mockFetch.mockResolvedValue([list({ entries: [{ name: "Home", value: { color: "#EF6461" }, source: "database", pinned: false }] })])
+    await client.invalidateQueries()
+    rerender(view())
+    fireEvent.click(await screen.findByRole("button", { name: "Use theirs" }))
+    expect(screen.queryByRole("textbox", { name: "Workspaces entry as YAML" })).toBeNull()
+    expect(screen.getByRole("radio", { name: "Red" })).toHaveAttribute("aria-checked", "true")
+    expect(screen.queryByText(/changed elsewhere/)).toBeNull()
+  })
+
+  it("follows a change made elsewhere while untouched", async () => {
+    const client = new QueryClient()
+    const view = () => <QueryClientProvider client={client}><ListSettings baseUrl="http://legato" /></QueryClientProvider>
+    mockFetch.mockResolvedValue([list({ entries: [{ name: "Home", value: { color: "#3ECF8E" }, source: "database", pinned: false }] })])
+    const { rerender } = render(view())
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Home" }))
+    mockFetch.mockResolvedValue([list({ entries: [{ name: "Home", value: { color: "#EF6461" }, source: "database", pinned: false }] })])
+    await client.invalidateQueries()
+    rerender(view())
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Red" })).toHaveAttribute("aria-checked", "true"))
+    expect(screen.queryByText(/changed elsewhere/)).toBeNull()
+  })
+})
+
+describe("A list card", () => {
+  beforeEach(() => {
+    mockFetch.mockReset()
+    mockSave.mockReset(); mockSave.mockResolvedValue(undefined)
+    mockRemove.mockReset(); mockRemove.mockResolvedValue(undefined)
+  })
+  afterEach(() => cleanup())
+
+  it("marks an entry that waits for a restart, and says Removed", async () => {
+    show([{ ...workspaces, pending_entries: ["Home"] }])
+    const home = await screen.findByTestId("entry-workspaces-Home")
+    expect(within(home).getByText("Restart to apply")).toBeTruthy()
+    expect(within(home).getByText("Set here")).toBeTruthy()
+    expect(within(screen.getByTestId("entry-workspaces-Work")).queryByText("Restart to apply")).toBeNull()
+    fireEvent.click(within(home).getByRole("button", { name: "Remove Home" }))
+    expect(await screen.findByText("Removed.")).toBeTruthy()
+  })
+
+  it("says a removal waits for a signature, or why it failed", async () => {
+    mockRemove.mockResolvedValueOnce({ status: "needs_signature" })
+    show([workspaces])
+    fireEvent.click(within(await screen.findByTestId("entry-workspaces-Home")).getByRole("button", { name: "Remove Home" }))
+    expect(await screen.findByText("Awaiting approval: approve this removal on your phone or with a passkey.")).toBeTruthy()
+    mockRemove.mockRejectedValueOnce(new Error("in use"))
+    fireEvent.click(within(screen.getByTestId("entry-workspaces-Home")).getByRole("button", { name: "Remove Home" }))
+    expect((await screen.findByRole("alert")).textContent).toBe("in use")
+  })
+
+  it("hides an entry's buttons while it is edited", async () => {
+    show([workspaces])
+    const home = await screen.findByTestId("entry-workspaces-Home")
+    fireEvent.click(within(home).getByRole("button", { name: "Edit Home" }))
+    expect(within(home).queryByRole("button", { name: "Remove Home" })).toBeNull()
+    expect(within(home).getByRole("group", { name: "Edit Home" })).toBeTruthy()
+  })
+
+  it("says it is loading, and offers Retry when the lists cannot be read", async () => {
+    mockFetch.mockRejectedValue(new Error("lists are down"))
+    render(<QueryClientProvider client={new QueryClient()}><ListSettings baseUrl="http://legato" /></QueryClientProvider>)
+    expect(screen.getByText("Loading lists…")).toBeTruthy()
+    expect((await screen.findByRole("alert")).textContent).toContain("lists are down")
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy()
+  })
+
+  it("draws nothing when asked for no lists", () => {
+    const view = render(<QueryClientProvider client={new QueryClient()}><ListSettings baseUrl="http://legato" lists={[]} /></QueryClientProvider>)
+    expect(view.container.textContent).toBe("")
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+})

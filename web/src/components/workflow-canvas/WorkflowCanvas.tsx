@@ -63,13 +63,9 @@ export type WorkflowCanvasProps = {
   dockYields?: boolean
 }
 
-// WorkflowCanvas is a workflow's graph as the page (LEG-651, LEG-655), with
-// cards docked left and the selected node's details docked right: the
-// Panels button and . show or hide them, Escape closes the details.
-export function WorkflowCanvas({ label, graph, empty, focusId = null, cards, panel, panelTitle = "", onClosePanel, selected, panelWidth: width = panelWidth, notices, hiddenPill, narrow, dockYields = false }: WorkflowCanvasProps) {
-  const [panelsOn, setPanelsOn] = useState(true)
-  const [dockAsked, setDockAsked] = useState(false)
-  // The canvas's own width: the app's rails take some of the window's.
+// useRoom is the canvas's own width (the app's rails take some of the
+// window's), measured only for a dock that yields.
+function useRoom(dockYields: boolean) {
   const section = useRef<HTMLElement>(null)
   const [room, setRoom] = useState(0)
   useEffect(() => {
@@ -82,41 +78,104 @@ export function WorkflowCanvas({ label, graph, empty, focusId = null, cards, pan
     observer.observe(element)
     return () => observer.disconnect()
   }, [dockYields])
-  const cramped = dockYields && room > 0 && room < dockWidth + width + 4 * gap + graphRoom
+  return { section, room }
+}
+
+// keyAction is what a key pressed on the page does to the canvas: Escape
+// closes the details while there is a selection, . shows or hides the
+// panels. Keys with a modifier, already handled, or pressed in a field or
+// a menu are not the canvas's.
+function keyAction(event: KeyboardEvent, selected: boolean): "close" | "panels" | null {
+  if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return null
+  if ((event.target as Element | null)?.closest?.(own)) return null
+  if (event.key === "Escape" && selected) return "close"
+  return event.key === "." ? "panels" : null
+}
+
+type SetPanels = (update: (on: boolean) => boolean) => void
+
+// keyHandler acts on the canvas's keys, and leaves the rest alone.
+function keyHandler(selected: boolean, onClosePanel: () => void, setPanelsOn: SetPanels) {
+  return (event: KeyboardEvent) => {
+    const action = keyAction(event, selected)
+    if (!action) return
+    if (action === "close") onClosePanel()
+    else setPanelsOn(on => !on)
+    event.preventDefault()
+  }
+}
+
+type Docks = { panelsOn: boolean; dockAsked: boolean; cramped: boolean; narrow: boolean; panel: ReactNode; cards: ReactNode }
+
+// isSomething is content that draws: not undefined, null or false.
+const isSomething = (node: ReactNode) => node !== undefined && node !== null && node !== false
+
+// docksOf says which docks show: the panel while there is one (not on a
+// phone, where it is a sheet), and the cards while there are any, unless
+// a cramped canvas gives their room to the panel until they are asked for.
+function docksOf({ panelsOn, dockAsked, cramped, narrow, panel, cards }: Docks) {
+  const showPanel = panelsOn && Boolean(panel) && !narrow
+  const hasCards = isSomething(cards)
+  const showDock = panelsOn && hasCards && (!cramped || !showPanel || dockAsked)
+  return { showPanel, showDock, showPill: hasCards && !showDock }
+}
+
+// isCramped says a canvas whose dock yields has no room for both docks
+// and some of the graph between them.
+const isCramped = (dockYields: boolean, room: number, width: number) => dockYields && room > 0 && room < dockWidth + width + 4 * gap + graphRoom
+
+// insetsOf is the room the docks take from the graph: on a phone the
+// cards' sheet along the bottom, else each dock with its gaps.
+function insetsOf(narrow: boolean, showDock: boolean, showPanel: boolean, width: number): Insets {
+  if (narrow) return { top: 0, left: 0, right: 0, bottom: showDock ? 220 : 0 }
+  return { top: 0, bottom: 0, left: showDock ? dockWidth + 2 * gap : 0, right: showPanel ? width + 2 * gap : 0 }
+}
+
+// PhoneNotices: on a phone the graph's toolbar is at its top, so the
+// notices go above the graph instead of over it.
+function PhoneNotices({ narrow, children }: { narrow: boolean; children: ReactNode }) {
+  if (!narrow || !children) return null
+  return <div className="shrink-0 space-y-2 border-b border-lw-line bg-lw-rail px-3 py-2">{children}</div>
+}
+
+// FloatingNotices are the notices over the free area of the graph; on a
+// phone they go above it instead (PhoneNotices).
+function FloatingNotices({ narrow, insets, children }: { narrow: boolean; insets: Insets; children: ReactNode }) {
+  if (narrow || !children) return null
+  return <div className="pointer-events-none absolute top-4 z-10 flex justify-center px-4" style={{ left: insets.left, right: insets.right }}>
+    <div className="pointer-events-auto w-full max-w-md space-y-2">{children}</div>
+  </div>
+}
+
+// WorkflowCanvas is a workflow's graph as the page (LEG-651, LEG-655), with
+// cards docked left and the selected node's details docked right: the
+// Panels button and . show or hide them, Escape closes the details.
+export function WorkflowCanvas({ label, graph, empty, focusId = null, cards, panel, panelTitle = "", onClosePanel, selected, panelWidth: width = panelWidth, notices, hiddenPill, narrow, dockYields = false }: WorkflowCanvasProps) {
+  const [panelsOn, setPanelsOn] = useState(true)
+  const [dockAsked, setDockAsked] = useState(false)
+  const { section, room } = useRoom(dockYields)
+  const cramped = isCramped(dockYields, room, width)
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
-      if ((event.target as Element | null)?.closest?.(own)) return
-      if (event.key === "Escape" && selected) onClosePanel()
-      else if (event.key === ".") setPanelsOn(on => !on)
-      else return
-      event.preventDefault()
-    }
+    const onKey = keyHandler(selected, onClosePanel, setPanelsOn)
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
-  }, [selected, onClosePanel])
-  const showPanel = panelsOn && Boolean(panel) && !narrow
-  const hasCards = cards !== undefined && cards !== null && cards !== false
-  const showDock = panelsOn && hasCards && (!cramped || !showPanel || dockAsked)
-  const insets: Insets = narrow
-    ? { top: 0, left: 0, right: 0, bottom: showDock ? 220 : 0 }
-    : { top: 0, bottom: 0, left: showDock ? dockWidth + 2 * gap : 0, right: showPanel ? width + 2 * gap : 0 }
+  }, [selected, onClosePanel, setPanelsOn])
+  const { showPanel, showDock, showPill } = docksOf({ panelsOn, dockAsked, cramped, narrow, panel, cards })
+  const insets = insetsOf(narrow, showDock, showPanel, width)
   const panelsButton = <button type="button" aria-pressed={panelsOn} title="Show or hide the panels (.)" onClick={() => setPanelsOn(!panelsOn)} className="inline-flex h-8 items-center justify-center rounded-md px-2 text-xs text-lw-text hover:bg-lw-selected aria-pressed:bg-lw-selected">Panels</button>
   return <>
-    {/* On a phone the graph's toolbar is at its top, so the notices go
-        above the graph instead of over it. */}
-    {narrow && notices && <div className="shrink-0 space-y-2 border-b border-lw-line bg-lw-rail px-3 py-2">{notices}</div>}
+    <PhoneNotices narrow={narrow}>{notices}</PhoneNotices>
     <section ref={section} aria-label={label} className="relative min-h-0 flex-1 overflow-hidden bg-lw-ground">
+      {/* The graph under the docks, or in its place why there is none, clear of the docks. */}
       <div className="absolute inset-0">
         {graph ? <LazyWorkflowGraph {...graph} canvas={{ insets, focusId, tools: panelsButton }} />
           : <p role="status" className="flex h-full items-center justify-center p-4 text-sm text-lw-text-2" style={{ paddingLeft: insets.left, paddingRight: insets.right }}>{empty}</p>}
       </div>
-      {!narrow && notices && <div className="pointer-events-none absolute top-4 z-10 flex justify-center px-4" style={{ left: insets.left, right: insets.right }}>
-        <div className="pointer-events-auto w-full max-w-md space-y-2">{notices}</div>
-      </div>}
-      {hasCards && !showDock && <button type="button" onClick={() => { setPanelsOn(true); setDockAsked(true) }} className="absolute left-4 top-4 z-10 inline-flex h-9 items-center gap-2 rounded-full border border-lw-line-strong bg-lw-surface px-3 text-[13px] text-lw-text shadow-[var(--shadow-lw-panel)] hover:bg-lw-raised">
+      <FloatingNotices narrow={narrow} insets={insets}>{notices}</FloatingNotices>
+      {showPill && <button type="button" onClick={() => { setPanelsOn(true); setDockAsked(true) }} className="absolute left-4 top-4 z-10 inline-flex h-9 items-center gap-2 rounded-full border border-lw-line-strong bg-lw-surface px-3 text-[13px] text-lw-text shadow-[var(--shadow-lw-panel)] hover:bg-lw-raised">
         {hiddenPill}<span className="text-lw-text-2">· Show panels</span>
       </button>}
+      {/* The cards: the left dock, or on a phone a sheet along the bottom. */}
       {showDock && (narrow
         ? <div className="absolute inset-x-0 bottom-0 z-10 max-h-[50%] space-y-2 overflow-y-auto rounded-t-2xl border-t border-lw-line bg-lw-rail p-3 shadow-[var(--shadow-lw-panel)]">{cards}</div>
         : <div className="pointer-events-none absolute bottom-20 left-4 top-4 z-10 flex flex-col gap-2 overflow-y-auto [&>*]:pointer-events-auto" style={{ width: dockWidth, maxWidth: "calc(100% - 2rem)" }}>{cards}</div>)}

@@ -1,7 +1,8 @@
 // What a run says of each node of its workflow graph: the run state of each
 // step, the trigger that started it. The graph component draws it.
 import type { ReviewRunDetails, WorkflowCallDetails, WorkflowRunView, WorkflowStepRun } from "./workflow"
-import type { GraphNodeExtra, NodeRunState, WorkflowGraphModel } from "./workflowGraph"
+import type { GraphNodeExtra, NodeRunState } from "./workflowGraph"
+import type { WorkflowGraphModel } from "./workflow"
 import { elapsed } from "./workflowView"
 import { stepPathOf } from "./workflowRunTree"
 

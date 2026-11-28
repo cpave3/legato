@@ -14,7 +14,7 @@ vi.mock("../needsYou/NeedsYouSheet", () => ({ NeedsYouSheet: ({ onClose }: { onC
 vi.mock("../needsYou/NeedsYouRail", () => ({ NeedsYouRail: () => null }))
 vi.mock("../PlanApprovalModal", () => ({ PlanApprovalModal: () => null }))
 vi.mock("../OfflineDialog", () => ({ OfflineDialog: () => null }))
-vi.mock("../ApprovalTray", () => ({ ApprovalTray: () => null, ApprovalFocus: () => null, useApprovalLink: () => {} }))
+vi.mock("../approvals/ApprovalTray", () => ({ ApprovalTray: () => null, ApprovalFocus: () => null, useApprovalLink: () => {} }))
 vi.mock("../../hooks/useAgentSelection", () => ({ AgentSelectionProvider: ({ children }: { children: React.ReactNode }) => children }))
 vi.mock("../../hooks/useSheetAutoOpen", () => ({ NeedsYouAutoOpen: () => null }))
 

@@ -18,7 +18,7 @@ import type { HeldYaml } from "../components/workflow-editor/WorkflowOutline"
 import { KIND_TITLES } from "../components/workflow-editor/triggerTitles"
 import { fetchWorkflowTemplates, setWorkflowTrigger } from "../lib/workflow"
 import { LazyWorkflowStart } from "../components/workflow-editor/LazyWorkflowStart"
-import type { WorkflowGraphModel } from "../lib/workflowGraph"
+import type { WorkflowGraphModel } from "../lib/workflow"
 
 // Drops held item YAML that no longer belongs to the text, in either mode.
 const HeldYamlReconciler = lazy(() => import("../components/workflow-editor/HeldYamlReconciler"))

@@ -15,7 +15,7 @@ vi.mock("../../lib/reeve", () => ({
 import { ReeveEntry, ReeveStatus } from "../ReeveEntry"
 import { AgentSidebar } from "../AgentSidebar"
 import { AgentSelect } from "../AgentSelect"
-import type { AgentInfo } from "../../hooks/useWebSocket"
+import type { AgentInfo } from "../../lib/agentWire"
 
 const wrap = (node: ReactNode) => <QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>
 const overview = { history: [], folder: "/r", instance: "legato-1", role: "main", to_approve: 2 }
@@ -55,6 +55,48 @@ describe("ReeveEntry", () => {
     render(wrap(<ReeveEntry baseUrl="" selected={false} onSelect={onSelect} />))
     fireEvent.click(await screen.findByRole("button", { name: "Start the Reeve" }))
     await waitFor(() => expect(mockResume).toHaveBeenCalledWith("", "s1"))
+  })
+
+  it.each([
+    [{ activity: "working" }, "Running"],
+    [{ activity: "waiting" }, "Needs you"],
+    [{ activity: "" }, "Idle"],
+  ])("says a running session's state: %j", async (over, word) => {
+    mockFetch.mockResolvedValue({ ...overview, to_approve: 0, current: { task_id: "rv1", state: "running" } })
+    render(wrap(<ReeveEntry baseUrl="" agent={agent({ task_id: "rv1", reeve: true, ...over })} selected onSelect={vi.fn()} />))
+    const entry = await screen.findByTestId("reeve-entry")
+    expect(entry.textContent).toContain(word)
+    expect(entry.textContent).not.toContain("to approve")
+    expect(entry.textContent).not.toContain("pick to")
+    expect(entry.className).toContain("shadow-lw-accent-ring")
+    expect(entry.className).not.toContain("opacity-70")
+  })
+
+  it("says a stopped Reeve is not running or suspended, how to start it, and why a start failed", async () => {
+    mockFetch.mockResolvedValue(overview)
+    mockStart.mockRejectedValue(new Error("no adapter"))
+    render(wrap(<ReeveEntry baseUrl="" selected={false} onSelect={vi.fn()} />))
+    const entry = await screen.findByTestId("reeve-entry")
+    expect(entry.textContent).toContain("Not running")
+    expect(entry.textContent).toContain("· pick to start")
+    expect(entry.className).toContain("opacity-70")
+    fireEvent.click(screen.getByRole("button", { name: "Start the Reeve" }))
+    expect((await screen.findByRole("alert")).textContent).toBe("no adapter")
+    cleanup()
+
+    mockFetch.mockResolvedValue({ ...overview, current: { task_id: "s1", state: "suspended" } })
+    render(wrap(<ReeveEntry baseUrl="" selected={false} onSelect={vi.fn()} />))
+    const suspended = await screen.findByTestId("reeve-entry")
+    expect(suspended.textContent).toContain("Suspended")
+    expect(suspended.textContent).toContain("· pick to resume")
+  })
+
+  it("shows nothing until the overview is read, or when it cannot be", async () => {
+    mockFetch.mockRejectedValue(new Error("down"))
+    render(wrap(<ReeveEntry baseUrl="" selected={false} onSelect={vi.fn()} />))
+    expect(screen.queryByTestId("reeve-entry")).toBeNull()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(screen.queryByTestId("reeve-entry")).toBeNull()
   })
 
   it("is pinned above the groups in the sidebar, and leads the phone's list", async () => {

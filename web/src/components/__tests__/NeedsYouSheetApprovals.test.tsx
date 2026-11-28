@@ -42,7 +42,7 @@ vi.mock("../../lib/approvals", async (importOriginal) => {
 })
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { ApprovalFocus } from "../ApprovalTray"
+import { ApprovalFocus } from "../approvals/ApprovalTray"
 import { NeedsYouSheet } from "../needsYou/NeedsYouSheet"
 import { useApprovalLink } from "../../hooks/useApprovalLink"
 import { resetRailState } from "../../lib/railState"

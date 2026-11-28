@@ -6,7 +6,7 @@ import { createQueryClient } from "../../lib/query"
 import { RemotePage } from "../RemotePage"
 import type { JobClone } from "../../lib/jobClones"
 import { QuerySyncProvider } from "../../components/QuerySyncProvider"
-import type { WSMessage } from "../../hooks/useWebSocket"
+import type { WSMessage } from "../../lib/agentWire"
 
 let server = { baseUrl: "", activeServerName: "Local" }
 vi.mock("../../hooks/useServer", () => ({ useServer: () => server }))

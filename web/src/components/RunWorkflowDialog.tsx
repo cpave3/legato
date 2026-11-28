@@ -2,8 +2,71 @@ import { Dialog, DialogPanel, DialogHeader, DialogTitle, DialogBody, DialogFoote
 import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { useServer } from "../hooks/useServer"
-import { startWorkflow, type WorkflowDefinition, type WorkflowRepositoryPreset } from "../lib/workflow"
+import { startWorkflow, type WorkflowDefinition, type WorkflowInput, type WorkflowRepositoryPreset } from "../lib/workflow"
+import { afterStartPath, declaredValues, firstValues, missingInput, presetValues, refusalOf, REPOSITORY_KEYS, shownInputs, shownValue, type Inputs, type Refusal } from "../lib/workflowStart"
 import { WorkflowTaskInput } from "./WorkflowTaskInput"
+
+// raw is the input's value, if it has one; value what its field shows.
+type FieldProps = { name: string; input: WorkflowInput; raw: string | undefined; value: string; repositories: WorkflowRepositoryPreset[]; onChange: (value: string) => void }
+
+// ChoiceOrTextField is a choice from an input's choices, or text (a
+// password for a secret, a number for an integer).
+function ChoiceOrTextField({ name, input, raw, value, onChange }: FieldProps) {
+  if (input.choices?.length) {
+    return <select aria-label={name} required={input.required} value={raw ?? String(input.default ?? input.choices[0] ?? "")} onChange={event => onChange(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3">{input.choices.map(choice => <option key={String(choice)} value={String(choice)}>{String(choice)}</option>)}</select>
+  }
+  return <input aria-label={name} required={input.required} type={input.secret ? "password" : input.type === "integer" ? "number" : "text"} value={value} onChange={event => onChange(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3" />
+}
+
+// InputField is one input's field, by its type: read-only when the page
+// fixes it.
+function InputField({ readOnly, ...props }: FieldProps & { readOnly: boolean }) {
+  const { name, input, raw, value, repositories, onChange } = props
+  if (readOnly) return <input aria-label={name} readOnly value={value} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 text-zinc-400" />
+  if (input.type === "task") return <WorkflowTaskInput label={name} required={input.required} value={value} onChange={onChange} />
+  if (input.type === "repository") return <RepositoryWorkflowInput label={name} required={input.required} repositories={repositories} value={raw ?? ""} onChange={onChange} />
+  return <ChoiceOrTextField {...props} />
+}
+
+// InputLabel is an input's name, marked when required, and what it is.
+function InputLabel({ name, input }: { name: string; input: WorkflowInput }) {
+  return <><span>{name}{input.required && " *"}</span>{input.description && <span className="ml-2 text-xs text-zinc-500">{input.description}</span>}</>
+}
+
+// useStartWorkflow starts the workflow from the form: a required input
+// missing, a start refused (with where it points: the review loop that
+// holds the pull request, say) or failed is the error; else it leads where
+// the workflow says.
+function useStartWorkflow(definition: WorkflowDefinition, inputs: Inputs, values: Record<string, string>, onClose: () => void) {
+  const { baseUrl } = useServer()
+  const navigate = useNavigate()
+  const [error, setError] = useState("")
+  const [errorLink, setErrorLink] = useState<Refusal["link"] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const fail = (message: string, link: Refusal["link"] | null = null) => {
+    setError(message)
+    if (link) setErrorLink(link)
+    setBusy(false)
+  }
+  async function submit(event: React.FormEvent) {
+    event.preventDefault()
+    const missing = missingInput(inputs, values)
+    if (missing) { setError(`${missing} is required`); return }
+    setBusy(true)
+    const declared = declaredValues(values, inputs)
+    try {
+      const view = await startWorkflow(baseUrl, definition.name, declared)
+      const refused = refusalOf(view)
+      if (refused) { fail(refused.error, refused.link); return }
+      const path = afterStartPath(definition, inputs, declared, view.run.id)
+      if (path === null) onClose()
+      else navigate(path)
+    } catch (cause) {
+      fail(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+  return { submit, error, errorLink, busy }
+}
 
 export function RunWorkflowDialog({ definition, repositories, initialValues = {}, readOnlyInputs = [], hiddenInputs = [], onClose }: {
   definition: WorkflowDefinition
@@ -14,59 +77,21 @@ export function RunWorkflowDialog({ definition, repositories, initialValues = {}
   hiddenInputs?: string[]
   onClose: () => void
 }) {
-  const { baseUrl } = useServer()
-  const navigate = useNavigate()
-  const inputs = Object.fromEntries(Object.entries(definition.inputs ?? {}).filter(([key]) => !hiddenInputs.includes(key)))
-  const repositoryKeys = ["repo", "primary_dir", "base_branch"].filter(key => key in inputs)
-  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(Object.entries(inputs).flatMap(([key, input]) => {
-    const value = initialValues[key] ?? input.default ?? (input.choices?.[0]) ?? (input.type === "boolean" ? false : undefined)
-    return value == null ? [] : [[key, String(value)]]
-  })))
-  const [error, setError] = useState("")
-  // Where a refused start points: the review loop that holds the pull
-  // request, say.
-  const [errorLink, setErrorLink] = useState<{ to: string; label: string } | null>(null)
-  const [busy, setBusy] = useState(false)
+  const inputs = shownInputs(definition, hiddenInputs)
+  const repositoryKeys = REPOSITORY_KEYS.filter(key => key in inputs)
+  const [values, setValues] = useState<Record<string, string>>(() => firstValues(inputs, initialValues))
+  const { submit, error, errorLink, busy } = useStartWorkflow(definition, inputs, values, onClose)
   const readOnly = new Set(readOnlyInputs)
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault()
-    const missing = Object.entries(inputs).find(([key, input]) => input.required && !values[key] && input.default == null)
-    if (missing) { setError(`${missing[0]} is required`); return }
-    setBusy(true)
-    const declaredValues = Object.fromEntries(Object.entries(values).filter(([key]) => key in inputs))
-    try {
-      const view = await startWorkflow(baseUrl, definition.name, declaredValues)
-      // A start refused with a link (review_loop_active names the loop that
-      // holds the pull request) says so here, with the link.
-      const refused = view.run.status === "failed" ? view.steps?.find(step => step.status === "failed" && step.error_link) : undefined
-      if (refused) {
-        setError(refused.error ?? view.run.error ?? "The workflow could not start")
-        setErrorLink({ to: refused.error_link ?? "", label: ["review_loop_active", "author_loop_active"].includes(refused.error_code ?? "") ? "Open the review loop" : "Open" })
-        setBusy(false)
-        return
-      }
-      if (definition.after_start === "agent") {
-        const taskInput = Object.entries(inputs).find(([, input]) => input.type === "task")?.[0]
-        navigate(`/agents?task=${encodeURIComponent(taskInput ? declaredValues[taskInput] : "")}`)
-      } else if (definition.after_start === "stay") {
-        onClose()
-      } else {
-        navigate(`/workflows/runs/${view.run.id}`)
-      }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-      setBusy(false)
-    }
-  }
+  const setValue = (key: string, value: string) => setValues(current => ({ ...current, [key]: value }))
 
   return <Dialog open onClose={onClose}>
     <DialogPanel className="max-w-lg">
     <form onSubmit={submit} className="flex min-h-0 flex-col">
       <DialogHeader><DialogTitle className="text-lg font-semibold">Run {definition.title}</DialogTitle></DialogHeader>
       <DialogBody>
-      {repositories.length > 0 && repositoryKeys.length > 0 && <label className="mt-4 block text-sm"><span>Repository preset</span><select defaultValue="" onChange={event => { const preset = repositories.find(repository => repository.name === event.target.value); if (preset) setValues(current => ({ ...current, ...Object.fromEntries(repositoryKeys.map(key => [key, key === "repo" ? preset.repo : key === "primary_dir" ? preset.primary_dir : preset.base_branch ?? ""])) })) }} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3"><option value="">Custom</option>{repositories.map(repository => <option key={repository.name} value={repository.name}>{repository.name}</option>)}</select></label>}
-      <div className="mt-4 space-y-4">{Object.entries(inputs).map(([key, input]) => <div key={key} className="block text-sm"><span>{key}{input.required && " *"}</span>{input.description && <span className="ml-2 text-xs text-zinc-500">{input.description}</span>}{readOnly.has(key) ? <input aria-label={key} readOnly value={values[key] ?? String(input.default ?? "")} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 text-zinc-400" /> : input.type === "task" ? <WorkflowTaskInput label={key} required={input.required} value={values[key] ?? String(input.default ?? "")} onChange={value => setValues(current => ({ ...current, [key]: value }))} /> : input.type === "repository" ? <RepositoryWorkflowInput label={key} required={input.required} repositories={repositories} value={values[key] ?? ""} onChange={value => setValues(current => ({ ...current, [key]: value }))} /> : input.choices?.length ? <select aria-label={key} required={input.required} value={values[key] ?? String(input.default ?? input.choices[0] ?? "")} onChange={event => setValues(current => ({ ...current, [key]: event.target.value }))} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3">{input.choices.map(choice => <option key={String(choice)} value={String(choice)}>{String(choice)}</option>)}</select> : <input aria-label={key} required={input.required} type={input.secret ? "password" : input.type === "integer" ? "number" : "text"} value={values[key] ?? String(input.default ?? "")} onChange={event => setValues(current => ({ ...current, [key]: event.target.value }))} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3" />}</div>)}</div>
+      {/* A preset fills the repository inputs. */}
+      {repositories.length > 0 && repositoryKeys.length > 0 && <label className="mt-4 block text-sm"><span>Repository preset</span><select defaultValue="" onChange={event => { const preset = repositories.find(repository => repository.name === event.target.value); if (preset) setValues(current => ({ ...current, ...presetValues(preset, repositoryKeys) })) }} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3"><option value="">Custom</option>{repositories.map(repository => <option key={repository.name} value={repository.name}>{repository.name}</option>)}</select></label>}
+      <div className="mt-4 space-y-4">{Object.entries(inputs).map(([key, input]) => <div key={key} className="block text-sm"><InputLabel name={key} input={input} /><InputField name={key} input={input} raw={values[key]} value={shownValue(values, key, input)} readOnly={readOnly.has(key)} repositories={repositories} onChange={value => setValue(key, value)} /></div>)}</div>
       {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
       {error && errorLink && <Link to={errorLink.to} onClick={onClose} className="mt-2 inline-block text-sm text-lw-link underline">{errorLink.label}</Link>}
       </DialogBody><DialogFooter className="flex gap-2"><button type="button" onClick={onClose} className="min-h-11 flex-1 rounded-lg border border-zinc-700">Cancel</button><button disabled={busy} className="min-h-11 flex-1 rounded-lg bg-indigo-500 font-medium">{busy ? "Starting…" : "Start"}</button></DialogFooter>

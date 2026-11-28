@@ -1,20 +1,8 @@
-import { createContext, useContext } from "react"
+import { useContext } from "react"
 import { Play } from "lucide-react"
 import type { BoardCard, PRMetaView } from "../../lib/board-types"
-import { suggestedFirst, type Macro, type MacroList, type MacroPR } from "../../lib/macros"
-
-// What a board gives its cards to start macros: the macros, and how to start
-// one on a card (and one of its pull requests).
-export interface BoardMacros {
-  list: MacroList
-  run: (card: BoardCard, macro: Macro, pr?: MacroPR) => void
-}
-
-export const BoardMacrosContext = createContext<BoardMacros | null>(null)
-
-export function macroPR(pr: PRMetaView): MacroPR {
-  return { repo: pr.repo, pr_number: pr.pr_number, url: pr.pr_url || undefined }
-}
+import { suggestedFirst } from "../../lib/macros"
+import { BoardMacrosContext, macroPR } from "./prMacrosContext"
 
 // PRActionButton is the one button a pull request that needs the operator
 // gets: its suggested macro (Address feedback on the operator's own PR,

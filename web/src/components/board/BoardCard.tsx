@@ -1,11 +1,12 @@
 import { cn } from "../../lib/utils"
-import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react"
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode, type RefObject } from "react"
 import { Link } from "react-router-dom"
 import { MoreHorizontal } from "lucide-react"
 import type { BoardCard as BoardCardType } from "../../lib/board-types"
-import { agentStripLook, cardSource, formatDuration, isMilestone, needsYouStrip, needsYouStrips, priorityTone, slotChipLabel, type NeedsYouStrip, type StripAction } from "../../lib/boardCard"
+import { agentStripLook, cardSource, formatDuration, isMilestone, slotChipLabel, type NeedsYouStrip, type StripAction } from "../../lib/boardCard"
+import { cardFrame, cardMetaParts, type CardFrame } from "../../lib/boardCardFrame"
 import { openNeedsYou, showApproval } from "../../lib/railState"
-import { awayStrip, type AwayStrip as AwayStripLook } from "../../lib/away"
+import type { AwayStrip as AwayStripLook } from "../../lib/away"
 import { resumeInterruptedAgent } from "../../lib/interruptedAgents"
 import { useServer } from "../../hooks/useServer"
 import { useToast } from "../../hooks/useToast"
@@ -137,21 +138,11 @@ function NeedsYouStripRow({ strip }: { strip: NeedsYouStrip }) {
 }
 
 function MetaLine({ card, showWorkspace }: { card: BoardCardType; showWorkspace: boolean }) {
-  const swarm = card.swarm_stats && card.swarm_stats.total > 0 ? card.swarm_stats : null
-  const parts: ReactNode[] = []
-  if (card.priority) parts.push(<span key="priority" className={priorityTone(card.priority)}>{card.priority}</span>)
-  // A Milestone is a tag in the header.
-  if (card.issue_type && !isMilestone(card)) parts.push(<span key="type">{card.issue_type}</span>)
-  // On a worker, a workspace named after the main says what the header does.
-  if (showWorkspace && card.workspace_name && card.workspace_name !== card.handoff_from?.main) parts.push(<span key="workspace">{card.workspace_name}</span>)
-  if (swarm) parts.push(<span key="swarm" className="text-lw-link">{swarm.done}/{swarm.total} workers</span>)
-  if (card.blocked_by && card.blocked_by.length > 0) parts.push(<span key="blocked" className="text-lw-error">Blocked by {card.blocked_by.join(", ")}</span>)
-  if (card.milestone) parts.push(<span key="milestone" className="font-lw-mono">{card.milestone}</span>)
-  for (const label of card.labels ?? []) parts.push(<span key={`label-${label}`}>{label}</span>)
+  const parts = cardMetaParts(card, showWorkspace)
   if (parts.length === 0) return null
   return (
     <div data-testid="card-meta" className="flex flex-wrap items-center gap-x-1.5 text-xs text-lw-text-2">
-      {parts.map((part, index) => <span key={index} className="contents">{index > 0 && <span aria-hidden="true" className="text-lw-faint">·</span>}{part}</span>)}
+      {parts.map((part, index) => <span key={index} className="contents">{index > 0 && <span aria-hidden="true" className="text-lw-faint">·</span>}<span key={part.key} className={part.className}>{part.text}</span></span>)}
     </div>
   )
 }
@@ -166,29 +157,96 @@ function ReviewStrip({ card }: { card: BoardCardType }) {
   )
 }
 
-export function BoardCard({ card, selected, highlighted = false, column, showWorkspace, onClick, onDoubleClick, onContextMenu, onActionMenu, onDragStart, actions }: BoardCardProps) {
-  const cardRef = useRef<HTMLDivElement>(null)
-  const isDone = column === "Done"
-  // The moving light is for an agent at work; a card that needs the
-  // operator has a steady amber edge, one in error a red one.
-  const trace = card.agent_active && card.agent_state === "working" && animatedAgentActivityEnabled()
-  const agentTime = card.agent_active ? "" : formatDuration(card.working_seconds + card.waiting_seconds + card.error_seconds)
-  // What waits on the operator is drawn above what runs; it stands in for
-  // the agent's own strip while the agent only waits or idles.
-  // An away task's state is on its worker: one strip says it.
-  const away = card.away ? awayStrip(card.away) : null
-  const needs = away ? [] : needsYouStrips(card)
-  const main = away ? null : needsYouStrip(card)
-  const quietAgent = ["waiting", "idle", ""].includes(card.agent_state)
-  const edge = away ? away.edge : card.agent_active && card.agent_state === "error" ? "error" : needs.length > 0 || (card.agent_active && card.agent_state === "waiting") ? "needs" : ""
-
+// A highlighted card (one just imported) scrolls into the middle of its
+// column; the Away lane keeps its selected row in view, as a column does.
+function useCardInView(cardRef: RefObject<HTMLDivElement | null>, highlighted: boolean, selected: boolean, away: unknown) {
   useEffect(() => {
     if (highlighted) cardRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center", inline: "nearest" })
-  }, [highlighted])
-  // The Away lane keeps its selected row in view, as a column does.
+  }, [cardRef, highlighted])
   useEffect(() => {
-    if (selected && card.away && !highlighted) cardRef.current?.scrollIntoView?.({ block: "nearest" })
-  }, [selected, card.away, highlighted])
+    if (selected && away && !highlighted) cardRef.current?.scrollIntoView?.({ block: "nearest" })
+  }, [cardRef, selected, away, highlighted])
+}
+
+// The card's border: the accent when selected, else its steady edge.
+function borderClass(selected: boolean, edge: string): string {
+  if (selected) return "border-lw-accent bg-lw-selected"
+  if (edge === "needs") return cn("bg-lw-surface", "border-lw-needs")
+  if (edge === "error") return cn("bg-lw-surface", "border-lw-error")
+  return cn("bg-lw-surface", "border-lw-line hover:border-lw-line-strong")
+}
+
+// The header: where the task comes from, and its marks. It always leaves
+// room for ⋯ at its right.
+function CardSourceLine({ card }: { card: BoardCardType }) {
+  const agentTime = card.agent_active ? "" : formatDuration(card.working_seconds + card.waiting_seconds + card.error_seconds)
+  const from = card.handoff_from ? `${card.handoff_from.main} · ${card.handoff_from.main_task_id}` : undefined
+  return (
+    <div data-testid="card-source" className="flex items-center justify-between gap-2 pr-10 font-lw-mono md:pr-8 text-[11px] leading-4 text-lw-faint">
+      <span className="truncate" title={from}>{cardSource(card)}</span>
+      <span className="flex shrink-0 items-center gap-2">
+        {card.has_warning && <Mark glyph="⚠" tone="font-lw text-lw-error">sync failed</Mark>}
+        {isMilestone(card) && <span className="rounded-full border border-lw-line-strong px-1.5 font-lw leading-[14px] text-lw-text-2">Milestone</span>}
+        {agentTime && <span title="Time agents spent on this task">{agentTime}</span>}
+      </span>
+    </div>
+  )
+}
+
+// The title, the card's keyboard primary action: Enter opens the task.
+function CardTitle({ title, selected, done, onOpen }: { title: string; selected: boolean; done: boolean; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter") return
+        event.preventDefault()
+        event.stopPropagation()
+        onOpen()
+      }}
+      className={cn("rounded-sm text-left text-sm font-semibold leading-[19px] [overflow-wrap:anywhere] max-md:line-clamp-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lw-accent", done && "text-lw-text-2")}
+    >{title}</button>
+  )
+}
+
+// The strips at the card's foot, what waits first, then the away task's
+// actions.
+function CardStrips({ card, frame, actions }: { card: BoardCardType; frame: CardFrame; actions?: ReactNode }) {
+  return <>
+    {frame.needs.map(strip => <NeedsYouStripRow key={strip.text} strip={strip} />)}
+    {Boolean(card.review_unreviewed) && <ReviewStrip card={card} />}
+    {frame.agentStrip && <AgentStrip card={card} />}
+    {frame.away && <AwayStripRow strip={frame.away} stage={card.away?.stage} />}
+    {actions && <div onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()} className="flex flex-wrap items-center gap-1 border-t border-lw-line px-3 py-2 empty:hidden">{actions}</div>}
+  </>
+}
+
+// The moving light is for an agent at work, unless animation is off; a card
+// that needs the operator has a steady amber edge, one in error a red one.
+function tracesAgent(card: BoardCardType): boolean {
+  return card.agent_active && card.agent_state === "working" && animatedAgentActivityEnabled()
+}
+
+// A right click opens the card's menu where it was clicked, when it has one.
+function contextMenuAt(onContextMenu?: (position: { x: number; y: number }) => void) {
+  return (event: MouseEvent<HTMLDivElement>) => {
+    if (!onContextMenu) return
+    event.preventDefault()
+    onContextMenu({ x: event.clientX, y: event.clientY })
+  }
+}
+
+// A ready review tour with nothing left to review.
+function ReviewedMark({ card }: { card: BoardCardType }) {
+  if (!card.review_ready || card.review_unreviewed) return null
+  return <Mark glyph="✓" tone="text-xs text-lw-done">Reviewed</Mark>
+}
+
+export function BoardCard({ card, selected, highlighted = false, column, showWorkspace, onClick, onDoubleClick, onContextMenu, onActionMenu, onDragStart, actions }: BoardCardProps) {
+  const cardRef = useRef<HTMLDivElement>(null)
+  const frame = cardFrame(card)
+  useCardInView(cardRef, highlighted, selected, card.away)
 
   return (
     <div
@@ -196,56 +254,30 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
       data-card={card.id}
       data-highlighted-task={highlighted || undefined}
       data-selected={selected || undefined}
-      data-edge={edge || undefined}
+      data-edge={frame.edge || undefined}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
-      onContextMenu={(event: MouseEvent<HTMLDivElement>) => {
-        if (!onContextMenu) return
-        event.preventDefault()
-        onContextMenu({ x: event.clientX, y: event.clientY })
-      }}
+      onContextMenu={contextMenuAt(onContextMenu)}
       draggable={!card.away}
       onDragStart={onDragStart}
       className={cn(
         // A column lays cards out as a flex column that scrolls; a card keeps
         // its height there rather than being squeezed to fit.
         "group relative flex shrink-0 cursor-pointer flex-col overflow-hidden rounded-lg border font-lw text-lw-text transition-colors",
-        selected ? "border-lw-accent bg-lw-selected" : cn("bg-lw-surface", edge === "needs" ? "border-lw-needs" : edge === "error" ? "border-lw-error" : "border-lw-line hover:border-lw-line-strong"),
-        trace && "lw-trace lw-trace-working",
+        borderClass(selected, frame.edge),
+        tracesAgent(card) && "lw-trace lw-trace-working",
         highlighted && "lw-highlight",
       )}
     >
       {onActionMenu && <button type="button" aria-label={`Open actions for ${card.title}`} onClick={event => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); onActionMenu({ x: rect.right, y: rect.bottom }) }} className="absolute right-0 top-0 z-10 flex h-11 w-11 items-center justify-center rounded-md md:right-1 md:top-1 text-lw-faint hover:bg-lw-raised hover:text-lw-text focus-visible:opacity-100 md:h-7 md:w-7 md:opacity-0 md:group-hover:opacity-100"><MoreHorizontal size={15} /></button>}
       <div className="flex flex-col gap-1 px-3 py-2.5">
-        {/* The header always leaves room for ⋯ at its right. */}
-        <div data-testid="card-source" className="flex items-center justify-between gap-2 pr-10 font-lw-mono md:pr-8 text-[11px] leading-4 text-lw-faint">
-          <span className="truncate" title={card.handoff_from ? `${card.handoff_from.main} · ${card.handoff_from.main_task_id}` : undefined}>{cardSource(card)}</span>
-          <span className="flex shrink-0 items-center gap-2">
-            {card.has_warning && <Mark glyph="⚠" tone="font-lw text-lw-error">sync failed</Mark>}
-            {isMilestone(card) && <span className="rounded-full border border-lw-line-strong px-1.5 font-lw leading-[14px] text-lw-text-2">Milestone</span>}
-            {agentTime && <span title="Time agents spent on this task">{agentTime}</span>}
-          </span>
-        </div>
-        <button
-          type="button"
-          aria-pressed={selected}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter") return
-            event.preventDefault()
-            event.stopPropagation()
-            ;(onDoubleClick ?? onClick)()
-          }}
-          className={cn("rounded-sm text-left text-sm font-semibold leading-[19px] [overflow-wrap:anywhere] max-md:line-clamp-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lw-accent", isDone && "text-lw-text-2")}
-        >{card.title}</button>
+        <CardSourceLine card={card} />
+        <CardTitle title={card.title} selected={selected} done={column === "Done"} onOpen={onDoubleClick ?? onClick} />
         <MetaLine card={card} showWorkspace={showWorkspace} />
-        {card.review_ready && !card.review_unreviewed && <Mark glyph="✓" tone="text-xs text-lw-done">Reviewed</Mark>}
+        <ReviewedMark card={card} />
         <CardPullRequests card={card} />
       </div>
-      {needs.map(strip => <NeedsYouStripRow key={strip.text} strip={strip} />)}
-      {Boolean(card.review_unreviewed) && <ReviewStrip card={card} />}
-      {!away && card.agent_active && !(main && quietAgent) && <AgentStrip card={card} />}
-      {away && <AwayStripRow strip={away} stage={card.away?.stage} />}
-      {actions && <div onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()} className="flex flex-wrap items-center gap-1 border-t border-lw-line px-3 py-2 empty:hidden">{actions}</div>}
+      <CardStrips card={card} frame={frame} actions={actions} />
     </div>
   )
 }

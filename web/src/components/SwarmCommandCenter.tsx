@@ -1,6 +1,6 @@
 import { useMemo } from "react"
 import { AlertTriangle, Bot, ChevronLeft, Radio, Users } from "lucide-react"
-import type { AgentInfo } from "../hooks/useWebSocket"
+import type { AgentInfo } from "../lib/agentWire"
 import type { SwarmStatusData } from "../lib/swarm"
 import { cn } from "../lib/utils"
 import { useAgentPreview } from "../hooks/useAgentPreview"

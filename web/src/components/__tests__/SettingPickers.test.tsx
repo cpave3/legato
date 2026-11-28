@@ -155,4 +155,99 @@ describe("Settings pickers", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove review" }))
     await waitFor(() => expect(mockSet).toHaveBeenCalledWith("http://legato", "groups.defaults", []))
   })
+
+  it("saves a one-key model or tier by its name, reads it back as whichever it is, and clears it", async () => {
+    show([
+      setting({ key: "reeve.agent", title: "Reeve", value: "claude-code", source: "database" }),
+      setting({ key: "reeve.model", title: "Reeve's model", value: "deep", source: "database" }),
+    ])
+    const second = screen.getByRole("combobox", { name: "Reeve model or tier" }) as HTMLSelectElement
+    expect(second.value).toBe("tier:deep")
+    expect(options("Reeve model or tier")[0]).toBe("Default model")
+    fireEvent.change(second, { target: { value: "model:claude-opus-5-5" } })
+    await waitFor(() => expect(mockSet).toHaveBeenCalledWith("http://legato", "reeve.model", "claude-opus-5-5"))
+    fireEvent.change(second, { target: { value: "" } })
+    await waitFor(() => expect(mockReset).toHaveBeenCalledWith("http://legato", "reeve.model"))
+  })
+
+  it("reads a one-key model as a model, and names one the agent lacks", () => {
+    show([
+      setting({ key: "reeve.agent", title: "Reeve", value: "codex", source: "database" }),
+      setting({ key: "reeve.model", title: "Reeve's model", value: "gpt-old", source: "database" }),
+    ])
+    expect((screen.getByRole("combobox", { name: "Reeve model or tier" }) as HTMLSelectElement).value).toBe("model:gpt-old")
+    expect(screen.getByRole("alert")).toHaveTextContent("gpt-old isn't a model or tier of Codex")
+  })
+
+  it("clears both keys of a reviewer when its model or tier goes back to the default", async () => {
+    show([
+      setting({ key: "review_passes.reviewer.agent", title: "Reviewer", value: "claude-code", source: "database" }),
+      setting({ key: "review_passes.reviewer.model", title: "Reviewer's model" }),
+      setting({ key: "review_passes.reviewer.tier", title: "Reviewer's tier", value: "deep", source: "database" }),
+    ])
+    const second = screen.getByRole("combobox", { name: "Reviewer model or tier" }) as HTMLSelectElement
+    expect(second.value).toBe("tier:deep")
+    expect(document.getElementById("setting-review_passes.reviewer.tier")).toBeTruthy()
+    fireEvent.change(second, { target: { value: "model:claude-opus-5-5" } })
+    await waitFor(() => expect(mockSet).toHaveBeenCalledWith("http://legato", "review_passes.reviewer.model", "claude-opus-5-5"))
+    expect(mockReset).toHaveBeenCalledWith("http://legato", "review_passes.reviewer.tier")
+    mockSet.mockClear(); mockReset.mockClear()
+    fireEvent.change(second, { target: { value: "" } })
+    await waitFor(() => expect(mockReset).toHaveBeenCalledWith("http://legato", "review_passes.reviewer.tier"))
+    expect(mockSet).not.toHaveBeenCalled()
+  })
+
+  it("keeps a tier the new agent has too, and clears the agent back to the default", async () => {
+    show([
+      setting({ key: "swarm.worker.agent", title: "Workers", value: "codex", source: "database" }),
+      setting({ key: "swarm.worker.model", title: "Workers' model", value: "deep", source: "database" }),
+    ])
+    fireEvent.change(screen.getByRole("combobox", { name: "Workers agent" }), { target: { value: "" } })
+    await waitFor(() => expect(mockReset).toHaveBeenCalledWith("http://legato", "swarm.worker.agent"))
+    expect(mockReset).not.toHaveBeenCalledWith("http://legato", "swarm.worker.model")
+  })
+
+  it("changes no agent when clearing its old tier is refused", async () => {
+    mockReset.mockRejectedValue(new Error("pinned"))
+    show([
+      setting({ key: "learning.curator_adapter", title: "Curator", value: "claude-code", source: "database" }),
+      setting({ key: "learning.curator_tier", title: "Curator's tier", value: "deep", source: "database" }),
+    ])
+    fireEvent.change(screen.getByRole("combobox", { name: "Curator agent" }), { target: { value: "codex" } })
+    await waitFor(() => expect(mockReset).toHaveBeenCalledWith("http://legato", "learning.curator_tier"))
+    expect(mockSet).not.toHaveBeenCalled()
+  })
+
+  it("holds a pinned model or tier, and names an agent setting's own unset meaning", () => {
+    show([
+      setting({ key: "swarm.worker.agent", title: "Workers", default_label: "Ask each time" }),
+      setting({ key: "swarm.worker.model", title: "Workers' model", pinned: true, value: "quick", source: "config.yaml" }),
+      setting({ key: "integrations.argus.agent", title: "Briefs", default_label: "Same as the default agent" }),
+    ])
+    expect(screen.getByRole("combobox", { name: "Workers model or tier" })).toBeDisabled()
+    expect(screen.getByRole("combobox", { name: "Workers agent" })).not.toBeDisabled()
+    expect(options("Workers agent")[0]).toBe("Ask each time")
+    expect(options("Briefs")[0]).toBe("Default agent · Claude Code")
+  })
+
+  it("adds no tag twice or blank, and shows none when it cannot change", async () => {
+    show([setting({ key: "groups.defaults", title: "Agent groups", kind: "strings", value: ["review"], source: "database" })])
+    const input = screen.getByRole("textbox", { name: "Add to Agent groups" })
+    fireEvent.change(input, { target: { value: " review " } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    fireEvent.change(input, { target: { value: "  " } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    fireEvent.keyDown(input, { key: "a" })
+    expect(mockSet).not.toHaveBeenCalled()
+    cleanup()
+    show([setting({ key: "groups.defaults", title: "Agent groups", kind: "strings", value: [], pinned: true, source: "config.yaml" })])
+    expect(screen.getByText("None")).toBeTruthy()
+    expect(screen.queryByRole("textbox", { name: "Add to Agent groups" })).toBeNull()
+  })
+
+  it("marks chosen columns the board lacks", () => {
+    show([setting({ key: "learning.transition_columns", title: "Reflect on", kind: "strings", value: ["Gone", "Done"], source: "database" })])
+    expect(screen.getByRole("alert")).toHaveTextContent("Gone isn't a column here")
+    expect(screen.getByText("Gone").className).toContain("border-lw-error")
+  })
 })

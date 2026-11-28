@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 import { Check, Copy, X } from "lucide-react"
 
 import { useServer } from "../hooks/useServer"
-import type { AgentInfo } from "../hooks/useWebSocket"
+import type { AgentInfo } from "../lib/agentWire"
 import { agentKindLabel } from "../lib/agentKind"
 import { attachedResources } from "../lib/resources"
 import { cn } from "../lib/utils"
