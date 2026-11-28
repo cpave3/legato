@@ -22,6 +22,7 @@ type UpdateService interface {
 	Check(ctx context.Context) (service.UpdateStatus, error)
 	Apply(ctx context.Context) error
 	ApplyTool(ctx context.Context, name string) error
+	RollbackTool(ctx context.Context, name string) error
 	SetMode(ctx context.Context, mode string) error
 }
 
@@ -109,17 +110,14 @@ func (s *Server) updateToolApplyHandler() http.HandlerFunc {
 		}
 		name := r.PathValue("name")
 		status := s.updates.Status(r.Context())
-		var tool *service.ToolStatus
-		for i := range status.Tools {
-			if status.Tools[i].Name == name {
-				tool = &status.Tools[i]
-			}
-		}
+		tool := findTool(status, name)
 		switch {
 		case tool == nil || !tool.Managed:
 			s.writeError(w, http.StatusConflict, service.ErrToolNotManaged.Error())
 			return
-		case !tool.Available:
+		// A failed tool may be repaired by updating it (Claude Code whose
+		// version went missing from disk).
+		case !tool.Available && tool.State != service.UpdateFailed:
 			s.writeError(w, http.StatusConflict, service.ErrNoUpdate.Error())
 			return
 		}
@@ -130,6 +128,49 @@ func (s *Server) updateToolApplyHandler() http.HandlerFunc {
 		}()
 		s.writeJSON(w, http.StatusAccepted, status)
 	}
+}
+
+// updateToolRollbackHandler serves POST /api/updates/tools/{name}/rollback:
+// switches a tool back to its last known good version (Claude Code). It
+// answers 202 at once; update_changed tells how it goes. 409 for a tool
+// the updater does not look after, or with no last known good.
+func (s *Server) updateToolRollbackHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !s.haveUpdates(w) {
+			return
+		}
+		name := r.PathValue("name")
+		status := s.updates.Status(r.Context())
+		tool := findTool(status, name)
+		switch {
+		case tool == nil || !tool.Managed:
+			s.writeError(w, http.StatusConflict, service.ErrToolNotManaged.Error())
+			return
+		case !tool.CanRollback:
+			s.writeError(w, http.StatusConflict, service.ErrNoLastGood.Error())
+			return
+		}
+		go func() {
+			if err := s.updates.RollbackTool(context.Background(), name); err != nil {
+				log.Printf("updates: %v", err)
+			}
+		}()
+		s.writeJSON(w, http.StatusAccepted, status)
+	}
+}
+
+// findTool is a tool's status by name, nil for none.
+func findTool(status service.UpdateStatus, name string) *service.ToolStatus {
+	for i := range status.Tools {
+		if status.Tools[i].Name == name {
+			return &status.Tools[i]
+		}
+	}
+	return nil
 }
 
 // updateModeHandler serves PUT /api/settings/updates {mode}: auto, ask or

@@ -389,6 +389,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `PUT` | `/api/config/lists/{list}/{name}` | change | Save an entry of a settings list | `{"value": {…}}` |
 | `DELETE` | `/api/config/lists/{list}/{name}` | change | Delete an entry of a settings list |  |
 | `POST` | `/api/updates/tools/{name}/apply` | risky | Update a tool Legato installs |  |
+| `POST` | `/api/updates/tools/{name}/rollback` | risky | Roll a tool back to its last known good version |  |
 | `POST` | `/api/hot-reload/build` | risky | Rebuild and reload Legato |  |
 | `GET` | `/api/adapters` | read | List the agent tools |  |
 | `GET` | `/api/directories` | read | Suggest directories |  |
