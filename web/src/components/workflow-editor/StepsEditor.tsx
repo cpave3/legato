@@ -11,6 +11,7 @@ import { Button } from "../ui/Button"
 import { CommitField, Problems, ReferencePicker } from "./builderFields"
 import { fieldClass, labelClass, problemsAt, valueText } from "./builderStyles"
 import { startOf } from "./stepRows"
+import { isExpressionValue, isWholeNumber, jsonText, jsonValue, notANumber, showsPicker, suggestionsFor, takesExpressionText } from "./fieldValues"
 
 type Props = {
   text: string
@@ -181,78 +182,107 @@ type WithFieldProps = { spec: FieldSpec; stepId: string; value: unknown; onChang
   /** reads is where the field is, for the inspector's value picker. */
   reads?: { values: ValueSource; location: ExpressionLocation } }
 
+type ControlProps = { spec: FieldSpec; name: string; value: unknown; text: string; expression: boolean; set: (raw: string) => void; onChange: (value: unknown) => void }
+
+// BooleanControl is a checkbox; an expression is text.
+function BooleanControl({ spec, name, value, text, expression, set, onChange }: ControlProps) {
+  if (expression) return <CommitField aria-label={name} value={text} onCommit={set} />
+  return <input type="checkbox" aria-label={name} checked={value === true} onChange={event => onChange(event.target.checked ? true : spec.required ? false : undefined)} />
+}
+
+// IntegerControl writes a whole number as one; anything else (an
+// expression) as text.
+function IntegerControl({ name, value, text, set, onChange }: ControlProps) {
+  return <CommitField aria-label={name} inputMode="numeric" value={text} aria-invalid={notANumber("integer", value) || undefined} onCommit={raw => isWholeNumber(raw) ? onChange(Number(raw.trim())) : set(raw)} />
+}
+
+function JsonControl({ name, value, onChange }: ControlProps) {
+  return <CommitField aria-label={name} multiline value={jsonText(value)} onCommit={raw => onChange(jsonValue(raw))} />
+}
+
+// TaskControl chooses a task reference: the workflow's task or a task
+// input, keeping a value it does not list.
+function TaskControl({ name, text, onChange, taskRefs }: ControlProps & { taskRefs: string[] }) {
+  return <select aria-label={name} className={fieldClass} value={text} onChange={event => onChange(event.target.value)}>
+    {!taskRefs.includes(text) && <option value={text}>{text || "Choose a task"}</option>}
+    {taskRefs.map(ref => <option key={ref} value={ref}>{ref === "${{ workflow.task }}" ? "The workflow's task" : `Input ${ref.slice(20, -3)}`}</option>)}
+  </select>
+}
+
+// ChoiceControl chooses from a field's enum, or is text (with this
+// Legato's suggestions) for a field without one or holding an expression.
+function ChoiceControl({ spec, name, text, expression, set, list }: ControlProps & { list?: string }) {
+  if (!spec.enum || expression) return <CommitField aria-label={name} value={text} onCommit={set} list={list} />
+  return <select aria-label={name} className={fieldClass} value={text} onChange={event => set(event.target.value)}>
+    <option value="">{spec.required ? "Choose" : "The default"}</option>
+    {spec.enum.map(option => <option key={option} value={option}>{option}</option>)}
+  </select>
+}
+
+type FieldControlProps = ControlProps & { stepId: string; refs: string[]; taskRefs: string[]; list?: string }
+
+// PlainControl is a field's control by its kind, outside the inspector's
+// own controls.
+function PlainControl(props: FieldControlProps) {
+  const { spec, name, text, set, expression } = props
+  switch (spec.kind) {
+    case "text": return <CommitField aria-label={name} multiline value={text} onCommit={set} />
+    case "boolean": return <BooleanControl {...props} />
+    case "integer": return <IntegerControl {...props} />
+    case "json": return <JsonControl {...props} />
+    case "chat_buttons": return expression ? <CommitField aria-label={name} value={text} onCommit={set} /> : <ChatButtonsField name={name} stepId={props.stepId} value={props.value} refs={props.refs} onChange={props.onChange} />
+    case "task": return <TaskControl {...props} />
+    default: return <ChoiceControl {...props} />
+  }
+}
+
+type Reads = { groups: ValueGroup[] | null; check: (expression: string) => string | null }
+
+// readsOf is what a field in the inspector can read: the value groups its
+// picker offers, and the check of an expression typed into it.
+function readsOf(reads: WithFieldProps["reads"], spec: FieldSpec): Reads {
+  if (!reads) return { groups: null, check: () => null }
+  return { groups: spec.expressions ? valueGroups(reads.values, reads.location, spec.kind) : null, check: expression => checkExpression(reads.values, reads.location, expression) }
+}
+
+// FieldControl is a field's control: in the inspector its own control
+// where one suits the field, or text that takes values at its cursor;
+// else the plain control of its kind.
+function FieldControl({ rich, reads, options, ...props }: FieldControlProps & { rich: boolean; reads: Reads; options: BuilderOptions }) {
+  const { spec, name, value, text, expression, set, onChange } = props
+  const richControl = rich && !expression ? richControlOf({ spec, name, value, text, onChange, set, options, groups: reads.groups, check: reads.check }) : null
+  if (richControl) return <>{richControl}</>
+  if (takesExpressionText(spec, rich, reads.groups !== null, expression)) {
+    return <ExpressionText name={name} label={spec.label} value={text} multiline={spec.kind === "text"} groups={reads.groups!} check={reads.check} invalid={notANumber(spec.kind, value) || undefined} onCommit={set} list={props.list} />
+  }
+  return <PlainControl {...props} />
+}
+
+// FieldLabel is a field's label, whether it is required, and its name
+// when the label is not.
+function FieldLabel({ spec }: { spec: FieldSpec }) {
+  return <span>{spec.label}{spec.required || spec.requiredAtRun ? " (required)" : ""}{spec.label !== spec.name && <span className="ml-1.5 font-lw-mono text-[11px] text-lw-faint">{spec.name}</span>}</span>
+}
+
 // WithField draws one with field by its kind. Every kind is drawn; a value
 // that is an expression is shown as text, so it can always be edited.
 export function WithField({ spec, stepId, value, onChange, refs, taskRefs, options, agent, problems, rich = false, reads }: WithFieldProps) {
   const name = `${spec.name} of step ${stepId}`
-  // A number field holding text that is neither a whole number nor an
-  // expression: the engine may only find out when the step runs.
-  const notANumber = spec.kind === "integer" && typeof value === "string" && value.trim() !== "" && !value.includes("${{") && !/^-?\d+$/.test(value.trim())
+  const wrongNumber = notANumber(spec.kind, value)
   const text = valueText(value)
-  const isExpression = typeof value === "string" && value.includes("${{")
   const listId = `options-${stepId}-${spec.name}`
   const set = (raw: string) => onChange(raw === "" && !spec.required ? undefined : raw)
-  // Buttons take references row by row, in each value.
-  const picker = spec.expressions && !rich && spec.kind !== "chat_buttons" && <ReferencePicker name={name} options={refs} onPick={expression => onChange(`${text}\${{ ${expression} }}`)} />
-  let control: React.ReactNode
-  const suggestions = spec.kind === "macro" ? options.macros : spec.kind === "agent" ? options.agents : spec.kind === "tier" ? (options.tiers[agent] ?? Object.values(options.tiers).flat()) : spec.kind === "column" ? options.columns : spec.kind === "repository" ? options.repositories ?? [] : spec.kind === "chat_bot" ? options.bots ?? [] : []
-  const groups = reads && spec.expressions ? valueGroups(reads.values, reads.location, spec.kind) : null
-  const check = (expression: string) => reads ? checkExpression(reads.values, reads.location, expression) : null
-  // In the inspector, a text field takes values at its cursor (LEG-510).
-  const textKinds = ["string", "text", "path", "repository", "column", "macro", "tier", "agent", "chat_bot", "task_or_id"]
-  const expressionText = rich && groups && textKinds.includes(spec.kind) && !(spec.enum && !isExpression)
-  const richControl = rich && !isExpression ? richControlOf({ spec, name, value, text, onChange, set, options, groups, check }) : null
-  switch (richControl ? "rich" : expressionText ? "expression" : spec.kind) {
-    case "rich":
-      control = richControl
-      break
-    case "expression":
-      control = <ExpressionText name={name} label={spec.label} value={text} multiline={spec.kind === "text"} groups={groups!} check={check} invalid={notANumber || undefined} onCommit={set} list={suggestions.length > 0 ? listId : undefined} />
-      break
-    case "text":
-      control = <CommitField aria-label={name} multiline value={text} onCommit={set} />
-      break
-    case "boolean":
-      control = isExpression
-        ? <CommitField aria-label={name} value={text} onCommit={set} />
-        : <input type="checkbox" aria-label={name} checked={value === true} onChange={event => onChange(event.target.checked ? true : spec.required ? false : undefined)} />
-      break
-    case "integer":
-      // A whole number is written as one; anything else (an expression) as text.
-      control = <CommitField aria-label={name} inputMode="numeric" value={text} aria-invalid={notANumber || undefined} onCommit={raw => /^-?\d+$/.test(raw.trim()) ? onChange(Number(raw.trim())) : set(raw)} />
-      break
-    case "json":
-      control = <CommitField aria-label={name} multiline value={value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value, null, 2)} onCommit={raw => { if (raw.trim() === "") { onChange(undefined); return } try { onChange(JSON.parse(raw)) } catch { onChange(raw) } }} />
-      break
-    case "chat_buttons":
-      control = isExpression
-        ? <CommitField aria-label={name} value={text} onCommit={set} />
-        : <ChatButtonsField name={name} stepId={stepId} value={value} refs={refs} onChange={onChange} />
-      break
-    case "task":
-      control = <select aria-label={name} className={fieldClass} value={text} onChange={event => onChange(event.target.value)}>
-        {!taskRefs.includes(text) && <option value={text}>{text || "Choose a task"}</option>}
-        {taskRefs.map(ref => <option key={ref} value={ref}>{ref === "${{ workflow.task }}" ? "The workflow's task" : `Input ${ref.slice(20, -3)}`}</option>)}
-      </select>
-      break
-    default:
-      if (spec.enum && !isExpression) {
-        control = <select aria-label={name} className={fieldClass} value={text} onChange={event => set(event.target.value)}>
-          <option value="">{spec.required ? "Choose" : "The default"}</option>
-          {spec.enum.map(option => <option key={option} value={option}>{option}</option>)}
-        </select>
-      } else {
-        control = <CommitField aria-label={name} value={text} onCommit={set} list={suggestions.length > 0 ? listId : undefined} />
-      }
-  }
+  const suggestions = suggestionsFor(spec.kind, options, agent)
+  const control = <FieldControl spec={spec} name={name} value={value} text={text} expression={isExpressionValue(value)} set={set} onChange={onChange} stepId={stepId} refs={refs} taskRefs={taskRefs}
+    list={suggestions.length > 0 ? listId : undefined} rich={rich} reads={readsOf(reads, spec)} options={options} />
   // A div, not a label: a label would pass a click on the picker's menu on
   // to its first button and open it again. The controls name themselves.
   return <div className={labelClass} data-essential={spec.essential || undefined}>
-    <span className="flex items-center justify-between gap-2"><span>{spec.label}{spec.required || spec.requiredAtRun ? " (required)" : ""}{spec.label !== spec.name && <span className="ml-1.5 font-lw-mono text-[11px] text-lw-faint">{spec.name}</span>}</span>{picker}</span>
+    <span className="flex items-center justify-between gap-2"><FieldLabel spec={spec} />{showsPicker(spec, rich) && <ReferencePicker name={name} options={refs} onPick={expression => onChange(`${text}\${{ ${expression} }}`)} />}</span>
     {control}
     {suggestions.length > 0 && <datalist id={listId}>{suggestions.map(s => <option key={s} value={s} />)}</datalist>}
     <span className="text-[11px] text-lw-faint">{spec.description}</span>
-    {notANumber && <p className="text-xs text-lw-danger">{spec.name} must be a whole number or a {"${{ }}"} expression</p>}
+    {wrongNumber && <p className="text-xs text-lw-danger">{spec.name} must be a whole number or a {"${{ }}"} expression</p>}
     <Problems diagnostics={problems} />
   </div>
 }
