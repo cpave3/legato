@@ -894,6 +894,9 @@ func runServeCmd(args []string) int {
 	}
 	port := servePort(parsed.Values["port"], cfg)
 	defer startLogFile(cfg, stderrLog)()
+	// Before anything else: a session started from here on, or by another
+	// process reacting to this one's restart, loads this binary's hooks.
+	installAgentMods(cfg, legatoBinary())
 
 	db, err := openStore(cfg)
 	if err != nil {
@@ -1236,6 +1239,9 @@ func runTUI() int {
 	}
 	// The TUI owns its terminal: its log goes only to the log file.
 	defer startLogFile(cfg, nil)()
+	// Before anything else: a session started from here on, or by another
+	// process reacting to this one's restart, loads this binary's hooks.
+	installAgentMods(cfg, legatoBinary())
 
 	db, err := openStore(cfg)
 	if err != nil {
