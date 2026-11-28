@@ -1,5 +1,14 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { MemoryRouter } from "react-router-dom"
+
+const reeve = vi.hoisted(() => ({ fetch: vi.fn() }))
+vi.mock("../../lib/reeve", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/reeve")>()),
+  fetchReeve: (...a: unknown[]) => reeve.fetch(...a),
+}))
+vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "http://legato" }) }))
+
 import { AgentChatHeader } from "../AgentChatHeader"
 
 afterEach(() => {
@@ -107,9 +116,54 @@ describe("AgentChatHeader", () => {
     expect(screen.getByText("Syncing…")).toBeTruthy()
   })
 
-  it("offers what is given to ask about an agent that needs the person", () => {
-    render(<AgentChatHeader state="needs-you" title="T" taskId="t-1" menu={[]} ask={<button type="button">Ask the Reeve</button>} />)
-    expect(screen.getByRole("button", { name: "Ask the Reeve" })).toBeTruthy()
+  it("offers to ask the Reeve about an agent that needs the person", () => {
+    render(<MemoryRouter><AgentChatHeader state="needs-you" title="T" taskId="t-1" menu={[]} askReeve="t-1 waits" /></MemoryRouter>)
+    expect(within(screen.getByRole("banner")).getByRole("button", { name: "Ask the Reeve" })).toBeTruthy()
+  })
+
+  it("keeps the way back to a workflow run on a line above the header on a wider screen", () => {
+    render(<MemoryRouter><AgentChatHeader state="running" title="T" taskId="t-1" menu={[]} workflowRun="wr-1" /></MemoryRouter>)
+    const back = screen.getByRole("link", { name: "Back to workflow" })
+    expect(back.getAttribute("href")).toBe("/workflows/runs/wr-1")
+    expect(screen.getByRole("banner").contains(back)).toBe(false)
+  })
+
+  it("keeps related work, artifacts and the studio in More actions on a phone", () => {
+    at(390)
+    const onSelect = vi.fn()
+    const onOpen = vi.fn()
+    render(<AgentChatHeader state="idle" title="T" taskId="t-1" menu={[]} panels={{ open: null, related: { count: 3, live: true }, artifacts: { count: 2, fresh: 1 }, onSelect, studio: { onOpen } }} />)
+    expect(screen.queryByRole("group", { name: "Side panel" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Studio" })).toBeNull()
+
+    // Something new to look at is marked on the menu itself.
+    fireEvent.click(screen.getByRole("button", { name: "More actions, 1 new artifact" }))
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Artifacts (2), 1 new" }))
+    expect(onSelect).toHaveBeenCalledWith("artifacts")
+    fireEvent.click(screen.getByRole("button", { name: /^More actions/ }))
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Related work (3), in progress" }))
+    expect(onSelect).toHaveBeenCalledWith("related")
+    fireEvent.click(screen.getByRole("button", { name: /^More actions/ }))
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Studio" }))
+    expect(onOpen).toHaveBeenCalledTimes(1)
+  })
+
+  it("asks the Reeve from More actions on a phone", async () => {
+    at(390)
+    reeve.fetch.mockReset().mockReturnValue(new Promise(() => {}))
+    render(<MemoryRouter><AgentChatHeader state="needs-you" title="T" taskId="t-1" menu={[]} askReeve="t-1 waits" onShowRequest={() => {}} /></MemoryRouter>)
+    expect(within(screen.getByRole("banner")).queryByRole("button", { name: "Ask the Reeve" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }))
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Ask the Reeve" }))
+    await waitFor(() => expect(reeve.fetch).toHaveBeenCalledWith("http://legato"))
+  })
+
+  it("puts Needs you on the line back to the workflow run on a phone", () => {
+    at(390)
+    render(<MemoryRouter><AgentChatHeader state="needs-you" title="T" taskId="t-1" menu={[]} workflowRun="wr-1" onShowRequest={() => {}} /></MemoryRouter>)
+    const back = screen.getByRole("link", { name: "Back to workflow" })
+    expect(back.parentElement).toBe(screen.getByRole("button", { name: "Needs you" }).parentElement)
+    expect(screen.getByRole("banner").contains(back)).toBe(true)
   })
 
   it("keeps the sub-agent view in More actions on a phone, where the row has no room for it", () => {

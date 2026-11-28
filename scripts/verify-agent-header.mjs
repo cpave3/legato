@@ -55,7 +55,7 @@ try {
       }
       // The controls and the request are primary: 44 px. The stage and the
       // sub-agents open what they summarise: 32 px.
-      const controls = header.children[1]
+      const controls = header.lastElementChild
       const targets = [...header.querySelectorAll('button, a')].filter(shown).map(el => {
         const r = el.getBoundingClientRect()
         const primary = controls.contains(el) || el.getAttribute('aria-label') === 'Needs you' || /^Ask /.test(el.textContent.trim())

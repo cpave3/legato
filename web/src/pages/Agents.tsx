@@ -30,7 +30,6 @@ import { useFocusMode } from "../lib/focusMode"
 import { decideApproval } from "../lib/approvals"
 import { AgentPickerBar } from "../components/AgentSelect"
 import { ReeveEntry, ReeveStatus } from "../components/ReeveEntry"
-import { AskReeve } from "../components/AskReeve"
 import { reeveBrief } from "../lib/reeve"
 import { AgentArtifactPanel } from "../components/AgentArtifactPanel"
 import { useAgentUIItems } from "../hooks/useAgentUI"
@@ -900,7 +899,8 @@ export function AgentsPage() {
       {isMobile && <SessionHistoryLink className="border-b border-lw-line" />}
 
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        {workflowRun && <BackToWorkflow runId={workflowRun} />}
+        {/* An agent's header holds the way back to the run; a swarm has none. */}
+        {workflowRun && (swarmMode || !selectedAgent) && <BackToWorkflow runId={workflowRun} line />}
         {selectedId ? (
           <>
             {!swarmMode && selectedAgent && !selectedAgent.has_chimera_endpoint && (
@@ -916,7 +916,8 @@ export function AgentsPage() {
                 menu={terminalMenu.entries}
                 stage={stageInfo(selectedAgent)}
                 backgroundJobs={selectedAgent.background_jobs}
-                ask={selectedAgent.reeve ? undefined : <AskReeve brief={reeveBrief({ what: `the agent “${selectedAgent.task_title || selectedAgent.task_id}”, which waits for the operator`, ids: { task: selectedAgent.task_id, "agent tool": selectedAgent.agent_kind } })} />}
+                askReeve={selectedAgent.reeve ? undefined : reeveBrief({ what: `the agent “${selectedAgent.task_title || selectedAgent.task_id}”, which waits for the operator`, ids: { task: selectedAgent.task_id, "agent tool": selectedAgent.agent_kind } })}
+                workflowRun={workflowRun ?? undefined}
                 notes={<>
                   {selectedAgent.reeve && <ReeveStatus baseUrl={baseUrl} />}
                   {terminalMenu.upgradeError && <span role="alert" className="text-lw-error">{terminalMenu.upgradeError}</span>}
@@ -993,6 +994,7 @@ export function AgentsPage() {
                   onOpenUIItem={artifacts.openItem}
                   panels={sidePanels}
                   pullRequest={pullRequest}
+                  workflowRun={workflowRun ?? undefined}
                   title={selectedAgent?.task_title}
                   activity={selectedAgent?.activity}
                   stateTime={selectedAgent ? formatAgentTime(stateSeconds(selectedAgent)) : undefined}

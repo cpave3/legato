@@ -8,10 +8,9 @@
 import { createRoot } from "react-dom/client"
 import { MemoryRouter } from "react-router-dom"
 import { QueryClientProvider } from "@tanstack/react-query"
-import { AgentChatHeader, BackToWorkflow, type AgentChatState } from "../components/AgentChatHeader"
+import { AgentChatHeader, type AgentChatState } from "../components/AgentChatHeader"
 import { AgentPickerBar } from "../components/AgentSelect"
 import { AgentSidebar } from "../components/AgentSidebar"
-import { AskReeve } from "../components/AskReeve"
 import { useServerProvider } from "../hooks/useServer"
 import type { AgentInfo, BackgroundJob } from "../lib/agentWire"
 import { createQueryClient } from "../lib/query"
@@ -50,7 +49,6 @@ export function AgentHeaderPreview() {
         ? <AgentPickerBar agents={[agent]} selectedId="LEG-705" onSelect={noop} onEnsemble={noop} onSpawn={noop} />
         : <AgentSidebar agents={[agent]} selectedId="LEG-705" onSelect={noop} onSpawn={noop} onShowEnsemble={noop} />}
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        {!few && <BackToWorkflow runId="wr-1" />}
         <AgentChatHeader
           state={state}
           time="12m"
@@ -65,7 +63,8 @@ export function AgentHeaderPreview() {
           subagents={few ? undefined : { total: 2, running: 1, view: "inline", onView: noop }}
           panels={{ open: null, related: { count: 4, live: true }, artifacts: { count: few ? 0 : 3, fresh: few ? 0 : 1 }, onSelect: noop, studio: few ? undefined : { onOpen: noop } }}
           onShowRequest={noop}
-          ask={<AskReeve brief="LEG-705 waits for the operator" />}
+          askReeve="LEG-705 waits for the operator"
+          workflowRun={few ? undefined : "wr-1"}
           menu={[{ label: "Rename", onSelect: noop }, { label: "Stop agent", onSelect: noop, danger: true }]}
           notes={few ? undefined : <><span className="rounded bg-lw-raised px-1.5 font-lw-mono">plan</span><span className="text-lw-link">Syncing…</span></>}
         />
