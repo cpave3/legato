@@ -97,6 +97,7 @@ var settingLayout = map[string]settingPlace{
 	"usage.":                      {SectionUsage, "Subscription usage", ""},
 	"usage.fallback_profile":      {SectionUsage, "Profiles and rules", ""},
 	"skills.dir":                  {SectionAgents, "Skills", ""},
+	"managed_hooks.dir":           {SectionAgents, "Managed hooks", ""},
 	"engram.":                     {SectionAgents, "Engrams", ""},
 
 	// Repositories.

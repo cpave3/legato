@@ -25,22 +25,38 @@ func ResolveSkillsDir(cfg *Config, legatoHome string) string {
 	return filepath.Join(legatoHome, "skills")
 }
 
-func normalizeSkills(cfg *Config) error {
-	dir := strings.TrimSpace(cfg.Skills.Dir)
+// normalizeFolders checks the folders Legato reads what it gives agents
+// from: skills.dir and managed_hooks.dir.
+func normalizeFolders(cfg *Config) error {
+	for _, folder := range []struct {
+		key string
+		dir *string
+	}{{"skills.dir", &cfg.Skills.Dir}, {"managed_hooks.dir", &cfg.ManagedHooks.Dir}} {
+		dir, err := normalizeFolder(folder.key, *folder.dir)
+		if err != nil {
+			return err
+		}
+		*folder.dir = dir
+	}
+	return nil
+}
+
+// normalizeFolder checks a folder setting: empty, or a path that is
+// absolute or starts with ~/, which it expands and cleans.
+func normalizeFolder(key, value string) (string, error) {
+	dir := strings.TrimSpace(value)
 	if dir == "" {
-		cfg.Skills.Dir = ""
-		return nil
+		return "", nil
 	}
 	if dir == "~" || strings.HasPrefix(dir, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return fmt.Errorf("skills.dir: %w", err)
+			return value, fmt.Errorf("%s: %w", key, err)
 		}
 		dir = filepath.Join(home, strings.TrimPrefix(dir[1:], "/"))
 	}
 	if !filepath.IsAbs(dir) {
-		return fmt.Errorf("skills.dir: %q must be absolute or start with ~/", cfg.Skills.Dir)
+		return value, fmt.Errorf("%s: %q must be absolute or start with ~/", key, value)
 	}
-	cfg.Skills.Dir = filepath.Clean(dir)
-	return nil
+	return filepath.Clean(dir), nil
 }
