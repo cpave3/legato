@@ -71,7 +71,7 @@ inputs:
   ready:
     type: boolean
     default: false
-    description: Once the stack is approved, mark its draft pull requests ready for review, bottom first
+    description: Once the stack is approved, mark its draft pull requests ready for review, bottom first; with agent_author, they are drafts until then
   steward:
     type: boolean
     default: false

@@ -67,6 +67,13 @@ describe("WorkflowRunPage review loop", () => {
     expect(prs[0].textContent).toContain("Also failing on its base: docs, e2e")
   })
 
+  it("says a layer is a draft Legato keeps until approved, or why it could not", () => {
+    show({ ...watching, layers: [{ ...layers[1], draft: true, drafted_by_legato: "2026-11-28T10:00:00Z" }, { ...layers[1], number: 13, draft: false, draft_problem: "the author App cannot turn #13 into a draft: Resource not accessible by integration" }] })
+    const prs = within(within(now()).getByRole("list", { name: "Pull requests" })).getAllByRole("listitem")
+    expect(prs[0].textContent).toContain("Draft until approved")
+    expect(prs[1].textContent).toContain("Not a draft: the author App cannot turn #13 into a draft")
+  })
+
   it("Stop watching and End act on the steward's step", async () => {
     show(watching)
     await click(within(now()).getByRole("button", { name: "Stop watching" }))

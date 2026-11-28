@@ -63,19 +63,23 @@ describe("Board card menu and review-loop", () => {
     fireEvent.contextMenu(element, { clientX: 40, clientY: 60 })
   }
 
-  it("starts review-loop on a pull request no loop holds, as an agent's, with no ready", async () => {
+  // An agent's loop marks its pull requests ready once approved, keeping
+  // them drafts until then (LEG-712); no steward.
+  it("starts review-loop on a pull request no loop holds, as an agent's, ready once approved", async () => {
     lookup = { loop: null, agent_author: true }
     openMenu()
     fireEvent.click(await screen.findByRole("menuitem", { name: "Review passes · #12 · agent" }))
     const dialog = await screen.findByRole("dialog")
     expect((screen.getByLabelText("agent_author") as HTMLInputElement).readOnly).toBe(true)
     expect((screen.getByLabelText("agent_author") as HTMLInputElement).value).toBe("true")
-    expect(dialog.textContent).not.toMatch(/ready|max_reentries|prs/)
+    expect((screen.getByLabelText("ready") as HTMLInputElement).readOnly).toBe(true)
+    expect((screen.getByLabelText("ready") as HTMLInputElement).value).toBe("true")
+    expect(dialog.textContent).not.toMatch(/max_reentries|prs/)
     fireEvent.click(screen.getByRole("button", { name: "Start" }))
     expect(await screen.findByText("/workflows/runs/wr-5")).toBeTruthy()
     expect(started).toHaveLength(1)
-    expect(started[0].body).toEqual({ inputs: expect.objectContaining({ repo: "acme/app", pr_number: "12", agent_author: "true" }) })
-    expect(JSON.stringify(started[0].body)).not.toMatch(/ready|steward/)
+    expect(started[0].body).toEqual({ inputs: expect.objectContaining({ repo: "acme/app", pr_number: "12", agent_author: "true", ready: "true" }) })
+    expect(JSON.stringify(started[0].body)).not.toMatch(/steward/)
   })
 
   it("says person for a pull request Legato's author App did not open, and starts it as one", async () => {
@@ -84,6 +88,7 @@ describe("Board card menu and review-loop", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Review passes · #12 · person" }))
     await screen.findByRole("dialog")
     expect((screen.getByLabelText("agent_author") as HTMLInputElement).value).toBe("false")
+    expect((screen.getByLabelText("ready") as HTMLInputElement).value).toBe("false")
   })
 
   it("starts a stack as the menu named it, a person's when one layer is", async () => {

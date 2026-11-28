@@ -49,7 +49,7 @@ var reviewOpenSpec = ExecutorSpec{
 		{Name: "skill", Kind: KindString, Label: "Reviewer's skill", Description: "The review skill the reviewer is told to use, from those this Legato offers; its setting when empty", Order: 7},
 		{Name: "max_passes", Kind: KindInteger, Label: "Most passes", Description: "Passes before the loop goes stuck; 0 for this Legato's setting", Default: 0, Checked: true, Invalid: "must be 0 (this Legato's setting) or a number of passes", Order: 8},
 		{Name: "max_reentries", Kind: KindInteger, Label: "Most re-entries", Description: "Times a stewarded pull request may go back to review after approval; 0 for this Legato's setting, which a workflow may lower but never raise", Default: 0, Checked: true, Invalid: "must be 0 (this Legato's setting) or a number of re-entries", Order: 9},
-		{Name: "ready", Kind: KindBoolean, Label: "Mark the stack ready", Description: "Mark the stack's draft pull requests ready once the loop approves them", Default: false, Checked: true, Invalid: "must be true or false", Order: 10},
+		{Name: "ready", Kind: KindBoolean, Label: "Mark the stack ready", Description: "Mark the stack's draft pull requests ready once the loop approves them; with agent_author, they are drafts until then", Default: false, Checked: true, Invalid: "must be true or false", Order: 10},
 		{Name: "steward", Kind: KindBoolean, Label: "Look after it until it merges", Description: "After approval, watch an agent-authored pull request until it merges, closes or goes idle, and send its author what GitHub reports; needs agent_author", Default: false, Checked: true, Invalid: "must be true or false", Order: 11},
 	},
 	// pr_number and prs: exactly one, scope only with pr_number. A file
@@ -113,7 +113,7 @@ var reviewConfirmSpec = ExecutorSpec{
 
 var reviewReadySpec = ExecutorSpec{
 	Type: ReviewReadyStepType, Group: "Code", Title: "Mark the stack ready",
-	Description: "Mark a review loop's approved stack ready for review, as the author's GitHub App: every open draft, bottom of the stack first, once each has legato-reviews' approval at its head on GitHub. Pull requests already ready are left alone; none goes back to draft. Before approval the step is refused; a pull request GitHub will not mark ready fails it.",
+	Description: "Mark a review loop's approved stack ready for review, as the author's GitHub App: every open draft, bottom of the stack first, once each has legato-reviews' approval at its head on GitHub. Pull requests already ready are left alone. An agent's loop turns them back into drafts whenever they go back to review, so this step is the only way to ready. Before approval the step is refused; a pull request GitHub will not mark ready fails it.",
 	With:        []Field{reviewLoopField},
 	Summary:     []string{"loop"},
 	Outputs: []OutputSpec{

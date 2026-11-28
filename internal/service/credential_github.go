@@ -161,6 +161,29 @@ func (c *CredentialChannels) MarkReadyAsAuthor(ctx context.Context, repo string,
 	return changed, err
 }
 
+// ConvertToDraftAsAuthor turns a pull request back into a draft as the
+// author App, host-side, as MarkReadyAsAuthor marks one ready: the review
+// loop keeps an agent's pull request a draft while it is under review
+// (LEG-712). A draft is left alone (false).
+func (c *CredentialChannels) ConvertToDraftAsAuthor(ctx context.Context, repo string, number int) (bool, error) {
+	bc, err := c.githubCredentialFor(repo)
+	if err != nil {
+		return false, err
+	}
+	if err := c.githubBackingOff(bc, repo); err != nil {
+		return false, err
+	}
+	token, release, err := c.githubToken(ctx, bc, repo, credential.OperationPRReady)
+	if err != nil {
+		return false, err
+	}
+	if release != nil {
+		defer release()
+	}
+	_, changed, err := c.setReady(ctx, bc, repo, token, number, "", true)
+	return changed, err
+}
+
 // setReady finds the pull request (numbered, or the open one whose head is
 // branch) and marks it ready, or a draft with undo, unless it is so
 // already: its number, and whether it changed.

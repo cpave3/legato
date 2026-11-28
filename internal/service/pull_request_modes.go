@@ -66,10 +66,14 @@ func pullRequestModePrompt(repo, mode string) string {
 	case config.PullRequestsDraft:
 		return "## Pull requests\n\nOpen pull requests in " + name + " as drafts (`gh pr create --draft`): Legato refuses any other there."
 	case config.PullRequestsReady:
-		return "## Pull requests\n\nOpen pull requests in " + name + " ready for review, not as drafts."
+		return "## Pull requests\n\nOpen pull requests in " + name + " ready for review, not as drafts. " + reviewLoopKeepsDraft
 	}
 	return ""
 }
+
+// reviewLoopKeepsDraft tells an author who opens pull requests ready not
+// to undo the draft an agent's review loop keeps until approval.
+const reviewLoopKeepsDraft = "While a Legato review loop holds one, Legato keeps it a draft until it approves the head: do not mark it ready yourself."
 
 // pullRequestDraftRefusal is the broker's reason for refusing a pull request
 // that is not a draft in a repository whose mode is draft.

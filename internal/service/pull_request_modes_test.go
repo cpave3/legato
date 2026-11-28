@@ -25,7 +25,7 @@ func TestSpawnAgent_TheLaunchPromptSaysTheRepositorysPullRequestMode(t *testing.
 		config.PullRequestRule{Match: "acme/tools", Mode: config.PullRequestsAgent},
 	)
 	for repo, want := range map[string]string{
-		"git@github.com:Acme/Web-App.git": "Open pull requests in acme/web-app ready for review, not as drafts.",
+		"git@github.com:Acme/Web-App.git": "Open pull requests in acme/web-app ready for review, not as drafts. While a Legato review loop holds one, Legato keeps it a draft until it approves the head: do not mark it ready yourself.",
 		"git@github.com:acme/api.git":     "Open pull requests in acme/api as drafts (`gh pr create --draft`): Legato refuses any other there.",
 		"git@github.com:acme/tools.git":   "",
 		"git@github.com:other/thing.git":  "",

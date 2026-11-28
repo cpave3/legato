@@ -248,7 +248,7 @@ func (s *ReviewPassService) checksReopen(ctx context.Context, l ReviewLoop, loop
 		return nil
 	}
 	loop.Phase, loop.DeliveredPass = ReviewPhaseWaitingForAuthor, loop.Pass
-	l.stage(ctx, ReviewStageAuthor)
+	s.backToAuthor(ctx, l)
 	return s.saveChanged(ctx, loop)
 }
 

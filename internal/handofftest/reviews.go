@@ -95,6 +95,12 @@ type FakeReviewGitHub struct {
 	// refuseReady the one GitHub refuses to mark ready.
 	readied     []int
 	refuseReady int
+	// drafted are the pull requests turned into drafts, in order;
+	// refuseDraft those GitHub refuses to (the author App lacks the
+	// permission); flips every ready and draft change, in order.
+	drafted     []int
+	refuseDraft map[int]bool
+	flips       []string
 	// watches counts the steward's watch sessions.
 	watches int
 	// reads counts PullRequest calls.
@@ -186,6 +192,56 @@ func (f *FakeReviewGitHub) MarkReady(_ context.Context, _ string, number int) (b
 			pr.Draft = false
 			f.prs[branch] = pr
 			f.readied = append(f.readied, number)
+			f.flips = append(f.flips, fmt.Sprintf("ready %d", number))
+			return true, nil
+		}
+	}
+	return false, &service.GitHubError{Status: 404, Message: "Not Found"}
+}
+
+// RefuseDraft makes GitHub refuse to turn the pull request into a draft,
+// as when the author App lacks the permission.
+func (f *FakeReviewGitHub) RefuseDraft(number int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.refuseDraft == nil {
+		f.refuseDraft = map[int]bool{}
+	}
+	f.refuseDraft[number] = true
+}
+
+// Drafted are the pull requests turned into drafts, in order.
+func (f *FakeReviewGitHub) Drafted() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]int(nil), f.drafted...)
+}
+
+// Flips are every change Legato made to the pull requests' draft state,
+// in order: "draft N" and "ready N".
+func (f *FakeReviewGitHub) Flips() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.flips...)
+}
+
+// MarkDraft turns an open pull request into a draft, as the author App
+// does host-side; a draft is left alone.
+func (f *FakeReviewGitHub) MarkDraft(_ context.Context, _ string, number int) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.refuseDraft[number] {
+		return false, &service.GitHubError{Status: 403, Message: "Resource not accessible by integration"}
+	}
+	for branch, pr := range f.prs {
+		if pr.Number == number {
+			if pr.Draft {
+				return false, nil
+			}
+			pr.Draft = true
+			f.prs[branch] = pr
+			f.drafted = append(f.drafted, number)
+			f.flips = append(f.flips, fmt.Sprintf("draft %d", number))
 			return true, nil
 		}
 	}

@@ -105,6 +105,7 @@ type reviewGitHub struct {
 	// readyError refuses the mutation with this message.
 	drafts     map[int]bool
 	readied    []string
+	drafted    []string
 	readyBy    []string
 	readyPerms []map[string]any
 	readyError string
@@ -387,6 +388,14 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			switch {
+			case strings.Contains(body.Query, "convertPullRequestToDraft"):
+				if g.readyError != "" {
+					_, _ = io.WriteString(w, `{"errors":[{"message":"`+g.readyError+`"}]}`)
+					break
+				}
+				g.drafted = append(g.drafted, fmt.Sprint(body.Variables["id"]))
+				g.readyBy = append(g.readyBy, g.apps[bearer])
+				_, _ = io.WriteString(w, `{"data":{"convertPullRequestToDraft":{"pullRequest":{"number":12}}}}`)
 			case strings.Contains(body.Query, "markPullRequestReadyForReview"):
 				if g.readyError != "" {
 					_, _ = io.WriteString(w, `{"errors":[{"message":"`+g.readyError+`"}]}`)
@@ -1252,6 +1261,39 @@ func TestTheAuthorAppMarksADraftReadyAndLeavesAReadyOneAlone(t *testing.T) {
 	f.github.drafts[12] = true
 	f.github.readyError = "Resource not accessible by integration"
 	if _, err := f.publisher.MarkReady(ctx, "cpave3/legato", 12); err == nil || !strings.Contains(err.Error(), "not accessible") {
+		t.Fatalf("a refusal = %v", err)
+	}
+}
+
+// The author App turns a ready pull request back into a draft host-side,
+// with a token it revokes, for a review loop keeping it a draft until
+// approved (LEG-712); a draft is left alone, and a refusal is an error.
+func TestTheAuthorAppTurnsAReadyPullRequestIntoADraftAndLeavesADraftAlone(t *testing.T) {
+	f := newPublisherFixture(t)
+	ctx := context.Background()
+	f.github.drafts = map[int]bool{12: false}
+
+	flipped, err := f.publisher.MarkDraft(ctx, "cpave3/legato", 12)
+	if err != nil || !flipped {
+		t.Fatalf("mark draft = %v, %v", flipped, err)
+	}
+	if strings.Join(f.github.drafted, ",") != "PR_12" || f.github.readyBy[0] != "legato-author[bot]" || len(f.github.readied) != 0 {
+		t.Fatalf("drafted %v by %v, readied %v", f.github.drafted, f.github.readyBy, f.github.readied)
+	}
+	for token, perms := range f.github.tokens {
+		if perms["contents"] == "write" {
+			t.Fatalf("the write token %s was kept", token)
+		}
+	}
+
+	f.github.drafts[12] = true
+	if flipped, err := f.publisher.MarkDraft(ctx, "cpave3/legato", 12); err != nil || flipped || len(f.github.drafted) != 1 {
+		t.Fatalf("a draft: flipped %v, %v, drafted %v", flipped, err, f.github.drafted)
+	}
+
+	f.github.drafts[12] = false
+	f.github.readyError = "Resource not accessible by integration"
+	if _, err := f.publisher.MarkDraft(ctx, "cpave3/legato", 12); err == nil || !strings.Contains(err.Error(), "not accessible") {
 		t.Fatalf("a refusal = %v", err)
 	}
 }

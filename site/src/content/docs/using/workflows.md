@@ -1379,7 +1379,18 @@ When the loop is stuck (its pass limit, a reviewer that died twice, an author th
     - {id: author, if: {field: steps.pass.outputs.verdict, equals: changes}, type: github.pr.review.wait, with: {loop: "${{ steps.open.outputs.loop_id }}", mode: author}}
 ```
 
-`github.pr.ready` marks the loop's approved stack ready for review, as your GitHub App (the `github` credential for the repository), from Legato itself, so no agent holds a token that can do it: each open draft, bottom of the stack first. Pull requests that are already ready are left alone, and none goes back to draft. It runs only when every open pull request has an approval from Legato's reviewer at its head on GitHub now; before that (before approval, after a push, or on a pull request whose approval was withheld because its author is outside the repository) it fails with `not_approved_at_heads`. A pull request GitHub will not mark ready fails it with `ready_failed`, naming it; the ones below it stay ready, and the step's `on_failure` decides. Its outputs are `ready` and `flipped`, the pull requests it marked ready.
+`github.pr.ready` marks the loop's approved stack ready for review, as your GitHub App (the `github` credential for the repository), from Legato itself, so no agent holds a token that can do it: each open draft, bottom of the stack first. Pull requests that are already ready are left alone. It runs only when every open pull request has an approval from Legato's reviewer at its head on GitHub now; before that (before approval, after a push, or on a pull request whose approval was withheld because its author is outside the repository) it fails with `not_approved_at_heads`. A pull request GitHub will not mark ready fails it with `ready_failed`, naming it; the ones below it stay ready, and the step's `on_failure` decides. Its outputs are `ready` and `flipped`, the pull requests it marked ready.
+
+#### Draft until approved
+
+On an agent's pull requests (`agent_author: true`) a loop with `ready: true` keeps GitHub's draft state as its signal, so **ready for review always means Legato approved the commit at the head**. As your GitHub App, it turns each open pull request into a draft:
+
+- when the loop opens, if the agent opened it ready for review;
+- when a pass starts, including the steward's pass after a push;
+- when the author has feedback: a pass with blocking findings, a counted comment after a clean pass, or a failing counted check;
+- when a counted check fails after approval, on that pull request.
+
+Only `github.pr.ready`, after an approval confirmed at the heads, marks them ready again. A loop on someone else's pull request, or without `ready`, never changes draft state. If GitHub refuses (your App lacks the permission, say), the loop goes on: the run page and the **Shipping** page say "Not a draft" and why, and Legato tries again the next time the pull request goes back to review. Without `steward`, nothing watches after approval, so a later push leaves the pull request ready; the open step warns of this.
 
 `github.pr.review.close` closes the loop, which frees its pull requests for another loop, and writes a summary of every pass. Its outputs are `outcome` (`approved`, `closed`, `stuck`, `merged`, `idle` or `ended`; also `ended` for a loop closed before it finished), `passes` (the passes posted), `clean_pass`, `confirmed_at`, `findings` (`total`, `blocking`, `nits` and `open`), `prs` (each pull request's number, url, state, draft, author_task, approved, head_sha and review_url), `approval_withheld`, `summary_path`, `linked_task` and `loop_id`. Closing a closed loop changes nothing. A loop also closes by itself when its run succeeds, is cancelled or stops; a failed run keeps its loop, and its pull requests, for **Retry**.
 

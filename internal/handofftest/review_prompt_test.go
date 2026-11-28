@@ -344,12 +344,14 @@ func TestTheAuthorIsTheCardsAgentOnlyForPRsLegatosAuthorAppOpened(t *testing.T) 
 		return loop
 	}
 	t.Run("opened by the author App", func(t *testing.T) {
-		if loop := openedBy(t, "legato-author[bot]"); !loop.AgentAuthor {
+		// An agent's loop marks its pull requests ready once approved,
+		// keeping them drafts until then (LEG-712).
+		if loop := openedBy(t, "legato-author[bot]"); !loop.AgentAuthor || !loop.Ready {
 			t.Fatalf("loop %+v", loop)
 		}
 	})
 	t.Run("opened by another App", func(t *testing.T) {
-		if loop := openedBy(t, "dependabot[bot]"); loop.AgentAuthor {
+		if loop := openedBy(t, "dependabot[bot]"); loop.AgentAuthor || loop.Ready {
 			t.Fatalf("loop %+v", loop)
 		}
 	})

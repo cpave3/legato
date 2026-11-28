@@ -42,7 +42,8 @@ func (c *ReviewRunCaller) recordDetails(ctx context.Context, d *ReviewRunDetails
 			url = fmt.Sprintf("https://github.com/%s/pull/%d", rec.Repo, layer.Number)
 		}
 		d.Layers = append(d.Layers, ReviewRunLayer{Number: layer.Number, URL: url, Title: layer.Title,
-			State: layer.State, Draft: layer.Draft, Mergeable: layer.Mergeable, ChecksOnBase: onBase[layer.Number]})
+			State: layer.State, Draft: layer.Draft, Mergeable: layer.Mergeable, ChecksOnBase: onBase[layer.Number],
+			DraftedByLegato: layer.LegatoDraftedAt, DraftProblem: layer.DraftProblem})
 	}
 	run, _ := c.run(ctx, taskID)
 	if stewarding(rec) {

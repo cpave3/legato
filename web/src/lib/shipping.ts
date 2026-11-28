@@ -60,8 +60,42 @@ export function inFilter(loop: ShippingLoop, filter: ShippingFilter): boolean {
   }
 }
 
-// phaseWords says where a loop stands, in a few words.
+// phaseWords says where a loop stands, in a few words, and, for a loop
+// that keeps its pull requests drafts until approved (LEG-712), what
+// GitHub shows: "Reviewing · pass 2 · draft", "Approved · ready for review".
 export function phaseWords(loop: ShippingLoop): string {
+  const words = loopPhaseWords(loop)
+  const shown = githubWords(loop)
+  return shown ? `${words} · ${shown}` : words
+}
+
+// githubWords says what GitHub shows of a loop Legato keeps drafts: draft
+// while it is under review, ready for review once approved; "" for any
+// other loop, or when GitHub shows something else.
+function githubWords(loop: ShippingLoop): string {
+  const open = loop.layers.filter(layer => !layer.state || layer.state === "open")
+  if (open.length === 0 || !loop.layers.some(layer => layer.drafted_by_legato)) return ""
+  switch (loop.phase) {
+    case "authoring":
+    case "reviewing":
+    case "changes_requested":
+      return open.every(layer => layer.draft) ? "draft" : ""
+    case "approved":
+    case "watching":
+    case "waiting_for_merge":
+      return open.every(layer => !layer.draft) ? "ready for review" : ""
+  }
+  return ""
+}
+
+// draftProblemWords says why a loop could not turn its pull requests into
+// drafts; "" when nothing stood in the way.
+export function draftProblemWords(loop: ShippingLoop): string {
+  const problems = [...new Set(loop.layers.map(layer => layer.draft_problem).filter(Boolean))]
+  return problems.length > 0 ? `Not a draft: ${problems.join("; ")}` : ""
+}
+
+function loopPhaseWords(loop: ShippingLoop): string {
   switch (loop.phase) {
     case "authoring": return "Author working"
     case "reviewing": return loop.max_passes > 0 ? `Reviewing · pass ${Math.max(loop.pass, 1)} of ${loop.max_passes}` : `Reviewing · pass ${Math.max(loop.pass, 1)}`

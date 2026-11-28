@@ -38,7 +38,9 @@ export type WorkflowArtifact = { id:string; run_id:string; step_id:string; path?
 // the author agent was left running after the loop ended.
 // checks_on_base are checks failing on the pull request that its base fails
 // too: noted, not the author's to fix (LEG-711).
-export type ReviewRunLayer = { number:number; url?:string; title?:string; state?:string; draft:boolean; mergeable?:string; checks_on_base?:string[] }
+// drafted_by_legato is when an agent's loop last turned the layer into a
+// draft for review, draft_problem why it could not (LEG-712).
+export type ReviewRunLayer = { number:number; url?:string; title?:string; state?:string; draft:boolean; mergeable?:string; checks_on_base?:string[]; drafted_by_legato?:string; draft_problem?:string }
 export type ReviewStewardView = { held:boolean; last_wake?:string; last_wake_at?:string; reentries:number; max_reentries:number; idle_deadline?:string }
 export type ReviewLoopAction = "another_pass"|"message"|"end"|"stop_watching"|"watch_again"
 export type ReviewRunDetails = { phase:string; pass:number; summary:string; blocking_open:number; reason?:string; needs_you?:boolean; reviews:{pass:number;pr:number;url:string}[] | null

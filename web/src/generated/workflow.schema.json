@@ -3164,7 +3164,7 @@
     },
     "with.github.pr.ready": {
       "additionalProperties": false,
-      "description": "Mark a review loop's approved stack ready for review, as the author's GitHub App: every open draft, bottom of the stack first, once each has legato-reviews' approval at its head on GitHub. Pull requests already ready are left alone; none goes back to draft. Before approval the step is refused; a pull request GitHub will not mark ready fails it.",
+      "description": "Mark a review loop's approved stack ready for review, as the author's GitHub App: every open draft, bottom of the stack first, once each has legato-reviews' approval at its head on GitHub. Pull requests already ready are left alone. An agent's loop turns them back into drafts whenever they go back to review, so this step is the only way to ready. Before approval the step is refused; a pull request GitHub will not mark ready fails it.",
       "properties": {
         "loop": {
           "description": "The loop's ID: ${{ steps.\u003copen step\u003e.outputs.loop_id }}",
@@ -3452,7 +3452,7 @@
             }
           ],
           "default": false,
-          "description": "Mark the stack's draft pull requests ready once the loop approves them",
+          "description": "Mark the stack's draft pull requests ready once the loop approves them; with agent_author, they are drafts until then",
           "x-legato": {
             "context": "with",
             "expressions": true,
@@ -6097,7 +6097,7 @@
         "type": "github.pr.review.close"
       },
       {
-        "description": "Mark a review loop's approved stack ready for review, as the author's GitHub App: every open draft, bottom of the stack first, once each has legato-reviews' approval at its head on GitHub. Pull requests already ready are left alone; none goes back to draft. Before approval the step is refused; a pull request GitHub will not mark ready fails it.",
+        "description": "Mark a review loop's approved stack ready for review, as the author's GitHub App: every open draft, bottom of the stack first, once each has legato-reviews' approval at its head on GitHub. Pull requests already ready are left alone. An agent's loop turns them back into drafts whenever they go back to review, so this step is the only way to ready. Before approval the step is refused; a pull request GitHub will not mark ready fails it.",
         "group": "Code",
         "outputs": [
           {

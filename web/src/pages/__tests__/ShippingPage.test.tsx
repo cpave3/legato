@@ -69,6 +69,29 @@ describe("the Shipping page", () => {
     expect(rowOf("Fix login")).toHaveTextContent("Checks passing · Also failing on its base: docs")
   })
 
+  // Draft until approved (LEG-712): a loop that keeps its pull requests
+  // drafts says what GitHub shows, and why it could not turn one into a
+  // draft.
+  it("says a loop Legato keeps drafts is a draft under review and ready for review once approved", () => {
+    const drafted = { number: 12, url: "https://github.com/acme/widget/pull/12", title: "Fix the login form", state: "open", draft: true, drafted_by_legato: minutesAgo(3) }
+    open([
+      loop({ phase: "reviewing", pass: 1, max_passes: 5, steward: undefined, layers: [drafted] }),
+      loop({ loop_id: "rl-9", task: { id: "board-9", title: "Approved work" }, phase: "approved", steward: undefined, layers: [{ ...drafted, draft: false }] }),
+    ])
+    expect(rowOf("Fix login")).toHaveTextContent("Reviewing · pass 1 of 5 · draft")
+    expect(rowOf("Approved work")).toHaveTextContent("Approved · ready for review")
+  })
+
+  it("leaves a loop Legato does not keep drafts as it was", () => {
+    open([reviewing])
+    expect(rowOf("Add dark mode")).not.toHaveTextContent("draft")
+  })
+
+  it("warns when a pull request could not be turned into a draft", () => {
+    open([loop({ phase: "reviewing", steward: undefined, layers: [{ number: 12, url: "https://github.com/acme/widget/pull/12", state: "open", draft: false, draft_problem: "the author App cannot turn #12 into a draft: Resource not accessible by integration" }] })])
+    expect(rowOf("Fix login")).toHaveTextContent("Not a draft: the author App cannot turn #12 into a draft: Resource not accessible by integration")
+  })
+
   it("filters by Needs you, Active and Recently ended, with counts", () => {
     open([watching, reviewing, held, failing, merged])
     const active = screen.getByRole("button", { name: "Active 4" })

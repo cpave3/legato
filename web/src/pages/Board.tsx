@@ -1175,7 +1175,7 @@ export function BoardPage() {
         onClose={() => setContextMenu(null)}
       />}
       {recalling && <RecallDialog baseUrl={baseUrl} card={recalling} onClose={() => setRecalling(null)} onNotice={awayNotice} />}
-      {reviewLoop && reviewLoopDefinition && <RunWorkflowDialog definition={reviewLoopDefinition} repositories={workflowDiscovery.data?.repositories ?? []} initialValues={{ repo: reviewLoop.pr.repo, pr_number: String(reviewLoop.pr.pr_number), agent_author: String(reviewLoop.agentAuthor), ...(reviewLoop.scope ? { scope: reviewLoop.scope } : {}) }} readOnlyInputs={["repo", "pr_number", "agent_author", "scope"]} hiddenInputs={["prs", "ready", "max_reentries"]} onClose={() => setReviewLoop(null)} />}
+      {reviewLoop && reviewLoopDefinition && <RunWorkflowDialog definition={reviewLoopDefinition} repositories={workflowDiscovery.data?.repositories ?? []} initialValues={{ repo: reviewLoop.pr.repo, pr_number: String(reviewLoop.pr.pr_number), agent_author: String(reviewLoop.agentAuthor), ready: String(reviewLoop.agentAuthor), ...(reviewLoop.scope ? { scope: reviewLoop.scope } : {}) }} readOnlyInputs={["repo", "pr_number", "agent_author", "ready", "scope"]} hiddenInputs={["prs", "max_reentries"]} onClose={() => setReviewLoop(null)} />}
       {cardWorkflow && <RunWorkflowDialog definition={cardWorkflow.workflow.definition} repositories={workflowDiscovery.data?.repositories ?? []} initialValues={{ [cardWorkflow.workflow.taskInput]: cardWorkflow.card.id }} readOnlyInputs={[cardWorkflow.workflow.taskInput]} onClose={() => setCardWorkflow(null)} />}
 
       {/* Overlays */}

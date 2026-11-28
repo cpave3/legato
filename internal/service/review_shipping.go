@@ -235,7 +235,7 @@ func (c *ReviewRunCaller) shippingLoop(ctx context.Context, rec *store.ReviewLoo
 		}
 		loop.Layers = append(loop.Layers, ShippingLayer{
 			ReviewRunLayer: ReviewRunLayer{Number: layer.Number, URL: url, Title: layer.Title, State: layer.State, Draft: layer.Draft, Mergeable: layer.Mergeable,
-				ChecksOnBase: onBase[layer.Number]},
+				ChecksOnBase: onBase[layer.Number], DraftedByLegato: layer.LegatoDraftedAt, DraftProblem: layer.DraftProblem},
 			FailingChecks: failing[layer.Number],
 		})
 	}

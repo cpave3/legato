@@ -137,7 +137,7 @@ func (s *ReviewPassService) pollComments(ctx context.Context, l ReviewLoop) {
 		if loop.Phase == ReviewPhaseClean {
 			// A comment after a clean pass: the loop is not done.
 			loop.Phase = ReviewPhaseWaitingForAuthor
-			l.stage(ctx, ReviewStageAuthor)
+			s.backToAuthor(ctx, l)
 		}
 	}
 	if len(gone) > 0 {

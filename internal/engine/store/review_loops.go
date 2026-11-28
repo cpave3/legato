@@ -217,6 +217,11 @@ type ReviewLoopPR struct {
 	// LocalBranch is the branch of the reviewer's clone the layer is put
 	// on, when it is not Branch.
 	LocalBranch string `db:"local_branch"`
+	// LegatoDraftedAt is when Legato last turned the layer into a draft
+	// for review (LEG-712); DraftProblem why it last could not, "" once
+	// it could or the layer was marked ready (migration 165).
+	LegatoDraftedAt string `db:"legato_drafted_at"`
+	DraftProblem    string `db:"draft_problem"`
 }
 
 // ReviewLoopPin is one pull request of a pass, pinned at its head, and the
@@ -1005,6 +1010,25 @@ func (s *Store) SetReviewLoopPRStatus(ctx context.Context, loopID string, layers
 		}
 	}
 	return tx.Commit()
+}
+
+// SetReviewLoopPRDraft records what became of turning a layer into a
+// draft, or marking it ready (LEG-712): with draft true and no problem,
+// Legato turned it into a draft at at; with a problem, it could not;
+// with draft false, it was marked ready, and any problem goes. Like
+// SetReviewLoopPRStatus it is GitHub's word, so the loop's rev does not
+// move; a number that is not one of the loop's layers is left alone.
+func (s *Store) SetReviewLoopPRDraft(ctx context.Context, loopID string, number int, draft bool, at, problem string) error {
+	var err error
+	switch {
+	case problem != "":
+		_, err = s.db.ExecContext(ctx, `UPDATE review_loop_prs SET draft_problem = ? WHERE loop_id = ? AND number = ?`, problem, loopID, number)
+	case draft:
+		_, err = s.db.ExecContext(ctx, `UPDATE review_loop_prs SET draft = 1, legato_drafted_at = ?, draft_problem = '' WHERE loop_id = ? AND number = ?`, at, loopID, number)
+	default:
+		_, err = s.db.ExecContext(ctx, `UPDATE review_loop_prs SET draft = 0, draft_problem = '' WHERE loop_id = ? AND number = ?`, loopID, number)
+	}
+	return err
 }
 
 // GetReviewLoopPass returns one pass, ErrNotFound when there is none.

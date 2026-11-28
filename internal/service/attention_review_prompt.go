@@ -220,9 +220,12 @@ func (a *ReviewPromptAttentionAdapter) Execute(ctx context.Context, request Atte
 	if reviews != nil {
 		logins = reviews.legatoLogins(ctx)
 	}
+	// An agent's loop marks its pull requests ready once approved, and
+	// keeps them drafts until then (LEG-712).
+	agent := fmt.Sprint(agentAuthoredPRs(tracked, reviewed, logins))
 	_, err = a.launcher.Start(ctx, workflowengine.ReviewLoopWorkflowName, map[string]string{
 		"repo": open[0].Repo, "pr_number": fmt.Sprint(open[0].PRNumber), "scope": scope,
-		"agent_author": fmt.Sprint(agentAuthoredPRs(tracked, reviewed, logins)),
+		"agent_author": agent, "ready": agent,
 	})
 	if err != nil {
 		// Refused at open: a loop took one of them since.

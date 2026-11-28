@@ -76,6 +76,13 @@ func (p *ReviewPublisher) MarkReady(ctx context.Context, repo string, number int
 	return p.channels.MarkReadyAsAuthor(ctx, repo, number)
 }
 
+// MarkDraft turns a pull request back into a draft as the author App, host
+// side (CredentialChannels.ConvertToDraftAsAuthor); false when it was a
+// draft already.
+func (p *ReviewPublisher) MarkDraft(ctx context.Context, repo string, number int) (bool, error) {
+	return p.channels.ConvertToDraftAsAuthor(ctx, repo, number)
+}
+
 // ReviewRunRepositories are a run's review clones: the repository cache's job
 // clones, reset with git on the host.
 type ReviewRunRepositories struct {

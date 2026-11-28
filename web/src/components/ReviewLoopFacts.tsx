@@ -43,7 +43,8 @@ function untilWords(time: string, now: number): string {
 
 function Layer({ layer }: { layer: ReviewRunLayer }) {
   const open = !layer.state || layer.state === "open"
-  const state = open ? (layer.draft ? "Draft" : "Open") : stateWords[layer.state ?? ""] ?? layer.state
+  // A draft Legato keeps until approved says so (LEG-712).
+  const state = open ? (layer.draft ? (layer.drafted_by_legato ? "Draft until approved" : "Draft") : "Open") : stateWords[layer.state ?? ""] ?? layer.state
   const merge = open && layer.mergeable ? mergeWords[layer.mergeable] ?? layer.mergeable : ""
   const trouble = layer.mergeable === "CONFLICTING" || layer.mergeable === "BEHIND"
   const onBase = layer.checks_on_base ?? []
@@ -54,6 +55,7 @@ function Layer({ layer }: { layer: ReviewRunLayer }) {
     <span aria-hidden="true">·</span><span>{state}</span>
     {merge && <><span aria-hidden="true">·</span><span className={cn(trouble && "text-lw-needs")}>{merge}</span></>}
     {open && onBase.length > 0 && <><span aria-hidden="true">·</span><span>Also failing on its base: {onBase.join(", ")}</span></>}
+    {open && layer.draft_problem && <><span aria-hidden="true">·</span><span className="text-lw-needs">Not a draft: {layer.draft_problem}</span></>}
   </li>
 }
 

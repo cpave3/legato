@@ -321,7 +321,8 @@ func reviewLoopWorkflow(name string) bool {
 // pull requests (spec LEG-559 stories 1 to 4). A pull request a review loop
 // holds, whatever started it, offers that loop (Loop); any other starts the
 // built-in review-loop with agent_author derived from who opened it (D8),
-// and no ready or steward. When the card has several open pull requests in
+// ready with it (an agent's pull requests are drafts until approved,
+// LEG-712), and no steward. When the card has several open pull requests in
 // one repository (its tracked branches are in stack order) and no loop
 // holds any, the first item reviews the whole stack, started on the bottom
 // one, as an agent's only when every one is, and the others each pull
@@ -377,7 +378,7 @@ func (l *TaskWorkflowLauncher) reviewPassItems(ctx context.Context, task *store.
 		options = append(options, TaskWorkflowOption{
 			Name: workflowengine.ReviewLoopWorkflowName, Title: fmt.Sprintf("Review passes · stack #%d–#%d · %s", bottom.PRNumber, top.PRNumber, authorMode(allAgents)),
 			Description: fmt.Sprintf("Review every open pull request of the stack of %s#%d in passes posted to GitHub; %s.", bottom.Repo, bottom.PRNumber, whoFixes(allAgents)),
-			Values:      map[string]string{"repo": bottom.Repo, "pr_number": fmt.Sprint(bottom.PRNumber), "agent_author": fmt.Sprint(allAgents), "scope": ReviewScopeStack},
+			Values:      map[string]string{"repo": bottom.Repo, "pr_number": fmt.Sprint(bottom.PRNumber), "agent_author": fmt.Sprint(allAgents), "ready": fmt.Sprint(allAgents), "scope": ReviewScopeStack},
 		})
 	}
 	for i, pr := range open {
@@ -389,7 +390,7 @@ func (l *TaskWorkflowLauncher) reviewPassItems(ctx context.Context, task *store.
 			})
 			continue
 		}
-		values := map[string]string{"repo": pr.Repo, "pr_number": fmt.Sprint(pr.PRNumber), "agent_author": fmt.Sprint(agents[i])}
+		values := map[string]string{"repo": pr.Repo, "pr_number": fmt.Sprint(pr.PRNumber), "agent_author": fmt.Sprint(agents[i]), "ready": fmt.Sprint(agents[i])}
 		if stack {
 			values["scope"] = ReviewScopePR
 		}

@@ -47,7 +47,7 @@ func TestACardWithAPullRequestOffersAReviewLoopWithItsAuthorModeDerived(t *testi
 		t.Fatal(err)
 	}
 	if len(items) != 1 || items[0].Name != "review-loop" || items[0].Title != "Review passes · #12 · agent" || items[0].Values["repo"] != "acme/widget" ||
-		items[0].Values["pr_number"] != "12" || items[0].Values["agent_author"] != "true" {
+		items[0].Values["pr_number"] != "12" || items[0].Values["agent_author"] != "true" || items[0].Values["ready"] != "true" {
 		t.Fatalf("items = %#v", items)
 	}
 }
@@ -56,7 +56,7 @@ func TestACardWithAPullRequestOffersAReviewLoopWithItsAuthorModeDerived(t *testi
 func TestACardWithAPersonsPullRequestOffersItAsAPersons(t *testing.T) {
 	launcher := launcherWithReviewPasses(t, &store.PRMeta{Repo: "acme/widget", Branch: "feature/greeting", PRNumber: 12, State: "OPEN", Author: "octocat"})
 	items, err := launcher.List(context.Background(), "task-1")
-	if err != nil || len(items) != 1 || items[0].Title != "Review passes · #12 · person" || items[0].Values["agent_author"] != "false" {
+	if err != nil || len(items) != 1 || items[0].Title != "Review passes · #12 · person" || items[0].Values["agent_author"] != "false" || items[0].Values["ready"] == "true" {
 		t.Fatalf("items = %#v, %v", items, err)
 	}
 }
@@ -90,7 +90,7 @@ func TestACardWhosePullRequestsAreAStackOffersTheStackFirst(t *testing.T) {
 	if err != nil || len(items) != 4 {
 		t.Fatalf("items = %#v, %v", items, err)
 	}
-	if items[0].Title != "Review passes · stack #137–#139 · agent" || items[0].Values["scope"] != "stack" || items[0].Values["pr_number"] != "137" || items[0].Values["agent_author"] != "true" {
+	if items[0].Title != "Review passes · stack #137–#139 · agent" || items[0].Values["scope"] != "stack" || items[0].Values["pr_number"] != "137" || items[0].Values["agent_author"] != "true" || items[0].Values["ready"] != "true" {
 		t.Fatalf("the stack item = %#v", items[0])
 	}
 	if items[2].Title != "Review passes · #138 · agent" || items[2].Values["scope"] != "pr" {

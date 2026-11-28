@@ -5,7 +5,7 @@ import { useShipping } from "../hooks/useShipping"
 import { useServer } from "../hooks/useServer"
 import { useNow } from "../hooks/useNow"
 import { workflowStepAction, type ReviewLoopAction } from "../lib/workflow"
-import { authorState, ciTrouble, ciWords, inFilter, outcomeWord, phaseWords, stewardWords, type ShippingFilter, type ShippingLoop } from "../lib/shipping"
+import { authorState, ciTrouble, ciWords, draftProblemWords, inFilter, outcomeWord, phaseWords, stewardWords, type ShippingFilter, type ShippingLoop } from "../lib/shipping"
 import { endConfirmation, reviewLoopActionLabels } from "../lib/reviewLoopActions"
 import { ago } from "../lib/workflowView"
 import { Button } from "../components/ui/Button"
@@ -73,6 +73,7 @@ function ShippingRow({ loop, now, refresh }: { loop: ShippingLoop; now: number; 
   const active = loop.open || loop.phase === "waiting_for_merge"
   const actions = loop.run_id && loop.step ? (loop.actions ?? []).filter(action => rowActions.includes(action)) : []
   const ci = ciWords(loop)
+  const draftProblem = draftProblemWords(loop)
   const steward = stewardWords(loop, now)
   const title = loop.task?.title || loop.task?.id || loop.repo
 
@@ -106,6 +107,7 @@ function ShippingRow({ loop, now, refresh }: { loop: ShippingLoop; now: number; 
       <p className={cn("font-medium", loop.needs_you ? "text-lw-needs" : active ? "text-lw-text" : "text-lw-text-2")}>{active ? phaseWords(loop) : outcomeWord(loop.outcome)}</p>
       {loop.phase === "stuck" && loop.reason && <p className="text-xs text-lw-text-2">{loop.reason}</p>}
       {ci && <p className={cn("text-xs", ciTrouble(loop) ? "text-lw-needs" : "text-lw-text-2")}>{ci}</p>}
+      {active && draftProblem && <p className="text-xs text-lw-needs">{draftProblem}</p>}
       {steward && <p className="text-xs text-lw-text-2">{steward}</p>}
       {!active && loop.closed_at && <p className="text-xs text-lw-text-2">{ago(loop.closed_at, now) === "now" ? "just now" : `${ago(loop.closed_at, now)} ago`}</p>}
     </div>
