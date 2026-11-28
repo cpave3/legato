@@ -3,7 +3,9 @@ package claudebridge
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestHostShellReaderCannotEscapeExecutionTmp(t *testing.T) {
@@ -11,24 +13,40 @@ func TestHostShellReaderCannotEscapeExecutionTmp(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "tasks"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "tasks", "safe.output"), []byte("safe"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "tasks", "safe.output"), []byte("safe-output-canary"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	secret := filepath.Join(t.TempDir(), "key")
+	secretDir := filepath.Join(t.TempDir(), "tasks")
+	if err := os.MkdirAll(secretDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(secretDir, "host.output")
 	if err := os.WriteFile(secret, []byte("host-key-canary"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(secret, filepath.Join(root, "tasks", "evil.output")); err != nil {
 		t.Fatal(err)
 	}
-	data, _, _, _, err := readShellOutputInRoot(root, "/tmp/tasks/safe.output", 0)
-	if err != nil || string(data) != "safe" {
-		t.Fatalf("sandbox output=%q %v", data, err)
+	h := shellHarness(t, root)
+	h.mod(hello(nil))
+	events := h.subscribe("")
+	startBackgroundShell(h, "safe-call", "safe", "/tmp/tasks/safe.output")
+	output := nextOfType(t, events, "background_shell_output")
+	if output["chunk"] != "safe-output-canary" {
+		t.Fatalf("mapped execution output=%v", output)
 	}
-	for _, path := range []string{"/tmp/tasks/evil.output", secret, "/tmp/../" + secret} {
-		data, _, _, _, err = readShellOutputInRoot(root, path, 0)
-		if err == nil || len(data) != 0 {
-			t.Fatalf("host file disclosed for %s: %q %v", path, data, err)
+	startBackgroundShell(h, "evil-call", "evil", "/tmp/tasks/evil.output")
+	startBackgroundShell(h, "host-call", "host", secret)
+	// Give the real polling path time to read a symlink; a snapshot must never
+	// expose those bytes even though telemetry names it as a shell's output.
+	time.Sleep(50 * time.Millisecond)
+	shells := h.shells().BackgroundShells
+	if len(shells) != 3 {
+		t.Fatalf("shell records=%v", shells)
+	}
+	for _, shell := range shells {
+		if shell.Output != nil && strings.Contains(shell.Output.Text, "host-key-canary") {
+			t.Fatal("agent telemetry exposed a host file through shell output")
 		}
 	}
 }

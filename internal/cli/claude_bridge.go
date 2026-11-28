@@ -130,7 +130,15 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 		default:
 		}
 	}()
-	recordIdentity := nativeIdentityRecorder(runCtx, host, opts.TaskID, session, "claude-code")
+	account, err := s.ExecutionAccount(ctx, agentSession.ExecutionID)
+	if err != nil {
+		return fmt.Errorf("reading Claude execution account: %w", err)
+	}
+	storageDir := ""
+	if account != nil {
+		storageDir = account.ConfigDir
+	}
+	recordIdentity := nativeIdentityRecorder(runCtx, host, opts.TaskID, session, "claude-code", storageDir)
 	bridge := claudebridge.New(claudebridge.Options{
 		TaskID:      opts.TaskID,
 		Token:       token,
@@ -224,8 +232,11 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 	}
 }
 
-func nativeIdentityRecorder(ctx context.Context, host BridgeHost, taskID string, session BridgeSession, kind string) func(string, string) error {
-	storageDir, storageErr := nativeSessionStorageDir(kind)
+func nativeIdentityRecorder(ctx context.Context, host BridgeHost, taskID string, session BridgeSession, kind, storageDir string) func(string, string) error {
+	var storageErr error
+	if storageDir == "" {
+		storageDir, storageErr = nativeSessionStorageDir(kind)
+	}
 	return func(providerSessionID, cwd string) error {
 		if !session.RecordsIdentity || providerSessionID == "" {
 			return nil

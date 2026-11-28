@@ -81,7 +81,13 @@ func (h *storeBridgeHost) Session(ctx context.Context, taskID, executionID strin
 }
 
 func (h *storeBridgeHost) Bind(ctx context.Context, endpoint string) error {
-	if err := h.s.UpdateChimeraDiscoveryForSession(ctx, h.session.ID, h.taskID, endpoint); err != nil {
+	var err error
+	if h.session.AgentKind == "claude-code" {
+		_, err = h.s.BindNativeEndpointUnlessOff(ctx, h.session.ID, h.taskID, endpoint)
+	} else {
+		err = h.s.UpdateChimeraDiscoveryForSession(ctx, h.session.ID, h.taskID, endpoint)
+	}
+	if err != nil {
 		return fmt.Errorf("binding the bridge to task %s: %w", h.taskID, err)
 	}
 	ipc.Broadcast(ipc.Message{Type: "agents_changed", TaskID: h.taskID})

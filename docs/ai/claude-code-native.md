@@ -35,7 +35,13 @@ Unauthorized native access records a durable, high-urgency `native_security` Att
 
 The key protects authenticated operator decisions, not the truth of agent telemetry. The agent can still post fabricated events or requests on its keyless routes. A real terminal dialog can still decide locally, and an unreachable bridge or no viewer still hands the request to that dialog; neither is permission to accept a keyless native decision.
 
-This boundary requires a new session. Legato does not automatically restart existing sessions or accept an unprotected compatibility endpoint. An unsandboxed agent runs as the operator's OS user and can read the host's private state: this is not isolation from that agent. Scratch verification against Claude Code 2.1.332 remains pending; older live evidence above and below does not verify LEG-686.
+This boundary requires a new session. Legato does not automatically restart existing sessions or accept an unprotected compatibility endpoint. An unsandboxed agent runs as the operator's OS user and can read the host's private state: this is not isolation from that agent.
+
+### LEG-686 verification
+
+`internal/cli/testdata/agent-health/claude_end_to_end.py --suite native-authority` runs real Claude Code **2.1.332** against a local scripted provider. Its private Legato/config/database/data/runtime/tmux/profile folders are removed afterwards. The focused pass verified permission allow/deny and rejection of keyless/wrong-key answers; question choices/custom text/dismissal after panel reconnect; real EnterPlanMode/Write/ExitPlanMode approval with accept-edits; host restart with key rotation and stale-key rejection; retained Attention; terminal fallback, interrupt and `/clear`. Nineteen provider calls completed. It uses the actual HTTP, WebSocket, approval watcher and command-hook paths, not provider credentials.
+
+That session is unsandboxed. `TestSandboxClaudeNativeAuthorityStaysOnHost` separately ran the real sandbox plan in bwrap: the agent-side process opened and waited, could not answer or subscribe, could not read private registration state, and received the host's authenticated decision. This proves the process boundary with a real bridge fixture, not a full sandboxed Claude launch. No existing Legato process was tested or restarted. Browser screenshots were unavailable because the configured Playwright distrobox is absent; the focused pass drives the panel's HTTP/WebSocket payloads and terminal instead.
 
 ## Packages
 

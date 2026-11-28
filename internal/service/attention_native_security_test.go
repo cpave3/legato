@@ -58,6 +58,9 @@ func TestNativeSecurityAttentionSurvivesExecutionEndAndStableDismissal(t *testin
 		t.Fatalf("after rejection = %+v", items)
 	}
 	item := items[0]
+	if !strings.HasPrefix(item.Title, "Unauthenticated native decision attempt") {
+		t.Fatalf("incident assigns an unproven caller: %q", item.Title)
+	}
 	if item.SignalKind != AttentionSignalNativeSecurityIncident || item.SourceRevision != "generation" || item.TaskID != "task" || item.Urgency != "high" || item.Navigation.Kind != "task" || item.Navigation.Target != "task" || !strings.Contains(item.Reason, "refused") {
 		t.Fatalf("incident attention = %+v", item)
 	}

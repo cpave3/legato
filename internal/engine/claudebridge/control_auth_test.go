@@ -92,3 +92,54 @@ func TestNativeControlRoutesFailClosedBeforeParsing(t *testing.T) {
 	var body any
 	_ = json.NewDecoder(io.LimitReader(resp.Body, 1024)).Decode(&body)
 }
+
+func TestAgentCannotAnswerAQuestionOrApproveAPlan(t *testing.T) {
+	for _, tool := range []string{"AskUserQuestion", "ExitPlanMode"} {
+		t.Run(tool, func(t *testing.T) {
+			h := newHarness(t)
+			h.mod(hello(nil), map[string]any{"type": "turn_start", "turnId": "turn"})
+			events := h.subscribe("")
+			input := colorAndSizes()
+			route := "questions"
+			decision := map[string]any{"dismissed": true}
+			if tool == "ExitPlanMode" {
+				input = map[string]any{"plan": "# Harmless test plan"}
+				route = "permissions"
+				decision = map[string]any{"decision": "allow", "option": "accept_edits"}
+			}
+			answer := h.askPermission("protected", tool, input)
+			nextEvent(t, events)
+			body, _ := json.Marshal(decision)
+			resp, err := http.Post(h.publicURL()+"/v1/sessions/task-1/"+route+"/protected", "application/json", bytes.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("self decision=%d", resp.StatusCode)
+			}
+			if tool == "AskUserQuestion" {
+				if len(h.questionSnapshot().PendingQuestions) != 1 {
+					t.Fatal("question disappeared")
+				}
+			} else if len(h.snapshot().PendingPermissions) != 1 {
+				t.Fatal("plan disappeared")
+			}
+			select {
+			case decided := <-answer:
+				t.Fatalf("unauthorized answer=%v", decided)
+			default:
+			}
+			if code, body := h.post("/v1/sessions/task-1/"+route+"/protected", decision); code != http.StatusNoContent {
+				t.Fatalf("host decision=%d %s", code, body)
+			}
+			decided := nextAnswer(t, answer)
+			if tool == "AskUserQuestion" && decided["decision"] != "deny" {
+				t.Fatalf("dismissal=%v", decided)
+			}
+			if tool == "ExitPlanMode" && (decided["returnInput"] != true || decided["decision"] != "allow") {
+				t.Fatalf("plan answer=%v", decided)
+			}
+		})
+	}
+}

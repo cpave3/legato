@@ -31,11 +31,11 @@ func (a *NativeSecurityAttentionAdapter) Snapshot(ctx context.Context) ([]Attent
 		items = append(items, AttentionInput{
 			SignalKind: AttentionSignalNativeSecurityIncident, SourceKey: string(key), SourceRevision: r.Generation,
 			TaskID: r.TaskID, Category: "security", Urgency: "high",
-			Title:      fmt.Sprintf("%s's native session tried an unauthorized control call", r.TaskID),
+			Title:      fmt.Sprintf("Unauthenticated native decision attempt for %s", r.TaskID),
 			Reason:     "Legato refused a native control call without valid host authorization. Review the session before continuing.",
 			Detail:     fmt.Sprintf("Category: %s. Refusals: %d. First: %s. Last: %s.", r.Category, r.Count, r.FirstSeenAt, r.LastSeenAt),
 			Navigation: AttentionNavigation{Kind: "task", Target: r.TaskID},
-			Actions:    []AttentionAction{{ID: "open", Label: "Open task", Kind: "navigate"}},
+			Actions:    []AttentionAction{{ID: "open", Label: "Open agent", Kind: "navigate"}},
 		})
 	}
 	return items, nil

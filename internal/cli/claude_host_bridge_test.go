@@ -1,12 +1,16 @@
 package cli_test
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/engine/broker"
@@ -95,4 +99,70 @@ func TestHostOwnedClaudeRelayAnnouncesOnlyPublicEndpoint(t *testing.T) {
 		t.Fatalf("agent replaced authority: %v", err)
 	}
 	_, _ = h(context.Background(), broker.Request{Token: token, Op: "claude.bridge.close", Args: json.RawMessage(`{"relay_id":"relay-1"}`)})
+}
+
+func TestClaudeRelayReconnectsAfterItsHostRestarts(t *testing.T) {
+	s := newTestStore(t)
+	owner := seedRunningClaudeAgent(t, s, "reconnect-claude")
+	linkNativeTestExecution(t, s, owner)
+	token := "lgb_reconnect_claude"
+	if err := s.SetExecutionBrokerToken(context.Background(), "native-reconnect-claude", service.HashBrokerToken(token)); err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(t.TempDir(), "broker.sock")
+	deps := cli.BrokerDeps{ClaudeRuntimeDir: t.TempDir()}
+	server, err := broker.Listen(socket, cli.NewBrokerHandler(s, deps))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = server.Close() }()
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { err := cli.RunClaudeRelay(ctx, socket, token, writer); writer.CloseWithError(err); done <- err }()
+	lines := make(chan string, 8)
+	go func() {
+		scanner := bufio.NewScanner(reader)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+		close(lines)
+	}()
+	ready := func() string {
+		t.Helper()
+		select {
+		case line := <-lines:
+			var r struct{ Type, URL string }
+			if err := json.Unmarshal([]byte(line), &r); err != nil || r.Type != "ready" {
+				t.Fatalf("ready=%s %v", line, err)
+			}
+			return r.URL
+		case <-time.After(10 * time.Second):
+			t.Fatal("relay never announced host")
+			return ""
+		}
+	}
+	first := ready()
+	if err := server.Close(); err != nil {
+		t.Fatal(err)
+	}
+	server, err = broker.Listen(socket, cli.NewBrokerHandler(s, deps))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := ready()
+	if first == second {
+		t.Fatal("replacement host reused generation")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("relay did not stop")
+	}
 }

@@ -10,7 +10,7 @@ The host broker starts the full Claude bridge in the host process; the sandboxed
 
 Only `/mod/events` and `/mod/permissions` POSTs are keyless. Native reads, including SSE, need the key too, since viewers change terminal fallback. Unauthorized native access is refused and recorded as a durable `native_security` Attention incident. Agent telemetry remains untrusted: this prevents keyless operator decisions, not fabricated events or requests. Actual terminal decisions and terminal fallback remain distinct from authenticated native decisions.
 
-Background-shell output is read on the host by mapping the execution's `/tmp` into its private scratch folder through `os.Root`, not by trusting an arbitrary host path supplied by the agent. A new session is required; there is no automatic restart or unprotected compatibility fallback. Scratch Claude Code 2.1.332 verification is pending, not covered by the older sandbox evidence below.
+Background-shell output is read on the host by mapping the execution's `/tmp` into its private scratch folder through `os.Root`, not by trusting an arbitrary host path supplied by the agent. A new session is required; there is no automatic restart or unprotected compatibility fallback. The focused Claude Code 2.1.332 scratch pass and a separate executable bwrap authority test are described in [Claude native verification](claude-code-native.md#leg-686-verification).
 
 An unsandboxed run is the operator's OS user, not an isolation boundary. Chimera's `/proc` environment secret leak and Codex's app-server token remain known upstream gaps; LEG-686 does not fix them. See [Claude](claude-code-native.md#security-boundary-leg-686), [Chimera](chimera-native.md#server-authentication) and [Codex](codex-native.md#known-limits).
 

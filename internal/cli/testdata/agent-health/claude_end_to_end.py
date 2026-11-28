@@ -20,6 +20,7 @@ import urllib.request
 parser = argparse.ArgumentParser()
 parser.add_argument('--legato', required=True)
 parser.add_argument('--artifacts', required=True)
+parser.add_argument('--suite', choices=['health', 'native-authority'], default='health')
 args = parser.parse_args()
 legato = str(pathlib.Path(args.legato).resolve())
 claude = shutil.which('claude')
@@ -36,7 +37,8 @@ control = {'scenario': 'plain', 'delay': 0}
 
 def response_content(body):
     messages = body.get('messages', [])
-    latest = messages[-1].get('content', []) if messages else []
+    # 2.1.332 can append system messages after a user tool result.
+    latest = next((message.get('content', []) for message in reversed(messages) if message.get('role') != 'system'), [])
     if isinstance(latest, str):
         latest = [{'type': 'text', 'text': latest}]
     results = [item for item in latest if item.get('type') == 'tool_result']
@@ -71,6 +73,23 @@ def response_content(body):
             return [{'type': 'text', 'text': 'CLAUDE-MCP-CANARY'}]
         name = next((name for name in names if name.endswith('task_context')), None)
         return [{'type': 'tool_use', 'id': 'tool-mcp-' + str(len(requests)), 'name': name or 'ToolSearch', 'input': {} if name else {'query': '+legato task_context', 'max_results': 1}}]
+    if scenario == 'plan':
+        phase = control.get('plan_phase', 0)
+        names = [tool.get('name') for tool in body.get('tools', [])]
+        if phase == 0:
+            if 'EnterPlanMode' not in names and not results:
+                return [{'type': 'tool_use', 'id': 'find-plan-mode', 'name': 'ToolSearch', 'input': {'query': 'select:EnterPlanMode'}}]
+            control['plan_phase'] = 1
+            return [{'type': 'tool_use', 'id': 'enter-plan-mode', 'name': 'EnterPlanMode', 'input': {}}]
+        if phase == 1:
+            # The real engine supplies its plan path in the next request.
+            paths = re.findall(r'/[^\s"<>`]+/plans/[a-zA-Z0-9_-]+\.md', json.dumps(body))
+            assert paths, 'engine did not advertise its private plan path'
+            control['plan_phase'] = 2
+            return [{'type': 'tool_use', 'id': 'write-scratch-plan', 'name': 'Write', 'input': {'file_path': paths[-1], 'content': '# Scratch authority plan\n\nPrint a harmless canary.\n'}}]
+        if phase == 2:
+            control['plan_phase'] = 3
+            return [{'type': 'tool_use', 'id': 'exit-plan-mode', 'name': 'ExitPlanMode', 'input': {'plan': '# Scratch authority plan\n\nPrint a harmless canary.'}}]
     if scenario.startswith('permission') and not results:
         return [{'type': 'tool_use', 'id': 'tool-permission-' + str(len(requests)), 'name': 'Bash', 'input': {'command': 'printf CLAUDE-PERMISSION-CANARY > ' + shlex.quote(str(root / 'resource' / (scenario + '.txt'))), 'description': 'Write the isolated permission canary'}}]
     if scenario.startswith('question') and not results:
@@ -128,7 +147,7 @@ threading.Thread(target=model.serve_forever, daemon=True).start()
 wrapper = root / 'bin/claude'
 wrapper.write_text('#!/bin/sh\nprintf called > ' + shlex.quote(str(root / 'wrapper-called')) + '\nprintf "%s\\n" "$$" >> ' + shlex.quote(str(root / 'claude-pids')) + '\nexport ANTHROPIC_BASE_URL=' + shlex.quote(f'http://127.0.0.1:{model.server_port}') + '\nexport ANTHROPIC_API_KEY=fixture-not-a-secret\nexport CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1\nexport DISABLE_AUTOUPDATER=1\nexec ' + shlex.quote(claude) + ' --debug-file ' + shlex.quote(str(root / 'claude-debug.log')) + ' "$@"\n')
 wrapper.chmod(0o700)
-profile = {'hasCompletedOnboarding': True, 'lastOnboardingVersion': '2.1.322', 'theme': 'dark', 'customApiKeyResponses': {'approved': ['fixture-not-a-secret'], 'rejected': []}, 'projects': {str(work): {'hasTrustDialogAccepted': True, 'hasCompletedProjectOnboarding': True}}}
+profile = {'hasCompletedOnboarding': True, 'lastOnboardingVersion': '2.1.332' if args.suite == 'native-authority' else '2.1.322', 'theme': 'dark', 'customApiKeyResponses': {'approved': ['fixture-not-a-secret'], 'rejected': []}, 'projects': {str(work): {'hasTrustDialogAccepted': True, 'hasCompletedProjectOnboarding': True}}}
 for file in [home / '.claude.json', home / '.claude/.claude.json']:
     file.write_text(json.dumps(profile))
 for name in ['.profile', '.bash_profile', '.bashrc', '.zshrc', '.zprofile']:
@@ -137,7 +156,8 @@ with socket.socket() as sock:
     sock.bind(('127.0.0.1', 0))
     port = sock.getsockname()[1]
 config = root / 'config.yaml'
-config.write_text(f'db:\n  path: {root}/legato.db\ndata_dir: {root}/data\nweb:\n  discovery: false\nupdates:\n  mode: off\nagents:\n  peer_awareness: false\n  sandbox:\n    enabled: false\nadapters:\n  claude-code:\n    native_bridge: true\n    launch_args: [--model, claude-sonnet-5-5, --permission-mode, default]\nboard:\n  columns:\n    - name: Backlog\n    - name: Doing\n    - name: Review\n    - name: Done\n')
+permission_mode = 'manual' if args.suite == 'native-authority' else 'default'
+config.write_text(f'db:\n  path: {root}/legato.db\ndata_dir: {root}/data\nweb:\n  discovery: false\nupdates:\n  mode: off\nagents:\n  peer_awareness: false\n  sandbox:\n    enabled: false\nadapters:\n  claude-code:\n    native_bridge: true\n    launch_args: [--model, claude-sonnet-5-5, --permission-mode, {permission_mode}]\nboard:\n  columns:\n    - name: Backlog\n    - name: Doing\n    - name: Review\n    - name: Done\n')
 env = {'PATH': str(root / 'bin') + ':' + os.environ['PATH'], 'HOME': str(home), 'CLAUDE_CONFIG_DIR': str(home / '.claude'), 'LEGATO_HOME': str(home / '.legato'), 'LEGATO_CONFIG': str(config), 'XDG_RUNTIME_DIR': str(root / 'r'), 'XDG_CONFIG_HOME': str(home / '.config'), 'XDG_DATA_HOME': str(home / '.local/share'), 'TMUX_TMPDIR': str(root / 'tm'), 'TMPDIR': str(root / 'tmp'), 'TERM': 'xterm-256color', 'LANG': 'C.UTF-8'}
 log = open(root / 'serve.log', 'w')
 process, token, task_id = None, None, None
@@ -215,6 +235,151 @@ def close_stream(stream):
             child.wait(timeout=5)
     stream['reader'].join(2)
 
+
+def authority_scenarios(stream):
+    import base64
+    import sqlite3
+    import urllib.parse
+
+    version = subprocess.check_output([claude, '--version'], env=env, text=True).strip()
+    assert version.startswith('2.1.332 '), 'this evidence requires Claude Code 2.1.332'
+
+    def settled():
+        return snapshot()['status'] == 'idle' and row()['activity'] == ''
+
+    def message(text):
+        api('/api/tasks/' + task_id + '/agent', {'prompt': text})
+
+    def pending(kind):
+        return next((item for item in api('/api/approvals?task=' + task_id)['approvals'] if item['source'] == kind), None)
+
+    def registration():
+        with sqlite3.connect(root / 'legato.db') as db:
+            return db.execute('SELECT public_endpoint, control_endpoint FROM native_bridge_registrations').fetchone()
+
+    def refused(url, body, authorization=None):
+        headers = {'Content-Type': 'application/json'}
+        if authorization:
+            headers['Authorization'] = authorization
+        req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers)
+        try:
+            urllib.request.urlopen(req, timeout=3).close()
+        except urllib.error.HTTPError as error:
+            assert error.code == 401, 'self-answer was not rejected with 401'
+            return
+        raise AssertionError('agent answered its own request')
+
+    for decision in ['allow', 'deny']:
+        control['scenario'] = 'permission-' + decision
+        before = len(requests)
+        message('CLAUDE-PERMISSION-' + decision)
+        approval = wait(lambda: pending('agent_permission'), 'native permission')
+        public, private = registration()
+        req_id = snapshot()['pendingPermissions'][0]['requestId']
+        refused(public + '/v1/sessions/' + task_id + '/permissions/' + req_id, {'decision': 'allow'})
+        refused(public + '/v1/sessions/' + task_id + '/permissions/' + req_id, {'decision': 'allow'}, 'Basic ' + base64.b64encode(b'legato:wrong').decode())
+        assert snapshot()['pendingPermissions'][0]['requestId'] == req_id, 'unauthorized answer changed pending request'
+        assert not (root / 'resource' / (control['scenario'] + '.txt')).exists(), 'command ran before host approval'
+        key = urllib.parse.urlparse(private).password
+        for path in (root / 'r').rglob('*.json'):
+            assert key not in path.read_text(), 'host key appeared in runtime advertisement'
+        for pid in (root / 'claude-pids').read_text().splitlines():
+            proc = pathlib.Path('/proc', pid, 'environ')
+            if proc.exists():
+                assert key.encode() not in proc.read_bytes(), 'host key appeared in Claude environment'
+        api('/api/approvals/' + approval['id'] + '/decision', {'decision': decision})
+        wait(lambda: len(requests) >= before + 2 and settled(), 'permission outcome')
+        assert (root / 'resource' / (control['scenario'] + '.txt')).exists() == (decision == 'allow'), 'permission did not control execution'
+        outcomes.append('permission-' + decision + '-rejected-self-answer-valid-host-decision')
+
+    for decision in ['answer', 'dismiss']:
+        control['scenario'] = 'question-' + decision
+        before = len(requests)
+        message('CLAUDE-QUESTION-' + decision)
+        approval = wait(lambda: pending('agent_question'), 'native question')
+        question = snapshot()['pendingQuestions'][0]
+        public, _ = registration()
+        refused(public + '/v1/sessions/' + task_id + '/questions/' + question['requestId'], {'dismissed': True})
+        close_stream(stream)
+        stream = start_stream()
+        assert snapshot()['pendingQuestions'][0]['requestId'] == question['requestId'], 'panel reconnect lost the pending question'
+        if decision == 'answer':
+            items = question['questions']
+            ws_send(stream, {'type': 'agent_question', 'agent_id': task_id, 'request_id': question['requestId'], 'answers': {items[0]['id']: ['Second'], items[1]['id']: ['custom-authority-canary']}})
+        else:
+            api('/api/approvals/' + approval['id'] + '/dismiss', {})
+        wait(lambda: len(requests) >= before + 2 and settled(), 'question outcome')
+        assert ('custom-authority-canary' in json.dumps(requests[-1]['messages'][-1])) == (decision == 'answer'), 'question result did not reach Claude'
+        outcomes.append('question-' + decision + '-panel-reconnect')
+
+    control.update(scenario='plan', plan_phase=0)
+    before = len(requests)
+    message('CLAUDE-PLAN-APPROVAL')
+    approval = wait(lambda: pending('agent_permission'), 'native plan approval')
+    plan = snapshot()['pendingPermissions'][0]
+    assert plan.get('plan') and plan['tool'] == 'ExitPlanMode', 'plan approval did not contain the plan'
+    public, _ = registration()
+    refused(public + '/v1/sessions/' + task_id + '/permissions/' + plan['requestId'], {'decision': 'allow', 'option': 'accept_edits'})
+    api('/api/agents/' + task_id + '/chimera/permission', {'request_id': plan['requestId'], 'decision': 'allow', 'option': 'accept_edits'})
+    wait(lambda: len(requests) > before and settled(), 'approved plan continuation')
+    outcomes.append('real-plan-approval-accept-edits')
+
+    # Stop only the server created above. The Claude process and its relay
+    # remain alive and attach to a fresh host generation on the same broker.
+    global process
+    old_public, old_private = registration()
+    control['scenario'] = 'plain'
+    process.terminate()
+    process.wait(timeout=10)
+    process = subprocess.Popen([legato, 'serve', '--port', str(port)], env=env, cwd=work, stdout=log, stderr=log)
+    wait(lambda: registration() and registration()[0] != old_public, 'new bridge generation after scratch host restart')
+    wait(lambda: row().get('has_chimera_endpoint') and snapshot()['name'] == task_id, 'reconnected Claude snapshot')
+    fresh_public, _ = registration()
+    old_key = urllib.parse.urlparse(old_private).password
+    refused(fresh_public + '/v1/sessions/' + task_id + '/interrupt', {}, 'Basic ' + base64.b64encode(('legato:' + old_key).encode()).decode())
+    before = len(requests)
+    message('CLAUDE-AFTER-HOST-RESTART')
+    wait(lambda: len(requests) > before and settled(), 'Claude continuation after host restart')
+    outcomes.append('host-restart-new-key-stale-key-rejected-continuation')
+    attention = api('/api/attention')
+    assert 'Unauthenticated native decision attempt' in json.dumps(attention), 'refusal did not reach durable Attention'
+    outcomes.append('durable-security-attention-after-host-restart')
+
+    # A disconnected panel must leave an ordinary terminal permission prompt,
+    # not silently allow the command or strand it in the native panel.
+    for viewer in streams:
+        close_stream(viewer)
+    control['scenario'] = 'permission-terminal'
+    before = len(requests)
+    message('CLAUDE-TERMINAL-FALLBACK')
+    def pane_text():
+        return subprocess.check_output(['/usr/bin/tmux', 'capture-pane', '-p', '-t', 'legato-' + task_id], env=env, text=True)
+    wait(lambda: 'Do you want to proceed?' in pane_text(), 'terminal permission fallback')
+    assert not (root / 'resource/permission-terminal.txt').exists(), 'terminal request auto-approved'
+    subprocess.run(['/usr/bin/tmux', 'send-keys', '-t', 'legato-' + task_id, 'Enter'], env=env, check=True)
+    wait(lambda: len(requests) >= before + 2 and settled(), 'terminal decision delivered')
+    assert (root / 'resource/permission-terminal.txt').exists(), 'terminal approval did not run command'
+    outcomes.append('terminal-fallback-real-prompt-and-approval')
+
+    stream = start_stream()
+    control.update(scenario='plain', delay=2)
+    before = len(requests)
+    message('CLAUDE-INTERRUPT-AFTER-RECONNECT')
+    wait(lambda: len(requests) > before and snapshot()['status'] == 'running', 'interrupt active turn')
+    api('/api/agents/' + task_id + '/chimera/interrupt', {})
+    control['delay'] = 0
+    wait(settled, 'interrupted Claude returns idle')
+    outcomes.append('interrupt-after-host-reconnect')
+
+    message('/clear')
+    wait(lambda: 'CLAUDE-AFTER-HOST-RESTART' not in json.dumps(snapshot()['messages']), 'clear native history')
+    before = len(requests)
+    message('CLAUDE-AFTER-CLEAR')
+    wait(lambda: len(requests) > before and settled(), 'new conversation after clear')
+    assert 'CLAUDE-AFTER-CLEAR' in json.dumps(requests[-1]['messages']), 'clear lost subsequent message'
+    outcomes.append('clear-and-subsequent-message-same-binding')
+
+
 try:
     cli('columns', 'sync')
     created = json.loads(cli('task', 'create', 'Claude integration scratch', '--json'))['data']
@@ -240,6 +405,12 @@ try:
     def message(text):
         api('/api/tasks/' + task_id + '/agent', {'prompt': text})
     stream = start_stream()
+    if args.suite == 'native-authority':
+        authority_scenarios(stream)
+        report = {'agent': 'claude-code', 'version': '2.1.332', 'passed': outcomes, 'model_calls': len(requests)}
+        (artifacts / 'authority-results.json').write_text(json.dumps(report, indent=2) + '\n')
+        print(json.dumps(report))
+        raise SystemExit(0)
     control['scenario'] = 'mcp'
     before = len(requests)
     message('CLAUDE-MCP: call the actual scratch task_context tool.')

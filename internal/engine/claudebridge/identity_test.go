@@ -60,7 +60,7 @@ func TestIdentityPersistenceDoesNotBlockPanelReadsAndOrdersConcurrentBatches(t *
 	unblock := func() { releaseOnce.Do(func() { close(release) }) }
 	defer unblock()
 	captured := make(chan string, 4)
-	bridge := New(Options{TaskID: "task-1", OnIdentity: func(id, cwd string) error {
+	bridge := New(Options{TaskID: "task-1", DecisionKey: "test-host-decision-key", OnIdentity: func(id, cwd string) error {
 		captured <- id + ":" + cwd
 		if id == "first" {
 			close(entered)
@@ -78,7 +78,9 @@ func TestIdentityPersistenceDoesNotBlockPanelReadsAndOrdersConcurrentBatches(t *
 		defer close(readsDone)
 		for _, path := range []string{"/v1/sessions/task-1", "/v1/instance", "/v1/sessions/task-1/context", "/v1/sessions/task-1/models", "/v1/sessions/task-1/skills"} {
 			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.SetBasicAuth("legato", "test-host-decision-key")
+			handler.ServeHTTP(response, req)
 			if response.Code != http.StatusOK {
 				t.Errorf("GET %s = %d", path, response.Code)
 			}
@@ -95,7 +97,9 @@ func TestIdentityPersistenceDoesNotBlockPanelReadsAndOrdersConcurrentBatches(t *
 	streamDone := make(chan struct{})
 	go func() {
 		defer close(streamDone)
-		handler.ServeHTTP(stream, httptest.NewRequest(http.MethodGet, "/v1/sessions/task-1/events", nil).WithContext(ctx))
+		req := httptest.NewRequest(http.MethodGet, "/v1/sessions/task-1/events", nil).WithContext(ctx)
+		req.SetBasicAuth("legato", "test-host-decision-key")
+		handler.ServeHTTP(stream, req)
 	}()
 	awaitIdentitySignal(t, stream.flushed)
 	cancel()

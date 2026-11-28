@@ -60,7 +60,7 @@ Each producer builds a revision from meaningful source state. Dismiss suppresses
 
 ### Native security incidents (LEG-686)
 
-`NativeSecurityAttentionAdapter` projects `native_security_incidents`, not pending approvals. A refused unauthenticated or incorrectly authenticated native call records a bounded category, count, and first/last times, never the URL, key or request body. It establishes a refusal, not caller identity. Successful answers, request completion and session end do not erase it. The source key is execution + generation and revision is the generation: repeat refusals update the count without undoing dismissal, including across restart. A new generation is a separate incident. The item offers Open task and uses the default-enabled `legato` rail group.
+`NativeSecurityAttentionAdapter` projects `native_security_incidents`, not pending approvals. A refused unauthenticated or incorrectly authenticated native call records a bounded category, count, and first/last times, never the URL, key or request body. It establishes a refusal, not caller identity. Successful answers, request completion and session end do not erase it. The source key is execution + generation and revision is the generation: repeat refusals update the count without undoing dismissal, including across restart. A new generation is a separate incident. The item says “Unauthenticated native decision attempt”, offers Open agent and uses the default-enabled `legato` rail group.
 
 ## Default signal policy
 

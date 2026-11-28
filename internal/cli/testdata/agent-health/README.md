@@ -54,3 +54,30 @@ on stdin, not argv. Cleanup stops only owned scratch processes and removes its
 private root; retained evidence contains no real credentials. The loopback
 fixture deliberately continues serving harmless queued response threads after
 client cancellation, accepting connection reset as expected behavior.
+
+## Claude native authority (LEG-686)
+
+Use `--suite native-authority` for the focused security/compatibility pass on
+Claude Code **2.1.332** (the script checks this version). It uses a local scripted
+provider and the same isolated runner; it needs no provider credentials.
+
+```sh
+python3 internal/cli/testdata/chimera-mod/isolated_run.py \
+  python3 internal/cli/testdata/agent-health/claude_end_to_end.py \
+  --legato /tmp/legato-health --artifacts /tmp/claude-authority-evidence \
+  --suite native-authority
+```
+
+It verifies rejected keyless/wrong-key self-answers while requests stay pending,
+host allow/deny, question choices/custom text/dismissal after panel reconnect,
+real plan entry/write/approval with accept-edits, host restart and stale-key
+rejection, persistent security Attention, terminal fallback, interrupt and
+`/clear`. Success writes `authority-results.json`; a successful pass used 19
+provider calls. The host restart and terminal keyboard actions target only this
+script's scratch server and tmux server. The fixture recognizes tool results
+before trailing system messages, which 2.1.332 can add.
+
+This is an unsandboxed Claude integration pass, not a full sandboxed launch or a
+browser rendering test. `TestSandboxClaudeNativeAuthorityStaysOnHost` separately
+exercises the real bwrap plan and bridge. No whole health/E2E suite is needed for
+this focused pass.

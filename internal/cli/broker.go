@@ -58,7 +58,15 @@ func NewBrokerHandler(db *store.Store, deps BrokerDeps) broker.Handler {
 	for name, op := range deps.Ops {
 		ops[name] = op
 	}
-	return func(ctx context.Context, req broker.Request) (any, error) {
+	return func(ctx context.Context, req broker.Request) (out any, runErr error) {
+		// Broker ownership can move during authentication as well as during a
+		// long poll. Do not turn host shutdown into a permanent relay failure.
+		defer func() {
+			if ctx.Err() != nil {
+				out = nil
+				runErr = refuse("host_unavailable", "Legato host is stopping")
+			}
+		}()
 		execution, err := db.ExecutionByBrokerToken(ctx, service.HashBrokerToken(req.Token))
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, refuse("unauthorized", "this token names no running agent session")

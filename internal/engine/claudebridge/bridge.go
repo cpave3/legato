@@ -108,7 +108,8 @@ type Bridge struct {
 	// for the same task is never mistaken for one of ours.
 	stream *replaystream.Stream
 	// waiters are the mod's held permission requests, by request ID.
-	waiters map[string]chan permissionAnswer
+	waiters       map[string]chan permissionAnswer
+	requestInputs map[string][32]byte
 	// detached are held requests whose call ended without a decision: Claude
 	// Code ends a mod's HTTP call after 30 seconds, and the mod then asks
 	// again with the same ID. Each expires unless asked again within grace.
@@ -164,13 +165,14 @@ func New(opts Options) *Bridge {
 			}
 			return DefaultShellPoll
 		}(),
-		session:  newSession(),
-		stream:   replaystream.New(randomHex(4), replayLimit, subscriberBuffer),
-		waiters:  map[string]chan permissionAnswer{},
-		detached: map[string]*time.Timer{},
-		parked:   map[string]permissionAnswer{},
-		grace:    permissionGrace,
-		holdFor:  permissionHold,
+		session:       newSession(),
+		stream:        replaystream.New(randomHex(4), replayLimit, subscriberBuffer),
+		waiters:       map[string]chan permissionAnswer{},
+		requestInputs: map[string][32]byte{},
+		detached:      map[string]*time.Timer{},
+		parked:        map[string]permissionAnswer{},
+		grace:         permissionGrace,
+		holdFor:       permissionHold,
 	}
 }
 

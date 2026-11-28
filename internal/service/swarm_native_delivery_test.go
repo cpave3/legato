@@ -23,13 +23,13 @@ func bridgeSwarmParticipant(t *testing.T, st *store.Store, mt *mockTmux, taskID 
 		t.Fatal(err)
 	}
 	commands := &lineWriter{lines: make(chan map[string]any, 32)}
-	bridge := claudebridge.New(claudebridge.Options{TaskID: taskID, Commands: commands})
+	bridge := claudebridge.New(claudebridge.Options{DecisionKey: "test-host-key", TaskID: taskID, Commands: commands})
 	server := httptest.NewServer(bridge.Handler())
 	t.Cleanup(func() {
 		bridge.Close()
 		server.Close()
 	})
-	if err := st.UpdateChimeraDiscovery(ctx, taskID, taskID, server.URL); err != nil {
+	if err := st.UpdateChimeraDiscovery(ctx, taskID, taskID, testClaudeControlEndpoint(t, server.URL)); err != nil {
 		t.Fatal(err)
 	}
 	return commands.lines

@@ -121,6 +121,11 @@ func claudeHostOps(db *store.Store, deps BrokerDeps) map[string]BrokerOp {
 					b.err = err
 					close(b.done)
 					b.mu.Unlock()
+					mu.Lock()
+					if bridges[caller.ExecutionID] == b {
+						delete(bridges, caller.ExecutionID)
+					}
+					mu.Unlock()
 					cancel()
 				}(b)
 				go func(b *hostClaudeBridge) {
@@ -134,8 +139,8 @@ func claudeHostOps(db *store.Store, deps BrokerDeps) map[string]BrokerOp {
 							b.mu.Lock()
 							expired := time.Since(b.seen) > claudeRelayLease
 							b.mu.Unlock()
-							_, err := db.GetRunningAgentSession(runCtx, caller.TaskID, caller.ExecutionID)
-							if expired || err != nil {
+							execution, err := db.GetExecution(runCtx, caller.ExecutionID)
+							if expired || err != nil || execution.Status != store.ExecutionRunning {
 								cancel()
 								return
 							}
@@ -172,7 +177,7 @@ func claudeHostOps(db *store.Store, deps BrokerDeps) map[string]BrokerOp {
 				defer timer.Stop()
 				select {
 				case <-ctx.Done():
-					return nil, ctx.Err()
+					return nil, refuse("host_unavailable", "Claude bridge host is stopping")
 				case <-b.done:
 				case <-notify:
 				case <-timer.C:
@@ -180,6 +185,9 @@ func claudeHostOps(db *store.Store, deps BrokerDeps) map[string]BrokerOp {
 			}
 			b.mu.Lock()
 			defer b.mu.Unlock()
+			if ctx.Err() != nil {
+				return nil, refuse("host_unavailable", "Claude bridge host is stopping")
+			}
 			select {
 			case <-b.done:
 				if b.err != nil {
@@ -234,7 +242,7 @@ func RunClaudeRelay(ctx context.Context, socket, token string, out io.Writer) er
 				return nil
 			}
 			var refused *broker.Error
-			if errors.As(err, &refused) {
+			if errors.As(err, &refused) && refused.Code != "host_unavailable" {
 				return err
 			}
 			select {

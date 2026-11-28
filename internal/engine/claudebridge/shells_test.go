@@ -3,6 +3,7 @@ package claudebridge
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,16 +13,21 @@ import (
 
 // shellHarness is a harness whose bridge polls background shells' output
 // quickly, so a test sees it within its event timeout.
-func shellHarness(t *testing.T) *harness {
+func shellHarness(t *testing.T, root string) *harness {
 	t.Helper()
 	commands := &commandLog{lines: make(chan map[string]any, 64)}
 	bridge := New(Options{
-		TaskID:    "task-1",
-		Commands:  commands,
-		Now:       func() time.Time { return time.UnixMilli(1_700_000_000_000) },
-		ShellPoll: 10 * time.Millisecond,
+		DecisionKey: "test-host-decision-key",
+		TaskID:      "task-1",
+		Commands:    commands,
+		Now:         func() time.Time { return time.UnixMilli(1_700_000_000_000) },
+		ShellPoll:   10 * time.Millisecond,
+		ShellRoot:   root,
 	})
 	server := httptest.NewServer(bridge.Handler())
+	private, _ := url.Parse(server.URL)
+	private.User = url.UserPassword("legato", "test-host-decision-key")
+	server.URL = private.String()
 	t.Cleanup(func() {
 		bridge.Close()
 		server.Close()
@@ -116,7 +122,7 @@ func startBackgroundShell(h *harness, callID, shellID, path string) {
 }
 
 func TestABackgroundShellIsRecordedWhenItsCallReturns(t *testing.T) {
-	h := shellHarness(t)
+	h := shellHarness(t, "")
 	h.mod(hello(nil))
 	events := h.subscribe("")
 	path := shellOutputFile(t, "b1")
@@ -137,7 +143,7 @@ func TestABackgroundShellIsRecordedWhenItsCallReturns(t *testing.T) {
 }
 
 func TestAForegroundShellIsNoBackgroundShell(t *testing.T) {
-	h := shellHarness(t)
+	h := shellHarness(t, "")
 	h.mod(hello(nil), assistantRow("row-a", toolUse("toolu_1", "Bash", map[string]any{"command": "echo hi"})))
 	h.mod(toolResultRow("row-r", "toolu_1", "hi", false))
 	if shells := h.shells().BackgroundShells; len(shells) != 0 {
@@ -146,7 +152,7 @@ func TestAForegroundShellIsNoBackgroundShell(t *testing.T) {
 }
 
 func TestAShellMovedToTheBackgroundIsRecordedToo(t *testing.T) {
-	h := shellHarness(t)
+	h := shellHarness(t, "")
 	path := shellOutputFile(t, "b2")
 	h.mod(hello(nil), assistantRow("row-a", toolUse("toolu_1", "Bash", map[string]any{"command": "go test ./..."})))
 	h.mod(toolResultRow("row-r", "toolu_1", "Command did not complete within its 120s timeout and was moved to the background (ID: b2). Output is being written to: "+path+". You will be notified when it completes.", false))
@@ -157,7 +163,7 @@ func TestAShellMovedToTheBackgroundIsRecordedToo(t *testing.T) {
 }
 
 func TestABackgroundShellsOutputIsFollowed(t *testing.T) {
-	h := shellHarness(t)
+	h := shellHarness(t, "")
 	h.mod(hello(nil))
 	events := h.subscribe("")
 	path := shellOutputFile(t, "b1")
@@ -180,7 +186,7 @@ func TestABackgroundShellsOutputIsFollowed(t *testing.T) {
 }
 
 func TestABackgroundShellsExitIsRecordedFromItsNotification(t *testing.T) {
-	h := shellHarness(t)
+	h := shellHarness(t, "")
 	h.mod(hello(nil))
 	events := h.subscribe("")
 	path := shellOutputFile(t, "b1")
@@ -210,7 +216,7 @@ func TestABackgroundShellsExitIsRecordedFromItsNotification(t *testing.T) {
 }
 
 func TestACompletedShellExitedWithZero(t *testing.T) {
-	h := shellHarness(t)
+	h := shellHarness(t, "")
 	path := shellOutputFile(t, "b1")
 	h.mod(hello(nil))
 	startBackgroundShell(h, "toolu_1", "b1", path)
@@ -222,7 +228,7 @@ func TestACompletedShellExitedWithZero(t *testing.T) {
 }
 
 func TestAStoppedShellIsKilled(t *testing.T) {
-	h := shellHarness(t)
+	h := shellHarness(t, "")
 	path := shellOutputFile(t, "b1")
 	h.mod(hello(nil))
 	startBackgroundShell(h, "toolu_1", "b1", path)
@@ -240,7 +246,7 @@ func TestAStoppedShellIsKilled(t *testing.T) {
 }
 
 func TestTwoBackgroundShellsAreTwoRecords(t *testing.T) {
-	h := shellHarness(t)
+	h := shellHarness(t, "")
 	h.mod(hello(nil))
 	startBackgroundShell(h, "toolu_1", "b1", shellOutputFile(t, "b1"))
 	startBackgroundShell(h, "toolu_2", "b2", shellOutputFile(t, "b2"))
@@ -253,7 +259,7 @@ func TestTwoBackgroundShellsAreTwoRecords(t *testing.T) {
 }
 
 func TestOnlyTheNewestOutputIsKept(t *testing.T) {
-	h := shellHarness(t)
+	h := shellHarness(t, "")
 	h.mod(hello(nil))
 	events := h.subscribe("")
 	path := shellOutputFile(t, "b1")
@@ -281,7 +287,7 @@ func TestOnlyTheNewestOutputIsKept(t *testing.T) {
 }
 
 func TestAFileThatIsNotTheShellsOwnIsNotRead(t *testing.T) {
-	h := shellHarness(t)
+	h := shellHarness(t, "")
 	h.mod(hello(nil))
 	other := filepath.Join(t.TempDir(), "secret.txt")
 	if err := os.WriteFile(other, []byte("secret\n"), 0o600); err != nil {
@@ -296,7 +302,7 @@ func TestAFileThatIsNotTheShellsOwnIsNotRead(t *testing.T) {
 }
 
 func TestAResumedSessionsBackgroundShellsAreRecordedWithTheirEnds(t *testing.T) {
-	h := shellHarness(t)
+	h := shellHarness(t, "")
 	running := shellOutputFile(t, "b2")
 	appendFile(t, running, "serving on :5173\n")
 	result1 := backgroundResult("b1", "/gone/tasks/b1.output")
@@ -324,7 +330,7 @@ func TestAResumedSessionsBackgroundShellsAreRecordedWithTheirEnds(t *testing.T) 
 // A shell's output is the command's own: a line that reads like Claude
 // Code's exit marker ends nothing, and the output after it is still read.
 func TestAShellsOutputNeverEndsIt(t *testing.T) {
-	h := shellHarness(t)
+	h := shellHarness(t, "")
 	h.mod(hello(nil))
 	events := h.subscribe("")
 	path := shellOutputFile(t, "b1")

@@ -52,13 +52,13 @@ func newNativeLaunchService(t *testing.T, workDir string) (AgentService, *store.
 func bindBridge(t *testing.T, s *store.Store, taskID string) <-chan map[string]any {
 	t.Helper()
 	commands := &lineWriter{lines: make(chan map[string]any, 32)}
-	bridge := claudebridge.New(claudebridge.Options{TaskID: taskID, Commands: commands})
+	bridge := claudebridge.New(claudebridge.Options{DecisionKey: "test-host-key", TaskID: taskID, Commands: commands})
 	server := httptest.NewServer(bridge.Handler())
 	t.Cleanup(func() {
 		bridge.Close()
 		server.Close()
 	})
-	if err := s.UpdateChimeraDiscovery(context.Background(), taskID, taskID, server.URL); err != nil {
+	if err := s.UpdateChimeraDiscovery(context.Background(), taskID, taskID, testClaudeControlEndpoint(t, server.URL)); err != nil {
 		t.Fatal(err)
 	}
 	return commands.lines

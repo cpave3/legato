@@ -1,11 +1,16 @@
 package server
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/claudebridge"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -14,7 +19,7 @@ import (
 // A Claude Code agent's bridge is bound to the agent session exactly as a
 // Chimera endpoint is, so the web panel's snapshot route serves it unchanged.
 func TestNativeSnapshotServesAClaudeCodeSessionThroughItsBridge(t *testing.T) {
-	bridge := claudebridge.New(claudebridge.Options{TaskID: "TASK-42", Token: "secret"})
+	bridge := claudebridge.New(claudebridge.Options{DecisionKey: "test-host-key", TaskID: "TASK-42", Token: "secret"})
 	bridgeServer := httptest.NewServer(bridge.Handler())
 	t.Cleanup(func() {
 		bridge.Close()
@@ -34,6 +39,7 @@ func TestNativeSnapshotServesAClaudeCodeSessionThroughItsBridge(t *testing.T) {
 	}
 	resp.Body.Close()
 
+	endpoint = testClaudeControlEndpoint(t, endpoint)
 	sessionID := "TASK-42"
 	agents := &chimeraSnapshotAgentFake{
 		session: &store.AgentSession{ID: 17, TaskID: "TASK-42", AgentKind: "claude-code", ChimeraSessionID: &sessionID, ChimeraEndpoint: &endpoint},
@@ -83,7 +89,7 @@ func TestNativeSnapshotServesAClaudeCodeSessionThroughItsBridge(t *testing.T) {
 // The panel's model and settings routes reach a Claude Code session's bridge
 // through the same handlers that proxy a Chimera session.
 func TestNativeModelRoutesDriveAClaudeCodeSessionThroughItsBridge(t *testing.T) {
-	bridge := claudebridge.New(claudebridge.Options{TaskID: "TASK-42", Models: []string{"claude-sonnet-5-5"}})
+	bridge := claudebridge.New(claudebridge.Options{DecisionKey: "test-host-key", TaskID: "TASK-42", Models: []string{"claude-sonnet-5-5"}})
 	bridgeServer := httptest.NewServer(bridge.Handler())
 	t.Cleanup(func() {
 		bridge.Close()
@@ -95,7 +101,7 @@ func TestNativeModelRoutesDriveAClaudeCodeSessionThroughItsBridge(t *testing.T) 
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	sessionID, endpoint := "TASK-42", bridgeServer.URL
+	sessionID, endpoint := "TASK-42", testClaudeControlEndpoint(t, bridgeServer.URL)
 	agents := &chimeraModelsAgentFake{endpoint: true, session: &store.AgentSession{
 		ID: 17, TaskID: "TASK-42", AgentKind: "claude-code", ChimeraSessionID: &sessionID, ChimeraEndpoint: &endpoint,
 	}}
@@ -137,5 +143,109 @@ func TestNativeModelRoutesDriveAClaudeCodeSessionThroughItsBridge(t *testing.T) 
 	code, body = call(http.MethodPost, "/api/agents/TASK-42/chimera/model", `{"model":"default"}`)
 	if code != http.StatusOK || !strings.Contains(body, `"to":"anthropic/claude-opus-5-5"`) {
 		t.Fatalf("reset model = %d %s", code, body)
+	}
+}
+
+func testClaudeControlEndpoint(t *testing.T, publicEndpoint string) string {
+	t.Helper()
+	endpoint, err := url.Parse(publicEndpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint.User = url.UserPassword("legato", "test-host-key")
+	return endpoint.String()
+}
+
+// The web permission route must carry host authority all the way to the
+// bridge, then return the decision to the mod's held request.
+func TestNativePermissionRouteAnswersAClaudeCodeBridgeRequest(t *testing.T) {
+	bridge := claudebridge.New(claudebridge.Options{TaskID: "TASK-42", Token: "secret", DecisionKey: "test-host-key"})
+	bridgeServer := httptest.NewServer(bridge.Handler())
+	t.Cleanup(func() { bridge.Close(); bridgeServer.Close() })
+	publicEndpoint := bridgeServer.URL + "/secret"
+	controlEndpoint := testClaudeControlEndpoint(t, publicEndpoint)
+	agents := &promptAgentService{chimeraEndpoint: controlEndpoint, chimeraSessionID: "TASK-42"}
+	web := httptest.NewServer(New(nil, agents, nil, ":0").Handler())
+	defer web.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	viewerRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, controlEndpoint+"/v1/sessions/TASK-42/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewer, err := http.DefaultClient.Do(viewerRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer viewer.Body.Close()
+	if viewer.StatusCode != http.StatusOK {
+		t.Fatalf("viewer status = %d", viewer.StatusCode)
+	}
+	type modAnswer struct {
+		Decision string `json:"decision"`
+		Feedback string `json:"feedback"`
+	}
+	type modResult struct {
+		answer modAnswer
+		err    error
+	}
+	answered := make(chan modResult, 1)
+	go func() {
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, publicEndpoint+"/mod/permissions",
+			strings.NewReader(`{"requestId":"permission-1","tool":"Bash","input":{"command":"git push"}}`))
+		if err != nil {
+			answered <- modResult{err: err}
+			return
+		}
+		request.Header.Set("Content-Type", "application/json")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			answered <- modResult{err: err}
+			return
+		}
+		defer response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			answered <- modResult{err: fmt.Errorf("mod permission status = %d", response.StatusCode)}
+			return
+		}
+		var answer modAnswer
+		err = json.NewDecoder(response.Body).Decode(&answer)
+		answered <- modResult{answer, err}
+	}()
+	events := bufio.NewScanner(viewer.Body)
+	opened := false
+	for events.Scan() {
+		if strings.Contains(events.Text(), `"permission_request"`) {
+			opened = true
+			break
+		}
+	}
+	if !opened {
+		t.Fatalf("request did not open: %v", events.Err())
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, web.URL+"/api/agents/TASK-42/chimera/permission",
+		strings.NewReader(`{"request_id":"permission-1","decision":"deny","feedback":"Use a review branch"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("permission route status = %d", response.StatusCode)
+	}
+	select {
+	case result := <-answered:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if result.answer.Decision != "deny" || result.answer.Feedback != "Use a review branch" {
+			t.Fatalf("mod answer = %+v", result.answer)
+		}
+	case <-ctx.Done():
+		t.Fatal("permission route never answered the mod")
 	}
 }

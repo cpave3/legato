@@ -44,6 +44,9 @@ func runAgentBridgeContract(args []string) int {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		go cancelWhenOrphaned(ctx, cancel, os.Getppid(), os.Getppid, time.Second)
+		if _, err := cli.BrokerBridgeHost(socket, token).Session(ctx, taskID, executionID); err != nil {
+			return renderCommandError(command, commandDomainError(err), false)
+		}
 		if err := cli.RunClaudeRelay(ctx, socket, token, os.Stdout); err != nil {
 			return renderCommandError(command, commandDomainError(err), false)
 		}

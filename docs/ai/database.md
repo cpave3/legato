@@ -18,6 +18,12 @@ Migration SQL remains embedded and SQLite-specific. The backend-neutral `schema_
 
 Store tests use real temporary SQLite files and cover fresh creation, reopen durability, legacy bootstrap, future/mismatched schema refusal, per-connection PRAGMAs, and racing migration openers. Architecture tests prevent production packages from importing `sqlx`, calling `Store.DB()`, bypassing the shared command opener, or creating sibling dependencies between engine packages.
 
+### Native bridge authority
+
+`native_bridge_registrations` (migration 164) stores a Claude bridge generation's public endpoint and private Basic-auth control endpoint, keyed by its exact agent-session row and execution. Only host code creates this registration. Rediscovery must match its public lockfile URL before using the private endpoint. Cleanup removes only the generation that ended. Registrations and `agent_sessions.chimera_endpoint` contain credentials; neither belongs in public DTOs or agent broker replies.
+
+`native_security_incidents` (migration 163) keeps rejected native calls, unique by execution and bridge generation. `RecordNativeSecurityIncident` records bounded categories, first/last time and a count, not keys, URLs or bodies. `NativeSecurityAttentionAdapter` projects this history with stable dismissal. A valid answer or session end does not delete the source. See [Claude native security](claude-code-native.md#security-boundary-leg-686) and [Attention](attention.md#native-security-incidents-leg-686).
+
 ### Execution activity and reporting
 
 An **execution** is one independently startable and terminable unit of agent work. Interactive agents, workflow `agent.run` attempts, swarm conductors, and swarm workers each receive a Legato-generated `LEGATO_EXECUTION_ID` before spawn. Provider session IDs, tmux names, task IDs, and workflow IDs are metadata and must never select an activity stream.

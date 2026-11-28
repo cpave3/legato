@@ -464,3 +464,39 @@ func controlBridgeURL(t *testing.T, s *store.Store, taskID string) string {
 	}
 	return *session.ChimeraEndpoint
 }
+
+func TestHostClaudeBridgeRecordsTheExecutionsSelectedAccountStorage(t *testing.T) {
+	s := newTestStore(t)
+	owner := seedRunningClaudeAgent(t, s, "task1")
+	linkNativeTestExecution(t, s, owner)
+	selected := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := s.PutExecutionAccount(context.Background(), "native-task1", store.AgentAccountIdentity{Provider: "claude-code", Account: "selected", ConfigDir: selected, ResolvedDir: selected, ConfigEnvSet: true}); err != nil {
+		t.Fatal(err)
+	}
+	endpoint, _ := runningBridge(t, s, cli.ClaudeBridgeOptions{TaskID: "task1", ExecutionID: "native-task1", RuntimeDir: t.TempDir()})
+	if code, body := postClaudeIdentity(t, endpoint, `[{"type":"hello","sessionId":"selected-conversation","cwd":"/repo"}]`); code != http.StatusNoContent {
+		t.Fatalf("identity=%d %s", code, body)
+	}
+	saved, err := s.GetTaskNativeSession(context.Background(), "task1", "claude-code")
+	if err != nil || saved == nil || saved.StorageDir != selected {
+		t.Fatalf("host recorded another account's storage: %+v %v", saved, err)
+	}
+}
+
+func TestReplacementHostBridgeKeepsTheOperatorsTerminalChoice(t *testing.T) {
+	s := newTestStore(t)
+	owner := seedRunningClaudeAgent(t, s, "task1")
+	_, stop := runningBridge(t, s, cli.ClaudeBridgeOptions{TaskID: "task1", RuntimeDir: t.TempDir()})
+	if changed, err := s.KeepAgentSessionOnTmux(context.Background(), owner.ID, "task1", controlBridgeURL(t, s, "task1")); err != nil || !changed {
+		t.Fatalf("terminal switch=%v %v", changed, err)
+	}
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = runningBridge(t, s, cli.ClaudeBridgeOptions{TaskID: "task1", RuntimeDir: t.TempDir()})
+	current, err := s.GetAgentSessionByTaskID(context.Background(), "task1")
+	if err != nil || !current.NativeOff || current.ChimeraEndpoint != nil {
+		t.Fatalf("replacement undid terminal choice: %+v %v", current, err)
+	}
+}

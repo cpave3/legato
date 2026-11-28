@@ -103,7 +103,7 @@ Legato runs the full Claude bridge on the host. Its child in the agent's sandbox
 
 Your terminal can still answer its actual dialog. With no viewer attached or an unavailable bridge, the request stays in the terminal; this does not allow keyless native answers. Refused native access raises a durable, high-urgency Attention incident. Dismissing it stays effective for that run and bridge generation despite repeated refusals.
 
-Start a new agent session for this boundary. Legato does not automatically restart agents or use an unprotected compatibility bridge. Scratch verification against Claude Code 2.1.332 is pending. An unsandboxed agent runs as your OS user and can read private host state, so the key is not isolation from it. See [Sandbox](/legato/security/sandbox/#claude-codes-native-decisions).
+Start a new agent session for this boundary. Legato does not automatically restart agents or use an unprotected compatibility bridge. An unsandboxed agent runs as your OS user and can read private host state, so the key is not isolation from it. See [Sandbox](/legato/security/sandbox/#claude-codes-native-decisions).
 
 ### Turn the panel off
 
