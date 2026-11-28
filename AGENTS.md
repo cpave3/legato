@@ -100,6 +100,7 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 - `docs/ai/integrations.md` — Argus: scoped tokens, owner lookup, delegations, replies, the OAuth connection, cases in Attention
 - `docs/ai/resources.md` — named file/folder resources given to agents
 - `docs/ai/skills.md` — Legato-managed skills: the skills folder, on/off state, Settings › Skills, per-execution injection (Claude Code plugin, Chimera mod), the sandbox, and the capability seams profiles and MCP tools reuse
+- `docs/ai/managed-hooks.md` — managed hooks: the managed-hooks folder, the `HOOK.yaml` manifest and its rules, the global on/off state, Settings › Managed hooks, the Phase 1 scope and its limits
 - `docs/ai/usage.md` — subscription usage: the Claude and Codex readers, the cache, the poller's lock, `/api/usage`, the Usage strip, `legato usage`
 - `docs/ai/engram.md` — engram sessions: the engram client, the setting and probe, bindings, the spawn as an engram
 - `docs/ai/sandbox.md` — bubblewrap sandbox: what agents see and what is hidden
@@ -140,7 +141,7 @@ The documentation for people who use Legato is the Starlight site in `site/`, pu
 | `docs/ai/workflows.md` | `using/workflows` |
 | `docs/ai/model-settings.md` | `agent-tools/model-settings` |
 | `docs/ai/sync.md`, `docs/ai/pr-tracking.md` | `integrations/jira`, `integrations/github` |
-| `docs/ai/claude-code-native.md`, `docs/ai/chimera-native.md`, `docs/ai/codex-native.md`, `docs/ai/agent-mcp.md`, `docs/ai/resources.md`, `docs/ai/skills.md` | `agent-tools/*` |
+| `docs/ai/claude-code-native.md`, `docs/ai/chimera-native.md`, `docs/ai/codex-native.md`, `docs/ai/agent-mcp.md`, `docs/ai/resources.md`, `docs/ai/skills.md`, `docs/ai/managed-hooks.md` | `agent-tools/*` |
 | `docs/ai/compaction.md` | `using/agents`, `agent-tools/*`, `reference/configuration` |
 | `docs/ai/credentials.md`, `docs/ai/sandbox.md` | `security/*`, `running/agent-server` |
 | `docs/ai/engram.md` | `agent-tools/engrams` |

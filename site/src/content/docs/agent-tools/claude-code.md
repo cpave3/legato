@@ -146,6 +146,10 @@ After a crash, an agent whose session is gone is kept as **Interrupted** and res
 
 Each Claude Code agent gets the [skills](/legato/agent-tools/skills/) you turned on in Legato as a plugin named `legato-skills`, so a skill is called `legato-skills:<name>` and sits beside any skill of the same name in the project or in `~/.claude/skills`.
 
+## Managed hooks
+
+Each Claude Code agent gets the [managed hooks](/legato/agent-tools/managed-hooks/) that are on, beside the hooks of the project and of `~/.claude/settings.json`.
+
 ## Token usage in Manticore
 
 With a `manticore:` block in the configuration, Legato loads a second mod, `legato-manticore`, into each Claude Code session. It reports the token counts of every model request to your Manticore instance, and never the prompt or the reply. It works with or without the native panel. See [Manticore](/legato/integrations/manticore/).

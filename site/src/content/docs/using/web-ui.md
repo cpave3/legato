@@ -186,7 +186,7 @@ Settings is split into sections, grouped by what you are doing. On a wide screen
 | Group | Sections |
 | --- | --- |
 | You | **Appearance** (app and terminal theme, motion, this Legato's theme and tint, the TUI's theme and icons), **Attention** (the needs-you rail, notifications in this browser, on the desktop and by ntfy, and what notifies), **Input and terminal** (the switch key, prompt detection, dictation, the TUI's editor and keys, tmux options) |
-| Agents | **Agents** (defaults, Claude Code, Codex and Chimera, what agents get, [skills](/legato/agent-tools/skills/), resources, engrams), **Repositories** (repositories, directory presets, guidance, fresh clones, worktrees), **Sandbox**, and **Macros**, which opens its own page |
+| Agents | **Agents** (defaults, Claude Code, Codex and Chimera, what agents get, [skills](/legato/agent-tools/skills/), [managed hooks](/legato/agent-tools/managed-hooks/), resources, engrams), **Repositories** (repositories, directory presets, guidance, fresh clones, worktrees), **Sandbox**, and **Macros**, which opens its own page |
 | Features | **Reeve**, **Swarms**, **Review passes**, **Learn**: each feature's own switch comes first |
 | Services | **Board and tickets** (workspaces, columns, Jira, Burnlite), **Integrations** (GitHub, Argus, MCP servers, Home Assistant, Manticore) |
 | Access | **Security** (approval devices, credentials, credential channels, integration tokens), **Connections** (this browser's servers, pairing, TLS, workers and main instances, the network) |

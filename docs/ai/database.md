@@ -276,6 +276,10 @@ Migration 147 adds `handoff_review_passes.posting_started_at` and `post_attempts
 
 Migration `116_skill_states.sql` adds `skill_states`: `name` (a skill's folder name, the key), `enabled`, `updated_at`. A skill with no row is on. `SkillStates` reads them all as a map; `SetSkillEnabled` upserts one. The skills themselves are files on disk, never rows. 114 and 115 were left free because two open branches (LEG-214, LEG-199) each add migrations with those numbers; versions are positions in the sorted list, so whichever merges later renumbers its files. See [Skills](skills.md).
 
+## Managed hook states
+
+Migration `163_managed_hook_states.sql` adds `managed_hook_states`: `name` (a managed hook's folder name, the key), `enabled`, `updated_at`. A hook with no row is on. `ManagedHookStates` reads them all as a map; `SetManagedHookEnabled` upserts one (both share `enabledStates`/`setEnabled` with the skill states). The hooks themselves are files on disk, never rows. See [Managed hooks](managed-hooks.md).
+
 ## Server theme preference
 
 Migration `113_server_theme.sql` adds singleton `server_theme_preference`: `singleton = 1`, `id` (empty initially), `revision` (0 initially), `updated_at`, `updated_by`. `ThemePreference` reads `{id, revision}`; `ChangeThemePreference` atomically updates only the expected revision, increments it and records actor/time, returning `ErrConflict` if stale. This works across processes. There is one current row, not a theme-change history ledger. Client follow flags, local choices and offline caches stay outside this table. See [Client themes](themes.md).
