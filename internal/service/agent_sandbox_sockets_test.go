@@ -116,3 +116,23 @@ func TestBwrapStartsWithAnSSHSocketOpenedLateOnceItIsWaitedFor(t *testing.T) {
 		t.Fatalf("%v: %s", err, out)
 	}
 }
+
+// A spawn cancelled while it waits (an HTTP caller gone) still records what
+// it left: the session dead and the execution failed, not running.
+func TestASpawnCancelledWhileWaitingForItsSocketRecordsTheFailure(t *testing.T) {
+	svc, s, mt, _ := sshChanneledService(t, 5*time.Second)
+	createTask(t, s, "task-1")
+	ctx, cancel := context.WithCancel(context.Background())
+	mt.onSpawn = func(string) { time.AfterFunc(100*time.Millisecond, cancel) }
+	if err := svc.SpawnAgent(ctx, "task-1", 0, 0); err == nil {
+		t.Fatal("the spawn succeeded without its socket")
+	}
+	bg := context.Background()
+	if running, _ := s.ListRunningExecutions(bg); len(running) != 0 {
+		t.Fatalf("executions still running: %+v", running)
+	}
+	// The session is dead, so no live one is found.
+	if session, err := s.GetAgentSessionByTaskID(bg, "task-1"); err == nil && session.Status != "dead" {
+		t.Fatalf("session still live: %+v", session)
+	}
+}

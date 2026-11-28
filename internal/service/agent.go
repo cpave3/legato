@@ -1329,7 +1329,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 	// Once recorded on the execution, an engram session is ended with it.
-	failExecution := func() { _ = a.EndExecution(ctx, executionID, store.ExecutionFailed) }
+	// The failure is recorded even when the caller has gone (a spawn
+	// cancelled while it waits for its sockets).
+	failExecution := func() { _ = a.EndExecution(context.WithoutCancel(ctx), executionID, store.ExecutionFailed) }
 	if booted.booted() {
 		for k, v := range booted.Env {
 			envMap[k] = v
@@ -1623,7 +1625,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	launch := func(line string) error {
 		if err := a.runLaunch(ctx, sessionName, paneLaunch(operatorShell(envMap), line), sandboxSockets, envVars); err != nil {
 			a.tmux.Kill(sessionName)
-			_ = a.store.UpdateAgentSessionStatusInSlot(ctx, taskID, slot, "dead")
+			_ = a.store.UpdateAgentSessionStatusInSlot(context.WithoutCancel(ctx), taskID, slot, "dead")
 			failExecution()
 			return fmt.Errorf("launching the agent: %w", err)
 		}
