@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/prompt"
+	"github.com/cpave3/legato/internal/service"
 )
 
 // Screens a real Claude Code 2.1.332 session drew (LEG-688).
@@ -210,5 +213,59 @@ func TestAnAnswerMustSayWhichPromptItAnswers(t *testing.T) {
 	}
 	if refusal := f.last(t); refusal.Type != MsgError {
 		t.Fatalf("refusal = %+v", refusal)
+	}
+}
+
+// answer_terminal_prompt exists only on /ws, and /ws opens only for the
+// operator's web token: never the bearer tokens an agent's side can hold
+// (the Reeve's, an integration's, the broker's), in the query or a header.
+// So an agent cannot answer its own terminal prompt (LEG-688, beside LEG-686).
+func TestOnlyTheOperatorsWebTokenOpensTheConnectionThatAnswersTerminalPrompts(t *testing.T) {
+	srv := New(&mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}, nil, nil, ":0")
+	srv.SetAuthToken("web-token")
+	handler := srv.Handler()
+	for _, token := range []string{"", "wrong", service.ReeveTokenPrefix + "agent", service.IntegrationTokenPrefix + "agent", "lgb_broker"} {
+		for _, header := range []bool{false, true} {
+			req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+			if header {
+				req.Header.Set("Authorization", "Bearer "+token)
+			} else {
+				req.URL.RawQuery = "token=" + token
+			}
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+			if w.Code != http.StatusUnauthorized {
+				t.Errorf("token %q (header %v) opened /ws: %d", token, header, w.Code)
+			}
+		}
+	}
+}
+
+// AnswerPrompt is the one way into a native agent's terminal; only the
+// operator's /ws handler may call it. A broker op, CLI command or MCP tool
+// that called it would let an agent answer its own prompt.
+func TestOnlyTheWebSocketHandlerAnswersTerminalPrompts(t *testing.T) {
+	root := filepath.Join("..", "..")
+	var callers []string
+	for _, dir := range []string{"cmd", "internal"} {
+		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, entry os.DirEntry, err error) error {
+			if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return err
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			if strings.Contains(string(data), ".AnswerPrompt(") {
+				callers = append(callers, filepath.ToSlash(path))
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := []string{"../../internal/server/terminal_answer.go"}; !reflect.DeepEqual(callers, want) {
+		t.Fatalf("AnswerPrompt is called from %v, want only %v", callers, want)
 	}
 }
