@@ -275,7 +275,8 @@ func (s *ReviewPassService) routeItems(ctx context.Context, l ReviewLoop, rec *s
 			f, sk := s.countPolled(ctx, l, loop, rec.Repo, layer.Number, authors[layer.Number], poll, byID, seen)
 			fresh, skipped = fresh+f, skipped+sk
 		}
-		for _, c := range countedWatchChecks(layer, configured) {
+		counted := countedWatchChecks(layer, configured)
+		for _, c := range counted {
 			if c.Conclusion == "" {
 				c.Conclusion = c.State
 			}
@@ -291,6 +292,9 @@ func (s *ReviewPassService) routeItems(ctx context.Context, l ReviewLoop, rec *s
 			if err := s.db.UpsertHandoffReviewItem(ctx, item); err != nil {
 				return err
 			}
+		}
+		if err := s.closeGoneChecks(ctx, items, layer, counted); err != nil {
+			return err
 		}
 	}
 	for i, layer := range w.Layers {
@@ -522,18 +526,32 @@ func (s *ReviewPassService) applyMergedLayer(l ReviewLoop, loop *store.HandoffRe
 	return item, true, true
 }
 
-// countedWatchChecks are a watched layer's counted checks: those branch
-// protection requires, else the configured ones (as Checks counts them).
-func countedWatchChecks(w PRWatch, configured []string) []CheckResult {
-	required := false
-	for _, c := range w.Checks {
-		required = required || c.Required
+// closeGoneChecks closes the open check items of a watched layer whose
+// check its head no longer runs (goneChecks); a truncated read closes none.
+func (s *ReviewPassService) closeGoneChecks(ctx context.Context, items []store.HandoffReviewItem, layer PRWatch, counted []CheckResult) error {
+	if layer.ChecksTruncated {
+		return nil
 	}
-	var out []CheckResult
-	for _, c := range w.Checks {
-		if (required && !c.Required) || (!required && !slices.Contains(configured, c.Name)) {
-			continue
+	names := make([]string, 0, len(counted))
+	for _, c := range counted {
+		names = append(names, c.Name)
+	}
+	for _, item := range goneChecks(items, layer.Number, layer.HeadSHA, names) {
+		if err := s.db.UpsertHandoffReviewItem(ctx, item); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// countedWatchChecks are a watched layer's counted checks (countChecks):
+// every check on its head, those branch protection requires (else the
+// configured ones) first, and a failing one the base's newest completed run
+// fails too marked CheckFailingOnBase.
+func countedWatchChecks(w PRWatch, configured []string) []CheckResult {
+	onBase := func(name string) bool { return failingOnBase(w.BaseHistory, name) }
+	var out []CheckResult
+	for _, c := range countChecks(w.Checks, explicitChecks(w.Checks, configured), false, onBase) {
 		out = append(out, CheckResult{Name: c.Name, State: c.State, Conclusion: c.Conclusion, URL: c.URL})
 	}
 	return out

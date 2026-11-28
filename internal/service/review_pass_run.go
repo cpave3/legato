@@ -1848,6 +1848,9 @@ type ReviewRunLayer struct {
 	State     string `json:"state,omitempty"`
 	Draft     bool   `json:"draft"`
 	Mergeable string `json:"mergeable,omitempty"`
+	// ChecksOnBase are the checks failing on this pull request that its
+	// base fails too: noted, not the author's to fix (LEG-711).
+	ChecksOnBase []string `json:"checks_on_base,omitempty"`
 }
 
 // ReviewStewardView is a watching steward as the run page shows it: held,

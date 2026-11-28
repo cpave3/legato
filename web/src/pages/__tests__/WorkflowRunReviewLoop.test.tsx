@@ -61,6 +61,12 @@ describe("WorkflowRunPage review loop", () => {
     expect(text).not.toContain("still stands")
   })
 
+  it("notes on a layer the checks its base fails too", () => {
+    show({ ...watching, layers: [{ ...layers[1], mergeable: "MERGEABLE", checks_on_base: ["docs", "e2e"] }] })
+    const prs = within(within(now()).getByRole("list", { name: "Pull requests" })).getAllByRole("listitem")
+    expect(prs[0].textContent).toContain("Also failing on its base: docs, e2e")
+  })
+
   it("Stop watching and End act on the steward's step", async () => {
     show(watching)
     await click(within(now()).getByRole("button", { name: "Stop watching" }))

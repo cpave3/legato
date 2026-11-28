@@ -226,7 +226,7 @@ func (c *ReviewRunCaller) shippingLoop(ctx context.Context, rec *store.ReviewLoo
 		}
 	}
 
-	failing := c.failingChecks(ctx, rec.ID)
+	failing, onBase := c.failingChecks(ctx, rec.ID), checksOnBase(ctx, db, rec.ID)
 	layers, _ := db.ListReviewLoopPRs(ctx, rec.ID)
 	for _, layer := range layers {
 		url := layer.URL
@@ -234,8 +234,9 @@ func (c *ReviewRunCaller) shippingLoop(ctx context.Context, rec *store.ReviewLoo
 			url = "https://github.com/" + rec.Repo + "/pull/" + strconv.Itoa(layer.Number)
 		}
 		loop.Layers = append(loop.Layers, ShippingLayer{
-			ReviewRunLayer: ReviewRunLayer{Number: layer.Number, URL: url, Title: layer.Title, State: layer.State, Draft: layer.Draft, Mergeable: layer.Mergeable},
-			FailingChecks:  failing[layer.Number],
+			ReviewRunLayer: ReviewRunLayer{Number: layer.Number, URL: url, Title: layer.Title, State: layer.State, Draft: layer.Draft, Mergeable: layer.Mergeable,
+				ChecksOnBase: onBase[layer.Number]},
+			FailingChecks: failing[layer.Number],
 		})
 	}
 	switch {
@@ -378,6 +379,22 @@ func (c *ReviewRunCaller) failingChecks(ctx context.Context, loopID string) map[
 		return nil
 	}
 	return failing
+}
+
+// checksOnBase are the checks failing on each layer that its base fails
+// too, by its number: the loop's check items closed as AnswerOnBase.
+func checksOnBase(ctx context.Context, db *store.Store, loopID string) map[int][]string {
+	items, err := db.ListReviewLoopItems(ctx, loopID)
+	if err != nil {
+		return nil
+	}
+	out := map[int][]string{}
+	for _, item := range items {
+		if item.Kind == ItemCheck && item.Closed && item.Answer == AnswerOnBase {
+			out[item.PR] = append(out[item.PR], checkName(item))
+		}
+	}
+	return out
 }
 
 // checkName is a check item's check: its ID is k-<pr>-<name>.

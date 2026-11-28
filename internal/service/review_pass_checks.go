@@ -78,6 +78,7 @@ func (s *ReviewPassService) readChecks(ctx context.Context, l ReviewLoop, loop *
 	pending, fresh := 0, 0
 	var changed []store.HandoffReviewItem
 	for _, pr := range prs {
+		var names []string
 		checks, err := s.opts.GitHub.Checks(ctx, l.Repo, pr.Base, pr.HeadSHA, s.config().RequiredChecks)
 		if err != nil {
 			var limit *GitHubRateLimit
@@ -89,6 +90,7 @@ func (s *ReviewPassService) readChecks(ctx context.Context, l ReviewLoop, loop *
 			return false
 		}
 		for _, c := range checks {
+			names = append(names, c.Name)
 			if c.State == CheckPending {
 				pending++
 				continue
@@ -103,6 +105,7 @@ func (s *ReviewPassService) readChecks(ctx context.Context, l ReviewLoop, loop *
 				changed = append(changed, item)
 			}
 		}
+		changed = append(changed, goneChecks(items, pr.Number, pr.HeadSHA, names)...)
 	}
 	for _, item := range changed {
 		if err := s.db.UpsertHandoffReviewItem(ctx, item); err != nil {
@@ -125,10 +128,9 @@ func (s *ReviewPassService) applyCheck(l ReviewLoop, loop *store.HandoffReview, 
 	item store.HandoffReviewItem, known bool) (store.HandoffReviewItem, bool, bool) {
 	switch c.State {
 	case CheckPassing:
-		if known && !item.Closed && item.Answer != AnswerReplied {
-			item.Closed = true
-			return item, true, false
-		}
+		return passedCheck(item, known)
+	case CheckFailingOnBase:
+		return s.noteOnBase(l, loop, number, head, c, item, known)
 	case CheckFailing:
 		fresh := false
 		switch {
@@ -153,6 +155,41 @@ func (s *ReviewPassService) applyCheck(l ReviewLoop, loop *store.HandoffReview, 
 		return item, true, fresh
 	}
 	return item, false, false
+}
+
+// passedCheck is what a passing check makes of its item: an open one not
+// answered by a reply closes, and a note that the base fails it goes.
+func passedCheck(item store.HandoffReviewItem, known bool) (store.HandoffReviewItem, bool, bool) {
+	switch {
+	case !known:
+		return item, false, false
+	case item.Closed && item.Answer == AnswerOnBase:
+		item.Answer = ""
+		return item, true, false
+	case !item.Closed && item.Answer != AnswerReplied:
+		item.Closed = true
+		return item, true, false
+	}
+	return item, false, false
+}
+
+// noteOnBase is what a check failing on the base too makes of its item:
+// not the pull request's doing, so it is noted on a closed item, never sent
+// to the author (LEG-711). It opens again, as failing again, once only the
+// head fails it.
+func (s *ReviewPassService) noteOnBase(l ReviewLoop, loop *store.HandoffReview, number int, head string, c CheckResult,
+	item store.HandoffReviewItem, known bool) (store.HandoffReviewItem, bool, bool) {
+	if known && item.Closed && item.Answer == AnswerOnBase && item.SourceID == head {
+		return item, false, false
+	}
+	if !known {
+		item = store.HandoffReviewItem{ID: fmt.Sprintf("k-%d-%s", number, c.Name), TaskID: l.TaskID, Kind: ItemCheck, Pass: loop.Pass, Repo: l.Repo, PR: number,
+			Version: 1, Author: "GitHub", CreatedAt: s.now()}
+	}
+	item.Closed, item.Delivered, item.Answer = true, true, AnswerOnBase
+	item.SourceID, item.URL = head, c.URL
+	item.Title = fmt.Sprintf("Check %s: %s on %s, and on its base too", c.Name, c.Conclusion, short(head))
+	return item, true, false
 }
 
 // checksHandled says whether the counted checks of a loop's last pass let

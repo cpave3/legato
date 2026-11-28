@@ -80,13 +80,16 @@ export function phaseWords(loop: ShippingLoop): string {
 const mergeWords: Record<string, string> = { CONFLICTING: "Conflicts", BEHIND: "Behind its base" }
 
 // ciWords says how a loop's checks and mergeability stand: "1 check
-// failing: go · Behind its base". Empty before the checks were read.
+// failing: go · Also failing on its base: docs · Behind its base". Empty
+// before the checks were read.
 export function ciWords(loop: ShippingLoop): string {
   const failing = loop.layers.flatMap(layer => layer.failing_checks ?? [])
   const parts: string[] = []
   if (failing.length > 0) parts.push(`${failing.length} ${failing.length === 1 ? "check" : "checks"} failing: ${failing.join(", ")}`)
   else if (loop.checks === "pending") parts.push("Checks running")
   else if (loop.checks === "passing") parts.push("Checks passing")
+  const onBase = [...new Set(loop.layers.flatMap(layer => layer.checks_on_base ?? []))]
+  if (onBase.length > 0) parts.push(`Also failing on its base: ${onBase.join(", ")}`)
   const merge = [...new Set(loop.layers.filter(layer => !layer.state || layer.state === "open").map(layer => mergeWords[layer.mergeable ?? ""]).filter(Boolean))]
   parts.push(...merge)
   return parts.join(" · ")

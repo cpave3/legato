@@ -37,7 +37,10 @@ type PRWatch struct {
 	// ChecksTruncated says the head has more than the first 100.
 	Checks          []WatchCheck
 	ChecksTruncated bool
-	UpdatedAt       time.Time
+	// BaseHistory are the checks of the base branch's newest commits,
+	// newest first (baseHistoryDepth): whether the base fails a check too.
+	BaseHistory [][]WatchCheck
+	UpdatedAt   time.Time
 }
 
 // WatchCheck is one check of a head's rollup.
@@ -53,6 +56,8 @@ type WatchCheck struct {
 	URL      string
 	// RunID is a check run's database ID (its annotations), 0 for a status.
 	RunID int64
+	// description is a commit status's description, as REST reads it.
+	description string
 }
 
 // ReviewWatchGitHub opens the steward's reads of a loop: ReviewPublisher.
@@ -129,6 +134,8 @@ func (s *reviewWatchSession) Stacked(ctx context.Context, base string) ([]Review
 // watchFields are what the watch reads of each pull request.
 const watchFields = `number state isDraft headRefOid headRefName baseRefName mergeable mergeStateStatus reviewDecision updatedAt
 reviews(last: 50, states: [DISMISSED]) { nodes { fullDatabaseId } }
+baseRef { target { ... on Commit { history(first: %[2]d) { nodes { statusCheckRollup { contexts(first: 100) { nodes { __typename
+... on CheckRun { name status conclusion databaseId } ... on StatusContext { context state } } } } } } } } }
 commits(last: 1) { nodes { commit { oid statusCheckRollup { state contexts(first: 100) { pageInfo { hasNextPage }
 nodes { __typename
 ... on CheckRun { name status conclusion detailsUrl databaseId isRequired(pullRequestNumber: $n%[1]d) }
@@ -150,6 +157,19 @@ type watchedPull struct {
 			FullDatabaseID string `json:"fullDatabaseId"`
 		} `json:"nodes"`
 	} `json:"reviews"`
+	BaseRef *struct {
+		Target struct {
+			History struct {
+				Nodes []struct {
+					Rollup *struct {
+						Contexts struct {
+							Nodes []watchedCheck `json:"nodes"`
+						} `json:"contexts"`
+					} `json:"statusCheckRollup"`
+				} `json:"nodes"`
+			} `json:"history"`
+		} `json:"target"`
+	} `json:"baseRef"`
 	Commits struct {
 		Nodes []struct {
 			Commit struct {
@@ -181,7 +201,7 @@ func (s *reviewWatchSession) Watch(ctx context.Context, numbers []int) ([]PRWatc
 	for i, n := range numbers {
 		vars["n"+strconv.Itoa(i)] = n
 		params = append(params, fmt.Sprintf("$n%d: Int!", i))
-		fields = append(fields, fmt.Sprintf("p%d: pullRequest(number: $n%d) { %s }", i, i, fmt.Sprintf(watchFields, i)))
+		fields = append(fields, fmt.Sprintf("p%d: pullRequest(number: $n%d) { %s }", i, i, fmt.Sprintf(watchFields, i, baseHistoryDepth)))
 	}
 	query := "query($owner: String!, $name: String!, " + strings.Join(params, ", ") + ") { repository(owner: $owner, name: $name) { " +
 		strings.Join(fields, " ") + " } }"
@@ -217,18 +237,43 @@ func (pull *watchedPull) watch(number int) PRWatch {
 			w.DismissedReviews = append(w.DismissedReviews, id)
 		}
 	}
+	w.BaseHistory = pull.baseHistory()
 	if len(pull.Commits.Nodes) == 0 || pull.Commits.Nodes[0].Commit.Rollup == nil {
 		return w
 	}
 	rollup := pull.Commits.Nodes[0].Commit.Rollup
 	w.Rollup = rollupState(rollup.State)
 	w.ChecksTruncated = rollup.Contexts.PageInfo.HasNextPage
-	for _, c := range rollup.Contexts.Nodes {
+	w.Checks = watchChecks(rollup.Contexts.Nodes)
+	return w
+}
+
+// baseHistory are the checks of the base's newest commits, newest first.
+func (pull *watchedPull) baseHistory() [][]WatchCheck {
+	if pull.BaseRef == nil {
+		return nil
+	}
+	var history [][]WatchCheck
+	for _, commit := range pull.BaseRef.Target.History.Nodes {
+		var contexts []watchedCheck
+		if commit.Rollup != nil {
+			contexts = commit.Rollup.Contexts.Nodes
+		}
+		history = append(history, watchChecks(contexts))
+	}
+	return history
+}
+
+// watchChecks are the checks of a rollup's contexts, kinds the watch does
+// not know left out.
+func watchChecks(contexts []watchedCheck) []WatchCheck {
+	var checks []WatchCheck
+	for _, c := range contexts {
 		if check, ok := c.toWatchCheck(); ok {
-			w.Checks = append(w.Checks, check)
+			checks = append(checks, check)
 		}
 	}
-	return w
+	return checks
 }
 
 // watchedCheck is one context of a check rollup as the watch query reads
