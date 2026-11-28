@@ -40,7 +40,7 @@ import { legatoUICall, forOperatorCall, speakFailed, speakText } from "../lib/ag
 import { SaidBubble } from "./SaidBubble"
 import { usePastedImages } from "../hooks/usePastedImages"
 import { nativeToolName } from "../lib/agentKind"
-import { compactAgent, compactCommand, compactionNotice, nextCompaction, type Compaction } from "../lib/compaction"
+import { compactionNotice, nextCompaction, type Compaction } from "../lib/compaction"
 import { toolDisplayName } from "../lib/mcpToolName"
 import { legatoEventSummary, parseLegatoMessage } from "../lib/legatoMessage"
 import { plainText, subagentTree, type SubagentNode } from "../lib/agentGlance"
@@ -77,6 +77,8 @@ import { useBangCommands } from "./useBangCommands"
 import { useQueuedMessages } from "./useQueuedMessages"
 import { useTerminalPrompt, useTerminalPromptPolling } from "./useTerminalPrompt"
 import { useRequestAnswers } from "./useRequestAnswers"
+import { useMessageSending } from "./useMessageSending"
+import { MESSAGE_REQUEST } from "../lib/nativeFeed"
 
 // The least width at which subagent tiles sit beside the conversation; below
 // it they are a strip above it.
@@ -99,12 +101,6 @@ function permissionFindingLabel(finding: NonNullable<NativePermissionItem["polic
 // The native panel serves Chimera sessions and, through Legato's bridges,
 // Claude Code and Codex sessions. This is the name its wording uses for each.
 const agentToolName = nativeToolName
-
-// How the request_id of a message from the box starts, so Legato's answer
-// about it is told from one about a permission or a question.
-const MESSAGE_REQUEST = "message-"
-// How many of the commands it sent a panel remembers, to know a refusal of one.
-const SENT_COMMANDS_KEPT = 20
 
 function PermissionCard({
   permission,
@@ -257,10 +253,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   // to an idle session, before the session says a turn started. A message
   // that was not sent then takes it back: nothing is running (LEG-151).
   const workingUnconfirmedRef = useRef(false)
-  // Commands this panel sent, by their words, whose refusal it would show.
-  // Legato's stream replays the refusals it kept to a panel that opens; those
-  // are not this panel's to show.
-  const sentCommandsRef = useRef<string[]>([])
   const syncGenerationRef = useRef(0)
   const runFinishTimerRef = useRef<number | null>(null)
   const hydratedAgentRef = useRef<string | null>(null)
@@ -407,8 +399,10 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const isBang = isBangText(draft.trim())
   const queue = useQueuedMessages(items, busy, setDraft, focusBox)
   const { enqueue, settle: settleMessage, failByWords } = queue
-  // Why the last message could not leave the page; it stays in the box.
-  const [sendError, setSendError] = useState<string | null>(null)
+  const { sendError, handleSend, handleInterrupt, commandRefused } = useMessageSending({
+    agentId, baseUrl, send, busy, draft, setDraft, sync: { syncStateRef, replaceSyncState, workingUnconfirmedRef, failWith },
+    enqueue, runOrQueueBang, scrollToBottomAfterRender,
+  })
   // The agent's latest compaction, as its events tell it.
   const [compaction, setCompaction] = useState<Compaction>()
   const queuedEntries: QueuedEntry[] = [...queue.entries, ...bang.entries]
@@ -463,10 +457,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
           const reason = event.error || "The agent's session would not take it"
           // A command is not listed, so its failure has no row to mark.
           if (isCommandText(words)) {
-            const at = sentCommandsRef.current.indexOf(words.trim())
-            if (at < 0) return
-            sentCommandsRef.current.splice(at, 1)
-            setSendError(`Not sent: ${words.trim()}: ${reason}`)
+            if (!commandRefused(words, reason)) return
           } else {
             failByWords(words, reason)
           }
@@ -502,80 +493,10 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       unsubscribe()
       if (following) send({ type: "unsubscribe_agent", agent_id: agentId })
     }
-  }, [subscribe, agentId, agentKind, applyEvent, replaceSyncState, resync, runNextBang, following, send, stopUnconfirmedWorking, followLatest, settleMessage, failByWords, setTerminalPrompt])
+  }, [subscribe, agentId, agentKind, applyEvent, replaceSyncState, resync, runNextBang, following, send, stopUnconfirmedWorking, followLatest, settleMessage, failByWords, setTerminalPrompt, commandRefused])
 
   const handleTerminalChoice = useTerminalPromptPolling(agentId, connected, send, setTerminalPrompt)
 
-  const handleBuiltinSlash = useCallback(async (raw: string) => {
-    const parts = raw.split(/\s+/)
-    const cmd = parts[0]
-    const arg = parts.slice(1).join(" ")
-    try {
-      if (cmd === "/model") {
-        await apiFetch(baseUrl, `/api/agents/${agentId}/chimera/model`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model: arg }),
-        })
-      } else if (cmd === "/mode") {
-        await apiFetch(baseUrl, `/api/agents/${agentId}/chimera/modes`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: arg }),
-        })
-      }
-    } catch (reason) {
-      replaceSyncState({ ...syncStateRef.current, error: reason instanceof Error ? reason.message : String(reason) })
-    }
-  }, [agentId, baseUrl, replaceSyncState])
-
-  const handleSend = useCallback(() => {
-    const trimmed = draft.trim()
-    if (!trimmed) return
-    if (isBangText(trimmed)) {
-      setDraft("")
-      runOrQueueBang(trimmed.slice(1))
-      return
-    }
-    // /compact is the agent's own compaction, never a message to it.
-    const compact = compactCommand(trimmed)
-    if (compact) {
-      setDraft("")
-      setSendError(null)
-      compactAgent(baseUrl, agentId, compact.instructions).catch((reason) => {
-        setSendError(reason instanceof Error ? reason.message : String(reason))
-      })
-      return
-    }
-    // Intercept built-in slash commands that need API calls, not message sends
-    const builtinCommands = ["/model", "/mode"]
-    if (builtinCommands.includes(trimmed.split(/\s+/)[0])) {
-      setDraft("")
-      void handleBuiltinSlash(trimmed)
-      return
-    }
-    const requestId = `${MESSAGE_REQUEST}${crypto.randomUUID()}`
-    if (send({ type: "agent_message", agent_id: agentId, content: trimmed, queue: busy, request_id: requestId }) === false) {
-      setSendError("Not connected to Legato. Your message is still in the box: send it again once connected.")
-      return
-    }
-    setSendError(null)
-    // A command the agent runs is never shown as a message, so it is not
-    // listed; it is only answered, and an error for it shows as one. A path
-    // at the start (/tmp/a.png what is this?) is a message, not a command.
-    if (!isCommandText(trimmed)) enqueue(trimmed, syncStateRef.current.items, requestId)
-    else sentCommandsRef.current = [...sentCommandsRef.current.slice(-(SENT_COMMANDS_KEPT - 1)), trimmed]
-    setDraft("")
-    if (!busy) {
-      workingUnconfirmedRef.current = true
-      replaceSyncState({ ...syncStateRef.current, busy: true, error: null })
-    }
-    scrollToBottomAfterRender()
-  }, [draft, busy, agentId, baseUrl, send, replaceSyncState, scrollToBottomAfterRender, runOrQueueBang, handleBuiltinSlash, setDraft, enqueue])
-
-  const handleInterrupt = useCallback(() => {
-    send({ type: "agent_interrupt", agent_id: agentId })
-  }, [agentId, send])
 
 
 
