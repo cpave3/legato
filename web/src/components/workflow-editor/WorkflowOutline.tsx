@@ -1,20 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Code2, Copy, MoreVertical, Plus, Trash2 } from "lucide-react"
+import { ArrowDown, ArrowLeft, ArrowUp, Plus, Trash2 } from "lucide-react"
 import { addInput, inputsOf, itemKey, itemsOf, itemText, moveStep, problemsByItem, removeStep, renameStep, setField, setItemText, stepsOf, stepYamlPath, triggersOf, parseWorkflow, WorkflowDocumentError, type ItemRef, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
 import { addressOf, sameSelection, type Selection } from "../../lib/workflowAddress"
 import type { SchedulePreview, WorkflowDiagnostic } from "../../lib/workflowFiles"
 import { Button } from "../ui/Button"
 import { PendingDrafts } from "./pendingDrafts"
 import { BrokenOutline } from "./BrokenOutline"
+import { RowButton, StepRow } from "./OutlineRowParts"
 import { useHeldYaml, type HeldYaml } from "./useHeldYaml"
 import { useOutlineSelection } from "./useOutlineSelection"
 import { stepListOf, useOutlineEditing } from "./useOutlineEditing"
 import { CommitField, Problems } from "./builderFields"
-import { CARD_TASK, executorTitle, fromTheCard, iconOf, nodeOf, orderOf, placeOf, rowsOf, selectionOfNode, type Row } from "./outlineRows"
+import { CARD_TASK, executorTitle, fromTheCard, nodeOf, orderOf, placeOf, rowsOf, selectionOfNode, type Row } from "./outlineRows"
 import { valueText } from "./builderStyles"
 import { DetailsForm, InputCard } from "./itemForms"
 import { brokenReferences, noOptions, stepReferences, type BuilderOptions, type StepValue } from "./stepForms"
-import { connectorOf, idFromTitle } from "./stepRows"
+import { idFromTitle } from "./stepRows"
 import { StepOutputs, StepSetup } from "./StepSetup"
 import { StepPicker } from "./StepPicker"
 import { TriggerCard } from "./TriggersEditor"
@@ -131,73 +132,17 @@ function Outline(props: WorkflowOutlineProps) {
   const { heldYaml, hold } = useHeldYaml({ text, order, held: props.held, onHeld: props.onHeld })
 
   const list = useMemo(() => stepListOf(stepsOf(values) as (StepValue | null)[]), [values])
-  const { placed, steps } = list
-  const { error, apply, adding, setAdding, menu, setMenu, dragged, setDragged, select, paste, addStep, moveTo, removeIt, duplicate, warning, confirmRemove, keep, focusNew, focused, addTrigger, addAnInput } =
-    useOutlineEditing({ editing, text, values, list, selection, onEdit, onSelect, choose, options })
+  const { placed } = list
+  const editor = useOutlineEditing({ editing, text, values, list, selection, onEdit, onSelect, choose, options })
+  const { error, apply, adding, setAdding, select, paste, addStep, warning, focusNew, focused, addTrigger, addAnInput } = editor
 
   if (file) return <BrokenOutline file={file} canvas={canvasOn} notices={props.notices} cards={props.cards} onEditYaml={onEditYaml} />
 
-  const rowButton = (row: Row, bare = false, number?: number) => {
-    const selected = sameSelection(shown, row.selection)
-    const address = addressOf(row.selection)
-    const Icon = row.type ? iconOf(row.type) : null
-    const button = <button type="button" data-address={address} aria-current={selected ? "true" : undefined}
-      className={`flex min-h-10 w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${selected ? "bg-lw-raised text-lw-text" : "text-lw-text-2 hover:bg-lw-raised hover:text-lw-text"}`}
-      onClick={() => { select(row.selection, true); if (canvasOn) centre(nodeOf(row.selection)) }}>
-      {number !== undefined && <span className="w-4 shrink-0 text-right text-xs text-lw-faint">{number}</span>}
-      {Icon && <Icon size={14} aria-hidden className="shrink-0 text-lw-faint" />}
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate">{row.sentence ? row.sentence.map((part, i) => part.strong ? <strong key={i} className="font-semibold text-lw-text">{part.text}</strong> : <span key={i}>{part.text}</span>) : row.label}</span>
-        {row.summary && <span className="truncate text-xs text-lw-faint">{row.summary}</span>}
-      </span>
-      {row.detail && !row.summary && <span className="truncate text-xs text-lw-faint">{row.detail}</span>}
-      {row.paused && <span className="rounded border border-lw-line px-1 text-[11px] text-lw-text-2">paused</span>}
-      {row.on && <span className="rounded bg-lw-live-soft px-1 text-[11px] text-lw-live">on</span>}
-      {row.problem && <span className="flex items-center gap-1 rounded border border-lw-line px-1 text-[11px] text-lw-text-2"><Code2 size={11} />Edited as YAML</span>}
-      {row.problems > 0 && <span aria-label={`${row.problems} ${row.problems === 1 ? "problem" : "problems"}`} className="flex items-center gap-0.5 text-[11px] text-lw-danger"><AlertTriangle size={11} />{row.problems}</span>}
-    </button>
-    return bare ? button : <li key={address}>{button}</li>
-  }
+  const chooseRow = (row: Row) => { select(row.selection, true); if (canvasOn) centre(nodeOf(row.selection)) }
+  const rowButton = (row: Row, number?: number) => <RowButton row={row} number={number} selected={sameSelection(shown, row.selection)} onChoose={() => chooseRow(row)} />
+  const rowItem = (row: Row) => <li key={addressOf(row.selection)}>{rowButton(row)}</li>
 
   const palette = adding?.kind === "step" ? <StepPicker narrow={narrow} onPick={type => addStep(type, adding.at)} onClose={() => setAdding(null)} /> : null
-
-  // A top-level step's row, with the connector before it that says how
-  // it starts and inserts a step there. Nested steps are plain rows.
-  const stepRow = (row: Row) => {
-    if (row.selection.kind !== "step" || (row.depth ?? 0) > 0) return <li key={addressOf(row.selection)} className="pl-6">{rowButton(row, true)}</li>
-    const id = row.selection.path
-    // A step with no ID is #<index>, its place (stepNodes).
-    const index = /^#\d+$/.test(id) ? Number(id.slice(1)) : placed.findIndex(step => step?.id === id)
-    const step = (placed[index] ?? {}) as StepValue
-    const connector = connectorOf(placed.map(p => (p ?? {}) as Record<string, unknown>), index)
-    const title = row.label
-    const readers = steps.filter(other => other.id !== id && stepReferences(other).some(ref => ref.id === id)).map(other => String(other.id))
-    return <li key={addressOf(row.selection)} className="group flex min-w-0 flex-col"
-      draggable={editing && !narrow} onDragStart={() => setDragged(id)} onDragOver={event => event.preventDefault()}
-      onDrop={event => { event.preventDefault(); if (dragged && dragged !== id) moveTo(dragged, index); setDragged(null) }}>
-      <div className={`flex min-h-7 items-center gap-2 pl-5 text-[11px] ${connector.kind === "manual" ? "text-lw-needs" : "text-lw-faint"}`}>
-        <span aria-hidden className={`h-5 border-l ${connector.kind === "first" ? "invisible " : ""}${connector.kind === "agent_ended" ? "border-dashed border-lw-line-strong" : connector.kind === "manual" ? "border-lw-needs" : "border-lw-line"}`} />
-        <span data-start={connector.kind} className="flex-1">{connector.text}</span>
-        {editing && <button type="button" aria-label={`Add a step before ${title}`} className={`rounded px-1 text-lw-text-2 hover:bg-lw-raised hover:text-lw-text ${narrow ? "" : "opacity-0 focus:opacity-100 group-hover:opacity-100"}`} onClick={() => setAdding({ kind: "step", at: index })}><Plus size={13} /></button>}
-      </div>
-      {adding?.kind === "step" && adding.at === index && palette}
-      <div className="relative flex min-w-0 items-center">
-        {rowButton(row, true, index + 1)}
-        {editing && <button type="button" aria-label={`Actions for step ${id}`} aria-expanded={menu === id} className="ml-1 rounded p-1 text-lw-text-2 hover:bg-lw-raised" onClick={() => setMenu(menu === id ? null : id)}><MoreVertical size={14} /></button>}
-        {menu === id && <div role="menu" aria-label={`Step ${id}`} className="absolute right-0 top-full z-20 flex w-44 flex-col rounded-md border border-lw-line bg-lw-surface p-1 text-sm shadow-xl" onKeyDown={event => { if (event.key === "Escape") setMenu(null) }}>
-          <button type="button" role="menuitem" className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised" onClick={() => { setMenu(null); duplicate(step, index) }}><Copy size={13} />Duplicate</button>
-          <button type="button" role="menuitem" disabled={index === 0} className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised disabled:opacity-40" onClick={() => { setMenu(null); moveTo(id, index - 1) }}><ArrowUp size={13} />Move up</button>
-          <button type="button" role="menuitem" disabled={index === placed.length - 1} className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised disabled:opacity-40" onClick={() => { setMenu(null); moveTo(id, index + 1) }}><ArrowDown size={13} />Move down</button>
-          <button type="button" role="menuitem" className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-lw-danger hover:bg-lw-raised" onClick={() => { setMenu(null); removeIt(id) }}><Trash2 size={13} />Delete</button>
-        </div>}
-      </div>
-      {confirmRemove === id && <div role="alertdialog" aria-label={`Remove step ${id}`} className="mx-2 my-1 flex flex-wrap items-center gap-2 rounded border border-lw-needs p-2 text-xs">
-        <span>{readers.join(", ")} {readers.length === 1 ? "reads" : "read"} this step's outputs.</span>
-        <Button type="button" size="sm" variant="destructive" onClick={() => removeIt(id)}>Remove anyway</Button>
-        <Button type="button" size="sm" variant="ghost" onClick={keep}>Keep it</Button>
-      </div>}
-    </li>
-  }
 
   const section = (title: string, body: React.ReactNode) => <section aria-label={title} className="flex flex-col gap-1">
     <h2 className="px-2 text-[11px] font-semibold uppercase tracking-wide text-lw-faint">{title}</h2>
@@ -209,7 +154,7 @@ function Outline(props: WorkflowOutlineProps) {
 
   const missing = triggerKinds.filter(t => !(t.kind in triggersOf(values)))
   const whenBody = <>
-    <ul className="flex flex-col">{rows.when.map(row => rowButton(row))}</ul>
+    <ul className="flex flex-col">{rows.when.map(rowItem)}</ul>
     {container("on")}
     {editing && missing.length > 0 && (adding?.kind === "trigger"
       ? <div role="dialog" aria-label="Add a trigger" className="mx-2 flex flex-col gap-1 rounded-lg border border-lw-line bg-lw-surface p-1 shadow-xl" onKeyDown={event => { if (event.key === "Escape") setAdding(null) }}>
@@ -224,7 +169,7 @@ function Outline(props: WorkflowOutlineProps) {
   </>
   const asksBody = <>
     {rows.asks.length === 0 && <p className="px-2 text-sm text-lw-text-2">Nothing: it takes no inputs</p>}
-    <ul className="flex flex-col">{rows.asks.map(row => rowButton(row))}</ul>
+    <ul className="flex flex-col">{rows.asks.map(rowItem)}</ul>
     {container("inputs")}
     {editing && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={addAnInput}><Plus size={13} />Add input</Button>}
   </>
@@ -233,11 +178,11 @@ function Outline(props: WorkflowOutlineProps) {
       ? (adding?.kind === "step" ? null : <button type="button" className="mx-2 flex min-h-16 items-center justify-center gap-2 rounded-lg border border-dashed border-lw-line-strong text-sm text-lw-text-2 hover:bg-lw-raised hover:text-lw-text" onClick={() => setAdding({ kind: "step", at: 0 })}><Plus size={14} />Add the first step</button>)
       : <p className="px-2 text-sm text-lw-text-2">No steps yet: a workflow needs at least one.</p>)}
     {warning && <p role="alert" className="px-2 text-xs text-lw-needs">{warning}</p>}
-    <ol aria-label="Steps" className="flex flex-col">{rows.then.map(stepRow)}</ol>
+    <ol aria-label="Steps" className="flex flex-col">{rows.then.map(row => <StepRow key={addressOf(row.selection)} row={row} list={list} editing={editing} narrow={narrow} rowButton={rowButton} palette={palette} editor={editor} />)}</ol>
     {container("steps")}
     {editing && (adding?.kind === "step" && adding.at >= placed.length ? palette : placed.length > 0 && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding({ kind: "step", at: placed.length })}><Plus size={13} />Add step</Button>)}
   </>
-  const aboutBody = <ul className="flex flex-col">{rowButton(order[order.length - 1])}</ul>
+  const aboutBody = <ul className="flex flex-col">{rowItem(order[order.length - 1])}</ul>
   const outlineView = <nav ref={outline} aria-label="Outline" onKeyDown={onKeyDown} className="flex min-w-0 flex-col gap-4">
     {section("Triggers", whenBody)}
     {section("Inputs", asksBody)}
