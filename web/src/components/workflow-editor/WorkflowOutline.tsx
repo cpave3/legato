@@ -7,6 +7,7 @@ import { Button } from "../ui/Button"
 import { PendingDrafts } from "./pendingDrafts"
 import { BrokenOutline } from "./BrokenOutline"
 import { RowButton, StepRow } from "./OutlineRowParts"
+import { InputsBody, OutlineSection, StepsBody, TriggersBody } from "./OutlineSections"
 import { useHeldYaml, type HeldYaml } from "./useHeldYaml"
 import { useOutlineSelection } from "./useOutlineSelection"
 import { stepListOf, useOutlineEditing } from "./useOutlineEditing"
@@ -144,50 +145,17 @@ function Outline(props: WorkflowOutlineProps) {
 
   const palette = adding?.kind === "step" ? <StepPicker narrow={narrow} onPick={type => addStep(type, adding.at)} onClose={() => setAdding(null)} /> : null
 
-  const section = (title: string, body: React.ReactNode) => <section aria-label={title} className="flex flex-col gap-1">
-    <h2 className="px-2 text-[11px] font-semibold uppercase tracking-wide text-lw-faint">{title}</h2>
-    {body}
-  </section>
-  const container = (key: string) => rows.about.containers.filter(item => item.item.kind === "about" && item.item.key === key).map(item => <p key={key} role="alert" className="mx-2 flex flex-wrap items-center gap-2 text-xs text-lw-needs">
-    {item.problem} <Button size="sm" variant="ghost" onClick={() => onEditYaml()}>Edit as YAML</Button>
-  </p>)
-
-  const missing = triggerKinds.filter(t => !(t.kind in triggersOf(values)))
-  const whenBody = <>
-    <ul className="flex flex-col">{rows.when.map(rowItem)}</ul>
-    {container("on")}
-    {editing && missing.length > 0 && (adding?.kind === "trigger"
-      ? <div role="dialog" aria-label="Add a trigger" className="mx-2 flex flex-col gap-1 rounded-lg border border-lw-line bg-lw-surface p-1 shadow-xl" onKeyDown={event => { if (event.key === "Escape") setAdding(null) }}>
-        {missing.map(t => <button key={t.kind} type="button" className="flex min-h-9 flex-col items-start rounded-md px-2 py-1 text-left hover:bg-lw-raised" onClick={() => addTrigger(t.kind)}>
-          <span className="text-sm">{KIND_TITLES[t.kind] ?? t.kind}</span>
-          <span className="text-xs text-lw-text-2">{t.description}</span>
-        </button>)}
-        <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding(null)}>Cancel</Button>
-      </div>
-      : <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding({ kind: "trigger" })}><Plus size={13} />Add trigger</Button>)}
-    <p className="px-2 text-xs text-lw-faint">You can always run it by hand.</p>
-  </>
-  const asksBody = <>
-    {rows.asks.length === 0 && <p className="px-2 text-sm text-lw-text-2">Nothing: it takes no inputs</p>}
-    <ul className="flex flex-col">{rows.asks.map(rowItem)}</ul>
-    {container("inputs")}
-    {editing && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={addAnInput}><Plus size={13} />Add input</Button>}
-  </>
-  const thenBody = <>
-    {rows.then.length === 0 && (editing
-      ? (adding?.kind === "step" ? null : <button type="button" className="mx-2 flex min-h-16 items-center justify-center gap-2 rounded-lg border border-dashed border-lw-line-strong text-sm text-lw-text-2 hover:bg-lw-raised hover:text-lw-text" onClick={() => setAdding({ kind: "step", at: 0 })}><Plus size={14} />Add the first step</button>)
-      : <p className="px-2 text-sm text-lw-text-2">No steps yet: a workflow needs at least one.</p>)}
-    {warning && <p role="alert" className="px-2 text-xs text-lw-needs">{warning}</p>}
-    <ol aria-label="Steps" className="flex flex-col">{rows.then.map(row => <StepRow key={addressOf(row.selection)} row={row} list={list} editing={editing} narrow={narrow} rowButton={rowButton} palette={palette} editor={editor} />)}</ol>
-    {container("steps")}
-    {editing && (adding?.kind === "step" && adding.at >= placed.length ? palette : placed.length > 0 && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setAdding({ kind: "step", at: placed.length })}><Plus size={13} />Add step</Button>)}
-  </>
+  const sectionProps = { containers: rows.about.containers, editing, rowItem, onEditYaml: () => onEditYaml() }
+  const stepRow = (row: Row) => <StepRow key={addressOf(row.selection)} row={row} list={list} editing={editing} narrow={narrow} rowButton={rowButton} palette={palette} editor={editor} />
+  const whenBody = <TriggersBody {...sectionProps} rows={rows.when} missing={triggerKinds.filter(t => !(t.kind in triggersOf(values)))} adding={adding} setAdding={setAdding} onAdd={addTrigger} />
+  const asksBody = <InputsBody {...sectionProps} rows={rows.asks} onAdd={addAnInput} />
+  const thenBody = <StepsBody {...sectionProps} rows={rows.then} stepRow={stepRow} count={placed.length} warning={warning} adding={adding} setAdding={setAdding} palette={palette} />
   const aboutBody = <ul className="flex flex-col">{rowItem(order[order.length - 1])}</ul>
   const outlineView = <nav ref={outline} aria-label="Outline" onKeyDown={onKeyDown} className="flex min-w-0 flex-col gap-4">
-    {section("Triggers", whenBody)}
-    {section("Inputs", asksBody)}
-    {section("Steps", thenBody)}
-    {section("About", aboutBody)}
+    <OutlineSection title="Triggers">{whenBody}</OutlineSection>
+    <OutlineSection title="Inputs">{asksBody}</OutlineSection>
+    <OutlineSection title="Steps">{thenBody}</OutlineSection>
+    <OutlineSection title="About">{aboutBody}</OutlineSection>
   </nav>
 
   const listOrMap = <div role="radiogroup" aria-label="Outline view" className="inline-flex self-start rounded-md border border-lw-line p-0.5">
