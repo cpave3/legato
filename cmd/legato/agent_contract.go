@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
@@ -36,6 +37,8 @@ func runAgentContract(args []string) int {
 		return runAgentHookContract(args[1:])
 	case "allow-read":
 		return runAgentAllowReadContract(args[1:])
+	case "bridge-hook":
+		return runAgentBridgeHookContract(args[1:])
 	case "codex":
 		return runAgentCodexContract(args[1:])
 	case "codex-bridge":
@@ -358,6 +361,26 @@ func runAgentAllowReadContract(args []string) int {
 		taskID = parsed.Positionals[0]
 	}
 	fmt.Print(cli.ClaudeReadPermission(os.Stdin, taskID))
+	return 0
+}
+
+// runAgentBridgeHookContract answers a Claude Code command hook for the
+// session's bridge (PermissionRequest, StopFailure). It talks only to that
+// bridge over loopback: no store, no broker. Whatever happens it exits 0, and
+// prints a decision only when Legato made one.
+func runAgentBridgeHookContract(args []string) int {
+	parsed, err := parseCommandArgs(args, commandFlagSpecs("agent", "bridge-hook"))
+	if err != nil || len(parsed.Positionals) != 1 || parsed.Positionals[0] != "claude-code" {
+		return 0
+	}
+	// Claude Code ends the hook when its dialog is answered in the terminal.
+	// Should only the shell around it end, this stops asking the bridge.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go cancelWhenOrphaned(ctx, cancel, os.Getppid(), os.Getppid, time.Second)
+	fmt.Print(cli.ClaudeBridgeHook(ctx, os.Stdin, cli.ClaudeBridgeHookOptions{
+		URL: strings.TrimSpace(os.Getenv("LEGATO_CLAUDE_BRIDGE_URL")),
+	}))
 	return 0
 }
 

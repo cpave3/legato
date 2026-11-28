@@ -7,7 +7,7 @@
 // and posts the engine's events to it over loopback HTTP. The bridge turns
 // those into the native agent protocol Legato's panel and message paths
 // already speak. Outside a Legato session the module does nothing.
-import type { EngineInterface, PermissionRequestDecision, Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
 type BridgeEvent = { type: string; [field: string]: unknown }
 
@@ -24,25 +24,12 @@ type Command =
 
 type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
-type PermissionAnswer = {
-  // wait: still open; the bridge answers before the host ends the call,
-  // and the mod asks again with the same request ID.
-  decision: 'allow' | 'deny' | 'ask' | 'wait'
-  feedback?: string
-  // What the model reads for a deny, when the bridge worded it.
-  message?: string
-  // A question's answers, by the question's own words.
-  answers?: Record<string, string>
-  // The allow hands the tool's input back: the engine accepts a plan no
-  // other way.
-  returnInput?: boolean
-  // Permission changes the allow applies, in the engine's own form.
-  updatedPermissions?: Allow['updatedPermissions']
-}
-
-type Allow = Extract<PermissionRequestDecision, { behavior: 'allow' }>
-
 type Block = { type: string; [field: string]: unknown }
+
+// The doors of the rows the panel shows. Not `attachment`, `hook-context` or
+// `compaction`: what the engine writes beside the conversation by those is no
+// part of it, and Claude Code passes them over this mod on many machines.
+const RELAYED_DOORS = ['prompt', 'command', 'response', 'tool-result', 'tool-message', 'delivery', 'note', 'notice', 'queue'] as const
 
 const JSON_HEADERS = { 'content-type': 'application/json' }
 
@@ -142,7 +129,6 @@ let queue: BridgeEvent[] = []
 let wake: (() => void) | undefined
 let viewers = 0
 let turnId: string | undefined
-let permissionCount = 0
 let commandChain: Promise<void> = Promise.resolve()
 // Messages sent while a turn runs. They join the turn when one of its tool
 // calls ends: the engine waits for that call's hooks before it builds the
@@ -234,6 +220,19 @@ const post = (event: BridgeEvent): void => {
   wake?.()
 }
 
+// Names the session's bridge to the processes this one starts from now on,
+// or to none. The legato-state plugin's PermissionRequest and StopFailure
+// command hooks reach the bridge through it: Claude Code's security mod
+// passes the `classic.*` events over every mod a person installs, this one
+// included, so a command hook answers them instead (LEG-684).
+const nameBridge = async ($: EngineInterface, url: string | undefined): Promise<void> => {
+  try {
+    await $.env.set('LEGATO_CLAUDE_BRIDGE_URL', url)
+  } catch (error) {
+    $.ui.log(`legato: the hooks were not told where the bridge is: ${String(error)}`, { to: 'debug' })
+  }
+}
+
 // One pump per bridge sends the queue in order, a batch at a time. Hooks
 // only queue: no hook waits on the bridge to forward what it saw.
 const pump = async ($: EngineInterface, url: string): Promise<void> => {
@@ -288,6 +287,7 @@ const pump = async ($: EngineInterface, url: string): Promise<void> => {
         isCollecting = false
         endpoint = undefined
         queue = []
+        await nameBridge($, undefined)
       }
     }
   }
@@ -421,6 +421,7 @@ const retire = async ($: EngineInterface): Promise<void> => {
   queue = []
   viewers = 0
   wake?.()
+  await nameBridge($, undefined)
 
   try {
     await $.http.fetch(`${url}/mod/events`, {
@@ -867,6 +868,7 @@ const handle = ($: EngineInterface, line: string): void => {
   // The bridge is listening: what was held for it starts to drain.
   if (command.type === 'ready') {
     endpoint = command.url
+    void nameBridge($, command.url)
     void pump($, command.url)
 
     return
@@ -959,6 +961,7 @@ const runBridge = async ($: EngineInterface, taskId: string, env: Identity): Pro
   queue = []
   viewers = 0
   wake?.()
+  await nameBridge($, undefined)
 }
 
 export const register: Register = on => {
@@ -1038,22 +1041,14 @@ export const register: Register = on => {
     return ended
   })
 
-  // API failures are opaque engine chunks, not stored conversation rows.
-  on('classic.StopFailure', async ($, e, next) => {
-    const stopped = await next(e)
-    const explanation = e.last_assistant_message || e.error
-    post({
-      type: 'request_error',
-      error: cap(explanation.replace(/https?:\/\/[^\s<>"']+/g, '[provider endpoint]'), SEED_TEXT_LIMIT),
-    })
-
-    return stopped
-  })
-
   // The conversation's own rows, as stored. The hook only relays. What the
   // engine injects beside the conversation (reminders, listings, hook output)
   // is no part of what the panel shows and never leaves the session.
-  on('session.append', async ($, e, next) => {
+  //
+  // Only the doors such rows come by: Claude Code's security mod passes the
+  // engine's own doors (attachments, hook context, compaction) over every
+  // mod a person installs, and says so in the session each time (LEG-684).
+  on('session.append', { door: RELAYED_DOORS }, async ($, e, next) => {
     const stored = await next(e)
     const message = stored.message
     const isConversation = message?.type === 'user' || message?.type === 'assistant'
@@ -1198,84 +1193,5 @@ export const register: Register = on => {
     }
 
     return spawned
-  })
-
-  // A permission dialog is opening. While someone follows the session in
-  // Legato the bridge also puts the question to them and holds this request
-  // until one side answers; the terminal's dialog stays up throughout. With
-  // nobody watching, or when the bridge cannot say, the dialog alone decides.
-  //
-  // A question the model asks (AskUserQuestion) opens the same way: its
-  // dialog is its permission prompt, and the answers are its decision.
-  on('classic.PermissionRequest', async ($, e, next) => {
-    const beneath = await next(e)
-    const url = endpoint
-
-    if (beneath.decision !== undefined || url === undefined) {
-      return beneath
-    }
-
-    let answer: PermissionAnswer
-
-    try {
-      permissionCount += 1
-
-      const requestId = `permission-${permissionCount}-${await $.clock.now()}`
-
-      const body = JSON.stringify({
-        requestId,
-        tool: e.tool_name,
-        input: capArguments(e.tool_input),
-        // What the engine's own "don't ask again" would change.
-        suggestions: e.permission_suggestions,
-      })
-
-      // The wait is spent inside these calls, where a hook's own time is not
-      // counted, so a person may take as long as they need. The host ends a
-      // call after 30 seconds, so the bridge answers "wait" before then and
-      // the request is asked again under the same ID.
-      do {
-        const response = await $.http.fetch(`${url}/mod/permissions`, {
-          method: 'POST',
-          headers: JSON_HEADERS,
-          body,
-        })
-
-        answer = JSON.parse(response.text) as PermissionAnswer
-      } while (answer.decision === 'wait')
-    } catch {
-      return beneath
-    }
-
-    if (answer.decision === 'allow') {
-      const input = e.tool_input as Record<string, unknown>
-      const decision: Allow = { behavior: 'allow' }
-
-      if (answer.answers !== undefined) {
-        // The engine reads a question's answers from the tool's own input,
-        // where its dialog would have put them.
-        decision.updatedInput = { ...input, answers: answer.answers }
-      } else if (answer.returnInput === true) {
-        decision.updatedInput = input
-      }
-
-      if (answer.updatedPermissions !== undefined) {
-        decision.updatedPermissions = answer.updatedPermissions
-      }
-
-      return { ...beneath, decision }
-    }
-
-    if (answer.decision === 'deny') {
-      return {
-        ...beneath,
-        decision: {
-          behavior: 'deny',
-          message: answer.message ?? answer.feedback ?? 'Denied in Legato.',
-        },
-      }
-    }
-
-    return beneath
   })
 }
