@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
-import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react"
+import { act, render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react"
 
 const mockList = vi.fn()
 const mockRemove = vi.fn()
@@ -86,5 +86,90 @@ describe("DevicesSettings", () => {
     render(<DevicesSettings baseUrl="http://legato" />)
     fireEvent.click(await screen.findByRole("button", { name: "Sign approvals with this device" }))
     expect(JSON.parse(posted[0])).toEqual({ legatoShell: "enroll", key: "k1" })
+  })
+
+  it("says nothing of enrolling once a phone signs, and shows waiting and use", async () => {
+    mockList.mockResolvedValue({ devices: [
+      { id: "dev-1", kind: "android", name: "Pixel", security_level: "titan", status: "pending", created_at: "" },
+      { id: "dev-2", kind: "android", name: "Old", status: "active", last_used_at: "2026-10-29T10:00:00Z", created_at: "" },
+    ], enrolled: true, server_id: "srv-1" })
+    render(<DevicesSettings baseUrl="http://legato" />)
+    expect(await screen.findByText("Pixel")).toBeTruthy()
+    expect(screen.queryByText(/No phone signs approvals yet/)).toBeNull()
+    expect(screen.getByText("titan")).toBeTruthy()
+    expect(screen.getByText("waiting for approval")).toBeTruthy()
+    expect(screen.getByText("Not used yet")).toBeTruthy()
+    expect(screen.getByText(`Last signed ${new Date("2026-10-29T10:00:00Z").toLocaleString()}`)).toBeTruthy()
+    expect(screen.queryByRole("list")).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /Add a passkey/ })).toBeNull()
+  })
+
+  it("lists nothing without devices", async () => {
+    mockList.mockResolvedValue({ devices: [], enrolled: true, server_id: "srv-1" })
+    render(<DevicesSettings baseUrl="http://legato" />)
+    await waitFor(() => expect(mockList).toHaveBeenCalled())
+    expect(screen.queryByRole("list")).toBeNull()
+  })
+
+  it("says a device was removed, or why it could not be", async () => {
+    mockList.mockResolvedValue({ devices: [{ id: "dev-1", kind: "android", name: "Pixel", status: "active", created_at: "" }], enrolled: true, server_id: "srv-1" })
+    mockRemove.mockResolvedValueOnce({})
+    render(<DevicesSettings baseUrl="http://legato" />)
+    fireEvent.click(await screen.findByRole("button", { name: "Remove" }))
+    expect((await screen.findByRole("status")).textContent).toBe("Pixel was removed.")
+    mockRemove.mockRejectedValueOnce(new Error("refused"))
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }))
+    expect((await screen.findByRole("alert")).textContent).toBe("refused")
+    expect(screen.queryByRole("status")).toBeNull()
+  })
+
+  it("reports a passkey made at once, and one that failed", async () => {
+    mockSupported = true
+    mockList.mockResolvedValue({ devices: [], enrolled: true, server_id: "srv-1" })
+    mockEnrollPasskey.mockResolvedValueOnce({ id: "dev-2", kind: "passkey", name: "Desktop", status: "active", created_at: "" })
+    render(<DevicesSettings baseUrl="http://legato" />)
+    fireEvent.click(await screen.findByRole("button", { name: "Add a passkey for this computer" }))
+    expect((await screen.findByRole("status")).textContent).toBe("This computer's passkey now signs approvals.")
+    mockEnrollPasskey.mockRejectedValueOnce("cancelled by the operator")
+    fireEvent.click(screen.getByRole("button", { name: "Add a passkey for this computer" }))
+    expect((await screen.findByRole("alert")).textContent).toBe("cancelled by the operator")
+    mockSupported = false
+  })
+
+  it("shows the passkey wait while it is asked", async () => {
+    mockSupported = true
+    mockList.mockResolvedValue({ devices: [], enrolled: true, server_id: "srv-1" })
+    mockEnrollPasskey.mockReturnValueOnce(new Promise(() => {}))
+    render(<DevicesSettings baseUrl="http://legato" />)
+    fireEvent.click(await screen.findByRole("button", { name: "Add a passkey for this computer" }))
+    expect((await screen.findByRole("button", { name: "Waiting for your passkey…" })).hasAttribute("disabled")).toBe(true)
+    mockSupported = false
+  })
+
+  it("reports what the app says of enrolling", async () => {
+    ;(window as { legatoShell?: unknown }).legatoShell = { approval: 1, key: "k1" }
+    ;(window as { ReactNativeWebView?: unknown }).ReactNativeWebView = { postMessage: () => {} }
+    mockList.mockResolvedValue({ devices: [], enrolled: false, server_id: "srv-1" })
+    render(<DevicesSettings baseUrl="http://legato" />)
+    await screen.findByRole("button", { name: "Sign approvals with this device" })
+    expect(screen.queryByText(/open this server in the Legato app/)).toBeNull()
+    const send = (detail: unknown) => act(() => { window.dispatchEvent(new CustomEvent("legato:shell-enroll", { detail })) })
+    send({ status: "enrolled" })
+    expect(screen.getByRole("status").textContent).toBe("This phone now signs approvals.")
+    send({ status: "pending" })
+    expect(screen.getByRole("status").textContent).toBe("Approve this phone on a phone that is already enrolled.")
+    send({ status: "error" })
+    expect(screen.getByRole("alert").textContent).toBe("The phone could not enroll.")
+    send({ status: "error", error: "no key" })
+    expect(screen.getByRole("alert").textContent).toBe("no key")
+    fireEvent.click(screen.getByRole("button", { name: "Sign approvals with this device" }))
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect(screen.queryByRole("status")).toBeNull()
+  })
+
+  it("shows a failed read", async () => {
+    mockList.mockRejectedValue(new Error("offline"))
+    render(<DevicesSettings baseUrl="http://legato" />)
+    expect((await screen.findByRole("alert", {}, { timeout: 5000 })).textContent).toBe("offline")
   })
 })
