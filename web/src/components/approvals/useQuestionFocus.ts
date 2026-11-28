@@ -1,39 +1,27 @@
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react"
+import type { Dispatch, RefObject, SetStateAction } from "react"
 import { decideApproval, dismissApproval, type Approval } from "../../lib/approvals"
 import type { NativeQuestion } from "../../lib/nativeAgentSync"
 import type { QuestionDraft } from "../../lib/questionDrafts"
 import {
-  backStep, chooseOption, dialogKeyAction, missingMessage, movedIndex, nextStep, ownKeyAction, withDraft,
+  backStep, dialogKeyAction, missingMessage, movedIndex, nextStep, ownKeyAction,
   type FocusDrafts, type FocusStep, type FocusVerb,
 } from "../../lib/questionFocus"
 
-const FIRST: FocusStep = { screen: "question", q: 0 }
-
-// useFocusState holds where focus mode stands, every approval's drafts, and
-// the dialog and the own-answer box it moves the keyboard between.
-export function useFocusState(currentId: string | undefined) {
-  const [step, setStep] = useState<FocusStep>(FIRST)
-  const [drafts, setDrafts] = useState<FocusDrafts>({})
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const dialog = useRef<HTMLDivElement>(null)
-  const own = useRef<HTMLInputElement>(null)
-
-  // A new approval starts at its first question.
-  useEffect(() => {
-    setStep(FIRST)
-    setError(null)
-  }, [currentId])
-
-  // Keys go to the dialog whenever the person is not typing.
-  useEffect(() => {
-    if (document.activeElement !== own.current) dialog.current?.focus()
-  }, [currentId, step.q, step.screen])
-
-  return { step, setStep, drafts, setDrafts, busy, setBusy, error, setError, dialog, own }
+// FocusState is where focus mode stands, every approval's drafts, and the
+// dialog and the own-answer box it moves the keyboard between: QuestionFocus
+// holds it.
+export interface FocusState {
+  step: FocusStep
+  setStep: Dispatch<SetStateAction<FocusStep>>
+  drafts: FocusDrafts
+  setDrafts: Dispatch<SetStateAction<FocusDrafts>>
+  busy: boolean
+  setBusy: Dispatch<SetStateAction<boolean>>
+  error: string | null
+  setError: Dispatch<SetStateAction<string | null>>
+  dialog: RefObject<HTMLDivElement | null>
+  own: RefObject<HTMLInputElement | null>
 }
-
-export type FocusState = ReturnType<typeof useFocusState>
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -94,25 +82,6 @@ export function useFocusAnswering({ baseUrl, current, questions, answers, state,
     await onDone()
   })
   return { send, next, back, dismiss }
-}
-
-interface Choosing {
-  current: Approval
-  question: NativeQuestion
-  state: FocusState
-}
-
-// useFocusChoice is how the question on screen is answered: an option chosen
-// by index, and the box for an answer in the person's own words.
-export function useFocusChoice({ current, question, state }: Choosing) {
-  const setDraft = (update: (draft: QuestionDraft) => QuestionDraft) =>
-    state.setDrafts((all) => withDraft(all, current.id, question.id, update))
-  const choose = (index: number) => {
-    const option = question.options[index]
-    if (option) setDraft((d) => chooseOption(question, d, option.label))
-  }
-  const type = (other: string) => setDraft((d) => ({ ...d, other }))
-  return { choose, type }
 }
 
 type Verbs = Record<FocusVerb, (arg: number) => void>

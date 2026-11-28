@@ -1,60 +1,13 @@
 import type { Ref } from "react"
-import { Link } from "react-router-dom"
-import type { Approval } from "../../lib/approvals"
 import type { NativeQuestion, NativeQuestionOption } from "../../lib/nativeAgentSync"
 import { recommended, type QuestionDraft } from "../../lib/questionDrafts"
 import { chosenPreview, type FocusStep } from "../../lib/questionFocus"
 
-const keyCap = "rounded border border-lw-line-strong px-1.5 font-lw-mono text-[11px] text-lw-text-2"
-
-export function FocusHeader({ waiting, asking, onLeave }: { waiting: number; asking: number; onLeave: () => void }) {
-  return (
-    <header className="flex items-center gap-3 border-b border-lw-surface px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] md:px-7 md:py-4">
-      <span aria-hidden className="text-lw-needs">◆</span>
-      <span className="font-semibold">{waiting} {waiting === 1 ? "needs" : "need"} you</span>
-      <span className="rounded-full border border-lw-accent-ring bg-lw-accent-soft px-2.5 py-0.5 font-lw-mono text-[11px] uppercase tracking-widest text-lw-accent-text">Focus</span>
-      <span className="ml-auto hidden font-lw-mono text-xs text-lw-faint md:inline">
-        {asking === 1 ? "1 approval asks" : `${asking} approvals ask`}
-      </span>
-      <button
-        onClick={onLeave}
-        className="ml-auto flex min-h-11 items-center gap-2 rounded-lg border border-lw-line-strong bg-lw-surface px-3 text-sm hover:bg-lw-raised md:ml-0 md:min-h-9"
-      >
-        Leave focus <kbd aria-hidden className={`hidden md:inline ${keyCap}`}>Esc</kbd>
-      </button>
-    </header>
-  )
-}
-
-export function AskedBy({ current, agent, onLeave }: { current: Approval; agent: string; onLeave: () => void }) {
-  return (
-    <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 text-sm">
-      <span className="font-semibold text-sky-200">{agent}</span>
-      <span aria-hidden className="text-lw-faint">·</span>
-      <span className="min-w-0 flex-1 text-lw-text-2">{current.details.task_title || current.title}</span>
-      {current.task_id && (
-        <Link to={`/agents?task=${encodeURIComponent(current.task_id)}`} onClick={onLeave} className="text-lw-link hover:underline">Open agent</Link>
-      )}
-    </div>
-  )
-}
+export const keyCap = "rounded border border-lw-line-strong px-1.5 font-lw-mono text-[11px] text-lw-text-2"
 
 function progressClass(at: boolean, answered: boolean): string {
   if (at) return "bg-lw-accent"
   return answered ? "bg-lw-accent/60" : "bg-lw-line-strong"
-}
-
-function Progress({ questions, q, answers }: { questions: NativeQuestion[]; q: number; answers: Record<string, string[]> }) {
-  return (
-    <div className="mt-6 flex items-center gap-3.5 md:mt-7">
-      <span className="whitespace-nowrap font-lw-mono text-xs text-lw-text-2">Question {q + 1} of {questions.length}</span>
-      <div aria-hidden className="flex flex-1 gap-1.5">
-        {questions.map((one, i) => (
-          <span key={one.id} className={`h-1 flex-1 rounded-sm ${progressClass(i === q, answers[one.id].length > 0)}`} />
-        ))}
-      </div>
-    </div>
-  )
 }
 
 function OptionButton({ option, index, chosen, onChoose }: { option: NativeQuestionOption; index: number; chosen: boolean; onChoose: (index: number) => void }) {
@@ -79,26 +32,6 @@ function OptionButton({ option, index, chosen, onChoose }: { option: NativeQuest
   )
 }
 
-function OwnAnswer({ multiSelect, value, ownRef, onType }: { multiSelect: boolean; value: string; ownRef: Ref<HTMLInputElement>; onType: (value: string) => void }) {
-  return (
-    <>
-      <label htmlFor="focus-own-answer" className="mt-5 flex items-center gap-2 text-sm text-lw-text-2">
-        {multiSelect ? "Add an answer in your own words" : "Or answer in your own words"}
-        <kbd aria-hidden className={`hidden md:inline ${keyCap}`}>/</kbd>
-      </label>
-      <input
-        id="focus-own-answer"
-        ref={ownRef}
-        type="text"
-        value={value}
-        onChange={(event) => onType(event.target.value)}
-        placeholder="Type an answer; Enter goes on"
-        className="mt-2 min-h-12 w-full rounded-xl border border-lw-line-strong bg-lw-ground px-3.5 text-base text-lw-text placeholder:text-lw-faint focus:border-lw-accent focus:outline-none md:text-[15px]"
-      />
-    </>
-  )
-}
-
 interface QuestionStepProps {
   questions: NativeQuestion[]
   question: NativeQuestion
@@ -119,7 +52,16 @@ export function QuestionStep({ questions, question, q, draft, answers, ownRef, o
   const preview = chosenPreview(question, draft)
   return (
     <section aria-label={question.question} className="flex flex-col">
-      {questions.length > 1 && <Progress questions={questions} q={q} answers={answers} />}
+      {questions.length > 1 && (
+        <div className="mt-6 flex items-center gap-3.5 md:mt-7">
+          <span className="whitespace-nowrap font-lw-mono text-xs text-lw-text-2">Question {q + 1} of {questions.length}</span>
+          <div aria-hidden className="flex flex-1 gap-1.5">
+            {questions.map((one, i) => (
+              <span key={one.id} className={`h-1 flex-1 rounded-sm ${progressClass(i === q, answers[one.id].length > 0)}`} />
+            ))}
+          </div>
+        </div>
+      )}
       {question.header && <span className="mt-6 self-start rounded-md bg-sky-950/70 px-2 py-0.5 text-xs text-sky-300">{question.header}</span>}
       <h1 className="mt-3.5 max-w-[68ch] whitespace-pre-wrap break-words text-xl font-medium leading-relaxed md:text-[23px]">{question.question}</h1>
       {multiSelect && <p className="mt-2 text-sm text-lw-text-2">Choose any that apply.</p>}
@@ -135,12 +77,28 @@ export function QuestionStep({ questions, question, q, draft, answers, ownRef, o
         </pre>
       )}
 
-      {question.allowOther !== false && <OwnAnswer multiSelect={multiSelect} value={draft.other} ownRef={ownRef} onType={onType} />}
+      {question.allowOther !== false && (
+        <>
+          <label htmlFor="focus-own-answer" className="mt-5 flex items-center gap-2 text-sm text-lw-text-2">
+            {multiSelect ? "Add an answer in your own words" : "Or answer in your own words"}
+            <kbd aria-hidden className={`hidden md:inline ${keyCap}`}>/</kbd>
+          </label>
+          <input
+            id="focus-own-answer"
+            ref={ownRef}
+            type="text"
+            value={draft.other}
+            onChange={(event) => onType(event.target.value)}
+            placeholder="Type an answer; Enter goes on"
+            className="mt-2 min-h-12 w-full rounded-xl border border-lw-line-strong bg-lw-ground px-3.5 text-base text-lw-text placeholder:text-lw-faint focus:border-lw-accent focus:outline-none md:text-[15px]"
+          />
+        </>
+      )}
     </section>
   )
 }
 
-function ReviewRow({ one, answer, onChange }: { one: NativeQuestion; answer: string[]; onChange: () => void }) {
+export function ReviewRow({ one, answer, onChange }: { one: NativeQuestion; answer: string[]; onChange: () => void }) {
   return (
     <li className="flex items-start gap-3.5 rounded-xl border border-lw-line bg-lw-surface px-4 py-3.5">
       <span className="min-w-0 flex-1">
@@ -154,19 +112,6 @@ function ReviewRow({ one, answer, onChange }: { one: NativeQuestion; answer: str
         Change
       </button>
     </li>
-  )
-}
-
-// The review of one approval's answers before they are sent together.
-export function ReviewStep({ questions, answers, agent, onChange }: { questions: NativeQuestion[]; answers: Record<string, string[]>; agent: string; onChange: (q: number) => void }) {
-  return (
-    <section aria-label="Review your answers" className="flex flex-col">
-      <h1 className="mt-6 text-xl font-semibold md:mt-7 md:text-[23px]">Review your answers</h1>
-      <p className="mt-1.5 text-sm text-lw-text-2">{agent} gets them all at once, when you send.</p>
-      <ol className="mt-6 flex flex-col gap-2.5">
-        {questions.map((one, i) => <ReviewRow key={one.id} one={one} answer={answers[one.id]} onChange={() => onChange(i)} />)}
-      </ol>
-    </section>
   )
 }
 
@@ -205,17 +150,5 @@ export function FocusActions({ step, busy, label, onBack, onDismiss, onNext }: F
         <kbd aria-hidden className="hidden rounded bg-white/20 px-1.5 font-lw-mono text-xs md:inline">{review ? "⌘↵" : "↵"}</kbd>
       </button>
     </div>
-  )
-}
-
-const LEGEND = [["1–9", "choose"], ["↑ ↓", "move"], ["↵", "next"], ["←", "back"], ["/", "type your own"], ["⌘↵", "send"], ["Esc", "leave focus"]]
-
-export function KeyLegend() {
-  return (
-    <footer aria-label="Keys" className="hidden flex-wrap justify-center gap-x-5 gap-y-2 border-t border-lw-surface px-6 py-4 text-xs text-lw-faint md:flex">
-      {LEGEND.map(([keys, does]) => (
-        <span key={keys} className="flex items-center gap-1.5"><kbd className={keyCap}>{keys}</kbd>{does}</span>
-      ))}
-    </footer>
   )
 }
