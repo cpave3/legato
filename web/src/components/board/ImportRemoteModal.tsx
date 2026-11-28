@@ -3,9 +3,10 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { useServer } from "../../hooks/useServer"
 import { remoteImport, type ImportedTask } from "../../lib/board"
 import type { RemoteSearchResult } from "../../lib/board-types"
+import { Link } from "react-router-dom"
 import { X } from "lucide-react"
-import { ImportFields, NoProviders, ResultList } from "./ImportRemoteParts"
-import { useRemoteSearch, useResultKeys, useTicketProviders } from "./useRemoteSearch"
+import { ImportFields, ResultList } from "./ImportRemoteParts"
+import { resultKey, useRemoteSearch, useTicketProviders } from "./useRemoteSearch"
 
 interface ImportRemoteModalProps {
   open: boolean
@@ -79,7 +80,14 @@ export function ImportRemoteModal({ open, workspaces = [], view = "all", default
     }
   }, [importingID, baseUrl, workspaceId, column, onImported, onClose])
 
-  useResultKeys(open, results, cursor, setCursor, Boolean(importingID), handleImport)
+  // Arrows move through the results, so every letter types into the search,
+  // and Enter imports the highlighted one unless an import is under way.
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => resultKey(e, results, cursor, setCursor, Boolean(importingID), handleImport)
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [open, results, cursor, setCursor, importingID, handleImport])
 
   if (!open) return null
 
@@ -93,7 +101,13 @@ export function ImportRemoteModal({ open, workspaces = [], view = "all", default
           </button>
         </DialogHeader>
         <DialogBody className="space-y-0 p-0">
-        {hasProviders === false ? <NoProviders onClose={onClose} /> : (
+        {hasProviders === false ? (
+          <div className="px-5 py-6 text-sm text-zinc-400">
+            No ticket provider is connected. Connect Burnlite or Jira in{" "}
+            <Link to="/settings" onClick={onClose} className="text-indigo-400 underline hover:text-indigo-300">Settings</Link>
+            , then import its tickets here.
+          </div>
+        ) : (
         <>
         <ImportFields inputRef={inputRef} query={query} onQuery={setQuery} workspaces={workspaces} workspaceId={workspaceId} onWorkspace={setWorkspaceId} columns={columns} column={column} onColumn={setColumn} />
         {error && (

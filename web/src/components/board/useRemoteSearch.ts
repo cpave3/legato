@@ -5,7 +5,7 @@ import type { RemoteSearchResult } from "../../lib/board-types"
 
 // The Import ticket dialog's state machines: whether a provider is
 // connected, the debounced search with its highlighted result, and the keys
-// that move through the results. See ImportRemoteModal.tsx.
+// that move through the results (resultKey). See ImportRemoteModal.tsx.
 
 // Whether any ticket provider is connected, asked each time the dialog
 // opens. false: none is; null: not known (yet, or an older server).
@@ -68,7 +68,9 @@ export function useRemoteSearch(open: boolean, baseUrl: string, query: string, h
   return { results, cursor, setCursor, loading, clear }
 }
 
-function resultKey(e: KeyboardEvent, results: RemoteSearchResult[], cursor: number, setCursor: Dispatch<SetStateAction<number>>, busy: boolean, onChoose: (result: RemoteSearchResult) => void) {
+// resultKey is the results' keyboard: arrows move the highlight, Enter
+// chooses the highlighted result unless busy.
+export function resultKey(e: KeyboardEvent, results: RemoteSearchResult[], cursor: number, setCursor: Dispatch<SetStateAction<number>>, busy: boolean, onChoose: (result: RemoteSearchResult) => void) {
   if (e.key === "ArrowDown") {
     e.preventDefault()
     setCursor((c) => Math.min(c + 1, results.length - 1))
@@ -79,15 +81,4 @@ function resultKey(e: KeyboardEvent, results: RemoteSearchResult[], cursor: numb
     e.preventDefault()
     if (results[cursor] && !busy) onChoose(results[cursor])
   }
-}
-
-// Arrows move through the results, so every letter types into the search,
-// and Enter imports the highlighted one unless an import is under way.
-export function useResultKeys(open: boolean, results: RemoteSearchResult[], cursor: number, setCursor: Dispatch<SetStateAction<number>>, busy: boolean, onChoose: (result: RemoteSearchResult) => void) {
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: KeyboardEvent) => resultKey(e, results, cursor, setCursor, busy, onChoose)
-    window.addEventListener("keydown", handler)
-    return () => window.removeEventListener("keydown", handler)
-  }, [open, results, cursor, setCursor, busy, onChoose])
 }

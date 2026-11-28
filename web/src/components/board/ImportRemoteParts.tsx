@@ -1,5 +1,4 @@
 import type { RefObject } from "react"
-import { Link } from "react-router-dom"
 
 import type { RemoteSearchResult } from "../../lib/board-types"
 import { providerLabel } from "../../lib/providers"
@@ -8,16 +7,6 @@ import { cn } from "../../lib/utils"
 // The Import ticket dialog's sections. See ImportRemoteModal.tsx.
 
 const fieldClass = "w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500"
-
-export function NoProviders({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="px-5 py-6 text-sm text-zinc-400">
-      No ticket provider is connected. Connect Burnlite or Jira in{" "}
-      <Link to="/settings" onClick={onClose} className="text-indigo-400 underline hover:text-indigo-300">Settings</Link>
-      , then import its tickets here.
-    </div>
-  )
-}
 
 // The search, and where an import lands: a workspace (or none) and a
 // column (or the provider's default).
