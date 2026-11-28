@@ -823,7 +823,7 @@ A reviewer on another model reviews pull requests in passes until a pass is clea
 | `review_passes.poll_interval` | duration | `60s` | How often the pull requests are checked for new comments. |
 | `review_passes.quiet_time` | duration | `2m` | How long new feedback waits for more before the author is told. |
 | `review_passes.counted_bots` | list of strings | none | Bot logins whose comments count as feedback, as the repository's owners, members and collaborators do. A name without the `[bot]` suffix is given it, so `cubic-dev-ai` counts the bot `cubic-dev-ai[bot]` and never a person called `cubic-dev-ai`. |
-| `review_passes.required_checks` | list of strings | none | The checks that must pass. Empty means the branch protection's required checks. |
+| `review_passes.required_checks` | list of strings | none | Checks that must pass even when the base branch fails them too. Every check on a pull request counts without this; a failing one the base fails too is only noted. Empty means the branch protection's required checks. |
 
 ```yaml
 review_passes:
