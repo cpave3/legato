@@ -131,6 +131,8 @@ var registry = []Setting{
 
 	// Updates.
 	{Key: "updates.mode", Title: "Install updates", Help: "auto installs a new release once no agent is mid-turn, and restarts; ask offers it; off never looks.", DefaultLabel: "ask", Kind: KindEnum, Enum: []string{"auto", "ask", "off"}, Class: ClassRisky, Mode: ModeLive},
+	{Key: "updates.claude.channel", Title: "Claude Code release channel", Help: "Which of Anthropic's channels Legato's own Claude Code follows: stable, or latest for every release as soon as it is out.", DefaultLabel: "stable", Kind: KindEnum, Enum: []string{"stable", "latest"}, Class: ClassRisky, Mode: ModeLive},
+	{Key: "updates.claude.command", Title: "Your own Claude Code", Help: "Starts agents with this claude instead of Legato's own copy: a full path, or a command on Legato's PATH such as claude. Legato then never updates or rolls it back. Empty, Legato keeps its own.", DefaultLabel: "Legato's own, kept current", Kind: KindString, Class: ClassRisky, Mode: ModeRestart, Check: checkClaudeCommand},
 
 	{Key: "notifications.ntfy.token", Title: "Token", Help: "The name of a secret holding the token of a protected topic. Empty for a public topic.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "keybindings.vim_mode", Title: "Vim keys", Help: "Not used yet: the board always takes vim keys.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
@@ -366,6 +368,23 @@ func checkDiscordIntents(v any) error {
 		if !slices.Contains(DiscordIntentNames, name) {
 			return fmt.Errorf("%q is not an intent: want %s", name, strings.Join(DiscordIntentNames, ", "))
 		}
+	}
+	return nil
+}
+
+// checkClaudeCommand takes an absolute path or a bare command name, never
+// arguments or a path relative to wherever Legato happens to run.
+func checkClaudeCommand(v any) error {
+	s := v.(string)
+	switch {
+	case s == "":
+		return nil
+	case strings.ContainsAny(s, " \t\n"):
+		return errors.New("must be one command, without arguments")
+	case strings.HasPrefix(s, "/"):
+		return nil
+	case strings.Contains(s, "/") || strings.HasPrefix(s, "~"):
+		return errors.New("must be a full path, or a command name on Legato's PATH")
 	}
 	return nil
 }

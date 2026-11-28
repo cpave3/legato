@@ -134,7 +134,7 @@ func TestAnSTThatHangsIsGivenUp(t *testing.T) {
 func TestInAutoModeSTIsUpdatedWithoutWaitingForTheAgents(t *testing.T) {
 	newFakeSTTool(t, "v0.1.0", true, "v0.2.0")
 	st := NewSTUpdater(ToolUpdaterOptions{})
-	f := newUpdater(t, "v1.3.0", func(o *UpdateOptions) { o.Tools = []*ToolUpdater{st} })
+	f := newUpdater(t, "v1.3.0", func(o *UpdateOptions) { o.Tools = []ManagedTool{st} })
 	if err := f.svc.SetMode(context.Background(), UpdateModeAuto); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestInAutoModeSTIsUpdatedWithoutWaitingForTheAgents(t *testing.T) {
 func TestInAskModeSTWaitsForThePerson(t *testing.T) {
 	fake := newFakeSTTool(t, "v0.1.0", true, "v0.2.0")
 	st := NewSTUpdater(ToolUpdaterOptions{})
-	f := newUpdater(t, "v1.3.0", func(o *UpdateOptions) { o.Tools = []*ToolUpdater{st} })
+	f := newUpdater(t, "v1.3.0", func(o *UpdateOptions) { o.Tools = []ManagedTool{st} })
 	running(t, f)
 
 	eventually(t, "st's release to be found", func() bool { return st.Status().Available })
@@ -172,7 +172,7 @@ func TestInAskModeSTWaitsForThePerson(t *testing.T) {
 func TestWithUpdatesOffSTIsNotAsked(t *testing.T) {
 	fake := newFakeSTTool(t, "v0.1.0", true, "v0.2.0")
 	st := NewSTUpdater(ToolUpdaterOptions{})
-	f := newUpdater(t, "v1.3.0", func(o *UpdateOptions) { o.Tools = []*ToolUpdater{st} })
+	f := newUpdater(t, "v1.3.0", func(o *UpdateOptions) { o.Tools = []ManagedTool{st} })
 	if err := f.svc.SetMode(context.Background(), UpdateModeOff); err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestWithUpdatesOffSTIsNotAsked(t *testing.T) {
 func TestALegatoBuiltFromSourceStillKeepsSTCurrent(t *testing.T) {
 	newFakeSTTool(t, "v0.1.0", true, "v0.2.0")
 	st := NewSTUpdater(ToolUpdaterOptions{})
-	f := newUpdater(t, "dev", func(o *UpdateOptions) { o.Tools = []*ToolUpdater{st} })
+	f := newUpdater(t, "dev", func(o *UpdateOptions) { o.Tools = []ManagedTool{st} })
 	if err := f.svc.SetMode(context.Background(), UpdateModeAuto); err != nil {
 		t.Fatal(err)
 	}

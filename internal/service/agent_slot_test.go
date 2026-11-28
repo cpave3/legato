@@ -107,6 +107,10 @@ func TestSpawnRefusesASlotNameTmuxCannotKeep(t *testing.T) {
 func TestResumingTheMainSlotAfterAReviewerPicksUpTheAuthorsConversation(t *testing.T) {
 	for _, kind := range []string{"claude-code", "codex"} {
 		t.Run(kind, func(t *testing.T) {
+			// The account a spawn selects is the environment's; clear the one
+			// an agent running these tests may have, so the saved session's
+			// storage matches it.
+			t.Setenv("CLAUDE_CONFIG_DIR", "")
 			f := newSlotFixture(t)
 			ctx := context.Background()
 			createTask(t, f.store, "task-s")

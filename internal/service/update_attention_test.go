@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -103,7 +104,7 @@ func TestNoUpdateItemWhenThereIsNothingToAsk(t *testing.T) {
 func TestAnSTReleaseAsksThePersonInAttentionInAskMode(t *testing.T) {
 	newFakeSTTool(t, "v0.1.0", true, "v0.2.0")
 	st := NewSTUpdater(ToolUpdaterOptions{})
-	f := newUpdater(t, "v1.3.0", func(o *UpdateOptions) { o.Tools = []*ToolUpdater{st} })
+	f := newUpdater(t, "v1.3.0", func(o *UpdateOptions) { o.Tools = []ManagedTool{st} })
 	ctx := context.Background()
 	if _, err := f.svc.Check(ctx); err != nil {
 		t.Fatal(err)
@@ -130,7 +131,7 @@ func TestAnSTReleaseAsksThePersonInAttentionInAskMode(t *testing.T) {
 func TestAChimeraReleaseAsksTheOperatorInAttentionInAskMode(t *testing.T) {
 	newFakeChimeraTool(t, "v1.1.0", true)
 	chimera := NewChimeraUpdater(ToolUpdaterOptions{})
-	f := newUpdater(t, "v1.3.0", func(o *UpdateOptions) { o.Tools = []*ToolUpdater{chimera} })
+	f := newUpdater(t, "v1.3.0", func(o *UpdateOptions) { o.Tools = []ManagedTool{chimera} })
 	ctx := context.Background()
 	if _, err := f.svc.Check(ctx); err != nil {
 		t.Fatal(err)
@@ -151,5 +152,28 @@ func TestAChimeraReleaseAsksTheOperatorInAttentionInAskMode(t *testing.T) {
 	}
 	if items, _ := attention.List(ctx, AttentionFilter{}); len(items) != 0 {
 		t.Errorf("items once chimera is current = %+v", items)
+	}
+}
+
+func TestAClaudeCodeReleaseSaysWhatUpdatingDoes(t *testing.T) {
+	c := newClaudeToolFixture(t, "2.1.326", "2.1.330")
+	f := newUpdater(t, "v1.3.0", func(o *UpdateOptions) { o.Tools = []ManagedTool{c.tool} })
+	ctx := context.Background()
+	if _, err := f.svc.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	attention, items := updateItems(t, f)
+	if len(items) != 1 || items[0].Title != "claude 2.1.330 is available" || items[0].SourceKey != "tool-update:claude" {
+		t.Fatalf("items = %+v", items)
+	}
+	if detail := items[0].Detail; detail != c.tool.Status().Detail || strings.Contains(detail, "claude update") {
+		t.Fatalf("detail = %q", detail)
+	}
+	if err := attention.Execute(ctx, items[0].ID, AttentionActionRequest{ActionID: "update", ExpectedRevision: items[0].SourceRevision}); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.tool.Status(); got.Version != "2.1.330" {
+		t.Fatalf("claude after the action = %+v", got)
 	}
 }

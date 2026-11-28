@@ -79,10 +79,11 @@ type UpdateOptions struct {
 	// and asks its version.
 	Verify func(want string) func(ctx context.Context, binary string) error
 
-	// Tools are command-line tools kept current beside Legato (st and chimera), under
-	// the same mode: checked with Legato, installed at once in auto mode
-	// (nothing holds them open), and on the person's word in ask mode.
-	Tools []*ToolUpdater
+	// Tools are command-line tools kept current beside Legato (st, chimera
+	// and Claude Code), under the same mode: checked with Legato, installed
+	// at once in auto mode (nothing holds them open), and on the person's
+	// word in ask mode.
+	Tools []ManagedTool
 
 	FirstCheckAfter time.Duration // after Run starts
 	CheckEvery      time.Duration
@@ -289,6 +290,11 @@ func (s *UpdateService) Run(ctx context.Context) {
 	if !s.release() && len(s.opts.Tools) == 0 {
 		return
 	}
+	if s.opts.Bus != nil && len(s.opts.Tools) > 0 {
+		changed, stop := s.opts.Bus.SubscribeInvalidations(events.EventToolsChanged)
+		defer stop()
+		go s.checkToolsWhenChanged(ctx, changed)
+	}
 	timer := time.NewTimer(s.opts.FirstCheckAfter)
 	defer timer.Stop()
 	for {
@@ -353,6 +359,21 @@ func (s *UpdateService) waitForQuiet(ctx context.Context) bool {
 	}
 }
 
+// checkToolsWhenChanged checks the tools again each time another process
+// says it changed one (EventToolsChanged), until ctx ends.
+func (s *UpdateService) checkToolsWhenChanged(ctx context.Context, changed <-chan struct{}) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-changed:
+			for _, tool := range s.opts.Tools {
+				tool.Check(ctx)
+			}
+		}
+	}
+}
+
 // keepToolsCurrent checks each tool and, in auto mode, installs a newer
 // release at once: a tool's file is replaced by renaming, so a run of it
 // that is under way is not disturbed and agents need not be waited for.
@@ -373,6 +394,22 @@ func (s *UpdateService) ApplyTool(ctx context.Context, name string) error {
 		if tool.Name() == name {
 			return tool.Apply(ctx)
 		}
+	}
+	return ErrToolNotManaged
+}
+
+// RollbackTool puts a tool back on its last known good version:
+// ErrToolNotManaged for a tool the updater does not look after or that
+// cannot roll back, ErrNoLastGood when there is nothing to go back to.
+func (s *UpdateService) RollbackTool(ctx context.Context, name string) error {
+	for _, tool := range s.opts.Tools {
+		if tool.Name() != name {
+			continue
+		}
+		if rb, ok := tool.(RollbackTool); ok {
+			return rb.Rollback(ctx)
+		}
+		return ErrToolNotManaged
 	}
 	return ErrToolNotManaged
 }

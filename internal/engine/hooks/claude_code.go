@@ -33,12 +33,34 @@ type ClaudeCodeAdapter struct {
 	// usage names the usage mod and the Manticore instance it reports to;
 	// zero when no instance is configured.
 	usage claudeUsageReporting
+	// command is the claude to launch, asked at each launch, and whether it
+	// is Legato's own; nil launches claude from PATH.
+	command func() (string, bool)
 }
 
 // NewClaudeCodeAdapter creates a Claude Code adapter.
 // legatoBin is the absolute path to the legato binary (resolved at install time).
 func NewClaudeCodeAdapter(legatoBin string) *ClaudeCodeAdapter {
 	return &ClaudeCodeAdapter{legatoBin: legatoBin}
+}
+
+// SetCommand sets the claude agents launch, asked at each launch: Legato's
+// own copy (managed, which is told never to update itself) or the
+// operator's. "" launches claude from PATH.
+func (a *ClaudeCodeAdapter) SetCommand(command func() (path string, managed bool)) {
+	a.command = command
+}
+
+// claudeCommand is the claude to launch, quoted for the shell.
+func (a *ClaudeCodeAdapter) claudeCommand() (string, bool) {
+	if a.command == nil {
+		return "claude", false
+	}
+	path, managed := a.command()
+	if path == "" {
+		return "claude", false
+	}
+	return shellQuote(path), managed
 }
 
 // SetRoleOverrides configures user-supplied role prompts that take precedence
@@ -139,7 +161,7 @@ func (a *ClaudeCodeAdapter) LaunchCommand(env map[string]string, brief, model, t
 	if env == nil {
 		return ""
 	}
-	cmd := "claude"
+	cmd, _ := a.claudeCommand()
 	if env["LEGATO_SESSION_POLICY"] == "resume" {
 		cmd += " --resume " + shellQuote(env["LEGATO_RESUME_SESSION_ID"])
 	}
@@ -180,6 +202,11 @@ func (a *ClaudeCodeAdapter) Name() string { return "claude-code" }
 func (a *ClaudeCodeAdapter) EnvVars(taskID, socketPath string) map[string]string {
 	vars := map[string]string{
 		"LEGATO_TASK_ID": taskID,
+	}
+	// Legato's own claude changes version only when Legato says: it must
+	// not update itself.
+	if _, managed := a.claudeCommand(); managed {
+		vars["DISABLE_AUTOUPDATER"] = "1"
 	}
 	// Claude Code loads every folder this variable lists as a plugin. Set on
 	// the session rather than on the launch command, it also covers a

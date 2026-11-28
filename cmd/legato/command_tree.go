@@ -453,6 +453,13 @@ func commandTree() *commandDef {
 			[]string{"legato usage", "legato usage --refresh --json"},
 			leaf("pin", "Pin defaults to a usage profile", func(a []string) int { return runUsagePinCmd("pin", a) }, []argumentDef{arg("profile", "Usage profile name")}, []commandFlag{valueFlag("until", "RFC3339", "Pin until a time with a time zone"), valueFlag("until-reset", "meter", "Pin until a known future meter reset"), jsonFlag}, "legato usage pin conserve --until-reset claude.weekly"),
 			leaf("unpin", "Remove the usage profile pin", func(a []string) int { return runUsagePinCmd("unpin", a) }, nil, []commandFlag{jsonFlag}, "legato usage unpin")),
+		group("tools", "List, update and roll back the tools Legato keeps current (st, chimera, claude)", []string{"legato tools list", "legato tools rollback claude"},
+			leaf("list", "Check each tool Legato keeps current and list where it stands", func(a []string) int { return runToolsCmd("list", a) },
+				nil, []commandFlag{jsonFlag}, "legato tools list", "legato tools list --json"),
+			leaf("update", "Install a tool's newest release (for claude, also fetch a version gone from disk)", func(a []string) int { return runToolsCmd("update", a) },
+				[]argumentDef{arg("name", "Tool name: st, chimera or claude")}, []commandFlag{jsonFlag}, "legato tools update claude"),
+			leaf("rollback", "Switch Legato's Claude Code back to its last known good version", func(a []string) int { return runToolsCmd("rollback", a) },
+				[]argumentDef{arg("name", "Tool name: claude")}, []commandFlag{jsonFlag}, "legato tools rollback claude")),
 		leaf("version", "Print the version of this Legato", runVersionCmd, nil, []commandFlag{jsonFlag}, "legato version", "legato version --json"),
 		leaf("pair", "Pair a device, or a main instance, with the Legato web UI", runPairContract, nil, []commandFlag{valueFlag("host", "host|ip", "Address this device uses to reach this specific Legato instance"), valueFlag("port", "port", "Server port"), boolFlag("main", "Pair a main instance that hands tasks to this Legato, instead of a phone"), jsonFlag}, "legato pair --host 192.168.1.20", "legato pair --main"),
 	)

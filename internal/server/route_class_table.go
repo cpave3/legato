@@ -117,6 +117,7 @@ var routeClassTable = []routeClassEntry{
 	{"PUT", "/api/config/lists/{list}/{name}", ClassChange, "Save an entry of a settings list"},
 	{"DELETE", "/api/config/lists/{list}/{name}", ClassChange, "Delete an entry of a settings list"},
 	{"POST", "/api/updates/tools/{name}/apply", ClassRisky, "Update a tool Legato installs"},
+	{"POST", "/api/updates/tools/{name}/rollback", ClassRisky, "Roll a tool back to its last known good version"},
 	{"POST", "/api/hot-reload/build", ClassRisky, "Rebuild and reload Legato"},
 	{"GET", "/api/navigation-summary", ClassRead, "Read the navigation counts"},
 	{"GET", "/api/ca-cert", ClassRead, "Download the CA certificate"},

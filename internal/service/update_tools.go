@@ -46,7 +46,47 @@ type ToolStatus struct {
 	State     string    `json:"state"`
 	Error     string    `json:"error,omitempty"`
 	CheckedAt time.Time `json:"checked_at,omitzero"`
+	// Channel is the release channel followed (Claude Code: stable or
+	// latest); "" for a tool with none.
+	Channel string `json:"channel,omitempty"`
+	// LastGood is the version a rollback returns to, "" for none.
+	LastGood string `json:"last_good,omitempty"`
+	// CanRollback says a rollback to LastGood is possible now.
+	CanRollback bool `json:"can_rollback,omitempty"`
+	// Held is a version rolled back from, not offered again until a newer
+	// one is out.
+	Held string `json:"held,omitempty"`
+	// Detail says what updating does, for Attention; "" for the tool's own
+	// update command.
+	Detail string `json:"detail,omitempty"`
 }
+
+// ManagedTool is a command-line tool the updater keeps current beside
+// Legato: ToolUpdater for tools that update themselves (st, chimera), and
+// ClaudeCodeTool. setOnChange keeps the set to this package.
+type ManagedTool interface {
+	// Name is the tool's command, which names it in the API.
+	Name() string
+	// Status is where its updates stand, as last checked.
+	Status() ToolStatus
+	// Check looks again.
+	Check(ctx context.Context) ToolStatus
+	// Apply installs the newest release: ErrToolNotManaged, ErrNoUpdate.
+	Apply(ctx context.Context) error
+	setOnChange(func())
+}
+
+// RollbackTool is a ManagedTool that can go back to its last known good
+// version.
+type RollbackTool interface {
+	ManagedTool
+	// Rollback switches to the last known good version: ErrToolNotManaged,
+	// ErrNoLastGood.
+	Rollback(ctx context.Context) error
+}
+
+// ErrNoLastGood is a tool with no last known good version to go back to.
+var ErrNoLastGood = errors.New("there is no last known good version to go back to")
 
 // ToolUpdaterOptions tune a ToolUpdater.
 type ToolUpdaterOptions struct {

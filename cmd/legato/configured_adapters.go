@@ -20,6 +20,9 @@ func configuredAdapters(cfg *config.Config, legatoBin string) (service.AIToolAda
 	chimera := hooks.NewChimeraAdapter(legatoBin)
 	codex := hooks.NewCodexAdapter(legatoBin)
 	claude.SetReviews(cfg.Agents.Reviews)
+	// Every Claude Code agent, whatever its account, launches the claude
+	// Legato keeps (or the operator's own, updates.claude.command).
+	claude.SetCommand(claudeLaunch(cfg))
 	chimera.SetReviews(cfg.Agents.Reviews)
 	codex.SetReviews(cfg.Agents.Reviews)
 

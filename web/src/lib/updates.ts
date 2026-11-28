@@ -13,7 +13,7 @@ export interface UpdateStatus {
   latest_url?: string
   checked_at?: string
   error?: string
-  // Command-line tools kept current beside Legato (st and chimera).
+  // Command-line tools kept current beside Legato (st, chimera and Claude Code).
   tools?: ToolStatus[]
 }
 
@@ -29,6 +29,16 @@ export interface ToolStatus {
   state: "missing" | "unmanaged" | "unchecked" | "up_to_date" | "available" | "installing" | "failed"
   error?: string
   checked_at?: string
+  // Claude Code: the release channel followed (stable or latest).
+  channel?: string
+  // The version a rollback returns to.
+  last_good?: string
+  // A rollback to last_good is possible now.
+  can_rollback?: boolean
+  // A version rolled back from, not offered again until a newer one is out.
+  held?: string
+  // What updating does, or whose the tool is when Legato leaves it alone.
+  detail?: string
 }
 
 export type UpdateMode = "auto" | "ask" | "off"
@@ -63,5 +73,11 @@ export async function setUpdateMode(baseUrl: string, mode: UpdateMode): Promise<
 // applyToolUpdate starts a tool's update (st update or chimera update); update_changed says how it goes.
 export async function applyToolUpdate(baseUrl: string, name: string): Promise<void> {
   const response = await apiFetch(baseUrl, `/api/updates/tools/${encodeURIComponent(name)}/apply`, { method: "POST" })
+  if (!response.ok) throw await failed(response)
+}
+
+// rollbackTool starts switching a tool back to its last known good version (Claude Code); update_changed says how it goes.
+export async function rollbackTool(baseUrl: string, name: string): Promise<void> {
+  const response = await apiFetch(baseUrl, `/api/updates/tools/${encodeURIComponent(name)}/rollback`, { method: "POST" })
   if (!response.ok) throw await failed(response)
 }

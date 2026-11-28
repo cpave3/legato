@@ -22,6 +22,16 @@ type fakeUpdates struct {
 	applied  chan struct{}
 	// appliedTools are the tools ApplyTool was asked to update.
 	appliedTools []string
+	// rolledBack are the tools RollbackTool was asked to roll back.
+	rolledBack []string
+}
+
+func (f *fakeUpdates) RollbackTool(_ context.Context, name string) error {
+	f.mu.Lock()
+	f.rolledBack = append(f.rolledBack, name)
+	f.mu.Unlock()
+	f.applied <- struct{}{}
+	return nil
 }
 
 func (f *fakeUpdates) Status(context.Context) service.UpdateStatus {
@@ -231,4 +241,53 @@ func TestAToolUpdateStartsInTheBackground(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAToolRollbackStartsInTheBackground(t *testing.T) {
+	status := availableUpdate
+	status.Tools = []service.ToolStatus{{Name: "claude", Managed: true, Version: "2.1.330", LastGood: "2.1.326", CanRollback: true, State: service.UpdateUpToDate}}
+	srv, updates := updateServer(t, status)
+
+	if rec := callUpdates(srv, http.MethodPost, "/api/updates/tools/claude/rollback", ""); rec.Code != http.StatusAccepted {
+		t.Fatalf("status %d %s", rec.Code, rec.Body.String())
+	}
+	select {
+	case <-updates.applied:
+	case <-time.After(2 * time.Second):
+		t.Fatal("claude was not rolled back")
+	}
+	if updates.rolledBack[0] != "claude" {
+		t.Fatalf("rolled back %v", updates.rolledBack)
+	}
+
+	for name, c := range map[string]struct {
+		tool service.ToolStatus
+		want string
+	}{
+		"your own claude":   {service.ToolStatus{Name: "claude", State: service.ToolUnmanaged}, service.ErrToolNotManaged.Error()},
+		"no last good":      {service.ToolStatus{Name: "claude", Managed: true, State: service.UpdateUpToDate}, service.ErrNoLastGood.Error()},
+		"a tool without it": {service.ToolStatus{Name: "st", Managed: true, State: service.UpdateUpToDate}, service.ErrNoLastGood.Error()},
+	} {
+		updates.mu.Lock()
+		updates.status.Tools = []service.ToolStatus{c.tool}
+		updates.mu.Unlock()
+		rec := callUpdates(srv, http.MethodPost, "/api/updates/tools/"+c.tool.Name+"/rollback", "")
+		if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), c.want) {
+			t.Errorf("%s: status %d %s", name, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := callUpdates(srv, http.MethodPost, "/api/updates/tools/nope/rollback", ""); rec.Code != http.StatusConflict {
+		t.Errorf("an unknown tool: status %d", rec.Code)
+	}
+}
+
+// A managed tool whose version went missing is repaired by updating it.
+func TestAFailedToolCanBeUpdatedToRepairIt(t *testing.T) {
+	status := availableUpdate
+	status.Tools = []service.ToolStatus{{Name: "claude", Managed: true, Version: "2.1.326", State: service.UpdateFailed, Error: "Claude Code 2.1.326 is no longer on disk"}}
+	srv, updates := updateServer(t, status)
+	if rec := callUpdates(srv, http.MethodPost, "/api/updates/tools/claude/apply", ""); rec.Code != http.StatusAccepted {
+		t.Fatalf("status %d %s", rec.Code, rec.Body.String())
+	}
+	<-updates.applied
 }

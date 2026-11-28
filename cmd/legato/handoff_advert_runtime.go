@@ -26,6 +26,9 @@ func handoffAdvertSources(cfg *config.Config, db *store.Store, credentials *serv
 			if !ok {
 				command = kind
 			}
+			if kind == "claude-code" {
+				command, _ = claudeLaunch(cfg)()
+			}
 			_, err := exec.LookPath(command)
 			return err == nil
 		},

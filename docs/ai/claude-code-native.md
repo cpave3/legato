@@ -205,6 +205,8 @@ From the browser these travel as the `agent_question` (`request_id`, `answers` o
 
 ## Configuration
 
+Every Claude Code agent launches Legato's own `claude` (`ClaudeCodeAdapter.SetCommand`, asked at each launch): the link `<data_dir>/tools/claude/claude`, with `DISABLE_AUTOUPDATER=1` in the session, or the operator's `updates.claude.command`, else `claude` from `PATH` until Legato has adopted a version. Its versions, updates and rollback are in [Releases and updates](updates.md) § Claude Code.
+
 ```yaml
 adapters:
   claude-code:

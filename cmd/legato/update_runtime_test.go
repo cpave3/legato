@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strconv"
 	"sync/atomic"
 	"testing"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -42,15 +44,43 @@ func TestHowAnUpdatedLegatoRestarts(t *testing.T) {
 	}
 }
 
-func TestRuntimeLooksAfterSTAndChimera(t *testing.T) {
+func TestRuntimeLooksAfterSTChimeraAndClaudeCode(t *testing.T) {
 	db, err := store.New(filepath.Join(t.TempDir(), "updates.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	updates := newUpdateService(db, nil, nil, nil)
+	cfg := config.Defaults()
+	cfg.DataDir = t.TempDir()
+	updates := newUpdateService(cfg, db, nil, nil, nil)
 	got := updates.Status(context.Background()).Tools
-	if len(got) != 2 || got[0].Name != "st" || got[1].Name != "chimera" {
+	if len(got) != 3 || got[0].Name != "st" || got[1].Name != "chimera" || got[2].Name != "claude" {
 		t.Fatalf("runtime tools = %+v", got)
+	}
+}
+
+func TestAgentsLaunchLegatosOwnClaudeOnceItHasOne(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.DataDir = t.TempDir()
+	if cmd, managed := claudeLaunch(cfg)(); cmd != "claude" || managed {
+		t.Fatalf("before Legato has a claude: %q, %v", cmd, managed)
+	}
+	folder := claudeToolFolder(cfg)
+	if err := os.MkdirAll(folder.VersionsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(folder.VersionsDir(), "2.1.326"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := folder.SetCurrent("2.1.326"); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(cfg.DataDir, "tools", "claude", "claude")
+	if cmd, managed := claudeLaunch(cfg)(); cmd != want || !managed {
+		t.Fatalf("launch = %q, %v; want %s", cmd, managed, want)
+	}
+	cfg.Updates.Claude.Command = "/opt/claude"
+	if cmd, managed := claudeLaunch(cfg)(); cmd != "/opt/claude" || managed {
+		t.Fatalf("with an override: %q, %v", cmd, managed)
 	}
 }

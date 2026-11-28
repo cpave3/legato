@@ -369,11 +369,20 @@ func inOthersScratch(in SandboxPlanInput, root, path string) bool {
 	return true
 }
 
+// claudeToolDir is Legato's own Claude Code (ClaudeCodeTool), which
+// claude-code agents launch; "" without a data folder.
+func claudeToolDir(in SandboxPlanInput) string {
+	if in.DataDir == "" {
+		return ""
+	}
+	return filepath.Join(in.DataDir, ClaudeToolFolder)
+}
+
 // allowedInside are mounts that may sit inside a forbidden folder: the parts
 // of Legato's runtime and data folders a session needs.
 func allowedInside(in SandboxPlanInput, path string) bool {
 	for _, ok := range []string{filepath.Dir(in.BrokerSocket), in.SSHSocket, in.CredentialWrapperDir, in.GHConfigDir, in.JobDir, in.CapabilitiesDir, workflowScratchDir(in),
-		filepath.Join(in.DataDir, "claude-mod"), filepath.Join(in.DataDir, "chimera-mod"), filepath.Join(in.DataDir, "repos"), filepath.Join(in.RuntimeDir, "sandbox", in.ExecutionID)} {
+		filepath.Join(in.DataDir, "claude-mod"), filepath.Join(in.DataDir, "chimera-mod"), filepath.Join(in.DataDir, "repos"), claudeToolDir(in), filepath.Join(in.RuntimeDir, "sandbox", in.ExecutionID)} {
 		if ok != "" && ok != "." && within(path, ok) {
 			return true
 		}
@@ -572,6 +581,9 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		add(filepath.Join(in.DataDir, "claude-mod"), sandbox.ReadOnly)
 		add(filepath.Join(in.DataDir, "chimera-mod"), sandbox.ReadOnly)
 		add(filepath.Join(in.DataDir, "repos"), sandbox.ReadOnly)
+		if in.AgentKind == "claude-code" {
+			add(claudeToolDir(in), sandbox.ReadOnly)
+		}
 	}
 	for _, extra := range in.Extra {
 		path := filepath.Clean(extra.Path)
