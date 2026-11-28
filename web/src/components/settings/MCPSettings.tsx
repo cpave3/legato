@@ -99,35 +99,8 @@ function envToText(env: Record<string, string> | undefined): string {
 // Legato with them, and says which agents may use which of their tools.
 // Agents never see a token: Legato calls the tools for them.
 export function MCPSettings({ baseUrl, pollEvery = 2000 }: { baseUrl: string; pollEvery?: number }) {
-  const [list, setList] = useState<MCPConnection[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const { list, error, load, replace, removed, added, waitingFor, waitFor } = useConnections(baseUrl, pollEvery)
   const app = appCanConnect()
-
-  const load = useCallback(async () => {
-    try {
-      setList(await listMCPConnections(baseUrl))
-      setError(null)
-    } catch (reason) {
-      setError(message(reason))
-    }
-  }, [baseUrl])
-
-  useEffect(() => { void load() }, [load])
-
-  const replace = (conn: MCPConnection) => setList((current) => current && current.map((c) => (c.name === conn.name ? conn : c)))
-
-  // Local servers waiting for the operator's approval: the list is read
-  // again until each appears.
-  const [waitingFor, setWaitingFor] = useState<string[]>([])
-  useEffect(() => {
-    if (list) setWaitingFor((names) => names.filter((n) => !list.some((c) => c.name === n)))
-  }, [list])
-  useEffect(() => {
-    if (waitingFor.length === 0) return
-    const timer = setInterval(() => void load(), pollEvery)
-    return () => clearInterval(timer)
-  }, [waitingFor.length, load, pollEvery])
-
   return (
     <SettingsCard id="mcp-connections" icon={Plug} title="MCP servers"
       description="MCP servers whose tools agents can use through Legato: remote ones, which Legato holds the authorization for, and local commands, which Legato runs on this computer. Agents never see a token, and a sandboxed agent needs nothing of a local server's.">
@@ -141,19 +114,67 @@ export function MCPSettings({ baseUrl, pollEvery = 2000 }: { baseUrl: string; po
           <ul className="divide-y divide-lw-line overflow-hidden rounded-lg border border-lw-line">
             {list.map((conn) => (
               <Connection key={conn.name} baseUrl={baseUrl} conn={conn} app={app} pollEvery={pollEvery}
-                onChanged={replace} onReload={load}
-                onRemoved={() => setList((current) => current && current.filter((c) => c.name !== conn.name))} />
+                onChanged={replace} onReload={load} onRemoved={() => removed(conn.name)} />
             ))}
           </ul>
         )}
         {waitingFor.map((name) => (
           <InlineNotice key={name}>{waitingText(name, "run")}</InlineNotice>
         ))}
-        <AddConnection baseUrl={baseUrl} onAdded={(conn) => setList((current) => [...(current ?? []), conn])}
-          onPending={(name) => setWaitingFor((names) => (names.includes(name) ? names : [...names, name]))} />
+        <AddConnection baseUrl={baseUrl} onAdded={added} onPending={waitFor} />
       </div>
     </SettingsCard>
   )
+}
+
+/** The names of servers not yet in the list. */
+function unlisted(names: string[], list: MCPConnection[]): string[] {
+  return names.filter((n) => !list.some((c) => c.name === n))
+}
+
+function withConnection(list: MCPConnection[], conn: MCPConnection): MCPConnection[] {
+  return list.map((c) => (c.name === conn.name ? conn : c))
+}
+
+function withoutConnection(list: MCPConnection[], name: string): MCPConnection[] {
+  return list.filter((c) => c.name !== name)
+}
+
+// useConnections lists the connections. Local servers waiting for the
+// operator's approval are listed by name, and the list is read again until
+// each appears.
+function useConnections(baseUrl: string, pollEvery: number) {
+  const [list, setList] = useState<MCPConnection[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      setList(await listMCPConnections(baseUrl))
+      setError(null)
+    } catch (reason) {
+      setError(message(reason))
+    }
+  }, [baseUrl])
+
+  useEffect(() => { void load() }, [load])
+
+  const [waitingFor, setWaitingFor] = useState<string[]>([])
+  useEffect(() => {
+    if (list) setWaitingFor((names) => unlisted(names, list))
+  }, [list])
+  useEffect(() => {
+    if (waitingFor.length === 0) return
+    const timer = setInterval(() => void load(), pollEvery)
+    return () => clearInterval(timer)
+  }, [waitingFor.length, load, pollEvery])
+
+  return {
+    list, error, load, waitingFor,
+    replace: (conn: MCPConnection) => setList((current) => current && withConnection(current, conn)),
+    removed: (name: string) => setList((current) => current && withoutConnection(current, name)),
+    added: (conn: MCPConnection) => setList((current) => [...(current ?? []), conn]),
+    waitFor: (name: string) => setWaitingFor((names) => (names.includes(name) ? names : [...names, name])),
+  }
 }
 
 type ConnectionNotice = { variant: "info" | "success" | "error"; text: ReactNode }
@@ -674,102 +695,130 @@ function Rules({ conn, busy, onSave }: { conn: MCPConnection; busy: boolean; onS
   )
 }
 
-function AddConnection({ baseUrl, onAdded, onPending }: { baseUrl: string; onAdded: (conn: MCPConnection) => void; onPending: (name: string) => void }) {
-  const [kind, setKind] = useState<"http" | "stdio">("http")
-  const [command, setCommand] = useState("")
-  const [args, setArgs] = useState("")
-  const [dir, setDir] = useState("")
-  const [env, setEnv] = useState("")
-  const [name, setName] = useState("")
-  const [url, setUrl] = useState("")
-  const [auth, setAuth] = useState<"oauth" | "none">("oauth")
-  const [issuer, setIssuer] = useState("")
-  const [networks, setNetworks] = useState("")
-  const [clientID, setClientID] = useState("")
-  const [redirect, setRedirect] = useState("")
-  const [secret, setSecret] = useState("")
+type RemoteDraft = { url: string; auth: "oauth" | "none"; issuer: string; networks: string; clientID: string; redirect: string; secret: string }
+type LocalDraft = { command: string; args: string; dir: string; env: string }
+const emptyRemote: RemoteDraft = { url: "", auth: "oauth", issuer: "", networks: "", clientID: "", redirect: "", secret: "" }
+const emptyLocal: LocalDraft = { command: "", args: "", dir: "", env: "" }
+type ConnectionInput = Parameters<typeof addMCPConnection>[1]
+
+/** A remote server as the form gives it: only the advanced settings typed. */
+function remoteInput(name: string, d: RemoteDraft): ConnectionInput {
+  const privateNetworks = d.networks.split(",").map((n) => n.trim()).filter(Boolean)
+  const clientID = d.clientID.trim()
+  return {
+    name, url: d.url.trim(), auth: d.auth,
+    ...(d.issuer.trim() ? { issuer: d.issuer.trim() } : {}),
+    ...(privateNetworks.length ? { private_networks: privateNetworks } : {}),
+    ...(clientID ? { static_client_id: clientID, static_redirect_uri: d.redirect.trim() } : {}),
+    ...(clientID && d.secret ? { static_client_secret: d.secret } : {}),
+  }
+}
+
+/** A local server as the form gives it: arguments one per line, NAME=value variables. */
+function localInput(name: string, d: LocalDraft): ConnectionInput {
+  const environment = envFromText(d.env)
+  return {
+    name, kind: "stdio", command: d.command.trim(), args: lines(d.args), dir: d.dir.trim(),
+    ...(Object.keys(environment).length ? { env: environment } : {}),
+  }
+}
+
+/** Whether the form names enough to add: a name, and an address or a command and its folder. */
+function canAdd(kind: "http" | "stdio", name: string, remote: RemoteDraft, local: LocalDraft): boolean {
+  if (!name.trim()) return false
+  return kind === "http" ? remote.url.trim() !== "" : local.command.trim() !== "" && local.dir.trim() !== ""
+}
+
+// useAddConnection adds a server: one that runs a command waits for the
+// operator's approval before it is saved. added runs once it is sent.
+function useAddConnection(baseUrl: string, onAdded: (conn: MCPConnection) => void, onPending: (name: string) => void) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault()
+  const add = async (input: ConnectionInput, added: () => void) => {
     setBusy(true)
     setError(null)
     try {
-      if (kind === "stdio") {
-        const environment = envFromText(env)
-        const out = await addMCPConnection(baseUrl, {
-          name: name.trim(), kind: "stdio", command: command.trim(), args: lines(args), dir: dir.trim(),
-          ...(Object.keys(environment).length ? { env: environment } : {}),
-        })
-        if (isPendingApproval(out)) onPending(name.trim())
-        else onAdded(out)
-        setName("")
-        setCommand("")
-        setArgs("")
-        setDir("")
-        setEnv("")
-        return
-      }
-      const privateNetworks = networks.split(",").map((n) => n.trim()).filter(Boolean)
-      const out = await addMCPConnection(baseUrl, {
-        name: name.trim(), url: url.trim(), auth,
-        ...(issuer.trim() ? { issuer: issuer.trim() } : {}),
-        ...(privateNetworks.length ? { private_networks: privateNetworks } : {}),
-        ...(clientID.trim() ? { static_client_id: clientID.trim(), static_redirect_uri: redirect.trim() } : {}),
-        ...(clientID.trim() && secret ? { static_client_secret: secret } : {}),
-      })
-      if (isPendingApproval(out)) onPending(name.trim())
+      const out = await addMCPConnection(baseUrl, input)
+      if (isPendingApproval(out)) onPending(input.name)
       else onAdded(out)
-      setName("")
-      setUrl("")
-      setIssuer("")
-      setNetworks("")
-      setClientID("")
-      setRedirect("")
-      setSecret("")
+      added()
     } catch (reason) {
       setError(message(reason))
     } finally {
       setBusy(false)
     }
   }
+  return { busy, error, add }
+}
+
+function AddConnection({ baseUrl, onAdded, onPending }: { baseUrl: string; onAdded: (conn: MCPConnection) => void; onPending: (name: string) => void }) {
+  const [kind, setKind] = useState<"http" | "stdio">("http")
+  const [name, setName] = useState("")
+  const [remote, setRemote] = useState(emptyRemote)
+  const [local, setLocal] = useState(emptyLocal)
+  const { busy, error, add } = useAddConnection(baseUrl, onAdded, onPending)
+  const setLocalField = (key: keyof LocalDraft) => (value: string) => setLocal((d) => ({ ...d, [key]: value }))
+
+  // What was typed for the kind added is cleared once it is sent; the
+  // authorization chosen stays.
+  const clear = () => {
+    setName("")
+    if (kind === "stdio") setLocal(emptyLocal)
+    else setRemote((d) => ({ ...emptyRemote, auth: d.auth }))
+  }
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    void add(kind === "stdio" ? localInput(name.trim(), local) : remoteInput(name.trim(), remote), clear)
+  }
 
   return (
-    <form onSubmit={(event) => void submit(event)} aria-label="Add an MCP server" className="flex flex-col gap-2">
+    <form onSubmit={submit} aria-label="Add an MCP server" className="flex flex-col gap-2">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-[auto_9rem_minmax(0,1fr)_auto_auto]">
         <select aria-label="Kind of server" value={kind} onChange={(e) => setKind(e.target.value as "http" | "stdio")} className={input}>
           <option value="http">Remote</option>
           <option value="stdio">Local command</option>
         </select>
         <input aria-label="MCP server name" value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === "stdio" ? "design" : "notion"} className={`${input} font-lw-mono`} />
-        {kind === "http" ? (
-          <>
-            <input aria-label="MCP server address" type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://mcp.example.com/mcp" className={`${input} font-lw-mono`} />
-            <select aria-label="Authorization" value={auth} onChange={(e) => setAuth(e.target.value as "oauth" | "none")} className={input}>
-              <option value="oauth">OAuth</option>
-              <option value="none">None</option>
-            </select>
-          </>
-        ) : <span className="sm:col-span-2" />}
-        <button type="submit" className={quietButton}
-          disabled={busy || !name.trim() || (kind === "http" ? !url.trim() : !command.trim() || !dir.trim())}>Add</button>
+        {kind === "http" ? <RemoteFields draft={remote} onChange={setRemote} /> : <span className="sm:col-span-2" />}
+        <button type="submit" className={quietButton} disabled={busy || !canAdd(kind, name, remote, local)}>Add</button>
       </div>
-      {kind === "stdio" && <LocalFields command={command} setCommand={setCommand} args={args} setArgs={setArgs} dir={dir} setDir={setDir} env={env} setEnv={setEnv} />}
-      {kind === "http" && <details>
-        <summary className="cursor-pointer text-xs text-lw-text-2">Advanced</summary>
-        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <input aria-label="Authorization server" type="url" value={issuer} onChange={(e) => setIssuer(e.target.value)} placeholder="Authorization server, if not the one the server names" className={`${input} font-lw-mono`} />
-          <input aria-label="Private networks" value={networks} onChange={(e) => setNetworks(e.target.value)} placeholder="10.0.0.0/8, for a server on your network" className={`${input} font-lw-mono`} />
-        </div>
-        <p className="mt-2 text-[11px] text-lw-faint">A client registered for Legato by hand, for a server that offers no registration Legato can use. Register the redirect http://127.0.0.1:&lt;port&gt;/callback with a free port; connecting listens on exactly that port.</p>
-        <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <input aria-label="Client ID" value={clientID} onChange={(e) => setClientID(e.target.value)} placeholder="Client ID" className={`${input} font-lw-mono`} />
-          <input aria-label="Registered redirect" value={redirect} onChange={(e) => setRedirect(e.target.value)} placeholder="http://127.0.0.1:47123/callback" className={`${input} font-lw-mono`} />
-          <input aria-label="Client secret" type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="Client secret, if it has one" className={`${input} font-lw-mono`} />
-        </div>
-      </details>}
+      {kind === "stdio" && <LocalFields command={local.command} setCommand={setLocalField("command")} args={local.args} setArgs={setLocalField("args")}
+        dir={local.dir} setDir={setLocalField("dir")} env={local.env} setEnv={setLocalField("env")} />}
+      {kind === "http" && <RemoteAdvanced draft={remote} onChange={setRemote} />}
       {error && <p role="alert" className="text-xs text-lw-error">{error}</p>}
     </form>
+  )
+}
+
+function RemoteFields({ draft, onChange }: { draft: RemoteDraft; onChange: (draft: RemoteDraft) => void }) {
+  return (
+    <>
+      <input aria-label="MCP server address" type="url" value={draft.url} onChange={(e) => onChange({ ...draft, url: e.target.value })} placeholder="https://mcp.example.com/mcp" className={`${input} font-lw-mono`} />
+      <select aria-label="Authorization" value={draft.auth} onChange={(e) => onChange({ ...draft, auth: e.target.value as "oauth" | "none" })} className={input}>
+        <option value="oauth">OAuth</option>
+        <option value="none">None</option>
+      </select>
+    </>
+  )
+}
+
+// RemoteAdvanced is a remote server's authorization server, private
+// networks, and a client registered for Legato by hand.
+function RemoteAdvanced({ draft, onChange }: { draft: RemoteDraft; onChange: (draft: RemoteDraft) => void }) {
+  const set = (key: keyof RemoteDraft) => (e: { target: { value: string } }) => onChange({ ...draft, [key]: e.target.value })
+  return (
+    <details>
+      <summary className="cursor-pointer text-xs text-lw-text-2">Advanced</summary>
+      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <input aria-label="Authorization server" type="url" value={draft.issuer} onChange={set("issuer")} placeholder="Authorization server, if not the one the server names" className={`${input} font-lw-mono`} />
+        <input aria-label="Private networks" value={draft.networks} onChange={set("networks")} placeholder="10.0.0.0/8, for a server on your network" className={`${input} font-lw-mono`} />
+      </div>
+      <p className="mt-2 text-[11px] text-lw-faint">A client registered for Legato by hand, for a server that offers no registration Legato can use. Register the redirect http://127.0.0.1:&lt;port&gt;/callback with a free port; connecting listens on exactly that port.</p>
+      <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <input aria-label="Client ID" value={draft.clientID} onChange={set("clientID")} placeholder="Client ID" className={`${input} font-lw-mono`} />
+        <input aria-label="Registered redirect" value={draft.redirect} onChange={set("redirect")} placeholder="http://127.0.0.1:47123/callback" className={`${input} font-lw-mono`} />
+        <input aria-label="Client secret" type="password" autoComplete="off" value={draft.secret} onChange={set("secret")} placeholder="Client secret, if it has one" className={`${input} font-lw-mono`} />
+      </div>
+    </details>
   )
 }
