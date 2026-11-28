@@ -28,11 +28,6 @@ function InputField({ readOnly, ...props }: FieldProps & { readOnly: boolean }) 
   return <ChoiceOrTextField {...props} />
 }
 
-// PresetPicker fills the repository inputs from a preset.
-function PresetPicker({ repositories, onPick }: { repositories: WorkflowRepositoryPreset[]; onPick: (preset: WorkflowRepositoryPreset) => void }) {
-  return <label className="mt-4 block text-sm"><span>Repository preset</span><select defaultValue="" onChange={event => { const preset = repositories.find(repository => repository.name === event.target.value); if (preset) onPick(preset) }} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3"><option value="">Custom</option>{repositories.map(repository => <option key={repository.name} value={repository.name}>{repository.name}</option>)}</select></label>
-}
-
 // InputLabel is an input's name, marked when required, and what it is.
 function InputLabel({ name, input }: { name: string; input: WorkflowInput }) {
   return <><span>{name}{input.required && " *"}</span>{input.description && <span className="ml-2 text-xs text-zinc-500">{input.description}</span>}</>
@@ -94,7 +89,8 @@ export function RunWorkflowDialog({ definition, repositories, initialValues = {}
     <form onSubmit={submit} className="flex min-h-0 flex-col">
       <DialogHeader><DialogTitle className="text-lg font-semibold">Run {definition.title}</DialogTitle></DialogHeader>
       <DialogBody>
-      {repositories.length > 0 && repositoryKeys.length > 0 && <PresetPicker repositories={repositories} onPick={preset => setValues(current => ({ ...current, ...presetValues(preset, repositoryKeys) }))} />}
+      {/* A preset fills the repository inputs. */}
+      {repositories.length > 0 && repositoryKeys.length > 0 && <label className="mt-4 block text-sm"><span>Repository preset</span><select defaultValue="" onChange={event => { const preset = repositories.find(repository => repository.name === event.target.value); if (preset) setValues(current => ({ ...current, ...presetValues(preset, repositoryKeys) })) }} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3"><option value="">Custom</option>{repositories.map(repository => <option key={repository.name} value={repository.name}>{repository.name}</option>)}</select></label>}
       <div className="mt-4 space-y-4">{Object.entries(inputs).map(([key, input]) => <div key={key} className="block text-sm"><InputLabel name={key} input={input} /><InputField name={key} input={input} raw={values[key]} value={shownValue(values, key, input)} readOnly={readOnly.has(key)} repositories={repositories} onChange={value => setValue(key, value)} /></div>)}</div>
       {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
       {error && errorLink && <Link to={errorLink.to} onClick={onClose} className="mt-2 inline-block text-sm text-lw-link underline">{errorLink.label}</Link>}
