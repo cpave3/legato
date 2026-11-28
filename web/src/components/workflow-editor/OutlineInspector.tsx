@@ -63,26 +63,6 @@ function ownProblems(selection: Selection, problems: Map<string, WorkflowDiagnos
 // A row's parts as each kind draws them; the frame draws them the same.
 type Parts = { kind: string; header: ReactNode; actions?: ReactNode; setup?: ReactNode; outputs?: ReactNode }
 
-// useFocusEssential focuses a just-added step's first essential field once
-// it is drawn.
-function useFocusEssential(focusEssential: boolean | undefined, onFocused: (() => void) | undefined) {
-  const body = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!focusEssential) return
-    const control = body.current?.querySelector<HTMLElement>('[data-essential="true"] :is(input, textarea, select)')
-    if (control) { control.focus(); onFocused?.() }
-  })
-  return body
-}
-
-function InspectorTabs({ tabs, shown, onTab }: { tabs: Tab[]; shown: Tab; onTab: (tab: Tab) => void }) {
-  return <div role="tablist" aria-label="Inspector" className="inline-flex self-start rounded-md border border-lw-line p-0.5">
-    {tabs.map(t => <button key={t} type="button" role="tab" aria-selected={shown === t} className={`min-h-7 rounded px-2.5 text-xs ${shown === t ? "bg-lw-raised text-lw-text" : "text-lw-text-2"}`} onClick={() => onTab(t)}>
-      {TAB_TITLES[t]}
-    </button>)}
-  </div>
-}
-
 // TabBody is the tab shown's body.
 function TabBody({ shown, parts, yaml }: { shown: Tab; parts: Parts; yaml: ReactNode }) {
   return <>
@@ -112,34 +92,26 @@ function InspectorFrame({ parts, ...props }: InspectorProps & { parts: Parts }) 
   const selection = row.selection
   const tabs = tabsOf(row)
   const [tab, setTab] = useState<Tab>(tabs[0])
-  const body = useFocusEssential(props.focusEssential, props.onFocused)
+  // A just-added step's first essential field takes the focus once it is drawn.
+  const body = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!props.focusEssential) return
+    const control = body.current?.querySelector<HTMLElement>('[data-essential="true"] :is(input, textarea, select)')
+    if (control) { control.focus(); props.onFocused?.() }
+  })
   const shown = tabs.includes(tab) ? tab : tabs[0]
   const yamlTab = selection.kind !== "about" && <ItemYaml text={text} item={selection} apply={apply} onUndo={onUndo} onRedo={onRedo} held={held} onHold={next => onHold(place, next)} />
   return <div ref={body} className="flex flex-col gap-3">
     <InspectorHeader parts={parts} row={row} problems={problems} />
-    {tabs.length > 1 && <InspectorTabs tabs={tabs} shown={shown} onTab={setTab} />}
+    {tabs.length > 1 && <div role="tablist" aria-label="Inspector" className="inline-flex self-start rounded-md border border-lw-line p-0.5">
+      {tabs.map(t => <button key={t} type="button" role="tab" aria-selected={shown === t} className={`min-h-7 rounded px-2.5 text-xs ${shown === t ? "bg-lw-raised text-lw-text" : "text-lw-text-2"}`} onClick={() => setTab(t)}>
+        {TAB_TITLES[t]}
+      </button>)}
+    </div>}
     <div role={tabs.length > 1 ? "tabpanel" : undefined} className="flex flex-col gap-3">
       <TabBody shown={shown} parts={parts} yaml={yamlTab} />
     </div>
   </div>
-}
-
-function AboutInspector(props: InspectorProps) {
-  const { text, values, diagnostics, apply, nameFixed } = props
-  return <InspectorFrame {...props} parts={{
-    kind: "About this workflow",
-    header: <h2 className="text-base font-semibold">{valueText(values.title) || "Untitled"}</h2>,
-    setup: <div className="flex flex-col gap-3"><DetailsForm text={text} values={values} diagnostics={diagnostics} apply={apply} nameFixed={nameFixed} /></div>,
-  }} />
-}
-
-function InputInspector({ name, ...props }: InspectorProps & { name: string }) {
-  const { text, values, diagnostics, apply } = props
-  return <InspectorFrame {...props} parts={{
-    kind: "Input",
-    header: <h2 className="font-lw-mono text-base font-semibold">{name}</h2>,
-    setup: <div className="flex flex-col gap-2"><InputCard text={text} values={values} diagnostics={diagnostics} apply={apply} name={name} input={inputsOf(values)[name]} /></div>,
-  }} />
 }
 
 function TriggerInspector({ name, ...props }: InspectorProps & { name: string }) {
@@ -180,30 +152,25 @@ function StepTitle({ text, step, top, id, ids, savedIds, apply }: TitleProps) {
   return <CommitField aria-label="Step title" value={valueText(step.title)} onCommit={commitTitle} />
 }
 
-// StepActions move a top-level step up or down, unless that would break a
-// reference, and remove it.
-function StepActions({ text, top, id, list, apply, onSelect }: { text: string; top: number; id: string; list: StepList; apply: Apply; onSelect: InspectorProps["onSelect"] }) {
-  const move = (to: number) => {
-    const problem = moveProblem(list, id, to)
-    if (problem) { apply(() => { throw new WorkflowDocumentError(problem) }); return }
-    apply(() => moveStep(text, id, to))
-  }
-  return <div className="flex gap-1">
-    <Button type="button" variant="ghost" size="icon-sm" aria-label={`Move step ${id} up`} disabled={top === 0} onClick={() => move(top - 1)}><ArrowUp size={13} /></Button>
-    <Button type="button" variant="ghost" size="icon-sm" aria-label={`Move step ${id} down`} disabled={top === list.placed.length - 1} onClick={() => move(top + 1)}><ArrowDown size={13} /></Button>
-    <RemoveStep id={id} readers={readersOf(list.steps, id).map(other => String(other.id))} onRemove={() => { apply(() => removeStep(text, id)); onSelect(null) }} />
-  </div>
-}
-
 // topStepParts are a top-level step's parts: its title to edit, its
 // actions, and its Setup and Outputs unless the forms can't show it.
 function topStepParts(props: InspectorProps, list: StepList, step: StepValue, top: number, id: string): Parts {
   const { row, text, values, diagnostics, options, apply, savedIds, onSelect } = props
   const forms = !row.problem
+  // A move that would break a reference is refused with why.
+  const move = (to: number) => {
+    const problem = moveProblem(list, id, to)
+    if (problem) { apply(() => { throw new WorkflowDocumentError(problem) }); return }
+    apply(() => moveStep(text, id, to))
+  }
   return {
     kind: executorTitle(step.type),
     header: forms ? <StepTitle text={text} step={step} top={top} id={id} ids={list.ids} savedIds={savedIds} apply={apply} /> : <h2 className="text-base font-semibold">{row.label.trim()}</h2>,
-    actions: <StepActions text={text} top={top} id={id} list={list} apply={apply} onSelect={onSelect} />,
+    actions: <div className="flex gap-1">
+      <Button type="button" variant="ghost" size="icon-sm" aria-label={`Move step ${id} up`} disabled={top === 0} onClick={() => move(top - 1)}><ArrowUp size={13} /></Button>
+      <Button type="button" variant="ghost" size="icon-sm" aria-label={`Move step ${id} down`} disabled={top === list.placed.length - 1} onClick={() => move(top + 1)}><ArrowDown size={13} /></Button>
+      <RemoveStep id={id} readers={readersOf(list.steps, id).map(other => String(other.id))} onRemove={() => { apply(() => removeStep(text, id)); onSelect(null) }} />
+    </div>,
     setup: forms && <StepSetup step={step} index={top} text={text} values={values} diagnostics={diagnostics} options={options} apply={apply} />,
     outputs: forms && <StepOutputs step={step} index={top} text={text} diagnostics={diagnostics} apply={apply} />,
   }
@@ -219,22 +186,27 @@ function nestedStepParts(row: Row, step: StepValue | null): Parts {
   }
 }
 
-function StepInspector({ path, ...props }: InspectorProps & { path: string }) {
-  // A step that is not a mapping keeps its place, and is no one's reader.
-  const list = stepListOf(stepsOf(props.values) as (StepValue | null)[])
-  const { top, step, id } = topStepOf(props.text, list.placed, path)
-  const parts = top >= 0 && step ? topStepParts(props, list, step, top, id) : nestedStepParts(props.row, step)
-  return <InspectorFrame {...props} parts={parts} />
-}
-
 /** Inspector edits one row: its header, then its tabs (Setup, Outputs for
  * a step, and YAML). A row the forms can't show has YAML alone. */
 export function Inspector(props: InspectorProps) {
-  const selection = props.row.selection
-  if (selection.kind === "about") return <AboutInspector {...props} />
-  if (selection.kind === "input") return <InputInspector {...props} name={selection.name} />
+  const { row, text, values, diagnostics, apply, nameFixed } = props
+  const selection = row.selection
+  if (selection.kind === "about") return <InspectorFrame {...props} parts={{
+    kind: "About this workflow",
+    header: <h2 className="text-base font-semibold">{valueText(values.title) || "Untitled"}</h2>,
+    setup: <div className="flex flex-col gap-3"><DetailsForm text={text} values={values} diagnostics={diagnostics} apply={apply} nameFixed={nameFixed} /></div>,
+  }} />
+  if (selection.kind === "input") return <InspectorFrame {...props} parts={{
+    kind: "Input",
+    header: <h2 className="font-lw-mono text-base font-semibold">{selection.name}</h2>,
+    setup: <div className="flex flex-col gap-2"><InputCard text={text} values={values} diagnostics={diagnostics} apply={apply} name={selection.name} input={inputsOf(values)[selection.name]} /></div>,
+  }} />
   if (selection.kind === "trigger") return <TriggerInspector {...props} name={selection.name} />
-  return <StepInspector {...props} path={selection.path} />
+  // A step that is not a mapping keeps its place, and is no one's reader.
+  const list = stepListOf(stepsOf(values) as (StepValue | null)[])
+  const { top, step, id } = topStepOf(text, list.placed, selection.path)
+  const parts = top >= 0 && step ? topStepParts(props, list, step, top, id) : nestedStepParts(row, step)
+  return <InspectorFrame {...props} parts={parts} />
 }
 
 type RowInspectorProps = Omit<InspectorProps, "place" | "held" | "row" | "focusEssential"> & { row: Row | null; order: Row[]; heldYaml: Record<string, string>; focusNew: string | null }
