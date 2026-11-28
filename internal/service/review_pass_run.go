@@ -1851,6 +1851,10 @@ type ReviewRunLayer struct {
 	// ChecksOnBase are the checks failing on this pull request that its
 	// base fails too: noted, not the author's to fix (LEG-711).
 	ChecksOnBase []string `json:"checks_on_base,omitempty"`
+	// DraftedByLegato is when the loop last turned it into a draft for
+	// review; DraftProblem why it could not (LEG-712).
+	DraftedByLegato string `json:"drafted_by_legato,omitempty"`
+	DraftProblem    string `json:"draft_problem,omitempty"`
 }
 
 // ReviewStewardView is a watching steward as the run page shows it: held,

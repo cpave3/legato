@@ -257,6 +257,7 @@ func (s *ReviewPassService) routeItems(ctx context.Context, l ReviewLoop, rec *s
 	configured := s.config().RequiredChecks
 	seen, read := map[string]bool{}, map[int]bool{}
 	fresh, skipped := 0, 0
+	var failed []int // layers with a newly failing counted check
 	for _, layer := range w.Layers {
 		item, write, isNew := s.applyMergeability(l, loop, rec.Repo, layer, byID)
 		if write {
@@ -288,6 +289,9 @@ func (s *ReviewPassService) routeItems(ctx context.Context, l ReviewLoop, rec *s
 			}
 			if isNew {
 				fresh++
+				if c.State == CheckFailing && !slices.Contains(failed, layer.Number) {
+					failed = append(failed, layer.Number)
+				}
 			}
 			if err := s.db.UpsertHandoffReviewItem(ctx, item); err != nil {
 				return err
@@ -331,6 +335,9 @@ func (s *ReviewPassService) routeItems(ctx context.Context, l ReviewLoop, rec *s
 	if fresh > 0 {
 		s.stillActive(ctx, rec.ID)
 		s.changed(l.TaskID)
+	}
+	if len(failed) > 0 {
+		s.keepDraft(ctx, l, failed, draftWhyCheck)
 	}
 	if len(gone) > 0 {
 		_ = s.tellAuthor(ctx, l, fmt.Sprintf("%s %s was deleted on GitHub; you need not answer it.", StewardTag, strings.Join(gone, ", ")))

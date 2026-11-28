@@ -516,6 +516,7 @@ func (c *ReviewRunCaller) openSteps(ctx context.Context) {
 			c.failWaitingLogged(ctx, attempt, reviewStepError(err))
 			continue
 		}
+		c.engine.draftLayers(ctx, rec, nil, draftWhyOpened)
 		outputs, err := c.openOutputs(ctx, rec, warnings)
 		if err != nil {
 			log.Printf("review passes: the outputs of %s's open: %v", attempt.RunID, err)
@@ -594,6 +595,10 @@ func (c *ReviewRunCaller) adoptHandoffLoop(ctx context.Context, step ResolvedWor
 	return adopted, nil, nil
 }
 
+// noStewardDraftWarning is the open step's warning for an agent's loop
+// that marks ready with no steward.
+const noStewardDraftWarning = "ready with no steward: after approval nothing turns these pull requests back into drafts on a push, so a later push leaves them ready for review unreviewed"
+
 // openOutputs are an open step's outputs: the loop's ID, its linked task
 // and its pull requests.
 func (c *ReviewRunCaller) openOutputs(ctx context.Context, rec *store.ReviewLoop, warnings []string) (map[string]any, error) {
@@ -607,6 +612,12 @@ func (c *ReviewRunCaller) openOutputs(ctx context.Context, rec *store.ReviewLoop
 	}
 	if warnings == nil {
 		warnings = []string{}
+	}
+	if rec.AgentAuthor && rec.Ready && !rec.Steward {
+		// Draft until approved (LEG-712) holds only while the loop is open:
+		// with no steward, nothing turns a pull request back into a draft
+		// on a push after approval.
+		warnings = append(warnings, noStewardDraftWarning)
 	}
 	return map[string]any{"loop_id": rec.ID, "linked_task": rec.LinkedTask, "prs": prs, "warnings": warnings}, nil
 }
@@ -1237,7 +1248,8 @@ func (c *ReviewRunCaller) settleReady(ctx context.Context) {
 // GitHub now and none is held, so a withheld or held approval, or a push
 // since, never makes a pull request ready (not_approved_at_heads). Then
 // each open draft, bottom first, as the author App; one already ready is
-// left alone and none goes back to draft. One GitHub will not mark ready
+// left alone. An agent's loop turns them back into drafts when they go
+// back to review (keepDraft, LEG-712). One GitHub will not mark ready
 // fails the step (ready_failed), naming it; those below it stay ready.
 func (c *ReviewRunCaller) markStackReady(ctx context.Context, rec *store.ReviewLoop) (map[string]any, error) {
 	if rec.ConfirmedAt == "" || rec.CleanPass == 0 || rec.CleanPass != rec.Pass ||
@@ -1269,6 +1281,9 @@ func (c *ReviewRunCaller) markStackReady(ctx context.Context, rec *store.ReviewL
 		}
 		if changed {
 			flipped = append(flipped, l.number)
+		}
+		if err := c.engine.db.SetReviewLoopPRDraft(ctx, rec.ID, l.number, false, "", ""); err != nil {
+			log.Printf("review passes: %s: recording #%d as ready: %v", rec.ID, l.number, err)
 		}
 	}
 	return map[string]any{"ready": true, "flipped": flipped, "loop_id": rec.ID}, nil

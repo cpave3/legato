@@ -34,7 +34,7 @@ The failure is always a timeout.
 - Also note findings the operator would want. No progress notes.
 - Work on legato/k7q2m9xa.
 - You may stack: name new branches legato/k7q2m9xa-<a few words>.
-- Pushing these branches and opening PRs from them is already allowed. This repository opens PRs ready for review: open them ready for review, not as drafts; never merge.
+- Pushing these branches and opening PRs from them is already allowed. This repository opens PRs ready for review: open them ready for review, not as drafts; never merge. While a Legato review loop holds one, Legato keeps it a draft until it approves the head: do not mark it ready yourself.
 
 ## When you finish
 

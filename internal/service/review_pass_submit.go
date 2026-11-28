@@ -618,7 +618,7 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 	if stage == ReviewStageClean {
 		return s.confirmLoop(ctx, l, loop.LoopID)
 	}
-	l.stage(ctx, stage)
+	s.backToAuthor(ctx, l)
 	return nil
 }
 

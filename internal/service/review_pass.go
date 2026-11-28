@@ -708,6 +708,7 @@ func (s *ReviewPassService) startPass(ctx context.Context, l ReviewLoop, loop *s
 	}
 	s.changed(l.TaskID)
 	l.stage(ctx, ReviewStagePass)
+	s.keepDraft(ctx, l, nil, draftWhyPass)
 	// The author's work is up for review; the reviewer reviews again, a
 	// resumed one that finished the pass before included.
 	publishMilestone(s.opts.Bus, events.WorkMilestonePayload{TaskID: l.AuthorTaskID,

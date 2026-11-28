@@ -158,7 +158,7 @@ func HandoffBrief(in HandoffBriefInput) string {
 func handoffPRLine(mode string) string {
 	switch mode {
 	case config.PullRequestsReady:
-		return "- Pushing these branches and opening PRs from them is already allowed. This repository opens PRs ready for review: open them ready for review, not as drafts; never merge."
+		return "- Pushing these branches and opening PRs from them is already allowed. This repository opens PRs ready for review: open them ready for review, not as drafts; never merge. " + reviewLoopKeepsDraft
 	case config.PullRequestsAgent:
 		return "- Pushing these branches and opening PRs from them is already allowed. Open each PR as a draft or ready for review, as you judge; never merge."
 	case config.PullRequestsDraft:
