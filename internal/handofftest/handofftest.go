@@ -100,6 +100,19 @@ type WorkerOptions struct {
 	// worker first opens it, to leave there what an older Legato wrote
 	// (store.NewBefore): the worker's open migrates it.
 	Database func(t testing.TB, path string)
+	// Capabilities, when set, chooses what the worker's agents are given,
+	// in capability folders under the worker's data folder.
+	Capabilities service.CapabilitySource
+}
+
+// giveCapabilities gives the worker's agents what WorkerOptions.Capabilities
+// chooses, in capability folders under the worker's data folder.
+func (w *Worker) giveCapabilities(opts *service.AgentServiceOptions) {
+	if w.opts.Capabilities == nil {
+		return
+	}
+	opts.Capabilities = w.opts.Capabilities
+	opts.CapabilityFolders = service.CapabilityFolders{Root: filepath.Join(w.Dir, "data", "capabilities")}
 }
 
 // Worker is a worker instance: its database, services and web server.
@@ -186,6 +199,7 @@ func (w *Worker) start() {
 		agentOpts.Sandbox = &service.SandboxSettings{Backend: fakeSandbox{}, Base: service.SandboxPlanInput{
 			Home: filepath.Join(w.Dir, "home"), RuntimeDir: filepath.Join(w.Dir, "run", "legato"), DataDir: filepath.Join(w.Dir, "data"), DefaultMounts: true}}
 	}
+	w.giveCapabilities(&agentOpts)
 	w.Agents = service.NewAgentService(db, w.Tmux, w.Dir, agentOpts)
 	// A worker gives its sessions the broker, as startApprovals does; a
 	// sandboxed agent without one is refused.
