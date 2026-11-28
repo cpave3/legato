@@ -19,6 +19,7 @@ it("names More destinations with their full counts and marks the current page", 
   expect(screen.getByRole("link", { name: "Learning: 2 to decide" })).not.toHaveAttribute("aria-current")
   expect(screen.getByRole("link", { name: "Workflows: 3 need attention" })).toHaveAttribute("href", "/workflows")
   expect(screen.getByRole("link", { name: "Audit log" })).toHaveAttribute("href", "/audit")
+  expect(screen.getByRole("link", { name: "Shipping" })).toHaveAttribute("href", "/shipping")
 })
 
 it("keeps connection status separate from the Needs you count", () => {

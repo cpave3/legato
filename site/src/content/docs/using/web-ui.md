@@ -30,6 +30,7 @@ On a phone, a tab bar along the bottom holds **Needs you**, **Board**, **Agents*
 | **Ensemble** | Every running agent at once, as tiles. |
 | **Board** | The kanban board. See [Board and tasks](/legato/using/board/). |
 | **Review** | Review tours of what agents changed. See [Reviews](/legato/using/reviews/). |
+| **Shipping** | Every pull request review loop and what its steward is watching. See [Review passes](/legato/using/review-passes/#every-review-loop-at-once-shipping). |
 | **Plans** | Plans agents proposed, waiting for your decision. See [Plans](/legato/using/plans/). |
 | **Flows** | Workflow runs and the workflows you can run. See [Workflows](/legato/using/workflows/#runs-and-workflows-in-the-web-ui). |
 | **Macros** | Saved messages for agents: the built-ins and your own. See [Macros](/legato/using/agents/#macros). |
@@ -162,6 +163,7 @@ Select any agent of a [swarm](/legato/using/swarms/) and the page shows the swar
 
 - **Attention** groups what needs you under **Needs intervention**, **Ready for review** and **Merge blockers**. See [Attention and approvals](/legato/using/attention/).
 - **Plans** is the queue of plans waiting for your decision; open one to read it, comment, answer its questions and approve it. See [Plans](/legato/using/plans/).
+- **Shipping** lists every review loop of pull requests, whichever workflow or handoff started it: where each stands, its checks and its steward. See [Review passes](/legato/using/review-passes/#every-review-loop-at-once-shipping).
 - **Review** is the queue of review tours; open one to step through the changes and ask the agent about them. See [Reviews](/legato/using/reviews/).
 - **Flows** shows workflow runs, those that need you first, and the workflows you can run. Select a workflow's title to see it drawn as a graph of its steps; on a phone the graph runs top to bottom, a run keeps its list of steps with a **Graph** button, and a step's details open in a sheet from the bottom. See [Workflows](/legato/using/workflows/#runs-and-workflows-in-the-web-ui).
 

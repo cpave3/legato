@@ -110,6 +110,7 @@ type Server struct {
 	taskStacks               TaskStackService
 	relatedAgents            RelatedAgentsService
 	reviewLoops              ReviewLoopLookup
+	shipping                 ShippingSource
 	reviewAuthors            ReviewAuthors
 	agentGraph               AgentGraphService
 	preparing                preparingAgents
@@ -284,6 +285,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/agents/{task_id}/dismiss", s.interruptedDismissHandler())
 	mux.HandleFunc("/api/review-engine", s.reviewEngineHandler())
 	mux.HandleFunc("/api/review-loops", s.reviewLoopsHandler())
+	mux.HandleFunc("/api/shipping", s.shippingHandler())
 	mux.HandleFunc("/api/macros", s.macrosHandler())
 	mux.HandleFunc("/api/macros/{name}", s.macroEntryHandler())
 	mux.HandleFunc("/api/macros/{name}/reset", s.macroActionHandler("reset"))

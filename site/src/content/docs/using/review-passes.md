@@ -224,6 +224,20 @@ While the steward watches, its waiting step takes three actions (through the run
 - **Watch again** lets a held steward watch again. If anything was pushed while it was held, the pull requests go back to review once, however many pushes there were. On a steward stuck at its last re-entry, Watch again allows exactly one more re-entry.
 - **End** ends the steward, and the run ends **ended**. The author's agent is left running.
 
+## Every review loop at once: Shipping
+
+**Shipping**, beside Review in the rail (under **More** on a phone), lists every review loop, whichever started it: `ticket-to-merged-pr` or another workflow, the card menu, or a handed-off task. Each row shows:
+
+- the task, the repository and each pull request of the stack, bottom first, linked to GitHub;
+- where the loop stands: **Reviewing · pass 2 of 3**, **Changes requested**, **Approved**, **Steward watching**, **Steward held**, **Stuck** (with why, or **Stuck at the re-entry limit**), or **Approved · waiting for the merge** for a loop without a steward whose workflow waits for the merge;
+- the checks (passing, running, or which fail on which pull request) and whether a pull request has conflicts or is behind its base, as the steward last read them, and what last woke the steward and when;
+- the author's task and what its agent is doing, and the reviewer;
+- **Open run**, and the loop's actions as its run page offers them: **Run another pass**, **Stop watching**, **Watch again** and **End** (which asks first). Message the author is on the run page.
+
+**Needs you** shows the loops that wait on you: a held steward, a stuck loop, a check failing after approval, or an author waiting for you. **Active** shows every open loop, and **Recently ended** those that ended in the last 7 days, with how: merged, closed, ended or idle. The page follows changes as they happen.
+
+The same list is `GET /api/shipping` and `legato review-pass list [--json]`.
+
 To find the author, Legato looks for the board task linked to the pull request. When an agent opens a pull request through Legato's GitHub credential, its task is linked at once, so a run started right after works. When no task is linked yet, Legato looks again in the repository (by branch, commit and ticket key, as its poll does) before it refuses. If it still finds none, the run says so: link the pull request to its task with `legato task link <task-id> --repo owner/name --branch <head branch>`, or `p` on the task's card on the board, and run again. Or run without `agent_author`, and the branch's owner is the author.
 
 The two agents link to each other in the web UI's **Related** panel. The author's chat lists **Reviewer · pass N** with the loop's state, and the reviewer's chat lists **Author**. Without `agent_author`, the reviewer's panel lists the pull request's board task, if there is one, and that task's agent still sees the reviewer.

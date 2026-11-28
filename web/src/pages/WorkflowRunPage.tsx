@@ -38,6 +38,7 @@ import { ValueList } from "../components/workflow-canvas/ValueList"
 import { useCardFolds, useLargeScreen } from "../components/workflow-canvas/useCardFolds"
 import { CanvasHeader, WorkflowCanvas } from "../components/workflow-canvas/WorkflowCanvas"
 import { ReviewLoopFacts } from "../components/ReviewLoopFacts"
+import { endConfirmation, reviewLoopActionLabels } from "../lib/reviewLoopActions"
 
 function parseJSON(raw: string | undefined): unknown {
   try { return JSON.parse(raw ?? "") } catch { return raw }
@@ -300,13 +301,7 @@ function ResumeAgentControls({ view, runId, refresh }: { view: WorkflowRunView; 
 // old copy, and the steps of review-loop that wait on their loop (LEG-594).
 const reviewLoopSteps = new Set(["github.pr.review_passes", "github.pr.review.pass", "github.pr.review.wait", "github.pr.review.confirm"])
 
-const actionLabels: Record<ReviewLoopAction, string> = {
-  another_pass: "Run another pass",
-  message: "Message the author",
-  stop_watching: "Stop watching",
-  watch_again: "Watch again",
-  end: "End",
-}
+const actionLabels = reviewLoopActionLabels
 
 // ReviewLoopNow is a run's review loop while its step waits on it: where it
 // stands, its layers and the steward, the reviews posted, and the actions
@@ -325,10 +320,7 @@ function ReviewLoopNow({ view, step, runId, refresh, now }: { view: WorkflowRunV
   const details = view.details?.[path] as ReviewRunDetails | undefined
   // End asks first, in the words Attention's End uses.
   async function end() {
-    const steward = Boolean(details?.steward)
-    const ok = await confirm(steward
-      ? { title: "End the steward?", message: "The review loop ends with outcome ended: nothing watches the pull requests after, legato-reviews' approval stays on GitHub as it is, and the run goes on to its next step.", confirmLabel: "End", destructive: true }
-      : { title: "End the review loop as stuck?", message: "The run goes on to its next step.", confirmLabel: "End", destructive: true })
+    const ok = await confirm(endConfirmation(Boolean(details?.steward)))
     if (ok) await act("end")
   }
   async function act(action: ReviewLoopAction, text?: string) {

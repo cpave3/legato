@@ -6,6 +6,14 @@ const base = "https://legato.local"
 const keysOf = (message: WSMessage) => invalidationsFor(message, base).map(({ queryKey, exact }) => ({ queryKey: [...queryKey], exact }))
 
 describe("invalidationsFor", () => {
+  it("refreshes the Shipping list for a run's change, an Attention change and an agent's", () => {
+    const shipping = { queryKey: [base, "shipping"], exact: true }
+    for (const message of [{ type: "workflow_changed", workflow_run_id: "wr-1", kind: "review_loop" }, { type: "attention_changed" }, { type: "agents_changed" }] as WSMessage[]) {
+      expect(keysOf(message)).toContainEqual(shipping)
+    }
+    expect(keysOf({ type: "workflow_changed", kind: "definitions" })).not.toContainEqual(shipping)
+  })
+
   it("refreshes a run's own page and the run lists for a change of that run", () => {
     expect(keysOf({ type: "workflow_changed", workflow_run_id: "wr-1", workflow_step_id: "implement", kind: "step_started" })).toEqual([
       { queryKey: [base, "workflow-runs"], exact: true },
@@ -13,6 +21,7 @@ describe("invalidationsFor", () => {
       { queryKey: [base, "workflow-runs-of"], exact: false },
       { queryKey: [base, "workflow-run", "wr-1"], exact: true },
       { queryKey: [base, "navigation-summary"], exact: true },
+      { queryKey: [base, "shipping"], exact: true },
     ])
   })
 
@@ -63,6 +72,7 @@ describe("invalidationsFor", () => {
       { queryKey: [base, "attention", "rail"], exact: true },
       { queryKey: [base, "workflow-run"], exact: false },
       { queryKey: [base, "navigation-summary"], exact: true },
+      { queryKey: [base, "shipping"], exact: true },
     ])
     expect(keysOf({ type: "approvals_changed" })).toEqual([
       { queryKey: [base, "approvals"], exact: true },
@@ -92,6 +102,7 @@ describe("invalidationsFor", () => {
       { queryKey: [base, "interrupted-agents"], exact: true },
       { queryKey: [base, "sessions"], exact: false },
       { queryKey: [base, "session"], exact: false },
+      { queryKey: [base, "shipping"], exact: true },
     ])
     expect(keysOf({ type: "server_theme_changed" })).toEqual([
       { queryKey: [base, "meta"], exact: false },

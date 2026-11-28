@@ -49,6 +49,8 @@ export function invalidationsFor(message: WSMessage, baseUrl: string): Invalidat
       // author as the rail says (LEG-543): an open run reads it again.
       prefix([baseUrl, "workflow-run"])
       exact(queryKeys.navigationSummary(baseUrl))
+      // A loop's author waiting on the operator is on the Shipping page.
+      exact(queryKeys.shipping(baseUrl))
       break
     case "approvals_changed":
       exact(queryKeys.approvals(baseUrl))
@@ -67,6 +69,8 @@ export function invalidationsFor(message: WSMessage, baseUrl: string): Invalidat
       if (message.workflow_run_id) exact(queryKeys.workflowRun(baseUrl, message.workflow_run_id))
       exact(queryKeys.navigationSummary(baseUrl))
       if (message.kind && DEFINITION_KINDS.has(message.kind)) exact(queryKeys.workflowDefinitions(baseUrl))
+      // A review loop moves with its run (kind review_loop among them).
+      else exact(queryKeys.shipping(baseUrl))
       break
     case "agent_ui_changed":
       // An agent showed, replaced or lost an artifact or a card.
@@ -93,6 +97,8 @@ export function invalidationsFor(message: WSMessage, baseUrl: string): Invalidat
       // Runs start and end with agents.
       prefix([baseUrl, "sessions"])
       prefix([baseUrl, "session"])
+      // An author agent's state is on the Shipping page.
+      exact(queryKeys.shipping(baseUrl))
       break
     case "usage_changed":
       // The process that reads the subscriptions' usage kept a reading.

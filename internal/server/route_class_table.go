@@ -149,6 +149,7 @@ var routeClassTable = []routeClassEntry{
 	{"POST", "/api/agents/{task_id}/dismiss", ClassChange, "Dismiss an interrupted agent"},
 	{"GET", "/api/review-engine", ClassRead, "Say whether a Legato on this data folder runs the review engine, and why not"},
 	{"GET", "/api/review-loops", ClassRead, "Find the review loop that holds a pull request (?repo=owner/name&pr=N), whichever caller opened it: {loop: {...}}, or {loop: null, agent_author} (true only when Legato's author App opened it)"},
+	{"GET", "/api/shipping", ClassRead, "List every review loop Ship looks after, whichever caller opened it: the open loops, those approved and waiting for the merge, and those ended in the last 7 days, each with its phase, pull requests, CI, steward, author and actions"},
 	{"GET", "/api/macros", ClassRead, "List the macros"},
 	{"PUT", "/api/macros/{name}", ClassChange, "Save a macro: a new one, an edit, or an edit of a built-in; {\"favorite\": true} alone stars it"},
 	{"DELETE", "/api/macros/{name}", ClassChange, "Delete a macro added in Legato"},

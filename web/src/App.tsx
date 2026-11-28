@@ -21,6 +21,7 @@ import { RemotePage } from "./pages/RemotePage"
 import { SessionHistoryPage } from "./pages/SessionHistoryPage"
 import { MacrosPage } from "./pages/MacrosPage"
 import { AuditPage } from "./pages/AuditPage"
+import { ShippingPage } from "./pages/ShippingPage"
 import { clearToken } from "./lib/auth"
 import { SettingsRequestError, useSettings } from "./hooks/useSettings"
 
@@ -71,6 +72,7 @@ export default function App() {
           <Route path="/board" element={<BoardPage />} />
           <Route path="/review" element={<ReviewQueuePage />} />
           <Route path="/review/:tourId" element={<ReviewTourPage />} />
+          <Route path="/shipping" element={<ShippingPage />} />
           <Route path="/plans" element={<PlanQueuePage />} />
           <Route path="/plans/:planId" element={<PlanPage />} />
           <Route path="/workflows" element={<WorkflowsPage />} />
