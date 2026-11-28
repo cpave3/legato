@@ -115,9 +115,10 @@ func fakeCodeEval(t *testing.T, path, name string) {
 	}
 }
 
-// fakeCodeEvalArgs writes an executable at path that fails every check,
-// naming the arguments it was given. A broad check sleeps a second first,
-// then touches done, so a test can tell it is still running.
+// fakeCodeEvalArgs writes an executable at path that names the arguments it
+// was given and fails a quick check (exit 3), or passes it when
+// FAKE_CODEEVAL_EXIT=0. A broad check sleeps a second first, then fails and
+// touches done, so a test can tell it is still running.
 func fakeCodeEvalArgs(t *testing.T, path, done string) {
 	t.Helper()
 	script := `#!/bin/sh
@@ -125,6 +126,7 @@ case "$*" in
 *"--checks broad"*) sleep 1; echo "found broad"; echo 'Failure fingerprint: ` + "`b0`" + `'; touch '` + done + `'; exit 3 ;;
 esac
 echo "found args: $*"
+[ "${FAKE_CODEEVAL_EXIT:-3}" = 0 ] && exit 0
 echo 'Failure fingerprint: ` + "`a0`" + `'
 exit 3
 `
@@ -163,7 +165,8 @@ func (p hookProject) homeCodeEval() string {
 
 // run runs command as Claude Code runs a hook command, with only the
 // environment given beside a PATH of the project's bin folder then the
-// test's own.
+// test's own. CODEEVAL_GH names no program unless the test gives one, so the
+// Stop hook never asks the real gh whether a pull request is approved.
 func (p hookProject) run(t *testing.T, command, stdin string, env ...string) (code int, stdout, stderr string) {
 	t.Helper()
 	cmd := exec.Command("sh", "-c", command)
@@ -175,6 +178,7 @@ func (p hookProject) run(t *testing.T, command, stdin string, env ...string) (co
 		"CLAUDE_PROJECT_DIR=" + p.dir,
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_CONFIG_NOSYSTEM=1",
+		"CODEEVAL_GH=" + filepath.Join(p.bin, "no-gh"),
 	}, env...)
 	var out, errOut strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errOut
@@ -289,9 +293,10 @@ func stopPayloadFor(session string) string {
 	return `{"session_id":"` + session + `","hook_event_name":"Stop","stop_hook_active":false}`
 }
 
-// The CodeEval scripts are patched to keep their state per Claude session
-// (CE ticket): another session starting in the same checkout must not move
-// a session's base, spend its budget or drop its background check.
+// The CodeEval scripts keep their state per Claude session (CodeEval 0.9.1,
+// once Legato's CE-3 patch): another session starting in the same checkout
+// must not move a session's base, spend its budget or drop its background
+// check.
 func TestCodeEvalHooksKeepEachSessionsBase(t *testing.T) {
 	skipWithCodeEvalOnPath(t)
 	commands := codeEvalHookCommands(t)
@@ -374,5 +379,67 @@ func TestCodeEvalHooksKeepAnOldSessionsBase(t *testing.T) {
 	code, _, stderr := p.run(t, commands["Stop"], stopPayloadFor("A"), "CODEEVAL_STOP_CHECKS=quick")
 	if code != 2 || !strings.Contains(stderr, "--base "+x+" ") {
 		t.Errorf("A's stop after a month: exit %d, want exit 2 checking from A's base %s:\n%s", code, x[:12], stderr)
+	}
+}
+
+// A stop that does not block moves the session's base to HEAD, so a later
+// turn is checked only against what changed since (CodeEval 0.9.1), and not
+// against committed work an earlier stop already passed.
+func TestCodeEvalStopHookMovesTheBaseAfterAPassingStop(t *testing.T) {
+	skipWithCodeEvalOnPath(t)
+	commands := codeEvalHookCommands(t)
+	p := newHookProject(t)
+	fakeCodeEvalArgs(t, p.homeCodeEval(), filepath.Join(t.TempDir(), "done"))
+	x := p.commit(t)
+	p.run(t, commands["SessionStart"], startPayload("A", "startup"))
+	y := p.commit(t)
+	code, _, stderr := p.run(t, commands["Stop"], stopPayloadFor("A"), "CODEEVAL_STOP_CHECKS=quick", "FAKE_CODEEVAL_EXIT=0")
+	if code != 0 || stderr != "" {
+		t.Fatalf("A's passing stop: exit %d, stderr %q; want exit 0 and no output", code, stderr)
+	}
+	p.commit(t)
+	code, _, stderr = p.run(t, commands["Stop"], stopPayloadFor("A"), "CODEEVAL_STOP_CHECKS=quick")
+	if code != 2 || !strings.Contains(stderr, "--base "+y+" ") {
+		t.Errorf("A's next stop: exit %d, want exit 2 checking from the passing stop's HEAD %s, not the session's start %s:\n%s", code, y[:12], x[:12], stderr)
+	}
+}
+
+// Once the branch's pull request is approved, a finding is reported to the
+// operator and does not block the stop (CodeEval 0.9.1).
+func TestCodeEvalStopHookDoesNotBlockAnApprovedPullRequest(t *testing.T) {
+	skipWithCodeEvalOnPath(t)
+	stop := codeEvalHookCommands(t)["Stop"]
+	for _, c := range []struct {
+		decision string
+		want     int
+	}{{"APPROVED", 0}, {"REVIEW_REQUIRED", 2}} {
+		t.Run(c.decision, func(t *testing.T) {
+			p := newHookProject(t)
+			fakeCodeEval(t, p.homeCodeEval(), "home")
+			gh := filepath.Join(t.TempDir(), "gh")
+			if err := os.WriteFile(gh, []byte("#!/bin/sh\necho "+c.decision+"\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			code, stdout, stderr := p.run(t, stop, stopPayload, "CODEEVAL_STOP_CHECKS=quick", "CODEEVAL_GH="+gh)
+			if code != c.want {
+				t.Fatalf("exit %d, want %d; stdout %q, stderr %q", code, c.want, stdout, stderr)
+			}
+			if c.want == 0 && !strings.Contains(stdout, "already approved") {
+				t.Errorf("stdout %q; want a systemMessage saying the pull request is approved", stdout)
+			}
+		})
+	}
+}
+
+// With CodeEval found, the SessionStart hook tells the agent the check to run
+// before it pushes, naming the binary the hooks found.
+func TestCodeEvalSessionStartHookPrintsThePrePushCheck(t *testing.T) {
+	skipWithCodeEvalOnPath(t)
+	start := codeEvalHookCommands(t)["SessionStart"]
+	p := newHookProject(t)
+	fakeCodeEval(t, p.homeCodeEval(), "home")
+	code, stdout, stderr := p.run(t, start, startPayload("A", "startup"))
+	if code != 0 || !strings.Contains(stdout, p.homeCodeEval()+"' analyze ") || !strings.Contains(stdout, "--debt-budget 10") {
+		t.Errorf("exit %d, stdout %q, stderr %q; want exit 0 and the pre-push check with %s", code, stdout, stderr, p.homeCodeEval())
 	}
 }
