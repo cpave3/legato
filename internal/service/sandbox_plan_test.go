@@ -995,3 +995,20 @@ func authorAndReviewerInputs() map[string]SandboxPlanInput {
 	reviewer.ThrowawayCheckout = true
 	return map[string]SandboxPlanInput{"author": baseInput(), "reviewer": reviewer}
 }
+
+// The repository's CodeEval hooks look for the shared install (LEG-707):
+// its folder holds the version `current` links to, so mounting the folder
+// shows both, read-only like the other tools.
+func TestTheSandboxSeesTheSharedCodeEvalInstall(t *testing.T) {
+	in := baseInput()
+	fs := hostFS()
+	fs["/var/home/me/.local/share/codeeval"] = "dir"
+	in.FS = fs
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := mounted(plan)["/var/home/me/.local/share/codeeval"]; !ok || got.Kind != sandbox.ReadOnly {
+		t.Errorf("~/.local/share/codeeval: %+v, want it read-only", got)
+	}
+}
