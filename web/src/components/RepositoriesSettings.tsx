@@ -63,9 +63,45 @@ const input = "rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-sm text
 export function RepositoriesSettings({ baseUrl, onChanged }: { baseUrl: string; onChanged?: () => void }) {
   const [draft, setDraft] = useState<NewRepository | null>(null)
   const [confirming, setConfirming] = useState<number | null>(null)
-  const { repositories, error, setError, saving, save, remove } = useRepositories(baseUrl, onChanged)
+  const [repositories, setRepositories] = useState<Repository[] | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   // Copies as git goes: repository_cache messages keep this up to date.
   const { data: liveCache = {} } = useRepositoryCache()
+
+  const load = useCallback(async () => {
+    try {
+      setRepositories(await listRepositories(baseUrl))
+    } catch (reason) {
+      setRepositories([])
+      setError(reasonText(reason))
+    }
+  }, [baseUrl])
+
+  useEffect(() => { void load() }, [load])
+
+  // changed runs a change, then lists again and tells the page, saying why a
+  // change failed in error; after runs once the change is made.
+  const changed = async (change: () => Promise<unknown>, after: () => void) => {
+    setError(null)
+    try {
+      await change()
+      after()
+      await load()
+      onChanged?.()
+    } catch (reason) {
+      setError(reasonText(reason))
+    }
+  }
+
+  const save = async (repository: NewRepository) => {
+    setSaving(true)
+    try {
+      await changed(() => addRepository(baseUrl, repository), () => setDraft(null))
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const startOrStop = (next: NewRepository | null) => { setDraft(next); setError(null) }
 
@@ -82,14 +118,14 @@ export function RepositoriesSettings({ baseUrl, onChanged }: { baseUrl: string; 
             {repositories.map((repository) => (
               <RepositoryRow key={repository.id ?? `config-${repository.name}`} repository={repository} cache={liveCache[repository.repo]}
                 confirming={confirming === repository.id} onConfirm={setConfirming}
-                onRemove={(id) => void remove(id, () => setConfirming(null))} />
+                onRemove={(id) => void changed(() => removeRepository(baseUrl, id), () => setConfirming(null))} />
             ))}
           </ul>
         )}
 
         {draft ? (
           <RepositoryForm draft={draft} saving={saving} onChange={setDraft} onCancel={() => startOrStop(null)}
-            onSave={() => void save(trimmedDraft(draft), () => setDraft(null))} />
+            onSave={() => void save(trimmedDraft(draft))} />
         ) : (
           <button type="button" onClick={() => startOrStop(emptyDraft())}
             className="inline-flex w-fit items-center gap-2 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500">
@@ -99,50 +135,6 @@ export function RepositoriesSettings({ baseUrl, onChanged }: { baseUrl: string; 
       </div>
     </SettingsCard>
   )
-}
-
-// useRepositories lists the repositories and adds and removes them, saying
-// why a change failed in error; after runs once a change is made.
-function useRepositories(baseUrl: string, onChanged?: () => void) {
-  const [repositories, setRepositories] = useState<Repository[] | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const load = useCallback(async () => {
-    try {
-      setRepositories(await listRepositories(baseUrl))
-    } catch (reason) {
-      setRepositories([])
-      setError(reasonText(reason))
-    }
-  }, [baseUrl])
-
-  useEffect(() => { void load() }, [load])
-
-  // changed runs a change, then lists again and tells the page.
-  const changed = async (change: () => Promise<unknown>, after: () => void) => {
-    setError(null)
-    try {
-      await change()
-      after()
-      await load()
-      onChanged?.()
-    } catch (reason) {
-      setError(reasonText(reason))
-    }
-  }
-
-  const save = async (repository: NewRepository, after: () => void) => {
-    setSaving(true)
-    try {
-      await changed(() => addRepository(baseUrl, repository), after)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const remove = (id: number, after: () => void) => changed(() => removeRepository(baseUrl, id), after)
-  return { repositories, error, setError, saving, save, remove }
 }
 
 // RepositoryRow is one repository: its name, where it comes from, how its
