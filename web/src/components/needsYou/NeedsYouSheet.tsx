@@ -4,7 +4,8 @@ import { Check, X } from "lucide-react"
 import { useModalLayer } from "../ui/useModalLayer"
 import { setFocusMode, useFocusMode } from "../../lib/focusMode"
 import { itemAgent } from "../../lib/needsYou"
-import { ApprovalCard, FocusButton, PeerApprovalCard } from "../approvals/ApprovalTray"
+import { FocusButton, PeerApprovalCard } from "../approvals/ApprovalTray"
+import { RailApproval } from "./RailApproval"
 import { NeedsYouRow } from "./NeedsYouRow"
 import { useAgentInView, useRailApprovals, useRailItems } from "../../hooks/useNeedsYou"
 
@@ -42,7 +43,7 @@ export function NeedsYouSheet({ onClose }: { onClose: () => void }) {
         {error && <p role="alert" className="mx-4 mb-2 text-xs text-lw-error">{error}</p>}
         <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 pb-3">
           {approvals.approvals.map((approval) => (
-            <ApprovalCard key={approval.id} approval={approval} focused={approval.id === approvals.wanted} onDone={approvals.refresh} />
+            <RailApproval key={approval.id} approval={approval} wanted={approvals.wanted} inView={inView} onDone={approvals.refresh} />
           ))}
           {approvals.peers.map((approval) => (
             <PeerApprovalCard key={`${approval.instance_id}:${approval.id}`} approval={approval} />

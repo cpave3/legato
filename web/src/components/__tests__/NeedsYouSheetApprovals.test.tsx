@@ -128,8 +128,9 @@ describe("Needs you on a phone: approvals", () => {
     setFocusMode(focus)
     renderTray()
     const surface = focus ? screen.getByRole("dialog", { name: "Focus mode" }) : screen.getByRole("dialog", { name: "Needs you" })
-    fireEvent.click(within(surface).getByRole(focus ? "button" : "radio", { name: "vitest" }))
-    fireEvent.click(within(surface).getByRole("button", { name: "Send answer" }))
+    // In the sheet the question's row answers with the option's button.
+    fireEvent.click(within(surface).getByRole("button", { name: "vitest" }))
+    if (focus) fireEvent.click(within(surface).getByRole("button", { name: "Send answer" }))
     await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-11111111", {
       decision: "answer", answers: { q1: ["vitest"] },
     }))
@@ -143,8 +144,9 @@ describe("Needs you on a phone: approvals", () => {
     setFocusMode(focus)
     renderTray()
     const surface = focus ? screen.getByRole("dialog", { name: "Focus mode" }) : screen.getByRole("dialog", { name: "Needs you" })
-    fireEvent.change(within(surface).getByRole("textbox", { name: focus ? "Or answer in your own words" : "Your own answer" }), { target: { value: "use bun test" } })
-    fireEvent.click(within(surface).getByRole("button", { name: "Send answer" }))
+    if (!focus) fireEvent.click(within(surface).getByRole("button", { name: "Reply…" }))
+    fireEvent.change(within(surface).getByRole("textbox", { name: focus ? "Or answer in your own words" : "Reply" }), { target: { value: "use bun test" } })
+    fireEvent.click(within(surface).getByRole("button", { name: focus ? "Send answer" : "Send" }))
     await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-11111111", {
       decision: "answer", answers: { q1: ["use bun test"] },
     }))
@@ -223,12 +225,13 @@ describe("Needs you on a phone: approvals", () => {
     await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-11111111", { decision: "deny", feedback: "use make test" }))
   })
 
-  it("answers a question and can dismiss one", async () => {
+  it("answers a question from its compact row and can dismiss one", async () => {
     mockData = [question()]
     renderTray()
 
-    fireEvent.click(screen.getByLabelText(/Postgres/))
-    fireEvent.click(screen.getByRole("button", { name: /Send/ }))
+    const row = screen.getByRole("article", { name: "Which database?" })
+    expect(within(row).getByRole("link", { name: "Open agent" })).toBeTruthy()
+    fireEvent.click(within(row).getByRole("button", { name: "Postgres" }))
     await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-22222222", { decision: "answer", answers: { q1: ["Postgres"] } }))
 
     fireEvent.click(screen.getByRole("button", { name: /Dismiss/ }))
@@ -337,6 +340,15 @@ describe("Needs you on a phone: approvals", () => {
       expect(document.activeElement).toBe(trigger)
       expect(focus.closest("[aria-hidden]")?.hasAttribute("inert")).toBe(true)
       expect(mockDecide).not.toHaveBeenCalled()
+    })
+
+    it("opens at the question whose Focus was pressed, then goes on to the others", async () => {
+      mockData = [questionnaire(), question()]
+      renderTray()
+      fireEvent.click(within(screen.getByRole("article", { name: "Which database?" })).getByRole("button", { name: "Focus" }))
+      const focus = screen.getByRole("dialog", { name: "Focus mode" })
+      expect(within(focus).getAllByText("Which database?").length).toBeGreaterThan(0)
+      expect(within(focus).queryByText("Should Save's 409 say which conflict it was?")).toBeNull()
     })
 
     it("opens the waiting questions one at a time", () => {

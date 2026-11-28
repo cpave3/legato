@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
-import { Check, ChevronLeft, ChevronRight, ShieldCheck, SlidersHorizontal } from "lucide-react"
+import { Check, ChevronLeft, ChevronRight, CircleHelp, ShieldCheck, SlidersHorizontal } from "lucide-react"
 import { itemAgent, needsYouKind, needsYouKinds } from "../../lib/needsYou"
 import { RAIL_FOLDED, RAIL_OPEN, setRailFolded, setRailPresent, useRailState } from "../../lib/railState"
 import { useAgentInView, useRailApprovals, useRailItems } from "../../hooks/useNeedsYou"
 import { kindIcons, toneClass } from "../../lib/needsYouIcons"
-import { ApprovalCard, FocusButton, PeerApprovalCard } from "../approvals/ApprovalTray"
+import { approvalQuestions } from "../../lib/questionDrafts"
+import { FocusButton, PeerApprovalCard } from "../approvals/ApprovalTray"
+import { RailApproval } from "./RailApproval"
 import { NeedsYouRow } from "./NeedsYouRow"
 
 const iconButton = "inline-flex h-7 w-7 items-center justify-center rounded-md text-lw-text-2 hover:bg-lw-raised hover:text-lw-text"
@@ -41,12 +43,16 @@ export function NeedsYouRail() {
       <aside aria-label="Needs you, folded" style={{ width: RAIL_FOLDED }} className="hidden shrink-0 flex-col items-center gap-2 border-l border-lw-line bg-lw-rail py-3 md:flex">
         <button type="button" className={iconButton} aria-label="Open the rail" onClick={() => fold(false)}><ChevronLeft size={16} aria-hidden="true" /></button>
         {count > 0 && <span aria-label={`${count} need you`} className="mb-1.5 rounded-full bg-lw-needs-soft px-2 py-0.5 text-xs font-semibold text-lw-needs">{count}</span>}
-        {approvals.approvals.map((approval) => (
-          <button key={approval.id} type="button" aria-label={`Approval: ${approval.title}`} title={approval.title} onClick={() => fold(false)}
-            className={`flex h-8 w-8 items-center justify-center rounded-lg ${toneClass.needs}`}>
-            <ShieldCheck size={16} aria-hidden="true" />
-          </button>
-        ))}
+        {approvals.approvals.map((approval) => {
+          const asks = approvalQuestions(approval).length > 0
+          const Icon = asks ? CircleHelp : ShieldCheck
+          return (
+            <button key={approval.id} type="button" aria-label={`${asks ? "Question" : "Approval"}: ${approval.title}`} title={approval.title} onClick={() => fold(false)}
+              className={`flex h-8 w-8 items-center justify-center rounded-lg ${toneClass[asks ? "question" : "needs"]}`}>
+              <Icon size={16} aria-hidden="true" />
+            </button>
+          )
+        })}
         {items.map((item) => {
           const kind = needsYouKind(item)
           const Icon = kindIcons[kind]
@@ -93,7 +99,7 @@ export function NeedsYouRail() {
       ) : (
         <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto p-3">
           {approvals.approvals.map((approval) => (
-            <ApprovalCard key={approval.id} approval={approval} focused={approval.id === approvals.wanted} onDone={approvals.refresh} />
+            <RailApproval key={approval.id} approval={approval} wanted={approvals.wanted} inView={inView} onDone={approvals.refresh} />
           ))}
           {approvals.peers.map((approval) => (
             <PeerApprovalCard key={`${approval.instance_id}:${approval.id}`} approval={approval} />
