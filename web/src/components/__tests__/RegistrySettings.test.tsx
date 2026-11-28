@@ -175,6 +175,43 @@ describe("A setting row", () => {
     expect(input.value).toBe("3")
   })
 
+  it("names a menu's empty choice by its default label, else None, and greys a default", () => {
+    render(wrap(rows([
+      setting({ key: "a.mode", title: "Mode", kind: "enum", enum: ["", "fast"], value: "", default: "", default_label: "Automatic" }),
+      setting({ key: "b.mode", title: "Other mode", kind: "enum", enum: ["", "slow"], value: "slow", default: "", source: "database" }),
+    ])))
+    const mode = screen.getByRole("combobox", { name: "Mode" })
+    expect(within(mode).getAllByRole("option").map((o) => o.textContent)).toEqual(["Automatic", "fast"])
+    expect(mode.className).toContain("text-lw-text-2")
+    const other = screen.getByRole("combobox", { name: "Other mode" })
+    expect(within(other).getAllByRole("option").map((o) => o.textContent)).toEqual(["None", "slow"])
+    expect(other.className).toContain("text-lw-text")
+    expect(other.className).not.toContain("text-lw-text-2")
+  })
+
+  it("draws a number narrow and numeric, and greys it only while it is the default and untouched", () => {
+    render(wrap(rows([workers()])))
+    const input = screen.getByRole("textbox") as HTMLInputElement
+    expect(input.className).toContain("w-24 text-right")
+    expect(input.getAttribute("inputmode")).toBe("numeric")
+    expect(input.className).toContain("text-lw-text-2")
+    fireEvent.change(input, { target: { value: "3" } })
+    expect(input.className).not.toContain("text-lw-text-2")
+    fireEvent.keyDown(input, { key: "Escape" })
+    fireEvent.keyDown(input, { key: "Escape" })
+    expect(input.value).toBe("")
+  })
+
+  it("names the default when the value changed back to it while you edited", () => {
+    const client = new QueryClient()
+    const view = (value: number, source: ConfigSetting["source"]) => <QueryClientProvider client={client}>{rows([workers({ value, source })])}</QueryClientProvider>
+    const { rerender } = render(view(6, "database"))
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "7" } })
+    rerender(view(0, "default"))
+    expect(screen.getByText("Changed to 4 while you edited.")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Use 4" })).toBeTruthy()
+  })
+
   it("saves once while a save is on its way", async () => {
     let finish!: (value: unknown) => void
     mockSet.mockImplementation(() => new Promise(resolve => { finish = resolve }))
