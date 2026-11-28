@@ -8,7 +8,7 @@ import { activeTabOf, groupArtifacts, pickArtifact, pinnedRevision } from "../li
 import type { ArtifactFocus } from "../lib/artifactFocus"
 import { MAX_WIDTH_REM, MIN_WIDTH_REM, useArtifactPanelWidth } from "./useArtifactPanelWidth"
 import { useArtifactActions } from "./useArtifactActions"
-import { ArtifactBody, ArtifactPanelHeader, BriefingFooter, RevisionBar } from "./AgentArtifactPanelParts"
+import { ArtifactBody, ArtifactPanelHeader, RevisionBar } from "./AgentArtifactPanelParts"
 
 interface AgentArtifactPanelProps {
   agentId: string
@@ -86,7 +86,13 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
         />
       </div>
 
-      {briefingPage && <BriefingFooter page={briefingPage} branch={briefing.branch} />}
+      {briefingPage && (
+        <div className="flex shrink-0 items-center gap-1.5 border-t border-zinc-800 px-3 py-2.5">
+          <span className="min-w-0 truncate text-xs text-zinc-400" title={briefingPage.path}>
+            {briefingPage.path}{briefing.branch ? ` on ${briefing.branch}` : ""}
+          </span>
+        </div>
+      )}
       {selected && !studio && (
         <RevisionBar
           selected={selected}

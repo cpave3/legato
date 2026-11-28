@@ -66,31 +66,22 @@ function ArtifactTabList({ tabs, pages, activeTab, tabId, panelId, onActivate }:
             onClick={() => onActivate(id)}
             className={tabClass(active)}
           >
-            {"path" in entry ? <BriefingTabContent page={entry} pages={pages} /> : <ItemTabContent item={entry} />}
+            {"path" in entry ? (
+              <>
+                <ClipboardCheck size={13} aria-hidden="true" className="shrink-0" />
+                <span className="truncate">{briefingTabLabel(entry, pages)}</span>
+              </>
+            ) : (
+              <>
+                {entry.placement === "panel" ? <PanelRight size={13} aria-hidden="true" className="shrink-0" /> : <LayoutGrid size={13} aria-hidden="true" className="shrink-0" />}
+                <span className="truncate">{artifactLabel(entry)}</span>
+                {entry.revision > 1 && <span className="shrink-0 rounded bg-zinc-700/70 px-1 text-[10px] text-zinc-300">r{entry.revision}</span>}
+              </>
+            )}
           </button>
         )
       })}
     </div>
-  )
-}
-
-function BriefingTabContent({ page, pages }: { page: ReviewBriefingPage; pages: ReviewBriefingPage[] }) {
-  return (
-    <>
-      <ClipboardCheck size={13} aria-hidden="true" className="shrink-0" />
-      <span className="truncate">{briefingTabLabel(page, pages)}</span>
-    </>
-  )
-}
-
-function ItemTabContent({ item }: { item: AgentUIItem }) {
-  const Icon = item.placement === "panel" ? PanelRight : LayoutGrid
-  return (
-    <>
-      <Icon size={13} aria-hidden="true" className="shrink-0" />
-      <span className="truncate">{artifactLabel(item)}</span>
-      {item.revision > 1 && <span className="shrink-0 rounded bg-zinc-700/70 px-1 text-[10px] text-zinc-300">r{item.revision}</span>}
-    </>
   )
 }
 
@@ -115,7 +106,22 @@ export function ArtifactPanelHeader({ studio, title, selected, groups, tabs, onF
         {title}
       </h2>
       {studio ? (
-        <StudioTitle title={selected?.title} made={ordered.length} onOpen={() => { const last = artifacts[artifacts.length - 1] ?? ordered[ordered.length - 1]; onFocus(last.id, 0) }} />
+        // The studio's title, and a way back to what the agent made.
+        <>
+          <span className="min-w-0 flex-1 truncate py-3 text-xs text-zinc-400">{selected?.title}</span>
+          {ordered.length > 0 && (
+            <button
+              type="button"
+              aria-label={`Artifacts (${ordered.length})`}
+              title="What this agent has shown"
+              onClick={() => { const last = artifacts[artifacts.length - 1] ?? ordered[ordered.length - 1]; onFocus(last.id, 0) }}
+              className="flex min-h-9 shrink-0 items-center gap-1.5 rounded px-2.5 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+            >
+              <PanelRight size={13} aria-hidden="true" />
+              Artifacts <span className="tabular-nums">{ordered.length}</span>
+            </button>
+          )}
+        </>
       ) : (
         <ArtifactTabList {...tabs} />
       )}
@@ -129,27 +135,6 @@ export function ArtifactPanelHeader({ studio, title, selected, groups, tabs, onF
         <X size={18} />
       </button>
     </div>
-  )
-}
-
-// The header of a studio: its title, and a way back to what the agent made.
-function StudioTitle({ title, made, onOpen }: { title: string | undefined; made: number; onOpen: () => void }) {
-  return (
-    <>
-      <span className="min-w-0 flex-1 truncate py-3 text-xs text-zinc-400">{title}</span>
-      {made > 0 && (
-        <button
-          type="button"
-          aria-label={`Artifacts (${made})`}
-          title="What this agent has shown"
-          onClick={onOpen}
-          className="flex min-h-9 shrink-0 items-center gap-1.5 rounded px-2.5 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
-        >
-          <PanelRight size={13} aria-hidden="true" />
-          Artifacts <span className="tabular-nums">{made}</span>
-        </button>
-      )}
-    </>
   )
 }
 
@@ -183,16 +168,6 @@ export function ArtifactBody({ agentId, briefingPage, selected, item, listLoadin
   // to another scene, and a fresh start would drop the microphone and the
   // person's place.
   return <AgentUIItemView key={item.format === "studio" ? item.id : `${item.id}:${item.revision}`} item={item} fill onProposeMessage={onProposeMessage} />
-}
-
-export function BriefingFooter({ page, branch }: { page: ReviewBriefingPage; branch: string | undefined }) {
-  return (
-    <div className="flex shrink-0 items-center gap-1.5 border-t border-zinc-800 px-3 py-2.5">
-      <span className="min-w-0 truncate text-xs text-zinc-400" title={page.path}>
-        {page.path}{branch ? ` on ${branch}` : ""}
-      </span>
-    </div>
-  )
 }
 
 const toolButton = "flex min-h-9 items-center gap-1.5 rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
