@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "CODEEVAL_BIN=\"$(\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/codeeval-bin.sh)\" \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/codeeval-session-base.sh",
+            "timeout": 10,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "CODEEVAL_BIN=\"$(\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/codeeval-bin.sh)\" \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/codeeval-stop-analyze.sh",
+            "timeout": 180,
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}
