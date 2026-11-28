@@ -2,7 +2,7 @@ import { ReeveStatus, reeveWash } from "./ReeveEntry"
 import { AskReeve } from "./AskReeve"
 import { parseReeveMessage, reeveBrief } from "../lib/reeve"
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useId, memo, Fragment } from "react"
-import { ArrowDown, ArrowLeftRight, Bell, BellOff, Check, FolderInput, Info, Network, Pencil, RefreshCw, RotateCw, Shield, Skull, Terminal, Unplug, Zap } from "lucide-react"
+import { ArrowDown, ArrowLeftRight, Bell, Check, Terminal, Zap } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
 import { useWebSocket } from "../hooks/useWebSocket"
 import { type PromptState, type WSMessage } from "../lib/agentWire"
@@ -29,7 +29,8 @@ import { SubagentCard } from "./NativeSubagentCard"
 import { PastedImageStrip } from "./PastedImageStrip"
 import { AttachImageButton } from "./AttachImageButton"
 import { AgentChatHeader, type AgentChatState, type SidePanelsProps } from "./AgentChatHeader"
-import { type AgentMenuEntry } from "../lib/agentMenu"
+import { buildAgentMenu } from "./nativeAgentMenu"
+import { agentChatState, reasonText } from "../lib/nativeAgentView"
 import type { AgentStageInfo } from "./AgentStageChip"
 import { ResourcesButton } from "./ResourcesButton"
 import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, SendButton, WorkingStrip, type QueuedEntry } from "./Composer"
@@ -1053,32 +1054,15 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     )
   }
 
-  const headerState: AgentChatState = awaitingPerson ? "needs-you"
-    : activity === "error" ? "error"
-    : busy ? "running"
-    : activity === "background" ? "background"
-    : "idle"
-  const menu: AgentMenuEntry[] = [
-    ...(onRename ? [{ label: "Rename", icon: <Pencil size={12} />, onSelect: onRename }] : []),
-    ...(onMoveToGroup ? [{ label: "Move to group…", icon: <FolderInput size={12} />, onSelect: onMoveToGroup }] : []),
-    ...(onShowInfo ? [{ label: "Agent info", icon: <Info size={12} />, onSelect: onShowInfo }] : []),
-    { label: loading ? "Refreshing…" : "Refresh from snapshot", icon: <RefreshCw size={12} className={loading ? "animate-spin" : ""} />, onSelect: () => { void resync() }, disabled: loading },
-    ...(ntfyConfigured && onToggleNotify ? [{ label: notifyEnabled ? "Disable notify" : "Enable notify", icon: notifyEnabled ? <Bell size={12} /> : <BellOff size={12} />, onSelect: onToggleNotify }] : []),
-    ...(onDowngradeChimera ? [{
-      label: "Downgrade to tmux",
-      icon: <Terminal size={12} />,
-      onSelect: () => {
-        void onDowngradeChimera().catch((reason) => {
-          replaceSyncState({ ...syncStateRef.current, error: reason instanceof Error ? reason.message : String(reason) })
-        })
-      },
-    }] : []),
-    ...(onReload ? [{ label: "Reload agent", icon: <RotateCw size={12} />, onSelect: onReload }] : []),
-    ...(switchSandbox ? [{ label: switchSandbox.label, icon: <Shield size={12} />, onSelect: switchSandbox.onSelect }] : []),
-    ...(switchHostNetwork ? [{ label: switchHostNetwork.label, icon: <Network size={12} />, onSelect: switchHostNetwork.onSelect }] : []),
-    ...(onDisconnect ? [{ label: "Disconnect", icon: <Unplug size={12} />, onSelect: onDisconnect }] : []),
-    ...(onKill ? [{ label: "Kill agent", icon: <Skull size={12} />, onSelect: onKill, danger: true }] : []),
-  ]
+  const headerState: AgentChatState = agentChatState(awaitingPerson, activity, busy)
+  const menu = buildAgentMenu({
+    onRename, onMoveToGroup, onShowInfo,
+    onRefresh: () => { void resync() }, refreshing: loading,
+    ntfyConfigured, notifyEnabled, onToggleNotify,
+    onDowngradeChimera,
+    onDowngradeFailed: (reason) => replaceSyncState({ ...syncStateRef.current, error: reasonText(reason) }),
+    onReload, switchSandbox, switchHostNetwork, onDisconnect, onKill,
+  })
   const modelWindow = models.find((m) => m.ref === model)?.contextWindow ?? contextUsage?.window
   const contextShareOf = contextUsage ? Math.round((contextUsage.used / contextUsage.window) * 100) : null
 
