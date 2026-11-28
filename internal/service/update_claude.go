@@ -200,6 +200,7 @@ func (c *ClaudeCodeTool) checkOverride(ctx context.Context, st ToolStatus) ToolS
 		path = found
 	}
 	st.Path, st.State = path, ToolUnmanaged
+	st.Detail = "Your own claude, from updates.claude.command. Legato does not update or roll it back."
 	v, err := c.opts.Version(ctx, path)
 	if err != nil {
 		st.Error = err.Error()

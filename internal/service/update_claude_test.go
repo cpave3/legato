@@ -276,7 +276,7 @@ func TestYourOwnClaudeIsUnmanaged(t *testing.T) {
 	}
 	f := newClaudeToolFixture(t, "2.1.326", "2.1.330", func(o *ClaudeCodeToolOptions) { o.Override = own })
 	got := f.check()
-	if got.Managed || got.State != ToolUnmanaged || got.Path != own || got.Version != "9.9.9" || got.Available {
+	if got.Managed || got.State != ToolUnmanaged || got.Path != own || got.Version != "9.9.9" || got.Available || !strings.HasPrefix(got.Detail, "Your own claude") {
 		t.Fatalf("checked = %+v", got)
 	}
 	if cmd, managed := f.tool.Command(); cmd != own || managed {

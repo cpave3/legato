@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Download } from "lucide-react"
 import { SettingsCard, primaryButton, quietButton } from "./settings/SettingsUI"
-import { applyToolUpdate, applyUpdate, checkForUpdates, setUpdateMode, type ToolStatus, type UpdateMode, type UpdateStatus } from "../lib/updates"
+import { applyToolUpdate, applyUpdate, checkForUpdates, rollbackTool, setUpdateMode, type ToolStatus, type UpdateMode, type UpdateStatus } from "../lib/updates"
 import { cn } from "../lib/utils"
 import type { ConfigSetting } from "../lib/configSettings"
 import { SettingSource } from "./settings/RegistrySettings"
@@ -56,7 +56,9 @@ export function UpdatesSettings({ status, baseUrl, modeSetting, onChanged }: { s
   }
   const tools = status.tools ?? []
   const toolRows = tools.length > 0 && (
-    <ToolRows tools={tools} busy={busy} onUpdate={(name) => void run(`tool:${name}`, () => applyToolUpdate(baseUrl, name))} />
+    <ToolRows tools={tools} busy={busy}
+      onUpdate={(name) => void run(`tool:${name}`, () => applyToolUpdate(baseUrl, name))}
+      onRollback={(name) => void run(`rollback:${name}`, () => rollbackTool(baseUrl, name))} />
   )
 
   if (!status.release) {
@@ -122,24 +124,42 @@ export function UpdatesSettings({ status, baseUrl, modeSetting, onChanged }: { s
 }
 
 // ToolRows are the command-line tools Legato keeps current beside itself,
-// under the same mode.
-function ToolRows({ tools, busy, onUpdate }: { tools: ToolStatus[]; busy: string; onUpdate: (name: string) => void }) {
+// under the same mode. Claude Code also has a last known good version to
+// roll back to.
+function ToolRows({ tools, busy, onUpdate, onRollback }: { tools: ToolStatus[]; busy: string; onUpdate: (name: string) => void; onRollback: (name: string) => void }) {
   return (
     <section className="mt-5 border-t border-lw-line pt-4" aria-label="Tools kept current">
       <h3 className="text-sm text-lw-text">Tools kept current with Legato</h3>
-      {tools.map((tool) => (
-        <div key={tool.name} className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-          <span className="font-mono text-lw-text">{tool.name}</span>
-          {tool.version && <span className="font-mono text-lw-text-2">{tool.version}</span>}
-          <span className="text-xs text-lw-text-2">{toolStates[tool.state] ?? tool.state}</span>
-          {tool.managed && tool.available && tool.latest && (
-            <button className={primaryButton} disabled={busy !== "" || tool.state === "installing"} onClick={() => onUpdate(tool.name)}>
-              Update {tool.name} to {tool.latest}
-            </button>
-          )}
-          {tool.error && tool.state === "failed" && <p className="w-full text-xs text-lw-error">{tool.error}</p>}
-        </div>
-      ))}
+      {tools.map((tool) => {
+        const working = busy !== "" || tool.state === "installing"
+        const state = tool.state === "unmanaged" && tool.detail ? tool.detail : (toolStates[tool.state] ?? tool.state)
+        return (
+          <div key={tool.name} className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+            <span className="font-mono text-lw-text">{tool.name}</span>
+            {tool.version && <span className="font-mono text-lw-text-2">{tool.version}</span>}
+            <span className="text-xs text-lw-text-2">{state}</span>
+            {tool.managed && tool.channel && <span className="text-xs text-lw-faint">{tool.channel} channel</span>}
+            {tool.managed && tool.last_good && <span className="text-xs text-lw-faint">last known good {tool.last_good}</span>}
+            {tool.managed && tool.held && <span className="text-xs text-lw-faint">{tool.held} held back</span>}
+            {tool.managed && tool.available && tool.latest && (
+              <button className={primaryButton} disabled={working} onClick={() => onUpdate(tool.name)}>
+                Update {tool.name} to {tool.latest}
+              </button>
+            )}
+            {tool.managed && tool.channel && tool.state === "failed" && !tool.available && tool.version && (
+              <button className={primaryButton} disabled={working} onClick={() => onUpdate(tool.name)}>
+                Fetch {tool.name} {tool.version} again
+              </button>
+            )}
+            {tool.managed && tool.can_rollback && tool.last_good && (
+              <button className={quietButton} disabled={working} onClick={() => onRollback(tool.name)}>
+                Roll {tool.name} back to {tool.last_good}
+              </button>
+            )}
+            {tool.error && tool.state === "failed" && <p className="w-full text-xs text-lw-error">{tool.error}</p>}
+          </div>
+        )
+      })}
     </section>
   )
 }

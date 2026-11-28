@@ -5,12 +5,14 @@ const mockSetMode = vi.fn()
 const mockCheck = vi.fn()
 const mockApply = vi.fn()
 const mockApplyTool = vi.fn()
+const mockRollbackTool = vi.fn()
 vi.mock("../../lib/updates", async (importActual) => ({
   ...(await importActual<typeof import("../../lib/updates")>()),
   setUpdateMode: (...a: unknown[]) => mockSetMode(...a),
   checkForUpdates: (...a: unknown[]) => mockCheck(...a),
   applyUpdate: (...a: unknown[]) => mockApply(...a),
   applyToolUpdate: (...a: unknown[]) => mockApplyTool(...a),
+  rollbackTool: (...a: unknown[]) => mockRollbackTool(...a),
 }))
 
 import { UpdatesSettings } from "../UpdatesSettings"
@@ -23,7 +25,7 @@ const upToDate: UpdateStatus = {
 
 describe("UpdatesSettings", () => {
   beforeEach(() => {
-    for (const mock of [mockSetMode, mockCheck, mockApply, mockApplyTool]) {
+    for (const mock of [mockSetMode, mockCheck, mockApply, mockApplyTool, mockRollbackTool]) {
       mock.mockReset()
       mock.mockResolvedValue(undefined)
     }
@@ -117,5 +119,42 @@ describe("UpdatesSettings", () => {
     expect(screen.getByText("chimera")).toBeTruthy()
     expect(screen.getByText("Not installed on this server")).toBeTruthy()
     expect(screen.queryByRole("button", { name: /Update chimera/ })).toBeNull()
+  })
+
+  it("rolls Legato's Claude Code back to its last known good version", async () => {
+    const changed = vi.fn()
+    render(<UpdatesSettings status={{ ...upToDate, tools: [
+      { name: "claude", managed: true, version: "2.1.330", available: false, state: "up_to_date", channel: "stable", last_good: "2.1.326", can_rollback: true },
+    ] }} baseUrl="http://legato" onChanged={changed} />)
+    expect(screen.getByText(/last known good 2\.1\.326/)).toBeTruthy()
+    expect(screen.getByText(/stable channel/)).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Roll claude back to 2.1.326" }))
+    await waitFor(() => expect(mockRollbackTool).toHaveBeenCalledWith("http://legato", "claude"))
+    await waitFor(() => expect(changed).toHaveBeenCalled())
+  })
+
+  it("says which Claude Code version is held back, and offers no rollback without a last known good", () => {
+    render(<UpdatesSettings status={{ ...upToDate, tools: [
+      { name: "claude", managed: true, version: "2.1.326", available: false, state: "up_to_date", channel: "stable", last_good: "2.1.326", held: "2.1.330" },
+    ] }} baseUrl="" />)
+    expect(screen.getByText(/2\.1\.330 held back/)).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /Roll claude back/ })).toBeNull()
+  })
+
+  it("fetches a Claude Code version that went missing again", async () => {
+    render(<UpdatesSettings status={{ ...upToDate, tools: [
+      { name: "claude", managed: true, version: "2.1.326", available: false, state: "failed", channel: "stable", error: "Claude Code 2.1.326 is no longer in /data/tools/claude/versions" },
+    ] }} baseUrl="http://legato" />)
+    expect(screen.getByText(/no longer in/)).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Fetch claude 2.1.326 again" }))
+    await waitFor(() => expect(mockApplyTool).toHaveBeenCalledWith("http://legato", "claude"))
+  })
+
+  it("shows your own claude as unmanaged in its own words", () => {
+    render(<UpdatesSettings status={{ ...upToDate, tools: [
+      { name: "claude", path: "/opt/claude", managed: false, version: "2.1.400", available: false, state: "unmanaged", detail: "Your own claude, from updates.claude.command. Legato does not update or roll it back." },
+    ] }} baseUrl="" />)
+    expect(screen.getByText(/Your own claude/)).toBeTruthy()
+    expect(screen.queryByText(/Not a release build/)).toBeNull()
   })
 })
