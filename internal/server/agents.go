@@ -240,6 +240,9 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			// makes it the default there; with no engram, it clears the
 			// default.
 			RememberEngram bool `json:"remember_engram"`
+			// HooksOff names managed hooks this agent is not given. A name
+			// that is no managed hook is ignored, with a note on the task.
+			HooksOff []string `json:"hooks_off"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -287,6 +290,7 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			Engram:              strings.TrimSpace(req.Engram),
 
 			DockerHostNetwork: req.DockerHostNetwork,
+			HooksOff:          req.HooksOff,
 		}
 		if err := s.checkDockerHostNetwork(r.Context(), "", opts); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -718,6 +722,9 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			// makes it the default there; with no engram, it clears the
 			// default.
 			RememberEngram bool `json:"remember_engram"`
+			// HooksOff names managed hooks this agent is not given. A name
+			// that is no managed hook is ignored, with a note on the task.
+			HooksOff []string `json:"hooks_off"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -762,7 +769,7 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, Account: strings.TrimSpace(req.Account), Tier: strings.TrimSpace(req.Tier), WorkingDir: req.WorkingDir, Repo: req.Repo, Ref: req.Ref, Branch: strings.TrimSpace(req.Branch), Clone: req.CloneID, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox, Prompt: req.Prompt, Engram: strings.TrimSpace(req.Engram), DockerHostNetwork: req.DockerHostNetwork}
+		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, Account: strings.TrimSpace(req.Account), Tier: strings.TrimSpace(req.Tier), WorkingDir: req.WorkingDir, Repo: req.Repo, Ref: req.Ref, Branch: strings.TrimSpace(req.Branch), Clone: req.CloneID, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox, Prompt: req.Prompt, Engram: strings.TrimSpace(req.Engram), DockerHostNetwork: req.DockerHostNetwork, HooksOff: req.HooksOff}
 		if opts.Account != "" && opts.AgentKind == "" {
 			opts.AgentKind = "claude-code"
 			req.AgentKind = "claude-code"

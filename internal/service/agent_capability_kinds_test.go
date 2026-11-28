@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -95,7 +96,7 @@ func TestTheCapabilityRequestSaysWhatTheSpawnKnowsOfTheAgent(t *testing.T) {
 		t.Fatalf("the Reeve's spawn asked %+v", reeve)
 	}
 	plain.TaskID, plain.ExecutionID, plain.AgentKind, plain.Slot, plain.WorkDir = "", "", "", "", ""
-	if plain != (CapabilityRequest{}) {
+	if !reflect.DeepEqual(plain, CapabilityRequest{}) {
 		t.Fatalf("a plain spawn outside a repository asked %+v, want nothing beyond who it is", plain)
 	}
 }

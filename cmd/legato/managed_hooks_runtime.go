@@ -14,7 +14,9 @@ func managedHooksDir(cfg *config.Config) string {
 }
 
 // managedHookService is Legato's managed hooks, which the web server lists
-// in Settings › Managed hooks. Nothing gives them to agents yet.
+// in Settings › Managed hooks and every agent service asks at each spawn
+// (the HookSource), recording each execution's hooks. Nothing reaches an
+// agent tool yet: no adapter is a HooksAdapter until Claude Code's bundle.
 func managedHookService(cfg *config.Config, db *store.Store) *service.ManagedHookService {
 	return service.NewManagedHookService(managedHooksDir(cfg), db)
 }

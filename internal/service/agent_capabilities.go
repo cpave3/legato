@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cpave3/legato/internal/engine/managedhooks"
 	"github.com/cpave3/legato/internal/engine/skills"
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -61,8 +62,15 @@ type CapabilityRequest struct {
 	// Reeve says the agent is the Reeve.
 	Reeve bool
 	// HandoffPurpose is a handed-off task's purpose (HandoffMakeChange,
-	// HandoffFindOut); "" for any other agent.
+	// HandoffFindOut); "" for any other agent. A main-slot agent started
+	// again on a handed-off card (restart, resume) gets it from the open
+	// handoff, since the spawn does not say it again.
 	HandoffPurpose string
+	// HooksOff are the managed hooks the spawn turns off (hooks_off).
+	HooksOff []string
+	// ToolTakesHooks says the agent's tool can run managed hooks: its
+	// adapter is a HooksAdapter.
+	ToolTakesHooks bool
 }
 
 // AgentCapabilities is what an agent is given, one field per kind. Each
@@ -70,8 +78,8 @@ type CapabilityRequest struct {
 // another from the agent.
 type AgentCapabilities struct {
 	Skills []skills.Skill
-	// Hooks are the managed hooks the agent runs (LEG-687). No source
-	// gives any yet; the HookSource (LEG-695) will.
+	// Hooks are the managed hooks the agent runs (LEG-687): those the
+	// HookSource decided on.
 	Hooks []ManagedHook
 }
 
@@ -85,6 +93,10 @@ type ManagedHook struct {
 	// Events are the author events it runs on (stop, session_start, ...),
 	// which the tool's bundle registers.
 	Events []string
+	// Manifest is the hook as scanned: its handlers (commands, time
+	// limits, matchers), resources and yields_to. Empty for a hook made
+	// by hand.
+	Manifest managedhooks.Hook
 }
 
 // CapabilitySource chooses an agent's capabilities.
@@ -185,7 +197,20 @@ func (c CapabilityFolders) Sweep(ctx context.Context, statusOf ExecutionStatus) 
 // works in for something other than its project's learnings and guidance:
 // the repository's own resources, or the capability request.
 func (a *agentService) needsRepositoryKey() bool {
-	return a.repoResources != nil || a.capabilities != nil
+	return a.repoResources != nil || a.capabilities != nil || a.managedHooks != nil
+}
+
+// handoffPurpose is the purpose of the handoff a spawn is for: the
+// options', else, for a main-slot agent, the open handoff's of its card, so
+// an agent started again (restart, resume, Reload) keeps it.
+func (a *agentService) handoffPurpose(ctx context.Context, taskID string, named bool, opt AgentSpawnOptions) string {
+	if opt.HandoffPurpose != "" || named {
+		return opt.HandoffPurpose
+	}
+	if h, err := a.store.OpenHandoffForTask(ctx, taskID); err == nil {
+		return h.Purpose
+	}
+	return ""
 }
 
 // repositoryOfKey is the repository (host/owner/name) a project identity
@@ -220,18 +245,38 @@ func spawnWorkflowStep(opt AgentSpawnOptions) (runID, attemptID, stepID string) 
 // logged, and with every other: a capability is an addition, never a reason
 // not to start.
 func (a *agentService) giveCapabilities(ctx context.Context, req CapabilityRequest, adapter AIToolAdapter, env map[string]string) {
-	dir := a.capabilityFolders.Dir(req.ExecutionID)
-	if a.capabilities == nil || adapter == nil || dir == "" {
+	if adapter == nil {
 		return
 	}
-	given, err := a.capabilities.Capabilities(ctx, req)
-	if err != nil {
-		log.Printf("capabilities: choosing for %s (%s): %v", req.TaskID, req.ExecutionID, err)
+	_, req.ToolTakesHooks = adapter.(HooksAdapter)
+	// The managed hooks are decided and recorded whether or not there is
+	// a folder to give them in: the records say what the agent has.
+	hooks, decided := a.decideManagedHooks(ctx, req)
+	dir := a.capabilityFolders.Dir(req.ExecutionID)
+	if dir == "" {
 		return
+	}
+	given := a.chooseCapabilities(ctx, req)
+	if decided {
+		given.Hooks = hooks
 	}
 	kinds := capabilityKinds{dir: dir, tool: filepath.Join(dir, adapter.Name()), req: req, env: env}
 	kinds.giveSkills(adapter, given.Skills)
 	kinds.giveHooks(adapter, given.Hooks)
+}
+
+// chooseCapabilities is what the capability source chooses; nothing
+// without one, or when it fails (logged).
+func (a *agentService) chooseCapabilities(ctx context.Context, req CapabilityRequest) AgentCapabilities {
+	if a.capabilities == nil {
+		return AgentCapabilities{}
+	}
+	given, err := a.capabilities.Capabilities(ctx, req)
+	if err != nil {
+		log.Printf("capabilities: choosing for %s (%s): %v", req.TaskID, req.ExecutionID, err)
+		return AgentCapabilities{}
+	}
+	return given
 }
 
 // giveSkills gives the skills, if the adapter can take them.

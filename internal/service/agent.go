@@ -304,6 +304,10 @@ type AgentSpawnOptions struct {
 	// HandoffFindOut), for the capabilities its agent is given; "" for any
 	// other session.
 	HandoffPurpose string
+	// HooksOff names managed hooks this agent is not given (hooks_off on
+	// the spawn routes): recorded off:spawn, with a chosen-off row of
+	// source spawn. A name that is no managed hook is ignored, with a note.
+	HooksOff []string
 	// Slot is the task's agent slot the agent runs in: "" or "main" for the
 	// main slot, a name such as "reviewer" for a named one, which only
 	// Legato's own services start. Each slot keeps its own tmux session,
@@ -422,6 +426,7 @@ type agentService struct {
 	accountDataDir           string
 	toolCheck                func(ctx context.Context, tool string) error
 	capabilities             CapabilitySource
+	managedHooks             HookSource
 	capabilityFolders        CapabilityFolders
 	interruptedMu            sync.Mutex
 	interruptedRoutes        []InterruptedResumeRoute
@@ -711,6 +716,10 @@ type AgentServiceOptions struct {
 	// Capabilities chooses what each agent is given beyond its tool: the
 	// skills that are on. Nil: nothing. See agent_capabilities.go.
 	Capabilities CapabilitySource
+	// ManagedHooks decides which managed hooks each agent is given and
+	// why each other is off, recorded per execution. Nil: none, and nothing
+	// recorded. See managed_hook_policy.go.
+	ManagedHooks HookSource
 	// CapabilityFolders is where each execution's capabilities are copied,
 	// removed when it ends and swept on reconcile.
 	CapabilityFolders CapabilityFolders
@@ -836,6 +845,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.reeveWakes = opts[0].ReeveWakes
 		svc.sandbox = opts[0].Sandbox
 		svc.capabilities = opts[0].Capabilities
+		svc.managedHooks = opts[0].ManagedHooks
 		svc.capabilityFolders = opts[0].CapabilityFolders
 		switch {
 		case opts[0].SandboxScratch != nil:
@@ -1408,7 +1418,8 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 	capabilityRequest := CapabilityRequest{TaskID: taskID, ExecutionID: executionID, AgentKind: agentKind, Role: opt.Role, Slot: slot, WorkDir: workDir,
-		Repository: repositoryOfKey(identityKey), ReadOnly: opt.ReadOnlyCheckout, Reeve: reeve, HandoffPurpose: opt.HandoffPurpose}
+		Repository: repositoryOfKey(identityKey), ReadOnly: opt.ReadOnlyCheckout, Reeve: reeve, HandoffPurpose: a.handoffPurpose(ctx, taskID, named, opt),
+		HooksOff: slices.Clone(opt.HooksOff)}
 	capabilityRequest.WorkflowRunID, capabilityRequest.WorkflowAttemptID, capabilityRequest.WorkflowStepID = spawnWorkflowStep(opt)
 	a.giveCapabilities(ctx, capabilityRequest, adapter, envMap)
 
