@@ -2,16 +2,18 @@
 // only through LazyWorkflowGraph, so neither library is in the bundle of any
 // other page.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { Background, BaseEdge, MarkerType, Controls, EdgeLabelRenderer, getBezierPath, Handle, MiniMap, Panel, Position, ReactFlow, ReactFlowProvider, type Edge, type EdgeProps, type EdgeTypes, type NodeProps, type NodeTypes, type ReactFlowInstance, useReactFlow, useViewportStore } from "@xyflow/react"
+import { Background, BaseEdge, MarkerType, Controls, EdgeLabelRenderer, getBezierPath, Handle, MiniMap, Panel, Position, ReactFlow, ReactFlowProvider, type Edge, type EdgeProps, type EdgeTypes, type NodeProps, type NodeTypes, useReactFlow, useViewportStore } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
 import { Link } from "react-router-dom"
 import { CircleAlert, CircleCheck, CircleDashed, CircleDot, CirclePause, CircleX, CornerDownRight, SkipForward, Hand, Hourglass, Repeat, Workflow, type LucideIcon } from "lucide-react"
 import { stepIcons, triggerIcons } from "./graphIcons"
-import { layout, sizes, type FlowData, type FlowNode } from "./graphLayout"
-import { dataEdgeName, gateLabel, keyValueText, nodeName, runStateWords, stepTypeLabel, triggerName, triggerOn, type GraphNodeExtra, type NodeRunState } from "../../lib/workflowGraph"
+import { layout, sizes, type FlowNode } from "./graphLayout"
+import { chosenOf, isCompact, keyedNode, lookOf, miniColor, withState } from "./graphView"
+import { useGraphViewport } from "./useGraphViewport"
+import { dataEdgeName, gateLabel, keyValueText, runStateWords, stepTypeLabel, triggerName, triggerOn, type GraphNodeExtra, type NodeRunState } from "../../lib/workflowGraph"
 import { type WorkflowGraphModel } from "../../lib/workflow"
 import { toneGlyph, toneText } from "../../lib/workflowTones"
-import { centerOn as centerView, fitView as fitAll, focusZoom, inView, noInsets, openingView, type Insets, type Rect } from "../../lib/graphViewport"
+import { centerOn as centerView, fitView as fitAll, focusZoom, type Insets } from "../../lib/graphViewport"
 import type { Tone } from "../../lib/workflowView"
 import { cn } from "../../lib/utils"
 
@@ -36,10 +38,6 @@ export type WorkflowGraphProps = {
   canvas?: { insets: Insets; focusId?: string | null; tools?: ReactNode }
   className?: string
 }
-
-// Below this zoom a canvas draws its nodes compact: the state and a title
-// that keeps one size on screen.
-const compactBelow = 0.6
 
 const stateTones: Record<NodeRunState, Tone> = { waiting: "idle", running: "live", needs: "needs", failed: "error", done: "done", skipped: "idle", suspended: "idle" }
 const stateIcons: Record<NodeRunState, LucideIcon> = { waiting: CircleDashed, running: CircleDot, needs: CircleAlert, failed: CircleX, done: CircleCheck, skipped: SkipForward, suspended: CirclePause }
@@ -285,10 +283,37 @@ function edgesOf(graph: WorkflowGraphModel, selected: string | null): Edge[] {
   })), ...branches, ...data]
 }
 
-// The colour each run state gives a node in a canvas's minimap.
-const miniColors: Record<NodeRunState, string> = { waiting: "var(--color-lw-line-strong)", running: "var(--color-lw-live)", needs: "var(--color-lw-needs)", failed: "var(--color-lw-error)", done: "color-mix(in srgb, var(--color-lw-done) 70%, transparent)", skipped: "var(--color-lw-line)", suspended: "var(--color-lw-line-strong)" }
-
 const toolButton = "inline-flex h-8 min-w-8 items-center justify-center rounded-md px-2 text-xs text-lw-text hover:bg-lw-selected aria-pressed:bg-lw-selected"
+
+type View = ReturnType<typeof useGraphViewport>
+
+// CanvasToolbar is a canvas's view toolbar: zoom, Fit, Where it is (with
+// a step to centre on) and the page's tools. On a phone the run's cards
+// are a sheet along the bottom, so the toolbar goes to the top.
+function CanvasToolbar({ canvas, direction, zoom, view }: { canvas: NonNullable<WorkflowGraphProps["canvas"]>; direction: "LR" | "TB"; zoom: number; view: View }) {
+  const flow = useReactFlow()
+  const { focusId } = canvas
+  const whereItIs = () => { const rect = view.rect(focusId!); if (rect) void flow.setViewport(centerView(rect, view.frameSize(), view.insets, focusZoom)) }
+  return <Panel position={direction === "TB" ? "top-right" : "bottom-left"} className="!m-4">
+    <div role="toolbar" aria-label="View" className="flex items-center gap-0.5 rounded-lg border border-lw-line bg-lw-surface p-0.5 font-lw text-lw-text shadow-[var(--shadow-lw-panel)]">
+      <button type="button" aria-label="Zoom out" className={toolButton} onClick={() => { void flow.zoomOut() }}>−</button>
+      <span className="w-11 text-center font-lw-mono text-xs text-lw-text-2">{Math.round(zoom * 100)}%</span>
+      <button type="button" aria-label="Zoom in" className={toolButton} onClick={() => { void flow.zoomIn() }}>+</button>
+      <span aria-hidden="true" className="mx-1 h-5 w-px bg-lw-line" />
+      <button type="button" aria-label="Fit the whole flow" title="Fit the whole flow" className={toolButton} onClick={() => { void flow.setViewport(fitAll(view.tops, view.frameSize(), view.insets)) }}>Fit</button>
+      {focusId && <button type="button" title="Centre on the step the run is at" className={toolButton} onClick={whereItIs}>Where it is</button>}
+      {canvas.tools && <><span aria-hidden="true" className="mx-1 h-5 w-px bg-lw-line" />{canvas.tools}</>}
+    </div>
+  </Panel>
+}
+
+// GraphMiniMap is the overview of a graph drawn left to right: on a canvas
+// coloured by state, clear of the page's right panel.
+function GraphMiniMap({ canvas, insets }: { canvas: boolean; insets: { right: number } }) {
+  return <MiniMap pannable zoomable ariaLabel="Workflow graph overview"
+    nodeColor={canvas ? miniColor : undefined}
+    style={canvas ? { width: 200, height: 72, marginRight: 16 + insets.right, marginBottom: 16 } : { width: 160, height: 90 }} className="!rounded-md !border !border-lw-line" />
+}
 
 function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, run = false, centerOn, canvas, className }: WorkflowGraphProps) {
   const flow = useReactFlow()
@@ -299,65 +324,10 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, r
   const placed = useMemo(() => layout(graph, direction, run), [shape])
   const [selected, setSelected] = useState<string | null>(selectedId)
   useEffect(() => { setSelected(selectedId) }, [selectedId])
-  const nodes = useMemo(() => {
-    const byId = new Map(graph.nodes.map(node => [node.id, node]))
-    return placed.map(node => {
-      const current = byId.get(node.id) ?? node.data.node
-      const extra = extras?.[node.id]
-      return { ...node, data: { ...node.data, node: current, extra }, ariaLabel: nodeName(current, extra), selected: node.id === selected, className: extra?.trigger === "other" ? "opacity-50" : undefined }
-    })
-  }, [placed, graph, selected, extras])
+  const nodes = useMemo(() => withState(placed, graph, selected, extras), [placed, graph, selected, extras])
   const edges = useMemo(() => edgesOf(graph, selected), [graph, selected])
   const frame = useRef<HTMLDivElement>(null)
-  const insets = canvas?.insets ?? noInsets
-  const insetsRef = useRef(insets)
-  insetsRef.current = insets
-  // A node's place on the graph: a loop body's position is relative to its
-  // loop, so every loop it is in adds its own.
-  const rectOf = useCallback((id: string): Rect | null => {
-    const node = placed.find(item => item.id === id)
-    if (!node) return null
-    let { x, y } = node.position
-    for (let parent = placed.find(item => item.id === node.parentId); parent; parent = placed.find(item => item.id === parent!.parentId)) {
-      x += parent.position.x
-      y += parent.position.y
-    }
-    return { x, y, width: node.width ?? 0, height: node.height ?? 0 }
-  }, [placed])
-  const frameSize = () => ({ width: frame.current?.clientWidth ?? 0, height: frame.current?.clientHeight ?? 0 })
-  const topRects = useMemo(() => placed.filter(node => !node.parentId).map(node => ({ x: node.position.x, y: node.position.y, width: node.width ?? 0, height: node.height ?? 0 })), [placed])
-  useEffect(() => {
-    if (!centerOn) return
-    const rect = rectOf(centerOn.id)
-    if (!rect) return
-    // At once, not animated: no motion to sit through, and React Flow 13's
-    // animated move never settled under the tests' jsdom.
-    if (canvas) { void flow.setViewport(centerView(rect, frameSize(), insetsRef.current, Math.max(flow.getZoom(), focusZoom))); return }
-    void flow.setCenter(rect.x + rect.width / 2, rect.y + rect.height / 2, { zoom: Math.max(flow.getZoom(), 0.9) })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [centerOn?.n])
-  // On a canvas, a node selected where a panel covers it (the side panel
-  // opening over it) is brought into the free area, at the same zoom.
-  useEffect(() => {
-    if (!canvas || !selected) return
-    const rect = rectOf(selected)
-    const size = frameSize()
-    if (!rect || size.width === 0) return
-    const view = flow.getViewport()
-    if (!inView(rect, view, size, insets)) void flow.setViewport(centerView(rect, size, insets, view.zoom))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, insets.left, insets.right])
-  // startView fits the graph when it fits at a readable size, else shows it
-  // from where the run is (a canvas's focusId) or from its start (the
-  // triggers) at that size, for the operator to pan.
-  // Top to bottom (a phone) the width is what must fit, so it may shrink
-  // further; a long chain still scrolls down.
-  const floor = direction === "TB" ? 0.6 : 0.75
-  const startView = useCallback((flow: Pick<ReactFlowInstance, "setViewport">) => {
-    if (topRects.length === 0) return
-    const focus = canvas?.focusId ? rectOf(canvas.focusId) : null
-    void flow.setViewport(openingView(topRects, frameSize(), { insets: insetsRef.current, floor, focus }))
-  }, [topRects, floor, rectOf, canvas?.focusId])
+  const view = useGraphViewport({ flow, placed, frame, canvas, centerOn, selected, direction })
   const choose = useCallback((id: string | null) => {
     setSelected(id)
     onSelect?.(id)
@@ -366,28 +336,20 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, r
   // selection is this component's (or its page's) alone: React Flow's own
   // never feeds back into it, so the two cannot chase each other.
   const onKeyDown = useCallback((event: React.KeyboardEvent) => {
-    if (event.key !== "Enter" && event.key !== " ") return
-    // A control inside a node (the child run's link) keeps its own keys.
-    if ((event.target as HTMLElement).closest("a, button, input, select, textarea")) return
-    const element = (event.target as HTMLElement).closest<HTMLElement>(".react-flow__node")
-    const id = element?.dataset.id
+    const id = keyedNode(event.key, event.target as HTMLElement)
     if (!id) return
     event.preventDefault()
-    const node = graph.nodes.find(item => item.id === id)
-    choose(node?.kind === "inner" && node.parent ? node.parent : id)
+    choose(chosenOf(graph, id))
   }, [choose, graph])
   const zoom = useViewportStore(state => state.transform[2])
-  const compact = Boolean(canvas) && zoom < compactBelow
-  const look = { "--xy-background-color": "var(--color-lw-ground)", "--xy-edge-stroke": "var(--color-lw-line-strong)", "--xy-minimap-background-color": "var(--color-lw-surface)", "--xy-minimap-mask-background-color": "color-mix(in srgb, var(--color-lw-ground) 70%, transparent)", "--xy-minimap-mask-stroke-color": "var(--color-lw-line-strong)", "--xy-minimap-node-background-color": "var(--color-lw-line-strong)", "--xy-controls-button-background-color": "var(--color-lw-surface)", "--xy-controls-button-color": "var(--color-lw-text)", "--xy-controls-button-border-color": "var(--color-lw-line)" } as Record<string, string | number>
-  // Zoomed out, edges keep about a pixel and a half on screen.
-  if (canvas) Object.assign(look, { "--lw-zoom": zoom, "--xy-edge-stroke-width": compact ? Math.min(6, 1.2 / zoom) : 1 })
-  return <div ref={frame} onKeyDown={onKeyDown} data-compact={compact || undefined} className={cn("group/flow h-full min-h-[18rem] w-full", className)} style={look as React.CSSProperties}>
+  const compact = isCompact(Boolean(canvas), zoom)
+  return <div ref={frame} onKeyDown={onKeyDown} data-compact={compact || undefined} className={cn("group/flow h-full min-h-[18rem] w-full", className)} style={lookOf(Boolean(canvas), zoom) as React.CSSProperties}>
     <ReactFlow
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
-      onInit={startView}
+      onInit={view.startView}
       minZoom={0.2}
       maxZoom={1.75}
       nodesDraggable={false}
@@ -398,26 +360,12 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, r
       selectionKeyCode={null}
       deleteKeyCode={null}
       zoomOnDoubleClick={false}
-      onNodeClick={(_, node) => choose(node.type === "inner" && node.parentId ? node.parentId : node.id)}
+      onNodeClick={(_, node) => choose(chosenOf(graph, node.id))}
       onPaneClick={() => choose(null)}
     >
       <Background gap={20} size={1} />
-      {/* On a phone the run's cards are a sheet along the bottom, so the
-          toolbar goes to the top. */}
-      {canvas ? <Panel position={direction === "TB" ? "top-right" : "bottom-left"} className="!m-4">
-        <div role="toolbar" aria-label="View" className="flex items-center gap-0.5 rounded-lg border border-lw-line bg-lw-surface p-0.5 font-lw text-lw-text shadow-[var(--shadow-lw-panel)]">
-          <button type="button" aria-label="Zoom out" className={toolButton} onClick={() => { void flow.zoomOut() }}>−</button>
-          <span className="w-11 text-center font-lw-mono text-xs text-lw-text-2">{Math.round(zoom * 100)}%</span>
-          <button type="button" aria-label="Zoom in" className={toolButton} onClick={() => { void flow.zoomIn() }}>+</button>
-          <span aria-hidden="true" className="mx-1 h-5 w-px bg-lw-line" />
-          <button type="button" aria-label="Fit the whole flow" title="Fit the whole flow" className={toolButton} onClick={() => { void flow.setViewport(fitAll(topRects, frameSize(), insets)) }}>Fit</button>
-          {canvas.focusId && <button type="button" title="Centre on the step the run is at" className={toolButton} onClick={() => { const rect = rectOf(canvas.focusId!); if (rect) void flow.setViewport(centerView(rect, frameSize(), insets, focusZoom)) }}>Where it is</button>}
-          {canvas.tools && <><span aria-hidden="true" className="mx-1 h-5 w-px bg-lw-line" />{canvas.tools}</>}
-        </div>
-      </Panel> : <Controls showInteractive={false} />}
-      {direction === "LR" && <MiniMap pannable zoomable ariaLabel="Workflow graph overview"
-        nodeColor={canvas ? node => { const state = (node.data as FlowData | undefined)?.extra?.state; return state ? miniColors[state] : "var(--color-lw-line-strong)" } : undefined}
-        style={canvas ? { width: 200, height: 72, marginRight: 16 + insets.right, marginBottom: 16 } : { width: 160, height: 90 }} className="!rounded-md !border !border-lw-line" />}
+      {canvas ? <CanvasToolbar canvas={canvas} direction={direction} zoom={zoom} view={view} /> : <Controls showInteractive={false} />}
+      {direction === "LR" && <GraphMiniMap canvas={Boolean(canvas)} insets={view.insets} />}
     </ReactFlow>
   </div>
 }
