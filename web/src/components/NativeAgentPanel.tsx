@@ -71,6 +71,7 @@ import { scrollAnchorOf, useConversationScroll } from "./useConversationScroll"
 import { useDraft } from "./useDraft"
 import { useAgentCatalog } from "./useAgentCatalog"
 import { useSlashMenu } from "./useSlashMenu"
+import { useComposerKeys } from "./useComposerKeys"
 
 // The least width at which subagent tiles sit beside the conversation; below
 // it they are a strip above it.
@@ -313,7 +314,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   })
   const pasted = usePastedImages(agentId, draft, insertImage)
   const slash = useSlashMenu(draft, setDraft, textareaRef, slashItems, catalogKey)
-  const { open: slashOpen, matches: slashMatches, index: slashIndex, setIndex: setSlashIndex, listId: slashListId, optionId: slashOptionId, select: handleSlashSelect, escape: escapeSlash } = slash
+  const { open: slashOpen, matches: slashMatches, index: slashIndex, setIndex: setSlashIndex, listId: slashListId, optionId: slashOptionId, select: handleSlashSelect } = slash
 
   const replaceSyncState = useCallback((next: NativeSyncState) => {
     syncStateRef.current = next
@@ -708,44 +709,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   )
 
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return
-      if (slashOpen) {
-        e.stopPropagation()
-        const count = slashMatches.length
-        if ((e.key === "ArrowDown" || e.key === "ArrowUp") && count > 0) {
-          e.preventDefault()
-          setSlashIndex((slashIndex + (e.key === "ArrowDown" ? 1 : count - 1)) % count)
-          return
-        }
-        if ((e.key === "Tab" || e.key === "Enter") && !e.shiftKey && count > 0) {
-          e.preventDefault()
-          handleSlashSelect(slashMatches[slashIndex].item)
-          return
-        }
-        if (e.key === "Escape") {
-          e.preventDefault()
-          escapeSlash()
-          return
-        }
-        if (e.key === "Enter" && !e.shiftKey) {
-          e.preventDefault()
-          return
-        }
-      }
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault()
-        handleSend()
-        return
-      }
-      if (e.key === "Escape" && busy) {
-        e.preventDefault()
-        handleInterrupt()
-      }
-    },
-    [handleSend, handleInterrupt, busy, slashOpen, slashIndex, slashMatches, setSlashIndex, handleSlashSelect, escapeSlash],
-  )
+  const handleKeyDown = useComposerKeys(slash, busy, handleSend, handleInterrupt)
 
   const handleModeChange = useCallback((mode: string) => {
     apiFetch(baseUrl, `/api/agents/${agentId}/chimera/modes`, {
