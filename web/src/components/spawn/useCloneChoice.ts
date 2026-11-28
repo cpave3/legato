@@ -22,18 +22,17 @@ function useJobClones(openKey: string, baseUrl: string, taskId: string, settings
 
   useEffect(() => {
     if (!openKey) return
-    let current = true
     setJobClones([])
     setJobClonesError("")
-    if (settingsRef.current?.fresh_clones_enabled) {
-      listJobClones(baseUrl)
-        .then((listed) => {
-          if (!current) return
-          setJobClones(listed)
-          startOn(ownCloneStart(listed, taskId, settingsRef.current?.repositories))
-        })
-        .catch((reason) => { if (current) setJobClonesError(cloneLoadError(reason)) })
-    }
+    if (!settingsRef.current?.fresh_clones_enabled) return
+    let current = true
+    listJobClones(baseUrl)
+      .then((listed) => {
+        if (!current) return
+        setJobClones(listed)
+        startOn(ownCloneStart(listed, taskId, settingsRef.current?.repositories))
+      })
+      .catch((reason) => { if (current) setJobClonesError(cloneLoadError(reason)) })
     return () => { current = false }
   }, [openKey, baseUrl, taskId, settingsRef, startOn])
 

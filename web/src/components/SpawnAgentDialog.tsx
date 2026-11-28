@@ -3,18 +3,18 @@ import { fetchAdapters } from "../lib/adapters"
 import { queryKeys } from "../lib/query"
 import { useModalLayer } from "./ui/useModalLayer"
 import { useCallback, useEffect, useId, useRef, useState } from "react"
-import { ChevronDown, X } from "lucide-react"
+import { X } from "lucide-react"
 import { accessLabel, listResources, type Resource } from "../lib/resources"
 import { macroMessage, pickerMacros, useMacros } from "../lib/macros"
 import { useServer } from "../hooks/useServer"
 import { useSettings } from "../hooks/useSettings"
 import { agentKindLabel } from "../lib/agentKind"
-import { engramMarkLabel, fetchEngramPicker, takesEngram, type EngramPicker } from "../lib/engrams"
 import { directoryName, saveDirectoryPreset } from "../lib/spawnDirectories"
-import { suggestDelayMs } from "../lib/spawnSuggestions"
 import { buildSpawnRequest, spawnWorkingDir, type SessionPolicy, type SpawnAgentRequest } from "../lib/spawnRequest"
 import { useDirectoryField } from "./spawn/useDirectoryField"
 import { useCloneChoice } from "./spawn/useCloneChoice"
+import { useEngramChoice } from "./spawn/useEngramChoice"
+import { EngramField } from "./spawn/EngramField"
 import { WhereField } from "./spawn/WhereField"
 import { fieldLabel, focusRing } from "./spawn/styles"
 
@@ -105,16 +105,6 @@ export function SpawnAgentDialog({
   const [picked, setPicked] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-  // The engrams the agent can start as, and the one picked ("" for none).
-  const [engramPicker, setEngramPicker] = useState<EngramPicker | null>(null)
-  const [engram, setEngram] = useState("")
-  // Ticked: the pick is bound to the place and made its default, or with
-  // no engram the place's default is cleared. Unticked by every new pick.
-  const [rememberEngram, setRememberEngram] = useState(false)
-  const pickEngram = (name: string) => {
-    setEngram(name)
-    setRememberEngram(false)
-  }
 
   const formRef = useRef<HTMLFormElement>(null)
   useModalLayer({ open, onClose, containerRef: formRef, dismissible: !loading })
@@ -130,6 +120,11 @@ export function SpawnAgentDialog({
   const { inClone, repository: cloneRepository, jobClone, branch, baseBranch, jobClonesError } = clone
   const dir = useDirectoryField({ openKey, baseUrl, initialWorkingDir, settingsRef, folder: clone.whereKind === "folder" })
   const { path, presets, selected, serverKnowsDirectories, savePath, showAll } = dir
+  const engram = useEngramChoice({
+    open, openKey, baseUrl, taskId, adapter: effectiveAdapter,
+    dir: inClone ? "" : path.trim(),
+    repo: inClone ? cloneRepository?.repo ?? "" : "",
+  })
 
   useEffect(() => {
     if (!open) return
@@ -143,9 +138,6 @@ export function SpawnAgentDialog({
     setPrompt("")
     setMacroName("")
     setTier("")
-    setEngramPicker(null)
-    setEngram("")
-    setRememberEngram(false)
     setPicked([])
     listResources(baseUrl)
       .then((listed) => { if (current) setResources(listed) })
@@ -156,28 +148,6 @@ export function SpawnAgentDialog({
   const where = inClone ? cloneRepository?.name ?? "" : selected?.name ?? directoryName(path)
   const canSave = !inClone && serverKnowsDirectories && path.trim() !== "" && !selected
 
-  // The engrams are asked for again whenever "Where" changes: the place
-  // decides which are bound there and which is picked first.
-  const engramRepo = inClone ? cloneRepository?.repo ?? "" : ""
-  const engramDir = inClone ? "" : path.trim()
-  useEffect(() => {
-    if (!open) return
-    const controller = new AbortController()
-    const timer = window.setTimeout(() => {
-      fetchEngramPicker(baseUrl, { dir: engramDir, repo: engramRepo, taskId }, controller.signal)
-        .then((picker) => {
-          if (controller.signal.aborted) return
-          setEngramPicker(picker)
-          setEngram(picker.enabled ? picker.preselect ?? "" : "")
-          setRememberEngram(false)
-        })
-        .catch(() => {})
-    }, suggestDelayMs)
-    return () => {
-      window.clearTimeout(timer)
-      controller.abort()
-    }
-  }, [open, baseUrl, engramDir, engramRepo, taskId])
 
   // The default follows the usage profile of the work's repository, which
   // may differ from the global default, so it names no adapter; every
@@ -188,17 +158,6 @@ export function SpawnAgentDialog({
       .map((adapter) => ({ value: adapter, label: agentKindLabel(adapter), note: "" })),
     { value: "shell", label: agentKindLabel("shell"), note: "" },
   ]
-  const engramShown = !!engramPicker?.enabled && takesEngram(effectiveAdapter)
-  const engramChoice = engramPicker?.engrams.find((choice) => choice.name === engram)
-  // The engrams of this place first (the task's last one leads them), then
-  // the rest.
-  const placeEngrams = (engramPicker?.engrams ?? []).filter((choice) => choice.bound || choice.mark === "last" || choice.mark === "default")
-  const otherEngrams = (engramPicker?.engrams ?? []).filter((choice) => !placeEngrams.includes(choice))
-  const placeWord = engramPicker?.place?.kind === "folder" ? "This folder" : "This repo"
-  const placeNoun = engramPicker?.place?.kind === "folder" ? "folder" : "repo"
-  const placeDefault = engramPicker?.place?.default ?? ""
-  // Remember is offered only when ticking it would change something.
-  const canRemember = engramShown && !!engramPicker?.place && (engram ? engram !== placeDefault : placeDefault !== "")
   const toolLabel = agentKindLabel(effectiveAdapter)
 
   const submit = useCallback(async () => {
@@ -210,14 +169,14 @@ export function SpawnAgentDialog({
       await onSubmit(buildSpawnRequest({
         title, agentKind, effectiveAdapter, account, path, inClone, jobClone, cloneRepo: cloneRepository?.repo, branch, baseBranch,
         offersSessionChoice, sessionPolicy, resources: picked, unsandboxed, hostNetworkOffered, hostNetwork, prompt, tier,
-        engramShown, engram, canRemember, rememberEngram,
+        engramShown: engram.shown, engram: engram.engram, canRemember: engram.canRemember, rememberEngram: engram.remember,
       }))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setLoading(false)
     }
-  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, effectiveAdapter, account, offersSessionChoice, sessionPolicy, picked, unsandboxed, hostNetworkOffered, hostNetwork, prompt, tier, cloneRepository, baseBranch, branch, inClone, jobClone, engramShown, engram, canRemember, rememberEngram])
+  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, effectiveAdapter, account, offersSessionChoice, sessionPolicy, picked, unsandboxed, hostNetworkOffered, hostNetwork, prompt, tier, cloneRepository, baseBranch, branch, inClone, jobClone, engram.shown, engram.engram, engram.canRemember, engram.remember])
 
   if (!open) return null
 
@@ -333,57 +292,7 @@ export function SpawnAgentDialog({
             </label>
           )}
 
-          {engramShown && (
-            <div className="flex flex-col gap-1.5">
-              <label className="flex flex-col gap-1.5">
-                <span className={fieldLabel}>Engram</span>
-                <span className="relative flex">
-                  <select
-                    aria-label="Engram"
-                    value={engram}
-                    onChange={(event) => pickEngram(event.target.value)}
-                    className={`h-[46px] w-full min-w-0 appearance-none truncate rounded-[10px] border border-lw-line-strong bg-lw-ground pl-3 pr-9 text-base text-lw-text outline-none sm:h-9 sm:rounded-md sm:text-sm ${focusRing}`}
-                  >
-                    <option value="">No engram</option>
-                    {placeEngrams.length > 0 && (
-                      <optgroup label={placeWord}>
-                        {placeEngrams.map((choice) => (
-                          <option key={choice.name} value={choice.name}>
-                            {engramMarkLabel(choice.mark) ? `${choice.name} · ${engramMarkLabel(choice.mark)}` : choice.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {placeEngrams.length > 0
-                      ? otherEngrams.length > 0 && (
-                        <optgroup label="Other engrams">
-                          {otherEngrams.map((choice) => <option key={choice.name} value={choice.name}>{choice.name}</option>)}
-                        </optgroup>
-                      )
-                      : otherEngrams.map((choice) => <option key={choice.name} value={choice.name}>{choice.name}</option>)}
-                  </select>
-                  <ChevronDown aria-hidden="true" size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-lw-faint" />
-                </span>
-              </label>
-              {engramChoice?.summary && <p className="text-xs text-lw-faint">{engramChoice.summary}</p>}
-              {canRemember && engramPicker?.place && (
-                <label className="flex cursor-pointer items-start gap-2.5 text-sm text-lw-text-2 sm:text-xs">
-                  <input
-                    type="checkbox"
-                    checked={rememberEngram}
-                    onChange={(event) => setRememberEngram(event.target.checked)}
-                    className="mt-0.5 accent-lw-accent"
-                  />
-                  <span>
-                    <span className="text-lw-text">{engram ? `Remember for this ${placeNoun}` : `Clear this ${placeNoun}'s default`}</span>
-                    {engram && (
-                      <span className="block text-lw-faint">Bind {engram} to {engramPicker.place.label} and make it the default.</span>
-                    )}
-                  </span>
-                </label>
-              )}
-            </div>
-          )}
+          {engram.shown && <EngramField engram={engram} />}
 
           {offersSessionChoice && (
             <fieldset className="flex flex-col gap-1.5">
