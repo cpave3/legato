@@ -69,6 +69,7 @@ import { shellTileForCall, shellTiles } from "./tiles/shellTiles"
 import { fromStored, mergeShells, type NativeBackgroundShell, type StoredBackgroundShell } from "../lib/backgroundShells"
 import type { BackgroundJob } from "../lib/agentWire"
 import { useElementWidth } from "../hooks/useElementWidth"
+import { scrollAnchorOf, useConversationScroll } from "./useConversationScroll"
 
 // The least width at which subagent tiles sit beside the conversation; below
 // it they are a strip above it.
@@ -298,7 +299,8 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [mode, setMode] = useState<string>("")
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const scroll = useConversationScroll(loading, syncState.items)
+  const { scrollRef, isScrolledUp, scrollToBottom, scrollToBottomAfterRender, restoreAfterSync, followLatest, restartInitialScroll } = scroll
   const draftKey = `legato:chimera-draft:${agentId}`
   const { items, busy, error, contextUsage, model } = syncState
   const blocks = useMemo(() => conversationBlocks(items), [items])
@@ -330,8 +332,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const awaitingPerson = awaitingRequest || terminalAsking
   // The effort the model runs at, when the session reports one.
   const effort = syncState.settingsState?.effective.reasoningEffort
-  const [isScrolledUp, setIsScrolledUp] = useState(false)
-  const isScrolledUpRef = useRef(false)
   const [modes, setModes] = useState<ModeInfo[]>([])
   const [modesOpen, setModesOpen] = useState(false)
   const [models, setModels] = useState<ModelInfo[]>([])
@@ -387,41 +387,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     }
     replaceSyncState(reduceNativeEvent(syncStateRef.current, event))
   }, [replaceSyncState])
-
-  const scrollToBottom = useCallback(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-      isScrolledUpRef.current = false
-      setIsScrolledUp(false)
-    }
-  }, [])
-
-  const scrollToBottomAfterRender = useCallback(() => {
-    requestAnimationFrame(scrollToBottom)
-  }, [scrollToBottom])
-
-  // Scroll to bottom once the feed has content. The initial load always
-  // scrolls to the latest message regardless of isScrolledUp, because the
-  // browser fires a spurious onScroll at scrollTop=0 when content first
-  // overflows. After that, scroll to bottom only when the user is near the
-  // bottom (within a threshold), respecting deliberate scroll-up.
-  const initialScrollDone = useRef(false)
-  useEffect(() => {
-    if (!loading && scrollRef.current) {
-      if (!initialScrollDone.current) {
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-        isScrolledUpRef.current = false
-        setIsScrolledUp(false)
-        initialScrollDone.current = true
-      } else {
-        const el = scrollRef.current
-        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60
-        if (atBottom) {
-          el.scrollTop = el.scrollHeight
-        }
-      }
-    }
-  }, [loading, syncState.items])
 
   // A card or an artifact the agent showed may put text in the message box.
   // It is added to what is there and never sent from here.
@@ -547,10 +512,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     const generation = ++syncGenerationRef.current
     const eventQueue = queuedEventsRef.current ?? []
     const viewport = scrollRef.current
-    const scrollAnchor = viewport ? {
-      atBottom: viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 40,
-      top: viewport.scrollTop,
-    } : null
+    const scrollAnchor = scrollAnchorOf(viewport)
     queuedEventsRef.current = eventQueue
     if (viewport) setSyncing(true)
     else setLoading(true)
@@ -564,14 +526,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       // The session says a turn runs: Working is no longer only the panel's guess.
       if (snapshot.status === "running" || snapshot.status === "waiting_for_permission" || snapshot.status === "waiting_for_input") workingUnconfirmedRef.current = false
       replaceSyncState(reconcileNativeSnapshot(snapshot, syncStateRef.current, eventQueue))
-      if (scrollAfterSync || scrollAnchor?.atBottom) {
-        isScrolledUpRef.current = false
-        setIsScrolledUp(false)
-      } else if (scrollAnchor) {
-        requestAnimationFrame(() => {
-          if (scrollRef.current) scrollRef.current.scrollTop = scrollAnchor.top
-        })
-      }
+      restoreAfterSync(scrollAnchor, scrollAfterSync)
     } catch (reason) {
       if (generation === syncGenerationRef.current) {
         let next = syncStateRef.current
@@ -590,7 +545,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         setSyncing(false)
       }
     }
-  }, [agentId, baseUrl, replaceSyncState])
+  }, [agentId, baseUrl, replaceSyncState, scrollRef, restoreAfterSync])
   useEffect(() => {
     if (!resyncRef) return
     resyncRef.current = () => { void resync() }
@@ -602,7 +557,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   useEffect(() => {
     replaceSyncState(createNativeSyncState())
     invalidateModelRequests()
-    initialScrollDone.current = false
+    restartInitialScroll()
     hydratedAgentRef.current = null
     queuedEventsRef.current = []
     return () => {
@@ -611,7 +566,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       hydratedAgentRef.current = null
       if (runFinishTimerRef.current != null) window.clearTimeout(runFinishTimerRef.current)
     }
-  }, [agentId, replaceSyncState, invalidateModelRequests])
+  }, [agentId, replaceSyncState, invalidateModelRequests, restartInitialScroll])
 
   const [bangQueue, setBangQueue] = useState<string[]>([])
   const [bangRunning, setBangRunning] = useState(false)
@@ -755,15 +710,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
             return prev.slice(1)
           })
         }
-        requestAnimationFrame(() => {
-          if (scrollRef.current) {
-            const el = scrollRef.current
-            const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60
-            if (atBottom) {
-              el.scrollTop = el.scrollHeight
-            }
-          }
-        })
+        followLatest()
       } catch {
         replaceSyncState({ ...syncStateRef.current, error: "Invalid native event; refresh from snapshot" })
       }
@@ -779,7 +726,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       unsubscribe()
       if (following) send({ type: "unsubscribe_agent", agent_id: agentId })
     }
-  }, [subscribe, agentId, agentKind, applyEvent, replaceSyncState, resync, executeBang, following, send, stopUnconfirmedWorking])
+  }, [subscribe, agentId, agentKind, applyEvent, replaceSyncState, resync, executeBang, following, send, stopUnconfirmedWorking, followLatest])
 
   const handleBuiltinSlash = useCallback(async (raw: string) => {
     const parts = raw.split(/\s+/)
@@ -1094,7 +1041,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       {/* Conversation viewport owns both scrolling and its floating action. */}
       <ConversationFeed
         scrollRef={scrollRef}
-        onScroll={(e) => { const el = e.currentTarget; const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40; isScrolledUpRef.current = !atBottom; setIsScrolledUp(!atBottom) }}
+        onScroll={scroll.onScroll}
         items={items}
         blocks={blocks}
         agentId={agentId}
