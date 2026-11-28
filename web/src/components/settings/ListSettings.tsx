@@ -252,8 +252,14 @@ export function EntryForm({ list, form, entry, onSave, onCancel, lists = [], met
     <fieldset disabled={saving} aria-label={entry ? `Edit ${entry.name}` : `New entry of ${list.title}`} className="mt-2 flex min-w-0 flex-col gap-3 rounded-lg border border-lw-line bg-lw-ground/40 p-3">
       {yaml === null
         ? <EntryFields list={list} form={form} entry={entry} edit={edit} lists={lists} meters={meters} onEdited={() => setError("")} />
-        : <YamlField title={list.title} yaml={yaml} onChange={(value) => { setYaml(value); setError("") }} />}
-      {edit.conflict && <EntryConflict onTheirs={() => { edit.takeTheirs(); setYaml(null) }} onKeep={edit.keepMine} />}
+        : <Labelled field={{ label: "As in config.yaml", help: "The whole entry, fields the form shows and those it does not." }}>
+          <textarea aria-label={`${list.title} entry as YAML`} rows={8} value={yaml} onChange={(e) => { setYaml(e.target.value); setError("") }} className={cn(fieldClass, "font-lw-mono text-xs")} spellCheck={false} />
+        </Labelled>}
+      {edit.conflict && <div className="flex flex-wrap items-center gap-2 text-xs text-lw-needs">
+        <p role="status">This entry changed elsewhere while you edited it.</p>
+        <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={() => { edit.takeTheirs(); setYaml(null) }}>Use theirs</button>
+        <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={edit.keepMine}>Keep mine</button>
+      </div>}
       {message && <p role="alert" className="text-xs text-lw-error">{message}</p>}
       <EntryActions saving={saving} blocked={(!edit.name.trim() && yaml === null) || edit.conflict || Boolean(fieldError)} asYaml={yaml !== null}
         onSave={() => void save(edit.conflict, read)} onCancel={onCancel} onYaml={toYaml} onForm={backToForm} />
@@ -276,12 +282,6 @@ function yamlActions(yaml: string | null, setYaml: (yaml: string | null) => void
       setYaml(null)
     },
   }
-}
-
-function YamlField({ title, yaml, onChange }: { title: string; yaml: string; onChange: (yaml: string) => void }) {
-  return <Labelled field={{ label: "As in config.yaml", help: "The whole entry, fields the form shows and those it does not." }}>
-    <textarea aria-label={`${title} entry as YAML`} rows={8} value={yaml} onChange={(e) => onChange(e.target.value)} className={cn(fieldClass, "font-lw-mono text-xs")} spellCheck={false} />
-  </Labelled>
 }
 
 // EntryActions is Save, Cancel, and the switch between the form and YAML.
@@ -318,14 +318,6 @@ function EntryFields({ list, form, entry, edit, lists, meters, onEdited }: {
         onError={(message) => edit.setFieldError(field.key, message)} />
     </Labelled>)}
   </>
-}
-
-function EntryConflict({ onTheirs, onKeep }: { onTheirs: () => void; onKeep: () => void }) {
-  return <div className="flex flex-wrap items-center gap-2 text-xs text-lw-needs">
-    <p role="status">This entry changed elsewhere while you edited it.</p>
-    <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={onTheirs}>Use theirs</button>
-    <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={onKeep}>Keep mine</button>
-  </div>
 }
 
 // useListEntries saves and removes a list's entries, saying how it went;
