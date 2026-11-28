@@ -196,10 +196,6 @@ function IntegerControl({ name, value, text, set, onChange }: ControlProps) {
   return <CommitField aria-label={name} inputMode="numeric" value={text} aria-invalid={notANumber("integer", value) || undefined} onCommit={raw => isWholeNumber(raw) ? onChange(Number(raw.trim())) : set(raw)} />
 }
 
-function JsonControl({ name, value, onChange }: ControlProps) {
-  return <CommitField aria-label={name} multiline value={jsonText(value)} onCommit={raw => onChange(jsonValue(raw))} />
-}
-
 // TaskControl chooses a task reference: the workflow's task or a task
 // input, keeping a value it does not list.
 function TaskControl({ name, text, onChange, taskRefs }: ControlProps & { taskRefs: string[] }) {
@@ -229,7 +225,7 @@ function PlainControl(props: FieldControlProps) {
     case "text": return <CommitField aria-label={name} multiline value={text} onCommit={set} />
     case "boolean": return <BooleanControl {...props} />
     case "integer": return <IntegerControl {...props} />
-    case "json": return <JsonControl {...props} />
+    case "json": return <CommitField aria-label={name} multiline value={jsonText(props.value)} onCommit={raw => props.onChange(jsonValue(raw))} />
     case "chat_buttons": return expression ? <CommitField aria-label={name} value={text} onCommit={set} /> : <ChatButtonsField name={name} stepId={props.stepId} value={props.value} refs={props.refs} onChange={props.onChange} />
     case "task": return <TaskControl {...props} />
     default: return <ChoiceControl {...props} />
