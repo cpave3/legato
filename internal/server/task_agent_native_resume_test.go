@@ -311,6 +311,10 @@ func TestTaskAgentNativeResumeMissingTranscriptRequiresExplicitNew(t *testing.T)
 	for _, kind := range []string{"claude-code", "codex"} {
 		t.Run(kind, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
+			// The account a New launch uses is the environment's; clear the
+			// one an agent running these tests may have, so codex (which
+			// gets none) and claude-code agree with what the test expects.
+			t.Setenv("CLAUDE_CONFIG_DIR", "")
 			db := nativeResumeStore(t)
 			saved := seedNativeResumeRecord(t, db, kind)
 			binDir := t.TempDir()
