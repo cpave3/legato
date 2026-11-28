@@ -416,8 +416,17 @@ function Connection(props: ConnectionProps) {
 
       <Rules conn={conn} busy={busy} onSave={(rules) => actions.change({ rules })} />
 
-      <RemoveConnection name={conn.name} busy={busy} confirming={actions.confirming === "remove"}
-        onAsk={() => actions.setConfirming("remove")} onKeep={() => actions.setConfirming(null)} onRemove={actions.remove} />
+      <div className="flex flex-wrap items-center gap-2">
+        {actions.confirming === "remove" ? (
+          <>
+            <span className="text-xs text-lw-text-2">Remove {conn.name}, its authorization and its rules?</span>
+            <button type="button" className={dangerButton} disabled={busy} onClick={actions.remove}>Remove {conn.name}</button>
+            <button type="button" className={quietButton} disabled={busy} onClick={() => actions.setConfirming(null)}>Keep</button>
+          </>
+        ) : (
+          <button type="button" className={quietButton} disabled={busy} onClick={() => actions.setConfirming("remove")}>Remove</button>
+        )}
+      </div>
     </li>
   )
 }
@@ -430,7 +439,16 @@ function Authorization({ conn, actions }: { conn: MCPConnection; actions: Return
     {attempt?.status === "awaiting_confirmation" && <ConfirmAttempt name={conn.name} attempt={attempt} busy={busy} onConfirm={actions.confirm} onCancel={actions.cancel} />}
     {(actions.waiting || viaApp) && <ConsentWaiting viaApp={viaApp} consentUrl={actions.consentUrl} busy={busy} onCancel={attempt ? actions.cancel : undefined} />}
     {!attempt && !viaApp && (actions.confirming === "disconnect"
-      ? <ConfirmDisconnect conn={conn} busy={busy} onDisconnect={actions.disconnect} onKeep={() => actions.setConfirming(null)} />
+      ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-lw-text-2">
+            Stop Legato using {conn.name}, and ask the server to revoke its tokens?
+            {conn.shared_with === "burnlite" && " The Burnlite board stops syncing too."}
+          </span>
+          <button type="button" className={dangerButton} disabled={busy} onClick={actions.disconnect}>Disconnect {conn.name}</button>
+          <button type="button" className={quietButton} disabled={busy} onClick={() => actions.setConfirming(null)}>Keep</button>
+        </div>
+      )
       : <ConnectButtons conn={conn} busy={busy} onConnect={actions.connect} onDisconnect={() => actions.setConfirming("disconnect")} />)}
   </>
 }
@@ -508,19 +526,6 @@ function ConsentWaiting({ viaApp, consentUrl, busy, onCancel }: { viaApp: boolea
   )
 }
 
-function ConfirmDisconnect({ conn, busy, onDisconnect, onKeep }: { conn: MCPConnection; busy: boolean; onDisconnect: () => void; onKeep: () => void }) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="text-xs text-lw-text-2">
-        Stop Legato using {conn.name}, and ask the server to revoke its tokens?
-        {conn.shared_with === "burnlite" && " The Burnlite board stops syncing too."}
-      </span>
-      <button type="button" className={dangerButton} disabled={busy} onClick={onDisconnect}>Disconnect {conn.name}</button>
-      <button type="button" className={quietButton} disabled={busy} onClick={onKeep}>Keep</button>
-    </div>
-  )
-}
-
 function ConnectButtons({ conn, busy, onConnect, onDisconnect }: { conn: MCPConnection; busy: boolean; onConnect: () => void; onDisconnect: () => void }) {
   const authorized = conn.authorization === "authorized"
   return (
@@ -529,24 +534,6 @@ function ConnectButtons({ conn, busy, onConnect, onDisconnect }: { conn: MCPConn
         {authorized || conn.authorization === "reauth_required" ? "Connect again" : "Connect"}
       </button>
       {authorized && <button type="button" className={quietButton} disabled={busy} onClick={onDisconnect}>Disconnect</button>}
-    </div>
-  )
-}
-
-function RemoveConnection({ name, busy, confirming, onAsk, onKeep, onRemove }: {
-  name: string; busy: boolean; confirming: boolean; onAsk: () => void; onKeep: () => void; onRemove: () => void
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {confirming ? (
-        <>
-          <span className="text-xs text-lw-text-2">Remove {name}, its authorization and its rules?</span>
-          <button type="button" className={dangerButton} disabled={busy} onClick={onRemove}>Remove {name}</button>
-          <button type="button" className={quietButton} disabled={busy} onClick={onKeep}>Keep</button>
-        </>
-      ) : (
-        <button type="button" className={quietButton} disabled={busy} onClick={onAsk}>Remove</button>
-      )}
     </div>
   )
 }
@@ -758,6 +745,7 @@ function AddConnection({ baseUrl, onAdded, onPending }: { baseUrl: string; onAdd
   const [local, setLocal] = useState(emptyLocal)
   const { busy, error, add } = useAddConnection(baseUrl, onAdded, onPending)
   const setLocalField = (key: keyof LocalDraft) => (value: string) => setLocal((d) => ({ ...d, [key]: value }))
+  const setRemoteField = (key: keyof RemoteDraft) => (e: { target: { value: string } }) => setRemote({ ...remote, [key]: e.target.value })
 
   // What was typed for the kind added is cleared once it is sent; the
   // authorization chosen stays.
@@ -779,46 +767,37 @@ function AddConnection({ baseUrl, onAdded, onPending }: { baseUrl: string; onAdd
           <option value="stdio">Local command</option>
         </select>
         <input aria-label="MCP server name" value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === "stdio" ? "design" : "notion"} className={`${input} font-lw-mono`} />
-        {kind === "http" ? <RemoteFields draft={remote} onChange={setRemote} /> : <span className="sm:col-span-2" />}
+        {kind === "http" ? (
+          <>
+            <input aria-label="MCP server address" type="url" value={remote.url} onChange={setRemoteField("url")} placeholder="https://mcp.example.com/mcp" className={`${input} font-lw-mono`} />
+            <select aria-label="Authorization" value={remote.auth} onChange={(e) => setRemote({ ...remote, auth: e.target.value as "oauth" | "none" })} className={input}>
+              <option value="oauth">OAuth</option>
+              <option value="none">None</option>
+            </select>
+          </>
+        ) : <span className="sm:col-span-2" />}
         <button type="submit" className={quietButton} disabled={busy || !canAdd(kind, name, remote, local)}>Add</button>
       </div>
       {kind === "stdio" && <LocalFields command={local.command} setCommand={setLocalField("command")} args={local.args} setArgs={setLocalField("args")}
         dir={local.dir} setDir={setLocalField("dir")} env={local.env} setEnv={setLocalField("env")} />}
-      {kind === "http" && <RemoteAdvanced draft={remote} onChange={setRemote} />}
+      {kind === "http" && (
+        // A remote server's authorization server, private networks, and a
+        // client registered for Legato by hand.
+        <details>
+          <summary className="cursor-pointer text-xs text-lw-text-2">Advanced</summary>
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <input aria-label="Authorization server" type="url" value={remote.issuer} onChange={setRemoteField("issuer")} placeholder="Authorization server, if not the one the server names" className={`${input} font-lw-mono`} />
+            <input aria-label="Private networks" value={remote.networks} onChange={setRemoteField("networks")} placeholder="10.0.0.0/8, for a server on your network" className={`${input} font-lw-mono`} />
+          </div>
+          <p className="mt-2 text-[11px] text-lw-faint">A client registered for Legato by hand, for a server that offers no registration Legato can use. Register the redirect http://127.0.0.1:&lt;port&gt;/callback with a free port; connecting listens on exactly that port.</p>
+          <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <input aria-label="Client ID" value={remote.clientID} onChange={setRemoteField("clientID")} placeholder="Client ID" className={`${input} font-lw-mono`} />
+            <input aria-label="Registered redirect" value={remote.redirect} onChange={setRemoteField("redirect")} placeholder="http://127.0.0.1:47123/callback" className={`${input} font-lw-mono`} />
+            <input aria-label="Client secret" type="password" autoComplete="off" value={remote.secret} onChange={setRemoteField("secret")} placeholder="Client secret, if it has one" className={`${input} font-lw-mono`} />
+          </div>
+        </details>
+      )}
       {error && <p role="alert" className="text-xs text-lw-error">{error}</p>}
     </form>
-  )
-}
-
-function RemoteFields({ draft, onChange }: { draft: RemoteDraft; onChange: (draft: RemoteDraft) => void }) {
-  return (
-    <>
-      <input aria-label="MCP server address" type="url" value={draft.url} onChange={(e) => onChange({ ...draft, url: e.target.value })} placeholder="https://mcp.example.com/mcp" className={`${input} font-lw-mono`} />
-      <select aria-label="Authorization" value={draft.auth} onChange={(e) => onChange({ ...draft, auth: e.target.value as "oauth" | "none" })} className={input}>
-        <option value="oauth">OAuth</option>
-        <option value="none">None</option>
-      </select>
-    </>
-  )
-}
-
-// RemoteAdvanced is a remote server's authorization server, private
-// networks, and a client registered for Legato by hand.
-function RemoteAdvanced({ draft, onChange }: { draft: RemoteDraft; onChange: (draft: RemoteDraft) => void }) {
-  const set = (key: keyof RemoteDraft) => (e: { target: { value: string } }) => onChange({ ...draft, [key]: e.target.value })
-  return (
-    <details>
-      <summary className="cursor-pointer text-xs text-lw-text-2">Advanced</summary>
-      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <input aria-label="Authorization server" type="url" value={draft.issuer} onChange={set("issuer")} placeholder="Authorization server, if not the one the server names" className={`${input} font-lw-mono`} />
-        <input aria-label="Private networks" value={draft.networks} onChange={set("networks")} placeholder="10.0.0.0/8, for a server on your network" className={`${input} font-lw-mono`} />
-      </div>
-      <p className="mt-2 text-[11px] text-lw-faint">A client registered for Legato by hand, for a server that offers no registration Legato can use. Register the redirect http://127.0.0.1:&lt;port&gt;/callback with a free port; connecting listens on exactly that port.</p>
-      <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <input aria-label="Client ID" value={draft.clientID} onChange={set("clientID")} placeholder="Client ID" className={`${input} font-lw-mono`} />
-        <input aria-label="Registered redirect" value={draft.redirect} onChange={set("redirect")} placeholder="http://127.0.0.1:47123/callback" className={`${input} font-lw-mono`} />
-        <input aria-label="Client secret" type="password" autoComplete="off" value={draft.secret} onChange={set("secret")} placeholder="Client secret, if it has one" className={`${input} font-lw-mono`} />
-      </div>
-    </details>
   )
 }
