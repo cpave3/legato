@@ -1,20 +1,20 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react"
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Bot, Code2, Copy, FileText, FolderGit2, GitPullRequest, Hourglass, ListChecks, MoreVertical, Plus, Trash2 } from "lucide-react"
-import { addInput, inputsOf, itemKey, itemsOf, itemText, moveStep, pastedAs, pathAt, rangeOf, problemsByItem, removeStep, renameStep, setField, setItemText, setTrigger, stepsOf, stepYamlPath, triggersOf, parseWorkflow, insertStep, WorkflowDocumentError, type Item, type ItemRef, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Code2, Copy, MoreVertical, Plus, Trash2 } from "lucide-react"
+import { addInput, inputsOf, itemKey, itemsOf, itemText, moveStep, pastedAs, pathAt, rangeOf, problemsByItem, removeStep, renameStep, setField, setItemText, setTrigger, stepsOf, stepYamlPath, triggersOf, parseWorkflow, insertStep, WorkflowDocumentError, type ItemRef, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
 import { addressOf, sameSelection, type Selection } from "../../lib/workflowAddress"
-import { executors } from "../../lib/workflowSchema"
 import type { SchedulePreview, WorkflowDiagnostic } from "../../lib/workflowFiles"
 import { Button } from "../ui/Button"
 import { PendingDrafts } from "./pendingDrafts"
 import { CommitField, Problems } from "./builderFields"
+import { CARD_TASK, executorTitle, fromTheCard, iconOf, isTyping, nodeOf, orderOf, placeOf, rowsOf, selectionOfNode, type Row } from "./outlineRows"
 import { valueText } from "./builderStyles"
 import { DetailsForm, InputCard } from "./itemForms"
 import { brokenReferences, newStep, noOptions, stepReferences, type BuilderOptions, type StepValue } from "./stepForms"
-import { connectorOf, duplicateOf, idFromTitle, stepSummary } from "./stepRows"
+import { connectorOf, duplicateOf, idFromTitle } from "./stepRows"
 import { StepOutputs, StepSetup } from "./StepSetup"
 import { StepPicker } from "./StepPicker"
 import { TriggerCard } from "./TriggersEditor"
-import { KIND_TITLES, newTrigger, triggerKinds, triggerSentence, type SentencePart } from "./triggerForms"
+import { KIND_TITLES, newTrigger, triggerKinds } from "./triggerForms"
 import { LazyWorkflowYamlEditor } from "./LazyWorkflowYamlEditor"
 import { LazyWorkflowGraph } from "../workflow-graph/LazyWorkflowGraph"
 import type { WorkflowGraphModel } from "../../lib/workflow"
@@ -92,100 +92,7 @@ const cardOfKind: Record<Selection["kind"], string> = { trigger: "triggers", inp
  * text it was begun from. */
 export type HeldYaml = Record<string, { base: string; text: string }>
 
-// placeOf is a row's kind and position among the rows of its kind.
-function placeOf(order: Row[], selection: Selection): string {
-  const same = order.filter(row => row.selection.kind === selection.kind)
-  return `${selection.kind}:${same.findIndex(row => sameSelection(selection, row.selection))}`
-}
-
-type Row = { selection: Selection; label: string; detail: string; problem: string | null; problems: number; paused?: boolean; on?: boolean; sentence?: SentencePart[]; summary?: string; type?: string; depth?: number }
-
-const CARD_TASK = "${{ event.task }}"
-
-/** fromTheCard are the inputs a column trigger fills from its card. */
-function fromTheCard(values: WorkflowValues): string[] {
-  const inputs = (triggersOf(values)["task.entered_column"]?.inputs ?? {}) as Record<string, unknown>
-  return Object.entries(inputs).filter(([, value]) => typeof value === "string" && value.replace(/\s+/g, "") === CARD_TASK.replace(/\s+/g, "")).map(([name]) => name)
-}
-
-const isTyping = (target: EventTarget | null) => {
-  const element = target as HTMLElement | null
-  return Boolean(element && (element.tagName === "INPUT" || element.tagName === "TEXTAREA" || element.tagName === "SELECT" || element.isContentEditable))
-}
-
-const executorTitle = (type: unknown) => executors.find(e => e.type === type)?.title ?? String(type ?? "")
-
 const NO_SWITCHES: Record<string, boolean> = {}
-
-// A row's node in the run graph, and a node's row: trigger:<kind> and
-// step:<id> (a review loop's inner nodes are their step's).
-function nodeOf(selection: Selection | null): string | null {
-  if (selection?.kind === "step") return `step:${selection.path}`
-  if (selection?.kind === "trigger") return `trigger:${selection.name}`
-  return null
-}
-function selectionOfNode(graph: WorkflowGraphModel, id: string | null): Selection | null {
-  const node = graph.nodes.find(n => n.id === id)
-  const own = node?.kind === "inner" ? graph.nodes.find(n => n.id === node.parent) : node
-  if (own?.kind === "step" && own.step) return { kind: "step", path: own.step.path || own.step.id }
-  if (own?.kind === "trigger" && own.trigger && own.trigger.kind !== "manual") return { kind: "trigger", name: own.trigger.kind }
-  return null
-}
-
-// iconOf is a step type's icon in its row.
-function iconOf(type: string) {
-  if (type === "wait") return Hourglass
-  if (type.startsWith("agent.")) return Bot
-  if (type.startsWith("github.")) return GitPullRequest
-  if (type.startsWith("task.")) return ListChecks
-  if (type.startsWith("repo.") || type.startsWith("worktree.")) return FolderGit2
-  return FileText
-}
-
-// rowsOf are the outline's rows, section by section, from the file's
-// items: a trigger, input or step each, and About for the top-level fields.
-function rowsOf(items: Item[], values: WorkflowValues, problems: Map<string, WorkflowDiagnostic[]>, pausedHere: Record<string, boolean>) {
-  const fromCard = fromTheCard(values)
-  const count = (item: ItemRef) => (problems.get(itemKey(item)) ?? []).filter(d => d.severity === "error").length
-  const triggers = triggersOf(values)
-  const inputs = inputsOf(values)
-  const steps = new Map<string, Record<string, unknown>>()
-  const walk = (list: unknown, parent: string) => {
-    if (!Array.isArray(list)) return
-    list.forEach((step, i) => {
-      const id = step && typeof step === "object" && typeof (step as { id?: unknown }).id === "string" && (step as { id: string }).id !== "" ? (step as { id: string }).id : `#${i}`
-      const path = parent ? `${parent}/${id}` : id
-      steps.set(path, (step ?? {}) as Record<string, unknown>)
-      walk((step as { steps?: unknown } | null)?.steps, path)
-    })
-  }
-  walk(values.steps, "")
-  const when: Row[] = []
-  const asks: Row[] = []
-  const then: Row[] = []
-  const about: { problems: number; problem: string | null; containers: Item[] } = { problems: 0, problem: null, containers: [] }
-  for (const item of items) {
-    const ref = item.item
-    if (ref.kind === "trigger") {
-      const trigger = triggers[ref.name]
-      const sentence = item.problem ? undefined : triggerSentence(ref.name, trigger)
-      const paused = ref.name in pausedHere ? pausedHere[ref.name] : trigger?.enabled === false
-      when.push({ selection: ref, label: sentence ? sentence.map(p => p.text).join("") : KIND_TITLES[ref.name] ?? ref.name, sentence, detail: "", problem: item.problem, problems: count(ref), paused, on: !paused })
-    } else if (ref.kind === "input") {
-      asks.push({ selection: ref, label: ref.name, detail: fromCard.includes(ref.name) ? "from the card" : String(inputs[ref.name]?.type ?? ""), problem: item.problem, problems: count(ref) })
-    } else if (ref.kind === "step") {
-      const step = steps.get(ref.path) ?? {}
-      const depth = ref.path.split("/").length - 1
-      then.push({ selection: ref, label: valueText(step.title) || ref.path.split("/").pop() || "", detail: executorTitle(step.type), problem: item.problem, problems: count(ref), summary: item.problem ? "" : stepSummary(step as StepValue), type: String(step.type ?? ""), depth })
-    } else if (["inputs", "on", "steps"].includes(ref.key)) {
-      if (item.problem) about.containers.push(item)
-    } else {
-      about.problems += count(ref)
-      about.problem ??= item.problem
-    }
-  }
-  return { when, asks, then, about }
-}
 
 // WorkflowOutline is the Visual side of the editor (LEG-505): the outline
 // of the workflow (Triggers, Inputs, Steps, About; When, Asks for and Then
@@ -237,7 +144,7 @@ function Outline(props: WorkflowOutlineProps) {
 
   const rows = useMemo(() => rowsOf(items, values, problems, pausedHere), [items, values, problems, pausedHere])
   const savedIds = useMemo(() => savedText === null ? null : new Set(stepsOf(parseWorkflow(savedText).values).map(step => String(step?.id ?? ""))), [savedText])
-  const order: Row[] = useMemo(() => [...rows.when, ...rows.asks, ...rows.then, { selection: { kind: "about" }, label: "About", detail: "", problem: rows.about.problem, problems: rows.about.problems }], [rows])
+  const order: Row[] = useMemo(() => orderOf(rows), [rows])
 
   // A rename moves a row's address: follow it to the row of its kind in
   // the same place.
