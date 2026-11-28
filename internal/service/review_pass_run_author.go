@@ -50,6 +50,11 @@ func (c *ReviewRunCaller) authorState(ctx context.Context, run *reviewRun, loop 
 	if run.AuthorTask == "" {
 		return runAuthorPerson
 	}
+	if c.engine.opts.Agents == nil {
+		// A process that only reads the record (legato review-pass list)
+		// does not know what the author's agent is doing.
+		return runAuthorSettled
+	}
 	session, err := c.engine.opts.Agents.GetAgentSession(ctx, run.AuthorTask)
 	if err != nil || session == nil {
 		return runAuthorStopped

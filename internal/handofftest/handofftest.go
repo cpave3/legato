@@ -245,6 +245,8 @@ func (w *Worker) start() {
 		// As a worker's runtime does: workflows and the run caller, which
 		// the handoffs' review-loop runs run on.
 		w.ReviewRuns = newReviewRuns(w)
+		// As wireReviewRuns does: the Shipping page's list.
+		srv.SetShipping(w.ReviewRuns.Caller)
 	}
 	w.Handoffs = service.NewHandoffWorkerService(db, service.HandoffWorkerOptions{
 		Agents: w.Agents.(service.HandoffAgents), Repositories: w.Repos, Sandbox: func() bool { return sandbox },

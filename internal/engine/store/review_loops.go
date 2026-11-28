@@ -578,6 +578,15 @@ func (s *Store) ListReviewLoopsClosedSince(ctx context.Context, outcome, since s
 	return out, err
 }
 
+// ListReviewLoopsClosedAfter returns every loop closed at or after since
+// (RFC 3339), whatever its owner and outcome, newest closed first.
+func (s *Store) ListReviewLoopsClosedAfter(ctx context.Context, since string) ([]ReviewLoop, error) {
+	var out []ReviewLoop
+	err := s.db.SelectContext(ctx, &out, `SELECT * FROM review_loops WHERE state = 'closed' AND closed_at >= ?
+		ORDER BY closed_at DESC, id`, since)
+	return out, err
+}
+
 // CheckReviewLoopOwner is the re-check before a GitHub write: the loop as
 // it stands, ErrNotFound, ErrReviewLoopClosed or ErrReviewLoopNotOwned.
 func (s *Store) CheckReviewLoopOwner(ctx context.Context, id string, owner ReviewLoopOwner) (*ReviewLoop, error) {
