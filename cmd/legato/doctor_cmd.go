@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/cpave3/legato/config"
@@ -36,6 +38,14 @@ func doctorConfigFor(cfg *config.Config) service.DoctorConfig {
 	return doctorConfig(cfg, workflow.DiscoverFolders(workflowFolders(workflowRepositoryPresets(cfg))).Definitions)
 }
 
+func claudeAccountDirs(cfg *config.Config) []string {
+	var dirs []string
+	for _, account := range cfg.ClaudeAccounts {
+		dirs = append(dirs, account.ConfigDir)
+	}
+	return dirs
+}
+
 // doctorConfig is what the settings require of the machine: the default
 // agent tool, bwrap with the sandbox on, and the optional tools a setting
 // in use depends on.
@@ -45,6 +55,20 @@ func doctorConfig(cfg *config.Config, workflows []*workflow.Definition) service.
 		SandboxEnabled: cfg.Agents.Sandbox.Enabled,
 		RequiredBy:     map[string]string{},
 		ProfileDirs:    credentialProfileDirs(),
+		ClaudeModDir:   filepath.Join(config.ResolveDataDir(cfg), "claude-mod"),
+	}
+	// Where Claude Code keeps transcripts: the default login's and each
+	// account's, each once.
+	defaultClaude := os.Getenv("CLAUDE_CONFIG_DIR")
+	if defaultClaude == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			defaultClaude = filepath.Join(home, ".claude")
+		}
+	}
+	for _, dir := range append([]string{defaultClaude}, claudeAccountDirs(cfg)...) {
+		if dir != "" && !slices.Contains(out.ClaudeConfigDirs, dir) {
+			out.ClaudeConfigDirs = append(out.ClaudeConfigDirs, dir)
+		}
 	}
 	if cfg.ReviewPasses.Enabled {
 		out.RequiredBy["profiles.app"] = "review passes (review_passes.enabled)"

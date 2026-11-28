@@ -22,9 +22,6 @@ const world = (
   on: On,
   script: {
     lines?: string[]
-    permission?: object
-    // Answers to successive permission calls, before permission.
-    permissions?: object[]
     startsAfter?: Promise<void>
     reply?: Piece[]
     // What the mod's own store holds when the session starts.
@@ -99,9 +96,7 @@ const world = (
   on('http.fetch', ($, e) => {
     posted.push({ url: e.url, body: JSON.parse(e.init?.body ?? '{}') })
 
-    const text = e.url.endsWith('/mod/permissions')
-      ? JSON.stringify(script.permissions?.shift() ?? script.permission ?? { decision: 'ask' })
-      : ''
+    const text = ''
     const status = (e.url.endsWith('/mod/events') ? script.eventStatuses?.shift() : undefined) ?? 200
 
     return { value: { status, ok: status < 300, headers: {}, text } }
@@ -185,7 +180,6 @@ const world = (
   })
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
-  on('classic.PermissionRequest', () => ({}))
 
   const events = () => posted.flatMap(post => post.body.events ?? [])
 
@@ -238,24 +232,43 @@ const COMPLETE = { reason: 'answer', answer: 'Done.', durationMs: 10, isAborted:
 
 const READY = JSON.stringify({ type: 'ready', url: 'http://bridge.test/secret' })
 
-test('a failed model request reports its explanation without exposing the provider endpoint', async ($, on) => {
+// Claude Code's security mod passes the classic events over the mods a
+// person installs, so the legato-state plugin's command hooks answer
+// permission dialogs and report failed requests instead (LEG-684). They find
+// the session's bridge in this variable, which the processes the session
+// starts from then on inherit.
+test('the session\'s bridge is named to the hooks it starts while it runs', async ($, on) => {
   const clock = mock.clock(on)
   mock.env(on, LEGATO_SESSION)
-  const { events, exit } = world(on, { lines: [READY] })
-  on('classic.StopFailure', () => ({}))
+  const { envSet, exit } = world(on, { lines: [READY] })
 
   await $.session.start(INTERACTIVE)
   await clock.settle()
-  await $.classic.StopFailure({
-    error: 'unknown',
-    last_assistant_message: 'API Error: 400 provider-canary at https://provider.test/nonsecret-endpoint-canary',
+
+  expect(envSet.LEGATO_CLAUDE_BRIDGE_URL).toBe('http://bridge.test/secret')
+
+  exit()
+  await clock.settle()
+
+  expect('LEGATO_CLAUDE_BRIDGE_URL' in envSet && envSet.LEGATO_CLAUDE_BRIDGE_URL === undefined).toBe(true)
+})
+
+test('a session that ends takes its bridge\'s name from the hooks', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { envSet, exit } = world(on, { lines: [READY] })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.session.end({
+    reason: 'prompt_input_exit',
+    sessionId: 'claude-session-1',
+    resume: { id: 'claude-session-1' },
   })
   await clock.settle()
 
-  expect(events()).toContainEqual(expect.objectContaining({
-    type: 'request_error',
-    error: 'API Error: 400 provider-canary at [provider endpoint]',
-  }))
+  expect('LEGATO_CLAUDE_BRIDGE_URL' in envSet && envSet.LEGATO_CLAUDE_BRIDGE_URL === undefined).toBe(true)
+
   exit()
   await clock.settle()
 })
@@ -280,6 +293,48 @@ test('a headless run inside a Legato session does not take the session over', as
   await clock.settle()
 
   expect(spawned).toEqual([])
+})
+
+// A child `claude -p` an agent runs inherits the session's variables and
+// plugins. It owns no bridge, so its hooks must not answer for the parent's.
+test('a headless child forgets the bridge it inherited from its parent', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, { ...LEGATO_SESSION, LEGATO_CLAUDE_BRIDGE_URL: 'http://bridge.test/parent' })
+  const { spawned, envSet } = world(on)
+
+  await $.session.start({ cwd: '/work/repo', surface: null, isInteractive: false })
+  await clock.settle()
+
+  expect(spawned).toEqual([])
+  expect('LEGATO_CLAUDE_BRIDGE_URL' in envSet && envSet.LEGATO_CLAUDE_BRIDGE_URL === undefined).toBe(true)
+})
+
+test('outside a Legato session an inherited bridge is forgotten too', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, { LEGATO_CLAUDE_BRIDGE_URL: 'http://bridge.test/parent' })
+  const { envSet } = world(on)
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+
+  expect('LEGATO_CLAUDE_BRIDGE_URL' in envSet && envSet.LEGATO_CLAUDE_BRIDGE_URL === undefined).toBe(true)
+})
+
+test('a /clear keeps the hooks pointed at the bridge this process runs', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { envSet, exit } = world(on, { lines: [READY] })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.session.end({ reason: 'clear', sessionId: 'claude-session-1', resume: { id: 'claude-session-1' } })
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+
+  expect(envSet.LEGATO_CLAUDE_BRIDGE_URL).toBe('http://bridge.test/secret')
+
+  exit()
+  await clock.settle()
 })
 
 test('inside a Legato session the bridge is started and told what the session is', async ($, on) => {
@@ -334,91 +389,6 @@ test('turn events reach the bridge in the order they happened', async ($, on) =>
 
   expect(events().map(event => event.type)).toEqual(['hello', 'turn_start'])
   expect(events()[1]).toEqual(expect.objectContaining({ turnId: 'turn-1' }))
-
-  exit()
-  await clock.settle()
-})
-
-test('a permission prompt is answered by the decision Legato returns', async ($, on) => {
-  const clock = mock.clock(on)
-  mock.env(on, LEGATO_SESSION)
-  const { posted, exit } = world(on, { lines: [READY], permission: { decision: 'allow' } })
-
-  await $.session.start(INTERACTIVE)
-  await clock.settle()
-  const answered = await $.classic.PermissionRequest({
-    tool_name: 'Bash',
-    tool_input: { command: 'git push' },
-  })
-
-  expect(answered.decision).toEqual({ behavior: 'allow' })
-  const asked = posted.find(post => post.url.endsWith('/mod/permissions'))
-  expect(asked?.body).toEqual(
-    expect.objectContaining({ tool: 'Bash', input: { command: 'git push' } }),
-  )
-
-  exit()
-  await clock.settle()
-})
-
-test('a held permission answered wait is asked again with the same request', async ($, on) => {
-  const clock = mock.clock(on)
-  mock.env(on, LEGATO_SESSION)
-  const { posted, exit } = world(on, {
-    lines: [READY],
-    permissions: [{ decision: 'wait' }, { decision: 'wait' }, { decision: 'allow' }],
-  })
-
-  await $.session.start(INTERACTIVE)
-  await clock.settle()
-  const answered = await $.classic.PermissionRequest({
-    tool_name: 'Bash',
-    tool_input: { command: 'git push' },
-  })
-
-  expect(answered.decision).toEqual({ behavior: 'allow' })
-  const asked = posted.filter(post => post.url.endsWith('/mod/permissions'))
-  expect(asked).toHaveLength(3)
-  expect(new Set(asked.map(post => (post.body as { requestId: string }).requestId)).size).toBe(1)
-
-  exit()
-  await clock.settle()
-})
-
-test('a denial carries the feedback written in Legato', async ($, on) => {
-  const clock = mock.clock(on)
-  mock.env(on, LEGATO_SESSION)
-  const { exit } = world(on, {
-    lines: [READY],
-    permission: { decision: 'deny', feedback: 'never force push' },
-  })
-
-  await $.session.start(INTERACTIVE)
-  await clock.settle()
-  const answered = await $.classic.PermissionRequest({
-    tool_name: 'Bash',
-    tool_input: { command: 'git push --force' },
-  })
-
-  expect(answered.decision).toEqual({ behavior: 'deny', message: 'never force push' })
-
-  exit()
-  await clock.settle()
-})
-
-test('with nobody watching in Legato the dialog opens as usual', async ($, on) => {
-  const clock = mock.clock(on)
-  mock.env(on, LEGATO_SESSION)
-  const { exit } = world(on, { lines: [READY], permission: { decision: 'ask' } })
-
-  await $.session.start(INTERACTIVE)
-  await clock.settle()
-  const answered = await $.classic.PermissionRequest({
-    tool_name: 'Bash',
-    tool_input: { command: 'ls' },
-  })
-
-  expect(answered.decision).toBeUndefined()
 
   exit()
   await clock.settle()
@@ -958,125 +928,6 @@ test('a subagent keeps its own model whatever was chosen for the session', async
   }
 
   expect(requested).toEqual([{ model: 'claude-haiku-5-5', effort: 'medium' }])
-
-  exit()
-  await clock.settle()
-})
-
-const COLOR_QUESTION = [
-  {
-    question: 'Which color?',
-    header: 'Color',
-    multiSelect: false,
-    options: [
-      { label: 'Red', description: 'Warm' },
-      { label: 'Blue', description: 'Cool' },
-    ],
-  },
-]
-
-test('a question is answered with what the person chose in Legato', async ($, on) => {
-  const clock = mock.clock(on)
-  mock.env(on, LEGATO_SESSION)
-  const { posted, exit } = world(on, {
-    lines: [READY],
-    permission: { decision: 'allow', answers: { 'Which color?': 'Blue' } },
-  })
-
-  await $.session.start(INTERACTIVE)
-  await clock.settle()
-  const answered = await $.classic.PermissionRequest({
-    tool_name: 'AskUserQuestion',
-    tool_input: { questions: COLOR_QUESTION },
-  })
-
-  // The answers travel inside the tool's own input, as its dialog's would.
-  expect(answered.decision).toEqual({
-    behavior: 'allow',
-    updatedInput: { questions: COLOR_QUESTION, answers: { 'Which color?': 'Blue' } },
-  })
-  const asked = posted.find(post => post.url.endsWith('/mod/permissions'))
-  expect(asked?.body).toEqual(
-    expect.objectContaining({ tool: 'AskUserQuestion', input: { questions: COLOR_QUESTION } }),
-  )
-
-  exit()
-  await clock.settle()
-})
-
-test('a denial reads to the model as the bridge worded it', async ($, on) => {
-  const clock = mock.clock(on)
-  mock.env(on, LEGATO_SESSION)
-  const { exit } = world(on, {
-    lines: [READY],
-    permission: { decision: 'deny', feedback: 'later', message: 'The user dismissed these questions.' },
-  })
-
-  await $.session.start(INTERACTIVE)
-  await clock.settle()
-  const answered = await $.classic.PermissionRequest({
-    tool_name: 'AskUserQuestion',
-    tool_input: { questions: COLOR_QUESTION },
-  })
-
-  expect(answered.decision).toEqual({ behavior: 'deny', message: 'The user dismissed these questions.' })
-
-  exit()
-  await clock.settle()
-})
-
-test('a plan is approved by handing its input back with the edit mode chosen in Legato', async ($, on) => {
-  const clock = mock.clock(on)
-  mock.env(on, LEGATO_SESSION)
-  const acceptEdits = [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }]
-  const { exit } = world(on, {
-    lines: [READY],
-    permission: { decision: 'allow', returnInput: true, updatedPermissions: acceptEdits },
-  })
-  const plan = { plan: '# Add a comment\n\n- Edit README.md', planFilePath: '/home/me/.claude/plans/p.md' }
-
-  await $.session.start(INTERACTIVE)
-  await clock.settle()
-  const answered = await $.classic.PermissionRequest({ tool_name: 'ExitPlanMode', tool_input: plan })
-
-  expect(answered.decision).toEqual({
-    behavior: 'allow',
-    updatedInput: plan,
-    updatedPermissions: acceptEdits,
-  })
-
-  exit()
-  await clock.settle()
-})
-
-test('the rules the engine suggests for not asking again reach the bridge', async ($, on) => {
-  const clock = mock.clock(on)
-  mock.env(on, LEGATO_SESSION)
-  const suggestions = [
-    {
-      type: 'addRules' as const,
-      rules: [{ toolName: 'Bash', ruleContent: 'npm run:*' }],
-      behavior: 'allow' as const,
-      destination: 'localSettings' as const,
-    },
-  ]
-  const { posted, exit } = world(on, {
-    lines: [READY],
-    permission: { decision: 'allow', updatedPermissions: suggestions },
-  })
-
-  await $.session.start(INTERACTIVE)
-  await clock.settle()
-  const answered = await $.classic.PermissionRequest({
-    tool_name: 'Bash',
-    tool_input: { command: 'npm run build' },
-    permission_suggestions: suggestions,
-  })
-
-  const asked = posted.find(post => post.url.endsWith('/mod/permissions'))
-  expect(asked?.body.suggestions).toEqual(suggestions)
-  // Allowed as asked for: the command itself is not rewritten.
-  expect(answered.decision).toEqual({ behavior: 'allow', updatedPermissions: suggestions })
 
   exit()
   await clock.settle()

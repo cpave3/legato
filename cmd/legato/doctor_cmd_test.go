@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -205,5 +206,26 @@ func TestStartingLogsEachGitHubProfileOverrideThatNamesNoApp(t *testing.T) {
 	})
 	if len(logged) != 0 {
 		t.Errorf("logged %q with no override", logged)
+	}
+}
+
+// The claude-code.hooks check reads the transcripts of every Claude account
+// Legato starts agents with, and counts only what the installed mod saw.
+func TestDoctorReadsEveryClaudeAccountsTranscripts(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	cfg := &config.Config{DataDir: "/data/legato", ClaudeAccounts: []config.ClaudeAccount{{Name: "work", ConfigDir: "/home/me/.claude-work"}}}
+
+	got := doctorConfig(cfg, nil)
+
+	want := []string{filepath.Join(home, ".claude"), "/home/me/.claude-work"}
+	if !slices.Equal(got.ClaudeConfigDirs, want) || got.ClaudeModDir != filepath.Join("/data/legato", "claude-mod") {
+		t.Fatalf("dirs = %v, mod dir = %q", got.ClaudeConfigDirs, got.ClaudeModDir)
+	}
+
+	t.Setenv("CLAUDE_CONFIG_DIR", "/home/me/.claude-work")
+	if got := doctorConfig(cfg, nil); !slices.Equal(got.ClaudeConfigDirs, []string{"/home/me/.claude-work"}) {
+		t.Fatalf("dirs = %v, want each once", got.ClaudeConfigDirs)
 	}
 }
