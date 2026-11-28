@@ -989,6 +989,7 @@ func runServeCmd(args []string) int {
 			ReeveName:            reeveNameFor(db),
 			RepositoryResources:  repositoryResources(cfg),
 			Capabilities:         skillService(cfg, db),
+			ManagedHooks:         managedHookService(cfg, db),
 			CapabilityFolders:    capabilityFolders(cfg),
 		}, db))
 		sweepInterruptedAgents(agentSvc, configuredResourceService(cfg, db))
@@ -1409,6 +1410,7 @@ func runTUI() int {
 			ReeveName:            reeveNameFor(db),
 			RepositoryResources:  repositoryResources(cfg),
 			Capabilities:         skillService(cfg, db),
+			ManagedHooks:         managedHookService(cfg, db),
 			CapabilityFolders:    capabilityFolders(cfg),
 		}, db))
 		sweepInterruptedAgents(agentSvc, configuredResourceService(cfg, db))
@@ -2134,6 +2136,7 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		PullRequestModes:     pullRequestModes(cfg, db),
 		RepositoryResources:  repositoryResources(cfg),
 		Capabilities:         skillService(cfg, db),
+		ManagedHooks:         managedHookService(cfg, db),
 		CapabilityFolders:    capabilityFolders(cfg),
 	})
 	attachCredentialChannels(cfg, db, agents)
