@@ -359,3 +359,41 @@ func (r *slotRecordingInteraction) AnswerQuestion(ctx context.Context, _ string,
 	r.slot = AgentSlotFrom(ctx)
 	return nil
 }
+
+// Answering or dismissing an agent's question is the operator turning to
+// it, as typing to it is: its open operator items close, so a question it
+// also posted with for_operator does not stay in the rail.
+func TestAnsweringAQuestionClosesTheAgentsOperatorItems(t *testing.T) {
+	for _, dismiss := range []bool{false, true} {
+		f := newWatcherFixture(t)
+		f.start(t)
+		ctx := context.Background()
+		db := f.approvals.Store()
+		mine, err := db.PostOperatorItem(ctx, store.OperatorItem{ID: "oi-1", TaskID: "task-1", ExecutionID: "ex-1", Kind: OperatorItemQuestion, Title: "Which database?"}, []string{"SQLite", "Postgres"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		other, err := db.PostOperatorItem(ctx, store.OperatorItem{ID: "oi-2", TaskID: "task-2", ExecutionID: "ex-2", Kind: OperatorItemQuestion, Title: "Another agent's"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.stream.emit("question_request", map[string]any{"requestId": "q-1", "questions": []map[string]any{
+			{"id": "q1", "question": "Which database?", "options": []map[string]string{{"label": "SQLite"}, {"label": "Postgres"}}, "multiSelect": false, "allowOther": true},
+		}})
+		approval := f.pendingSoon(t, 1)[0]
+		if dismiss {
+			_, err = f.approvals.Dismiss(ctx, approval.ID, "", "web")
+		} else {
+			_, err = f.approvals.Decide(ctx, approval.ID, ApprovalDecision{Decision: ApprovalAnswer, Answers: map[string][]string{"q1": {"SQLite"}}})
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := db.GetOperatorItem(ctx, mine.ID); got.Status != "closed" || got.CloseReason != store.OperatorItemOperatorTurn {
+			t.Fatalf("dismiss=%v: the agent's item is %s (%s), want closed on the operator's turn", dismiss, got.Status, got.CloseReason)
+		}
+		if got, _ := db.GetOperatorItem(ctx, other.ID); got.Status != "open" {
+			t.Fatalf("dismiss=%v: another agent's item is %s", dismiss, got.Status)
+		}
+	}
+}

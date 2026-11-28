@@ -95,7 +95,7 @@ func NewApprovalWatcher(approvals *ApprovalService, agents AgentRequestResolver,
 		opts.Stream = chimeraEventStream{}
 	}
 	w := &ApprovalWatcher{approvals: approvals, agents: agents, opts: opts, watches: map[string]*approvalWatch{}}
-	resolver := agentApprovalResolver{agents: agents}
+	resolver := agentApprovalResolver{agents: agents, db: approvals.Store()}
 	approvals.RegisterResolver(ApprovalSourceAgentPermission, resolver)
 	approvals.RegisterResolver(ApprovalSourceAgentQuestion, resolver)
 	return w
@@ -489,6 +489,9 @@ func clip(s string, n int) string {
 // agentApprovalResolver applies decisions to the agent that asked.
 type agentApprovalResolver struct {
 	agents AgentRequestResolver
+	// db closes the execution's operator items once its question is
+	// settled.
+	db *store.Store
 }
 
 // dismissedFeedback is what an agent reads when its request was dismissed.
@@ -529,12 +532,20 @@ func (r agentApprovalResolver) Resolve(ctx context.Context, approval Approval, d
 		ctx = WithAgentSlot(ctx, details.Slot)
 	}
 	if approval.Source == ApprovalSourceAgentQuestion {
-		switch decision.Decision {
-		case ApprovalAnswer:
-			return r.agents.AnswerQuestion(ctx, approval.TaskID, details.RequestID, QuestionAnswer{Answers: decision.Answers})
-		default:
-			return r.agents.AnswerQuestion(ctx, approval.TaskID, details.RequestID, QuestionAnswer{Dismissed: true})
+		answer := QuestionAnswer{Dismissed: true}
+		if decision.Decision == ApprovalAnswer {
+			answer = QuestionAnswer{Answers: decision.Answers}
 		}
+		if err := r.agents.AnswerQuestion(ctx, approval.TaskID, details.RequestID, answer); err != nil {
+			return err
+		}
+		// Settling the agent's question is the operator turning to it, as
+		// typing to it is: the items it posted for them close, the same
+		// question asked again with for_operator among them.
+		if r.db != nil {
+			_, _ = CloseOperatorItemsForOperatorTurn(ctx, r.db, approval.TaskID, approval.ExecutionID)
+		}
+		return nil
 	}
 	switch decision.Decision {
 	case ApprovalAllow:
