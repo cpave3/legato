@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react"
-import type { Macro } from "../../lib/macros"
+import type { Macro } from "../../../lib/macros"
 
 const mockFetchMacros = vi.fn()
-vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "http://legato" }) }))
-vi.mock("../../lib/macros", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../lib/macros")>()),
+vi.mock("../../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "http://legato" }) }))
+vi.mock("../../../lib/macros", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../lib/macros")>()),
   fetchMacroList: (...a: unknown[]) => mockFetchMacros(...a),
 }))
 

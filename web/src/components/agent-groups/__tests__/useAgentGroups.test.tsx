@@ -1,10 +1,10 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { AgentInfo } from "../../lib/agentWire"
+import type { AgentInfo } from "../../../lib/agentWire"
 import { useAgentGroups } from "../useAgentGroups"
 
-vi.mock("../useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
-vi.mock("../useToast", () => ({ useToast: () => ({ addToast: vi.fn() }) }))
+vi.mock("../../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
+vi.mock("../../../hooks/useToast", () => ({ useToast: () => ({ addToast: vi.fn() }) }))
 
 function agent(task_id: string, group?: string): AgentInfo {
   return {

@@ -1,6 +1,6 @@
-import type { Approval, ChangeSetCall } from "../lib/approvals"
-import { cn } from "../lib/utils"
-import { reeveName } from "../lib/reeveName"
+import type { Approval, ChangeSetCall } from "../../lib/approvals"
+import { cn } from "../../lib/utils"
+import { reeveName } from "../../lib/reeveName"
 
 const levelLabel: Record<string, string> = { approve: "a tap", signed: "a signature", verified: "a signature with your fingerprint or PIN" }
 

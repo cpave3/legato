@@ -4,7 +4,7 @@ import { Download, FolderGit2, Keyboard, Palette, Plus, QrCode, RefreshCw, ScanS
 import { SettingsCard, SettingsRow, SettingsRows, Toggle, primaryButton, quietButton } from "./SettingsUI"
 import { AppThemePicker } from "./AppThemePicker"
 import { TerminalThemePicker } from "./TerminalThemePicker"
-import { TintPicker } from "../TintPicker"
+import { TintPicker } from "./TintPicker"
 import { SettingSource } from "./RegistrySettings"
 import type { ConfigSetting } from "../../lib/configSettings"
 import { animatedAgentActivityEnabled, setAnimatedAgentActivityEnabled } from "../../lib/appearancePreferences"

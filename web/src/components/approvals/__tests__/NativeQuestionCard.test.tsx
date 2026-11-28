@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { NativeQuestionCard } from "../NativeQuestionCard"
-import type { NativeQuestionItem } from "../../lib/nativeAgentSync"
+import type { NativeQuestionItem } from "../../../lib/nativeAgentSync"
 
 const request = (overrides: Partial<NativeQuestionItem> = {}): NativeQuestionItem => ({
   requestId: "req-1",

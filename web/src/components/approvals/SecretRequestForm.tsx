@@ -1,7 +1,7 @@
 import { useState } from "react"
-import type { Approval } from "../lib/approvals"
-import { storeReeveSecret } from "../lib/reeve"
-import { reeveName } from "../lib/reeveName"
+import type { Approval } from "../../lib/approvals"
+import { storeReeveSecret } from "../../lib/reeve"
+import { reeveName } from "../../lib/reeveName"
 
 // SecretRequestForm is the Reeve's request for a secret: the person pastes
 // the value here, it goes to Legato's secret store, and the Reeve gets

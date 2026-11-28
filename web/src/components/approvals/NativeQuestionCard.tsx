@@ -1,6 +1,6 @@
 import { useState } from "react"
-import type { NativeQuestionItem } from "../lib/nativeAgentSync"
-import { answerOf, emptyDraft, type QuestionDraft } from "../lib/questionDrafts"
+import type { NativeQuestionItem } from "../../lib/nativeAgentSync"
+import { answerOf, emptyDraft, type QuestionDraft } from "../../lib/questionDrafts"
 
 interface NativeQuestionCardProps {
   question: NativeQuestionItem

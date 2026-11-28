@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest"
 import { render, screen, cleanup } from "@testing-library/react"
 
 import { ChangeSetCard } from "../ChangeSetCard"
-import type { Approval } from "../../lib/approvals"
+import type { Approval } from "../../../lib/approvals"
 
 const approval: Approval = {
   id: "ap-1", source: "reeve_change_set", source_key: "cs-1", title: "Turn reviews off", options: [], blocking: false,

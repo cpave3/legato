@@ -4,7 +4,7 @@ import { Check, X } from "lucide-react"
 import { useModalLayer } from "../ui/useModalLayer"
 import { setFocusMode, useFocusMode } from "../../lib/focusMode"
 import { itemAgent } from "../../lib/needsYou"
-import { ApprovalCard, FocusButton, PeerApprovalCard } from "../ApprovalTray"
+import { ApprovalCard, FocusButton, PeerApprovalCard } from "../approvals/ApprovalTray"
 import { NeedsYouRow } from "./NeedsYouRow"
 import { useAgentInView, useRailApprovals, useRailItems } from "../../hooks/useNeedsYou"
 

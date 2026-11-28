@@ -11,7 +11,7 @@ import { useRunGraphExtras } from "../../hooks/useRunGraph"
 import { runState, runWithAttention, stepPosition, type StepLike } from "../../lib/workflowView"
 import { cn } from "../../lib/utils"
 import { LazyWorkflowGraph } from "../workflow-graph/LazyWorkflowGraph"
-import { StatePill } from "../WorkflowRunStatus"
+import { StatePill } from "../workflow-status/WorkflowRunStatus"
 import { LoadingState } from "../ui/LoadingState"
 
 export interface RunGraphPanelProps {

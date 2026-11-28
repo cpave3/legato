@@ -8,7 +8,7 @@ import { macroAgentLine, macrosFor, prIsMine, type Macro, type MacroSuggestions 
 import { agentKindLabel } from "../../lib/agentKind"
 import { LoadingState } from "../ui/LoadingState"
 import { providerLabel } from "../../lib/providers"
-import { MacroPickerList } from "../MacroPicker"
+import { MacroPickerList } from "../macros/MacroPicker"
 import { awayActions } from "../../lib/awayReturn"
 import { reviewLoopKey, type FoundReviewLoop, type ReviewLoopLookup } from "../../lib/reviewLoops"
 

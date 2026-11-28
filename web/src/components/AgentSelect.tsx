@@ -11,7 +11,7 @@ import { StageMenu } from "./StageMenu"
 import { subagentsLabel } from "../lib/agentGlance"
 import { reeveWash } from "./ReeveEntry"
 import { agentGroupLayout } from "../lib/agentGroups"
-import type { AgentGrouping } from "../hooks/useAgentGroups"
+import type { AgentGrouping } from "./agent-groups/useAgentGroups"
 
 function ActivityDot({ activity }: { activity: string }) {
   switch (activity) {

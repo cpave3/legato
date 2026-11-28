@@ -5,7 +5,7 @@ import { itemAgent, needsYouKind, needsYouKinds } from "../../lib/needsYou"
 import { RAIL_FOLDED, RAIL_OPEN, setRailFolded, setRailPresent, useRailState } from "../../lib/railState"
 import { useAgentInView, useRailApprovals, useRailItems } from "../../hooks/useNeedsYou"
 import { kindIcons, toneClass } from "../../lib/needsYouIcons"
-import { ApprovalCard, FocusButton, PeerApprovalCard } from "../ApprovalTray"
+import { ApprovalCard, FocusButton, PeerApprovalCard } from "../approvals/ApprovalTray"
 import { NeedsYouRow } from "./NeedsYouRow"
 
 const iconButton = "inline-flex h-7 w-7 items-center justify-center rounded-md text-lw-text-2 hover:bg-lw-raised hover:text-lw-text"

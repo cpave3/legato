@@ -1,6 +1,6 @@
-import { cn } from "../lib/utils"
-import type { Segment, Tone } from "../lib/workflowView"
-import { toneGlyph } from "../lib/workflowTones"
+import { cn } from "../../lib/utils"
+import type { Segment, Tone } from "../../lib/workflowView"
+import { toneGlyph } from "../../lib/workflowTones"
 
 const pillLook: Record<Tone, string> = {
   live: "bg-lw-live-soft text-lw-live",

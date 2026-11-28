@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router-dom"
-import { useServer } from "../hooks/useServer"
-import { decideApproval, dismissApproval, type Approval } from "../lib/approvals"
-import { answerOf, approvalQuestions, emptyDraft, recommended, type QuestionDraft } from "../lib/questionDrafts"
+import { useServer } from "../../hooks/useServer"
+import { decideApproval, dismissApproval, type Approval } from "../../lib/approvals"
+import { answerOf, approvalQuestions, emptyDraft, recommended, type QuestionDraft } from "../../lib/questionDrafts"
 
 type Props = {
   // The approvals that ask questions, the first answered first.

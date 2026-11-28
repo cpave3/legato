@@ -4,7 +4,7 @@ import { PairDeviceDialog } from "../PairDeviceDialog"
 
 type Handler = (msg: { type: string }) => void
 const handlers = new Set<Handler>()
-vi.mock("../../hooks/useWebSocket", () => ({
+vi.mock("../../../hooks/useWebSocket", () => ({
   useWebSocket: () => ({
     connected: true,
     send: vi.fn(),

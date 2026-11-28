@@ -1,9 +1,9 @@
 import { useState } from "react"
 import { Check } from "lucide-react"
-import { useServer } from "../hooks/useServer"
-import { apiFetch } from "../lib/api"
-import { tints } from "../lib/tints"
-import { cn } from "../lib/utils"
+import { useServer } from "../../hooks/useServer"
+import { apiFetch } from "../../lib/api"
+import { tints } from "../../lib/tints"
+import { cn } from "../../lib/utils"
 
 // TintPicker chooses this server's tint, which is saved on the server: every
 // browser and phone that uses it shows the colour.

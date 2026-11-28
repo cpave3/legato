@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, expect, it, vi } from "vitest"
 import { MarkdownBody } from "../MarkdownBody"
 import { NativeTerminalPrompt } from "../NativeTerminalPrompt"
-import { NativeQuestionCard } from "../NativeQuestionCard"
+import { NativeQuestionCard } from "../approvals/NativeQuestionCard"
 import { NativeAgentPanel } from "../NativeAgentPanel"
 import { ReadImageRow } from "../ReadImageRow"
 

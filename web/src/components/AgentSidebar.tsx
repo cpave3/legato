@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import type { AgentInfo } from "../lib/agentWire";
-import type { AgentGrouping } from "../hooks/useAgentGroups";
+import type { AgentGrouping } from "./agent-groups/useAgentGroups";
 import type { AgentContext } from "../hooks/useAgentContexts";
 import { cn } from "../lib/utils";
 import { Plus, Layers, Bell, LayoutGrid, ChevronRight, MoreHorizontal, Folders, Activity } from "lucide-react";

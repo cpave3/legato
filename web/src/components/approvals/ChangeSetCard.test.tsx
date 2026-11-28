@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import type { Approval } from "../lib/approvals"
+import type { Approval } from "../../lib/approvals"
 import { ChangeSetCard } from "./ChangeSetCard"
 
 describe("ChangeSetCard", () => {

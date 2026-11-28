@@ -1,8 +1,8 @@
 import { useState, type FormEvent, type ReactNode } from "react"
 import { Check, Plus } from "lucide-react"
-import { cn } from "../lib/utils"
-import { Button } from "./ui/Button"
-import { Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogPanel, DialogTitle } from "./ui/Dialog"
+import { cn } from "../../lib/utils"
+import { Button } from "../ui/Button"
+import { Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogPanel, DialogTitle } from "../ui/Dialog"
 
 const inputClass = "w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500"
 

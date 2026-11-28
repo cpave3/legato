@@ -7,7 +7,7 @@ import { ago, inputsLabel, runState, sourceLabel, triggerText } from "../../lib/
 import { allTags, errorText, groupRows, knownTags, matches, noFilters, sortRows, startKinds, switchLabel, workflowRows, type Filters, type SortBy, type WorkflowGroup, type WorkflowRow } from "../../lib/workflowList"
 import { copyBuiltInWorkflow } from "../../lib/workflowFiles"
 import { cn } from "../../lib/utils"
-import { StatePill } from "../WorkflowRunStatus"
+import { StatePill } from "../workflow-status/WorkflowRunStatus"
 import { TriggerSwitch } from "../WorkflowTriggerSwitch"
 import { AgentMoreMenu } from "../AgentChatHeader"
 import { Button } from "../ui/Button"

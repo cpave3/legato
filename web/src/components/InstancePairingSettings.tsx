@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Laptop, Plus, ServerCog } from "lucide-react"
 import { SettingsCard, primaryButton, quietButton } from "./settings/SettingsUI"
-import { PairDeviceDialog } from "./PairDeviceDialog"
+import { PairDeviceDialog } from "./devices/PairDeviceDialog"
 import { listMains, listWorkers, pairWorker, pairedText, removeWarning, removeWorker, removedText, workerVersion, unpairMain, setMainReeve, workerCandidates, type PairedMain, type Worker, type WorkerCandidate, type WorkerList } from "../lib/workers"
 
 // Handoff: a main instance hands tasks to a worker instance it paired with

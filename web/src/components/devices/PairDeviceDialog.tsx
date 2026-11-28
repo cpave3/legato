@@ -1,9 +1,9 @@
-import { useModalLayer } from "./ui/useModalLayer"
+import { useModalLayer } from "../ui/useModalLayer"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Check, Eye, X } from "lucide-react"
 import { encode } from "uqr"
-import { apiFetch } from "../lib/api"
-import { useWebSocket } from "../hooks/useWebSocket"
+import { apiFetch } from "../../lib/api"
+import { useWebSocket } from "../../hooks/useWebSocket"
 
 // A pairing request of the server (GET/POST/DELETE /api/pairing): a phone in
 // the Legato app pairs by typing its four words. See mobile/README.md § Pairing.

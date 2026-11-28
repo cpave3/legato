@@ -2,10 +2,10 @@ import { describe, it, expect, vi, afterEach } from "vitest"
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react"
 
 const mockStore = vi.fn()
-vi.mock("../../lib/reeve", () => ({ storeReeveSecret: (...a: unknown[]) => mockStore(...a) }))
+vi.mock("../../../lib/reeve", () => ({ storeReeveSecret: (...a: unknown[]) => mockStore(...a) }))
 
 import { SecretRequestForm } from "../SecretRequestForm"
-import type { Approval } from "../../lib/approvals"
+import type { Approval } from "../../../lib/approvals"
 
 const approval: Approval = {
   id: "ap-9", source: "reeve_secret", source_key: "rv1:eleven", title: "The Reeve asks for a secret: eleven", summary: "ElevenLabs for videos",

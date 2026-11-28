@@ -1,10 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { Zap } from "lucide-react"
-import { useServer } from "../hooks/useServer"
-import { useMacroPicker, type PickerMacro } from "../hooks/useMacroPicker"
-import { fetchMacroList, type Macro, type PickerOptions } from "../lib/macros"
-import { cn } from "../lib/utils"
-import { Dropdown } from "./ui/Dropdown"
+import { useServer } from "../../hooks/useServer"
+import { useMacroPicker, type PickerMacro } from "../../hooks/useMacroPicker"
+import { fetchMacroList, type Macro, type PickerOptions } from "../../lib/macros"
+import { cn } from "../../lib/utils"
+import { Dropdown } from "../ui/Dropdown"
 
 // The one macro picker of the web UI (LEG-619): the message box's menu,
 // Resume agent… on a waiting merge, and the card menu's macros all list
