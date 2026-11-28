@@ -588,19 +588,27 @@ func (s *Store) ListReviewLoopsClosedAfter(ctx context.Context, since string) ([
 }
 
 // ListApprovedLoopsAwaitingCallers returns the loops closed approved before
-// before (RFC 3339) whose run, or one of the two runs above it, has not
-// ended: a caller still waiting for the merge, however long it takes.
+// before (RFC 3339) whose run, or any run above it in the chain of calls,
+// has not ended: a caller still waiting for the merge, however long it
+// takes. The walk up stops at maxRunChain runs.
 func (s *Store) ListApprovedLoopsAwaitingCallers(ctx context.Context, before string) ([]ReviewLoop, error) {
 	var out []ReviewLoop
-	err := s.db.SelectContext(ctx, &out, `SELECT l.* FROM review_loops l
-		JOIN workflow_runs r ON r.id = l.run_id
-		LEFT JOIN workflow_runs p ON p.id = r.parent_run_id
-		LEFT JOIN workflow_runs g ON g.id = p.parent_run_id
-		WHERE l.state = 'closed' AND l.outcome = 'approved' AND l.closed_at < ?
-		AND (r.status NOT IN `+endedRunStatuses+` OR p.status NOT IN `+endedRunStatuses+` OR g.status NOT IN `+endedRunStatuses+`)
-		ORDER BY l.closed_at DESC, l.id`, before)
+	err := s.db.SelectContext(ctx, &out, `WITH RECURSIVE chain(loop_id, run_id, depth) AS (
+			SELECT id, run_id, 0 FROM review_loops
+			WHERE state = 'closed' AND outcome = 'approved' AND closed_at < ? AND run_id != ''
+			UNION ALL
+			SELECT c.loop_id, r.parent_run_id, c.depth + 1 FROM chain c JOIN workflow_runs r ON r.id = c.run_id
+			WHERE COALESCE(r.parent_run_id, '') != '' AND c.depth < ?
+		)
+		SELECT l.* FROM review_loops l WHERE l.id IN (
+			SELECT c.loop_id FROM chain c JOIN workflow_runs r ON r.id = c.run_id WHERE r.status NOT IN `+endedRunStatuses+`)
+		ORDER BY l.closed_at DESC, l.id`, before, maxRunChain)
 	return out, err
 }
+
+// maxRunChain bounds a walk up a run's parents: more than calls may nest
+// (workflow.MaxCallDepth, 5).
+const maxRunChain = 8
 
 // endedRunStatuses are the statuses of a run that has ended.
 const endedRunStatuses = `('succeeded', 'failed', 'cancelled', 'stopped')`

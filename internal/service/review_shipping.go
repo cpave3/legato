@@ -273,8 +273,13 @@ func (c *ReviewRunCaller) shippingLoop(ctx context.Context, rec *store.ReviewLoo
 // details of it.
 func shippingPhase(rec *store.ReviewLoop, d ReviewRunDetails, chain []store.WorkflowRun) string {
 	if rec.State != store.ReviewLoopOpenState {
-		if rec.Outcome == ReviewOutcomeApproved && len(chain) > 0 && runLive(chain[len(chain)-1].Status) {
-			return ShippingWaitingForMerge
+		if rec.Outcome == ReviewOutcomeApproved {
+			// Any run up the chain of calls that still runs waits on it.
+			for _, run := range chain {
+				if runLive(run.Status) {
+					return ShippingWaitingForMerge
+				}
+			}
 		}
 		return ShippingEnded
 	}

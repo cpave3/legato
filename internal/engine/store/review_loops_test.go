@@ -500,3 +500,38 @@ func TestListReviewLoopsClosedSince(t *testing.T) {
 		t.Fatalf("closed idle since: %+v", got)
 	}
 }
+
+// A caller waiting for the merge may be any run up the chain of calls:
+// here the outermost of four, the three under it ended after approval.
+func TestListApprovedLoopsAwaitingCallersFollowsEveryAncestor(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := func(id, parent, status string) {
+		t.Helper()
+		if err := s.CreateWorkflowRun(ctx, WorkflowRun{ID: id, WorkflowName: id, WorkflowTitle: id, DefinitionSource: "x", DefinitionDigest: "d", DefinitionJSON: "{}",
+			InputsJSON: "{}", Status: status, ParentRunID: parent, ParentStepPath: "call-" + id}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run("outer", "", "running")
+	run("middle", "outer", "succeeded")
+	run("inner", "middle", "succeeded")
+	run("loop-run", "inner", "succeeded")
+	run("done-outer", "", "succeeded")
+	run("done-loop-run", "done-outer", "succeeded")
+	waiting := mustOpen(t, s, runLoop(t, s, "loop-run", "o/r", 1))
+	done := mustOpen(t, s, runLoop(t, s, "done-loop-run", "o/r", 2))
+	for _, id := range []string{waiting.ID, done.ID} {
+		if _, _, err := s.CloseReviewLoop(ctx, id, "approved", "2026-11-01T10:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := s.ListApprovedLoopsAwaitingCallers(ctx, "2026-11-20T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != waiting.ID {
+		t.Fatalf("awaiting callers: %+v", got)
+	}
+}
