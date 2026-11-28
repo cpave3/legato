@@ -4,9 +4,11 @@ import { apiFetch } from "./api"
 // Whether an agent can be reloaded: stopped and started again with its agent
 // tool, directory and resources, resuming its conversation, so it reads its
 // MCP servers, plugins and hooks afresh. A swarm starts its own agents, so
-// theirs are not offered; a workflow's agent reloads on the step it is on.
+// theirs are not offered, nor a named slot's (a reviewer's), which Legato
+// starts with what its work needs; a workflow's agent reloads on its step.
 export function canReloadAgent(agent: AgentInfo | undefined): boolean {
   if (!agent || agent.status !== "running") return false
+  if (agent.slot && agent.slot !== "main") return false
   return !(agent.role || agent.parent_task_id || agent.subtask_id)
 }
 

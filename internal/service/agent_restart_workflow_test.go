@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
+	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
 
 // startWorkflowAgent is a run whose agent.run step works on LEG-7 with an
@@ -91,5 +92,63 @@ func TestAReloadThatCannotStartFailsTheWorkflowStep(t *testing.T) {
 	}
 	if got := view.Attempts[0]; got.Status != "failed" || !strings.Contains(got.Error, "lost server") {
 		t.Fatalf("attempt = %+v; want it failed with why", got)
+	}
+}
+
+// An agent.run step's agent on a task (on: <task>) is a plain task agent,
+// but its step waits on it all the same: a reload keeps that step too, even
+// when the workflow host checks its wait between the stop and the start.
+func TestReloadingAnOnTaskStepsAgentKeepsItsStep(t *testing.T) {
+	f := newRestartFixture(t)
+	ctx := context.Background()
+	createTask(t, f.store, "LEG-7")
+	runner := NewWorkflowAgentRunner(f.svc, f.store)
+	workflows := NewWorkflowService(f.store, []WorkflowExecutor{NewAgentRunExecutor(runner)})
+	def, err := workflowengine.Parse("ship.yaml", []byte(implementWith("")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := workflows.Start(ctx, def, map[string]string{"task": "LEG-7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := view.Attempts[0]
+	if attempt.Status != "waiting_agent" {
+		t.Fatalf("attempt = %+v", attempt)
+	}
+	session, err := f.store.GetAgentSessionByTaskID(ctx, "LEG-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, err := f.store.GetExecution(ctx, session.ExecutionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.reportConversation(t, "LEG-7", execution.WorkingDir)
+	f.tmux.onSpawn = func(string) {
+		if err := workflows.CheckAgentWaits(ctx); err != nil {
+			t.Errorf("CheckAgentWaits: %v", err)
+		}
+	}
+
+	if err := f.svc.(AgentRestarter).RestartAgent(ctx, "LEG-7", nil); err != nil {
+		t.Fatal(err)
+	}
+	f.tmux.onSpawn = nil
+
+	after, err := f.store.GetAgentSessionByTaskID(ctx, "LEG-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ExecutionKind == store.ExecutionWorkflowAgent || after.WorkflowRunID != "" {
+		t.Fatalf("reloaded session = %+v; want it a plain task agent still", after)
+	}
+	view, err = workflows.Show(ctx, attempt.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := view.Attempts[0]
+	if len(view.Attempts) != 1 || got.Status != "waiting_agent" || got.AgentSessionID == nil || *got.AgentSessionID != after.ID {
+		t.Fatalf("attempt after reload = %+v; want it waiting on the new agent %d", got, after.ID)
 	}
 }

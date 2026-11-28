@@ -15,6 +15,9 @@ describe("reloading an agent", () => {
     // A workflow's agent reloads on the step it is on (LEG-689).
     expect(canReloadAgent(agent({ workflow_run_id: "run-1" }))).toBe(true)
     expect(canReloadAgent(agent({ execution_kind: "workflow_agent" }))).toBe(true)
+    // The server refuses a named slot's agent, a workflow's included.
+    expect(canReloadAgent(agent({ execution_kind: "workflow_agent", slot: "triage" }))).toBe(false)
+    expect(canReloadAgent(agent({ slot: "main" }))).toBe(true)
     expect(canReloadAgent(undefined)).toBe(false)
   })
 

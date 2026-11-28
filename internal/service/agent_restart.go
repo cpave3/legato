@@ -162,6 +162,11 @@ func (a *agentService) restartAgentWith(ctx context.Context, taskID string, reso
 	if SupportsTaskResume(session.AgentKind) {
 		resume, err := a.restartConversation(ctx, task, session)
 		if err != nil {
+			if workflowAgent && errors.Is(err, ErrAgentNotRestartable) {
+				// A workflow agent with no card of its own saves no
+				// conversation (only a task's owner does), as after a crash.
+				return false, fmt.Errorf("%w: this workflow agent has saved no conversation to resume (one with no card of its own saves none); retry its step to start it afresh", ErrAgentNotRestartable)
+			}
 			return false, err
 		}
 		opt.SessionPolicy = "resume"
@@ -172,9 +177,11 @@ func (a *agentService) restartAgentWith(ctx context.Context, taskID string, reso
 			return false, err
 		}
 	}
-	var open *interruptedAttempt
+	// A step waiting on this session is kept through the reload, whoever
+	// owns the agent: a workflow's own agent comes back as the workflow's,
+	// one on a task (on: <task>) as the plain task agent it is.
+	open := a.openAgentStep(ctx, session.ID)
 	if workflowAgent {
-		open = a.openAgentStep(ctx, session.ID)
 		a.workflowResumeOptions(*session, &opt, open)
 	}
 	stopCtx := ctx
