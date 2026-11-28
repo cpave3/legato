@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createNativeSyncState, type NativeConversationItem, type NativeEvent } from "../nativeAgentSync"
-import { endsTurn, pendingPermission, pendingQuestion, reopenRequest, replayEvents, snapshotTurnRuns, subagentsRunning } from "../nativeFeed"
+import { endsTurn, pendingRequest, reopenRequest, replayEvents, snapshotTurnRuns, subagentsRunning } from "../nativeFeed"
 
 const permission = (requestId: string, status: string) => ({
   key: `p-${requestId}`, role: "system", text: "",
@@ -57,11 +57,11 @@ describe("nativeFeed", () => {
 
   it("answers only a request the agent still waits on", () => {
     const state = createNativeSyncState([permission("p1", "pending"), permission("p2", "allowed"), question("q1", "pending"), question("q2", "answered")])
-    expect(pendingPermission(state, "p1")).toBe(true)
-    expect(pendingPermission(state, "p2")).toBe(false)
-    expect(pendingPermission(state, "missing")).toBe(false)
-    expect(pendingQuestion(state, "q1")).toBe(true)
-    expect(pendingQuestion(state, "q2")).toBe(false)
-    expect(pendingQuestion(state, "p1")).toBe(false)
+    expect(pendingRequest(state, "p1", "permission")).toBe(true)
+    expect(pendingRequest(state, "p2", "permission")).toBe(false)
+    expect(pendingRequest(state, "missing", "permission")).toBe(false)
+    expect(pendingRequest(state, "q1", "question")).toBe(true)
+    expect(pendingRequest(state, "q2", "question")).toBe(false)
+    expect(pendingRequest(state, "p1", "question")).toBe(false)
   })
 })

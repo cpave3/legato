@@ -1,7 +1,7 @@
 import { useCallback, type RefObject } from "react"
 import type { WSMessage } from "../lib/agentWire"
 import { updatePermissionState, updateQuestionState, type NativeSyncState } from "../lib/nativeAgentSync"
-import { pendingPermission, pendingQuestion } from "../lib/nativeFeed"
+import { pendingRequest } from "../lib/nativeFeed"
 
 // useRequestAnswers sends the operator's answers to what the agent asked:
 // a permission request, or a question. Each is shown as submitting until
@@ -11,7 +11,7 @@ export function useRequestAnswers(agentId: string, send: (message: WSMessage) =>
 
   const handlePermission = useCallback(
     (requestId: string, decision: "allow" | "deny", feedback?: string, option?: string) => {
-      if (!pendingPermission(syncStateRef.current, requestId)) return
+      if (!pendingRequest(syncStateRef.current, requestId, "permission")) return
       replaceSyncState(updatePermissionState(syncStateRef.current, requestId, (permission) => ({
         ...permission,
         status: "submitting",
@@ -33,7 +33,7 @@ export function useRequestAnswers(agentId: string, send: (message: WSMessage) =>
   // `answers` is left out.
   const handleQuestion = useCallback(
     (requestId: string, answers?: Record<string, string[]>) => {
-      if (!pendingQuestion(syncStateRef.current, requestId)) return
+      if (!pendingRequest(syncStateRef.current, requestId, "question")) return
       replaceSyncState(updateQuestionState(syncStateRef.current, requestId, (question) => ({
         ...question,
         status: "submitting",

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { apiFetch } from "../lib/api"
 import {
   catalogError, catalogItems, catalogStatus, listOrEmpty, slashItemsOf, startCatalog,
-  type Catalog, type MacroInfo, type ModeInfo, type ModelInfo,
+  type Catalog, type CatalogKind, type MacroInfo, type ModeInfo, type ModelInfo,
 } from "../lib/nativeCatalog"
 
 // A list an agent endpoint answers; nothing when it fails.
@@ -18,6 +18,23 @@ function fetchMacros(baseUrl: string, set: (macros: MacroInfo[]) => void) {
     .then((r) => r.ok ? r.json() : { macros: [] })
     .then((data: { macros?: MacroInfo[] }) => set(listOrEmpty<MacroInfo>(data.macros)))
     .catch(() => set([]))
+}
+
+function loaded(catalog: Catalog): Catalog {
+  return { ...catalog, loading: false }
+}
+
+// One of the session's lists (commands or skills) into the catalog, or why
+// it could not be loaded.
+function loadCatalogKind(baseUrl: string, agentId: string, kind: CatalogKind, apply: (update: (previous: Catalog) => Catalog) => void): Promise<void> {
+  return apiFetch(baseUrl, `/api/agents/${agentId}/chimera/${kind}`)
+    .then(async (response) => {
+      const items = await catalogItems(response)
+      apply((previous) => ({ ...previous, [kind]: items }))
+    })
+    .catch((error: unknown) => {
+      apply((previous) => ({ ...previous, errors: [...previous.errors, catalogError(kind, error)] }))
+    })
 }
 
 // useAgentCatalog loads what a native session offers its operator: its
@@ -40,21 +57,18 @@ export function useAgentCatalog(agentId: string, baseUrl: string) {
 
   useEffect(() => {
     let current = true
+    // Changes the catalog while this load is the latest.
+    const apply = (update: (previous: Catalog) => Catalog) => {
+      if (current) setCatalog(update)
+    }
     setCatalog((previous) => startCatalog(previous, catalogKey))
     let pending = 2
+    const settled = () => {
+      pending--
+      if (pending === 0) apply(loaded)
+    }
     for (const kind of ["commands", "skills"] as const) {
-      apiFetch(baseUrl, `/api/agents/${agentId}/chimera/${kind}`)
-        .then(async (response) => {
-          const items = await catalogItems(response)
-          if (current) setCatalog((previous) => ({ ...previous, [kind]: items }))
-        })
-        .catch((error: unknown) => {
-          if (current) setCatalog((previous) => ({ ...previous, errors: [...previous.errors, catalogError(kind, error)] }))
-        })
-        .finally(() => {
-          pending--
-          if (current && pending === 0) setCatalog((previous) => ({ ...previous, loading: false }))
-        })
+      loadCatalogKind(baseUrl, agentId, kind, apply).finally(settled)
     }
     return () => { current = false }
   }, [agentId, baseUrl, catalogKey, catalogAttempt])

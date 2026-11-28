@@ -55,12 +55,7 @@ export function reopenRequest(state: NativeSyncState, requestId: string, error: 
 
 // Whether the agent still waits on this permission request or question; an
 // answer to anything else is not sent.
-export function pendingPermission(state: NativeSyncState, requestId: string): boolean {
-  const current = state.items.find((item) => item.permission?.requestId === requestId)?.permission
-  return current !== undefined && current.status === "pending"
-}
-
-export function pendingQuestion(state: NativeSyncState, requestId: string): boolean {
-  const current = state.items.find((item) => item.question?.requestId === requestId)?.question
+export function pendingRequest(state: NativeSyncState, requestId: string, kind: "permission" | "question"): boolean {
+  const current = state.items.find((item) => item[kind]?.requestId === requestId)?.[kind]
   return current !== undefined && current.status === "pending"
 }

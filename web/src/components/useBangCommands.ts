@@ -49,17 +49,21 @@ export function useBangCommands({ agentId, baseUrl, busy, resync, failWith, scro
     })
   }, [executeBang])
 
+  const removeAt = useCallback((index: number) => {
+    setBangQueue((current) => current.filter((_, other) => other !== index))
+  }, [])
+
   // The queued commands as the composer lists them, each one editable or
   // removable before it runs.
   const entries: QueuedEntry[] = bangQueue.map((command, index) => ({
     key: `bang-${index}-${command}`,
     text: `!${command}`,
     onEdit: () => {
-      setBangQueue((current) => current.filter((_, other) => other !== index))
+      removeAt(index)
       setDraft(`!${command}`)
       textareaRef.current?.focus()
     },
-    onRemove: () => setBangQueue((current) => current.filter((_, other) => other !== index)),
+    onRemove: () => removeAt(index),
   }))
 
   return { running: bangRunning, runOrQueue, runNext, entries }
