@@ -7,11 +7,6 @@ import type { StepValue } from "./stepForms"
 import { connectorOf } from "./stepRows"
 import { readersOf, type StepList, type useOutlineEditing } from "./useOutlineEditing"
 
-function RowLabel({ row }: { row: Row }) {
-  if (!row.sentence) return <>{row.label}</>
-  return <>{row.sentence.map((part, i) => part.strong ? <strong key={i} className="font-semibold text-lw-text">{part.text}</strong> : <span key={i}>{part.text}</span>)}</>
-}
-
 // RowTags are what a row says at its end: its type when it has no summary,
 // whether its trigger is paused or on, and whether it is edited as YAML or
 // has problems.
@@ -25,20 +20,15 @@ function RowTags({ row }: { row: Row }) {
   </>
 }
 
-// StepIcon is a step type's icon in its row.
-function StepIcon({ type }: { type: string }) {
-  return createElement(iconOf(type), { size: 14, "aria-hidden": true, className: "shrink-0 text-lw-faint" })
-}
-
 /** RowButton is one row of the outline, which chooses it. */
 export function RowButton({ row, selected, number, onChoose }: { row: Row; selected: boolean; number?: number; onChoose: () => void }) {
   return <button type="button" data-address={addressOf(row.selection)} aria-current={selected ? "true" : undefined}
     className={`flex min-h-10 w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${selected ? "bg-lw-raised text-lw-text" : "text-lw-text-2 hover:bg-lw-raised hover:text-lw-text"}`}
     onClick={onChoose}>
     {number !== undefined && <span className="w-4 shrink-0 text-right text-xs text-lw-faint">{number}</span>}
-    {row.type ? <StepIcon type={row.type} /> : null}
+    {row.type ? createElement(iconOf(row.type), { size: 14, "aria-hidden": true, className: "shrink-0 text-lw-faint" }) : null}
     <span className="flex min-w-0 flex-1 flex-col">
-      <span className="truncate"><RowLabel row={row} /></span>
+      <span className="truncate">{row.sentence ? row.sentence.map((part, i) => part.strong ? <strong key={i} className="font-semibold text-lw-text">{part.text}</strong> : <span key={i}>{part.text}</span>) : row.label}</span>
       {row.summary && <span className="truncate text-xs text-lw-faint">{row.summary}</span>}
     </span>
     <RowTags row={row} />
@@ -76,17 +66,6 @@ function StepConnector({ placed, index, title, editing, narrow, onAdd }: { place
   </div>
 }
 
-// StepMenu is a step's menu: duplicate, move up or down, delete.
-function StepMenu({ id, step, index, last, editor }: { id: string; step: StepValue; index: number; last: number; editor: StepRowEditor }) {
-  const then = (act: () => void) => () => { editor.setMenu(null); act() }
-  return <div role="menu" aria-label={`Step ${id}`} className="absolute right-0 top-full z-20 flex w-44 flex-col rounded-md border border-lw-line bg-lw-surface p-1 text-sm shadow-xl" onKeyDown={event => { if (event.key === "Escape") editor.setMenu(null) }}>
-    <button type="button" role="menuitem" className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised" onClick={then(() => editor.duplicate(step, index))}><Copy size={13} />Duplicate</button>
-    <button type="button" role="menuitem" disabled={index === 0} className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised disabled:opacity-40" onClick={then(() => editor.moveTo(id, index - 1))}><ArrowUp size={13} />Move up</button>
-    <button type="button" role="menuitem" disabled={index === last} className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised disabled:opacity-40" onClick={then(() => editor.moveTo(id, index + 1))}><ArrowDown size={13} />Move down</button>
-    <button type="button" role="menuitem" className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-lw-danger hover:bg-lw-raised" onClick={then(() => editor.removeIt(id))}><Trash2 size={13} />Delete</button>
-  </div>
-}
-
 /** ReadersConfirm asks before removing a step its readers read. */
 export function ReadersConfirm({ id, readers, className, onRemove, onKeep }: { id: string; readers: string[]; className: string; onRemove: () => void; onKeep: () => void }) {
   return <div role="alertdialog" aria-label={`Remove step ${id}`} className={className}>
@@ -100,14 +79,22 @@ export function ReadersConfirm({ id, readers, className, onRemove, onKeep }: { i
 // its place (stepNodes).
 const stepIndexOf = (placed: StepList["placed"], id: string) => /^#\d+$/.test(id) ? Number(id.slice(1)) : placed.findIndex(step => step?.id === id)
 
-// StepLine is a top-level step's row button, with its menu.
+// StepLine is a top-level step's row button, with its menu: duplicate,
+// move up or down, delete.
 function StepLine({ row, id, index, list, editing, rowButton, editor }: Omit<StepRowProps, "narrow" | "palette"> & { id: string; index: number }) {
   const { placed } = list
   const { menu } = editor
+  const step = (placed[index] ?? {}) as StepValue
+  const then = (act: () => void) => () => { editor.setMenu(null); act() }
   return <div className="relative flex min-w-0 items-center">
     {rowButton(row, index + 1)}
     {editing && <button type="button" aria-label={`Actions for step ${id}`} aria-expanded={menu === id} className="ml-1 rounded p-1 text-lw-text-2 hover:bg-lw-raised" onClick={() => editor.setMenu(menu === id ? null : id)}><MoreVertical size={14} /></button>}
-    {menu === id && <StepMenu id={id} step={(placed[index] ?? {}) as StepValue} index={index} last={placed.length - 1} editor={editor} />}
+    {menu === id && <div role="menu" aria-label={`Step ${id}`} className="absolute right-0 top-full z-20 flex w-44 flex-col rounded-md border border-lw-line bg-lw-surface p-1 text-sm shadow-xl" onKeyDown={event => { if (event.key === "Escape") editor.setMenu(null) }}>
+      <button type="button" role="menuitem" className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised" onClick={then(() => editor.duplicate(step, index))}><Copy size={13} />Duplicate</button>
+      <button type="button" role="menuitem" disabled={index === 0} className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised disabled:opacity-40" onClick={then(() => editor.moveTo(id, index - 1))}><ArrowUp size={13} />Move up</button>
+      <button type="button" role="menuitem" disabled={index === placed.length - 1} className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lw-raised disabled:opacity-40" onClick={then(() => editor.moveTo(id, index + 1))}><ArrowDown size={13} />Move down</button>
+      <button type="button" role="menuitem" className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-lw-danger hover:bg-lw-raised" onClick={then(() => editor.removeIt(id))}><Trash2 size={13} />Delete</button>
+    </div>}
   </div>
 }
 
