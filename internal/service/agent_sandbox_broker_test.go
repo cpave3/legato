@@ -13,8 +13,12 @@ import (
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
 
-// testBrokerEnv stands in for the host broker's session env.
-var testBrokerEnv = fixedSessionEnv{"LEGATO_BROKER_SOCKET": "/run/legato/broker/broker.sock", "LEGATO_BROKER_TOKEN": "lgb_test"}
+// testBrokerEnv stands in for the host broker's session env, its socket in
+// a folder of the test's own (the sandbox makes the socket's folder).
+func testBrokerEnv(t *testing.T) fixedSessionEnv {
+	t.Helper()
+	return fixedSessionEnv{"LEGATO_BROKER_SOCKET": filepath.Join(t.TempDir(), "broker", "broker.sock"), "LEGATO_BROKER_TOKEN": "lgb_test"}
+}
 
 func withoutBroker(svc AgentService) {
 	svc.(interface{ SetBrokerEnv(SessionEnvProvider) }).SetBrokerEnv(nil)
@@ -135,7 +139,8 @@ func TestAScheduleCaughtUpAtStartLaunchesItsAgentWithTheBroker(t *testing.T) {
 		t.Fatalf("new sessions = %v, want the caught-up run's agent", launched)
 	}
 	env := mt.envVarsFor(launched[0])
-	for name, want := range testBrokerEnv {
+	given, _ := agents.(*agentService).brokerSessionEnv().SessionEnv(context.Background(), "", "")
+	for name, want := range given {
 		if got := env[name]; got != want {
 			t.Errorf("%s = %q, want %q", name, got, want)
 		}

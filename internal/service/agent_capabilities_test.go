@@ -214,7 +214,7 @@ func TestASandboxedAgentSeesItsOwnSkillsReadOnlyAndNotTheSkillsFolder(t *testing
 		DisablePeerAwareness: true, BriefKickoffDelay: time.Millisecond,
 	})
 	svc.(*agentService).nativeBindTimeout = time.Millisecond
-	svc.(*agentService).SetBrokerEnv(testBrokerEnv)
+	svc.(*agentService).SetBrokerEnv(testBrokerEnv(t))
 	createTask(t, s, "task-s")
 	if err := svc.SpawnAgent(context.Background(), "task-s", 0, 0, AgentSpawnOptions{WorkingDir: t.TempDir()}); err != nil {
 		t.Fatal(err)

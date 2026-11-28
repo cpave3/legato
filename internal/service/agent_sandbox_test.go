@@ -63,7 +63,7 @@ func sandboxedService(t *testing.T, backend *fakeBackend, adjust ...func(*Sandbo
 		Sandbox: settings,
 	})
 	// As serve and the TUI give it; withoutBroker takes it away.
-	svc.(interface{ SetBrokerEnv(SessionEnvProvider) }).SetBrokerEnv(testBrokerEnv)
+	svc.(interface{ SetBrokerEnv(SessionEnvProvider) }).SetBrokerEnv(testBrokerEnv(t))
 	return svc, s, mt
 }
 
@@ -669,7 +669,7 @@ func TestAnUnattendedAgentRunsInTheSandboxWithItsPromptsOff(t *testing.T) {
 		Adapter: promptsOffAdapter{&fakeAdapter{name: "claude-code", launchFn: func(map[string]string, string, string, string) string { return "fake-tool" }}},
 		Sandbox: &SandboxSettings{Backend: backend, Base: SandboxPlanInput{Home: t.TempDir(), DefaultMounts: true}},
 	})
-	svc.(interface{ SetBrokerEnv(SessionEnvProvider) }).SetBrokerEnv(testBrokerEnv)
+	svc.(interface{ SetBrokerEnv(SessionEnvProvider) }).SetBrokerEnv(testBrokerEnv(t))
 	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Unattended: true, Unsandboxed: true}); err != nil {
 		t.Fatal(err)
 	}
