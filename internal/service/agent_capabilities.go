@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/cpave3/legato/internal/engine/skills"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -13,24 +16,29 @@ import (
 
 // Agent capabilities are what Legato gives an agent beyond its tool and its
 // work, the same whichever tool runs it and wherever: today the operator's
-// skills (LEG-216). The seams are meant for more:
+// skills (LEG-216), and the seam for managed hooks (LEG-687). The seams are
+// meant for more:
 //
 //   - A CapabilitySource chooses what an agent gets from a CapabilityRequest.
 //     SkillService gives every agent every skill that is on; a profile (a
 //     named set of skills and MCP tools, LEG-215) would be another source
 //     choosing by the request's repository, role or kind.
-//   - AgentCapabilities is what was chosen. MCP broker tools (LEG-212) would
-//     be another field beside Skills.
+//   - AgentCapabilities is what was chosen, a field per kind: Skills, and
+//     Hooks, which no source fills yet. MCP broker tools (LEG-212) would be
+//     another.
 //   - Each execution gets a folder of its own under CapabilityFolders, which
 //     the sandbox mounts read-only and which goes when the execution ends; a
-//     tool's adapter says how its tool finds what is in it (SkillsAdapter).
+//     tool's adapter says how its tool finds what is in it, one interface
+//     per kind (SkillsAdapter, HooksAdapter). Each kind is given on its own
+//     and in a bundle folder of its own, so one that fails costs only itself.
 //     A capability is copied in at the start, so what an agent has does not
 //     change while it runs: a change reaches agents started or reloaded
 //     afterwards.
 //
 // See docs/ai/skills.md.
 
-// CapabilityRequest is the agent a CapabilitySource chooses for.
+// CapabilityRequest is the agent a CapabilitySource chooses for: what the
+// spawn knows of it. A field the spawn does not know is empty.
 type CapabilityRequest struct {
 	TaskID      string
 	ExecutionID string
@@ -38,11 +46,45 @@ type CapabilityRequest struct {
 	Role        string
 	Slot        string
 	WorkDir     string
+	// Repository is the repository the agent works in, host/owner/name as
+	// config.NormalizeRepository writes it: the key repository resources
+	// and guidance use. "" outside a repository Legato can name.
+	Repository string
+	// WorkflowRunID, WorkflowAttemptID and WorkflowStepID are the workflow
+	// step attempt that started the agent, if one did.
+	WorkflowRunID     string
+	WorkflowAttemptID string
+	WorkflowStepID    string
+	// ReadOnly says the agent may look but not change its checkout
+	// (AgentSpawnOptions.ReadOnlyCheckout: a reviewer, a find-out).
+	ReadOnly bool
+	// Reeve says the agent is the Reeve.
+	Reeve bool
+	// HandoffPurpose is a handed-off task's purpose (HandoffMakeChange,
+	// HandoffFindOut); "" for any other agent.
+	HandoffPurpose string
 }
 
-// AgentCapabilities is what an agent is given.
+// AgentCapabilities is what an agent is given, one field per kind. Each
+// kind is given on its own (giveCapabilities): one that fails never takes
+// another from the agent.
 type AgentCapabilities struct {
 	Skills []skills.Skill
+	// Hooks are the managed hooks the agent runs (LEG-687). No source
+	// gives any yet; the HookSource (LEG-695) will.
+	Hooks []ManagedHook
+}
+
+// ManagedHook is one managed hook an agent is given: a folder of the
+// operator's, copied for the execution as a skill is.
+type ManagedHook struct {
+	// Name is the hook's folder name, the folder its copy goes in.
+	Name string
+	// Path is the hook's folder.
+	Path string
+	// Events are the author events it runs on (stop, session_start, ...),
+	// which the tool's bundle registers.
+	Events []string
 }
 
 // CapabilitySource chooses an agent's capabilities.
@@ -57,6 +99,18 @@ type SkillsAdapter interface {
 	// skills (a plugin's or a mod's manifest), adds to env what makes the
 	// tool load it, and returns the folder each skill's folder goes in.
 	SkillsBundle(root string, env map[string]string) (skillsDir string, err error)
+}
+
+// HooksAdapter is an adapter whose tool can run managed hooks from a folder
+// Legato makes for one execution. A tool is a supported tool for managed
+// hooks exactly when its adapter implements it.
+type HooksAdapter interface {
+	// HooksBundle writes in root what the tool needs to run the hooks (a
+	// plugin's or a mod's manifest, the entries for the events they run
+	// on), adds to env what makes the tool load it, and returns the folder
+	// each hook's folder goes in. events is every event the hooks use,
+	// each once.
+	HooksBundle(root string, events []string, env map[string]string) (hooksDir string, err error)
 }
 
 // CapabilityFolders holds each execution's capabilities, one folder per
@@ -127,17 +181,47 @@ func (c CapabilityFolders) Sweep(ctx context.Context, statusOf ExecutionStatus) 
 	return cleared, errors.Join(errs...)
 }
 
+// needsRepositoryKey says whether a spawn works out the repository it
+// works in for something other than its project's learnings and guidance:
+// the repository's own resources, or the capability request.
+func (a *agentService) needsRepositoryKey() bool {
+	return a.repoResources != nil || a.capabilities != nil
+}
+
+// repositoryOfKey is the repository (host/owner/name) a project identity
+// key names, or "" for a key that names none (a folder's).
+func repositoryOfKey(key string) string {
+	if repo, ok := strings.CutPrefix(key, "repo:"); ok {
+		return repo
+	}
+	return ""
+}
+
+// spawnWorkflowStep is the workflow step attempt a spawn is for: the run and
+// attempt from the options, else from the workflow identity the session is
+// given (a resumed workflow agent names only its run), and the step from
+// that identity.
+func spawnWorkflowStep(opt AgentSpawnOptions) (runID, attemptID, stepID string) {
+	runID, attemptID = opt.WorkflowRunID, opt.WorkflowAttemptID
+	if runID == "" {
+		runID = opt.ExtraEnv["LEGATO_WORKFLOW_RUN_ID"]
+	}
+	if attemptID == "" {
+		attemptID = opt.ExtraEnv["LEGATO_WORKFLOW_ATTEMPT_ID"]
+	}
+	return runID, attemptID, opt.ExtraEnv["LEGATO_WORKFLOW_STEP_ID"]
+}
+
 // giveCapabilities copies what the source chooses for an agent into its
 // execution's folder, where its tool's adapter says the tool finds it, and
-// adds to env what the tool needs. A failure leaves the agent without what
-// failed, logged: a capability is an addition, never a reason not to start.
+// adds to env what the tool needs. Each kind is given on its own, if the
+// adapter can take it: skills (SkillsAdapter), then managed hooks
+// (HooksAdapter). A failure leaves the agent without the kind that failed,
+// logged, and with every other: a capability is an addition, never a reason
+// not to start.
 func (a *agentService) giveCapabilities(ctx context.Context, req CapabilityRequest, adapter AIToolAdapter, env map[string]string) {
-	if a.capabilities == nil {
-		return
-	}
-	bundler, ok := adapter.(SkillsAdapter)
 	dir := a.capabilityFolders.Dir(req.ExecutionID)
-	if !ok || dir == "" {
+	if a.capabilities == nil || adapter == nil || dir == "" {
 		return
 	}
 	given, err := a.capabilities.Capabilities(ctx, req)
@@ -145,27 +229,119 @@ func (a *agentService) giveCapabilities(ctx context.Context, req CapabilityReque
 		log.Printf("capabilities: choosing for %s (%s): %v", req.TaskID, req.ExecutionID, err)
 		return
 	}
-	if len(given.Skills) == 0 {
+	kinds := capabilityKinds{dir: dir, tool: filepath.Join(dir, adapter.Name()), req: req, env: env}
+	kinds.giveSkills(adapter, given.Skills)
+	kinds.giveHooks(adapter, given.Hooks)
+}
+
+// giveSkills gives the skills, if the adapter can take them.
+func (k capabilityKinds) giveSkills(adapter AIToolAdapter, given []skills.Skill) {
+	bundler, ok := adapter.(SkillsAdapter)
+	if !ok || len(given) == 0 {
 		return
 	}
-	// The env is changed only once every skill is in place, so a tool is
-	// never pointed at a bundle that failed.
-	bundleEnv := map[string]string{}
-	for k, v := range env {
-		bundleEnv[k] = v
-	}
-	skillsDir, err := bundler.SkillsBundle(filepath.Join(dir, adapter.Name()), bundleEnv)
-	if err != nil {
-		log.Printf("capabilities: the skills bundle of %s (%s): %v", req.TaskID, req.ExecutionID, err)
-		a.capabilityFolders.removeLogged(req.ExecutionID)
+	k.give("skills", func(bundleEnv map[string]string) error {
+		skillsDir, err := bundler.SkillsBundle(k.tool, bundleEnv)
+		if err != nil {
+			return err
+		}
+		for _, skill := range given {
+			k.copyLogged("skill", skill, filepath.Join(skillsDir, skill.Name))
+		}
+		return nil
+	})
+}
+
+// giveHooks gives the managed hooks, if the adapter can take them. A hook's
+// files are copied as a skill's are: from inside its folder only,
+// executable bits kept, size capped.
+func (k capabilityKinds) giveHooks(adapter AIToolAdapter, given []ManagedHook) {
+	bundler, ok := adapter.(HooksAdapter)
+	if !ok || len(given) == 0 {
 		return
 	}
-	for _, skill := range given.Skills {
-		if err := skills.Copy(skill, filepath.Join(skillsDir, skill.Name)); err != nil {
-			log.Printf("capabilities: skill %s for %s (%s): %v", skill.Name, req.TaskID, req.ExecutionID, err)
+	k.give("managed hooks", func(bundleEnv map[string]string) error {
+		hooksDir, err := bundler.HooksBundle(k.tool, hookEvents(given), bundleEnv)
+		if err != nil {
+			return err
+		}
+		for _, hook := range given {
+			k.copyLogged("managed hook", skills.Skill{Name: hook.Name, Path: hook.Path}, filepath.Join(hooksDir, hook.Name))
+		}
+		return nil
+	})
+}
+
+// copyLogged copies one folder into a bundle; a failure leaves the agent
+// without that one, logged.
+func (k capabilityKinds) copyLogged(what string, folder skills.Skill, dst string) {
+	if err := skills.Copy(folder, dst); err != nil {
+		log.Printf("capabilities: %s %s for %s (%s): %v", what, folder.Name, k.req.TaskID, k.req.ExecutionID, err)
+	}
+}
+
+// hookEvents is every event the hooks run on, each once, sorted.
+func hookEvents(given []ManagedHook) []string {
+	var events []string
+	for _, hook := range given {
+		for _, event := range hook.Events {
+			if !slices.Contains(events, event) {
+				events = append(events, event)
+			}
 		}
 	}
-	for k, v := range bundleEnv {
-		env[k] = v
+	slices.Sort(events)
+	return events
+}
+
+// capabilityKinds gives one execution's capabilities kind by kind, each in
+// its own bundle folder inside the tool's folder.
+type capabilityKinds struct {
+	dir  string // the execution's folder
+	tool string // the tool's folder inside it
+	req  CapabilityRequest
+	env  map[string]string
+}
+
+// give writes one kind's bundle with write, which adds to the copy of the
+// session's environment it is handed. The environment is changed only once
+// write succeeds, so a tool is never pointed at a bundle that failed; on a
+// failure, what write left in the tool's folder is removed, and nothing a
+// kind before it wrote.
+func (k capabilityKinds) give(kind string, write func(bundleEnv map[string]string) error) {
+	before := folderEntries(k.tool)
+	bundleEnv := maps.Clone(k.env)
+	if err := write(bundleEnv); err != nil {
+		log.Printf("capabilities: the %s bundle of %s (%s): %v", kind, k.req.TaskID, k.req.ExecutionID, err)
+		k.removeAddedSince(before)
+		return
 	}
+	maps.Copy(k.env, bundleEnv)
+}
+
+// removeAddedSince removes what was added to the tool's folder since before
+// was listed, then the tool's and the execution's folders if that leaves
+// them empty: an agent given nothing has no folder.
+func (k capabilityKinds) removeAddedSince(before map[string]bool) {
+	for name := range folderEntries(k.tool) {
+		if before[name] {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(k.tool, name)); err != nil {
+			log.Printf("capabilities: removing %s of %s: %v", name, k.req.ExecutionID, err)
+		}
+	}
+	// os.Remove removes only an empty folder.
+	_ = os.Remove(k.tool)
+	_ = os.Remove(k.dir)
+}
+
+// folderEntries names what is in a folder; none for one that is not there.
+func folderEntries(dir string) map[string]bool {
+	entries, _ := os.ReadDir(dir)
+	names := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		names[entry.Name()] = true
+	}
+	return names
 }

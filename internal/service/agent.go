@@ -300,6 +300,10 @@ type AgentSpawnOptions struct {
 	WorkflowAttemptID string     // owning workflow attempt, when applicable
 	SwarmID           string     // owning swarm parent ID, when applicable
 	Resources         []Resource // files and folders the agent is given: granted to Chimera, listed in every launch prompt
+	// HandoffPurpose is a handed-off task's purpose (HandoffMakeChange,
+	// HandoffFindOut), for the capabilities its agent is given; "" for any
+	// other session.
+	HandoffPurpose string
 	// Slot is the task's agent slot the agent runs in: "" or "main" for the
 	// main slot, a name such as "reviewer" for a named one, which only
 	// Legato's own services start. Each slot keeps its own tmux session,
@@ -1156,7 +1160,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// every kind of agent, worked out again at each spawn.
 	needsProject := (a.learning != nil || a.guidance != nil || a.prModes != nil) && adapter != nil && !nativeResume && !ownPrompt
 	identityKey := ""
-	if needsProject || a.repoResources != nil {
+	if needsProject || a.needsRepositoryKey() {
 		key, identityErr := a.spawnProjectKey(ctx, taskID, workDir, cloneRepo)
 		if identityErr != nil && needsProject {
 			return identityErr
@@ -1403,7 +1407,10 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			return err
 		}
 	}
-	a.giveCapabilities(ctx, CapabilityRequest{TaskID: taskID, ExecutionID: executionID, AgentKind: agentKind, Role: opt.Role, Slot: slot, WorkDir: workDir}, adapter, envMap)
+	capabilityRequest := CapabilityRequest{TaskID: taskID, ExecutionID: executionID, AgentKind: agentKind, Role: opt.Role, Slot: slot, WorkDir: workDir,
+		Repository: repositoryOfKey(identityKey), ReadOnly: opt.ReadOnlyCheckout, Reeve: reeve, HandoffPurpose: opt.HandoffPurpose}
+	capabilityRequest.WorkflowRunID, capabilityRequest.WorkflowAttemptID, capabilityRequest.WorkflowStepID = spawnWorkflowStep(opt)
+	a.giveCapabilities(ctx, capabilityRequest, adapter, envMap)
 
 	// The bootstrap secret is read by the launch command, never tmux's environment.
 	var chimeraSecret, chimeraSecretPath string

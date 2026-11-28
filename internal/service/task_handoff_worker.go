@@ -499,7 +499,7 @@ func (s *HandoffWorkerService) start(ctx context.Context, mainInstanceID, handof
 	}
 	brief := HandoffBrief(in)
 	opts := AgentSpawnOptions{AgentKind: h.AgentKind, Tier: h.AgentTier, Repo: h.Repo, Branch: h.Branch, Assignment: brief, Unattended: true,
-		Branches: handoffSessionBranches(h), PushedBranch: h.Kind == HandoffPushedBranch, Holder: h.MainTaskID}
+		Branches: handoffSessionBranches(h), PushedBranch: h.Kind == HandoffPushedBranch, Holder: h.MainTaskID, HandoffPurpose: h.Purpose}
 	if h.AccountIdentity != "" {
 		var snapshot store.AgentAccountIdentity
 		if err := json.Unmarshal([]byte(h.AccountIdentity), &snapshot); err != nil {

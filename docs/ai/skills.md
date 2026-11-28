@@ -30,11 +30,45 @@ v1 is deliberately small: skills are folders on disk, Settings lists them and tu
 
 At each spawn, after the session's environment is built and before the sandbox is planned, `agentService.giveCapabilities` (`internal/service/agent_capabilities.go`):
 
-1. asks the `CapabilitySource` (`AgentServiceOptions.Capabilities`, the `SkillService`) for the agent's `AgentCapabilities`: every skill that is on and has no error;
-2. if there are any and the agent's adapter is a `SkillsAdapter`, has it write its bundle in `<data_dir>/capabilities/<execution>/<adapter name>/` (`CapabilityFolders`, `AgentServiceOptions.CapabilityFolders`) and add to the session's environment what makes its tool load it;
+1. asks the `CapabilitySource` (`AgentServiceOptions.Capabilities`, the `SkillService`) for the agent's `AgentCapabilities`: every skill that is on and has no error. It asks for every agent whose tool has an adapter, whatever kinds the adapter takes;
+2. if there are any skills and the agent's adapter is a `SkillsAdapter`, has it write its bundle in `<data_dir>/capabilities/<execution>/<adapter name>/` (`CapabilityFolders`, `AgentServiceOptions.CapabilityFolders`) and add to the session's environment what makes its tool load it;
 3. copies each skill into the bundle's `skills/<name>/` (`skills.Copy`: only what is inside the skill's folder, through an `os.Root`; a link to a file inside is copied as the file, a link out of the folder, to a folder, or nowhere is left out, so a skill cannot carry a host file such as a key into a sandbox; executable bits kept; a skill of more than 32 MiB is refused and logged).
 
-A failure is logged and the agent starts without what failed: a skill is an addition, never a reason not to start. The environment is changed only once the bundle is written. Each execution has its own copy, so turning a skill off, or changing its files, never changes a running agent; the next agent started, or an agent reloaded (a new execution), gets the skills as they are then. `EndExecution` removes the folder; `ReconcileSessions` sweeps the folders of executions that ended unseen (`CapabilityFolders.Sweep`, as `SandboxScratch.Sweep`: running and unknown executions are left).
+A failure is logged and the agent starts without what failed: a skill is an addition, never a reason not to start. The environment is changed only once the bundle is written.
+
+### Capabilities given per kind
+
+Each kind of capability is given on its own (`capabilityKinds.give`), skills first, then managed hooks:
+
+- **Its own adapter check.** Skills need a `SkillsAdapter`, managed hooks a `HooksAdapter`; a kind with nothing chosen is skipped. Hooks take their branch when there are no skills.
+- **Its own folder** inside the execution's tool folder: `legato-skills/` and (from LEG-696) `legato-hooks/`, which the adapter names.
+- **Its own environment change**, made on a copy of the session's environment and committed only once its bundle is written. The second kind starts from the environment the first committed, so both append to `CLAUDE_CODE_PLUGIN_DIRS`.
+- **Its own failure.** A bundle that fails is logged and what it added to the tool folder is removed (the entries that were not there before it ran); then the tool and execution folders go if that leaves them empty. A kind that failed never takes another from the agent, and the agent starts.
+
+With nothing chosen, nothing is written and the environment is unchanged.
+
+### The capability request
+
+`CapabilityRequest` is what the spawn knows of the agent; a field it does not know is empty:
+
+| Field | From |
+| --- | --- |
+| `TaskID`, `ExecutionID`, `AgentKind`, `Role`, `Slot`, `WorkDir` | the spawn |
+| `Repository` | the repository the agent works in, `host/owner/name` as `config.NormalizeRepository` writes it: the key repository resources and guidance use (`spawnProjectKey`; "" for a folder that names no repository) |
+| `WorkflowRunID`, `WorkflowAttemptID`, `WorkflowStepID` | the workflow step attempt that started it: `AgentSpawnOptions.WorkflowRunID`/`WorkflowAttemptID`, else the session's `LEGATO_WORKFLOW_*` identity (a resumed workflow agent names only its run), and the step from that identity (`spawnWorkflowStep`) |
+| `ReadOnly` | `AgentSpawnOptions.ReadOnlyCheckout` (a reviewer, a find-out delegation) |
+| `Reeve` | the task is a Reeve session's (`IsReeveTask`) |
+| `HandoffPurpose` | `AgentSpawnOptions.HandoffPurpose`, which the handoff worker sets to the handoff's purpose (`make-change`, `find-out`); "" otherwise, and not carried by a restart |
+
+### Managed hooks: the seam
+
+`AgentCapabilities.Hooks` (`[]ManagedHook`: `Name`, `Path`, `Events`) is the place for an agent's managed hooks (milestone LEG-687). No source fills it yet: the `HookSource` (LEG-695) will. An adapter takes them by implementing `HooksAdapter`:
+
+```go
+HooksBundle(root string, events []string, env map[string]string) (hooksDir string, err error)
+```
+
+It writes its bundle under `root` (the execution's tool folder), registering each event in `events` (every event the hooks use, once each, sorted), adds to `env` what makes its tool load it, and returns the folder each hook's folder is copied into (with `skills.Copy`, as a skill is). A tool is a supported tool for managed hooks exactly when its adapter implements `HooksAdapter`; no adapter does yet (Claude Code will from LEG-696), so the policy is tested against a fake adapter (`agent_capability_kinds_test.go`). Each execution has its own copy, so turning a skill off, or changing its files, never changes a running agent; the next agent started, or an agent reloaded (a new execution), gets the skills as they are then. `EndExecution` removes the folder; `ReconcileSessions` sweeps the folders of executions that ended unseen (`CapabilityFolders.Sweep`, as `SandboxScratch.Sweep`: running and unknown executions are left).
 
 | Tool | How | What the agent calls it | Same name elsewhere |
 | --- | --- | --- | --- |
@@ -53,5 +87,5 @@ Chimera's facts are from its source at 5bb563c (`packages/mods/src/index.ts`, `p
 
 The seams in `agent_capabilities.go` are meant to be reused, not rebuilt:
 
-- **Profiles**: a profile is another `CapabilitySource`, choosing from the `CapabilityRequest` (task, execution, agent kind, role, slot, working directory) which skills an agent gets. `SkillService.Capabilities` gives all that are on; nothing else changes.
-- **MCP broker tools (LEG-212)**: `AgentCapabilities` gains a field beside `Skills`; a source fills it; the execution's capability folder is the place for any per-execution file a tool needs to find them (a plugin's `.mcp.json`, a mod's `mcpServers`), which the sandbox already shows read-only and which goes with the execution; an adapter interface beside `SkillsAdapter` writes it. Adding a tool to a session at its start, and nothing while it runs, is the same contract LEG-199's analysis asks for.
+- **Profiles**: a profile is another `CapabilitySource`, choosing from the `CapabilityRequest` (task, execution, agent kind, role, slot, working directory, repository, workflow step, read-only, Reeve, handoff purpose) which skills an agent gets. `SkillService.Capabilities` gives all that are on; nothing else changes.
+- **MCP broker tools (LEG-212)**: `AgentCapabilities` gains a field beside `Skills`; a source fills it; the execution's capability folder is the place for any per-execution file a tool needs to find them (a plugin's `.mcp.json`, a mod's `mcpServers`), which the sandbox already shows read-only and which goes with the execution; an adapter interface beside `SkillsAdapter` writes it, as `HooksAdapter` does for managed hooks, and `giveCapabilities` gives it as a kind of its own (§ Capabilities given per kind). Adding a tool to a session at its start, and nothing while it runs, is the same contract LEG-199's analysis asks for.
