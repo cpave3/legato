@@ -82,7 +82,28 @@ export function NativeComposer(props: NativeComposerProps) {
       <div className="px-3 pb-3 md:px-6 md:pb-[18px]">
         {/* An image dropped anywhere on the composer joins the message. */}
         <div {...(enabled ? pasted.dropTarget : {})} className={`native-agent-composer relative mx-auto flex w-full max-w-[820px] flex-col rounded-[10px] border bg-lw-surface max-sm:rounded-xl ${composerBorder(dictating(voice), pasted.dragging)}`}>
-          {slash.open && <ComposerSlashMenu slash={slash} catalog={props.catalog} textareaRef={props.textareaRef} onKeyDown={props.onKeyDown} />}
+          {slash.open && (
+            <NativeSlashMenu
+              anchorRef={props.textareaRef}
+              onClose={slash.dismiss}
+              loading={props.catalog.loading}
+              errors={props.catalog.errors}
+              empty={props.catalog.empty}
+              onRetry={props.catalog.onRetry}
+              browser={slash.browser.open ? {
+                query: slash.browser.query, onQuery: slash.browser.setQuery,
+                filter: slash.browser.filter, onFilter: slash.browser.setFilter,
+                onKeyDown: props.onKeyDown,
+                onClose: slash.escape,
+              } : undefined}
+              listId={slash.listId}
+              optionId={slash.optionId}
+              matches={slash.matches}
+              active={slash.index}
+              onHover={slash.setIndex}
+              onPick={slash.select}
+            />
+          )}
           {enabled && <button type="button" className="self-start min-h-11 px-3.5 text-sm text-lw-text-2 hover:text-lw-text focus-visible:outline-2 focus-visible:outline-lw-accent" aria-expanded={slash.open} aria-controls={slash.open ? slash.listId : undefined}
             onClick={slash.toggleBrowser}>
             Commands and skills
@@ -95,31 +116,6 @@ export function NativeComposer(props: NativeComposerProps) {
           {dictating(voice) ? <DictationBar recorder={voice} /> : <ComposerActions {...props} />}
         </div>
       </div>
-  )
-}
-
-function ComposerSlashMenu({ slash, catalog, textareaRef, onKeyDown }: Pick<NativeComposerProps, "slash" | "catalog" | "textareaRef" | "onKeyDown">) {
-  return (
-            <NativeSlashMenu
-              anchorRef={textareaRef}
-              onClose={slash.dismiss}
-              loading={catalog.loading}
-              errors={catalog.errors}
-              empty={catalog.empty}
-              onRetry={catalog.onRetry}
-              browser={slash.browser.open ? {
-                query: slash.browser.query, onQuery: slash.browser.setQuery,
-                filter: slash.browser.filter, onFilter: slash.browser.setFilter,
-                onKeyDown,
-                onClose: slash.escape,
-              } : undefined}
-              listId={slash.listId}
-              optionId={slash.optionId}
-              matches={slash.matches}
-              active={slash.index}
-              onHover={slash.setIndex}
-              onPick={slash.select}
-            />
   )
 }
 
@@ -184,7 +180,7 @@ function OpenItemsNote({ enabled, openItems }: { enabled: boolean; openItems: nu
 // The foot of the composer: what sets how the agent works on the left, how
 // full its context is, dictation and the send button on the right.
 function ComposerActions(props: NativeComposerProps) {
-  const { enabled, agentId, baseUrl, sandboxed, model, modes, macros } = props
+  const { enabled, agentId, baseUrl, sandboxed, model, modes, macros, macrosRef } = props
   return (
           <div data-testid="composer-actions" className="flex min-w-0 items-center gap-1 px-2 pb-2 pt-1.5 text-xs text-lw-text-2 max-sm:gap-0.5 max-sm:px-1.5">
             <div className="flex min-w-0 flex-1 items-center gap-1 max-sm:gap-0.5">
@@ -192,7 +188,17 @@ function ComposerActions(props: NativeComposerProps) {
             {model.models.length > 0 && <ModelControl {...model} />}
             {modes.modes.length > 0 && <ModeMenu {...modes} menuRef={props.modesRef} />}
             <ResourcesButton agentId={agentId} baseUrl={baseUrl} sandboxed={sandboxed} />
-            <MacroMenu {...macros} menuRef={props.macrosRef} />
+            <div className="relative" ref={macrosRef}>
+              <button type="button" onClick={macros.onToggle} className={composerToolButton(macros.open)} title="Macros (M)" aria-keyshortcuts="m">
+                <Zap size={16} aria-hidden="true" className="sm:hidden" />
+                <span className="hidden sm:inline">Macros</span>
+              </button>
+              {macros.open && (
+                <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[180px] max-w-[calc(100vw-2rem)] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
+                  <MacroPickerItems shown={macros.shown} hidden={macros.hidden} onShowAll={macros.onShowAll} onPick={(macro) => macros.onPick(macro.keys)} />
+                </div>
+              )}
+            </div>
             </div>
             <ComposerGauge usage={props.contextUsage} />
             {enabled && props.voiceEnabled && <DictateButton recorder={props.voice} />}
@@ -285,22 +291,6 @@ export interface MacroMenuProps {
   hidden: number
   onShowAll: () => void
   onPick: (keys: string) => void
-}
-
-function MacroMenu({ open, onToggle, shown, hidden, onShowAll, onPick, menuRef }: MacroMenuProps & { menuRef: RefObject<HTMLDivElement | null> }) {
-  return (
-            <div className="relative" ref={menuRef}>
-              <button type="button" onClick={onToggle} className={composerToolButton(open)} title="Macros (M)" aria-keyshortcuts="m">
-                <Zap size={16} aria-hidden="true" className="sm:hidden" />
-                <span className="hidden sm:inline">Macros</span>
-              </button>
-              {open && (
-                <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[180px] max-w-[calc(100vw-2rem)] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
-                  <MacroPickerItems shown={shown} hidden={hidden} onShowAll={onShowAll} onPick={(macro) => onPick(macro.keys)} />
-                </div>
-              )}
-            </div>
-  )
 }
 
 function sendLabel(bangRunning: boolean, isBang: boolean, busy: boolean): string {
