@@ -1621,15 +1621,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// it (LEG-689). One tmux refuses is an error like any other here: an
 	// agent that never started is not left as a silent shell.
 	launch := func(line string) error {
-		// The launch is immediate, so a socket the channel host has yet
-		// to open would stop bwrap (LEG-709): it is waited for first.
-		if err := a.sandbox.awaitSandboxSockets(ctx, sandboxSockets); err != nil {
-			a.tmux.Kill(sessionName)
-			_ = a.store.UpdateAgentSessionStatusInSlot(ctx, taskID, slot, "dead")
-			failExecution()
-			return fmt.Errorf("launching the agent: %w", err)
-		}
-		if err := a.tmux.RunInPane(sessionName, paneLaunch(operatorShell(envMap), line), envVars...); err != nil {
+		if err := a.runLaunch(ctx, sessionName, paneLaunch(operatorShell(envMap), line), sandboxSockets, envVars); err != nil {
 			a.tmux.Kill(sessionName)
 			_ = a.store.UpdateAgentSessionStatusInSlot(ctx, taskID, slot, "dead")
 			failExecution()

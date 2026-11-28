@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -47,27 +48,26 @@ func sandboxSockets(in SandboxPlanInput) []string {
 	return []string{in.SSHSocket}
 }
 
+// runLaunch issues a launch in its pane once the sockets its sandbox binds
+// exist: the launch is immediate, so a socket the channel host has yet to
+// open would stop bwrap (LEG-709).
+func (a *agentService) runLaunch(ctx context.Context, sessionName string, argv, sockets, envVars []string) error {
+	if err := a.sandbox.awaitSandboxSockets(ctx, sockets); err != nil {
+		return err
+	}
+	return a.tmux.RunInPane(sessionName, argv, envVars...)
+}
+
 // awaitSandboxSockets returns once every path exists, or an error naming
 // those still missing after the settings' wait.
 func (s *SandboxSettings) awaitSandboxSockets(ctx context.Context, paths []string) error {
-	if len(paths) == 0 {
+	missing := missingPaths(paths)
+	if len(missing) == 0 {
 		return nil
 	}
-	wait := s.SocketWait
-	if wait <= 0 {
-		wait = defaultSandboxSocketWait
-	}
+	wait := cmp.Or(s.SocketWait, defaultSandboxSocketWait)
 	deadline := time.Now().Add(wait)
-	for {
-		var missing []string
-		for _, p := range paths {
-			if _, err := os.Lstat(p); err != nil {
-				missing = append(missing, p)
-			}
-		}
-		if len(missing) == 0 {
-			return nil
-		}
+	for len(missing) > 0 {
 		if time.Now().After(deadline) {
 			return fmt.Errorf("the sandbox binds %s, which was not there after %s", strings.Join(missing, ", "), wait)
 		}
@@ -76,7 +76,20 @@ func (s *SandboxSettings) awaitSandboxSockets(ctx context.Context, paths []strin
 			return ctx.Err()
 		case <-time.After(25 * time.Millisecond):
 		}
+		missing = missingPaths(paths)
 	}
+	return nil
+}
+
+// missingPaths are those of paths that do not exist.
+func missingPaths(paths []string) []string {
+	var missing []string
+	for _, p := range paths {
+		if _, err := os.Lstat(p); err != nil {
+			missing = append(missing, p)
+		}
+	}
+	return missing
 }
 
 // CheckoutOverlayProber says whether an agent's checkout can be shown
