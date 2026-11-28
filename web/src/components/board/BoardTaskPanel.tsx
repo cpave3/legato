@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 import { X } from "lucide-react"
-import type { BoardCard, CardDetail } from "../../lib/board-types"
+import type { BoardCard, CardDetail, PRMetaView } from "../../lib/board-types"
 import { MarkdownBody } from "../MarkdownBody"
 import { agentStripLook, formatDuration, priorityTone } from "../../lib/boardCard"
 import { TaskAgentAction } from "./TaskAgentAction"
@@ -73,14 +73,109 @@ function AwayProperties({ card, actions }: { card: BoardCard; actions?: ReactNod
   )
 }
 
-export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, onMove, onOpenURL, onHandOff, awayActions }: BoardTaskPanelProps) {
-  const ready = detail?.id === card.id ? detail : null
+type Look = ReturnType<typeof agentStripLook>
+
+function AgentValue({ look }: { look: Look | null }) {
+  if (!look) return <span className="text-lw-text-2">None yet</span>
+  return <span className={look.tone}>{look.tool ? `${look.label} · ${look.tool}` : look.label}</span>
+}
+
+function PullRequestsProperty({ pullRequests }: { pullRequests: PRMetaView[] }) {
+  if (pullRequests.length === 0) return null
+  return <Property label={pullRequests.length === 1 ? "Pull request" : "Pull requests"}>
+    <ul aria-label="Pull requests" className="m-0 flex list-none flex-col gap-0.5 p-0">
+      {pullRequests.map(pr => <li key={`${pr.repo}#${pr.pr_number}`} className="flex flex-wrap items-baseline gap-x-1.5">
+        {pr.pr_url ? <a href={pr.pr_url} target="_blank" rel="noreferrer" className="font-lw-mono text-lw-link hover:underline">#{pr.pr_number}</a> : <span className="font-lw-mono">#{pr.pr_number}</span>}
+        {pr.is_draft && <span className="text-xs text-lw-text-2">draft</span>}
+        {pr.state === "MERGED" && <span className="text-xs text-lw-text-2">merged</span>}
+        {pr.check_status === "fail" && <span className="text-xs text-lw-error">CI failed</span>}
+        {pr.review_decision === "CHANGES_REQUESTED" && <span className="text-xs text-lw-error">changes requested</span>}
+      </li>)}
+    </ul>
+  </Property>
+}
+
+// The agent running here (never for an away task), or the time agents
+// spent on the task while none runs.
+function AgentProperties({ card }: { card: BoardCard }) {
   const reeve = useReeveName()
   const look = card.agent_active ? agentStripLook(card, reeve) : null
   const spent = formatDuration(card.working_seconds + card.waiting_seconds + card.error_seconds)
+  return <>
+    {!card.away && <Property label="Agent"><AgentValue look={look} /></Property>}
+    {!card.agent_active && spent && <Property label="Agent time"><span className="text-lw-text-2">{spent}</span></Property>}
+  </>
+}
+
+// Where the task stands. The column, the agent and the pull requests are
+// left out for an away task, which keeps them on its worker.
+function TaskProperties({ card, column, ready }: { card: BoardCard; column: string; ready: CardDetail | null }) {
+  const here = !card.away
+  return (
+    <dl className="m-0 grid grid-cols-[96px_minmax(0,1fr)] gap-y-2 border-b border-[var(--theme-border,#222228)] px-[18px] py-3.5">
+      {here && <Property label="Column">{column}</Property>}
+      {card.priority && <Property label="Priority"><span className={priorityTone(card.priority)}>{card.priority}</span></Property>}
+      {card.issue_type && <Property label="Type">{card.issue_type}</Property>}
+      <Property label="Workspace">{card.workspace_name || <span className="text-lw-text-2">Unassigned</span>}</Property>
+      <AgentProperties card={card} />
+      {here && <PullRequestsProperty pullRequests={card.pull_requests ?? []} />}
+      {ready?.worktree && <Property label="Worktree"><span className="font-lw-mono text-xs">{ready.worktree.branch}</span></Property>}
+    </dl>
+  )
+}
+
+function DescriptionPreview({ away, ready }: { away: boolean; ready: CardDetail | null }) {
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-[18px] py-3.5 text-lw-text-2">
+      {away && <p className="m-0 mb-2 text-[11px] font-semibold uppercase tracking-[1px] text-lw-faint">Description · read-only while away</p>}
+      <DescriptionText ready={ready} />
+    </div>
+  )
+}
+
+function DescriptionText({ ready }: { ready: CardDetail | null }) {
+  if (!ready) return <p className="m-0 text-lw-faint">Reading the task…</p>
+  if (!ready.description_md) return <p className="m-0 italic text-lw-faint">No description</p>
+  return <MarkdownBody body={ready.description_md} />
+}
+
+// The page to open: the ticket's at its provider, else the first pull
+// request's, else none.
+function OpenPageButton({ card, ready, onOpenURL }: { card: BoardCard; ready: CardDetail | null; onOpenURL: (url: string) => void }) {
   const providerURL = ready?.remote_meta?.url || ""
-  const pullRequests = card.pull_requests ?? []
-  const prURL = pullRequests[0]?.pr_url || ready?.pr_meta?.pr_url || ""
+  if (providerURL) return <button type="button" onClick={() => onOpenURL(providerURL)} className={secondaryButton}>Open in {providerLabel(card.provider) || "browser"}</button>
+  const prURL = card.pull_requests?.[0]?.pr_url || ready?.pr_meta?.pr_url || ""
+  if (!prURL) return null
+  return <button type="button" onClick={() => onOpenURL(prURL)} className={secondaryButton}>Open PR</button>
+}
+
+// Under the description: the agent action, or for an away task where its
+// changes come from, and the buttons.
+function PanelActions({ card, ready, onOpenDetails, onMove, onOpenURL, onHandOff }: Pick<BoardTaskPanelProps, "card" | "onOpenDetails" | "onMove" | "onOpenURL" | "onHandOff"> & { ready: CardDetail | null }) {
+  const here = !card.away
+  return (
+    <div className="flex flex-col gap-2 border-t border-[var(--theme-border,#222228)] px-[18px] py-3.5">
+      {card.away
+        ? <p className="m-0 text-xs text-lw-text-2">Changes come from {card.away.worker} when the task comes back. Talk to its agent there.</p>
+        : <TaskAgentAction
+          taskId={card.id}
+          worktreePath={ready?.worktree?.path}
+          rememberedWorkingDir={ready?.code_context?.working_dir}
+          resumableAgentKinds={ready?.resumable_agent_kinds}
+        />}
+      <div className="flex gap-2">
+        <button type="button" onClick={onOpenDetails} className={secondaryButton}>Open details</button>
+        {here && <button type="button" onClick={onMove} className={secondaryButton}>Move</button>}
+        {here && onHandOff && <button type="button" onClick={onHandOff} className={secondaryButton}>Hand off…</button>}
+        <OpenPageButton card={card} ready={ready} onOpenURL={onOpenURL} />
+      </div>
+    </div>
+  )
+}
+
+export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, onMove, onOpenURL, onHandOff, awayActions }: BoardTaskPanelProps) {
+  // The record read may still be the task selected before.
+  const ready = detail?.id === card.id ? detail : null
 
   return (
     <aside aria-label="Selected task" className="flex w-[360px] shrink-0 flex-col border-l border-[var(--theme-border,#222228)] bg-[var(--theme-surface,#141417)] font-lw">
@@ -93,55 +188,9 @@ export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, o
       </div>
 
       {card.away && <AwayProperties card={card} actions={awayActions} />}
-
-      <dl className="m-0 grid grid-cols-[96px_minmax(0,1fr)] gap-y-2 border-b border-[var(--theme-border,#222228)] px-[18px] py-3.5">
-        {!card.away && <Property label="Column">{column}</Property>}
-        {card.priority && <Property label="Priority"><span className={priorityTone(card.priority)}>{card.priority}</span></Property>}
-        {card.issue_type && <Property label="Type">{card.issue_type}</Property>}
-        <Property label="Workspace">{card.workspace_name || <span className="text-lw-text-2">Unassigned</span>}</Property>
-        {!card.away && <Property label="Agent">{look ? <span className={look.tone}>{look.tool ? `${look.label} · ${look.tool}` : look.label}</span> : <span className="text-lw-text-2">None yet</span>}</Property>}
-        {!card.agent_active && spent && <Property label="Agent time"><span className="text-lw-text-2">{spent}</span></Property>}
-        {!card.away && pullRequests.length > 0 && <Property label={pullRequests.length === 1 ? "Pull request" : "Pull requests"}>
-          <ul aria-label="Pull requests" className="m-0 flex list-none flex-col gap-0.5 p-0">
-            {pullRequests.map(pr => <li key={`${pr.repo}#${pr.pr_number}`} className="flex flex-wrap items-baseline gap-x-1.5">
-              {pr.pr_url ? <a href={pr.pr_url} target="_blank" rel="noreferrer" className="font-lw-mono text-lw-link hover:underline">#{pr.pr_number}</a> : <span className="font-lw-mono">#{pr.pr_number}</span>}
-              {pr.is_draft && <span className="text-xs text-lw-text-2">draft</span>}
-              {pr.state === "MERGED" && <span className="text-xs text-lw-text-2">merged</span>}
-              {pr.check_status === "fail" && <span className="text-xs text-lw-error">CI failed</span>}
-              {pr.review_decision === "CHANGES_REQUESTED" && <span className="text-xs text-lw-error">changes requested</span>}
-            </li>)}
-          </ul>
-        </Property>}
-        {ready?.worktree && <Property label="Worktree"><span className="font-lw-mono text-xs">{ready.worktree.branch}</span></Property>}
-      </dl>
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-[18px] py-3.5 text-lw-text-2">
-        {card.away && <p className="m-0 mb-2 text-[11px] font-semibold uppercase tracking-[1px] text-lw-faint">Description · read-only while away</p>}
-        {!ready
-          ? <p className="m-0 text-lw-faint">Reading the task…</p>
-          : ready.description_md
-            ? <MarkdownBody body={ready.description_md} />
-            : <p className="m-0 italic text-lw-faint">No description</p>}
-      </div>
-
-      <div className="flex flex-col gap-2 border-t border-[var(--theme-border,#222228)] px-[18px] py-3.5">
-        {card.away
-          ? <p className="m-0 text-xs text-lw-text-2">Changes come from {card.away.worker} when the task comes back. Talk to its agent there.</p>
-          : <TaskAgentAction
-            taskId={card.id}
-            worktreePath={ready?.worktree?.path}
-            rememberedWorkingDir={ready?.code_context?.working_dir}
-            resumableAgentKinds={ready?.resumable_agent_kinds}
-          />}
-        <div className="flex gap-2">
-          <button type="button" onClick={onOpenDetails} className={secondaryButton}>Open details</button>
-          {!card.away && <button type="button" onClick={onMove} className={secondaryButton}>Move</button>}
-          {!card.away && onHandOff && <button type="button" onClick={onHandOff} className={secondaryButton}>Hand off…</button>}
-          {providerURL
-            ? <button type="button" onClick={() => onOpenURL(providerURL)} className={secondaryButton}>Open in {providerLabel(card.provider) || "browser"}</button>
-            : prURL && <button type="button" onClick={() => onOpenURL(prURL)} className={secondaryButton}>Open PR</button>}
-        </div>
-      </div>
+      <TaskProperties card={card} column={column} ready={ready} />
+      <DescriptionPreview away={Boolean(card.away)} ready={ready} />
+      <PanelActions card={card} ready={ready} onOpenDetails={onOpenDetails} onMove={onMove} onOpenURL={onOpenURL} onHandOff={onHandOff} />
     </aside>
   )
 }
