@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# PATCHED from CodeEval 0.8.5: per-session state, see CE-3; remove once
+# upstream ships it. State lives in <git-dir>/codeeval/<session_id>/, so a
+# session starting in the same checkout never moves another's base, budget
+# or background check. Re-running `codeeval hook install` overwrites this.
 # Claude Code "Stop" hook: before Claude finishes, check everything changed
 # since the session base, in two tiers so the agent never waits long:
 #
@@ -14,7 +18,7 @@
 # Code feeds back to Claude. A background result describes the working tree
 # as it was at the previous stop, and says so.
 #
-# Base, first that exists: $CODEEVAL_BASE, <git-dir>/codeeval-session-base
+# Base, first that exists: $CODEEVAL_BASE, <git-dir>/codeeval/<session_id>/session-base
 # (written by codeeval-session-base.sh), merge-base with origin/main, HEAD.
 #
 # Escape hatches, so the hook never traps an agent in a fixing loop or forces
@@ -27,8 +31,8 @@
 #   - CODEEVAL_HOOK=off disables it;
 #   - a false positive can be suppressed in code with a reasoned comment
 #     `codeeval-ignore <rule-id>: <reason>` (listed in reports, not hidden).
-# Session state lives in <git-dir>/codeeval-hook-state{,.blocks} and
-# <git-dir>/codeeval-broad/ (reset by codeeval-session-base.sh).
+# Session state lives in <git-dir>/codeeval/<session_id>/hook-state{,.blocks}
+# and .../broad/ (reset by codeeval-session-base.sh).
 #
 # Environment (optional): CODEEVAL_BIN, CODEEVAL_BASE, CODEEVAL_CONFIG,
 # CODEEVAL_DEBT_FAIL_ON (new-debt|net-debt|gates|none, default net-debt),
@@ -47,16 +51,19 @@ repo=${CLAUDE_PROJECT_DIR:-$(pwd)}
 cd "$repo" 2>/dev/null || exit 0
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 gitdir=$(git rev-parse --absolute-git-dir)
+sid=$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9_-]*\)".*/\1/p' | head -1)
+dir="$gitdir/codeeval/${sid:-default}"
+mkdir -p "$dir" || exit 0
 base=${CODEEVAL_BASE:-}
-if [ -z "$base" ] && [ -s "$gitdir/codeeval-session-base" ]; then base=$(cat "$gitdir/codeeval-session-base"); fi
+if [ -z "$base" ] && [ -s "$dir/session-base" ]; then base=$(cat "$dir/session-base"); fi
 git rev-parse -q --verify "${base:-x}^{commit}" >/dev/null 2>&1 || base=$(git merge-base HEAD origin/main 2>/dev/null || git rev-parse HEAD)
 mode=${CODEEVAL_STOP_CHECKS:-tiered}
 args=(analyze --repo "$repo" --base "$base" --working-tree --debt-fail-on "${CODEEVAL_DEBT_FAIL_ON:-net-debt}"
   --defects-fail-on "${CODEEVAL_DEFECTS_FAIL_ON:-gate}" --files 15 --top 10 --format md)
 [ -n "${CODEEVAL_CONFIG:-}" ] && args+=(--config "$CODEEVAL_CONFIG")
 [ -n "${CODEEVAL_PATHS:-}" ] && args+=(--path "$CODEEVAL_PATHS")
-state="$gitdir/codeeval-hook-state"
-broad="$gitdir/codeeval-broad"
+state="$dir/hook-state"
+broad="$dir/broad"
 
 fingerprint() { printf '%s\n' "$1" | sed -n 's/^Failure fingerprint: `\([0-9a-f]*\)`.*/\1/p' | head -1; }
 shown() { [ -n "$1" ] && [ -f "$state" ] && grep -qx "$1" "$state"; }

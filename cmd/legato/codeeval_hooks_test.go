@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The repository runs CodeEval as Claude Code hooks (.claude/settings.json,
@@ -114,6 +115,48 @@ func fakeCodeEval(t *testing.T, path, name string) {
 	}
 }
 
+// fakeCodeEvalArgs writes an executable at path that fails every check,
+// naming the arguments it was given. A broad check sleeps a second first,
+// then touches done, so a test can tell it is still running.
+func fakeCodeEvalArgs(t *testing.T, path, done string) {
+	t.Helper()
+	script := `#!/bin/sh
+case "$*" in
+*"--checks broad"*) sleep 1; echo "found broad"; echo 'Failure fingerprint: ` + "`b0`" + `'; touch '` + done + `'; exit 3 ;;
+esac
+echo "found args: $*"
+echo 'Failure fingerprint: ` + "`a0`" + `'
+exit 3
+`
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// commit makes an empty commit in the project and returns its ID.
+func (p hookProject) commit(t *testing.T) string {
+	t.Helper()
+	for _, args := range [][]string{
+		{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "work"},
+		{"rev-parse", "HEAD"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = p.dir
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		if args[0] == "rev-parse" {
+			return strings.TrimSpace(string(out))
+		}
+	}
+	return ""
+}
+
 func (p hookProject) homeCodeEval() string {
 	return filepath.Join(p.home, ".local", "share", "codeeval", "current", "codeeval")
 }
@@ -177,8 +220,8 @@ func TestCodeEvalHooksDoNothingWithoutCodeEval(t *testing.T) {
 			t.Errorf("%s hook without CodeEval: exit %d, stdout %q, stderr %q; want exit 0 and no output", event, code, stdout, stderr)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(p.dir, ".git", "codeeval-broad")); err == nil {
-		t.Error("the Stop hook started a background check without CodeEval")
+	if broad, _ := filepath.Glob(filepath.Join(p.dir, ".git", "codeeval*", "*broad*")); len(broad) > 0 {
+		t.Errorf("the Stop hook started a background check without CodeEval: %v", broad)
 	}
 }
 
@@ -236,4 +279,79 @@ func TestCodeEvalStopHookOptsOut(t *testing.T) {
 			}
 		})
 	}
+}
+
+func startPayload(session, source string) string {
+	return `{"session_id":"` + session + `","hook_event_name":"SessionStart","source":"` + source + `"}`
+}
+
+func stopPayloadFor(session string) string {
+	return `{"session_id":"` + session + `","hook_event_name":"Stop","stop_hook_active":false}`
+}
+
+// The CodeEval scripts are patched to keep their state per Claude session
+// (CE ticket): another session starting in the same checkout must not move
+// a session's base, spend its budget or drop its background check.
+func TestCodeEvalHooksKeepEachSessionsBase(t *testing.T) {
+	skipWithCodeEvalOnPath(t)
+	commands := codeEvalHookCommands(t)
+	p := newHookProject(t)
+	fakeCodeEvalArgs(t, p.homeCodeEval(), filepath.Join(t.TempDir(), "done"))
+	x := p.commit(t)
+	p.run(t, commands["SessionStart"], startPayload("A", "startup"))
+	p.commit(t) // A commits its work
+	p.run(t, commands["SessionStart"], startPayload("B", "startup"))
+	p.run(t, commands["SessionStart"], startPayload("A", "resume"))
+	code, _, stderr := p.run(t, commands["Stop"], stopPayloadFor("A"), "CODEEVAL_STOP_CHECKS=quick")
+	if code != 2 || !strings.Contains(stderr, "--base "+x+" ") {
+		t.Errorf("A's stop: exit %d, want exit 2 checking from A's base %s:\n%s", code, x[:12], stderr)
+	}
+}
+
+func TestCodeEvalHooksKeepEachSessionsBudget(t *testing.T) {
+	skipWithCodeEvalOnPath(t)
+	commands := codeEvalHookCommands(t)
+	p := newHookProject(t)
+	fakeCodeEvalArgs(t, p.homeCodeEval(), filepath.Join(t.TempDir(), "done"))
+	p.run(t, commands["SessionStart"], startPayload("A", "startup"))
+	if code, _, _ := p.run(t, commands["Stop"], stopPayloadFor("A"), "CODEEVAL_STOP_CHECKS=quick"); code != 2 {
+		t.Fatalf("A's first stop: exit %d, want 2", code)
+	}
+	p.run(t, commands["SessionStart"], startPayload("B", "startup"))
+	// The same findings were shown to A once; B's start must not reset that.
+	if code, _, stderr := p.run(t, commands["Stop"], stopPayloadFor("A"), "CODEEVAL_STOP_CHECKS=quick"); code != 0 {
+		t.Errorf("A's second stop: exit %d, want 0 (already shown to A):\n%s", code, stderr)
+	}
+	// B has its own budget, and sees them.
+	if code, _, _ := p.run(t, commands["Stop"], stopPayloadFor("B"), "CODEEVAL_STOP_CHECKS=quick"); code != 2 {
+		t.Errorf("B's first stop: exit %d, want 2", code)
+	}
+}
+
+func TestCodeEvalHooksKeepEachSessionsBackgroundCheck(t *testing.T) {
+	skipWithCodeEvalOnPath(t)
+	commands := codeEvalHookCommands(t)
+	p := newHookProject(t)
+	done := filepath.Join(t.TempDir(), "done")
+	fakeCodeEvalArgs(t, p.homeCodeEval(), done)
+	p.run(t, commands["SessionStart"], startPayload("A", "startup"))
+	p.run(t, commands["Stop"], stopPayloadFor("A")) // starts A's broad check
+	p.run(t, commands["SessionStart"], startPayload("B", "startup"))
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(done); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("A's background check never finished: B's start stopped it")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	time.Sleep(500 * time.Millisecond) // the hook files its result after codeeval exits
+	code, _, stderr := p.run(t, commands["Stop"], stopPayloadFor("A"))
+	if code != 2 || !strings.Contains(stderr, "found broad") {
+		t.Errorf("A's next stop: exit %d, want 2 with A's background result:\n%s", code, stderr)
+	}
+	// Let the background check this stop started finish before cleanup.
+	time.Sleep(1500 * time.Millisecond)
 }
