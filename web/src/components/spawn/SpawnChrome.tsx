@@ -1,5 +1,4 @@
 import type { ReactNode, RefObject } from "react"
-import { X } from "lucide-react"
 
 interface SpawnSheetProps {
   // The dialog's accessible name.
@@ -38,33 +37,6 @@ export function SpawnSheet({ name, formRef, onStart, onClose, children }: SpawnS
         {children}
       </form>
     </div>
-  )
-}
-
-// The sheet's handle on a phone, the heading, and the close button, which
-// waits while an agent is being started.
-export function SpawnHeader({ name, description, loading, onClose }: { name: string; description: string; loading: boolean; onClose: () => void }) {
-  return (
-    <>
-      <div aria-hidden="true" className="flex justify-center pb-1 pt-2 sm:hidden">
-        <span className="h-1 w-9 rounded-full bg-lw-line-strong" />
-      </div>
-      <div className="flex shrink-0 items-center justify-between py-1 pl-4 pr-2 sm:px-5 sm:pb-3 sm:pt-4">
-        <div className="flex flex-col">
-          <h2 className="text-lg font-semibold sm:text-base">{name}</h2>
-          <p className="hidden text-xs text-lw-text-2 sm:block">{description}</p>
-        </div>
-        <button
-          type="button"
-          aria-label="Close"
-          disabled={loading}
-          onClick={onClose}
-          className="flex h-11 w-11 items-center justify-center rounded-md text-lw-text-2 transition-colors hover:bg-lw-raised hover:text-lw-text disabled:opacity-40 sm:h-8 sm:w-8"
-        >
-          <X size={18} />
-        </button>
-      </div>
-    </>
   )
 }
 

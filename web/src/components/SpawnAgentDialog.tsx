@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react"
+import { X } from "lucide-react"
 import { useModalLayer } from "./ui/useModalLayer"
 import { useServer } from "../hooks/useServer"
 import { useSettings } from "../hooks/useSettings"
@@ -18,8 +19,9 @@ import { SessionPolicyField } from "./spawn/SessionPolicyField"
 import { MacroField } from "./spawn/MacroField"
 import { EngramField } from "./spawn/EngramField"
 import { WhereField } from "./spawn/WhereField"
-import { PromptField, SandboxToggles, TitleField } from "./spawn/StartFields"
-import { ErrorNote, SpawnFooter, SpawnHeader, SpawnSheet } from "./spawn/SpawnChrome"
+import { SandboxToggles } from "./spawn/StartFields"
+import { ErrorNote, SpawnFooter, SpawnSheet } from "./spawn/SpawnChrome"
+import { fieldLabel, focusRing } from "./spawn/styles"
 
 // SpawnAgentDialog asks how to start an agent: a title (when the agent is not
 // a task's), the agent tool, whether to resume that tool's saved session
@@ -136,13 +138,45 @@ export function SpawnAgentDialog({
 
   return (
     <SpawnSheet name={name} formRef={formRef} onStart={submit} onClose={close}>
-      <SpawnHeader name={name} description={description} loading={loading} onClose={close} />
+      {/* The sheet's handle on a phone, the heading, and the close button,
+          which waits while an agent is being started. */}
+      <div aria-hidden="true" className="flex justify-center pb-1 pt-2 sm:hidden">
+        <span className="h-1 w-9 rounded-full bg-lw-line-strong" />
+      </div>
+      <div className="flex shrink-0 items-center justify-between py-1 pl-4 pr-2 sm:px-5 sm:pb-3 sm:pt-4">
+        <div className="flex flex-col">
+          <h2 className="text-lg font-semibold sm:text-base">{name}</h2>
+          <p className="hidden text-xs text-lw-text-2 sm:block">{description}</p>
+        </div>
+        <button
+          type="button"
+          aria-label="Close"
+          disabled={loading}
+          onClick={close}
+          className="flex h-11 w-11 items-center justify-center rounded-md text-lw-text-2 transition-colors hover:bg-lw-raised hover:text-lw-text disabled:opacity-40 sm:h-8 sm:w-8"
+        >
+          <X size={18} />
+        </button>
+      </div>
 
       <div className="flex min-h-0 flex-col gap-4 overflow-y-auto px-4 pb-4 pt-2 sm:px-5 sm:pt-1">
         <ErrorNote message={clone.jobClonesError} />
         <ErrorNote message={error} />
 
-        {titled && <TitleField value={title} onChange={setTitle} />}
+        {titled && (
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Title</span>
+            <input
+              data-autofocus
+              type="text"
+              aria-label="Title"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="Ephemeral session"
+              className={`h-[46px] rounded-[10px] border border-lw-line-strong bg-lw-ground px-3.5 text-base text-lw-text outline-none placeholder:text-lw-faint sm:h-9 sm:rounded-md sm:px-3 sm:text-sm ${focusRing}`}
+            />
+          </label>
+        )}
 
         <AgentField agent={agent} />
 
@@ -155,7 +189,20 @@ export function SpawnAgentDialog({
         <WhereField dir={dir} clone={clone} listId={listId} customPathShown={customPathShown} layoutKey={JSON.stringify([error, offersSessionChoice])} />
         {resources.resources.length > 0 && <ResourcesField choice={resources} />}
         {macro.macros.favorites.length + macro.macros.rest.length > 0 && <MacroField macro={macro} />}
-        <PromptField value={prompt} onChange={setPrompt} />
+        {/* The agent's first message, sent once it is ready. */}
+        <label className="flex flex-col gap-1.5">
+          <span className={fieldLabel}>
+            First message <span className="text-lw-faint">· optional</span>
+          </span>
+          <textarea
+            aria-label="First message"
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            rows={3}
+            placeholder="What the agent should start on. Sent once it is ready."
+            className={`min-h-[92px] resize-y rounded-[10px] border border-lw-line-strong bg-lw-ground px-3.5 py-2.5 text-base text-lw-text outline-none placeholder:text-lw-faint sm:min-h-[72px] sm:rounded-md sm:px-3 sm:py-2 sm:text-sm ${focusRing}`}
+          />
+        </label>
         <SandboxToggles
           sandboxed={sandboxed}
           unsandboxed={unsandboxed}

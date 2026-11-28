@@ -1,42 +1,4 @@
 import type { ReactNode } from "react"
-import { fieldLabel, focusRing } from "./styles"
-
-// The title an agent with no task gets.
-export function TitleField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className={fieldLabel}>Title</span>
-      <input
-        data-autofocus
-        type="text"
-        aria-label="Title"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder="Ephemeral session"
-        className={`h-[46px] rounded-[10px] border border-lw-line-strong bg-lw-ground px-3.5 text-base text-lw-text outline-none placeholder:text-lw-faint sm:h-9 sm:rounded-md sm:px-3 sm:text-sm ${focusRing}`}
-      />
-    </label>
-  )
-}
-
-// The agent's first message, sent once it is ready.
-export function PromptField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className={fieldLabel}>
-        First message <span className="text-lw-faint">· optional</span>
-      </span>
-      <textarea
-        aria-label="First message"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        rows={3}
-        placeholder="What the agent should start on. Sent once it is ready."
-        className={`min-h-[92px] resize-y rounded-[10px] border border-lw-line-strong bg-lw-ground px-3.5 py-2.5 text-base text-lw-text outline-none placeholder:text-lw-faint sm:min-h-[72px] sm:rounded-md sm:px-3 sm:py-2 sm:text-sm ${focusRing}`}
-      />
-    </label>
-  )
-}
 
 // A box that loosens what the agent may do, drawn as a warning once ticked.
 function RiskToggle({ checked, onChange, title, children }: { checked: boolean; onChange: (checked: boolean) => void; title: string; children: ReactNode }) {
