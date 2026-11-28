@@ -327,7 +327,7 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "send-keys -t %7 Down\nsend-keys -t %7 Down\nsend-keys -t %7 -- Purple\nsend-keys -t %7 Enter\n"
+	want := "send-keys -t %7 Down\nsend-keys -t %7 Down\nsend-keys -t %7 -l -- Purple\nsend-keys -t %7 Enter\n"
 	if string(sent) != want {
 		t.Fatalf("sent = %q, want %q", sent, want)
 	}

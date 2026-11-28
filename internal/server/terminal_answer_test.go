@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/prompt"
@@ -24,6 +25,8 @@ func claudeScreen(t *testing.T, name string) string {
 const idleClaudeScreen = "● Done.\n\n────────\n❯ \n────────\n"
 
 type terminalAnswerFixture struct {
+	// shown is the prompt the card was drawn from: the first screen's.
+	shown   *prompt.PromptState
 	server  *Server
 	tmux    *mockTmuxManager
 	client  *wsClient
@@ -38,6 +41,10 @@ func newTerminalAnswerFixture(t *testing.T, screens ...string) *terminalAnswerFi
 	terminalAnswerSettle = 0
 	t.Cleanup(func() { terminalAnswerSettle = previous })
 	fixture := &terminalAnswerFixture{tmux: &mockTmuxManager{screens: screens}}
+	if len(screens) > 0 {
+		shown := prompt.DetectForAgent("", screens[0]).State
+		fixture.shown = &shown
+	}
 	agents := &promptAgentService{chimeraEndpoint: "http://127.0.0.1:1", chimeraSessionID: "native"}
 	fixture.server = New(nil, agents, fixture.tmux, ":0")
 	fixture.client = &wsClient{ctx: context.Background(), sendFn: func(m WSMessage) { fixture.answers = append(fixture.answers, m) }}
@@ -45,7 +52,7 @@ func newTerminalAnswerFixture(t *testing.T, screens ...string) *terminalAnswerFi
 }
 
 func (f *terminalAnswerFixture) answer(keys, text string) {
-	f.server.handleWSMessage(f.client, WSMessage{Type: MsgAnswerTerminalPrompt, AgentID: "native-agent", RequestID: "terminal-answer:1", Keys: keys, Content: text})
+	f.server.handleWSMessage(f.client, WSMessage{Type: MsgAnswerTerminalPrompt, AgentID: "native-agent", RequestID: "terminal-answer:1", Keys: keys, Content: text, Prompt: f.shown})
 }
 
 func (f *terminalAnswerFixture) last(t *testing.T) WSMessage {
@@ -169,6 +176,39 @@ func TestSendKeysErrorsNameTheAgent(t *testing.T) {
 
 	refusal := f.last(t)
 	if refusal.Type != MsgError || refusal.AgentID != "native-agent" || refusal.RequestID != "keys:1" {
+		t.Fatalf("refusal = %+v", refusal)
+	}
+}
+
+func TestAnAnswerIsRefusedWhenTheScreenNoLongerShowsThePromptItWasChosenFrom(t *testing.T) {
+	permission := claudeScreen(t, "permission")
+	// Someone at the terminal moved the cursor from Yes to the second
+	// option: Enter now means "Yes, and always allow".
+	moved := strings.Replace(strings.Replace(permission, " ❯ 1. Yes", "   1. Yes", 1), "   2. Yes, and always", " ❯ 2. Yes, and always", 1)
+	f := newTerminalAnswerFixture(t, moved)
+	shown := prompt.DetectForAgent("", permission).State
+	f.shown = &shown
+
+	f.answer("Enter", "")
+
+	if len(f.tmux.sentKeys) != 0 {
+		t.Fatalf("pressed %v", f.tmux.sentKeys)
+	}
+	if refusal := f.last(t); refusal.Type != MsgError || refusal.Code != "prompt_changed" {
+		t.Fatalf("refusal = %+v", refusal)
+	}
+}
+
+func TestAnAnswerMustSayWhichPromptItAnswers(t *testing.T) {
+	f := newTerminalAnswerFixture(t, claudeScreen(t, "permission"))
+	f.shown = nil
+
+	f.answer("Enter", "")
+
+	if len(f.tmux.sentKeys) != 0 {
+		t.Fatalf("pressed %v", f.tmux.sentKeys)
+	}
+	if refusal := f.last(t); refusal.Type != MsgError {
 		t.Fatalf("refusal = %+v", refusal)
 	}
 }

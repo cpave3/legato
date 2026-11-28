@@ -212,8 +212,10 @@ func (m *Manager) AnswerPrompt(name string, keys []string, text string, submit b
 	if text == "" {
 		return nil
 	}
-	if err := m.sendKeys(pane, text, true); err != nil {
-		return err
+	// -l types the text as it is: with only --, tmux still reads a text
+	// such as "Enter" as the key of that name.
+	if out, err := exec.Command(m.tmuxPath, "send-keys", "-t", pane, "-l", "--", text).CombinedOutput(); err != nil {
+		return fmt.Errorf("tmux send-keys: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	if !submit {
 		return nil

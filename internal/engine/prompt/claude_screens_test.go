@@ -200,3 +200,19 @@ func TestAScrolledClaudeListIsReadFromWhatIsOnScreen(t *testing.T) {
 		t.Fatalf("text row = %#v", bottom.Actions[3])
 	}
 }
+
+func TestAMenuWithAnImplausibleOptionNumberIsNotExpanded(t *testing.T) {
+	// A scrolled list that would start past the bound is no menu at all.
+	if state, ok := detectMenu("↑ 1000. First\n❯ 1001. Second\n"); ok {
+		t.Fatalf("read as a menu: %+v", state)
+	}
+	for _, last := range []string{"1000", "1000000000", "99999999999999999999999"} {
+		screen := "Pick one\n❯ 1. First\n↓ 2. Second\n  " + last + ". Last\nEnter to select\n"
+		state, ok := detectMenu(screen)
+		for _, action := range state.Actions {
+			if keys := strings.Fields(action.Keys); len(keys) > maxMenuRows {
+				t.Fatalf("%s: %d keys for %q (ok=%v)", last, len(keys), action.Label, ok)
+			}
+		}
+	}
+}

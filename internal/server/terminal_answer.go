@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 	"unicode"
@@ -33,8 +34,9 @@ var answerablePrompts = map[prompt.PromptType]bool{
 // handleAnswerTerminalPrompt answers a prompt in an agent's terminal, for a
 // prompt that never reached Legato as a request of its own. Unlike
 // send_keys it serves native agents too, so it presses only keys it has
-// just read off the screen as an answer: the screen is read again, and the
-// keys must be one of its actions. A row that takes text (Content) gets its
+// just read off the screen as an answer: the screen is read again, it must
+// still show the prompt the answer was chosen from (Prompt), and the keys
+// must be one of its actions. A row that takes text (Content) gets its
 // text typed once the cursor is on it. The tmux delivery guard still applies.
 func (s *Server) handleAnswerTerminalPrompt(client *wsClient, msg WSMessage) {
 	refuse := func(code, message string, state *prompt.PromptState) {
@@ -44,8 +46,8 @@ func (s *Server) handleAnswerTerminalPrompt(client *wsClient, msg WSMessage) {
 		refuse("unavailable", "tmux not available", nil)
 		return
 	}
-	if msg.AgentID == "" || msg.RequestID == "" || msg.Keys == "" {
-		refuse("invalid", "agent_id, request_id and keys are required", nil)
+	if msg.AgentID == "" || msg.RequestID == "" || msg.Keys == "" || msg.Prompt == nil {
+		refuse("invalid", "agent_id, request_id, keys and the prompt answered are required", nil)
 		return
 	}
 	text := msg.Content
@@ -62,7 +64,9 @@ func (s *Server) handleAnswerTerminalPrompt(client *wsClient, msg WSMessage) {
 	}
 	state := s.streams.detectPromptState(msg.AgentID, output).State
 	var chosen *prompt.Action
-	if answerablePrompts[state.Type] {
+	// Keys are relative to the cursor, so they mean the answer chosen only
+	// on the screen it was chosen from: the prompt must be unchanged.
+	if answerablePrompts[state.Type] && reflect.DeepEqual(state, *msg.Prompt) {
 		for index := range state.Actions {
 			if state.Actions[index].Keys == msg.Keys {
 				chosen = &state.Actions[index]
@@ -71,7 +75,7 @@ func (s *Server) handleAnswerTerminalPrompt(client *wsClient, msg WSMessage) {
 		}
 	}
 	if chosen == nil {
-		refuse("prompt_changed", "the terminal no longer shows that answer", &state)
+		refuse("prompt_changed", "the terminal changed before the answer was sent; check it and choose again", &state)
 		return
 	}
 	if chosen.TakesText && strings.TrimSpace(text) == "" {

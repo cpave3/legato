@@ -744,3 +744,47 @@ func awaitShellPane(t *testing.T, m *Manager, name string) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// Text an operator types as an answer reaches the pane as text, even when
+// it names a key (LEG-688).
+func TestAnswerPromptTypesTextThatNamesAKeyAsText(t *testing.T) {
+	skipWithoutTmux(t)
+	socketDir, err := os.MkdirTemp("/tmp", "lgt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(socketDir) })
+	t.Setenv("TMUX", "")
+	t.Setenv("TMUX_TMPDIR", socketDir)
+	m, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "legato-test-answer"
+	if err := m.Spawn(name, t.TempDir(), 80, 10); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.Kill(name) })
+	awaitShellPane(t, m, name)
+	m.SetAnswerGuard(func(string, string) error { return nil })
+
+	if err := m.AnswerPrompt(name, nil, "Enter", false); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		capture, err := m.Capture(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := strings.Split(strings.TrimRight(capture, "\n"), "\n")
+		if strings.HasSuffix(lines[len(lines)-1], "Enter") {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the text did not reach the prompt line: %q", capture)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}

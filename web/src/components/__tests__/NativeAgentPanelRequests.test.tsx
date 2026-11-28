@@ -208,7 +208,8 @@ describe("NativeAgentPanel and prompts only the terminal shows", () => {
     fireEvent.click(within(card).getByRole("button", { name: "Skip" }))
 
     const answer = answerOf()
-    expect(answer).toMatchObject({ type: "answer_terminal_prompt", agent_id: "task-1", keys: "Down Enter" })
+    // With the prompt it was chosen from: the keys mean that answer only there.
+    expect(answer).toMatchObject({ type: "answer_terminal_prompt", agent_id: "task-1", keys: "Down Enter", prompt: menu })
     expect(answer.request_id).toMatch(/^terminal-answer:/)
     // The card stays until the screen says the answer landed.
     expect(screen.getByRole("region", { name: cardName })).not.toBeNull()

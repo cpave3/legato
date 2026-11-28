@@ -20,6 +20,10 @@ let nextAnswer = 0
 export function useTerminalPrompt(agentId: string, connected: boolean, send: (message: WSMessage) => unknown) {
   const [state, dispatch] = useReducer(terminalAnswerReducer, initialTerminalAnswer)
   const timers = useRef<number[]>([])
+  // The prompt on the card, sent with an answer: keys move from the cursor,
+  // so they mean the option chosen only on the screen it was chosen from.
+  const shown = useRef(state.prompt)
+  useEffect(() => { shown.current = state.prompt }, [state.prompt])
 
   useEffect(() => {
     dispatch({ type: "reset" })
@@ -47,7 +51,7 @@ export function useTerminalPrompt(agentId: string, connected: boolean, send: (me
   const choose = useCallback((keys: string, text?: string) => {
     const requestId = `${TERMINAL_ANSWER_REQUEST}${++nextAnswer}`
     dispatch({ type: "sent", requestId })
-    send({ type: "answer_terminal_prompt", agent_id: agentId, request_id: requestId, keys, ...(text ? { content: text } : {}) })
+    send({ type: "answer_terminal_prompt", agent_id: agentId, request_id: requestId, keys, prompt: shown.current, ...(text ? { content: text } : {}) })
     timers.current.push(window.setTimeout(() => dispatch({
       type: "failed", requestId, error: "Legato did not say whether the answer landed. Try again, or answer in the terminal.",
     }), TERMINAL_ANSWER_TIMEOUT_MS))

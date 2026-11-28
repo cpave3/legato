@@ -20,6 +20,10 @@ const (
 	// menuTrailingLines is how many lines of hints a menu may have under it
 	// and still be what the screen is showing now.
 	menuTrailingLines = 4
+	// maxMenuRows bounds the options a menu may number and the rows its keys
+	// may cross: terminal text is anyone's, and a menu-shaped block with a
+	// huge option number must not become a huge list of keys.
+	maxMenuRows = 50
 )
 
 // menuOptionRe matches one option: an optional cursor or scroll mark, its
@@ -101,7 +105,10 @@ func detectMenu(cleaned string) (PromptState, bool) {
 		if match == nil {
 			return nil, 0, false
 		}
-		n, _ := strconv.Atoi(match[4])
+		n, err := strconv.Atoi(match[4])
+		if err != nil || n < 1 || n > maxMenuRows {
+			return nil, 0, false
+		}
 		if len(rows) == 0 || n == number+1 || (scrollsOn && n > number+1) {
 			return match, n, true
 		}
@@ -123,6 +130,10 @@ func detectMenu(cleaned string) (PromptState, bool) {
 			rows = append(rows, row{label: match[5], column: len(match[1]) + len(match[2]) + len(match[3]), position: position})
 			number, scrollsOn, end = n, match[2] == "↓", index
 			continue
+		}
+		if len(rows) == 0 {
+			// The line it starts on is no option it can read.
+			return PromptState{}, false
 		}
 		if match := menuRowRe.FindStringSubmatch(line); match != nil && strings.HasPrefix(rows[len(rows)-1].label, "[") {
 			position++
@@ -157,7 +168,7 @@ func detectMenu(cleaned string) (PromptState, bool) {
 			}
 		}
 	}
-	if len(rows) < 2 || selected < 0 {
+	if len(rows) < 2 || selected < 0 || rows[len(rows)-1].position > maxMenuRows {
 		return PromptState{}, false
 	}
 
