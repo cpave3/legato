@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { fetchAdapters } from "../lib/adapters"
 import { queryKeys } from "../lib/query"
 import { useModalLayer } from "./ui/useModalLayer"
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { ChevronDown, X } from "lucide-react"
 import { accessLabel, listResources, type Resource } from "../lib/resources"
 import { macroMessage, pickerMacros, useMacros } from "../lib/macros"
@@ -11,20 +11,13 @@ import { useSettings } from "../hooks/useSettings"
 import { agentKindLabel } from "../lib/agentKind"
 import { cloneChoices, listJobClones, type JobClone } from "../lib/jobClones"
 import { engramMarkLabel, fetchEngramPicker, takesEngram, type EngramPicker } from "../lib/engrams"
-import {
-  completionOf,
-  directoryName,
-  fetchDirectoryPresets,
-  fetchDirectorySuggestions,
-  presetFor,
-  saveDirectoryPreset,
-  suggestionParts,
-  suggestionsWhile,
-  type DirectoryPreset,
-  type DirectorySuggestion,
-  type DirectorySuggestions,
-} from "../lib/spawnDirectories"
+import { directoryName, saveDirectoryPreset } from "../lib/spawnDirectories"
+import { suggestDelayMs } from "../lib/spawnSuggestions"
 import { buildSpawnRequest, spawnWorkingDir, type SessionPolicy, type SpawnAgentRequest } from "../lib/spawnRequest"
+import { useDirectoryField } from "./spawn/useDirectoryField"
+import { PresetList } from "./spawn/PresetList"
+import { PathField } from "./spawn/PathField"
+import { fieldLabel, focusRing } from "./spawn/styles"
 
 // What "Where" is: a folder on the server, or a clone Legato manages (a new
 // one, or one an agent worked in before).
@@ -32,30 +25,6 @@ type Place = "folder" | "clone"
 
 // The clone choice that means a new clone.
 const newClone = 0
-
-// How long the path rests before its suggestions are asked for.
-const suggestDelayMs = 120
-// On a phone the presets past this many wait behind a row.
-const presetsShownOnPhone = 3
-// The suggestion list: its distance from the path field and from the edge of
-// the window, how tall it may get, and the room below the field under which
-// it opens upward when there is more room there.
-const listGap = 6
-const listMargin = 8
-const listMaxHeight = 264
-const listMinRoom = 132
-
-const fieldLabel = "text-[13px] text-lw-text-2 sm:text-xs"
-const focusRing = "focus:border-lw-accent focus:ring-[3px] focus:ring-lw-accent/25"
-
-interface ListPlace {
-  left: number
-  width: number
-  top?: number
-  bottom?: number
-  // How tall the list may be where it is.
-  room: number
-}
 
 // SpawnAgentDialog asks how to start an agent: a title (when the agent is not
 // a task's), the agent tool, whether to resume that tool's saved session
@@ -117,20 +86,6 @@ export function SpawnAgentDialog({
   // whether there is a session to resume.
   const ready = adapterQuery.isFetched
   const [sessionPolicy, setSessionPolicy] = useState<SessionPolicy>("resume")
-  const [presets, setPresets] = useState<DirectoryPreset[]>([])
-  // False for a server with no directory service: its presets are the
-  // configured repositories, and a path is typed without help.
-  const [serverKnowsDirectories, setServerKnowsDirectories] = useState(false)
-  const [path, setPath] = useState("")
-  const [found, setFound] = useState<DirectorySuggestions | null>(null)
-  const [listOpen, setListOpen] = useState(false)
-  const [active, setActive] = useState(0)
-  // True once the arrow keys chose a suggestion, which enter then takes.
-  const [chosen, setChosen] = useState(false)
-  const [place, setPlace] = useState<ListPlace | null>(null)
-  const [listHeight, setListHeight] = useState(0)
-  const [showAll, setShowAll] = useState(false)
-  const [savePath, setSavePath] = useState(false)
   // Out of Legato's sandbox for this one agent: asked afresh each time.
   const [unsandboxed, setUnsandboxed] = useState(false)
   const [hostNetwork, setHostNetwork] = useState(false)
@@ -183,11 +138,15 @@ export function SpawnAgentDialog({
   const formRef = useRef<HTMLFormElement>(null)
   useModalLayer({ open, onClose, containerRef: formRef, dismissible: !loading })
   const titleRef = useRef<HTMLInputElement>(null)
-  const pathFieldRef = useRef<HTMLDivElement>(null)
-  const listRef = useRef<HTMLDivElement>(null)
-  const pathRef = useRef(path)
-  pathRef.current = path
   const listId = useId()
+
+  const defaultAdapter = adapters?.default ?? ""
+  const effectiveAdapter = agentKind || defaultAdapter
+  const offersSessionChoice = resumableAgentKinds.includes(effectiveAdapter)
+  // Changes whenever the dialog opens afresh, when each part starts over.
+  const openKey = open ? JSON.stringify([baseUrl, initialWorkingDir, defaultBranch, taskId]) : ""
+  const dir = useDirectoryField({ openKey, baseUrl, initialWorkingDir, settingsRef, folder: whereKind === "folder" })
+  const { path, presets, selected, serverKnowsDirectories, savePath, showAll } = dir
 
   useEffect(() => {
     if (!open) return
@@ -196,9 +155,6 @@ export function SpawnAgentDialog({
     setLoading(false)
     setTitle("")
     setSessionPolicy("resume")
-    setFound(null)
-    setListOpen(false)
-    setSavePath(false)
     setUnsandboxed(false)
     setHostNetwork(false)
     setPrompt("")
@@ -237,48 +193,8 @@ export function SpawnAgentDialog({
     listResources(baseUrl)
       .then((listed) => { if (current) setResources(listed) })
       .catch(() => { if (current) setResources([]) })
-
-    fetchDirectoryPresets(baseUrl)
-      .catch(() => null)
-      .then((listed) => {
-        if (!current) return
-        const configured = settingsRef.current
-        const offered = listed?.presets ?? (configured?.repositories ?? [])
-          .filter((repository) => repository.primary_dir)
-          .map((repository) => ({ name: repository.name, path: repository.primary_dir, display: repository.primary_dir, saved: false }))
-        const start = initialWorkingDir || (listed?.default.display ?? configured?.working_dir ?? "")
-        setServerKnowsDirectories(listed !== null)
-        setPresets(offered)
-        setPath(start)
-        // A start that is no preset is a custom path, so the phone shows it.
-        setShowAll(!presetFor(start, offered))
-      })
     return () => { current = false }
   }, [open, baseUrl, initialWorkingDir, defaultBranch, taskId])
-
-  const suggests = open && listOpen && serverKnowsDirectories && whereKind === "folder"
-
-  useEffect(() => {
-    if (!suggests) return
-    const controller = new AbortController()
-    const nothing = (): DirectorySuggestions => ({ query: path, resolved: "", exists: false, base: "", prefix: "", items: [], total: 0 })
-    const timer = window.setTimeout(() => {
-      fetchDirectorySuggestions(baseUrl, path, controller.signal)
-        // A request that fails has no suggestions, which is also what ends
-        // the wait of a list that is held for it.
-        .catch(() => null)
-        .then((result) => {
-          if (controller.signal.aborted || pathRef.current !== path) return
-          setFound(result ?? nothing())
-          setActive(0)
-          setChosen(false)
-        })
-    }, suggestDelayMs)
-    return () => {
-      window.clearTimeout(timer)
-      controller.abort()
-    }
-  }, [suggests, baseUrl, path])
 
   // The repositories a clone can be of: those offered with a GitHub name,
   // then those of clones made before that are no longer offered.
@@ -295,7 +211,6 @@ export function SpawnAgentDialog({
   const choice = choices.find((option) => option.id === jobCloneId) ?? choices[0]
   // The clone picked, when it is one that exists.
   const jobClone = choice?.clone
-  const selected = presetFor(path, presets)
   const where = inClone ? cloneRepository?.name ?? "" : selected?.name ?? directoryName(path)
   const canSave = !inClone && serverKnowsDirectories && path.trim() !== "" && !selected
 
@@ -322,22 +237,6 @@ export function SpawnAgentDialog({
     }
   }, [open, baseUrl, engramDir, engramRepo, taskId])
 
-  // What is listed under the path, and what of it the keys can take. The
-  // last answer stays up, dimmed, while the one for another directory is on
-  // its way; see suggestionsWhile.
-  const listed = suggestionsWhile(found, path)
-  const shown = suggests ? listed.items : []
-  const takeable = listed.held ? [] : shown
-  const suggesting = takeable.length > 0
-  // Under a path that ends in a slash the suggestions are what is inside the
-  // directory, and none of them is highlighted until the arrow keys pick one.
-  const unpicked = path.endsWith("/") && !chosen
-  const current = suggesting && !unpicked ? Math.min(Math.max(active, 0), takeable.length - 1) : -1
-  const ghost = completionOf(path, takeable[current])
-  const more = found !== null && !listed.held && found.query === path && found.total > shown.length
-  const shownKey = shown.map((item) => item.path).join("\n") + (more ? "\n+" : "")
-
-  const defaultAdapter = adapters?.default ?? ""
   // The default follows the usage profile of the work's repository, which
   // may differ from the global default, so it names no adapter; every
   // adapter, the global default's too, stays an explicit override.
@@ -347,7 +246,6 @@ export function SpawnAgentDialog({
       .map((adapter) => ({ value: adapter, label: agentKindLabel(adapter), note: "" })),
     { value: "shell", label: agentKindLabel("shell"), note: "" },
   ]
-  const effectiveAdapter = agentKind || defaultAdapter
   const engramShown = !!engramPicker?.enabled && takesEngram(effectiveAdapter)
   const engramChoice = engramPicker?.engrams.find((choice) => choice.name === engram)
   // The engrams of this place first (the task's last one leads them), then
@@ -359,59 +257,7 @@ export function SpawnAgentDialog({
   const placeDefault = engramPicker?.place?.default ?? ""
   // Remember is offered only when ticking it would change something.
   const canRemember = engramShown && !!engramPicker?.place && (engram ? engram !== placeDefault : placeDefault !== "")
-  const offersSessionChoice = resumableAgentKinds.includes(effectiveAdapter)
   const toolLabel = agentKindLabel(effectiveAdapter)
-
-  // The list floats over the dialog, so that it neither resizes the dialog
-  // nor is cut off by it. It is placed against the path field: under it, or
-  // over it when the window ends too soon below.
-  useLayoutEffect(() => {
-    if (!suggests) return
-    const measure = () => {
-      const field = pathFieldRef.current?.getBoundingClientRect()
-      if (!field) return
-      const viewport = window.visualViewport
-      const top = viewport?.offsetTop ?? 0
-      const bottom = top + (viewport?.height ?? window.innerHeight)
-      const below = bottom - field.bottom - listGap - listMargin
-      const above = field.top - top - listGap - listMargin
-      const opensUp = below < listMinRoom && above > below
-      setPlace({
-        left: field.left,
-        width: field.width,
-        room: Math.max(Math.min(listMaxHeight, opensUp ? above : below), 0),
-        ...(opensUp ? { bottom: window.innerHeight - field.top + listGap } : { top: field.bottom + listGap }),
-      })
-    }
-    measure()
-    window.addEventListener("resize", measure)
-    // Capturing: the dialog's own content scrolls, and the field with it.
-    window.addEventListener("scroll", measure, true)
-    return () => {
-      window.removeEventListener("resize", measure)
-      window.removeEventListener("scroll", measure, true)
-    }
-  }, [suggests, showAll, presets.length, error, offersSessionChoice])
-
-  // Its height is set, not left to its content, so that it grows and shrinks
-  // smoothly from one answer to the next.
-  useLayoutEffect(() => {
-    setListHeight(shown.length > 0 ? listRef.current?.scrollHeight ?? 0 : 0)
-    // shownKey stands for shown: the same suggestions are the same height.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shownKey, place?.room])
-
-  useEffect(() => {
-    if (current >= 0) document.getElementById(`${listId}-${current}`)?.scrollIntoView?.({ block: "nearest" })
-  }, [current, listId])
-
-  const takeSuggestion = (item: DirectorySuggestion | undefined) => {
-    if (!item) return
-    setPath(item.display)
-    setActive(0)
-    setChosen(false)
-    setListOpen(true)
-  }
 
   const submit = useCallback(async () => {
     if (loading || !ready) return
@@ -436,30 +282,7 @@ export function SpawnAgentDialog({
   // A dialog that is starting an agent stays until that has an answer.
   const close = () => { if (!loading) onClose() }
 
-  const onPathKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Escape" && shown.length > 0) {
-      event.preventDefault()
-      event.stopPropagation()
-      setListOpen(false)
-      return
-    }
-    if (!suggesting) return
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault()
-      const step = event.key === "ArrowDown" ? 1 : -1
-      setActive(Math.min(Math.max(current + step, 0), takeable.length - 1))
-      setChosen(true)
-    } else if (event.key === "Tab" && !event.shiftKey) {
-      event.preventDefault()
-      takeSuggestion(takeable[Math.max(current, 0)])
-    } else if (event.key === "Enter" && chosen && !event.metaKey && !event.ctrlKey) {
-      event.preventDefault()
-      takeSuggestion(takeable[current])
-    }
-  }
-
   const customPathShown = !inClone && (showAll || presets.length === 0)
-  const hiddenOnPhone = showAll ? 0 : presets.filter((preset, index) => index >= presetsShownOnPhone && preset !== selected).length
   const spawnKeys = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘↵" : "Ctrl ↵"
   const busyLabel = ready ? acting : "Loading…"
 
@@ -666,7 +489,7 @@ export function SpawnAgentDialog({
                       type="button"
                       role="radio"
                       aria-checked={checked}
-                      onClick={() => { setWhereKind(option.value); setListOpen(false) }}
+                      onClick={() => { setWhereKind(option.value); dir.closeList() }}
                       className={`h-10 min-w-0 flex-1 truncate rounded-lg px-2 text-sm transition-colors sm:h-[30px] sm:rounded sm:text-[13px] ${
                         checked ? "bg-lw-selected font-medium text-lw-text" : "text-lw-text-2 hover:text-lw-text"
                       }`}
@@ -758,136 +581,14 @@ export function SpawnAgentDialog({
                 </p>
               </div>
             )}
-            {!inClone && presets.length > 0 && (
-              <div className="overflow-hidden rounded-[10px] border border-lw-line-strong bg-lw-ground sm:grid sm:grid-cols-2 sm:gap-1.5 sm:overflow-visible sm:rounded-none sm:border-0 sm:bg-transparent">
-                {presets.map((preset, index) => {
-                  const pressed = preset === selected
-                  const waits = !showAll && index >= presetsShownOnPhone && !pressed
-                  return (
-                    <button
-                      key={preset.path}
-                      type="button"
-                      aria-pressed={pressed}
-                      onClick={() => { setPath(preset.display); setListOpen(false) }}
-                      className={`${waits ? "hidden sm:flex" : "flex"} min-h-[54px] w-full min-w-0 items-center gap-3 border-b border-lw-line px-3.5 text-left transition-colors max-sm:last:border-b-0 sm:min-h-0 sm:rounded-lg sm:border sm:px-2.5 sm:py-2 ${
-                        pressed ? "bg-lw-selected sm:border-lw-accent" : "sm:border-lw-line-strong sm:bg-lw-ground sm:hover:border-lw-faint"
-                      }`}
-                    >
-                      <span aria-hidden="true" className={`h-[18px] w-[18px] shrink-0 rounded-full sm:hidden ${pressed ? "border-[5px] border-lw-accent" : "border-[1.5px] border-lw-faint"}`} />
-                      <span className="flex min-w-0 flex-col gap-px">
-                        <span className="truncate text-[15px] font-medium sm:text-[13px]">{preset.name}</span>
-                        <span className="truncate font-lw-mono text-[11px] text-lw-faint">{preset.display}</span>
-                      </span>
-                    </button>
-                  )
-                })}
-                {!showAll && (
-                  <button
-                    type="button"
-                    aria-expanded="false"
-                    onClick={() => setShowAll(true)}
-                    className="flex min-h-[50px] w-full items-center justify-between px-3.5 text-left text-sm text-lw-text-2 sm:hidden"
-                  >
-                    <span>{hiddenOnPhone > 0 ? `${hiddenOnPhone} more · Custom path` : "Custom path"}</span>
-                    <span aria-hidden="true">›</span>
-                  </button>
-                )}
-              </div>
-            )}
+            {!inClone && presets.length > 0 && <PresetList dir={dir} />}
 
-            <div className={`${inClone ? "hidden" : customPathShown ? "block" : "hidden sm:block"} sm:mt-0.5`}>
-              <div
-                ref={pathFieldRef}
-                className="flex h-[46px] items-center gap-2 rounded-[10px] border border-lw-line-strong bg-lw-ground px-3 font-lw-mono text-base transition-shadow focus-within:border-lw-accent focus-within:ring-[3px] focus-within:ring-lw-accent/25 sm:h-[38px] sm:rounded-md sm:text-[13px]"
-              >
-                <span aria-hidden="true" className="text-lw-faint">path</span>
-                <div className="relative min-w-0 flex-1">
-                  {ghost && (
-                    <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center overflow-hidden whitespace-pre">
-                      <span className="invisible">{path}</span>
-                      <span className="text-lw-faint">{ghost}</span>
-                    </div>
-                  )}
-                  <input
-                    type="text"
-                    role="combobox"
-                    aria-label="Path"
-                    aria-autocomplete="list"
-                    aria-expanded={shown.length > 0}
-                    aria-controls={listId}
-                    aria-activedescendant={current >= 0 ? `${listId}-${current}` : undefined}
-                    autoComplete="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                    value={path}
-                    onChange={(event) => { setPath(event.target.value); setActive(0); setChosen(false); setListOpen(true) }}
-                    onFocus={() => setListOpen(true)}
-                    onBlur={() => setListOpen(false)}
-                    onKeyDown={onPathKeyDown}
-                    placeholder="~/path/to/project"
-                    className="relative w-full bg-transparent text-lw-text outline-none placeholder:text-lw-faint"
-                  />
-                </div>
-                {ghost && (
-                  <kbd className="hidden rounded border border-lw-line-strong px-1.5 font-lw text-[11px] text-lw-faint sm:block">tab</kbd>
-                )}
-              </div>
-              {suggests && (
-                // The frame is there for as long as the field has the focus,
-                // at no height while there is nothing to list, so that every
-                // change of what is listed is a change of height it can ease.
-                <div
-                  // mousedown here would take the focus from the field, and
-                  // the list with it.
-                  onMouseDown={(event) => event.preventDefault()}
-                  style={{ position: "fixed", left: place?.left ?? 0, width: place?.width ?? 0, top: place?.top, bottom: place?.bottom, height: shown.length > 0 ? Math.min(listHeight, place?.room ?? 0) + 2 : 0 }}
-                  className={`z-10 overflow-hidden rounded-lg border bg-lw-raised font-lw-mono text-xs shadow-[0_12px_30px_rgba(0,0,0,.45)] transition-[height,opacity] duration-150 ease-out motion-reduce:transition-none ${
-                    shown.length > 0 ? "border-lw-line-strong opacity-100" : "pointer-events-none border-transparent opacity-0"
-                  }`}
-                >
-                  <div ref={listRef} style={{ maxHeight: place?.room }} className="overflow-y-auto p-1">
-                    {shown.length > 0 && (
-                      <div
-                        id={listId}
-                        role="listbox"
-                        aria-label="Path suggestions"
-                        aria-busy={listed.held}
-                        className={`transition-opacity duration-150 motion-reduce:transition-none ${listed.held ? "opacity-40" : "opacity-100"}`}
-                      >
-                        {shown.map((item, index) => {
-                          const parts = suggestionParts(found?.base ?? "", listed.prefix, item)
-                          return (
-                            <div
-                              key={item.path}
-                              id={`${listId}-${index}`}
-                              role="option"
-                              aria-selected={index === current}
-                              aria-disabled={listed.held}
-                              onMouseDown={() => { if (!listed.held) takeSuggestion(item) }}
-                              className={`flex justify-between gap-3 rounded px-2 py-1.5 ${listed.held ? "" : "cursor-pointer"} ${index === current ? "bg-lw-selected" : listed.held ? "" : "hover:bg-lw-selected/60"}`}
-                            >
-                              <span className="min-w-0 truncate">
-                                <span className="text-lw-faint">{parts.base}</span>
-                                <span className="text-lw-link">{parts.typed}</span>
-                                {parts.rest}
-                              </span>
-                              <span className={`shrink-0 font-lw ${item.git || item.preset > 0 ? "text-lw-live" : "text-lw-faint"}`}>
-                                {[item.git && "git", item.preset > 0 && "preset"].filter(Boolean).join(" · ") || "folder"}
-                              </span>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                    {more && found && (
-                      <p className="px-2 py-1 font-lw text-[11px] text-lw-faint">
-                        {shown.length} of {found.total} folders · keep typing to narrow them
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+            <PathField
+              dir={dir}
+              listId={listId}
+              visibility={inClone ? "hidden" : customPathShown ? "block" : "hidden sm:block"}
+              layoutKey={JSON.stringify([error, offersSessionChoice])}
+            />
           </div>
           {resources.length > 0 && (
             <fieldset className="flex flex-col gap-1.5">
@@ -971,7 +672,7 @@ export function SpawnAgentDialog({
               type="checkbox"
               checked={savePath && canSave}
               disabled={!canSave}
-              onChange={(event) => setSavePath(event.target.checked)}
+              onChange={(event) => dir.setSavePath(event.target.checked)}
               className="accent-lw-accent"
             />
             Save path as preset
