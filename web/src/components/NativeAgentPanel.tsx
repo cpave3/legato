@@ -1,7 +1,7 @@
 import { ReeveStatus, reeveWash } from "./ReeveEntry"
 import { AskReeve } from "./AskReeve"
 import { parseReeveMessage, reeveBrief } from "../lib/reeve"
-import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useId, memo, Fragment, type ReactNode } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo, memo, Fragment, type ReactNode } from "react"
 import { ArrowDown, ArrowLeftRight, Bell, Check, Terminal, Zap } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
 import { useWebSocket } from "../hooks/useWebSocket"
@@ -38,7 +38,6 @@ import { useTurnClock } from "../hooks/useTurnClock"
 import { usePageInView } from "../hooks/usePageInView"
 import { legatoUICall, forOperatorCall, speakFailed, speakText } from "../lib/agentUi"
 import { SaidBubble } from "./SaidBubble"
-import { rankSlashItems, type SlashItem } from "../lib/slashMenu"
 import { usePastedImages } from "../hooks/usePastedImages"
 import { nativeToolName } from "../lib/agentKind"
 import { compactAgent, compactCommand, compactionNotice, nextCompaction, type Compaction } from "../lib/compaction"
@@ -71,6 +70,7 @@ import { useElementWidth } from "../hooks/useElementWidth"
 import { scrollAnchorOf, useConversationScroll } from "./useConversationScroll"
 import { useDraft } from "./useDraft"
 import { useAgentCatalog } from "./useAgentCatalog"
+import { useSlashMenu } from "./useSlashMenu"
 
 // The least width at which subagent tiles sit beside the conversation; below
 // it they are a strip above it.
@@ -311,17 +311,9 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     agentId, agentKind, baseUrl, transcriptionOnly: true,
     onTranscription: appendWords,
   })
-  const [browserOpen, setBrowserOpen] = useState(false)
-  const [browserQuery, setBrowserQuery] = useState("")
-  const [browserFilter, setBrowserFilter] = useState<"all" | "skill" | "command">("all")
-  // The draft the slash menu was closed on (Escape, or an item completed);
-  // typing again reopens it.
-  const [slashClosedOn, setSlashClosedOn] = useState<string | null>(null)
-  // The highlighted row, kept only while the list it was chosen in stands.
-  const [slashActive, setSlashActive] = useState({ list: "", index: 0 })
-  const caretToEnd = useRef(false)
-  const slashListId = useId()
   const pasted = usePastedImages(agentId, draft, insertImage)
+  const slash = useSlashMenu(draft, setDraft, textareaRef, slashItems, catalogKey)
+  const { open: slashOpen, matches: slashMatches, index: slashIndex, setIndex: setSlashIndex, listId: slashListId, optionId: slashOptionId, select: handleSlashSelect, escape: escapeSlash } = slash
 
   const replaceSyncState = useCallback((next: NativeSyncState) => {
     syncStateRef.current = next
@@ -346,36 +338,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   }, [replaceSyncState])
 
 
-  useLayoutEffect(() => {
-    setBrowserOpen(false)
-    setBrowserQuery("")
-    setBrowserFilter("all")
-    setSlashClosedOn(null)
-  }, [catalogKey])
-
-
-  // The slash menu: open while the draft is a slash and a name, until it is
-  // closed on this draft.
-  const slashQuery = browserOpen ? browserQuery : /^\/(\S*)$/.exec(draft)?.[1]
-  const slashMatches = useMemo(
-    () => slashQuery === undefined ? [] : rankSlashItems(browserOpen && browserFilter !== "all" ? slashItems.filter((item) => item.type === browserFilter) : slashItems, slashQuery),
-    [slashItems, slashQuery, browserOpen, browserFilter],
-  )
-  const slashOpen = browserOpen || slashQuery !== undefined && slashClosedOn !== draft
-  const slashList = useMemo(() => slashMatches.map((m) => m.item.type + ":" + m.item.name).join("\n"), [slashMatches])
-  const slashIndex = slashActive.list === slashList ? Math.min(slashActive.index, Math.max(slashMatches.length - 1, 0)) : 0
-  const setSlashIndex = useCallback((index: number) => setSlashActive({ list: slashList, index }), [slashList])
-  const slashOptionId = useCallback((index: number) => `${slashListId}-option-${index}`, [slashListId])
-
-  // A completed item leaves the cursor at the end, so the person keeps typing.
-  useLayoutEffect(() => {
-    if (!caretToEnd.current) return
-    caretToEnd.current = false
-    const box = textareaRef.current
-    if (!box) return
-    box.focus()
-    box.setSelectionRange(box.value.length, box.value.length)
-  }, [draft, textareaRef])
 
 
   // Close dropdowns on outside click
@@ -745,18 +707,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     [agentId, replaceSyncState, send],
   )
 
-  // Completing an item fills the box and never sends: a command with a body
-  // expands to it, anything else becomes "/name ", ready for arguments.
-  const handleSlashSelect = useCallback((item: SlashItem) => {
-    const completion = item.type === "command" && item.body ? item.body : `/${item.name} `
-    const next = browserOpen && draft
-      ? item.type === "skill" || !item.body ? `${completion}${draft}` : `${draft}\n${completion}`
-      : completion
-    setBrowserOpen(false)
-    caretToEnd.current = true
-    setSlashClosedOn(next)
-    setDraft(next)
-  }, [browserOpen, draft, setDraft])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -776,9 +726,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         }
         if (e.key === "Escape") {
           e.preventDefault()
-          setSlashClosedOn(draft)
-          setBrowserOpen(false)
-          textareaRef.current?.focus()
+          escapeSlash()
           return
         }
         if (e.key === "Enter" && !e.shiftKey) {
@@ -796,7 +744,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         handleInterrupt()
       }
     },
-    [handleSend, handleInterrupt, busy, draft, slashOpen, slashIndex, slashMatches, setSlashIndex, handleSlashSelect, textareaRef],
+    [handleSend, handleInterrupt, busy, slashOpen, slashIndex, slashMatches, setSlashIndex, handleSlashSelect, escapeSlash],
   )
 
   const handleModeChange = useCallback((mode: string) => {
@@ -951,16 +899,16 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
           {slashOpen && (
             <NativeSlashMenu
               anchorRef={textareaRef}
-              onClose={() => { setBrowserOpen(false); setSlashClosedOn(draft) }}
+              onClose={slash.dismiss}
               loading={catalog.loading}
               errors={catalog.errors}
               empty={slashItems.length === 0}
               onRetry={retryCatalog}
-              browser={browserOpen ? {
-                query: browserQuery, onQuery: setBrowserQuery,
-                filter: browserFilter, onFilter: setBrowserFilter,
+              browser={slash.browser.open ? {
+                query: slash.browser.query, onQuery: slash.browser.setQuery,
+                filter: slash.browser.filter, onFilter: slash.browser.setFilter,
                 onKeyDown: handleKeyDown,
-                onClose: () => { setBrowserOpen(false); setSlashClosedOn(draft); textareaRef.current?.focus() },
+                onClose: slash.escape,
               } : undefined}
               listId={slashListId}
               optionId={slashOptionId}
@@ -971,7 +919,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
             />
           )}
           {composerEnabled && <button type="button" className="self-start min-h-11 px-3.5 text-sm text-lw-text-2 hover:text-lw-text focus-visible:outline-2 focus-visible:outline-lw-accent" aria-expanded={slashOpen} aria-controls={slashOpen ? slashListId : undefined}
-            onClick={() => { setBrowserOpen((open) => !open); setBrowserQuery(""); setBrowserFilter("all"); setSlashClosedOn(draft) }}>
+            onClick={slash.toggleBrowser}>
             Commands and skills
           </button>}
           {contextUsage && contextShareOf !== null && contextShareOf >= CONTEXT_NEARLY_FULL && (
