@@ -39,13 +39,6 @@ function GraphCanvas({ read, agents, ...canvas }: { read: boolean; agents: Agent
   return <LazyAgentGraphCanvas {...canvas} />
 }
 
-// Over the graph, which stays drawn (dimmed) so its view is kept, when the
-// filter dims every agent.
-function NoneAtStage({ show }: { show: boolean }) {
-  if (!show) return null
-  return <p className="pointer-events-none absolute inset-x-0 top-3 text-center text-lw-faint">No agents at this stage.</p>
-}
-
 // The run's graph beside the fleet, named by the run's workflow when the
 // selected agent's node knows it.
 function RunPanelFor({ panel, layout, selectedId, phone, onClose }: { panel: RunPanel | null; layout: AgentGraphLayout; selectedId: string | null; phone: boolean; onClose: () => void }) {
@@ -76,7 +69,10 @@ export function AgentGraphView({ agents, onOpen, onSend, stageFilter = null, onS
       <div className="relative min-h-0 flex-1">
         <GraphCanvas read={read} agents={agents} layout={layout} direction={direction} selectedId={selected} onSelect={setSelected} onOpen={onOpen}
           onToggleFold={onToggleFold} onToggleBox={onToggleBox} focusOn={focusOn} fit={fit} faded={faded} />
-        <NoneAtStage show={read && Boolean(stageFilter) && counted.length > 0 && faded.size === counted.length} />
+        {/* Over the graph, which stays drawn (dimmed) so its view is kept, when the filter dims every agent. */}
+        {read && Boolean(stageFilter) && counted.length > 0 && faded.size === counted.length && (
+          <p className="pointer-events-none absolute inset-x-0 top-3 text-center text-lw-faint">No agents at this stage.</p>
+        )}
         {selectedNode && !(phone && panel) && (
           <SelectionCard node={selectedNode} layout={layout} agents={agents} phone={phone} onOpen={onOpen} onSend={onSend} onClose={() => setSelected(null)}
             onShowRun={(runId, button) => openPanel(runId, selectedNode.agentId, button)} />

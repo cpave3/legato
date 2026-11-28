@@ -50,15 +50,6 @@ function HiddenNeeds({ count, onShowAll }: { count: number; onShowAll?: (stage: 
   )
 }
 
-function LinkLegend({ kinds }: { kinds: (keyof typeof linkStyles)[] }) {
-  if (kinds.length === 0) return null
-  return (
-    <ul aria-label="Links" className="m-0 hidden list-none flex-nowrap items-center gap-x-3 p-0 text-[11px] text-lw-text-2 xl:flex">
-      {kinds.map((kind) => <li key={kind} className="flex items-center gap-1"><LinkSwatch kind={kind} />{linkLabels[kind]}</li>)}
-    </ul>
-  )
-}
-
 // One line, whatever needs the operator: a toolbar that wrapped would move
 // the whole graph down on a change of state.
 export function GraphToolbar({ counted, stageFilter, onStageFilter, phone, needsYou, hiddenNeeds, runId, kinds, onFocus, onFit }: {
@@ -81,28 +72,16 @@ export function GraphToolbar({ counted, stageFilter, onStageFilter, phone, needs
       <HiddenNeeds count={hiddenNeeds} onShowAll={onStageFilter} />
       <div className="ml-auto flex shrink-0 items-center gap-3">
         {runId && <Link to={`/workflows/runs/${encodeURIComponent(runId)}`} className="text-xs text-lw-link hover:underline">Back to workflow</Link>}
-        <LinkLegend kinds={kinds} />
+        {kinds.length > 0 && (
+          <ul aria-label="Links" className="m-0 hidden list-none flex-nowrap items-center gap-x-3 p-0 text-[11px] text-lw-text-2 xl:flex">
+            {kinds.map((kind) => <li key={kind} className="flex items-center gap-1"><LinkSwatch kind={kind} />{linkLabels[kind]}</li>)}
+          </ul>
+        )}
         <button type="button" aria-label="Fit the graph" title="Fit the graph" onClick={onFit} className="flex h-7 w-7 items-center justify-center rounded-md border border-lw-line text-lw-text-2 hover:text-lw-text">
           <Maximize2 size={14} aria-hidden="true" />
         </button>
       </div>
     </div>
-  )
-}
-
-// The selected sub-agent: what it does, or waits on.
-function SubagentLine({ node }: { node: GraphNode }) {
-  if (node.kind !== "subagent") return null
-  const look = subagentLook(node.state)
-  return <span className="rounded-md bg-lw-raised px-2 py-1 text-xs"><span className={look.text}>{look.glyph} {node.waitsOn ?? look.label}</span> · sub-agent {node.job?.label}</span>
-}
-
-function NodeBadges({ badges }: { badges: GraphNode["badges"] }) {
-  if (!badges?.length) return null
-  return (
-    <span className="flex flex-wrap gap-1">
-      {badges.map((badge) => <span key={badge.kind} className="rounded bg-lw-accent-soft px-1.5 text-xs text-lw-accent-text">{badge.label}{badge.detail && ` · ${badge.detail}`}</span>)}
-    </span>
   )
 }
 
@@ -147,20 +126,6 @@ function MessageAndOpen({ taskId, draft, setDraft, onOpen, onSend }: { taskId: s
   )
 }
 
-function SelectionHeading({ agent, onClose }: { agent: AgentInfo; onClose: () => void }) {
-  const look = agentLook(agent, useReeveName())
-  const time = formatAgentTime(stateSeconds(agent))
-  return <>
-    <div className="flex items-center gap-2">
-      <span className={cn("font-lw-mono text-[11px] uppercase", look.text)}><span aria-hidden="true">{look.glyph}</span> {look.label}{time && ` ${time}`}</span>
-      <span className="ml-auto font-lw-mono text-xs text-lw-faint">{agent.task_id}</span>
-      <button type="button" aria-label="Close" onClick={onClose} className="flex h-6 w-6 items-center justify-center rounded text-lw-text-2 hover:text-lw-text"><X size={14} aria-hidden="true" /></button>
-    </div>
-    <span className="text-[15px] font-semibold leading-5">{agent.task_title || agent.task_id}</span>
-    <span className="text-xs text-lw-text-2">{[stageLabel(agent.stage), agent.stage_reason, agentToolLabel(agent.agent_kind, agent.engram)].filter(Boolean).join(" · ")}</span>
-  </>
-}
-
 // SelectionCard is the selected agent (or the agent of a selected
 // sub-agent): what it is at, who it is linked to, a message box and Open.
 export function SelectionCard({ node, layout, agents, phone, onOpen, onSend, onClose, onShowRun }: {
@@ -176,7 +141,11 @@ export function SelectionCard({ node, layout, agents, phone, onOpen, onSend, onC
   const agent = agents.find((candidate) => candidate.task_id === node.agentId)
   // The draft stays while another agent is selected, as the card does.
   const [draft, setDraft] = useState("")
+  const reeveName = useReeveName()
   if (!agent) return null
+  const look = agentLook(agent, reeveName)
+  const time = formatAgentTime(stateSeconds(agent))
+  const subLook = subagentLook(node.state)
   return (
     <section
       aria-label={agent.task_id}
@@ -185,9 +154,20 @@ export function SelectionCard({ node, layout, agents, phone, onOpen, onSend, onC
         phone ? "inset-x-0 bottom-0 rounded-t-xl" : "right-4 top-4 w-80 rounded-xl",
       )}
     >
-      <SelectionHeading agent={agent} onClose={onClose} />
-      <SubagentLine node={node} />
-      <NodeBadges badges={node.badges} />
+      <div className="flex items-center gap-2">
+        <span className={cn("font-lw-mono text-[11px] uppercase", look.text)}><span aria-hidden="true">{look.glyph}</span> {look.label}{time && ` ${time}`}</span>
+        <span className="ml-auto font-lw-mono text-xs text-lw-faint">{agent.task_id}</span>
+        <button type="button" aria-label="Close" onClick={onClose} className="flex h-6 w-6 items-center justify-center rounded text-lw-text-2 hover:text-lw-text"><X size={14} aria-hidden="true" /></button>
+      </div>
+      <span className="text-[15px] font-semibold leading-5">{agent.task_title || agent.task_id}</span>
+      <span className="text-xs text-lw-text-2">{[stageLabel(agent.stage), agent.stage_reason, agentToolLabel(agent.agent_kind, agent.engram)].filter(Boolean).join(" · ")}</span>
+      {/* The selected sub-agent: what it does, or waits on. */}
+      {node.kind === "subagent" && <span className="rounded-md bg-lw-raised px-2 py-1 text-xs"><span className={subLook.text}>{subLook.glyph} {node.waitsOn ?? subLook.label}</span> · sub-agent {node.job?.label}</span>}
+      {node.badges?.length ? (
+        <span className="flex flex-wrap gap-1">
+          {node.badges.map((badge) => <span key={badge.kind} className="rounded bg-lw-accent-soft px-1.5 text-xs text-lw-accent-text">{badge.label}{badge.detail && ` · ${badge.detail}`}</span>)}
+        </span>
+      ) : null}
       {node.workflows?.map((workflow) => <WorkflowSection key={workflow.run.id} workflow={workflow} onShowRun={onShowRun} />)}
       <AgentLinks subagents={subagentsLabel(agent.background_jobs)} lines={linkLines(agent.task_id, layout.edges, agents)} />
       <MessageAndOpen taskId={agent.task_id} draft={draft} setDraft={setDraft} onOpen={onOpen} onSend={onSend} />
