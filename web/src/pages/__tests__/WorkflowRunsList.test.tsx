@@ -13,7 +13,7 @@ const runs: WorkflowRun[] = [
   { ...base, id: "wr-done", workflow_name: "plan-task", workflow_title: "Plan xk2pb7do", related_task_title: "Add keyboard help", status: "succeeded", current_step_id: "", started_at: "2026-07-28T09:00:00Z", completed_at: "2026-07-28T09:04:12Z", created_at: "2026-07-28T09:00:00Z", steps: [{ step_id: "read", title: "Read the task", status: "succeeded" }, { step_id: "plan", title: "Write the plan", status: "succeeded" }] },
   { ...base, id: "wr-gate", workflow_name: "triage-task", workflow_title: "Triage gpri1ycr", related_task_title: "Board search ignores workspace filter", status: "waiting", current_step_id: "approve", needs_attention: true, attention_reason: "manual action required: Move to Ready", created_at: "2026-07-28T08:00:00Z", steps: [{ step_id: "read", title: "Read the task", status: "succeeded" }, { step_id: "approve", title: "Move to Ready", status: "waiting_manual", trigger: "manual" }] },
 ]
-vi.mock("../../hooks/useWorkflow", () => ({ useWorkflows, useWorkflowStats: () => ({ data: null, refresh: vi.fn() }), useWorkflowRuns: () => ({ data: runs, refresh: vi.fn() }) }))
+vi.mock("../../hooks/useWorkflow", () => ({ useWorkflows, useWorkflowMap: () => ({ data: null, loading: false, error: null, refresh: vi.fn() }), useWorkflowStats: () => ({ data: null, refresh: vi.fn() }), useWorkflowRuns: () => ({ data: runs, refresh: vi.fn() }) }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 
 describe("workflow runs", () => {

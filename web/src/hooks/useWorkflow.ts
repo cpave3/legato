@@ -1,6 +1,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
 import { fetchWorkflowRun, fetchWorkflowRuns, fetchWorkflowRunsOf, fetchWorkflowStats, fetchWorkflows, type WorkflowDiscovery, type WorkflowRun, type WorkflowRunView, type WorkflowStats } from "../lib/workflow"
 import { queryKeys } from "../lib/query"
+import { fetchWorkflowMap, type WorkflowMap } from "../lib/workflowMap"
 import { useServer } from "./useServer"
 import { useNow } from "./useNow"
 
@@ -19,6 +20,17 @@ export function useWorkflows() {
   return queryState(useQuery<WorkflowDiscovery, Error>({
     queryKey: queryKeys.workflowDefinitions(baseUrl),
     queryFn: () => fetchWorkflows(baseUrl),
+  }))
+}
+
+// useWorkflowMap is the map of every workflow and the calls between them
+// (LEG-710).
+export function useWorkflowMap(enabled = true) {
+  const { baseUrl } = useServer()
+  return queryState(useQuery<WorkflowMap, Error>({
+    queryKey: queryKeys.workflowMap(baseUrl),
+    queryFn: () => fetchWorkflowMap(baseUrl),
+    enabled,
   }))
 }
 

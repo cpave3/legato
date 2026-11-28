@@ -33,7 +33,7 @@ describe("invalidationsFor", () => {
     }
   })
 
-  it("reads the definitions and their trigger states again when a trigger or a file changes", () => {
+  it("reads the definitions, their trigger states and the map again when a trigger or a file changes", () => {
     for (const kind of ["definitions", "trigger"]) {
       expect(keysOf({ type: "workflow_changed", kind })).toEqual([
         { queryKey: [base, "workflow-runs"], exact: true },
@@ -41,6 +41,7 @@ describe("invalidationsFor", () => {
         { queryKey: [base, "workflow-runs-of"], exact: false },
         { queryKey: [base, "navigation-summary"], exact: true },
         { queryKey: [base, "workflow-definitions"], exact: true },
+        { queryKey: [base, "workflow-map"], exact: true },
       ])
     }
   })

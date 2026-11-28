@@ -2,10 +2,11 @@
 // LazyAgentGraphCanvas, so React Flow stays out of every other page's
 // bundle. Places come from layoutAgentGraph; this file only draws them.
 import { useCallback, useEffect, useMemo, useRef } from "react"
-import { BaseEdge, Controls, EdgeLabelRenderer, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type EdgeProps, type EdgeTypes, type Node, type NodeProps, type NodeTypes } from "@xyflow/react"
+import { BaseEdge, Controls, EdgeLabelRenderer, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type EdgeProps, type EdgeTypes, type Node, type NodeProps, type NodeTypes } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
+import { FlowHandles } from "./FlowHandles"
 import { ChevronDown, ChevronRight, Workflow } from "lucide-react"
-import type { AgentGraphLayout, GraphBox, GraphEdge, GraphEdgeKind, GraphNode, NodeWorkflow, Point } from "../../lib/agentGraph"
+import type { AgentGraphLayout, GraphBox, GraphEdge, GraphEdgeKind, GraphNode, NodeWorkflow } from "../../lib/agentGraph"
 import { linkLabels, workflowWords } from "../../lib/agentGraph"
 import { runState, stepPosition, stepSegments } from "../../lib/workflowView"
 import { StepBar } from "../workflow-status/WorkflowRunStatus"
@@ -14,6 +15,7 @@ import { stageLabel } from "../../lib/agentStage"
 import { cn } from "../../lib/utils"
 import { agentLook, subagentLook } from "./look"
 import { linkStyles } from "./linkStyles"
+import { roundedPath } from "./roundedPath"
 import { useReeveName, type ReeveName } from "../../lib/reeveName"
 
 export type AgentGraphCanvasProps = {
@@ -36,15 +38,6 @@ export type AgentGraphCanvasProps = {
 type NodeData = { node?: GraphNode; box?: GraphBox; dimmed: boolean; direction: "LR" | "TB"; onToggleBox: (id: string) => void }
 type FlowNode = Node<NodeData>
 
-// React Flow joins edges to handles, so every node has one of each; where a
-// line runs comes from the layout's points, not from them.
-function Handles() {
-  const hidden = "!h-1 !w-1 !min-w-0 !border-0 !bg-transparent"
-  return <>
-    <Handle id="t" type="target" position={Position.Left} isConnectable={false} className={hidden} />
-    <Handle id="s" type="source" position={Position.Right} isConnectable={false} className={hidden} />
-  </>
-}
 
 function AgentNode({ data, selected }: NodeProps<FlowNode>) {
   const node = data.node!
@@ -58,7 +51,7 @@ function AgentNode({ data, selected }: NodeProps<FlowNode>) {
     workflow && "pb-2",
     look.border, selected && "ring-2 ring-lw-accent-ring", data.dimmed && "opacity-30",
   )}>
-    <Handles />
+    <FlowHandles across />
     <span className="flex items-center gap-1.5 text-[11px] leading-4">
       <span className={cn("font-lw-mono uppercase", look.text)}><span aria-hidden="true">{look.glyph}</span> {look.label}{time && ` ${time}`}</span>
       <span className="ml-auto truncate font-lw-mono text-lw-faint">{agent.task_id}</span>
@@ -108,7 +101,7 @@ function SubagentNode({ data, selected }: NodeProps<FlowNode>) {
     "flex items-center gap-1.5 rounded-full border-[1.5px] bg-lw-raised px-3 font-lw text-xs text-lw-text transition-opacity",
     look.border, selected && "ring-2 ring-lw-accent-ring", data.dimmed && "opacity-30",
   )}>
-    <Handles />
+    <FlowHandles across />
     <span aria-hidden="true" className={look.text}>{look.glyph}</span>
     <span className="truncate" title={[node.job?.label, node.waitsOn].filter(Boolean).join(" · ")}>{node.job?.label || node.job?.id}</span>
   </div>
@@ -117,7 +110,7 @@ function SubagentNode({ data, selected }: NodeProps<FlowNode>) {
 function FoldNode({ data }: NodeProps<FlowNode>) {
   const node = data.node!
   return <div style={{ width: node.width, height: node.height }} className={cn("flex items-center justify-center rounded-full border-[1.5px] border-dashed border-lw-line-strong bg-lw-ground font-lw text-xs text-lw-text-2", data.dimmed && "opacity-30")}>
-    <Handles />
+    <FlowHandles across />
     +{node.hidden} more
   </div>
 }
@@ -126,7 +119,7 @@ function ReeveNode({ data, selected }: NodeProps<FlowNode>) {
   const node = data.node!
   const look = agentLook(node.agent!)
   return <div style={{ width: node.width, height: node.height }} className={cn("flex items-center justify-center gap-1.5 rounded-full border-2 bg-lw-surface px-3 font-lw text-[13px] font-semibold text-lw-text", look.border, selected && "ring-2 ring-lw-accent-ring", data.dimmed && "opacity-30")}>
-    <Handles />
+    <FlowHandles across />
     <span aria-hidden="true" className={look.text}>{look.glyph}</span>
     <span className="truncate">{node.agent?.task_title || "Reeve"}</span>
   </div>
@@ -177,24 +170,6 @@ function LinkEdge({ id, data }: EdgeProps & { data?: EdgeData }) {
       <span style={{ transform: `translate(-50%, -50%) translate(${edge.labelAt.x}px, ${edge.labelAt.y}px)`, opacity }} className="nodrag nopan pointer-events-none absolute rounded border border-lw-line bg-lw-ground px-1 font-lw-mono text-[11px] leading-4 text-lw-text">{label}</span>
     </EdgeLabelRenderer>}
   </>
-}
-
-// roundedPath is an SVG path through points, each corner rounded.
-function roundedPath(points: Point[], radius = 6): string {
-  if (points.length === 0) return ""
-  let path = `M ${points[0].x} ${points[0].y}`
-  for (let i = 1; i < points.length - 1; i++) {
-    const [a, b, c] = [points[i - 1], points[i], points[i + 1]]
-    const r = Math.min(radius, Math.hypot(b.x - a.x, b.y - a.y) / 2, Math.hypot(c.x - b.x, c.y - b.y) / 2)
-    const toward = (p: Point, q: Point) => {
-      const d = Math.hypot(q.x - p.x, q.y - p.y) || 1
-      return { x: p.x + ((q.x - p.x) / d) * r, y: p.y + ((q.y - p.y) / d) * r }
-    }
-    const [enter, leave] = [toward(b, a), toward(b, c)]
-    path += ` L ${enter.x} ${enter.y} Q ${b.x} ${b.y} ${leave.x} ${leave.y}`
-  }
-  const last = points[points.length - 1]
-  return `${path} L ${last.x} ${last.y}`
 }
 
 const edgeTypes: EdgeTypes = { link: LinkEdge }

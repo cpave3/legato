@@ -2,13 +2,14 @@ import { useEffect, useState } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { useServer } from "../hooks/useServer"
 import { ChevronRight, Plus, RefreshCw } from "lucide-react"
-import { useWorkflows, useWorkflowRuns, useWorkflowStats } from "../hooks/useWorkflow"
+import { useWorkflowMap, useWorkflows, useWorkflowRuns, useWorkflowStats } from "../hooks/useWorkflow"
 import { useNow } from "../hooks/useNow"
 import { fetchWorkflowTemplates, type WorkflowDefinition, type WorkflowRun, type WorkflowTemplate } from "../lib/workflow"
 import { ago, elapsed, parseTime, runState, runSubject, runSummary, sourceLabel, stepPosition, stepSegments } from "../lib/workflowView"
 import { RunWorkflowDialog } from "../components/RunWorkflowDialog"
 import { LazyWorkflowStart } from "../components/workflow-editor/LazyWorkflowStart"
 import { WorkflowList } from "../components/workflows/WorkflowList"
+import { WorkflowMapView } from "../components/workflow-map/WorkflowMapView"
 import { StatePill, StepBar } from "../components/workflow-status/WorkflowRunStatus"
 import { toneText } from "../lib/workflowTones"
 import { Button } from "../components/ui/Button"
@@ -17,6 +18,30 @@ import { cn } from "../lib/utils"
 
 type WorkflowTab = "runs" | "workflows"
 const TAB_KEY = "legato:workflows-tab"
+// The Workflows tab shows its list or its map (LEG-710).
+type WorkflowView = "list" | "map"
+const VIEW_KEY = "legato:workflows-view"
+
+function storedView(): WorkflowView {
+  // codeeval-ignore lost-errors/error-to-success: storage can throw (a private window, blocked site data); the list is the default then
+  try { return localStorage.getItem(VIEW_KEY) === "map" ? "map" : "list" } catch { return "list" }
+}
+
+function storeView(view: WorkflowView) {
+  // codeeval-ignore lost-errors/empty-handler: storage can throw; the choice is then only not remembered
+  try { localStorage.setItem(VIEW_KEY, view) } catch { /* remembered only where storage works */ }
+}
+
+// useWorkflowsView is the tab's list or map, remembered, with the map
+// fetched only while it is shown; refreshAll refreshes it too then.
+function useWorkflowsView(refreshes: (() => Promise<void>)[]) {
+  const [view, setViewState] = useState<WorkflowView>(storedView)
+  const setView = (next: WorkflowView) => { setViewState(next); storeView(next) }
+  const map = useWorkflowMap(view === "map")
+  const all = view === "map" ? [...refreshes, map.refresh] : refreshes
+  const refreshAll = async () => { await Promise.all(all.map(refresh => refresh())) }
+  return { view, setView, map, refreshAll }
+}
 
 function storedTab(): WorkflowTab | null {
   try {
@@ -258,15 +283,19 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
   const now = useNow(30_000)
   const list = definitions.data?.definitions ?? []
   const needsYou = (runs.data ?? []).filter(run => run.needs_attention).length
-  const refreshAll = async () => { await Promise.all([definitions.refresh(), runs.refresh(), stats.refresh()]) }
+  const { view, setView, map, refreshAll } = useWorkflowsView([definitions.refresh, runs.refresh, stats.refresh])
   const newWorkflow = <Link to="/workflows/new" className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-lw-accent px-3 text-xs font-medium text-[var(--theme-canvas,white)] hover:opacity-90"><Plus size={14} aria-hidden="true" />New workflow</Link>
   return <PageFrame tab="workflows" setTab={setTab} needsYou={needsYou} refresh={refreshAll}>
     {definitions.loading && <LoadingState label="Loading workflows…" size="inline" className="mt-6" />}
     {definitions.error && <LoadFailure error={definitions.error} saved={definitions.data !== null} label="workflows" refreshing={definitions.refreshing} refresh={definitions.refresh} />}
     {stats.error && list.length > 0 && <LoadFailure error={stats.error} saved={stats.data !== null} label="run counts" refreshing={stats.refreshing} refresh={stats.refresh} />}
     <ReviewLoopNotice definitions={list} />
-    {(definitions.data?.errors ?? []).map(error => <p key={error.path} className="mt-4 break-words rounded-lg border border-lw-danger-line bg-lw-error-soft p-3 text-sm text-lw-danger"><span className="font-lw-mono">{sourceLabel(error.path)}</span>: {error.error}</p>)}
-    {list.length > 0 && <WorkflowList definitions={list} triggerStates={definitions.data?.trigger_states} stats={stats.data} now={now} onRun={setSelected} refresh={refreshAll} actions={newWorkflow} />}
+    <DiscoveryErrors errors={definitions.data?.errors} />
+    {list.length > 0 && <>
+      <ViewSwitch view={view} setView={setView} />
+      {view === "map" && <MapTab map={map} />}
+      {view === "list" && <WorkflowList definitions={list} triggerStates={definitions.data?.trigger_states} stats={stats.data} now={now} onRun={setSelected} refresh={refreshAll} actions={newWorkflow} />}
+    </>}
     {!definitions.loading && !definitions.error && list.length === 0 && <section aria-label="Start a workflow" className="mt-6 flex flex-col gap-3 text-sm">
       <div className="flex justify-end">{newWorkflow}</div>
       <p className="text-lw-text-2">No workflow definitions found</p>
@@ -275,6 +304,30 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
     </section>}
     {selected && <RunWorkflowDialog definition={selected} repositories={definitions.data?.repositories ?? []} onClose={() => setSelected(null)} />}
   </PageFrame>
+}
+
+// DiscoveryErrors are the workflow files that could not be read.
+function DiscoveryErrors({ errors }: { errors: { path: string; error: string }[] | null | undefined }) {
+  return <>{(errors ?? []).map(error => <p key={error.path} className="mt-4 break-words rounded-lg border border-lw-danger-line bg-lw-error-soft p-3 text-sm text-lw-danger"><span className="font-lw-mono">{sourceLabel(error.path)}</span>: {error.error}</p>)}</>
+}
+
+// ViewSwitch picks the Workflows tab's list or its map.
+function ViewSwitch({ view, setView }: { view: WorkflowView; setView: (view: WorkflowView) => void }) {
+  const options: { value: WorkflowView; label: string }[] = [{ value: "list", label: "List" }, { value: "map", label: "Map" }]
+  return <div role="group" aria-label="View" className="mt-4 inline-flex self-start overflow-hidden rounded-md border border-lw-line-strong">
+    {options.map(option => <button key={option.value} type="button" aria-pressed={view === option.value} onClick={() => setView(option.value)}
+      className={cn("min-h-9 border-r border-lw-line px-3 text-[13px] last:border-r-0",
+        view === option.value ? "bg-lw-selected text-lw-text shadow-[inset_0_-2px_0_var(--color-lw-accent)]" : "bg-lw-surface text-lw-text-2 hover:text-lw-text")}>{option.label}</button>)}
+  </div>
+}
+
+// MapTab is the map of the workflows' calls, or why it is not there.
+function MapTab({ map }: { map: ReturnType<typeof useWorkflowMap> }) {
+  return <>
+    {map.loading && <LoadingState label="Loading the map…" size="inline" className="mt-6" />}
+    {map.error && <LoadFailure error={map.error} saved={map.data !== null} label="the map" refreshing={map.refreshing} refresh={map.refresh} />}
+    {map.data && <WorkflowMapView map={map.data} />}
+  </>
 }
 
 // EmptyStart is the start page on an empty Workflows tab (LEG-514): what

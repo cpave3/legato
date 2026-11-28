@@ -301,6 +301,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | Method | Route | Class | What it does | Body |
 | --- | --- | --- | --- | --- |
 | `GET` | `/api/workflows` | read | List the workflows, each with its workflow graph |  |
+| `GET` | `/api/workflows/graph` | read | Map every workflow and which workflows each one calls |  |
 | `GET` | `/api/workflow-schema` | read | Read the JSON Schema of a workflow file: version 2, or 1 with ?version=1 |  |
 | `GET` | `/api/workflow-templates` | read | List the bundled workflow templates and where they can go |  |
 | `POST` | `/api/workflow-templates/{template}` | change | Add a bundled workflow template to a workflows folder | `{"name": "…", "folder": "global"}` |

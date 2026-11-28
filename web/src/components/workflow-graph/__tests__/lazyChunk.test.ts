@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest"
 // graph components alone, and each component only through a dynamic
 // import, so they stay in their own chunks.
 const src = join(__dirname, "..", "..", "..")
-const graphDirs = [join("components", "workflow-graph"), join("components", "agent-graph")]
+const graphDirs = [join("components", "workflow-graph"), join("components", "agent-graph"), join("components", "workflow-map")]
 
 function sources(dir: string): string[] {
   return readdirSync(dir).flatMap(name => {
@@ -24,7 +24,7 @@ describe("the graph chunks", () => {
   })
 
   it("is reached only through a dynamic import", () => {
-    const offenders = sources(src).filter(path => /^import\s+(?!type\b).*(workflow-graph\/WorkflowGraph|agent-graph\/AgentGraphCanvas)["']/m.test(readFileSync(path, "utf8")))
+    const offenders = sources(src).filter(path => /^import\s+(?!type\b).*(workflow-graph\/WorkflowGraph|agent-graph\/AgentGraphCanvas|workflow-map\/WorkflowMapCanvas)["']/m.test(readFileSync(path, "utf8")))
     expect(offenders.map(path => relative(src, path))).toEqual([])
   })
 })

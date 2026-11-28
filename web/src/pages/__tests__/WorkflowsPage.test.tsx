@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { WorkflowsPage } from "../WorkflowsPage"
+import { mockReactFlow } from "../../test/reactFlow"
 
 const { apiFetch, refresh } = vi.hoisted(() => ({ apiFetch: vi.fn(), refresh: vi.fn() }))
 
@@ -33,13 +34,25 @@ const stats = { days: ["d1", "d2", "d3", "d4", "d5", "d6", "d7"], workflows: {
   "prod-health-check": { last: failedRun, days: [day(96), day(96, 1), day(96), day(96), day(96), day(96), day(96)] },
 } }
 
+// The map of the same workflows: ci-health calls ci-flake-check.
+const workflowMap = {
+  nodes: [
+    ...definitions.map(d => ({ id: d.name, name: d.name, title: d.title, tags: d.tags, source: d.source })),
+    // A broken file whose name: is a defined workflow's.
+    { id: "file:/w/ci-health.yaml", name: "ci-health", broken: true, source: "/w/ci-health.yaml", error: "steps: oops" },
+  ],
+  edges: [{ id: "ci-health->ci-flake-check", source: "ci-health", target: "ci-flake-check", calls: 1, steps: ["flakes"] }],
+}
+
 vi.mock("../../lib/api", () => ({ apiFetch }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 vi.mock("../../hooks/useWorkflow", () => ({
   useWorkflows: () => ({ data: { definitions, errors: [], trigger_states: triggerStates }, refresh }),
   useWorkflowRuns: () => ({ data: [], refresh: vi.fn() }),
   useWorkflowStats: () => ({ data: stats, refresh: vi.fn() }),
+  useWorkflowMap: (enabled: boolean) => ({ data: enabled ? workflowMap : null, loading: !enabled, error: null, refresh: vi.fn() }),
 }))
+mockReactFlow()
 
 function open() {
   render(<MemoryRouter initialEntries={["/workflows?tab=workflows"]}><WorkflowsPage /></MemoryRouter>)
@@ -184,5 +197,39 @@ describe("the workflows list", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Copy to my workflows" }))
     const alert = await within(row(group("Untagged"), "Triage a task")).findByRole("alert")
     expect(alert.textContent).toContain("a workflow named review-loop-copy exists")
+  })
+})
+
+describe("the workflows map", () => {
+  it("switches from the list to the map and back, remembering the choice", async () => {
+    open()
+    fireEvent.click(screen.getByRole("button", { name: "Map" }))
+    expect(screen.getByRole("region", { name: "Workflow map" })).toBeTruthy()
+    expect(await screen.findByRole("button", { name: /^CI health/ })).toBeTruthy()
+    expect(screen.getByRole("group", { name: /^Stand alone, 4 workflows/ })).toBeTruthy()
+    expect(screen.queryByRole("searchbox", { name: "Search workflows" })).toBeNull()
+    cleanup()
+    open()
+    expect(screen.getByRole("button", { name: "Map" }).getAttribute("aria-pressed")).toBe("true")
+    fireEvent.click(screen.getByRole("button", { name: "List" }))
+    expect(screen.getByRole("searchbox", { name: "Search workflows" })).toBeTruthy()
+  })
+
+  it("says what is wrong with a broken file chosen on the map, instead of opening a workflow of its name", async () => {
+    open()
+    fireEvent.click(screen.getByRole("button", { name: "Map" }))
+    const broken = (await screen.findByRole("button", { name: /^ci-health, does not parse/ })).closest<HTMLElement>(".react-flow__node")!
+    fireEvent.click(broken)
+    expect(screen.getByRole("alert").textContent).toContain("can't be parsed: steps: oops")
+    expect(screen.getByRole("region", { name: "Workflow map" })).toBeTruthy()
+  })
+
+  it("filters the map by tag", async () => {
+    open()
+    fireEvent.click(screen.getByRole("button", { name: "Map" }))
+    await screen.findByRole("button", { name: /^Review PR/ })
+    fireEvent.click(within(screen.getByRole("group", { name: "Tag" })).getByRole("button", { name: "ops" }))
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Review PR/ })).toBeNull())
+    expect(screen.getByRole("button", { name: /^Prod health check/ })).toBeTruthy()
   })
 })
