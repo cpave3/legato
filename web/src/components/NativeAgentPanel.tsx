@@ -1,7 +1,7 @@
 import { ReeveStatus, reeveWash } from "./ReeveEntry"
 import { AskReeve } from "./AskReeve"
 import { parseReeveMessage, reeveBrief } from "../lib/reeve"
-import { useState, useCallback, useRef, useMemo, memo, Fragment, type ReactNode } from "react"
+import { useState, useCallback, useMemo, memo, Fragment, type ReactNode } from "react"
 import { ArrowDown, ArrowLeftRight, Bell, Check, Terminal, Zap } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
 import { useWebSocket } from "../hooks/useWebSocket"
@@ -40,20 +40,18 @@ import { nativeToolName } from "../lib/agentKind"
 import { compactionNotice } from "../lib/compaction"
 import { toolDisplayName } from "../lib/mcpToolName"
 import { legatoEventSummary, parseLegatoMessage } from "../lib/legatoMessage"
-import { plainText, subagentTree, type SubagentNode } from "../lib/agentGlance"
+import { plainText } from "../lib/agentGlance"
 import {
   type NativeConversationItem,
   type NativePermissionItem,
   type NativeToolItem as ToolCallItem,
 } from "../lib/nativeAgentSync"
 import { LoadingState } from "./ui/LoadingState"
-import { TileDeck, type DeckTile } from "./tiles/TileDeck"
+import { TileDeck } from "./tiles/TileDeck"
 import { SubagentLink } from "./tiles/SubagentParts"
-import { saveSubagentView, savedSubagentView, subagentTiles, type SubagentView } from "./tiles/subagentTiles"
-import { shellTileForCall, shellTiles } from "./tiles/shellTiles"
-import { fromStored, mergeShells, type NativeBackgroundShell, type StoredBackgroundShell } from "../lib/backgroundShells"
+import { shellTileForCall } from "./tiles/shellTiles"
+import type { StoredBackgroundShell } from "../lib/backgroundShells"
 import type { BackgroundJob } from "../lib/agentWire"
-import { useElementWidth } from "../hooks/useElementWidth"
 import { useConversationScroll } from "./useConversationScroll"
 import { useDraft } from "./useDraft"
 import { useAgentCatalog } from "./useAgentCatalog"
@@ -68,10 +66,8 @@ import { useRequestAnswers } from "./useRequestAnswers"
 import { useMessageSending } from "./useMessageSending"
 import { useNativeSyncState, useSnapshotResync } from "./useNativeAgentSync"
 import { useNativeAgentFeed } from "./useNativeAgentFeed"
+import { useSubagentTiles, type FeedTiles } from "./useSubagentTiles"
 
-// The least width at which subagent tiles sit beside the conversation; below
-// it they are a strip above it.
-const tilesBesideWidth = 1000
 
 function formatTokens(value: number): string {
   if (value < 1_000) return value.toLocaleString()
@@ -241,25 +237,10 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const { isScrolledUp, scrollToBottom, scrollToBottomAfterRender, followLatest, restartInitialScroll } = scroll
   const { items, busy, error, contextUsage, model } = syncState
   const blocks = useMemo(() => conversationBlocks(items), [items])
-  const shells = useMemo(() => mergeShells(syncState.backgroundShells, fromStored(backgroundShells)), [syncState.backgroundShells, backgroundShells])
-  const tiles = useMemo(() => [...subagentTiles(items, backgroundJobs), ...shellTiles(shells)], [items, shells, backgroundJobs])
-  const subagentNodes = useMemo(() => subagentTree(backgroundJobs), [backgroundJobs])
-  const deckTitle = shells.length > 0 ? "Sub-agents and shells" : "Sub-agents"
-  const [subagentView, setSubagentView] = useState<SubagentView>(savedSubagentView)
-  const [focusedTile, setFocusedTile] = useState<string | null>(null)
-  const [highlightedTile, setHighlightedTile] = useState<string | null>(null)
-  const panelRef = useRef<HTMLDivElement>(null)
-  const panelWidth = useElementWidth(panelRef)
-  const showTiles = subagentView === "tiles" && tiles.length > 0
-  const tilesBeside = panelWidth >= tilesBesideWidth
-  const chooseSubagentView = useCallback((view: SubagentView) => {
-    setSubagentView(view)
-    saveSubagentView(view)
-    setFocusedTile(null)
-  }, [])
+  const subagents = useSubagentTiles(items, syncState.backgroundShells, backgroundShells, backgroundJobs)
+  const { panelRef, tiles, deckTitle, show: showTiles, beside: tilesBeside, focused: focusedTile, setFocused: setFocusedTile, highlighted: highlightedTile, setHighlighted: setHighlightedTile } = subagents
   const step = useMemo(() => busy ? currentStep(items) : null, [busy, items])
   const turnSeconds = useTurnClock(busy, !loading)
-  // The agent has stopped on a permission prompt or a question of its own.
   // The agent has stopped on a permission prompt or a question of its own.
   const awaitingRequest = awaitsRequest(items)
   const terminal = useTerminalPrompt(awaitingRequest)
@@ -357,7 +338,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         pullRequest={pullRequest}
         panels={panels}
         backgroundJobs={backgroundJobs}
-        subagents={{ total: tiles.length, running: tiles.filter((tile) => tile.state === "running").length, view: subagentView, onView: chooseSubagentView }}
+        subagents={{ total: tiles.length, running: tiles.filter((tile) => tile.state === "running").length, view: subagents.view, onView: subagents.chooseView }}
         onShowRequest={scrollToBottom}
         ask={reeve ? undefined : <AskReeve brief={reeveBrief({ what: `the agent “${title || agentId}”, which waits for the operator`, ids: { task: agentId, "agent tool": agentKind }, error: error || undefined })} />}
         menu={menu}
@@ -385,7 +366,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         blocks={blocks}
         agentId={agentId}
         agentKind={agentKind}
-        tiles={{ show: showTiles, all: tiles, shells, nodes: subagentNodes, highlighted: highlightedTile, onHighlight: setHighlightedTile, onFocus: setFocusedTile }}
+        tiles={subagents.feed}
         onOpenUIItem={onOpenUIItem}
         onPermission={handlePermission}
         onQuestion={handleQuestion}
@@ -560,17 +541,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   )
 }
 
-// What the conversation feed needs to draw the tiles of subagents and
-// shells beside their calls.
-interface FeedTiles {
-  show: boolean
-  all: DeckTile[]
-  shells: NativeBackgroundShell[]
-  nodes: SubagentNode[]
-  highlighted: string | null
-  onHighlight: (id: string | null) => void
-  onFocus: (id: string | null) => void
-}
 
 // What every row of the conversation is given besides its item.
 interface FeedRowProps {
