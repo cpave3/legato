@@ -67,6 +67,64 @@ describe("AgentUIComponents", () => {
     expect(onProposeMessage).toHaveBeenCalledWith("Show me the 7 day forecast")
   })
 
+  it("draws headings at each level, falling back to level two", () => {
+    render(<AgentUIComponents components={[
+      { type: "heading", text: "Three", level: 3 },
+      { type: "heading", text: "Default" },
+      { type: "heading", text: "Odd", level: 7 },
+    ]} />)
+    const three = screen.getByRole("heading", { level: 4, name: "Three" })
+    expect(three.className).toBe("text-xs font-semibold uppercase tracking-wide text-zinc-400")
+    expect(screen.getByRole("heading", { level: 3, name: "Default" }).className).toBe("text-sm font-semibold text-zinc-100")
+    expect(screen.getByRole("heading", { level: 3, name: "Odd" })).toBeTruthy()
+  })
+
+  it("colours text, figures and badges by tone, and treats an unknown tone as neutral", () => {
+    const { container } = render(<AgentUIComponents components={[
+      { type: "text", text: "Plain" },
+      { type: "text", text: "Careful", tone: "warning" },
+      { type: "stat", value: "9", tone: "bogus" as never },
+      { type: "badges", items: [{ text: "Fine", tone: "positive" }, { text: "Odd", tone: "bogus" as never }] },
+      { type: "list", items: [{ text: "One" }] },
+    ]} />)
+    expect(screen.getByText("Plain").closest("div.text-zinc-300")).toBeTruthy()
+    expect(screen.getByText("Careful").closest("div.text-amber-300")).toBeTruthy()
+    expect(screen.getByText("9").className).toContain("text-zinc-100")
+    expect(screen.getByText("Fine").className).toContain("text-emerald-300")
+    expect(screen.getByText("Odd").className).toContain("bg-zinc-800")
+    const list = screen.getByRole("list")
+    expect(list.tagName).toBe("UL")
+    expect(list.className).toContain("list-disc")
+    expect(container.firstElementChild!.children).toHaveLength(5)
+  })
+
+  it("clamps progress, names it when unlabelled, and draws empty bars against nothing", () => {
+    render(<AgentUIComponents components={[
+      { type: "progress", fraction: 1.7 },
+      { type: "bar_chart", items: [{ label: "A" }, { label: "B", number: 0 }] },
+    ]} />)
+    expect(screen.getByRole("progressbar", { name: "Progress" }).getAttribute("aria-valuenow")).toBe("100")
+    const chart = screen.getByRole("list", { name: "Bar chart" })
+    expect(within(chart).getAllByRole("listitem").map((bar) => (bar.querySelector("[data-bar]") as HTMLElement).style.width)).toEqual(["0%", "0%"])
+    expect(within(chart).getAllByRole("listitem").map((bar) => bar.textContent)).toEqual(["A0", "B0"])
+  })
+
+  it("leaves actions out, wrapper and all, when nothing can take their message", () => {
+    const { container } = render(<AgentUIComponents components={[
+      { type: "actions", items: [{ label: "Go", message: "go" }] },
+      { type: "divider" },
+    ]} />)
+    expect(screen.queryByRole("button")).toBeNull()
+    expect(container.firstElementChild!.children).toHaveLength(1)
+  })
+
+  it("proposes nothing for an action without a message", () => {
+    const onProposeMessage = vi.fn()
+    render(<AgentUIComponents onProposeMessage={onProposeMessage} components={[{ type: "actions", items: [{ label: "Empty" }] }]} />)
+    fireEvent.click(screen.getByRole("button", { name: "Empty" }))
+    expect(onProposeMessage).not.toHaveBeenCalled()
+  })
+
   it("skips a component it does not know instead of failing the whole card", () => {
     render(<AgentUIComponents components={[{ type: "hologram", text: "?" }, { type: "text", text: "Still here" }]} />)
 
