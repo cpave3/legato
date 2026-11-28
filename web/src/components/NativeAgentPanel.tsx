@@ -76,6 +76,7 @@ import { useSessionSettings } from "./useSessionSettings"
 import { useBangCommands } from "./useBangCommands"
 import { useQueuedMessages } from "./useQueuedMessages"
 import { useTerminalPrompt, useTerminalPromptPolling } from "./useTerminalPrompt"
+import { useRequestAnswers } from "./useRequestAnswers"
 
 // The least width at which subagent tiles sit beside the conversation; below
 // it they are a strip above it.
@@ -576,50 +577,11 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     send({ type: "agent_interrupt", agent_id: agentId })
   }, [agentId, send])
 
-  const handlePermission = useCallback(
-    (requestId: string, decision: "allow" | "deny", feedback?: string, option?: string) => {
-      const current = syncStateRef.current.items.find((item) => item.permission?.requestId === requestId)?.permission
-      if (!current || current.status !== "pending") return
-      replaceSyncState(updatePermissionState(syncStateRef.current, requestId, (permission) => ({
-        ...permission,
-        status: "submitting",
-        error: undefined,
-      })))
-      send({
-        type: "agent_permission",
-        agent_id: agentId,
-        request_id: requestId,
-        decision,
-        ...(feedback ? { feedback } : {}),
-        ...(option ? { option } : {}),
-      })
-    },
-    [agentId, replaceSyncState, send],
-  )
 
 
-  // Answers a question the agent asked, or closes it unanswered when
-  // `answers` is left out.
-  const handleQuestion = useCallback(
-    (requestId: string, answers?: Record<string, string[]>) => {
-      const current = syncStateRef.current.items.find((item) => item.question?.requestId === requestId)?.question
-      if (!current || current.status !== "pending") return
-      replaceSyncState(updateQuestionState(syncStateRef.current, requestId, (question) => ({
-        ...question,
-        status: "submitting",
-        error: undefined,
-      })))
-      send({
-        type: "agent_question",
-        agent_id: agentId,
-        request_id: requestId,
-        ...(answers ? { answers } : { dismissed: true }),
-      })
-    },
-    [agentId, replaceSyncState, send],
-  )
 
 
+  const { handlePermission, handleQuestion } = useRequestAnswers(agentId, send, { syncStateRef, replaceSyncState })
   const handleKeyDown = useComposerKeys(slash, busy, handleSend, handleInterrupt)
 
   const handleMacro = useCallback((keys: string) => {
