@@ -43,8 +43,9 @@ func TestLegatosClaudeModsHookNoEventClaudeCodePassesOver(t *testing.T) {
 	}
 }
 
-// The doors the Legato mod relays leave out those the security mod always
-// passes over.
+// The doors the Legato mod relays leave out those the security mod passes
+// over: attachments, hook context and compaction always, and a Skill's
+// tool-message rows, which the panel never showed.
 func TestTheLegatoModRelaysNoDoorClaudeCodePassesOver(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("claudemod", "legato", "hooks", "register.ts"))
 	if err != nil {
@@ -54,7 +55,7 @@ func TestTheLegatoModRelaysNoDoorClaudeCodePassesOver(t *testing.T) {
 	if doors == nil {
 		t.Fatal("register.ts has no RELAYED_DOORS")
 	}
-	for _, door := range []string{"attachment", "hook-context", "compaction"} {
+	for _, door := range []string{"attachment", "hook-context", "compaction", "tool-message"} {
 		if regexp.MustCompile(`'` + door + `'`).Match(doors[1]) {
 			t.Errorf("RELAYED_DOORS names %s, which Claude Code passes over", door)
 		}

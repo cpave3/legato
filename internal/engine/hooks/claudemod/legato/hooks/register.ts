@@ -26,10 +26,11 @@ type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 type Block = { type: string; [field: string]: unknown }
 
-// The doors of the rows the panel shows. Not `attachment`, `hook-context` or
-// `compaction`: what the engine writes beside the conversation by those is no
-// part of it, and Claude Code passes them over this mod on many machines.
-const RELAYED_DOORS = ['prompt', 'command', 'response', 'tool-result', 'tool-message', 'delivery', 'note', 'notice', 'queue'] as const
+// The doors of the rows the panel shows. Not `attachment`, `hook-context`,
+// `compaction` or `tool-message` (a Skill's instructions): what the engine
+// writes beside the conversation by those is no part of it, and Claude Code
+// passes them over this mod on many machines.
+const RELAYED_DOORS = ['prompt', 'command', 'response', 'tool-result', 'delivery', 'note', 'notice', 'queue'] as const
 
 const JSON_HEADERS = { 'content-type': 'application/json' }
 
@@ -1046,8 +1047,9 @@ export const register: Register = on => {
   // is no part of what the panel shows and never leaves the session.
   //
   // Only the doors such rows come by: Claude Code's security mod passes the
-  // engine's own doors (attachments, hook context, compaction) over every
-  // mod a person installs, and says so in the session each time (LEG-684).
+  // engine's own doors (attachments, hook context, compaction, a Skill's
+  // instructions) over every mod a person installs, and says so in the
+  // session (LEG-684).
   on('session.append', { door: RELAYED_DOORS }, async ($, e, next) => {
     const stored = await next(e)
     const message = stored.message
