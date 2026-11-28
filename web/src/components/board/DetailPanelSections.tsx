@@ -1,8 +1,7 @@
 import type { ComponentProps, ReactNode } from "react"
 import { ChevronRight, X } from "lucide-react"
 
-import type { AwayOn, CardDetail, PRMetaView } from "../../lib/board-types"
-import { awayLook, kindLabel, purposeLabel, workerHistoryURL } from "../../lib/away"
+import type { CardDetail, PRMetaView } from "../../lib/board-types"
 import { handedOffFrom, providerLabel } from "../../lib/providers"
 import { MarkdownBody } from "../MarkdownBody"
 import { Button } from "../ui/Button"
@@ -63,31 +62,6 @@ export function DetailHeader({ card, onClose }: { card: CardDetail; onClose: () 
   )
 }
 
-// Under the header: where an away task is, else the agent action on a
-// phone, before the content.
-export function DetailBanner({ away, agentActionProps }: { away?: AwayOn; agentActionProps: AgentActionProps }) {
-  if (away) return <AwayBanner away={away} />
-  return (
-    <div data-task-agent-action="mobile" className="shrink-0 border-b border-zinc-800 px-5 py-3 md:px-6 lg:hidden">
-      <TaskAgentAction {...agentActionProps}/>
-    </div>
-  )
-}
-
-function AwayBanner({ away }: { away: AwayOn }) {
-  const history = workerHistoryURL(away)
-  return (
-    <div data-task-away className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-zinc-800 bg-zinc-950/40 px-5 py-3 text-xs text-zinc-400 md:px-6">
-      <span className="font-medium text-zinc-200">Away on {away.worker}</span>
-      <span>{awayLook(away).label}</span>
-      <span>{purposeLabel(away.purpose)} · from {kindLabel(away.kind).toLowerCase()} <span className="font-mono">{away.branch}</span></span>
-      <span>Changes come from {away.worker} when the task comes back.</span>
-      {away.url && <a href={away.url} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">Open on {away.worker}</a>}
-      {history && <a href={history} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">Session history on {away.worker}</a>}
-    </div>
-  )
-}
-
 function DescriptionSection({ kind, title, markdown, emptyLabel }: { kind: "remote" | "local"; title: string; markdown: string; emptyLabel: string }) {
   return <details open data-description-section={kind} className="group rounded-lg border border-zinc-800 bg-zinc-950/30">
     <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-semibold text-zinc-200 marker:hidden">
@@ -123,30 +97,25 @@ export function DescriptionBody({ card }: { card: CardDetail }) {
   return <pre className="mt-3 whitespace-pre-wrap font-sans text-sm leading-6 text-zinc-400">{card.description_md}</pre>
 }
 
-// A pull request's state, review and checks, as short words.
-function PullRequestBadges({ pr }: { pr: PRMetaView }) {
-  return (
-    <div className="mt-1 flex flex-wrap gap-x-2 text-[10px]">
-      {pr.state === "MERGED" && <span>merged</span>}
-      {pr.state === "CLOSED" && <span>closed</span>}
-      {pr.review_decision === "APPROVED" && <span className="text-emerald-400">approved</span>}
-      {pr.review_decision === "CHANGES_REQUESTED" && <span className="text-red-400">changes requested</span>}
-      <CheckBadge status={pr.check_status} />
-      {pr.comment_count > 0 && <span>{pr.comment_count} comments</span>}
-    </div>
-  )
-}
-
 const checkBadges: Record<string, { label: string; className: string }> = {
   pass: { label: "CI passing", className: "text-emerald-400" },
   fail: { label: "CI failing", className: "text-red-400" },
   pending: { label: "CI pending", className: "text-amber-300" },
 }
 
-function CheckBadge({ status }: { status: string }) {
-  const badge = checkBadges[status]
-  if (!badge) return null
-  return <span className={badge.className}>{badge.label}</span>
+// A pull request's state, review and checks, as short words.
+function PullRequestBadges({ pr }: { pr: PRMetaView }) {
+  const check = checkBadges[pr.check_status]
+  return (
+    <div className="mt-1 flex flex-wrap gap-x-2 text-[10px]">
+      {pr.state === "MERGED" && <span>merged</span>}
+      {pr.state === "CLOSED" && <span>closed</span>}
+      {pr.review_decision === "APPROVED" && <span className="text-emerald-400">approved</span>}
+      {pr.review_decision === "CHANGES_REQUESTED" && <span className="text-red-400">changes requested</span>}
+      {check && <span className={check.className}>{check.label}</span>}
+      {pr.comment_count > 0 && <span>{pr.comment_count} comments</span>}
+    </div>
+  )
 }
 
 function PullRequestList({ pullRequests }: { pullRequests: PRMetaView[] }) {
@@ -164,27 +133,18 @@ function PullRequestList({ pullRequests }: { pullRequests: PRMetaView[] }) {
   )
 }
 
-// How syncing the pull request went, said only while none is linked.
-function PRSyncProperty({ prMeta }: { prMeta: CardDetail["pr_meta"] }) {
-  if (!prMeta?.sync_outcome) return null
-  return <Property label="PR sync" wide>{prMeta.sync_outcome.replaceAll("_", " ")}{prMeta.sync_error && ` — ${prMeta.sync_error}`}</Property>
-}
-
-function CodeProperties({ card }: { card: CardDetail }) {
-  return <>
-    {card.worktree && <><Property label="Worktree" wide>{card.worktree.path}</Property><Property label="Branch">{card.worktree.branch}</Property></>}
-    {card.code_context && <><Property label="Repository">{card.code_context.repo}</Property><MetaProperty label="Code branch" value={card.code_context.branch} /></>}
-  </>
-}
-
 export function PropertiesSection({ card, pullRequests }: { card: CardDetail; pullRequests: PRMetaView[] }) {
   return (
     <section aria-labelledby="task-properties-heading">
       <h3 id="task-properties-heading" className={sectionHeadingClass}>Properties</h3>
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 lg:grid-cols-1">
         <RemoteProperties provider={card.provider} meta={card.remote_meta ?? {}} />
-        <CodeProperties card={card} />
-        {pullRequests.length > 0 ? <PullRequestList pullRequests={pullRequests} /> : <PRSyncProperty prMeta={card.pr_meta} />}
+        {card.worktree && <><Property label="Worktree" wide>{card.worktree.path}</Property><Property label="Branch">{card.worktree.branch}</Property></>}
+        {card.code_context && <><Property label="Repository">{card.code_context.repo}</Property><MetaProperty label="Code branch" value={card.code_context.branch} /></>}
+        {pullRequests.length > 0
+          ? <PullRequestList pullRequests={pullRequests} />
+          // How syncing the pull request went, said only while none is linked.
+          : card.pr_meta?.sync_outcome && <Property label="PR sync" wide>{card.pr_meta.sync_outcome.replaceAll("_", " ")}{card.pr_meta.sync_error && ` — ${card.pr_meta.sync_error}`}</Property>}
       </dl>
     </section>
   )

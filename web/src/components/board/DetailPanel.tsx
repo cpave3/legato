@@ -2,9 +2,11 @@ import { useRef, type KeyboardEvent } from "react"
 import { useModalLayer } from "../ui/useModalLayer"
 
 import { taskPullRequests, type AwayOn, type CardDetail } from "../../lib/board-types"
+import { awayLook, kindLabel, purposeLabel, workerHistoryURL } from "../../lib/away"
 import { Button } from "../ui/Button"
 import { TaskActivityTabs } from "./TaskActivityTabs"
-import { DescriptionBody, DetailBanner, DetailHeader, MoreActionsSection, PropertiesSection, WorkAndEditSections } from "./DetailPanelSections"
+import { TaskAgentAction } from "./TaskAgentAction"
+import { DescriptionBody, DetailHeader, MoreActionsSection, PropertiesSection, WorkAndEditSections } from "./DetailPanelSections"
 
 interface DetailPanelProps {
   card: CardDetail
@@ -75,7 +77,22 @@ export function DetailPanel({
         onKeyDown={keepNestedEscape}
       >
         <DetailHeader card={card} onClose={onClose} />
-        <DetailBanner away={away} agentActionProps={agentActionProps} />
+        {/* Under the header: where an away task is, else the agent action on
+            a phone, before the content. */}
+        {away ? (
+          <div data-task-away className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-zinc-800 bg-zinc-950/40 px-5 py-3 text-xs text-zinc-400 md:px-6">
+            <span className="font-medium text-zinc-200">Away on {away.worker}</span>
+            <span>{awayLook(away).label}</span>
+            <span>{purposeLabel(away.purpose)} · from {kindLabel(away.kind).toLowerCase()} <span className="font-mono">{away.branch}</span></span>
+            <span>Changes come from {away.worker} when the task comes back.</span>
+            {away.url && <a href={away.url} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">Open on {away.worker}</a>}
+            {workerHistoryURL(away) && <a href={workerHistoryURL(away)} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">Session history on {away.worker}</a>}
+          </div>
+        ) : (
+          <div data-task-agent-action="mobile" className="shrink-0 border-b border-zinc-800 px-5 py-3 md:px-6 lg:hidden">
+            <TaskAgentAction {...agentActionProps}/>
+          </div>
+        )}
 
         <div data-task-detail-layout className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_18rem] lg:overflow-hidden">
           <main aria-label="Task content" className="px-5 py-5 md:px-6 lg:min-h-0 lg:overflow-y-auto">
