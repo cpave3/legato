@@ -8,7 +8,7 @@ import { MacroPickerButton } from "../macros/MacroPicker"
 import { itemHow, needsYouKind, needsYouKinds, shortAge } from "../../lib/needsYou"
 
 // The kind of an item: its word and its own icon, on its tone.
-export function KindTag({ item }: { item: AttentionItem }) {
+export function KindTag({ item }: { item: Pick<AttentionItem, "signal_kind"> }) {
   const kind = needsYouKind(item)
   const Icon = kindIcons[kind]
   const { word, tone } = needsYouKinds[kind]
@@ -19,8 +19,8 @@ export function KindTag({ item }: { item: AttentionItem }) {
   )
 }
 
-const button = "inline-flex min-h-7 items-center gap-1.5 rounded-md border border-lw-line-strong/40 bg-lw-raised px-2.5 text-xs font-medium text-lw-text hover:bg-lw-selected disabled:opacity-50"
-const quiet = "inline-flex min-h-7 items-center gap-1.5 rounded-md px-1.5 text-xs text-lw-text-2 hover:text-lw-text disabled:opacity-50"
+export const button = "inline-flex min-h-7 items-center gap-1.5 rounded-md border border-lw-line-strong/40 bg-lw-raised px-2.5 text-xs font-medium text-lw-text hover:bg-lw-selected disabled:opacity-50"
+export const quiet = "inline-flex min-h-7 items-center gap-1.5 rounded-md px-1.5 text-xs text-lw-text-2 hover:text-lw-text disabled:opacity-50"
 
 function hrefOf(action: AttentionAction, item: AttentionItem): { path: string } | { external: string } | null {
   if (action.href) {

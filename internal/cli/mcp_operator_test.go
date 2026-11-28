@@ -301,3 +301,32 @@ func TestTheReeveCanPostForTheOperator(t *testing.T) {
 		t.Fatalf("the Reeve's for_operator failed: %s", mcpText(result))
 	}
 }
+
+// A question an agent asks with its tool's own question prompt is already
+// in the operator's rail: the tool's description and the guidance both say
+// not to post it again with for_operator.
+func TestForOperatorSaysNotToPostAQuestionTwice(t *testing.T) {
+	s := newTestStore(t)
+	executionID := seedMCPAgent(t, s, "task1")
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: "task1", ExecutionID: executionID, Agents: &fakePeers{}})
+	listed, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "never post a question you are also asking with your agent tool's own question tool"
+	found := false
+	for _, tool := range listed.Tools {
+		if tool.Name == "for_operator" {
+			found = true
+			if !strings.Contains(strings.ToLower(tool.Description), want) {
+				t.Errorf("for_operator's description does not say %q:\n%s", want, tool.Description)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("for_operator is not listed")
+	}
+	if !strings.Contains(strings.ToLower(cli.MCPGuidance), want) {
+		t.Errorf("the guidance does not say %q", want)
+	}
+}
