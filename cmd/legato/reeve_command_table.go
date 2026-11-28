@@ -68,6 +68,7 @@ var legatoCommandClasses = map[string]legatoCommandClass{
 	"agent permission-resolved": {"never", "Report a resolved permission request"},
 	"agent stopped":             {"never", "Report that an agent stopped"},
 	"agent allow-read":          {"never", "Allow an agent to read a pasted image"},
+	"agent bridge-hook":         {"never", "Answer a Claude Code hook for the session's native bridge"},
 	"agent hook":                {"never", "Report an agent tool's hook"},
 	"agent session-created":     {"never", "Record an agent session"},
 	"agent peers":               {"read", "List the agents sharing a worktree"},

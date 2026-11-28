@@ -34,6 +34,7 @@ var legatoCommandAlternatives = map[string]string{
 	"agent permission-resolved": "an agent tool's hooks report this: answer a permission in the operator's approval tray",
 	"agent stopped":             "an agent tool's hooks report this: POST /api/agents/kill stops an agent",
 	"agent allow-read":          "an agent tool's hooks ask this for a pasted image",
+	"agent bridge-hook":         "Claude Code's hooks ask this for the native panel: answer a permission in the operator's approval tray",
 	"agent hook":                "an agent tool's hooks report its state: read it with GET /api/agents?view=compact",
 	"agent session-created":     "an agent tool's hooks record this when a session starts",
 	"agent broadcast":           "message each agent with legato agent message <task> or POST /api/tasks/<id>/agent {\"prompt\": …}",
