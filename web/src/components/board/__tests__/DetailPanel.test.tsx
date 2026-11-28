@@ -141,6 +141,113 @@ describe("DetailPanel", () => {
     expect(within(items[2]).getByText("merged")).toBeTruthy()
   })
 
+  it("names a pull request's review, checks, comments and end", () => {
+    const pr = (number: number, more: Partial<PRMetaView> = {}): PRMetaView => ({ repo: "acme/widget", branch: "", pr_number: number, pr_url: `https://github.com/acme/widget/pull/${number}`, state: "OPEN", is_draft: false, review_decision: "", check_status: "", comment_count: 0, pinned: false, match_method: "branch", sync_outcome: "linked", sync_error: "", ...more })
+    renderPanel(makeCard({
+      pr_meta: pr(1),
+      pull_requests: [
+        pr(1, { review_decision: "APPROVED", check_status: "pass", comment_count: 3 }),
+        pr(2, { review_decision: "CHANGES_REQUESTED", check_status: "pending", state: "CLOSED" }),
+      ],
+    }))
+    const items = within(screen.getByRole("list", { name: "Pull requests" })).getAllByRole("listitem")
+    expect(within(items[0]).getByText("approved").className).toContain("text-emerald-400")
+    expect(within(items[0]).getByText("CI passing")).toBeTruthy()
+    expect(within(items[0]).getByText("3 comments")).toBeTruthy()
+    expect(within(items[1]).getByText("changes requested").className).toContain("text-red-400")
+    expect(within(items[1]).getByText("CI pending")).toBeTruthy()
+    expect(within(items[1]).getByText("closed")).toBeTruthy()
+    // No branch name beside a pull request without one.
+    expect(items[0].querySelector(".font-mono")).toBeNull()
+    expect(screen.getByText("Pull requests", { selector: "dt" })).toBeTruthy()
+  })
+
+  it("names one pull request in the singular, without its branch", () => {
+    const pr: PRMetaView = { repo: "acme/widget", branch: "fix", pr_number: 5, pr_url: "u", state: "OPEN", is_draft: false, review_decision: "", check_status: "", comment_count: 0, pinned: false, match_method: "branch", sync_outcome: "linked", sync_error: "" }
+    renderPanel(makeCard({ pr_meta: pr, pull_requests: [pr] }))
+    expect(screen.getByText("Pull request", { selector: "dt" })).toBeTruthy()
+    expect(screen.queryByText("fix")).toBeNull()
+    expect(screen.getByRole("button", { name: "Open in browser" })).toBeTruthy()
+  })
+
+  it("says how syncing the pull request went when none is linked", () => {
+    renderPanel(makeCard({
+      pr_meta: { repo: "acme/widget", branch: "b", pr_number: 0, pr_url: "", state: "", is_draft: false, review_decision: "", check_status: "", comment_count: 0, pinned: false, match_method: "", sync_outcome: "not_found", sync_error: "no PR for branch" },
+      pull_requests: [],
+    }))
+    const properties = screen.getByRole("complementary", { name: "Task properties and actions" })
+    expect(within(properties).getByText("PR sync", { selector: "dt" }).nextElementSibling?.textContent).toBe("not found — no PR for branch")
+    expect(screen.queryByRole("button", { name: "Refresh pull request" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Rediscover pull request" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Open in browser" })).toBeNull()
+  })
+
+  it("names the repository without a code branch, and offers the provider's page", () => {
+    renderPanel(makeCard({
+      provider: "jira",
+      remote_meta: { url: "https://acme.atlassian.net/browse/A-1", issue_type: "Bug" },
+      code_context: { repo: "acme/widget", branch: "", head_sha: "", working_dir: "", base_branch: "", repo_source: "manual", branch_source: "" },
+    }))
+    const properties = screen.getByRole("complementary", { name: "Task properties and actions" })
+    expect(within(properties).getByText("Repository", { selector: "dt" })).toBeTruthy()
+    expect(within(properties).queryByText("Code branch", { selector: "dt" })).toBeNull()
+    expect(within(properties).getByText("Type", { selector: "dt" }).nextElementSibling?.textContent).toBe("Bug")
+    expect(screen.getByRole("button", { name: "Open in browser" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Rediscover pull request" })).toBeTruthy()
+  })
+
+  it("says Open issue for a link without a provider", () => {
+    renderPanel(makeCard({ remote_meta: { url: "https://example.com/1" } }))
+    expect(screen.getByRole("link", { name: "Open issue" })).toBeTruthy()
+  })
+
+  it("says a local task has no description, and edits it by name", () => {
+    const onEditDescription = vi.fn()
+    renderPanel(makeCard({ description_md: "" }), { onEditDescription })
+    expect(screen.getByText("No description")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    expect(onEditDescription).toHaveBeenCalledOnce()
+  })
+
+  it("leaves the status and priority out when a task has none", () => {
+    renderPanel(makeCard({ status: "", priority: "" }))
+    expect(screen.queryByText(/priority/)).toBeNull()
+    expect(screen.queryByText("Doing")).toBeNull()
+    renderPanel(makeCard())
+    expect(screen.getByText("High priority")).toBeTruthy()
+  })
+
+  it("links an away task's session history on its worker, and hides the swarm's cancel", () => {
+    const away = {
+      worker_instance_id: "srv-1", worker: "vm-1", handoff_id: "ho-1", worker_task_id: "w-1", purpose: "find-out", kind: "pushed-branch",
+      repo: "acme/widget", branch: "fix/x", left_column: "Doing", handed_off_at: "2026-11-05T09:00:00Z", url: "https://vm-1.lan:3080/board?highlight_task=w-1",
+    }
+    renderPanel(makeCard({ swarm_working_dir: "/tmp/w" }), { away })
+    const link = screen.getByRole("link", { name: "Session history on vm-1" })
+    expect(link.getAttribute("href")).toContain("vm-1.lan:3080")
+    expect(screen.getByText("Changes come from vm-1 when the task comes back.")).toBeTruthy()
+    expect(screen.getByText("fix/x")).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Cancel swarm" })).toBeNull()
+  })
+
+  it("says nothing of a worker's pages when the away task has no address", () => {
+    const away = {
+      worker_instance_id: "srv-1", worker: "vm-1", handoff_id: "ho-1", worker_task_id: "w-1", purpose: "make-change", kind: "new-branch",
+      repo: "acme/widget", branch: "legato/t-1", left_column: "Doing", handed_off_at: "2026-11-05T09:00:00Z",
+    }
+    renderPanel(makeCard(), { away })
+    expect(screen.queryByRole("link", { name: /on vm-1/ })).toBeNull()
+  })
+
+  it("closes on a click outside, but not inside", () => {
+    const onClose = vi.fn()
+    const { container } = renderPanel(makeCard(), { onClose })
+    fireEvent.click(screen.getByRole("dialog"))
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.click(container.firstElementChild as HTMLElement)
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
   it("stays below action modals in the board stacking order", () => {
     const { container } = render(
       <DetailPanel card={makeCard()} onClose={() => {}} onEditTitle={() => {}} onEditDescription={() => {}} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} onCancelSwarm={() => {}} />
