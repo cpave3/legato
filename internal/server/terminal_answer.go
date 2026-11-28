@@ -46,15 +46,11 @@ func (s *Server) handleAnswerTerminalPrompt(client *wsClient, msg WSMessage) {
 		refuse("unavailable", "tmux not available", nil)
 		return
 	}
-	if msg.AgentID == "" || msg.RequestID == "" || msg.Keys == "" || msg.Prompt == nil {
-		refuse("invalid", "agent_id, request_id, keys and the prompt answered are required", nil)
+	if code, message := checkTerminalAnswer(msg); code != "" {
+		refuse(code, message, nil)
 		return
 	}
 	text := msg.Content
-	if strings.IndexFunc(text, unicode.IsControl) >= 0 {
-		refuse("invalid", "the answer must be one line of text", nil)
-		return
-	}
 
 	sessionName := "legato-" + msg.AgentID
 	output, err := s.tmux.Capture(sessionName)
@@ -63,27 +59,9 @@ func (s *Server) handleAnswerTerminalPrompt(client *wsClient, msg WSMessage) {
 		return
 	}
 	state := s.streams.detectPromptState(msg.AgentID, output).State
-	var chosen *prompt.Action
-	// Keys are relative to the cursor, so they mean the answer chosen only
-	// on the screen it was chosen from: the prompt must be unchanged.
-	if answerablePrompts[state.Type] && reflect.DeepEqual(state, *msg.Prompt) {
-		for index := range state.Actions {
-			if state.Actions[index].Keys == msg.Keys {
-				chosen = &state.Actions[index]
-				break
-			}
-		}
-	}
+	chosen, code, message := chooseTerminalAnswer(state, msg)
 	if chosen == nil {
-		refuse("prompt_changed", "the terminal changed before the answer was sent; check it and choose again", &state)
-		return
-	}
-	if chosen.TakesText && strings.TrimSpace(text) == "" {
-		refuse("text_required", "type an answer for "+chosen.Label, &state)
-		return
-	}
-	if !chosen.TakesText && text != "" {
-		refuse("invalid", chosen.Label+" takes no text", &state)
+		refuse(code, message, &state)
 		return
 	}
 
@@ -99,6 +77,43 @@ func (s *Server) handleAnswerTerminalPrompt(client *wsClient, msg WSMessage) {
 		after = s.streams.detectPromptState(msg.AgentID, output).State
 	}
 	client.send(WSMessage{Type: MsgTerminalPromptAnswered, AgentID: msg.AgentID, RequestID: msg.RequestID, Prompt: &after})
+}
+
+// checkTerminalAnswer refuses an answer that is malformed before the screen
+// is read: it names the agent, the request, the keys and the prompt, and its
+// text is one line.
+func checkTerminalAnswer(msg WSMessage) (code, message string) {
+	if msg.AgentID == "" || msg.RequestID == "" || msg.Keys == "" || msg.Prompt == nil {
+		return "invalid", "agent_id, request_id, keys and the prompt answered are required"
+	}
+	if strings.IndexFunc(msg.Content, unicode.IsControl) >= 0 {
+		return "invalid", "the answer must be one line of text"
+	}
+	return "", ""
+}
+
+// chooseTerminalAnswer finds the action the answer chose on the screen read
+// now. Keys are relative to the cursor, so they mean the answer chosen only
+// on the screen it was chosen from: the prompt must be unchanged. Text goes
+// only to a row that takes it, and such a row needs some.
+func chooseTerminalAnswer(state prompt.PromptState, msg WSMessage) (chosen *prompt.Action, code, message string) {
+	if answerablePrompts[state.Type] && reflect.DeepEqual(state, *msg.Prompt) {
+		for index := range state.Actions {
+			if state.Actions[index].Keys == msg.Keys {
+				chosen = &state.Actions[index]
+				break
+			}
+		}
+	}
+	switch {
+	case chosen == nil:
+		return nil, "prompt_changed", "the terminal changed before the answer was sent; check it and choose again"
+	case chosen.TakesText && strings.TrimSpace(msg.Content) == "":
+		return nil, "text_required", "type an answer for " + chosen.Label
+	case !chosen.TakesText && msg.Content != "":
+		return nil, "invalid", chosen.Label + " takes no text"
+	}
+	return chosen, "", ""
 }
 
 // promptAnswerer is the tmux manager's guarded way to answer a prompt on
