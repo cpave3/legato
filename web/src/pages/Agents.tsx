@@ -4,7 +4,7 @@ import { PreparingAgents } from "../components/PreparingAgents"
 import { InterruptedAgents } from "../components/InterruptedAgents"
 import { UsageStrip } from "../components/UsageStrip"
 import { SessionHistoryLink } from "../components/SessionHistoryLink"
-import { Link, useSearchParams } from "react-router-dom"
+import { useSearchParams } from "react-router-dom"
 import { useWebSocket } from "../hooks/useWebSocket"
 import { type AgentInfo, type WSMessage, type PromptState } from "../lib/agentWire"
 import { usePageInView } from "../hooks/usePageInView"
@@ -55,7 +55,7 @@ import { formatAgentTime, stateSeconds } from "../lib/agentList"
 import { filterByStage } from "../lib/agentStage"
 import type { AgentStageInfo } from "../components/AgentStageChip"
 import { useStageFilter } from "../hooks/useStageFilter"
-import { AgentChatHeader, type AgentChatState, type SidePanel, type SidePanelsProps } from "../components/AgentChatHeader"
+import { AgentChatHeader, BackToWorkflow, type AgentChatState, type SidePanel, type SidePanelsProps } from "../components/AgentChatHeader"
 import { type AgentMenuEntry } from "../lib/agentMenu"
 import { Bell, BellOff, FolderInput, Info, Network, Pencil, RefreshCw, RotateCw, Shield, Skull, Sparkles, Terminal, Unplug } from "lucide-react"
 import { useTerminalMenu } from "../hooks/useTerminalMenu"
@@ -862,7 +862,6 @@ export function AgentsPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden md:flex-row">
-      {workflowRun && <Link to={`/workflows/runs/${workflowRun}`} className="absolute right-3 top-3 z-30 rounded bg-lw-surface px-3 py-2 text-xs text-lw-link shadow">Back to workflow</Link>}
       {isMobile ? (
         <AgentPickerBar
           agents={runningAgents}
@@ -901,6 +900,7 @@ export function AgentsPage() {
       {isMobile && <SessionHistoryLink className="border-b border-lw-line" />}
 
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        {workflowRun && <BackToWorkflow runId={workflowRun} />}
         {selectedId ? (
           <>
             {!swarmMode && selectedAgent && !selectedAgent.has_chimera_endpoint && (

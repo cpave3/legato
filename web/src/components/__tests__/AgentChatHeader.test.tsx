@@ -2,7 +2,18 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { AgentChatHeader } from "../AgentChatHeader"
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
+
+// The window as a phone (Tailwind's max-sm) or wider.
+function at(width: number) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === "(max-width: 639px)" && width < 640, media: query,
+    addEventListener: () => {}, removeEventListener: () => {},
+  }))
+}
 
 describe("AgentChatHeader", () => {
   it("says what the agent is doing, on which task, with which tool", () => {
@@ -99,5 +110,34 @@ describe("AgentChatHeader", () => {
   it("offers what is given to ask about an agent that needs the person", () => {
     render(<AgentChatHeader state="needs-you" title="T" taskId="t-1" menu={[]} ask={<button type="button">Ask the Reeve</button>} />)
     expect(screen.getByRole("button", { name: "Ask the Reeve" })).toBeTruthy()
+  })
+
+  it("keeps the sub-agent view in More actions on a phone, where the row has no room for it", () => {
+    at(390)
+    const onView = vi.fn()
+    const { rerender } = render(<AgentChatHeader state="running" title="T" taskId="t-1" menu={[]} subagents={{ total: 2, running: 1, view: "inline", onView }} />)
+    expect(screen.queryByRole("group", { name: "Sub-agents" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }))
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Sub-agents as tiles (2)" }))
+    expect(onView).toHaveBeenCalledWith("tiles")
+
+    rerender(<AgentChatHeader state="running" title="T" taskId="t-1" menu={[]} subagents={{ total: 2, running: 1, view: "tiles", onView }} />)
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }))
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Sub-agents in the conversation" }))
+    expect(onView).toHaveBeenCalledWith("inline")
+  })
+
+  it("keeps the sub-agent switch in the header on a wider screen", () => {
+    at(1024)
+    render(<AgentChatHeader state="running" title="T" taskId="t-1" menu={[{ label: "Rename", onSelect: () => {} }]} subagents={{ total: 2, running: 0, view: "inline", onView: () => {} }} />)
+    expect(screen.getByRole("group", { name: "Sub-agents" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }))
+    expect(within(screen.getByRole("menu")).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Rename"])
+  })
+
+  it("gives the full title when it is cut short", () => {
+    const title = "Web UI agent view on mobile: the bar holding related items is overcrowded"
+    render(<AgentChatHeader state="running" title={title} taskId="t-1" menu={[]} />)
+    expect(screen.getByRole("heading", { name: title }).getAttribute("title")).toBe(title)
   })
 })
