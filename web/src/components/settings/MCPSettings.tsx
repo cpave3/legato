@@ -156,29 +156,28 @@ export function MCPSettings({ baseUrl, pollEvery = 2000 }: { baseUrl: string; po
   )
 }
 
-function Connection({ baseUrl, conn, app, pollEvery, onChanged, onReload, onRemoved }: {
-  baseUrl: string
-  conn: MCPConnection
-  app: boolean
-  pollEvery: number
-  onChanged: (conn: MCPConnection) => void
-  onReload: () => Promise<void>
-  onRemoved: () => void
+type ConnectionNotice = { variant: "info" | "success" | "error"; text: ReactNode }
+
+/** What a disconnect says, with whether the server revoked Legato's tokens. */
+function disconnectNotice(conn: MCPConnection, upstream: string): string {
+  const said = disconnected[upstream] ?? disconnected.none
+  return conn.shared_with === "burnlite" ? `${said} The Burnlite board is disconnected too.` : said
+}
+
+/** Whether consent is under way: the page is open, or its answer is being exchanged. */
+function consentUnderWay(attempt: OAuthAttempt | null): attempt is OAuthAttempt {
+  return attempt?.status === "pending" || attempt?.status === "exchanging"
+}
+
+// useAttempt follows the connection's authorization attempt: one begun here,
+// or found again after a reload, asked after while consent is under way. An
+// attempt that ends without an authorization is said and forgotten.
+function useAttempt({ baseUrl, conn, pollEvery, refresh, setNotice }: {
+  baseUrl: string; conn: MCPConnection; pollEvery: number
+  refresh: () => Promise<MCPConnection>; setNotice: (notice: ConnectionNotice) => void
 }) {
   const [attempt, setAttempt] = useState<OAuthAttempt | null>(null)
-  const [consentUrl, setConsentUrl] = useState<string | null>(null)
-  const [viaApp, setViaApp] = useState(false)
-  const [notice, setNotice] = useState<{ variant: "info" | "success" | "error"; text: ReactNode } | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [confirming, setConfirming] = useState<"disconnect" | "remove" | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const followed = useRef<string | null>(null)
-
-  const refresh = useCallback(async () => {
-    const fresh = await getMCPConnection(baseUrl, conn.name)
-    onChanged(fresh)
-    return fresh
-  }, [baseUrl, conn.name, onChanged])
 
   const follow = useCallback(async (id: string) => {
     followed.current = id
@@ -190,30 +189,61 @@ function Connection({ baseUrl, conn, app, pollEvery, onChanged, onReload, onRemo
     }
   }, [baseUrl])
 
+  const forget = useCallback(() => {
+    setAttempt(null)
+    followed.current = null
+  }, [])
+
   // A page reloaded mid-way finds its attempt again.
   useEffect(() => {
     if (conn.attempt && conn.attempt !== followed.current) void follow(conn.attempt)
   }, [conn.attempt, follow])
 
+  // moved takes how an attempt stands now; one that ended without an
+  // authorization is said and forgotten.
+  const moved = useCallback((before: OAuthAttempt, next: OAuthAttempt) => {
+    if (next.status === before.status) return
+    setAttempt(next)
+    const over = ended(next)
+    if (!over) return
+    setNotice({ variant: "error", text: over })
+    forget()
+    void refresh()
+  }, [forget, refresh, setNotice])
+
   // While consent is under way, ask how it stands.
-  const waiting = attempt && (attempt.status === "pending" || attempt.status === "exchanging")
+  const waiting = consentUnderWay(attempt)
   useEffect(() => {
     if (!waiting || !attempt) return
-    const timer = setInterval(() => {
-      void getAuthorization(baseUrl, attempt.id).then((next) => {
-        if (next.status === attempt.status) return
-        setAttempt(next)
-        const over = ended(next)
-        if (over) {
-          setNotice({ variant: "error", text: over })
-          setAttempt(null)
-          followed.current = null
-          void refresh()
-        }
-      }).catch(() => undefined)
-    }, pollEvery)
+    const poll = () => void getAuthorization(baseUrl, attempt.id).then((next) => moved(attempt, next)).catch(() => undefined)
+    const timer = setInterval(poll, pollEvery)
     return () => clearInterval(timer)
-  }, [waiting, attempt, baseUrl, pollEvery, refresh])
+  }, [waiting, attempt, baseUrl, pollEvery, moved])
+
+  const begun = (id: string, expiresAt: number) => {
+    followed.current = id
+    setAttempt({ id, connection: conn.name, status: "pending", expires_at: expiresAt })
+  }
+  return { attempt, waiting, follow, forget, begun }
+}
+
+// useConnectionActions is everything a connection's row does, one action at
+// a time: connect (through the app, or a tab of this browser), confirm or
+// cancel the attempt, disconnect, remove, change, and test.
+function useConnectionActions({ baseUrl, conn, app, pollEvery, onChanged, onReload, onRemoved }: ConnectionProps) {
+  const [notice, setNotice] = useState<ConnectionNotice | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState<"disconnect" | "remove" | null>(null)
+  const [tested, setTested] = useState<MCPTestResult | null>(null)
+
+  const refresh = useCallback(async () => {
+    const fresh = await getMCPConnection(baseUrl, conn.name)
+    onChanged(fresh)
+    return fresh
+  }, [baseUrl, conn.name, onChanged])
+  const attempts = useAttempt({ baseUrl, conn, pollEvery, refresh, setNotice })
+  const { attempt, forget } = attempts
 
   const run = async (work: () => Promise<void>) => {
     setBusy(true)
@@ -226,35 +256,91 @@ function Connection({ baseUrl, conn, app, pollEvery, onChanged, onReload, onRemo
       setBusy(false)
     }
   }
+  const connecting = useConnect({ baseUrl, conn, app, run, refresh, attempts, setNotice })
 
-  const connect = () => {
-    setNotice(null)
-    setConsentUrl(null)
-    if (app) {
-      setViaApp(true)
-      void run(async () => {
-        const outcome = await connectThroughApp(conn.name)
-        setViaApp(false)
-        if (outcome.error) throw new Error(outcome.error)
-        const fresh = await refresh()
-        if (fresh.attempt) await follow(fresh.attempt)
-      })
-      return
+  // settle confirms or cancels the attempt under way.
+  const settle = async (action: typeof confirmAuthorization | typeof cancelAuthorization, after?: () => void) => {
+    if (!attempt) return
+    await action(baseUrl, attempt.id)
+    forget()
+    after?.()
+    await refresh()
+  }
+
+  // A change is saved against the revision shown; one refused (changed
+  // elsewhere first) reads the list again. One that runs a command waits for
+  // the operator's approval.
+  const saveChange = async (patch: ConnectionPatch) => {
+    try {
+      const out = await changeMCPConnection(baseUrl, conn.name, { ...patch, expected_revision: conn.revision })
+      if (isPendingApproval(out)) setNotice({ variant: "info", text: waitingText(conn.name, "change") })
+      else onChanged(out)
+    } catch (reason) {
+      await onReload()
+      throw reason
     }
-    // Opened now, while the click still counts, and pointed at the consent
-    // page once Legato is listening for its answer.
+  }
+  const change = (patch: ConnectionPatch) => run(() => saveChange(patch))
+
+  return {
+    ...connecting, attempt, waiting: attempts.waiting, notice, busy, error, confirming, setConfirming, tested, change,
+    confirm: () => void run(() => settle(confirmAuthorization, () => setNotice({ variant: "success", text: `Legato is authorized to use ${conn.name}.` }))),
+    cancel: () => void run(() => settle(cancelAuthorization)),
+    disconnect: () => void run(async () => {
+      const out = await disconnectMCPConnection(baseUrl, conn.name)
+      setConfirming(null)
+      setNotice({ variant: "info", text: disconnectNotice(conn, out.upstream) })
+      await refresh()
+    }),
+    remove: () => void run(async () => {
+      await removeMCPConnection(baseUrl, conn.name)
+      onRemoved()
+    }),
+    test: () => void run(async () => {
+      setTested(null)
+      setTested(await testMCPConnection(baseUrl, conn.name))
+      await refresh()
+    }),
+  }
+}
+
+type ConnectionPatch = Omit<Parameters<typeof changeMCPConnection>[2], "expected_revision">
+
+// useConnect begins an authorization: through the Legato app, which catches
+// the consent page's answer, or in a tab of this browser.
+function useConnect({ baseUrl, conn, app, run, refresh, attempts, setNotice }: {
+  baseUrl: string; conn: MCPConnection; app: boolean
+  run: (work: () => Promise<void>) => Promise<void>; refresh: () => Promise<MCPConnection>
+  attempts: ReturnType<typeof useAttempt>; setNotice: (notice: ConnectionNotice | null) => void
+}) {
+  const [consentUrl, setConsentUrl] = useState<string | null>(null)
+  const [viaApp, setViaApp] = useState(false)
+
+  const throughApp = () => {
+    setViaApp(true)
+    void run(async () => {
+      const outcome = await connectThroughApp(conn.name)
+      setViaApp(false)
+      if (outcome.error) throw new Error(outcome.error)
+      const fresh = await refresh()
+      if (fresh.attempt) await attempts.follow(fresh.attempt)
+    })
+  }
+
+  // Opened now, while the click still counts, and pointed at the consent
+  // page once Legato is listening for its answer.
+  const inBrowser = () => {
     const tab = window.open("", "_blank")
     void run(async () => {
       try {
         const begun = await beginWebAuthorization(baseUrl, conn.name)
-        followed.current = begun.id
-        setAttempt({ id: begun.id, connection: conn.name, status: "pending", expires_at: begun.expires_at })
-        if (tab) {
-          tab.opener = null
-          tab.location.href = begun.authorize_url
-        } else {
+        attempts.begun(begun.id, begun.expires_at)
+        if (!tab) {
           setConsentUrl(begun.authorize_url)
+          return
         }
+        tab.opener = null
+        tab.location.href = begun.authorize_url
       } catch (reason) {
         tab?.close()
         throw reason
@@ -262,164 +348,185 @@ function Connection({ baseUrl, conn, app, pollEvery, onChanged, onReload, onRemo
     })
   }
 
-  const confirm = () => void run(async () => {
-    if (!attempt) return
-    await confirmAuthorization(baseUrl, attempt.id)
-    setAttempt(null)
-    followed.current = null
-    setNotice({ variant: "success", text: `Legato is authorized to use ${conn.name}.` })
-    await refresh()
-  })
+  const connect = () => {
+    setNotice(null)
+    setConsentUrl(null)
+    if (app) throughApp()
+    else inBrowser()
+  }
+  return { connect, consentUrl, viaApp }
+}
 
-  const cancel = () => void run(async () => {
-    if (!attempt) return
-    await cancelAuthorization(baseUrl, attempt.id)
-    setAttempt(null)
-    followed.current = null
-    await refresh()
-  })
+type ConnectionProps = {
+  baseUrl: string
+  conn: MCPConnection
+  app: boolean
+  pollEvery: number
+  onChanged: (conn: MCPConnection) => void
+  onReload: () => Promise<void>
+  onRemoved: () => void
+}
 
-  const disconnect = () => void run(async () => {
-    const out = await disconnectMCPConnection(baseUrl, conn.name)
-    setConfirming(null)
-    const said = disconnected[out.upstream] ?? disconnected.none
-    setNotice({ variant: "info", text: conn.shared_with === "burnlite" ? `${said} The Burnlite board is disconnected too.` : said })
-    await refresh()
-  })
-
-  const remove = () => void run(async () => {
-    await removeMCPConnection(baseUrl, conn.name)
-    onRemoved()
-  })
-
-  const change = (patch: Omit<Parameters<typeof changeMCPConnection>[2], "expected_revision">) => run(async () => {
-    try {
-      const out = await changeMCPConnection(baseUrl, conn.name, { ...patch, expected_revision: conn.revision })
-      if (isPendingApproval(out)) {
-        setNotice({ variant: "info", text: waitingText(conn.name, "change") })
-        return
-      }
-      onChanged(out)
-    } catch (reason) {
-      await onReload()
-      throw reason
-    }
-  })
-
-  const [tested, setTested] = useState<MCPTestResult | null>(null)
-  const test = () => void run(async () => {
-    setTested(null)
-    setTested(await testMCPConnection(baseUrl, conn.name))
-    await refresh()
-  })
-
+function Connection(props: ConnectionProps) {
+  const { conn } = props
+  const actions = useConnectionActions(props)
+  const { busy } = actions
   const local = conn.kind === "stdio"
-  const oauth = conn.auth === "oauth"
-  const authorized = conn.authorization === "authorized"
   return (
     <li aria-label={conn.name} className="flex flex-col gap-2 px-3 py-3">
       <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-lw-mono text-sm text-lw-text">{conn.name}</span>
-            <span className={`${chip} ${authorized || conn.authorization === "not_required" ? "text-lw-live" : "text-lw-text-2"}`}>{authorizationLabel[conn.authorization] ?? conn.authorization}</span>
-            {local && <span className={`${chip} text-lw-text-2`}>local</span>}
-            {conn.connection === "failed" && <span className={`${chip} text-lw-error`}>{local ? "failed" : "unreachable"}</span>}
-            {!conn.enabled && <span className={`${chip} text-lw-faint`}>off</span>}
-          </div>
-          {local ? (
-            <>
-              <p className="mt-0.5 break-all font-lw-mono text-[11px] text-lw-text-2">{commandLine(conn)}</p>
-              <p className="break-all font-lw-mono text-[11px] text-lw-faint">in {conn.dir}</p>
-            </>
-          ) : (
-            <p className="mt-0.5 truncate font-lw-mono text-[11px] text-lw-faint">{conn.url}</p>
-          )}
-          {conn.problem && <p className="mt-0.5 text-xs text-lw-text-2">{conn.problem.message}</p>}
-          {conn.shared_with === "burnlite" && (
-            <p className="mt-0.5 text-xs text-lw-text-2">Also the Burnlite board's connection (Settings › Board and tickets): connecting or disconnecting here does both. Turning it off is only for agents.</p>
-          )}
-        </div>
-        <Toggle label={`Use ${conn.name}`} on={conn.enabled} disabled={busy} onChange={() => void change({ enabled: !conn.enabled })} />
+        <ConnectionSummary conn={conn} />
+        <Toggle label={`Use ${conn.name}`} on={conn.enabled} disabled={busy} onChange={() => void actions.change({ enabled: !conn.enabled })} />
       </div>
 
-      {notice && <InlineNotice variant={notice.variant}>{notice.text}</InlineNotice>}
-      {error && <p role="alert" className="text-xs text-lw-error">{error}</p>}
+      {actions.notice && <InlineNotice variant={actions.notice.variant}>{actions.notice.text}</InlineNotice>}
+      {actions.error && <p role="alert" className="text-xs text-lw-error">{actions.error}</p>}
 
-      {oauth && attempt?.status === "awaiting_confirmation" && (
-        <div className="flex flex-col gap-2 rounded-lg border border-lw-line p-2">
-          <p className="text-xs text-lw-text-2">Check that this is the account and server you meant, then confirm. Until then Legato does not use it.</p>
-          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
-            {attempt.evidence?.account && <><dt className="text-lw-faint">Account</dt><dd className="break-words text-lw-text">{attempt.evidence.account}</dd></>}
-            <dt className="text-lw-faint">Authorization server</dt><dd className="break-words font-lw-mono text-lw-text">{attempt.evidence?.issuer}</dd>
-            <dt className="text-lw-faint">Resource</dt><dd className="break-words font-lw-mono text-lw-text">{attempt.evidence?.resource}</dd>
-            <dt className="text-lw-faint">Scope</dt><dd className="break-words font-lw-mono text-lw-text">{attempt.evidence?.granted_scope || attempt.evidence?.requested_scope || attempt.scope || "none named"}</dd>
-            <dt className="text-lw-faint">Renews itself</dt><dd className="text-lw-text">{attempt.evidence?.refreshable ? "Yes" : "No: connect again when it expires"}</dd>
-          </dl>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className={primaryButton} aria-label={`Confirm ${conn.name}`} disabled={busy} onClick={confirm}>Confirm</button>
-            <button type="button" className={quietButton} disabled={busy} onClick={cancel}>Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {oauth && (waiting || viaApp) && (
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-xs text-lw-text-2">
-            {viaApp
-              ? "The Legato app opened the consent page in your browser. Waiting for you to consent there."
-              : "Waiting for you to consent in the tab Legato opened."}
-            {consentUrl && <> <a href={consentUrl} target="_blank" rel="noopener noreferrer" className="text-lw-link hover:underline">Open the consent page</a>.</>}
-          </p>
-          {attempt && <button type="button" className={quietButton} disabled={busy} onClick={cancel}>Cancel</button>}
-        </div>
-      )}
-
-      {oauth && !attempt && !viaApp && (
-        <div className="flex flex-wrap items-center gap-2">
-          {confirming === "disconnect" ? (
-            <>
-              <span className="text-xs text-lw-text-2">
-                Stop Legato using {conn.name}, and ask the server to revoke its tokens?
-                {conn.shared_with === "burnlite" && " The Burnlite board stops syncing too."}
-              </span>
-              <button type="button" className={dangerButton} disabled={busy} onClick={disconnect}>Disconnect {conn.name}</button>
-              <button type="button" className={quietButton} disabled={busy} onClick={() => setConfirming(null)}>Keep</button>
-            </>
-          ) : (
-            <>
-              <button type="button" className={authorized ? quietButton : primaryButton} aria-label={`Connect ${conn.name}`} disabled={busy || !conn.enabled} onClick={connect}>
-                {authorized || conn.authorization === "reauth_required" ? "Connect again" : "Connect"}
-              </button>
-              {authorized && <button type="button" className={quietButton} disabled={busy} onClick={() => setConfirming("disconnect")}>Disconnect</button>}
-            </>
-          )}
-        </div>
-      )}
+      {conn.auth === "oauth" && <Authorization conn={conn} actions={actions} />}
 
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className={quietButton} aria-label={`Test ${conn.name}`} disabled={busy || !conn.enabled} onClick={test}>Test</button>
+        <button type="button" className={quietButton} aria-label={`Test ${conn.name}`} disabled={busy || !conn.enabled} onClick={actions.test}>Test</button>
         {local && <span className="text-[11px] text-lw-faint">Starts it, lists its tools, and stops it.</span>}
       </div>
-      {tested && <TestResult result={tested} />}
+      {actions.tested && <TestResult result={actions.tested} />}
 
       {local && <EditLocal conn={conn} busy={busy}
-        onSave={(command, args, dir, env) => change({ command, args, dir, env })} />}
+        onSave={(command, args, dir, env) => actions.change({ command, args, dir, env })} />}
 
-      <Rules conn={conn} busy={busy} onSave={(rules) => change({ rules })} />
+      <Rules conn={conn} busy={busy} onSave={(rules) => actions.change({ rules })} />
 
-      <div className="flex flex-wrap items-center gap-2">
-        {confirming === "remove" ? (
-          <>
-            <span className="text-xs text-lw-text-2">Remove {conn.name}, its authorization and its rules?</span>
-            <button type="button" className={dangerButton} disabled={busy} onClick={remove}>Remove {conn.name}</button>
-            <button type="button" className={quietButton} disabled={busy} onClick={() => setConfirming(null)}>Keep</button>
-          </>
-        ) : (
-          <button type="button" className={quietButton} disabled={busy} onClick={() => setConfirming("remove")}>Remove</button>
-        )}
-      </div>
+      <RemoveConnection name={conn.name} busy={busy} confirming={actions.confirming === "remove"}
+        onAsk={() => actions.setConfirming("remove")} onKeep={() => actions.setConfirming(null)} onRemove={actions.remove} />
     </li>
+  )
+}
+
+// Authorization is an OAuth connection's consent: confirming what it gave,
+// waiting for it, or Connect and Disconnect.
+function Authorization({ conn, actions }: { conn: MCPConnection; actions: ReturnType<typeof useConnectionActions> }) {
+  const { attempt, viaApp, busy } = actions
+  return <>
+    {attempt?.status === "awaiting_confirmation" && <ConfirmAttempt name={conn.name} attempt={attempt} busy={busy} onConfirm={actions.confirm} onCancel={actions.cancel} />}
+    {(actions.waiting || viaApp) && <ConsentWaiting viaApp={viaApp} consentUrl={actions.consentUrl} busy={busy} onCancel={attempt ? actions.cancel : undefined} />}
+    {!attempt && !viaApp && (actions.confirming === "disconnect"
+      ? <ConfirmDisconnect conn={conn} busy={busy} onDisconnect={actions.disconnect} onKeep={() => actions.setConfirming(null)} />
+      : <ConnectButtons conn={conn} busy={busy} onConnect={actions.connect} onDisconnect={() => actions.setConfirming("disconnect")} />)}
+  </>
+}
+
+// ConnectionSummary is a connection's name and where it stands, what it
+// runs or where it is, and what is wrong with it.
+function ConnectionSummary({ conn }: { conn: MCPConnection }) {
+  const local = conn.kind === "stdio"
+  return (
+    <div className="min-w-0 flex-1">
+      <ConnectionChips conn={conn} />
+      {local ? (
+        <>
+          <p className="mt-0.5 break-all font-lw-mono text-[11px] text-lw-text-2">{commandLine(conn)}</p>
+          <p className="break-all font-lw-mono text-[11px] text-lw-faint">in {conn.dir}</p>
+        </>
+      ) : (
+        <p className="mt-0.5 truncate font-lw-mono text-[11px] text-lw-faint">{conn.url}</p>
+      )}
+      {conn.problem && <p className="mt-0.5 text-xs text-lw-text-2">{conn.problem.message}</p>}
+      {conn.shared_with === "burnlite" && (
+        <p className="mt-0.5 text-xs text-lw-text-2">Also the Burnlite board's connection (Settings › Board and tickets): connecting or disconnecting here does both. Turning it off is only for agents.</p>
+      )}
+    </div>
+  )
+}
+
+function ConnectionChips({ conn }: { conn: MCPConnection }) {
+  const local = conn.kind === "stdio"
+  const ready = conn.authorization === "authorized" || conn.authorization === "not_required"
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="font-lw-mono text-sm text-lw-text">{conn.name}</span>
+      <span className={`${chip} ${ready ? "text-lw-live" : "text-lw-text-2"}`}>{authorizationLabel[conn.authorization] ?? conn.authorization}</span>
+      {local && <span className={`${chip} text-lw-text-2`}>local</span>}
+      {conn.connection === "failed" && <span className={`${chip} text-lw-error`}>{local ? "failed" : "unreachable"}</span>}
+      {!conn.enabled && <span className={`${chip} text-lw-faint`}>off</span>}
+    </div>
+  )
+}
+
+// ConfirmAttempt shows what consent gave, for the operator to check before
+// Legato uses it.
+function ConfirmAttempt({ name, attempt, busy, onConfirm, onCancel }: { name: string; attempt: OAuthAttempt; busy: boolean; onConfirm: () => void; onCancel: () => void }) {
+  const evidence = attempt.evidence
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-lw-line p-2">
+      <p className="text-xs text-lw-text-2">Check that this is the account and server you meant, then confirm. Until then Legato does not use it.</p>
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+        {evidence?.account && <><dt className="text-lw-faint">Account</dt><dd className="break-words text-lw-text">{evidence.account}</dd></>}
+        <dt className="text-lw-faint">Authorization server</dt><dd className="break-words font-lw-mono text-lw-text">{evidence?.issuer}</dd>
+        <dt className="text-lw-faint">Resource</dt><dd className="break-words font-lw-mono text-lw-text">{evidence?.resource}</dd>
+        <dt className="text-lw-faint">Scope</dt><dd className="break-words font-lw-mono text-lw-text">{evidence?.granted_scope || evidence?.requested_scope || attempt.scope || "none named"}</dd>
+        <dt className="text-lw-faint">Renews itself</dt><dd className="text-lw-text">{evidence?.refreshable ? "Yes" : "No: connect again when it expires"}</dd>
+      </dl>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={primaryButton} aria-label={`Confirm ${name}`} disabled={busy} onClick={onConfirm}>Confirm</button>
+        <button type="button" className={quietButton} disabled={busy} onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  )
+}
+
+function ConsentWaiting({ viaApp, consentUrl, busy, onCancel }: { viaApp: boolean; consentUrl: string | null; busy: boolean; onCancel?: () => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <p className="text-xs text-lw-text-2">
+        {viaApp
+          ? "The Legato app opened the consent page in your browser. Waiting for you to consent there."
+          : "Waiting for you to consent in the tab Legato opened."}
+        {consentUrl && <> <a href={consentUrl} target="_blank" rel="noopener noreferrer" className="text-lw-link hover:underline">Open the consent page</a>.</>}
+      </p>
+      {onCancel && <button type="button" className={quietButton} disabled={busy} onClick={onCancel}>Cancel</button>}
+    </div>
+  )
+}
+
+function ConfirmDisconnect({ conn, busy, onDisconnect, onKeep }: { conn: MCPConnection; busy: boolean; onDisconnect: () => void; onKeep: () => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs text-lw-text-2">
+        Stop Legato using {conn.name}, and ask the server to revoke its tokens?
+        {conn.shared_with === "burnlite" && " The Burnlite board stops syncing too."}
+      </span>
+      <button type="button" className={dangerButton} disabled={busy} onClick={onDisconnect}>Disconnect {conn.name}</button>
+      <button type="button" className={quietButton} disabled={busy} onClick={onKeep}>Keep</button>
+    </div>
+  )
+}
+
+function ConnectButtons({ conn, busy, onConnect, onDisconnect }: { conn: MCPConnection; busy: boolean; onConnect: () => void; onDisconnect: () => void }) {
+  const authorized = conn.authorization === "authorized"
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <button type="button" className={authorized ? quietButton : primaryButton} aria-label={`Connect ${conn.name}`} disabled={busy || !conn.enabled} onClick={onConnect}>
+        {authorized || conn.authorization === "reauth_required" ? "Connect again" : "Connect"}
+      </button>
+      {authorized && <button type="button" className={quietButton} disabled={busy} onClick={onDisconnect}>Disconnect</button>}
+    </div>
+  )
+}
+
+function RemoveConnection({ name, busy, confirming, onAsk, onKeep, onRemove }: {
+  name: string; busy: boolean; confirming: boolean; onAsk: () => void; onKeep: () => void; onRemove: () => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {confirming ? (
+        <>
+          <span className="text-xs text-lw-text-2">Remove {name}, its authorization and its rules?</span>
+          <button type="button" className={dangerButton} disabled={busy} onClick={onRemove}>Remove {name}</button>
+          <button type="button" className={quietButton} disabled={busy} onClick={onKeep}>Keep</button>
+        </>
+      ) : (
+        <button type="button" className={quietButton} disabled={busy} onClick={onAsk}>Remove</button>
+      )}
+    </div>
   )
 }
 

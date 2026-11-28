@@ -399,6 +399,143 @@ describe("MCPSettings", () => {
   })
 })
 
+describe("An MCP connection's row", () => {
+  it("marks a server that failed, one turned off, and one authorized", async () => {
+    conns = [
+      notion({ connection: "failed" }),
+      local({ connection: "failed", enabled: false }),
+      notion({ name: "ok", authorization: "authorized", problem: undefined }),
+    ]
+    render(<MCPSettings baseUrl="" pollEvery={10} />)
+    const remote = await screen.findByRole("listitem", { name: "notion" })
+    expect(within(remote).getByText("unreachable")).toBeTruthy()
+    expect(within(remote).getByText("Not connected").className).toContain("text-lw-text-2")
+    const design = screen.getByRole("listitem", { name: "design" })
+    expect(within(design).getByText("failed")).toBeTruthy()
+    expect(within(design).getByText("off")).toBeTruthy()
+    expect(within(design).getByText("local")).toBeTruthy()
+    expect(within(design).getByText("No authorization needed").className).toContain("text-lw-live")
+    expect((within(design).getByRole("button", { name: "Test design" }) as HTMLButtonElement).disabled).toBe(true)
+    const ok = screen.getByRole("listitem", { name: "ok" })
+    expect(within(ok).getByText("Authorized").className).toContain("text-lw-live")
+    expect(within(ok).getByRole("button", { name: "Connect ok" }).textContent).toBe("Connect again")
+  })
+
+  it("offers to connect again a server that needs it, and nothing while it is off", async () => {
+    conns = [notion({ authorization: "reauth_required" }), notion({ name: "off", enabled: false })]
+    render(<MCPSettings baseUrl="" pollEvery={10} />)
+    expect((await screen.findByRole("button", { name: "Connect notion" })).textContent).toBe("Connect again")
+    expect(screen.getByText("Needs connecting again")).toBeTruthy()
+    expect((screen.getByRole("button", { name: "Connect off" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull()
+  })
+
+  it("links the consent page when the browser blocked the tab", async () => {
+    vi.stubGlobal("open", vi.fn(() => null))
+    render(<MCPSettings baseUrl="" pollEvery={10} />)
+    fireEvent.click(await screen.findByRole("button", { name: "Connect notion" }))
+    const link = await screen.findByRole("link", { name: "Open the consent page" })
+    expect(link.getAttribute("href")).toBe("https://auth.notion.example/authorize?state=att-1")
+    expect(screen.getByText(/Waiting for you to consent in the tab Legato opened/)).toBeTruthy()
+  })
+
+  it("closes the tab and says why when connecting cannot begin", async () => {
+    conns = [notion()]
+    render(<MCPSettings baseUrl="" pollEvery={10} />)
+    const row = await screen.findByRole("listitem", { name: "notion" })
+    const tab = { location: { href: "" }, opener: window, close: vi.fn() }
+    vi.stubGlobal("open", vi.fn(() => tab))
+    vi.mocked(fetch).mockImplementationOnce(async () => json({ error: "the server names no authorization server" }, 502))
+    fireEvent.click(within(row).getByRole("button", { name: "Connect notion" }))
+    expect((await within(row).findByRole("alert")).textContent).toContain("names no authorization server")
+    expect(tab.close).toHaveBeenCalled()
+  })
+
+  it("says why an attempt failed or stopped", async () => {
+    render(<MCPSettings baseUrl="" pollEvery={10} />)
+    fireEvent.click(await screen.findByRole("button", { name: "Connect notion" }))
+    await screen.findByText(/Waiting for you to consent/)
+    act(() => { Object.assign(attempts["att-1"], { status: "failed", error_code: "token_exchange_failed" }); Object.assign(conns[0], { authorization: "required", attempt: undefined }) })
+    expect(await screen.findByText("The authorization server did not accept the authorization. Connect again.")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Connect notion" }))
+    await waitFor(() => expect(attempts["att-2"]).toBeTruthy())
+    act(() => { Object.assign(attempts["att-2"], { status: "failed", error_code: "" }); Object.assign(conns[0], { authorization: "required", attempt: undefined }) })
+    expect(await screen.findByText("Authorizing failed (unknown). Connect again.")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Connect notion" }))
+    await waitFor(() => expect(attempts["att-3"]).toBeTruthy())
+    act(() => { attempts["att-3"].status = "interrupted"; Object.assign(conns[0], { authorization: "required", attempt: undefined }) })
+    expect(await screen.findByText(/Legato stopped listening for the consent page's answer/)).toBeTruthy()
+  })
+
+  it("shows the scope asked for and an authorization that does not renew", async () => {
+    attempts["att-7"] = { id: "att-7", connection: "notion", status: "awaiting_confirmation", expires_at: 1900000000, scope: "write",
+      evidence: { issuer: "https://auth.example", resource: "https://r.example", refreshable: false } }
+    conns[0] = notion({ authorization: "awaiting_confirmation", attempt: "att-7" })
+    render(<MCPSettings baseUrl="" pollEvery={10} />)
+    const row = await screen.findByRole("listitem", { name: "notion" })
+    await within(row).findByRole("button", { name: "Confirm notion" })
+    expect(within(row).getByText("write")).toBeTruthy()
+    expect(within(row).getByText("No: connect again when it expires")).toBeTruthy()
+    expect(within(row).queryByText("Account")).toBeNull()
+    expect(within(row).queryByRole("button", { name: "Connect notion" })).toBeNull()
+    fireEvent.click(within(row).getByRole("button", { name: "Cancel" }))
+    await within(row).findByRole("button", { name: "Connect notion" })
+  })
+
+  it("counts the tools a test found and names those it did not offer", async () => {
+    conns = [notion({ authorization: "not_required", auth: "none", problem: undefined })]
+    testResult = { tools: [{ name: "search" }], rejected: [{ name: "bad", reason: "its schema names a remote reference" }] }
+    render(<MCPSettings baseUrl="" pollEvery={10} />)
+    const row = await screen.findByRole("listitem", { name: "notion" })
+    expect(within(row).queryByText(/Starts it, lists its tools/)).toBeNull()
+    fireEvent.click(within(row).getByRole("button", { name: "Test notion" }))
+    expect(await within(row).findByText("1 tool:")).toBeTruthy()
+    expect(within(row).getByText("bad").parentElement?.textContent).toBe("Not offered: bad, its schema names a remote reference")
+    expect(within(row).queryByText("Error output")).toBeNull()
+  })
+
+  it("describes each rule in words", async () => {
+    conns = [notion({ rules: [
+      { tools: "search", repository: "acme/app", approve: "auto", access: "read" },
+      { tools: "*", repository: "*/*", approve: "odd", access: "write" },
+      { tools: "*", repository: "-/-", approve: "deny" },
+    ] })]
+    render(<MCPSettings baseUrl="" pollEvery={10} />)
+    const rules = await screen.findByRole("list", { name: "Rules for notion" })
+    expect(within(rules).getAllByRole("listitem").map((li) => li.firstChild?.textContent)).toEqual([
+      "read-only tools matching search, for agents in acme/app: allow without asking",
+      "tools that change things matching *, for agents in */*: odd",
+      "tools matching *, for agents in -/-: refuse",
+    ])
+    expect(screen.getByText(/Agent access: 3 rules/)).toBeTruthy()
+  })
+
+  it("keeps a server when removing it is not confirmed", async () => {
+    render(<MCPSettings baseUrl="" pollEvery={10} />)
+    fireEvent.click(await screen.findByRole("button", { name: "Remove" }))
+    expect(screen.getByText("Remove notion, its authorization and its rules?")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }))
+    expect(screen.queryByRole("button", { name: "Remove notion" })).toBeNull()
+    expect(requests.some((r) => r.method === "DELETE")).toBe(false)
+  })
+
+  it("keeps a server connected when disconnecting is not confirmed", async () => {
+    conns[0] = notion({ authorization: "authorized", problem: undefined })
+    render(<MCPSettings baseUrl="" pollEvery={10} />)
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }))
+    expect(screen.queryByRole("button", { name: "Connect notion" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }))
+    expect(screen.getByRole("button", { name: "Connect notion" })).toBeTruthy()
+  })
+
+  it("turns a server off", async () => {
+    render(<MCPSettings baseUrl="" pollEvery={10} />)
+    fireEvent.click(await screen.findByRole("button", { name: "Use notion" }))
+    await waitFor(() => expect(requests.find((r) => r.method === "PATCH")?.body).toEqual({ enabled: false, expected_revision: 1 }))
+    expect(await screen.findByText("off")).toBeTruthy()
+  })
+})
+
 function local(over: Partial<Conn> = {}): Conn {
   return {
     name: "design", url: "", kind: "stdio", auth: "none", enabled: true, revision: 1, rules: [], authorization: "not_required", connection: "unknown",
