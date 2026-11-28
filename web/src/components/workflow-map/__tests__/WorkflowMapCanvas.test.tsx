@@ -61,6 +61,8 @@ describe("the workflow map", () => {
     cleanup()
     vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(hover: none)", addEventListener() {}, removeEventListener() {} }))
     const touch = draw()
+    // A tap focuses the node before it clicks it.
+    fireEvent.focus(await nodeOf(/^Ticket to merged pull request/))
     fireEvent.click(await nodeOf(/^Ticket to merged pull request/))
     expect(touch.onOpen).not.toHaveBeenCalled()
     expect(faint(await nodeOf(/^One-off task/))).toBe(true)

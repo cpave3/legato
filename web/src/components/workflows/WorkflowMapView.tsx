@@ -18,7 +18,7 @@ export function WorkflowMapView({ map }: { map: WorkflowMap }) {
       {chip("", "All")}
       {tags.map(item => chip(item, item))}
     </div>}
-    <p className="text-xs text-lw-text-2">A line runs from a workflow to each workflow it calls; dashed when it calls one of an input's choices. Hover a workflow, or tap it on a phone, to light what it calls and what calls it. Click it to open it.</p>
+    <p className="text-xs text-lw-text-2">Lines run from a workflow to each one it calls, dashed for one of an input's choices. Hover or tap a workflow to light its calls; click to open it.</p>
     <div className="h-[70vh] min-h-[24rem] overflow-hidden rounded-xl border border-lw-line bg-lw-ground">
       {view.map.nodes.length > 0
         ? <LazyWorkflowMapCanvas map={view.map} context={view.context} onOpen={name => navigate(`/workflows/${encodeURIComponent(name)}`)} />

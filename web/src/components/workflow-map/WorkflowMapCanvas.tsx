@@ -152,11 +152,14 @@ function MapView({ map, context, onOpen }: WorkflowMapCanvasProps) {
   })), [layout, lit, context])
 
   const nameOf = useCallback((id: string) => layout.nodes.find(item => item.id === id)?.node.name, [layout])
+  // tapped is the workflow a touch screen's last tap lit: a tap focuses a
+  // node before it clicks it, so focus alone never counts as the first tap.
+  const tapped = useRef<string | null>(null)
   const choose = useCallback((id: string) => {
-    if (hoverless() && selected !== id) { setSelected(id); return }
+    if (hoverless() && tapped.current !== id) { tapped.current = id; setSelected(id); return }
     const name = nameOf(id)
     if (name) onOpen(name)
-  }, [selected, nameOf, onOpen])
+  }, [nameOf, onOpen])
   const frame = useRef<HTMLDivElement>(null)
   // Enter opens a focused workflow; focus lights its calls.
   const onKeyDown = useCallback((event: React.KeyboardEvent) => {
@@ -211,7 +214,7 @@ function MapView({ map, context, onOpen }: WorkflowMapCanvasProps) {
       onNodeMouseEnter={(_, node) => { if (node.type === "workflow") setHovered(node.id) }}
       onNodeMouseLeave={() => setHovered(null)}
       onNodeClick={(_, node) => { if (node.type === "workflow") choose(node.id) }}
-      onPaneClick={() => setSelected(null)}
+      onPaneClick={() => { tapped.current = null; setSelected(null) }}
     >
       <Controls showInteractive={false} position="bottom-left" />
     </ReactFlow>
