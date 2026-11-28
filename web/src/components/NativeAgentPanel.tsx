@@ -1,18 +1,15 @@
 import { ReeveStatus, reeveWash } from "./ReeveEntry"
 import { AskReeve } from "./AskReeve"
 import { parseReeveMessage, reeveBrief } from "../lib/reeve"
-import { useState, useEffect, useCallback, useRef, useMemo, memo, Fragment, type ReactNode } from "react"
+import { useState, useCallback, useRef, useMemo, memo, Fragment, type ReactNode } from "react"
 import { ArrowDown, ArrowLeftRight, Bell, Check, Terminal, Zap } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
 import { useWebSocket } from "../hooks/useWebSocket"
-import { type WSMessage } from "../lib/agentWire"
 import { useServer } from "../hooks/useServer"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
 import { useMacroPicker } from "../hooks/useMacroPicker"
 import { MacroPickerItems } from "./macros/MacroPicker"
 import { macroMessage } from "../lib/macros"
-import { useAgentReselected } from "../hooks/useAgentSelection"
-import { apiFetch } from "../lib/api"
 import { dispatchAgentInput } from "../lib/agentInput"
 import { useVoiceRecorder } from "../hooks/useVoiceRecorder"
 import { ReviewMessageBody } from "./ReviewMessageBody"
@@ -29,33 +26,24 @@ import { PastedImageStrip } from "./PastedImageStrip"
 import { AttachImageButton } from "./AttachImageButton"
 import { AgentChatHeader, type AgentChatState, type SidePanelsProps } from "./AgentChatHeader"
 import { buildAgentMenu } from "./nativeAgentMenu"
-import { agentChatState, awaitsRequest, isBangText, isChimeraKind, isRecoveryReply, reasonText } from "../lib/nativeAgentView"
+import { agentChatState, awaitsRequest, isBangText, isChimeraKind, isRecoveryReply } from "../lib/nativeAgentView"
 import type { AgentStageInfo } from "./AgentStageChip"
 import { ResourcesButton } from "./ResourcesButton"
 import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, SendButton, WorkingStrip, type QueuedEntry } from "./Composer"
-import { CONTEXT_NEARLY_FULL, composerToolButton, currentStep, dictating, formatElapsed, isCommandText } from "../lib/composer"
+import { CONTEXT_NEARLY_FULL, composerToolButton, currentStep, dictating, formatElapsed } from "../lib/composer"
 import { useTurnClock } from "../hooks/useTurnClock"
 import { usePageInView } from "../hooks/usePageInView"
 import { legatoUICall, forOperatorCall, speakFailed, speakText } from "../lib/agentUi"
 import { SaidBubble } from "./SaidBubble"
 import { usePastedImages } from "../hooks/usePastedImages"
 import { nativeToolName } from "../lib/agentKind"
-import { compactionNotice, nextCompaction, type Compaction } from "../lib/compaction"
+import { compactionNotice } from "../lib/compaction"
 import { toolDisplayName } from "../lib/mcpToolName"
 import { legatoEventSummary, parseLegatoMessage } from "../lib/legatoMessage"
 import { plainText, subagentTree, type SubagentNode } from "../lib/agentGlance"
 import {
-  createNativeSyncState,
-  reconcileNativeSnapshot,
-  reduceNativeEvent,
-  subagentStatus,
-  updatePermissionState,
-  updateQuestionState,
   type NativeConversationItem,
-  type NativeEvent as ChimeraEvent,
   type NativePermissionItem,
-  type NativeSnapshot as SessionSnapshot,
-  type NativeSyncState,
   type NativeToolItem as ToolCallItem,
 } from "../lib/nativeAgentSync"
 import { LoadingState } from "./ui/LoadingState"
@@ -66,7 +54,7 @@ import { shellTileForCall, shellTiles } from "./tiles/shellTiles"
 import { fromStored, mergeShells, type NativeBackgroundShell, type StoredBackgroundShell } from "../lib/backgroundShells"
 import type { BackgroundJob } from "../lib/agentWire"
 import { useElementWidth } from "../hooks/useElementWidth"
-import { scrollAnchorOf, useConversationScroll } from "./useConversationScroll"
+import { useConversationScroll } from "./useConversationScroll"
 import { useDraft } from "./useDraft"
 import { useAgentCatalog } from "./useAgentCatalog"
 import { useSlashMenu } from "./useSlashMenu"
@@ -78,7 +66,8 @@ import { useQueuedMessages } from "./useQueuedMessages"
 import { useTerminalPrompt, useTerminalPromptPolling } from "./useTerminalPrompt"
 import { useRequestAnswers } from "./useRequestAnswers"
 import { useMessageSending } from "./useMessageSending"
-import { MESSAGE_REQUEST } from "../lib/nativeFeed"
+import { useNativeSyncState, useSnapshotResync } from "./useNativeAgentSync"
+import { useNativeAgentFeed } from "./useNativeAgentFeed"
 
 // The least width at which subagent tiles sit beside the conversation; below
 // it they are a strip above it.
@@ -244,25 +233,12 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const inView = usePageInView()
   const following = connected && inView
   const { baseUrl } = useServer()
-  const [syncState, setSyncState] = useState<NativeSyncState>(() => createNativeSyncState())
-  const syncStateRef = useRef(syncState)
-  const modelRequestRef = useRef(0)
-  const invalidateModelRequests = useCallback(() => { modelRequestRef.current++ }, [])
-  const queuedEventsRef = useRef<ChimeraEvent[] | null>(null)
-  // True while the panel shows Working only because the person sent a message
-  // to an idle session, before the session says a turn started. A message
-  // that was not sent then takes it back: nothing is running (LEG-151).
-  const workingUnconfirmedRef = useRef(false)
-  const syncGenerationRef = useRef(0)
-  const runFinishTimerRef = useRef<number | null>(null)
-  const hydratedAgentRef = useRef<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
-  const [mode, setMode] = useState<string>("")
+  const sync = useNativeSyncState()
+  const { syncState, syncStateRef, replaceSyncState, failWith, modelRequestRef, workingUnconfirmedRef, loading, syncing, mode, setMode } = sync
   const scroll = useConversationScroll(loading, syncState.items)
   const { draft, setDraft, textareaRef, appendWords, insertImage, focusBox } = useDraft(agentId, composerEnabled)
   const { modes, models, macros, catalogKey, catalog, slashItems, retryCatalog } = useAgentCatalog(agentId, baseUrl)
-  const { scrollRef, isScrolledUp, scrollToBottom, scrollToBottomAfterRender, restoreAfterSync, followLatest, restartInitialScroll } = scroll
+  const { isScrolledUp, scrollToBottom, scrollToBottomAfterRender, followLatest, restartInitialScroll } = scroll
   const { items, busy, error, contextUsage, model } = syncState
   const blocks = useMemo(() => conversationBlocks(items), [items])
   const shells = useMemo(() => mergeShells(syncState.backgroundShells, fromStored(backgroundShells)), [syncState.backgroundShells, backgroundShells])
@@ -289,9 +265,8 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const terminal = useTerminalPrompt(awaitingRequest)
   const { prompt: terminalPrompt, setPrompt: setTerminalPrompt, asking: terminalAsking } = terminal
   const awaitingPerson = awaitingRequest || terminalAsking
-  const modesMenu = useDropdown()
-  const macrosMenu = useDropdown()
-  const closeMacros = macrosMenu.close
+  const { open: modesOpen, ref: modesRef, toggle: toggleModes, close: closeModes } = useDropdown()
+  const { open: macrosOpen, ref: macrosRef, toggle: toggleMacros, show: openMacros, close: closeMacros } = useDropdown()
   // Dictation, transcribed into the message.
   const voice = useVoiceRecorder({
     agentId, agentKind, baseUrl, transcriptionOnly: true,
@@ -301,199 +276,30 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const slash = useSlashMenu(draft, setDraft, textareaRef, slashItems, catalogKey)
   const { open: slashOpen, matches: slashMatches, index: slashIndex, setIndex: setSlashIndex, listId: slashListId, optionId: slashOptionId, select: handleSlashSelect } = slash
 
-  const replaceSyncState = useCallback((next: NativeSyncState) => {
-    syncStateRef.current = next
-    setSyncState(next)
-  }, [])
-
-  // The message that showed Working was not sent and no turn has started:
-  // the session is idle.
-  const stopUnconfirmedWorking = useCallback(() => {
-    if (!workingUnconfirmedRef.current) return
-    workingUnconfirmedRef.current = false
-    replaceSyncState({ ...syncStateRef.current, busy: false })
-  }, [replaceSyncState])
-
-  const applyEvent = useCallback((event: ChimeraEvent) => {
-    if (event.type === "model_changed" || event.type === "mode_changed") modelRequestRef.current++
-    if (queuedEventsRef.current) {
-      queuedEventsRef.current.push(event)
-      return
-    }
-    replaceSyncState(reduceNativeEvent(syncStateRef.current, event))
-  }, [replaceSyncState])
-
-  // Shows why something failed above the conversation.
-  const failWith = useCallback((reason: unknown) => {
-    replaceSyncState({ ...syncStateRef.current, error: reasonText(reason) })
-  }, [replaceSyncState])
   const { handleModeChange, handleModelChange, handleEffortChange, efforts, effort } = useSessionSettings({
-    agentId, baseUrl, syncState, syncStateRef, replaceSyncState, modelRequestRef, setMode, closeModes: modesMenu.close,
+    agentId, baseUrl, syncState, syncStateRef, replaceSyncState, modelRequestRef, setMode, closeModes,
   })
 
 
 
 
-  const resync = useCallback(async (scrollAfterSync = false, initialHydration = false) => {
-    const generation = ++syncGenerationRef.current
-    const eventQueue = queuedEventsRef.current ?? []
-    const viewport = scrollRef.current
-    const scrollAnchor = scrollAnchorOf(viewport)
-    queuedEventsRef.current = eventQueue
-    if (viewport) setSyncing(true)
-    else setLoading(true)
-    try {
-      const snapshotPath = `/api/agents/${agentId}/chimera/snapshot${initialHydration ? "?initial=true" : ""}`
-      const response = await apiFetch(baseUrl, snapshotPath)
-      if (!response.ok) throw new Error(`snapshot: ${response.status}`)
-      const snapshot: SessionSnapshot = await response.json()
-      if (generation !== syncGenerationRef.current) return
-      setMode(snapshot.mode || "")
-      // The session says a turn runs: Working is no longer only the panel's guess.
-      if (snapshot.status === "running" || snapshot.status === "waiting_for_permission" || snapshot.status === "waiting_for_input") workingUnconfirmedRef.current = false
-      replaceSyncState(reconcileNativeSnapshot(snapshot, syncStateRef.current, eventQueue))
-      restoreAfterSync(scrollAnchor, scrollAfterSync)
-    } catch (reason) {
-      if (generation === syncGenerationRef.current) {
-        let next = syncStateRef.current
-        for (const event of eventQueue) {
-          next = reduceNativeEvent(next, event)
-        }
-        replaceSyncState({
-          ...next,
-          error: reason instanceof Error ? reason.message : String(reason),
-        })
-      }
-    } finally {
-      if (generation === syncGenerationRef.current) {
-        queuedEventsRef.current = null
-        setLoading(false)
-        setSyncing(false)
-      }
-    }
-  }, [agentId, baseUrl, replaceSyncState, scrollRef, restoreAfterSync])
-  useEffect(() => {
-    if (!resyncRef) return
-    resyncRef.current = () => { void resync() }
-    return () => { resyncRef.current = null }
-  }, [resyncRef, resync])
-  // Picking the agent that is already open asks for a fresh view of it.
-  useAgentReselected(agentId, resync)
-
-  useEffect(() => {
-    replaceSyncState(createNativeSyncState())
-    invalidateModelRequests()
-    restartInitialScroll()
-    hydratedAgentRef.current = null
-    queuedEventsRef.current = []
-    return () => {
-      invalidateModelRequests()
-      queuedEventsRef.current = null
-      hydratedAgentRef.current = null
-      if (runFinishTimerRef.current != null) window.clearTimeout(runFinishTimerRef.current)
-    }
-  }, [agentId, replaceSyncState, invalidateModelRequests, restartInitialScroll])
+  const resync = useSnapshotResync(agentId, baseUrl, sync, scroll, resyncRef)
 
   const bang = useBangCommands({ agentId, baseUrl, busy, resync, failWith, scrollToBottomAfterRender, setDraft, textareaRef })
   const { runOrQueue: runOrQueueBang, runNext: runNextBang } = bang
   const isBang = isBangText(draft.trim())
   const queue = useQueuedMessages(items, busy, setDraft, focusBox)
-  const { enqueue, settle: settleMessage, failByWords } = queue
+  const { enqueue, settle, failByWords } = queue
   const { sendError, handleSend, handleInterrupt, commandRefused } = useMessageSending({
     agentId, baseUrl, send, busy, draft, setDraft, sync: { syncStateRef, replaceSyncState, workingUnconfirmedRef, failWith },
     enqueue, runOrQueueBang, scrollToBottomAfterRender,
   })
-  // The agent's latest compaction, as its events tell it.
-  const [compaction, setCompaction] = useState<Compaction>()
   const queuedEntries: QueuedEntry[] = [...queue.entries, ...bang.entries]
 
-  useEffect(() => {
-    const unsubscribe = subscribe((msg: WSMessage) => {
-      if (msg.type === "agents_changed" && following && syncStateRef.current.items.some(item => item.tool?.toolName === "spawn_agent" && ["spawning", "running"].includes(subagentStatus(item.tool)))) {
-        if (runFinishTimerRef.current == null) {
-          runFinishTimerRef.current = window.setTimeout(() => {
-            runFinishTimerRef.current = null
-            void resync()
-          }, 100)
-        }
-        return
-      }
-      if (msg.agent_id !== agentId) return
-      if (msg.type === "prompt_state") {
-        setTerminalPrompt(msg.prompt ?? null)
-        return
-      }
-      if (msg.type === "agent_message_sent" && msg.request_id) {
-        settleMessage(msg.request_id)
-        return
-      }
-      if (msg.type === "error" && msg.request_id?.startsWith(MESSAGE_REQUEST)) {
-        settleMessage(msg.request_id!, msg.error || "The message could not be sent")
-        stopUnconfirmedWorking()
-        return
-      }
-      if (msg.type === "error" && msg.request_id) {
-        const reopened = updatePermissionState(syncStateRef.current, msg.request_id, (permission) => ({
-          ...permission,
-          status: "pending",
-          error: msg.error || "Permission request failed",
-        }))
-        replaceSyncState(updateQuestionState(reopened, msg.request_id, (question) => ({
-          ...question,
-          status: "pending",
-          error: msg.error || "The answer could not be delivered",
-        })))
-        return
-      }
-      if (msg.type === "chimera_sync_required") {
-        void resync()
-        return
-      }
-      if (msg.type !== "chimera_event") return
-      try {
-        const event: ChimeraEvent = JSON.parse(msg.content || "{}")
-        if (event.type === "message_failed") {
-          const words = event.content ?? ""
-          const reason = event.error || "The agent's session would not take it"
-          // A command is not listed, so its failure has no row to mark.
-          if (isCommandText(words)) {
-            if (!commandRefused(words, reason)) return
-          } else {
-            failByWords(words, reason)
-          }
-          stopUnconfirmedWorking()
-          return
-        }
-        if (event.type === "session_started" || event.type === "user_message") workingUnconfirmedRef.current = false
-        setCompaction((current) => nextCompaction(current, event))
-        applyEvent(event)
-        if (event.type === "run_finished" || ((!agentKind || agentKind === "chimera") && event.type === "compaction_finished")) {
-          if (runFinishTimerRef.current != null) window.clearTimeout(runFinishTimerRef.current)
-          runFinishTimerRef.current = window.setTimeout(() => {
-            runFinishTimerRef.current = null
-            void resync()
-          }, 100)
-        }
-        if (event.type === "run_finished") {
-          runNextBang()
-        }
-        followLatest()
-      } catch {
-        replaceSyncState({ ...syncStateRef.current, error: "Invalid native event; refresh from snapshot" })
-      }
-    })
-    if (following) {
-      send({ type: "subscribe_agent", agent_id: agentId, cursor: syncStateRef.current.cursor })
-      if (hydratedAgentRef.current !== agentId) {
-        hydratedAgentRef.current = agentId
-        void resync(true, true)
-      }
-    }
-    return () => {
-      unsubscribe()
-      if (following) send({ type: "unsubscribe_agent", agent_id: agentId })
-    }
-  }, [subscribe, agentId, agentKind, applyEvent, replaceSyncState, resync, runNextBang, following, send, stopUnconfirmedWorking, followLatest, settleMessage, failByWords, setTerminalPrompt, commandRefused])
+  const { compaction } = useNativeAgentFeed({
+    agentId, agentKind, following, send, subscribe, sync, resync, restartInitialScroll, followLatest,
+    setTerminalPrompt, settleMessage: settle, failByWords, commandRefused, runNextBang,
+  })
 
   const handleTerminalChoice = useTerminalPromptPolling(agentId, connected, send, setTerminalPrompt)
 
@@ -513,8 +319,8 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     closeMacros()
   }, [agentId, runOrQueueBang, send, closeMacros])
 
-  const macroPicker = useMacroPicker(macros, macrosMenu.open)
-  useMacroHotkeys({ macros: macroPicker.shown, open: macrosMenu.open, onOpen: macrosMenu.show, onClose: closeMacros, onSelect: handleMacro })
+  const macroPicker = useMacroPicker(macros, macrosOpen)
+  useMacroHotkeys({ macros: macroPicker.shown, open: macrosOpen, onOpen: openMacros, onClose: closeMacros, onSelect: handleMacro })
 
   if (loading) {
     return (
@@ -532,7 +338,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     onRefresh: () => { void resync() }, refreshing: loading,
     ntfyConfigured, notifyEnabled, onToggleNotify,
     onDowngradeChimera,
-    onDowngradeFailed: (reason) => replaceSyncState({ ...syncStateRef.current, error: reasonText(reason) }),
+    onDowngradeFailed: failWith,
     onReload, switchSandbox, switchHostNetwork, onDisconnect, onKill,
   })
   const modelWindow = models.find((m) => m.ref === model)?.contextWindow ?? contextUsage?.window
@@ -573,7 +379,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       <div className={`flex min-h-0 min-w-0 flex-1 flex-col ${showTiles && tilesBeside ? "border-r border-lw-line" : ""}`}>
       {/* Conversation viewport owns both scrolling and its floating action. */}
       <ConversationFeed
-        scrollRef={scrollRef}
+        scrollRef={scroll.scrollRef}
         onScroll={scroll.onScroll}
         items={items}
         blocks={blocks}
@@ -683,13 +489,13 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
               />
             )}
             {modes.length > 0 && (
-              <div className="relative" ref={modesMenu.ref}>
-                <button type="button" onClick={modesMenu.toggle} className={composerToolButton(modesMenu.open)} title="Change mode">
+              <div className="relative" ref={modesRef}>
+                <button type="button" onClick={toggleModes} className={composerToolButton(modesOpen)} title="Change mode">
                   <ArrowLeftRight size={16} aria-hidden="true" className="sm:hidden" />
                   <span className="hidden sm:inline">Mode</span>
                   {mode && <span className="hidden font-lw-mono text-lw-faint sm:inline">{mode}</span>}
                 </button>
-                {modesMenu.open && (
+                {modesOpen && (
                   <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[160px] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
                     {modes.map((m) => (
                       <button
@@ -709,12 +515,12 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
               </div>
             )}
             <ResourcesButton agentId={agentId} baseUrl={baseUrl} sandboxed={sandboxed} />
-            <div className="relative" ref={macrosMenu.ref}>
-              <button type="button" onClick={macrosMenu.toggle} className={composerToolButton(macrosMenu.open)} title="Macros (M)" aria-keyshortcuts="m">
+            <div className="relative" ref={macrosRef}>
+              <button type="button" onClick={toggleMacros} className={composerToolButton(macrosOpen)} title="Macros (M)" aria-keyshortcuts="m">
                 <Zap size={16} aria-hidden="true" className="sm:hidden" />
                 <span className="hidden sm:inline">Macros</span>
               </button>
-              {macrosMenu.open && (
+              {macrosOpen && (
                 <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[180px] max-w-[calc(100vw-2rem)] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
                   <MacroPickerItems shown={macroPicker.shown} hidden={macroPicker.hidden} onShowAll={macroPicker.showAll} onPick={(macro) => handleMacro(macro.keys)} />
                 </div>
