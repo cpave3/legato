@@ -187,6 +187,13 @@ func (w *Worker) start() {
 			Home: filepath.Join(w.Dir, "home"), RuntimeDir: filepath.Join(w.Dir, "run", "legato"), DataDir: filepath.Join(w.Dir, "data"), DefaultMounts: true}}
 	}
 	w.Agents = service.NewAgentService(db, w.Tmux, w.Dir, agentOpts)
+	// A worker gives its sessions the broker, as startApprovals does; a
+	// sandboxed agent without one is refused.
+	if setter, ok := w.Agents.(interface {
+		SetBrokerEnv(service.SessionEnvProvider)
+	}); ok {
+		setter.SetBrokerEnv(service.NewBrokerSessionEnv(db, filepath.Join(w.Dir, "run", "legato", "broker", "broker.sock")))
+	}
 	if setter, ok := w.Agents.(interface{ SetRepositories(service.JobCloner) }); ok {
 		setter.SetRepositories(w.Repos)
 	}
