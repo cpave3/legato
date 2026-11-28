@@ -5,70 +5,32 @@ import { fetchConfigLists, removeConfigListEntry, saveConfigListEntry, type Conf
 import { queryKeys } from "../../lib/query"
 import { cn } from "../../lib/utils"
 import { agentLabel, entryYaml, fieldApplies, formFor, parseEntryYaml, type FormField, type ListForm } from "../../lib/listForms"
+import {
+  asObject, duplicate, entrySummary, entryValue, fieldValue, firstError, parsedValue, resolveField, savedNotice, setEntryField, sortedEntries, tierRows, tierRowsError, tiersOf,
+  unusedName, type EntryValue, type TierRow,
+} from "../../lib/listEntry"
+import { reasonText } from "../../lib/nativeAgentView"
 import { SettingsCard, primaryButton, quietButton } from "./SettingsUI"
 
 const fieldClass = "min-h-9 min-w-0 w-full rounded-lg border border-lw-line-strong bg-lw-ground px-2.5 py-1 text-sm text-lw-text placeholder:text-lw-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lw-accent-ring disabled:opacity-60"
 
-type Value = Record<string, unknown> | string
-
-function asObject(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
-}
-
-function fieldValue(value: unknown, key: string): unknown {
-  return key.split(".").reduce<unknown>((v, part) => asObject(v)[part], value)
-}
-
-function writeField(object: Record<string, unknown>, key: string, value: unknown): Record<string, unknown> {
-  const [head, ...tail] = key.split(".")
-  const next = { ...object }
-  const out = tail.length ? writeField(asObject(next[head]), tail.join("."), value) : value
-  if (out === undefined || (typeof out === "object" && out !== null && Object.keys(out).length === 0)) delete next[head]
-  else next[head] = out
-  return next
-}
-
-type Tier = { description?: string; launch_args?: string[] } & Record<string, unknown>
-
-// unusedName is base-N for the first N no row has.
-function unusedName(base: string, taken: string[]): string {
-  for (let n = taken.length + 1; ; n++) if (!taken.includes(`${base}-${n}`)) return `${base}-${n}`
-}
-
-// duplicate is a name two rows share, or "".
-function duplicate(names: string[]): string {
-  const seen = new Set<string>()
-  for (const n of names.map((x) => x.trim()).filter(Boolean)) {
-    if (seen.has(n)) return n
-    seen.add(n)
-  }
-  return ""
-}
+// Every field input takes the field, its value, and where to send a new
+// value or the reason it cannot give one back.
+type FieldProps = { field: FormField; value: unknown; onChange: (next: unknown) => void; onError: (message: string) => void }
 
 // TiersInput edits an agent's tiers as a table: name, what the conductor
 // is told, launch arguments (one per line). Its rows keep what was typed,
 // and it gives the tiers back only while every name is its own, so a row
 // never overwrites another. Fields of a tier it does not show are kept.
-function TiersInput({ value, onChange, onError }: { value: unknown; onChange: (next: unknown) => void; onError: (message: string) => void }) {
-  type Row = { name: string; description: string; args: string; rest: Tier }
-  const [rows, setRows] = useState<Row[]>(() => (Object.entries(asObject(value)) as [string, Tier][])
-    .map(([name, tier]) => ({ name, description: tier.description ?? "", args: (tier.launch_args ?? []).join("\n"), rest: tier })))
-  const put = (next: Row[]) => {
+function TiersInput({ value, onChange, onError }: FieldProps) {
+  const [rows, setRows] = useState<TierRow[]>(() => tierRows(value))
+  const put = (next: TierRow[]) => {
     setRows(next)
-    const twice = duplicate(next.map((r) => r.name))
-    if (twice) { onError(`Two tiers are named ${twice}.`); return }
-    if (next.some((r) => !r.name.trim())) { onError("Give every tier a name."); return }
-    onError("")
-    const tiers = next.map((r): [string, Tier] => {
-      const rest: Tier = { ...r.rest }
-      delete rest.description
-      delete rest.launch_args
-      const args = r.args.split("\n").map((a) => a.trim()).filter(Boolean)
-      return [r.name.trim(), { ...rest, ...(r.description.trim() ? { description: r.description } : {}), ...(args.length ? { launch_args: args } : {}) }]
-    })
-    onChange(tiers.length ? Object.fromEntries(tiers) : undefined)
+    const refused = tierRowsError(next)
+    onError(refused)
+    if (!refused) onChange(tiersOf(next))
   }
-  const edit = (i: number, change: Partial<Row>) => put(rows.map((r, j) => j === i ? { ...r, ...change } : r))
+  const edit = (i: number, change: Partial<TierRow>) => put(rows.map((r, j) => j === i ? { ...r, ...change } : r))
   return <div className="flex flex-col gap-2">
     {rows.length > 0 && <table className="w-full table-fixed border-separate border-spacing-y-1 text-xs" aria-label="Tiers">
       <thead className="text-left text-[11px] text-lw-text-2"><tr><th className="w-28 font-normal">Name</th><th className="font-normal">What the conductor is told</th><th className="w-44 font-normal">Launch arguments, one per line</th><th className="w-8" /></tr></thead>
@@ -86,7 +48,7 @@ function TiersInput({ value, onChange, onError }: { value: unknown; onChange: (n
 
 // PairsInput edits a map of words to words, such as Chimera's modes,
 // giving it back only while every key is its own.
-function PairsInput({ field, value, onChange, onError }: { field: FormField; value: unknown; onChange: (next: unknown) => void; onError: (message: string) => void }) {
+function PairsInput({ field, value, onChange, onError }: FieldProps) {
   const [pairs, setPairs] = useState<[string, string][]>(() => Object.entries(asObject(value)).map(([k, v]) => [k, String(v ?? "")]))
   const [keyLabel, valueLabel] = field.pairLabels ?? ["Key", "Value"]
   const put = (rows: [string, string][]) => {
@@ -107,59 +69,92 @@ function PairsInput({ field, value, onChange, onError }: { field: FormField; val
   </div>
 }
 
-// FieldInput edits one field of an entry by its kind.
-function FieldInput({ field, value, onChange, onError = () => {} }: { field: FormField; value: unknown; onChange: (next: unknown) => void; onError?: (message: string) => void }) {
-  switch (field.kind) {
-    case "number":
-      return <input type="number" aria-label={field.label} className={fieldClass} value={typeof value === "number" ? value : ""} onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))} />
-    case "tiers":
-      return <TiersInput value={value} onChange={onChange} onError={onError} />
-    case "pairs":
-      return <PairsInput field={field} value={value} onChange={onChange} onError={onError} />
-    case "swatches": {
-      const current = typeof value === "string" ? value : ""
-      return <span className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label={field.label}>
-        {(field.choices ?? []).map(([hex, name]) => <button key={hex} type="button" role="radio" aria-checked={current.toLowerCase() === hex.toLowerCase()} aria-label={name}
-          onClick={() => onChange(hex)} className={cn("h-7 w-7 rounded-full border-2", current.toLowerCase() === hex.toLowerCase() ? "border-lw-text" : "border-transparent")} style={{ background: hex }} />)}
-        <input aria-label={`${field.label}, as a hex value`} value={current} placeholder="#4A9EEF" onChange={(e) => onChange(e.target.value)} className={cn(fieldClass, "w-28 font-lw-mono text-xs")} />
-      </span>
-    }
-    case "choice":
-      return <select aria-label={field.label} className={fieldClass} value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value)}>
-        {field.optional ? <option value="">{field.unsetLabel ?? "Default"}</option> : value === undefined && <option value="" disabled>Choose…</option>}
-        {typeof value === "string" && value && !field.choices?.some(([v]) => v === value) && <option value={value}>{value}</option>}
-        {(field.choices ?? []).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-      </select>
-    case "bool":
-      return <select aria-label={field.label} className={fieldClass} value={typeof value === "boolean" ? String(value) : ""} onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value === "true")}>
-        <option value="">{field.unsetLabel ?? "Default"}</option><option value="true">On</option><option value="false">Off</option>
-      </select>
-    case "checks": {
-      const chosen = Array.isArray(value) ? (value as string[]) : []
-      const choices = field.choices ?? []
-      const toggle = (v: string, on: boolean) => {
-        const next = choices.map(([c]) => c).filter((c) => c === v ? on : chosen.some((x) => x.toLowerCase() === c.toLowerCase()))
-        onChange(next.length ? next : undefined)
-      }
-      return <span role="group" aria-label={field.label} className="flex flex-wrap gap-x-3 gap-y-1">
-        {choices.map(([v, label]) => <label key={v} className="flex items-center gap-1.5 text-xs">
-          <input type="checkbox" className="h-4 w-4" checked={chosen.some((x) => x.toLowerCase() === v.toLowerCase())} onChange={(e) => toggle(v, e.target.checked)} />{label}
-        </label>)}
-      </span>
-    }
-    case "check":
-      return <input type="checkbox" aria-label={field.label} className="h-4 w-4 self-start" checked={value === true} onChange={(e) => onChange(e.target.checked ? true : undefined)} />
-    case "lines":
-      return <textarea aria-label={field.label} rows={3} className={fieldClass} placeholder={field.placeholder}
-        value={Array.isArray(value) ? (value as string[]).join("\n") : ""}
-        onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value.split("\n"))} />
-    case "textarea":
-      return <textarea aria-label={field.label} rows={4} className={fieldClass} placeholder={field.placeholder} value={typeof value === "string" ? value : ""}
-        onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value)} />
-    default:
-      return <input aria-label={field.label} className={fieldClass} placeholder={field.placeholder} value={typeof value === "string" ? value : ""}
-        onChange={(e) => onChange(field.optional && e.target.value === "" ? undefined : e.target.value)} />
+const text = (value: unknown) => typeof value === "string" ? value : ""
+// orUnset is a typed value, or nothing once it is cleared.
+const orUnset = (value: string) => value === "" ? undefined : value
+
+function NumberField({ field, value, onChange }: FieldProps) {
+  return <input type="number" aria-label={field.label} className={fieldClass} value={typeof value === "number" ? value : ""} onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))} />
+}
+
+function SwatchesField({ field, value, onChange }: FieldProps) {
+  const current = text(value)
+  return <span className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label={field.label}>
+    {(field.choices ?? []).map(([hex, name]) => {
+      const chosen = current.toLowerCase() === hex.toLowerCase()
+      return <button key={hex} type="button" role="radio" aria-checked={chosen} aria-label={name}
+        onClick={() => onChange(hex)} className={cn("h-7 w-7 rounded-full border-2", chosen ? "border-lw-text" : "border-transparent")} style={{ background: hex }} />
+    })}
+    <input aria-label={`${field.label}, as a hex value`} value={current} placeholder="#4A9EEF" onChange={(e) => onChange(e.target.value)} className={cn(fieldClass, "w-28 font-lw-mono text-xs")} />
+  </span>
+}
+
+// ChoiceField chooses one of the field's choices. A saved value it does not
+// offer stays chosen, as an option of its own.
+function ChoiceField({ field, value, onChange }: FieldProps) {
+  const unknown = typeof value === "string" && value && !field.choices?.some(([v]) => v === value)
+  return <select aria-label={field.label} className={fieldClass} value={text(value)} onChange={(e) => onChange(orUnset(e.target.value))}>
+    {field.optional ? <option value="">{field.unsetLabel ?? "Default"}</option> : value === undefined && <option value="" disabled>Choose…</option>}
+    {unknown && <option value={value}>{value}</option>}
+    {(field.choices ?? []).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+  </select>
+}
+
+function BoolField({ field, value, onChange }: FieldProps) {
+  return <select aria-label={field.label} className={fieldClass} value={typeof value === "boolean" ? String(value) : ""} onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value === "true")}>
+    <option value="">{field.unsetLabel ?? "Default"}</option><option value="true">On</option><option value="false">Off</option>
+  </select>
+}
+
+// ChecksField chooses several of the field's choices, kept in their order
+// and matched ignoring case; none chosen unsets it.
+function ChecksField({ field, value, onChange }: FieldProps) {
+  const chosen = Array.isArray(value) ? (value as string[]) : []
+  const choices = field.choices ?? []
+  const has = (c: string) => chosen.some((x) => x.toLowerCase() === c.toLowerCase())
+  const toggle = (v: string, on: boolean) => {
+    const next = choices.map(([c]) => c).filter((c) => c === v ? on : has(c))
+    onChange(next.length ? next : undefined)
   }
+  return <span role="group" aria-label={field.label} className="flex flex-wrap gap-x-3 gap-y-1">
+    {choices.map(([v, label]) => <label key={v} className="flex items-center gap-1.5 text-xs">
+      <input type="checkbox" className="h-4 w-4" checked={has(v)} onChange={(e) => toggle(v, e.target.checked)} />{label}
+    </label>)}
+  </span>
+}
+
+function CheckField({ field, value, onChange }: FieldProps) {
+  return <input type="checkbox" aria-label={field.label} className="h-4 w-4 self-start" checked={value === true} onChange={(e) => onChange(e.target.checked ? true : undefined)} />
+}
+
+function LinesField({ field, value, onChange }: FieldProps) {
+  return <textarea aria-label={field.label} rows={3} className={fieldClass} placeholder={field.placeholder}
+    value={Array.isArray(value) ? (value as string[]).join("\n") : ""}
+    onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value.split("\n"))} />
+}
+
+function TextareaField({ field, value, onChange }: FieldProps) {
+  return <textarea aria-label={field.label} rows={4} className={fieldClass} placeholder={field.placeholder} value={text(value)}
+    onChange={(e) => onChange(orUnset(e.target.value))} />
+}
+
+// TextField keeps a cleared required text as empty; an optional one is
+// unset.
+function TextField({ field, value, onChange }: FieldProps) {
+  return <input aria-label={field.label} className={fieldClass} placeholder={field.placeholder} value={text(value)}
+    onChange={(e) => onChange(field.optional ? orUnset(e.target.value) : e.target.value)} />
+}
+
+// The input of each kind of field.
+const fieldInputs: Record<FormField["kind"], (props: FieldProps) => ReactNode> = {
+  number: NumberField, tiers: TiersInput, pairs: PairsInput, swatches: SwatchesField, choice: ChoiceField, bool: BoolField,
+  checks: ChecksField, check: CheckField, lines: LinesField, textarea: TextareaField, text: TextField,
+}
+
+// FieldInput edits one field of an entry by its kind.
+function FieldInput({ field, value, onChange, onError = () => {} }: Omit<FieldProps, "onError"> & { onError?: (message: string) => void }) {
+  const Input = fieldInputs[field.kind] ?? TextField
+  return <Input field={field} value={value} onChange={onChange} onError={onError} />
 }
 
 function Labelled({ field, children }: { field: Pick<FormField, "label" | "help" | "optional">; children: ReactNode }) {
@@ -170,147 +165,173 @@ function Labelled({ field, children }: { field: Pick<FormField, "label" | "help"
   </div>
 }
 
-// EntryForm edits one entry with its list's form, or as YAML. Fields the
-// form does not know are kept as they are.
-export function EntryForm({ list, form, entry, onSave, onCancel, lists = [], meters = [] }: { lists?: ConfigList[]; list: ConfigList; form: ListForm; entry?: ConfigListEntry; meters?: string[]; onSave: (name: string, value: unknown) => Promise<void>; onCancel: () => void }) {
-  const initial: Value = form.scalar ? (typeof entry?.value === "string" ? entry.value : "") : asObject(entry?.value)
+type ParsedEntry = { name: string; value: unknown }
+
+const trimmedName = (parsed: ParsedEntry | null) => parsed && { name: parsed.name.trim(), value: parsed.value }
+
+// readYaml reads an entry typed as YAML, saying why it cannot.
+function readYaml(yaml: string | null, nameField: string | undefined, setError: (message: string) => void): ParsedEntry | null {
+  try {
+    return parseEntryYaml(yaml ?? "", nameField)
+  } catch (reason) {
+    setError(reasonText(reason))
+    return null
+  }
+}
+
+// useEntryDraft is an entry's name and value as edited. Untouched, it
+// follows a change made elsewhere; touched (or as YAML), such a change is a
+// conflict, settled by taking theirs or keeping this draft.
+function useEntryDraft(form: ListForm, entry: ConfigListEntry | undefined, asYaml: boolean) {
+  const value = entry?.value
+  const theirs = JSON.stringify(value ?? null)
   const [name, setName] = useState(entry?.name ?? "")
-  const [draft, setDraft] = useState<Value>(initial)
-  const [baseline, setBaseline] = useState(JSON.stringify(entry?.value ?? null))
-  const [yaml, setYaml] = useState<string | null>(null)
-  const [error, setError] = useState("")
-  const [saving, setSaving] = useState(false)
+  const [draft, setDraft] = useState<EntryValue>(() => entryValue(form, value))
+  const [baseline, setBaseline] = useState(theirs)
   // What a field refuses to give back (two tiers of one name): Save waits.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
-  const fieldError = yaml === null ? Object.values(fieldErrors).find(Boolean) ?? "" : ""
   // A field with rows of its own (tiers, modes) keeps a draft of them; a
   // value replaced from outside (followed, Use theirs, back from YAML)
   // starts those drafts again, and their refusals with them.
   const [generation, setGeneration] = useState(0)
-  const replace = (value: Value) => {
+  const replace = (value: EntryValue) => {
     setDraft(value)
     setGeneration((g) => g + 1)
     setFieldErrors({})
   }
-  const theirsValue = (): Value => form.scalar ? (typeof entry?.value === "string" ? entry.value : "") : asObject(entry?.value)
-  // Changed elsewhere while edited: choose theirs or keep this draft.
-  const theirs = JSON.stringify(entry?.value ?? null)
-  const dirty = JSON.stringify(draft) !== baseline || yaml !== null
-  // Untouched, the form follows a change made elsewhere.
-  if (!dirty && theirs !== baseline) {
+  const dirty = JSON.stringify(draft) !== baseline || asYaml
+  const changed = theirs !== baseline
+  if (!dirty && changed) {
     setBaseline(theirs)
-    replace(theirsValue())
+    replace(entryValue(form, value))
   }
-  const conflict = Boolean(entry) && theirs !== baseline && dirty
-  const setField = (key: string, next: unknown) => {
-    let object = writeField(asObject(draft), key, next)
-    if (list.key === "usage.profiles" && (key === "agent" || key === "reviewer.agent")) {
-      object = writeField(object, key === "agent" ? "tier" : "reviewer.tier", undefined)
-    }
-    // A field that no longer applies (a draft rule's option on a rule
-    // that is not draft) leaves the entry.
-    for (const field of form.fields) if (field.when && !fieldApplies(field, name, object)) object = writeField(object, field.key, undefined)
-    setDraft(object)
-    setError("")
+  return {
+    name, setName, draft, setDraft, generation,
+    // A refusal holds back Save only while the form is shown.
+    fieldError: asYaml ? "" : firstError(fieldErrors),
+    setFieldError: (key: string, message: string) => setFieldErrors((e) => ({ ...e, [key]: message })),
+    conflict: entry !== undefined && changed && dirty,
+    takeTheirs: () => { replace(entryValue(form, value)); setBaseline(theirs) },
+    keepMine: () => setBaseline(theirs),
+    load: (parsed: ParsedEntry) => { setName(parsed.name); replace(parsedValue(form, parsed.value)) },
   }
-  const resolvedFields = form.fields.map((field): FormField => {
-    if (!field.optionsFrom) return field
-    if (field.optionsFrom === "claude_accounts") return { ...field, choices: (lists.find((l) => l.key === "claude_accounts")?.entries ?? []).map((e) => [e.name, String(asObject(e.value).label || e.name)]) }
-    // The usage rule meters come from the server's usage catalog, not a
-    // list of our own; profiles and tiers come from the settings lists.
-    const names = field.optionsFrom === "usage_meters"
-      ? meters
-      : field.optionsFrom === "profiles"
-        ? lists.find((l) => l.key === "usage.profiles")?.entries.map((e) => e.name) ?? []
-        : Object.keys(asObject(asObject(lists.find((l) => l.key === "adapters")?.entries.find((e) => e.name === fieldValue(draft, field.agentKey ?? "agent"))?.value).tiers))
-    return { ...field, choices: names.map((name) => [name, name]) }
-  })
-  const toYaml = () => { setYaml(entryYaml(name, draft, list.name_field)); setError("") }
-  const fromYaml = (): { name: string; value: unknown } | null => {
-    try {
-      return parseEntryYaml(yaml ?? "", list.name_field)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-      return null
-    }
-  }
-  const backToForm = () => {
-    const parsed = fromYaml()
-    if (!parsed) return
-    setName(parsed.name)
-    replace(form.scalar ? String(parsed.value ?? "") : asObject(parsed.value))
-    setYaml(null)
-  }
-  const save = async () => {
-    if (saving || conflict) return
-    let out = { name: name.trim(), value: draft as unknown }
-    if (yaml !== null) {
-      const parsed = fromYaml()
-      if (!parsed) return
-      out = { name: parsed.name.trim(), value: parsed.value }
-    }
+}
+
+// useEntrySave saves once at a time, keeping the form with the server's
+// reason when it refuses.
+function useEntrySave(onSave: (name: string, value: unknown) => Promise<void>, setError: (message: string) => void) {
+  const [saving, setSaving] = useState(false)
+  const save = async (blocked: boolean, read: () => ParsedEntry | null) => {
+    if (saving || blocked) return
+    const out = read()
+    if (!out) return
     setError("")
     setSaving(true)
     try {
       await onSave(out.name, out.value)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(reasonText(reason))
     } finally {
       setSaving(false)
     }
   }
+  return { saving, save }
+}
+
+// EntryForm edits one entry with its list's form, or as YAML. Fields the
+// form does not know are kept as they are.
+export function EntryForm({ list, form, entry, onSave, onCancel, lists = [], meters = [] }: { lists?: ConfigList[]; list: ConfigList; form: ListForm; entry?: ConfigListEntry; meters?: string[]; onSave: (name: string, value: unknown) => Promise<void>; onCancel: () => void }) {
+  const [yaml, setYaml] = useState<string | null>(null)
+  const [error, setError] = useState("")
+  const edit = useEntryDraft(form, entry, yaml !== null)
+  const { saving, save } = useEntrySave(onSave, setError)
+  const fieldError = edit.fieldError
+  const message = error || fieldError
+  const { read, toYaml, backToForm } = yamlActions(yaml, setYaml, list.name_field, edit, setError)
   return (
     <fieldset disabled={saving} aria-label={entry ? `Edit ${entry.name}` : `New entry of ${list.title}`} className="mt-2 flex min-w-0 flex-col gap-3 rounded-lg border border-lw-line bg-lw-ground/40 p-3">
-      {yaml === null ? <>
-        <Labelled field={{ label: form.name.label, help: form.name.help }}>
-          <input aria-label={form.name.label} value={name} disabled={Boolean(entry)} placeholder={form.name.placeholder} onChange={(e) => setName(e.target.value)} className={fieldClass} />
-        </Labelled>
-        {form.scalar && <Labelled field={form.scalar}><FieldInput field={form.scalar} value={draft} onChange={(v) => { setDraft(typeof v === "string" ? v : ""); setError("") }} /></Labelled>}
-        {resolvedFields.filter((field) => fieldApplies(field, name, draft as Record<string, unknown>)).map((field) => <Labelled key={field.key} field={field}>
-          <FieldInput key={`${field.key}:${generation}`} field={field} value={fieldValue(draft, field.key)} onChange={(v) => setField(field.key, v)}
-            onError={(message) => setFieldErrors((e) => ({ ...e, [field.key]: message }))} />
-        </Labelled>)}
-      </> : <Labelled field={{ label: "As in config.yaml", help: "The whole entry, fields the form shows and those it does not." }}>
-        <textarea aria-label={`${list.title} entry as YAML`} rows={8} value={yaml} onChange={(e) => { setYaml(e.target.value); setError("") }} className={cn(fieldClass, "font-lw-mono text-xs")} spellCheck={false} />
-      </Labelled>}
-      {conflict && <div className="flex flex-wrap items-center gap-2 text-xs text-lw-needs">
-        <p role="status">This entry changed elsewhere while you edited it.</p>
-        <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={() => { replace(theirsValue()); setBaseline(theirs); setYaml(null) }}>Use theirs</button>
-        <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={() => setBaseline(theirs)}>Keep mine</button>
-      </div>}
-      {(error || fieldError) && <p role="alert" className="text-xs text-lw-error">{error || fieldError}</p>}
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className={primaryButton + " min-h-9"} onClick={() => void save()} disabled={saving || (!name.trim() && yaml === null) || conflict || Boolean(fieldError)}>{saving ? "Saving…" : "Save"}</button>
-        <button type="button" className={quietButton + " min-h-9"} onClick={onCancel}>Cancel</button>
-        <button type="button" className="ml-auto text-xs text-lw-link hover:underline" onClick={yaml === null ? toYaml : backToForm}>{yaml === null ? "Edit as YAML" : "Back to the form"}</button>
-      </div>
+      {yaml === null
+        ? <EntryFields list={list} form={form} entry={entry} edit={edit} lists={lists} meters={meters} onEdited={() => setError("")} />
+        : <YamlField title={list.title} yaml={yaml} onChange={(value) => { setYaml(value); setError("") }} />}
+      {edit.conflict && <EntryConflict onTheirs={() => { edit.takeTheirs(); setYaml(null) }} onKeep={edit.keepMine} />}
+      {message && <p role="alert" className="text-xs text-lw-error">{message}</p>}
+      <EntryActions saving={saving} blocked={(!edit.name.trim() && yaml === null) || edit.conflict || Boolean(fieldError)} asYaml={yaml !== null}
+        onSave={() => void save(edit.conflict, read)} onCancel={onCancel} onYaml={toYaml} onForm={backToForm} />
     </fieldset>
   )
 }
 
-// summary says in a few words what an entry holds.
-function summary(form: ListForm, entry: ConfigListEntry): string {
-  if (form.summary) return form.summary(entry.name, asObject(entry.value))
-  if (form.scalar) return typeof entry.value === "string" ? entry.value : ""
-  const object = asObject(entry.value)
-  return form.fields.map((f) => {
-    const v = fieldValue(object, f.key)
-    if (v === undefined || v === "") return ""
-    if (f.kind === "choice") return f.choices?.find(([c]) => c === v)?.[1] ?? String(v)
-    if (f.kind === "swatches") return ""
-    if (f.kind === "check") return v === true ? f.label : ""
-    return Array.isArray(v) ? v.join(" ") : String(v)
-  }).filter(Boolean).join(" · ")
+// yamlActions reads the entry to save, as YAML or from the form, and moves
+// between the two; YAML that does not parse stays, with its error.
+function yamlActions(yaml: string | null, setYaml: (yaml: string | null) => void, nameField: string | undefined,
+  edit: ReturnType<typeof useEntryDraft>, setError: (message: string) => void) {
+  const fromYaml = () => readYaml(yaml, nameField, setError)
+  return {
+    read: () => yaml === null ? { name: edit.name.trim(), value: edit.draft } : trimmedName(fromYaml()),
+    toYaml: () => { setYaml(entryYaml(edit.name, edit.draft, nameField)); setError("") },
+    backToForm: () => {
+      const parsed = fromYaml()
+      if (!parsed) return
+      edit.load(parsed)
+      setYaml(null)
+    },
+  }
 }
 
-// ListCard is one list: config.yaml's entries, read-only with a lock, and
-// those kept here, which can be edited and removed; and its Add.
-export function ListCard({ list, baseUrl, lists = [], meters = [] }: { list: ConfigList; baseUrl: string; lists?: ConfigList[]; meters?: string[] }) {
+function YamlField({ title, yaml, onChange }: { title: string; yaml: string; onChange: (yaml: string) => void }) {
+  return <Labelled field={{ label: "As in config.yaml", help: "The whole entry, fields the form shows and those it does not." }}>
+    <textarea aria-label={`${title} entry as YAML`} rows={8} value={yaml} onChange={(e) => onChange(e.target.value)} className={cn(fieldClass, "font-lw-mono text-xs")} spellCheck={false} />
+  </Labelled>
+}
+
+// EntryActions is Save, Cancel, and the switch between the form and YAML.
+function EntryActions({ saving, blocked, asYaml, onSave, onCancel, onYaml, onForm }: {
+  saving: boolean; blocked: boolean; asYaml: boolean; onSave: () => void; onCancel: () => void; onYaml: () => void; onForm: () => void
+}) {
+  return <div className="flex flex-wrap items-center gap-2">
+    <button type="button" className={primaryButton + " min-h-9"} onClick={onSave} disabled={saving || blocked}>{saving ? "Saving…" : "Save"}</button>
+    <button type="button" className={quietButton + " min-h-9"} onClick={onCancel}>Cancel</button>
+    <button type="button" className="ml-auto text-xs text-lw-link hover:underline" onClick={asYaml ? onForm : onYaml}>{asYaml ? "Back to the form" : "Edit as YAML"}</button>
+  </div>
+}
+
+// EntryFields is the form itself: the entry's name, then its value or the
+// fields that apply to it.
+function EntryFields({ list, form, entry, edit, lists, meters, onEdited }: {
+  list: ConfigList; form: ListForm; entry?: ConfigListEntry; edit: ReturnType<typeof useEntryDraft>
+  lists: ConfigList[]; meters: string[]; onEdited: () => void
+}) {
+  const { name, draft } = edit
+  const setField = (key: string, next: unknown) => {
+    edit.setDraft(setEntryField(list.key, form, name, draft, key, next))
+    onEdited()
+  }
+  const fields = form.fields.map((field) => resolveField(field, draft, lists, meters))
+    .filter((field) => fieldApplies(field, name, draft as Record<string, unknown>))
+  return <>
+    <Labelled field={{ label: form.name.label, help: form.name.help }}>
+      <input aria-label={form.name.label} value={name} disabled={Boolean(entry)} placeholder={form.name.placeholder} onChange={(e) => edit.setName(e.target.value)} className={fieldClass} />
+    </Labelled>
+    {form.scalar && <Labelled field={form.scalar}><FieldInput field={form.scalar} value={draft} onChange={(v) => { edit.setDraft(typeof v === "string" ? v : ""); onEdited() }} /></Labelled>}
+    {fields.map((field) => <Labelled key={field.key} field={field}>
+      <FieldInput key={`${field.key}:${edit.generation}`} field={field} value={fieldValue(draft, field.key)} onChange={(v) => setField(field.key, v)}
+        onError={(message) => edit.setFieldError(field.key, message)} />
+    </Labelled>)}
+  </>
+}
+
+function EntryConflict({ onTheirs, onKeep }: { onTheirs: () => void; onKeep: () => void }) {
+  return <div className="flex flex-wrap items-center gap-2 text-xs text-lw-needs">
+    <p role="status">This entry changed elsewhere while you edited it.</p>
+    <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={onTheirs}>Use theirs</button>
+    <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={onKeep}>Keep mine</button>
+  </div>
+}
+
+// useListEntries saves and removes a list's entries, saying how it went;
+// saved is told once an entry is saved (not one sent for signature).
+function useListEntries(baseUrl: string, list: ConfigList, saved: () => void) {
   const queryClient = useQueryClient()
-  const form = formFor(list.key, list.name_field)
-  const entries = list.key === "usage.rules" ? [...list.entries].sort((a, b) => Number(asObject(a.value).order) - Number(asObject(b.value).order) || a.name.localeCompare(b.name)) : list.entries
-  const add = listFormsAdd(form, list)
-  const [editing, setEditing] = useState<string | null>(null)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
   const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.configLists(baseUrl) })
@@ -321,8 +342,8 @@ export function ListCard({ list, baseUrl, lists = [], meters = [] }: { list: Con
       setNotice("Awaiting approval: approve this rule change on your phone or with a passkey.")
       return
     }
-    setNotice(list.mode === "restart" ? "Saved. It applies when Legato restarts." : list.mode === "new_agents" ? "Saved. It applies to agents started from now on." : "Saved.")
-    setEditing(null)
+    setNotice(savedNotice(list.mode))
+    saved()
     await refresh()
   }
   const remove = async (name: string) => {
@@ -332,42 +353,71 @@ export function ListCard({ list, baseUrl, lists = [], meters = [] }: { list: Con
       setNotice(result?.status === "needs_signature" ? "Awaiting approval: approve this removal on your phone or with a passkey." : "Removed.")
       await refresh()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(reasonText(reason))
     }
   }
+  return { error, notice, setNotice, save, remove }
+}
+
+// ListCard is one list: config.yaml's entries, read-only with a lock, and
+// those kept here, which can be edited and removed; and its Add.
+export function ListCard({ list, baseUrl, lists = [], meters = [] }: { list: ConfigList; baseUrl: string; lists?: ConfigList[]; meters?: string[] }) {
+  const form = formFor(list.key, list.name_field)
+  const [editing, setEditing] = useState<string | null>(null)
+  const { error, notice, setNotice, save, remove } = useListEntries(baseUrl, list, () => setEditing(null))
+  const startEditing = (name: string) => { setNotice(""); setEditing(name) }
+  const entryForm = (entry?: ConfigListEntry) => <EntryForm list={list} lists={lists} meters={meters} form={form} entry={entry} onSave={save} onCancel={() => setEditing(null)} />
   return (
     <SettingsCard id={`list-${list.key}`} icon={List} title={list.title} description={form.ordered}>
       {list.entries.length > 0 && <ul className={form.cards ? "flex flex-col gap-2" : "flex flex-col divide-y divide-lw-line"} aria-label={list.title}>
-        {entries.map((entry, index) => {
-          const color = list.key === "workspaces" ? asObject(entry.value).color : undefined
-          return <li key={entry.name} className={form.cards ? "rounded-lg border border-lw-line px-3 py-2.5" : "py-2"} data-testid={`entry-${list.key}-${entry.name}`}>
-            <div className="flex flex-wrap items-center gap-2">
-              {form.ordered && <span className="w-5 font-lw-mono text-[11px] text-lw-text-2">{index + 1}</span>}
-              {typeof color === "string" && <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} aria-hidden />}
-              <span className={cn("text-sm text-lw-text", form.cards && "font-medium")}>{list.key === "adapters" ? agentLabel(entry.name) : entry.name}</span>
-              {entry.pinned
-                ? <span className="inline-flex items-center gap-1 rounded border border-lw-line bg-lw-raised px-1.5 py-px text-[11px] text-lw-text-2" aria-label="Pinned by config.yaml"><Lock size={10} aria-hidden />config.yaml</span>
-                : entry.source === "database" && <span className="rounded bg-lw-accent-soft px-1.5 py-px text-[11px] text-lw-accent-text">Set here</span>}
-              {list.pending_entries?.includes(entry.name) && <span className="rounded bg-lw-needs-soft px-1.5 py-px text-[11px] text-lw-needs">Restart to apply</span>}
-              <span className="min-w-0 truncate text-xs text-lw-text-2">{summary(form, entry)}</span>
-              {!entry.pinned && editing !== entry.name && (
-                <span className="ml-auto flex gap-1">
-                  <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={() => { setNotice(""); setEditing(entry.name) }} aria-label={`Edit ${entry.name}`}>Edit</button>
-                  <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={() => void remove(entry.name)} aria-label={`Remove ${entry.name}`}>Remove</button>
-                </span>
-              )}
-            </div>
-            {editing === entry.name && <EntryForm list={list} lists={lists} meters={meters} form={form} entry={entry} onSave={save} onCancel={() => setEditing(null)} />}
-          </li>
-        })}
+        {sortedEntries(list).map((entry, index) => <EntryRow key={entry.name} list={list} form={form} entry={entry} index={index} editing={editing === entry.name}
+          onEdit={() => startEditing(entry.name)} onRemove={() => void remove(entry.name)}>
+          {editing === entry.name && entryForm(entry)}
+        </EntryRow>)}
       </ul>}
       {list.entries.length === 0 && editing !== "" && <p className="text-sm text-lw-text-2">{form.empty}</p>}
       {notice && <p role="status" className="mt-1 text-xs text-lw-text-2">{notice}</p>}
       {error && <p role="alert" className="mt-1 text-xs text-lw-error">{error}</p>}
-      {editing === "" ? <EntryForm list={list} lists={lists} meters={meters} form={form} onSave={save} onCancel={() => setEditing(null)} />
-        : <button type="button" className={`${quietButton} mt-2 min-h-9`} onClick={() => { setNotice(""); setEditing("") }}>{add}</button>}
+      {editing === "" ? entryForm()
+        : <button type="button" className={`${quietButton} mt-2 min-h-9`} onClick={() => startEditing("")}>{listFormsAdd(form, list)}</button>}
     </SettingsCard>
   )
+}
+
+// EntryRow is one entry: its name, where it comes from, what it holds, and
+// Edit and Remove for one kept here; its form below while it is edited.
+function EntryRow({ list, form, entry, index, editing, onEdit, onRemove, children }: {
+  list: ConfigList; form: ListForm; entry: ConfigListEntry; index: number; editing: boolean
+  onEdit: () => void; onRemove: () => void; children: ReactNode
+}) {
+  const color = list.key === "workspaces" ? asObject(entry.value).color : undefined
+  return <li className={form.cards ? "rounded-lg border border-lw-line px-3 py-2.5" : "py-2"} data-testid={`entry-${list.key}-${entry.name}`}>
+    <div className="flex flex-wrap items-center gap-2">
+      {form.ordered && <span className="w-5 font-lw-mono text-[11px] text-lw-text-2">{index + 1}</span>}
+      {typeof color === "string" && <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} aria-hidden />}
+      <span className={cn("text-sm text-lw-text", form.cards && "font-medium")}>{list.key === "adapters" ? agentLabel(entry.name) : entry.name}</span>
+      <EntrySource entry={entry} pending={list.pending_entries?.includes(entry.name)} />
+      <span className="min-w-0 truncate text-xs text-lw-text-2">{entrySummary(form, entry)}</span>
+      {!entry.pinned && !editing && (
+        <span className="ml-auto flex gap-1">
+          <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={onEdit} aria-label={`Edit ${entry.name}`}>Edit</button>
+          <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={onRemove} aria-label={`Remove ${entry.name}`}>Remove</button>
+        </span>
+      )}
+    </div>
+    {children}
+  </li>
+}
+
+// EntrySource says where an entry comes from, and whether it waits for a
+// restart.
+function EntrySource({ entry, pending }: { entry: ConfigListEntry; pending?: boolean }) {
+  return <>
+    {entry.pinned
+      ? <span className="inline-flex items-center gap-1 rounded border border-lw-line bg-lw-raised px-1.5 py-px text-[11px] text-lw-text-2" aria-label="Pinned by config.yaml"><Lock size={10} aria-hidden />config.yaml</span>
+      : entry.source === "database" && <span className="rounded bg-lw-accent-soft px-1.5 py-px text-[11px] text-lw-accent-text">Set here</span>}
+    {pending && <span className="rounded bg-lw-needs-soft px-1.5 py-px text-[11px] text-lw-needs">Restart to apply</span>}
+  </>
 }
 
 function listFormsAdd(form: ListForm, list: ConfigList): string {
