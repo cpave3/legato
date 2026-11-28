@@ -101,15 +101,37 @@ To leave hooks out of one agent, start it with `hooks_off`, a list of hook names
 
 | Tool | Gets managed hooks |
 | --- | --- |
-| Claude Code | Yes |
+| Claude Code | Yes, as a plugin named `legato-hooks` |
 | Chimera | Not yet: skipped with a note on the task |
 | Codex | Not yet: skipped with a note on the task |
+
+When a Claude Code agent starts, Legato copies each hook it has into a folder of that agent's own, so a hook you change later reaches the agents started after the change, and an agent that is reloaded. Only what is inside the hook's folder is copied: a link to something outside it is left out. Scripts stay executable.
+
+Each hook's command runs from its copy, with these variables:
+
+| Variable | What it holds |
+| --- | --- |
+| `LEGATO_HOOK_NAME` | The hook's name. |
+| `LEGATO_HOOK_DIR` | The hook's copy. It is read-only. |
+| `LEGATO_HOOK_STATE_DIR` | A folder for the hook to keep state in during the agent's session: `/tmp/legato-hooks/<execution>/<name>`. |
+| `LEGATO_HOOK_SEED` | A JSON file saying where the agent's checkout was when it started (below). |
+
+The seed file holds the commit checked out when the agent started (`head`), its branch, the repository, the task, the agent's execution, its folder and the time:
+
+```json
+{"version": 1, "head": "3f2c…", "branch": "feature", "repo": "github.com/acme/widget",
+ "task_id": "a1b2c3d4", "execution_id": "ex-…", "work_dir": "/home/me/widget", "time": "2026-11-29T10:00:00Z"}
+```
+
+A hook such as CodeEval's compares the working tree with `head`, so it judges only what the agent changed. An agent that is restarted or resumed is a new start: its seed names the commit at that moment.
+
+A hook that fails, runs out of time or cannot start lets the agent carry on.
 
 ## Phase 1 limits
 
 - Only Claude Code agents get managed hooks.
 - Agents that a workflow starts get none.
-- `pre_tool` and `post_tool` hooks are checked and listed, but not run yet.
-- There are no per-repository offs and `yields_to` is not acted on yet, so a repository that runs CodeEval's own hook runs it twice.
+- `pre_tool` and `post_tool` hooks are checked and listed, but not run yet. An agent given a hook that has them gets a note on its task.
+- There are no per-repository offs and `yields_to` is not acted on yet. A repository whose own `.claude/settings.json` already runs CodeEval's Stop hook, or a `~/.claude/settings.json` that does, runs it twice: once there and once as the managed hook. The code-evaluator repository is one. Untick `codeeval` when you start the agent, or send `hooks_off: [codeeval]`.
 - A `disableAllHooks` setting in Claude Code turns the gate off without a warning.
 - Legato does not yet warn you when an agent's hooks never ran.

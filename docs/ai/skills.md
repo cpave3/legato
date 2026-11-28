@@ -62,13 +62,13 @@ With nothing chosen, nothing is written and the environment is unchanged.
 
 ### Managed hooks: the seam
 
-`AgentCapabilities.Hooks` (`[]ManagedHook`: `Name`, `Path`, `Events`) is the place for an agent's managed hooks (milestone LEG-687). No source fills it yet: the `HookSource` (LEG-695) will. An adapter takes them by implementing `HooksAdapter`:
+`AgentCapabilities.Hooks` (`[]ManagedHook`: `Name`, `Path`, `Events`, `Manifest`) is the place for an agent's managed hooks (milestone LEG-687), filled from the `HookSource`'s decision (LEG-695). An adapter takes them by implementing `HooksAdapter`:
 
 ```go
-HooksBundle(root string, events []string, env map[string]string) (hooksDir string, err error)
+HooksBundle(root string, events map[string]int, env map[string]string) (bundleDir string, err error)
 ```
 
-It writes its bundle under `root` (the execution's tool folder), registering each event in `events` (every event the hooks use, once each, sorted), adds to `env` what makes its tool load it, and returns the folder each hook's folder is copied into (with `skills.Copy`, as a skill is). A tool is a supported tool for managed hooks exactly when its adapter implements `HooksAdapter`; no adapter does yet (Claude Code will from LEG-696), so the policy is tested against a fake adapter (`agent_capability_kinds_test.go`). Each execution has its own copy, so turning a skill off, or changing its files, never changes a running agent; the next agent started, or an agent reloaded (a new execution), gets the skills as they are then. `EndExecution` removes the folder; `ReconcileSessions` sweeps the folders of executions that ended unseen (`CapabilityFolders.Sweep`, as `SandboxScratch.Sweep`: running and unknown executions are left).
+It writes its bundle under `root` (the execution's tool folder), registering an entry for each event in `events` (each delivered event the hooks use, mapped to the longest time limit in seconds of the hooks on it) and the two internal entries, adds to `env` what makes its tool load it, and returns the bundle's folder. Legato then lays out the runner's files in it (`writeHooksContract`: each hook copied with `skills.Copy`, as a skill is; see [Managed hooks](managed-hooks.md) § The bundle). A tool is a supported tool for managed hooks exactly when its adapter implements `HooksAdapter`: Claude Code's does (LEG-696, `internal/engine/hooks/hooks_bundle.go`); the kind's failure paths are tested against a fake adapter (`agent_capability_kinds_test.go`). Each execution has its own copy, so turning a skill off, or changing its files, never changes a running agent; the next agent started, or an agent reloaded (a new execution), gets the skills as they are then. `EndExecution` removes the folder; `ReconcileSessions` sweeps the folders of executions that ended unseen (`CapabilityFolders.Sweep`, as `SandboxScratch.Sweep`: running and unknown executions are left).
 
 | Tool | How | What the agent calls it | Same name elsewhere |
 | --- | --- | --- | --- |

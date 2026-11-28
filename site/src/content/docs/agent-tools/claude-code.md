@@ -158,7 +158,11 @@ Each Claude Code agent gets the [skills](/legato/agent-tools/skills/) you turned
 
 ## Managed hooks
 
-Each Claude Code agent gets the [managed hooks](/legato/agent-tools/managed-hooks/) that are on, beside the hooks of the project and of `~/.claude/settings.json`.
+Each Claude Code agent gets the [managed hooks](/legato/agent-tools/managed-hooks/) that are on for it, beside the hooks of the project and of `~/.claude/settings.json`. Legato copies them for the agent when it starts and loads them as a plugin named `legato-hooks`, which runs each hook at the session's start and at the end of each turn. A hook's `pre_tool` and `post_tool` events do not run yet: the task gets a note saying so.
+
+A hook that fails, takes too long or cannot start never stops the agent: Claude Code carries on as if it passed.
+
+If the repository's own `.claude/settings.json`, or your `~/.claude/settings.json`, already runs the same check, such as CodeEval's Stop hook, the agent runs it twice. Untick the hook when you start the agent, or send `hooks_off: [codeeval]`.
 
 ## Token usage in Manticore
 

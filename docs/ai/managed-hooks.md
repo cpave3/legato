@@ -12,9 +12,10 @@ Phase 1 (this milestone) delivers managed hooks to Claude Code, with a global of
 - the scan and full validation of `HOOK.yaml` (`internal/engine/managedhooks`), including what Phase 1 does not act on yet, so a manifest valid today stays valid later;
 - the global on/off state (`managed_hook_states`);
 - Settings › Agents › Managed hooks and its routes;
-- the policy (LEG-695): every spawn decides and records which hooks its agent has and why each other is off, takes `hooks_off`, and notes a tool that cannot run them (§ The policy).
+- the policy (LEG-695): every spawn decides and records which hooks its agent has and why each other is off, takes `hooks_off`, and notes a tool that cannot run them (§ The policy);
+- the Claude Code bundle (LEG-696): a `legato-hooks` plugin per execution whose entries call the runner, with each hook's copy and `hook.env`, the seed, the context and the index (§ The bundle).
 
-Nothing reaches an agent tool yet, since no adapter is a `HooksAdapter` until the Claude Code bundle (LEG-696). Until then every agent records its hooks `off:unsupported-tool`, with a skip note. Next come resources and the sandbox (LEG-697), resources and the sandbox (LEG-697), the runner (LEG-698), the runs op (LEG-699), the stop hold (LEG-700), warnings (LEG-701), spawn offs (LEG-702) and web visibility (LEG-703) follow. Chimera, `pre_tool`/`post_tool` delivery, repository offs, workflows and handoff are Phases 2 and 3 (LEG-690, LEG-691).
+The runner itself (`legato agent managed-hooks run`) is LEG-698: until it lands, every entry finds no such command and passes (§ Entries fail open), so a Claude Code agent with hooks on behaves as one without. Next come resources and the sandbox (LEG-697), the runner (LEG-698), the runs op (LEG-699), the stop hold (LEG-700), warnings (LEG-701), spawn offs (LEG-702) and web visibility (LEG-703). Chimera, `pre_tool`/`post_tool` delivery, repository offs, workflows and handoff are Phases 2 and 3 (LEG-690, LEG-691).
 
 ## Phase 1 limits
 
@@ -22,8 +23,8 @@ Kept current by each Phase 1 ticket; the site page's section of the same name sa
 
 - **Claude Code only.** Chimera and Codex agents get no managed hooks (`off:unsupported-tool`), with one skip note per execution.
 - **Workflow agents get none** (`off:workflow`): any execution with a workflow attempt, until Phase 3's step-complete skip lands, when the reason is removed.
-- **`pre_tool` and `post_tool` are not delivered yet.** They are validated, listed and shown, but only `session_start` and `stop` run.
-- **No repository offs and no `yields_to`.** A repository that runs CodeEval's own hook (the code-evaluator repository) runs it twice; untick the hook at spawn.
+- **`pre_tool` and `post_tool` are not delivered yet.** They are validated, listed and shown, but only `session_start` and `stop` run: the bundle registers no entry for them and leaves them out of the index, and a spawn whose on hooks have any writes one launch note (§ The bundle).
+- **No repository offs and no `yields_to`.** A repository whose own `.claude/settings.json`, or the operator's `~/.claude/settings.json`, already runs CodeEval's Stop hook runs it twice: once there, once as the managed hook. code-evaluator is one. The workaround is to untick `codeeval` at spawn, or send `hooks_off: [codeeval]`.
 - **`disableAllHooks` silently turns the gate off,** with no warning.
 - **No never-ran warning.**
 
@@ -80,6 +81,55 @@ Every rule is checked at scan time; the first broken one is the hook's error, pr
 - **Settings › Agents › Managed hooks** (`web/src/components/settings/ManagedHooksSettings.tsx`, `#managed-hooks`, `web/src/lib/managedHooks.ts`): the folder, then a row per hook with its name, description, events, agent tools ("every agent tool" when empty, "read-only agents too" when `read_only`) and path, or its error marked **error**; a toggle **Give agents <name>** on valid hooks only. With none: "No managed hooks yet. Add a folder with a HOOK.yaml to <dir>." The registry row `managed_hooks.dir` sits in the same group. The list, its refresh and its calls are shared with Skills (`useFolderToggles`, `FolderItemRow`, `web/src/lib/folderItems.ts`).
 - `cmd/legato/managed_hooks_runtime.go` builds `managedHookService(cfg, db)` for both web servers (`SetManagedHookService`).
 
+## The bundle
+
+At each spawn whose effective set is not empty, `giveCapabilities` gives the hooks as a capability kind of their own (`capabilityKinds.giveHooks`): the adapter's `HooksBundle` writes the tool's part and returns the bundle's folder, then `writeHooksContract` (`internal/service/managed_hook_bundle.go`) lays out the runner's part in it. The environment change (`CLAUDE_CODE_PLUGIN_DIRS`) is committed only once both are written; a failure of either is logged, removes only the bundle's folder, and the agent starts with its skills and without managed hooks. With no folder, an empty one, or every hook off, nothing is written and the environment is as before managed hooks.
+
+This layout is **the contract** `legato agent managed-hooks run` (LEG-698) reads. Every file is version 1 and read-only (`0444`), every path in them absolute (the sandbox shows the capability folder at its own path, read-only):
+
+```text
+<data_dir>/capabilities/<execution>/claude-code/legato-hooks/
+  .claude-plugin/plugin.json   Claude Code's: the plugin legato-hooks
+  hooks/hooks.json             Claude Code's: the entries (below)
+  index.json                   the hooks the agent runs; written last
+  context.json                 the runner's legato object, fixed fields
+  seed.json                    the checkout at this launch
+  copies/<name>/               each hook's files (LEGATO_HOOK_DIR)
+  env/<name>.env               each hook's hook.env
+```
+
+- **`index.json`** (`hookIndex`): `{"version": 1, "hooks": [{"name", "dir", "env", "state_dir", "events": {"<event>": {"command", "timeout"}}}]}`, sorted by name. `events` holds only the delivered events (Phase 1: `session_start`, `stop`; `deliveredHookEvents`), `timeout` in seconds (the manifest's, else the event's default). A hook with only undelivered events is listed with `events: {}`. A hook whose copy failed is left out, logged. `command` runs from `dir`.
+- **`context.json`** (`hookContext`): `{"version": 1, "tool": "claude-code", "task_id", "execution_id", "slot", "role", "repo", "work_dir", "workflow": {"run_id", "attempt_id", "step_id"}, "seed": "<path of seed.json>"}`. `slot` is `main` for the main slot; `repo` the `host/owner/name` key, "" outside a repository Legato can name; `workflow` empty for an agent no workflow started (in Phase 1 every agent, since workflow agents get no hooks). The runner adds `event`, `stop_id`, `turn`, `stop_blocks_this_turn` and each hook's `state_dir` to make the spec's `legato` object.
+- **`seed.json`** (`hookSeed`, pinned for CodeEval, CE-2): `{"version": 1, "head", "branch", "repo", "task_id", "execution_id", "work_dir", "time"}`. `head` is the commit checked out at *this* launch, `branch` its branch ("" when detached), both "" outside a git checkout; read as git's files by `gitrepo.HeadOf` (the work dir or the nearest folder above with a `.git`, a linked worktree's `.git` file followed to its git folder and `commondir`), so no git runs in the work tree. `time` is RFC 3339 UTC. A relaunch (restart, resume, Reload) is a new execution, so its seed is HEAD at the relaunch.
+- **`env/<name>.env`** (hook.env): one `KEY=VALUE` line each, unquoted, the value everything after the first `=` (a value with a newline fails the bundle): `LEGATO_HOOK_NAME`, `LEGATO_HOOK_DIR` (the copy), `LEGATO_HOOK_STATE_DIR` (`/tmp/legato-hooks/<execution>/<name>`, G8; the runner makes it), `LEGATO_HOOK_SEED` (the seed's path). `LEGATO_HOOK_RESOURCE_<AS>` lines come with LEG-697.
+- **`copies/<name>/`**: the hook's folder copied as a skill is (`skills.Copy`: from inside the folder only, links out left out, executable bits kept, 32 MiB at most).
+
+**Claude Code's part** (`ClaudeCodeAdapter.HooksBundle`, `internal/engine/hooks/hooks_bundle.go`): the plugin `legato-hooks` (`hooks.HooksBundleName`) appended to `CLAUDE_CODE_PLUGIN_DIRS`, with `LEGATO_BIN` set if the session lacks it. `hooks/hooks.json` holds, each as one `matcher: ""` group:
+
+| Claude Code event | Runner `--event` | Time limit |
+| --- | --- | --- |
+| `SessionStart` | `canary` (always; `hooks.HooksEventCanary`) | 10 s |
+| `SessionStart` | `session_start` (when a hook has it) | longest `session_start` timeout + 15 s (`HooksEntryGrace`) |
+| `UserPromptSubmit` | `turn_reset` (always; `hooks.HooksEventTurnReset`) | 10 s |
+| `Stop` | `stop` (when a hook has it) | longest `stop` timeout + 15 s |
+
+`canary` and `turn_reset` are internal events, never a manifest's. Any other event passed to `HooksBundle` is an error (the bundle fails); the service passes only delivered ones. **Launch note**: when an on hook has `pre_tool` or `post_tool`, one task note per execution (`noteUndeliveredHookEvents`): "Managed hooks' pre_tool and post_tool events are not delivered yet, so these run only at session_start and stop, if at all: <name> (<events>); …".
+
+### Entries fail open
+
+Each entry is:
+
+```sh
+[ -n "$LEGATO_BIN" ] || { cat >/dev/null; exit 0; }; out=$("$LEGATO_BIN" agent managed-hooks run --tool claude-code --event <event> --bundle '<bundle>' 2>/dev/null) || exit 0; printf '%s' "$out"; exit 0
+```
+
+It always exits 0, and passes the runner's stdout on only when the runner exited 0. Claude Code takes exit 2 as a block, and exit 2 is what today's `legato` answers for an unknown command (`unknown_command`, `exitUsage`: "unknown command \"agent managed-hooks\"" on stderr) and what a Go panic exits with; a missing `LEGATO_BIN`, a missing binary (127) or any other failure is a pass too (`TestAnEntryPassesUnlessTheRunnerAnswers` runs the entry against each). So **the runner (LEG-698) must**:
+
+- take `--tool`, `--event` and `--bundle <folder>`, and read the tool's payload on stdin;
+- block, or add context, only with Claude Code's JSON on stdout and exit 0 (`{"decision": "block", "reason": "…"}` for Stop; `hookSpecificOutput.additionalContext` for SessionStart), never with exit 2, which the entry turns into a pass;
+- print nothing on stdout for a pass, and keep its diagnostics to stderr (dropped) and its reports;
+- end within the entry's time limit (the event's longest hook timeout + 15 s).
+
 ## Off reasons
 
 One vocabulary everywhere (records, API, panel, notes): `off:global`, `off:repository`, `off:step`, `off:spawn`, `off:handoff`, `off:read-only`, `off:reviewer`, `off:reeve`, `off:find-out`, `off:unsupported-tool`, `off:yields-to`, `off:missing-resource`, `off:invalid`, and in Phase 1 only `off:workflow` (`service.ManagedHookOff`, `Off*` constants in `internal/service/managed_hook_policy.go`).
@@ -108,7 +158,7 @@ One vocabulary everywhere (records, API, panel, notes): `off:global`, `off:repos
 - The comments in `decideManagedHook` mark where the Phase 3 layers and the launch checks go.
 - `off:unsupported-tool` is recorded once, whether the manifest or the adapter (or both) gave it.
 - A delegation find-out is already off, being a read-only checkout. A handoff's purpose is the spawn's, else (main slot only) its card's open handoff's (`agentService.handoffPurpose`, `store.OpenHandoffForTask`), so a find-out agent restarted or resumed stays off.
-- `ManagedHookSet.On()` is what `AgentCapabilities.Hooks` gets (`ManagedHook`: `Name`, `Path`, `Events`, and `Manifest`, the scanned `managedhooks.Hook` with handlers, resources and `yields_to`, for the bundle); `giveCapabilities` gives them through the `HooksAdapter`, a kind of their own beside skills.
+- `ManagedHookSet.On()` is what `AgentCapabilities.Hooks` gets (`ManagedHook`: `Name`, `Path`, `Events`, and `Manifest`, the scanned `managedhooks.Hook` with handlers, resources and `yields_to`, for the bundle); `giveCapabilities` gives them through the `HooksAdapter`, a kind of their own beside skills (§ The bundle). Claude Code's adapter is one, so Claude Code agents record their hooks on; Chimera and Codex record `off:unsupported-tool` with the skip note.
 
 **Records.** `agentService.decideManagedHooks`, run by `giveCapabilities` at each spawn once the execution exists, writes every hook's decision to `execution_managed_hooks` and each chosen off to `execution_managed_hooks_off` (see [Database](database.md) § Execution managed hooks). Only the chosen offs are a relaunch's to carry (LEG-702); the other layers are worked out again at each spawn. A hook turned off later leaves a running agent's record alone. `GET /api/agents/{task_id}/managed-hooks` reads the slot's newest session's execution, running or not, and once a stop has deleted that session, the slot's newest execution whose hooks a spawn decided, hooks or none (`execution_managed_hook_owners`), so a stopped agent's records stay readable and an older execution is never shown in place of a newer one with no hooks. Without a `HookSource`, or when it fails (logged), nothing is recorded and the agent gets no hooks.
 
