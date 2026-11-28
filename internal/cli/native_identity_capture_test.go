@@ -46,11 +46,15 @@ func captureTestBridge(t *testing.T, s *store.Store, taskID, kind string) (func(
 			app.terminalOpensThread(map[string]any{"id": id, "cwd": cwd})
 		}
 	}
+	panelEndpoint := endpoint
+	if kind == "claude-code" {
+		panelEndpoint = boundEndpoint(t, s, taskID)
+	}
 	return func(id, cwd string) {
 		t.Helper()
 		send(id, cwd)
 		waitFor(t, "native panel transition", func() bool {
-			resp, err := http.Get(endpoint + "/v1/sessions/" + taskID)
+			resp, err := http.Get(panelEndpoint + "/v1/sessions/" + taskID)
 			if err != nil {
 				return false
 			}
