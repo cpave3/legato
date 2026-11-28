@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import type { AgentInfo } from "./useWebSocket"
+import type { AgentInfo } from "../lib/agentWire"
 import { useServer } from "./useServer"
 import { apiFetch } from "../lib/api"
 import { fetchAgentConversation, type AgentConversation } from "../lib/agentGlance"

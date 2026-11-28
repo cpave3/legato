@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
-import { cn } from "../lib/utils"
+import { cn } from "../../lib/utils"
 
 // TileDeck shows several things that run at once, each as a tile: what is
 // running shares the space, what has finished waits on a shelf, and one tile

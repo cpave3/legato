@@ -1,6 +1,6 @@
-import type { DeckTile, TileState } from "../components/TileDeck"
-import { ShellOutput } from "../components/ShellParts"
-import { lastLine, type NativeBackgroundShell } from "./backgroundShells"
+import type { DeckTile, TileState } from "./TileDeck"
+import { ShellOutput } from "./ShellParts"
+import { lastLine, type NativeBackgroundShell } from "../../lib/backgroundShells"
 
 // How the native panel shows background shells in its TileDeck, beside its
 // subagents: one tile for each shell, in the order they started.

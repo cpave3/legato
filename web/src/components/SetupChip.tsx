@@ -2,7 +2,7 @@ import { useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Check, Circle, X } from "lucide-react"
-import { useModalLayer } from "../hooks/useModalLayer"
+import { useModalLayer } from "./ui/useModalLayer"
 import { fetchSetup, setSetupDismissed, type SetupSummary } from "../lib/setup"
 import { queryKeys } from "../lib/query"
 

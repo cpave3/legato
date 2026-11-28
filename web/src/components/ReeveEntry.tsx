@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Crown } from "lucide-react"
-import type { AgentInfo } from "../hooks/useWebSocket"
+import type { AgentInfo } from "../lib/agentWire"
 import { resumeReeve, startReeve, type ReeveOverview } from "../lib/reeve"
 import { useReeveOverview } from "../hooks/useReeveOverview"
 import { cn } from "../lib/utils"

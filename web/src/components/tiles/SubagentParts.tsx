@@ -1,7 +1,7 @@
-import type { BackgroundJob } from "../hooks/useWebSocket"
-import { toolDisplayName } from "../lib/mcpToolName"
-import type { NativeSubagentState } from "../lib/nativeAgentSync"
-import { cn } from "../lib/utils"
+import type { BackgroundJob } from "../../lib/agentWire"
+import { toolDisplayName } from "../../lib/mcpToolName"
+import type { NativeSubagentState } from "../../lib/nativeAgentSync"
+import { cn } from "../../lib/utils"
 import type { DeckTile } from "./TileDeck"
 
 // The newest activity a tile shows.

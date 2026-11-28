@@ -2,7 +2,7 @@ import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { DatabaseZap } from "lucide-react"
 import { fetchMovable, moveSettings, type SettingsMove } from "../../lib/configSettings"
-import { useConfirm } from "../../hooks/useConfirm"
+import { useConfirm } from "../ui/useConfirm"
 import { SettingsCard, primaryButton, quietButton } from "./SettingsUI"
 
 const entryKey = (e: { list: string; name: string }) => `${e.list}/${e.name}`

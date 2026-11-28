@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AgentEnsemble } from "../AgentEnsemble"
 import { subagentFleet } from "../../test/subagentFleet"
-import type { AgentInfo } from "../../hooks/useWebSocket"
+import type { AgentInfo } from "../../lib/agentWire"
 import type { AgentConversation } from "../../lib/agentGlance"
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))

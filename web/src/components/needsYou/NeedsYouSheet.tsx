@@ -1,7 +1,7 @@
 import { useRef } from "react"
 import { Link } from "react-router-dom"
 import { Check, X } from "lucide-react"
-import { useModalLayer } from "../../hooks/useModalLayer"
+import { useModalLayer } from "../ui/useModalLayer"
 import { setFocusMode, useFocusMode } from "../../lib/focusMode"
 import { itemAgent } from "../../lib/needsYou"
 import { ApprovalCard, FocusButton, PeerApprovalCard } from "../ApprovalTray"

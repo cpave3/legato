@@ -1,6 +1,6 @@
 import { Fragment, useState } from "react"
 import { ChevronDown } from "lucide-react"
-import type { BackgroundJob } from "../hooks/useWebSocket"
+import type { BackgroundJob } from "../lib/agentWire"
 import { subagentCounts, subagentTree, subagentWaitsOn, subagentsLabel, type SubagentNode } from "../lib/agentGlance"
 import { cn } from "../lib/utils"
 import { Dropdown } from "./ui/Dropdown"

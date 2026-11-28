@@ -1,4 +1,4 @@
-import { useModalLayer } from "../hooks/useModalLayer"
+import { useModalLayer } from "./ui/useModalLayer"
 import { useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { ChevronLeft, ChevronRight, X } from "lucide-react"

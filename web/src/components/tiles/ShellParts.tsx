@@ -1,4 +1,4 @@
-import { plainOutput, type NativeBackgroundShell } from "../lib/backgroundShells"
+import { plainOutput, type NativeBackgroundShell } from "../../lib/backgroundShells"
 
 // ShellOutput is what a background shell printed, newest last, as its tile
 // shows it: a closed tile keeps the end in view, an opened one follows it.

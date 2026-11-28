@@ -8,7 +8,7 @@ import { AppThemePicker } from "../settings/AppThemePicker"
 import { useServer } from "../../hooks/useServer"
 import { createQueryClient } from "../../lib/query"
 import { applyAppTheme } from "../../lib/appTheme"
-import type { WSMessage } from "../../hooks/useWebSocket"
+import type { WSMessage } from "../../lib/agentWire"
 
 const socket = vi.hoisted(() => ({ generation: 1, handlers: new Set<(message: WSMessage) => void>(), subscribe: (handler: (message: WSMessage) => void) => { socket.handlers.add(handler); return () => { socket.handlers.delete(handler) } } }))
 vi.mock("../../hooks/useWebSocket", () => ({ useWebSocket: () => ({ connectionGeneration: socket.generation, subscribe: socket.subscribe }) }))

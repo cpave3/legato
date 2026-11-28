@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { render, screen, within } from "@testing-library/react"
 import { TileDeck } from "../TileDeck"
-import { shellTileForCall, shellTiles, shellTileId } from "../../lib/shellTiles"
-import type { NativeBackgroundShell } from "../../lib/backgroundShells"
+import { shellTileForCall, shellTiles, shellTileId } from "../shellTiles"
+import type { NativeBackgroundShell } from "../../../lib/backgroundShells"
 
 const running: NativeBackgroundShell = {
   shellId: "b1", callId: "toolu_1", command: "sleep 2; echo hi; sleep 30", description: "Say hi later", status: "running",

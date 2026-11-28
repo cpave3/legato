@@ -5,7 +5,7 @@ import { cn } from "../lib/utils"
 import { badgeText, badgeTone, navIcons, sectionActive, sectionName, type NavSection } from "../lib/navSections"
 import { animatedAgentActivityEnabled, setAnimatedAgentActivityEnabled } from "../lib/appearancePreferences"
 import { NavIcon } from "./NavRail"
-import { useModalLayer } from "../hooks/useModalLayer"
+import { useModalLayer } from "./ui/useModalLayer"
 
 function Badge({ count, tone, className }: { count: number; tone: NavSection["tone"]; className?: string }) {
   return (

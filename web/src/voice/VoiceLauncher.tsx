@@ -7,7 +7,7 @@ import { openMainVoice, shellStreams, voiceAudio } from "./audio"
 import { initialVoiceView, VoiceSessionClient, type AudioPort, type SocketLike, type VoiceView } from "./session"
 import { VoiceSheet, type VoiceReadinessView } from "./VoiceWidgets"
 import { VoiceRing } from "./VoiceRing"
-import { useModalLayer } from "../hooks/useModalLayer"
+import { useModalLayer } from "../components/ui/useModalLayer"
 import { useReeveName } from "../lib/reeveName"
 
 function sessionUrl(baseUrl: string): string {

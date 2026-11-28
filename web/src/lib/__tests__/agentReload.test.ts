@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { AgentInfo } from "../../hooks/useWebSocket"
+import type { AgentInfo } from "../agentWire"
 import { canReloadAgent, hostNetworkSwitchLabel, reloadAgent, sandboxSwitchLabel, setAgentHostNetwork, switchAgentSandbox } from "../agentReload"
 
 const agent = (extra: Partial<AgentInfo> = {}) => ({ task_id: "T-1", agent_kind: "claude-code", status: "running", ...extra }) as AgentInfo

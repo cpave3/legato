@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { useState } from "react"
 import { afterEach, describe, expect, it } from "vitest"
 import { AgentSelect } from "../AgentSelect"
-import type { AgentInfo } from "../../hooks/useWebSocket"
+import type { AgentInfo } from "../../lib/agentWire"
 import type { WorkStage } from "../../lib/agentStage"
 
 const base: AgentInfo = {

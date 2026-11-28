@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type ReactNode } from "react"
-import type { AgentInfo } from "../hooks/useWebSocket"
+import type { AgentInfo } from "../lib/agentWire"
 import { cn } from "../lib/utils"
 import { ChevronDown, ChevronRight, LayoutGrid, Plus } from "lucide-react"
 import { AgentKindBadge, HostNetworkBadge, UnsandboxedBadge } from "./AgentKindBadge"

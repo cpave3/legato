@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { AgentInfo } from "../useWebSocket"
+import type { AgentInfo } from "../../lib/agentWire"
 import { useAgentGroups } from "../useAgentGroups"
 
 vi.mock("../useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))

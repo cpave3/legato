@@ -15,7 +15,7 @@ vi.mock("../../lib/reeve", () => ({
 import { ReeveEntry, ReeveStatus } from "../ReeveEntry"
 import { AgentSidebar } from "../AgentSidebar"
 import { AgentSelect } from "../AgentSelect"
-import type { AgentInfo } from "../../hooks/useWebSocket"
+import type { AgentInfo } from "../../lib/agentWire"
 
 const wrap = (node: ReactNode) => <QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>
 const overview = { history: [], folder: "/r", instance: "legato-1", role: "main", to_approve: 2 }

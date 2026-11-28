@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import { ExternalLink, X } from "lucide-react"
-import { useModalLayer } from "../../hooks/useModalLayer"
+import { useModalLayer } from "../ui/useModalLayer"
 import { useWorkflowRun } from "../../hooks/useWorkflow"
 import { useNow } from "../../hooks/useNow"
 import { useRunGraphExtras } from "../../hooks/useRunGraph"

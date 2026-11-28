@@ -1,6 +1,6 @@
 import { useRef, type ReactNode } from "react"
 import { X } from "lucide-react"
-import { useModalLayer } from "../hooks/useModalLayer"
+import { useModalLayer } from "./ui/useModalLayer"
 
 // NodeSheet is a workflow graph node's details on a phone: a bottom sheet
 // over the page in place of the side panel, touch-sized, closed with its

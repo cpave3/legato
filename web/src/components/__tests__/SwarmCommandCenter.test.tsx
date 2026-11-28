@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { SwarmCommandCenter } from "../SwarmCommandCenter"
-import type { AgentInfo } from "../../hooks/useWebSocket"
+import type { AgentInfo } from "../../lib/agentWire"
 import type { SwarmStatusData } from "../../lib/swarm"
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))

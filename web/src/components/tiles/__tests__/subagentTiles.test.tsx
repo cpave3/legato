@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
 import { render, screen, within } from "@testing-library/react"
-import { TileDeck } from "../../components/TileDeck"
-import { createNativeSyncState, reduceNativeEvent, type NativeConversationItem, type NativeEvent } from "../nativeAgentSync"
+import { TileDeck } from "../TileDeck"
+import { createNativeSyncState, reduceNativeEvent, type NativeConversationItem, type NativeEvent } from "../../../lib/nativeAgentSync"
 import { subagentTiles } from "../subagentTiles"
-import { fleetShell, fleetSubagent } from "../../test/subagentFleet"
-import type { BackgroundJob } from "../../hooks/useWebSocket"
+import { fleetShell, fleetSubagent } from "../../../test/subagentFleet"
+import type { BackgroundJob } from "../../../lib/agentWire"
 
 // A Claude Code subagent as the bridge reports it: spawned in the background,
 // its launch answered, then its own turn ended while its shells still run.

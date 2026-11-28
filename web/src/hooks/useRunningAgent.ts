@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { useServer } from "./useServer"
-import { useWebSocket, type AgentInfo, type WSMessage } from "./useWebSocket"
+import { useWebSocket } from "./useWebSocket"
+import { type AgentInfo, type WSMessage } from "../lib/agentWire"
 import { apiFetch } from "../lib/api"
 
 interface RunningAgentState {

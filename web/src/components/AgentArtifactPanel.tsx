@@ -5,19 +5,14 @@ import { useReviewBriefing } from "../hooks/useReviewBriefing"
 import { useProposeMessage } from "../hooks/useProposeMessage"
 import { useServer } from "../hooks/useServer"
 import { useToast } from "../hooks/useToast"
-import { useModalLayer } from "../hooks/useModalLayer"
-import { useConfirm } from "../hooks/useConfirm"
+import { useModalLayer } from "./ui/useModalLayer"
+import { useConfirm } from "./ui/useConfirm"
 import { buildStandaloneDocument, deleteAgentUIItem, inlineImages, itemImages, type AgentUIItem } from "../lib/agentUi"
 import { briefingPathOf, briefingTabId, briefingTabLabel } from "../lib/reviewBriefing"
 import { AgentUIItemView } from "./AgentUIItemView"
 import { ReviewBriefingView } from "./ReviewBriefingView"
 import { LoadingState } from "./ui/LoadingState"
-
-export interface ArtifactFocus {
-  itemId: string
-  // 0 follows the latest revision; a number pins one.
-  revision: number
-}
+import type { ArtifactFocus } from "../lib/artifactFocus"
 
 interface AgentArtifactPanelProps {
   agentId: string

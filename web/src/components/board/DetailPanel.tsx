@@ -1,5 +1,5 @@
 import { useRef, type ReactNode } from "react"
-import { useModalLayer } from "../../hooks/useModalLayer"
+import { useModalLayer } from "../ui/useModalLayer"
 import { ChevronRight, X } from "lucide-react"
 
 import { taskPullRequests, type AwayOn, type CardDetail } from "../../lib/board-types"

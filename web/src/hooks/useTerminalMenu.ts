@@ -2,7 +2,7 @@ import { createElement, useState } from "react"
 import { Bell, BellOff, Eye, EyeOff, FolderInput, Info, Network, Pencil, RefreshCw, RotateCw, ScanSearch, Shield, Skull, Sparkles, Unplug } from "lucide-react"
 import { canBeNative } from "../lib/agentKind"
 import type { SandboxSwitch } from "../lib/agentReload"
-import type { AgentMenuEntry } from "../components/AgentChatHeader"
+import type { AgentMenuEntry } from "../lib/agentMenu"
 
 interface TerminalMenuOptions {
   agentKind?: string

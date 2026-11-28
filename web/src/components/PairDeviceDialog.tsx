@@ -1,4 +1,4 @@
-import { useModalLayer } from "../hooks/useModalLayer"
+import { useModalLayer } from "./ui/useModalLayer"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Check, Eye, X } from "lucide-react"
 import { encode } from "uqr"

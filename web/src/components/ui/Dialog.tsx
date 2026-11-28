@@ -10,7 +10,7 @@ import {
 
 import { cn } from "../../lib/utils"
 import { Button } from "./Button"
-import { useModalLayer } from "../../hooks/useModalLayer"
+import { useModalLayer } from "./useModalLayer"
 
 interface DialogContextValue {
   onClose: () => void

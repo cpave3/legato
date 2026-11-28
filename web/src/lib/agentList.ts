@@ -1,4 +1,4 @@
-import type { AgentInfo } from "../hooks/useWebSocket"
+import type { AgentInfo } from "./agentWire"
 import { glanceLabels, glanceOrder, glanceSection, type GlanceSection } from "./agentStage"
 
 export interface AgentListSection {

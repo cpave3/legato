@@ -1,8 +1,8 @@
-import { subagentStatus, type NativeConversationItem, type NativeToolItem } from "./nativeAgentSync"
-import type { DeckTile } from "../components/TileDeck"
-import { SubagentActivity, SubagentShells } from "../components/SubagentParts"
-import type { BackgroundJob } from "../hooks/useWebSocket"
-import { subagentTree, subagentWaitsOn, type SubagentNode } from "./agentGlance"
+import { subagentStatus, type NativeConversationItem, type NativeToolItem } from "../../lib/nativeAgentSync"
+import type { DeckTile } from "./TileDeck"
+import { SubagentActivity, SubagentShells } from "./SubagentParts"
+import type { BackgroundJob } from "../../lib/agentWire"
+import { subagentTree, subagentWaitsOn, type SubagentNode } from "../../lib/agentGlance"
 
 // How the native panel shows its subagents in a TileDeck: one tile for each
 // call that spawned one, in the order they were spawned.

@@ -4,7 +4,7 @@ import { needsYouReason, reeveWaitLabel } from "../agentStage"
 import { agentLook } from "../../components/agent-graph/look"
 import type { BoardCard } from "../board-types"
 import { reeveName } from "../reeveName"
-import type { AgentInfo } from "../../hooks/useWebSocket"
+import type { AgentInfo } from "../agentWire"
 
 const now = new Date("2026-11-24T05:12:00Z")
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(now) })

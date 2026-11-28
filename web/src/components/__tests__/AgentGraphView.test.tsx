@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AgentEnsemble, ENSEMBLE_LAYOUT_KEY } from "../AgentEnsemble"
-import type { AgentInfo, WSMessage } from "../../hooks/useWebSocket"
+import type { AgentInfo, WSMessage } from "../../lib/agentWire"
 import type { AgentGraphData, GraphRun } from "../../lib/agentGraph"
 import { createQueryClient } from "../../lib/query"
 import { mockReactFlow } from "../../test/reactFlow"

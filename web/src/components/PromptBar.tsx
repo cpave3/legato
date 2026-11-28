@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, type KeyboardEvent } from "react"
-import type { PromptState } from "../hooks/useWebSocket"
+import type { PromptState } from "../lib/agentWire"
 import { useServer } from "../hooks/useServer"
 import { usePastedImages } from "../hooks/usePastedImages"
 import { insertImagePath } from "../lib/agentImage"

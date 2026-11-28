@@ -1,23 +1,15 @@
 import { createPortal } from "react-dom"
-import { useMenuLayer } from "../hooks/useMenuLayer"
+import { useMenuLayer } from "./ui/useMenuLayer"
 import { useRef, useState, type ReactNode } from "react"
 import { LayoutGrid, List, Mic, MoreHorizontal } from "lucide-react"
 import { cn } from "../lib/utils"
 import { AgentKindBadge } from "./AgentKindBadge"
 import { AgentStageChip, type AgentStageInfo } from "./AgentStageChip"
 import { SubagentsLine } from "./SubagentTree"
-import type { BackgroundJob } from "../hooks/useWebSocket"
+import type { BackgroundJob } from "../lib/agentWire"
+import type { AgentMenuEntry } from "../lib/agentMenu"
 
 export type AgentChatState = "needs-you" | "running" | "background" | "error" | "idle"
-
-export interface AgentMenuEntry {
-  label: string
-  icon?: ReactNode
-  onSelect: () => unknown
-  disabled?: boolean
-  // Ends the agent, or something like it: listed last, apart, in red.
-  danger?: boolean
-}
 
 interface AgentChatHeaderProps {
   state: AgentChatState
@@ -207,7 +199,6 @@ export function AgentMoreMenu({ entries, label = "More actions" }: { entries: Ag
   useMenuLayer({ open, onOpen: () => setOpen(true), onClose: () => setOpen(false), containerRef: box, triggerRef: trigger, align: "right" })
   const plain = entries.filter((entry) => !entry.danger)
   const danger = entries.filter((entry) => entry.danger)
-
 
   if (entries.length === 0) return null
 

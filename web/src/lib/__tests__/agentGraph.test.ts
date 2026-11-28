@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { AgentInfo, BackgroundJob } from "../../hooks/useWebSocket"
+import type { AgentInfo, BackgroundJob } from "../agentWire"
 import { compactGraphMemory, GONE_GRACE_MS, layoutAgentGraph, linkLines, type AgentGraphData, type AgentGraphLayout, type GraphMemory, type GraphRun, type LayoutOptions } from "../agentGraph"
 import { busyFleet, screenshotFleet } from "../../test/agentGraphFleet"
 import { boxesCrossed, crossings, geometryOf, inside, nodesCrossed, orthogonal } from "./graphGeometry"

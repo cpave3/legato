@@ -1,4 +1,4 @@
-import type { SpawnAgentRequest } from "../components/SpawnAgentDialog"
+import type { SpawnAgentRequest } from "./spawnRequest"
 
 // The fields of a spawn request that say where the agent starts: a folder,
 // a fresh clone of a repository, or a job clone that exists.

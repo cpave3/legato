@@ -4,22 +4,8 @@
 // the types and words only, so pages can use them without loading the
 // graph library.
 import { dump } from "js-yaml"
-import type { WorkflowStepDefinition } from "./workflow"
+import type { GraphEdge, GraphGate, GraphNode, GraphTrigger } from "./workflow"
 
-export type GraphTrigger = { kind: string; summary: string; enabled: boolean; confirm?: boolean; max_runs_per_day?: number; definition?: Record<string, unknown> }
-export type GraphGate = "manual" | "agent_ended"
-// A loop step's loop (graph version 2): its form, its most passes, and what
-// it goes over or ends on, in words.
-export type GraphLoop = { form: "over" | "next" | "repeat"; max: number; summary?: string; until?: string }
-// path is the step's path without a pass: its ID, or in a loop's body the
-// loop's path, a slash and its ID (each/build). A loop (group "loop") holds
-// its body's steps, whose parent is its node.
-export type GraphStep = { id: string; path?: string; title: string; type: string; start: "automatic" | "manual" | "agent_ended"; gate?: GraphGate; group?: "review_loop" | "loop"; loop?: GraphLoop; key: { field?: string; value?: string }; definition: WorkflowStepDefinition }
-export type GraphNode = { id: string; kind: "trigger" | "step" | "inner"; trigger?: GraphTrigger; step?: GraphStep; inner?: { role: string; title: string }; parent?: string }
-// A branch edge leads into a step with if: (condition, in words), or past it
-// (skip) to where the run goes when the step is skipped.
-export type GraphEdge = { id: string; kind: "start" | "order" | "data" | "loop" | "branch" | string; source: string; target: string; outputs?: string[]; condition?: string; skip?: boolean }
-export type WorkflowGraphModel = { version: number; nodes: GraphNode[]; edges: GraphEdge[] }
 
 // GraphNodeExtra is what a page knows of a node beyond its definition: for
 // a trigger, whether it is on in this Legato.

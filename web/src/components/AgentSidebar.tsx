@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
-import type { AgentInfo } from "../hooks/useWebSocket";
+import type { AgentInfo } from "../lib/agentWire";
 import type { AgentGrouping } from "../hooks/useAgentGroups";
 import type { AgentContext } from "../hooks/useAgentContexts";
 import { cn } from "../lib/utils";

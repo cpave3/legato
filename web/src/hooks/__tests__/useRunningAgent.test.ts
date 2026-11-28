@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useRunningAgent } from "../useRunningAgent"
-import type { AgentInfo, WSMessage } from "../useWebSocket"
+import type { AgentInfo, WSMessage } from "../../lib/agentWire"
 
 const mockFetch = vi.fn()
 const mockSubscribe = vi.fn()

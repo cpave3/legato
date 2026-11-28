@@ -1,6 +1,6 @@
 import { apiFetch } from "./api"
 import type { WorkflowDefinition } from "./workflow"
-import type { WorkflowGraphModel } from "./workflowGraph"
+import type { WorkflowGraphModel } from "./workflow"
 
 // The workflow file API (internal/server/workflow_files.go): a workflow's
 // file as its bytes, a check of what is typed, and the writes. A refusal

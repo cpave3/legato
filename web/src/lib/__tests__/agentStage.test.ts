@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { AgentInfo } from "../../hooks/useWebSocket"
+import type { AgentInfo } from "../agentWire"
 import {
   filterByStage,
   glanceSection,
