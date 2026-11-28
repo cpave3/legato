@@ -1,22 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Code2, Copy, MoreVertical, Plus, Trash2 } from "lucide-react"
-import { addInput, inputsOf, itemKey, itemsOf, itemText, moveStep, pastedAs, problemsByItem, removeStep, renameStep, setField, setItemText, setTrigger, stepsOf, stepYamlPath, triggersOf, parseWorkflow, insertStep, WorkflowDocumentError, type ItemRef, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
+import { addInput, inputsOf, itemKey, itemsOf, itemText, moveStep, problemsByItem, removeStep, renameStep, setField, setItemText, stepsOf, stepYamlPath, triggersOf, parseWorkflow, WorkflowDocumentError, type ItemRef, type WorkflowEdit, type WorkflowValues, type YamlPath } from "../../lib/workflowDocument"
 import { addressOf, sameSelection, type Selection } from "../../lib/workflowAddress"
 import type { SchedulePreview, WorkflowDiagnostic } from "../../lib/workflowFiles"
 import { Button } from "../ui/Button"
 import { PendingDrafts } from "./pendingDrafts"
 import { useHeldYaml, type HeldYaml } from "./useHeldYaml"
 import { useOutlineSelection } from "./useOutlineSelection"
+import { stepListOf, useOutlineEditing } from "./useOutlineEditing"
 import { CommitField, Problems } from "./builderFields"
-import { CARD_TASK, executorTitle, fromTheCard, iconOf, isTyping, nodeOf, orderOf, placeOf, rowsOf, selectionOfNode, type Row } from "./outlineRows"
+import { CARD_TASK, executorTitle, fromTheCard, iconOf, nodeOf, orderOf, placeOf, rowsOf, selectionOfNode, type Row } from "./outlineRows"
 import { valueText } from "./builderStyles"
 import { DetailsForm, InputCard } from "./itemForms"
-import { brokenReferences, newStep, noOptions, stepReferences, type BuilderOptions, type StepValue } from "./stepForms"
-import { connectorOf, duplicateOf, idFromTitle } from "./stepRows"
+import { brokenReferences, noOptions, stepReferences, type BuilderOptions, type StepValue } from "./stepForms"
+import { connectorOf, idFromTitle } from "./stepRows"
 import { StepOutputs, StepSetup } from "./StepSetup"
 import { StepPicker } from "./StepPicker"
 import { TriggerCard } from "./TriggersEditor"
-import { KIND_TITLES, newTrigger, triggerKinds } from "./triggerForms"
+import { KIND_TITLES, triggerKinds } from "./triggerForms"
 import { LazyWorkflowYamlEditor } from "./LazyWorkflowYamlEditor"
 import { LazyWorkflowGraph } from "../workflow-graph/LazyWorkflowGraph"
 import type { WorkflowGraphModel } from "../../lib/workflow"
@@ -105,16 +106,7 @@ function Outline(props: WorkflowOutlineProps) {
   const { file, items } = useMemo(() => itemsOf(text), [text])
   const values = useMemo(() => parseWorkflow(text).values, [text])
   const problems = useMemo(() => problemsByItem(text, diagnostics), [text, diagnostics])
-  const [error, setError] = useState("")
-  const [adding, setAdding] = useState<{ kind: "step"; at: number } | { kind: "trigger" } | null>(null)
-  const [menu, setMenu] = useState<string | null>(null)
-  const [pasted, setPasted] = useState<string | null>(null)
   const [view, setView] = useState<"list" | "map">("list")
-  const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
-  const [warning, setWarning] = useState("")
-  const [dragged, setDragged] = useState<string | null>(null)
-  // A step just added has its first essential field focused.
-  const [focusNew, setFocusNew] = useState<string | null>(null)
   const inspector = useRef<HTMLElement>(null)
   // On the canvas: which cards are folded, and the node to centre.
   const canvasOn = props.layout === "canvas" && !navigating && !narrow
@@ -137,15 +129,10 @@ function Outline(props: WorkflowOutlineProps) {
 
   const { heldYaml, hold } = useHeldYaml({ text, order, held: props.held, onHeld: props.onHeld })
 
-  const apply = useCallback((make: () => WorkflowEdit, how?: { typing?: boolean }) => {
-    try {
-      setError("")
-      const result = make()
-      if (result.text !== text) onEdit(result, how)
-    } catch (reason) {
-      setError(reason instanceof WorkflowDocumentError ? reason.message : String(reason))
-    }
-  }, [text, onEdit])
+  const list = useMemo(() => stepListOf(stepsOf(values) as (StepValue | null)[]), [values])
+  const { placed, steps } = list
+  const { error, apply, adding, setAdding, menu, setMenu, dragged, setDragged, select, paste, addStep, moveTo, removeIt, duplicate, warning, confirmRemove, keep, focusNew, focused, addTrigger, addAnInput } =
+    useOutlineEditing({ editing, text, values, list, selection, onEdit, onSelect, choose, options })
 
   if (file) {
     const alert = <div role="alert" className="flex flex-col items-start gap-2 rounded-xl border border-lw-danger-line bg-lw-error-soft p-4 text-sm text-lw-danger">
@@ -160,92 +147,6 @@ function Outline(props: WorkflowOutlineProps) {
       {props.cards && <div className="max-w-sm">{props.cards}</div>}
     </div>
     return alert
-  }
-
-  // A step that is not a mapping keeps its place, and is no one's reader.
-  const placed = stepsOf(values) as (StepValue | null)[]
-  const steps = placed.filter((step): step is StepValue => step !== null && typeof step === "object")
-  const ids = steps.map(step => step.id ?? "")
-  const select = (next: Selection, open = false) => {
-    setAdding(null)
-    choose(next, open)
-  }
-
-  // What is pasted on the forms (not into a field): a whole workflow asks
-  // to replace this one; steps go in after the step chosen.
-  const onPaste = (event: React.ClipboardEvent) => {
-    if (!editing || isTyping(event.target)) return
-    const clip = event.clipboardData.getData("text/plain")
-    const what = pastedAs(clip)
-    if (what.kind === "other") return
-    event.preventDefault()
-    if (what.kind === "workflow") { setPasted(clip); return }
-    const after = selection?.kind === "step" ? placed.findIndex(step => step?.id === selection.path.split("/")[0]) + 1 : placed.length
-    apply(() => {
-      let working = text
-      const taken = [...ids]
-      // The IDs first, then the group's references to its own renamed
-      // steps follow them; a reference to a step not pasted is left alone.
-      const added = what.steps.map(raw => {
-        const base = typeof raw.id === "string" && raw.id !== "" ? raw.id : idFromTitle(String(raw.title ?? raw.type ?? "step"), taken)
-        let id = base
-        for (let n = 2; taken.includes(id); n++) id = `${base}-${n}`
-        taken.push(id)
-        return id
-      })
-      const renamed = new Map(what.steps.flatMap((raw, i) => typeof raw.id === "string" && raw.id !== added[i] ? [[raw.id, added[i]] as const] : []))
-      const follow = (value: unknown): unknown => {
-        if (typeof value === "string") return renamed.size === 0 ? value : value.replace(/\$\{\{[^}]*\}\}/g, expression => expression.replace(/(\bsteps\.)([^.\s}]+)(?=\.outputs\b)/g, (all, head: string, id: string) => renamed.has(id) ? head + renamed.get(id) : all))
-        if (Array.isArray(value)) return value.map(follow)
-        if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, follow(v)]))
-        return value
-      }
-      what.steps.forEach((raw, i) => {
-        working = insertStep(working, (after <= 0 ? placed.length : after) + i, { ...(follow(raw) as Record<string, unknown>), id: added[i] }).text
-      })
-      if (added[0]) setTimeout(() => select({ kind: "step", path: added[0] }), 0)
-      return { text: working, undo: { label: `Paste ${added.length === 1 ? `step ${added[0]}` : `${added.length} steps`}`, before: text, after: working } }
-    })
-  }
-
-  // A new step's ID is made from its title, and follows it until saved.
-  const addStep = (type: string, at: number) => {
-    const made = newStep(type, ids)
-    const step = { ...made, id: idFromTitle(String(made.title ?? type), ids) }
-    apply(() => insertStep(text, at, step))
-    select({ kind: "step", path: step.id }, true)
-    setFocusNew(step.id)
-  }
-  const moveTo = (id: string, to: number) => {
-    const order = ids.filter(other => other !== id)
-    order.splice(to, 0, id)
-    const broken = brokenReferences(steps, order)
-    if (broken.length > 0) { setWarning(`That move would break a reference: ${broken.join("; ")}.`); return }
-    setWarning("")
-    apply(() => moveStep(text, id, to))
-  }
-  const removeIt = (id: string) => {
-    const readers = steps.filter(step => step.id !== id && stepReferences(step).some(ref => ref.id === id))
-    if (readers.length > 0 && confirmRemove !== id) { setConfirmRemove(id); return }
-    setConfirmRemove(null)
-    apply(() => removeStep(text, id))
-    if (selection?.kind === "step" && selection.path === id) onSelect(null)
-  }
-  const duplicate = (step: StepValue, index: number) => {
-    const copy = duplicateOf(step, ids)
-    apply(() => insertStep(text, index + 1, copy))
-    select({ kind: "step", path: String(copy.id) }, true)
-  }
-  const addTrigger = (kind: string) => {
-    apply(() => setTrigger(text, kind, newTrigger(kind, options)))
-    select({ kind: "trigger", name: kind }, true)
-  }
-  const addAnInput = () => {
-    const taken = Object.keys(inputsOf(values))
-    let name = "input"
-    for (let n = 2; taken.includes(name); n++) name = `input-${n}`
-    apply(() => addInput(text, name, { type: "string" }))
-    select({ kind: "input", name }, true)
   }
 
   const rowButton = (row: Row, bare = false, number?: number) => {
@@ -305,7 +206,7 @@ function Outline(props: WorkflowOutlineProps) {
       {confirmRemove === id && <div role="alertdialog" aria-label={`Remove step ${id}`} className="mx-2 my-1 flex flex-wrap items-center gap-2 rounded border border-lw-needs p-2 text-xs">
         <span>{readers.join(", ")} {readers.length === 1 ? "reads" : "read"} this step's outputs.</span>
         <Button type="button" size="sm" variant="destructive" onClick={() => removeIt(id)}>Remove anyway</Button>
-        <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmRemove(null)}>Keep it</Button>
+        <Button type="button" size="sm" variant="ghost" onClick={keep}>Keep it</Button>
       </div>}
     </li>
   }
@@ -383,7 +284,7 @@ function Outline(props: WorkflowOutlineProps) {
   const inspectorView = <section ref={inspector} aria-label="Inspector" className="flex min-w-0 flex-col gap-3">
     {narrow && <Button type="button" size="sm" variant="ghost" className="self-start" onClick={onCloseSheet}><ArrowLeft size={13} />Outline</Button>}
     {selectedRow
-      ? <Inspector key={placeOf(order, selectedRow.selection)} place={placeOf(order, selectedRow.selection)} held={heldYaml[placeOf(order, selectedRow.selection)]} onHold={hold} row={selectedRow} savedIds={savedIds} focusEssential={selectedRow.selection.kind === "step" && selectedRow.selection.path === focusNew} onFocused={() => setFocusNew(null)} text={text} values={values} diagnostics={diagnostics} problems={problems} options={options} apply={apply} nameFixed={nameFixed} schedule={schedule} onSelect={onSelect} onUndo={onUndo} onRedo={onRedo} />
+      ? <Inspector key={placeOf(order, selectedRow.selection)} place={placeOf(order, selectedRow.selection)} held={heldYaml[placeOf(order, selectedRow.selection)]} onHold={hold} row={selectedRow} savedIds={savedIds} focusEssential={selectedRow.selection.kind === "step" && selectedRow.selection.path === focusNew} onFocused={focused} text={text} values={values} diagnostics={diagnostics} problems={problems} options={options} apply={apply} nameFixed={nameFixed} schedule={schedule} onSelect={onSelect} onUndo={onUndo} onRedo={onRedo} />
       : <p className="text-sm text-lw-text-2">Choose a row of the outline to edit it.</p>}
   </section>
 
@@ -415,20 +316,20 @@ function Outline(props: WorkflowOutlineProps) {
       {brokenNote}
       {graph?.stale && <p role="status" className={`${box} text-lw-needs`}>{staleWords}</p>}
       {error && <p role="alert" className={`${box} text-lw-danger`}>{error}</p>}
-      {pasted !== null && <div role="alertdialog" aria-label="Replace the workflow" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm shadow-[var(--shadow-lw-panel)]">
+      {paste.pasted !== null && <div role="alertdialog" aria-label="Replace the workflow" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm shadow-[var(--shadow-lw-panel)]">
         <span className="min-w-0 flex-1">You pasted a whole workflow. Replace this one with it? Undo brings this one back.</span>
-        <Button size="sm" onClick={() => { const next = pasted; setPasted(null); onEdit({ text: next, undo: { label: "Paste a workflow", before: text, after: next } }) }}>Replace</Button>
-        <Button size="sm" variant="ghost" onClick={() => setPasted(null)}>Cancel</Button>
+        <Button size="sm" onClick={paste.replace}>Replace</Button>
+        <Button size="sm" variant="ghost" onClick={paste.cancel}>Cancel</Button>
       </div>}
     </>
-    const hasNotices = Boolean(props.notices || broken || graph?.stale || error || pasted !== null)
+    const hasNotices = Boolean(props.notices || broken || graph?.stale || error || paste.pasted !== null)
     const panel = selectedRow && !broken && <aside aria-label={selectedRow.label.trim()} className={`flex min-h-0 flex-col rounded-xl border border-lw-line bg-lw-surface p-4 text-sm ${floatingPanel}`}>
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">{inspectorView}</div>
         <PanelClose onClose={() => onSelect(null)} />
       </div>
     </aside>
-    return <div className="flex min-h-0 flex-1 flex-col text-sm" onPaste={onPaste}>
+    return <div className="flex min-h-0 flex-1 flex-col text-sm" onPaste={paste.onPaste}>
       <WorkflowCanvas label="Workflow graph" narrow={false} panelWidth={INSPECTOR_WIDTH} dockYields
         graph={graph ? { graph: graph.model, selectedId: nodeOf(shown), onSelect: graphSelect, centerOn, direction: "LR" } : null}
         empty="The graph shows once Legato has read the file."
@@ -463,12 +364,12 @@ function Outline(props: WorkflowOutlineProps) {
     </div>
   }
 
-  return <div className="flex flex-col gap-3 text-sm" onPaste={onPaste}>
+  return <div className="flex flex-col gap-3 text-sm" onPaste={paste.onPaste}>
     {error && <p role="alert" className="text-sm text-lw-danger">{error}</p>}
-    {pasted !== null && <div role="alertdialog" aria-label="Replace the workflow" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm">
+    {paste.pasted !== null && <div role="alertdialog" aria-label="Replace the workflow" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm">
       <span className="min-w-0 flex-1">You pasted a whole workflow. Replace this one with it? Undo brings this one back.</span>
-      <Button size="sm" onClick={() => { const next = pasted; setPasted(null); onEdit({ text: next, undo: { label: "Paste a workflow", before: text, after: next } }) }}>Replace</Button>
-      <Button size="sm" variant="ghost" onClick={() => setPasted(null)}>Cancel</Button>
+      <Button size="sm" onClick={paste.replace}>Replace</Button>
+      <Button size="sm" variant="ghost" onClick={paste.cancel}>Cancel</Button>
     </div>}
     {narrow
       ? (sheet && selectedRow
