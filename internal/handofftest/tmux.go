@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+
+	"github.com/cpave3/legato/internal/service"
 )
 
 // FakeTmux stands in for tmux on a worker: agents "start" in it and stay
@@ -85,11 +87,13 @@ func (f *FakeTmux) record(name, text string) error {
 	return nil
 }
 
-func (f *FakeTmux) SendKeys(name, keys string) error                { return f.record(name, keys) }
-func (f *FakeTmux) SendKey(name, key string) error                  { return f.record(name, key) }
-func (f *FakeTmux) SendKeysLine(name, line string) error            { return f.record(name, line) }
-func (f *FakeTmux) SendKeysMultiline(name, payload string) error    { return f.record(name, payload) }
-func (f *FakeTmux) SendKeysShellCommand(name, command string) error { return f.record(name, command) }
+func (f *FakeTmux) SendKeys(name, keys string) error             { return f.record(name, keys) }
+func (f *FakeTmux) SendKey(name, key string) error               { return f.record(name, key) }
+func (f *FakeTmux) SendKeysLine(name, line string) error         { return f.record(name, line) }
+func (f *FakeTmux) SendKeysMultiline(name, payload string) error { return f.record(name, payload) }
+func (f *FakeTmux) RunInPane(name string, argv []string, _ ...string) error {
+	return f.record(name, service.PaneLaunchLine(argv))
+}
 
 func (f *FakeTmux) PipeOutput(string) (io.Reader, func(), error) {
 	return strings.NewReader(""), func() {}, nil

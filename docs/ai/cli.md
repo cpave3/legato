@@ -306,7 +306,7 @@ Each activity script gates on `LEGATO_TASK_ID`, `LEGATO_EXECUTION_ID`, and `CHIM
 
 For swarm auto-launch, Legato injects the conductor/worker role prompt as Codex developer instructions with `codex -c developer_instructions="$(cat $LEGATO_ROLE_PROMPT_FILE)"`, then sends the usual kickoff message telling Codex to read `$LEGATO_BRIEF_FILE`.
 
-**Native bridge**: unless `adapters.codex.native_bridge: false`, that command is typed as `legato agent codex -- -c developer_instructions=… <launch_args>`: the session runs against an app server of its own, with a Legato bridge as a second client of it. Messages, interrupts and approvals then go to Codex directly instead of through send-keys, the kickoff waits for the bridge instead of a fixed delay, and the web UI shows the session in the native panel. The shell hooks below still own activity state; they run inside the app server, which inherits the pane's `LEGATO_TASK_ID`. See [Codex native integration](codex-native.md).
+**Native bridge**: unless `adapters.codex.native_bridge: false`, that command is launched as `legato agent codex -- -c developer_instructions=… <launch_args>`: the session runs against an app server of its own, with a Legato bridge as a second client of it. Messages, interrupts and approvals then go to Codex directly instead of through send-keys, the kickoff waits for the bridge instead of a fixed delay, and the web UI shows the session in the native panel. The shell hooks below still own activity state; they run inside the app server, which inherits the pane's `LEGATO_TASK_ID`. See [Codex native integration](codex-native.md).
 
 **Event → activity mapping** (per Codex's documented hook events):
 

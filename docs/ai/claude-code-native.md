@@ -201,7 +201,7 @@ adapters:
 
 ## Trusting the folder
 
-Claude Code asks whether to trust a folder the first time a session starts there. Legato answers for it: before it types the launch command, the agent service calls `TrustWorkDir` (`service.WorkspaceTrustAdapter`, implemented in `internal/engine/hooks/claude_trust.go`), which writes what accepting the dialog writes, `projects["<folder>"].hasTrustDialogAccepted: true`, into `~/.claude.json` (`<CLAUDE_CONFIG_DIR>/.claude.json` when the session or Legato sets that variable). This is not a documented interface of Claude Code; it is the value its dialog checks.
+Claude Code asks whether to trust a folder the first time a session starts there. Legato answers for it: before it launches the session, the agent service calls `TrustWorkDir` (`service.WorkspaceTrustAdapter`, implemented in `internal/engine/hooks/claude_trust.go`), which writes what accepting the dialog writes, `projects["<folder>"].hasTrustDialogAccepted: true`, into `~/.claude.json` (`<CLAUDE_CONFIG_DIR>/.claude.json` when the session or Legato sets that variable). This is not a documented interface of Claude Code; it is the value its dialog checks.
 
 - The key is the folder's real path, links resolved, which is what Claude Code sees as its working directory inside a sandbox or out.
 - Nothing is written when Claude Code would not ask: the folder, or a parent up to its git root (any parent outside git), is already trusted. A missing file stays missing: a Claude Code that never ran does its onboarding first.

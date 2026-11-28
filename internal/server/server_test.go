@@ -1042,9 +1042,9 @@ func (m *mockTmuxManager) SendKey(name, key string) error {
 	m.sentKeys = append(m.sentKeys, key)
 	return nil
 }
-func (m *mockTmuxManager) SendKeysLine(name, line string) error            { return nil }
-func (m *mockTmuxManager) SendKeysMultiline(name, payload string) error    { return nil }
-func (m *mockTmuxManager) SendKeysShellCommand(name, command string) error { return nil }
+func (m *mockTmuxManager) SendKeysLine(name, line string) error         { return nil }
+func (m *mockTmuxManager) SendKeysMultiline(name, payload string) error { return nil }
+func (m *mockTmuxManager) RunInPane(string, []string, ...string) error  { return nil }
 func (m *mockTmuxManager) PipeOutput(name string) (io.Reader, func(), error) {
 	return strings.NewReader(""), func() {}, nil
 }

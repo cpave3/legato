@@ -42,7 +42,9 @@ type TmuxManager interface {
 	SendKey(name, key string) error
 	SendKeysLine(name, line string) error
 	SendKeysMultiline(name, payload string) error
-	SendKeysShellCommand(name, command string) error
+	// RunInPane replaces the process of the session's pane with argv: how
+	// an agent is launched (paneLaunch), never by typing into a shell.
+	RunInPane(name string, argv []string, envVars ...string) error
 	PipeOutput(name string) (io.Reader, func(), error)
 	SetEnv(sessionName, key, value string) error
 	SetOption(sessionName, key, value string) error
@@ -1570,7 +1572,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 
 	// Capture the lockfile baseline before launching Chimera. Fast agents can
-	// write their lockfile synchronously during SendKeysShellCommand; taking this
+	// write their lockfile synchronously as they launch; taking this
 	// snapshot in the discovery goroutine would incorrectly classify it as old.
 	var chimeraLockfilesBeforeLaunch map[string]bool
 	// Discovery matches by session name (the task ID), which Chimera always
@@ -1614,16 +1616,28 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 		return setupLine + "; " + cmd
 	}
+	// The launch is the pane's own process, in the session just made for
+	// it (LEG-689). One tmux refuses is an error like any other here: an
+	// agent that never started is not left as a silent shell.
+	launch := func(line string) error {
+		if err := a.tmux.RunInPane(sessionName, paneLaunch(operatorShell(envMap), line), envVars...); err != nil {
+			a.tmux.Kill(sessionName)
+			_ = a.store.UpdateAgentSessionStatusInSlot(ctx, taskID, slot, "dead")
+			failExecution()
+			return fmt.Errorf("launching the agent: %w", err)
+		}
+		return nil
+	}
 	if _, ok := adapter.(LaunchCommandAdapter); !ok {
 		switch {
 		case sandboxed:
 			// A shell agent: the person's shell, in the sandbox.
-			if err := a.tmux.SendKeysShellCommand(sessionName, thenLaunch(sandboxPrefix+" ${SHELL:-/bin/bash}")); err != nil {
-				log.Printf("sandboxed shell send-keys failed for %s: %v", sessionName, err)
+			if err := launch(thenLaunch(sandboxPrefix + " ${SHELL:-/bin/bash}")); err != nil {
+				return err
 			}
 		case setupLine != "":
-			if err := a.tmux.SendKeysShellCommand(sessionName, setupLine); err != nil {
-				log.Printf("clone setup send-keys failed for %s: %v", sessionName, err)
+			if err := launch(setupLine); err != nil {
+				return err
 			}
 		}
 	}
@@ -1658,32 +1672,24 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 					log.Printf("trusting %s for %s: %v", workDir, taskID, err)
 				}
 			}
-			// Use SendKeysShellCommand because the receiver here is the
-			// freshly-spawned bash shell, not the AI tool. Bash with
-			// bracketed-paste mode treats a single text+Enter send-keys as
-			// a paste and leaves the command sitting in the prompt buffer
-			// instead of executing it.
-			if err := a.tmux.SendKeysShellCommand(sessionName, cmd); err != nil {
-				// Launch failure is best-effort: the session exists, the user
-				// can recover by attaching and running the AI tool manually.
-				log.Printf("auto-launch send-keys failed for %s: %v", sessionName, err)
-			} else {
-				// The brief kickoff, then the prompt, once the AI tool can
-				// take a message: over its native endpoint, else typed.
-				var messages []string
-				if _, hasBrief := envMap["LEGATO_BRIEF_FILE"]; hasBrief && !nativeResume {
-					// Skip the kickoff for adapters whose launch command already
-					// constitutes the first user turn (e.g. Chimera's `--prompt`).
-					if k, ok := adapter.(LaunchSelfKickoff); !ok || !k.LaunchIsSelfKickoff() {
-						messages = append(messages, briefKickoffMessage)
-					}
+			if err := launch(cmd); err != nil {
+				return err
+			}
+			// The brief kickoff, then the prompt, once the AI tool can
+			// take a message: over its native endpoint, else typed.
+			var messages []string
+			if _, hasBrief := envMap["LEGATO_BRIEF_FILE"]; hasBrief && !nativeResume {
+				// Skip the kickoff for adapters whose launch command already
+				// constitutes the first user turn (e.g. Chimera's `--prompt`).
+				if k, ok := adapter.(LaunchSelfKickoff); !ok || !k.LaunchIsSelfKickoff() {
+					messages = append(messages, briefKickoffMessage)
 				}
-				if prompt != "" {
-					messages = append(messages, prompt)
-				}
-				if len(messages) > 0 {
-					a.launchWith(ctx, executionID, taskID, slot, sessionName, agentKind, adapter, messages, envMap["LEGATO_PROMPT_FILE"])
-				}
+			}
+			if prompt != "" {
+				messages = append(messages, prompt)
+			}
+			if len(messages) > 0 {
+				a.launchWith(ctx, executionID, taskID, slot, sessionName, agentKind, adapter, messages, envMap["LEGATO_PROMPT_FILE"])
 			}
 		}
 	}

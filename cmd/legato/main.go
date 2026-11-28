@@ -2525,7 +2525,7 @@ func (c *cliNoopTmux) SendKeys(name, keys string) error                  { retur
 func (c *cliNoopTmux) SendKey(name, key string) error                    { return nil }
 func (c *cliNoopTmux) SendKeysLine(name, line string) error              { return nil }
 func (c *cliNoopTmux) SendKeysMultiline(name, payload string) error      { return nil }
-func (c *cliNoopTmux) SendKeysShellCommand(name, command string) error   { return nil }
+func (c *cliNoopTmux) RunInPane(string, []string, ...string) error       { return nil }
 func (c *cliNoopTmux) PipeOutput(name string) (io.Reader, func(), error) { return nil, func() {}, nil }
 func (c *cliNoopTmux) SetEnv(sessionName, key, value string) error       { return nil }
 func (c *cliNoopTmux) SetOption(sessionName, key, value string) error    { return nil }
