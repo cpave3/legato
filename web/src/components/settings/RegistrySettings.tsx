@@ -159,6 +159,8 @@ function TextControl({ setting, disabled, onSet }: {
   onSet: (value: unknown) => Promise<ConfigSetting | undefined>
 }) {
   const { text, unit, draft, setDraft, dirty, conflict, reload, keep, commit } = useTextSave(setting, disabled, onSet)
+  // On a conflict, the value saved elsewhere while the draft was edited.
+  const now = text || formatValue(setting, setting.value)
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
       <TextInput setting={setting} value={draft} unit={unit} disabled={disabled} greyed={setting.source === "default" && !dirty}
@@ -167,7 +169,11 @@ function TextControl({ setting, disabled, onSet }: {
         <button type="button" className={quietButton + " min-h-9"} disabled={disabled} onClick={reload}>Cancel</button>
         <button type="button" className={primaryButton + " min-h-9"} disabled={disabled || conflict} onClick={commit}>Save</button>
       </span>}
-      {conflict && <EditConflict now={text || formatValue(setting, setting.value)} draft={draft} disabled={disabled} onUse={reload} onKeep={keep} />}
+      {conflict && <div className="flex w-full flex-wrap items-center justify-end gap-2 text-xs text-lw-needs">
+        <p role="status">Changed to {now} while you edited.</p>
+        <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} disabled={disabled} onClick={reload}>Use {now}</button>
+        <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} disabled={disabled} onClick={keep}>Keep {draft}</button>
+      </div>}
     </div>
   )
 }
@@ -208,16 +214,6 @@ function TextInput({ setting, value, unit, disabled, greyed, onChange, onEnter, 
       {unit && <span className="text-[13px] text-lw-text-2">{unit}</span>}
     </span>
   )
-}
-
-// EditConflict offers the value saved elsewhere while the draft was edited,
-// or the draft.
-function EditConflict({ now, draft, disabled, onUse, onKeep }: { now: string; draft: string; disabled: boolean; onUse: () => void; onKeep: () => void }) {
-  return <div className="flex w-full flex-wrap items-center justify-end gap-2 text-xs text-lw-needs">
-    <p role="status">Changed to {now} while you edited.</p>
-    <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} disabled={disabled} onClick={onUse}>Use {now}</button>
-    <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} disabled={disabled} onClick={onKeep}>Keep {draft}</button>
-  </div>
 }
 
 // The menu of a row config.yaml pins: move it out, or copy its key.
