@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useRef, useMemo, memo, Fragment, type
 import { ArrowDown, ArrowLeftRight, Bell, Check, Terminal, Zap } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
 import { useWebSocket } from "../hooks/useWebSocket"
-import { type PromptState, type WSMessage } from "../lib/agentWire"
+import { type WSMessage } from "../lib/agentWire"
 import { useServer } from "../hooks/useServer"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
 import { useMacroPicker } from "../hooks/useMacroPicker"
@@ -29,7 +29,7 @@ import { PastedImageStrip } from "./PastedImageStrip"
 import { AttachImageButton } from "./AttachImageButton"
 import { AgentChatHeader, type AgentChatState, type SidePanelsProps } from "./AgentChatHeader"
 import { buildAgentMenu } from "./nativeAgentMenu"
-import { agentChatState, isBangText, isChimeraKind, isRecoveryReply, reasonText } from "../lib/nativeAgentView"
+import { agentChatState, awaitsRequest, isBangText, isChimeraKind, isRecoveryReply, reasonText } from "../lib/nativeAgentView"
 import type { AgentStageInfo } from "./AgentStageChip"
 import { ResourcesButton } from "./ResourcesButton"
 import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, SendButton, WorkingStrip, type QueuedEntry } from "./Composer"
@@ -75,6 +75,7 @@ import { useDropdown } from "./useDropdown"
 import { useSessionSettings } from "./useSessionSettings"
 import { useBangCommands } from "./useBangCommands"
 import { useQueuedMessages } from "./useQueuedMessages"
+import { useTerminalPrompt, useTerminalPromptPolling } from "./useTerminalPrompt"
 
 // The least width at which subagent tiles sit beside the conversation; below
 // it they are a strip above it.
@@ -98,18 +99,11 @@ function permissionFindingLabel(finding: NonNullable<NativePermissionItem["polic
 // Claude Code and Codex sessions. This is the name its wording uses for each.
 const agentToolName = nativeToolName
 
-// How often the panel asks what the agent's terminal is showing, for prompts
-// that never reach Legato as requests of their own.
-const TERMINAL_PROMPT_POLL_MS = 2000
-
 // How the request_id of a message from the box starts, so Legato's answer
 // about it is told from one about a permission or a question.
 const MESSAGE_REQUEST = "message-"
 // How many of the commands it sent a panel remembers, to know a refusal of one.
 const SENT_COMMANDS_KEPT = 20
-
-// The prompt types that ask the person to pick something.
-const terminalPromptTypes = new Set<PromptState["type"]>(["menu", "tool_approval", "plan_approval", "question"])
 
 function PermissionCard({
   permission,
@@ -297,12 +291,10 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const step = useMemo(() => busy ? currentStep(items) : null, [busy, items])
   const turnSeconds = useTurnClock(busy, !loading)
   // The agent has stopped on a permission prompt or a question of its own.
-  const awaitingRequest = items.some((item) => (item.permission ?? item.question)?.status === "pending")
-  // What the agent's terminal is asking, as read off its screen. A request
-  // the agent raised itself is drawn by its own card; the terminal shows the
-  // same request as a dialog, which is not shown twice.
-  const [terminalPrompt, setTerminalPrompt] = useState<PromptState | null>(null)
-  const terminalAsking = !awaitingRequest && terminalPrompt !== null && terminalPromptTypes.has(terminalPrompt.type) && (terminalPrompt.actions?.length ?? 0) > 0
+  // The agent has stopped on a permission prompt or a question of its own.
+  const awaitingRequest = awaitsRequest(items)
+  const terminal = useTerminalPrompt(awaitingRequest)
+  const { prompt: terminalPrompt, setPrompt: setTerminalPrompt, asking: terminalAsking } = terminal
   const awaitingPerson = awaitingRequest || terminalAsking
   const modesMenu = useDropdown()
   const macrosMenu = useDropdown()
@@ -509,7 +501,9 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       unsubscribe()
       if (following) send({ type: "unsubscribe_agent", agent_id: agentId })
     }
-  }, [subscribe, agentId, agentKind, applyEvent, replaceSyncState, resync, runNextBang, following, send, stopUnconfirmedWorking, followLatest, settleMessage, failByWords])
+  }, [subscribe, agentId, agentKind, applyEvent, replaceSyncState, resync, runNextBang, following, send, stopUnconfirmedWorking, followLatest, settleMessage, failByWords, setTerminalPrompt])
+
+  const handleTerminalChoice = useTerminalPromptPolling(agentId, connected, send, setTerminalPrompt)
 
   const handleBuiltinSlash = useCallback(async (raw: string) => {
     const parts = raw.split(/\s+/)
@@ -603,24 +597,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     [agentId, replaceSyncState, send],
   )
 
-  // A prompt can be up in the terminal without the agent having raised
-  // anything: an update notice, a trust question. The server reads the
-  // terminal's screen when asked.
-  useEffect(() => {
-    setTerminalPrompt(null)
-    if (!connected) return
-    const detect = () => send({ type: "detect_prompt", agent_id: agentId })
-    detect()
-    const timer = window.setInterval(detect, TERMINAL_PROMPT_POLL_MS)
-    return () => window.clearInterval(timer)
-  }, [agentId, connected, send])
-
-  const handleTerminalChoice = useCallback((keys: string) => {
-    send({ type: "send_keys", agent_id: agentId, keys })
-    // The prompt is answered; what the terminal shows next is read at once.
-    setTerminalPrompt(null)
-    window.setTimeout(() => send({ type: "detect_prompt", agent_id: agentId }), 400)
-  }, [agentId, send])
 
   // Answers a question the agent asked, or closes it unanswered when
   // `answers` is left out.

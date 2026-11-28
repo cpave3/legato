@@ -1,4 +1,5 @@
 import { isChimeraRecovery } from "./chimeraRecovery"
+import type { PromptState } from "./agentWire"
 import type { NativeConversationItem } from "./nativeAgentSync"
 
 // What the native agent panel shows of a session, derived from what it
@@ -25,6 +26,22 @@ export function reasonText(reason: unknown): string {
 // serves.
 export function isChimeraKind(agentKind: string | undefined): boolean {
   return !agentKind || agentKind === "chimera"
+}
+
+// The agent has stopped on a permission prompt or a question of its own.
+export function awaitsRequest(items: NativeConversationItem[]): boolean {
+  return items.some((item) => (item.permission ?? item.question)?.status === "pending")
+}
+
+// The prompt types that ask the person to pick something.
+const choicePromptTypes = new Set<PromptState["type"]>(["menu", "tool_approval", "plan_approval", "question"])
+
+// Whether the agent's terminal, as read off its screen, asks the operator to
+// pick something. A request the agent raised itself is drawn by its own
+// card; the terminal shows the same request as a dialog, which is not shown
+// twice.
+export function terminalAsks(prompt: PromptState | null, awaitingRequest: boolean): prompt is PromptState {
+  return !awaitingRequest && prompt !== null && choicePromptTypes.has(prompt.type) && (prompt.actions?.length ?? 0) > 0
 }
 
 // A shell command the operator writes in the message box: "!" and the
