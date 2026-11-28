@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { useState, type ReactNode } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { AgentArtifactPanel } from "../AgentArtifactPanel"
+import { ToastProvider } from "../ToastProvider"
 import type { AgentUIItem } from "../../lib/agentUi"
 
 vi.mock("../../hooks/useServer", () => ({
@@ -316,6 +317,46 @@ describe("AgentArtifactPanel", () => {
     render(<AgentArtifactPanel agentId="task-1" focus={null} onFocus={() => {}} onClose={() => {}} mobile={false} />, { wrapper })
 
     expect(await screen.findByText(/has not shown anything yet/i)).toBeTruthy()
+  })
+
+  it("says so when what the session showed cannot be loaded", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input).endsWith("/review-briefing")) return new Response(JSON.stringify({ pages: [] }), { status: 200 })
+      return new Response(JSON.stringify({ error: "the list broke" }), { status: 500 })
+    })
+    render(<AgentArtifactPanel agentId="task-1" focus={null} onFocus={() => {}} onClose={() => {}} mobile={false} />, { wrapper })
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/^Could not load what the agent showed: /)
+  })
+
+  it("says so when a pinned revision is no longer stored, and counts the revisions kept", async () => {
+    const pruned: AgentUIItem = { ...design, revision: 5, oldest_revision: 4 }
+    mockAPI([pruned])
+    render(<AgentArtifactPanel agentId="task-1" focus={{ itemId: pruned.id, revision: 3 }} onFocus={() => {}} onClose={() => {}} mobile={false} />, { wrapper })
+
+    expect((await screen.findByRole("alert")).textContent).toBe("This revision is no longer stored.")
+    expect(screen.getByText("Revision 5 of 5")).toBeTruthy()
+    expect(screen.getByText("2 kept")).toBeTruthy()
+    expect((screen.getByRole("button", { name: "Copy source" }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it("says so when the browser refuses to copy, and when a removal fails", async () => {
+    const api = mockAPI([design])
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn().mockRejectedValue(new Error("no")) }, configurable: true })
+    render(<ToastProvider><AgentArtifactPanel agentId="task-1" focus={{ itemId: "ui-aaaaaaaaaa", revision: 0 }} onFocus={() => {}} onClose={() => {}} mobile={false} /></ToastProvider>, { wrapper })
+    await screen.findByRole("heading", { name: "Design, second draft" })
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy source" }))
+    expect(await screen.findByText("The browser did not allow copying")).toBeTruthy()
+
+    const answer = api.getMockImplementation()!
+    api.mockImplementation(async (input, init) => {
+      if (init?.method === "DELETE") return new Response(JSON.stringify({ error: "still in use" }), { status: 409 })
+      return answer(input, init)
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }))
+    fireEvent.click(screen.getByRole("button", { name: "Remove artifact" }))
+    expect(await screen.findByText(/still in use/)).toBeTruthy()
   })
 
   it("is a full-screen dialog on a phone, with a close control large enough to tap", async () => {
