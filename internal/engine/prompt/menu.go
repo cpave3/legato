@@ -22,11 +22,25 @@ const (
 	menuTrailingLines = 4
 )
 
-// menuOptionRe matches one option: an optional cursor, its number, its label.
-var menuOptionRe = regexp.MustCompile(`^(\s*)([❯›>]?)(\s*)(\d+)\.\s+(\S.*?)\s*$`)
+// menuOptionRe matches one option: an optional cursor or scroll mark, its
+// number, its label. A list too long for the screen marks its first and last
+// visible options with ↑ and ↓ where the cursor would stand.
+var menuOptionRe = regexp.MustCompile(`^(\s*)([❯›>↑↓]?)(\s*)(\d+)\.\s+(\S.*?)\s*$`)
+
+// menuRowRe matches a row with no number of its own: the Submit row Claude
+// Code draws under a multi-select's options.
+var menuRowRe = regexp.MustCompile(`^(\s*)([❯›>]?)(\s*)(Submit|Next)\s*$`)
 
 // menuRuleRe matches a line that only draws a border or a rule.
 var menuRuleRe = regexp.MustCompile(`^[\s─━═╌╍┄┈\-_│┃╭╮╰╯┌┐└┘├┤]+$`)
+
+// menuDashedRe matches a dashed rule, which frames part of a dialog (the
+// command a permission prompt asks about) rather than ending it.
+var menuDashedRe = regexp.MustCompile(`^[\s╌╍┄┈]+$`)
+
+// menuTextRowRe matches a row that takes typed text: typing on it replaces
+// its label with the text.
+var menuTextRowRe = regexp.MustCompile(`(?i)^(\[.\]\s*)?Type something\.?$`)
 
 // transcriptMarkers open a line of the conversation, which is where a
 // menu's own text stops.
@@ -47,6 +61,10 @@ func indentOf(line string) int {
 	return len(line) - len(strings.TrimLeft(line, " \t"))
 }
 
+func isCursor(mark string) bool {
+	return mark != "" && mark != "↑" && mark != "↓"
+}
+
 // detectMenu reads the menu the screen ends with, if it ends with one.
 func detectMenu(cleaned string) (PromptState, bool) {
 	raw := strings.Split(strings.TrimRight(cleaned, "\n \t"), "\n")
@@ -55,10 +73,11 @@ func detectMenu(cleaned string) (PromptState, bool) {
 		lines[index] = unboxed(line)
 	}
 
-	// The last option numbered 1 is where the newest menu would begin.
+	// The last option numbered 1, or the first one a scrolled list shows,
+	// is where the newest menu would begin.
 	start := -1
 	for index := len(lines) - 1; index >= 0; index-- {
-		if match := menuOptionRe.FindStringSubmatch(lines[index]); match != nil && match[4] == "1" {
+		if match := menuOptionRe.FindStringSubmatch(lines[index]); match != nil && (match[4] == "1" || match[2] == "↑") {
 			start = index
 			break
 		}
@@ -67,29 +86,60 @@ func detectMenu(cleaned string) (PromptState, bool) {
 		return PromptState{}, false
 	}
 
-	type option struct {
-		label  string
-		column int
+	// A row is a line the cursor can stand on. Rows a scrolled list hides
+	// are counted by their numbers, so keys reach past them.
+	type row struct {
+		label    string
+		column   int
+		position int
 	}
-	var options []option
+	var rows []row
+	number, position, scrollsOn := 0, 0, false
+	// nextOption reads line as the next numbered option, if it is one.
+	nextOption := func(line string) ([]string, int, bool) {
+		match := menuOptionRe.FindStringSubmatch(line)
+		if match == nil {
+			return nil, 0, false
+		}
+		n, _ := strconv.Atoi(match[4])
+		if len(rows) == 0 || n == number+1 || (scrollsOn && n > number+1) {
+			return match, n, true
+		}
+		return nil, 0, false
+	}
 	selected, end := -1, start
 	for index := start; index < len(lines); index++ {
 		line := lines[index]
-		if match := menuOptionRe.FindStringSubmatch(line); match != nil && match[4] == strconv.Itoa(len(options)+1) {
-			if match[2] != "" {
+		if match, n, ok := nextOption(line); ok {
+			if len(rows) > 0 {
+				position += n - number
+			}
+			if isCursor(match[2]) {
 				if selected >= 0 {
 					return PromptState{}, false
 				}
-				selected = len(options)
+				selected = len(rows)
 			}
-			options = append(options, option{label: match[5], column: len(match[1]) + len(match[2]) + len(match[3])})
+			rows = append(rows, row{label: match[5], column: len(match[1]) + len(match[2]) + len(match[3]), position: position})
+			number, scrollsOn, end = n, match[2] == "↓", index
+			continue
+		}
+		if match := menuRowRe.FindStringSubmatch(line); match != nil && strings.HasPrefix(rows[len(rows)-1].label, "[") {
+			position++
+			if isCursor(match[2]) {
+				if selected >= 0 {
+					return PromptState{}, false
+				}
+				selected = len(rows)
+			}
+			// Numbering goes on after it as though it were not there.
+			rows = append(rows, row{label: match[4], column: len(match[1]) + len(match[2]) + len(match[3]), position: position})
 			end = index
 			continue
 		}
 		followedByOption := false
 		if index+1 < len(lines) {
-			next := menuOptionRe.FindStringSubmatch(lines[index+1])
-			followedByOption = next != nil && next[4] == strconv.Itoa(len(options)+1)
+			_, _, followedByOption = nextOption(lines[index+1])
 		}
 		switch {
 		case strings.TrimSpace(line) == "" || menuRuleRe.MatchString(line):
@@ -97,9 +147,9 @@ func detectMenu(cleaned string) (PromptState, bool) {
 			if !followedByOption {
 				index = len(lines)
 			}
-		case indentOf(line) > options[len(options)-1].column:
+		case indentOf(line) > rows[len(rows)-1].column:
 			// An option wrapped onto another line, or its description.
-			options[len(options)-1].label += " " + strings.TrimSpace(line)
+			rows[len(rows)-1].label += " " + strings.TrimSpace(line)
 			end = index
 		default:
 			if !followedByOption {
@@ -107,7 +157,7 @@ func detectMenu(cleaned string) (PromptState, bool) {
 			}
 		}
 	}
-	if len(options) < 2 || selected < 0 {
+	if len(rows) < 2 || selected < 0 {
 		return PromptState{}, false
 	}
 
@@ -124,15 +174,23 @@ func detectMenu(cleaned string) (PromptState, bool) {
 
 	state := PromptState{Type: Menu, Context: menuContext(lines[:start])}
 	canCancel := false
-	for index, one := range options {
+	from := rows[selected].position
+	for _, one := range rows {
 		keys := make([]string, 0, 4)
-		for step := selected; step < index; step++ {
+		for step := from; step < one.position; step++ {
 			keys = append(keys, "Down")
 		}
-		for step := selected; step > index; step-- {
+		for step := from; step > one.position; step-- {
 			keys = append(keys, "Up")
 		}
-		state.Actions = append(state.Actions, Action{Label: one.label, Keys: strings.Join(append(keys, "Enter"), " ")})
+		action := Action{Label: one.label, Keys: strings.Join(append(keys, "Enter"), " ")}
+		if menuTextRowRe.MatchString(one.label) {
+			// In a multi-select, typing ticks the row and Enter would
+			// untick it; elsewhere Enter answers with the text.
+			action.TakesText = true
+			action.TextSubmits = !strings.HasPrefix(one.label, "[")
+		}
+		state.Actions = append(state.Actions, action)
 		canCancel = canCancel || strings.Contains(strings.ToLower(one.label), "(esc)")
 	}
 	for _, hint := range trailing {
@@ -152,10 +210,15 @@ func menuContext(above []string) string {
 		if line == "" {
 			continue
 		}
+		if menuDashedRe.MatchString(above[index]) {
+			continue
+		}
 		if menuRuleRe.MatchString(above[index]) {
 			break
 		}
-		if marker, _ := utf8.DecodeRuneInString(line); strings.ContainsRune(transcriptMarkers, marker) {
+		// The conversation's lines start at the margin; a dialog indents
+		// its own bullets, such as the answers a form's review lists.
+		if marker, _ := utf8.DecodeRuneInString(above[index]); strings.ContainsRune(transcriptMarkers, marker) {
 			break
 		}
 		kept = append([]string{line}, kept...)

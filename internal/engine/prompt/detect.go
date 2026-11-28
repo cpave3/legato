@@ -20,6 +20,13 @@ const (
 type Action struct {
 	Label string `json:"label"`
 	Keys  string `json:"keys"`
+	// TakesText marks a row the operator answers by typing on it, such as
+	// Claude Code's "Type something.": its Keys select the row, and the text
+	// is typed once the cursor is there.
+	TakesText bool `json:"takes_text,omitempty"`
+	// TextSubmits says Enter answers with the typed text. In a multi-select
+	// typing ticks the row, and Enter would untick it.
+	TextSubmits bool `json:"text_submits,omitempty"`
 }
 
 // PromptState is the result of classifying terminal output.
@@ -191,18 +198,12 @@ func DetectForAgent(agentKind, output string) Detection {
 	tail := lastNLines(cleaned, 8)
 	for _, re := range planApprovalPatterns {
 		if re.MatchString(tail) {
-			return Detection{State: PromptState{
-				Type:    PlanApproval,
-				Actions: extractNumberedActions(tail),
-			}, Blocking: true}
+			return Detection{State: approvalState(PlanApproval, cleaned, tail), Blocking: true}
 		}
 	}
 	for _, re := range toolApprovalPatterns {
 		if re.MatchString(tail) {
-			return Detection{State: PromptState{
-				Type:    ToolApproval,
-				Actions: extractNumberedActions(tail),
-			}, Blocking: true}
+			return Detection{State: approvalState(ToolApproval, cleaned, tail), Blocking: true}
 		}
 	}
 
@@ -213,6 +214,17 @@ func DetectForAgent(agentKind, output string) Detection {
 	}
 
 	return Detection{State: Detect(output)}
+}
+
+// approvalState reads an approval's options. When the screen shows them as a
+// menu under a cursor, they are answered by moving the cursor: in Claude
+// Code a digit alone answers, so "1 Enter" would press Enter once more on
+// whatever comes next. Numbered options without a cursor keep their digits.
+func approvalState(kind PromptType, cleaned, tail string) PromptState {
+	if menu, ok := detectMenu(cleaned); ok {
+		return PromptState{Type: kind, Context: menu.Context, Actions: menu.Actions}
+	}
+	return PromptState{Type: kind, Actions: extractNumberedActions(tail)}
 }
 
 func detectCodexQuestion(cleaned string) (PromptState, bool) {

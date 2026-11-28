@@ -1,0 +1,40 @@
+  Red, Green; Q2 header "Size" "Which size?" options Small, Large. Single select. Do nothing else.
+
+● Answered Claude's questions:
+  ⎿  · Which colour? → Green
+     · Which size? → Small
+
+● Your answers: colour Green, size Small. I haven't taken any other action.
+
+✻ Churned for 2s · done 9:35 pm
+
+❯ Now use AskUserQuestion once with ONE multi-select question (multiSelect true): header "Pets" "Which pets?"
+  options Cat, Dog, Fish. Do nothing else.
+
+● Answered Claude's questions:
+  ⎿  · Which pets? → Cat
+
+● Your answer: pets Cat. I haven't taken any other action.
+
+✻ Crunched for 1s · done 9:36 pm
+
+❯ Run the bash command: touch hello.txt  (just that)
+
+● Bash(touch hello.txt)
+  ⎿  Waiting…
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+ Tip: auto mode handles these prompts for you — choose "switch to auto mode" below
+ Create empty file hello.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ touch hello.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access to /tmp/claude-1000/l688 from this project
+   3. Yes, and switch to auto mode · auto mode handles these prompts for you
+   4. No
+
+ Esc to cancel · Tab to amend
+

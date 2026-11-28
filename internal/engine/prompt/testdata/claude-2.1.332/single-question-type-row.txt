@@ -1,0 +1,40 @@
+ ▐▛███▛█   Claude Code v2.1.332
+▝▜██████▀  Haiku 5.5 · Claude Team
+ ▝▝   ▝▝   /tmp/claude-1000/l688
+
+
+❯ Use the AskUserQuestion tool once to ask me ONE question: "Which colour?" with options Red, Green, Blue
+  (single select). Do nothing else.
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Colour
+
+Which colour?
+
+  1. Red
+     Red
+  2. Green
+     Green
+  3. Blue
+     Blue
+❯ 4. Type something.
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · ctrl+g to edit in Nvim · Esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
