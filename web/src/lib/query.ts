@@ -36,6 +36,8 @@ export const queryKeys = {
   // workflow_changed through the prefix.
   workflowRunsOf: (baseUrl: string, name: string) => [baseUrl, "workflow-runs-of", name] as const,
   workflowRun: (baseUrl: string, runId: string) => [baseUrl, "workflow-run", runId] as const,
+  // Every review loop on the Shipping page (GET /api/shipping).
+  shipping: (baseUrl: string) => [baseUrl, "shipping"] as const,
   agentUIItems: (baseUrl: string, taskId: string) => [baseUrl, "agent-ui-items", taskId] as const,
   // revision 0 is "the latest", which changes when the agent shows it again.
   agentUIItem: (baseUrl: string, itemId: string, revision = 0) => [baseUrl, "agent-ui-item", itemId, revision] as const,

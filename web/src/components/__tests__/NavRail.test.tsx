@@ -38,3 +38,12 @@ it("announces connection changes separately from Attention", () => {
   rerender(view(true))
   expect(screen.getByRole("status", { name: "Connection" })).toHaveTextContent("sync")
 })
+
+it("links Shipping beside Review", () => {
+  render(<MemoryRouter initialEntries={["/shipping"]}><NavRail sections={navSections()} connected servers={[]} activeServerName="Local" baseUrl="" onSwitchServer={() => {}} /></MemoryRouter>)
+  const shipping = screen.getByRole("link", { name: "Shipping" })
+  expect(shipping).toHaveAttribute("href", "/shipping")
+  expect(shipping).toHaveAttribute("aria-current", "page")
+  const names = screen.getAllByRole("link").map(link => link.getAttribute("aria-label") ?? link.textContent)
+  expect(names.indexOf("Shipping")).toBe(names.indexOf("Review") + 1)
+})
