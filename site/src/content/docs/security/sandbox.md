@@ -45,7 +45,7 @@ From then on every agent Legato starts runs inside the sandbox. If `bwrap` is mi
 | Legato's installed mods in `<data_dir>/claude-mod` and `<data_dir>/chimera-mod` | read-only |
 | The session's own copy of the [skills](/legato/agent-tools/skills/) that are on | read-only |
 | The agent tool's installation | read-only |
-| Your toolchains, such as `~/.local/bin`, mise, `~/go/bin`, Rust and Bun | read-only |
+| Your toolchains, such as `~/.local/bin`, mise, `~/go/bin`, Rust, Bun and CodeEval (`~/.local/share/codeeval`) | read-only |
 | Package and build caches for Go, npm, pnpm, Yarn, Bun, pip, uv, Cargo, Gradle, Maven, NuGet and others | read and write |
 | A home folder | an empty folder of the session's own, on disk, with only the entries above in it |
 | `/tmp` | a folder of the session's own, on disk |
