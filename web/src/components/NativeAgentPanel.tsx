@@ -36,9 +36,8 @@ import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, S
 import { CONTEXT_NEARLY_FULL, composerToolButton, currentStep, dictating, failQueuedByWords, formatElapsed, isCommandText, queueMessage, settleQueued, unreadQueued, type QueuedMessage } from "../lib/composer"
 import { useTurnClock } from "../hooks/useTurnClock"
 import { usePageInView } from "../hooks/usePageInView"
-import { appendProposal, legatoUICall, onComposerProposal, forOperatorCall, speakFailed, speakText } from "../lib/agentUi"
+import { legatoUICall, forOperatorCall, speakFailed, speakText } from "../lib/agentUi"
 import { SaidBubble } from "./SaidBubble"
-import { insertImagePath } from "../lib/agentImage"
 import { rankSlashItems, type SlashItem } from "../lib/slashMenu"
 import { usePastedImages } from "../hooks/usePastedImages"
 import { nativeToolName } from "../lib/agentKind"
@@ -70,6 +69,7 @@ import { fromStored, mergeShells, type NativeBackgroundShell, type StoredBackgro
 import type { BackgroundJob } from "../lib/agentWire"
 import { useElementWidth } from "../hooks/useElementWidth"
 import { scrollAnchorOf, useConversationScroll } from "./useConversationScroll"
+import { useDraft } from "./useDraft"
 
 // The least width at which subagent tiles sit beside the conversation; below
 // it they are a strip above it.
@@ -295,13 +295,12 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const syncGenerationRef = useRef(0)
   const runFinishTimerRef = useRef<number | null>(null)
   const hydratedAgentRef = useRef<string | null>(null)
-  const [draft, setDraft] = useState("")
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [mode, setMode] = useState<string>("")
   const scroll = useConversationScroll(loading, syncState.items)
+  const { draft, setDraft, textareaRef, appendWords, insertImage } = useDraft(agentId, composerEnabled)
   const { scrollRef, isScrolledUp, scrollToBottom, scrollToBottomAfterRender, restoreAfterSync, followLatest, restartInitialScroll } = scroll
-  const draftKey = `legato:chimera-draft:${agentId}`
   const { items, busy, error, contextUsage, model } = syncState
   const blocks = useMemo(() => conversationBlocks(items), [items])
   const shells = useMemo(() => mergeShells(syncState.backgroundShells, fromStored(backgroundShells)), [syncState.backgroundShells, backgroundShells])
@@ -342,7 +341,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   // Dictation, transcribed into the message.
   const voice = useVoiceRecorder({
     agentId, agentKind, baseUrl, transcriptionOnly: true,
-    onTranscription: (text) => setDraft((current) => current ? current + " " + text : text),
+    onTranscription: appendWords,
   })
   const [browserOpen, setBrowserOpen] = useState(false)
   const [browserQuery, setBrowserQuery] = useState("")
@@ -359,12 +358,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const [slashActive, setSlashActive] = useState({ list: "", index: 0 })
   const caretToEnd = useRef(false)
   const slashListId = useId()
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  // An image pasted into the message box is stored by Legato, and its path
-  // goes into the message where the cursor is.
-  const pasted = usePastedImages(agentId, draft, useCallback((path: string) => {
-    setDraft((current) => insertImagePath(current, path, textareaRef.current?.selectionStart))
-  }, []))
+  const pasted = usePastedImages(agentId, draft, insertImage)
 
   const replaceSyncState = useCallback((next: NativeSyncState) => {
     syncStateRef.current = next
@@ -387,25 +381,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     }
     replaceSyncState(reduceNativeEvent(syncStateRef.current, event))
   }, [replaceSyncState])
-
-  // A card or an artifact the agent showed may put text in the message box.
-  // It is added to what is there and never sent from here.
-  useEffect(() => {
-    if (!composerEnabled) return
-    return onComposerProposal(agentId, (text) => {
-      setDraft((current) => appendProposal(current, text))
-      textareaRef.current?.focus()
-    })
-  }, [agentId, composerEnabled])
-
-  // Load/save draft
-  useEffect(() => {
-    const saved = localStorage.getItem(draftKey)
-    if (saved) setDraft(saved)
-  }, [draftKey])
-  useEffect(() => {
-    localStorage.setItem(draftKey, draft)
-  }, [draftKey, draft])
 
 
   // Fetch available modes
@@ -486,7 +461,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     if (!box) return
     box.focus()
     box.setSelectionRange(box.value.length, box.value.length)
-  }, [draft])
+  }, [draft, textareaRef])
 
   // Fetch macros eagerly so numbered shortcuts are ready when the menu opens.
   useEffect(() => {
@@ -798,7 +773,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       replaceSyncState({ ...syncStateRef.current, busy: true, error: null })
     }
     scrollToBottomAfterRender()
-  }, [draft, busy, agentId, baseUrl, send, replaceSyncState, scrollToBottomAfterRender, executeBang, handleBuiltinSlash])
+  }, [draft, busy, agentId, baseUrl, send, replaceSyncState, scrollToBottomAfterRender, executeBang, handleBuiltinSlash, setDraft])
 
   const handleInterrupt = useCallback(() => {
     send({ type: "agent_interrupt", agent_id: agentId })
@@ -876,7 +851,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     caretToEnd.current = true
     setSlashClosedOn(next)
     setDraft(next)
-  }, [browserOpen, draft])
+  }, [browserOpen, draft, setDraft])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -916,7 +891,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         handleInterrupt()
       }
     },
-    [handleSend, handleInterrupt, busy, draft, slashOpen, slashIndex, slashMatches, setSlashIndex, handleSlashSelect],
+    [handleSend, handleInterrupt, busy, draft, slashOpen, slashIndex, slashMatches, setSlashIndex, handleSlashSelect, textareaRef],
   )
 
   const handleModeChange = useCallback((mode: string) => {
