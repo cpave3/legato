@@ -2,7 +2,7 @@ import { ReeveStatus, reeveWash } from "./ReeveEntry"
 import { AskReeve } from "./AskReeve"
 import { parseReeveMessage, reeveBrief } from "../lib/reeve"
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useId, memo, Fragment } from "react"
-import { ArrowDown, ArrowLeftRight, Bell, BellOff, Check, FolderInput, Info, Network, Pencil, Plug, RefreshCw, RotateCw, Shield, Skull, Terminal, Unplug, Zap } from "lucide-react"
+import { ArrowDown, ArrowLeftRight, Bell, BellOff, Check, FolderInput, Info, Network, Pencil, RefreshCw, RotateCw, Shield, Skull, Terminal, Unplug, Zap } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
 import { useWebSocket } from "../hooks/useWebSocket"
 import { type PromptState, type WSMessage } from "../lib/agentWire"
@@ -24,7 +24,7 @@ import { NativeQuestionCard } from "./approvals/NativeQuestionCard"
 import { NativeTerminalPrompt } from "./NativeTerminalPrompt"
 import { NativeSlashMenu } from "./NativeSlashMenu"
 import { AgentUICallCard } from "./AgentUICallCard"
-import { ReadImageRow } from "./ReadImageRow"
+import { ToolCallCard } from "./NativeToolCallCard"
 import { PastedImageStrip } from "./PastedImageStrip"
 import { AttachImageButton } from "./AttachImageButton"
 import { AgentChatHeader, type AgentChatState, type SidePanelsProps } from "./AgentChatHeader"
@@ -37,12 +37,12 @@ import { useTurnClock } from "../hooks/useTurnClock"
 import { usePageInView } from "../hooks/usePageInView"
 import { appendProposal, legatoUICall, onComposerProposal, forOperatorCall, speakFailed, speakText } from "../lib/agentUi"
 import { SaidBubble } from "./SaidBubble"
-import { insertImagePath, isImagePath } from "../lib/agentImage"
+import { insertImagePath } from "../lib/agentImage"
 import { rankSlashItems, type SlashItem } from "../lib/slashMenu"
 import { usePastedImages } from "../hooks/usePastedImages"
 import { nativeToolName } from "../lib/agentKind"
 import { compactAgent, compactCommand, compactionNotice, nextCompaction, type Compaction } from "../lib/compaction"
-import { mcpToolName, toolDisplayName } from "../lib/mcpToolName"
+import { toolDisplayName } from "../lib/mcpToolName"
 import { legatoEventSummary, parseLegatoMessage } from "../lib/legatoMessage"
 import { plainText, subagentTree, type SubagentNode } from "../lib/agentGlance"
 import { modelSettingsResponse, type ModelCapabilities, type ModelSettings, type ModelSettingsState } from "../lib/modelSettings"
@@ -1511,31 +1511,6 @@ const SubagentCard = memo(function SubagentCard({ tool, nodes }: { tool: ToolCal
   )
 })
 
-// One file of a "patch" tool call: what changed in it, as a unified diff, or
-// its whole content when the file is new or gone.
-interface PatchChange {
-  path: string
-  kind: "add" | "delete" | "update" | string
-  diff: string
-  movePath?: string
-}
-
-// The lines of a change as a diff reads: a new file is all additions and a
-// deleted one all removals.
-function patchLines(change: PatchChange): string[] {
-  const lines = change.diff.replace(/\n$/, "").split("\n")
-  if (change.kind === "add") return lines.map((line) => `+${line}`)
-  if (change.kind === "delete") return lines.map((line) => `-${line}`)
-  return lines
-}
-
-function patchLineClass(line: string): string {
-  if (line.startsWith("@@")) return "text-sky-300"
-  if (line.startsWith("+")) return "bg-green-900/30 text-green-300"
-  if (line.startsWith("-")) return "bg-red-900/30 text-red-300"
-  return "text-zinc-400"
-}
-
 // A step is something the agent did on its way to a reply: a tool call, or a
 // thought.
 type ConversationBlock =
@@ -1684,236 +1659,6 @@ function LegatoEventRow({ label, body }: { label: string; body: string }) {
     </div>
   )
 }
-
-const ToolCallCard = memo(function ToolCallCard({ agentId, tool, grouped }: { agentId: string; tool: ToolCallItem; grouped: boolean }) {
-  // An edit opens its diff unasked only when it stands alone; in a group every
-  // call starts as one line. A click overrides either default.
-  const [override, setExpanded] = useState<boolean | null>(null)
-  const expanded = override ?? ((tool.toolName === "edit" || tool.toolName === "patch") && !grouped)
-
-  const name = tool.toolName
-  const headerClass = `flex w-full items-center gap-2 px-3 text-left ${grouped ? "py-1" : "py-1.5"}`
-  const args = tool.args || {}
-  const summary = tool.summary || ""
-  const result = tool.result || {}
-  const durationMs = tool.durationMs
-
-  // For edit tool calls, render a diff
-  if (name === "edit") {
-    const path = args.path as string || ""
-    const oldStr = args.old_string as string || ""
-    const newStr = args.new_string as string || ""
-    const replacements = result.replacements as number | undefined
-    const filename = path.split("/").pop() || path
-
-    return (
-      <div>
-        <button
-          className={headerClass}
-          onClick={() => setExpanded(!expanded)}
-        >
-          <span className="rounded bg-[var(--theme-selection,color-mix(in_oklab,var(--color-purple-700)_60%,transparent))] px-1.5 py-0.5 font-mono text-xs text-[var(--theme-text,white)]">edit</span>
-          <span className="text-xs text-zinc-300 font-mono truncate">{filename}</span>
-          {replacements !== undefined && (
-            <span className="shrink-0 text-xs text-zinc-500">({replacements} replacement{replacements !== 1 ? "s" : ""})</span>
-          )}
-          {durationMs !== undefined && <span className="text-xs text-zinc-600">{durationMs}ms</span>}
-          <span className="ml-auto text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
-        </button>
-        {expanded && (
-          <div className="border-t border-zinc-800 px-3 py-2">
-            {path !== filename && <div className="text-xs text-zinc-500 mb-1">{path}</div>}
-            <div className="font-mono text-xs whitespace-pre">
-              {oldStr.split("\n").map((line, i) => (
-                <div key={`old-${i}`} className="bg-red-900/30 text-red-300 px-2">
-                  - {line}
-                </div>
-              ))}
-              {newStr.split("\n").map((line, i) => (
-                <div key={`new-${i}`} className="bg-green-900/30 text-green-300 px-2">
-                  + {line}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  // A change to one or more files, as the diff of each
-  if (name === "patch") {
-    const changes = (Array.isArray(args.changes) ? args.changes : []) as PatchChange[]
-    const failure = result.error as string | undefined
-    return (
-      <div>
-        <button
-          className={headerClass}
-          onClick={() => setExpanded(!expanded)}
-        >
-          <span className="rounded bg-[var(--theme-selection,color-mix(in_oklab,var(--color-purple-700)_60%,transparent))] px-1.5 py-0.5 font-mono text-xs text-[var(--theme-text,white)]">patch</span>
-          <span className="text-xs text-zinc-300 font-mono truncate">{summary || changes.map((change) => change.path.split("/").pop()).join(", ")}</span>
-          {failure && <span className="shrink-0 text-xs text-red-400">not applied</span>}
-          {durationMs !== undefined && <span className="text-xs text-zinc-600">{durationMs}ms</span>}
-          <span className="ml-auto text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
-        </button>
-        {expanded && (
-          <div className="space-y-2 border-t border-zinc-800 px-3 py-2">
-            {failure && <div className="text-xs text-red-400">{failure}</div>}
-            {changes.map((change) => (
-              <div key={change.path}>
-                <div className="mb-1 flex min-w-0 flex-wrap gap-x-2 text-xs text-zinc-500">
-                  <span className="uppercase tracking-wide">{change.kind}</span>
-                  <span className="min-w-0 break-all">{change.path}</span>
-                  {change.movePath && <span className="min-w-0 break-all">→ {change.movePath}</span>}
-                </div>
-                <div className="font-mono text-xs whitespace-pre overflow-x-auto">
-                  {patchLines(change).map((line, i) => (
-                    <div key={i} className={`px-2 ${patchLineClass(line)}`}>{line}</div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  // For write tool calls, show the path and content preview
-  if (name === "write") {
-    const path = args.path as string || ""
-    const content = args.content as string || ""
-    const bytesWritten = result.bytes_written as number | undefined
-    const created = result.created as boolean | undefined
-    const filename = path.split("/").pop() || path
-
-    return (
-      <div>
-        <button
-          className={headerClass}
-          onClick={() => setExpanded(!expanded)}
-        >
-          <span className="rounded bg-[var(--theme-selection,color-mix(in_oklab,var(--color-green-700)_60%,transparent))] px-1.5 py-0.5 font-mono text-xs text-[var(--theme-text,white)]">write</span>
-          <span className="text-xs text-zinc-300 font-mono truncate">{filename}</span>
-          {created && <span className="text-xs text-green-400">created</span>}
-          {bytesWritten !== undefined && <span className="text-xs text-zinc-500">{bytesWritten}B</span>}
-          {durationMs !== undefined && <span className="text-xs text-zinc-600">{durationMs}ms</span>}
-          <span className="ml-auto text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
-        </button>
-        {expanded && (
-          <div className="border-t border-zinc-800 px-3 py-2">
-            {path !== filename && <div className="text-xs text-zinc-500 mb-1">{path}</div>}
-            <pre className="font-mono text-xs text-zinc-300 whitespace-pre-wrap max-h-60 overflow-y-auto">{content}</pre>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  // For bash tool calls, show the command and output
-  if (name === "bash") {
-    const command = args.command as string || ""
-    const stdout = result.stdout as string || ""
-    const stderr = result.stderr as string || ""
-    const exitCode = result.exit_code as number | undefined
-
-    return (
-      <div>
-        <button
-          className={headerClass}
-          onClick={() => setExpanded(!expanded)}
-        >
-          <span className="rounded bg-[var(--theme-selection,var(--color-zinc-600))] px-1.5 py-0.5 font-mono text-xs text-[var(--theme-text,white)]">bash</span>
-          <span className="text-xs text-zinc-300 font-mono truncate">{command.slice(0, 80)}{command.length > 80 ? "…" : ""}</span>
-          {exitCode !== undefined && (
-            <span className={`shrink-0 text-xs ${exitCode === 0 ? "text-green-500" : "text-red-400"}`}>exit {exitCode}</span>
-          )}
-          {durationMs !== undefined && <span className="text-xs text-zinc-600">{durationMs}ms</span>}
-          <span className="ml-auto text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
-        </button>
-        {expanded && (
-          <div className="border-t border-zinc-800 px-3 py-2">
-            <div className="font-mono text-xs text-zinc-500 mb-1">$ {command}</div>
-            {stdout && <pre className="font-mono text-xs text-zinc-300 whitespace-pre-wrap max-h-60 overflow-y-auto">{stdout}</pre>}
-            {stderr && <pre className="font-mono text-xs text-red-400 whitespace-pre-wrap max-h-40 overflow-y-auto">{stderr}</pre>}
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  // For read tool calls, show the path
-  if (name === "read") {
-    const path = args.path as string || ""
-    const filename = path.split("/").pop() || path
-    // The agent saw an image; the person can open it from the row.
-    if (isImagePath(path)) return <ReadImageRow agentId={agentId} path={path} grouped={grouped} />
-    return (
-      <div className={`text-xs text-zinc-400 ${grouped ? "px-3 py-1" : "px-1 py-0.5"}`}>
-        <div className="flex items-center gap-2">
-          <span className="rounded bg-[var(--theme-selection,color-mix(in_oklab,var(--color-blue-700)_40%,transparent))] px-1.5 py-0.5 font-mono text-[var(--theme-text,white)]">read</span>
-          <span className="font-mono truncate">{filename}</span>
-        </div>
-        {tool.skillName && (
-          <div className="ml-12 mt-0.5 text-indigo-300">📚 skill: {tool.skillName}</div>
-        )}
-      </div>
-    )
-  }
-
-  // An MCP server's tool: the server as the badge, with a plug to mark it
-  // as MCP, then the tool in words. The raw name is in the tooltip and the
-  // expanded view.
-  const mcp = mcpToolName(name)
-
-  // Default: compact tool card
-  return (
-    <div>
-      <button
-        className={headerClass}
-        title={mcp ? name : undefined}
-        onClick={() => setExpanded(!expanded)}
-      >
-        {mcp ? (
-          <>
-            <span data-mcp="" className="inline-flex shrink-0 items-center gap-1 rounded bg-[var(--theme-selection,color-mix(in_oklab,var(--color-cyan-800)_55%,transparent))] px-1.5 py-0.5 text-xs text-[var(--theme-text,white)]">
-              <Plug size={11} aria-label="MCP" className="shrink-0" />
-              {mcp.serverLabel}
-            </span>
-            <span className="shrink-0 text-xs font-medium text-zinc-200">{mcp.toolLabel}</span>
-          </>
-        ) : (
-          <span className="rounded bg-[var(--theme-selection,var(--color-zinc-600))] px-1.5 py-0.5 font-mono text-xs text-[var(--theme-text,white)]">{name}</span>
-        )}
-        <span className={`text-xs truncate ${mcp ? "text-zinc-400" : "text-zinc-300"}`}>{summary}</span>
-        {durationMs !== undefined && <span className="text-xs text-zinc-600">{durationMs}ms</span>}
-        <span className="ml-auto text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
-      </button>
-      {expanded && (
-        <div className="border-t border-zinc-800 px-3 py-2">
-          {mcp && (
-            <div className="mb-1 text-xs text-zinc-500">
-              MCP tool <span className="font-mono text-zinc-400 break-all">{name}</span>
-            </div>
-          )}
-          {Object.keys(args).length > 0 && (
-            <>
-              <div className="text-xs text-zinc-500 mb-1">Args</div>
-              <pre className="font-mono text-xs text-zinc-300 whitespace-pre-wrap max-h-40 overflow-y-auto">{JSON.stringify(args, null, 2)}</pre>
-            </>
-          )}
-          {Object.keys(result).length > 0 && (
-            <>
-              <div className="text-xs text-zinc-500 mt-2 mb-1">Result</div>
-              <pre className="font-mono text-xs text-zinc-300 whitespace-pre-wrap max-h-40 overflow-y-auto">{JSON.stringify(result, null, 2)}</pre>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  )
-})
 
 // ForOperatorLine is an agent's for_operator call, drawn as one line: what
 // it put in the operator's rail.
