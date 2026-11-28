@@ -616,3 +616,100 @@ it("lists the favourite macros, numbered, and the rest behind Show all", async (
   expect(screen.queryByRole("button", { name: /ticket to pr/i })).toBeNull()
   expect(screen.getByRole("button", { name: "Show all (1 more)" })).toBeTruthy()
 })
+
+function bar(props: Partial<Parameters<typeof PromptBar>[0]> = {}) {
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ macros: [{ name: "Plan", keys: "plan" }] }) })
+  const handlers = { onSendKeys: vi.fn(), onSubmitMessage: vi.fn(), onDismissPrompt: vi.fn() }
+  const ui = (more: Partial<Parameters<typeof PromptBar>[0]> = {}) => <PromptBar promptState={null} {...handlers} onDetectPrompt={vi.fn()} onDisconnect={vi.fn()} onKill={vi.fn()} onRefresh={vi.fn()}
+    onTogglePromptDetection={vi.fn()} promptDetectionEnabled agentId="agent-1" {...props} {...more} />
+  const view = render(ui())
+  return { ...handlers, rerender: (more: Partial<Parameters<typeof PromptBar>[0]>) => view.rerender(ui(more)), box: () => screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement }
+}
+
+it("passes the arrows, Enter, Escape and Tab to the terminal while the box is empty", () => {
+  const { onSendKeys, onSubmitMessage, box } = bar()
+  for (const key of ["ArrowUp", "ArrowDown", "Enter", "Escape", "Tab"]) fireEvent.keyDown(box(), { key })
+  expect(onSendKeys.mock.calls.map(([keys]) => keys)).toEqual(["Up", "Down", "Enter", "Escape", "Tab"])
+  fireEvent.keyDown(box(), { key: "a" })
+  expect(onSendKeys).toHaveBeenCalledTimes(5)
+  expect(onSubmitMessage).not.toHaveBeenCalled()
+})
+
+it("sends with Enter but not with Shift+Enter, and keeps the arrows in a box with text", () => {
+  const { onSendKeys, onSubmitMessage, box } = bar()
+  fireEvent.change(box(), { target: { value: "hello" } })
+  fireEvent.keyDown(box(), { key: "ArrowUp" })
+  fireEvent.keyDown(box(), { key: "Enter", shiftKey: true })
+  expect(onSubmitMessage).not.toHaveBeenCalled()
+  fireEvent.keyDown(box(), { key: "Enter" })
+  expect(onSubmitMessage).toHaveBeenCalledWith("hello")
+  expect(onSendKeys).not.toHaveBeenCalled()
+  expect(box().value).toBe("")
+  expect(localStorage.getItem("legato:draft:agent-1")).toBeNull()
+})
+
+it("keeps each agent's draft when switching between them", () => {
+  const { box, rerender } = bar()
+  fireEvent.change(box(), { target: { value: "for one" } })
+  expect(localStorage.getItem("legato:draft:agent-1")).toBe("for one")
+  localStorage.setItem("legato:draft:agent-2", "for two")
+  rerender({ agentId: "agent-2" })
+  expect(box().value).toBe("for two")
+  fireEvent.change(box(), { target: { value: "" } })
+  expect(localStorage.getItem("legato:draft:agent-2")).toBeNull()
+  rerender({ agentId: "agent-1" })
+  expect(box().value).toBe("for one")
+  expect(localStorage.getItem("legato:draft:agent-2")).toBeNull()
+})
+
+it("marks a bash command for Claude Code and Codex, not for other tools", () => {
+  const { box, rerender } = bar({ agentKind: "claude-code" })
+  fireEvent.change(box(), { target: { value: "! ls" } })
+  expect(screen.getByText("bash")).toBeTruthy()
+  expect(box().className).toContain("pt-8")
+  rerender({ agentKind: "chimera" })
+  expect(screen.queryByText("bash")).toBeNull()
+  rerender({ agentKind: undefined, agentCommand: "codex" })
+  expect(screen.getByText("bash")).toBeTruthy()
+})
+
+it("says the session is disconnected and holds the message box and Send", () => {
+  const { box } = bar({ connected: false })
+  expect(box().disabled).toBe(true)
+  expect(box().placeholder).toBe("Disconnected...")
+  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true)
+})
+
+it("cycles the tool's mode with Shift+Tab's keys, and closes the macros on a click outside", async () => {
+  const { onSendKeys } = bar()
+  fireEvent.click(screen.getByRole("button", { name: "Mode" }))
+  expect(onSendKeys).toHaveBeenCalledWith("BTab")
+  fireEvent.click(screen.getByRole("button", { name: "Macros" }))
+  expect(await screen.findByRole("button", { name: /Plan/ })).toBeTruthy()
+  fireEvent.click(document.body)
+  await waitFor(() => expect(screen.queryByRole("button", { name: /Plan/ })).toBeNull())
+})
+
+it("shows a tool approval's choices only while the agent waits, coloured by what they do", async () => {
+  const user = userEvent.setup()
+  const promptState = { type: "tool_approval" as const, context: "Run ls?", actions: [{ label: "Yes", keys: "y" }, { label: "Always", keys: "a" }, { label: "No", keys: "n" }, { label: "Edit", keys: "e" }] }
+  const { onSendKeys, onDismissPrompt, rerender } = bar({ promptState, agentActivity: "working" })
+  expect(screen.queryByRole("button", { name: /^Yes/ })).toBeNull()
+  expect(screen.getByRole("status", { name: "Agent working" })).toBeTruthy()
+  rerender({ promptState, agentActivity: "waiting" })
+  expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull()
+  expect(screen.queryByRole("button", { name: "Send" })).toBeNull()
+  expect(screen.getByText("Yes").className).toContain("text-emerald-400")
+  expect(screen.getByText("Always").className).toContain("text-emerald-400")
+  expect(screen.getByText("No").className).toContain("text-red-400")
+  expect(screen.getByText("Edit").className).toContain("text-indigo-400")
+  await user.tab()
+  await user.keyboard("j")
+  await user.keyboard("j")
+  await user.keyboard("k")
+  await user.keyboard("{Enter}")
+  expect(onSendKeys.mock.calls).toEqual([["a"]])
+  expect(onDismissPrompt).toHaveBeenCalledOnce()
+  await user.keyboard("{Escape}")
+  expect(onDismissPrompt).toHaveBeenCalledTimes(2)
+})
