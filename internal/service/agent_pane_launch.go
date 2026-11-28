@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,4 +48,24 @@ func PaneLaunchLine(argv []string) string {
 		line = line[:i]
 	}
 	return line
+}
+
+// WorkflowAgentStoppedReason is the error of a workflow step whose agent
+// the operator stopped before the step completed (LEG-689). It is not
+// "agent exited before step completion", which an interrupted step's
+// resume reads as resumable.
+const WorkflowAgentStoppedReason = "its agent was stopped before the step completed"
+
+type workflowStopKey struct{}
+
+// withWorkflowStop marks a stop a workflow makes of its own accord (a
+// cancel, a fail, a finished step): the workflow ends its steps itself, so
+// the stop leaves them alone.
+func withWorkflowStop(ctx context.Context) context.Context {
+	return context.WithValue(ctx, workflowStopKey{}, true)
+}
+
+func isWorkflowStop(ctx context.Context) bool {
+	stop, _ := ctx.Value(workflowStopKey{}).(bool)
+	return stop
 }

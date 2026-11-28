@@ -2141,7 +2141,15 @@ func (a *agentService) stopAgent(ctx context.Context, taskID string, announce bo
 func (a *agentService) stopAgentInSlot(ctx context.Context, taskID, slot string, announce bool) error {
 	session, err := a.store.GetAgentSessionInSlot(ctx, taskID, slot)
 	if err != nil {
-		// No running session — delete dead records
+		// No running session — delete dead records, and with them what
+		// waited on one: a step must not wait on a session that is gone.
+		if announce && !isWorkflowStop(ctx) {
+			if latest, err := a.store.LatestAgentSessionInSlot(ctx, taskID, slot); err == nil && latest.Status == "dead" {
+				if err := a.settleWaitingAttempts(ctx, *latest, "dead", WorkflowAgentStoppedReason); err != nil {
+					return err
+				}
+			}
+		}
 		return a.store.DeleteDeadAgentSessionsInSlot(ctx, taskID, slot)
 	}
 
@@ -2159,6 +2167,15 @@ func (a *agentService) stopAgentInSlot(ctx context.Context, taskID, slot string,
 
 	if err := a.store.UpdateAgentSessionStatusInSlot(ctx, taskID, slot, "dead"); err != nil {
 		return err
+	}
+	// The operator's stop ends what waited on the agent (LEG-689): a step
+	// left waiting on a deleted session could be neither retried nor
+	// reminded. A workflow's own stops (a cancel, a fail, a finish) end
+	// their steps themselves, and a restart rebinds them.
+	if announce && !isWorkflowStop(ctx) {
+		if err := a.settleWaitingAttempts(ctx, *session, "dead", WorkflowAgentStoppedReason); err != nil {
+			return err
+		}
 	}
 	if a.bus != nil && announce && IsNamedSlot(slot) {
 		a.bus.PublishSlotAgentDied(taskID, slot)
@@ -2448,6 +2465,31 @@ func (a *agentService) endGoneSessionFor(ctx context.Context, s store.AgentSessi
 	}
 	a.foregroundAgents.Delete(s.ID)
 	log.Printf("agent ended task=%s session=%s status=%s", s.TaskID, s.TmuxSession, status)
+	if err := a.settleWaitingAttempts(ctx, s, status, stepReason); err != nil {
+		return err
+	}
+	if a.bus != nil && IsNamedSlot(s.Slot) {
+		a.bus.PublishSlotAgentDied(s.TaskID, s.Slot)
+		return nil
+	}
+	// Notify swarm orchestrator that an agent died (best-effort).
+	if a.bus != nil {
+		parent := ""
+		if s.ParentTaskID != nil {
+			parent = *s.ParentTaskID
+		}
+		subtask := ""
+		if s.SubtaskID != nil {
+			subtask = *s.SubtaskID
+		}
+		a.bus.PublishAgentDied(s.TaskID, parent, subtask, s.Role)
+	}
+	return nil
+}
+
+// settleWaitingAttempts ends, or suspends, the workflow steps that wait on
+// an agent session that has ended with status.
+func (a *agentService) settleWaitingAttempts(ctx context.Context, s store.AgentSession, status, stepReason string) error {
 	attempts, err := a.store.ListWaitingWorkflowAttemptsByAgentSession(ctx, s.ID)
 	if err != nil {
 		return err
@@ -2488,22 +2530,6 @@ func (a *agentService) endGoneSessionFor(ctx context.Context, s store.AgentSessi
 		if a.bus != nil {
 			a.bus.PublishWorkflowChanged(attempt.RunID)
 		}
-	}
-	if a.bus != nil && IsNamedSlot(s.Slot) {
-		a.bus.PublishSlotAgentDied(s.TaskID, s.Slot)
-		return nil
-	}
-	// Notify swarm orchestrator that an agent died (best-effort).
-	if a.bus != nil {
-		parent := ""
-		if s.ParentTaskID != nil {
-			parent = *s.ParentTaskID
-		}
-		subtask := ""
-		if s.SubtaskID != nil {
-			subtask = *s.SubtaskID
-		}
-		a.bus.PublishAgentDied(s.TaskID, parent, subtask, s.Role)
 	}
 	return nil
 }
