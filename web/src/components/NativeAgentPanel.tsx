@@ -44,7 +44,6 @@ import { compactAgent, compactCommand, compactionNotice, nextCompaction, type Co
 import { toolDisplayName } from "../lib/mcpToolName"
 import { legatoEventSummary, parseLegatoMessage } from "../lib/legatoMessage"
 import { plainText, subagentTree, type SubagentNode } from "../lib/agentGlance"
-import { modelSettingsResponse, type ModelSettingsState } from "../lib/modelSettings"
 import {
   createNativeSyncState,
   reconcileNativeSnapshot,
@@ -72,6 +71,8 @@ import { useDraft } from "./useDraft"
 import { useAgentCatalog } from "./useAgentCatalog"
 import { useSlashMenu } from "./useSlashMenu"
 import { useComposerKeys } from "./useComposerKeys"
+import { useDropdown } from "./useDropdown"
+import { useSessionSettings } from "./useSessionSettings"
 
 // The least width at which subagent tiles sit beside the conversation; below
 // it they are a strip above it.
@@ -301,12 +302,9 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const [terminalPrompt, setTerminalPrompt] = useState<PromptState | null>(null)
   const terminalAsking = !awaitingRequest && terminalPrompt !== null && terminalPromptTypes.has(terminalPrompt.type) && (terminalPrompt.actions?.length ?? 0) > 0
   const awaitingPerson = awaitingRequest || terminalAsking
-  // The effort the model runs at, when the session reports one.
-  const effort = syncState.settingsState?.effective.reasoningEffort
-  const [modesOpen, setModesOpen] = useState(false)
-  const [macrosOpen, setMacrosOpen] = useState(false)
-  const modesRef = useRef<HTMLDivElement>(null)
-  const macrosRef = useRef<HTMLDivElement>(null)
+  const modesMenu = useDropdown()
+  const macrosMenu = useDropdown()
+  const closeMacros = macrosMenu.close
   // Dictation, transcribed into the message.
   const voice = useVoiceRecorder({
     agentId, agentKind, baseUrl, transcriptionOnly: true,
@@ -337,19 +335,12 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     }
     replaceSyncState(reduceNativeEvent(syncStateRef.current, event))
   }, [replaceSyncState])
+  const { handleModeChange, handleModelChange, handleEffortChange, efforts, effort } = useSessionSettings({
+    agentId, baseUrl, syncState, syncStateRef, replaceSyncState, modelRequestRef, setMode, closeModes: modesMenu.close,
+  })
 
 
 
-
-  // Close dropdowns on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (modesRef.current && !modesRef.current.contains(e.target as Node)) setModesOpen(false)
-      if (macrosRef.current && !macrosRef.current.contains(e.target as Node)) setMacrosOpen(false)
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [])
 
   const resync = useCallback(async (scrollAfterSync = false, initialHydration = false) => {
     const generation = ++syncGenerationRef.current
@@ -711,51 +702,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
 
   const handleKeyDown = useComposerKeys(slash, busy, handleSend, handleInterrupt)
 
-  const handleModeChange = useCallback((mode: string) => {
-    apiFetch(baseUrl, `/api/agents/${agentId}/chimera/modes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode }),
-    }).then(() => setMode(mode)).catch(() => {})
-    setModesOpen(false)
-  }, [agentId, baseUrl])
-
-  const handleModelChange = useCallback((ref: string) => {
-    if (ref === model) return
-    const request = ++modelRequestRef.current
-    apiFetch(baseUrl, `/api/agents/${agentId}/chimera/model`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: ref, expectedModel: model }),
-    }).then(modelSettingsResponse).then((body) => {
-      if (request !== modelRequestRef.current) return
-      if (syncStateRef.current.model !== model && syncStateRef.current.model !== ref) return
-      const result = (body ?? {}) as { to?: string; settingsState?: ModelSettingsState }
-      replaceSyncState({ ...syncStateRef.current, model: result.settingsState?.model ?? result.to ?? ref, settingsState: result.settingsState })
-    }).catch((reason) => {
-      if (request !== modelRequestRef.current) return
-      replaceSyncState({ ...syncStateRef.current, error: reason instanceof Error ? reason.message : String(reason) })
-    })
-  }, [agentId, baseUrl, model, replaceSyncState])
-
-  // The efforts the model takes, as the session reports them.
-  const effortSetting = syncState.settingsState?.capabilities.settings.reasoningEffort
-  const efforts = effortSetting?.status === "supported" && effortSetting.type === "enum" ? effortSetting.values ?? [] : []
-
-  const handleEffortChange = useCallback((value: string) => {
-    if (!model) return
-    apiFetch(baseUrl, `/api/agents/${agentId}/chimera/model`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ expectedModel: model, settings: { reasoningEffort: value } }),
-    }).then(modelSettingsResponse).then((body) => {
-      const settingsState = (body as { settingsState?: ModelSettingsState } | null)?.settingsState
-      if (settingsState) replaceSyncState({ ...syncStateRef.current, model: settingsState.model, settingsState })
-    }).catch((reason) => {
-      replaceSyncState({ ...syncStateRef.current, error: reason instanceof Error ? reason.message : String(reason) })
-    })
-  }, [agentId, baseUrl, model, replaceSyncState])
-
   const handleMacro = useCallback((keys: string) => {
     dispatchAgentInput(macroMessage(keys), {
       executeBang: (command) => {
@@ -767,13 +713,11 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       },
       sendMessage: (content) => send({ type: "agent_message", agent_id: agentId, content }),
     })
-    setMacrosOpen(false)
-  }, [agentId, busy, executeBang, send])
+    closeMacros()
+  }, [agentId, busy, executeBang, send, closeMacros])
 
-  const openMacros = useCallback(() => setMacrosOpen(true), [])
-  const closeMacros = useCallback(() => setMacrosOpen(false), [])
-  const macroPicker = useMacroPicker(macros, macrosOpen)
-  useMacroHotkeys({ macros: macroPicker.shown, open: macrosOpen, onOpen: openMacros, onClose: closeMacros, onSelect: handleMacro })
+  const macroPicker = useMacroPicker(macros, macrosMenu.open)
+  useMacroHotkeys({ macros: macroPicker.shown, open: macrosMenu.open, onOpen: macrosMenu.show, onClose: closeMacros, onSelect: handleMacro })
 
   if (loading) {
     return (
@@ -942,13 +886,13 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
               />
             )}
             {modes.length > 0 && (
-              <div className="relative" ref={modesRef}>
-                <button type="button" onClick={() => setModesOpen((v) => !v)} className={composerToolButton(modesOpen)} title="Change mode">
+              <div className="relative" ref={modesMenu.ref}>
+                <button type="button" onClick={modesMenu.toggle} className={composerToolButton(modesMenu.open)} title="Change mode">
                   <ArrowLeftRight size={16} aria-hidden="true" className="sm:hidden" />
                   <span className="hidden sm:inline">Mode</span>
                   {mode && <span className="hidden font-lw-mono text-lw-faint sm:inline">{mode}</span>}
                 </button>
-                {modesOpen && (
+                {modesMenu.open && (
                   <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[160px] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
                     {modes.map((m) => (
                       <button
@@ -968,12 +912,12 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
               </div>
             )}
             <ResourcesButton agentId={agentId} baseUrl={baseUrl} sandboxed={sandboxed} />
-            <div className="relative" ref={macrosRef}>
-              <button type="button" onClick={() => setMacrosOpen((v) => !v)} className={composerToolButton(macrosOpen)} title="Macros (M)" aria-keyshortcuts="m">
+            <div className="relative" ref={macrosMenu.ref}>
+              <button type="button" onClick={macrosMenu.toggle} className={composerToolButton(macrosMenu.open)} title="Macros (M)" aria-keyshortcuts="m">
                 <Zap size={16} aria-hidden="true" className="sm:hidden" />
                 <span className="hidden sm:inline">Macros</span>
               </button>
-              {macrosOpen && (
+              {macrosMenu.open && (
                 <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[180px] max-w-[calc(100vw-2rem)] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
                   <MacroPickerItems shown={macroPicker.shown} hidden={macroPicker.hidden} onShowAll={macroPicker.showAll} onPick={(macro) => handleMacro(macro.keys)} />
                 </div>
