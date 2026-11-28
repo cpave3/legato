@@ -43,7 +43,7 @@ import { TileDeck } from "./tiles/TileDeck"
 import { SubagentLink } from "./tiles/SubagentParts"
 import { shellTileForCall } from "./tiles/shellTiles"
 import type { StoredBackgroundShell } from "../lib/backgroundShells"
-import type { BackgroundJob } from "../lib/agentWire"
+import type { BackgroundJob, PromptState } from "../lib/agentWire"
 import { useConversationScroll } from "./useConversationScroll"
 import { useDraft } from "./useDraft"
 import { useAgentCatalog } from "./useAgentCatalog"
@@ -224,7 +224,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const { items, busy, error, contextUsage, model } = syncState
   const blocks = useMemo(() => conversationBlocks(items), [items])
   const subagents = useSubagentTiles(items, syncState.backgroundShells, backgroundShells, backgroundJobs)
-  const { panelRef, tiles, deckTitle, show: showTiles, beside: tilesBeside, focused: focusedTile, setFocused: setFocusedTile, highlighted: highlightedTile, setHighlighted: setHighlightedTile } = subagents
+  const { panelRef, tiles } = subagents
   const step = useMemo(() => busy ? currentStep(items) : null, [busy, items])
   const turnSeconds = useTurnClock(busy, !loading)
   // The agent has stopped on a permission prompt or a question of its own.
@@ -241,14 +241,9 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   })
   const pasted = usePastedImages(agentId, draft, insertImage)
   const slash = useSlashMenu(draft, setDraft, textareaRef, slashItems, catalogKey)
-
   const { handleModeChange, handleModelChange, handleEffortChange, efforts, effort } = useSessionSettings({
     agentId, baseUrl, syncState, syncStateRef, replaceSyncState, modelRequestRef, setMode, closeModes,
   })
-
-
-
-
   const resync = useSnapshotResync(agentId, baseUrl, sync, scroll, resyncRef)
 
   const bang = useBangCommands({ agentId, baseUrl, busy, resync, failWith, scrollToBottomAfterRender, setDraft, textareaRef })
@@ -268,12 +263,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   })
 
   const handleTerminalChoice = useTerminalPromptPolling(agentId, connected, send, setTerminalPrompt)
-
-
-
-
-
-
   const { handlePermission, handleQuestion } = useRequestAnswers(agentId, send, { syncStateRef, replaceSyncState })
   const handleKeyDown = useComposerKeys(slash, busy, handleSend, handleInterrupt)
 
@@ -299,6 +288,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   }
 
   const headerState: AgentChatState = agentChatState(awaitingPerson, activity, busy)
+  const name = title || agentId
   const menu = buildAgentMenu({
     onRename, onMoveToGroup, onShowInfo,
     onRefresh: () => { void resync() }, refreshing: loading,
@@ -313,7 +303,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       <AgentChatHeader
         state={headerState}
         time={stateTime}
-        title={title || agentId}
+        title={name}
         taskId={agentId}
         agentKind={agentKind}
         engram={engram}
@@ -323,24 +313,17 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         backgroundJobs={backgroundJobs}
         subagents={{ total: tiles.length, running: tiles.filter((tile) => tile.state === "running").length, view: subagents.view, onView: subagents.chooseView }}
         onShowRequest={scrollToBottom}
-        ask={reeve ? undefined : <AskReeve brief={reeveBrief({ what: `the agent “${title || agentId}”, which waits for the operator`, ids: { task: agentId, "agent tool": agentKind }, error: error || undefined })} />}
+        ask={askReeveAbout(reeve, name, agentId, agentKind, error)}
         menu={menu}
         stage={stage}
-        notes={<>
-          {reeve && <ReeveStatus baseUrl={baseUrl} />}
-          {mode && <span className="rounded bg-lw-raised px-1.5 font-lw-mono">{mode}</span>}
-          {syncing && <span className="text-lw-link">Syncing…</span>}
-          {error && <span className="truncate text-lw-error">{error}</span>}
-        </>}
+        notes={<HeaderNotes reeve={reeve} baseUrl={baseUrl} mode={mode} syncing={syncing} error={error} />}
       />
-      {showTiles && !tilesBeside && (
-        <TileDeck title={deckTitle} tiles={tiles} layout="strip" focused={focusedTile} onFocus={setFocusedTile} />
-      )}
+      <SubagentDeck subagents={subagents} beside={false} />
 
       {/* The conversation and its composer; subagent tiles may sit beside them,
           in the other half and never more. */}
       <div className="flex min-h-0 flex-1">
-      <div className={`flex min-h-0 min-w-0 flex-1 flex-col ${showTiles && tilesBeside ? "border-r border-lw-line" : ""}`}>
+      <div className={`flex min-h-0 min-w-0 flex-1 flex-col ${subagents.show && subagents.beside ? "border-r border-lw-line" : ""}`}>
       {/* Conversation viewport owns both scrolling and its floating action. */}
       <ConversationFeed
         scrollRef={scroll.scrollRef}
@@ -353,14 +336,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         onOpenUIItem={onOpenUIItem}
         onPermission={handlePermission}
         onQuestion={handleQuestion}
-        terminal={terminalAsking && terminalPrompt && (
-            <NativeTerminalPrompt
-              prompt={terminalPrompt}
-              askedBy={agentToolName(agentKind)}
-              onChoose={handleTerminalChoice}
-              onOpenTerminal={onDowngradeChimera ? () => { void onDowngradeChimera().catch(() => {}) } : undefined}
-            />
-          )}
+        terminal={<TerminalPromptCard asking={terminalAsking} prompt={terminalPrompt} agentKind={agentKind} onChoose={handleTerminalChoice} onDowngradeChimera={onDowngradeChimera} />}
         isScrolledUp={isScrolledUp}
         onScrollToBottom={scrollToBottom}
       />
@@ -402,22 +378,69 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         macrosRef={macrosRef}
       />
       </div>
-      {showTiles && tilesBeside && (
-        <TileDeck
-          title={deckTitle}
-          tiles={tiles}
-          layout="grid"
-          focused={focusedTile}
-          onFocus={setFocusedTile}
-          highlighted={highlightedTile}
-          onHighlight={setHighlightedTile}
-        />
-      )}
+      <SubagentDeck subagents={subagents} beside />
       </div>
     </div>
   )
 }
 
+
+// Notes in the header: the Reeve's status in its own panel, the mode, a
+// refresh running, and an error.
+function HeaderNotes({ reeve, baseUrl, mode, syncing, error }: { reeve?: boolean; baseUrl: string; mode: string; syncing: boolean; error: string | null }) {
+  return (
+    <>
+          {reeve && <ReeveStatus baseUrl={baseUrl} />}
+          {mode && <span className="rounded bg-lw-raised px-1.5 font-lw-mono">{mode}</span>}
+          {syncing && <span className="text-lw-link">Syncing…</span>}
+          {error && <span className="truncate text-lw-error">{error}</span>}
+    </>
+  )
+}
+
+// A way to ask the Reeve about the agent; none in the Reeve's own panel.
+function askReeveAbout(reeve: boolean | undefined, name: string, agentId: string, agentKind: string | undefined, error: string | null): ReactNode {
+  if (reeve) return undefined
+  return <AskReeve brief={reeveBrief({ what: `the agent “${name}”, which waits for the operator`, ids: { task: agentId, "agent tool": agentKind }, error: error || undefined })} />
+}
+
+// The deck of subagents and shells, when it is shown: a grid beside the
+// conversation on a wide panel, else a strip above it.
+function SubagentDeck({ subagents, beside }: { subagents: ReturnType<typeof useSubagentTiles>; beside: boolean }) {
+  if (!subagents.show || subagents.beside !== beside) return null
+  if (!beside) return <TileDeck title={subagents.deckTitle} tiles={subagents.tiles} layout="strip" focused={subagents.focused} onFocus={subagents.setFocused} />
+  return (
+        <TileDeck
+          title={subagents.deckTitle}
+          tiles={subagents.tiles}
+          layout="grid"
+          focused={subagents.focused}
+          onFocus={subagents.setFocused}
+          highlighted={subagents.highlighted}
+          onHighlight={subagents.setHighlighted}
+        />
+  )
+}
+
+// What the agent's terminal asks, when the panel shows it, at the end of the
+// conversation.
+function TerminalPromptCard({ asking, prompt, agentKind, onChoose, onDowngradeChimera }: {
+  asking: boolean
+  prompt: PromptState | null
+  agentKind?: string
+  onChoose: (keys: string) => void
+  onDowngradeChimera?: () => Promise<void>
+}) {
+  if (!asking || !prompt) return null
+  return (
+            <NativeTerminalPrompt
+              prompt={prompt}
+              askedBy={agentToolName(agentKind)}
+              onChoose={onChoose}
+              onOpenTerminal={onDowngradeChimera ? () => { void onDowngradeChimera().catch(() => {}) } : undefined}
+            />
+  )
+}
 
 // What every row of the conversation is given besides its item.
 interface FeedRowProps {
