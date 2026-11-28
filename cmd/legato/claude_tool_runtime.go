@@ -13,6 +13,10 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
+// ipcToolsChanged tells running Legatos that a tool they keep current was
+// updated or rolled back by another process (legato tools).
+const ipcToolsChanged = "tools_changed"
+
 // claudeChannelKey is the setting of the release channel Legato's own
 // Claude Code follows.
 const claudeChannelKey = "updates.claude.channel"

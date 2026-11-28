@@ -88,6 +88,9 @@ const (
 	// EventSubscriptionUsageRefreshRequested: a process that does not poll
 	// asked the one that does to read now (IPC usage_refresh). No payload.
 	EventSubscriptionUsageRefreshRequested
+	// EventToolsChanged: another process (legato tools) updated or rolled
+	// back a tool Legato keeps current (IPC tools_changed). No payload.
+	EventToolsChanged
 )
 
 // WorkMilestonePayload is a stage milestone for one agent place: a task's

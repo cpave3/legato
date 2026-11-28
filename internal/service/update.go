@@ -290,6 +290,11 @@ func (s *UpdateService) Run(ctx context.Context) {
 	if !s.release() && len(s.opts.Tools) == 0 {
 		return
 	}
+	if s.opts.Bus != nil && len(s.opts.Tools) > 0 {
+		changed, stop := s.opts.Bus.SubscribeInvalidations(events.EventToolsChanged)
+		defer stop()
+		go s.checkToolsWhenChanged(ctx, changed)
+	}
 	timer := time.NewTimer(s.opts.FirstCheckAfter)
 	defer timer.Stop()
 	for {
@@ -350,6 +355,21 @@ func (s *UpdateService) waitForQuiet(ctx context.Context) bool {
 		}
 		if s.mode(ctx) != UpdateModeAuto {
 			return false
+		}
+	}
+}
+
+// checkToolsWhenChanged checks the tools again each time another process
+// says it changed one (EventToolsChanged), until ctx ends.
+func (s *UpdateService) checkToolsWhenChanged(ctx context.Context, changed <-chan struct{}) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-changed:
+			for _, tool := range s.opts.Tools {
+				tool.Check(ctx)
+			}
 		}
 	}
 }

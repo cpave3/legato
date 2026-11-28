@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/claudecode"
+	"github.com/cpave3/legato/internal/engine/events"
 )
 
 // fakeClaudeReleases is Claude Code's release server: channels, and a
@@ -348,4 +349,21 @@ func TestAnAgentLaunchedThroughLegatosClaudeIsRecognised(t *testing.T) {
 	if !agentForeground("claude-code", cmd) {
 		t.Fatalf("an agent run as %s is not recognised", cmd)
 	}
+}
+
+// Another process (legato tools) changed a tool: a running updater checks
+// its tools again when told, so the web UI shows the change.
+func TestARunningUpdaterChecksItsToolsAgainWhenTold(t *testing.T) {
+	c := newClaudeToolFixture(t, "2.1.326", "2.1.326")
+	bus := events.New()
+	f := newUpdater(t, "v1.3.0", func(o *UpdateOptions) {
+		o.Tools = []ManagedTool{c.tool}
+		o.Bus = bus
+	})
+	running(t, f)
+	eventually(t, "the first check", func() bool { return c.tool.Status().State == UpdateUpToDate })
+
+	c.releases.set("stable", "2.1.330")
+	bus.Publish(events.Event{Type: events.EventToolsChanged})
+	eventually(t, "the tools to be checked again", func() bool { return c.tool.Status().Available })
 }
