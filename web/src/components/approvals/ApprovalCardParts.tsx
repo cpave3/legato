@@ -1,4 +1,3 @@
-import type { Ref } from "react"
 import { Link } from "react-router-dom"
 import { ChangeSetCard } from "./ChangeSetCard"
 import { SecretRequestForm } from "./SecretRequestForm"
@@ -10,17 +9,7 @@ import { shellApprovals } from "../../lib/mobileShell"
 import { signWithPasskey } from "../../lib/passkeys"
 import type { Device } from "../../lib/devices"
 import type { ApprovalDecisionState } from "./useApprovalCard"
-
-// A choice on a phone is a full-width button a thumb hits without aiming;
-// from the md breakpoint it is the compact button of a desktop tray.
-const choiceSize = "flex min-h-12 w-full items-center justify-center rounded-xl px-4 text-base md:min-h-0 md:w-auto md:rounded md:px-2.5 md:py-1 md:text-xs"
-const primaryChoice = "bg-lw-accent font-semibold text-[var(--theme-canvas,#fff)] hover:brightness-110 disabled:opacity-50"
-const secondaryChoice = "border border-lw-line-strong font-medium text-lw-text hover:bg-lw-selected disabled:opacity-50"
-
-// The first option is the one a thumb is meant for.
-function choiceTone(index: number): string {
-  return index === 0 ? primaryChoice : secondaryChoice
-}
+import { choiceSize, choiceTone, primaryChoice } from "./choiceStyles"
 
 // The kind of approval, whether the agent waits, who asks, and the title.
 export function ApprovalHeader({ approval }: { approval: Approval }) {
@@ -91,38 +80,6 @@ export function ApprovalDetails({ approval }: { approval: Approval }) {
   )
 }
 
-// The note a denial carries, with Deny and Back.
-interface DenyFormProps {
-  busy: boolean
-  note: string
-  noteRef: Ref<HTMLTextAreaElement>
-  onNote: (note: string) => void
-  onDeny: (feedback: string) => void
-  onBack: () => void
-}
-
-export function DenyForm({ busy, note, noteRef, onNote, onDeny, onBack }: DenyFormProps) {
-  return (
-    <div className="mt-3 space-y-2 md:mt-2">
-      <textarea
-        ref={noteRef}
-        aria-label="Note for the agent"
-        value={note}
-        onChange={(event) => onNote(event.target.value)}
-        rows={3}
-        placeholder="Tell the agent why, or what to do instead (optional)"
-        className="w-full rounded-lg border border-lw-line bg-lw-ground px-3 py-2 text-base placeholder:text-lw-faint focus:border-lw-accent focus:outline-none md:rounded md:px-2 md:py-1 md:text-xs"
-      />
-      <div className="flex flex-col gap-2 md:flex-row">
-        <button disabled={busy} onClick={() => onDeny(note.trim())} className={`${choiceSize} border border-lw-danger-line font-medium text-lw-danger hover:bg-lw-error-soft disabled:opacity-50`}>
-          Deny
-        </button>
-        <button disabled={busy} onClick={onBack} className={`${choiceSize} text-lw-text-2 hover:bg-lw-selected`}>Back</button>
-      </div>
-    </div>
-  )
-}
-
 interface SignedChoicesProps {
   approval: Approval
   allows: ApprovalOption[]
@@ -168,33 +125,6 @@ export function SignedChoices({ approval, allows, baseUrl, passkey, decision }: 
         </button>
       ))}
     </>
-  )
-}
-
-// An unsigned approval's allow options, the first the one to take.
-export function AllowChoices({ allows, busy, onAllow }: { allows: ApprovalOption[]; busy: boolean; onAllow: (option: string) => void }) {
-  return (
-    <>
-      {allows.map((option, index) => (
-        <button
-          key={option.id}
-          disabled={busy}
-          title={option.description}
-          onClick={() => onAllow(option.id)}
-          className={`${choiceSize} ${choiceTone(index)}`}
-        >
-          {option.label}
-        </button>
-      ))}
-    </>
-  )
-}
-
-export function DenyButton({ busy, denyRef, onDeny }: { busy: boolean; denyRef: Ref<HTMLButtonElement>; onDeny: () => void }) {
-  return (
-    <button ref={denyRef} disabled={busy} onClick={onDeny} className={`${choiceSize} border border-lw-line text-lw-text-2 hover:bg-lw-selected disabled:opacity-50 md:border-transparent`}>
-      Deny…
-    </button>
   )
 }
 

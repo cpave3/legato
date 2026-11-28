@@ -9,7 +9,8 @@ import { usePasskeyDevice } from "../../hooks/usePasskeyDevice"
 import { QuestionFocus } from "./QuestionFocus"
 import { approvalQuestions } from "../../lib/questionDrafts"
 import { setFocusMode, useFocusMode } from "../../lib/focusMode"
-import { AllowChoices, ApprovalDetails, ApprovalHeader, DenyButton, DenyForm, QuestionsBody, SignedChoices, SourceBody } from "./ApprovalCardParts"
+import { ApprovalDetails, ApprovalHeader, QuestionsBody, SignedChoices, SourceBody } from "./ApprovalCardParts"
+import { choiceSize, choiceTone } from "./choiceStyles"
 import { useApprovalDecision, useDenyNote, useScrollIntoViewWhen } from "./useApprovalCard"
 
 // Shows something while open, and for a moment after, so it can fade in and
@@ -138,12 +139,42 @@ export function ApprovalCard({ approval, focused, onDone }: { approval: Approval
 
           {error && <p role="alert" className="mt-2 text-sm text-lw-error md:text-xs">{error}</p>}
           {denying ? (
-            <DenyForm busy={busy} note={note} noteRef={noteRef} onNote={setNote} onDeny={(feedback) => decide({ decision: "deny", feedback })} onBack={() => setDenying(false)} />
+            // The note a denial carries, with Deny and Back.
+            <div className="mt-3 space-y-2 md:mt-2">
+              <textarea
+                ref={noteRef}
+                aria-label="Note for the agent"
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                rows={3}
+                placeholder="Tell the agent why, or what to do instead (optional)"
+                className="w-full rounded-lg border border-lw-line bg-lw-ground px-3 py-2 text-base placeholder:text-lw-faint focus:border-lw-accent focus:outline-none md:rounded md:px-2 md:py-1 md:text-xs"
+              />
+              <div className="flex flex-col gap-2 md:flex-row">
+                <button disabled={busy} onClick={() => decide({ decision: "deny", feedback: note.trim() })} className={`${choiceSize} border border-lw-danger-line font-medium text-lw-danger hover:bg-lw-error-soft disabled:opacity-50`}>
+                  Deny
+                </button>
+                <button disabled={busy} onClick={() => setDenying(false)} className={`${choiceSize} text-lw-text-2 hover:bg-lw-selected`}>Back</button>
+              </div>
+            </div>
           ) : (
             <div className="mt-4 flex flex-col gap-2 md:mt-2 md:flex-row md:flex-wrap">
               {approval.signed && <SignedChoices approval={approval} allows={allows} baseUrl={baseUrl} passkey={passkey} decision={decision} />}
-              {!approval.signed && approval.source !== "reeve_secret" && <AllowChoices allows={allows} busy={busy} onAllow={(option) => decide({ decision: "allow", option })} />}
-              <DenyButton busy={busy} denyRef={denyRef} onDeny={() => setDenying(true)} />
+              {/* An unsigned approval's allow options, the first the one to take. */}
+              {!approval.signed && approval.source !== "reeve_secret" && allows.map((option, index) => (
+                <button
+                  key={option.id}
+                  disabled={busy}
+                  title={option.description}
+                  onClick={() => decide({ decision: "allow", option: option.id })}
+                  className={`${choiceSize} ${choiceTone(index)}`}
+                >
+                  {option.label}
+                </button>
+              ))}
+              <button ref={denyRef} disabled={busy} onClick={() => setDenying(true)} className={`${choiceSize} border border-lw-line text-lw-text-2 hover:bg-lw-selected disabled:opacity-50 md:border-transparent`}>
+                Deny…
+              </button>
             </div>
           )}
         </>
