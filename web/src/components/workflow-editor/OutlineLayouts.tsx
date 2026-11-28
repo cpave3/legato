@@ -114,40 +114,16 @@ type CanvasProps = {
   onSelect: (selection: Selection | null) => void
 }
 
-// CanvasNotices are the notices over the canvas: the page's, the broken
-// YAML's, a stale graph's, an edit's error and a pasted workflow's.
-function CanvasNotices({ pageNotices, brokenNote, graph, error, paste }: Pick<CanvasProps, "pageNotices" | "brokenNote" | "graph" | "error" | "paste">) {
-  const box = "rounded-lg border border-lw-line bg-lw-surface px-3 py-2 text-[13px] shadow-[var(--shadow-lw-panel)]"
-  return <>
-    {pageNotices}
-    {brokenNote}
-    {graph?.stale && <p role="status" className={`${box} text-lw-needs`}>{STALE_WORDS}</p>}
-    {error && <p role="alert" className={`${box} text-lw-danger`}>{error}</p>}
-    <PasteConfirm paste={paste} canvas />
-  </>
-}
-
 // anyNotice says whether there is a notice to float over the canvas.
 const anyNotice = ({ pageNotices, broken, graph, error, paste }: Pick<CanvasProps, "pageNotices" | "broken" | "graph" | "error" | "paste">) =>
   Boolean(pageNotices || broken || graph?.stale || error || paste.pasted !== null)
-
-// InspectorPanel is the inspector docked on the canvas's right, with its
-// close.
-function InspectorPanel({ selectedRow, inspector, onSelect }: Pick<CanvasProps, "inspector" | "onSelect"> & { selectedRow: Row }) {
-  return <aside aria-label={selectedRow.label.trim()} className={`flex min-h-0 flex-col rounded-xl border border-lw-line bg-lw-surface p-4 text-sm ${floatingPanel}`}>
-    <div className="flex items-start gap-2">
-      <div className="min-w-0 flex-1">{inspector}</div>
-      <PanelClose onClose={() => onSelect(null)} />
-    </div>
-  </aside>
-}
 
 /** CanvasOutline draws the Visual side on a wide screen as the graph, with
  * the outline's sections as cards on the left and the inspector on the
  * right (LEG-655); the page's notices float over it, its Problems card
  * heads the left dock. */
 export function CanvasOutline(props: CanvasProps) {
-  const { dock, bodies, counts, outline, onKeyDown, broken, graph, selectedRow, selection, onSelect } = props
+  const { dock, bodies, counts, outline, onKeyDown, broken, brokenNote, graph, error, paste, selectedRow, selection, inspector, onSelect } = props
   const { folds } = dock
   // j and k move across every card's rows: the keys are the dock's.
   const nav = <nav ref={outline} aria-label="Outline" onKeyDown={onKeyDown} className="flex min-w-0 flex-col gap-2">
@@ -160,12 +136,29 @@ export function CanvasOutline(props: CanvasProps) {
   // read.
   const panelRow = broken ? null : selectedRow
   const hasNotices = anyNotice(props)
+  const box = "rounded-lg border border-lw-line bg-lw-surface px-3 py-2 text-[13px] shadow-[var(--shadow-lw-panel)]"
+  // The notices over the canvas: the page's, the broken YAML's, a stale
+  // graph's, an edit's error and a pasted workflow's.
+  const notices = hasNotices && <>
+    {props.pageNotices}
+    {brokenNote}
+    {graph?.stale && <p role="status" className={`${box} text-lw-needs`}>{STALE_WORDS}</p>}
+    {error && <p role="alert" className={`${box} text-lw-danger`}>{error}</p>}
+    <PasteConfirm paste={paste} canvas />
+  </>
+  // The inspector docked on the canvas's right, with its close.
+  const panel = panelRow && <aside aria-label={panelRow.label.trim()} className={`flex min-h-0 flex-col rounded-xl border border-lw-line bg-lw-surface p-4 text-sm ${floatingPanel}`}>
+    <div className="flex items-start gap-2">
+      <div className="min-w-0 flex-1">{inspector}</div>
+      <PanelClose onClose={() => onSelect(null)} />
+    </div>
+  </aside>
   return <div className="flex min-h-0 flex-1 flex-col text-sm" onPaste={props.onPaste}>
     <WorkflowCanvas label="Workflow graph" narrow={false} panelWidth={INSPECTOR_WIDTH} dockYields
       graph={graph ? { graph: graph.model, selectedId: props.selectedId, onSelect: props.onGraphSelect, centerOn: dock.centerOn, direction: "LR" } : null}
       empty="The graph shows once Legato has read the file."
       cards={<>{props.pageCards}{broken ? <div inert className="opacity-50">{nav}</div> : nav}</>}
-      notices={hasNotices && <CanvasNotices {...props} />} panel={panelRow ? <InspectorPanel {...props} selectedRow={panelRow} /> : null} panelTitle={selectedRow?.label.trim()}
+      notices={notices} panel={panel} panelTitle={selectedRow?.label.trim()}
       selected={selection !== null} onClosePanel={() => onSelect(null)} hiddenPill="Outline" />
   </div>
 }
