@@ -1,4 +1,4 @@
-CREATE TABLE native_security_incidents (
+CREATE TABLE IF NOT EXISTS native_security_incidents (
     execution_id TEXT NOT NULL,
     generation TEXT NOT NULL,
     task_id TEXT NOT NULL,
