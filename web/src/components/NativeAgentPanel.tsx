@@ -45,7 +45,7 @@ import { compactAgent, compactCommand, compactionNotice, nextCompaction, type Co
 import { toolDisplayName } from "../lib/mcpToolName"
 import { legatoEventSummary, parseLegatoMessage } from "../lib/legatoMessage"
 import { plainText, subagentTree, type SubagentNode } from "../lib/agentGlance"
-import { modelSettingsResponse, type ModelCapabilities, type ModelSettings, type ModelSettingsState } from "../lib/modelSettings"
+import { modelSettingsResponse, type ModelSettingsState } from "../lib/modelSettings"
 import {
   createNativeSyncState,
   reconcileNativeSnapshot,
@@ -70,6 +70,7 @@ import type { BackgroundJob } from "../lib/agentWire"
 import { useElementWidth } from "../hooks/useElementWidth"
 import { scrollAnchorOf, useConversationScroll } from "./useConversationScroll"
 import { useDraft } from "./useDraft"
+import { useAgentCatalog } from "./useAgentCatalog"
 
 // The least width at which subagent tiles sit beside the conversation; below
 // it they are a strip above it.
@@ -79,37 +80,6 @@ function formatTokens(value: number): string {
   if (value < 1_000) return value.toLocaleString()
   if (value < 1_000_000) return `${Number((value / 1_000).toFixed(1))}k`
   return `${Number((value / 1_000_000).toFixed(2))}M`
-}
-
-interface ModeInfo {
-  name: string
-  description: string
-  cycle: boolean
-}
-
-interface CommandInfo {
-  name: string
-  description?: string
-  body: string
-  path: string
-  source: string
-}
-
-interface SkillInfo {
-  name: string
-  description: string
-  path: string
-  source: string
-}
-
-interface ModelInfo {
-  capabilities?: ModelCapabilities
-  defaults?: ModelSettings
-  ref: string
-  contextWindow?: number
-  maxOutputTokens?: number
-  vision?: boolean
-  isDefault: boolean
 }
 
 function permissionFindingLabel(finding: NonNullable<NativePermissionItem["policyAnalysis"]>["findings"][number]): string {
@@ -300,6 +270,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const [mode, setMode] = useState<string>("")
   const scroll = useConversationScroll(loading, syncState.items)
   const { draft, setDraft, textareaRef, appendWords, insertImage } = useDraft(agentId, composerEnabled)
+  const { modes, models, macros, catalogKey, catalog, slashItems, retryCatalog } = useAgentCatalog(agentId, baseUrl)
   const { scrollRef, isScrolledUp, scrollToBottom, scrollToBottomAfterRender, restoreAfterSync, followLatest, restartInitialScroll } = scroll
   const { items, busy, error, contextUsage, model } = syncState
   const blocks = useMemo(() => conversationBlocks(items), [items])
@@ -331,10 +302,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const awaitingPerson = awaitingRequest || terminalAsking
   // The effort the model runs at, when the session reports one.
   const effort = syncState.settingsState?.effective.reasoningEffort
-  const [modes, setModes] = useState<ModeInfo[]>([])
   const [modesOpen, setModesOpen] = useState(false)
-  const [models, setModels] = useState<ModelInfo[]>([])
-  const [macros, setMacros] = useState<{ name: string; keys: string; favorite?: boolean }[]>([])
   const [macrosOpen, setMacrosOpen] = useState(false)
   const modesRef = useRef<HTMLDivElement>(null)
   const macrosRef = useRef<HTMLDivElement>(null)
@@ -346,11 +314,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const [browserOpen, setBrowserOpen] = useState(false)
   const [browserQuery, setBrowserQuery] = useState("")
   const [browserFilter, setBrowserFilter] = useState<"all" | "skill" | "command">("all")
-  const catalogKey = JSON.stringify([baseUrl, agentId])
-  const [catalog, setCatalog] = useState<{
-    key: string; commands: CommandInfo[]; skills: SkillInfo[]; loading: boolean; errors: string[]
-  }>({ key: catalogKey, commands: [], skills: [], loading: true, errors: [] })
-  const [catalogAttempt, setCatalogAttempt] = useState(0)
   // The draft the slash menu was closed on (Escape, or an item completed);
   // typing again reopens it.
   const [slashClosedOn, setSlashClosedOn] = useState<string | null>(null)
@@ -383,22 +346,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   }, [replaceSyncState])
 
 
-  // Fetch available modes
-  useEffect(() => {
-    apiFetch(baseUrl, `/api/agents/${agentId}/chimera/modes`)
-      .then((r) => r.ok ? r.json() : [])
-      .then((data: ModeInfo[]) => setModes(Array.isArray(data) ? data : []))
-      .catch(() => {})
-  }, [agentId, baseUrl])
-
-  // Fetch available models
-  useEffect(() => {
-    apiFetch(baseUrl, `/api/agents/${agentId}/chimera/models`)
-      .then((r) => r.ok ? r.json() : [])
-      .then((data: ModelInfo[]) => setModels(Array.isArray(data) ? data : []))
-      .catch(() => {})
-  }, [agentId, baseUrl])
-
   useLayoutEffect(() => {
     setBrowserOpen(false)
     setBrowserQuery("")
@@ -406,42 +353,9 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     setSlashClosedOn(null)
   }, [catalogKey])
 
-  useEffect(() => {
-    let current = true
-    setCatalog((previous) => ({
-      key: catalogKey,
-      commands: previous.key === catalogKey ? previous.commands : [],
-      skills: previous.key === catalogKey ? previous.skills : [],
-      loading: true, errors: [],
-    }))
-    let pending = 2
-    for (const kind of ["commands", "skills"] as const) {
-      apiFetch(baseUrl, `/api/agents/${agentId}/chimera/${kind}`)
-        .then(async (response) => {
-          if (!response.ok) throw new Error(`HTTP ${response.status}`)
-          const items = await response.json()
-          if (!Array.isArray(items)) throw new Error("Invalid catalog response")
-          if (current) setCatalog((previous) => ({ ...previous, [kind]: items }))
-        })
-        .catch((error: unknown) => {
-          if (current) setCatalog((previous) => ({ ...previous, errors: [...previous.errors,
-            `${kind === "commands" ? "Commands" : "Skills"} unavailable: ${error instanceof Error ? error.message : String(error)}`],
-          }))
-        })
-        .finally(() => {
-          pending--
-          if (current && pending === 0) setCatalog((previous) => ({ ...previous, loading: false }))
-        })
-    }
-    return () => { current = false }
-  }, [agentId, baseUrl, catalogKey, catalogAttempt])
 
   // The slash menu: open while the draft is a slash and a name, until it is
   // closed on this draft.
-  const slashItems: SlashItem[] = useMemo(() => [
-    ...(catalog.key === catalogKey ? catalog.commands : []).map((c) => ({ type: "command" as const, name: c.name, description: c.description || "", body: c.body, source: c.source })),
-    ...(catalog.key === catalogKey ? catalog.skills : []).map((s) => ({ type: "skill" as const, name: s.name, description: s.description || "", source: s.source })),
-  ], [catalog, catalogKey])
   const slashQuery = browserOpen ? browserQuery : /^\/(\S*)$/.exec(draft)?.[1]
   const slashMatches = useMemo(
     () => slashQuery === undefined ? [] : rankSlashItems(browserOpen && browserFilter !== "all" ? slashItems.filter((item) => item.type === browserFilter) : slashItems, slashQuery),
@@ -463,15 +377,6 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     box.setSelectionRange(box.value.length, box.value.length)
   }, [draft, textareaRef])
 
-  // Fetch macros eagerly so numbered shortcuts are ready when the menu opens.
-  useEffect(() => {
-    apiFetch(baseUrl, "/api/macros")
-      .then((r) => r.ok ? r.json() : { macros: [] })
-      .then((data: { macros?: { name: string; keys: string; favorite?: boolean }[] }) => {
-        setMacros(Array.isArray(data.macros) ? data.macros : [])
-      })
-      .catch(() => setMacros([]))
-  }, [baseUrl])
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -1047,10 +952,10 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
             <NativeSlashMenu
               anchorRef={textareaRef}
               onClose={() => { setBrowserOpen(false); setSlashClosedOn(draft) }}
-              loading={catalog.key !== catalogKey || catalog.loading}
-              errors={catalog.key === catalogKey ? catalog.errors : []}
+              loading={catalog.loading}
+              errors={catalog.errors}
               empty={slashItems.length === 0}
-              onRetry={() => setCatalogAttempt((attempt) => attempt + 1)}
+              onRetry={retryCatalog}
               browser={browserOpen ? {
                 query: browserQuery, onQuery: setBrowserQuery,
                 filter: browserFilter, onFilter: setBrowserFilter,
