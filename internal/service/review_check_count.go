@@ -43,40 +43,51 @@ func explicitChecks(head []WatchCheck, configured []string) []string {
 // check follows in the head's order: a cancelled one is left out, and a
 // failing one the base fails too (onBase) is CheckFailingOnBase.
 func countChecks(head []WatchCheck, explicit []string, missingPending bool, onBase func(name string) bool) []WatchCheck {
-	var names []string
+	out := countExplicit(head, explicit, missingPending)
+	var seen []string
 	for _, c := range head {
-		if !slices.Contains(names, c.Name) {
-			names = append(names, c.Name)
+		if slices.Contains(seen, c.Name) || slices.Contains(explicit, c.Name) {
+			continue
+		}
+		seen = append(seen, c.Name)
+		if c, ok := countOther(head, c.Name, onBase); ok {
+			out = append(out, c)
 		}
 	}
+	return out
+}
+
+// countExplicit are the explicit checks as they stand: a cancelled one
+// pending a re-run, and with missingPending one the head lacks pending.
+func countExplicit(head []WatchCheck, explicit []string, missingPending bool) []WatchCheck {
 	var out []WatchCheck
 	for _, name := range explicit {
 		c, ok := latestRun(head, name)
-		switch {
-		case !ok && missingPending:
-			out = append(out, WatchCheck{Name: name, State: CheckPending})
-		case !ok:
-		case cancelled(c):
-			c.State = CheckPending
-			out = append(out, c)
-		default:
-			out = append(out, c)
+		if !ok && missingPending {
+			c, ok = WatchCheck{Name: name, State: CheckPending}, true
 		}
-	}
-	for _, name := range names {
-		if slices.Contains(explicit, name) {
+		if !ok {
 			continue
 		}
-		c, _ := latestRun(head, name)
 		if cancelled(c) {
-			continue
-		}
-		if c.State == CheckFailing && onBase(name) {
-			c.State = CheckFailingOnBase
+			c.State = CheckPending
 		}
 		out = append(out, c)
 	}
 	return out
+}
+
+// countOther is a check that is not explicit, if it counts: a cancelled one
+// does not, and a failing one the base fails too is CheckFailingOnBase.
+func countOther(head []WatchCheck, name string, onBase func(name string) bool) (WatchCheck, bool) {
+	c, _ := latestRun(head, name)
+	if cancelled(c) {
+		return c, false
+	}
+	if c.State == CheckFailing && onBase(name) {
+		c.State = CheckFailingOnBase
+	}
+	return c, true
 }
 
 // latestRun is the run of a check that stands among several of the same

@@ -505,10 +505,7 @@ func (f *FakeReviewGitHub) SetComments(number int, comments ...service.PRComment
 func (f *FakeReviewGitHub) SetChecks(head string, checks ...service.CheckResult) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.checks == nil {
-		f.checks = map[string][]service.CheckResult{}
-	}
-	f.checks[head] = append([]service.CheckResult(nil), checks...)
+	f.checks = withChecks(f.checks, head, checks)
 }
 
 // SetBaseChecks sets the checks of a base branch's head: a check failing
@@ -516,10 +513,16 @@ func (f *FakeReviewGitHub) SetChecks(head string, checks ...service.CheckResult)
 func (f *FakeReviewGitHub) SetBaseChecks(base string, checks ...service.CheckResult) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.baseChecks == nil {
-		f.baseChecks = map[string][]service.CheckResult{}
+	f.baseChecks = withChecks(f.baseChecks, base, checks)
+}
+
+// withChecks is m with key's checks set to a copy of checks.
+func withChecks(m map[string][]service.CheckResult, key string, checks []service.CheckResult) map[string][]service.CheckResult {
+	if m == nil {
+		m = map[string][]service.CheckResult{}
 	}
-	f.baseChecks[base] = append([]service.CheckResult(nil), checks...)
+	m[key] = append([]service.CheckResult(nil), checks...)
+	return m
 }
 
 // failingOnBase says the base's head fails a check. Call with f.mu held.

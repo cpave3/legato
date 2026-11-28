@@ -293,16 +293,8 @@ func (s *ReviewPassService) routeItems(ctx context.Context, l ReviewLoop, rec *s
 				return err
 			}
 		}
-		if !layer.ChecksTruncated {
-			var names []string
-			for _, c := range counted {
-				names = append(names, c.Name)
-			}
-			for _, item := range goneChecks(items, layer.Number, layer.HeadSHA, names) {
-				if err := s.db.UpsertHandoffReviewItem(ctx, item); err != nil {
-					return err
-				}
-			}
+		if err := s.closeGoneChecks(ctx, items, layer, counted); err != nil {
+			return err
 		}
 	}
 	for i, layer := range w.Layers {
@@ -532,6 +524,24 @@ func (s *ReviewPassService) applyMergedLayer(l ReviewLoop, loop *store.HandoffRe
 		Title: fmt.Sprintf("#%d merged into %s: restack the rest (%s) onto %s", layer.Number, layer.BaseBranch, joinAnd(names), layer.BaseBranch),
 		Body:  fmt.Sprintf("A lower layer of the stack merged. Restack the layers above it onto %s and push each one that moved; Legato reviews them again after the push.", layer.BaseBranch)}
 	return item, true, true
+}
+
+// closeGoneChecks closes the open check items of a watched layer whose
+// check its head no longer runs (goneChecks); a truncated read closes none.
+func (s *ReviewPassService) closeGoneChecks(ctx context.Context, items []store.HandoffReviewItem, layer PRWatch, counted []CheckResult) error {
+	if layer.ChecksTruncated {
+		return nil
+	}
+	names := make([]string, 0, len(counted))
+	for _, c := range counted {
+		names = append(names, c.Name)
+	}
+	for _, item := range goneChecks(items, layer.Number, layer.HeadSHA, names) {
+		if err := s.db.UpsertHandoffReviewItem(ctx, item); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // countedWatchChecks are a watched layer's counted checks (countChecks):

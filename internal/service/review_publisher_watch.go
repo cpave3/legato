@@ -237,31 +237,43 @@ func (pull *watchedPull) watch(number int) PRWatch {
 			w.DismissedReviews = append(w.DismissedReviews, id)
 		}
 	}
-	if pull.BaseRef != nil {
-		for _, commit := range pull.BaseRef.Target.History.Nodes {
-			var checks []WatchCheck
-			if commit.Rollup != nil {
-				for _, c := range commit.Rollup.Contexts.Nodes {
-					if check, ok := c.toWatchCheck(); ok {
-						checks = append(checks, check)
-					}
-				}
-			}
-			w.BaseHistory = append(w.BaseHistory, checks)
-		}
-	}
+	w.BaseHistory = pull.baseHistory()
 	if len(pull.Commits.Nodes) == 0 || pull.Commits.Nodes[0].Commit.Rollup == nil {
 		return w
 	}
 	rollup := pull.Commits.Nodes[0].Commit.Rollup
 	w.Rollup = rollupState(rollup.State)
 	w.ChecksTruncated = rollup.Contexts.PageInfo.HasNextPage
-	for _, c := range rollup.Contexts.Nodes {
+	w.Checks = watchChecks(rollup.Contexts.Nodes)
+	return w
+}
+
+// baseHistory are the checks of the base's newest commits, newest first.
+func (pull *watchedPull) baseHistory() [][]WatchCheck {
+	if pull.BaseRef == nil {
+		return nil
+	}
+	var history [][]WatchCheck
+	for _, commit := range pull.BaseRef.Target.History.Nodes {
+		var contexts []watchedCheck
+		if commit.Rollup != nil {
+			contexts = commit.Rollup.Contexts.Nodes
+		}
+		history = append(history, watchChecks(contexts))
+	}
+	return history
+}
+
+// watchChecks are the checks of a rollup's contexts, kinds the watch does
+// not know left out.
+func watchChecks(contexts []watchedCheck) []WatchCheck {
+	var checks []WatchCheck
+	for _, c := range contexts {
 		if check, ok := c.toWatchCheck(); ok {
-			w.Checks = append(w.Checks, check)
+			checks = append(checks, check)
 		}
 	}
-	return w
+	return checks
 }
 
 // watchedCheck is one context of a check rollup as the watch query reads
