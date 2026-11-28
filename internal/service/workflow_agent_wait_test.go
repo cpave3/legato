@@ -176,7 +176,8 @@ steps:
 		t.Fatal(err)
 	}
 	view = f.check(t, f.workflows, view.Run.ID)
-	if view.Run.Status != "failed" || !strings.Contains(view.Steps[0].Error, "ended before") {
+	// The operator's stop fails it at once, saying so (LEG-689).
+	if view.Run.Status != "failed" || view.Steps[0].Error != WorkflowAgentStoppedReason {
 		t.Fatalf("run = %s, step = %+v", view.Run.Status, view.Steps[0])
 	}
 }
