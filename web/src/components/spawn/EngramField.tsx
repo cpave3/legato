@@ -1,24 +1,20 @@
 import { ChevronDown } from "lucide-react"
-import type { EngramChoice } from "../../lib/engrams"
 import { engramOptionLabel } from "../../lib/spawnEngram"
+import { NameOptions } from "./NameOptions"
 import { fieldLabel, focusRing } from "./styles"
 import type { EngramChoiceState } from "./useEngramChoice"
-
-function plainOptions(choices: EngramChoice[]) {
-  return choices.map((choice) => <option key={choice.name} value={choice.name}>{choice.name}</option>)
-}
 
 // No engram, then this place's engrams with their marks, then the rest; with
 // none of this place, the rest ungrouped.
 function EngramOptions({ engram }: { engram: EngramChoiceState }) {
   const { place, other } = engram.groups
-  if (place.length === 0) return <>{plainOptions(other)}</>
+  if (place.length === 0) return <NameOptions items={other} />
   return (
     <>
       <optgroup label={engram.words.word}>
         {place.map((choice) => <option key={choice.name} value={choice.name}>{engramOptionLabel(choice)}</option>)}
       </optgroup>
-      {other.length > 0 && <optgroup label="Other engrams">{plainOptions(other)}</optgroup>}
+      {other.length > 0 && <optgroup label="Other engrams"><NameOptions items={other} /></optgroup>}
     </>
   )
 }

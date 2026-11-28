@@ -1,5 +1,6 @@
 import {
   completionOf,
+  directoryName,
   presetFor,
   suggestionsWhile,
   type DirectoryPreset,
@@ -218,6 +219,27 @@ export function listFrameStyle(place: ListPlace | null, listing: boolean, listHe
 // for a plain folder.
 export function suggestionMarks(item: DirectorySuggestion): string {
   return [item.git && "git", item.preset > 0 && "preset"].filter(Boolean).join(" · ")
+}
+
+// The display of what belongs to a typed path (the field, and "Save path
+// as preset"): hidden in a clone, and on a phone until a custom path is
+// asked for or there are no presets. shown is how it displays otherwise.
+export function pathVisibility(inClone: boolean, customPathShown: boolean, shown: "block" | "flex"): string {
+  if (inClone) return "hidden"
+  return customPathShown ? shown : `hidden sm:${shown}`
+}
+
+// Whether the typed path can be saved as a preset: it is typed, is not one
+// already, and the server keeps presets.
+export function canSavePath(inClone: boolean, serverKnowsDirectories: boolean, path: string, selected: DirectoryPreset | undefined): boolean {
+  return !inClone && serverKnowsDirectories && path.trim() !== "" && !selected
+}
+
+// The name of where the agent starts, for the start button: the clone's
+// repository, the preset, or the typed folder's last part.
+export function whereName(inClone: boolean, cloneName: string | undefined, selected: DirectoryPreset | undefined, path: string): string {
+  if (inClone) return cloneName ?? ""
+  return selected?.name ?? directoryName(path)
 }
 
 // How many presets a phone keeps behind the "more" row.

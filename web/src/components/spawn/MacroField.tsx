@@ -1,10 +1,6 @@
-import type { Macro } from "../../lib/macros"
+import { NameOptions } from "./NameOptions"
 import { fieldLabel, focusRing } from "./styles"
 import type { MacroChoice } from "./useMacroChoice"
-
-function macroOptions(macros: Macro[]) {
-  return macros.map((macro) => <option key={macro.name} value={macro.name}>{macro.name}</option>)
-}
 
 // "Start with macro": the favourites grouped first when there are others,
 // and the tier the macro chosen names.
@@ -17,10 +13,10 @@ export function MacroField({ macro }: { macro: MacroChoice }) {
         className={`min-h-11 rounded-[10px] border border-lw-line-strong bg-lw-ground px-3 text-base text-lw-text sm:min-h-9 sm:rounded-md sm:text-sm ${focusRing}`}>
         <option value="">None</option>
         {rest.length === 0
-          ? macroOptions(favorites)
+          ? <NameOptions items={favorites} />
           : <>
-            <optgroup label="Favourites">{macroOptions(favorites)}</optgroup>
-            <optgroup label="Other macros">{macroOptions(rest)}</optgroup>
+            <optgroup label="Favourites"><NameOptions items={favorites} /></optgroup>
+            <optgroup label="Other macros"><NameOptions items={rest} /></optgroup>
           </>}
       </select>
       {macro.tier && <span className="text-xs text-lw-text-2">Model tier: {macro.tier}</span>}

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
+  canSavePath,
+  pathVisibility,
+  whereName,
   directoryStart,
   initialPathField,
   listFrameStyle,
@@ -165,6 +168,29 @@ describe("the rest", () => {
     expect(suggestionMarks(item("a"))).toBe("")
     expect(suggestionMarks({ ...item("a"), git: true, preset: 1 })).toBe("git · preset")
     expect(suggestionMarks({ ...item("a"), preset: 2 })).toBe("preset")
+  })
+
+  it("hides the path's parts in a clone, and on a phone until asked for", () => {
+    expect(pathVisibility(true, true, "flex")).toBe("hidden")
+    expect(pathVisibility(false, true, "flex")).toBe("flex")
+    expect(pathVisibility(false, false, "block")).toBe("hidden sm:block")
+  })
+
+  it("saves only a typed path that is no preset, on a server that keeps them", () => {
+    const preset = { name: "a", path: "/a", display: "~/a", saved: true }
+    expect(canSavePath(false, true, "~/b", undefined)).toBe(true)
+    expect(canSavePath(true, true, "~/b", undefined)).toBe(false)
+    expect(canSavePath(false, false, "~/b", undefined)).toBe(false)
+    expect(canSavePath(false, true, "  ", undefined)).toBe(false)
+    expect(canSavePath(false, true, "~/a", preset)).toBe(false)
+  })
+
+  it("names where the agent starts", () => {
+    const preset = { name: "legato", path: "/l", display: "~/l", saved: true }
+    expect(whereName(true, "Legato", preset, "~/l")).toBe("Legato")
+    expect(whereName(true, undefined, preset, "~/l")).toBe("")
+    expect(whereName(false, "Legato", preset, "~/l")).toBe("legato")
+    expect(whereName(false, undefined, undefined, "/srv/work/thing")).toBe("thing")
   })
 
   it("counts the presets a phone keeps back, never the one picked", () => {

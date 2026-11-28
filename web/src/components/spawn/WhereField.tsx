@@ -1,3 +1,4 @@
+import { pathVisibility } from "../../lib/spawnSuggestions"
 import { CloneFields } from "./CloneFields"
 import { PathField } from "./PathField"
 import { PresetList } from "./PresetList"
@@ -57,7 +58,7 @@ export function WhereField({ dir, clone, listId, customPathShown, layoutKey }: W
       {inClone && repository && <CloneFields clone={clone} repo={repository.repo} />}
       {!inClone && dir.presets.length > 0 && <PresetList dir={dir} />}
 
-      <PathField dir={dir} listId={listId} visibility={inClone ? "hidden" : customPathShown ? "block" : "hidden sm:block"} layoutKey={layoutKey} />
+      <PathField dir={dir} listId={listId} visibility={pathVisibility(inClone, customPathShown, "block")} layoutKey={layoutKey} />
     </div>
   )
 }
