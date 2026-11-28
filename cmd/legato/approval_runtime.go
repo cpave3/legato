@@ -299,6 +299,7 @@ func (rt *approvalRuntime) reviewPasses() cli.MCPReviews {
 // credential broker, the values `legato credential get` and `exec` ask for.
 func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentService, credentials *service.CredentialBroker, caseReplies *service.CaseReplyService, reviews func() cli.MCPReviews, upstream cli.MCPUpstream, scope cli.MCPScope) cli.BrokerDeps {
 	deps := cli.BrokerDeps{Push: agentPushNotifier(cfg), OS: agentOSNotifier(cfg), ClaudeModels: cfg.Adapters["claude-code"].Models}
+	deps.ClaudeTmpDir = func(executionID string) string { return sandboxScratch(cfg).Tmp(executionID) }
 	deps.Ops = cli.MCPBrokerOps(func(cli.BrokerCaller) cli.MCPOptions {
 		opts := cli.MCPOptions{Store: db, Version: version.String(), ResourceDomains: cfg.Agents.MCP.ResourceDomains,
 			ImageDir: agentUIImageRoot(cfg), VideoDir: agentUIVideoRoot(cfg), Stacks: hostStackSupport()}

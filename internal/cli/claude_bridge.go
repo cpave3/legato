@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -40,6 +41,8 @@ type ClaudeBridgeOptions struct {
 	// Host is how the bridge reaches Legato: the broker in Legato's sandbox.
 	// Nil means the store given to RunClaudeBridge.
 	Host BridgeHost
+	// ShellRoot is host storage corresponding to this execution's /tmp.
+	ShellRoot string
 }
 
 // bridgeLivenessTimeout bounds the probe of an endpoint already bound to the task.
@@ -70,6 +73,9 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 	if host == nil {
 		host = StoreBridgeHost(s)
 	}
+	if s == nil {
+		return fmt.Errorf("Claude bridge authority requires a host store")
+	}
 	session, err := host.Session(ctx, opts.TaskID, opts.ExecutionID)
 	if err != nil {
 		return err
@@ -90,8 +96,24 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 	if err != nil {
 		return err
 	}
+	decisionBytes := make([]byte, 32)
+	if _, err := rand.Read(decisionBytes); err != nil {
+		return fmt.Errorf("generating bridge decision key: %w", err)
+	}
+	decisionKey := hex.EncodeToString(decisionBytes)
 	port := listener.Addr().(*net.TCPAddr).Port
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d/%s", port, token)
+	controlURL, _ := url.Parse(endpoint)
+	controlURL.User = url.UserPassword("legato", decisionKey)
+	controlEndpoint := controlURL.String()
+	agentSession, err := s.GetRunningAgentSession(ctx, opts.TaskID, opts.ExecutionID)
+	if err != nil {
+		return err
+	}
+	if err := s.RegisterNativeBridge(ctx, store.NativeBridgeRegistration{AgentSessionID: agentSession.ID, ExecutionID: opts.ExecutionID, PublicEndpoint: endpoint, ControlEndpoint: controlEndpoint, Generation: token}); err != nil {
+		return err
+	}
+	defer func() { _ = s.RemoveNativeBridge(context.Background(), agentSession.ID, token) }()
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -110,8 +132,31 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 	}()
 	recordIdentity := nativeIdentityRecorder(runCtx, host, opts.TaskID, session, "claude-code")
 	bridge := claudebridge.New(claudebridge.Options{
-		TaskID:   opts.TaskID,
-		Token:    token,
+		TaskID:      opts.TaskID,
+		Token:       token,
+		DecisionKey: decisionKey,
+		ShellRoot:   opts.ShellRoot,
+		OnUnauthorized: func(category string) {
+			log.Printf("unauthenticated native control attempt: task=%s execution=%s generation=%s category=%s", opts.TaskID, opts.ExecutionID, token, category)
+			recordCtx, stop := context.WithTimeout(context.Background(), 2*time.Second)
+			defer stop()
+			incidentCategory := "control"
+			switch category {
+			case "permissions":
+				incidentCategory = "permission"
+			case "questions":
+				incidentCategory = "question"
+			}
+			executionID := agentSession.ExecutionID
+			if executionID == "" {
+				executionID = fmt.Sprintf("session-%d", agentSession.ID)
+			}
+			if err := s.RecordNativeSecurityIncident(recordCtx, opts.TaskID, executionID, token, incidentCategory); err != nil {
+				log.Printf("recording native security incident: %v", err)
+				return
+			}
+			ipc.Broadcast(ipc.Message{Type: "approval_changed", TaskID: opts.TaskID, Kind: "native_security"})
+		},
 		Models:   opts.Models,
 		Commands: trace.commands(opts.Stdout),
 		// The mod stopped reading: its Claude session is gone.
@@ -157,10 +202,10 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 
 	// The session ID Legato binds is the task ID, not Claude's own: a /clear
 	// continues under a new Claude session, and the binding must survive it.
-	if err := host.Bind(ctx, endpoint); err != nil {
+	if err := host.Bind(ctx, controlEndpoint); err != nil {
 		return err
 	}
-	defer func() { _ = host.Unbind(context.Background(), endpoint) }()
+	defer func() { _ = host.Unbind(context.Background(), controlEndpoint) }()
 
 	if err := bridge.Ready(endpoint); err != nil {
 		return err

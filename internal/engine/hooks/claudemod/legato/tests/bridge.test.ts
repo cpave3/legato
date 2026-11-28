@@ -1587,3 +1587,17 @@ test('a compaction the engine rejects is reported as failed', async ($, on) => {
   exit()
   await clock.settle()
 })
+
+test('a replacement host bridge receives current history before new events', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { events, say, exit, envSet } = world(on, { lines: [READY] })
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  say({ type: 'ready', url: 'http://bridge.test/replacement' })
+  await clock.settle()
+  expect(envSet.LEGATO_CLAUDE_BRIDGE_URL).toBe('http://bridge.test/replacement')
+  expect(events().filter(event => event.type === 'hello')).toHaveLength(2)
+  exit()
+  await clock.settle()
+})

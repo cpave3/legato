@@ -1,8 +1,18 @@
 # Sandbox
 
-With `agents.sandbox.enabled`, Legato starts each agent tool inside bubblewrap. The agent sees its work, its tool's own state, the person's toolchains, and Legato's sockets for it; it does not see the person's credentials, Legato's database or configuration, or sockets that give the host away. Its agent-side processes (hooks, `legato mcp serve`, the native bridges, the `legato` commands it runs) reach the host Legato through the broker instead (see [CLI](cli.md) § The host broker). The design is in `openspec/changes/sandboxed-cloud-agents` (phases 2 and 3).
+With `agents.sandbox.enabled`, Legato starts each agent tool inside bubblewrap. The agent sees its work, its tool's own state, the person's toolchains, and Legato's sockets for it; it does not see the person's credentials, Legato's database or configuration, or sockets that give the host away. Its agent-side processes (hooks, `legato mcp serve`, native link/relay children, the `legato` commands it runs) reach the host Legato through the broker instead (see [CLI](cli.md) § The host broker). The design is in `openspec/changes/sandboxed-cloud-agents` (phases 2 and 3).
 
 The sandbox keeps secrets from agents. It does not filter the network, and it does not hide the agent tool's own model login, which the tool needs.
+
+## Claude native decision boundary (LEG-686)
+
+The host broker starts the full Claude bridge in the host process; the sandboxed `legato agent bridge` child only relays ordered JSON commands through execution-scoped polling. The public ready/env/lockfile URL has no operator key. Private `native_bridge_registrations` and the existing private session binding retain the Basic-auth control URL for the exact endpoint/generation, outside all agent mounts. The key never enters agent env, arguments, relay traffic, lockfiles, traces or public DTOs. The shared native HTTP/SSE client converts userinfo to Basic authorization and refuses credential-bearing redirects.
+
+Only `/mod/events` and `/mod/permissions` POSTs are keyless. Native reads, including SSE, need the key too, since viewers change terminal fallback. Unauthorized native access is refused and recorded as a durable `native_security` Attention incident. Agent telemetry remains untrusted: this prevents keyless operator decisions, not fabricated events or requests. Actual terminal decisions and terminal fallback remain distinct from authenticated native decisions.
+
+Background-shell output is read on the host by mapping the execution's `/tmp` into its private scratch folder through `os.Root`, not by trusting an arbitrary host path supplied by the agent. A new session is required; there is no automatic restart or unprotected compatibility fallback. Scratch Claude Code 2.1.332 verification is pending, not covered by the older sandbox evidence below.
+
+An unsandboxed run is the operator's OS user, not an isolation boundary. Chimera's `/proc` environment secret leak and Codex's app-server token remain known upstream gaps; LEG-686 does not fix them. See [Claude](claude-code-native.md#security-boundary-leg-686), [Chimera](chimera-native.md#server-authentication) and [Codex](codex-native.md#known-limits).
 
 ## How a spawn is wrapped
 

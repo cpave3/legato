@@ -13,6 +13,16 @@ Use it when agents should not be able to reach your credentials, for example whe
 The sandbox keeps secrets from agents. It does not filter the network, and it does not hide the agent tool's own login to its model, which the tool needs.
 :::
 
+## Claude Code's native decisions
+
+Legato keeps Claude Code's native decision key in its host process and private database, outside the sandbox. The child inside the sandbox relays commands but never receives that key. The bridge address in the agent's environment and lockfile cannot authorize native decisions or read the conversation stream. Only event reports and permission waits are keyless; even attaching a viewer needs authentication because it changes terminal fallback.
+
+Your panel answers go through Legato with the key. Claude Code's actual terminal dialog can still decide locally; if no viewer is attached or the bridge is unavailable, the request stays with that dialog. Agent reports remain untrusted and can be fabricated. Refused native access creates a durable, high-urgency Attention incident, not proof of who sent it. Repeated refusals in the same run and bridge generation do not undo your dismissal.
+
+Start a new agent session to use this boundary. Legato does not restart existing agents automatically or accept an unprotected compatibility bridge. Scratch verification with Claude Code 2.1.332 is still pending.
+
+This is Claude-first: Chimera's process-environment secret leak and Codex's app-server token remain known upstream gaps, not fixed by this change. An agent outside the sandbox runs as your OS user and can read private host state; a private key is not isolation from it.
+
 ## Turn it on
 
 1. Install bubblewrap, which needs a Linux system that allows unprivileged user namespaces (most do):

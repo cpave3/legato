@@ -1661,6 +1661,7 @@ func runTUI() int {
 	app.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 	app.SetPlanService(planSvc)
 	attentionSvc := service.NewAttentionService(db, bus)
+	registerNativeSecurityAttention(attentionSvc, db)
 	registerUsageAttention(attentionSvc, db)
 	if planSvc != nil {
 		planAdapter := service.NewPlanAttentionAdapter(planSvc)

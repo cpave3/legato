@@ -5,6 +5,8 @@ import "github.com/cpave3/legato/config"
 // railGroups maps each signal kind to the group of the needs-you rail it is
 // switched with (config.RailConfig). A kind not here is Legato's.
 var railGroups = map[string]string{
+	AttentionSignalNativeSecurityIncident: "legato",
+
 	AttentionSignalOperatorAction:   "actions",
 	AttentionSignalOperatorQuestion: "questions",
 	AttentionSignalOperatorDone:     "done",

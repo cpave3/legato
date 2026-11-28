@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -59,12 +60,16 @@ func newHarness(t *testing.T, identity ...func(string, string) error) *harness {
 		onIdentity = identity[0]
 	}
 	bridge := New(Options{
-		OnIdentity: onIdentity,
-		TaskID:     "task-1",
-		Commands:   commands,
-		Now:        func() time.Time { return time.UnixMilli(1_700_000_000_000) },
+		DecisionKey: "test-host-decision-key",
+		OnIdentity:  onIdentity,
+		TaskID:      "task-1",
+		Commands:    commands,
+		Now:         func() time.Time { return time.UnixMilli(1_700_000_000_000) },
 	})
 	server := httptest.NewServer(bridge.Handler())
+	private, _ := url.Parse(server.URL)
+	private.User = url.UserPassword("legato", "test-host-decision-key")
+	server.URL = private.String()
 	t.Cleanup(func() {
 		bridge.Close()
 		server.Close()

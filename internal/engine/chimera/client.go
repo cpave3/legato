@@ -13,6 +13,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,8 +26,9 @@ import (
 
 // Client is the narrow Chimera protocol client.
 type Client struct {
-	baseURL string
-	http    *http.Client
+	baseURL       string
+	http          *http.Client
+	authorization string
 }
 
 // NewClient creates a client for the given base URL (e.g. http://127.0.0.1:38123).
@@ -37,10 +39,25 @@ func NewClient(baseURL string) *Client {
 // NewClientWithHTTPClient creates a client using the supplied HTTP transport.
 // Callers that consume untrusted endpoint metadata can enforce stricter redirect
 // and timeout behavior while reusing the Chimera protocol implementation.
+// URL userinfo is kept as private Basic authorization, never as a request URL;
+// credential-bearing clients refuse redirects regardless of caller policy.
 func NewClientWithHTTPClient(baseURL string, httpClient *http.Client) *Client {
+	var authorization string
+	if endpoint, err := url.Parse(baseURL); err == nil && endpoint.User != nil {
+		password, _ := endpoint.User.Password()
+		authorization = "Basic " + base64.StdEncoding.EncodeToString([]byte(endpoint.User.Username()+":"+password))
+		endpoint.User = nil
+		baseURL = endpoint.String()
+		privateClient := *httpClient
+		privateClient.CheckRedirect = func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+		httpClient = &privateClient
+	}
 	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		http:    httpClient,
+		baseURL:       strings.TrimRight(baseURL, "/"),
+		http:          httpClient,
+		authorization: authorization,
 	}
 }
 
@@ -526,8 +543,15 @@ func (e *endpointRequestError) Error() string { return e.text }
 func (e *endpointRequestError) Unwrap() error { return e.cause }
 
 func (c *Client) send(req *http.Request) (*http.Response, error) {
+	if c.authorization != "" {
+		req.Header.Set("Authorization", c.authorization)
+	}
 	response, err := c.http.Do(req)
 	if err != nil {
+		if c.authorization != "" {
+			// A custom transport may include request headers in its error.
+			return response, &endpointRequestError{cause: err, text: "Chimera endpoint request failed"}
+		}
 		return response, &endpointRequestError{cause: err, text: strings.ReplaceAll(err.Error(), c.baseURL, "[Chimera endpoint]")}
 	}
 	return response, nil

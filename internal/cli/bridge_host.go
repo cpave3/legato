@@ -190,10 +190,27 @@ func bridgeOps(db *store.Store, deps BrokerDeps) map[string]BrokerOp {
 			if err != nil {
 				return nil, refuse("rejected", err.Error())
 			}
+			if h.session.AgentKind == "claude-code" {
+				session.Endpoint = ""
+				registration, lookupErr := db.NativeBridgeRegistration(ctx, h.session.ID)
+				if lookupErr == nil {
+					session.Endpoint = registration.PublicEndpoint
+				} else if lookupErr != store.ErrNotFound {
+					return nil, lookupErr
+				}
+			}
 			session.Models = deps.ClaudeModels
 			return session, nil
 		},
 		"endpoint.bind": func(ctx context.Context, caller BrokerCaller, raw json.RawMessage) (any, error) {
+			owner, err := db.GetRunningAgentSession(ctx, caller.TaskID, caller.ExecutionID)
+			if err != nil {
+				return nil, err
+			}
+			if owner.AgentKind == "claude-code" {
+				return nil, refuse("forbidden", "Claude bridge bindings are host-owned")
+			}
+
 			endpoint, err := endpointArg(raw)
 			if err != nil {
 				return nil, err
@@ -217,6 +234,14 @@ func bridgeOps(db *store.Store, deps BrokerDeps) map[string]BrokerOp {
 			return map[string]bool{"ok": true}, h.Bind(ctx, endpoint)
 		},
 		"endpoint.unbind": func(ctx context.Context, caller BrokerCaller, raw json.RawMessage) (any, error) {
+			owner, err := db.GetRunningAgentSession(ctx, caller.TaskID, caller.ExecutionID)
+			if err != nil {
+				return nil, err
+			}
+			if owner.AgentKind == "claude-code" {
+				return nil, refuse("forbidden", "Claude bridge bindings are host-owned")
+			}
+
 			endpoint, err := endpointArg(raw)
 			if err != nil {
 				return nil, err
@@ -240,6 +265,14 @@ func bridgeOps(db *store.Store, deps BrokerDeps) map[string]BrokerOp {
 		// restores, its own session's binding. The row is the caller's, from
 		// its token; the endpoint must be loopback, as endpoint.bind's is.
 		"endpoint.ensure": func(ctx context.Context, caller BrokerCaller, raw json.RawMessage) (any, error) {
+			owner, err := db.GetRunningAgentSession(ctx, caller.TaskID, caller.ExecutionID)
+			if err != nil {
+				return nil, err
+			}
+			if owner.AgentKind == "claude-code" {
+				return nil, refuse("forbidden", "Claude bridge bindings are host-owned")
+			}
+
 			endpoint, err := endpointArg(raw)
 			if err != nil {
 				return nil, err
