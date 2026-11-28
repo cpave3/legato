@@ -3,6 +3,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, ty
 import { Link, useSearchParams } from "react-router-dom"
 import { Ban, ChevronDown, ChevronRight, Clock, Gauge, OctagonAlert, Pin, RefreshCw, TriangleAlert, X } from "lucide-react"
 import { useServer } from "../hooks/useServer"
+import { pinDraftStart, pinRequest, type PinDraft } from "../lib/usagePin"
 import { useMenuLayer } from "./ui/useMenuLayer"
 import { queryKeys } from "../lib/query"
 import {
@@ -512,41 +513,93 @@ const expiries = [
   { value: "reset", label: "A reset" },
 ] as const
 
-function PinControls({ policy, requestedPin, catalog, providers, now, sheet }: { policy: UsagePolicy; requestedPin: string | null; catalog: UsageCatalogProvider[] | undefined; providers: ProviderUsage[]; now: Date; sheet: boolean }) {
+// The pin form: the profile, how long the pin lasts, and the time or the
+// limit it lasts until.
+function PinForm({ draft, set, policy, catalog, providers, now, sheet, saving, button, onSave, onCancel }: {
+  draft: PinDraft
+  set: (change: Partial<PinDraft>) => void
+  policy: UsagePolicy
+  catalog: UsageCatalogProvider[] | undefined
+  providers: ProviderUsage[]
+  now: Date
+  sheet: boolean
+  saving: boolean
+  button: string
+  onSave: () => void
+  onCancel: () => void
+}) {
+  const expiryName = useId()
+  const meters = catalogQualifiedMeters(catalog)
+  const field = cn(pinField, sheet ? "h-11" : "h-8")
+  return <form onSubmit={(e) => { e.preventDefault(); onSave() }} className="rounded-lg border border-lw-line bg-lw-surface p-3">
+    <fieldset disabled={saving} className="m-0 flex min-w-0 flex-col gap-2.5 border-0 p-0">
+      <p className="m-0 text-[11px] text-lw-text-2">A pin applies to all new work, in every repository, over repository defaults and rules. An agent or account chosen for a launch still wins.</p>
+      <label className="flex flex-col gap-1 text-[11px] font-medium text-lw-text-2">Pin profile
+        <select aria-label="Pin profile" className={field} value={draft.profile} onChange={(e) => set({ profile: e.target.value })}>
+          {policy.profiles.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+        </select>
+      </label>
+      <fieldset className="m-0 flex flex-col gap-1 border-0 p-0">
+        <legend className="mb-1 p-0 text-[11px] font-medium text-lw-text-2">Keep it until</legend>
+        <div className="grid grid-cols-3 gap-0.5 rounded-[7px] border border-lw-line-strong bg-lw-ground p-0.5">
+          {expiries.map((option) => (
+            <label key={option.value} className={cn(
+              "flex cursor-pointer items-center justify-center rounded-[5px] text-xs text-lw-text-2 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-lw-accent-ring",
+              sheet ? "min-h-10" : "min-h-7",
+              draft.expiry === option.value && "bg-lw-selected text-lw-text shadow-[inset_0_0_0_1px_var(--color-lw-accent)]",
+            )}>
+              <input type="radio" name={expiryName} value={option.value} checked={draft.expiry === option.value} onChange={() => set({ expiry: option.value })} className="sr-only" />
+              {option.label}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      {draft.expiry === "time" && <label className="flex flex-col gap-1 text-[11px] font-medium text-lw-text-2">Until (local time)<input type="datetime-local" className={field} required value={draft.until} onChange={(e) => set({ until: e.target.value })} /></label>}
+      {draft.expiry === "reset" && <label className="flex flex-col gap-1 text-[11px] font-medium text-lw-text-2">Until this limit resets
+        <select aria-label="Until this limit resets" className={field} value={draft.meter} onChange={(e) => set({ meter: e.target.value })}>
+          {meters.map((m) => <option key={m} value={m}>{meterOption(m, catalog, providers, now)}</option>)}
+        </select>
+      </label>}
+      <div className="flex flex-wrap gap-1.5">
+        <button type="submit" className={cn(button, "border-lw-accent bg-lw-accent text-[var(--theme-canvas,#fff)]")} disabled={saving || !draft.profile}>{saving ? "Saving…" : "Pin profile"}</button>
+        <button type="button" className={cn(button, "border-transparent text-lw-text-2 hover:text-lw-text")} onClick={onCancel}>Cancel</button>
+      </div>
+    </fieldset>
+  </form>
+}
+
+// Saving a pin, or taking it off, then reading the usage and the agent
+// tools again; with what it came to, or why it was refused.
+function usePinSave() {
   const { baseUrl } = useServer()
   const queryClient = useQueryClient()
-  const pin = policy.active.pin
-  const expiryName = useId()
-  const [open, setOpen] = useState(requestedPin !== null)
-  const [profile, setProfile] = useState(requestedPin && policy.profiles.some((p) => p.name === requestedPin) ? requestedPin : pin?.profile ?? policy.active.profile.name)
-  const [expiry, setExpiry] = useState(pin?.until ? "time" : pin?.until_reset ? "reset" : "indefinite")
-  const [until, setUntil] = useState(() => {
-    if (!pin?.until) return ""
-    const date = new Date(pin.until)
-    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
-  })
-  const meters = catalogQualifiedMeters(catalog)
-  const [meter, setMeter] = useState(pin?.until_reset ?? meters[0] ?? "")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
-  const save = async (unpin = false) => {
+  // build makes the pin to send, or none to unpin; a draft it cannot read
+  // is refused like the server's refusals.
+  const save = async (build: () => UsagePin | undefined) => {
     setSaving(true)
     setError("")
     setNotice("")
     try {
-      const next: UsagePin = { profile }
-      if (!unpin && expiry === "time") next.until = new Date(until).toISOString()
-      if (!unpin && expiry === "reset") next.until_reset = meter
-      await setUsagePin(baseUrl, unpin ? undefined : next)
-      setNotice(unpin ? "Pin removed." : "Profile pinned.")
+      const pin = build()
+      await setUsagePin(baseUrl, pin)
+      setNotice(pin ? "Profile pinned." : "Pin removed.")
       await queryClient.invalidateQueries({ queryKey: queryKeys.subscriptionUsage(baseUrl) })
       await queryClient.invalidateQueries({ queryKey: queryKeys.adapters(baseUrl) })
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { setSaving(false) }
   }
-  const control = sheet ? "min-h-11" : "min-h-[30px]"
-  const button = cn("inline-flex items-center gap-1.5 rounded-md border px-2.5 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lw-accent-ring disabled:opacity-50", control)
+  return { saving, error, notice, save }
+}
+
+function PinControls({ policy, requestedPin, catalog, providers, now, sheet }: { policy: UsagePolicy; requestedPin: string | null; catalog: UsageCatalogProvider[] | undefined; providers: ProviderUsage[]; now: Date; sheet: boolean }) {
+  const pin = policy.active.pin
+  const [open, setOpen] = useState(requestedPin !== null)
+  const [draft, setDraft] = useState(() => pinDraftStart(policy, requestedPin, catalogQualifiedMeters(catalog)))
+  const { saving, error, notice, save } = usePinSave()
+  const button = cn("inline-flex items-center gap-1.5 rounded-md border px-2.5 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lw-accent-ring disabled:opacity-50", sheet ? "min-h-11" : "min-h-[30px]")
   const secondary = cn(button, "border-lw-line-strong bg-lw-selected text-lw-text shadow-[var(--shadow-lw-control)] hover:bg-lw-raised")
   return <div className="flex flex-col gap-2.5">
     {pin && <p className="m-0 flex items-start gap-1.5 text-lw-text-2"><Pin size={12} aria-hidden="true" className="mt-0.5 shrink-0 text-lw-accent-text" /><span>Pinned to <strong className="font-semibold text-lw-text">{pin.profile}</strong> {pinUntilText(pin, catalog, now)}.</span></p>}
@@ -554,43 +607,10 @@ function PinControls({ policy, requestedPin, catalog, providers, now, sheet }: {
       <button type="button" className={secondary} aria-expanded={open} onClick={() => setOpen(!open)}>
         <Pin size={13} aria-hidden="true" />{pin ? "Change pin" : "Pin a profile"}
       </button>
-      {pin && <button type="button" className={secondary} disabled={saving} onClick={() => void save(true)}>Unpin</button>}
+      {pin && <button type="button" className={secondary} disabled={saving} onClick={() => void save(() => undefined)}>Unpin</button>}
     </div>
-    {open && <form onSubmit={(e) => { e.preventDefault(); void save() }} className="rounded-lg border border-lw-line bg-lw-surface p-3">
-      <fieldset disabled={saving} className="m-0 flex min-w-0 flex-col gap-2.5 border-0 p-0">
-        <p className="m-0 text-[11px] text-lw-text-2">A pin applies to all new work, in every repository, over repository defaults and rules. An agent or account chosen for a launch still wins.</p>
-        <label className="flex flex-col gap-1 text-[11px] font-medium text-lw-text-2">Pin profile
-          <select aria-label="Pin profile" className={cn(pinField, sheet ? "h-11" : "h-8")} value={profile} onChange={(e) => setProfile(e.target.value)}>
-            {policy.profiles.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
-          </select>
-        </label>
-        <fieldset className="m-0 flex flex-col gap-1 border-0 p-0">
-          <legend className="mb-1 p-0 text-[11px] font-medium text-lw-text-2">Keep it until</legend>
-          <div className="grid grid-cols-3 gap-0.5 rounded-[7px] border border-lw-line-strong bg-lw-ground p-0.5">
-            {expiries.map((option) => (
-              <label key={option.value} className={cn(
-                "flex cursor-pointer items-center justify-center rounded-[5px] text-xs text-lw-text-2 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-lw-accent-ring",
-                sheet ? "min-h-10" : "min-h-7",
-                expiry === option.value && "bg-lw-selected text-lw-text shadow-[inset_0_0_0_1px_var(--color-lw-accent)]",
-              )}>
-                <input type="radio" name={expiryName} value={option.value} checked={expiry === option.value} onChange={() => setExpiry(option.value)} className="sr-only" />
-                {option.label}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        {expiry === "time" && <label className="flex flex-col gap-1 text-[11px] font-medium text-lw-text-2">Until (local time)<input type="datetime-local" className={cn(pinField, sheet ? "h-11" : "h-8")} required value={until} onChange={(e) => setUntil(e.target.value)} /></label>}
-        {expiry === "reset" && <label className="flex flex-col gap-1 text-[11px] font-medium text-lw-text-2">Until this limit resets
-          <select aria-label="Until this limit resets" className={cn(pinField, sheet ? "h-11" : "h-8")} value={meter} onChange={(e) => setMeter(e.target.value)}>
-            {meters.map((m) => <option key={m} value={m}>{meterOption(m, catalog, providers, now)}</option>)}
-          </select>
-        </label>}
-        <div className="flex flex-wrap gap-1.5">
-          <button type="submit" className={cn(button, "border-lw-accent bg-lw-accent text-[var(--theme-canvas,#fff)]")} disabled={saving || !profile}>{saving ? "Saving…" : "Pin profile"}</button>
-          <button type="button" className={cn(button, "border-transparent text-lw-text-2 hover:text-lw-text")} onClick={() => setOpen(false)}>Cancel</button>
-        </div>
-      </fieldset>
-    </form>}
+    {open && <PinForm draft={draft} set={(change) => setDraft((current) => ({ ...current, ...change }))} policy={policy} catalog={catalog} providers={providers} now={now} sheet={sheet}
+      saving={saving} button={button} onSave={() => void save(() => pinRequest(draft))} onCancel={() => setOpen(false)} />}
     {error && <p role="alert" className="m-0 break-words text-lw-error">{error}</p>}
     {notice && <p role="status" className="m-0 text-lw-text-2">{notice}</p>}
   </div>
