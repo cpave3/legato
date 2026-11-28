@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/selfupdate"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -69,7 +70,7 @@ func tuiRestarter() func() bool {
 
 // newUpdateService is this Legato's updater: releases of releaseRepo, put
 // in place of the running binary.
-func newUpdateService(db *store.Store, bus *events.Bus, agents service.AgentService, restart func() bool) *service.UpdateService {
+func newUpdateService(cfg *config.Config, db *store.Store, bus *events.Bus, agents service.AgentService, restart func() bool) *service.UpdateService {
 	exe, err := os.Executable()
 	if err != nil {
 		exe = os.Args[0]
@@ -77,10 +78,12 @@ func newUpdateService(db *store.Store, bus *events.Bus, agents service.AgentServ
 	return service.NewUpdateService(service.UpdateOptions{
 		Store: service.StringSetting{Settings: settingsFor(db)}, Bus: bus, Current: version.String(), Executable: exe,
 		Releases: selfupdate.Client{Repo: releaseRepo, HTTP: &http.Client{Timeout: 10 * time.Minute}},
-		// Release builds on Legato's PATH are kept current beside Legato.
+		// Release builds on Legato's PATH are kept current beside Legato,
+		// and so is Legato's own Claude Code.
 		Tools: []service.ManagedTool{
 			service.NewSTUpdater(service.ToolUpdaterOptions{}),
 			service.NewChimeraUpdater(service.ToolUpdaterOptions{}),
+			newClaudeTool(cfg, db),
 		},
 		// An automatic update waits for agents mid-turn and for a review
 		// pass mid-post, wherever in this instance it runs.

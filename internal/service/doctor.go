@@ -106,6 +106,10 @@ type DoctorOptions struct {
 	// SpawnMaxAge is how long a passed check spares a spawn from running
 	// it again; 0 is DoctorSpawnMaxAge.
 	SpawnMaxAge time.Duration
+	// ToolCommand is the command a check runs in place of the tool's usual
+	// one (by check ID), with a note for its detail: the claude agents
+	// launch. "" keeps the usual command; nil keeps every one.
+	ToolCommand func(id string) (command, note string)
 }
 
 // DoctorTimeout is how long one command of a check may take.
@@ -403,6 +407,20 @@ func (d *Doctor) checkInstalled(ctx context.Context, tool doctorTool) (string, D
 }
 
 func (d *Doctor) runInstalled(ctx context.Context, tool doctorTool) (string, DoctorCheck) {
+	var note string
+	if d.opts.ToolCommand != nil {
+		if command, n := d.opts.ToolCommand(tool.id); command != "" {
+			tool.command, note = command, n
+		}
+	}
+	path, c := d.runTool(ctx, tool)
+	if c.Result == DoctorOK && note != "" {
+		c.Detail += " (" + note + ")"
+	}
+	return path, c
+}
+
+func (d *Doctor) runTool(ctx context.Context, tool doctorTool) (string, DoctorCheck) {
 	c := DoctorCheck{ID: tool.id, Title: tool.title}
 	path, err := d.opts.LookPath(tool.command)
 	if err != nil {

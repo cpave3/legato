@@ -29,7 +29,8 @@ func sandboxSettings(cfg *config.Config) *service.SandboxSettings {
 	// tool linked from a checkout (pnpm link) lives outside every default
 	// mount, and other agents have no business in that checkout.
 	installs := map[string][]string{}
-	for kind, command := range map[string]string{"claude-code": "claude", "codex": "codex", "chimera": "chimera"} {
+	claude, _ := claudeLaunch(cfg)()
+	for kind, command := range map[string]string{"claude-code": claude, "codex": "codex", "chimera": "chimera"} {
 		installs[kind] = toolInstallPaths([]string{command})
 	}
 	return &service.SandboxSettings{

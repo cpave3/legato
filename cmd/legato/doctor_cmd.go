@@ -16,21 +16,22 @@ import (
 
 // doctorReport runs the checks for legato doctor; tests replace it.
 var doctorReport = func(ctx context.Context, online bool) (service.DoctorReport, error) {
-	return service.NewDoctor(service.DoctorOptions{}).Check(ctx, loadDoctorConfig(), online), nil
+	cfg, required := loadDoctorConfig()
+	return newDoctor(cfg).Check(ctx, required, online), nil
 }
 
-// loadDoctorConfig reads what the effective configuration requires of the
-// machine. A configuration that cannot be read requires only the defaults:
-// the checks still run.
-func loadDoctorConfig() service.DoctorConfig {
+// loadDoctorConfig reads the effective configuration and what it requires
+// of the machine. A configuration that cannot be read requires only the
+// defaults: the checks still run.
+func loadDoctorConfig() (*config.Config, service.DoctorConfig) {
 	cfg, err := config.Load()
 	if err != nil {
-		return service.DoctorConfig{}
+		return config.Defaults(), service.DoctorConfig{}
 	}
 	if db, err := openStore(cfg); err == nil {
 		db.Close()
 	}
-	return doctorConfigFor(cfg)
+	return cfg, doctorConfigFor(cfg)
 }
 
 // doctorConfigFor is doctorConfig with the workflows found on this machine.

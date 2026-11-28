@@ -340,3 +340,12 @@ func TestInAutoModeClaudeCodeIsUpdatedAtOnce(t *testing.T) {
 	running(t, f)
 	eventually(t, "Claude Code to be updated", func() bool { return c.tool.Status().Version == "2.1.330" })
 }
+
+// An agent is found by the name of the process in its pane, which is the
+// name of what was run: Legato's link must be named claude.
+func TestAnAgentLaunchedThroughLegatosClaudeIsRecognised(t *testing.T) {
+	cmd := claudecode.Folder{Dir: "/data/legato/tools/claude"}.Command()
+	if !agentForeground("claude-code", cmd) {
+		t.Fatalf("an agent run as %s is not recognised", cmd)
+	}
+}

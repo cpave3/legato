@@ -60,7 +60,7 @@ func setupFlow(cfg *config.Config, db *store.Store, in io.Reader, out io.Writer,
 		Out: out, In: in,
 		ReadSecret: terminalSecret(in),
 		Checks: func(ctx context.Context) service.DoctorReport {
-			return processDoctor().Check(ctx, doctorConfigFor(cfg), false)
+			return processDoctor(cfg).Check(ctx, doctorConfigFor(cfg), false)
 		},
 		Settings:       setupSettings{wizardSettings{cfg: cfg, db: db}},
 		Columns:        &setup.StoreAdapter{S: db},

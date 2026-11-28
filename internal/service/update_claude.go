@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,10 @@ import (
 // ClaudeToolName names Claude Code among the managed tools: its command, as
 // st and chimera are named for theirs.
 const ClaudeToolName = "claude"
+
+// ClaudeToolFolder is where Legato keeps its own Claude Code, under its
+// data folder.
+var ClaudeToolFolder = filepath.Join("tools", "claude")
 
 // ClaudeChannelStable and ClaudeChannelLatest are Claude Code's release
 // channels; stable is the default.

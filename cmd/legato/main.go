@@ -968,7 +968,7 @@ func runServeCmd(args []string) int {
 			osNotifier = service.NewOSNotifier()
 		}
 		agentSvc = service.NewAgentService(db, mgr, wd, withUsageNewWork(service.AgentServiceOptions{
-			ToolCheck:      processDoctor().SpawnCheck,
+			ToolCheck:      processDoctor(cfg).SpawnCheck,
 			Sandbox:        sandboxSettings(cfg),
 			SandboxScratch: sandboxScratch(cfg),
 			Adapter:        defaultAdapter, Adapters: adapters,
@@ -1001,7 +1001,7 @@ func runServeCmd(args []string) int {
 	// surface says why with the fix.
 	agentsOff := ""
 	if agentSvc == nil {
-		agentsOff = agentsOffReason(context.Background())
+		agentsOff = agentsOffReason(context.Background(), cfg)
 		log.Printf("%s", agentsOff)
 	}
 
@@ -1104,7 +1104,7 @@ func runServeCmd(args []string) int {
 	}
 	defer approvalsRT.compactWaits(workflowSvc)()
 	approvalsRT.attach(srv)
-	updates := newUpdateService(db, bus, agentSvc, serveRestarter())
+	updates := newUpdateService(cfg, db, bus, agentSvc, serveRestarter())
 	serveReviewPrompt := newReviewPrompt(cfg, db, workflowSvc)
 	serveAttention := wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, updates, mainSide, serveReviewPrompt, triggerCoordinator)
 	defer startMQTT(cfg, db, bus, agentSvc, serveAttention, approvalsRT)()
@@ -1216,7 +1216,7 @@ func runServeCmd(args []string) int {
 	if firstStart {
 		// No prompts on a headless machine: the checks and a pairing
 		// phrase, and the rest is finished in the web UI.
-		report := processDoctor().Check(context.Background(), doctorConfigFor(cfg), false)
+		report := processDoctor(cfg).Check(context.Background(), doctorConfigFor(cfg), false)
 		_, address := webPairingAddress(cfg)
 		headlessWelcome(os.Stdout, report, pairing.Open, address)
 	}
@@ -1384,7 +1384,7 @@ func runTUI() int {
 		}
 		agentSvc = service.NewAgentService(db, tmuxMgr, wd, withUsageNewWork(service.AgentServiceOptions{
 			ClaudeAccounts: cfg.ClaudeAccounts, AccountDataDir: config.ResolveDataDir(cfg), ClaudeManagedSettingsDir: claudeManagedSettingsDir(),
-			ToolCheck:         processDoctor().SpawnCheck,
+			ToolCheck:         processDoctor(cfg).SpawnCheck,
 			Sandbox:           sandboxSettings(cfg),
 			SandboxScratch:    sandboxScratch(cfg),
 			Adapter:           defaultAdapter,
@@ -1421,7 +1421,7 @@ func runTUI() int {
 	// surface says why with the fix.
 	agentsOff := ""
 	if agentSvc == nil {
-		agentsOff = agentsOffReason(context.Background())
+		agentsOff = agentsOffReason(context.Background(), cfg)
 		log.Printf("%s", agentsOff)
 	}
 
@@ -1542,7 +1542,7 @@ func runTUI() int {
 				webSrv.SetWorkflowTriggerCoordinator(triggerCoordinator)
 			}
 			approvalsRT.attach(webSrv)
-			updates := newUpdateService(db, bus, agentSvc, tuiRestarter())
+			updates := newUpdateService(cfg, db, bus, agentSvc, tuiRestarter())
 			webReviewPrompt := reviewPrompt
 			webAttention := wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT, updates, mainSide, webReviewPrompt, triggerCoordinator)
 			webSrv.SetSettingsService(wireSettings(db, bus, webAttention))
@@ -2116,7 +2116,7 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 	defaultAdapter, adapters := configuredAdapters(cfg, legatoBin)
 	agents := service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
 		ClaudeAccounts: cfg.ClaudeAccounts, AccountDataDir: config.ResolveDataDir(cfg), ClaudeManagedSettingsDir: claudeManagedSettingsDir(),
-		ToolCheck:              processDoctor().SpawnCheck,
+		ToolCheck:              processDoctor(cfg).SpawnCheck,
 		Sandbox:                sandboxSettings(cfg),
 		SandboxScratch:         sandboxScratch(cfg),
 		Adapter:                defaultAdapter,
