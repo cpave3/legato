@@ -2,7 +2,6 @@ import { useModalLayer } from "./ui/useModalLayer"
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { X } from "lucide-react"
 import { accessLabel, listResources, type Resource } from "../lib/resources"
-import { macroMessage, pickerMacros, useMacros } from "../lib/macros"
 import { useServer } from "../hooks/useServer"
 import { useSettings } from "../hooks/useSettings"
 import { directoryName, saveDirectoryPreset } from "../lib/spawnDirectories"
@@ -13,6 +12,8 @@ import { useEngramChoice } from "./spawn/useEngramChoice"
 import { useAgentChoice } from "./spawn/useAgentChoice"
 import { AccountField, AgentField } from "./spawn/AgentField"
 import { SessionPolicyField } from "./spawn/SessionPolicyField"
+import { useMacroChoice } from "./spawn/useMacroChoice"
+import { MacroField } from "./spawn/MacroField"
 import { EngramField } from "./spawn/EngramField"
 import { WhereField } from "./spawn/WhereField"
 import { fieldLabel, focusRing } from "./spawn/styles"
@@ -78,22 +79,8 @@ export function SpawnAgentDialog({
   // Only for an agent in the sandbox, with Docker in it.
   const hostNetworkOffered = Boolean(settings.data?.sandbox_enabled && settings.data?.sandbox_docker_enabled) && !unsandboxed
   const [prompt, setPrompt] = useState("")
-  // "Start with macro": the macros, the one chosen, and the tier it names.
-  const macroList = useMacros(baseUrl, open ? "open" : null)
-  const [macroName, setMacroName] = useState("")
-  // The task's macros by the pickers' rule (LEG-619). A select cannot hide
-  // the rest behind Show all: it groups the favourites first.
-  const spawnMacros = pickerMacros(macroList.macros, { targets: ["task"] })
-  const [tier, setTier] = useState("")
-  const chooseMacro = (name: string) => {
-    setMacroName(name)
-    const macro = macroList.macros.find((item) => item.name === name)
-    setTier(macro?.tier ?? "")
-    setAccount(macro?.account ?? "")
-    if (!macro) return
-    setPrompt(macroMessage(macro.keys))
-    if (macro.agent || macro.account) setAgentKind(macro.agent || "claude-code")
-  }
+  const macro = useMacroChoice({ open, openKey, baseUrl, setPrompt, setAgentKind, setAccount })
+  const { tier } = macro
   // The files and folders the person keeps for agents, and the ones picked.
   const [resources, setResources] = useState<Resource[]>([])
   const [picked, setPicked] = useState<string[]>([])
@@ -105,7 +92,7 @@ export function SpawnAgentDialog({
   const titleRef = useRef<HTMLInputElement>(null)
   const listId = useId()
 
-  const clone =useCloneChoice({ openKey, baseUrl, taskId, defaultBranch, settings: settings.data, settingsRef })
+  const clone = useCloneChoice({ openKey, baseUrl, taskId, defaultBranch, settings: settings.data, settingsRef })
   const { inClone, repository: cloneRepository, jobClone, branch, baseBranch, jobClonesError } = clone
   const dir = useDirectoryField({ openKey, baseUrl, initialWorkingDir, settingsRef, folder: clone.whereKind === "folder" })
   const { path, presets, selected, serverKnowsDirectories, savePath, showAll } = dir
@@ -124,8 +111,6 @@ export function SpawnAgentDialog({
     setUnsandboxed(false)
     setHostNetwork(false)
     setPrompt("")
-    setMacroName("")
-    setTier("")
     setPicked([])
     listResources(baseUrl)
       .then((listed) => { if (current) setResources(listed) })
@@ -269,20 +254,7 @@ export function SpawnAgentDialog({
               </div>
             </fieldset>
           )}
-          {spawnMacros.favorites.length + spawnMacros.rest.length > 0 && <label className="flex flex-col gap-1.5">
-            <span className={fieldLabel}>Start with macro <span className="text-lw-faint">· optional</span></span>
-            <select aria-label="Start with macro" value={macroName} onChange={(event) => chooseMacro(event.target.value)}
-              className={`min-h-11 rounded-[10px] border border-lw-line-strong bg-lw-ground px-3 text-base text-lw-text sm:min-h-9 sm:rounded-md sm:text-sm ${focusRing}`}>
-              <option value="">None</option>
-              {spawnMacros.rest.length === 0
-                ? spawnMacros.favorites.map((macro) => <option key={macro.name} value={macro.name}>{macro.name}</option>)
-                : <>
-                  <optgroup label="Favourites">{spawnMacros.favorites.map((macro) => <option key={macro.name} value={macro.name}>{macro.name}</option>)}</optgroup>
-                  <optgroup label="Other macros">{spawnMacros.rest.map((macro) => <option key={macro.name} value={macro.name}>{macro.name}</option>)}</optgroup>
-                </>}
-            </select>
-            {tier && <span className="text-xs text-lw-text-2">Model tier: {tier}</span>}
-          </label>}
+          {macro.macros.favorites.length + macro.macros.rest.length > 0 && <MacroField macro={macro} />}
           <label className="flex flex-col gap-1.5">
             <span className={fieldLabel}>
               First message <span className="text-lw-faint">· optional</span>
