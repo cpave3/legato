@@ -1,3 +1,6 @@
+import { isChimeraRecovery } from "./chimeraRecovery"
+import type { NativeConversationItem } from "./nativeAgentSync"
+
 // What the native agent panel shows of a session, derived from what it
 // knows. Nothing here draws anything.
 
@@ -22,4 +25,10 @@ export function reasonText(reason: unknown): string {
 // serves.
 export function isChimeraKind(agentKind: string | undefined): boolean {
   return !agentKind || agentKind === "chimera"
+}
+
+// A finished reply of Chimera's that is a compaction recovery excerpt, which
+// is drawn folded.
+export function isRecoveryReply(item: NativeConversationItem, agentKind: string | undefined): boolean {
+  return isChimeraKind(agentKind) && item.role === "assistant" && !item.isStreaming && isChimeraRecovery(item.text)
 }

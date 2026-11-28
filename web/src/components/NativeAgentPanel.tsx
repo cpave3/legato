@@ -1,7 +1,7 @@
 import { ReeveStatus, reeveWash } from "./ReeveEntry"
 import { AskReeve } from "./AskReeve"
 import { parseReeveMessage, reeveBrief } from "../lib/reeve"
-import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useId, memo, Fragment } from "react"
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useId, memo, Fragment, type ReactNode } from "react"
 import { ArrowDown, ArrowLeftRight, Bell, Check, Terminal, Zap } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
 import { useWebSocket } from "../hooks/useWebSocket"
@@ -17,7 +17,6 @@ import { dispatchAgentInput } from "../lib/agentInput"
 import { useVoiceRecorder } from "../hooks/useVoiceRecorder"
 import { ReviewMessageBody } from "./ReviewMessageBody"
 import { ChimeraRecovery } from "./ChimeraRecovery"
-import { isChimeraRecovery } from "../lib/chimeraRecovery"
 import { NativeModelSettingsForm } from "./NativeModelSettings"
 import { ComposerModelMenu } from "./ComposerModelMenu"
 import { NativeQuestionCard } from "./approvals/NativeQuestionCard"
@@ -30,7 +29,7 @@ import { PastedImageStrip } from "./PastedImageStrip"
 import { AttachImageButton } from "./AttachImageButton"
 import { AgentChatHeader, type AgentChatState, type SidePanelsProps } from "./AgentChatHeader"
 import { buildAgentMenu } from "./nativeAgentMenu"
-import { agentChatState, reasonText } from "../lib/nativeAgentView"
+import { agentChatState, isChimeraKind, isRecoveryReply, reasonText } from "../lib/nativeAgentView"
 import type { AgentStageInfo } from "./AgentStageChip"
 import { ResourcesButton } from "./ResourcesButton"
 import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, SendButton, WorkingStrip, type QueuedEntry } from "./Composer"
@@ -46,7 +45,7 @@ import { nativeToolName } from "../lib/agentKind"
 import { compactAgent, compactCommand, compactionNotice, nextCompaction, type Compaction } from "../lib/compaction"
 import { toolDisplayName } from "../lib/mcpToolName"
 import { legatoEventSummary, parseLegatoMessage } from "../lib/legatoMessage"
-import { plainText, subagentTree } from "../lib/agentGlance"
+import { plainText, subagentTree, type SubagentNode } from "../lib/agentGlance"
 import { modelSettingsResponse, type ModelCapabilities, type ModelSettings, type ModelSettingsState } from "../lib/modelSettings"
 import {
   createNativeSyncState,
@@ -63,11 +62,11 @@ import {
   type NativeToolItem as ToolCallItem,
 } from "../lib/nativeAgentSync"
 import { LoadingState } from "./ui/LoadingState"
-import { TileDeck } from "./tiles/TileDeck"
+import { TileDeck, type DeckTile } from "./tiles/TileDeck"
 import { SubagentLink } from "./tiles/SubagentParts"
 import { saveSubagentView, savedSubagentView, subagentTiles, type SubagentView } from "./tiles/subagentTiles"
 import { shellTileForCall, shellTiles } from "./tiles/shellTiles"
-import { fromStored, mergeShells, type StoredBackgroundShell } from "../lib/backgroundShells"
+import { fromStored, mergeShells, type NativeBackgroundShell, type StoredBackgroundShell } from "../lib/backgroundShells"
 import type { BackgroundJob } from "../lib/agentWire"
 import { useElementWidth } from "../hooks/useElementWidth"
 
@@ -1044,14 +1043,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   }
 
   if (error && items.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-center">
-          <p className="text-zinc-500 mb-2">{!agentKind || agentKind === "chimera" ? "No Chimera endpoint discovered" : `No ${agentToolName(agentKind)} bridge connected`}</p>
-          <p className="text-xs text-zinc-600">{error}</p>
-        </div>
-      </div>
-    )
+    return <NoEndpoint agentKind={agentKind} error={error} />
   }
 
   const headerState: AgentChatState = agentChatState(awaitingPerson, activity, busy)
@@ -1100,164 +1092,18 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       <div className="flex min-h-0 flex-1">
       <div className={`flex min-h-0 min-w-0 flex-1 flex-col ${showTiles && tilesBeside ? "border-r border-lw-line" : ""}`}>
       {/* Conversation viewport owns both scrolling and its floating action. */}
-      <div role="region" aria-label="Conversation" className="relative min-h-0 flex-1">
-        <div data-conversation-scroll ref={scrollRef} className="h-full overflow-y-auto overflow-x-hidden" onScroll={(e) => { const el = e.currentTarget; const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40; isScrolledUpRef.current = !atBottom; setIsScrolledUp(!atBottom) }}>
-          {items.length === 0 && (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-lw-text-2">
-              Session ready — send a message to start
-            </p>
-          </div>
-        )}
-        <div data-conversation-column className="mx-auto w-full max-w-[820px] py-3 md:px-2">
-        {blocks.map((block) => {
-          if (block.kind === "steps") {
-            // A background shell's call stays in its group, with a way to its tile after it.
-            const shellLinks = showTiles ? block.rows.flatMap((row) => {
-              const tile = row.tool ? shellTileForCall(tiles, shells, row.tool.key) : undefined
-              return tile ? [tile] : []
-            }) : []
-            if (shellLinks.length === 0) return <StepGroup key={block.key} agentId={agentId} rows={block.rows} />
-            return (
-              <Fragment key={block.key}>
-                <StepGroup agentId={agentId} rows={block.rows} />
-                {shellLinks.map((tile) => (
-                  <SubagentLink key={tile.id} kind="shell" tile={tile} highlighted={highlightedTile === tile.id} onOpen={() => setFocusedTile(tile.id)} onHighlight={setHighlightedTile} />
-                ))}
-              </Fragment>
-            )
-          }
-          const item = block.item
-          if ((!agentKind || agentKind === "chimera") && item.role === "assistant" && !item.isStreaming && isChimeraRecovery(item.text)) {
-            return <ChimeraRecovery key={item.key} text={item.text} />
-          }
-          if (item.role === "user") {
-            // Legato's own messages arrive as user turns; they are drawn
-            // apart from what the person typed.
-            const peerReeve = parseReeveMessage(item.text)
-            if (peerReeve) {
-              // Another instance's Reeve wrote this: its own block, with the
-              // Reeve's violet edge.
-              return (
-                <div key={item.key} className="flex justify-end px-4 py-2">
-                  <div
-                    aria-label={`Message from the Reeve on ${peerReeve.instance}`}
-                    className={`max-w-[75%] rounded-lg border-l-2 border-l-[var(--theme-keyword,#8b5cf6)] px-3 py-2 text-sm text-zinc-300 whitespace-pre-wrap break-words ${reeveWash}`}
-                  >
-                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--theme-keyword,#c4b5fd)]">
-                      From the Reeve on <span className="normal-case">{peerReeve.instance}</span> · <span className="normal-case">{peerReeve.role}</span>
-                    </div>
-                    <div>{peerReeve.body}</div>
-                  </div>
-                </div>
-              )
-            }
-            const legato = parseLegatoMessage(item.text)
-            if (legato?.event) {
-              // Something that happened (a change set ran, Legato restarted):
-              // one line among the steps, not a message anyone wrote.
-              return <LegatoEventRow key={item.key} label={legato.label} body={legato.body} />
-            }
-            if (legato?.peer !== undefined) {
-              // Another agent wrote this and Legato only carried it, so it
-              // has a look of its own, labelled with who sent it.
-              return (
-                <div key={item.key} className="flex justify-end px-4 py-2">
-                  <div
-                    aria-label={legato.peer ? `Message from agent ${legato.peer}` : "Message from another agent"}
-                    className="max-w-[75%] rounded-lg border border-fuchsia-800/60 bg-fuchsia-950/30 px-3 py-2 text-sm text-zinc-300 whitespace-pre-wrap break-words"
-                  >
-                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-fuchsia-400">
-                      Agent{legato.peer && <> · <span className="normal-case">{legato.peer}</span></>}
-                    </div>
-                    <div>{legato.body}</div>
-                  </div>
-                </div>
-              )
-            }
-            if (legato) {
-              return (
-                <div key={item.key} className="flex justify-end px-4 py-2">
-                  <div
-                    aria-label={`Message from Legato: ${legato.label}`}
-                    className="max-w-[75%] rounded-lg border border-teal-800/60 bg-teal-950/30 px-3 py-2 text-sm text-zinc-300 whitespace-pre-wrap break-words"
-                  >
-                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-teal-400">Legato · {legato.label}</div>
-                    <div>{legato.body}</div>
-                  </div>
-                </div>
-              )
-            }
-            return (
-              <div key={item.key} className="flex justify-end px-4 py-2">
-                <div className="max-w-[min(520px,85%)] rounded-[10px_10px_2px_10px] border border-lw-line-strong bg-lw-selected px-3 py-2 text-[13px] text-lw-text whitespace-pre-wrap break-words">
-                  {item.text}
-                </div>
-              </div>
-            )
-          }
-          if (item.role === "assistant") {
-            return (
-              <div key={item.key} className="flex justify-start px-4 py-2">
-                <div className={`min-w-0 max-w-full text-[13px] leading-[21px] text-[var(--theme-text,#c9c8d0)] ${item.isStreaming ? "opacity-80" : ""}`}>
-                  <ReviewMessageBody body={item.text} />
-                  {item.isStreaming && <span className="ml-0.5 animate-pulse">▋</span>}
-                </div>
-              </div>
-            )
-          }
-          if (item.role === "tool" && item.tool) {
-            // Every other tool call is in a "tools" block.
-            const uiCall = shownUICall(item.tool)
-            if (uiCall) return <AgentUICallCard key={item.key} call={uiCall} agentId={agentId} onOpen={onOpenUIItem} />
-            const said = speakText(item.tool)
-            if (said !== null) return <SaidBubble key={item.key} text={said} status={speakFailed(item.tool) ? "not_spoken" : undefined} />
-            const posted = forOperatorCall(item.tool)
-            if (posted) return <ForOperatorLine key={item.key} kind={posted.kind} title={posted.title} />
-            const tile = showTiles ? tiles.find((each) => each.id === item.tool!.key) : undefined
-            if (tile) {
-              return <SubagentLink key={item.key} tile={tile} highlighted={highlightedTile === tile.id} onOpen={() => setFocusedTile(tile.id)} onHighlight={setHighlightedTile} />
-            }
-
-            return <SubagentCard key={item.key} tool={item.tool} nodes={subagentNodes} />
-          }
-          if (item.role === "bang" && item.bang) {
-            const b = item.bang
-            const pending = b.exitCode === -1
-            const success = b.exitCode === 0
-            return (
-              <div key={item.key} className={`mx-4 my-1.5 overflow-hidden rounded-lg border bg-zinc-900/50 ${pending ? "border-amber-500/60" : success ? "border-amber-500/40" : "border-red-700/50"}`}>
-                <div className="flex items-center gap-2 px-3 py-1.5">
-                  <span className="flex items-center gap-1 text-amber-400 shrink-0">
-                    <Terminal size={13} />
-                    <span className="text-[10px] font-semibold uppercase tracking-wide">bash</span>
-                  </span>
-                  <span className="font-mono text-xs text-zinc-300 truncate">{b.command}</span>
-                  {!pending && (
-                    <span className={`text-xs ml-auto shrink-0 ${success ? "text-amber-500/80" : "text-red-500"}`}>
-                      exit {b.exitCode}{b.timedOut ? " (timed out)" : ""}
-                    </span>
-                  )}
-                  {pending && <span className="ml-auto text-xs text-amber-400/60 animate-pulse">running…</span>}
-                </div>
-                {!pending && (b.stdout || b.stderr) && (
-                  <div className="border-t border-amber-900/30 px-3 py-2">
-                    {b.stdout && <pre className="font-mono text-xs text-zinc-300 whitespace-pre-wrap max-h-60 overflow-y-auto">{b.stdout}</pre>}
-                    {b.stderr && <pre className="font-mono text-xs text-red-400 whitespace-pre-wrap max-h-40 overflow-y-auto mt-1">{b.stderr}</pre>}
-                  </div>
-                )}
-              </div>
-            )
-          }
-          if (item.permission) {
-            return <PermissionCard key={item.key} permission={item.permission} agentKind={agentKind} onResolve={handlePermission} />
-          }
-          if (item.question) {
-            return <NativeQuestionCard key={item.key} question={item.question} askedBy={agentToolName(agentKind)} onAnswer={handleQuestion} onDismiss={handleQuestion} />
-          }
-          return null
-          })}
-          {terminalAsking && terminalPrompt && (
+      <ConversationFeed
+        scrollRef={scrollRef}
+        onScroll={(e) => { const el = e.currentTarget; const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40; isScrolledUpRef.current = !atBottom; setIsScrolledUp(!atBottom) }}
+        items={items}
+        blocks={blocks}
+        agentId={agentId}
+        agentKind={agentKind}
+        tiles={{ show: showTiles, all: tiles, shells, nodes: subagentNodes, highlighted: highlightedTile, onHighlight: setHighlightedTile, onFocus: setFocusedTile }}
+        onOpenUIItem={onOpenUIItem}
+        onPermission={handlePermission}
+        onQuestion={handleQuestion}
+        terminal={terminalAsking && terminalPrompt && (
             <NativeTerminalPrompt
               prompt={terminalPrompt}
               askedBy={agentToolName(agentKind)}
@@ -1265,20 +1111,9 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
               onOpenTerminal={onDowngradeChimera ? () => { void onDowngradeChimera().catch(() => {}) } : undefined}
             />
           )}
-        </div>
-        </div>
-
-        {/* Scroll to bottom button */}
-        {isScrolledUp && (
-          <button
-            onClick={scrollToBottom}
-            className="absolute bottom-3 right-3 z-10 rounded-full border border-lw-line-strong bg-lw-raised p-2 text-lw-text-2 shadow-lg transition-colors hover:text-lw-text"
-            title="Scroll to bottom"
-          >
-            <ArrowDown size={18} />
-          </button>
-        )}
-      </div>
+        isScrolledUp={isScrolledUp}
+        onScrollToBottom={scrollToBottom}
+      />
 
       {/* Composer: the message box, and under it everything that sets how
           the agent works (model, effort, mode, resources, macros) beside
@@ -1434,6 +1269,266 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
           onHighlight={setHighlightedTile}
         />
       )}
+      </div>
+    </div>
+  )
+}
+
+// What the conversation feed needs to draw the tiles of subagents and
+// shells beside their calls.
+interface FeedTiles {
+  show: boolean
+  all: DeckTile[]
+  shells: NativeBackgroundShell[]
+  nodes: SubagentNode[]
+  highlighted: string | null
+  onHighlight: (id: string | null) => void
+  onFocus: (id: string | null) => void
+}
+
+// What every row of the conversation is given besides its item.
+interface FeedRowProps {
+  agentId: string
+  agentKind?: string
+  tiles: FeedTiles
+  onOpenUIItem?: (itemId: string, revision: number) => void
+  onPermission: (requestId: string, decision: "allow" | "deny", feedback?: string, option?: string) => void
+  onQuestion: (requestId: string, answers?: Record<string, string[]>) => void
+}
+
+// ConversationFeed is the conversation's viewport: the messages and steps,
+// a prompt only the terminal shows, and the way back to the latest.
+function ConversationFeed({ scrollRef, onScroll, items, blocks, terminal, isScrolledUp, onScrollToBottom, ...row }: FeedRowProps & {
+  scrollRef: React.RefObject<HTMLDivElement | null>
+  onScroll: (event: React.UIEvent<HTMLDivElement>) => void
+  items: NativeConversationItem[]
+  blocks: ConversationBlock[]
+  terminal: ReactNode
+  isScrolledUp: boolean
+  onScrollToBottom: () => void
+}) {
+  return (
+      <div role="region" aria-label="Conversation" className="relative min-h-0 flex-1">
+        <div data-conversation-scroll ref={scrollRef} className="h-full overflow-y-auto overflow-x-hidden" onScroll={onScroll}>
+          {items.length === 0 && (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-sm text-lw-text-2">
+              Session ready — send a message to start
+            </p>
+          </div>
+        )}
+        <div data-conversation-column className="mx-auto w-full max-w-[820px] py-3 md:px-2">
+        {blocks.map((block) => block.kind === "steps"
+          ? <StepsBlock key={block.key} block={block} agentId={row.agentId} tiles={row.tiles} />
+          : <ConversationItemView key={block.item.key} item={block.item} {...row} />)}
+          {terminal}
+        </div>
+        </div>
+
+        {/* Scroll to bottom button */}
+        {isScrolledUp && (
+          <button
+            onClick={onScrollToBottom}
+            className="absolute bottom-3 right-3 z-10 rounded-full border border-lw-line-strong bg-lw-raised p-2 text-lw-text-2 shadow-lg transition-colors hover:text-lw-text"
+            title="Scroll to bottom"
+          >
+            <ArrowDown size={18} />
+          </button>
+        )}
+      </div>
+  )
+}
+
+// A run of steps. A background shell's call stays in its group, with a way
+// to its tile after it.
+function StepsBlock({ block, agentId, tiles }: { block: Extract<ConversationBlock, { kind: "steps" }>; agentId: string; tiles: FeedTiles }) {
+  const shellLinks = tiles.show ? block.rows.flatMap((row) => {
+    const tile = row.tool ? shellTileForCall(tiles.all, tiles.shells, row.tool.key) : undefined
+    return tile ? [tile] : []
+  }) : []
+  if (shellLinks.length === 0) return <StepGroup agentId={agentId} rows={block.rows} />
+  return (
+    <Fragment>
+      <StepGroup agentId={agentId} rows={block.rows} />
+      {shellLinks.map((tile) => (
+        <SubagentLink key={tile.id} kind="shell" tile={tile} highlighted={tiles.highlighted === tile.id} onOpen={() => tiles.onFocus(tile.id)} onHighlight={tiles.onHighlight} />
+      ))}
+    </Fragment>
+  )
+}
+
+// One item of the conversation: something said, or something the agent did
+// or asks.
+function ConversationItemView(props: FeedRowProps & { item: NativeConversationItem }) {
+  return messageRow(props) ?? actionRow(props)
+}
+
+// A message: a reply, what the operator or Legato wrote, or a recovery
+// excerpt Chimera keeps.
+function messageRow({ item, agentKind }: FeedRowProps & { item: NativeConversationItem }): ReactNode {
+  if (isRecoveryReply(item, agentKind)) return <ChimeraRecovery text={item.text} />
+  if (item.role === "user") return <UserMessage text={item.text} />
+  if (item.role === "assistant") return <AssistantMessage item={item} />
+  return null
+}
+
+// Something the agent did or asks: a tool call standing alone, a shell
+// command, a permission request or a question.
+function actionRow({ item, agentKind, onPermission, onQuestion, ...row }: FeedRowProps & { item: NativeConversationItem }): ReactNode {
+  // Every other tool call is in a "tools" block.
+  if (item.role === "tool" && item.tool) return <ToolRow tool={item.tool} {...row} />
+  if (item.role === "bang" && item.bang) return <BangResult bang={item.bang} />
+  if (item.permission) return <PermissionCard permission={item.permission} agentKind={agentKind} onResolve={onPermission} />
+  if (item.question) return <NativeQuestionCard question={item.question} askedBy={agentToolName(agentKind)} onAnswer={onQuestion} onDismiss={onQuestion} />
+  return null
+}
+
+// A user turn. Legato's own messages arrive as user turns; they are drawn
+// apart from what the person typed.
+function UserMessage({ text }: { text: string }) {
+  const peerReeve = parseReeveMessage(text)
+  // Another instance's Reeve wrote this: its own block, with the Reeve's
+  // violet edge.
+  if (peerReeve) return <PeerReeveMessage message={peerReeve} />
+  const legato = parseLegatoMessage(text)
+  if (legato) return <LegatoMessage message={legato} />
+  return (
+    <div className="flex justify-end px-4 py-2">
+      <div className="max-w-[min(520px,85%)] rounded-[10px_10px_2px_10px] border border-lw-line-strong bg-lw-selected px-3 py-2 text-[13px] text-lw-text whitespace-pre-wrap break-words">
+        {text}
+      </div>
+    </div>
+  )
+}
+
+function PeerReeveMessage({ message }: { message: NonNullable<ReturnType<typeof parseReeveMessage>> }) {
+  return (
+    <div className="flex justify-end px-4 py-2">
+      <div
+        aria-label={`Message from the Reeve on ${message.instance}`}
+        className={`max-w-[75%] rounded-lg border-l-2 border-l-[var(--theme-keyword,#8b5cf6)] px-3 py-2 text-sm text-zinc-300 whitespace-pre-wrap break-words ${reeveWash}`}
+      >
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--theme-keyword,#c4b5fd)]">
+          From the Reeve on <span className="normal-case">{message.instance}</span> · <span className="normal-case">{message.role}</span>
+        </div>
+        <div>{message.body}</div>
+      </div>
+    </div>
+  )
+}
+
+// A message Legato wrote or carried.
+function LegatoMessage({ message }: { message: NonNullable<ReturnType<typeof parseLegatoMessage>> }) {
+  // Something that happened (a change set ran, Legato restarted): one line
+  // among the steps, not a message anyone wrote.
+  if (message.event) return <LegatoEventRow label={message.label} body={message.body} />
+  // Another agent wrote this and Legato only carried it, so it has a look of
+  // its own, labelled with who sent it.
+  if (message.peer !== undefined) return <PeerAgentMessage peer={message.peer} body={message.body} />
+  return (
+    <div className="flex justify-end px-4 py-2">
+      <div
+        aria-label={`Message from Legato: ${message.label}`}
+        className="max-w-[75%] rounded-lg border border-teal-800/60 bg-teal-950/30 px-3 py-2 text-sm text-zinc-300 whitespace-pre-wrap break-words"
+      >
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-teal-400">Legato · {message.label}</div>
+        <div>{message.body}</div>
+      </div>
+    </div>
+  )
+}
+
+function PeerAgentMessage({ peer, body }: { peer: string; body: string }) {
+  return (
+    <div className="flex justify-end px-4 py-2">
+      <div
+        aria-label={peer ? `Message from agent ${peer}` : "Message from another agent"}
+        className="max-w-[75%] rounded-lg border border-fuchsia-800/60 bg-fuchsia-950/30 px-3 py-2 text-sm text-zinc-300 whitespace-pre-wrap break-words"
+      >
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-fuchsia-400">
+          Agent{peer && <> · <span className="normal-case">{peer}</span></>}
+        </div>
+        <div>{body}</div>
+      </div>
+    </div>
+  )
+}
+
+function AssistantMessage({ item }: { item: NativeConversationItem }) {
+  return (
+    <div className="flex justify-start px-4 py-2">
+      <div className={`min-w-0 max-w-full text-[13px] leading-[21px] text-[var(--theme-text,#c9c8d0)] ${item.isStreaming ? "opacity-80" : ""}`}>
+        <ReviewMessageBody body={item.text} />
+        {item.isStreaming && <span className="ml-0.5 animate-pulse">▋</span>}
+      </div>
+    </div>
+  )
+}
+
+// A tool call that stands alone: something the agent showed or said, a line
+// for the operator's rail, or a subagent, as its tile's link or its card.
+function ToolRow({ tool, agentId, tiles, onOpenUIItem }: Omit<FeedRowProps, "onPermission" | "onQuestion"> & { tool: ToolCallItem }) {
+  const uiCall = shownUICall(tool)
+  if (uiCall) return <AgentUICallCard call={uiCall} agentId={agentId} onOpen={onOpenUIItem} />
+  const said = speakText(tool)
+  if (said !== null) return <SaidBubble text={said} status={speakFailed(tool) ? "not_spoken" : undefined} />
+  const posted = forOperatorCall(tool)
+  if (posted) return <ForOperatorLine kind={posted.kind} title={posted.title} />
+  const tile = tiles.show ? tiles.all.find((each) => each.id === tool.key) : undefined
+  if (tile) {
+    return <SubagentLink tile={tile} highlighted={tiles.highlighted === tile.id} onOpen={() => tiles.onFocus(tile.id)} onHighlight={tiles.onHighlight} />
+  }
+
+  return <SubagentCard tool={tool} nodes={tiles.nodes} />
+}
+
+// A shell command the operator ran from the message box, and what it printed.
+function BangResult({ bang: b }: { bang: NonNullable<NativeConversationItem["bang"]> }) {
+  const pending = b.exitCode === -1
+  const success = b.exitCode === 0
+  return (
+    <div className={`mx-4 my-1.5 overflow-hidden rounded-lg border bg-zinc-900/50 ${bangBorder(pending, success)}`}>
+      <div className="flex items-center gap-2 px-3 py-1.5">
+        <span className="flex items-center gap-1 text-amber-400 shrink-0">
+          <Terminal size={13} />
+          <span className="text-[10px] font-semibold uppercase tracking-wide">bash</span>
+        </span>
+        <span className="font-mono text-xs text-zinc-300 truncate">{b.command}</span>
+        {!pending && (
+          <span className={`text-xs ml-auto shrink-0 ${success ? "text-amber-500/80" : "text-red-500"}`}>
+            exit {b.exitCode}{b.timedOut ? " (timed out)" : ""}
+          </span>
+        )}
+        {pending && <span className="ml-auto text-xs text-amber-400/60 animate-pulse">running…</span>}
+      </div>
+      {!pending && <BangOutput stdout={b.stdout} stderr={b.stderr} />}
+    </div>
+  )
+}
+
+function bangBorder(pending: boolean, success: boolean): string {
+  if (pending) return "border-amber-500/60"
+  return success ? "border-amber-500/40" : "border-red-700/50"
+}
+
+function BangOutput({ stdout, stderr }: { stdout: string; stderr: string }) {
+  if (!stdout && !stderr) return null
+  return (
+    <div className="border-t border-amber-900/30 px-3 py-2">
+      {stdout && <pre className="font-mono text-xs text-zinc-300 whitespace-pre-wrap max-h-60 overflow-y-auto">{stdout}</pre>}
+      {stderr && <pre className="font-mono text-xs text-red-400 whitespace-pre-wrap max-h-40 overflow-y-auto mt-1">{stderr}</pre>}
+    </div>
+  )
+}
+
+// Shown in place of the conversation when the panel found no session to
+// speak to.
+function NoEndpoint({ agentKind, error }: { agentKind?: string; error: string }) {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <div className="text-center">
+        <p className="text-zinc-500 mb-2">{isChimeraKind(agentKind) ? "No Chimera endpoint discovered" : `No ${agentToolName(agentKind)} bridge connected`}</p>
+        <p className="text-xs text-zinc-600">{error}</p>
       </div>
     </div>
   )
