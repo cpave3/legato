@@ -51,6 +51,14 @@ Everything else under `/api/`, and the live connection the page uses for updates
 
 Reading or changing the preferred theme through `/api/settings/theme` requires the web token. Public metadata does not change a browser’s local theme unless you choose **Follow server**. [MQTT theme control](/legato/integrations/home-assistant/#control-the-server-theme) is a separate, restart-only broker grant: it trusts writers allowed by the broker’s command-topic ACL, not a web or integration token.
 
+## Native agent decision keys
+
+The web token is separate from Claude Code's native bridge key. Your browser or phone sends its answers through Legato; Legato adds a per-bridge key that the sandboxed agent never receives. The agent's public bridge address permits only event reports and permission waits, not native decisions, snapshots or live streams. Native reads need authentication too: attaching a viewer changes whether requests wait in Legato or stay in the terminal.
+
+A refused native call creates a durable, high-urgency Attention incident. It records a refusal, not who sent it. Repeated refusals for the same run and bridge generation do not undo dismissal. Agent telemetry is still untrusted, and actual terminal decisions remain available independently of authenticated panel answers.
+
+This Claude-first boundary needs a new agent session, with no automatic restart or unprotected compatibility fallback. Scratch Claude Code 2.1.332 verification remains pending. It does not fix Chimera's readable process-environment secret or Codex's app-server token. Outside the sandbox, an agent runs as your OS user and can read Legato's private state: these keys do not provide isolation from it.
+
 ## Integration tokens
 
 A service such as Argus gets a token of its own, limited to the integration routes and to the scopes you give it:

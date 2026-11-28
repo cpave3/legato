@@ -30,6 +30,9 @@ type BrokerDeps struct {
 	// ClaudeModels are adapters.claude-code.models, which a bridge in the
 	// sandbox cannot read from the configuration.
 	ClaudeModels []string
+	// ClaudeRuntimeDir overrides host bridge advertisement storage in isolated instances.
+	ClaudeRuntimeDir string
+	ClaudeTmpDir     func(executionID string) string
 	// Ops adds operations served by other parts of the host (tools, bridges).
 	Ops map[string]BrokerOp
 }
@@ -45,6 +48,9 @@ func NewBrokerHandler(db *store.Store, deps BrokerDeps) broker.Handler {
 		"agent.hook":            brokerAgentHook(db, deps),
 		"agent.session_created": brokerSessionCreated(db),
 		"agent.stage":           brokerAgentStage(db),
+	}
+	for name, op := range claudeHostOps(db, deps) {
+		ops[name] = op
 	}
 	for name, op := range bridgeOps(db, deps) {
 		ops[name] = op

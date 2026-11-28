@@ -857,6 +857,38 @@ const run = async ($: EngineInterface, command: Command): Promise<void> => {
   }
 }
 
+let announcedBridge: string | undefined
+
+const startBridgePump = async ($: EngineInterface, url: string): Promise<void> => {
+  if (announcedBridge === url) {
+    return
+  }
+
+  const replacement = announcedBridge !== undefined
+  announcedBridge = url
+  endpoint = url
+  isCollecting = true
+  wake?.()
+  await nameBridge($, url)
+
+  if (replacement) {
+    // Reserve the seed's sequence before awaiting the engine. Events queued
+    // while it reads history must follow that seed, not precede it.
+    queue = []
+    eventSeq += 1
+    const seq = eventSeq
+    const seed = await describe($)
+
+    if (endpoint !== url) {
+      return
+    }
+
+    queue = [{ ...seed, seq }, ...queue]
+  }
+
+  await pump($, url)
+}
+
 const handle = ($: EngineInterface, line: string): void => {
   let command: Command
 
@@ -868,9 +900,7 @@ const handle = ($: EngineInterface, line: string): void => {
 
   // The bridge is listening: what was held for it starts to drain.
   if (command.type === 'ready') {
-    endpoint = command.url
-    void nameBridge($, command.url)
-    void pump($, command.url)
+    void startBridgePump($, command.url).catch(report($, 'reconnecting the bridge'))
 
     return
   }
@@ -919,6 +949,7 @@ const runBridge = async ($: EngineInterface, taskId: string, env: Identity): Pro
   }
 
   bridgeRun += 1
+  announcedBridge = undefined
 
   const run = bridgeRun
   let buffered = ''

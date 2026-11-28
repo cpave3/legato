@@ -83,6 +83,8 @@ nonsecret endpoint canaries, never a running agent's server credential.
 
 Known limit: Chimera's own commands can still read `CHIMERA_SERVER_SECRET` from `/proc/<pid>/environ`, including inside Legato's bwrap PID namespace. CHIM-86 tracks passing the secret by file descriptor or pipe instead; the current environment handoff does not protect the credential from those commands.
 
+LEG-686's host-owned operator-key boundary is Claude-first; it does not fix this Chimera upstream gap. The shared native client now also supports private Basic-auth control URLs by moving userinfo to the Authorization header and refusing credential-bearing redirects, but that does not remove Chimera's readable process-environment secret. Do not describe Chimera as isolated from self-authorization by this change.
+
 ## Tools
 
 With `agents.mcp.enabled`, the mod manifest bundles `legato mcp serve` using the concrete binary path from `LEGATO_BIN`, its trusted tool names and an explicit Legato environment map. A tools-disabled installation has no `mcpServers`. A mod launch neither probes `chimera --help` nor adds `--mcp-config`; an operator's own flag remains untouched. MCP server instructions supply the tool guidance instead of the launch prompt. With the mod disabled, the legacy flag/probe/guidance path remains. See [Agent tools](agent-mcp.md).

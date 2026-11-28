@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -19,8 +21,8 @@ import (
 // (background_shell when one starts or ends, background_shell_output as it
 // prints).
 //
-// The bridge is Claude Code's child, so inside a sandbox it sees the same
-// /tmp as the session: it reads the file where Claude Code wrote it.
+// The host bridge maps /tmp into this execution's scratch directory and
+// rejects symlinks that would escape it.
 //
 // A shell ends when Claude Code tells the session so, with a
 // <task-notification> prompt that gives its status and exit code, or when
@@ -344,12 +346,24 @@ func (s *session) hydrateShells(messages []seedMessage, now time.Time) []nativeE
 	return out
 }
 
-// readShellOutput reads what a file gained past offset: at most
-// shellChunkLimit bytes, the newest, with gap set when it skipped some, and
-// reset when the file shrank (it was started over). An incomplete UTF-8
-// character at the end waits for the next read.
-func readShellOutput(path string, offset int64) (chunk []byte, next int64, gap, reset bool, err error) {
-	file, err := os.Open(path)
+// A host bridge reads only the execution's private /tmp, through os.Root:
+// agent telemetry must not turn a shell output path into a host file read.
+func readShellOutputInRoot(rootPath, path string, offset int64) (chunk []byte, next int64, gap, reset bool, err error) {
+	var file *os.File
+	if rootPath == "" {
+		file, err = os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	} else {
+		clean := filepath.Clean(path)
+		if !strings.HasPrefix(clean, "/tmp/") {
+			return nil, offset, false, false, errors.New("shell output is outside execution tmp")
+		}
+		root, openErr := os.OpenRoot(rootPath)
+		if openErr != nil {
+			return nil, offset, false, false, openErr
+		}
+		defer root.Close()
+		file, err = root.OpenFile(strings.TrimPrefix(clean, "/tmp/"), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	}
 	if err != nil {
 		return nil, offset, false, false, err
 	}
@@ -422,7 +436,7 @@ func (b *Bridge) watchShell(id string) {
 		path, offset, ended := shell.path, shell.offset, shell.status != shellRunning
 		b.mu.Unlock()
 
-		chunk, next, gap, reset, err := readShellOutput(path, offset)
+		chunk, next, gap, reset, err := readShellOutputInRoot(b.shellRoot, path, offset)
 		b.mu.Lock()
 		if shell := b.session.shells[id]; shell != nil && err == nil {
 			shell.offset = next
