@@ -1,5 +1,5 @@
 import { Dialog, DialogPanel, DialogHeader, DialogTitle, DialogBody, DialogFooter } from "./ui/Dialog"
-import type { PendingPlanContent, PendingPlanData, PendingPlanSubtask } from "../lib/swarm"
+import type { PendingPlanSubtask } from "../lib/swarm"
 import { X, CheckCircle, XCircle, FileText, Users, HardDrive } from "lucide-react"
 import { usePendingPlan, useVerdictForm } from "./usePlanApproval"
 
@@ -42,10 +42,64 @@ export function PlanApprovalModal() {
             <div className="text-sm font-mono text-zinc-300">{plan.parent_task_id}</div>
           </div>
 
-          {/* Plan content */}
-          <PlanBody plan={plan} />
+          {/* What the plan proposes, or why it cannot be shown. */}
+          {plan.plan ? (
+            <>
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                  <HardDrive size={12} />
+                  Working Directory
+                </div>
+                <div className="text-sm font-mono text-zinc-300">{plan.plan.header.working_dir}</div>
+              </div>
 
-          {form.rejectMode && <RejectionNotes notes={form.notes} onNotes={form.setNotes} />}
+              {plan.plan.header.summary && (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                    <FileText size={12} />
+                    Summary
+                  </div>
+                  <div className="text-sm text-zinc-300 whitespace-pre-wrap">{plan.plan.header.summary}</div>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5 text-xs text-zinc-400 font-medium">
+                  <Users size={12} />
+                  Sub-tasks ({plan.plan.subtasks.length})
+                </div>
+                <div className="space-y-2">
+                  {plan.plan.subtasks.map((st, i) => (
+                    <SubtaskRow key={i} subtask={st} index={i} />
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : plan.load_error ? (
+            <div role="alert" className="rounded border border-red-900/50 bg-red-950/30 px-3 py-2 text-xs text-red-400">
+              Could not load plan: {plan.load_error}
+              <div className="mt-1 text-zinc-500">Path: {plan.plan_path}</div>
+            </div>
+          ) : (
+            <div className="text-xs text-zinc-500">
+              Plan path: <span className="font-mono text-zinc-400">{plan.plan_path}</span>
+            </div>
+          )}
+
+          {form.rejectMode && (
+            <div className="space-y-2">
+              <label htmlFor="plan-rejection-notes" className="text-xs text-zinc-500">Rejection Notes</label>
+              <textarea
+                id="plan-rejection-notes"
+                value={form.notes}
+                onChange={(e) => form.setNotes(e.target.value)}
+                placeholder="Describe what needs to change..."
+                rows={3}
+                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500 resize-none"
+                autoFocus
+              />
+            </div>
+          )}
         </DialogBody>
 
         <VerdictFooter
@@ -58,60 +112,6 @@ export function PlanApprovalModal() {
         />
       </DialogPanel>
     </Dialog>
-  )
-}
-
-// What the plan proposes, or why it cannot be shown.
-function PlanBody({ plan }: { plan: PendingPlanData }) {
-  if (plan.plan) return <PlanContent content={plan.plan} />
-  if (plan.load_error) {
-    return (
-      <div role="alert" className="rounded border border-red-900/50 bg-red-950/30 px-3 py-2 text-xs text-red-400">
-        Could not load plan: {plan.load_error}
-        <div className="mt-1 text-zinc-500">Path: {plan.plan_path}</div>
-      </div>
-    )
-  }
-  return (
-    <div className="text-xs text-zinc-500">
-      Plan path: <span className="font-mono text-zinc-400">{plan.plan_path}</span>
-    </div>
-  )
-}
-
-function PlanContent({ content }: { content: PendingPlanContent }) {
-  return (
-    <>
-      <div className="space-y-1">
-        <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-          <HardDrive size={12} />
-          Working Directory
-        </div>
-        <div className="text-sm font-mono text-zinc-300">{content.header.working_dir}</div>
-      </div>
-
-      {content.header.summary && (
-        <div className="space-y-1">
-          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-            <FileText size={12} />
-            Summary
-          </div>
-          <div className="text-sm text-zinc-300 whitespace-pre-wrap">{content.header.summary}</div>
-        </div>
-      )}
-
-      <div className="space-y-2">
-        <div className="flex items-center gap-1.5 text-xs text-zinc-400 font-medium">
-          <Users size={12} />
-          Sub-tasks ({content.subtasks.length})
-        </div>
-        <div className="space-y-2">
-          {content.subtasks.map((st, i) => (
-            <SubtaskRow key={i} subtask={st} index={i} />
-          ))}
-        </div>
-      </div>
-    </>
   )
 }
 
@@ -141,23 +141,6 @@ function SubtaskRow({ subtask, index }: { subtask: PendingPlanSubtask; index: nu
           {subtask.prompt}
         </div>
       )}
-    </div>
-  )
-}
-
-function RejectionNotes({ notes, onNotes }: { notes: string; onNotes: (notes: string) => void }) {
-  return (
-    <div className="space-y-2">
-      <label htmlFor="plan-rejection-notes" className="text-xs text-zinc-500">Rejection Notes</label>
-      <textarea
-        id="plan-rejection-notes"
-        value={notes}
-        onChange={(e) => onNotes(e.target.value)}
-        placeholder="Describe what needs to change..."
-        rows={3}
-        className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500 resize-none"
-        autoFocus
-      />
     </div>
   )
 }
