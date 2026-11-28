@@ -1,25 +1,6 @@
-import { accountPlaceholder, type AgentOption } from "../../lib/spawnAgent"
+import { accountPlaceholder } from "../../lib/spawnAgent"
 import { fieldLabel, focusRing } from "./styles"
 import type { AgentChoice } from "./useAgentChoice"
-
-function AgentRadio({ option, checked, onPick }: { option: AgentOption; checked: boolean; onPick: () => void }) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={checked}
-      onClick={onPick}
-      // Each takes the room its own label needs, then a share of what is
-      // left: four equal parts cut the longest label short.
-      className={`h-10 min-w-0 flex-auto truncate rounded-lg px-2 text-sm transition-colors sm:h-[30px] sm:rounded sm:text-[13px] ${
-        checked ? "bg-lw-selected font-medium text-lw-text" : "text-lw-text-2 hover:text-lw-text"
-      }`}
-    >
-      {option.label}
-      {option.note && <> <span className="hidden font-normal text-lw-faint sm:inline">{option.note}</span></>}
-    </button>
-  )
-}
 
 // The agent tool: the usage profile's default, each tool, and a shell.
 export function AgentField({ agent }: { agent: AgentChoice }) {
@@ -27,9 +8,26 @@ export function AgentField({ agent }: { agent: AgentChoice }) {
     <div className="flex flex-col gap-1.5">
       <span className={fieldLabel}>Agent</span>
       <div role="radiogroup" aria-label="Agent" className="flex rounded-[10px] border border-lw-line-strong bg-lw-ground p-[3px] sm:rounded-md sm:p-0.5">
-        {agent.options.map((option) => (
-          <AgentRadio key={option.value} option={option} checked={option.value === agent.agentKind} onPick={() => agent.pickAgent(option.value)} />
-        ))}
+        {agent.options.map((option) => {
+          const checked = option.value === agent.agentKind
+          return (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={checked}
+              onClick={() => agent.pickAgent(option.value)}
+              // Each takes the room its own label needs, then a share of what is
+              // left: four equal parts cut the longest label short.
+              className={`h-10 min-w-0 flex-auto truncate rounded-lg px-2 text-sm transition-colors sm:h-[30px] sm:rounded sm:text-[13px] ${
+                checked ? "bg-lw-selected font-medium text-lw-text" : "text-lw-text-2 hover:text-lw-text"
+              }`}
+            >
+              {option.label}
+              {option.note && <> <span className="hidden font-normal text-lw-faint sm:inline">{option.note}</span></>}
+            </button>
+          )
+        })}
       </div>
     </div>
   )
