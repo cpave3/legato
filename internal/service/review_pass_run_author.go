@@ -50,7 +50,7 @@ func (c *ReviewRunCaller) authorState(ctx context.Context, run *reviewRun, loop 
 	if run.AuthorTask == "" {
 		return runAuthorPerson
 	}
-	session, err := c.engine.opts.Agents.GetAgentSession(ctx, run.AuthorTask)
+	session, err := c.authorSession(ctx, run.AuthorTask)
 	if err != nil || session == nil {
 		return runAuthorStopped
 	}
@@ -144,4 +144,14 @@ func authorReason(state string) string {
 		return "Review waits on its author agent, which waits for you"
 	}
 	return "Review waits on its author agent, which stopped with findings unanswered"
+}
+
+// authorSession is an author task's agent session: the agent service's, or,
+// in a process that has none (legato review-pass list), its record, which is
+// all the agent service reads.
+func (c *ReviewRunCaller) authorSession(ctx context.Context, taskID string) (*store.AgentSession, error) {
+	if c.engine.opts.Agents == nil {
+		return slotSession(ctx, c.engine.db, taskID)
+	}
+	return c.engine.opts.Agents.GetAgentSession(ctx, taskID)
 }

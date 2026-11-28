@@ -1,5 +1,5 @@
 import { Dialog, DialogPanel, DialogHeader, DialogTitle, DialogBody, DialogFooter } from "./ui/Dialog"
-import { useState } from "react"
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react"
 import { createPortal } from "react-dom"
 import { Crown } from "lucide-react"
 import { useInRouterContext, useNavigate } from "react-router-dom"
@@ -8,7 +8,18 @@ import { endReeve, fetchReeve, messageReeve, startReeve, type ReeveSession } fro
 import { cn } from "../lib/utils"
 import { useReeveName } from "../lib/reeveName"
 
-interface AskReeveProps { brief: string; className?: string; label?: string }
+// What a menu entry calls to ask, when AskReeve draws no button of its own.
+export interface AskReeveHandle { ask: () => void }
+
+interface AskReeveProps {
+  brief: string
+  className?: string
+  label?: string
+  // No button: something else asks through ref (a menu entry), and AskReeve
+  // keeps its dialog and its error.
+  hidden?: boolean
+  ref?: Ref<AskReeveHandle>
+}
 
 // AskReeve starts the Reeve with a brief about something that went wrong,
 // and opens its conversation. With a session already there, the person
@@ -18,7 +29,7 @@ export function AskReeve(props: AskReeveProps) {
   return useInRouterContext() ? <AskReeveButton {...props} /> : null
 }
 
-function AskReeveButton({ brief, className, label: given }: AskReeveProps) {
+function AskReeveButton({ brief, className, label: given, hidden, ref }: AskReeveProps) {
   const reeve = useReeveName()
   const label = given ?? `Ask ${reeve.mid}`
   const { baseUrl } = useServer()
@@ -54,13 +65,17 @@ function AskReeveButton({ brief, className, label: given }: AskReeveProps) {
     }
     await run(async () => (await startReeve(baseUrl, { brief })).task_id)
   }
+  // One handle for the component's life, asking with the latest brief.
+  const latest = useRef(ask)
+  useEffect(() => { latest.current = ask })
+  useImperativeHandle(ref, () => ({ ask: () => void latest.current() }), [])
   return (
     <>
-      <button type="button" disabled={busy} onClick={() => void ask()}
+      {!hidden && <button type="button" disabled={busy} onClick={() => void ask()}
         className={cn("inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-[var(--theme-border,rgba(139,92,246,0.5))] px-3 text-sm text-[var(--theme-keyword,#c4b5fd)] hover:bg-[var(--theme-selection,rgba(139,92,246,0.1))] disabled:opacity-50 md:min-h-8 md:text-xs", className)}>
         <Crown size={13} aria-hidden="true" />
         {label}
-      </button>
+      </button>}
       {error && !current && <span role="alert" className="text-xs text-lw-error">{error}</span>}
       {current && createPortal(
         <Dialog open={!!current} onClose={() => setCurrent(null)}><DialogPanel className="max-w-[420px] font-lw text-lw-text"><DialogHeader>

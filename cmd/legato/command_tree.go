@@ -401,6 +401,9 @@ func commandTree() *commandDef {
 	loopFlag := valueFlag("loop", "loop-id", "The operator on the host only: the review loop by its ID (rl-…); refused in a session")
 	taskFlag := valueFlag("task", "task-id", "The operator on the host: the loop of this task (the older form of --loop); refused in a session")
 	reviewPass := group("review-pass", "Read, answer and steer the feedback of a review loop: your task's in a session, any by its ID on the host", []string{"legato review-pass feedback --json", "legato review-pass another-pass --loop rl-1a2b3c4d5e6f"},
+		leaf("list", "List every review loop Ship looks after, as the Shipping page does: open, waiting for the merge, and ended in the last 7 days", runReviewPassListContract, nil,
+			[]commandFlag{jsonFlag},
+			"legato review-pass list", "legato review-pass list --json"),
 		leaf("feedback", "Print this round's feedback items as JSON", runReviewPassFeedbackContract, nil,
 			[]commandFlag{loopFlag, taskFlag, jsonFlag},
 			"legato review-pass feedback --json", "legato review-pass feedback --loop rl-1a2b3c4d5e6f --json"),

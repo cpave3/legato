@@ -529,7 +529,7 @@ func (m *noopTmux) SendKeys(name, keys string) error               { return nil 
 func (m *noopTmux) SendKey(name, key string) error                 { return nil }
 func (m *noopTmux) SendKeysLine(name, line string) error           { return nil }
 func (m *noopTmux) SendKeysMultiline(name, payload string) error   { return nil }
-func (m *noopTmux) SendKeysShellCommand(name, cmd string) error    { return nil }
+func (m *noopTmux) RunInPane(string, []string, ...string) error    { return nil }
 func (m *noopTmux) PipeOutput(name string) (io.Reader, func(), error) {
 	return strings.NewReader(""), func() {}, nil
 }

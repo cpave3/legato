@@ -269,7 +269,7 @@ func (s *WorkflowService) stopResumedAgent(ctx context.Context, attempt store.Wo
 	if err != nil || current.ID != recorded.ID {
 		return
 	}
-	if err := s.resumedAgents.KillAgent(ctx, recorded.TaskID); err != nil {
+	if err := s.resumedAgents.KillAgent(withWorkflowStop(ctx), recorded.TaskID); err != nil {
 		log.Printf("workflows: run %s: stopping the resumed agent of %s: %v", attempt.RunID, recorded.TaskID, err)
 	}
 }

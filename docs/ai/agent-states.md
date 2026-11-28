@@ -214,12 +214,19 @@ Native errors are reported; launch messages stay pending until accepted and
 artifact interactions keep their existing outbox. Raw native prompt-bar keys
 are refused (text submissions and interrupts use the native route); TUI native
 macros submit text only. Native voice drafts cannot be typed into the terminal.
-Only `SendKeysShellCommand` may bypass the agent guard, for the three controlled
-spawn/setup bootstrap sites, after verifying a shell receiver.
-It pins the initial pane and waits up to three seconds for its shell before
-writing launch text: `new-session` can return before the shell has started.
-Probe failure or timeout refuses bootstrap; the pre-Enter recheck still applies,
-and a partial send is never retried.
+An agent's launch is never typed (LEG-689). `SpawnAgent` makes a fresh tmux
+session for every launch (any old one of that name is killed first), then
+replaces the pane's process with the launch (`TmuxManager.RunInPane`, tmux
+`respawn-pane -k` with the session's variables again and its `PATH` as the
+client's): `paneLaunch` runs `$SHELL -i -c '<launch line>; exec $SHELL -l'`
+for bash and zsh (the operator's rc files, but no prompt, so no git-aware
+theme runs) and `/bin/sh -c` for other shells, the line being POSIX. When
+the agent exits the pane holds the operator's login shell, which
+`ShellReturned` sees as idle. Typing the line raced the shell's startup:
+rc files and the first prompt run other programs in the foreground, and a
+launch that met one was abandoned, typed but never run. A launch tmux refuses
+fails the spawn: the session is killed, marked `dead`, and the execution
+`failed`, so a workflow step that started it fails and can be retried.
 
 ## Evidence
 

@@ -9,7 +9,8 @@ import { Dropdown } from "./ui/Dropdown"
 // subagents it runs in the background (at any depth), how many of them work
 // and how many wait on shells they started. A click opens their tree.
 // Nothing is drawn without subagents.
-export function SubagentsLine({ jobs, className }: { jobs: BackgroundJob[] | undefined; className?: string }) {
+// touch: taller to tap on a phone.
+export function SubagentsLine({ jobs, className, touch }: { jobs: BackgroundJob[] | undefined; className?: string; touch?: boolean }) {
   const [open, setOpen] = useState(false)
   const nodes = subagentTree(jobs)
   if (nodes.length === 0) return null
@@ -30,7 +31,8 @@ export function SubagentsLine({ jobs, className }: { jobs: BackgroundJob[] | und
             event.stopPropagation()
             setOpen(!open)
           }}
-          className="flex min-w-0 max-w-full items-center gap-1 rounded text-[11px] text-lw-live hover:text-lw-text"
+          title={label}
+          className={cn("flex min-w-0 max-w-full items-center gap-1 rounded text-[11px] text-lw-live hover:text-lw-text", touch && "max-sm:min-h-8")}
         >
           <span aria-hidden className={cn("h-1.5 w-1.5 shrink-0 rounded-full", working > 0 ? "bg-lw-live" : "border border-lw-live")} />
           <span className="truncate">{label}</span>

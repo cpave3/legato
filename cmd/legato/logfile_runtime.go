@@ -8,6 +8,7 @@ import (
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/logfile"
+	"github.com/cpave3/legato/internal/engine/version"
 )
 
 // startLogFile sends this process's log to the data folder's log file, and
@@ -15,6 +16,10 @@ import (
 // owns its terminal and passes nil). stop puts the log back on also, or
 // discards it, and closes the file.
 func startLogFile(cfg *config.Config, also io.Writer) (stop func()) {
+	// Several processes share the file: each line names its process and
+	// binary, so the order of a restart can be read from it (LEG-689).
+	prefix := log.Prefix()
+	log.SetPrefix(fmt.Sprintf("[%d %s] ", os.Getpid(), version.String()))
 	restore := also
 	if restore == nil {
 		restore = io.Discard
@@ -25,7 +30,7 @@ func startLogFile(cfg *config.Config, also io.Writer) (stop func()) {
 			fmt.Fprintf(also, "log file: %v\n", err)
 		}
 		log.SetOutput(restore)
-		return func() {}
+		return func() { log.SetPrefix(prefix) }
 	}
 	if also != nil {
 		log.SetOutput(io.MultiWriter(also, w))
@@ -34,6 +39,7 @@ func startLogFile(cfg *config.Config, also io.Writer) (stop func()) {
 	}
 	return func() {
 		log.SetOutput(restore)
+		log.SetPrefix(prefix)
 		_ = w.Close()
 	}
 }

@@ -26,6 +26,7 @@ export const navIcons = {
   review: "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11",
   plans: "M9 2h6v4H9zM16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M9 12h6M9 16h4",
   macros: "M13 2 4 14h7l-1 8 9-12h-7z",
+  shipping: "M22 2 11 13M22 2l-7 20-4-9-9-4z",
   workflows: "M6 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM18 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM6 9v3a3 3 0 0 0 3 3h6",
   learning: "M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z",
   reports: "M3 3v18h18M7 15l4-4 4 3 5-6",
@@ -48,6 +49,7 @@ export function navSections(summary: Partial<NavigationSummary> = {}): Record<st
     agents: { key: "agents", label: "Agents", to: "/agents", icon: navIcons.agents, separated: true },
     board: { key: "board", label: "Board", to: "/board", icon: navIcons.board },
     review: { key: "review", label: "Review", to: "/review", icon: navIcons.review, count: summary.review, tone: "needs", noun: "to review", separated: true },
+    shipping: { key: "shipping", label: "Shipping", to: "/shipping", icon: navIcons.shipping },
     plans: { key: "plans", label: "Plans", to: "/plans", icon: navIcons.plans, count: summary.plans, tone: "needs", noun: "to decide" },
     workflows: { key: "workflows", label: "Flows", to: "/workflows", icon: navIcons.workflows, count: summary.workflow_attention, tone: "error", noun: "need attention", separated: true },
     macros: { key: "macros", label: "Macros", to: "/macros", icon: navIcons.macros },
@@ -60,7 +62,7 @@ export function navSections(summary: Partial<NavigationSummary> = {}): Record<st
 }
 
 // The rail's sections, top to bottom; Settings stands apart at the foot.
-export const railOrder = ["attention", "agents", "ensemble", "board", "review", "plans", "workflows", "macros", "learning", "reports", "remote", "audit"]
+export const railOrder = ["attention", "agents", "ensemble", "board", "review", "shipping", "plans", "workflows", "macros", "learning", "reports", "remote", "audit"]
 
 // sectionName is a section's accessible name, with its count when it has one.
 export function sectionName(section: Pick<NavSection, "label" | "count" | "noun">): string {

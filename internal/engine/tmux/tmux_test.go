@@ -603,125 +603,148 @@ func TestAgentDeliveryRefusesUnverifiedPane(t *testing.T) {
 	}
 }
 
-func TestBootstrapShellCommandIsSeparateFromAgentMessages(t *testing.T) {
-	skipWithoutTmux(t)
-	m, err := New(Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	name := "legato-test-bootstrap"
-	dir := t.TempDir()
-	if err := m.Spawn(name, dir, 0, 0); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { m.Kill(name) })
-	awaitShellPane(t, m, name)
-	marker := filepath.Join(dir, "booted")
-	if err := m.SendKeysShellCommand(name, "touch "+marker); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(time.Second)
-	for {
-		if _, err := os.Stat(marker); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("bootstrap was not executed")
-		}
-		time.Sleep(time.Millisecond)
-	}
-	if err := m.SendKeysLine(name, "echo not-an-agent"); err == nil {
-		t.Fatal("bootstrap authorized subsequent agent messages")
-	}
-}
-
-func TestSpawnWaitsForShellBeforeBootstrap(t *testing.T) {
-	skipWithoutTmux(t)
+// privateServer gives a test a tmux server of its own, kept alive by a
+// control session, so it can change the default shell: never the person's.
+func privateServer(t *testing.T) *Manager {
+	t.Helper()
 	t.Setenv("TMUX", "")
 	t.Setenv("TMUX_TMPDIR", t.TempDir())
 	m, err := New(Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Keep this private server alive while configuring a delayed shell.
-	control := "legato-test-delayed-control"
+	control := "legato-test-private-control"
 	if out, err := exec.Command("tmux", "new-session", "-d", "-s", control, "sleep 3600").CombinedOutput(); err != nil {
 		t.Fatalf("private tmux: %s: %v", out, err)
 	}
 	t.Cleanup(func() { m.Kill(control) })
+	return m
+}
+
+func awaitFile(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s was never written", path)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// LEG-689: a launch typed into the pane's shell raced that shell's startup
+// (rc files and the first prompt run other programs in the foreground) and
+// was given up. RunInPane makes the launch the pane's own process, so the
+// shell the session started with, busy or not, has no part in it.
+func TestRunInPaneLaunchesWhateverThePaneIsRunning(t *testing.T) {
+	skipWithoutTmux(t)
+	m := privateServer(t)
 	dir := t.TempDir()
-	shell := filepath.Join(dir, "starting-shell")
-	if err := os.WriteFile(shell, []byte("#!/bin/sh\nsleep 0.3\nexec /bin/sh -i\n"), 0700); err != nil {
+	// A pane whose shell never becomes a shell: the old bootstrap refused it.
+	busy := filepath.Join(dir, "busy-shell")
+	if err := os.WriteFile(busy, []byte("#!/bin/sh\nexec sleep 3600\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	// Set the default for the fresh session Spawn is about to make.
-	if out, err := exec.Command("tmux", "set-option", "-g", "default-shell", shell).CombinedOutput(); err != nil {
+	if out, err := exec.Command("tmux", "set-option", "-g", "default-shell", busy).CombinedOutput(); err != nil {
 		t.Fatalf("default shell: %s: %v", out, err)
 	}
-	name := "legato-test-delayed-bootstrap"
+	name := "legato-test-run-in-pane"
+	if err := m.Spawn(name, dir, 0, 0, "LEGATO_TEST_VALUE=kept"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.Kill(name) })
+	marker := filepath.Join(dir, "launched")
+	if err := m.RunInPane(name, []string{"/bin/sh", "-c", `printf '%s' "$LEGATO_TEST_VALUE" > ` + marker + `; exec /bin/sh`}, "LEGATO_TEST_VALUE=kept"); err != nil {
+		t.Fatal(err)
+	}
+	awaitFile(t, marker)
+	got, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "kept" {
+		t.Fatalf("the launch saw LEGATO_TEST_VALUE=%q, want kept", got)
+	}
+	// The launch ends in a shell, and a shell is never an agent's receiver.
+	awaitShellPane(t, m, name)
+	if err := m.SendKeysLine(name, "echo not-an-agent"); err == nil {
+		t.Fatal("a launch authorized agent messages to the shell after it")
+	}
+}
+
+func TestRunInPaneGivesTheLaunchThePATHAmongItsVariables(t *testing.T) {
+	skipWithoutTmux(t)
+	m := privateServer(t)
+	dir := t.TempDir()
+	name := "legato-test-run-in-pane-path"
+	path := t.TempDir() + string(os.PathListSeparator) + os.Getenv("PATH")
+	if err := m.Spawn(name, dir, 0, 0, "PATH="+path); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.Kill(name) })
+	out := filepath.Join(dir, "path")
+	if err := m.RunInPane(name, []string{"/bin/sh", "-c", `printf '%s' "$PATH" > ` + out + `; exec /bin/sh`}, "PATH="+path); err != nil {
+		t.Fatal(err)
+	}
+	awaitFile(t, out)
+	time.Sleep(20 * time.Millisecond)
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != path {
+		t.Fatalf("the launch's PATH = %q, want %q", got, path)
+	}
+}
+
+// While the launched agent runs, the pane's shell has a child; once it
+// exits, the shell the launch execs is idle. Exit detection depends on it.
+func TestShellReturnedFollowsALaunchedCommand(t *testing.T) {
+	skipWithoutTmux(t)
+	m := privateServer(t)
+	dir := t.TempDir()
+	name := "legato-test-run-in-pane-returned"
 	if err := m.Spawn(name, dir, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { m.Kill(name) })
-	marker := filepath.Join(dir, "booted")
-	if err := m.SendKeysShellCommand(name, "touch "+marker); err != nil {
-		t.Fatalf("bootstrap did not wait for its shell: %v", err)
+	release := filepath.Join(dir, "release")
+	started := filepath.Join(dir, "started")
+	agent := "touch " + started + "; while [ ! -f " + release + " ]; do sleep 0.05; done"
+	if err := m.RunInPane(name, []string{"/bin/sh", "-c", "/bin/sh -c '" + agent + "'; exec /bin/sh"}); err != nil {
+		t.Fatal(err)
 	}
-	deadline := time.Now().Add(time.Second)
+	awaitFile(t, started)
+	if returned, err := m.ShellReturned(name); err != nil || returned {
+		t.Fatalf("ShellReturned while the agent runs = %v, %v; want false", returned, err)
+	}
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if _, err := os.Stat(marker); err == nil {
-			break
+		returned, err := m.ShellReturned(name)
+		if err == nil && returned {
+			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("bootstrap command was not executed")
+			t.Fatalf("ShellReturned after the agent exited = %v, %v; want true", returned, err)
 		}
-		time.Sleep(time.Millisecond)
-	}
-	if err := m.SendKeysLine(name, "echo not-an-agent"); err == nil {
-		t.Fatal("waiting for bootstrap shell enabled ordinary agent input")
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
-func TestBootstrapRefusesNonShellWithoutRetryingPartialSend(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		initial    string
-		wantWrites int
-	}{
-		{name: "never a shell", initial: "vim", wantWrites: 0},
-		{name: "changed before Enter", initial: "zsh", wantWrites: 1},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			sent := filepath.Join(dir, "sent")
-			fake := filepath.Join(dir, "tmux")
-			script := fmt.Sprintf(`#!/bin/sh
-case "$1" in
- display-message)
-  if [ -f %q ]; then printf '%%s\n' '%%7 vim'; else printf '%%s\n' '%%7 %s'; fi ;;
- send-keys) printf '%%s\n' "$*" >> %q ;;
- *) exit 1 ;;
-esac
-`, sent, tc.initial, sent)
-			if err := os.WriteFile(fake, []byte(script), 0700); err != nil {
-				t.Fatal(err)
-			}
-			m, err := New(Options{LookPath: func(string) (string, error) { return fake, nil }})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := m.SendKeysShellCommand("legato-bootstrap", "echo launch"); err == nil {
-				t.Fatal("bootstrap accepted a non-shell receiver")
-			}
-			data, err := os.ReadFile(sent)
-			if err != nil && !os.IsNotExist(err) {
-				t.Fatal(err)
-			}
-			lines := strings.FieldsFunc(string(data), func(r rune) bool { return r == '\n' })
-			if len(lines) != tc.wantWrites || strings.Contains(string(data), "Enter") {
-				t.Fatalf("writes = %q; want %d text writes and no Enter", data, tc.wantWrites)
-			}
-		})
+func TestRunInPaneReportsTmuxRefusing(t *testing.T) {
+	skipWithoutTmux(t)
+	m, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RunInPane("legato-test-no-such-session", []string{"/bin/sh"}); err == nil {
+		t.Fatal("RunInPane succeeded on a session that does not exist")
 	}
 }
 

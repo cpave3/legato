@@ -44,8 +44,14 @@ type suspendFixture struct {
 
 func newSuspendFixture(t *testing.T, keep, reported bool) suspendFixture {
 	t.Helper()
+	return newSuspendFixtureOn(t, newRestartFixture(t), keep, reported)
+}
+
+// newSuspendFixtureOn is newSuspendFixture over an agent service of the
+// caller's.
+func newSuspendFixtureOn(t *testing.T, f restartFixture, keep, reported bool) suspendFixture {
+	t.Helper()
 	ctx := context.Background()
-	f := newRestartFixture(t)
 	createTask(t, f.store, "LEG-7")
 	yaml := survivingWorkflow
 	if keep {
