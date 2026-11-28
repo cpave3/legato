@@ -8,7 +8,9 @@ import { PendingDrafts } from "./pendingDrafts"
 import { BrokenOutline } from "./BrokenOutline"
 import { RowButton, StepRow } from "./OutlineRowParts"
 import { InputsBody, OutlineSection, StepsBody, TriggersBody } from "./OutlineSections"
-import { OutlineMap, PhoneMap, STALE_WORDS, ViewSwitch, type OutlineView } from "./OutlineMap"
+import { OutlineMap, PhoneMap, ViewSwitch, type OutlineView } from "./OutlineMap"
+import { BrokenNote, CanvasOutline, JumpMenu, SplitOutline } from "./OutlineLayouts"
+import { useCanvasDock } from "./useCanvasDock"
 import { useHeldYaml, type HeldYaml } from "./useHeldYaml"
 import { useOutlineSelection } from "./useOutlineSelection"
 import { stepListOf, useOutlineEditing } from "./useOutlineEditing"
@@ -24,10 +26,6 @@ import { TriggerCard } from "./TriggersEditor"
 import { KIND_TITLES, triggerKinds } from "./triggerForms"
 import { LazyWorkflowYamlEditor } from "./LazyWorkflowYamlEditor"
 import type { WorkflowGraphModel } from "../../lib/workflow"
-import { DockCard, PanelClose } from "../workflow-canvas/DockCard"
-import { cardTitle, floatingPanel } from "../workflow-canvas/canvasStyles"
-import { useCardFolds } from "../workflow-canvas/useCardFolds"
-import { WorkflowCanvas } from "../workflow-canvas/WorkflowCanvas"
 import { parseDocument } from "yaml"
 
 export type WorkflowOutlineProps = {
@@ -87,13 +85,6 @@ export type WorkflowOutlineProps = {
   cards?: ReactNode
 }
 
-// The editor's inspector is wider than a run's side panel: its forms need
-// the room (LEG-655).
-const INSPECTOR_WIDTH = 480
-
-// cardOfKind is the card over the graph that holds a row of each kind.
-const cardOfKind: Record<Selection["kind"], string> = { trigger: "triggers", input: "inputs", step: "steps", about: "about" }
-
 export type { HeldYaml }
 
 const NO_SWITCHES: Record<string, boolean> = {}
@@ -113,16 +104,7 @@ function Outline(props: WorkflowOutlineProps) {
   const inspector = useRef<HTMLElement>(null)
   // On the canvas: which cards are folded, and the node to centre.
   const canvasOn = props.layout === "canvas" && !navigating && !narrow
-  const folds = useCardFolds("legato:workflow-editor:folds", {})
-  const { open: openCard } = folds
-  const [centerOn, setCenterOn] = useState<{ id: string; n: number } | null>(null)
-  const centre = (id: string | null) => { if (id) setCenterOn(current => ({ id, n: (current?.n ?? 0) + 1 })) }
-  // The card that holds the row chosen opens, so the row is never hidden.
-  const selectedCard = selection ? cardOfKind[selection.kind] : null
-  const selectedFolded = selectedCard ? folds.folded(selectedCard) : false
-  useEffect(() => { if (canvasOn && selectedCard && selectedFolded) openCard(selectedCard) }, [canvasOn, selectedCard, selectedFolded, openCard])
-  // List | Graph on a phone: the outline, or the graph (read-only) in its
-  // place.
+  const dock = useCanvasDock(canvasOn, selection)
 
   const rows = useMemo(() => rowsOf(items, values, problems, pausedHere), [items, values, problems, pausedHere])
   const savedIds = useMemo(() => savedText === null ? null : new Set(stepsOf(parseWorkflow(savedText).values).map(step => String(step?.id ?? ""))), [savedText])
@@ -139,7 +121,7 @@ function Outline(props: WorkflowOutlineProps) {
 
   if (file) return <BrokenOutline file={file} canvas={canvasOn} notices={props.notices} cards={props.cards} onEditYaml={onEditYaml} />
 
-  const chooseRow = (row: Row) => { select(row.selection, true); if (canvasOn) centre(nodeOf(row.selection)) }
+  const chooseRow = (row: Row) => { select(row.selection, true); if (canvasOn) dock.centre(nodeOf(row.selection)) }
   const rowButton = (row: Row, number?: number) => <RowButton row={row} number={number} selected={sameSelection(shown, row.selection)} onChoose={() => chooseRow(row)} />
   const rowItem = (row: Row) => <li key={addressOf(row.selection)}>{rowButton(row)}</li>
 
@@ -175,10 +157,7 @@ function Outline(props: WorkflowOutlineProps) {
       : <p className="text-sm text-lw-text-2">Choose a row of the outline to edit it.</p>}
   </section>
 
-  const brokenNote = broken && <p role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-danger-line bg-lw-error-soft px-3 py-2 text-xs text-lw-danger">
-    <span className="min-w-0 flex-1">{broken.line ? `Line ${broken.line}: ` : ""}can't read the YAML. The outline is as it last could be; the forms are off until it reads again.</span>
-    <Button size="sm" variant="outline" onClick={() => onEditYaml(broken.line)}>Show</Button>
-  </p>
+  const brokenNote = <BrokenNote broken={broken} onShow={onEditYaml} />
   // While the YAML doesn't read: the last map (it says it is stale), or the
   // last outline, dimmed and off.
   const brokenView = <div className="flex min-w-0 flex-col gap-2">
@@ -186,59 +165,14 @@ function Outline(props: WorkflowOutlineProps) {
     {view === "map" && mapView ? mapView : <div inert className="opacity-50">{outlineView}</div>}
   </div>
   if (canvasOn) {
-    const cardOf = (key: string, label: string, size: number | null, body: ReactNode) => <DockCard label={label} folded={folds.folded(key)} onFold={() => folds.toggle(key)}
-      heading={<h2 className={cardTitle}>{label}{size !== null && <span className="font-medium text-lw-faint">{size}</span>}</h2>}>
-      <div className="flex min-w-0 flex-col gap-1 px-1.5 pb-2">{body}</div>
-    </DockCard>
-    // j and k move across every card's rows: the keys are the dock's.
-    const nav = <nav ref={outline} aria-label="Outline" onKeyDown={onKeyDown} className="flex min-w-0 flex-col gap-2">
-      {cardOf("triggers", "Triggers", rows.when.length, whenBody)}
-      {cardOf("inputs", "Inputs", rows.asks.length, asksBody)}
-      {cardOf("steps", "Steps", rows.then.length, thenBody)}
-      {cardOf("about", "About", null, aboutBody)}
-    </nav>
-    const box = "rounded-lg border border-lw-line bg-lw-surface px-3 py-2 text-[13px] shadow-[var(--shadow-lw-panel)]"
-    const notices = <>
-      {props.notices}
-      {brokenNote}
-      {graph?.stale && <p role="status" className={`${box} text-lw-needs`}>{STALE_WORDS}</p>}
-      {error && <p role="alert" className={`${box} text-lw-danger`}>{error}</p>}
-      {paste.pasted !== null && <div role="alertdialog" aria-label="Replace the workflow" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm shadow-[var(--shadow-lw-panel)]">
-        <span className="min-w-0 flex-1">You pasted a whole workflow. Replace this one with it? Undo brings this one back.</span>
-        <Button size="sm" onClick={paste.replace}>Replace</Button>
-        <Button size="sm" variant="ghost" onClick={paste.cancel}>Cancel</Button>
-      </div>}
-    </>
-    const hasNotices = Boolean(props.notices || broken || graph?.stale || error || paste.pasted !== null)
-    const panel = selectedRow && !broken && <aside aria-label={selectedRow.label.trim()} className={`flex min-h-0 flex-col rounded-xl border border-lw-line bg-lw-surface p-4 text-sm ${floatingPanel}`}>
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">{inspectorView}</div>
-        <PanelClose onClose={() => onSelect(null)} />
-      </div>
-    </aside>
-    return <div className="flex min-h-0 flex-1 flex-col text-sm" onPaste={paste.onPaste}>
-      <WorkflowCanvas label="Workflow graph" narrow={false} panelWidth={INSPECTOR_WIDTH} dockYields
-        graph={graph ? { graph: graph.model, selectedId: nodeOf(shown), onSelect: graphSelect, centerOn, direction: "LR" } : null}
-        empty="The graph shows once Legato has read the file."
-        cards={<>{props.cards}{broken ? <div inert className="opacity-50">{nav}</div> : nav}</>}
-        notices={hasNotices && notices} panel={panel || null} panelTitle={selectedRow?.label.trim()}
-        selected={selection !== null} onClosePanel={() => onSelect(null)} hiddenPill="Outline" />
-    </div>
+    return <CanvasOutline dock={dock} bodies={{ triggers: whenBody, inputs: asksBody, steps: thenBody, about: aboutBody }} counts={{ triggers: rows.when.length, inputs: rows.asks.length, steps: rows.then.length }}
+      outline={outline} onKeyDown={onKeyDown} pageNotices={props.notices} pageCards={props.cards} broken={broken} brokenNote={brokenNote}
+      graph={graph} selectedId={nodeOf(shown)} onGraphSelect={graphSelect} error={error} paste={paste} onPaste={paste.onPaste}
+      selectedRow={selectedRow} selection={selection} inspector={inspectorView} onSelect={onSelect} />
   }
+  // On a phone, the outline beside the YAML is a menu to jump with.
+  if (navigating && narrow) return <JumpMenu order={order} shown={shown} broken={Boolean(broken)} note={brokenNote} onChoose={next => select(next)} />
   if (navigating) {
-    if (narrow) {
-      // On a phone, the outline beside the YAML is a menu to jump with.
-      return <div className="flex flex-col gap-2 text-sm">
-        {brokenNote}
-        <label className="flex items-center gap-2 text-xs text-lw-text-2">Jump to
-          <select aria-label="Jump to" disabled={Boolean(broken)} className="min-h-9 min-w-0 flex-1 rounded-md border border-lw-line-strong bg-lw-ground px-2 text-sm text-lw-text" value={shown ? addressOf(shown) : ""}
-            onChange={event => { const row = order.find(r => addressOf(r.selection) === event.target.value); if (row) select(row.selection) }}>
-            <option value="">The outline…</option>
-            {order.map(row => <option key={addressOf(row.selection)} value={addressOf(row.selection)}>{row.label}</option>)}
-          </select>
-        </label>
-      </div>
-    }
     return <div className="flex flex-col gap-2 text-sm">
       {brokenNote}
       {broken ? brokenView : navigation}
@@ -250,23 +184,7 @@ function Outline(props: WorkflowOutlineProps) {
       <div className="rounded-xl border border-lw-line bg-lw-surface p-2">{brokenView}</div>
     </div>
   }
-
-  return <div className="flex flex-col gap-3 text-sm" onPaste={paste.onPaste}>
-    {error && <p role="alert" className="text-sm text-lw-danger">{error}</p>}
-    {paste.pasted !== null && <div role="alertdialog" aria-label="Replace the workflow" className="flex flex-wrap items-center gap-2 rounded-lg border border-lw-needs bg-lw-surface p-3 text-sm">
-      <span className="min-w-0 flex-1">You pasted a whole workflow. Replace this one with it? Undo brings this one back.</span>
-      <Button size="sm" onClick={paste.replace}>Replace</Button>
-      <Button size="sm" variant="ghost" onClick={paste.cancel}>Cancel</Button>
-    </div>}
-    {narrow
-      ? (sheet && selectedRow
-        ? <div role="dialog" aria-label={selectedRow.label.trim()} className="fixed inset-0 z-40 overflow-y-auto bg-lw-ground px-4 pb-20 pt-3">{inspectorView}</div>
-        : navigation)
-      : <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] md:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
-        <div className="rounded-xl border border-lw-line bg-lw-surface p-2">{navigation}</div>
-        <div className="rounded-xl border border-lw-line bg-lw-surface p-4">{inspectorView}</div>
-      </div>}
-  </div>
+  return <SplitOutline narrow={narrow} sheet={sheet} selectedRow={selectedRow} navigation={navigation} inspector={inspectorView} error={error} paste={paste} onPaste={paste.onPaste} />
 }
 
 type InspectorProps = {
