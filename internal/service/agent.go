@@ -847,6 +847,11 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 	}); ok {
 		guarded.SetDeliveryGuard(svc.verifyPaneCommand)
 	}
+	if guarded, ok := tmux.(interface {
+		SetAnswerGuard(func(string, string) error)
+	}); ok {
+		guarded.SetAnswerGuard(svc.verifyPromptAnswer)
+	}
 	svc.chimeraAdapter = NewChimeraInteractionAdapter(s, nil)
 	return svc
 }

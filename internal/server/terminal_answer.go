@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"strings"
 	"time"
 	"unicode"
@@ -96,24 +97,27 @@ func (s *Server) handleAnswerTerminalPrompt(client *wsClient, msg WSMessage) {
 	client.send(WSMessage{Type: MsgTerminalPromptAnswered, AgentID: msg.AgentID, RequestID: msg.RequestID, Prompt: &after})
 }
 
+// promptAnswerer is the tmux manager's guarded way to answer a prompt on
+// screen. Plain keys are refused for a native agent; this is not, while the
+// tool itself is in front.
+type promptAnswerer interface {
+	AnswerPrompt(name string, keys []string, text string, submit bool) error
+}
+
 // typeTerminalAnswer presses an action's keys. For a row that takes text,
 // the cursor moves to it, the text is typed, and Enter answers with it only
 // where Enter does not untick it again.
 func (s *Server) typeTerminalAnswer(sessionName string, action prompt.Action, text string) error {
+	answerer, ok := s.tmux.(promptAnswerer)
+	if !ok {
+		return fmt.Errorf("this terminal cannot be answered from Legato")
+	}
 	keys := strings.Fields(action.Keys)
-	if action.TakesText && len(keys) > 0 && keys[len(keys)-1] == "Enter" {
+	if !action.TakesText {
+		return answerer.AnswerPrompt(sessionName, keys, "", false)
+	}
+	if len(keys) > 0 && keys[len(keys)-1] == "Enter" {
 		keys = keys[:len(keys)-1]
 	}
-	for _, key := range keys {
-		if err := s.tmux.SendKey(sessionName, key); err != nil {
-			return err
-		}
-	}
-	if !action.TakesText {
-		return nil
-	}
-	if action.TextSubmits {
-		return s.tmux.SendKeysLine(sessionName, text)
-	}
-	return s.tmux.SendKeys(sessionName, text)
+	return answerer.AnswerPrompt(sessionName, keys, text, action.TextSubmits)
 }

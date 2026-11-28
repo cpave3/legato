@@ -1062,6 +1062,20 @@ func (m *mockTmuxManager) SendKey(name, key string) error {
 	m.sentKeys = append(m.sentKeys, key)
 	return nil
 }
+func (m *mockTmuxManager) AnswerPrompt(name string, keys []string, text string, submit bool) error {
+	for _, key := range keys {
+		if err := m.SendKey(name, key); err != nil {
+			return err
+		}
+	}
+	if text == "" {
+		return nil
+	}
+	if submit {
+		return m.SendKeysLine(name, text)
+	}
+	return m.SendKeys(name, text)
+}
 func (m *mockTmuxManager) SendKeysLine(name, line string) error {
 	m.typed = append(m.typed, line+"⏎")
 	return nil

@@ -280,3 +280,69 @@ steps:
 		t.Fatalf("run = %+v, %v; want failed interview", after, err)
 	}
 }
+
+// A native agent never takes raw keys, but a prompt its terminal shows that
+// never reached Legato natively is answered through AnswerPrompt: only while
+// the tool itself is in the foreground (LEG-688).
+func TestANativeAgentsTerminalPromptIsAnsweredOnlyWithTheToolInFront(t *testing.T) {
+	_, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "answer-target")
+	dir := t.TempDir()
+	commandFile := filepath.Join(dir, "foreground")
+	sentFile := filepath.Join(dir, "sent")
+	script := filepath.Join(dir, "tmux")
+	if err := os.WriteFile(commandFile, []byte("claude"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`#!/bin/sh
+case "$1" in
+ display-message) printf '%%s ' '%%7'; cat %q ;;
+ send-keys) printf '%%s\n' "$*" >> %q ;;
+ *) exit 1 ;;
+esac
+`, commandFile, sentFile)
+	if err := os.WriteFile(script, []byte(body), 0700); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := enginetmux.New(enginetmux.Options{LookPath: func(string) (string, error) { return script, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: "answer-target", TmuxSession: "legato-answer-target", AgentKind: "claude-code", Status: "running", StartedAt: "2000-01-01 00:00:00"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = NewAgentService(s, manager, dir)
+	if err := s.UpdateChimeraDiscovery(ctx, "answer-target", "native-answer", "http://127.0.0.1:1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := manager.SendKey("legato-answer-target", "Enter"); err == nil {
+		t.Fatal("a native agent took raw keys")
+	}
+	if err := manager.AnswerPrompt("legato-answer-target", []string{"Down", "Down"}, "Purple", true); err != nil {
+		t.Fatalf("answer refused: %v", err)
+	}
+	sent, err := os.ReadFile(sentFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "send-keys -t %7 Down\nsend-keys -t %7 Down\nsend-keys -t %7 -- Purple\nsend-keys -t %7 Enter\n"
+	if string(sent) != want {
+		t.Fatalf("sent = %q, want %q", sent, want)
+	}
+
+	// Anything else in front, the bridge or a shell, takes no answer.
+	for _, foreground := range []string{"node", "zsh"} {
+		if err := os.WriteFile(commandFile, []byte(foreground), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := manager.AnswerPrompt("legato-answer-target", []string{"Enter"}, "", false); err == nil {
+			t.Fatalf("%s in front took an answer", foreground)
+		}
+	}
+	after, err := os.ReadFile(sentFile)
+	if err != nil || string(after) != want {
+		t.Fatalf("keys emitted with another foreground: %q, %v", after, err)
+	}
+}

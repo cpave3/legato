@@ -22,7 +22,20 @@ func (a *agentService) verifyPaneDelivery(name string) (err error) {
 	return a.verifyPaneCommand(name, commands[name])
 }
 
-func (a *agentService) verifyPaneCommand(name, command string) (err error) {
+func (a *agentService) verifyPaneCommand(name, command string) error {
+	return a.verifyPane(name, command, false)
+}
+
+// verifyPromptAnswer checks an answer to a prompt the pane shows. It is
+// verifyPaneCommand's check, except that a native agent may take it: the
+// server presses only keys it has just read off the screen as one of the
+// prompt's answers, for a prompt that never reached Legato natively. The
+// tool itself must still be in the foreground, never its bridge or a shell.
+func (a *agentService) verifyPromptAnswer(name, command string) error {
+	return a.verifyPane(name, command, true)
+}
+
+func (a *agentService) verifyPane(name, command string, answering bool) (err error) {
 	defer func() {
 		if err != nil {
 			log.Printf("agent input refused session=%s: %v", name, err)
@@ -63,7 +76,7 @@ func (a *agentService) verifyPaneCommand(name, command string) (err error) {
 			return fmt.Errorf("message not delivered: %s foreground is %q, not agent %q", name, command, session.AgentKind)
 		}
 		a.foregroundAgents.Store(session.ID, struct{}{})
-		if session.ChimeraEndpoint != nil || a.expectsNative(session) {
+		if !answering && (session.ChimeraEndpoint != nil || a.expectsNative(session)) {
 			return fmt.Errorf("message not delivered: %s requires its native route; terminal input is disabled", name)
 		}
 		return nil
