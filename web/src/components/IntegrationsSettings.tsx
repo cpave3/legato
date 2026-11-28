@@ -171,7 +171,21 @@ function TokensCard({ tokens }: { tokens: IntegrationToken[] }) {
       <p className="text-xs text-lw-faint">No integration tokens.</p>
     ) : (
       <ul className="divide-y divide-lw-line overflow-hidden rounded-lg border border-lw-line">
-        {tokens.map((t) => <TokenRow key={t.id} token={t} />)}
+        {tokens.map((t) => (
+          <li key={t.id} className={`flex flex-col gap-1 px-3 py-2 ${t.revoked_at ? "opacity-60" : ""}`}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-lw-mono text-sm text-lw-text">{t.name}</span>
+              {t.scopes.map((s) => (
+                <span key={s} className="rounded bg-lw-raised px-1.5 py-0.5 font-lw-mono text-[10px] text-lw-text-2">{s}</span>
+              ))}
+              {t.revoked_at && <span className="rounded bg-lw-raised px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-lw-danger">revoked</span>}
+            </div>
+            <span className="text-xs text-lw-faint">
+              Made {when(t.created_at)}
+              {tokenUse(t)}
+            </span>
+          </li>
+        ))}
       </ul>
     )}
   </SettingsCard>
@@ -181,22 +195,4 @@ function TokensCard({ tokens }: { tokens: IntegrationToken[] }) {
 function tokenUse(t: IntegrationToken): string {
   if (t.revoked_at) return ` · revoked ${when(t.revoked_at)}`
   return t.last_used_at ? ` · last used ${when(t.last_used_at)}` : " · not used yet"
-}
-
-function TokenRow({ token: t }: { token: IntegrationToken }) {
-  return (
-    <li className={`flex flex-col gap-1 px-3 py-2 ${t.revoked_at ? "opacity-60" : ""}`}>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-lw-mono text-sm text-lw-text">{t.name}</span>
-        {t.scopes.map((s) => (
-          <span key={s} className="rounded bg-lw-raised px-1.5 py-0.5 font-lw-mono text-[10px] text-lw-text-2">{s}</span>
-        ))}
-        {t.revoked_at && <span className="rounded bg-lw-raised px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-lw-danger">revoked</span>}
-      </div>
-      <span className="text-xs text-lw-faint">
-        Made {when(t.created_at)}
-        {tokenUse(t)}
-      </span>
-    </li>
-  )
 }
