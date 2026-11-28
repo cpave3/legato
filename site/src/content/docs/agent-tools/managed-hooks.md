@@ -79,6 +79,24 @@ Agents that are already running keep the hooks they started with.
 
 The Reeve can turn a hook on or off too: it proposes the change, and you approve it.
 
+## Which agents get a hook
+
+Each time Legato starts an agent, it checks every hook in the folder and records which the agent has, and why each other one is off. A hook is off if any of these says so, and every reason that applies is recorded:
+
+| Reason | When |
+| --- | --- |
+| `off:global` | You turned the hook off in Settings. |
+| `off:invalid` | `HOOK.yaml` has a mistake. |
+| `off:unsupported-tool` | The hook's `agent_tools` leaves out the agent's tool, or Legato cannot give hooks to that tool yet. |
+| `off:spawn` | You left the hook out when you started the agent. |
+| `off:read-only` | The agent may look but not change its checkout, and the hook does not say `read_only: true`. |
+| `off:reviewer` | The agent reviews a pull request, and the hook does not say `read_only: true`. |
+| `off:reeve` | The agent is the Reeve. `read_only: true` does not change this. |
+| `off:find-out` | The agent works on a find-out task handed from another Legato. |
+| `off:workflow` | A workflow started the agent. Workflow agents get no managed hooks for now. |
+
+To leave hooks out of one agent, start it with `hooks_off`, a list of hook names, on `POST /api/agents/spawn` or `POST /api/tasks/{id}/agent`. A name that is no hook is ignored, with a note on the task. `GET /api/agents/{task_id}/managed-hooks` lists what an agent has and why the rest are off. An agent started before managed hooks existed has none recorded.
+
 ## What agents get
 
 | Tool | Gets managed hooks |
