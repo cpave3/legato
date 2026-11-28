@@ -46,7 +46,7 @@ Earlier versions of Legato asked you to run `legato hooks install --tool claude-
 
 ## How Legato starts Claude Code
 
-When you start an agent on a task with `a` in the TUI or **Open agent** in the web UI, Legato opens a tmux session in the agent's folder and types `claude` into it, with these additions:
+When you start an agent on a task with `a` in the TUI or **Open agent** in the web UI, Legato opens a tmux session in the agent's folder and starts its own copy of `claude` in it, the one it keeps current and can roll back (see [Claude Code](/legato/running/updates/#claude-code); set `updates.claude.command` to use your own), with these additions:
 
 - `--append-system-prompt` with Legato's launch prompt, when there is one: the role prompt of a [swarm](/legato/using/swarms/) conductor or worker, the [resources](/legato/agent-tools/resources/) you gave the agent, and notes for a fresh clone.
 - Your `adapters.claude-code.launch_args`.

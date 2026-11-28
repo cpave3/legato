@@ -128,6 +128,20 @@ Chimera's TUI and `chimera serve` also check for updates themselves, controlled 
 
 If both background updaters stay enabled, they may both check or install; they do not share an install lock. Installs replace the binary in place without restarting agents, and an install that finds the current version already up to date does nothing. Legato sees a version installed by Chimera at its next check.
 
+## Claude Code
+
+Legato keeps its own copy of Claude Code, which every Claude Code agent starts, whatever its Claude account. Your own `claude` (`~/.local/bin/claude`, and how it updates itself) is never touched: Legato's copy changes version only when Legato says so.
+
+- **Where it lives.** In `claude` under `tools/claude` in Legato's data folder, a link to the version in use, which is kept in `versions` beside it. Agents in the sandbox see that folder read-only. Agents start with Claude Code's own background updates turned off.
+- **The first time.** Legato's first check after you upgrade takes a copy of the version your own native install of Claude Code runs (from `~/.local/share/claude/versions`), without downloading anything. With no native install, Claude Code shows **Not installed on this server** and agents start the `claude` on Legato's `PATH`, as before.
+- **Updating.** Legato follows a release channel: `stable` by default, or `latest` (Settings › System › Updates, `updates.claude.channel`). In the same mode as Legato: **Automatic** installs a newer version at once, **Ask** offers **Update claude to …** in Settings and in Attention, **Off** never looks. Legato downloads the version from Anthropic's release server, the one the official installer uses, and checks it against the release's checksum before using it. Running agents keep the version they started with; new agents start on the new one.
+- **Last known good.** The version an update replaces becomes the last known good, shown beside the version.
+- **Rolling back.** When a new version misbehaves, **Roll claude back to …** switches to the last known good (`legato tools rollback claude`, or `POST /api/updates/tools/claude/rollback`). If that version is no longer on disk, Legato downloads it again. The version you rolled back from is **held back**: it isn't offered again, only a newer one is. Running agents are not restarted.
+- **A version gone missing.** If the version in use disappears from Legato's folder, Claude Code shows the update as failed, and **Fetch claude … again** downloads it again.
+- **Your own claude instead.** Set `updates.claude.command` to a full path, or to a command on Legato's `PATH` such as `claude`, and restart Legato. Agents then start that `claude`, shown as unmanaged; Legato never updates or rolls it back.
+
+`legato tools list` shows the tools Legato keeps current, and `legato tools update <name>` updates one, as Settings does. They run on the machine Legato runs on, never in an agent's sandbox.
+
 ## The desktop app
 
 The desktop app updates itself from the same releases, when a release carries a new desktop build. See [The desktop app](/legato/running/desktop-app/#updates).
