@@ -17,7 +17,7 @@ vi.mock("../../hooks/useWorkflow", () => ({
       missed: [{ due_time: "2026-11-19T09:00:00+11:00", status: "missed", error: "Legato was not running at 2026-11-19 09:00 AEDT (catch_up: once)" }],
     } }] },
   }, refresh: vi.fn() }),
-  useWorkflowStats: () => ({ data: null, refresh: vi.fn() }), useWorkflowRuns: () => ({ data: [], refresh: vi.fn() }),
+  useWorkflowMap: () => ({ data: null, loading: false, error: null, refresh: vi.fn() }), useWorkflowStats: () => ({ data: null, refresh: vi.fn() }), useWorkflowRuns: () => ({ data: [], refresh: vi.fn() }),
 }))
 afterEach(cleanup)
 

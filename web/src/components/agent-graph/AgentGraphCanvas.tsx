@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react"
 import { BaseEdge, Controls, EdgeLabelRenderer, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type EdgeProps, type EdgeTypes, type Node, type NodeProps, type NodeTypes } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
 import { ChevronDown, ChevronRight, Workflow } from "lucide-react"
-import type { AgentGraphLayout, GraphBox, GraphEdge, GraphEdgeKind, GraphNode, NodeWorkflow, Point } from "../../lib/agentGraph"
+import type { AgentGraphLayout, GraphBox, GraphEdge, GraphEdgeKind, GraphNode, NodeWorkflow } from "../../lib/agentGraph"
 import { linkLabels, workflowWords } from "../../lib/agentGraph"
 import { runState, stepPosition, stepSegments } from "../../lib/workflowView"
 import { StepBar } from "../workflow-status/WorkflowRunStatus"
@@ -14,6 +14,7 @@ import { stageLabel } from "../../lib/agentStage"
 import { cn } from "../../lib/utils"
 import { agentLook, subagentLook } from "./look"
 import { linkStyles } from "./linkStyles"
+import { roundedPath } from "./roundedPath"
 import { useReeveName, type ReeveName } from "../../lib/reeveName"
 
 export type AgentGraphCanvasProps = {
@@ -177,24 +178,6 @@ function LinkEdge({ id, data }: EdgeProps & { data?: EdgeData }) {
       <span style={{ transform: `translate(-50%, -50%) translate(${edge.labelAt.x}px, ${edge.labelAt.y}px)`, opacity }} className="nodrag nopan pointer-events-none absolute rounded border border-lw-line bg-lw-ground px-1 font-lw-mono text-[11px] leading-4 text-lw-text">{label}</span>
     </EdgeLabelRenderer>}
   </>
-}
-
-// roundedPath is an SVG path through points, each corner rounded.
-function roundedPath(points: Point[], radius = 6): string {
-  if (points.length === 0) return ""
-  let path = `M ${points[0].x} ${points[0].y}`
-  for (let i = 1; i < points.length - 1; i++) {
-    const [a, b, c] = [points[i - 1], points[i], points[i + 1]]
-    const r = Math.min(radius, Math.hypot(b.x - a.x, b.y - a.y) / 2, Math.hypot(c.x - b.x, c.y - b.y) / 2)
-    const toward = (p: Point, q: Point) => {
-      const d = Math.hypot(q.x - p.x, q.y - p.y) || 1
-      return { x: p.x + ((q.x - p.x) / d) * r, y: p.y + ((q.y - p.y) / d) * r }
-    }
-    const [enter, leave] = [toward(b, a), toward(b, c)]
-    path += ` L ${enter.x} ${enter.y} Q ${b.x} ${b.y} ${leave.x} ${leave.y}`
-  }
-  const last = points[points.length - 1]
-  return `${path} L ${last.x} ${last.y}`
 }
 
 const edgeTypes: EdgeTypes = { link: LinkEdge }

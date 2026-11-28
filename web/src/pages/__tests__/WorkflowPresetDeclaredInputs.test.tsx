@@ -5,7 +5,7 @@ import { WorkflowsPage } from "../WorkflowsPage"
 
 const {startWorkflow}=vi.hoisted(()=>({startWorkflow:vi.fn().mockResolvedValue({run:{id:"wr-1"}})}))
 vi.mock("../../lib/workflow",async importOriginal=>({...await importOriginal<typeof import("../../lib/workflow")>(),startWorkflow}))
-vi.mock("../../hooks/useWorkflow",()=>({useWorkflows:()=>({data:{definitions:[{schema_version:1,name:"triage-task",title:"Triage task",source:"test",inputs:{task:{type:"task",required:true}},steps:[{id:"triage",title:"Triage",type:"agent.run",with:{}}]}],errors:[],repositories:[{name:"Legato",repo:"cpave3/legato",primary_dir:"/projects/legato",base_branch:"main"}]},refresh:vi.fn()}),useWorkflowStats: () => ({ data: null, refresh: vi.fn() }), useWorkflowRuns:()=>({data:[],refresh:vi.fn()})}))
+vi.mock("../../hooks/useWorkflow",()=>({useWorkflows:()=>({data:{definitions:[{schema_version:1,name:"triage-task",title:"Triage task",source:"test",inputs:{task:{type:"task",required:true}},steps:[{id:"triage",title:"Triage",type:"agent.run",with:{}}]}],errors:[],repositories:[{name:"Legato",repo:"cpave3/legato",primary_dir:"/projects/legato",base_branch:"main"}]},refresh:vi.fn()}),useWorkflowMap: () => ({ data: null, loading: false, error: null, refresh: vi.fn() }), useWorkflowStats: () => ({ data: null, refresh: vi.fn() }), useWorkflowRuns:()=>({data:[],refresh:vi.fn()})}))
 vi.mock("../../hooks/useServer",()=>({useServer:()=>({baseUrl:""})}))
 vi.mock("../../hooks/useBoard",()=>({useBoard:()=>({columns:[{name:"Backlog",cards:[{id:"LEG-42",title:"Investigate timeout",status:"Backlog",workspace_name:""}]}]})}))
 

@@ -68,7 +68,10 @@ export function invalidationsFor(message: WSMessage, baseUrl: string): Invalidat
       // A run's change refreshes that run's page, never every run's.
       if (message.workflow_run_id) exact(queryKeys.workflowRun(baseUrl, message.workflow_run_id))
       exact(queryKeys.navigationSummary(baseUrl))
-      if (message.kind && DEFINITION_KINDS.has(message.kind)) exact(queryKeys.workflowDefinitions(baseUrl))
+      if (message.kind && DEFINITION_KINDS.has(message.kind)) {
+        exact(queryKeys.workflowDefinitions(baseUrl))
+        exact(queryKeys.workflowMap(baseUrl))
+      }
       // A review loop moves with its run (kind review_loop among them).
       else exact(queryKeys.shipping(baseUrl))
       break

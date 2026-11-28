@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 import { WorkflowsPage } from "../WorkflowsPage"
 
 const fetchArchivedTasks=vi.fn().mockResolvedValue([{id:"LEG-44",title:"Archived task",status:"Done",workspace_name:"Platform"}])
-vi.mock("../../hooks/useWorkflow",()=>({useWorkflows:()=>({data:{definitions:[{schema_version:1,name:"triage-task",title:"Triage task",source:"global",inputs:{task:{type:"task",required:true}},steps:[{id:"triage",title:"Triage",type:"agent.run",with:{}}]}],errors:[]},refresh:vi.fn()}),useWorkflowStats: () => ({ data: null, refresh: vi.fn() }), useWorkflowRuns:()=>({data:[],refresh:vi.fn()})}))
+vi.mock("../../hooks/useWorkflow",()=>({useWorkflows:()=>({data:{definitions:[{schema_version:1,name:"triage-task",title:"Triage task",source:"global",inputs:{task:{type:"task",required:true}},steps:[{id:"triage",title:"Triage",type:"agent.run",with:{}}]}],errors:[]},refresh:vi.fn()}),useWorkflowMap: () => ({ data: null, loading: false, error: null, refresh: vi.fn() }), useWorkflowStats: () => ({ data: null, refresh: vi.fn() }), useWorkflowRuns:()=>({data:[],refresh:vi.fn()})}))
 vi.mock("../../hooks/useServer",()=>({useServer:()=>({baseUrl:""})}))
 vi.mock("../../hooks/useBoard",()=>({useBoard:()=>({columns:[{name:"Backlog",cards:[{id:"LEG-42",title:"Investigate timeout",status:"Backlog",workspace_name:"Platform"},{id:"LEG-45",title:"Unassigned task",status:"Backlog",workspace_name:""}]},{name:"Done",cards:[{id:"LEG-43",title:"Already fixed",status:"Done",workspace_name:"Platform"}]}]})}))
 vi.mock("../../lib/board",()=>({fetchArchivedTasks:(...args:unknown[])=>fetchArchivedTasks(...args)}))

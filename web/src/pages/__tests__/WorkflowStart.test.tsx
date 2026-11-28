@@ -13,7 +13,7 @@ vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 vi.mock("../../hooks/useMediaQuery", () => ({ useMediaQuery: () => false }))
 vi.mock("../../hooks/useWorkflow", () => ({
   useWorkflows: () => ({ data: { definitions: discovery.definitions, errors: null, folders: [] }, refresh: vi.fn(), loading: false, error: null }),
-  useWorkflowStats: () => ({ data: null, refresh: vi.fn() }), useWorkflowRuns: () => ({ data: [], refresh: vi.fn(), loading: false, error: null }),
+  useWorkflowMap: () => ({ data: null, loading: false, error: null, refresh: vi.fn() }), useWorkflowStats: () => ({ data: null, refresh: vi.fn() }), useWorkflowRuns: () => ({ data: [], refresh: vi.fn(), loading: false, error: null }),
 }))
 vi.mock("../../components/workflow-editor/LazyWorkflowYamlEditor", () => ({
   LazyWorkflowYamlEditor: ({ value, onChange, label = "Workflow YAML" }: { value: string; onChange: (v: string) => void; label?: string }) =>

@@ -12,7 +12,7 @@ vi.mock("../../hooks/useWorkflow", () => ({
     errors: [],
     trigger_states: { triage: [{ trigger: "task.entered_column", file_enabled: false, enabled: false, overridden: false }] },
   }, refresh }),
-  useWorkflowStats: () => ({ data: null, refresh: vi.fn() }), useWorkflowRuns: () => ({ data: [], refresh: vi.fn() }),
+  useWorkflowMap: () => ({ data: null, loading: false, error: null, refresh: vi.fn() }), useWorkflowStats: () => ({ data: null, refresh: vi.fn() }), useWorkflowRuns: () => ({ data: [], refresh: vi.fn() }),
 }))
 afterEach(cleanup)
 
