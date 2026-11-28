@@ -6,7 +6,7 @@ import type { AwayOn, BoardCard } from "../../lib/board-types"
 import { chosenWorkerView, handOffReady, handOffRequest } from "../../lib/handoffForm"
 import { handoffTools, missingOnWorker, workerOnlyRepositories } from "../../lib/workers"
 import type { RepositoryPreset } from "../RepositoryPresetSelect"
-import { BranchField, Choices, HandOffBlockers, HandOffError, HandOffFooter, HandOffNote, RepositoryField, ReviewPassesSection, ToolField, WorkerField, WorkerWarnings } from "./HandOffFields"
+import { Choices, control, fieldLabel, HandOffBlockers, HandOffError, HandOffFooter, HandOffNote, RepositoryField, ReviewPassesSection, ToolField, WorkerField, WorkerWarnings } from "./HandOffFields"
 import { errorText, useFollowedTool, useHandOffSources, useWorkerReviewPasses } from "./useHandOffSources"
 
 // The Hand off form: one form whichever way a task is handed off (its card's
@@ -100,7 +100,13 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
             <WorkerField worker={worker} workers={workers} onChange={setWorker} />
             <Choices name={`${id}-purpose`} legend="Purpose" value={purpose} options={purposes} onChange={setPurpose} />
             <Choices name={`${id}-start`} legend="Start from" value={startFrom} options={startChoices(card.id)} onChange={setStartFrom} />
-            {pushed && <BranchField branch={branch} onChange={setBranch} />}
+            {pushed && (
+              <label className="flex flex-col gap-1.5">
+                <span className={fieldLabel}>Branch</span>
+                <input aria-label="Branch" value={branch} onChange={(event) => setBranch(event.target.value)} placeholder="the branch's name on GitHub" autoComplete="off" spellCheck={false} className={`${control} font-lw-mono`} />
+                <span className="text-xs text-lw-text-2">The agent reads its commits first, then only adds commits to it and reuses its PR. A branch not on GitHub fails the handoff.</span>
+              </label>
+            )}
             <RepositoryField repo={repo} offered={offered} workerOnly={workerOnlyRepositories(advertOf, offered.map((r) => r.repo))} advert={advertOf} workerName={workerName} onChange={setRepo} />
             <ToolField tool={tool} tools={tools} onChoose={chooseTool} />
             <WorkerWarnings repoBlocked={repoBlocked} repo={repo} lacks={missingOnWorker(advertOf, here)} workerName={workerName} />

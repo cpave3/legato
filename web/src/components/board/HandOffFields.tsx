@@ -79,16 +79,6 @@ export function WorkerField({ worker, workers, onChange }: { worker: string; wor
   )
 }
 
-export function BranchField({ branch, onChange }: { branch: string; onChange: (branch: string) => void }) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className={fieldLabel}>Branch</span>
-      <input aria-label="Branch" value={branch} onChange={(event) => onChange(event.target.value)} placeholder="the branch's name on GitHub" autoComplete="off" spellCheck={false} className={`${control} font-lw-mono`} />
-      <span className="text-xs text-lw-text-2">The agent reads its commits first, then only adds commits to it and reuses its PR. A branch not on GitHub fails the handoff.</span>
-    </label>
-  )
-}
-
 // The repositories offered, as a list when Legato offers some (those the
 // worker can't clone disabled, and those only it has after them), else a
 // field for an owner/name.
