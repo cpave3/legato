@@ -27,6 +27,4 @@ if [ -d "$dir/broad" ]; then
   [ -n "$pid" ] && kill "$pid" 2>/dev/null
   rm -rf "$dir/broad"
 fi
-# Sessions untouched for a week have ended.
-find "$gitdir/codeeval" -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf {} + 2>/dev/null
 exit 0

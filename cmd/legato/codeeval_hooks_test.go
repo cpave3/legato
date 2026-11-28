@@ -355,3 +355,24 @@ func TestCodeEvalHooksKeepEachSessionsBackgroundCheck(t *testing.T) {
 	// Let the background check this stop started finish before cleanup.
 	time.Sleep(1500 * time.Millisecond)
 }
+
+// A session's folder is not touched while it lives, so its age says nothing
+// about whether the session has ended: another session's start keeps it.
+func TestCodeEvalHooksKeepAnOldSessionsBase(t *testing.T) {
+	skipWithCodeEvalOnPath(t)
+	commands := codeEvalHookCommands(t)
+	p := newHookProject(t)
+	fakeCodeEvalArgs(t, p.homeCodeEval(), filepath.Join(t.TempDir(), "done"))
+	x := p.commit(t)
+	p.run(t, commands["SessionStart"], startPayload("A", "startup"))
+	p.commit(t)
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(filepath.Join(p.dir, ".git", "codeeval", "A"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	p.run(t, commands["SessionStart"], startPayload("B", "startup"))
+	code, _, stderr := p.run(t, commands["Stop"], stopPayloadFor("A"), "CODEEVAL_STOP_CHECKS=quick")
+	if code != 2 || !strings.Contains(stderr, "--base "+x+" ") {
+		t.Errorf("A's stop after a month: exit %d, want exit 2 checking from A's base %s:\n%s", code, x[:12], stderr)
+	}
+}
