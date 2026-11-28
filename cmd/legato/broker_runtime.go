@@ -11,6 +11,7 @@ import (
 
 	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/engine/broker"
+	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -71,7 +72,17 @@ func startBrokerHost(ctx context.Context, db *store.Store, dir string, opts brok
 
 // SocketPath is where agents reach the broker, whichever process serves it.
 func (h *brokerHost) SocketPath() string {
-	return filepath.Join(h.dir, brokerSocketDir, brokerSocketName)
+	return brokerSocketIn(h.dir)
+}
+
+func brokerSocketIn(dir string) string {
+	return filepath.Join(dir, brokerSocketDir, brokerSocketName)
+}
+
+// hostBrokerSocket is where this machine's broker listens, whichever
+// Legato serves it (startApprovals starts it in ipc.SocketDir()).
+func hostBrokerSocket() string {
+	return brokerSocketIn(ipc.SocketDir())
 }
 
 // Owner reports whether this process serves the broker.
@@ -135,6 +146,14 @@ func giveSessionsBroker(agents service.AgentService, db *store.Store, socket str
 	}); ok && agents != nil {
 		setter.SetBrokerEnv(service.NewBrokerSessionEnv(db, socket))
 	}
+}
+
+// giveSessionsHostBroker gives a command's agent service (one outside serve
+// and the TUI, which never starts the broker itself) the host broker's
+// socket and a token per session: whichever Legato serves the broker
+// resolves the token from the shared database (LEG-668).
+func giveSessionsHostBroker(agents service.AgentService, db *store.Store) {
+	giveSessionsBroker(agents, db, hostBrokerSocket())
 }
 
 // fallbackCtx is ctx for a broker call that has another way to do its work

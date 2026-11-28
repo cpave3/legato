@@ -2128,6 +2128,7 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		CapabilityFolders:    capabilityFolders(cfg),
 	})
 	attachCredentialChannels(cfg, db, agents)
+	giveSessionsHostBroker(agents, db)
 
 	swCfg := service.SwarmConfig{
 		MaxConcurrentAgents: cfg.Swarm.MaxConcurrentAgents,

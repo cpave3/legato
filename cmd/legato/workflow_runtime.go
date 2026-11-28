@@ -270,6 +270,7 @@ func commandAgentService(cfg *config.Config, db *store.Store, workDir string, pr
 		ClaudeManagedSettingsDir: claudeManagedSettingsDir(),
 		ClaudeAccounts:           cfg.ClaudeAccounts, AccountDataDir: config.ResolveDataDir(cfg), ToolCheck: processDoctor().SpawnCheck, Adapter: defaultAdapter, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes, DisablePeerAwareness: !cfg.Agents.PeerAwareness, PeerMessageSent: peerMessageSent, ReeveWakes: cfg.Reeve.Watch.Wake, ReviewsOff: !cfg.Agents.Reviews, HasSkill: agentHasSkill(cfg, db), RepositoryGuidance: repositoryGuidance(cfg, db), PullRequestModes: pullRequestModes(cfg, db), RepositoryResources: repositoryResources(cfg), Sandbox: sandboxSettings(cfg), SandboxScratch: sandboxScratch(cfg), Capabilities: skillService(cfg, db), CapabilityFolders: capabilityFolders(cfg)}, db))
 	channels := attachCredentialChannels(cfg, db, agentSvc)
+	giveSessionsHostBroker(agentSvc, db)
 	if repos == nil {
 		repos = newRepositoryService(cfg, db)
 		if channels != nil {

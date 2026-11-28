@@ -1360,10 +1360,15 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 	// The host broker, which agent-side processes ask instead of the store.
+	// A sandboxed agent cannot do without it (see brokerMissing below).
+	brokerMissing := error(ErrSandboxNoBroker)
 	if provider := a.brokerSessionEnv(); provider != nil {
 		brokerEnv, err := provider.SessionEnv(ctx, taskID, executionID)
 		if err != nil {
 			log.Printf("broker: session environment for %s: %v", taskID, err)
+			brokerMissing = fmt.Errorf("%w: %v", ErrSandboxNoBroker, err)
+		} else {
+			brokerMissing = nil
 		}
 		for k, v := range brokerEnv {
 			envMap[k] = v
@@ -1427,6 +1432,12 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// so a sandbox that cannot be built never leaves an unsandboxed agent.
 	sandboxPrefix := ""
 	sandboxed := a.sandbox != nil && (!opt.Unsandboxed || opt.Unattended || opt.ReadOnlyCheckout || opt.ParentTaskID != "" || opt.SubtaskID != "" || opt.WorkflowRunID != "")
+	if sandboxed && brokerMissing != nil {
+		// Every legato command in the sandbox goes through the broker: an
+		// agent without it could not even end its workflow step (LEG-668).
+		failExecution()
+		return brokerMissing
+	}
 	if sandboxed {
 		var engramMounts SandboxEngram
 		if booted.booted() {
@@ -2980,6 +2991,11 @@ var (
 	ErrChimeraDiscoveryNotFound  = errors.New("no verified Chimera instance found")
 	ErrChimeraDiscoveryAmbiguous = errors.New("multiple verified Chimera instances found")
 )
+
+// ErrSandboxNoBroker refuses a sandboxed agent that would start without the
+// host broker's socket and token: inside the sandbox every legato command
+// needs them (LEG-668).
+var ErrSandboxNoBroker = errors.New("this sandboxed agent would have no Legato broker: Legato has not finished starting; retry the step")
 
 const chimeraDiscoveryRequestTimeout = 2 * time.Second
 
