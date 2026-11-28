@@ -367,6 +367,8 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `DELETE` | `/api/settings/repository-guidance` | risky | Delete saved repository guidance |  |
 | `GET` | `/api/settings/skills` | read | List the skills Legato gives agents |  |
 | `PUT` | `/api/settings/skills/{name}` | change | Turn a skill on or off for agents started from now on | `{"enabled": false}` |
+| `GET` | `/api/settings/managed-hooks` | read | List the managed hooks Legato gives agents |  |
+| `PUT` | `/api/settings/managed-hooks/{name}` | change | Turn a managed hook on or off for agents started from now on | `{"enabled": false}` |
 | `PUT` | `/api/settings/updates` | risky | Set how Legato updates itself |  |
 | `GET` | `/api/doctor` | read | Read the checks of what Legato needs from this machine |  |
 | `POST` | `/api/doctor/check` | read | Run the checks of what Legato needs from this machine again |  |

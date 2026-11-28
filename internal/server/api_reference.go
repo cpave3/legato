@@ -85,6 +85,7 @@ var routeBodies = map[string]string{
 	"PUT /api/config/settings/{key}":               `{"value": …}`,
 	"PUT /api/settings/theme":                      `{"id": "ocular-dark-vivid", "expected_revision": 0}`,
 	"PUT /api/settings/skills/{name}":              `{"enabled": false}`,
+	"PUT /api/settings/managed-hooks/{name}":       `{"enabled": false}`,
 	"PUT /api/config/lists/{list}/{name}":          `{"value": {…}}`,
 	"POST /api/reeve/message":                      `{"text": "…"}`,
 	"POST /api/tasks/{id}/handoff":                 handOffBody,

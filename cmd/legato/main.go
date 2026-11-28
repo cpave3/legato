@@ -1058,6 +1058,7 @@ func runServeCmd(args []string) int {
 	srv.SetRepositoryPresetService(repoPresets)
 	srv.SetRepositoryGuidanceService(repositoryGuidance(cfg, db))
 	srv.SetSkillService(skillService(cfg, db))
+	srv.SetManagedHookService(managedHookService(cfg, db))
 	srv.SetTintService(service.NewTintService(service.StringSetting{Settings: settingsFor(db)}))
 	defer wireServerTheme(srv, db, bus)()
 	usage := subscriptionUsageFor(cfg, db, bus)
@@ -1568,6 +1569,7 @@ func runTUI() int {
 			webSrv.SetRepositoryPresetService(repoPresets)
 			webSrv.SetRepositoryGuidanceService(repositoryGuidance(cfg, db))
 			webSrv.SetSkillService(skillService(cfg, db))
+			webSrv.SetManagedHookService(managedHookService(cfg, db))
 			webSrv.SetTintService(service.NewTintService(service.StringSetting{Settings: settingsFor(db)}))
 			defer wireServerTheme(webSrv, db, bus)()
 			if subscriptionUsage != nil {

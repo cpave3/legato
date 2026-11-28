@@ -16,15 +16,22 @@ import (
 // skillsDir is the skills folder: skills.dir, else ~/.legato/skills (or
 // $LEGATO_HOME/skills). Empty when there is no home folder to put it in.
 func skillsDir(cfg *config.Config) string {
-	if cfg.Skills.Dir != "" {
-		return cfg.Skills.Dir
+	return legatoHomeFolder(cfg, "skills", config.ResolveSkillsDir)
+}
+
+// legatoHomeFolder is a folder setting resolved against Legato's home
+// folder (~/.legato, or $LEGATO_HOME); resolve gives the set value first.
+// Empty, and logged, when there is no home folder.
+func legatoHomeFolder(cfg *config.Config, what string, resolve func(*config.Config, string) string) string {
+	if set := resolve(cfg, ""); filepath.IsAbs(set) {
+		return set
 	}
 	home, err := swarm.LegatoHome()
 	if err != nil {
-		log.Printf("skills: %v", err)
+		log.Printf("%s: %v", what, err)
 		return ""
 	}
-	return config.ResolveSkillsDir(cfg, home)
+	return resolve(cfg, home)
 }
 
 // skillService is Legato's skills, which every agent service gives its
