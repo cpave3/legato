@@ -58,13 +58,15 @@ export function AgentStageChip({ info, open, onOpenChange }: { info: AgentStageI
   }
 
   return (
-    <div ref={box} className="relative min-w-0 shrink">
+    <div ref={box} className="relative min-w-0 max-w-full shrink">
       <button
         type="button"
         aria-label={`Stage: ${label || "none"}${why ? `, ${why}` : ""}`}
+        title={[label || "No stage", why].filter(Boolean).join(" · ")}
         aria-expanded={open}
         onClick={() => onOpenChange(!open)}
-        className="flex h-6 min-w-0 max-w-[22rem] items-center gap-1.5 rounded-full bg-lw-raised px-2.5 text-xs text-lw-text hover:bg-lw-selected"
+        // As wide as its place allows, the reason cut short; taller to tap on a phone.
+        className="flex h-6 min-w-0 max-w-[min(22rem,100%)] items-center gap-1.5 overflow-hidden rounded-full bg-lw-raised px-2.5 text-xs text-lw-text hover:bg-lw-selected max-sm:h-8"
       >
         <StageTrack stage={info.stage} label="" />
         <span className={cn("shrink-0", info.stage === "finished" && "text-lw-done")}>{label || "No stage"}</span>

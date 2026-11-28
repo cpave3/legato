@@ -362,3 +362,14 @@ it("selects the agent a run page links to on the graph, with its run's graph, ev
   expect(screen.getByRole("region", { name: /^Run graph:/ })).toBeTruthy()
   expect(screen.getByRole("link", { name: "Back to workflow" }).getAttribute("href")).toBe("/workflows/runs/wr-1")
 })
+
+it("leads an agent opened from a run back to it from a line of its own above the header, not over its controls", async () => {
+  open("/agents?task=TASK-1&workflow=wr-1")
+  const header = await screen.findByRole("banner")
+  const back = screen.getByRole("link", { name: "Back to workflow" })
+  expect(back.getAttribute("href")).toBe("/workflows/runs/wr-1")
+  expect(back.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(header.contains(back)).toBe(false)
+  // In the page's flow: it never floats over the header's or the picker's buttons.
+  expect(back.closest(".absolute, .fixed")).toBeNull()
+})

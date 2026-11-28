@@ -28,7 +28,7 @@ export function AgentKindBadge({ kind, engram, accountLabel, isNative, className
         className,
       )}
     >
-      <span className="max-w-36 truncate">{label}</span>
+      <span className="min-w-0 max-w-36 truncate">{label}</span>
       <span className="opacity-60">{connection}</span>
     </span>
   )
