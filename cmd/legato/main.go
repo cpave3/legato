@@ -1079,10 +1079,6 @@ func runServeCmd(args []string) int {
 		triggerCoordinator = buildWorkflowTriggerCoordinator(db, workflowSvc, cfg, bus)
 		startLearningMigration(cfg, db, triggerCoordinator)
 		srv.SetWorkflowTriggerCoordinator(triggerCoordinator)
-		defer triggerCoordinator.StartEventLoop(context.Background(), bus)()
-		defer workflowSvc.StartAgentEndedLoop(context.Background(), bus)()
-		defer workflowSvc.StartAdvanceLoop(context.Background(), bus)()
-		defer workflowSvc.StartPRWaitLoop(context.Background(), bus, prWaitInterval)()
 	} else {
 		log.Printf("workflows: %v", workflowErr)
 	}
@@ -1096,6 +1092,9 @@ func runServeCmd(args []string) int {
 	approvalsRT.captureConversationText(db, bus, agentSvc)
 	approvalsRT.trackAgentBranches(db, prSvc)
 	defer approvalsRT.stop()
+	// Only now can workflows launch agents: they have the broker, the
+	// credential channels and their branch grants (LEG-668).
+	defer startWorkflowLoops(triggerCoordinator, workflowSvc, bus)()
 	if graph := agentGraphFor(db, agentSvc, workflowSvc); graph != nil {
 		srv.SetAgentGraphService(graph)
 	}
@@ -1470,10 +1469,6 @@ func runTUI() int {
 		tuiWorkflowSvc.SetChangeListener(workflowChangeBroadcaster(func(msg ipc.Message) { go ipc.Broadcast(msg) }))
 		triggerCoordinator = buildWorkflowTriggerCoordinator(db, tuiWorkflowSvc, cfg, bus)
 		startLearningMigration(cfg, db, triggerCoordinator)
-		defer triggerCoordinator.StartEventLoop(context.Background(), bus)()
-		defer tuiWorkflowSvc.StartAgentEndedLoop(context.Background(), bus)()
-		defer tuiWorkflowSvc.StartAdvanceLoop(context.Background(), bus)()
-		defer tuiWorkflowSvc.StartPRWaitLoop(context.Background(), bus, prWaitInterval)()
 	} else {
 		log.Printf("workflows: %v", workflowErr)
 	}
@@ -1499,6 +1494,9 @@ func runTUI() int {
 	approvalsRT.captureConversationText(db, bus, agentSvc)
 	approvalsRT.trackAgentBranches(db, prSvc)
 	defer approvalsRT.stop()
+	// Only now can workflows launch agents: they have the broker, the
+	// credential channels and their branch grants (LEG-668).
+	defer startWorkflowLoops(triggerCoordinator, tuiWorkflowSvc, bus)()
 	defer approvalsRT.compactWaits(tuiWorkflowSvc)()
 	// The review-pass engine, whether or not this TUI serves the web UI: it
 	// ticks while the TUI serves the broker (spec LEG-559 D9).

@@ -358,6 +358,32 @@ func agentOutputSources(db *store.Store, agents service.AgentService, prs servic
 	return sources
 }
 
+// startWorkflowLoops starts what can launch or resume workflow agents: the
+// trigger coordinator (which catches up a missed schedule at once), and the
+// workflow service's agent-ended, advance and pull-request-wait loops. Call
+// it only after startApprovals has given agent sessions the broker and the
+// credential channels, and grantWorkflowBranches has run: an agent launched
+// before then runs without them (LEG-668). Either argument may be nil. The
+// stop func stops them in the reverse order.
+func startWorkflowLoops(coord *service.WorkflowTriggerCoordinator, workflows *service.WorkflowService, bus *events.Bus) (stop func()) {
+	var stops []func()
+	if coord != nil {
+		stops = append(stops, coord.StartEventLoop(context.Background(), bus))
+	}
+	if workflows != nil {
+		stops = append(stops,
+			workflows.StartAgentEndedLoop(context.Background(), bus),
+			workflows.StartAdvanceLoop(context.Background(), bus),
+			workflows.StartPRWaitLoop(context.Background(), bus, prWaitInterval),
+		)
+	}
+	return func() {
+		for i := len(stops) - 1; i >= 0; i-- {
+			stops[i]()
+		}
+	}
+}
+
 // grantWorkflowBranches lets version 2 agent steps grant their agents the
 // branches they name (LEG-485), through the credential broker, which is
 // started after the workflow service.
