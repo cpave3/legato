@@ -1,4 +1,4 @@
-import { useRef, forwardRef } from "react"
+import { useImperativeHandle, useRef, forwardRef } from "react"
 import type { PromptState } from "../lib/agentWire"
 import { useServer } from "../hooks/useServer"
 import { usePastedImages } from "../hooks/usePastedImages"
@@ -13,7 +13,7 @@ import type { SidePanelsProps } from "./AgentChatHeader"
 import { useTerminalMenu } from "../hooks/useTerminalMenu"
 import { askingPrompt, isBashCommand } from "../lib/promptBar"
 import { ActionList, BarHeader, ComposerFooter, ComposerTools, MessageBox } from "./PromptBarParts"
-import { useMacroMenu, useMessageKeys, usePromptBarHandle, usePromptDraft, type PromptBarHandle } from "./usePromptBar"
+import { useMacroMenu, useMessageKeys, usePromptDraft, type PromptBarHandle } from "./usePromptBar"
 
 interface PromptBarProps {
   promptState: PromptState | null
@@ -69,7 +69,15 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
   // the pane, as the voice settings say.
   const voice = useVoiceRecorder({ agentId, agentKind, baseUrl })
 
-  usePromptBarHandle(ref, textareaRef, voice)
+  // What the page can do to the bar: focus its box, and start, send or
+  // cancel dictation.
+  useImperativeHandle(ref, () => ({
+    focus: () => textareaRef.current?.focus(),
+    voiceStart: () => { void voice.start() },
+    voiceSend: () => { void voice.stop() },
+    voiceCancel: voice.cancel,
+    voiceIsRecording: () => voice.state === "recording",
+  }))
 
   // An image pasted into the message box is stored by Legato, and its path
   // goes into the message where the cursor is.

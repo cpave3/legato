@@ -153,29 +153,6 @@ export function MessageBox({ textareaRef, input, bash, connected, onChange, onKe
 
 type MacroMenu = Omit<ReturnType<typeof useMacroMenu>, "ref">
 
-function MacrosDropdown({ menuRef, menu }: { menuRef: RefObject<HTMLDivElement | null>; menu: MacroMenu }) {
-  return (
-    <div className="relative" ref={menuRef}>
-      <button
-        type="button"
-        onClick={menu.toggle}
-        className={composerToolButton(menu.open)}
-        title="Macros (M)"
-        aria-label="Macros"
-        aria-keyshortcuts="m"
-      >
-        <Zap size={16} aria-hidden="true" className="sm:hidden" />
-        <span className="hidden sm:inline">Macros</span>
-      </button>
-      {menu.open && (
-        <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[180px] max-w-[calc(100vw-2rem)] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
-          <MacroPickerItems shown={menu.picker.shown} hidden={menu.picker.hidden} onShowAll={menu.picker.showAll} onPick={(macro) => menu.pick(macro.keys)} />
-        </div>
-      )}
-    </div>
-  )
-}
-
 // The row under the message box: the tools, dictation where it is on, and
 // Send, which a prompt that asks takes the place of.
 export function ComposerFooter({ asking, connected, canSend, voiceEnabled, voice, onSubmit, children }: {
@@ -216,7 +193,24 @@ export function ComposerTools({ asking, connected, onAttach, onSendKeys, macroRe
         <span className="hidden sm:inline">Mode</span>
         <span aria-hidden="true" className="hidden font-lw-mono text-lw-faint sm:inline">⇧Tab</span>
       </button>
-      <MacrosDropdown menuRef={macroRef} menu={macroMenu} />
+      <div className="relative" ref={macroRef}>
+        <button
+          type="button"
+          onClick={macroMenu.toggle}
+          className={composerToolButton(macroMenu.open)}
+          title="Macros (M)"
+          aria-label="Macros"
+          aria-keyshortcuts="m"
+        >
+          <Zap size={16} aria-hidden="true" className="sm:hidden" />
+          <span className="hidden sm:inline">Macros</span>
+        </button>
+        {macroMenu.open && (
+          <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[180px] max-w-[calc(100vw-2rem)] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
+            <MacroPickerItems shown={macroMenu.picker.shown} hidden={macroMenu.picker.hidden} onShowAll={macroMenu.picker.showAll} onPick={(macro) => macroMenu.pick(macro.keys)} />
+          </div>
+        )}
+      </div>
     </div>
   )
 }

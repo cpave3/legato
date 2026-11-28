@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent, type Ref, type RefObject } from "react"
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react"
 
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
 import { useMacroPicker } from "../hooks/useMacroPicker"
-import type { useVoiceRecorder } from "../hooks/useVoiceRecorder"
 import { appendProposal, onComposerProposal } from "../lib/agentUi"
 import { apiFetch } from "../lib/api"
 import { macroMessage } from "../lib/macros"
@@ -104,18 +103,6 @@ export interface PromptBarHandle {
   voiceSend: () => void
   voiceCancel: () => void
   voiceIsRecording: () => boolean
-}
-
-// What the page can do to the bar: focus its box, and start, send or cancel
-// dictation.
-export function usePromptBarHandle(ref: Ref<PromptBarHandle>, textareaRef: RefObject<HTMLTextAreaElement | null>, voice: ReturnType<typeof useVoiceRecorder>) {
-  useImperativeHandle(ref, () => ({
-    focus: () => textareaRef.current?.focus(),
-    voiceStart: () => { void voice.start() },
-    voiceSend: () => { void voice.stop() },
-    voiceCancel: voice.cancel,
-    voiceIsRecording: () => voice.state === "recording",
-  }))
 }
 
 type MacroItem ={ name: string; keys: string; favorite?: boolean }
