@@ -53,7 +53,11 @@ func (s *Server) attentionHandler() http.HandlerFunc {
 					hidden = append(hidden, group)
 				}
 			}
-			items = service.RailView(items, rail)
+			items, err = s.railView(r.Context(), items, rail)
+			if err != nil {
+				s.writeAttentionError(w, err)
+				return
+			}
 			s.writeJSON(w, http.StatusOK, struct {
 				Items       []service.AttentionItem `json:"items"`
 				Total       int                     `json:"total"`
@@ -162,5 +166,16 @@ func (s *Server) railCount(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return len(service.RailView(items, s.railConfig(ctx))), nil
+	items, err = s.railView(ctx, items, s.railConfig(ctx))
+	return len(items), err
+}
+
+// railView is the rail's items: by its settings, and one item for one wait
+// (service.RailAsks).
+func (s *Server) railView(ctx context.Context, items []service.AttentionItem, rail config.RailConfig) ([]service.AttentionItem, error) {
+	asks, err := s.attention.RailAsks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return service.RailView(items, rail, asks), nil
 }

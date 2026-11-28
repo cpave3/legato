@@ -41,12 +41,13 @@ func attachReviewRuns(deps integrationDeps, reviews *service.ReviewPassService) 
 }
 
 // wireReviewRuns gives a web server the run caller, for the run page's
-// review loop.
+// review loop and the Shipping page's list.
 func wireReviewRuns(srv *server.Server, engine *reviewEngine) {
 	if engine == nil || engine.runs == nil {
 		return
 	}
 	srv.SetReviewRuns(engine.runs)
+	srv.SetShipping(engine.runs)
 }
 
 // reviewAuthors derives the agent_author the card menu and the TUI start

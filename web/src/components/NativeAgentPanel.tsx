@@ -1,5 +1,4 @@
 import { ReeveStatus, reeveWash } from "./ReeveEntry"
-import { AskReeve } from "./AskReeve"
 import { parseReeveMessage, reeveBrief } from "../lib/reeve"
 import { useState, useCallback, useMemo, memo, Fragment, type ReactNode } from "react"
 import { ArrowDown, Bell, Terminal } from "lucide-react"
@@ -200,6 +199,8 @@ interface NativeAgentPanelProps {
   stateTime?: string
   // The pull request of the agent's task.
   pullRequest?: number
+  // The workflow run the agent was opened from, for the way back to it.
+  workflowRun?: string
   // The background shells Legato recorded from the agent's mod (Chimera's,
   // without output); its endpoint's own, when it reports them, win.
   backgroundShells?: StoredBackgroundShell[]
@@ -207,7 +208,7 @@ interface NativeAgentPanelProps {
   backgroundJobs?: BackgroundJob[]
 }
 
-export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, onMoveToGroup, onShowInfo, resyncRef, onReload, switchSandbox, switchHostNetwork, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, engram, openItems = 0, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest, backgroundShells, backgroundJobs, stage }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, onMoveToGroup, onShowInfo, resyncRef, onReload, switchSandbox, switchHostNetwork, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, engram, openItems = 0, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest, workflowRun, backgroundShells, backgroundJobs, stage }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   // Out of view the panel stops following the agent and catches up from its
   // cursor on return, so a phone with its screen off does not keep receiving
@@ -311,11 +312,12 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         engram={engram}
         native
         pullRequest={pullRequest}
+        workflowRun={workflowRun}
         panels={panels}
         backgroundJobs={backgroundJobs}
         subagents={{ total: tiles.length, running: tiles.filter((tile) => tile.state === "running").length, view: subagents.view, onView: subagents.chooseView }}
         onShowRequest={scrollToBottom}
-        ask={askReeveAbout(reeve, name, agentId, agentKind, error)}
+        askReeve={askReeveAbout(reeve, name, agentId, agentKind, error)}
         menu={menu}
         stage={stage}
         notes={<HeaderNotes reeve={reeve} baseUrl={baseUrl} mode={mode} syncing={syncing} error={error} />}
@@ -401,9 +403,9 @@ function HeaderNotes({ reeve, baseUrl, mode, syncing, error }: { reeve?: boolean
 }
 
 // A way to ask the Reeve about the agent; none in the Reeve's own panel.
-function askReeveAbout(reeve: boolean | undefined, name: string, agentId: string, agentKind: string | undefined, error: string | null): ReactNode {
+function askReeveAbout(reeve: boolean | undefined, name: string, agentId: string, agentKind: string | undefined, error: string | null): string | undefined {
   if (reeve) return undefined
-  return <AskReeve brief={reeveBrief({ what: `the agent “${name}”, which waits for the operator`, ids: { task: agentId, "agent tool": agentKind }, error: error || undefined })} />
+  return reeveBrief({ what: `the agent “${name}”, which waits for the operator`, ids: { task: agentId, "agent tool": agentKind }, error: error || undefined })
 }
 
 // The deck of subagents and shells, when it is shown: a grid beside the

@@ -267,7 +267,9 @@ var systemPaths = []string{"/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", 
 // caches, read-write. None holds a credential. ~/.dotnet is not one: the
 // sandbox's home gives each execution a writable one of its own, and the
 // host's can hold global tools (~/.dotnet/tools) that the host runs.
-var toolchainsRO = []string{".local/bin", ".local/share/mise", ".config/mise", "go/bin", ".cargo/bin", ".rustup", ".bun", ".deno", ".volta", ".nvm", ".pyenv"}
+// ~/.local/share/codeeval is CodeEval's shared install, which the
+// repository's Claude Code hooks look for (LEG-707).
+var toolchainsRO = []string{".local/bin", ".local/share/mise", ".config/mise", "go/bin", ".cargo/bin", ".rustup", ".bun", ".deno", ".volta", ".nvm", ".pyenv", ".local/share/codeeval"}
 var toolchainsRW = []string{"go/pkg/mod", ".cache/go-build", ".npm", ".cache/pnpm", ".local/share/pnpm", ".cache/pip", ".cache/uv", ".cargo/registry", ".cache/sccache", ".cache/ms-playwright", ".cache/node", ".nuget/packages", ".bun/install/cache",
 	".local/state/pnpm", ".cache/yarn", ".yarn/berry/cache", ".cache/composer", ".gradle/caches", ".gradle/wrapper", ".m2/repository",
 	".cache/deno", ".cache/pypoetry", ".cargo/git", ".cache/bun", ".cache/typescript", ".cache/prisma"}

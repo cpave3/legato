@@ -149,6 +149,14 @@ func (a *agentService) resumeInterruptedStep(ctx context.Context, taskID string,
 		}
 	}
 	opt.Prompt = WorkflowResumedNote(attempt.Path, attempt.RunID)
+	return a.continueWorkflowStep(ctx, taskID, opt, open)
+}
+
+// continueWorkflowStep starts a workflow agent on its suspended step's
+// attempt, with opt's first message, and points the attempt at it: after
+// Legato stopped (resumeInterruptedStep) or a reload.
+func (a *agentService) continueWorkflowStep(ctx context.Context, taskID string, opt AgentSpawnOptions, open *interruptedAttempt) error {
+	attempt := open.attempt
 	if err := a.SpawnAgent(ctx, taskID, 0, 0, opt); err != nil {
 		return err
 	}

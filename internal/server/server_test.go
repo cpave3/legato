@@ -1080,8 +1080,8 @@ func (m *mockTmuxManager) SendKeysLine(name, line string) error {
 	m.typed = append(m.typed, line+"⏎")
 	return nil
 }
-func (m *mockTmuxManager) SendKeysMultiline(name, payload string) error    { return nil }
-func (m *mockTmuxManager) SendKeysShellCommand(name, command string) error { return nil }
+func (m *mockTmuxManager) SendKeysMultiline(name, payload string) error { return nil }
+func (m *mockTmuxManager) RunInPane(string, []string, ...string) error  { return nil }
 func (m *mockTmuxManager) PipeOutput(name string) (io.Reader, func(), error) {
 	return strings.NewReader(""), func() {}, nil
 }

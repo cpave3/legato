@@ -109,9 +109,12 @@ func (a *agentService) restartAgentWith(ctx context.Context, taskID string, reso
 			return true, a.restartHandedOff(ctx, handedOff, main, session, resources, change)
 		}
 	}
-	if owner := restartOwner(session); owner != "" {
+	// A swarm starts its agents itself. A workflow's agent is reloaded
+	// as the workflow's, on the step it is on (LEG-689).
+	if owner := swarmOwner(session); owner != "" {
 		return false, fmt.Errorf("%w: %s", ErrAgentNotRestartable, owner)
 	}
+	workflowAgent := session.WorkflowRunID != "" || session.ExecutionKind == store.ExecutionWorkflowAgent
 	task, err := a.store.GetTask(ctx, taskID)
 	if err != nil {
 		return false, err
@@ -159,6 +162,11 @@ func (a *agentService) restartAgentWith(ctx context.Context, taskID string, reso
 	if SupportsTaskResume(session.AgentKind) {
 		resume, err := a.restartConversation(ctx, task, session)
 		if err != nil {
+			if workflowAgent && errors.Is(err, ErrAgentNotRestartable) {
+				// A workflow agent with no card of its own saves no
+				// conversation (only a task's owner does), as after a crash.
+				return false, fmt.Errorf("%w: this workflow agent has saved no conversation to resume (one with no card of its own saves none); retry its step to start it afresh", ErrAgentNotRestartable)
+			}
 			return false, err
 		}
 		opt.SessionPolicy = "resume"
@@ -169,19 +177,69 @@ func (a *agentService) restartAgentWith(ctx context.Context, taskID string, reso
 			return false, err
 		}
 	}
+	// A step waiting on this session is kept through the reload, whoever
+	// owns the agent: a workflow's own agent comes back as the workflow's,
+	// one on a task (on: <task>) as the plain task agent it is.
+	open := a.openAgentStep(ctx, session.ID)
+	if workflowAgent {
+		a.workflowResumeOptions(*session, &opt, open)
+	}
 	stopCtx := ctx
 	if opt.SessionPolicy == "resume" {
 		// The engram session goes on in the agent that resumes it.
 		stopCtx = withEngramSessionKept(ctx)
 	}
+	if open != nil {
+		// Suspended before the stop, so nothing that sees the agent go
+		// (a reconcile, the wait check) fails the step meanwhile.
+		attempt := open.attempt
+		if err := a.store.SuspendWorkflowStep(ctx, attempt.RunID, attempt.Path, attempt.ID, workflowReloadingReason); err != nil {
+			return false, fmt.Errorf("holding step %s of %s for the reload: %w", attempt.Path, attempt.RunID, err)
+		}
+	}
 	if err := a.stopAgent(stopCtx, taskID, false); err != nil {
+		if open != nil {
+			_ = a.store.ResumeWorkflowStep(ctx, open.attempt.RunID, open.attempt.Path, open.attempt.ID, *session)
+		}
 		return false, err
 	}
 	opt.Prompt = restartNote(switchSandbox, sandboxed, opt.SessionPolicy == "resume")
 	if change.hostNetwork != nil {
 		opt.Prompt = hostNetworkNote(*change.hostNetwork, opt.SessionPolicy == "resume")
 	}
+	if open != nil {
+		opt.Prompt += " " + workflowStepOpenNote(open.attempt.Path, open.attempt.RunID)
+		if err := a.continueWorkflowStep(ctx, taskID, opt, open); err != nil {
+			a.failInterruptedStep(ctx, open, "its agent could not be started again after a reload: "+reasonOf(err))
+			return sandboxed, err
+		}
+		return sandboxed, nil
+	}
 	return sandboxed, a.SpawnAgent(ctx, taskID, 0, 0, opt)
+}
+
+// workflowReloadingReason is what a step carries for the moment its agent
+// is reloaded.
+const workflowReloadingReason = "the operator is reloading its agent"
+
+// workflowStepOpenNote tells a reloaded workflow agent its step is open.
+func workflowStepOpenNote(stepID, runID string) string {
+	return fmt.Sprintf("You are still on workflow step %s of run %s, which is still open: finish its declared outputs, then run the completion command from your assignment.", stepID, runID)
+}
+
+// openAgentStep is the agent.run step attempt that waits on a session, nil
+// for none.
+func (a *agentService) openAgentStep(ctx context.Context, sessionID int) *interruptedAttempt {
+	attempts, err := a.store.ListWaitingWorkflowAttemptsByAgentSession(ctx, sessionID)
+	if err != nil {
+		return nil
+	}
+	for _, attempt := range attempts {
+		if attempt.ExecutorType == "agent.run" {
+			return &interruptedAttempt{attempt: attempt}
+		}
+	}
+	return nil
 }
 
 // restartHandedOff restarts the agent of a card handed off from main: never

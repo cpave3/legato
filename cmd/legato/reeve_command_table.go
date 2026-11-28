@@ -114,6 +114,7 @@ var legatoCommandClasses = map[string]legatoCommandClass{
 	"review handoff submit":     {"change", "Submit a review handoff"},
 	"review handoff show":       {"read", "Show a review's handoffs"},
 	"review handoff export":     {"read", "Preview a handoff as Markdown"},
+	"review-pass list":          {"read", "List every review loop and where it stands"},
 	"review-pass feedback":      {"read", "Show a review pass's feedback"},
 	"review-pass answer":        {"risky", "Answer review feedback on GitHub"},
 	"review-pass another-pass":  {"change", "Run another pass of a review loop"},

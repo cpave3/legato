@@ -472,6 +472,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `GET` | `/api/sessions/{id}` | read | Show a conversation of the session history with its runs |  |
 | `POST` | `/api/sessions/{id}/restore` | change | Restore a conversation of the session history (start it again as it last ran), or start a new one in its place with a hand-over |  |
 | `DELETE` | `/api/sessions/{id}` | change | Forget a conversation: remove it from the session history (the tool's transcript stays) |  |
+| `GET` | `/api/shipping` | read | List every review loop Ship looks after, whichever caller opened it: the open loops, those approved and waiting for the merge, and those ended in the last 7 days, each with its phase, pull requests, CI, steward, author and actions |  |
 | `GET` | `/ws` | never | Open the live connection that can type into agents |  |
 | `GET` | `/` | read | Load the web UI |  |
 

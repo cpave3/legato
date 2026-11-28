@@ -12,6 +12,7 @@ let mockSelected: string | null = null
 let mockApprovals: Approval[] = []
 let mockPeers: unknown[] = []
 const mockDecide = vi.fn()
+const mockDismissApproval = vi.fn()
 const mockRefreshApprovals = vi.fn().mockResolvedValue(undefined)
 let mockPasskey: unknown = undefined
 const mockSign = vi.fn()
@@ -25,6 +26,7 @@ vi.mock("../../lib/passkeys", () => ({ signWithPasskey: (...a: unknown[]) => moc
 vi.mock("../../lib/approvals", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/approvals")>()),
   decideApproval: (...a: unknown[]) => mockDecide(...a),
+  dismissApproval: (...a: unknown[]) => mockDismissApproval(...a),
 }))
 vi.mock("../../hooks/useAgentSelection", () => ({ useAgentSelection: () => ({ selectedAgentId: mockSelected }) }))
 vi.mock("../../lib/attention", async (importOriginal) => ({
@@ -39,7 +41,7 @@ vi.mock("../../lib/needsYou", async (importOriginal) => ({
 
 import { NeedsYouRail } from "../needsYou/NeedsYouRail"
 import { resetRailState, showApproval } from "../../lib/railState"
-import { getFocusMode, setFocusMode } from "../../lib/focusMode"
+import { getFocusMode, getFocusStart, setFocusMode } from "../../lib/focusMode"
 
 function permission(overrides: Partial<Approval> = {}): Approval {
   return {
@@ -233,13 +235,99 @@ describe("NeedsYouRail", () => {
       await waitFor(() => expect(mockSign).toHaveBeenCalledWith("http://legato", "ap-11111111", { id: "pk-1" }, "once"))
     })
 
-    it("answers a question and opens focus mode from the header", async () => {
+    it("draws an agent's question as one compact row: its options, Reply, Open agent and Focus", async () => {
+      const asked = questionApproval()
+      asked.details.questions = [{ id: "q1", question: "Which database?", options: [{ label: "SQLite", description: "No new service" }, { label: "Postgres" }], multiSelect: false }]
+      mockApprovals = [asked]
+      mockFetchRail.mockResolvedValue({ items: [], hidden: 0, hiddenNames: [] })
+      renderRail()
+      const row = await screen.findByRole("article", { name: "Which database?" })
+      expect(within(row).getByText("Question")).toBeTruthy()
+      expect(within(row).getByRole("button", { name: "SQLite" }).getAttribute("title")).toBe("No new service")
+      expect(within(row).getByRole("link", { name: "Open agent" }).getAttribute("href")).toBe("/agents?task=task-1")
+      expect(within(row).getByRole("button", { name: "Focus" })).toBeTruthy()
+      // Not the full card: no radio choices and no Send answer.
+      expect(within(row).queryByRole("radio")).toBeNull()
+      expect(within(row).queryByRole("button", { name: /Send answer/ })).toBeNull()
+
+      fireEvent.click(within(row).getByRole("button", { name: "Postgres" }))
+      await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-22222222", { decision: "answer", answers: { q1: ["Postgres"] } }))
+      expect(mockRefreshApprovals).toHaveBeenCalled()
+
+      fireEvent.click(within(row).getByRole("button", { name: "Reply…" }))
+      fireEvent.change(within(row).getByRole("textbox", { name: "Reply" }), { target: { value: "Neither: use the file" } })
+      fireEvent.click(within(row).getByRole("button", { name: "Send" }))
+      await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-22222222", { decision: "answer", answers: { q1: ["Neither: use the file"] } }))
+    })
+
+    it("keeps a typed reply when sending it fails, so it can be sent again", async () => {
+      const asked = questionApproval()
+      asked.details.questions = [{ id: "q1", question: "Which database?", options: [{ label: "SQLite" }], multiSelect: false }]
+      mockApprovals = [asked]
+      mockDecide.mockRejectedValueOnce(new Error("Legato could not be reached."))
+      renderRail()
+      const row = await screen.findByRole("article", { name: "Which database?" })
+      fireEvent.click(within(row).getByRole("button", { name: "Reply…" }))
+      fireEvent.change(within(row).getByRole("textbox", { name: "Reply" }), { target: { value: "Use the file" } })
+      fireEvent.click(within(row).getByRole("button", { name: "Send" }))
+      expect(await within(row).findByText("Legato could not be reached.")).toBeTruthy()
+      expect((within(row).getByRole("textbox", { name: "Reply" }) as HTMLInputElement).value).toBe("Use the file")
+
+      fireEvent.click(within(row).getByRole("button", { name: "Send" }))
+      await waitFor(() => expect(mockDecide).toHaveBeenCalledTimes(2))
+      expect(mockDecide).toHaveBeenLastCalledWith("http://legato", "ap-22222222", { decision: "answer", answers: { q1: ["Use the file"] } })
+      await waitFor(() => expect(within(row).queryByRole("textbox", { name: "Reply" })).toBeNull())
+    })
+
+    it("offers no Reply for a question that takes no answer of the operator's own", async () => {
       mockApprovals = [questionApproval()]
       renderRail()
-      expect((await screen.findAllByText("Which database?")).length).toBeGreaterThan(0)
-      expect(screen.getAllByText(/Postgres/).length).toBeGreaterThan(0)
+      const row = await screen.findByRole("article", { name: "Which database?" })
+      expect(within(row).getByRole("button", { name: "SQLite" })).toBeTruthy()
+      expect(within(row).queryByRole("button", { name: "Reply…" })).toBeNull()
+    })
+
+    it("opens focus mode at the question whose Focus was pressed; the header's opens at the oldest", async () => {
+      const later = questionApproval()
+      later.id = "ap-33333333"
+      later.title = "Which port?"
+      mockApprovals = [questionApproval(), later]
+      renderRail()
+      const row = await screen.findByRole("article", { name: "Which port?" })
+      fireEvent.click(within(row).getByRole("button", { name: "Focus" }))
+      expect(getFocusMode()).toBe(true)
+      expect(getFocusStart()).toBe("ap-33333333")
+      setFocusMode(false)
       fireEvent.click(screen.getByRole("button", { name: "Answer in focus mode" }))
       expect(getFocusMode()).toBe(true)
+      expect(getFocusStart()).toBeNull()
+    })
+
+    it("sends several questions to focus mode with Answer…", async () => {
+      const asked = questionApproval()
+      asked.title = "Share links"
+      asked.details.questions = [
+        { id: "a", question: "Say which conflict?", options: [{ label: "Yes" }, { label: "No" }] },
+        { id: "b", question: "Fresh schema?", options: [{ label: "Yes" }, { label: "No" }] },
+      ]
+      mockApprovals = [asked]
+      renderRail()
+      const row = await screen.findByRole("article", { name: "Share links" })
+      expect(within(row).getByText("2 questions")).toBeTruthy()
+      expect(within(row).queryByRole("button", { name: "Yes" })).toBeNull()
+      expect(within(row).queryByRole("button", { name: "Reply…" })).toBeNull()
+      fireEvent.click(within(row).getByRole("button", { name: "Answer…" }))
+      expect(getFocusMode()).toBe(true)
+      expect(getFocusStart()).toBe("ap-22222222")
+    })
+
+    it("dismisses a question", async () => {
+      mockApprovals = [questionApproval()]
+      mockDismissApproval.mockResolvedValue(undefined)
+      renderRail()
+      const row = await screen.findByRole("article", { name: "Which database?" })
+      fireEvent.click(within(row).getByRole("button", { name: "Dismiss" }))
+      await waitFor(() => expect(mockDismissApproval).toHaveBeenCalledWith("http://legato", "ap-22222222"))
     })
 
     it("marks a paired instance's change set with its instance", async () => {

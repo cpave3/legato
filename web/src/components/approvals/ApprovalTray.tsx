@@ -8,7 +8,7 @@ import type { Approval } from "../../lib/approvals"
 import { usePasskeyDevice } from "../../hooks/usePasskeyDevice"
 import { QuestionFocus } from "./QuestionFocus"
 import { approvalQuestions } from "../../lib/questionDrafts"
-import { setFocusMode, useFocusMode } from "../../lib/focusMode"
+import { setFocusMode, useFocusMode, useFocusStart } from "../../lib/focusMode"
 import { ApprovalDetails, ApprovalHeader, QuestionsBody, SignedChoices, SourceBody } from "./ApprovalCardParts"
 import { choiceSize, choiceTone } from "./choiceStyles"
 import { useApprovalDecision, useDenyNote, useScrollIntoViewWhen } from "./useApprovalCard"
@@ -33,13 +33,17 @@ function useFade(open: boolean, ms = 300) {
 
 // ApprovalFocus is focus mode: agents' questions answered one at a time over
 // the whole screen (QuestionFocus), opened from the rail's header or the
-// phone's tray. It stays on until the person leaves it: with no question
+// phone's tray (at the oldest question), or from a question's own row (at
+// that question). It stays on until the person leaves it: with no question
 // left it fades out and waits, and the next question to arrive opens it
 // again. Mounted once by the layout.
 export function ApprovalFocus() {
   const { data: approvals, refresh } = useApprovals()
   const focusMode = useFocusMode()
+  const start = useFocusStart()
+  // The question whose own Focus opened it comes first; the rest by age.
   const asking = approvals.filter((approval) => approvalQuestions(approval).length > 0)
+    .sort((a, b) => Number(b.id === start) - Number(a.id === start))
   const focusOpen = focusMode && asking.length > 0
   const fade = useFade(focusOpen)
   // While focus fades out, it keeps showing what it showed.

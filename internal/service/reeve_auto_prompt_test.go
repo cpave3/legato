@@ -60,3 +60,12 @@ func TestTheRolePromptSaysHowToReadNotesAndPlans(t *testing.T) {
 		}
 	}
 }
+
+// The Reeve does not have an agent post a question twice: one asked with
+// the agent tool's own question tool is already in the operator's rail.
+func TestTheReeveDoesNotHaveAgentsPostTheirQuestionsTwice(t *testing.T) {
+	const want = "never ask an agent to post with for_operator a question it asks with its agent tool's own question tool"
+	if !strings.Contains(ReeveRolePrompt, want) {
+		t.Fatalf("the Reeve's prompt does not say %q", want)
+	}
+}

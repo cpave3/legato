@@ -276,8 +276,8 @@ func (f *contractTmux) SendKeysMultiline(name, payload string) error {
 	f.messages[name] = append(f.messages[name], payload)
 	return nil
 }
-func (f *contractTmux) SendKeysShellCommand(string, string) error { return nil }
-func (f *contractTmux) ShellReturned(string) (bool, error)        { return false, nil }
+func (f *contractTmux) RunInPane(string, []string, ...string) error { return nil }
+func (f *contractTmux) ShellReturned(string) (bool, error)          { return false, nil }
 func (f *contractTmux) PipeOutput(string) (io.Reader, func(), error) {
 	return strings.NewReader(""), func() {}, nil
 }

@@ -103,7 +103,9 @@ Legato raises approvals for agents it talks to natively: Claude Code and Codex t
 
 A task's board card says what of this waits on it: its agent's open items (**Needs you · 1 question, 1 action**), an approval (**Needs you · permission to run a command**, with **Answer**) or a plan to approve. See [Board](/legato/using/board/#cards).
 
-While approvals wait, they come first in the **Needs you** rail on the right of every page, as cards. Each says which agent asks, what it would do, and its options. **Deny** takes a note for the agent. A question shows its options, and you can type an answer of your own. A new approval opens the rail if you had folded it. On a phone the rail is the **Needs you** sheet above the tab bar.
+While approvals wait, they come first in the **Needs you** rail on the right of every page, as cards. Each says which agent asks, what it would do, and its options. **Deny** takes a note for the agent.
+
+A question from an agent's own question prompt is one compact row: a button for each answer, **Reply…** for an answer of your own, **Open agent**, and **Focus**, which opens [focus mode](#focus-mode) at that question. When the agent asks several questions at once, or lets you choose more than one answer, **Answer…** opens focus mode at them. While the agent waits on a question or an approval, the rail does not also show it as **Waiting**, and does not repeat a question the agent also posted for you; the Attention page still lists them. Answering the question closes the agent's other items, as a message to it does. A new approval opens the rail if you had folded it. On a phone the rail is the **Needs you** sheet above the tab bar.
 
 The rail also lists the [Reeve](/legato/using/reeve/)'s change sets that wait on instances this one is paired with, marked with the instance. They are decided there, with a device enrolled there: **◈ Approve on legato-1** opens that instance's page on the change set, and **Open legato-1 ↗** opens its page.
 
@@ -115,7 +117,7 @@ The [desktop app](/legato/running/desktop-app/) shows every server's approvals i
 
 ### Focus mode
 
-When agents ask questions, the focus button in the rail's header (on a phone, beside the tray's fold arrow) opens **focus mode**: the questions one at a time, in the middle of the screen with nothing else on it. Each option has a number; the agent's recommendation is marked. An agent's questions are reviewed and sent together; a single question sends from the question itself.
+When agents ask questions, the focus button in the rail's header (on a phone, beside the tray's fold arrow) opens **focus mode** at the oldest question, and a question's own **Focus** opens it at that question: the questions one at a time, in the middle of the screen with nothing else on it. Each option has a number; the agent's recommendation is marked. An agent's questions are reviewed and sent together; a single question sends from the question itself.
 
 | Key | Does |
 | --- | --- |

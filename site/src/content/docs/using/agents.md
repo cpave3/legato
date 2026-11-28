@@ -190,7 +190,7 @@ Reloading stops an agent and starts it again with the same tool, directory, reso
 
 Legato tells the reloaded agent that its session was reloaded. The web UI shows that as a message from Legato.
 
-Legato refuses to reload an agent that a swarm or a workflow runs, and one that has not reported its conversation yet. The agent keeps running.
+Legato refuses to reload an agent that a swarm runs, and one that has not reported its conversation yet. The agent keeps running. A workflow's agent can be reloaded: it comes back on the step it was on, which stays open and goes on waiting on it, and it is told so. If it cannot be started again, the step fails and **Retry step** starts it afresh.
 
 Press `U` to reload an agent on the other side of the sandbox: out of it when it runs inside, and back in when it runs outside. Use it when the sandbox blocks something the agent needs.
 

@@ -38,7 +38,7 @@ export function MobileTabBar({ sections, connected, moreOpen, onMore, needsYouOp
   const needsYou = sections.needsYou
   const rest = [sections.plans, sections.learning, sections.workflows]
   const restCount = rest.reduce((sum, section) => sum + (section.count ?? 0), 0)
-  const restActive = moreOpen || [...rest, sections.attention, sections.macros, sections.reports, sections.remote, sections.audit, sections.settings].some((section) => sectionActive(section, pathname, search))
+  const restActive = moreOpen || [...rest, sections.attention, sections.shipping, sections.macros, sections.reports, sections.remote, sections.audit, sections.settings].some((section) => sectionActive(section, pathname, search))
 
   return (
     <nav aria-label="Primary navigation" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-[var(--theme-border,#222228)] bg-lw-rail px-1 pb-[env(safe-area-inset-bottom)] pt-1.5 font-lw md:hidden">
@@ -187,6 +187,7 @@ export function MoreSheet({ sections, connected, servers, activeServerName, base
           </div>
           <Group label="Queues">
             <SectionRow section={sections.attention} onClick={onClose} />
+            <SectionRow section={sections.shipping} onClick={onClose} />
             <SectionRow section={sections.plans} />
             <SectionRow section={sections.learning} />
           </Group>
