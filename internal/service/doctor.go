@@ -78,6 +78,13 @@ type DoctorConfig struct {
 	// ProfileDirs hold the operator's credential profiles, which add to or
 	// replace the shipped ones; the profiles.app check reads them.
 	ProfileDirs []string
+	// ClaudeConfigDirs are where Claude Code keeps its transcripts (each a
+	// CLAUDE_CONFIG_DIR), which the claude-code.hooks check reads; without
+	// any, the check is not run.
+	ClaudeConfigDirs []string
+	// ClaudeModDir is the folder Legato installs its Claude Code plugins
+	// in: notices older than the newest file there are not counted.
+	ClaudeModDir string
 }
 
 // DoctorOptions are the doctor's ways of looking at the machine; tests give
@@ -257,6 +264,9 @@ func (d *Doctor) Check(ctx context.Context, cfg DoctorConfig, online bool) Docto
 	go func() {
 		defer wg.Done()
 		groups[len(tools)] = []DoctorCheck{d.checkLoginShellPath(ctx), checkProfilesNameTheirApp(cfg.ProfileDirs)}
+		if len(cfg.ClaudeConfigDirs) > 0 {
+			groups[len(tools)] = append(groups[len(tools)], checkClaudeHooks(cfg.ClaudeConfigDirs, cfg.ClaudeModDir, d.opts.Now()))
+		}
 	}()
 	wg.Wait()
 
