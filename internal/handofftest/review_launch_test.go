@@ -75,8 +75,13 @@ func TestTheCardMenuStartsReviewLoopAsOneLoopTheRunShows(t *testing.T) {
 		items[0].Values["repo"] != "acme/widget" || items[0].Values["pr_number"] != "12" || items[0].Values["agent_author"] != "true" {
 		t.Fatalf("items = %#v", items)
 	}
-	if _, ok := items[0].Values["ready"]; ok {
-		t.Fatalf("the item sets ready: %v", items[0].Values)
+	// An agent's loop marks ready once approved, keeping its pull
+	// requests drafts until then (LEG-712); it sets no steward.
+	if items[0].Values["ready"] != "true" {
+		t.Fatalf("the item does not set ready: %v", items[0].Values)
+	}
+	if _, ok := items[0].Values["steward"]; ok {
+		t.Fatalf("the item sets steward: %v", items[0].Values)
 	}
 	run, err := launcher.Start(ctx, items[0].Name, items[0].Values)
 	if err != nil {
@@ -85,7 +90,7 @@ func TestTheCardMenuStartsReviewLoopAsOneLoopTheRunShows(t *testing.T) {
 	r.runs.Open(ctx)
 
 	loop, err := r.worker.Store.ActiveReviewLoop(ctx, "acme/widget", 12)
-	if err != nil || loop == nil || !strings.HasPrefix(loop.ID, "rl-") || loop.RunID != run.ID || !loop.AgentAuthor {
+	if err != nil || loop == nil || !strings.HasPrefix(loop.ID, "rl-") || loop.RunID != run.ID || !loop.AgentAuthor || !loop.Ready {
 		t.Fatalf("loop = %+v, %v", loop, err)
 	}
 	view := r.show(t, run.ID)
