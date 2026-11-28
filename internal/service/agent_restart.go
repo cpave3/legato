@@ -158,6 +158,7 @@ func (a *agentService) restartAgentWith(ctx context.Context, taskID string, reso
 			opt.Engram, opt.EngramSession = name, engramSession
 			opt.EngramHome, _ = a.store.ExecutionEngramHome(ctx, session.ExecutionID)
 		}
+		opt.HooksOff = a.keptHookOffs(ctx, session.ExecutionID)
 	}
 	if SupportsTaskResume(session.AgentKind) {
 		resume, err := a.restartConversation(ctx, task, session)

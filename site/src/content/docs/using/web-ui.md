@@ -62,6 +62,8 @@ On a phone, the board shows one column at a time. Swipe sideways, or tap a colum
 
 The **Agents** page lists your running agents on the left, by state, as the TUI does. Open one to see it on the right.
 
+The spawn dialog (**+ Spawn agent**, or **Open agent** on a task) asks how to start an agent; [Agents](/legato/using/agents/#the-web-spawn-dialog) lists its fields. Among them, **Managed hooks** shows a ticked box for each [managed hook](/legato/agent-tools/managed-hooks/) the agent would get with the tool you picked. Untick one to start this agent without it; reloading or resuming the agent keeps it off.
+
 ### Groups
 
 Once any agent is in a group, the list shows agents by group: the groups in `groups.defaults`, then the other groups in use by name, then **Ungrouped**. Inside a group, agents keep the order by state, so one that needs you comes first. The Reeve stays pinned above the groups. A group belongs to the agent's task, so the TUI and the web UI show the same groups, and a change in either shows in the other.

@@ -17,6 +17,8 @@ export interface SpawnAgentRequest {
   sandbox?: false
   // True lets the agent's containers use the host's network; absent otherwise.
   dockerHostNetwork?: true
+  // The managed hooks unticked for this agent; absent when none were.
+  hooksOff?: string[]
   // The agent's first message; absent when nothing was written.
   prompt?: string
   // The agent tool's tier, from a macro chosen to start with; absent for none.
@@ -57,6 +59,8 @@ export interface SpawnChoices {
   offersSessionChoice: boolean
   sessionPolicy: SessionPolicy
   resources: string[]
+  // The managed hooks unticked among those the dialog showed.
+  hooksOff: string[]
   unsandboxed: boolean
   hostNetworkOffered: boolean
   hostNetwork: boolean
@@ -92,10 +96,11 @@ function clonePart(choices: SpawnChoices): Pick<SpawnAgentRequest, "joinClone" |
 }
 
 // The choices the agent starts with, each absent when left alone.
-function startPart(choices: SpawnChoices): Pick<SpawnAgentRequest, "sessionPolicy" | "resources" | "sandbox" | "dockerHostNetwork"> {
+function startPart(choices: SpawnChoices): Pick<SpawnAgentRequest, "sessionPolicy" | "resources" | "hooksOff" | "sandbox" | "dockerHostNetwork"> {
   return {
     ...(choices.offersSessionChoice ? { sessionPolicy: choices.sessionPolicy } : {}),
     ...(choices.resources.length > 0 ? { resources: choices.resources } : {}),
+    ...(choices.hooksOff.length > 0 ? { hooksOff: choices.hooksOff } : {}),
     ...(choices.unsandboxed ? { sandbox: false as const } : {}),
     ...(choices.hostNetworkOffered && choices.hostNetwork ? { dockerHostNetwork: true as const } : {}),
   }

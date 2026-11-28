@@ -98,6 +98,20 @@ describe("SpawnEphemeralModal", () => {
     expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body)).toMatchObject({ agent_kind: "claude-code", account: "work" })
   })
 
+  it("sends the managed hooks that were unticked as hooks_off", async () => {
+    serve({
+      "GET /api/adapters": () => json({ adapters: ["claude-code", "codex"], default: "claude-code" }),
+      "GET /api/settings/managed-hooks": () => json({ dir: "/hooks", supported_tools: ["claude-code"], hooks: [
+        { name: "codeeval", description: "Net-debt gate.", events: ["stop"], agent_tools: [], read_only: false, path: "/hooks/codeeval", enabled: true },
+      ] }),
+    })
+    await openModal()
+    fireEvent.click(await screen.findByRole("checkbox", { name: "codeeval" }))
+    fireEvent.click(screen.getByRole("button", { name: /^Spawn in/ }))
+    await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+    expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body)).toMatchObject({ hooks_off: ["codeeval"] })
+  })
+
   it("starts in the default directory and spawns there under the default title", async () => {
     await openModal()
 

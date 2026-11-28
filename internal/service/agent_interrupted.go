@@ -214,7 +214,6 @@ func (a *agentService) ResumeInterruptedAgent(ctx context.Context, taskID string
 		}
 	}
 	plan := a.planInterruptedResume(ctx, *session)
-	opt := plan.opt
 	if plan.open != nil {
 		switch {
 		case plan.err != nil:
@@ -233,18 +232,9 @@ func (a *agentService) ResumeInterruptedAgent(ctx context.Context, taskID string
 			return fmt.Errorf("%w: workflow step %s waits on it; retry the step to start it afresh", ErrAgentNotResumable, plan.open.attempt.Path)
 		}
 	}
-	switch {
-	case plan.err == nil && !fresh:
-	case fresh && plan.canStartNew:
-		opt.SessionPolicy, opt.ResumeSessionID, opt.ResumeWorkingDir = "", "", ""
-		opt.EngramSession = ""
-	case fresh:
-		return fmt.Errorf("%w: %s", ErrAgentNotResumable, reasonOf(plan.err))
-	default:
-		return plan.err
-	}
-	if !fresh {
-		opt.Prompt = InterruptedNote
+	opt, err := plan.startOptions(fresh)
+	if err != nil {
+		return err
 	}
 	// The repository's own resources are worked out again by the spawn.
 	chosen, _ := a.store.ListChosenExecutionResources(ctx, plan.executionID)
@@ -311,6 +301,26 @@ type interruptedResume struct {
 	open *interruptedAttempt
 }
 
+// startOptions are the options the agent starts again with: resuming its
+// conversation, told it was interrupted, or with fresh a new conversation,
+// whether or not the old one could be resumed. The error says why it
+// cannot start.
+func (p interruptedResume) startOptions(fresh bool) (AgentSpawnOptions, error) {
+	opt := p.opt
+	switch {
+	case !fresh && p.err == nil:
+		opt.Prompt = InterruptedNote
+	case !fresh:
+		return opt, p.err
+	case p.canStartNew || p.err == nil:
+		opt.SessionPolicy, opt.ResumeSessionID, opt.ResumeWorkingDir = "", "", ""
+		opt.EngramSession = ""
+	default:
+		return opt, fmt.Errorf("%w: %s", ErrAgentNotResumable, reasonOf(p.err))
+	}
+	return opt, nil
+}
+
 func (a *agentService) planInterruptedResume(ctx context.Context, s store.AgentSession) interruptedResume {
 	var plan interruptedResume
 	sandboxed := s.Sandboxed
@@ -368,7 +378,8 @@ func (a *agentService) planInterruptedResume(ctx context.Context, s store.AgentS
 
 // runSpawnOptions is how a run of an agent started, as a spawn would start
 // it again: its tool, its folder, its sandbox choice (nil leaves the
-// default), its Docker host network, its engram and engram session. It
+// default), its Docker host network, its engram and engram session, and
+// the managed hooks turned off at its spawn (keptHookOffs). It
 // also returns the names of the resources it was given.
 func (a *agentService) runSpawnOptions(ctx context.Context, kind string, sandboxed *bool, dockerHostNetwork bool, executionID string) (AgentSpawnOptions, []string, error) {
 	opt := AgentSpawnOptions{AgentKind: kind}
@@ -390,6 +401,7 @@ func (a *agentService) runSpawnOptions(ctx context.Context, kind string, sandbox
 			opt.Engram, opt.EngramSession = name, engramSession
 		}
 		resources, _ = a.store.ListExecutionResources(ctx, executionID)
+		opt.HooksOff = a.keptHookOffs(ctx, executionID)
 	}
 	return opt, resources, nil
 }

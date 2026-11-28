@@ -4,7 +4,7 @@ import { buildSpawnRequest, spawnWorkingDir, type SpawnChoices } from "../spawnR
 const plain: SpawnChoices = {
   title: "", agentKind: "", effectiveAdapter: "chimera", account: "", path: "~/Projects/legato",
   inClone: false, branch: "", baseBranch: "",
-  offersSessionChoice: false, sessionPolicy: "resume", resources: [],
+  offersSessionChoice: false, sessionPolicy: "resume", resources: [], hooksOff: [],
   unsandboxed: false, hostNetworkOffered: false, hostNetwork: false,
   prompt: "", tier: "", engramShown: false, engram: "", canRemember: false, rememberEngram: false,
 }

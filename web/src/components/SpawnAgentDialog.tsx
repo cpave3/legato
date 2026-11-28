@@ -14,6 +14,8 @@ import { useMacroChoice } from "./spawn/useMacroChoice"
 import { useSpawnSubmit } from "./spawn/useSpawnSubmit"
 import { useResources } from "./spawn/useResources"
 import { ResourcesField } from "./spawn/ResourcesField"
+import { useManagedHooks } from "./spawn/useManagedHooks"
+import { ManagedHooksField } from "./spawn/ManagedHooksField"
 import { AccountField, AgentField } from "./spawn/AgentField"
 import { SessionPolicyField } from "./spawn/SessionPolicyField"
 import { MacroField } from "./spawn/MacroField"
@@ -90,6 +92,7 @@ export function SpawnAgentDialog({
   const [prompt, setPrompt] = useState("")
   const macro = useMacroChoice({ open, openKey, baseUrl, setPrompt, setAgentKind, setAccount })
   const resources = useResources(openKey, baseUrl)
+  const managedHooks = useManagedHooks(openKey, baseUrl, effectiveAdapter)
   const sending = useSpawnSubmit(openKey, onSubmit)
   const { loading, error } = sending
 
@@ -124,7 +127,7 @@ export function SpawnAgentDialog({
     void sending.run(savePreset, () => buildSpawnRequest({
       title, agentKind, effectiveAdapter, account, path, inClone, jobClone: clone.jobClone, cloneRepo: cloneRepository?.repo,
       branch: clone.branch, baseBranch: clone.baseBranch, offersSessionChoice, sessionPolicy, resources: resources.picked,
-      unsandboxed, hostNetworkOffered, hostNetwork, prompt, tier: macro.tier,
+      hooksOff: managedHooks.off, unsandboxed, hostNetworkOffered, hostNetwork, prompt, tier: macro.tier,
       engramShown: engram.shown, engram: engram.engram, canRemember: engram.canRemember, rememberEngram: engram.remember,
     }))
   }
@@ -188,6 +191,7 @@ export function SpawnAgentDialog({
 
         <WhereField dir={dir} clone={clone} listId={listId} customPathShown={customPathShown} layoutKey={JSON.stringify([error, offersSessionChoice])} />
         {resources.resources.length > 0 && <ResourcesField choice={resources} />}
+        <ManagedHooksField choice={managedHooks} />
         {macro.macros.favorites.length + macro.macros.rest.length > 0 && <MacroField macro={macro} />}
         {/* The agent's first message, sent once it is ready. */}
         <label className="flex flex-col gap-1.5">

@@ -3,7 +3,7 @@ import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
 import { SpawnAgentDialog } from "./SpawnAgentDialog"
 import { type SpawnAgentRequest } from "../lib/spawnRequest"
-import { spawnPlace } from "../lib/spawnPlace"
+import { spawnPlace, spawnStartFields } from "../lib/spawnPlace"
 import { engramFields, readSpawnWarning } from "../lib/engrams"
 import { useToast } from "../hooks/useToast"
 
@@ -30,11 +30,7 @@ export function SpawnEphemeralModal({
         agent_kind: request.agentKind,
         ...(request.account ? { account: request.account } : {}),
         ...spawnPlace(request),
-        ...(request.resources ? { resources: request.resources } : {}),
-        ...(request.sandbox === false ? { sandbox: false } : {}),
-        ...(request.dockerHostNetwork ? { docker_host_network: true } : {}),
-        ...(request.prompt ? { prompt: request.prompt } : {}),
-        ...(request.tier ? { tier: request.tier } : {}),
+        ...spawnStartFields(request),
         ...engramFields(request),
       }),
     })

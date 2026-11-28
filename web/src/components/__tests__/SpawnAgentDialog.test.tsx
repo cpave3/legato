@@ -313,6 +313,74 @@ describe("SpawnAgentDialog", () => {
     })
   })
 
+  describe("managed hooks", () => {
+    const hook = (name: string, more: Record<string, unknown> = {}) => ({
+      name, description: `${name}.`, events: ["stop"], agent_tools: [], read_only: false, path: `/hooks/${name}`, enabled: true, ...more,
+    })
+    const hooksServed = (supported = ["claude-code"]) => serve({ "GET /api/settings/managed-hooks": () => json({
+      dir: "/hooks", supported_tools: supported, repositories: [],
+      hooks: [
+        hook("codeeval"),
+        hook("lint", { agent_tools: ["claude-code"] }),
+        hook("codex-only", { agent_tools: ["codex"] }),
+        hook("off-for-all", { enabled: false }),
+        hook("broken", { error: "no events" }),
+      ],
+    }) })
+    const hookBoxes = () => within(screen.queryByRole("group", { name: "Managed hooks" }) ?? document.createElement("div"))
+      .queryAllByRole("checkbox").map((box) => [box.getAttribute("aria-label") ?? box.closest("label")?.textContent, (box as HTMLInputElement).checked])
+
+    it("ticks each hook that would apply to the chosen tool, and follows the tool", async () => {
+      hooksServed()
+      await openDialog()
+      fireEvent.click(screen.getByRole("radio", { name: "Claude Code" }))
+      await vi.waitFor(() => expect(hookBoxes()).toEqual([["codeeval", true], ["lint", true]]))
+
+      // Codex runs no managed hooks yet, and neither does Chimera.
+      fireEvent.click(screen.getByRole("radio", { name: "Codex" }))
+      expect(screen.queryByRole("group", { name: "Managed hooks" })).toBeNull()
+      fireEvent.click(screen.getByRole("radio", { name: "Chimera" }))
+      expect(screen.queryByRole("group", { name: "Managed hooks" })).toBeNull()
+      expect((await submit("Start in legato")).hooksOff).toBeUndefined()
+    })
+
+    it("sends a hook unticked as hooks_off, and sends nothing while every box is ticked", async () => {
+      hooksServed()
+      await openDialog()
+      fireEvent.click(screen.getByRole("radio", { name: "Claude Code" }))
+      const lint = await screen.findByRole("checkbox", { name: "lint" })
+      fireEvent.click(lint)
+      expect(hookBoxes()).toEqual([["codeeval", true], ["lint", false]])
+      expect((await submit("Start in legato")).hooksOff).toEqual(["lint"])
+    })
+
+    it("sends no off for a hook unticked under another tool", async () => {
+      hooksServed(["claude-code", "codex"])
+      await openDialog()
+      fireEvent.click(screen.getByRole("radio", { name: "Claude Code" }))
+      fireEvent.click(await screen.findByRole("checkbox", { name: "lint" }))
+      fireEvent.click(screen.getByRole("radio", { name: "Codex" }))
+      await vi.waitFor(() => expect(hookBoxes()).toEqual([["codeeval", true], ["codex-only", true]]))
+      expect((await submit("Start in legato")).hooksOff).toBeUndefined()
+    })
+
+    it("shows no section without a hook that applies, or on a server without managed hooks", async () => {
+      serve({ "GET /api/settings/managed-hooks": () => json({ error: "managed hooks are not available here" }, 503) })
+      await openDialog()
+      fireEvent.click(screen.getByRole("radio", { name: "Claude Code" }))
+      await vi.waitFor(() => expect(apiFetch.mock.calls.some(([, path]) => path === "/api/settings/managed-hooks")).toBe(true))
+      expect(screen.queryByRole("group", { name: "Managed hooks" })).toBeNull()
+      cleanup()
+
+      // An older server names no tool that runs them.
+      serve({ "GET /api/settings/managed-hooks": () => json({ dir: "/hooks", hooks: [hook("codeeval")] }) })
+      await openDialog()
+      fireEvent.click(screen.getByRole("radio", { name: "Claude Code" }))
+      await vi.waitFor(() => expect(apiFetch.mock.calls.some(([, path]) => path === "/api/settings/managed-hooks")).toBe(true))
+      expect(screen.queryByRole("group", { name: "Managed hooks" })).toBeNull()
+    })
+  })
+
   it("gives the agent the resources picked, and takes back one unpicked", async () => {
     serve({ "GET /api/resources": () => json({ resources: [
       { name: "Vault", configured: true, paths: [{ path: "/home/me/Vault", access: "write" }] },

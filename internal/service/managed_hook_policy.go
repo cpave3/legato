@@ -318,3 +318,51 @@ func nonNil(list []string) []string {
 	}
 	return list
 }
+
+// keptHookOffs are the managed hooks the operator turned off when an
+// execution was spawned (source spawn), which a relaunch of its agent
+// (restart, sandbox switch, interrupted resume, Restore, Start fresh)
+// turns off again: only the choice is carried; every other layer is
+// worked out again at the new spawn. None for no execution, or when the
+// records cannot be read (logged).
+func (a *agentService) keptHookOffs(ctx context.Context, executionID string) []string {
+	if executionID == "" {
+		return nil
+	}
+	_, offs, err := a.store.ExecutionManagedHooks(ctx, executionID)
+	if err != nil {
+		log.Printf("managed hooks: reading the offs chosen for %s: %v", executionID, err)
+		return nil
+	}
+	var names []string
+	for _, off := range offs {
+		if off.Source == ChosenOffSpawn && !slices.Contains(names, off.Name) {
+			names = append(names, off.Name)
+		}
+	}
+	return names
+}
+
+// AdapterLookup is what names the agent tools and finds each one's
+// adapter: the agent service.
+type AdapterLookup interface {
+	RegisteredAdapters() []string
+	AdapterFor(kind string) AIToolAdapter
+}
+
+// ManagedHookTools names the agent tools that can run managed hooks, those
+// whose adapter is a HooksAdapter, sorted; never nil. The web spawn dialog
+// offers a hook's checkbox only for these (the "tool supported" rule), so
+// it learns it from the server rather than naming a tool itself.
+func ManagedHookTools(agents AdapterLookup) []string {
+	tools := []string{}
+	if agents == nil {
+		return tools
+	}
+	for _, name := range agents.RegisteredAdapters() {
+		if _, ok := agents.AdapterFor(name).(HooksAdapter); ok {
+			tools = append(tools, name)
+		}
+	}
+	return tools
+}

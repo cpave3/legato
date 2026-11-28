@@ -25,8 +25,9 @@ const managedHooksUnavailable = "managed hooks are not available here"
 
 // managedHooksHandler serves GET /api/settings/managed-hooks: the
 // managed-hooks folder and every hook in it, found again at each ask, with
-// its state and any error. repositories, the repository offs, stays empty
-// until they are built.
+// its state and any error. supported_tools names the agent tools that can
+// run managed hooks, which the spawn dialog offers checkboxes for.
+// repositories, the repository offs, stays empty until they are built.
 func (s *Server) managedHooksHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.managedHooks == nil {
@@ -38,7 +39,11 @@ func (s *Server) managedHooksHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		s.writeJSON(w, http.StatusOK, map[string]any{"dir": s.managedHooks.Dir(), "hooks": list, "repositories": []any{}})
+		var agents service.AdapterLookup
+		if s.agents != nil {
+			agents = s.agents
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"dir": s.managedHooks.Dir(), "hooks": list, "supported_tools": service.ManagedHookTools(agents), "repositories": []any{}})
 	}
 }
 

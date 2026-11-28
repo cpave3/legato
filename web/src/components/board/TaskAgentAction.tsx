@@ -9,7 +9,7 @@ import { apiFetch } from "../../lib/api"
 import { Button } from "../ui/Button"
 import { SpawnAgentDialog } from "../SpawnAgentDialog"
 import { type SpawnAgentRequest } from "../../lib/spawnRequest"
-import { spawnPlace } from "../../lib/spawnPlace"
+import { spawnPlace, spawnStartFields } from "../../lib/spawnPlace"
 import { StartSwarmModal } from "../StartSwarmModal"
 import { resolveTaskWorkingDirectory } from "../../lib/taskLaunch"
 import { engramFields, readSpawnWarning } from "../../lib/engrams"
@@ -30,17 +30,13 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
   const initialWorkingDir = resolveTaskWorkingDirectory(worktreePath, rememberedWorkingDir, settings.data?.working_dir || "")
 
   const launch = useCallback(async (request: SpawnAgentRequest) => {
-    const body: { agent_kind: string; account?: string; working_dir?: string; repo?: string; ref?: string; branch?: string; clone_id?: number; session_policy?: "resume" | "new"; resources?: string[]; sandbox?: false; docker_host_network?: true; prompt?: string; tier?: string; engram?: string; remember_engram?: boolean } = {
+    const body: { agent_kind: string; account?: string; working_dir?: string; repo?: string; ref?: string; branch?: string; clone_id?: number; session_policy?: "resume" | "new"; resources?: string[]; hooks_off?: string[]; sandbox?: false; docker_host_network?: true; prompt?: string; tier?: string; engram?: string; remember_engram?: boolean } = {
       agent_kind: request.agentKind,
       ...(request.account ? { account: request.account } : {}),
     }
     Object.assign(body, spawnPlace(request))
     if (request.sessionPolicy) body.session_policy = request.sessionPolicy
-    if (request.resources) body.resources = request.resources
-    if (request.sandbox === false) body.sandbox = false
-    if (request.dockerHostNetwork) body.docker_host_network = true
-    if (request.prompt) body.prompt = request.prompt
-    if (request.tier) body.tier = request.tier
+    Object.assign(body, spawnStartFields(request))
     Object.assign(body, engramFields(request))
     const response = await apiFetch(baseUrl, `/api/tasks/${encodeURIComponent(taskId)}/agent`, {
       method: "POST",

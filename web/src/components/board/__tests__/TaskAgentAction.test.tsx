@@ -176,6 +176,27 @@ describe("TaskAgentAction", () => {
     })))
   })
 
+  it("starts the task's agent without the managed hooks that were unticked", async () => {
+    apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(
+      path === "/api/adapters"
+        ? new Response(JSON.stringify({ adapters: ["claude-code"], default: "claude-code" }), { status: 200 })
+        : path === "/api/settings/managed-hooks"
+          ? new Response(JSON.stringify({ dir: "/hooks", supported_tools: ["claude-code"], hooks: [
+            { name: "codeeval", description: "Net-debt gate.", events: ["stop"], agent_tools: [], read_only: false, path: "/hooks/codeeval", enabled: true },
+          ] }), { status: 200 })
+          : new Response(JSON.stringify({ task_id: "T-1", created: true }), { status: 201 }),
+    ))
+
+    render(<MemoryRouter><TaskAgentAction taskId="T-1" worktreePath="/trees/t-1" /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
+    await startsIn("/trees/t-1")
+    fireEvent.click(await screen.findByRole("checkbox", { name: "codeeval" }))
+    await confirm()
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
+      body: JSON.stringify({ agent_kind: "", working_dir: "/trees/t-1", hooks_off: ["codeeval"] }),
+    })))
+  })
+
   it("starts the task's agent in a fresh clone on a branch named after the task", async () => {
     settingsData.fresh_clones_enabled = true
     apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(

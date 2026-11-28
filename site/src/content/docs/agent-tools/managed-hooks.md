@@ -95,7 +95,9 @@ Each time Legato starts an agent, it checks every hook in the folder and records
 | `off:find-out` | The agent works on a find-out task handed from another Legato. |
 | `off:workflow` | A workflow started the agent. Workflow agents get no managed hooks for now. |
 
-To leave hooks out of one agent, start it with `hooks_off`, a list of hook names, on `POST /api/agents/spawn` or `POST /api/tasks/{id}/agent`. A name that is no hook is ignored, with a note on the task. `GET /api/agents/{task_id}/managed-hooks` lists what an agent has and why the rest are off. An agent started before managed hooks existed has none recorded.
+To leave a hook out of one agent, untick it in the web UI's [spawn dialog](/legato/using/agents/#the-web-spawn-dialog), which shows a ticked box for each hook that agent would get with the tool you picked (none for a tool that cannot run managed hooks). Or start the agent with `hooks_off`, a list of hook names, on `POST /api/agents/spawn` or `POST /api/tasks/{id}/agent`.
+
+The hooks you leave out stay out when the agent is started again: reloaded, switched in or out of the sandbox, resumed after a crash or started new in its place, restored or started fresh from the session history. Everything else is worked out again then, so a hook you turned off in Settings meanwhile is off, and one you turned back on is on. A name that is no hook is ignored, with a note on the task. `GET /api/agents/{task_id}/managed-hooks` lists what an agent has and why the rest are off. An agent started before managed hooks existed has none recorded.
 
 ## What agents get
 
@@ -135,3 +137,4 @@ A hook that fails, runs out of time or cannot start lets the agent carry on.
 - There are no per-repository offs and `yields_to` is not acted on yet. A repository whose own `.claude/settings.json` already runs CodeEval's Stop hook, or a `~/.claude/settings.json` that does, runs it twice: once there and once as the managed hook. The code-evaluator repository is one. Untick `codeeval` when you start the agent, or send `hooks_off: [codeeval]`.
 - A `disableAllHooks` setting in Claude Code turns the gate off without a warning.
 - Legato does not yet warn you when an agent's hooks never ran.
+- Only the web spawn dialog has the boxes; the TUI's spawn dialog does not.

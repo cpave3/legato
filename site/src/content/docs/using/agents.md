@@ -69,6 +69,7 @@ The web UI's dialog asks the same questions and adds these:
 
 - **First message**: text the agent gets as its first message once it is ready. `Ctrl+Enter` spawns from any field.
 - **Engram**: with the engram command installed, start the agent as one of your [engrams](/legato/agent-tools/engrams/), or as **No engram** for a normal session. The engram's summary is shown under it.
+- **Managed hooks**: a ticked box for each [managed hook](/legato/agent-tools/managed-hooks/) the agent would get: one that is on in Settings, has no mistake, and is for the tool you picked, when that tool can run managed hooks (Claude Code for now). The boxes change with the tool, and there are none for Codex, Chimera or a shell. Untick a hook to start this agent without it. Reloading the agent, switching its sandbox, resuming it after a crash, **Start new**, **Restore** and **Start fresh** all keep it off.
 - **Clone**: with `repository_cache.enabled`, a **Folder | Clone** switch lets the agent start in a fresh clone of a repository on a branch of its own, instead of a folder. The agent appears under **Starting** while Legato copies and sets up the clone.
 
 ## Agents with no task
@@ -183,7 +184,7 @@ A task has one agent of its own, and Legato may run another beside it: a reviewe
 
 ## Reloading an agent
 
-Reloading stops an agent and starts it again with the same tool, directory, resources and sandbox choice, and resumes its conversation. The agent then reads its MCP servers, plugins and hooks again.
+Reloading stops an agent and starts it again with the same tool, directory, resources and sandbox choice, and the [managed hooks](/legato/agent-tools/managed-hooks/) you left out when you started it, and resumes its conversation. The agent then reads its MCP servers, plugins and hooks again.
 
 - In the TUI, press `R` in the agents view.
 - In the web UI, choose **Reload agent** in the agent's **More actions** menu.
