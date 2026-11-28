@@ -36,7 +36,11 @@ const stats = { days: ["d1", "d2", "d3", "d4", "d5", "d6", "d7"], workflows: {
 
 // The map of the same workflows: ci-health calls ci-flake-check.
 const workflowMap = {
-  nodes: definitions.map(d => ({ id: d.name, name: d.name, title: d.title, tags: d.tags, source: d.source })),
+  nodes: [
+    ...definitions.map(d => ({ id: d.name, name: d.name, title: d.title, tags: d.tags, source: d.source })),
+    // A broken file whose name: is a defined workflow's.
+    { id: "file:/w/ci-health.yaml", name: "ci-health", broken: true, source: "/w/ci-health.yaml", error: "steps: oops" },
+  ],
   edges: [{ id: "ci-health->ci-flake-check", source: "ci-health", target: "ci-flake-check", calls: 1, steps: ["flakes"] }],
 }
 
@@ -202,13 +206,22 @@ describe("the workflows map", () => {
     fireEvent.click(screen.getByRole("button", { name: "Map" }))
     expect(screen.getByRole("region", { name: "Workflow map" })).toBeTruthy()
     expect(await screen.findByRole("button", { name: /^CI health/ })).toBeTruthy()
-    expect(screen.getByRole("group", { name: /^Stand alone, 3 workflows/ })).toBeTruthy()
+    expect(screen.getByRole("group", { name: /^Stand alone, 4 workflows/ })).toBeTruthy()
     expect(screen.queryByRole("searchbox", { name: "Search workflows" })).toBeNull()
     cleanup()
     open()
     expect(screen.getByRole("button", { name: "Map" }).getAttribute("aria-pressed")).toBe("true")
     fireEvent.click(screen.getByRole("button", { name: "List" }))
     expect(screen.getByRole("searchbox", { name: "Search workflows" })).toBeTruthy()
+  })
+
+  it("says what is wrong with a broken file chosen on the map, instead of opening a workflow of its name", async () => {
+    open()
+    fireEvent.click(screen.getByRole("button", { name: "Map" }))
+    const broken = (await screen.findByRole("button", { name: /^ci-health, does not parse/ })).closest<HTMLElement>(".react-flow__node")!
+    fireEvent.click(broken)
+    expect(screen.getByRole("alert").textContent).toContain("can't be parsed: steps: oops")
+    expect(screen.getByRole("region", { name: "Workflow map" })).toBeTruthy()
   })
 
   it("filters the map by tag", async () => {

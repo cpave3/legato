@@ -1,7 +1,7 @@
 // The workflow map drawn with React Flow (LEG-710). Loaded only through
 // LazyWorkflowMapCanvas, so React Flow stays out of every other page's
 // bundle. Places come from layoutWorkflowMap; this file only draws them.
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { BaseEdge, Controls, EdgeLabelRenderer, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type EdgeProps, type EdgeTypes, type Node, type NodeProps, type NodeTypes } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
 import { CircleAlert, Clock, Columns3, GitPullRequest, MessageSquare, Play, type LucideIcon } from "lucide-react"
@@ -16,8 +16,9 @@ export type WorkflowMapCanvasProps = {
   // Workflows (by ID) drawn faint: kept only because they call or are
   // called by those the tag filter shows.
   context: ReadonlySet<string>
-  // Opens a workflow's page, by name.
-  onOpen: (name: string) => void
+  // Opens a workflow: the whole node, so a broken file or a missing
+  // workflow is never taken for a workflow of its name.
+  onOpen: (node: WorkflowMapNode) => void
 }
 
 type NodeData = { placed?: PlacedNode; box?: StandaloneBox; called: boolean; dimmed: boolean }
@@ -219,28 +220,28 @@ function MapView({ map, context, onOpen }: WorkflowMapCanvasProps) {
   const nodes = useMemo(() => flowNodes(layout, called, lit, context, selected), [layout, lit, context, selected, called])
   const edges = useMemo(() => flowEdges(layout, lit, context), [layout, lit, context])
 
-  const nameOf = useCallback((id: string) => layout.nodes.find(item => item.id === id)?.node.name, [layout])
+  const nodeOf = useCallback((id: string) => layout.nodes.find(item => item.id === id)?.node, [layout])
   // tapped is the workflow a touch screen's last tap lit: a tap focuses a
   // node before it clicks it, so focus alone never counts as the first tap.
   const tapped = useRef<string | null>(null)
   const choose = useCallback((id: string) => {
     if (hoverless() && tapped.current !== id) { tapped.current = id; setSelected(id); return }
-    const name = nameOf(id)
-    if (name) onOpen(name)
-  }, [nameOf, onOpen])
+    const node = nodeOf(id)
+    if (node) onOpen(node)
+  }, [nodeOf, onOpen])
   const frame = useRef<HTMLDivElement>(null)
   // Enter opens a focused workflow; focus lights its calls.
   const onKeyDown = useCallback((event: React.KeyboardEvent) => {
     const id = nodeIdOf(event)
-    const name = id && (event.key === "Enter" || event.key === " ") ? nameOf(id) : undefined
-    if (!name) return
+    const node = id && (event.key === "Enter" || event.key === " ") ? nodeOf(id) : undefined
+    if (!node) return
     event.preventDefault()
-    onOpen(name)
-  }, [nameOf, onOpen])
+    onOpen(node)
+  }, [nodeOf, onOpen])
   const onFocus = useCallback((event: React.FocusEvent) => {
     const id = nodeIdOf(event)
-    if (id && nameOf(id)) setSelected(id)
-  }, [nameOf])
+    if (id && nodeOf(id)) setSelected(id)
+  }, [nodeOf])
   // A wide screen sees all of the map; a phone its width, from its top.
   const fitAll = useCallback(() => {
     const width = frame.current?.clientWidth ?? 0
@@ -248,6 +249,14 @@ function MapView({ map, context, onOpen }: WorkflowMapCanvasProps) {
     if (width >= 768) void flow.fitView({ padding: 0.1, minZoom: 0.3, maxZoom: 1 })
     else void flow.setViewport(phoneViewport(layout, width))
   }, [flow, layout])
+  // A new layout (a tag chosen, a workflow added) is framed again: the old
+  // view may show none of it. The first is framed by onInit.
+  const framed = useRef(layout)
+  useEffect(() => {
+    if (framed.current === layout) return
+    framed.current = layout
+    fitAll()
+  }, [layout, fitAll])
 
   return <div ref={frame} onKeyDown={onKeyDown} onFocus={onFocus} className="relative h-full w-full"
     style={{ "--xy-background-color": "var(--color-lw-ground)", "--xy-controls-button-background-color": "var(--color-lw-surface)", "--xy-controls-button-color": "var(--color-lw-text)", "--xy-controls-button-border-color": "var(--color-lw-line)" } as React.CSSProperties}>

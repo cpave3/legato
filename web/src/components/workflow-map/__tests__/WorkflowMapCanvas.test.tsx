@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { mockReactFlow } from "../../../test/reactFlow"
 import type { WorkflowMap } from "../../../lib/workflowMap"
@@ -57,7 +57,10 @@ describe("the workflow map", () => {
   it("opens a workflow on click, and on a touch screen on the second tap", async () => {
     const { onOpen } = draw()
     fireEvent.click(await nodeOf(/^Review loop/))
-    expect(onOpen).toHaveBeenLastCalledWith("review-loop")
+    expect(onOpen).toHaveBeenLastCalledWith(expect.objectContaining({ id: "review-loop" }))
+    // A broken node is handed over whole, its file with it, not by name.
+    fireEvent.click(await nodeOf(/^broken/))
+    expect(onOpen).toHaveBeenLastCalledWith(expect.objectContaining({ id: "broken", broken: true }))
     cleanup()
     vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(hover: none)", addEventListener() {}, removeEventListener() {} }))
     const touch = draw()
@@ -67,12 +70,32 @@ describe("the workflow map", () => {
     expect(touch.onOpen).not.toHaveBeenCalled()
     expect(faint(await nodeOf(/^One-off task/))).toBe(true)
     fireEvent.click(await nodeOf(/^Ticket to merged pull request/))
-    expect(touch.onOpen).toHaveBeenLastCalledWith("ticket-to-merged-pr")
+    expect(touch.onOpen).toHaveBeenLastCalledWith(expect.objectContaining({ id: "ticket-to-merged-pr" }))
   })
 
   it("draws workflows kept only as context faint", async () => {
     draw({ context: new Set(["review-loop"]) })
     expect(faint(await nodeOf(/^Review loop/))).toBe(true)
     expect(faint(await nodeOf(/^Ticket to merged pull request/))).toBe(false)
+  })
+})
+
+describe("framing the map", () => {
+  it("fits the map again when its workflows change, as a tag filter changes them", async () => {
+    // A phone-width frame: the map's width is fitted, so a wide map is
+    // zoomed out and a single workflow is not.
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get() { return 390 } })
+    try {
+      const wide: WorkflowMap = { nodes: Array.from({ length: 6 }, (_, i) => ({ id: `w${i}`, name: `w${i}` })), edges: [] }
+      const onOpen = vi.fn()
+      const { rerender } = render(<div style={{ width: 390, height: 600 }}><WorkflowMapCanvas map={wide} context={new Set()} onOpen={onOpen} /></div>)
+      await nodeOf(/^w0/)
+      const scale = () => document.querySelector<HTMLElement>(".react-flow__viewport")!.style.transform
+      await waitFor(() => expect(scale()).toMatch(/scale\(0\./))
+      rerender(<div style={{ width: 390, height: 600 }}><WorkflowMapCanvas map={{ nodes: [wide.nodes[5]], edges: [] }} context={new Set()} onOpen={onOpen} /></div>)
+      await waitFor(() => expect(scale()).toContain("scale(1)"))
+    } finally {
+      delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth
+    }
   })
 })
