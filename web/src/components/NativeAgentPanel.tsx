@@ -33,7 +33,7 @@ import { agentChatState, isBangText, isChimeraKind, isRecoveryReply, reasonText 
 import type { AgentStageInfo } from "./AgentStageChip"
 import { ResourcesButton } from "./ResourcesButton"
 import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, SendButton, WorkingStrip, type QueuedEntry } from "./Composer"
-import { CONTEXT_NEARLY_FULL, composerToolButton, currentStep, dictating, failQueuedByWords, formatElapsed, isCommandText, queueMessage, settleQueued, unreadQueued, type QueuedMessage } from "../lib/composer"
+import { CONTEXT_NEARLY_FULL, composerToolButton, currentStep, dictating, formatElapsed, isCommandText } from "../lib/composer"
 import { useTurnClock } from "../hooks/useTurnClock"
 import { usePageInView } from "../hooks/usePageInView"
 import { legatoUICall, forOperatorCall, speakFailed, speakText } from "../lib/agentUi"
@@ -74,6 +74,7 @@ import { useComposerKeys } from "./useComposerKeys"
 import { useDropdown } from "./useDropdown"
 import { useSessionSettings } from "./useSessionSettings"
 import { useBangCommands } from "./useBangCommands"
+import { useQueuedMessages } from "./useQueuedMessages"
 
 // The least width at which subagent tiles sit beside the conversation; below
 // it they are a strip above it.
@@ -272,7 +273,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const [syncing, setSyncing] = useState(false)
   const [mode, setMode] = useState<string>("")
   const scroll = useConversationScroll(loading, syncState.items)
-  const { draft, setDraft, textareaRef, appendWords, insertImage } = useDraft(agentId, composerEnabled)
+  const { draft, setDraft, textareaRef, appendWords, insertImage, focusBox } = useDraft(agentId, composerEnabled)
   const { modes, models, macros, catalogKey, catalog, slashItems, retryCatalog } = useAgentCatalog(agentId, baseUrl)
   const { scrollRef, isScrolledUp, scrollToBottom, scrollToBottomAfterRender, restoreAfterSync, followLatest, restartInitialScroll } = scroll
   const { items, busy, error, contextUsage, model } = syncState
@@ -411,41 +412,13 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const bang = useBangCommands({ agentId, baseUrl, busy, resync, failWith, scrollToBottomAfterRender, setDraft, textareaRef })
   const { runOrQueue: runOrQueueBang, runNext: runNextBang } = bang
   const isBang = isBangText(draft.trim())
-  // Messages sent from the box, until the conversation shows them. A turn
-  // that ends is no proof: what it did not read is the agent's next prompt.
-  const [queued, setQueued] = useState<QueuedMessage[]>([])
+  const queue = useQueuedMessages(items, busy, setDraft, focusBox)
+  const { enqueue, settle: settleMessage, failByWords } = queue
   // Why the last message could not leave the page; it stays in the box.
   const [sendError, setSendError] = useState<string | null>(null)
   // The agent's latest compaction, as its events tell it.
   const [compaction, setCompaction] = useState<Compaction>()
-  const unread = unreadQueued(queued, items)
-  // Forget what the conversation shows, so a conversation started over (a
-  // /clear) does not bring it back.
-  if (unread.length !== queued.length) setQueued(unread)
-  const queuedEntries: QueuedEntry[] = [
-    ...unread.map((entry) => ({
-      key: entry.id,
-      text: entry.text,
-      state: entry.state,
-      error: entry.error,
-      ...(entry.state === "failed"
-        ? {
-            onEdit: () => {
-              setQueued((current) => current.filter((other) => other.id !== entry.id))
-              setDraft(entry.text)
-              textareaRef.current?.focus()
-            },
-            onRemove: () => setQueued((current) => current.filter((other) => other.id !== entry.id)),
-          }
-        : !busy && entry.state === "sent"
-          ? {
-              onRemove: () => setQueued((current) => current.filter((other) => other.id !== entry.id)),
-              removeLabel: "Stop listing this message",
-            }
-          : {}),
-    })),
-    ...bang.entries,
-  ]
+  const queuedEntries: QueuedEntry[] = [...queue.entries, ...bang.entries]
 
   useEffect(() => {
     const unsubscribe = subscribe((msg: WSMessage) => {
@@ -464,11 +437,11 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         return
       }
       if (msg.type === "agent_message_sent" && msg.request_id) {
-        setQueued((current) => settleQueued(current, msg.request_id!))
+        settleMessage(msg.request_id)
         return
       }
       if (msg.type === "error" && msg.request_id?.startsWith(MESSAGE_REQUEST)) {
-        setQueued((current) => settleQueued(current, msg.request_id!, msg.error || "The message could not be sent"))
+        settleMessage(msg.request_id!, msg.error || "The message could not be sent")
         stopUnconfirmedWorking()
         return
       }
@@ -502,7 +475,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
             sentCommandsRef.current.splice(at, 1)
             setSendError(`Not sent: ${words.trim()}: ${reason}`)
           } else {
-            setQueued((current) => failQueuedByWords(current, words, reason))
+            failByWords(words, reason)
           }
           stopUnconfirmedWorking()
           return
@@ -536,7 +509,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       unsubscribe()
       if (following) send({ type: "unsubscribe_agent", agent_id: agentId })
     }
-  }, [subscribe, agentId, agentKind, applyEvent, replaceSyncState, resync, runNextBang, following, send, stopUnconfirmedWorking, followLatest])
+  }, [subscribe, agentId, agentKind, applyEvent, replaceSyncState, resync, runNextBang, following, send, stopUnconfirmedWorking, followLatest, settleMessage, failByWords])
 
   const handleBuiltinSlash = useCallback(async (raw: string) => {
     const parts = raw.split(/\s+/)
@@ -595,7 +568,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     // A command the agent runs is never shown as a message, so it is not
     // listed; it is only answered, and an error for it shows as one. A path
     // at the start (/tmp/a.png what is this?) is a message, not a command.
-    if (!isCommandText(trimmed)) setQueued((current) => queueMessage(current, trimmed, syncStateRef.current.items, requestId))
+    if (!isCommandText(trimmed)) enqueue(trimmed, syncStateRef.current.items, requestId)
     else sentCommandsRef.current = [...sentCommandsRef.current.slice(-(SENT_COMMANDS_KEPT - 1)), trimmed]
     setDraft("")
     if (!busy) {
@@ -603,7 +576,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       replaceSyncState({ ...syncStateRef.current, busy: true, error: null })
     }
     scrollToBottomAfterRender()
-  }, [draft, busy, agentId, baseUrl, send, replaceSyncState, scrollToBottomAfterRender, runOrQueueBang, handleBuiltinSlash, setDraft])
+  }, [draft, busy, agentId, baseUrl, send, replaceSyncState, scrollToBottomAfterRender, runOrQueueBang, handleBuiltinSlash, setDraft, enqueue])
 
   const handleInterrupt = useCallback(() => {
     send({ type: "agent_interrupt", agent_id: agentId })

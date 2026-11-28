@@ -40,5 +40,9 @@ export function useDraft(agentId: string, composerEnabled: boolean) {
     setDraft((current) => insertImagePath(current, path, textareaRef.current?.selectionStart))
   }, [])
 
-  return { draft, setDraft, textareaRef, appendWords, insertImage }
+  const focusBox = useCallback(() => {
+    textareaRef.current?.focus()
+  }, [])
+
+  return { draft, setDraft, textareaRef, appendWords, insertImage, focusBox }
 }
