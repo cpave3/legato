@@ -307,14 +307,6 @@ function CanvasToolbar({ canvas, direction, zoom, view }: { canvas: NonNullable<
   </Panel>
 }
 
-// GraphMiniMap is the overview of a graph drawn left to right: on a canvas
-// coloured by state, clear of the page's right panel.
-function GraphMiniMap({ canvas, insets }: { canvas: boolean; insets: { right: number } }) {
-  return <MiniMap pannable zoomable ariaLabel="Workflow graph overview"
-    nodeColor={canvas ? miniColor : undefined}
-    style={canvas ? { width: 200, height: 72, marginRight: 16 + insets.right, marginBottom: 16 } : { width: 160, height: 90 }} className="!rounded-md !border !border-lw-line" />
-}
-
 function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, run = false, centerOn, canvas, className }: WorkflowGraphProps) {
   const flow = useReactFlow()
   // The layout is computed once per graph and direction; a new graph with
@@ -365,7 +357,11 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, r
     >
       <Background gap={20} size={1} />
       {canvas ? <CanvasToolbar canvas={canvas} direction={direction} zoom={zoom} view={view} /> : <Controls showInteractive={false} />}
-      {direction === "LR" && <GraphMiniMap canvas={Boolean(canvas)} insets={view.insets} />}
+      {/* The overview of a graph drawn left to right: on a canvas coloured
+          by state, clear of the page's right panel. */}
+      {direction === "LR" && <MiniMap pannable zoomable ariaLabel="Workflow graph overview"
+        nodeColor={canvas ? miniColor : undefined}
+        style={canvas ? { width: 200, height: 72, marginRight: 16 + view.insets.right, marginBottom: 16 } : { width: 160, height: 90 }} className="!rounded-md !border !border-lw-line" />}
     </ReactFlow>
   </div>
 }
