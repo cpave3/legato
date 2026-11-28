@@ -426,6 +426,37 @@ func TestHeadReadsTheBranchAndCommit(t *testing.T) {
 	}
 }
 
+func TestHeadOfFindsTheCheckoutAFolderIsIn(t *testing.T) {
+	dest := jobClone(t)
+	run(t, dest, "commit", "-q", "--allow-empty", "-m", "one")
+	want := run(t, dest, "rev-parse", "HEAD")
+	sub := filepath.Join(dest, "a", "b")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if branch, commit, err := HeadOf(sub); err != nil || branch != "stack/one" || commit != want {
+		t.Fatalf("HeadOf a subfolder = %q %q %v", branch, commit, err)
+	}
+
+	// A linked worktree's .git is a file naming its own folder, whose refs
+	// are the main checkout's.
+	linked := filepath.Join(t.TempDir(), "linked")
+	run(t, dest, "worktree", "add", "-q", "-b", "stack/linked", linked)
+	run(t, linked, "commit", "-q", "--allow-empty", "-m", "two")
+	wantLinked := run(t, linked, "rev-parse", "HEAD")
+	if branch, commit, err := HeadOf(linked); err != nil || branch != "stack/linked" || commit != wantLinked {
+		t.Fatalf("HeadOf a linked worktree = %q %q %v, want stack/linked %s", branch, commit, err, wantLinked)
+	}
+	run(t, dest, "pack-refs", "--all")
+	if branch, commit, err := HeadOf(linked); err != nil || branch != "stack/linked" || commit != wantLinked {
+		t.Fatalf("HeadOf a linked worktree with packed refs = %q %q %v", branch, commit, err)
+	}
+
+	if _, _, err := HeadOf(t.TempDir()); !errors.Is(err, ErrNoCheckout) {
+		t.Fatalf("HeadOf outside a checkout = %v, want ErrNoCheckout", err)
+	}
+}
+
 func TestStartBranchStacksOnTheCurrentCommit(t *testing.T) {
 	dest := jobClone(t)
 	run(t, dest, "commit", "-q", "--allow-empty", "-m", "part one")

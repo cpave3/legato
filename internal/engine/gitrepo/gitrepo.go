@@ -452,6 +452,13 @@ func branchCommit(gitDir *os.Root, branch string) (commit string, ok bool, err e
 }
 
 func head(gitDir *os.Root) (branch, commit string, err error) {
+	return headIn(gitDir, gitDir)
+}
+
+// headIn reads HEAD from gitDir and the branch it names from refs: the
+// same folder, except in a linked worktree, whose branches are its main
+// checkout's.
+func headIn(gitDir, refs *os.Root) (branch, commit string, err error) {
 	data, err := readSmall(gitDir, "HEAD")
 	if err != nil {
 		return "", "", err
@@ -462,7 +469,7 @@ func head(gitDir *os.Root) (branch, commit string, err error) {
 		if !ok {
 			return "", "", fmt.Errorf("HEAD names %s, which is not a branch", ref)
 		}
-		commit, _, err := branchCommit(gitDir, name)
+		commit, _, err := branchCommit(refs, name)
 		return name, commit, err
 	}
 	if !objectName.MatchString(text) {
@@ -481,6 +488,86 @@ func Head(clone string) (branch, commit string, err error) {
 	}
 	defer gitDir.Close()
 	return head(gitDir)
+}
+
+// ErrNoCheckout says a folder is in no git checkout.
+var ErrNoCheckout = errors.New("not in a git checkout")
+
+// HeadOf reads which branch the checkout holding dir has checked out (""
+// when detached) and the commit there ("" on a branch with no commits): dir
+// itself or the nearest folder above it with a .git, which may be a linked
+// worktree's .git file. It reads git's files: no git runs in the checkout.
+// A folder in no checkout is ErrNoCheckout.
+func HeadOf(dir string) (branch, commit string, err error) {
+	checkout, linked, err := findCheckout(dir)
+	if err != nil {
+		return "", "", err
+	}
+	if linked {
+		return linkedHead(checkout)
+	}
+	return Head(checkout)
+}
+
+// findCheckout is dir, or the nearest folder above it, with a .git: a
+// folder, or a file (linked says so) as a linked worktree has.
+func findCheckout(dir string) (checkout string, linked bool, err error) {
+	dir, err = filepath.Abs(dir)
+	if err != nil {
+		return "", false, err
+	}
+	for {
+		info, err := os.Lstat(filepath.Join(dir, ".git"))
+		if err == nil && (info.IsDir() || info.Mode().IsRegular()) {
+			return dir, !info.IsDir(), nil
+		}
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return "", false, err
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false, ErrNoCheckout
+		}
+		dir = parent
+	}
+}
+
+// linkedHead reads the HEAD of a linked worktree, whose .git file names
+// its git folder ("gitdir: <path>"), and whose commondir file there names
+// the main git folder that holds the branches.
+func linkedHead(checkout string) (branch, commit string, err error) {
+	data, err := readRegular(filepath.Join(checkout, ".git"))
+	if err != nil {
+		return "", "", err
+	}
+	path, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir: ")
+	if !ok {
+		return "", "", fmt.Errorf("%s/.git names no git folder", checkout)
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(checkout, path)
+	}
+	gitDir, err := os.OpenRoot(path)
+	if err != nil {
+		return "", "", err
+	}
+	defer gitDir.Close()
+	refs := gitDir
+	if common, err := readSmall(gitDir, "commondir"); err == nil {
+		commonPath := strings.TrimSpace(string(common))
+		if !filepath.IsAbs(commonPath) {
+			commonPath = filepath.Join(path, commonPath)
+		}
+		commonDir, err := os.OpenRoot(commonPath)
+		if err != nil {
+			return "", "", err
+		}
+		defer commonDir.Close()
+		refs = commonDir
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", "", err
+	}
+	return headIn(gitDir, refs)
 }
 
 // StartBranch makes a branch at the commit a clone has checked out and
