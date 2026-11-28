@@ -29,7 +29,7 @@ import { PastedImageStrip } from "./PastedImageStrip"
 import { AttachImageButton } from "./AttachImageButton"
 import { AgentChatHeader, type AgentChatState, type SidePanelsProps } from "./AgentChatHeader"
 import { buildAgentMenu } from "./nativeAgentMenu"
-import { agentChatState, isChimeraKind, isRecoveryReply, reasonText } from "../lib/nativeAgentView"
+import { agentChatState, isBangText, isChimeraKind, isRecoveryReply, reasonText } from "../lib/nativeAgentView"
 import type { AgentStageInfo } from "./AgentStageChip"
 import { ResourcesButton } from "./ResourcesButton"
 import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, SendButton, WorkingStrip, type QueuedEntry } from "./Composer"
@@ -73,6 +73,7 @@ import { useSlashMenu } from "./useSlashMenu"
 import { useComposerKeys } from "./useComposerKeys"
 import { useDropdown } from "./useDropdown"
 import { useSessionSettings } from "./useSessionSettings"
+import { useBangCommands } from "./useBangCommands"
 
 // The least width at which subagent tiles sit beside the conversation; below
 // it they are a strip above it.
@@ -335,6 +336,11 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     }
     replaceSyncState(reduceNativeEvent(syncStateRef.current, event))
   }, [replaceSyncState])
+
+  // Shows why something failed above the conversation.
+  const failWith = useCallback((reason: unknown) => {
+    replaceSyncState({ ...syncStateRef.current, error: reasonText(reason) })
+  }, [replaceSyncState])
   const { handleModeChange, handleModelChange, handleEffortChange, efforts, effort } = useSessionSettings({
     agentId, baseUrl, syncState, syncStateRef, replaceSyncState, modelRequestRef, setMode, closeModes: modesMenu.close,
   })
@@ -402,9 +408,9 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     }
   }, [agentId, replaceSyncState, invalidateModelRequests, restartInitialScroll])
 
-  const [bangQueue, setBangQueue] = useState<string[]>([])
-  const [bangRunning, setBangRunning] = useState(false)
-  const isBang = draft.trim().startsWith("!") && draft.trim().length > 1
+  const bang = useBangCommands({ agentId, baseUrl, busy, resync, failWith, scrollToBottomAfterRender, setDraft, textareaRef })
+  const { runOrQueue: runOrQueueBang, runNext: runNextBang } = bang
+  const isBang = isBangText(draft.trim())
   // Messages sent from the box, until the conversation shows them. A turn
   // that ends is no proof: what it did not read is the agent's next prompt.
   const [queued, setQueued] = useState<QueuedMessage[]>([])
@@ -438,35 +444,8 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
             }
           : {}),
     })),
-    ...bangQueue.map((command, index) => ({
-      key: `bang-${index}-${command}`,
-      text: `!${command}`,
-      onEdit: () => {
-        setBangQueue((current) => current.filter((_, other) => other !== index))
-        setDraft(`!${command}`)
-        textareaRef.current?.focus()
-      },
-      onRemove: () => setBangQueue((current) => current.filter((_, other) => other !== index)),
-    })),
+    ...bang.entries,
   ]
-
-  const executeBang = useCallback(async (command: string) => {
-    setBangRunning(true)
-    try {
-      const response = await apiFetch(baseUrl, `/api/agents/${agentId}/chimera/bang`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command }),
-      })
-      if (!response.ok) throw new Error(`bang: ${response.status}`)
-      await resync()
-      scrollToBottomAfterRender()
-    } catch (reason) {
-      replaceSyncState({ ...syncStateRef.current, error: reason instanceof Error ? reason.message : String(reason) })
-    } finally {
-      setBangRunning(false)
-    }
-  }, [agentId, baseUrl, resync, replaceSyncState, scrollToBottomAfterRender])
 
   useEffect(() => {
     const unsubscribe = subscribe((msg: WSMessage) => {
@@ -539,10 +518,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
           }, 100)
         }
         if (event.type === "run_finished") {
-          setBangQueue((prev) => {
-            if (prev.length > 0) void executeBang(prev[0])
-            return prev.slice(1)
-          })
+          runNextBang()
         }
         followLatest()
       } catch {
@@ -560,7 +536,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       unsubscribe()
       if (following) send({ type: "unsubscribe_agent", agent_id: agentId })
     }
-  }, [subscribe, agentId, agentKind, applyEvent, replaceSyncState, resync, executeBang, following, send, stopUnconfirmedWorking, followLatest])
+  }, [subscribe, agentId, agentKind, applyEvent, replaceSyncState, resync, runNextBang, following, send, stopUnconfirmedWorking, followLatest])
 
   const handleBuiltinSlash = useCallback(async (raw: string) => {
     const parts = raw.split(/\s+/)
@@ -588,14 +564,9 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const handleSend = useCallback(() => {
     const trimmed = draft.trim()
     if (!trimmed) return
-    if (trimmed.startsWith("!") && trimmed.length > 1) {
-      const command = trimmed.slice(1)
+    if (isBangText(trimmed)) {
       setDraft("")
-      if (busy) {
-        setBangQueue((prev) => [...prev, command])
-      } else {
-        void executeBang(command)
-      }
+      runOrQueueBang(trimmed.slice(1))
       return
     }
     // /compact is the agent's own compaction, never a message to it.
@@ -632,7 +603,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       replaceSyncState({ ...syncStateRef.current, busy: true, error: null })
     }
     scrollToBottomAfterRender()
-  }, [draft, busy, agentId, baseUrl, send, replaceSyncState, scrollToBottomAfterRender, executeBang, handleBuiltinSlash, setDraft])
+  }, [draft, busy, agentId, baseUrl, send, replaceSyncState, scrollToBottomAfterRender, runOrQueueBang, handleBuiltinSlash, setDraft])
 
   const handleInterrupt = useCallback(() => {
     send({ type: "agent_interrupt", agent_id: agentId })
@@ -704,17 +675,11 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
 
   const handleMacro = useCallback((keys: string) => {
     dispatchAgentInput(macroMessage(keys), {
-      executeBang: (command) => {
-        if (busy) {
-          setBangQueue((prev) => [...prev, command])
-        } else {
-          void executeBang(command)
-        }
-      },
+      executeBang: runOrQueueBang,
       sendMessage: (content) => send({ type: "agent_message", agent_id: agentId, content }),
     })
     closeMacros()
-  }, [agentId, busy, executeBang, send, closeMacros])
+  }, [agentId, runOrQueueBang, send, closeMacros])
 
   const macroPicker = useMacroPicker(macros, macrosMenu.open)
   useMacroHotkeys({ macros: macroPicker.shown, open: macrosMenu.open, onOpen: macrosMenu.show, onClose: closeMacros, onSelect: handleMacro })
@@ -930,9 +895,9 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
             {composerEnabled && voiceEnabled && <DictateButton recorder={voice} />}
             {composerEnabled && (
               <SendButton
-                label={bangRunning ? "Running…" : isBang ? "Run" : busy ? "Queue" : "Send"}
+                label={bang.running ? "Running…" : isBang ? "Run" : busy ? "Queue" : "Send"}
                 queue={busy && !isBang}
-                disabled={!draft.trim() || bangRunning}
+                disabled={!draft.trim() || bang.running}
                 onClick={handleSend}
               />
             )}

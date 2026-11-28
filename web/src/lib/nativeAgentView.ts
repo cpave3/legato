@@ -27,6 +27,12 @@ export function isChimeraKind(agentKind: string | undefined): boolean {
   return !agentKind || agentKind === "chimera"
 }
 
+// A shell command the operator writes in the message box: "!" and the
+// command.
+export function isBangText(text: string): boolean {
+  return text.startsWith("!") && text.length > 1
+}
+
 // A finished reply of Chimera's that is a compaction recovery excerpt, which
 // is drawn folded.
 export function isRecoveryReply(item: NativeConversationItem, agentKind: string | undefined): boolean {
